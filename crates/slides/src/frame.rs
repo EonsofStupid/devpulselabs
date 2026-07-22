@@ -19,11 +19,17 @@ impl Stage {
     pub fn of(full: Rect) -> Self {
         let fluid = Fluid::of(full);
         let pad = fluid.sp_7();
-        Self { rect: full.shrink(pad), fluid }
+        Self {
+            rect: full.shrink(pad),
+            fluid,
+        }
     }
 
     /// The bleed variant — media walls and full-bleed loops skip the safe area.
     pub fn bleed(full: Rect) -> Self {
-        Self { rect: full, fluid: Fluid::of(full) }
+        Self {
+            rect: full,
+            fluid: Fluid::of(full),
+        }
     }
 }

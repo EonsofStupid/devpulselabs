@@ -5,8 +5,8 @@
 //! gets this treatment. Value rides the slide's tone; density changes gaps
 //! and the value scale only.
 
-use dpl_coldlight::{self as cl};
 use dpl_coldlight::Tone;
+use dpl_coldlight::{self as cl};
 use egui::{Align2, FontId, Ui};
 
 use crate::blocks::eyebrow::tracked;
@@ -84,7 +84,8 @@ impl SlideTemplate for BigNumber {
         let label_size = fluid.fs_h2();
         let foot_size = fluid.fs_body();
 
-        let block_h = eyebrow_size + gap + value_size * 0.9 + gap + label_size * 1.25 + gap + foot_size;
+        let block_h =
+            eyebrow_size + gap + value_size * 0.9 + gap + label_size * 1.25 + gap + foot_size;
         let cx = stage.rect.center().x;
         let mut y = stage.rect.center().y - block_h * 0.5;
 

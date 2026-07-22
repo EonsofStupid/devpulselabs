@@ -12,5 +12,9 @@ pub fn stat(ui: &mut Ui, fluid: &Fluid, value: &str, label: &str, value_color: C
             .size(fluid.fs_h2())
             .color(value_color),
     );
-    ui.label(RichText::new(label).size(fluid.fs_body()).color(cl::ink::BASE));
+    ui.label(
+        RichText::new(label)
+            .size(fluid.fs_body())
+            .color(cl::ink::BASE),
+    );
 }

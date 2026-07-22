@@ -26,7 +26,11 @@ fn main() {
                 "media: {} written, {} fresh (skipped){}",
                 report.written,
                 report.skipped,
-                if report.errors.is_empty() { "" } else { " — WITH ERRORS:" }
+                if report.errors.is_empty() {
+                    ""
+                } else {
+                    " — WITH ERRORS:"
+                }
             );
             for e in &report.errors {
                 eprintln!("  ! {e}");

@@ -35,7 +35,10 @@ pub fn set_ffmpeg_path(p: PathBuf) {
 }
 
 fn ffmpeg_program() -> PathBuf {
-    FFMPEG.get().cloned().unwrap_or_else(|| PathBuf::from("ffmpeg"))
+    FFMPEG
+        .get()
+        .cloned()
+        .unwrap_or_else(|| PathBuf::from("ffmpeg"))
 }
 
 /// The args for a realtime, endless, cover-cropped rawvideo pipe.
@@ -104,7 +107,10 @@ impl Player {
             .name("dpl-video-loop".into())
             .spawn(move || reader_loop(&reader, &path))
             .expect("spawn video reader thread");
-        Self { shared, tex: Arc::new(Mutex::new(PlayerTex::default())) }
+        Self {
+            shared,
+            tex: Arc::new(Mutex::new(PlayerTex::default())),
+        }
     }
 
     /// The current frame as a texture, uploading only when a new frame
@@ -115,10 +121,8 @@ impl Player {
         if latest > tex.uploaded_seq {
             let guard = self.shared.frame.lock().expect("player frame lock");
             if guard.1.len() == FRAME_BYTES {
-                let image = egui::ColorImage::from_rgba_unmultiplied(
-                    [DECODE_W, DECODE_H],
-                    &guard.1,
-                );
+                let image =
+                    egui::ColorImage::from_rgba_unmultiplied([DECODE_W, DECODE_H], &guard.1);
                 match &mut tex.handle {
                     Some(h) => h.set(image, egui::TextureOptions::LINEAR),
                     None => {
@@ -230,7 +234,8 @@ pub fn cover_uv(tex_a: f32, rect_a: f32) -> egui::Rect {
 pub fn loop_backdrop(ui: &egui::Ui, rect: egui::Rect, path: &Path) -> bool {
     let id = egui::Id::new(("dpl-video", path));
     let player = ui.ctx().data_mut(|d| {
-        d.get_temp_mut_or_insert_with(id, || Player::open(path.to_path_buf())).clone()
+        d.get_temp_mut_or_insert_with(id, || Player::open(path.to_path_buf()))
+            .clone()
     });
     let painted = match player.texture(ui.ctx()) {
         Some(tex_id) => {
@@ -270,7 +275,10 @@ pub fn locate_asset(rel: &str) -> Option<PathBuf> {
 
 /// The poster convention from the old repo: `x.mp4` → `x-poster.jpg`.
 pub fn poster_of(video: &Path) -> PathBuf {
-    let stem = video.file_stem().and_then(|s| s.to_str()).unwrap_or("poster");
+    let stem = video
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("poster");
     video.with_file_name(format!("{stem}-poster.jpg"))
 }
 
@@ -296,7 +304,10 @@ mod tests {
     #[test]
     fn cover_uv_matching_aspect_is_the_full_texture() {
         let uv = cover_uv(16.0 / 9.0, 16.0 / 9.0);
-        assert_eq!(uv, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)));
+        assert_eq!(
+            uv,
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0))
+        );
         // Degenerate inputs degrade to full-texture, never NaN.
         let uv = cover_uv(0.0, 1.0);
         assert_eq!(uv.min, egui::pos2(0.0, 0.0));
@@ -312,7 +323,10 @@ mod tests {
             joined.contains("force_original_aspect_ratio=increase,crop=960:540"),
             "cover crop at decode: {joined}"
         );
-        assert!(joined.ends_with("-pix_fmt rgba -"), "raw rgba to stdout: {joined}");
+        assert!(
+            joined.ends_with("-pix_fmt rgba -"),
+            "raw rgba to stdout: {joined}"
+        );
     }
 
     #[test]

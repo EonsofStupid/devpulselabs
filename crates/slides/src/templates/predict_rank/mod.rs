@@ -109,7 +109,12 @@ impl SlideTemplate for PredictRank {
         painter.text(
             egui::pos2(stage.rect.center().x, prompt_y),
             Align2::CENTER_TOP,
-            format!("{}   ·   round {}/{}", current.prompt, self.round + 1, self.rounds.len()),
+            format!(
+                "{}   ·   round {}/{}",
+                current.prompt,
+                self.round + 1,
+                self.rounds.len()
+            ),
             FontId::monospace(fluid.fs_h4()),
             cl::ink::BASE,
         );
@@ -142,7 +147,11 @@ impl SlideTemplate for PredictRank {
                         Align2::RIGHT_CENTER,
                         g.token,
                         FontId::proportional(fluid.fs_h4()),
-                        if i == 0 { cl::ink::STRONG } else { cl::ink::MUTED },
+                        if i == 0 {
+                            cl::ink::STRONG
+                        } else {
+                            cl::ink::MUTED
+                        },
                     );
                     painter.rect_filled(track, radius, cl::surface::RAISED);
                     let fill = Rect::from_min_size(
@@ -163,7 +172,11 @@ impl SlideTemplate for PredictRank {
                     painter.text(
                         egui::pos2(stage.rect.max.x, y + row_h * 0.5),
                         Align2::RIGHT_CENTER,
-                        if g.pct < 1.0 { format!("{}%", g.pct) } else { format!("{}%", g.pct.round() as i32) },
+                        if g.pct < 1.0 {
+                            format!("{}%", g.pct)
+                        } else {
+                            format!("{}%", g.pct.round() as i32)
+                        },
                         FontId::monospace(fluid.fs_body_sm()),
                         cl::ink::MUTED,
                     );
@@ -202,10 +215,21 @@ impl SlideTemplate for PredictRank {
             );
             let resp = ui.allocate_rect(btn, Sense::click());
             let (fill, ink) = if filled {
-                (if resp.hovered() { paint } else { paint.gamma_multiply(0.85) }, cl::surface::WELL)
+                (
+                    if resp.hovered() {
+                        paint
+                    } else {
+                        paint.gamma_multiply(0.85)
+                    },
+                    cl::surface::WELL,
+                )
             } else {
                 (
-                    if resp.hovered() { cl::surface::OVERLAY } else { cl::surface::RAISED },
+                    if resp.hovered() {
+                        cl::surface::OVERLAY
+                    } else {
+                        cl::surface::RAISED
+                    },
                     cl::ink::BASE,
                 )
             };

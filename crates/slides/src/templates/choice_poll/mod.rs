@@ -40,10 +40,17 @@ impl ChoicePoll {
         Self {
             tone: Tone::Amber,
             prompt: "Which costs more to answer one question?",
-            a: ChoiceOption { label: "Frontier API", detail: "someone else's GPUs" },
-            b: ChoiceOption { label: "Your box", detail: "electricity only" },
+            a: ChoiceOption {
+                label: "Frontier API",
+                detail: "someone else's GPUs",
+            },
+            b: ChoiceOption {
+                label: "Your box",
+                detail: "electricity only",
+            },
             answer: 0,
-            reveal: "The API wins on peak quality — your box wins on cost, privacy, and it's yours.",
+            reveal:
+                "The API wins on peak quality — your box wins on cost, privacy, and it's yours.",
             called: None,
         }
     }
@@ -100,7 +107,11 @@ impl SlideTemplate for ChoicePoll {
                     cl::ink::SUBTLE,
                 ),
                 _ => (
-                    if resp.hovered() { cl::surface::OVERLAY } else { cl::surface::RAISED },
+                    if resp.hovered() {
+                        cl::surface::OVERLAY
+                    } else {
+                        cl::surface::RAISED
+                    },
                     cl::ink::STRONG,
                     cl::ink::MUTED,
                 ),
@@ -129,7 +140,9 @@ impl SlideTemplate for ChoicePoll {
                             egui::Stroke::new(
                                 2.0,
                                 egui::Color32::from_rgba_unmultiplied(
-                                    c.r(), c.g(), c.b(),
+                                    c.r(),
+                                    c.g(),
+                                    c.b(),
                                     (140.0 * (1.0 - p)) as u8,
                                 ),
                             ),
@@ -150,7 +163,11 @@ impl SlideTemplate for ChoicePoll {
                         Align2::CENTER_TOP,
                         tracked("the room's call"),
                         FontId::monospace(fluid.fs_eyebrow()),
-                        if is_truth { cl::surface::BASE } else { cl::ink::SUBTLE },
+                        if is_truth {
+                            cl::surface::BASE
+                        } else {
+                            cl::ink::SUBTLE
+                        },
                     );
                 }
             }

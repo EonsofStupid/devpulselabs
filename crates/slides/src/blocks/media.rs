@@ -86,7 +86,11 @@ pub fn media_backdrop(ui: &mut Ui, rect: Rect, media: Media, tone: Tone, now: f6
                         }
                     }
                     // Legibility diffusion, same as the image slot.
-                    ui.painter().rect_filled(rect, cl::RADIUS, egui::Color32::from_black_alpha(120));
+                    ui.painter().rect_filled(
+                        rect,
+                        cl::RADIUS,
+                        egui::Color32::from_black_alpha(120),
+                    );
                 }
                 None => {
                     painter.rect_filled(rect, cl::RADIUS, cl::surface::RAISED);

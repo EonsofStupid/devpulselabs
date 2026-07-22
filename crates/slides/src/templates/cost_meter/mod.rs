@@ -14,7 +14,8 @@ static SPEC: TemplateSpec = TemplateSpec {
     id: TemplateId("cost-meter"),
     label: "Cost meter",
     class: TemplateClass::Interactive,
-    blurb: "SEND fills the meter exchange by exchange; then the flip lands the same ask for pennies.",
+    blurb:
+        "SEND fills the meter exchange by exchange; then the flip lands the same ask for pennies.",
 };
 
 pub struct Exchange {
@@ -43,12 +44,24 @@ impl CostMeter {
             prompt: "Same chat, priced per exchange",
             unit: "tokens",
             exchanges: vec![
-                Exchange { label: "\"Write my bio\"", cost: 900.0 },
-                Exchange { label: "\"Make it funnier\"", cost: 2400.0 },
-                Exchange { label: "\"Now the whole thread as context\"", cost: 9800.0 },
+                Exchange {
+                    label: "\"Write my bio\"",
+                    cost: 900.0,
+                },
+                Exchange {
+                    label: "\"Make it funnier\"",
+                    cost: 2400.0,
+                },
+                Exchange {
+                    label: "\"Now the whole thread as context\"",
+                    cost: 9800.0,
+                },
             ],
             call_it: "Call it: what does the SAME ask cost on your own box?",
-            flip: Exchange { label: "Your box, same ask", cost: 12.0 },
+            flip: Exchange {
+                label: "Your box, same ask",
+                cost: 12.0,
+            },
             reveal: "The meter only ever runs one way in the cloud — locally it rounds to zero.",
             sent: 0,
             tween: (0.0, f64::NEG_INFINITY),
@@ -61,7 +74,11 @@ impl CostMeter {
     }
 
     fn max_total(&self) -> f32 {
-        self.exchanges.iter().map(|e| e.cost).sum::<f32>().max(f32::EPSILON)
+        self.exchanges
+            .iter()
+            .map(|e| e.cost)
+            .sum::<f32>()
+            .max(f32::EPSILON)
     }
 
     /// One SEND: clamps at the end, arms the fill tween (pure — tested).
@@ -199,10 +216,21 @@ impl SlideTemplate for CostMeter {
             );
             let resp = ui.allocate_rect(btn, Sense::click());
             let (fill, ink) = if filled {
-                (if resp.hovered() { paint } else { paint.gamma_multiply(0.85) }, cl::surface::WELL)
+                (
+                    if resp.hovered() {
+                        paint
+                    } else {
+                        paint.gamma_multiply(0.85)
+                    },
+                    cl::surface::WELL,
+                )
             } else {
                 (
-                    if resp.hovered() { cl::surface::OVERLAY } else { cl::surface::RAISED },
+                    if resp.hovered() {
+                        cl::surface::OVERLAY
+                    } else {
+                        cl::surface::RAISED
+                    },
                     cl::ink::BASE,
                 )
             };

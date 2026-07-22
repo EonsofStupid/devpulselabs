@@ -60,7 +60,12 @@ impl StatsGrid {
                 detail: Some("local inference — the privacy number that matters"),
                 tone: Some(Tone::Amber),
             },
-            StatItem { value: "1", label: "GPU is enough to start", detail: None, tone: None },
+            StatItem {
+                value: "1",
+                label: "GPU is enough to start",
+                detail: None,
+                tone: None,
+            },
         ];
         let n = stats.len();
         Self {
@@ -82,7 +87,9 @@ impl SlideTemplate for StatsGrid {
 
     fn restart(&mut self) {
         self.clock.restart();
-        self.flips.iter_mut().for_each(|f| *f = (false, f64::NEG_INFINITY));
+        self.flips
+            .iter_mut()
+            .for_each(|f| *f = (false, f64::NEG_INFINITY));
     }
 
     fn ui(&mut self, ui: &mut Ui) {

@@ -51,7 +51,11 @@ pub struct FracRect {
 }
 
 fn err(m: impl Into<String>) -> CaptureResult {
-    CaptureResult { ok: false, path: None, error: Some(m.into()) }
+    CaptureResult {
+        ok: false,
+        path: None,
+        error: Some(m.into()),
+    }
 }
 
 /// The managed ffmpeg binary. Injected exactly once by the embedding shell
@@ -67,12 +71,20 @@ pub fn set_ffmpeg_path(p: PathBuf) {
 
 /// The one Command factory every ffmpeg spawn in this crate goes through.
 fn ffmpeg_cmd() -> Command {
-    Command::new(FFMPEG.get().map(PathBuf::as_path).unwrap_or_else(|| Path::new("ffmpeg")))
+    Command::new(
+        FFMPEG
+            .get()
+            .map(PathBuf::as_path)
+            .unwrap_or_else(|| Path::new("ffmpeg")),
+    )
 }
 
 /// For error messages: where ffmpeg was expected.
 fn ffmpeg_display() -> String {
-    FFMPEG.get().map_or_else(|| "ffmpeg (PATH, dev fallback)".into(), |p| p.display().to_string())
+    FFMPEG.get().map_or_else(
+        || "ffmpeg (PATH, dev fallback)".into(),
+        |p| p.display().to_string(),
+    )
 }
 
 /// Repo content root — the capture tool writes into the same tree the web app
@@ -106,7 +118,10 @@ fn find_episode_dir(episode_id: &str) -> Option<PathBuf> {
 }
 
 fn valid_name(name: &str) -> bool {
-    !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 /// Never clobber an existing clip: `<name>.mp4`, then `<name>-2.mp4`, … The
@@ -162,9 +177,23 @@ fn record_monitor(
 
     let mut ff = ffmpeg_cmd()
         .args([
-            "-y", "-f", "rawvideo", "-pix_fmt", "rgba",
-            "-s", &format!("{out_w}x{out_h}"), "-r", "30", "-i", "-",
-            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+            "-y",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgba",
+            "-s",
+            &format!("{out_w}x{out_h}"),
+            "-r",
+            "30",
+            "-i",
+            "-",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-pix_fmt",
+            "yuv420p",
             out_path,
         ])
         .stdin(Stdio::piped())
@@ -173,7 +202,9 @@ fn record_monitor(
         .map_err(|e| format!("ffmpeg spawn failed ({}): {e}", ffmpeg_display()))?;
     let mut stdin = ff.stdin.take().ok_or("ffmpeg stdin")?;
 
-    let (recorder, rx) = mon.video_recorder().map_err(|e| format!("video_recorder: {e}"))?;
+    let (recorder, rx) = mon
+        .video_recorder()
+        .map_err(|e| format!("video_recorder: {e}"))?;
     recorder.start().map_err(|_| "recorder start failed")?;
 
     // Constant-fps pacing: the WGC recorder is change-driven, so drive a 30fps
@@ -242,8 +273,11 @@ fn prepare(episode_id: &str, name: &str) -> Result<(PathBuf, String), CaptureRes
     if !valid_name(name) {
         return Err(err("name must be [a-z0-9_-]"));
     }
-    let ep_dir = find_episode_dir(episode_id)
-        .ok_or_else(|| err(format!("no episode matching '{episode_id}' under CONTENT_ROOT")))?;
+    let ep_dir = find_episode_dir(episode_id).ok_or_else(|| {
+        err(format!(
+            "no episode matching '{episode_id}' under CONTENT_ROOT"
+        ))
+    })?;
     let out_dir = ep_dir.join("assets").join("generated").join("screencaps");
     std::fs::create_dir_all(&out_dir).map_err(|e| err(format!("mkdir failed: {e}")))?;
     let stem = unique_stem(&out_dir, name);
@@ -260,7 +294,11 @@ pub fn capture_display(episode_id: &str, name: &str, seconds: u32) -> CaptureRes
         Ok(m) => m,
         Err(e) => return err(e),
     };
-    finish(&out_dir, &stem, record_monitor(&mon, None, path_str(&out_dir, &stem).as_str(), seconds))
+    finish(
+        &out_dir,
+        &stem,
+        record_monitor(&mon, None, path_str(&out_dir, &stem).as_str(), seconds),
+    )
 }
 
 /// Capture a fractional region of the primary display. `frac` is in [0,1]
@@ -285,12 +323,19 @@ pub fn capture_region(episode_id: &str, name: &str, seconds: u32, frac: FracRect
     finish(
         &out_dir,
         &stem,
-        record_monitor(&mon, Some(crop), path_str(&out_dir, &stem).as_str(), seconds),
+        record_monitor(
+            &mon,
+            Some(crop),
+            path_str(&out_dir, &stem).as_str(),
+            seconds,
+        ),
     )
 }
 
 fn path_str(dir: &Path, stem: &str) -> String {
-    dir.join(format!("{stem}.mp4")).to_string_lossy().to_string()
+    dir.join(format!("{stem}.mp4"))
+        .to_string_lossy()
+        .to_string()
 }
 
 /// Fraction rect → even-aligned, clamped pixel crop. Even alignment keeps
@@ -319,7 +364,10 @@ fn finish(out_dir: &Path, stem: &str, rec: Result<u32, String>) -> CaptureResult
         Ok(0) => err("captured 0 frames"),
         Ok(_) => {
             let mp4 = path_str(out_dir, stem);
-            let poster = out_dir.join(format!("{stem}-poster.jpg")).to_string_lossy().to_string();
+            let poster = out_dir
+                .join(format!("{stem}-poster.jpg"))
+                .to_string_lossy()
+                .to_string();
             write_poster(&mp4, &poster);
             CaptureResult {
                 ok: true,
@@ -440,7 +488,9 @@ pub fn still_region_to(path: &Path, frac: FracRect) -> Result<(), String> {
         _ => return Err("bad monitor size".into()),
     };
     let crop = to_crop(frac, fw, fh).ok_or("region too small or out of bounds")?;
-    let img = mon.capture_image().map_err(|e| format!("capture_image: {e}"))?;
+    let img = mon
+        .capture_image()
+        .map_err(|e| format!("capture_image: {e}"))?;
     let cropped = image::imageops::crop_imm(&img, crop.x, crop.y, crop.w, crop.h).to_image();
     cropped.save(path).map_err(|e| format!("png save: {e}"))
 }
@@ -473,10 +523,22 @@ fn freeform_crop(img: &image::RgbaImage, points: &[[f64; 2]]) -> Result<image::R
     }
     let (fw, fh) = (img.width(), img.height());
     let clamp01 = |v: f64| v.clamp(0.0, 1.0);
-    let poly: Vec<(f64, f64)> =
-        points.iter().map(|p| (clamp01(p[0]) * fw as f64, clamp01(p[1]) * fh as f64)).collect();
-    let minx = poly.iter().map(|p| p.0).fold(f64::MAX, f64::min).floor().max(0.0) as u32;
-    let miny = poly.iter().map(|p| p.1).fold(f64::MAX, f64::min).floor().max(0.0) as u32;
+    let poly: Vec<(f64, f64)> = points
+        .iter()
+        .map(|p| (clamp01(p[0]) * fw as f64, clamp01(p[1]) * fh as f64))
+        .collect();
+    let minx = poly
+        .iter()
+        .map(|p| p.0)
+        .fold(f64::MAX, f64::min)
+        .floor()
+        .max(0.0) as u32;
+    let miny = poly
+        .iter()
+        .map(|p| p.1)
+        .fold(f64::MAX, f64::min)
+        .floor()
+        .max(0.0) as u32;
     let maxx = (poly.iter().map(|p| p.0).fold(0.0, f64::max).ceil() as u32).min(fw);
     let maxy = (poly.iter().map(|p| p.1).fold(0.0, f64::max).ceil() as u32).min(fh);
     let bw = maxx.saturating_sub(minx);
@@ -503,8 +565,12 @@ fn freeform_crop(img: &image::RgbaImage, points: &[[f64; 2]]) -> Result<image::R
 /// the primary monitor → PNG cropped to the polygon's bbox, with alpha 0 outside
 /// the polygon (transparent). Snipping-tool freeform, DPI-proof like the rect path.
 pub fn still_freeform_to(path: &Path, points: &[[f64; 2]]) -> Result<(), String> {
-    let img = primary_monitor()?.capture_image().map_err(|e| format!("capture_image: {e}"))?;
-    freeform_crop(&img, points)?.save(path).map_err(|e| format!("png save: {e}"))
+    let img = primary_monitor()?
+        .capture_image()
+        .map_err(|e| format!("capture_image: {e}"))?;
+    freeform_crop(&img, points)?
+        .save(path)
+        .map_err(|e| format!("png save: {e}"))
 }
 
 /// What one Steps-recorder capture produced — size, dedup fingerprint, bytes on
@@ -546,7 +612,8 @@ fn ahash(img: &image::RgbaImage) -> u64 {
                 let mut x = x0;
                 while x < x1 {
                     let p = img.get_pixel(x, y).0;
-                    sum += 0.299 * f64::from(p[0]) + 0.587 * f64::from(p[1]) + 0.114 * f64::from(p[2]);
+                    sum +=
+                        0.299 * f64::from(p[0]) + 0.587 * f64::from(p[1]) + 0.114 * f64::from(p[2]);
                     n += 1.0;
                     x += stepx;
                 }
@@ -571,9 +638,14 @@ fn ahash(img: &image::RgbaImage) -> u64 {
 /// which is what makes a 40-step guide stay ultra light.
 pub fn capture_window_step(path: &Path, window_id: u32, quality: f32) -> Result<StepShot, String> {
     let win = window_by_id(window_id)?;
-    let (app, title) = (win.app_name().unwrap_or_default(), win.title().unwrap_or_default());
+    let (app, title) = (
+        win.app_name().unwrap_or_default(),
+        win.title().unwrap_or_default(),
+    );
     let (origin_x, origin_y) = (win.x().unwrap_or(0), win.y().unwrap_or(0));
-    let img = win.capture_image().map_err(|e| format!("capture_image: {e}"))?;
+    let img = win
+        .capture_image()
+        .map_err(|e| format!("capture_image: {e}"))?;
     let mut shot = encode_step(&img, path, quality)?;
     shot.app = app;
     shot.title = title;
@@ -626,9 +698,14 @@ pub fn capture_focused_window_step(
     };
     // Grab identity + screen origin BEFORE the capture so they describe exactly
     // the frame we shoot (the caller maps a global click into this window).
-    let (app, title) = (win.app_name().unwrap_or_default(), win.title().unwrap_or_default());
+    let (app, title) = (
+        win.app_name().unwrap_or_default(),
+        win.title().unwrap_or_default(),
+    );
     let (origin_x, origin_y) = (win.x().unwrap_or(0), win.y().unwrap_or(0));
-    let img = win.capture_image().map_err(|e| format!("capture_image: {e}"))?;
+    let img = win
+        .capture_image()
+        .map_err(|e| format!("capture_image: {e}"))?;
     let mut shot = encode_step(&img, path, quality)?;
     shot.app = app;
     shot.title = title;
@@ -647,7 +724,9 @@ pub fn fingerprint_distance(a: u64, b: u64) -> u32 {
 /// overlay displays + magnifies, and that region/freeform snips crop from so the
 /// capture is exactly what the operator saw (WYSIWYG). Returns the pixel size.
 pub fn freeze_primary_to(path: &Path) -> Result<(u32, u32), String> {
-    let img = primary_monitor()?.capture_image().map_err(|e| format!("capture_image: {e}"))?;
+    let img = primary_monitor()?
+        .capture_image()
+        .map_err(|e| format!("capture_image: {e}"))?;
     let (w, h) = (img.width(), img.height());
     img.save(path).map_err(|e| format!("png save: {e}"))?;
     Ok((w, h))
@@ -656,7 +735,9 @@ pub fn freeze_primary_to(path: &Path) -> Result<(u32, u32), String> {
 /// Region crop from a frozen PNG (WYSIWYG) → PNG at `dest`. The PNG's own
 /// dimensions are the fraction reference, so it is DPI-proof like the live path.
 pub fn still_region_from_png(src: &Path, dest: &Path, frac: FracRect) -> Result<(), String> {
-    let img = image::open(src).map_err(|e| format!("open frozen: {e}"))?.to_rgba8();
+    let img = image::open(src)
+        .map_err(|e| format!("open frozen: {e}"))?
+        .to_rgba8();
     let (fw, fh) = (img.width(), img.height());
     let crop = to_crop(frac, fw, fh).ok_or("region too small or out of bounds")?;
     let cropped = image::imageops::crop_imm(&img, crop.x, crop.y, crop.w, crop.h).to_image();
@@ -665,8 +746,12 @@ pub fn still_region_from_png(src: &Path, dest: &Path, frac: FracRect) -> Result<
 
 /// Freeform crop from a frozen PNG (WYSIWYG) → PNG at `dest`.
 pub fn still_freeform_from_png(src: &Path, dest: &Path, points: &[[f64; 2]]) -> Result<(), String> {
-    let img = image::open(src).map_err(|e| format!("open frozen: {e}"))?.to_rgba8();
-    freeform_crop(&img, points)?.save(dest).map_err(|e| format!("png save: {e}"))
+    let img = image::open(src)
+        .map_err(|e| format!("open frozen: {e}"))?
+        .to_rgba8();
+    freeform_crop(&img, points)?
+        .save(dest)
+        .map_err(|e| format!("png save: {e}"))
 }
 
 /// Vix clip of a whole monitor → mp4 at `path`; returns frames written.
@@ -690,7 +775,9 @@ pub fn record_region_to(path: &str, seconds: u32, frac: FracRect) -> Result<u32,
 /// current geometry. KNOWN v1 caveat: an overlapping window shows.
 pub fn record_window_to(path: &str, seconds: u32, window_id: u32) -> Result<u32, String> {
     let win = window_by_id(window_id)?;
-    let mon = win.current_monitor().map_err(|e| format!("current_monitor: {e}"))?;
+    let mon = win
+        .current_monitor()
+        .map_err(|e| format!("current_monitor: {e}"))?;
     let (fw, fh) = match (mon.width(), mon.height()) {
         (Ok(w), Ok(h)) => (w, h),
         _ => return Err("bad monitor size".into()),
@@ -764,13 +851,39 @@ pub fn ext_for_format(format: &str) -> &'static str {
 fn video_codec_args(format: &str) -> Vec<&'static str> {
     match format {
         "webm-vp9" => vec![
-            "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "34", "-deadline", "realtime", "-cpu-used",
-            "6", "-pix_fmt", "yuv420p",
+            "-c:v",
+            "libvpx-vp9",
+            "-b:v",
+            "0",
+            "-crf",
+            "34",
+            "-deadline",
+            "realtime",
+            "-cpu-used",
+            "6",
+            "-pix_fmt",
+            "yuv420p",
         ],
         "webm-av1" => {
-            vec!["-c:v", "libsvtav1", "-preset", "10", "-crf", "34", "-pix_fmt", "yuv420p"]
+            vec![
+                "-c:v",
+                "libsvtav1",
+                "-preset",
+                "10",
+                "-crf",
+                "34",
+                "-pix_fmt",
+                "yuv420p",
+            ]
         }
-        _ => vec!["-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p"],
+        _ => vec![
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-pix_fmt",
+            "yuv420p",
+        ],
     }
 }
 
@@ -795,16 +908,26 @@ fn audio_input_args(audio: &str, device: Option<&str>) -> Result<Option<Vec<Stri
     match audio {
         "none" => Ok(None),
         "mic" => {
-            let dev = device
-                .ok_or("no microphone selected — pick an input device or choose No audio")?;
-            Ok(Some(vec!["-f".into(), "dshow".into(), "-i".into(), format!("audio={dev}")]))
+            let dev =
+                device.ok_or("no microphone selected — pick an input device or choose No audio")?;
+            Ok(Some(vec![
+                "-f".into(),
+                "dshow".into(),
+                "-i".into(),
+                format!("audio={dev}"),
+            ]))
         }
         "system" => {
             let dev = device.ok_or(
                 "system audio needs a loopback device (e.g. \"Stereo Mix\" or a virtual cable). \
                  None was found/selected — record with No audio or install one.",
             )?;
-            Ok(Some(vec!["-f".into(), "dshow".into(), "-i".into(), format!("audio={dev}")]))
+            Ok(Some(vec![
+                "-f".into(),
+                "dshow".into(),
+                "-i".into(),
+                format!("audio={dev}"),
+            ]))
         }
         other => Err(format!("unknown audio mode \"{other}\"")),
     }
@@ -825,7 +948,12 @@ fn audio_input_args(audio: &str, device: Option<&str>) -> Result<Option<Vec<Stri
                 "system audio needs a PulseAudio monitor source — none selected. \
                  Record with No audio or pass a `.monitor` source.",
             )?;
-            Ok(Some(vec!["-f".into(), "pulse".into(), "-i".into(), dev.to_string()]))
+            Ok(Some(vec![
+                "-f".into(),
+                "pulse".into(),
+                "-i".into(),
+                dev.to_string(),
+            ]))
         }
         other => Err(format!("unknown audio mode \"{other}\"")),
     }
@@ -836,7 +964,15 @@ fn audio_input_args(audio: &str, device: Option<&str>) -> Result<Option<Vec<Stri
 #[cfg(target_os = "windows")]
 pub fn list_audio_devices() -> Vec<String> {
     let out = ffmpeg_cmd()
-        .args(["-hide_banner", "-list_devices", "true", "-f", "dshow", "-i", "dummy"])
+        .args([
+            "-hide_banner",
+            "-list_devices",
+            "true",
+            "-f",
+            "dshow",
+            "-i",
+            "dummy",
+        ])
         .stderr(Stdio::piped())
         .stdout(Stdio::null())
         .output();
@@ -875,7 +1011,9 @@ pub fn list_audio_devices() -> Vec<String> {
     // so the app never shells out to pactl — the last PATH dependency is gone.
     // Output lines look like:  "alsa_output.pci-….monitor [Monitor of Built-in] (monitor)"
     // and may land on stdout or stderr depending on the build; scan both.
-    let out = ffmpeg_cmd().args(["-hide_banner", "-sources", "pulse"]).output();
+    let out = ffmpeg_cmd()
+        .args(["-hide_banner", "-sources", "pulse"])
+        .output();
     let Ok(out) = out else {
         return Vec::new();
     };
@@ -886,7 +1024,11 @@ pub fn list_audio_devices() -> Vec<String> {
         .map(str::trim)
         .filter(|l| !l.is_empty() && !l.starts_with("Auto-detected") && !l.ends_with(':'))
         .filter_map(|l| {
-            let name = l.trim_start_matches('*').trim_start().split_whitespace().next()?;
+            let name = l
+                .trim_start_matches('*')
+                .trim_start()
+                .split_whitespace()
+                .next()?;
             (name.contains('.') || name.contains('_')).then(|| name.to_string())
         })
         .collect()
@@ -900,7 +1042,9 @@ pub fn list_audio_devices() -> Vec<String> {
 /// E_INVALIDARG (0x80070057) and can never recover. We therefore create each
 /// monitor's recorder exactly once and reuse it; `start()`/`stop()` only wake and
 /// sleep its capture thread, so back-to-back clips just re-run the same recorder.
-static RECORDERS: OnceLock<Mutex<HashMap<u32, (VideoRecorder, Receiver<Frame>)>>> = OnceLock::new();
+/// A cached recorder + its frame channel (kept warm between clips).
+type RecorderSlot = (VideoRecorder, Receiver<Frame>);
+static RECORDERS: OnceLock<Mutex<HashMap<u32, RecorderSlot>>> = OnceLock::new();
 
 fn recorders() -> &'static Mutex<HashMap<u32, (VideoRecorder, Receiver<Frame>)>> {
     RECORDERS.get_or_init(|| Mutex::new(HashMap::new()))
@@ -950,8 +1094,16 @@ fn record_monitor_ctl(
     }
     args.extend(video_codec_args(&opts.format).into_iter().map(String::from));
     if has_audio {
-        args.extend(["-map", "0:v:0", "-map", "1:a:0"].iter().map(|s| (*s).to_string()));
-        let acodec = if opts.format == "mp4" { "aac" } else { "libopus" };
+        args.extend(
+            ["-map", "0:v:0", "-map", "1:a:0"]
+                .iter()
+                .map(|s| (*s).to_string()),
+        );
+        let acodec = if opts.format == "mp4" {
+            "aac"
+        } else {
+            "libopus"
+        };
         args.push("-c:a".into());
         args.push(acodec.into());
         args.push("-shortest".into());
@@ -964,13 +1116,17 @@ fn record_monitor_ctl(
     // recorder. Opening the recorder before ffmpeg means a recorder failure can
     // never orphan an ffmpeg process.
     let monitor_id = mon.id().map_err(|e| format!("monitor id: {e}"))?;
-    let mut reg = recorders().lock().map_err(|_| "recorder registry poisoned".to_string())?;
+    let mut reg = recorders()
+        .lock()
+        .map_err(|_| "recorder registry poisoned".to_string())?;
     // `entry` rather than contains_key+insert: one lookup, and the recorder is
     // only constructed when the slot is genuinely vacant (clippy::map_entry).
     let (recorder, rx) = match reg.entry(monitor_id) {
         std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
         std::collections::hash_map::Entry::Vacant(e) => {
-            let rr = mon.video_recorder().map_err(|e| format!("video_recorder: {e}"))?;
+            let rr = mon
+                .video_recorder()
+                .map_err(|e| format!("video_recorder: {e}"))?;
             e.insert(rr)
         }
     };
@@ -1064,7 +1220,9 @@ pub fn record_ctl_to(
         }
         RecTarget::Window(id) => {
             let win = window_by_id(id)?;
-            let mon = win.current_monitor().map_err(|e| format!("current_monitor: {e}"))?;
+            let mon = win
+                .current_monitor()
+                .map_err(|e| format!("current_monitor: {e}"))?;
             let (fw, fh) = match (mon.width(), mon.height()) {
                 (Ok(w), Ok(h)) => (w, h),
                 _ => return Err("bad monitor size".into()),

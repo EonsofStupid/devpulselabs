@@ -16,9 +16,37 @@ impl Clock {
         *self.t0.get_or_insert(now)
     }
 
+    /// The frame's motion context as ONE value — paint helpers take a
+    /// `Beat`, never loose `(now, t0)` float pairs.
+    pub fn beat(&mut self, now: f64) -> Beat {
+        Beat {
+            now,
+            t0: self.tick(now),
+        }
+    }
+
     /// Replay: clear the zero; the next `tick` re-arms it.
     pub fn restart(&mut self) {
         self.t0 = None;
+    }
+}
+
+/// One frame of a slide's clock: the current time and the slide's zero.
+/// Copy — a beat is a value that flows into paint helpers.
+#[derive(Debug, Clone, Copy)]
+pub struct Beat {
+    pub now: f64,
+    pub t0: f64,
+}
+
+impl Beat {
+    /// The same frame with the zero pushed later — per-element stagger
+    /// without threading extra offset arguments through helpers.
+    pub fn delayed(self, by: f64) -> Beat {
+        Beat {
+            now: self.now,
+            t0: self.t0 + by,
+        }
     }
 }
 

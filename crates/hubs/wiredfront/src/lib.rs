@@ -25,7 +25,8 @@ static SPEC: HubSpec = HubSpec {
         SubRoute {
             id: PIXVIX,
             label: "PixVix",
-            blurb: "The snapper — stills, clips, region, freeform. The engine port lands here first.",
+            blurb:
+                "The snapper — stills, clips, region, freeform. The engine port lands here first.",
         },
         SubRoute {
             id: VIZIWIZ,

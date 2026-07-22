@@ -127,7 +127,11 @@ pub fn apply_theme(ctx: &egui::Context) {
         ))),
     );
     for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
-        fonts.families.entry(family).or_default().push("phosphor".into());
+        fonts
+            .families
+            .entry(family)
+            .or_default()
+            .push("phosphor".into());
     }
     ctx.set_fonts(fonts);
 
@@ -135,11 +139,23 @@ pub fn apply_theme(ctx: &egui::Context) {
     ctx.set_theme(egui::ThemePreference::Dark);
     let mut style = (*ctx.style_of(egui::Theme::Dark)).clone();
     style.text_styles = [
-        (TextStyle::Heading, FontId::new(24.0, FontFamily::Proportional)),
+        (
+            TextStyle::Heading,
+            FontId::new(24.0, FontFamily::Proportional),
+        ),
         (TextStyle::Body, FontId::new(14.5, FontFamily::Proportional)),
-        (TextStyle::Button, FontId::new(14.0, FontFamily::Proportional)),
-        (TextStyle::Small, FontId::new(11.5, FontFamily::Proportional)),
-        (TextStyle::Monospace, FontId::new(13.0, FontFamily::Monospace)),
+        (
+            TextStyle::Button,
+            FontId::new(14.0, FontFamily::Proportional),
+        ),
+        (
+            TextStyle::Small,
+            FontId::new(11.5, FontFamily::Proportional),
+        ),
+        (
+            TextStyle::Monospace,
+            FontId::new(13.0, FontFamily::Monospace),
+        ),
     ]
     .into();
     style.spacing.item_spacing = egui::vec2(space::S2, space::S2);
@@ -245,10 +261,26 @@ pub fn gradient_tint(painter: &egui::Painter, rect: Rect, tone: Tone) {
     let bottom = Color32::TRANSPARENT;
 
     let mut mesh = Mesh::default();
-    mesh.vertices.push(Vertex { pos: band.left_top(), uv: WHITE_UV, color: top });
-    mesh.vertices.push(Vertex { pos: band.right_top(), uv: WHITE_UV, color: top });
-    mesh.vertices.push(Vertex { pos: band.left_bottom(), uv: WHITE_UV, color: bottom });
-    mesh.vertices.push(Vertex { pos: band.right_bottom(), uv: WHITE_UV, color: bottom });
+    mesh.vertices.push(Vertex {
+        pos: band.left_top(),
+        uv: WHITE_UV,
+        color: top,
+    });
+    mesh.vertices.push(Vertex {
+        pos: band.right_top(),
+        uv: WHITE_UV,
+        color: top,
+    });
+    mesh.vertices.push(Vertex {
+        pos: band.left_bottom(),
+        uv: WHITE_UV,
+        color: bottom,
+    });
+    mesh.vertices.push(Vertex {
+        pos: band.right_bottom(),
+        uv: WHITE_UV,
+        color: bottom,
+    });
     mesh.indices.extend_from_slice(&[0, 1, 2, 2, 1, 3]);
     painter.add(egui::Shape::mesh(mesh));
 }
@@ -285,7 +317,9 @@ impl Mood {
     }
 
     pub fn accent_color(&self) -> Color32 {
-        ramp(self.accent).map(|r| r.steps[STEP_500 - 1]).unwrap_or(Color32::GRAY)
+        ramp(self.accent)
+            .map(|r| r.steps[STEP_500 - 1])
+            .unwrap_or(Color32::GRAY)
     }
 
     /// Sample the mood's gradient at `t` ∈ 0..1 (piecewise-linear between
@@ -316,14 +350,19 @@ pub fn mood_gradient(painter: &egui::Painter, rect: Rect, mood: &Mood) {
             let x = rect.min.x + rect.width() * c as f32 / COLS as f32;
             let y = rect.min.y + rect.height() * r as f32 / ROWS as f32;
             let t = ((x - rect.min.x) + (y - rect.min.y)) / denom;
-            mesh.vertices.push(Vertex { pos: egui::pos2(x, y), uv: WHITE_UV, color: mood.at(t) });
+            mesh.vertices.push(Vertex {
+                pos: egui::pos2(x, y),
+                uv: WHITE_UV,
+                color: mood.at(t),
+            });
         }
     }
     let w = COLS as u32 + 1;
     for r in 0..ROWS as u32 {
         for c in 0..COLS as u32 {
             let i = r * w + c;
-            mesh.indices.extend_from_slice(&[i, i + 1, i + w, i + w, i + 1, i + w + 1]);
+            mesh.indices
+                .extend_from_slice(&[i, i + 1, i + w, i + w, i + 1, i + w + 1]);
         }
     }
     painter.add(egui::Shape::mesh(mesh));
@@ -382,7 +421,8 @@ pub fn aurora(painter: &egui::Painter, rect: Rect) {
     for r in 0..ROWS as u32 {
         for c in 0..COLS as u32 {
             let i = r * w + c;
-            mesh.indices.extend_from_slice(&[i, i + 1, i + w, i + w, i + 1, i + w + 1]);
+            mesh.indices
+                .extend_from_slice(&[i, i + 1, i + w, i + w, i + 1, i + w + 1]);
         }
     }
     painter.add(egui::Shape::mesh(mesh));
@@ -405,7 +445,10 @@ pub struct Fluid {
 impl Fluid {
     /// Fluid sizing for content laid out inside `rect`.
     pub fn of(rect: Rect) -> Self {
-        Self { w_rem: rect.width() / 16.0, h_rem: rect.height() / 16.0 }
+        Self {
+            w_rem: rect.width() / 16.0,
+            h_rem: rect.height() / 16.0,
+        }
     }
 
     #[inline]
@@ -501,7 +544,12 @@ pub mod motion {
 
         #[test]
         fn eases_hit_their_endpoints() {
-            for e in [EASE_STANDARD, EASE_DECELERATE, EASE_EMPHASIZED, EASE_SPRING_SOFT] {
+            for e in [
+                EASE_STANDARD,
+                EASE_DECELERATE,
+                EASE_EMPHASIZED,
+                EASE_SPRING_SOFT,
+            ] {
                 assert!(e.apply(0.0).abs() < 0.01);
                 assert!((e.apply(1.0) - 1.0).abs() < 0.01);
             }
@@ -510,7 +558,8 @@ pub mod motion {
         #[test]
         fn springs_overshoot_and_settle() {
             // spring-soft's y control point is 1.56 — mid-curve must exceed 1.
-            let peak = (0..=20).map(|i| EASE_SPRING_SOFT.apply(i as f32 / 20.0))
+            let peak = (0..=20)
+                .map(|i| EASE_SPRING_SOFT.apply(i as f32 / 20.0))
                 .fold(0.0f32, f32::max);
             assert!(peak > 1.0, "spring must overshoot, peaked at {peak}");
             assert!((EASE_SPRING_SOFT.apply(1.0) - 1.0).abs() < 0.01);
@@ -528,7 +577,10 @@ pub mod motion {
         #[test]
         fn the_vocabulary_is_generated_and_complete() {
             assert_eq!(EFFECT_COUNT, 17, "motion.json ships 17 named effects");
-            assert!(effect("enter-rise").is_some(), "the entrance law is authored");
+            assert!(
+                effect("enter-rise").is_some(),
+                "the entrance law is authored"
+            );
             assert!(effect("chart-rise").is_some());
             assert!(effect("hotspot-pulse").unwrap().looped);
             assert!(effect("not-an-effect").is_none());
@@ -562,10 +614,26 @@ pub enum Edge {
 fn quad(painter: &egui::Painter, rect: Rect, c: [Color32; 4]) {
     use egui::epaint::{Mesh, Vertex, WHITE_UV};
     let mut mesh = Mesh::default();
-    mesh.vertices.push(Vertex { pos: rect.left_top(), uv: WHITE_UV, color: c[0] });
-    mesh.vertices.push(Vertex { pos: rect.right_top(), uv: WHITE_UV, color: c[1] });
-    mesh.vertices.push(Vertex { pos: rect.left_bottom(), uv: WHITE_UV, color: c[2] });
-    mesh.vertices.push(Vertex { pos: rect.right_bottom(), uv: WHITE_UV, color: c[3] });
+    mesh.vertices.push(Vertex {
+        pos: rect.left_top(),
+        uv: WHITE_UV,
+        color: c[0],
+    });
+    mesh.vertices.push(Vertex {
+        pos: rect.right_top(),
+        uv: WHITE_UV,
+        color: c[1],
+    });
+    mesh.vertices.push(Vertex {
+        pos: rect.left_bottom(),
+        uv: WHITE_UV,
+        color: c[2],
+    });
+    mesh.vertices.push(Vertex {
+        pos: rect.right_bottom(),
+        uv: WHITE_UV,
+        color: c[3],
+    });
     mesh.indices.extend_from_slice(&[0, 1, 2, 2, 1, 3]);
     painter.add(egui::Shape::mesh(mesh));
 }
@@ -578,7 +646,11 @@ pub fn sheen(painter: &egui::Painter, rect: Rect) {
         rect.min,
         egui::pos2(rect.max.x, rect.min.y + (rect.height() * 0.5).min(28.0)),
     );
-    quad(painter, band, [lit, lit, Color32::TRANSPARENT, Color32::TRANSPARENT]);
+    quad(
+        painter,
+        band,
+        [lit, lit, Color32::TRANSPARENT, Color32::TRANSPARENT],
+    );
 }
 
 /// Black diffusion scattered off chrome into the well. `edge` names where the
@@ -610,20 +682,44 @@ pub fn seam(painter: &egui::Painter, content: Rect, edge: Edge, accent: Option<T
     let cut = Color32::from_rgb(0x02, 0x03, 0x05);
     let (lit_rect, cut_rect) = match edge {
         Edge::Top => (
-            Rect::from_min_max(egui::pos2(content.min.x, content.min.y - 2.0), egui::pos2(content.max.x, content.min.y - 1.0)),
-            Rect::from_min_max(egui::pos2(content.min.x, content.min.y - 1.0), egui::pos2(content.max.x, content.min.y)),
+            Rect::from_min_max(
+                egui::pos2(content.min.x, content.min.y - 2.0),
+                egui::pos2(content.max.x, content.min.y - 1.0),
+            ),
+            Rect::from_min_max(
+                egui::pos2(content.min.x, content.min.y - 1.0),
+                egui::pos2(content.max.x, content.min.y),
+            ),
         ),
         Edge::Bottom => (
-            Rect::from_min_max(egui::pos2(content.min.x, content.max.y + 1.0), egui::pos2(content.max.x, content.max.y + 2.0)),
-            Rect::from_min_max(egui::pos2(content.min.x, content.max.y), egui::pos2(content.max.x, content.max.y + 1.0)),
+            Rect::from_min_max(
+                egui::pos2(content.min.x, content.max.y + 1.0),
+                egui::pos2(content.max.x, content.max.y + 2.0),
+            ),
+            Rect::from_min_max(
+                egui::pos2(content.min.x, content.max.y),
+                egui::pos2(content.max.x, content.max.y + 1.0),
+            ),
         ),
         Edge::Left => (
-            Rect::from_min_max(egui::pos2(content.min.x - 2.0, content.min.y), egui::pos2(content.min.x - 1.0, content.max.y)),
-            Rect::from_min_max(egui::pos2(content.min.x - 1.0, content.min.y), egui::pos2(content.min.x, content.max.y)),
+            Rect::from_min_max(
+                egui::pos2(content.min.x - 2.0, content.min.y),
+                egui::pos2(content.min.x - 1.0, content.max.y),
+            ),
+            Rect::from_min_max(
+                egui::pos2(content.min.x - 1.0, content.min.y),
+                egui::pos2(content.min.x, content.max.y),
+            ),
         ),
         Edge::Right => (
-            Rect::from_min_max(egui::pos2(content.max.x + 1.0, content.min.y), egui::pos2(content.max.x + 2.0, content.max.y)),
-            Rect::from_min_max(egui::pos2(content.max.x, content.min.y), egui::pos2(content.max.x + 1.0, content.max.y)),
+            Rect::from_min_max(
+                egui::pos2(content.max.x + 1.0, content.min.y),
+                egui::pos2(content.max.x + 2.0, content.max.y),
+            ),
+            Rect::from_min_max(
+                egui::pos2(content.max.x, content.min.y),
+                egui::pos2(content.max.x + 1.0, content.max.y),
+            ),
         ),
     };
     painter.rect_filled(lit_rect, 0, lit);
@@ -636,10 +732,30 @@ pub fn seam(painter: &egui::Painter, content: Rect, edge: Edge, accent: Option<T
 pub fn frame_overlay(painter: &egui::Painter, content: Rect, top_accent: Tone) {
     const DEPTH: f32 = 16.0;
     let c = content;
-    diffusion(painter, Rect::from_min_max(c.min, egui::pos2(c.max.x, c.min.y + DEPTH)), Edge::Top, 90);
-    diffusion(painter, Rect::from_min_max(egui::pos2(c.min.x, c.max.y - DEPTH * 0.6), c.max), Edge::Bottom, 60);
-    diffusion(painter, Rect::from_min_max(c.min, egui::pos2(c.min.x + DEPTH, c.max.y)), Edge::Left, 80);
-    diffusion(painter, Rect::from_min_max(egui::pos2(c.max.x - DEPTH * 0.75, c.min.y), c.max), Edge::Right, 70);
+    diffusion(
+        painter,
+        Rect::from_min_max(c.min, egui::pos2(c.max.x, c.min.y + DEPTH)),
+        Edge::Top,
+        90,
+    );
+    diffusion(
+        painter,
+        Rect::from_min_max(egui::pos2(c.min.x, c.max.y - DEPTH * 0.6), c.max),
+        Edge::Bottom,
+        60,
+    );
+    diffusion(
+        painter,
+        Rect::from_min_max(c.min, egui::pos2(c.min.x + DEPTH, c.max.y)),
+        Edge::Left,
+        80,
+    );
+    diffusion(
+        painter,
+        Rect::from_min_max(egui::pos2(c.max.x - DEPTH * 0.75, c.min.y), c.max),
+        Edge::Right,
+        70,
+    );
     seam(painter, c, Edge::Top, Some(top_accent));
     seam(painter, c, Edge::Left, None);
     seam(painter, c, Edge::Right, None);
@@ -663,7 +779,10 @@ mod tests {
     fn every_registered_hue_resolves() {
         for (_, ids) in HUE_GROUPS.iter() {
             for id in ids.iter() {
-                assert!(ramp(id).is_some(), "hue \"{id}\" is registered but has no ramp");
+                assert!(
+                    ramp(id).is_some(),
+                    "hue \"{id}\" is registered but has no ramp"
+                );
             }
         }
     }
@@ -676,18 +795,35 @@ mod tests {
     #[test]
     fn every_mood_is_authored_multi_hue_and_resolvable() {
         assert_eq!(MOODS.len(), MOOD_COUNT);
-        assert!(MOOD_COUNT >= 10, "the registry ships at least the 10 authored moods");
+        assert!(
+            MOODS.len() >= 10,
+            "the registry ships at least the 10 authored moods"
+        );
         for m in MOODS.iter() {
-            assert!(m.stops.len() >= 3, "mood \"{}\": a mood is never one color", m.name);
+            assert!(
+                m.stops.len() >= 3,
+                "mood \"{}\": a mood is never one color",
+                m.name
+            );
             // Multi-HUE, not one hue at 3 steps: at least 2 distinct hue ids.
             let mut hues: Vec<&str> = m.stops.iter().map(|(h, _)| *h).collect();
             hues.dedup();
             assert!(hues.len() >= 2, "mood \"{}\" uses a single hue", m.name);
             for c in m.stop_colors() {
-                assert_ne!(c, Color32::GRAY, "mood \"{}\" has an unresolvable stop", m.name);
+                assert_ne!(
+                    c,
+                    Color32::GRAY,
+                    "mood \"{}\" has an unresolvable stop",
+                    m.name
+                );
             }
-            assert_ne!(m.accent_color(), Color32::GRAY, "mood \"{}\" accent", m.name);
-            assert_eq!(m.scrim_color().a() > 0, true);
+            assert_ne!(
+                m.accent_color(),
+                Color32::GRAY,
+                "mood \"{}\" accent",
+                m.name
+            );
+            assert!(m.scrim_color().a() > 0);
         }
     }
 
@@ -707,7 +843,7 @@ mod tests {
         assert_eq!(aurora_at(0.0), AURORA[0]);
         assert_eq!(aurora_at(1.0), AURORA[AURORA.len() - 1]);
         assert_eq!(aurora_at(2.0), AURORA[AURORA.len() - 1]); // clamped
-        // The ramp is teal: green/blue dominate red at every sample.
+                                                              // The ramp is teal: green/blue dominate red at every sample.
         for c in AURORA.iter() {
             assert!(c.g() > c.r(), "aurora must stay teal: {c:?}");
         }
@@ -728,28 +864,59 @@ mod tests {
 
     #[test]
     fn hub_tones_resolve_through_the_pool() {
-        for tone in [Tone::Cyan, Tone::Lime, Tone::Violet, Tone::Amber, Tone::Magenta, Tone::Coral] {
+        for tone in [
+            Tone::Cyan,
+            Tone::Lime,
+            Tone::Violet,
+            Tone::Amber,
+            Tone::Magenta,
+            Tone::Coral,
+        ] {
             assert!(ramp(tone.hue_id()).is_some());
-            assert_ne!(tone.color(), Color32::GRAY, "tone must not hit the debug fallback");
+            assert_ne!(
+                tone.color(),
+                Color32::GRAY,
+                "tone must not hit the debug fallback"
+            );
         }
     }
 
     #[test]
     fn fluid_hits_min_at_the_small_corner_and_max_at_the_large() {
         // 24rem × 40rem — the small corner of both windows.
-        let small = Fluid::of(Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(24.0 * 16.0, 40.0 * 16.0)));
+        let small = Fluid::of(Rect::from_min_size(
+            egui::pos2(0.0, 0.0),
+            egui::vec2(24.0 * 16.0, 40.0 * 16.0),
+        ));
         // 120rem × 100rem — the large corner.
-        let large = Fluid::of(Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(120.0 * 16.0, 100.0 * 16.0)));
+        let large = Fluid::of(Rect::from_min_size(
+            egui::pos2(0.0, 0.0),
+            egui::vec2(120.0 * 16.0, 100.0 * 16.0),
+        ));
         // sp-4 is authored 1.0rem … 1.5rem.
-        assert!((small.sp_4() - 16.0).abs() < 0.01, "sp_4 at small corner: {}", small.sp_4());
-        assert!((large.sp_4() - 24.0).abs() < 0.01, "sp_4 at large corner: {}", large.sp_4());
+        assert!(
+            (small.sp_4() - 16.0).abs() < 0.01,
+            "sp_4 at small corner: {}",
+            small.sp_4()
+        );
+        assert!(
+            (large.sp_4() - 24.0).abs() < 0.01,
+            "sp_4 at large corner: {}",
+            large.sp_4()
+        );
         // Between the corners it interpolates, inside the clamp.
-        let mid = Fluid::of(Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(72.0 * 16.0, 70.0 * 16.0)));
+        let mid = Fluid::of(Rect::from_min_size(
+            egui::pos2(0.0, 0.0),
+            egui::vec2(72.0 * 16.0, 70.0 * 16.0),
+        ));
         assert!(mid.sp_4() > small.sp_4() && mid.sp_4() < large.sp_4());
     }
 
     #[test]
     fn the_full_fluid_scale_generated() {
-        assert_eq!(FLUID_TOKEN_COUNT, 36, "space 8 + type 10 + radius 3 + shell 7 + control 8");
+        assert_eq!(
+            FLUID_TOKEN_COUNT, 36,
+            "space 8 + type 10 + radius 3 + shell 7 + control 8"
+        );
     }
 }

@@ -5,6 +5,9 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+# Structured logging — RUST_LOG drives verbosity (tracing is the modern std).
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 egui.workspace = true
 eframe.workspace = true
 egui_extras.workspace = true
@@ -23,3 +26,6 @@ dpl-hub-library.workspace = true
 [[bin]]
 name = "devpulselabs"
 path = "src/main.rs"
+
+[lints]
+workspace = true

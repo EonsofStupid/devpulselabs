@@ -43,9 +43,18 @@ pub struct QuizPanel {
 impl QuizPanel {
     pub fn demo() -> Self {
         let choices = vec![
-            QuizChoice { label: "It looks up answers in a database", correct: false },
-            QuizChoice { label: "It predicts the next token, over and over", correct: true },
-            QuizChoice { label: "It reasons like a person, just faster", correct: false },
+            QuizChoice {
+                label: "It looks up answers in a database",
+                correct: false,
+            },
+            QuizChoice {
+                label: "It predicts the next token, over and over",
+                correct: true,
+            },
+            QuizChoice {
+                label: "It reasons like a person, just faster",
+                correct: false,
+            },
         ];
         let n = choices.len();
         Self {
@@ -76,7 +85,10 @@ impl QuizPanel {
 
     /// Right = picked set equals the correct set exactly.
     fn is_right(&self) -> bool {
-        self.choices.iter().zip(&self.picked).all(|(c, p)| c.correct == *p)
+        self.choices
+            .iter()
+            .zip(&self.picked)
+            .all(|(c, p)| c.correct == *p)
     }
 
     fn any_picked(&self) -> bool {
@@ -141,10 +153,18 @@ impl SlideTemplate for QuizPanel {
                     (cl::surface::RAISED, None, cl::ink::MUTED)
                 }
             } else if picked {
-                (cl::surface::OVERLAY, Some(self.tone.color()), cl::ink::STRONG)
+                (
+                    cl::surface::OVERLAY,
+                    Some(self.tone.color()),
+                    cl::ink::STRONG,
+                )
             } else {
                 (
-                    if resp.hovered() { cl::surface::OVERLAY } else { cl::surface::RAISED },
+                    if resp.hovered() {
+                        cl::surface::OVERLAY
+                    } else {
+                        cl::surface::RAISED
+                    },
                     None,
                     cl::ink::BASE,
                 )
@@ -205,7 +225,11 @@ impl SlideTemplate for QuizPanel {
                 painter.galley(
                     btn.center() - galley.size() * 0.5,
                     galley,
-                    if armed { cl::surface::WELL } else { cl::ink::SUBTLE },
+                    if armed {
+                        cl::surface::WELL
+                    } else {
+                        cl::ink::SUBTLE
+                    },
                 );
                 if armed && resp.clicked() {
                     self.committed = Some(now);
@@ -229,7 +253,9 @@ impl SlideTemplate for QuizPanel {
                             egui::Stroke::new(
                                 2.0,
                                 egui::Color32::from_rgba_unmultiplied(
-                                    c.r(), c.g(), c.b(),
+                                    c.r(),
+                                    c.g(),
+                                    c.b(),
                                     (120.0 * (1.0 - pulse)) as u8,
                                 ),
                             ),
@@ -241,7 +267,12 @@ impl SlideTemplate for QuizPanel {
                     Align2::CENTER_CENTER,
                     tracked(if right { "Called it" } else { "Not quite" }),
                     FontId::monospace(fluid.fs_eyebrow()),
-                    if right { self.tone.color() } else { cl::ink::MUTED }.gamma_multiply(p),
+                    if right {
+                        self.tone.color()
+                    } else {
+                        cl::ink::MUTED
+                    }
+                    .gamma_multiply(p),
                 );
                 painter.text(
                     egui::pos2(foot_center.x, foot_center.y + fluid.fs_body() * 0.6),

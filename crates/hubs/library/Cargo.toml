@@ -9,3 +9,6 @@ egui.workspace = true
 dpl-hub.workspace = true
 dpl-coldlight.workspace = true
 dpl-slides.workspace = true
+
+[lints]
+workspace = true

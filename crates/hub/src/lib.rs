@@ -94,18 +94,22 @@ pub mod placeholder {
 
         for sub in spec.subroutes {
             let active = sub.id == route.sub;
-            let frame = if active { cl::scatter_frame(spec.tone) } else { cl::card_frame() };
+            let frame = if active {
+                cl::scatter_frame(spec.tone)
+            } else {
+                cl::card_frame()
+            };
             let resp = frame.show(ui, |ui| {
                 ui.set_width(ui.available_width().min(560.0));
                 ui.horizontal(|ui| {
                     if active {
                         cl::tone_dot(ui, spec.tone);
                     }
-                    ui.label(
-                        RichText::new(sub.label)
-                            .strong()
-                            .color(if active { cl::ink::STRONG } else { cl::ink::BASE }),
-                    );
+                    ui.label(RichText::new(sub.label).strong().color(if active {
+                        cl::ink::STRONG
+                    } else {
+                        cl::ink::BASE
+                    }));
                 });
                 ui.label(RichText::new(sub.blurb).small().color(cl::ink::MUTED));
             });
@@ -127,14 +131,28 @@ mod tests {
         icon: "•",
         tone: Tone::Cyan,
         subroutes: &[
-            SubRoute { id: SubId("a"), label: "A", blurb: "first" },
-            SubRoute { id: SubId("b"), label: "B", blurb: "second" },
+            SubRoute {
+                id: SubId("a"),
+                label: "A",
+                blurb: "first",
+            },
+            SubRoute {
+                id: SubId("b"),
+                label: "B",
+                blurb: "second",
+            },
         ],
     };
 
     #[test]
     fn default_route_is_the_first_subroute() {
-        assert_eq!(SPEC.default_route(), Route { hub: HubId("t"), sub: SubId("a") });
+        assert_eq!(
+            SPEC.default_route(),
+            Route {
+                hub: HubId("t"),
+                sub: SubId("a")
+            }
+        );
     }
 
     #[test]

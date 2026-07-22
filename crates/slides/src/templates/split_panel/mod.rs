@@ -111,7 +111,12 @@ impl SlideTemplate for SplitPanel {
             } else {
                 cl::surface::HAIRLINE.gamma_multiply(alpha)
             };
-            painter.rect_stroke(col, radius, egui::Stroke::new(1.0, edge), egui::StrokeKind::Inside);
+            painter.rect_stroke(
+                col,
+                radius,
+                egui::Stroke::new(1.0, edge),
+                egui::StrokeKind::Inside,
+            );
             cl::sheen(painter, col);
 
             let x = col.min.x + fluid.sp_5();
@@ -123,11 +128,19 @@ impl SlideTemplate for SplitPanel {
                 cl::ink::STRONG.gamma_multiply(alpha),
             );
             painter.text(
-                egui::pos2(col.max.x - fluid.sp_5(), col.min.y + fluid.sp_4() + fluid.fs_h3() * 0.5),
+                egui::pos2(
+                    col.max.x - fluid.sp_5(),
+                    col.min.y + fluid.sp_4() + fluid.fs_h3() * 0.5,
+                ),
                 Align2::RIGHT_CENTER,
                 tracked(side.sub),
                 FontId::monospace(fluid.fs_eyebrow()),
-                if side.accent { self.tone.color() } else { cl::ink::MUTED }.gamma_multiply(alpha),
+                if side.accent {
+                    self.tone.color()
+                } else {
+                    cl::ink::MUTED
+                }
+                .gamma_multiply(alpha),
             );
             let mut y = col.min.y + fluid.sp_4() + fluid.fs_h3() + fluid.sp_5();
             for line in side.body.iter() {

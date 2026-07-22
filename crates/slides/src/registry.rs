@@ -96,7 +96,11 @@ mod tests {
     #[test]
     fn the_registry_is_the_census() {
         let all = demos();
-        assert_eq!(all.len(), 18, "12 templates + 6 infographics — the S2 tranche complete");
+        assert_eq!(
+            all.len(),
+            18,
+            "12 templates + 6 infographics — the S2 tranche complete"
+        );
         let ids: HashSet<&str> = all.iter().map(|t| t.spec().id.0).collect();
         assert_eq!(ids.len(), all.len(), "template ids must be unique");
         for t in &all {

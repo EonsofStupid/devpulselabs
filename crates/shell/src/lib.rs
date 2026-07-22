@@ -39,6 +39,9 @@ pub struct Shell {
     /// Full-bleed: all chrome hidden, content owns the viewport (old `\` /
     /// Maximize2 behavior). Esc or the floating exit chip leaves.
     full_bleed: bool,
+    /// The build stamp the footer shows (git hash · utc) — the running app
+    /// itself proves which code it is.
+    build: &'static str,
 }
 
 impl Shell {
@@ -49,7 +52,10 @@ impl Shell {
         let route = hubs
             .first()
             .map(|h| h.spec().default_route())
-            .unwrap_or(Route { hub: HubId("_none"), sub: SubId("_none") });
+            .unwrap_or(Route {
+                hub: HubId("_none"),
+                sub: SubId("_none"),
+            });
         Self {
             hubs,
             route,
@@ -58,7 +64,12 @@ impl Shell {
             nav_count: 0,
             signal_count: 0,
             full_bleed: false,
+            build: "",
         }
+    }
+
+    pub fn set_build(&mut self, stamp: &'static str) {
+        self.build = stamp;
     }
 
     /// Harness access (`--mood <n>` pins the boot mood for reproducible
@@ -101,13 +112,19 @@ impl Shell {
             self.route = route;
             self.nav_count += 1;
             self.signal_count += 1;
-            self.fabric.publish_shell(ShellEvent::RouteChanged { route });
+            self.fabric
+                .publish_shell(ShellEvent::RouteChanged { route });
         }
     }
 
     /// Clicking a hub in the rail: land on its default subroute.
     pub fn activate_hub(&mut self, id: HubId) {
-        if let Some(spec) = self.hubs.iter().find(|h| h.spec().id == id).map(|h| h.spec()) {
+        if let Some(spec) = self
+            .hubs
+            .iter()
+            .find(|h| h.spec().id == id)
+            .map(|h| h.spec())
+        {
             self.navigate(spec.default_route());
         }
     }
@@ -162,13 +179,21 @@ impl Shell {
         );
         let resp = ui.interact(rect, egui::Id::new("dpl_fullbleed_exit"), Sense::click());
         let painter = ui.painter();
-        painter.rect_filled(rect, CornerRadius::same(cl::RADIUS_SM), cl::surface::OVERLAY);
+        painter.rect_filled(
+            rect,
+            CornerRadius::same(cl::RADIUS_SM),
+            cl::surface::OVERLAY,
+        );
         painter.text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
             cl::icon::FULLBLEED_EXIT,
             egui::FontId::proportional(15.0),
-            if resp.hovered() { cl::ink::STRONG } else { cl::ink::MUTED },
+            if resp.hovered() {
+                cl::ink::STRONG
+            } else {
+                cl::ink::MUTED
+            },
         );
         if resp.clicked() {
             self.full_bleed = false;
@@ -192,7 +217,12 @@ impl Shell {
             .show(ui, |ui| {
                 cl::sheen(ui.painter(), ui.max_rect().expand(8.0));
                 ui.horizontal_centered(|ui| {
-                    ui.label(RichText::new("DevPULSE").strong().color(cl::ink::STRONG).size(15.0));
+                    ui.label(
+                        RichText::new("DevPULSE")
+                            .strong()
+                            .color(cl::ink::STRONG)
+                            .size(15.0),
+                    );
                     ui.label(RichText::new("LABS").color(tone.color()).size(15.0));
                     ui.add_space(cl::space::S4);
                     ui.label(RichText::new(hub_label).color(cl::ink::BASE));
@@ -246,6 +276,15 @@ impl Shell {
                                 .small()
                                 .color(cl::ink::SUBTLE),
                         );
+                        if !self.build.is_empty() {
+                            ui.add_space(cl::space::S3);
+                            ui.label(
+                                RichText::new(self.build)
+                                    .monospace()
+                                    .size(10.0)
+                                    .color(cl::ink::SUBTLE),
+                            );
+                        }
                     });
                 });
                 // The center readout, painted so the flex sides can't shove it.
@@ -288,7 +327,10 @@ impl Shell {
                         for sub in spec.subroutes {
                             let selected = sub.id == self.route.sub;
                             if sub_item(ui, sub.label, spec.tone, selected) {
-                                clicked = Some(Route { hub: spec.id, sub: sub.id });
+                                clicked = Some(Route {
+                                    hub: spec.id,
+                                    sub: sub.id,
+                                });
                             }
                         }
                         ui.add_space(cl::space::S2);
@@ -346,7 +388,11 @@ impl Shell {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new("shell bus").small().color(cl::ink::MUTED));
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            ui.label(RichText::new("broadcast·64").monospace().color(cl::ink::BASE));
+                            ui.label(
+                                RichText::new("broadcast·64")
+                                    .monospace()
+                                    .color(cl::ink::BASE),
+                            );
                         });
                     });
                 });
@@ -377,15 +423,16 @@ impl Shell {
                 // clip_rect = the panel's full plate, margins included.
                 self.backdrop.paint(ui, ui.clip_rect());
                 match idx {
-                Some(i) => self.hubs[i].ui(ui, route),
-                None => {
-                    // Unknown → degrade, never crash (Law 4).
-                    ui.label(
-                        RichText::new(format!("no hub registered for \"{}\"", route.hub))
-                            .color(cl::ink::MUTED),
-                    );
+                    Some(i) => self.hubs[i].ui(ui, route),
+                    None => {
+                        // Unknown → degrade, never crash (Law 4).
+                        ui.label(
+                            RichText::new(format!("no hub registered for \"{}\"", route.hub))
+                                .color(cl::ink::MUTED),
+                        );
+                    }
                 }
-            }});
+            });
         resp.response.rect
     }
 
@@ -403,7 +450,10 @@ impl Shell {
             .find(|h| h.spec().id == self.route.hub)
             .map(|h| {
                 let spec = h.spec();
-                let sub = spec.subroute(self.route.sub).map(|s| s.label).unwrap_or("—");
+                let sub = spec
+                    .subroute(self.route.sub)
+                    .map(|s| s.label)
+                    .unwrap_or("—");
                 (spec.label, sub, spec.tone)
             })
             .unwrap_or(("—", "—", Tone::Cyan))
@@ -422,14 +472,22 @@ fn icon_button(ui: &mut egui::Ui, glyph: &str, tip: &str) -> bool {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(28.0, 24.0), Sense::click());
     let painter = ui.painter();
     if resp.hovered() {
-        painter.rect_filled(rect, CornerRadius::same(cl::RADIUS_SM), cl::surface::OVERLAY);
+        painter.rect_filled(
+            rect,
+            CornerRadius::same(cl::RADIUS_SM),
+            cl::surface::OVERLAY,
+        );
     }
     painter.text(
         rect.center(),
         egui::Align2::CENTER_CENTER,
         glyph,
         egui::FontId::proportional(15.0),
-        if resp.hovered() { cl::ink::STRONG } else { cl::ink::MUTED },
+        if resp.hovered() {
+            cl::ink::STRONG
+        } else {
+            cl::ink::MUTED
+        },
     );
     resp.on_hover_text(tip).clicked()
 }
@@ -448,7 +506,11 @@ fn launcher_chip(ui: &mut egui::Ui, glyph: &str, label: &str, tone: Tone) -> boo
     if resp.hovered() {
         painter.rect_filled(rect, CornerRadius::same(cl::RADIUS_SM), tone.wash());
     } else {
-        painter.rect_filled(rect, CornerRadius::same(cl::RADIUS_SM), cl::surface::OVERLAY);
+        painter.rect_filled(
+            rect,
+            CornerRadius::same(cl::RADIUS_SM),
+            cl::surface::OVERLAY,
+        );
     }
     painter.text(
         egui::pos2(rect.min.x + 8.0, rect.center().y),
@@ -462,7 +524,11 @@ fn launcher_chip(ui: &mut egui::Ui, glyph: &str, label: &str, tone: Tone) -> boo
         egui::Align2::LEFT_CENTER,
         label,
         egui::FontId::proportional(12.5),
-        if resp.hovered() { cl::ink::STRONG } else { cl::ink::BASE },
+        if resp.hovered() {
+            cl::ink::STRONG
+        } else {
+            cl::ink::BASE
+        },
     );
     resp.clicked()
 }
@@ -500,10 +566,18 @@ fn rail_item(ui: &mut egui::Ui, icon: &str, label: &str, tone: Tone, active: boo
         let bar = Rect::from_min_size(rect.min, egui::vec2(3.0, rect.height()));
         painter.rect_filled(bar, CornerRadius::same(1), tone.color());
     } else if response.hovered() {
-        painter.rect_filled(rect, CornerRadius::same(cl::RADIUS_SM), cl::surface::OVERLAY);
+        painter.rect_filled(
+            rect,
+            CornerRadius::same(cl::RADIUS_SM),
+            cl::surface::OVERLAY,
+        );
     }
 
-    let ink = if active { cl::ink::STRONG } else { cl::ink::BASE };
+    let ink = if active {
+        cl::ink::STRONG
+    } else {
+        cl::ink::BASE
+    };
     painter.text(
         egui::pos2(rect.min.x + 14.0, rect.center().y),
         egui::Align2::LEFT_CENTER,
@@ -537,9 +611,17 @@ fn sub_item(ui: &mut egui::Ui, label: &str, tone: Tone, selected: bool) -> bool 
             egui::Stroke::new(1.0, tone.wash()),
             egui::StrokeKind::Inside,
         );
-        painter.circle_filled(egui::pos2(rect.min.x + 26.0, rect.center().y), 2.5, tone.color());
+        painter.circle_filled(
+            egui::pos2(rect.min.x + 26.0, rect.center().y),
+            2.5,
+            tone.color(),
+        );
     } else if response.hovered() {
-        painter.rect_filled(rect, CornerRadius::same(cl::RADIUS_SM), cl::surface::OVERLAY);
+        painter.rect_filled(
+            rect,
+            CornerRadius::same(cl::RADIUS_SM),
+            cl::surface::OVERLAY,
+        );
     }
 
     painter.text(
@@ -547,7 +629,11 @@ fn sub_item(ui: &mut egui::Ui, label: &str, tone: Tone, selected: bool) -> bool 
         egui::Align2::LEFT_CENTER,
         label,
         egui::FontId::proportional(13.0),
-        if selected { tone.color() } else { cl::ink::MUTED },
+        if selected {
+            tone.color()
+        } else {
+            cl::ink::MUTED
+        },
     );
     response.clicked()
 }
@@ -563,8 +649,16 @@ mod tests {
         icon: "•",
         tone: Tone::Cyan,
         subroutes: &[
-            SubRoute { id: SubId("one"), label: "One", blurb: "" },
-            SubRoute { id: SubId("two"), label: "Two", blurb: "" },
+            SubRoute {
+                id: SubId("one"),
+                label: "One",
+                blurb: "",
+            },
+            SubRoute {
+                id: SubId("two"),
+                label: "Two",
+                blurb: "",
+            },
         ],
     };
     static SPEC_B: HubSpec = HubSpec {
@@ -572,7 +666,11 @@ mod tests {
         label: "B",
         icon: "•",
         tone: Tone::Lime,
-        subroutes: &[SubRoute { id: SubId("only"), label: "Only", blurb: "" }],
+        subroutes: &[SubRoute {
+            id: SubId("only"),
+            label: "Only",
+            blurb: "",
+        }],
     };
 
     struct Fake(&'static HubSpec);
@@ -586,22 +684,40 @@ mod tests {
     fn shell() -> (Shell, tokio::sync::broadcast::Receiver<ShellEvent>) {
         let fabric = Fabric::new();
         let rx = fabric.subscribe_shell();
-        (Shell::new(vec![Box::new(Fake(&SPEC_A)), Box::new(Fake(&SPEC_B))], fabric), rx)
+        (
+            Shell::new(
+                vec![Box::new(Fake(&SPEC_A)), Box::new(Fake(&SPEC_B))],
+                fabric,
+            ),
+            rx,
+        )
     }
 
     #[test]
     fn boots_on_the_first_hubs_default_subroute() {
         let (shell, _rx) = shell();
-        assert_eq!(shell.route(), Route { hub: HubId("a"), sub: SubId("one") });
+        assert_eq!(
+            shell.route(),
+            Route {
+                hub: HubId("a"),
+                sub: SubId("one")
+            }
+        );
     }
 
     #[test]
     fn activating_a_hub_lands_on_its_default_and_publishes() {
         let (mut shell, mut rx) = shell();
         shell.activate_hub(HubId("b"));
-        let expected = Route { hub: HubId("b"), sub: SubId("only") };
+        let expected = Route {
+            hub: HubId("b"),
+            sub: SubId("only"),
+        };
         assert_eq!(shell.route(), expected);
-        assert_eq!(rx.try_recv().unwrap(), ShellEvent::RouteChanged { route: expected });
+        assert_eq!(
+            rx.try_recv().unwrap(),
+            ShellEvent::RouteChanged { route: expected }
+        );
     }
 
     #[test]

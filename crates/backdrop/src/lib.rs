@@ -59,7 +59,11 @@ impl Default for Backdrop {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.subsec_nanos() as u64 | 1)
             .unwrap_or(0x9E37_79B9);
-        let mut b = Self { current: Loop::Dpl, mood: 0, rng: seed | 1 };
+        let mut b = Self {
+            current: Loop::Dpl,
+            mood: 0,
+            rng: seed | 1,
+        };
         // Boot mood is itself a pull, not a constant.
         b.mood = b.roll_any();
         b
@@ -147,8 +151,7 @@ impl Backdrop {
         let mut changed = false;
         for which in Loop::ALL {
             let active = which == self.current;
-            let (rect, resp) =
-                ui.allocate_exact_size(egui::vec2(42.0, 26.0), egui::Sense::click());
+            let (rect, resp) = ui.allocate_exact_size(egui::vec2(42.0, 26.0), egui::Sense::click());
             let painter = ui.painter();
             if let Some(p) = dpl_video::locate_asset(which.poster_rel()) {
                 let uri = p.to_string_lossy().replace('\\', "/");
@@ -194,7 +197,9 @@ mod tests {
     fn the_catalog_is_exactly_the_two_ratified_loops() {
         assert_eq!(Loop::ALL.len(), 2);
         assert!(Loop::Dpl.video_rel().ends_with("dpl.mp4"));
-        assert!(Loop::Dragon.video_rel().ends_with("clyffy-chases-the-dragon.mp4"));
+        assert!(Loop::Dragon
+            .video_rel()
+            .ends_with("clyffy-chases-the-dragon.mp4"));
     }
 
     #[test]
@@ -219,7 +224,10 @@ mod tests {
             seen[b.mood] = true;
         }
         let distinct = seen.iter().filter(|s| **s).count();
-        assert!(distinct >= cl::MOOD_COUNT - 1, "only {distinct} moods reachable");
+        assert!(
+            distinct >= cl::MOOD_COUNT - 1,
+            "only {distinct} moods reachable"
+        );
     }
 
     #[test]

@@ -47,9 +47,21 @@ impl DonutShare {
             center: "2026",
             center_note: "where inference runs",
             slices: vec![
-                Slice { label: "Big cloud", value: 62.0, tone: None },
-                Slice { label: "Local / edge", value: 26.0, tone: Some(Tone::Lime) },
-                Slice { label: "Hybrid", value: 12.0, tone: Some(Tone::Cyan) },
+                Slice {
+                    label: "Big cloud",
+                    value: 62.0,
+                    tone: None,
+                },
+                Slice {
+                    label: "Local / edge",
+                    value: 26.0,
+                    tone: Some(Tone::Lime),
+                },
+                Slice {
+                    label: "Hybrid",
+                    value: 12.0,
+                    tone: Some(Tone::Cyan),
+                },
             ],
             clock: Clock::default(),
             selected: None,
@@ -57,7 +69,9 @@ impl DonutShare {
     }
 
     fn slice_tone(&self, i: usize) -> Tone {
-        self.slices[i].tone.unwrap_or_else(|| series_tone(i, self.tone))
+        self.slices[i]
+            .tone
+            .unwrap_or_else(|| series_tone(i, self.tone))
     }
 }
 
@@ -87,7 +101,12 @@ impl SlideTemplate for DonutShare {
         let center = stage.pt(LOGICAL_W * 0.5, LOGICAL_H * 0.5);
         let radius = stage.len((LOGICAL_W.min(LOGICAL_H)) * 0.5 - 48.0);
         let r_in = radius * 0.62;
-        let total: f32 = self.slices.iter().map(|s| s.value).sum::<f32>().max(f32::EPSILON);
+        let total: f32 = self
+            .slices
+            .iter()
+            .map(|s| s.value)
+            .sum::<f32>()
+            .max(f32::EPSILON);
         const PAD: f32 = 0.02; // radians shaved off each slice edge (ported)
         const EXPLODE: f32 = 10.0; // logical offset of the selected slice
 
@@ -107,7 +126,9 @@ impl SlideTemplate for DonutShare {
             } else {
                 center
             };
-            painter.add(egui::Shape::mesh(ring_sector(c, r_in, radius, a0, a1, inner, outer)));
+            painter.add(egui::Shape::mesh(ring_sector(
+                c, r_in, radius, a0, a1, inner, outer,
+            )));
 
             // The datum label rides outside the ring, anchored AWAY from it:
             // right-side labels grow rightward, left-side leftward — text
@@ -125,7 +146,11 @@ impl SlideTemplate for DonutShare {
             let mut pos = if bisector.x.abs() < 0.35 {
                 egui::pos2(
                     label_at.x - size.x * 0.5,
-                    if bisector.y < 0.0 { label_at.y - size.y } else { label_at.y },
+                    if bisector.y < 0.0 {
+                        label_at.y - size.y
+                    } else {
+                        label_at.y
+                    },
                 )
             } else if bisector.x > 0.0 {
                 egui::pos2(label_at.x, label_at.y - size.y * 0.5)
@@ -199,7 +224,11 @@ impl SlideTemplate for DonutShare {
                     for (i, slice) in self.slices.iter().enumerate() {
                         acc += (slice.value / total) * TAU;
                         if angle <= acc {
-                            self.selected = if self.selected == Some(i) { None } else { Some(i) };
+                            self.selected = if self.selected == Some(i) {
+                                None
+                            } else {
+                                Some(i)
+                            };
                             break;
                         }
                     }

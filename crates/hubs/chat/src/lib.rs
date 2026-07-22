@@ -56,7 +56,11 @@ impl Hub for ChatHub {
         );
 
         ui.add_space(cl::space::S4);
-        ui.label(RichText::new("PROVIDER SLOTS").small().color(cl::ink::SUBTLE));
+        ui.label(
+            RichText::new("PROVIDER SLOTS")
+                .small()
+                .color(cl::ink::SUBTLE),
+        );
         ui.horizontal(|ui| {
             for (name, tone) in PROVIDERS {
                 cl::card_frame().show(ui, |ui| {

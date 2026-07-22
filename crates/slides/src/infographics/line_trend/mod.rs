@@ -43,8 +43,16 @@ impl LineTrend {
             unit: "capability per dollar",
             labels: vec!["2022", "2023", "2024", "2025", "2026"],
             series: vec![
-                Series { name: "frontier per $", values: vec![1.0, 3.0, 9.0, 24.0, 60.0], tone: None },
-                Series { name: "local per $", values: vec![0.2, 1.0, 6.0, 22.0, 70.0], tone: Some(Tone::Lime) },
+                Series {
+                    name: "frontier per $",
+                    values: vec![1.0, 3.0, 9.0, 24.0, 60.0],
+                    tone: None,
+                },
+                Series {
+                    name: "local per $",
+                    values: vec![0.2, 1.0, 6.0, 22.0, 70.0],
+                    tone: Some(Tone::Lime),
+                },
             ],
             clock: Clock::default(),
         }
@@ -137,7 +145,11 @@ impl SlideTemplate for LineTrend {
                 wash,
                 egui::Color32::TRANSPARENT,
             )));
-            painter.add(egui::Shape::mesh(polyline_stroke(shown, stage.len(6.0), paint)));
+            painter.add(egui::Shape::mesh(polyline_stroke(
+                shown,
+                stage.len(6.0),
+                paint,
+            )));
 
             // End-of-line series label in the series paint.
             if let Some(end) = shown.last() {

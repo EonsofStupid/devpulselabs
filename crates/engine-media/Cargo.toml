@@ -21,3 +21,6 @@ kamadak-exif = "0.5"
 [[bin]]
 name = "media-cli"
 path = "src/bin/media_cli.rs"
+
+[lints]
+workspace = true

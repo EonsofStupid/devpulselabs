@@ -35,7 +35,12 @@ fn main() {
                 usage();
             }
             let f = |i: usize| a[i].parse::<f64>().unwrap_or(f64::NAN);
-            let frac = FracRect { x: f(4), y: f(5), w: f(6), h: f(7) };
+            let frac = FracRect {
+                x: f(4),
+                y: f(5),
+                w: f(6),
+                h: f(7),
+            };
             if [frac.x, frac.y, frac.w, frac.h].iter().any(|v| v.is_nan()) {
                 usage();
             }

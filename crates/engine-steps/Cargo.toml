@@ -12,3 +12,6 @@ serde_json = "1"
 rdev = "0.5"
 time = "0.3"
 dpl-engine-capture.workspace = true
+
+[lints]
+workspace = true

@@ -12,6 +12,13 @@ use dpl_hub::{Hub, Route};
 use dpl_shell::Shell;
 
 fn main() -> eframe::Result {
+    // Structured logs: `RUST_LOG=debug devpulselabs` — info by default.
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .init();
     let args: Vec<String> = std::env::args().collect();
     let shot: Option<std::path::PathBuf> = args
         .iter()
@@ -23,7 +30,10 @@ fn main() -> eframe::Result {
         .iter()
         .position(|a| a == "--route")
         .and_then(|i| args.get(i + 1))
-        .and_then(|r| r.split_once('/').map(|(h, s)| (h.to_string(), s.to_string())));
+        .and_then(|r| {
+            r.split_once('/')
+                .map(|(h, s)| (h.to_string(), s.to_string()))
+        });
     // `--focus <template-id>` — boot the Library gallery solo'd on one
     // template, for per-template proof shots.
     let focus: Option<String> = args
@@ -66,7 +76,13 @@ fn main() -> eframe::Result {
             // Media blocks: file:// images resolve through these loaders.
             egui_extras::install_image_loaders(&cc.egui_ctx);
             Ok(Box::new(App::new(
-                shot, boot_route, focus, shot_frame, pixvix_open, pixvix_snap, mood,
+                shot,
+                boot_route,
+                focus,
+                shot_frame,
+                pixvix_open,
+                pixvix_snap,
+                mood,
             )))
         }),
     )
@@ -98,7 +114,7 @@ impl App {
         }
         // The registry — a new hub is ONE line here and nothing else.
         let hubs: Vec<Box<dyn Hub>> = vec![
-            Box::new(dpl_hub_home::HomeHub::default()),
+            Box::new(dpl_hub_home::HomeHub),
             Box::new(dpl_hub_workbench::WorkbenchHub),
             Box::new(library),
             Box::new(dpl_hub_wiredfront::WiredfrontHub),
@@ -132,14 +148,24 @@ impl App {
             }),
         }
 
-        Self { shell, pixvix, shot, frames: 0, shot_frame, pixvix_snap, snap_frames: 0 }
+        Self {
+            shell,
+            pixvix,
+            shot,
+            frames: 0,
+            shot_frame,
+            pixvix_snap,
+            snap_frames: 0,
+        }
     }
 
     /// The harness: request a screenshot on `shot_frame` (default 6 — theme +
     /// fonts settled; pass a later frame to let sweeps reach rest first),
     /// save it when the event arrives, exit.
     fn screenshot_harness(&mut self, ctx: &egui::Context) {
-        let Some(path) = self.shot.clone() else { return };
+        let Some(path) = self.shot.clone() else {
+            return;
+        };
 
         self.frames += 1;
         if self.frames == self.shot_frame {
@@ -159,9 +185,7 @@ impl App {
             for px in &img.pixels {
                 rgba.extend_from_slice(&px.to_array());
             }
-            match image::RgbaImage::from_raw(w as u32, h as u32, rgba)
-                .map(|buf| buf.save(&path))
-            {
+            match image::RgbaImage::from_raw(w as u32, h as u32, rgba).map(|buf| buf.save(&path)) {
                 Some(Ok(())) => {
                     eprintln!("screenshot written: {}", path.display());
                     std::process::exit(0);
@@ -204,6 +228,23 @@ impl eframe::App for App {
         }
 
         self.pixvix.ui(&ctx);
+
+        // F12: egui's native inspection overlay — the UI debugger.
+        if ctx.input(|i| i.key_pressed(egui::Key::F12)) {
+            let open = ctx.data_mut(|d| {
+                let v = d.get_temp_mut_or(egui::Id::new("dpl-inspect"), false);
+                *v = !*v;
+                *v
+            });
+            tracing::info!(open, "inspection overlay toggled");
+        }
+        if ctx.data(|d| d.get_temp(egui::Id::new("dpl-inspect")).unwrap_or(false)) {
+            egui::Window::new("inspection")
+                .default_size([360.0, 480.0])
+                .show(&ctx, |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| ctx.inspection_ui(ui));
+                });
+        }
 
         // `--pixvix-snap`: after a few settle frames, fire the real Img/Full
         // handler, report, exit by its own verdict.

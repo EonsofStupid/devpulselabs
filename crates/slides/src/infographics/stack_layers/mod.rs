@@ -9,7 +9,7 @@ use dpl_coldlight::{self as cl, Fluid, Tone};
 use egui::{Align2, FontId, Rect, Ui};
 
 use crate::blocks::eyebrow::tracked;
-use crate::motion::Clock;
+use crate::motion::{Beat, Clock};
 use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
 
 static SPEC: TemplateSpec = TemplateSpec {
@@ -43,13 +43,25 @@ impl StackLayers {
                 title: "Frontier API",
                 sub: "their stack",
                 tone: None,
-                layers: vec!["Your app", "SDK / API calls", "Their cloud", "Their weights", "Their GPUs"],
+                layers: vec![
+                    "Your app",
+                    "SDK / API calls",
+                    "Their cloud",
+                    "Their weights",
+                    "Their GPUs",
+                ],
             },
             right: StackColumn {
                 title: "Local box",
                 sub: "your stack",
                 tone: Some(Tone::Lime),
-                layers: vec!["Your app", "Local runtime", "Your machine", "Open weights", "Your GPU"],
+                layers: vec![
+                    "Your app",
+                    "Local runtime",
+                    "Your machine",
+                    "Open weights",
+                    "Your GPU",
+                ],
             },
             clock: Clock::default(),
         }
@@ -62,9 +74,7 @@ fn column(
     rect: Rect,
     col: &StackColumn,
     base: Tone,
-    now: f64,
-    t0: f64,
-    stagger_from: f32,
+    beat: Beat,
 ) -> bool {
     let tone = col.tone.unwrap_or(base);
     let mut animating = false;
@@ -94,12 +104,13 @@ fn column(
     let radius = fluid.r_md() as u8;
     for (i, layer) in col.layers.iter().enumerate() {
         // Bottom-up: the layer you own lands first.
-        let fade = cl::motion::LAYER_FADE.at(now, t0 + stagger_from as f64, col.layers.len() - 1 - i);
+        let fade = cl::motion::LAYER_FADE.at(beat.now, beat.t0, col.layers.len() - 1 - i);
         if fade < 1.0 {
             animating = true;
         }
         let y = top + (plate_h + gap) * i as f32;
-        let plate = Rect::from_min_size(egui::pos2(rect.min.x, y), egui::vec2(rect.width(), plate_h));
+        let plate =
+            Rect::from_min_size(egui::pos2(rect.min.x, y), egui::vec2(rect.width(), plate_h));
         let owned = i == col.layers.len() - 1;
         let alpha = |a: u8| (a as f32 * fade) as u8;
         if owned {
@@ -168,7 +179,7 @@ impl SlideTemplate for StackLayers {
         let full = ui.max_rect();
         let fluid = Fluid::of(full);
         let now = ui.input(|i| i.time);
-        let t0 = self.clock.tick(now);
+        let beat = self.clock.beat(now);
         let painter = ui.painter();
 
         let area = full.shrink(fluid.sp_6());
@@ -179,8 +190,15 @@ impl SlideTemplate for StackLayers {
             egui::pos2(area.min.x + col_w + gutter, area.min.y),
             egui::vec2(col_w, area.height()),
         );
-        let a = column(painter, &fluid, left, &self.left, self.tone, now, t0, 0.0);
-        let b = column(painter, &fluid, right, &self.right, self.tone, now, t0, 0.2);
+        let a = column(painter, &fluid, left, &self.left, self.tone, beat);
+        let b = column(
+            painter,
+            &fluid,
+            right,
+            &self.right,
+            self.tone,
+            beat.delayed(0.2),
+        );
         if a || b {
             ui.ctx().request_repaint();
         }

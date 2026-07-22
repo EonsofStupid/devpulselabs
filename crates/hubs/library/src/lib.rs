@@ -51,7 +51,10 @@ pub struct LibraryHub {
 
 impl Default for LibraryHub {
     fn default() -> Self {
-        Self { demos: dpl_slides::demos(), focus: None }
+        Self {
+            demos: dpl_slides::demos(),
+            focus: None,
+        }
     }
 }
 
@@ -102,14 +105,25 @@ impl LibraryHub {
                             .small()
                             .color(SPEC.tone.color()),
                     );
-                    ui.label(RichText::new(spec.id.0).monospace().small().color(cl::ink::SUBTLE));
+                    ui.label(
+                        RichText::new(spec.id.0)
+                            .monospace()
+                            .small()
+                            .color(cl::ink::SUBTLE),
+                    );
                     let replay = ui
-                        .label(RichText::new("replay").monospace().small().color(SPEC.tone.color()))
+                        .label(
+                            RichText::new("replay")
+                                .monospace()
+                                .small()
+                                .color(SPEC.tone.color()),
+                        )
                         .interact(egui::Sense::click());
                     (back, replay)
                 });
                 let stage = ui.available_rect_before_wrap().shrink(cl::space::S2);
-                ui.painter().rect_filled(stage, cl::RADIUS, cl::surface::WELL);
+                ui.painter()
+                    .rect_filled(stage, cl::RADIUS, cl::surface::WELL);
                 ui.painter().rect_stroke(
                     stage,
                     cl::RADIUS,
@@ -137,7 +151,11 @@ impl LibraryHub {
         ui.add_space(cl::space::S2);
         ui.horizontal(|ui| {
             ui.label(RichText::new(SPEC.icon).size(22.0).color(SPEC.tone.color()));
-            ui.label(RichText::new("The catalog").heading().color(cl::ink::STRONG));
+            ui.label(
+                RichText::new("The catalog")
+                    .heading()
+                    .color(cl::ink::STRONG),
+            );
         });
         ui.label(
             RichText::new(format!(
@@ -176,7 +194,10 @@ impl LibraryHub {
                             .color(SPEC.tone.color()),
                     );
                     ui.label(
-                        RichText::new(spec.id.0).monospace().small().color(cl::ink::SUBTLE),
+                        RichText::new(spec.id.0)
+                            .monospace()
+                            .small()
+                            .color(cl::ink::SUBTLE),
                     );
                 });
                 ui.label(RichText::new(spec.blurb).small().color(cl::ink::MUTED));
@@ -184,11 +205,10 @@ impl LibraryHub {
 
                 // The stage: a recessed 16:9 WELL plate the slide renders on —
                 // the same surface contract the deck runtime will provide.
-                let (stage, _) = ui.allocate_exact_size(
-                    egui::vec2(stage_w, stage_h),
-                    egui::Sense::hover(),
-                );
-                ui.painter().rect_filled(stage, cl::RADIUS, cl::surface::WELL);
+                let (stage, _) =
+                    ui.allocate_exact_size(egui::vec2(stage_w, stage_h), egui::Sense::hover());
+                ui.painter()
+                    .rect_filled(stage, cl::RADIUS, cl::surface::WELL);
                 ui.painter().rect_stroke(
                     stage,
                     cl::RADIUS,
@@ -280,49 +300,51 @@ fn moods_wall(ui: &mut egui::Ui) {
     );
     ui.add_space(cl::space::S2);
 
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-        let card = egui::vec2(236.0, 128.0);
-        ui.horizontal_wrapped(|ui| {
-            for mood in cl::MOODS.iter() {
-                let (rect, _) = ui.allocate_exact_size(card, egui::Sense::hover());
-                let painter = ui.painter();
-                // The treatment exactly as the backdrop composes it:
-                // gradient, then the mood's tinted scrim at half alpha so
-                // the swatch stays legible on the wall.
-                cl::mood_gradient(painter, rect, mood);
-                let s = mood.scrim_color();
-                painter.rect_filled(
-                    rect,
-                    cl::RADIUS_SM,
-                    egui::Color32::from_rgba_unmultiplied(s.r(), s.g(), s.b(), s.a() / 2),
-                );
-                painter.rect(
-                    rect,
-                    cl::RADIUS_SM,
-                    egui::Color32::TRANSPARENT,
-                    egui::Stroke::new(1.0, cl::surface::HAIRLINE),
-                    egui::StrokeKind::Inside,
-                );
-                painter.circle_filled(
-                    egui::pos2(rect.min.x + 14.0, rect.max.y - 16.0),
-                    5.0,
-                    mood.accent_color(),
-                );
-                painter.text(
-                    egui::pos2(rect.min.x + 26.0, rect.max.y - 16.0),
-                    egui::Align2::LEFT_CENTER,
-                    mood.name,
-                    egui::FontId::proportional(13.0),
-                    cl::ink::STRONG,
-                );
-                painter.text(
-                    egui::pos2(rect.max.x - 10.0, rect.max.y - 16.0),
-                    egui::Align2::RIGHT_CENTER,
-                    format!("{} stops", mood.stops.len()),
-                    egui::FontId::monospace(10.5),
-                    cl::ink::BASE,
-                );
-            }
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            let card = egui::vec2(236.0, 128.0);
+            ui.horizontal_wrapped(|ui| {
+                for mood in cl::MOODS.iter() {
+                    let (rect, _) = ui.allocate_exact_size(card, egui::Sense::hover());
+                    let painter = ui.painter();
+                    // The treatment exactly as the backdrop composes it:
+                    // gradient, then the mood's tinted scrim at half alpha so
+                    // the swatch stays legible on the wall.
+                    cl::mood_gradient(painter, rect, mood);
+                    let s = mood.scrim_color();
+                    painter.rect_filled(
+                        rect,
+                        cl::RADIUS_SM,
+                        egui::Color32::from_rgba_unmultiplied(s.r(), s.g(), s.b(), s.a() / 2),
+                    );
+                    painter.rect(
+                        rect,
+                        cl::RADIUS_SM,
+                        egui::Color32::TRANSPARENT,
+                        egui::Stroke::new(1.0, cl::surface::HAIRLINE),
+                        egui::StrokeKind::Inside,
+                    );
+                    painter.circle_filled(
+                        egui::pos2(rect.min.x + 14.0, rect.max.y - 16.0),
+                        5.0,
+                        mood.accent_color(),
+                    );
+                    painter.text(
+                        egui::pos2(rect.min.x + 26.0, rect.max.y - 16.0),
+                        egui::Align2::LEFT_CENTER,
+                        mood.name,
+                        egui::FontId::proportional(13.0),
+                        cl::ink::STRONG,
+                    );
+                    painter.text(
+                        egui::pos2(rect.max.x - 10.0, rect.max.y - 16.0),
+                        egui::Align2::RIGHT_CENTER,
+                        format!("{} stops", mood.stops.len()),
+                        egui::FontId::monospace(10.5),
+                        cl::ink::BASE,
+                    );
+                }
+            });
         });
-    });
 }

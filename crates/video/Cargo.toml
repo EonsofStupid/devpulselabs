@@ -7,3 +7,6 @@ description = "Looping video → egui texture via an ffmpeg SUBPROCESS (ADR-009)
 
 [dependencies]
 egui.workspace = true
+
+[lints]
+workspace = true

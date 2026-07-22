@@ -31,7 +31,8 @@ pub fn badge(ui: &mut Ui, fluid: &Fluid, text: &str, live: Option<Tone>) {
         Some(tone) => {
             ui.painter().rect_filled(rect, radius, tone.color());
             let dot = egui::pos2(rect.min.x + pad_x + dot_w * 0.25, rect.center().y);
-            ui.painter().circle_filled(dot, fluid.sp_1() * 0.8, cl::surface::WELL);
+            ui.painter()
+                .circle_filled(dot, fluid.sp_1() * 0.8, cl::surface::WELL);
         }
         None => {
             ui.painter().rect_filled(rect, radius, cl::surface::RAISED);
@@ -43,6 +44,9 @@ pub fn badge(ui: &mut Ui, fluid: &Fluid, text: &str, live: Option<Tone>) {
             );
         }
     }
-    let text_pos = egui::pos2(rect.min.x + pad_x + dot_w, rect.center().y - galley.size().y * 0.5);
+    let text_pos = egui::pos2(
+        rect.min.x + pad_x + dot_w,
+        rect.center().y - galley.size().y * 0.5,
+    );
     ui.painter().galley(text_pos, galley, cl::ink::BASE);
 }

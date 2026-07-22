@@ -25,7 +25,10 @@ impl ChartStage {
         let scale = (avail.width() / LOGICAL_W).min(avail.height() / LOGICAL_H);
         let size = egui::vec2(LOGICAL_W * scale, LOGICAL_H * scale);
         let min = avail.center() - size * 0.5;
-        Self { rect: Rect::from_min_size(min, size), scale }
+        Self {
+            rect: Rect::from_min_size(min, size),
+            scale,
+        }
     }
 
     /// A logical point on screen.

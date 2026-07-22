@@ -66,7 +66,10 @@ mod tests {
     fn a_subscriber_sees_the_typed_event() {
         let fabric = Fabric::new();
         let mut rx = fabric.subscribe_shell();
-        let route = Route { hub: HubId("wiredfront"), sub: SubId("pixvix") };
+        let route = Route {
+            hub: HubId("wiredfront"),
+            sub: SubId("pixvix"),
+        };
         fabric.publish_shell(ShellEvent::RouteChanged { route });
         assert_eq!(rx.try_recv().unwrap(), ShellEvent::RouteChanged { route });
     }
@@ -75,7 +78,10 @@ mod tests {
     fn publishing_with_no_subscribers_is_not_an_error() {
         let fabric = Fabric::new();
         fabric.publish_shell(ShellEvent::RouteChanged {
-            route: Route { hub: HubId("home"), sub: SubId("shows") },
+            route: Route {
+                hub: HubId("home"),
+                sub: SubId("shows"),
+            },
         });
         // No panic, no Result to mishandle — the signal simply had no audience.
     }

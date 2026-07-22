@@ -36,9 +36,18 @@ pub struct RevealList {
 impl RevealList {
     pub fn demo() -> Self {
         let items = vec![
-            RevealItem { text: "It predicts the next word", sub: "that's the whole trick" },
-            RevealItem { text: "Scale made it feel like thinking", sub: "same trick, more of it" },
-            RevealItem { text: "Your box can run it now", sub: "open weights changed the deal" },
+            RevealItem {
+                text: "It predicts the next word",
+                sub: "that's the whole trick",
+            },
+            RevealItem {
+                text: "Scale made it feel like thinking",
+                sub: "same trick, more of it",
+            },
+            RevealItem {
+                text: "Your box can run it now",
+                sub: "open weights changed the deal",
+            },
         ];
         let n = items.len();
         Self {

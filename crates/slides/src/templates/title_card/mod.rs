@@ -5,8 +5,8 @@
 //! staggered — the one-time event, then rest. An optional media slot
 //! (image / video / pre-made ambience) composes behind the type.
 
-use dpl_coldlight::{self as cl};
 use dpl_coldlight::Tone;
+use dpl_coldlight::{self as cl};
 use egui::{Align2, FontId, Ui};
 
 use crate::blocks::eyebrow::tracked;
@@ -87,7 +87,8 @@ impl SlideTemplate for TitleCard {
         let sub_size = fluid.fs_h3();
         let eyebrow_size = fluid.fs_eyebrow();
         // The block centers vertically; title leads at 0.95 (ported).
-        let block_h = eyebrow_size + fluid.sp_5() + title_size * 0.95 + fluid.sp_6() + sub_size * 1.3;
+        let block_h =
+            eyebrow_size + fluid.sp_5() + title_size * 0.95 + fluid.sp_6() + sub_size * 1.3;
         let top = stage.rect.center().y - block_h * 0.5;
         let (x, anchor) = match self.align {
             TitleAlign::Left => (stage.rect.min.x, Align2::LEFT_TOP),
@@ -109,7 +110,10 @@ impl SlideTemplate for TitleCard {
             cl::ink::STRONG.gamma_multiply(p1),
         );
         painter.text(
-            egui::pos2(x, top + eyebrow_size + fluid.sp_5() + title_size * 0.95 + fluid.sp_6() + lift(p2)),
+            egui::pos2(
+                x,
+                top + eyebrow_size + fluid.sp_5() + title_size * 0.95 + fluid.sp_6() + lift(p2),
+            ),
             anchor,
             self.subtitle,
             FontId::proportional(sub_size),

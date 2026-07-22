@@ -1,0 +1,9 @@
+[package]
+name = "xtask"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Workspace automation (the cargo-xtask pattern): `cargo green` is THE gate."
+
+[lints]
+workspace = true

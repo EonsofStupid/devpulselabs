@@ -7,3 +7,6 @@ publish.workspace = true
 [dependencies]
 tokio.workspace = true
 dpl-hub.workspace = true
+
+[lints]
+workspace = true

@@ -41,9 +41,24 @@ impl BarCompare {
             tone: Tone::Amber,
             unit: "$ per million tokens",
             bars: vec![
-                BarDatum { label: "Frontier API", value: 15.0, display: "$15", tone: None },
-                BarDatum { label: "Cheap tier", value: 3.0, display: "$3", tone: Some(Tone::Cyan) },
-                BarDatum { label: "Your box", value: 0.4, display: "~$0.40 power", tone: Some(Tone::Lime) },
+                BarDatum {
+                    label: "Frontier API",
+                    value: 15.0,
+                    display: "$15",
+                    tone: None,
+                },
+                BarDatum {
+                    label: "Cheap tier",
+                    value: 3.0,
+                    display: "$3",
+                    tone: Some(Tone::Cyan),
+                },
+                BarDatum {
+                    label: "Your box",
+                    value: 0.4,
+                    display: "~$0.40 power",
+                    tone: Some(Tone::Lime),
+                },
             ],
             clock: Clock::default(),
         }
@@ -105,11 +120,17 @@ impl SlideTemplate for BarCompare {
             let lighter = ramp.steps[cl::STEP_500 - 2];
             let band = Rect::from_min_max(
                 rect.min + egui::vec2(stage.len(1.0), stage.len(1.0)),
-                egui::pos2(rect.max.x - stage.len(1.0), rect.min.y + rect.height() * 0.33),
+                egui::pos2(
+                    rect.max.x - stage.len(1.0),
+                    rect.min.y + rect.height() * 0.33,
+                ),
             );
             if band.height() > 0.0 {
                 let lit = egui::Color32::from_rgba_unmultiplied(
-                    lighter.r(), lighter.g(), lighter.b(), 90,
+                    lighter.r(),
+                    lighter.g(),
+                    lighter.b(),
+                    90,
                 );
                 // Top-lit quad fading to transparent.
                 let mesh = dpl_vector::area_fill(

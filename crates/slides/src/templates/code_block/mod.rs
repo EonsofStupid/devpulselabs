@@ -88,7 +88,11 @@ impl SlideTemplate for CodeBlock {
             cl::ink::STRONG.gamma_multiply(alpha),
         );
         let title_w = painter
-            .layout_no_wrap(self.title.into(), FontId::proportional(fluid.fs_h4()), cl::ink::BASE)
+            .layout_no_wrap(
+                self.title.into(),
+                FontId::proportional(fluid.fs_h4()),
+                cl::ink::BASE,
+            )
             .size()
             .x;
         painter.text(
@@ -110,7 +114,10 @@ impl SlideTemplate for CodeBlock {
             cl::ink::BASE,
         );
         let btn = Rect::from_center_size(
-            egui::pos2(plate.max.x - fluid.sp_6() - galley.size().x * 0.5, plate.min.y + head_h * 0.5),
+            egui::pos2(
+                plate.max.x - fluid.sp_6() - galley.size().x * 0.5,
+                plate.min.y + head_h * 0.5,
+            ),
             galley.size() + egui::vec2(fluid.sp_5(), fluid.sp_2()),
         );
         let resp = ui.allocate_rect(btn, Sense::click());
@@ -128,7 +135,11 @@ impl SlideTemplate for CodeBlock {
         painter.galley(
             btn.center() - galley.size() * 0.5,
             galley,
-            if copied { self.tone.color() } else { cl::ink::BASE },
+            if copied {
+                self.tone.color()
+            } else {
+                cl::ink::BASE
+            },
         );
         if resp.clicked() {
             ui.ctx().copy_text(self.code.to_string());
@@ -189,7 +200,10 @@ mod tests {
         let mut c = CodeBlock::demo();
         c.copied_at = Some(10.0);
         assert!(c.copied_at.is_some_and(|t| 11.0 - t < COPIED_HOLD));
-        assert!(!c.copied_at.is_some_and(|t| 12.0 - t < COPIED_HOLD), "hold expires");
+        assert!(
+            !c.copied_at.is_some_and(|t| 12.0 - t < COPIED_HOLD),
+            "hold expires"
+        );
         c.restart();
         assert!(c.copied_at.is_none());
     }

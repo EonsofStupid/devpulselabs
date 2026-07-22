@@ -5,7 +5,13 @@
 
 use dpl_coldlight::Tone;
 
-const ACCENTS: [Tone; 5] = [Tone::Cyan, Tone::Lime, Tone::Magenta, Tone::Violet, Tone::Coral];
+const ACCENTS: [Tone; 5] = [
+    Tone::Cyan,
+    Tone::Lime,
+    Tone::Magenta,
+    Tone::Violet,
+    Tone::Coral,
+];
 
 /// Tone for series `index` under a slide toned `base`. Slot 0 is the slide's
 /// tone; later slots walk the accent order, skipping the base so two series
@@ -29,7 +35,14 @@ mod tests {
         let order: Vec<Tone> = (0..6).map(|i| series_tone(i, Tone::Amber)).collect();
         assert_eq!(
             order,
-            vec![Tone::Amber, Tone::Cyan, Tone::Lime, Tone::Magenta, Tone::Violet, Tone::Coral]
+            vec![
+                Tone::Amber,
+                Tone::Cyan,
+                Tone::Lime,
+                Tone::Magenta,
+                Tone::Violet,
+                Tone::Coral
+            ]
         );
     }
 

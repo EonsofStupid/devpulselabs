@@ -49,7 +49,8 @@ pub struct CaptureMeta {
 
 fn kebab_ok(s: &str) -> bool {
     !s.is_empty()
-        && s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '_'))
+        && s.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '_'))
 }
 
 fn v_suffix(name: &str) -> bool {
@@ -112,11 +113,16 @@ pub fn normalize_meta_auto(mut meta: CaptureMeta, prefix: &str) -> Result<Captur
 /// Real recorder events, bridged onto the fabric by the embedding shell.
 #[derive(Clone, Debug)]
 pub enum StepsEvent {
-    State { recording: bool, count: u32 },
+    State {
+        recording: bool,
+        count: u32,
+    },
     /// A click did NOT become a step, and why — never a silently frozen
     /// counter (carried law).
     Skip(String),
-    Saved { name: String },
+    Saved {
+        name: String,
+    },
 }
 
 pub type EventSink = Arc<dyn Fn(StepsEvent) + Send + Sync>;
@@ -190,7 +196,11 @@ pub struct StepsRecorder {
 
 impl StepsRecorder {
     pub fn new(sink: EventSink) -> Arc<Self> {
-        Arc::new(Self { inner: Mutex::new(None), running: Arc::new(AtomicBool::new(false)), sink })
+        Arc::new(Self {
+            inner: Mutex::new(None),
+            running: Arc::new(AtomicBool::new(false)),
+            sink,
+        })
     }
 
     fn emit_state(&self, recording: bool, count: u32) {
@@ -204,7 +214,11 @@ impl StepsRecorder {
 
     /// Begin recording into `<inbox>/<auto-name>`. The 5s prep countdown is
     /// the UI's job BEFORE calling this, carried.
-    pub fn start(self: &Arc<Self>, inbox: &std::path::Path, meta: CaptureMeta) -> Result<(), String> {
+    pub fn start(
+        self: &Arc<Self>,
+        inbox: &std::path::Path,
+        meta: CaptureMeta,
+    ) -> Result<(), String> {
         if self.running.load(Ordering::Relaxed) {
             return Err("already recording steps".into());
         }
@@ -215,7 +229,10 @@ impl StepsRecorder {
         let meta = normalize_meta_auto(meta, "guide")?;
         let dir = inbox.join(&meta.name);
         std::fs::create_dir_all(&dir).map_err(|e| format!("guide dir: {e}"))?;
-        *self.inner.lock().expect("steps lock") = Some(Session { dir, steps: Vec::new() });
+        *self.inner.lock().expect("steps lock") = Some(Session {
+            dir,
+            steps: Vec::new(),
+        });
         ensure_hook(self.clone());
         self.running.store(true, Ordering::Relaxed);
         self.emit_state(true, 0);
@@ -249,7 +266,11 @@ impl StepsRecorder {
             return Err("no steps captured".into());
         }
         let count = sess.steps.len() as u32;
-        let seed_title = sess.steps.first().map(|s| s.title.clone()).unwrap_or_default();
+        let seed_title = sess
+            .steps
+            .first()
+            .map(|s| s.title.clone())
+            .unwrap_or_default();
         drop(guard);
         self.emit_state(false, count);
         Ok(StopResult { count, seed_title })
@@ -316,7 +337,10 @@ impl StepsRecorder {
             .ok()
             .and_then(|g| g.as_ref().map(|s| s.steps.len() as u32))
             .unwrap_or(0);
-        StepsState { recording: self.running.load(Ordering::Relaxed), count }
+        StepsState {
+            recording: self.running.load(Ordering::Relaxed),
+            count,
+        }
     }
 
     /// One step, on the worker thread (carried two-frame model; the session
@@ -353,7 +377,9 @@ impl StepsRecorder {
                 return;
             }
         };
-        let click = trigger.click_point().and_then(|(gx, gy)| relative_click(gx, gy, &shot));
+        let click = trigger
+            .click_point()
+            .and_then(|(gx, gy)| relative_click(gx, gy, &shot));
 
         let mut result_file = None;
         let mut total_bytes = shot.bytes;
@@ -488,13 +514,27 @@ mod tests {
             tags: vec!["setup".into()],
         };
         assert_eq!(normalize_meta(base.clone()).unwrap().name, "my-guide_v1");
-        let versioned = CaptureMeta { name: "my-guide_v3".into(), ..base.clone() };
+        let versioned = CaptureMeta {
+            name: "my-guide_v3".into(),
+            ..base.clone()
+        };
         assert_eq!(normalize_meta(versioned).unwrap().name, "my-guide_v3");
-        let bad = CaptureMeta { name: "Bad Name".into(), ..base.clone() };
+        let bad = CaptureMeta {
+            name: "Bad Name".into(),
+            ..base.clone()
+        };
         assert!(normalize_meta(bad).is_err(), "kebab law");
-        let auto = CaptureMeta { name: "  ".into(), tags: vec![], ..base };
+        let auto = CaptureMeta {
+            name: "  ".into(),
+            tags: vec![],
+            ..base
+        };
         let auto = normalize_meta_auto(auto, "guide").unwrap();
-        assert!(auto.name.starts_with("guide-"), "timestamp auto-name: {}", auto.name);
+        assert!(
+            auto.name.starts_with("guide-"),
+            "timestamp auto-name: {}",
+            auto.name
+        );
         assert_eq!(auto.tags, vec!["unsorted".to_string()], "auto tags default");
     }
 
@@ -535,19 +575,25 @@ mod tests {
         };
         let name = rec.save(&inbox, meta).unwrap();
         assert_eq!(name, "my-guide_v1-2", "never clobber: uniquified");
-        let manifest: serde_json::Value = serde_json::from_slice(
-            &std::fs::read(inbox.join(&name).join("guide.json")).unwrap(),
-        )
-        .unwrap();
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(inbox.join(&name).join("guide.json")).unwrap())
+                .unwrap();
         assert_eq!(manifest["kind"], "guide");
         assert_eq!(manifest["stepCount"], 1);
-        assert!(rec.save(&inbox, CaptureMeta {
-            library: true,
-            show: String::new(),
-            episode: String::new(),
-            name: "x".into(),
-            tags: vec!["t".into()],
-        }).is_err(), "filing happens exactly once");
+        assert!(
+            rec.save(
+                &inbox,
+                CaptureMeta {
+                    library: true,
+                    show: String::new(),
+                    episode: String::new(),
+                    name: "x".into(),
+                    tags: vec!["t".into()],
+                }
+            )
+            .is_err(),
+            "filing happens exactly once"
+        );
         let _ = std::fs::remove_dir_all(&inbox);
     }
 
@@ -564,6 +610,10 @@ mod tests {
             hash: 0,
         };
         assert_eq!(relative_click(100.0, 100.0, &shot), Some((0.5, 0.5)));
-        assert_eq!(relative_click(1000.0, 100.0, &shot), None, "off-window click rejected");
+        assert_eq!(
+            relative_click(1000.0, 100.0, &shot),
+            None,
+            "off-window click rejected"
+        );
     }
 }

@@ -21,3 +21,6 @@ webp = "0.3"
 [[bin]]
 name = "capture-cli"
 path = "src/bin/capture_cli.rs"
+
+[lints]
+workspace = true

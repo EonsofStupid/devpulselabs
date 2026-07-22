@@ -12,8 +12,10 @@ use dpl_coldlight::{self as cl, Tone};
 use dpl_engine_capture as cap;
 use dpl_engine_steps::{normalize_meta_auto, CaptureMeta, StepsRecorder};
 use dpl_fabric::{Fabric, ShellEvent};
-use egui::{Align2, Color32, CornerRadius, FontId, Rect, RichText, Sense, ViewportBuilder, ViewportId};
-use std::path::PathBuf;
+use egui::{
+    Align2, Color32, CornerRadius, FontId, Rect, RichText, Sense, ViewportBuilder, ViewportId,
+};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -108,7 +110,7 @@ impl Pixvix {
     }
 
     /// Never-clobber: `stem.ext`, then `stem-2.ext`, `stem-3.ext`…
-    fn unique_path(dir: &PathBuf, stem: &str, ext: &str) -> PathBuf {
+    fn unique_path(dir: &Path, stem: &str, ext: &str) -> PathBuf {
         let first = dir.join(format!("{stem}.{ext}"));
         if !first.exists() {
             return first;
@@ -237,7 +239,11 @@ impl Pixvix {
                 &rgba,
             );
             let tex = ctx.load_texture("pixvix-freeze", color, egui::TextureOptions::LINEAR);
-            Ok(RegionSelect { tex, frozen, drag: None })
+            Ok(RegionSelect {
+                tex,
+                frozen,
+                drag: None,
+            })
         })();
         match result {
             Ok(r) => self.region = Some(r),
@@ -279,7 +285,12 @@ impl Pixvix {
                     *t_done.lock().expect("video done lock") = Some(r);
                 })
                 .map_err(|e| format!("spawn: {e}"))?;
-            Ok(VideoRec { stop, started: Instant::now(), out, done })
+            Ok(VideoRec {
+                stop,
+                started: Instant::now(),
+                out,
+                done,
+            })
         });
         match result {
             Ok(v) => {
@@ -345,10 +356,17 @@ impl Pixvix {
         let status = self.status.clone();
         let steps_state = self.steps.status();
         let video_elapsed = self.video.as_ref().map(|v| v.started.elapsed().as_secs());
-        let windows: Vec<String> =
-            self.windows.iter().map(|w| format!("{} — {}", w.app, w.title)).collect();
+        let windows: Vec<String> = self
+            .windows
+            .iter()
+            .map(|w| format!("{} — {}", w.app, w.title))
+            .collect();
         let picked = self.picked_window;
-        let note = self.steps_note.lock().map(|n| n.clone()).unwrap_or_default();
+        let note = self
+            .steps_note
+            .lock()
+            .map(|n| n.clone())
+            .unwrap_or_default();
 
         ctx.show_viewport_immediate(ViewportId::from_hash_of("pixvix"), builder, |ctx, _| {
             egui::CentralPanel::default()
@@ -435,132 +453,137 @@ impl Pixvix {
             .with_always_on_top()
             .with_decorations(false);
 
-        ctx.show_viewport_immediate(ViewportId::from_hash_of("pixvix-region"), builder, |ctx, _| {
-            egui::CentralPanel::default()
-                .frame(egui::Frame::new().fill(Color32::BLACK))
-                .show(ctx, |ui| {
-                    let full = ui.max_rect();
-                    let painter = ui.painter().clone();
-                    let tex = region.tex.id();
-                    painter.image(
-                        tex,
-                        full,
-                        Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                        Color32::WHITE,
-                    );
+        ctx.show_viewport_immediate(
+            ViewportId::from_hash_of("pixvix-region"),
+            builder,
+            |ctx, _| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::new().fill(Color32::BLACK))
+                    .show(ctx, |ui| {
+                        let full = ui.max_rect();
+                        let painter = ui.painter().clone();
+                        let tex = region.tex.id();
+                        painter.image(
+                            tex,
+                            full,
+                            Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                            Color32::WHITE,
+                        );
 
-                    let resp = ui.interact(full, egui::Id::new("pixvix-region-drag"), Sense::drag());
-                    if resp.drag_started() {
-                        if let Some(p) = resp.interact_pointer_pos() {
-                            region.drag = Some((p, p));
-                        }
-                    }
-                    if let (Some((start, _)), Some(p)) =
-                        (region.drag, resp.interact_pointer_pos())
-                    {
-                        if resp.dragged() {
-                            region.drag = Some((start, p));
-                        }
-                    }
-
-                    // The veil: darken everything OUTSIDE the selection.
-                    let sel = region.drag.map(|(a, b)| Rect::from_two_pos(a, b));
-                    let veil = Color32::from_black_alpha(140);
-                    match sel {
-                        Some(r) => {
-                            for shade in [
-                                Rect::from_min_max(full.min, egui::pos2(full.max.x, r.min.y)),
-                                Rect::from_min_max(egui::pos2(full.min.x, r.max.y), full.max),
-                                Rect::from_min_max(
-                                    egui::pos2(full.min.x, r.min.y),
-                                    egui::pos2(r.min.x, r.max.y),
-                                ),
-                                Rect::from_min_max(
-                                    egui::pos2(r.max.x, r.min.y),
-                                    egui::pos2(full.max.x, r.max.y),
-                                ),
-                            ] {
-                                painter.rect_filled(shade, 0, veil);
+                        let resp =
+                            ui.interact(full, egui::Id::new("pixvix-region-drag"), Sense::drag());
+                        if resp.drag_started() {
+                            if let Some(p) = resp.interact_pointer_pos() {
+                                region.drag = Some((p, p));
                             }
+                        }
+                        if let (Some((start, _)), Some(p)) =
+                            (region.drag, resp.interact_pointer_pos())
+                        {
+                            if resp.dragged() {
+                                region.drag = Some((start, p));
+                            }
+                        }
+
+                        // The veil: darken everything OUTSIDE the selection.
+                        let sel = region.drag.map(|(a, b)| Rect::from_two_pos(a, b));
+                        let veil = Color32::from_black_alpha(140);
+                        match sel {
+                            Some(r) => {
+                                for shade in [
+                                    Rect::from_min_max(full.min, egui::pos2(full.max.x, r.min.y)),
+                                    Rect::from_min_max(egui::pos2(full.min.x, r.max.y), full.max),
+                                    Rect::from_min_max(
+                                        egui::pos2(full.min.x, r.min.y),
+                                        egui::pos2(r.min.x, r.max.y),
+                                    ),
+                                    Rect::from_min_max(
+                                        egui::pos2(r.max.x, r.min.y),
+                                        egui::pos2(full.max.x, r.max.y),
+                                    ),
+                                ] {
+                                    painter.rect_filled(shade, 0, veil);
+                                }
+                                painter.rect(
+                                    r,
+                                    0,
+                                    Color32::TRANSPARENT,
+                                    egui::Stroke::new(1.5, TONE.color()),
+                                    egui::StrokeKind::Outside,
+                                );
+                                painter.text(
+                                    r.min - egui::vec2(0.0, 6.0),
+                                    Align2::LEFT_BOTTOM,
+                                    format!("{:.0} × {:.0}", r.width(), r.height()),
+                                    FontId::monospace(12.0),
+                                    cl::ink::STRONG,
+                                );
+                            }
+                            None => {
+                                painter.rect_filled(full, 0, Color32::from_black_alpha(60));
+                                painter.text(
+                                    full.center(),
+                                    Align2::CENTER_CENTER,
+                                    "drag to select · Esc cancels",
+                                    FontId::proportional(15.0),
+                                    cl::ink::STRONG,
+                                );
+                            }
+                        }
+
+                        // The loupe: 4× zoom around the cursor, ColdLight-framed.
+                        if let Some(p) = ui.ctx().pointer_latest_pos() {
+                            let zoom = 4.0;
+                            let box_size = 120.0;
+                            let uv_half = box_size / zoom / 2.0;
+                            let uv = Rect::from_min_max(
+                                egui::pos2(
+                                    ((p.x - uv_half) / full.width()).clamp(0.0, 1.0),
+                                    ((p.y - uv_half) / full.height()).clamp(0.0, 1.0),
+                                ),
+                                egui::pos2(
+                                    ((p.x + uv_half) / full.width()).clamp(0.0, 1.0),
+                                    ((p.y + uv_half) / full.height()).clamp(0.0, 1.0),
+                                ),
+                            );
+                            let offset = egui::vec2(24.0, 24.0);
+                            let mut anchor = p + offset;
+                            if anchor.x + box_size > full.max.x {
+                                anchor.x = p.x - offset.x - box_size;
+                            }
+                            if anchor.y + box_size > full.max.y {
+                                anchor.y = p.y - offset.y - box_size;
+                            }
+                            let loupe = Rect::from_min_size(anchor, egui::vec2(box_size, box_size));
+                            painter.image(tex, loupe, uv, Color32::WHITE);
                             painter.rect(
-                                r,
-                                0,
+                                loupe,
+                                CornerRadius::same(cl::RADIUS_SM),
                                 Color32::TRANSPARENT,
                                 egui::Stroke::new(1.5, TONE.color()),
                                 egui::StrokeKind::Outside,
                             );
-                            painter.text(
-                                r.min - egui::vec2(0.0, 6.0),
-                                Align2::LEFT_BOTTOM,
-                                format!("{:.0} × {:.0}", r.width(), r.height()),
-                                FontId::monospace(12.0),
-                                cl::ink::STRONG,
+                            // Crosshair at the loupe center = the cursor pixel.
+                            let c = loupe.center();
+                            painter.line_segment(
+                                [c - egui::vec2(8.0, 0.0), c + egui::vec2(8.0, 0.0)],
+                                egui::Stroke::new(1.0, TONE.color()),
+                            );
+                            painter.line_segment(
+                                [c - egui::vec2(0.0, 8.0), c + egui::vec2(0.0, 8.0)],
+                                egui::Stroke::new(1.0, TONE.color()),
                             );
                         }
-                        None => {
-                            painter.rect_filled(full, 0, Color32::from_black_alpha(60));
-                            painter.text(
-                                full.center(),
-                                Align2::CENTER_CENTER,
-                                "drag to select · Esc cancels",
-                                FontId::proportional(15.0),
-                                cl::ink::STRONG,
-                            );
-                        }
-                    }
 
-                    // The loupe: 4× zoom around the cursor, ColdLight-framed.
-                    if let Some(p) = ui.ctx().pointer_latest_pos() {
-                        let zoom = 4.0;
-                        let box_size = 120.0;
-                        let uv_half = box_size / zoom / 2.0;
-                        let uv = Rect::from_min_max(
-                            egui::pos2(
-                                ((p.x - uv_half) / full.width()).clamp(0.0, 1.0),
-                                ((p.y - uv_half) / full.height()).clamp(0.0, 1.0),
-                            ),
-                            egui::pos2(
-                                ((p.x + uv_half) / full.width()).clamp(0.0, 1.0),
-                                ((p.y + uv_half) / full.height()).clamp(0.0, 1.0),
-                            ),
-                        );
-                        let offset = egui::vec2(24.0, 24.0);
-                        let mut anchor = p + offset;
-                        if anchor.x + box_size > full.max.x {
-                            anchor.x = p.x - offset.x - box_size;
+                        if resp.drag_stopped() {
+                            finish = Some(region.drag.map(|(a, b)| (a, b, full.size())));
                         }
-                        if anchor.y + box_size > full.max.y {
-                            anchor.y = p.y - offset.y - box_size;
+                        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                            finish = Some(None);
                         }
-                        let loupe = Rect::from_min_size(anchor, egui::vec2(box_size, box_size));
-                        painter.image(tex, loupe, uv, Color32::WHITE);
-                        painter.rect(
-                            loupe,
-                            CornerRadius::same(cl::RADIUS_SM),
-                            Color32::TRANSPARENT,
-                            egui::Stroke::new(1.5, TONE.color()),
-                            egui::StrokeKind::Outside,
-                        );
-                        // Crosshair at the loupe center = the cursor pixel.
-                        let c = loupe.center();
-                        painter.line_segment(
-                            [c - egui::vec2(8.0, 0.0), c + egui::vec2(8.0, 0.0)],
-                            egui::Stroke::new(1.0, TONE.color()),
-                        );
-                        painter.line_segment(
-                            [c - egui::vec2(0.0, 8.0), c + egui::vec2(0.0, 8.0)],
-                            egui::Stroke::new(1.0, TONE.color()),
-                        );
-                    }
-
-                    if resp.drag_stopped() {
-                        finish = Some(region.drag.map(|(a, b)| (a, b, full.size())));
-                    }
-                    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                        finish = Some(None);
-                    }
-                });
-        });
+                    });
+            },
+        );
 
         if let Some(done) = finish {
             let state = self.region.take().expect("region state");
@@ -668,7 +691,10 @@ fn palette(
             ui.add_space(cl::space::S2);
             ui.horizontal(|ui| {
                 ui.label(RichText::new(cl::icon::WINDOW).color(cl::ink::MUTED));
-                let current = windows.get(picked).cloned().unwrap_or_else(|| "no windows scanned".into());
+                let current = windows
+                    .get(picked)
+                    .cloned()
+                    .unwrap_or_else(|| "no windows scanned".into());
                 egui::ComboBox::from_id_salt("pixvix-window")
                     .width(220.0)
                     .selected_text(RichText::new(truncate(&current, 30)).small())
@@ -686,12 +712,20 @@ fn palette(
                     actions.refresh_windows = true;
                 }
             });
-            ui.label(RichText::new("Free (lasso) lands with the polygon editor.").small().color(cl::ink::SUBTLE));
+            ui.label(
+                RichText::new("Free (lasso) lands with the polygon editor.")
+                    .small()
+                    .color(cl::ink::SUBTLE),
+            );
         }
         Tab::Video => match video_elapsed {
             Some(secs) => {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(cl::icon::REC).color(Tone::Coral.color()).size(15.0));
+                    ui.label(
+                        RichText::new(cl::icon::REC)
+                            .color(Tone::Coral.color())
+                            .size(15.0),
+                    );
                     ui.label(
                         RichText::new(format!("REC {:02}:{:02}", secs / 60, secs % 60))
                             .monospace()
@@ -716,8 +750,14 @@ fn palette(
             }
         },
         Tab::Session => {
-            ui.label(RichText::new("Session replay (video-first) lands with PV1c —").color(cl::ink::MUTED));
-            ui.label(RichText::new("the inbox/index engine pass. Honest placeholder.").color(cl::ink::MUTED));
+            ui.label(
+                RichText::new("Session replay (video-first) lands with PV1c —")
+                    .color(cl::ink::MUTED),
+            );
+            ui.label(
+                RichText::new("the inbox/index engine pass. Honest placeholder.")
+                    .color(cl::ink::MUTED),
+            );
         }
         Tab::Steps => {
             ui.horizontal(|ui| {
@@ -731,14 +771,24 @@ fn palette(
                     .color(cl::ink::SUBTLE),
             );
             if !steps_note.is_empty() {
-                ui.label(RichText::new(steps_note).small().monospace().color(cl::ink::MUTED));
+                ui.label(
+                    RichText::new(steps_note)
+                        .small()
+                        .monospace()
+                        .color(cl::ink::MUTED),
+                );
             }
         }
     }
 
     ui.add_space(cl::space::S2);
     if !status.is_empty() {
-        ui.label(RichText::new(status).small().monospace().color(cl::ink::BASE));
+        ui.label(
+            RichText::new(status)
+                .small()
+                .monospace()
+                .color(cl::ink::BASE),
+        );
     }
 }
 

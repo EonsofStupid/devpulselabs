@@ -1,0 +1,5 @@
+[alias]
+# THE gate: fmt-check + clippy(-D warnings) + tests + release build with exe-mtime assert.
+green = "run -p xtask --release --"
+gate = "clippy --workspace --all-targets -- -D warnings"
+test-all = "test --workspace"

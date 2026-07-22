@@ -40,11 +40,31 @@ impl ProbabilityBars {
             tone: Tone::Amber,
             prompt: "The cat sat on the ___",
             predictions: vec![
-                Prediction { token: "mat", pct: 62.0, tone: None },
-                Prediction { token: "floor", pct: 21.0, tone: None },
-                Prediction { token: "couch", pct: 9.0, tone: None },
-                Prediction { token: "moon", pct: 0.4, tone: Some(Tone::Magenta) },
-                Prediction { token: "tax return", pct: 0.1, tone: Some(Tone::Magenta) },
+                Prediction {
+                    token: "mat",
+                    pct: 62.0,
+                    tone: None,
+                },
+                Prediction {
+                    token: "floor",
+                    pct: 21.0,
+                    tone: None,
+                },
+                Prediction {
+                    token: "couch",
+                    pct: 9.0,
+                    tone: None,
+                },
+                Prediction {
+                    token: "moon",
+                    pct: 0.4,
+                    tone: Some(Tone::Magenta),
+                },
+                Prediction {
+                    token: "tax return",
+                    pct: 0.1,
+                    tone: Some(Tone::Magenta),
+                },
             ],
             clock: Clock::default(),
         }
@@ -90,7 +110,11 @@ impl SlideTemplate for ProbabilityBars {
         cursor.y += prompt_size + fluid.sp_5();
 
         // Rows: token · track+fill · pct.
-        let top = self.predictions.iter().map(|p| p.pct).fold(1.0f32, f32::max);
+        let top = self
+            .predictions
+            .iter()
+            .map(|p| p.pct)
+            .fold(1.0f32, f32::max);
         let token_w = fluid.sp_8() * 2.2;
         let pct_w = fluid.sp_8();
         let grow_fx = cl::motion::BAR_GROW;
@@ -101,7 +125,11 @@ impl SlideTemplate for ProbabilityBars {
             if y + row_h > area.max.y {
                 break; // small stage: rows that don't fit are simply not drawn
             }
-            let ink = if i == 0 { cl::ink::STRONG } else { cl::ink::MUTED };
+            let ink = if i == 0 {
+                cl::ink::STRONG
+            } else {
+                cl::ink::MUTED
+            };
             painter.text(
                 egui::pos2(area.min.x + token_w, y + row_h * 0.5),
                 Align2::RIGHT_CENTER,
@@ -124,17 +152,20 @@ impl SlideTemplate for ProbabilityBars {
             // The fill, grown in with the ported stagger.
             let grow = grow_fx.at(now, t0, i);
             let frac = ((p.pct / top).max(0.015)) * grow;
-            let fill = Rect::from_min_size(
-                track.min,
-                egui::vec2(track.width() * frac, track.height()),
-            );
+            let fill =
+                Rect::from_min_size(track.min, egui::vec2(track.width() * frac, track.height()));
             if i == 0 {
                 // The halo: two crisp translucent rings around the top fill.
                 for (grow_px, alpha) in [(3.0, 40), (6.0, 18)] {
                     painter.rect_filled(
                         fill.expand(grow_px),
                         radius + grow_px,
-                        egui::Color32::from_rgba_unmultiplied(paint.r(), paint.g(), paint.b(), alpha),
+                        egui::Color32::from_rgba_unmultiplied(
+                            paint.r(),
+                            paint.g(),
+                            paint.b(),
+                            alpha,
+                        ),
                     );
                 }
             }

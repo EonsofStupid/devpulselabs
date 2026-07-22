@@ -50,10 +50,26 @@ pub struct DragMatch {
 impl DragMatch {
     pub fn demo() -> Self {
         let items = vec![
-            DragItem { label: "Runs on your GPU", target: 0, tone: None },
-            DragItem { label: "Someone else's weights", target: 1, tone: None },
-            DragItem { label: "Zero bytes leave home", target: 0, tone: None },
-            DragItem { label: "Pay per token", target: 1, tone: None },
+            DragItem {
+                label: "Runs on your GPU",
+                target: 0,
+                tone: None,
+            },
+            DragItem {
+                label: "Someone else's weights",
+                target: 1,
+                tone: None,
+            },
+            DragItem {
+                label: "Zero bytes leave home",
+                target: 0,
+                tone: None,
+            },
+            DragItem {
+                label: "Pay per token",
+                target: 1,
+                tone: None,
+            },
         ];
         let n = items.len();
         Self {
@@ -61,8 +77,14 @@ impl DragMatch {
             prompt: "Local or cloud — sort the claims",
             items,
             targets: vec![
-                DragTarget { label: "Local", tone: Tone::Lime },
-                DragTarget { label: "Cloud", tone: Tone::Cyan },
+                DragTarget {
+                    label: "Local",
+                    tone: Tone::Lime,
+                },
+                DragTarget {
+                    label: "Cloud",
+                    tone: Tone::Cyan,
+                },
             ],
             reveal: "If you can sort these, you already know which workloads belong on your box.",
             placed: vec![false; n],
@@ -147,7 +169,9 @@ impl SlideTemplate for DragMatch {
                             egui::Stroke::new(
                                 2.0,
                                 egui::Color32::from_rgba_unmultiplied(
-                                    c.r(), c.g(), c.b(),
+                                    c.r(),
+                                    c.g(),
+                                    c.b(),
                                     (130.0 * (1.0 - p)) as u8,
                                 ),
                             ),
@@ -227,7 +251,14 @@ impl SlideTemplate for DragMatch {
             painter.rect_stroke(
                 at,
                 at.height() * 0.5,
-                egui::Stroke::new(1.0, if dragging { tone.color() } else { cl::surface::HAIRLINE }),
+                egui::Stroke::new(
+                    1.0,
+                    if dragging {
+                        tone.color()
+                    } else {
+                        cl::surface::HAIRLINE
+                    },
+                ),
                 egui::StrokeKind::Inside,
             );
             painter.galley(at.center() - galley.size() * 0.5, galley, cl::ink::STRONG);
@@ -264,7 +295,11 @@ impl SlideTemplate for DragMatch {
                 painter.text(
                     foot,
                     Align2::CENTER_BOTTOM,
-                    tracked(&format!("{} / {} placed — drag the rest", placed, self.items.len())),
+                    tracked(&format!(
+                        "{} / {} placed — drag the rest",
+                        placed,
+                        self.items.len()
+                    )),
                     FontId::monospace(fluid.fs_eyebrow()),
                     cl::ink::MUTED,
                 );
@@ -281,14 +316,20 @@ mod tests {
     fn correct_locks_wrong_shakes_done_blooms() {
         let mut d = DragMatch::demo();
         d.drop_on(0, Some(1), 1.0);
-        assert!(!d.placed[0] && d.shake.is_some(), "wrong bucket shakes home");
+        assert!(
+            !d.placed[0] && d.shake.is_some(),
+            "wrong bucket shakes home"
+        );
         d.drop_on(0, None, 1.0);
         assert!(!d.placed[0], "dropping on nothing returns quietly");
         for i in 0..4 {
             let t = d.items[i].target;
             d.drop_on(i, Some(t), 2.0);
         }
-        assert!(d.placed.iter().all(|p| *p) && d.done_at.is_some(), "all placed → the bloom");
+        assert!(
+            d.placed.iter().all(|p| *p) && d.done_at.is_some(),
+            "all placed → the bloom"
+        );
         d.restart();
         assert!(d.placed.iter().all(|p| !p) && d.done_at.is_none());
     }

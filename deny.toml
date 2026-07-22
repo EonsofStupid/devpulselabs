@@ -1,0 +1,19 @@
+# cargo-deny policy — machine-enforced workspace law.
+[bans]
+multiple-versions = "deny"          # the egui-phosphor double-graph incident, never again
+# Renderer/runtime crates that must exist exactly once:
+skip-tree = []
+deny = [
+    # ADR-009: ffmpeg is a SUBPROCESS, never a crate dep.
+    { crate = "ffmpeg-next", reason = "ADR-009: ffmpeg is a subprocess" },
+    { crate = "ffmpeg-sys-next", reason = "ADR-009: ffmpeg is a subprocess" },
+    { crate = "ffmpeg-sys", reason = "ADR-009: ffmpeg is a subprocess" },
+    { crate = "egui-video", reason = "links ffmpeg (ADR-009); dpl-video is the player" },
+]
+
+[licenses]
+# Personal-use project (operator-ratified): licensing is a non-constraint.
+allow = ["MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Zlib", "MPL-2.0", "Unicode-3.0", "BSL-1.0", "CC0-1.0", "OFL-1.1", "Unlicense"]
+
+[advisories]
+yanked = "warn"
