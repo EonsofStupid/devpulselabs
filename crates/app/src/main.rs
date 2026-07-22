@@ -80,7 +80,7 @@ impl App {
         }
         // The registry — a new hub is ONE line here and nothing else.
         let hubs: Vec<Box<dyn Hub>> = vec![
-            Box::new(dpl_hub_home::HomeHub),
+            Box::new(dpl_hub_home::HomeHub::default()),
             Box::new(dpl_hub_workbench::WorkbenchHub),
             Box::new(library),
             Box::new(dpl_hub_wiredfront::WiredfrontHub),

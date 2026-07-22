@@ -13,6 +13,10 @@ use std::f32::consts::TAU;
 pub enum Ambient {
     /// Concentric rings breathing outward behind content (hotspot-pulse loop).
     Rings,
+    /// Slow diagonal tone washes drifting across the surface (ambient-drift).
+    Drift,
+    /// A constellation of three breathing ring centers (hotspot-pulse loop).
+    Pulse,
 }
 
 /// What a slide's media slot can carry.
@@ -48,6 +52,62 @@ pub fn media_backdrop(ui: &mut Ui, rect: Rect, media: Media, tone: Tone, now: f6
                 egui::FontId::monospace(12.0),
                 cl::ink::SUBTLE,
             );
+        }
+        Media::Anim(Ambient::Drift) => {
+            // Three slanted tone bands crossing the surface on a 12s loop —
+            // per-vertex tinted parallelograms, crisp edges, never blur.
+            let fx = cl::motion::AMBIENT_DRIFT;
+            let c = tone.color();
+            for k in 0..3u32 {
+                let p = fx.at(now + (k as f64) * (fx.dur as f64) / 3.0, t0, 0);
+                let w = rect.width();
+                let band_w = w * 0.22;
+                let x = rect.min.x - band_w + (w + band_w * 2.0) * p;
+                let slant = rect.height() * 0.35;
+                let alpha = 14 + k as u8 * 4;
+                let tint = egui::Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), alpha);
+                let mut mesh = egui::epaint::Mesh::default();
+                let v = |px: f32, py: f32| egui::epaint::Vertex {
+                    pos: egui::pos2(px, py),
+                    uv: egui::epaint::WHITE_UV,
+                    color: tint,
+                };
+                mesh.vertices.push(v(x, rect.min.y));
+                mesh.vertices.push(v(x + band_w, rect.min.y));
+                mesh.vertices.push(v(x - slant, rect.max.y));
+                mesh.vertices.push(v(x + band_w - slant, rect.max.y));
+                mesh.indices.extend_from_slice(&[0, 1, 2, 2, 1, 3]);
+                painter.add(egui::Shape::mesh(mesh));
+            }
+            ui.ctx().request_repaint();
+        }
+        Media::Anim(Ambient::Pulse) => {
+            // The constellation: three phase-offset ring centers.
+            let fx = cl::motion::HOTSPOT_PULSE;
+            let c = tone.color();
+            let anchors = [(0.25f32, 0.35f32), (0.72, 0.28), (0.55, 0.72)];
+            for (k, (ax, ay)) in anchors.iter().enumerate() {
+                let center = egui::pos2(
+                    rect.min.x + rect.width() * ax,
+                    rect.min.y + rect.height() * ay,
+                );
+                let max_r = rect.width().min(rect.height()) * 0.22;
+                for j in 0..2u32 {
+                    let phase = (k as f64) * 0.5 + (j as f64) * (fx.dur as f64) / 2.0;
+                    let p = fx.at(now + phase, t0, 0);
+                    let r = max_r * (0.3 + 0.7 * p);
+                    let alpha = (40.0 * (1.0 - p)) as u8;
+                    painter.add(egui::Shape::mesh(arc_stroke(
+                        center,
+                        r,
+                        1.5,
+                        0.0,
+                        TAU,
+                        egui::Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), alpha),
+                    )));
+                }
+            }
+            ui.ctx().request_repaint();
         }
         Media::Anim(Ambient::Rings) => {
             // Three breathing rings, phase-offset thirds of the loop.

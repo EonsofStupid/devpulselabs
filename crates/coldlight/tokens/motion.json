@@ -126,6 +126,11 @@
     "flip-fade": {
       "dur": 0.25,
       "ease": "standard"
+    },
+    "ambient-drift": {
+      "dur": 12.0,
+      "ease": "standard",
+      "loop": true
     }
   }
 }
