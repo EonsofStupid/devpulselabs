@@ -109,6 +109,34 @@ this authored file (the one sanctioned case of the app writing a token
 source — it writes DATA in the authored format, never generated output).
 Every preset renders on a Library wall (gallery gate).
 
+## The UI law: layman-friendly, frictionless, touch-first (operator, 2026-07-22)
+
+> "i want it layman friendly and frictionless not some high dev useless UI
+> that is pointless and the goal of this app is to be my private use ... so
+> i can pull whatever i want to make my life easier generating content,
+> slides to have on my large 75\" touchscreen prop to help explain tech,
+> ai, news"
+
+Binding consequences for every W-pass:
+
+- **The stack is invisible.** The operator never sees JSON, ids, refs, or
+  the word "token." They see the THING: fonts drawn as themselves, moods as
+  living gradient cards, motions playing their own preview. Tap it, it
+  applies, on the real slide, instantly.
+- **Touch-first geometry.** Every editor control honors `tap-min`; pickers
+  are big swipeable trays, not dropdown menus; nothing hides behind
+  right-click or hover-only affordances (hover is a bonus, never the only
+  path — this runs on a 75" touchscreen).
+- **No save ceremony.** Edits write back automatically (atomic), undo is
+  one big obvious button. The file mechanics are our business, not theirs.
+- **Plain words.** "Background", "Font", "Motion", "Look" — never
+  "preset id", "registry", "ref".
+- **Private use.** No licensing/commercial constraint ever shapes a
+  feature choice; pull whatever makes content generation easier.
+- The purpose the editor serves: producing slides/content that explain
+  tech, AI, and news on the 75" touchscreen prop — friendly enough that
+  the explanation, not the tool, is the show.
+
 ## Layer 4 — the editor (Workbench)
 
 - The stage renders the document via the ONE renderer.
