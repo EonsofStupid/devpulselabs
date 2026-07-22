@@ -1,0 +1,14 @@
+[package]
+name = "dpl-engine-steps"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Steps recorder engine — global-hook auto-snap + guide.json filing. Pure engine, no UI."
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The global input hook: a step auto-snaps on each real action (carried).
+rdev = "0.5"
+time = "0.3"
+dpl-engine-capture.workspace = true
