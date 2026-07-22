@@ -135,7 +135,7 @@ fn viewport(ui: &mut Ui, cx: &StatusCtx) -> Option<StatusAction> {
             cx.viewport.x, cx.viewport.y, cx.ppp
         ))
         .monospace()
-        .size(10.5)
+        .size(11.5)
         .color(cl::ink::SUBTLE),
     );
     None
@@ -167,7 +167,7 @@ fn build(ui: &mut Ui, cx: &StatusCtx) -> Option<StatusAction> {
         ui.label(
             RichText::new(cx.build)
                 .monospace()
-                .size(10.0)
+                .size(11.0)
                 .color(cl::ink::SUBTLE),
         );
     }

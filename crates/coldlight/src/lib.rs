@@ -138,23 +138,27 @@ pub fn apply_theme(ctx: &egui::Context) {
     // Dark is the only theme ColdLight ships; pin it and style that slot.
     ctx.set_theme(egui::ThemePreference::Dark);
     let mut style = (*ctx.style_of(egui::Theme::Dark)).clone();
+    // The chrome type scale — raised from egui's small defaults (operator:
+    // "the default is way too small"). Content type stays on the fluid
+    // `fs-*` ramp; these govern chrome/labels only. Ctrl +/- still zooms
+    // the whole app (egui's built-in zoom_factor).
     style.text_styles = [
         (
             TextStyle::Heading,
-            FontId::new(24.0, FontFamily::Proportional),
+            FontId::new(26.0, FontFamily::Proportional),
         ),
-        (TextStyle::Body, FontId::new(14.5, FontFamily::Proportional)),
+        (TextStyle::Body, FontId::new(15.5, FontFamily::Proportional)),
         (
             TextStyle::Button,
-            FontId::new(14.0, FontFamily::Proportional),
+            FontId::new(15.0, FontFamily::Proportional),
         ),
         (
             TextStyle::Small,
-            FontId::new(11.5, FontFamily::Proportional),
+            FontId::new(12.5, FontFamily::Proportional),
         ),
         (
             TextStyle::Monospace,
-            FontId::new(13.0, FontFamily::Monospace),
+            FontId::new(14.0, FontFamily::Monospace),
         ),
     ]
     .into();

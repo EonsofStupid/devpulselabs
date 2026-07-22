@@ -399,12 +399,13 @@ impl Shell {
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 cl::card_frame().show(ui, |ui| {
-                    ui.set_min_width(fl.rail_expanded());
+                    // Pin the card to the rail-expanded token — inside an
+                    // Area, available_width() is the rest of the SCREEN and
+                    // must never drive sizing (the giant-flyout bug).
+                    let w = fl.rail_expanded();
+                    ui.set_width(w);
                     // The mood strip + label — the mood "tooltip" itself.
-                    let (strip, _) = ui.allocate_exact_size(
-                        egui::vec2(ui.available_width().max(fl.rail_expanded()), 4.0),
-                        Sense::hover(),
-                    );
+                    let (strip, _) = ui.allocate_exact_size(egui::vec2(w, 4.0), Sense::hover());
                     cl::mood_gradient(ui.painter(), strip, mood);
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(spec.icon).size(14.0).color(spec.tone.color()));
