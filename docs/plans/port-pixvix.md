@@ -106,3 +106,20 @@ PV3: library shows the artifact with thumbnail). Baselines per surface.
 
 One commit per phase: `feat(ambient)`, `feat(engine)`, `feat(pixvix)`,
 `feat(wiredfront)` — each with plan-appended execution spec first.
+
+## Correction (operator, 2026-07-21)
+
+*"Viziwiz was my pixvix and the ink editor is just part of the slide
+presenter."* Two fixes to §1/§3:
+
+1. **ViziWiz was the intended name for the capture overlay/app itself** —
+   not the ink editor. The name is NOT retired; it is the app's original
+   identity. Default remains PixVix (per "or just keep it pixvix" — the
+   artifacts/launcher already carry it), with a clean rename to ViziWiz
+   available as a single-pass change whenever the operator calls "fix it":
+   overlay title, hub labels, palette — ids/paths untouched.
+2. **The ink layer is presenter equipment, not an app.** The stream-time
+   annotation/ink layer (old `annotation-layer.tsx`, kept in the old repo)
+   is CARRIED as part of the slide PRESENTER: re-dispositioned
+   REAUTHOR → the deck/presenter pass in port-slides (draw-over-slide,
+   pool-colored ink, presenter-paced). Nothing about it was superseded.

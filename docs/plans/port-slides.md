@@ -374,3 +374,13 @@ The heavy interactives, carried mechanics on the vocabulary:
    follow-up (egui focus integration) — tracked here, not dropped.
 
 Registry 15 → 18. Counts pinned; state machines unit-tested.
+
+---
+
+## Ledger addition (operator correction, 2026-07-21)
+
+Item 47: **ink/annotation layer** (old `annotation-layer.tsx` — stream-time
+draw-over-slides) — REAUTHOR in the PRESENTER pass (deck runtime): ink
+strokes as pool-colored polyline meshes over the live slide, presenter-
+paced, cleared per slide. It is part of the slide presenter, not an editor
+and not part of the capture suite.
