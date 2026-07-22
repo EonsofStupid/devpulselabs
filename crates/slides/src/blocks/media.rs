@@ -37,11 +37,30 @@ pub fn media_backdrop(ui: &mut Ui, rect: Rect, media: Media, tone: Tone, now: f6
     let painter = ui.painter();
     match media {
         Media::Image(path) => {
-            egui::Image::new(format!("file://{path}"))
-                .corner_radius(cl::RADIUS)
-                .paint_at(ui, rect);
-            // Legibility: the dark diffusion the vocabulary demands, not blur.
-            painter.rect_filled(rect, cl::RADIUS, egui::Color32::from_black_alpha(120));
+            // Repo-relative paths resolve from the exe/CWD; absolutes pass
+            // through. Missing file → labeled plate (honest, never a crash).
+            match dpl_video::locate_asset(path) {
+                Some(file) => {
+                    // file:/// with THREE slashes — two reads as a UNC host
+                    // on Windows and the load errors.
+                    let uri = file.to_string_lossy().replace('\\', "/");
+                    egui::Image::new(format!("file:///{uri}"))
+                        .corner_radius(cl::RADIUS)
+                        .paint_at(ui, rect);
+                    // Legibility: the dark diffusion the vocabulary demands.
+                    painter.rect_filled(rect, cl::RADIUS, egui::Color32::from_black_alpha(120));
+                }
+                None => {
+                    painter.rect_filled(rect, cl::RADIUS, cl::surface::RAISED);
+                    painter.text(
+                        rect.center(),
+                        Align2::CENTER_CENTER,
+                        format!("image · {path} · file not found"),
+                        egui::FontId::monospace(12.0),
+                        cl::ink::SUBTLE,
+                    );
+                }
+            }
         }
         Media::Video(path) => {
             // Real playback (B1): ffmpeg-subprocess loop → texture. Honest
@@ -52,7 +71,7 @@ pub fn media_backdrop(ui: &mut Ui, rect: Rect, media: Media, tone: Tone, now: f6
                         let poster = dpl_video::poster_of(&file);
                         if poster.is_file() {
                             let uri = poster.to_string_lossy().replace('\\', "/");
-                            egui::Image::new(format!("file://{uri}"))
+                            egui::Image::new(format!("file:///{uri}"))
                                 .corner_radius(cl::RADIUS)
                                 .paint_at(ui, rect);
                         } else {

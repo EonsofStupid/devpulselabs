@@ -10,7 +10,7 @@ use dpl_coldlight::Tone;
 use egui::{Align2, FontId, Ui};
 
 use crate::blocks::eyebrow::tracked;
-use crate::blocks::{media_backdrop, Ambient, Media};
+use crate::blocks::{media_backdrop, Media};
 use crate::frame::Stage;
 use crate::motion::Clock;
 use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
@@ -46,7 +46,10 @@ impl TitleCard {
             title: "The stack, laid bare",
             subtitle: "What actually runs when you ask a model a question — and what it costs.",
             align: TitleAlign::Left,
-            media: Some(Media::Anim(Ambient::Rings)),
+            // A REAL pipeline artifact (media-cli output) — the demo doubles
+            // as the gallery gate for webp display. Missing file degrades to
+            // the labeled plate, never a crash.
+            media: Some(Media::Image("assets/generated/dpl-poster.webp")),
             clock: Clock::default(),
         }
     }

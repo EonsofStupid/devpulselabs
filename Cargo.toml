@@ -6,6 +6,7 @@ members = [
     "crates/vector",
     "crates/video",
     "crates/engine-capture",
+    "crates/engine-media",
     "crates/engine-steps",
     "crates/slides",
     "crates/fabric",
@@ -26,16 +27,21 @@ publish = false
 [workspace.dependencies]
 egui = "0.35"
 eframe = { version = "0.35", features = ["wgpu"] }
-egui_extras = { version = "0.35", features = ["image"] }
+# "file" installs the file:// loader (without it every Media::Image errors);
+# "webp" adds animated-webp support on top of the image crate's static decode.
+egui_extras = { version = "0.35", features = ["image", "file", "webp"] }
 tokio = { version = "1", default-features = false, features = ["sync"] }
-# png for the harness; jpeg for the backdrop posters (B1). webp lands with B3.
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# png for the harness; jpeg for the backdrop posters (B1); webp so the app
+# DISPLAYS what the media pipeline emits (B3). AVIF decode is deliberately
+# absent — the pipeline always writes a webp sibling for display.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 
 dpl-hub = { path = "crates/hub" }
 dpl-coldlight = { path = "crates/coldlight" }
 dpl-vector = { path = "crates/vector" }
 dpl-video = { path = "crates/video" }
 dpl-engine-capture = { path = "crates/engine-capture" }
+dpl-engine-media = { path = "crates/engine-media" }
 dpl-engine-steps = { path = "crates/engine-steps" }
 dpl-slides = { path = "crates/slides" }
 dpl-fabric = { path = "crates/fabric" }

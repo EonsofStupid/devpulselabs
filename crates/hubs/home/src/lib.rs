@@ -97,8 +97,9 @@ impl Hub for HomeHub {
                             let poster = dpl_video::poster_of(&file);
                             let up = poster.is_file();
                             if up {
+                                // file:/// — two slashes is a UNC host on Windows.
                                 let uri = poster.to_string_lossy().replace('\\', "/");
-                                egui::Image::new(format!("file://{uri}")).paint_at(ui, full);
+                                egui::Image::new(format!("file:///{uri}")).paint_at(ui, full);
                             }
                             up
                         }

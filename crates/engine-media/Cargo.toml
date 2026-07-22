@@ -1,0 +1,23 @@
+[package]
+name = "dpl-engine-media"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "The content media-optimization pipeline (old optimize-media.mjs, pure Rust): every image becomes AVIF q60 + WebP q80 + JPEG q82; cutouts keep alpha; anim/video ride the ffmpeg subprocess (ADR-009)."
+
+[dependencies]
+# Decode (png/jpeg/webp inputs) + resize + JPEG encode.
+image.workspace = true
+# Lossy WebP encode — same crate the capture engine ships.
+webp = "0.3"
+# AVIF encode, pure Rust (rav1e). The quality scale matches sharp's 0-100.
+# asm feature OFF: it demands nasm on the build host; pure-Rust encode is
+# slower but toolchain-free (a build-machine constraint, not a quality one).
+ravif = { version = "0.11", default-features = false, features = ["threading"] }
+rgb = "0.8"
+# EXIF orientation bake before the metadata strip (sharp's .rotate()).
+kamadak-exif = "0.5"
+
+[[bin]]
+name = "media-cli"
+path = "src/bin/media_cli.rs"
