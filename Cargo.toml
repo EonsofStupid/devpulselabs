@@ -4,6 +4,7 @@ members = [
     "crates/hub",
     "crates/coldlight",
     "crates/vector",
+    "crates/engine-capture",
     "crates/slides",
     "crates/fabric",
     "crates/shell",
@@ -30,6 +31,7 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 dpl-hub = { path = "crates/hub" }
 dpl-coldlight = { path = "crates/coldlight" }
 dpl-vector = { path = "crates/vector" }
+dpl-engine-capture = { path = "crates/engine-capture" }
 dpl-slides = { path = "crates/slides" }
 dpl-fabric = { path = "crates/fabric" }
 dpl-shell = { path = "crates/shell" }

@@ -1,0 +1,23 @@
+[package]
+name = "dpl-engine-capture"
+version = "0.1.0"
+edition = "2021"
+description = "DevPULSE Labs screen-capture engine (xcap recorder + ffmpeg x264). Pure engine — no Tauri."
+authors = ["DevPULSE Labs"]
+
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+xcap = "0.9"
+# PNG encode for Pix stills (same image version xcap resolves to — shared types).
+image = { version = "0.25", default-features = false, features = ["png"] }
+# Steps recorder: lossy WebP so a step is a few KB instead of a ~1 MB PNG. UI
+# screenshots compress extremely well at q~82 with no visible loss. (Personal
+# use — licensing is not a constraint on the codec choice.)
+webp = "0.3"
+
+# Headless verification of the capture pipeline (no GUI) — see docs/screen-capture.md.
+[[bin]]
+name = "capture-cli"
+path = "src/bin/capture_cli.rs"
