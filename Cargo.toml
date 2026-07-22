@@ -1,6 +1,13 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/egui-pilot-ai-protocol",
+    "crates/egui-pilot-ai-transport",
+    "crates/egui-pilot-ai",
+    "crates/egui-pilot-ai-runtime",
+    "crates/egui-pilot-ai-runner",
+    "crates/egui-pilot-ai-cli",
+    "crates/egui-pilot-ai-lab",
     "crates/hub",
     "crates/coldlight",
     "crates/vector",
@@ -41,6 +48,7 @@ publish = false
 [workspace.dependencies]
 egui = "0.35"
 eframe = { version = "0.35", features = ["wgpu"] }
+egui-wgpu = "0.35"
 # "file" installs the file:// loader (without it every Media::Image errors);
 # "webp" adds animated-webp support on top of the image crate's static decode.
 egui_extras = { version = "0.35", features = ["image", "file", "webp"] }
@@ -49,11 +57,19 @@ egui_kittest = { version = "0.35", default-features = false }
 # The document layer (dpl-doc): slide.json is serde data, end to end.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+toml = "0.9"
 tokio = { version = "1", default-features = false, features = ["sync"] }
 # png for the harness; jpeg for the backdrop posters (B1); webp so the app
 # DISPLAYS what the media pipeline emits (B3). AVIF decode is deliberately
 # absent — the pipeline always writes a webp sibling for display.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+
+egui-pilot-ai-protocol = { path = "crates/egui-pilot-ai-protocol" }
+egui-pilot-ai-transport = { path = "crates/egui-pilot-ai-transport" }
+egui-pilot-ai = { path = "crates/egui-pilot-ai" }
+egui-pilot-ai-runtime = { path = "crates/egui-pilot-ai-runtime" }
+egui-pilot-ai-runner = { path = "crates/egui-pilot-ai-runner" }
+egui-pilot-ai-lab = { path = "crates/egui-pilot-ai-lab" }
 
 dpl-hub = { path = "crates/hub" }
 dpl-coldlight = { path = "crates/coldlight" }

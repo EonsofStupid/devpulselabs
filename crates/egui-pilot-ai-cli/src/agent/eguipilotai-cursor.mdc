@@ -1,0 +1,8 @@
+---
+description: Use EguiPilotAI for deterministic exploration and durable egui tests
+alwaysApply: false
+---
+
+Use only declared EguiPilotAI profiles and fixtures. Prefer pruned snapshots,
+stable semantic IDs, real input actions, and compact assertions. Export
+successful exploratory flows into reviewed durable scenarios.

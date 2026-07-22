@@ -16,6 +16,7 @@ pub const SEEDS: SubId = SubId("seeds");
 pub const STUDIO: SubId = SubId("studio");
 pub const LIBRARY: SubId = SubId("library");
 pub const TOKENS: SubId = SubId("tokens");
+pub const TEST_LAB: SubId = SubId("test-lab");
 
 static SPEC: HubSpec = HubSpec {
     id: HUB,
@@ -43,6 +44,11 @@ static SPEC: HubSpec = HubSpec {
             label: "Tokens",
             blurb: "ColdLight's tones, spacing, and paint vocabulary — the authored source, visualized.",
         },
+        SubRoute {
+            id: TEST_LAB,
+            label: "Test Lab",
+            blurb: "Agent snapshots, full semantics, isolated runs, traces, and visual approvals.",
+        },
     ],
 };
 
@@ -60,6 +66,7 @@ pub struct WorkbenchHub {
     /// Loaded on first visit; the reload chip clears it (edits to the
     /// colocated files show up without restarting the app).
     seeds: Option<Vec<SeedEntry>>,
+    test_lab: egui_pilot_ai_lab::TestLab,
 }
 
 impl WorkbenchHub {
@@ -178,6 +185,8 @@ impl Hub for WorkbenchHub {
     fn ui(&mut self, ui: &mut egui::Ui, route: Route) {
         if route.sub == SEEDS {
             self.seeds_wall(ui);
+        } else if route.sub == TEST_LAB {
+            self.test_lab.ui(ui);
         } else {
             dpl_hub::placeholder::surface(
                 ui,

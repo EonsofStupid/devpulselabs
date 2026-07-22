@@ -1,0 +1,33 @@
+name: EguiPilotAI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lavapipe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build pinned Lavapipe image
+        run: docker build --pull=false -f ci/eguipilotai-lavapipe.Dockerfile -t devpulse/eguipilotai-lavapipe .
+      - name: Test real DevPULSE executable
+        run: >-
+          docker run --rm
+          -v "${GITHUB_WORKSPACE}:/workspace"
+          -w /workspace
+          devpulse/eguipilotai-lavapipe
+          bash ci/run-eguipilotai-lavapipe.sh
+      - name: Upload run evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eguipilotai-lavapipe-runs
+          path: target/eguipilotai
+          if-no-files-found: warn

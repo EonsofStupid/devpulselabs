@@ -14,6 +14,10 @@ use dpl_shell::Shell;
 fn main() -> eframe::Result {
     // Structured logs: `RUST_LOG=debug devpulselabs` — info by default.
     tracing_subscriber::fmt()
+        // Stdout is reserved for EguiPilotAI's private framed transport in a
+        // devtools launch. Keeping diagnostics on stderr also makes run
+        // bundles complete without corrupting protocol bytes.
+        .with_writer(std::io::stderr)
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
@@ -71,15 +75,20 @@ fn main() -> eframe::Result {
         renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };
+    #[cfg(feature = "eguipilotai-devtools")]
+    let options = configure_pilot_adapter(options);
 
     eframe::run_native(
         "DevPULSE Labs",
         options,
         Box::new(move |cc| {
             dpl_coldlight::apply_theme(&cc.egui_ctx);
+            // Semantic instrumentation is inert unless a test/devtools runtime
+            // is explicitly compiled and privately launched.
+            egui_pilot_ai::install(&cc.egui_ctx);
             // Media blocks: file:// images resolve through these loaders.
             egui_extras::install_image_loaders(&cc.egui_ctx);
-            Ok(Box::new(App::new(
+            let app = App::new(
                 shot,
                 boot_route,
                 focus,
@@ -87,7 +96,14 @@ fn main() -> eframe::Result {
                 pixvix_open,
                 pixvix_snap,
                 mood,
-            )))
+            );
+            #[cfg(feature = "eguipilotai-devtools")]
+            let app = {
+                let mut app = app;
+                app.attach_pilot_runtime(cc);
+                app
+            };
+            Ok(Box::new(app))
         }),
     )
 }
@@ -100,6 +116,8 @@ struct App {
     shot_frame: u32,
     pixvix_snap: bool,
     snap_frames: u32,
+    #[cfg(feature = "eguipilotai-devtools")]
+    pilot_runtime: Option<egui_pilot_ai_runtime::RuntimeGuard>,
 }
 
 impl App {
@@ -163,7 +181,56 @@ impl App {
             shot_frame,
             pixvix_snap,
             snap_frames: 0,
+            #[cfg(feature = "eguipilotai-devtools")]
+            pilot_runtime: None,
         }
+    }
+
+    #[cfg(feature = "eguipilotai-devtools")]
+    fn attach_pilot_runtime(&mut self, cc: &eframe::CreationContext<'_>) {
+        if std::env::var_os("EGUIPILOTAI_STDIO").as_deref() != Some(std::ffi::OsStr::new("1")) {
+            return;
+        }
+        let Some(session) = std::env::var("EGUIPILOTAI_SESSION").ok() else {
+            tracing::error!("EGUIPILOTAI_SESSION is required for private test launch");
+            return;
+        };
+        let Some(session_nonce) = std::env::var("EGUIPILOTAI_NONCE").ok() else {
+            tracing::error!("EGUIPILOTAI_NONCE is required for private test launch");
+            return;
+        };
+        let Some(artifact_root) = std::env::var_os("EGUIPILOTAI_ARTIFACT_ROOT") else {
+            tracing::error!("EGUIPILOTAI_ARTIFACT_ROOT is required for private test launch");
+            return;
+        };
+        let mut config = egui_pilot_ai_runtime::RuntimeConfig::new(
+            env!("DPL_BUILD"),
+            std::path::PathBuf::from(artifact_root),
+        );
+        config.session.0 = session;
+        config.session_nonce = session_nonce;
+        config.max_commands_per_frame = 32;
+        config.renderer_identity = cc.wgpu_render_state.as_ref().map(|state| {
+            let info = state.adapter.get_info();
+            egui_pilot_ai_runtime::protocol::RendererIdentity {
+                os: std::env::consts::OS.into(),
+                backend: format!("{:?}", info.backend),
+                adapter: info.name,
+                device_type: format!("{:?}", info.device_type),
+                driver: format!("{} {}", info.driver, info.driver_info),
+                renderer_version: "egui-wgpu-0.35".into(),
+                surface_format: format!("{:?}", state.target_format),
+                pixels_per_point: cc.egui_ctx.pixels_per_point(),
+                font_bundle: "devpulse-coldlight-v1".into(),
+                dithering: false,
+            }
+        });
+        self.pilot_runtime = Some(egui_pilot_ai_runtime::RuntimeGuard::attach(
+            &cc.egui_ctx,
+            egui_pilot_ai_transport::StdioTransport::stdio(64),
+            config,
+        ));
+        tracing::info!("EguiPilotAI private devtools runtime attached");
     }
 
     /// The harness: request a screenshot on `shot_frame` (default 6 — theme +
@@ -211,6 +278,42 @@ impl App {
             std::process::exit(1);
         }
     }
+}
+
+#[cfg(feature = "eguipilotai-devtools")]
+fn configure_pilot_adapter(mut options: eframe::NativeOptions) -> eframe::NativeOptions {
+    use egui_wgpu::wgpu::DeviceType;
+    use std::sync::Arc;
+
+    let Some(policy) = std::env::var("EGUIPILOTAI_ADAPTER_POLICY").ok() else {
+        return options;
+    };
+    let egui_wgpu::WgpuSetup::CreateNew(setup) = &mut options.wgpu_options.wgpu_setup else {
+        return options;
+    };
+    setup.native_adapter_selector = Some(Arc::new(move |adapters, surface| {
+        let compatible = |adapter: &&egui_wgpu::wgpu::Adapter| {
+            surface.is_none_or(|surface| adapter.is_surface_supported(surface))
+        };
+        let software = adapters
+            .iter()
+            .filter(compatible)
+            .find(|adapter| adapter.get_info().device_type == DeviceType::Cpu);
+        let hardware = adapters
+            .iter()
+            .filter(compatible)
+            .find(|adapter| adapter.get_info().device_type != DeviceType::Cpu);
+        let selected = match policy.as_str() {
+            "software-required" => software,
+            "hardware-required" => hardware,
+            "hardware-preferred" | "hardware-then-software" => hardware.or(software),
+            other => return Err(format!("unknown EguiPilotAI adapter policy `{other}`")),
+        };
+        selected.cloned().ok_or_else(|| {
+            format!("adapter policy `{policy}` could not be satisfied by any compatible adapter")
+        })
+    }));
+    options
 }
 
 impl eframe::App for App {
@@ -266,5 +369,10 @@ impl eframe::App for App {
         }
 
         self.screenshot_harness(&ctx);
+
+        #[cfg(feature = "eguipilotai-devtools")]
+        if let Some(runtime) = &mut self.pilot_runtime {
+            runtime.pump();
+        }
     }
 }

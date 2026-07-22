@@ -1,0 +1,55 @@
+artifact_root = "target/eguipilotai/runs"
+
+[profiles.devpulse-windows]
+executable = "target/debug/devpulselabs.exe"
+arguments = ["--route", "workbench/test-lab"]
+adapter_policy = "hardware-then-software"
+timeout_ms = 30000
+
+[profiles.devpulse-windows.environment]
+EGUIPILOTAI_ADAPTER_POLICY = "hardware-then-software"
+
+[profiles.devpulse-cloud]
+executable = "target/debug/devpulselabs"
+arguments = ["--route", "workbench/test-lab"]
+adapter_policy = "software-required"
+timeout_ms = 45000
+
+[profiles.devpulse-cloud.environment]
+EGUIPILOTAI_ADAPTER_POLICY = "software-required"
+WGPU_BACKEND = "vulkan"
+VK_DRIVER_FILES = "/usr/share/vulkan/icd.d/lvp_icd.x86_64.json"
+LIBGL_ALWAYS_SOFTWARE = "true"
+TZ = "UTC"
+LANG = "C.UTF-8"
+
+[profiles.devpulse-hardware]
+executable = "target/release/devpulselabs"
+arguments = ["--route", "workbench/test-lab"]
+adapter_policy = "hardware-required"
+timeout_ms = 30000
+
+[profiles.devpulse-hardware.environment]
+EGUIPILOTAI_ADAPTER_POLICY = "hardware-required"
+
+[fixtures.test-lab]
+arguments = ["--route", "workbench/test-lab"]
+
+[fixtures.library]
+arguments = ["--route", "library/templates"]
+
+[[projects]]
+id = "devpulse-cloud"
+profile = "devpulse-cloud"
+adapter_policy = "software-required"
+required = true
+workers = 1
+retries = 1
+
+[[projects]]
+id = "devpulse-hardware"
+profile = "devpulse-hardware"
+adapter_policy = "hardware-required"
+required = false
+workers = 1
+retries = 0

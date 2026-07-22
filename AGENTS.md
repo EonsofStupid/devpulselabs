@@ -4,6 +4,11 @@ All UI is driven by Rust. There is no webview, no JS, no second language, no
 IPC boundary. Signals are Rust enums on tokio channels; rustc is the type
 system, end to end.
 
+EguiPilotAI's canonical architecture is `docs/plans/eguipilotai.md`. Its
+private inherited-pipe control channel is the ratified test/devtools-only
+exception to the no-IPC production law. It must remain feature-gated; normal
+production builds contain no runtime endpoint or MCP server.
+
 ## Laws
 
 1. **Plan before code.** Every pass has a plan in `docs/`. Reality contradicting

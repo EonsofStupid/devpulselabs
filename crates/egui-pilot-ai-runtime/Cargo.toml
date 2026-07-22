@@ -1,0 +1,16 @@
+[package]
+name = "egui-pilot-ai-runtime"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+egui.workspace = true
+egui-pilot-ai.workspace = true
+egui-pilot-ai-protocol.workspace = true
+egui-pilot-ai-transport.workspace = true
+image.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

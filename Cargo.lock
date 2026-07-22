@@ -1016,6 +1016,10 @@ dependencies = [
  "dpl-shell",
  "eframe",
  "egui",
+ "egui-pilot-ai",
+ "egui-pilot-ai-runtime",
+ "egui-pilot-ai-transport",
+ "egui-wgpu",
  "egui_extras",
  "image",
  "tracing",
@@ -1204,6 +1208,7 @@ dependencies = [
  "dpl-hub",
  "dpl-slides",
  "egui",
+ "egui-pilot-ai-lab",
 ]
 
 [[package]]
@@ -1228,6 +1233,7 @@ dependencies = [
  "dpl-fabric",
  "dpl-hub",
  "egui",
+ "egui-pilot-ai",
  "egui_kittest",
  "tokio",
 ]
@@ -1376,6 +1382,74 @@ dependencies = [
  "profiling",
  "smallvec",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "egui-pilot-ai"
+version = "0.1.0"
+dependencies = [
+ "egui",
+ "egui-pilot-ai-protocol",
+]
+
+[[package]]
+name = "egui-pilot-ai-cli"
+version = "0.1.0"
+dependencies = [
+ "egui-pilot-ai-protocol",
+ "egui-pilot-ai-runner",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "egui-pilot-ai-lab"
+version = "0.1.0"
+dependencies = [
+ "egui",
+ "egui-pilot-ai-protocol",
+ "egui-pilot-ai-runner",
+]
+
+[[package]]
+name = "egui-pilot-ai-protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "egui-pilot-ai-runner"
+version = "0.1.0"
+dependencies = [
+ "egui-pilot-ai-protocol",
+ "egui-pilot-ai-transport",
+ "image",
+ "serde",
+ "serde_json",
+ "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
+name = "egui-pilot-ai-runtime"
+version = "0.1.0"
+dependencies = [
+ "egui",
+ "egui-pilot-ai",
+ "egui-pilot-ai-protocol",
+ "egui-pilot-ai-transport",
+ "image",
+ "serde_json",
+]
+
+[[package]]
+name = "egui-pilot-ai-transport"
+version = "0.1.0"
+dependencies = [
+ "egui-pilot-ai-protocol",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -4664,6 +4738,21 @@ dependencies = [
 
 [[package]]
 name = "toml"
+version = "0.9.12+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf92845e79fc2e2def6a5d828f0801e29a2f8acc037becc5ab08595c7d5e9863"
+dependencies = [
+ "indexmap",
+ "serde_core",
+ "serde_spanned 1.1.1",
+ "toml_datetime 0.7.5+spec-1.1.0",
+ "toml_parser",
+ "toml_writer",
+ "winnow 0.7.15",
+]
+
+[[package]]
+name = "toml"
 version = "1.1.3+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "53c96ecdfa941c8fc4fcaed14f99ada8ebed502eef533015095a07e3301d4c3c"
@@ -4684,6 +4773,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "22cddaf88f4fbc13c51aebbf5f8eceb5c7c5a9da2ac40a13519eb5b0a0e8f11c"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "toml_datetime"
+version = "0.7.5+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92e1cfed4a3038bc5a127e35a2d360f145e1f4b971b551a2ba5fd7aedf7e1347"
+dependencies = [
+ "serde_core",
 ]
 
 [[package]]

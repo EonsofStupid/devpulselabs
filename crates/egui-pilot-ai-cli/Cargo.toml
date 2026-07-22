@@ -1,0 +1,18 @@
+[package]
+name = "egui-pilot-ai-cli"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+egui-pilot-ai-protocol.workspace = true
+egui-pilot-ai-runner.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[[bin]]
+name = "eguipilotai"
+path = "src/main.rs"
+
+[lints]
+workspace = true

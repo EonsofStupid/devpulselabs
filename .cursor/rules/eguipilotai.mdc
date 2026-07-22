@@ -1,0 +1,8 @@
+---
+description: Project pointer for EguiPilotAI work in DevPULSE
+alwaysApply: false
+---
+
+Read `docs/plans/eguipilotai.md` before architectural changes. Select only
+named `.eguipilotai.toml` profiles and fixtures. Keep all control endpoints
+behind `eguipilotai-devtools` and preserve immutable renderer-keyed evidence.

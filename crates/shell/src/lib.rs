@@ -21,6 +21,7 @@ use dpl_coldlight::{self as cl, Tone};
 use dpl_fabric::{Fabric, ShellEvent};
 use dpl_hub::{Hub, HubId, Route, SubId};
 use egui::{Align, Color32, CornerRadius, Layout, Rect, RichText, Sense};
+use egui_pilot_ai::{NodeMetadata, PilotId, PilotKey, UiPilotExt};
 
 /// The five named zones (docs/shell.md), captured from the REAL panel rects
 /// every frame — the layout is observable, therefore testable.
@@ -352,6 +353,15 @@ impl Shell {
                     let spec = hub.spec();
                     let active = spec.id == self.route.hub;
                     let r = icon_tile(ui, spec.icon, spec.tone, active, fl.tap_min());
+                    ui.pilot_track(
+                        &r,
+                        NodeMetadata::new(
+                            PilotId::new("shell.rail").child(&PilotKey::new(spec.id.0)),
+                            egui_pilot_ai::protocol::Role::Button,
+                            spec.label,
+                        )
+                        .value(if active { "active" } else { "inactive" }),
+                    );
                     if r.hovered() {
                         hovered = Some((spec.id, r.rect.min.y));
                     }
@@ -417,7 +427,22 @@ impl Shell {
                     });
                     for sub in spec.subroutes {
                         let selected = spec.id == self.route.hub && sub.id == self.route.sub;
-                        if sub_item(ui, sub.label, spec.tone, selected) {
+                        let response = sub_item(ui, sub.label, spec.tone, selected);
+                        ui.pilot_track(
+                            &response,
+                            NodeMetadata::new(
+                                PilotId::new("shell.flyout")
+                                    .child(&PilotKey::new(format!("{}/{}", spec.id.0, sub.id.0))),
+                                egui_pilot_ai::protocol::Role::MenuItem,
+                                sub.label,
+                            )
+                            .value(if selected {
+                                "selected"
+                            } else {
+                                "available"
+                            }),
+                        );
+                        if response.clicked() {
                             *clicked = Some(Route {
                                 hub: spec.id,
                                 sub: sub.id,
@@ -675,7 +700,7 @@ fn icon_tile(
 }
 
 /// A subroute row in the flyout card — quiet, tone dot when selected.
-fn sub_item(ui: &mut egui::Ui, label: &str, tone: Tone, selected: bool) -> bool {
+fn sub_item(ui: &mut egui::Ui, label: &str, tone: Tone, selected: bool) -> egui::Response {
     let width = ui.available_width();
     let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 26.0), Sense::click());
     let painter = ui.painter();
@@ -713,7 +738,7 @@ fn sub_item(ui: &mut egui::Ui, label: &str, tone: Tone, selected: bool) -> bool 
             cl::ink::MUTED
         },
     );
-    response.clicked()
+    response
 }
 
 #[cfg(test)]

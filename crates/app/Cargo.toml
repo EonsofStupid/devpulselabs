@@ -4,12 +4,20 @@ version.workspace = true
 edition.workspace = true
 publish.workspace = true
 
+[features]
+default = []
+eguipilotai-devtools = [
+    "dep:egui-pilot-ai-runtime",
+    "dep:egui-pilot-ai-transport",
+]
+
 [dependencies]
 # Structured logging — RUST_LOG drives verbosity (tracing is the modern std).
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 egui.workspace = true
 eframe.workspace = true
+egui-wgpu.workspace = true
 egui_extras.workspace = true
 image.workspace = true
 dpl-hub.workspace = true
@@ -22,6 +30,9 @@ dpl-hub-workbench.workspace = true
 dpl-hub-wiredfront.workspace = true
 dpl-hub-chat.workspace = true
 dpl-hub-library.workspace = true
+egui-pilot-ai.workspace = true
+egui-pilot-ai-runtime = { workspace = true, optional = true }
+egui-pilot-ai-transport = { workspace = true, optional = true }
 
 [[bin]]
 name = "devpulselabs"
