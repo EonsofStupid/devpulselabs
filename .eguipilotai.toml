@@ -20,7 +20,7 @@ timeout_ms = 45000
 [profiles.devpulse-cloud.environment]
 EGUIPILOTAI_ADAPTER_POLICY = "software-required"
 WGPU_BACKEND = "vulkan"
-VK_DRIVER_FILES = "/usr/share/vulkan/icd.d/lvp_icd.x86_64.json"
+VK_DRIVER_FILES = "/usr/share/vulkan/icd.d/lvp_icd.json"
 LIBGL_ALWAYS_SOFTWARE = "true"
 TZ = "UTC"
 LANG = "C.UTF-8"

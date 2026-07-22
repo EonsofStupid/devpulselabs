@@ -3,7 +3,7 @@ set -euo pipefail
 
 export WGPU_BACKEND=vulkan
 export LIBGL_ALWAYS_SOFTWARE=true
-export VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+export VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json
 export EGUIPILOTAI_ADAPTER_POLICY=software-required
 export TZ=UTC
 export LANG=C.UTF-8
