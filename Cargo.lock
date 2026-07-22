@@ -1012,6 +1012,7 @@ dependencies = [
  "dpl-hub-library",
  "dpl-hub-wiredfront",
  "dpl-hub-workbench",
+ "dpl-pixvix",
  "dpl-shell",
  "eframe",
  "egui",
@@ -1182,6 +1183,19 @@ dependencies = [
  "dpl-coldlight",
  "dpl-hub",
  "egui",
+]
+
+[[package]]
+name = "dpl-pixvix"
+version = "0.1.0"
+dependencies = [
+ "dpl-coldlight",
+ "dpl-engine-capture",
+ "dpl-engine-steps",
+ "dpl-fabric",
+ "egui",
+ "image",
+ "tokio",
 ]
 
 [[package]]

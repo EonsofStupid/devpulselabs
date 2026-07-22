@@ -39,6 +39,10 @@ fn main() -> eframe::Result {
         .and_then(|i| args.get(i + 1))
         .and_then(|n| n.parse().ok())
         .unwrap_or(6);
+    // `--pixvix` opens the overlay at boot; `--pixvix-snap` fires a real
+    // Img/Full snip through the palette's own handler and exits.
+    let pixvix_open = args.iter().any(|a| a == "--pixvix");
+    let pixvix_snap = args.iter().any(|a| a == "--pixvix-snap");
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -55,16 +59,21 @@ fn main() -> eframe::Result {
             dpl_coldlight::apply_theme(&cc.egui_ctx);
             // Media blocks: file:// images resolve through these loaders.
             egui_extras::install_image_loaders(&cc.egui_ctx);
-            Ok(Box::new(App::new(shot, boot_route, focus, shot_frame)))
+            Ok(Box::new(App::new(
+                shot, boot_route, focus, shot_frame, pixvix_open, pixvix_snap,
+            )))
         }),
     )
 }
 
 struct App {
     shell: Shell,
+    pixvix: dpl_pixvix::Pixvix,
     shot: Option<std::path::PathBuf>,
     frames: u32,
     shot_frame: u32,
+    pixvix_snap: bool,
+    snap_frames: u32,
 }
 
 impl App {
@@ -73,6 +82,8 @@ impl App {
         boot_route: Option<(String, String)>,
         focus: Option<String>,
         shot_frame: u32,
+        pixvix_open: bool,
+        pixvix_snap: bool,
     ) -> Self {
         let mut library = dpl_hub_library::LibraryHub::default();
         if let Some(id) = focus {
@@ -87,7 +98,13 @@ impl App {
             Box::new(dpl_hub_chat::ChatHub),
         ];
 
-        let mut shell = Shell::new(hubs, Fabric::new());
+        // ONE fabric, shared: the shell publishes, the overlay subscribes.
+        let fabric = Fabric::new();
+        let mut pixvix = dpl_pixvix::Pixvix::new(&fabric);
+        if pixvix_open {
+            pixvix.open_now();
+        }
+        let mut shell = Shell::new(hubs, fabric);
         match boot_route {
             // The harness route: HubId/SubId are &'static str newtypes, so the
             // CLI strings are leaked once — a harness-only allocation.
@@ -105,7 +122,7 @@ impl App {
             }),
         }
 
-        Self { shell, shot, frames: 0, shot_frame }
+        Self { shell, pixvix, shot, frames: 0, shot_frame, pixvix_snap, snap_frames: 0 }
     }
 
     /// The harness: request a screenshot on `shot_frame` (default 6 — theme +
@@ -159,6 +176,37 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.shell.ui(ui);
         let ctx = ui.ctx().clone();
+
+        // The Steps chords, app-focused scope (OS-global is on the ledger):
+        // Ctrl+Shift+9 toggles a guide recording, Ctrl+Shift+X marks.
+        let (toggle, mark) = ctx.input(|i| {
+            let chord = i.modifiers.ctrl && i.modifiers.shift;
+            (
+                chord && i.key_pressed(egui::Key::Num9),
+                chord && i.key_pressed(egui::Key::X),
+            )
+        });
+        if toggle {
+            self.pixvix.toggle_steps();
+        }
+        if mark {
+            self.pixvix.mark_step();
+        }
+
+        self.pixvix.ui(&ctx);
+
+        // `--pixvix-snap`: after a few settle frames, fire the real Img/Full
+        // handler, report, exit by its own verdict.
+        if self.pixvix_snap {
+            self.snap_frames += 1;
+            if self.snap_frames == 30 {
+                let msg = self.pixvix.snap_full_now().to_string();
+                eprintln!("pixvix-snap: {msg}");
+                std::process::exit(if msg.starts_with("saved") { 0 } else { 1 });
+            }
+            ctx.request_repaint();
+        }
+
         self.screenshot_harness(&ctx);
     }
 }

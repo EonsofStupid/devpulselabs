@@ -13,6 +13,7 @@ dpl-hub.workspace = true
 dpl-coldlight.workspace = true
 dpl-fabric.workspace = true
 dpl-shell.workspace = true
+dpl-pixvix.workspace = true
 dpl-hub-home.workspace = true
 dpl-hub-workbench.workspace = true
 dpl-hub-wiredfront.workspace = true

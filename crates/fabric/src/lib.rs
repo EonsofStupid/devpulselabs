@@ -28,6 +28,8 @@ pub enum ShellEvent {
 /// Broadcast is deliberately lossy under pressure (oldest dropped, receiver
 /// told how many) — correct for signals, wrong for jobs. Job queues get
 /// per-consumer mpsc when the engine lands.
+/// Clone shares the SAME channels — one fabric, many holders.
+#[derive(Clone)]
 pub struct Fabric {
     shell: broadcast::Sender<ShellEvent>,
 }

@@ -9,6 +9,7 @@ members = [
     "crates/engine-media",
     "crates/engine-steps",
     "crates/slides",
+    "crates/pixvix",
     "crates/fabric",
     "crates/shell",
     "crates/hubs/home",
@@ -44,6 +45,7 @@ dpl-engine-capture = { path = "crates/engine-capture" }
 dpl-engine-media = { path = "crates/engine-media" }
 dpl-engine-steps = { path = "crates/engine-steps" }
 dpl-slides = { path = "crates/slides" }
+dpl-pixvix = { path = "crates/pixvix" }
 dpl-fabric = { path = "crates/fabric" }
 dpl-shell = { path = "crates/shell" }
 dpl-hub-home = { path = "crates/hubs/home" }

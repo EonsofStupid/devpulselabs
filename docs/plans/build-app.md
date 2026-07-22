@@ -167,10 +167,15 @@ engines — no engine logic in UI.
 
 ### B4 — the overlay (`feat(pixvix)`)
 
-1. SPIKE (first, throwaway harness flag): immediate viewport with
-   `transparent(true).always_on_top()` on wgpu/Windows — screenshot proves
-   per-pixel transparency; failure → borderless fullscreen fallback (plan
-   boundary from port-pixvix §5).
+1. ~~Transparency spike~~ RESOLVED by ground truth: the old region overlay
+   worked on a FROZEN frame (`freeze_primary_to` + the loupe on the frozen
+   png — tasks #70/#74), so the faithful egui form is a borderless
+   fullscreen viewport painting the frozen frame. Per-pixel window
+   transparency was never load-bearing; the spike is unnecessary.
+   Global-hotkey note: Ctrl+Shift+9/X land as IN-APP chords this pass; the
+   OS-global hook (old Tauri global-shortcut) goes to the ledger — it needs
+   a modifier-tracking seam in engine-steps' rdev hook, added when PV1c
+   session wiring lands.
 2. CREATE `crates/pixvix` (`dpl-pixvix`): the palette viewport (compact,
    always-on-top): tabs **Img · Video · Session · Steps** (cl::icon), Img =
    mode row Region/Window/Full/Free → `dpl_engine_capture` stills → inbox;
