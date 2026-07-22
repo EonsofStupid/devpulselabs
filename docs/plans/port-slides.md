@@ -351,3 +351,26 @@ Three templates, carried behavior + the vocabulary:
    1.4s "Copied" rest, ScrollArea for overflow. Entrance enter-fade.
 
 motion.json += `flip-fade` → 16 effects. Registry 12 → 15. Counts pinned.
+
+---
+
+## S2c execution spec (2026-07-21)
+
+The heavy interactives, carried mechanics on the vocabulary:
+
+1. `cost-meter` (interactive): SEND taps append exchanges — the running
+   total climbs and the meter fill TWEENS (flip-fade between fractions,
+   pure clock); superlinearity lives in the data; after the last send the
+   call-it line shows, "The flip →" lands the tiny-cost row with wash+ring,
+   the LAND line fades in. restart zeroes everything.
+2. `predict-rank` (interactive): call-the-next-word rounds; hidden ranking
+   ("?" rows, dimmed) → Reveal animates ranked bars on `bar-grow` (the
+   post-tap settle reads as the drama beat, kept); top bar tone+ring;
+   Next round resets; LAND after the last. restart → round 0 hidden.
+3. `drag-match` (interactive): pointer drag chips onto buckets — correct
+   LOCKS (bucket reward-pulse), wrong SHAKES (drag-shake as a damped sine
+   translation) and returns; all placed → the LAND line reward-blooms in.
+   ⚠️ The carried KEYBOARD pick-up/place path is explicitly DEFERRED to a
+   follow-up (egui focus integration) — tracked here, not dropped.
+
+Registry 15 → 18. Counts pinned; state machines unit-tested.
