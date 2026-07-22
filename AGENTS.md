@@ -1,0 +1,33 @@
+# DevPULSE Labs — Pure Rust. The Contract.
+
+All UI is driven by Rust. There is no webview, no JS, no second language, no
+IPC boundary. Signals are Rust enums on tokio channels; rustc is the type
+system, end to end.
+
+## Laws
+
+1. **Plan before code.** Every pass has a plan in `docs/`. Reality contradicting
+   the plan stops the pass — amend, then continue.
+2. **Test the real artifact.** The exe proves itself: `cargo run -- --screenshot
+   out.png` boots the real app, captures its own window, exits. Unit tests for
+   logic; the screenshot for pixels. No claim without one of the two.
+3. **Hyper-modular colocation.** One concern = one crate. Hubs are crates.
+   Cross-crate access is public API only.
+4. **Registry over enumeration.** New hub = implement `Hub`, one line in
+   `app/main.rs`. The shell never names hubs. Unknown → degrade, never crash.
+5. **No bare strings for identity.** `HubId`/`SubId` newtypes, declared once as
+   consts in the owning crate.
+6. **ColdLight is authored once.** Tokens come from the JSON source (prior
+   repo); `crates/coldlight` is the generated Rust target (hand-seeded P0).
+   The paint vocabulary: crisp edges, gradient tint, black diffusion scatter —
+   never backdrop blur.
+7. **Never delete content; copy, never move; never clobber.** Carried verbatim.
+8. **ffmpeg is a subprocess, never a crate dep** (ADR-009, still law). The
+   editor follows ADR-010 (`devpulse labs/docs/wiredfront/editor-spec.md`)
+   with its render/job design intact.
+
+## Reference
+
+- `docs/foundation-plan.md` — the ratified start-over plan, salvage map included.
+- The prior app (`C:\localdev\devpulse labs`) is the salvage source: engine
+  Rust, token JSON, ADRs, research. Read from it; never build on it.
