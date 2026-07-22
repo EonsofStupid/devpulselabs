@@ -1092,6 +1092,7 @@ dependencies = [
  "dpl-coldlight",
  "dpl-video",
  "egui",
+ "egui-pilot-ai",
 ]
 
 [[package]]

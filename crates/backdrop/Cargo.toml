@@ -8,6 +8,7 @@ description = "The app backdrop feature domain: exactly two loops (DPL, Dragon);
 [dependencies]
 egui.workspace = true
 dpl-coldlight.workspace = true
+egui-pilot-ai.workspace = true
 dpl-video.workspace = true
 
 [lints]

@@ -2,6 +2,7 @@ artifact_root = "target/eguipilotai/runs"
 
 [profiles.devpulse-windows]
 executable = "target/debug/devpulselabs.exe"
+platforms = ["windows"]
 arguments = ["--route", "workbench/test-lab"]
 adapter_policy = "hardware-then-software"
 timeout_ms = 30000
@@ -11,6 +12,7 @@ EGUIPILOTAI_ADAPTER_POLICY = "hardware-then-software"
 
 [profiles.devpulse-cloud]
 executable = "target/debug/devpulselabs"
+platforms = ["linux"]
 arguments = ["--route", "workbench/test-lab"]
 adapter_policy = "software-required"
 timeout_ms = 45000
@@ -25,6 +27,7 @@ LANG = "C.UTF-8"
 
 [profiles.devpulse-hardware]
 executable = "target/release/devpulselabs"
+platforms = ["linux"]
 arguments = ["--route", "workbench/test-lab"]
 adapter_policy = "hardware-required"
 timeout_ms = 30000

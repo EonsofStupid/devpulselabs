@@ -265,6 +265,7 @@ struct SharedState {
     busy: HashMap<u64, String>,
     next_busy: u64,
     viewports: HashMap<String, egui::ViewportId>,
+    motion_policy: MotionPolicy,
 }
 
 #[derive(Clone)]
@@ -342,6 +343,10 @@ impl PilotHandle {
             .collect()
     }
 
+    pub fn motion_policy(&self) -> MotionPolicy {
+        lock(&self.shared).motion_policy
+    }
+
     pub fn begin_busy(&self, label: impl Into<String>) -> BusyToken {
         let mut shared = lock(&self.shared);
         let id = shared.next_busy;
@@ -378,6 +383,7 @@ impl PilotHandle {
             return Err(uncontrolled);
         }
 
+        shared.motion_policy = policy;
         match policy {
             MotionPolicy::Natural => {}
             MotionPolicy::FastForward => {

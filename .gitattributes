@@ -6,3 +6,4 @@
 *.ttf binary
 *.webp binary
 *.avif binary
+Cargo.zip filter=lfs diff=lfs merge=lfs -text

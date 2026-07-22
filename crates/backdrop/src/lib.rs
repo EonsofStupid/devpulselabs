@@ -133,7 +133,20 @@ impl Backdrop {
         let mood = self.mood();
         cl::mood_gradient(ui.painter(), rect, mood);
 
-        let played = match dpl_video::locate_asset(self.current.video_rel()) {
+        let suppressed = egui_pilot_ai::handle(ui.ctx()).is_some_and(|pilot| {
+            pilot.register_motion(
+                egui_pilot_ai::MotionId::new("devpulse.backdrop.video"),
+                egui_pilot_ai::MotionKind::Ambient {
+                    canonical_phase_seconds: Some(0.0),
+                },
+            );
+            pilot.motion_policy() == egui_pilot_ai::MotionPolicy::Suppressed
+        });
+
+        let video = (!suppressed)
+            .then(|| dpl_video::locate_asset(self.current.video_rel()))
+            .flatten();
+        let played = match video {
             Some(file) => {
                 dpl_video::loop_backdrop(ui, rect, &file) || {
                     let poster = dpl_video::locate_asset(self.current.poster_rel());

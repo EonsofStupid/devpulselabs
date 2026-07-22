@@ -72,6 +72,7 @@ fn doctor(workspace: &Path) -> Result<(), CliError> {
     let profiles: Vec<Value> = config
         .profiles
         .iter()
+        .filter(|(_, profile)| profile.supports_current_platform())
         .map(|(name, profile)| {
             let executable = if profile.executable.is_absolute() {
                 profile.executable.clone()

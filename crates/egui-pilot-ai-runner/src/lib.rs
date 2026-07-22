@@ -106,6 +106,8 @@ impl EguiPilotConfig {
 pub struct Profile {
     pub executable: PathBuf,
     #[serde(default)]
+    pub platforms: Vec<String>,
+    #[serde(default)]
     pub arguments: Vec<String>,
     #[serde(default)]
     pub environment: BTreeMap<String, String>,
@@ -120,6 +122,14 @@ fn default_timeout_ms() -> u64 {
 }
 
 impl Profile {
+    pub fn supports_current_platform(&self) -> bool {
+        self.platforms.is_empty()
+            || self
+                .platforms
+                .iter()
+                .any(|platform| platform == std::env::consts::OS)
+    }
+
     fn validate(&self, name: &str, workspace: &Path) -> Result<(), RunnerError> {
         if self.executable.as_os_str().is_empty() {
             return Err(RunnerError::config(format!(
@@ -231,6 +241,12 @@ impl ProcessSession {
     ) -> Result<Self, RunnerError> {
         let workspace = workspace.as_ref();
         let profile = config.profile(profile_name)?;
+        if !profile.supports_current_platform() {
+            return Err(RunnerError::config(format!(
+                "profile `{profile_name}` does not support `{}`",
+                std::env::consts::OS
+            )));
+        }
         let fixture = fixture_name.map(|name| config.fixture(name)).transpose()?;
         let nonce = unique_id("nonce");
         let session = SessionId::new(unique_id("session"));
