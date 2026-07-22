@@ -23,7 +23,7 @@ const PROVIDERS: &[(&str, Tone)] = &[
 static SPEC: HubSpec = HubSpec {
     id: HUB,
     label: "Chat",
-    icon: "✉",
+    icon: cl::icon::BOT,
     tone: Tone::Lime,
     subroutes: &[
         SubRoute {

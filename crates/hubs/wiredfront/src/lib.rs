@@ -1,7 +1,7 @@
 //! wiredFRONT — capture and media editing: PixVix, the video editor
 //! (ADR-010: stitch, ComfyUI workflows), image ops (cutout via ort).
 
-use dpl_coldlight::Tone;
+use dpl_coldlight::{self as cl, Tone};
 use dpl_hub::{Hub, HubId, HubSpec, Route, SubId, SubRoute};
 
 pub const HUB: HubId = HubId("wiredfront");
@@ -14,7 +14,7 @@ pub const SESSIONS: SubId = SubId("sessions");
 static SPEC: HubSpec = HubSpec {
     id: HUB,
     label: "wiredFRONT",
-    icon: "⛶",
+    icon: cl::icon::WIREDFRONT,
     tone: Tone::Magenta,
     subroutes: &[
         SubRoute {

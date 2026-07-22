@@ -18,6 +18,10 @@ pub enum ShellEvent {
     /// Navigation happened. Consumers: future chat context providers,
     /// telemetry, anything that cares where the operator is.
     RouteChanged { route: Route },
+    /// The footer Snip launcher was pressed — summon the PixVix overlay.
+    /// Consumer: the pixvix crate (B4); until then the inspector's signal
+    /// count is the visible proof the launcher fires.
+    PixvixSummon,
 }
 
 /// The fabric hands out senders and subscriptions; it never processes.

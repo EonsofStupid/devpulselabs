@@ -20,7 +20,9 @@ use egui::{Align, Color32, CornerRadius, Layout, Rect, RichText, Sense};
 const RAIL_WIDTH: f32 = 232.0;
 const INSPECTOR_WIDTH: f32 = 252.0;
 const TOP_HEIGHT: f32 = 44.0;
-const FOOT_HEIGHT: f32 = 30.0;
+// Taller than the old 30 — the footer now carries the launchers (the old
+// bottombar clamped 65–76px; 40 fits the sprite chrome without the bulk).
+const FOOT_HEIGHT: f32 = 40.0;
 
 pub struct Shell {
     hubs: Vec<Box<dyn Hub>>,
@@ -28,6 +30,12 @@ pub struct Shell {
     fabric: Fabric,
     /// Navigations this session — the inspector shows it; proof the fabric fires.
     nav_count: u64,
+    /// Every fabric publish this session (nav + summon) — the footer/inspector
+    /// proof counter.
+    signal_count: u64,
+    /// Full-bleed: all chrome hidden, content owns the viewport (old `\` /
+    /// Maximize2 behavior). Esc or the floating exit chip leaves.
+    full_bleed: bool,
 }
 
 impl Shell {
@@ -39,7 +47,26 @@ impl Shell {
             .first()
             .map(|h| h.spec().default_route())
             .unwrap_or(Route { hub: HubId("_none"), sub: SubId("_none") });
-        Self { hubs, route, fabric, nav_count: 0 }
+        Self { hubs, route, fabric, nav_count: 0, signal_count: 0, full_bleed: false }
+    }
+
+    pub fn full_bleed(&self) -> bool {
+        self.full_bleed
+    }
+
+    pub fn set_full_bleed(&mut self, on: bool) {
+        self.full_bleed = on;
+    }
+
+    /// The footer Snip launcher (and the global hotkey, later): summon the
+    /// PixVix overlay via the fabric.
+    pub fn summon_pixvix(&mut self) {
+        self.signal_count += 1;
+        self.fabric.publish_shell(ShellEvent::PixvixSummon);
+    }
+
+    pub fn signal_count(&self) -> u64 {
+        self.signal_count
     }
 
     pub fn route(&self) -> Route {
@@ -56,6 +83,7 @@ impl Shell {
         if self.route != route {
             self.route = route;
             self.nav_count += 1;
+            self.signal_count += 1;
             self.fabric.publish_shell(ShellEvent::RouteChanged { route });
         }
     }
@@ -70,9 +98,32 @@ impl Shell {
     /// One frame of the whole shell. Panel order matters (outermost first,
     /// CentralPanel last); the frame overlay paints after everything.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        // Esc leaves full-bleed (the old shell's escape hatch).
+        if self.full_bleed && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.full_bleed = false;
+        }
+
+        if self.full_bleed {
+            // Content owns the viewport; the only chrome is the exit chip.
+            let content = self.central(ui);
+            self.fullbleed_exit(ui, content);
+            return;
+        }
+
         let tone = self.active_tone();
-        self.top_bar(ui);
-        self.status_bar(ui);
+        if self.top_bar(ui) {
+            self.full_bleed = true;
+        }
+        let footer = self.status_bar(ui);
+        if footer.snip {
+            self.summon_pixvix();
+        }
+        if footer.bot {
+            // The agent dock is deferred (ledger); until it lands the Bot
+            // launcher targets the agent hub by its well-known id —
+            // unregistered degrades to a no-op, never a panic.
+            self.activate_hub(HubId("chat"));
+        }
         let clicked = self.rail(ui);
         if let Some(route) = clicked {
             self.navigate(route);
@@ -84,9 +135,34 @@ impl Shell {
         cl::frame_overlay(ui.painter(), content, tone);
     }
 
-    // ── top bar: identity + breadcrumb, tone-tinted sheen ───────────────
-    fn top_bar(&self, ui: &mut egui::Ui) {
+    /// The floating full-bleed exit chip (old `FullbleedExit`): top-right,
+    /// the only chrome while everything else is hidden.
+    fn fullbleed_exit(&mut self, ui: &mut egui::Ui, content: Rect) {
+        let size = egui::vec2(34.0, 28.0);
+        let rect = Rect::from_min_size(
+            egui::pos2(content.max.x - size.x - 12.0, content.min.y + 12.0),
+            size,
+        );
+        let resp = ui.interact(rect, egui::Id::new("dpl_fullbleed_exit"), Sense::click());
+        let painter = ui.painter();
+        painter.rect_filled(rect, CornerRadius::same(cl::RADIUS_SM), cl::surface::OVERLAY);
+        painter.text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            cl::icon::FULLBLEED_EXIT,
+            egui::FontId::proportional(15.0),
+            if resp.hovered() { cl::ink::STRONG } else { cl::ink::MUTED },
+        );
+        if resp.clicked() {
+            self.full_bleed = false;
+        }
+    }
+
+    // ── top bar: identity + breadcrumb, full-bleed toggle on the right ──
+    /// Returns true when the full-bleed toggle was clicked.
+    fn top_bar(&self, ui: &mut egui::Ui) -> bool {
         let (hub_label, sub_label, tone) = self.breadcrumb();
+        let mut go_fullbleed = false;
         egui::Panel::top("dpl_top")
             .exact_size(TOP_HEIGHT)
             .show_separator_line(false)
@@ -104,12 +180,22 @@ impl Shell {
                     ui.label(RichText::new(hub_label).color(cl::ink::BASE));
                     ui.label(RichText::new("›").color(cl::ink::SUBTLE));
                     ui.label(RichText::new(sub_label).color(tone.color()));
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if icon_button(ui, cl::icon::FULLBLEED, "full-bleed (Esc exits)") {
+                            go_fullbleed = true;
+                        }
+                    });
                 });
             });
+        go_fullbleed
     }
 
-    // ── footer ──────────────────────────────────────────────────────────
-    fn status_bar(&self, ui: &mut egui::Ui) {
+    // ── footer: the status bar, rebuilt to the OLD inventory ────────────
+    // Left: brand dot + ColdLight + the Snip launcher. Center: the live
+    // viewport readout. Right: kbd legend + the Bot agent launcher.
+    fn status_bar(&self, ui: &mut egui::Ui) -> FooterClicks {
+        let mut clicks = FooterClicks::default();
+        let tone = self.active_tone();
         egui::Panel::bottom("dpl_status")
             .exact_size(FOOT_HEIGHT)
             .show_separator_line(false)
@@ -120,18 +206,39 @@ impl Shell {
             )
             .show(ui, |ui| {
                 cl::sheen(ui.painter(), ui.max_rect().expand(6.0));
+                let bar = ui.max_rect();
                 ui.horizontal_centered(|ui| {
-                    ui.label(
-                        RichText::new(format!("route  {}/{}", self.route.hub, self.route.sub))
-                            .small()
-                            .color(cl::ink::MUTED),
-                    );
+                    // Painted, not a glyph — ● has no coverage in the stack.
+                    cl::tone_dot(ui, tone);
+                    ui.label(RichText::new("ColdLight").small().color(cl::ink::MUTED));
+                    ui.add_space(cl::space::S3);
+                    if launcher_chip(ui, cl::icon::SNIP, "Snip", tone) {
+                        clicks.snip = true;
+                    }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        // Reserved: the launcher lands here (fabric plan §6).
-                        ui.label(RichText::new("fabric · live").small().color(cl::ink::SUBTLE));
+                        if launcher_chip(ui, cl::icon::BOT, "Agents", tone) {
+                            clicks.bot = true;
+                        }
+                        ui.add_space(cl::space::S3);
+                        ui.label(
+                            RichText::new(format!("signals · {}", self.signal_count))
+                                .small()
+                                .color(cl::ink::SUBTLE),
+                        );
                     });
                 });
+                // The center readout, painted so the flex sides can't shove it.
+                let size = ui.ctx().content_rect().size();
+                let ppp = ui.ctx().pixels_per_point();
+                ui.painter().text(
+                    bar.center(),
+                    egui::Align2::CENTER_CENTER,
+                    format!("{:.0} × {:.0} · dpr {ppp:.2}", size.x, size.y),
+                    egui::FontId::monospace(10.5),
+                    cl::ink::SUBTLE,
+                );
             });
+        clicks
     }
 
     // ── left rail: hubs, active one auto-extended ───────────────────────
@@ -275,6 +382,63 @@ impl Shell {
             })
             .unwrap_or(("—", "—", Tone::Cyan))
     }
+}
+
+/// What the footer's interactive chrome reported this frame.
+#[derive(Default)]
+struct FooterClicks {
+    snip: bool,
+    bot: bool,
+}
+
+/// A quiet icon-only button (topbar/full-bleed chrome).
+fn icon_button(ui: &mut egui::Ui, glyph: &str, tip: &str) -> bool {
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(28.0, 24.0), Sense::click());
+    let painter = ui.painter();
+    if resp.hovered() {
+        painter.rect_filled(rect, CornerRadius::same(cl::RADIUS_SM), cl::surface::OVERLAY);
+    }
+    painter.text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        glyph,
+        egui::FontId::proportional(15.0),
+        if resp.hovered() { cl::ink::STRONG } else { cl::ink::MUTED },
+    );
+    resp.on_hover_text(tip).clicked()
+}
+
+/// A footer launcher chip: icon + label, tone-halo on hover — the Snip and
+/// Bot launchers from the old bottombar, in the sprite vocabulary.
+fn launcher_chip(ui: &mut egui::Ui, glyph: &str, label: &str, tone: Tone) -> bool {
+    let galley = ui.painter().layout_no_wrap(
+        label.into(),
+        egui::FontId::proportional(12.5),
+        cl::ink::BASE,
+    );
+    let w = 22.0 + galley.size().x + 16.0;
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, 26.0), Sense::click());
+    let painter = ui.painter();
+    if resp.hovered() {
+        painter.rect_filled(rect, CornerRadius::same(cl::RADIUS_SM), tone.wash());
+    } else {
+        painter.rect_filled(rect, CornerRadius::same(cl::RADIUS_SM), cl::surface::OVERLAY);
+    }
+    painter.text(
+        egui::pos2(rect.min.x + 8.0, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        glyph,
+        egui::FontId::proportional(14.0),
+        tone.color(),
+    );
+    painter.text(
+        egui::pos2(rect.min.x + 24.0, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        label,
+        egui::FontId::proportional(12.5),
+        if resp.hovered() { cl::ink::STRONG } else { cl::ink::BASE },
+    );
+    resp.clicked()
 }
 
 /// A hub row as a sprite: crisp wash when active with a 1px lit top edge and
@@ -445,5 +609,30 @@ mod tests {
     fn an_empty_registry_boots_on_the_sentinel_not_a_panic() {
         let shell = Shell::new(vec![], Fabric::new());
         assert_eq!(shell.route().hub, HubId("_none"));
+    }
+
+    #[test]
+    fn the_snip_launcher_publishes_pixvix_summon() {
+        let (mut shell, mut rx) = shell();
+        shell.summon_pixvix();
+        assert_eq!(rx.try_recv().unwrap(), ShellEvent::PixvixSummon);
+        assert_eq!(shell.signal_count(), 1);
+    }
+
+    #[test]
+    fn signals_count_every_publish_navs_included() {
+        let (mut shell, _rx) = shell();
+        shell.activate_hub(HubId("b"));
+        shell.summon_pixvix();
+        assert_eq!(shell.nav_count(), 1);
+        assert_eq!(shell.signal_count(), 2);
+    }
+
+    #[test]
+    fn full_bleed_is_off_by_default_and_togglable() {
+        let (mut shell, _rx) = shell();
+        assert!(!shell.full_bleed());
+        shell.set_full_bleed(true);
+        assert!(shell.full_bleed());
     }
 }

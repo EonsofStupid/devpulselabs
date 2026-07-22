@@ -18,7 +18,7 @@ pub const TEMPLATES: SubId = SubId("templates");
 static SPEC: HubSpec = HubSpec {
     id: HUB,
     label: "Library",
-    icon: "⛃",
+    icon: cl::icon::LIBRARY,
     tone: Tone::Violet,
     subroutes: &[
         SubRoute {

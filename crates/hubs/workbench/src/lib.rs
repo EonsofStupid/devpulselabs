@@ -1,7 +1,7 @@
 //! Workbench — the internal slide + full-episode builder: blocks, elements,
 //! templates, then effects (the operator's stated stage order).
 
-use dpl_coldlight::Tone;
+use dpl_coldlight::{self as cl, Tone};
 use dpl_hub::{Hub, HubId, HubSpec, Route, SubId, SubRoute};
 
 pub const HUB: HubId = HubId("workbench");
@@ -12,7 +12,7 @@ pub const TOKENS: SubId = SubId("tokens");
 static SPEC: HubSpec = HubSpec {
     id: HUB,
     label: "Workbench",
-    icon: "⚒",
+    icon: cl::icon::WORKBENCH,
     tone: Tone::Amber,
     subroutes: &[
         SubRoute {

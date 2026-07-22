@@ -114,6 +114,23 @@ pub const RADIUS_SM: u8 = 6;
 pub fn apply_theme(ctx: &egui::Context) {
     use egui::{FontFamily, FontId, TextStyle};
 
+    // The icon font (vendored Phosphor regular, MIT — assets/) rides the
+    // default families as a fallback, so any label can carry a glyph from
+    // `cl::icon` inline. Vendored bytes + codepoints instead of the
+    // egui-phosphor crate: its egui pin would drag a second egui/epaint
+    // into the graph.
+    let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert(
+        "phosphor".into(),
+        std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
+            "../assets/Phosphor.ttf"
+        ))),
+    );
+    for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+        fonts.families.entry(family).or_default().push("phosphor".into());
+    }
+    ctx.set_fonts(fonts);
+
     // Dark is the only theme ColdLight ships; pin it and style that slot.
     ctx.set_theme(egui::ThemePreference::Dark);
     let mut style = (*ctx.style_of(egui::Theme::Dark)).clone();
@@ -133,6 +150,41 @@ pub fn apply_theme(ctx: &egui::Context) {
     style.visuals.override_text_color = Some(ink::BASE);
     style.visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, surface::HAIRLINE);
     ctx.set_style_of(egui::Theme::Dark, style);
+}
+
+/// The icon vocabulary — Phosphor glyphs under the OLD lucide inventory's
+/// semantic names, so call sites read like the old shell. Codepoints are
+/// vendored from egui-phosphor 0.12 (regular variant) alongside the TTF in
+/// `assets/` — the crate itself would drag a second egui into the graph.
+/// One const per MEANING; adding an icon is one line here and nothing else.
+pub mod icon {
+    // The rail (old NAV rows).
+    pub const HOME: &str = "\u{E2C2}"; // house
+    pub const WORKBENCH: &str = "\u{E80E}"; // hammer
+    pub const LIBRARY: &str = "\u{E464}"; // squares-four
+    pub const WIREDFRONT: &str = "\u{E8C2}"; // film-slate
+    pub const BOT: &str = "\u{E762}"; // robot
+
+    // The footer + chrome.
+    pub const SNIP: &str = "\u{E10E}"; // camera
+    pub const DOCK: &str = "\u{E13C}"; // caret-up
+    pub const FULLBLEED: &str = "\u{E0A2}"; // arrows-out
+    pub const FULLBLEED_EXIT: &str = "\u{E09A}"; // arrows-in
+    pub const CLOSE: &str = "\u{E4F6}"; // x
+    pub const BACK: &str = "\u{E138}"; // caret-left
+
+    // The capture surface (old palette tabs + modes + recording).
+    pub const IMG: &str = "\u{E10E}"; // camera
+    pub const VIDEO: &str = "\u{E4DA}"; // video-camera
+    pub const SESSION: &str = "\u{E58C}"; // monitor-play
+    pub const STEPS: &str = "\u{EA88}"; // footprints
+    pub const REC: &str = "\u{E3EE}"; // record
+    pub const STOP: &str = "\u{E45E}"; // square
+    pub const MARK: &str = "\u{EA88}"; // footprints
+    pub const REGION: &str = "\u{EBB6}"; // scan
+    pub const WINDOW: &str = "\u{E5DA}"; // app-window
+    pub const FULL: &str = "\u{E32E}"; // monitor
+    pub const FREE: &str = "\u{EDC6}"; // lasso
 }
 
 /// The scatter card: solid raised fill, crisp hairline edge, and the black

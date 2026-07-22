@@ -22,7 +22,7 @@ pub const PULSE: SubId = SubId("pulse");
 static SPEC: HubSpec = HubSpec {
     id: HUB,
     label: "Home",
-    icon: "⚑",
+    icon: cl::icon::HOME,
     tone: Tone::Cyan,
     subroutes: &[
         SubRoute {
