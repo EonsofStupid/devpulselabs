@@ -44,9 +44,12 @@ impl Tone {
     }
 }
 
-/// Surfaces — the dark stack.
+/// Surfaces — the dark stack. The WELL is the recessed content plane; chrome
+/// plates (bars, rails) sit on RAISED above it and cast diffusion into it.
 pub mod surface {
     use egui::Color32;
+    /// The recessed content plane — everything is framed against this.
+    pub const WELL: Color32 = Color32::from_rgb(0x07, 0x09, 0x0e);
     pub const BASE: Color32 = Color32::from_rgb(0x0a, 0x0c, 0x12);
     pub const RAISED: Color32 = Color32::from_rgb(0x11, 0x14, 0x1d);
     pub const OVERLAY: Color32 = Color32::from_rgb(0x18, 0x1c, 0x27);
@@ -171,4 +174,108 @@ pub fn gradient_tint(painter: &egui::Painter, rect: Rect, tone: Tone) {
 pub fn tone_dot(ui: &mut egui::Ui, tone: Tone) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
     ui.painter().circle_filled(rect.center(), 3.5, tone.color());
+}
+
+// ── the sprite-frame vocabulary ─────────────────────────────────────────
+//
+// The shell's depth is built from exactly three moves, all cheap meshes:
+//   sheen()      a top-down gradient tint on a chrome plate
+//   diffusion()  black scatter cast off a plate into the well
+//   seam()       the crisp 2px sprite bevel — lit line, then a pure-black cut
+
+/// Which edge of a rect is the "dark" edge of a gradient, i.e. where the
+/// chrome is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Edge {
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
+
+fn quad(painter: &egui::Painter, rect: Rect, c: [Color32; 4]) {
+    use egui::epaint::{Mesh, Vertex, WHITE_UV};
+    let mut mesh = Mesh::default();
+    mesh.vertices.push(Vertex { pos: rect.left_top(), uv: WHITE_UV, color: c[0] });
+    mesh.vertices.push(Vertex { pos: rect.right_top(), uv: WHITE_UV, color: c[1] });
+    mesh.vertices.push(Vertex { pos: rect.left_bottom(), uv: WHITE_UV, color: c[2] });
+    mesh.vertices.push(Vertex { pos: rect.right_bottom(), uv: WHITE_UV, color: c[3] });
+    mesh.indices.extend_from_slice(&[0, 1, 2, 2, 1, 3]);
+    painter.add(egui::Shape::mesh(mesh));
+}
+
+/// The gradient tint a chrome plate wears: a faint sheen from its top edge,
+/// dying out by the midline. Solid color + gradient tint — the sprite look.
+pub fn sheen(painter: &egui::Painter, rect: Rect) {
+    let lit = Color32::from_rgba_unmultiplied(0xff, 0xff, 0xff, 7);
+    let band = Rect::from_min_max(
+        rect.min,
+        egui::pos2(rect.max.x, rect.min.y + (rect.height() * 0.5).min(28.0)),
+    );
+    quad(painter, band, [lit, lit, Color32::TRANSPARENT, Color32::TRANSPARENT]);
+}
+
+/// Black diffusion scattered off chrome into the well. `edge` names where the
+/// chrome is; the scatter fades away from it.
+pub fn diffusion(painter: &egui::Painter, strip: Rect, edge: Edge, max_alpha: u8) {
+    let dark = Color32::from_black_alpha(max_alpha);
+    let none = Color32::TRANSPARENT;
+    let colors = match edge {
+        Edge::Top => [dark, dark, none, none],
+        Edge::Bottom => [none, none, dark, dark],
+        Edge::Left => [dark, none, dark, none],
+        Edge::Right => [none, dark, none, dark],
+    };
+    quad(painter, strip, colors);
+}
+
+/// The crisp seam where a chrome plate meets the well: a 1px lit line on the
+/// chrome side, then a 1px pure-black cut at the boundary. `edge` names the
+/// side of `content` the chrome sits on. `accent` tints the lit line (the
+/// topbar seam answers the active hub's tone).
+pub fn seam(painter: &egui::Painter, content: Rect, edge: Edge, accent: Option<Tone>) {
+    let lit = match accent {
+        Some(t) => {
+            let c = t.color();
+            Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 64)
+        }
+        None => Color32::from_rgba_unmultiplied(0xff, 0xff, 0xff, 12),
+    };
+    let cut = Color32::from_rgb(0x02, 0x03, 0x05);
+    let (lit_rect, cut_rect) = match edge {
+        Edge::Top => (
+            Rect::from_min_max(egui::pos2(content.min.x, content.min.y - 2.0), egui::pos2(content.max.x, content.min.y - 1.0)),
+            Rect::from_min_max(egui::pos2(content.min.x, content.min.y - 1.0), egui::pos2(content.max.x, content.min.y)),
+        ),
+        Edge::Bottom => (
+            Rect::from_min_max(egui::pos2(content.min.x, content.max.y + 1.0), egui::pos2(content.max.x, content.max.y + 2.0)),
+            Rect::from_min_max(egui::pos2(content.min.x, content.max.y), egui::pos2(content.max.x, content.max.y + 1.0)),
+        ),
+        Edge::Left => (
+            Rect::from_min_max(egui::pos2(content.min.x - 2.0, content.min.y), egui::pos2(content.min.x - 1.0, content.max.y)),
+            Rect::from_min_max(egui::pos2(content.min.x - 1.0, content.min.y), egui::pos2(content.min.x, content.max.y)),
+        ),
+        Edge::Right => (
+            Rect::from_min_max(egui::pos2(content.max.x + 1.0, content.min.y), egui::pos2(content.max.x + 2.0, content.max.y)),
+            Rect::from_min_max(egui::pos2(content.max.x, content.min.y), egui::pos2(content.max.x + 1.0, content.max.y)),
+        ),
+    };
+    painter.rect_filled(lit_rect, 0, lit);
+    painter.rect_filled(cut_rect, 0, cut);
+}
+
+/// The whole frame overlay: seams on all four chrome boundaries + diffusion
+/// scattered into the well. Call once per frame, after every panel, with the
+/// content rect. `top_accent` is the active hub's tone.
+pub fn frame_overlay(painter: &egui::Painter, content: Rect, top_accent: Tone) {
+    const DEPTH: f32 = 16.0;
+    let c = content;
+    diffusion(painter, Rect::from_min_max(c.min, egui::pos2(c.max.x, c.min.y + DEPTH)), Edge::Top, 90);
+    diffusion(painter, Rect::from_min_max(egui::pos2(c.min.x, c.max.y - DEPTH * 0.6), c.max), Edge::Bottom, 60);
+    diffusion(painter, Rect::from_min_max(c.min, egui::pos2(c.min.x + DEPTH, c.max.y)), Edge::Left, 80);
+    diffusion(painter, Rect::from_min_max(egui::pos2(c.max.x - DEPTH * 0.75, c.min.y), c.max), Edge::Right, 70);
+    seam(painter, c, Edge::Top, Some(top_accent));
+    seam(painter, c, Edge::Left, None);
+    seam(painter, c, Edge::Right, None);
+    seam(painter, c, Edge::Bottom, None);
 }
