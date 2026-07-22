@@ -7,6 +7,7 @@ use dpl_coldlight::{self as cl, Tone};
 use egui::{Align2, FontId, Rect, Ui};
 
 use crate::blocks::eyebrow::tracked;
+use crate::blocks::{media_backdrop, Ambient, Media};
 use crate::frame::Stage;
 use crate::motion::Clock;
 use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
@@ -23,6 +24,7 @@ pub struct CalloutCard {
     pub kicker: &'static str,
     pub title: &'static str,
     pub body: &'static str,
+    pub media: Option<Media>,
     clock: Clock,
 }
 
@@ -33,6 +35,9 @@ impl CalloutCard {
             kicker: "the catch",
             title: "Free tiers are the demo, not the product",
             body: "Every hosted model you don't pay for is pricing you in tokens of patience.",
+            // Drift is a SLIDE ambience (ratified 2026-07-22) — this demo is
+            // its gallery-gate surface.
+            media: Some(Media::Anim(Ambient::Drift)),
             clock: Clock::default(),
         }
     }
@@ -52,6 +57,9 @@ impl SlideTemplate for CalloutCard {
         let fluid = &stage.fluid;
         let now = ui.input(|i| i.time);
         let t0 = self.clock.tick(now);
+        if let Some(m) = self.media {
+            media_backdrop(ui, ui.max_rect(), m, self.tone, now, t0);
+        }
         let painter = ui.painter();
 
         let p = cl::motion::ENTER_RISE.at(now, t0, 0);

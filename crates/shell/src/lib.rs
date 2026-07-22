@@ -28,6 +28,9 @@ pub struct Shell {
     hubs: Vec<Box<dyn Hub>>,
     route: Route,
     fabric: Fabric,
+    /// The app backdrop — two loops + authored random moods, painted under
+    /// EVERY route's content; tiles live in the topbar.
+    backdrop: dpl_backdrop::Backdrop,
     /// Navigations this session — the inspector shows it; proof the fabric fires.
     nav_count: u64,
     /// Every fabric publish this session (nav + summon) — the footer/inspector
@@ -47,7 +50,21 @@ impl Shell {
             .first()
             .map(|h| h.spec().default_route())
             .unwrap_or(Route { hub: HubId("_none"), sub: SubId("_none") });
-        Self { hubs, route, fabric, nav_count: 0, signal_count: 0, full_bleed: false }
+        Self {
+            hubs,
+            route,
+            fabric,
+            backdrop: dpl_backdrop::Backdrop::default(),
+            nav_count: 0,
+            signal_count: 0,
+            full_bleed: false,
+        }
+    }
+
+    /// Harness access (`--mood <n>` pins the boot mood for reproducible
+    /// proof shots).
+    pub fn backdrop_mut(&mut self) -> &mut dpl_backdrop::Backdrop {
+        &mut self.backdrop
     }
 
     pub fn full_bleed(&self) -> bool {
@@ -158,10 +175,11 @@ impl Shell {
         }
     }
 
-    // ── top bar: identity + breadcrumb, full-bleed toggle on the right ──
+    // ── top bar: identity + breadcrumb; backdrop tiles + full-bleed right ─
     /// Returns true when the full-bleed toggle was clicked.
-    fn top_bar(&self, ui: &mut egui::Ui) -> bool {
+    fn top_bar(&mut self, ui: &mut egui::Ui) -> bool {
         let (hub_label, sub_label, tone) = self.breadcrumb();
+        let backdrop = &mut self.backdrop;
         let mut go_fullbleed = false;
         egui::Panel::top("dpl_top")
             .exact_size(TOP_HEIGHT)
@@ -184,6 +202,9 @@ impl Shell {
                         if icon_button(ui, cl::icon::FULLBLEED, "full-bleed (Esc exits)") {
                             go_fullbleed = true;
                         }
+                        ui.add_space(cl::space::S2);
+                        // The two loops; every click pulls a fresh mood.
+                        backdrop.tiles(ui);
                     });
                 });
             });
@@ -341,6 +362,8 @@ impl Shell {
     }
 
     // ── central: the recessed well, dispatch to the active hub ──────────
+    // The backdrop (loop + mood) paints under EVERY route's content — the
+    // well is never flat.
     fn central(&mut self, ui: &mut egui::Ui) -> Rect {
         let route = self.route;
         let idx = self.hubs.iter().position(|h| h.spec().id == route.hub);
@@ -350,7 +373,10 @@ impl Shell {
                     .fill(cl::surface::WELL)
                     .inner_margin(egui::Margin::same(18)),
             )
-            .show(ui, |ui| match idx {
+            .show(ui, |ui| {
+                // clip_rect = the panel's full plate, margins included.
+                self.backdrop.paint(ui, ui.clip_rect());
+                match idx {
                 Some(i) => self.hubs[i].ui(ui, route),
                 None => {
                     // Unknown → degrade, never crash (Law 4).
@@ -359,7 +385,7 @@ impl Shell {
                             .color(cl::ink::MUTED),
                     );
                 }
-            });
+            }});
         resp.response.rect
     }
 

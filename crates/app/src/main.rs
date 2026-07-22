@@ -42,6 +42,12 @@ fn main() -> eframe::Result {
     // `--pixvix` opens the overlay at boot; `--pixvix-snap` fires a real
     // Img/Full snip through the palette's own handler and exits.
     let pixvix_open = args.iter().any(|a| a == "--pixvix");
+    // `--mood <n>` pins the boot mood so backdrop proof shots reproduce.
+    let mood: Option<usize> = args
+        .iter()
+        .position(|a| a == "--mood")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|n| n.parse().ok());
     let pixvix_snap = args.iter().any(|a| a == "--pixvix-snap");
 
     let options = eframe::NativeOptions {
@@ -60,7 +66,7 @@ fn main() -> eframe::Result {
             // Media blocks: file:// images resolve through these loaders.
             egui_extras::install_image_loaders(&cc.egui_ctx);
             Ok(Box::new(App::new(
-                shot, boot_route, focus, shot_frame, pixvix_open, pixvix_snap,
+                shot, boot_route, focus, shot_frame, pixvix_open, pixvix_snap, mood,
             )))
         }),
     )
@@ -84,6 +90,7 @@ impl App {
         shot_frame: u32,
         pixvix_open: bool,
         pixvix_snap: bool,
+        mood: Option<usize>,
     ) -> Self {
         let mut library = dpl_hub_library::LibraryHub::default();
         if let Some(id) = focus {
@@ -105,6 +112,9 @@ impl App {
             pixvix.open_now();
         }
         let mut shell = Shell::new(hubs, fabric);
+        if let Some(m) = mood {
+            shell.backdrop_mut().set_mood(m);
+        }
         match boot_route {
             // The harness route: HubId/SubId are &'static str newtypes, so the
             // CLI strings are leaked once — a harness-only allocation.

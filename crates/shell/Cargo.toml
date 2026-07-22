@@ -9,6 +9,7 @@ egui.workspace = true
 dpl-hub.workspace = true
 dpl-coldlight.workspace = true
 dpl-fabric.workspace = true
+dpl-backdrop.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true

@@ -1,0 +1,65 @@
+{
+  "$schema-note": "AUTHORED mood registry - the backdrop's multi-hue treatments. A mood is NEVER one color: >=3 gradient stops, each [hue_id, ladder_step] resolved through the GENERATED pool at runtime. scrim = the legibility veil alpha (0-255) tinted by the FIRST stop's hue; accent = the hue chrome may answer with. Add a mood: one entry here + cargo build. Steps must exist in LADDER_STEPS.",
+  "moods": [
+    {
+      "name": "ember-drift",
+      "stops": [["oxblood", 900], ["vermilion", 700], ["amber-ember", 500], ["gold", 400]],
+      "scrim": 168,
+      "accent": "amber-ember"
+    },
+    {
+      "name": "deep-lagoon",
+      "stops": [["midnight", 950], ["cerulean", 800], ["teal", 600], ["mint", 400]],
+      "scrim": 176,
+      "accent": "cyan"
+    },
+    {
+      "name": "orchid-haze",
+      "stops": [["aubergine", 900], ["purple", 700], ["magenta-orchid", 500], ["rose", 400]],
+      "scrim": 172,
+      "accent": "magenta-orchid"
+    },
+    {
+      "name": "botanical-night",
+      "stops": [["ink", 950], ["botanical", 800], ["emerald", 600], ["chartreuse", 400]],
+      "scrim": 176,
+      "accent": "lime"
+    },
+    {
+      "name": "solar-flare",
+      "stops": [["oxblood", 950], ["crimson", 700], ["orange", 500], ["saffron", 300]],
+      "scrim": 160,
+      "accent": "saffron"
+    },
+    {
+      "name": "glacier-signal",
+      "stops": [["midnight", 900], ["azure", 700], ["cyan-ice", 400], ["white", 100]],
+      "scrim": 184,
+      "accent": "cyan-ice"
+    },
+    {
+      "name": "violet-static",
+      "stops": [["void", 950], ["indigo", 800], ["violet", 600], ["lavender", 300]],
+      "scrim": 176,
+      "accent": "violet"
+    },
+    {
+      "name": "terracotta-dusk",
+      "stops": [["mocha", 900], ["terracotta", 600], ["coral", 400], ["saffron", 200]],
+      "scrim": 164,
+      "accent": "coral"
+    },
+    {
+      "name": "jade-current",
+      "stops": [["graphite", 950], ["viridian", 700], ["jade", 500], ["sky", 300]],
+      "scrim": 172,
+      "accent": "jade"
+    },
+    {
+      "name": "fuchsia-arc",
+      "stops": [["aubergine", 950], ["plum", 700], ["fuchsia", 500], ["pink", 300], ["gold", 200]],
+      "scrim": 168,
+      "accent": "fuchsia"
+    }
+  ]
+}

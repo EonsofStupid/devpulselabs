@@ -5,6 +5,7 @@ members = [
     "crates/coldlight",
     "crates/vector",
     "crates/video",
+    "crates/backdrop",
     "crates/engine-capture",
     "crates/engine-media",
     "crates/engine-steps",
@@ -41,6 +42,7 @@ dpl-hub = { path = "crates/hub" }
 dpl-coldlight = { path = "crates/coldlight" }
 dpl-vector = { path = "crates/vector" }
 dpl-video = { path = "crates/video" }
+dpl-backdrop = { path = "crates/backdrop" }
 dpl-engine-capture = { path = "crates/engine-capture" }
 dpl-engine-media = { path = "crates/engine-media" }
 dpl-engine-steps = { path = "crates/engine-steps" }

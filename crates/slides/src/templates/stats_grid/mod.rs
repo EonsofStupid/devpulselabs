@@ -9,6 +9,7 @@ use dpl_coldlight::{self as cl, Tone};
 use egui::{Align2, FontId, Rect, Sense, Ui};
 
 use crate::blocks::eyebrow::tracked;
+use crate::blocks::{media_backdrop, Ambient, Media};
 use crate::frame::Stage;
 use crate::motion::Clock;
 use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
@@ -32,6 +33,7 @@ pub struct StatsGrid {
     pub tone: Tone,
     pub title: &'static str,
     pub stats: Vec<StatItem>,
+    pub media: Option<Media>,
     /// (flipped, when-toggled) per card — the crossfade clocks.
     flips: Vec<(bool, f64)>,
     clock: Clock,
@@ -65,6 +67,8 @@ impl StatsGrid {
             tone: Tone::Cyan,
             title: "The local numbers",
             stats,
+            // Rings is a SLIDE ambience (ratified 2026-07-22) — gallery gate.
+            media: Some(Media::Anim(Ambient::Rings)),
             flips: vec![(false, f64::NEG_INFINITY); n],
             clock: Clock::default(),
         }
@@ -86,6 +90,9 @@ impl SlideTemplate for StatsGrid {
         let fluid = &stage.fluid;
         let now = ui.input(|i| i.time);
         let t0 = self.clock.tick(now);
+        if let Some(m) = self.media {
+            media_backdrop(ui, ui.max_rect(), m, self.tone, now, t0);
+        }
         let painter = ui.painter().clone();
         let enter = cl::motion::LAYER_FADE;
         let flip_fx = cl::motion::FLIP_FADE;

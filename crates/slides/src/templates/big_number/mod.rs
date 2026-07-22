@@ -10,6 +10,7 @@ use dpl_coldlight::Tone;
 use egui::{Align2, FontId, Ui};
 
 use crate::blocks::eyebrow::tracked;
+use crate::blocks::{media_backdrop, Ambient, Media};
 use crate::frame::Stage;
 use crate::motion::Clock;
 use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
@@ -29,6 +30,7 @@ pub struct BigNumber {
     pub value: &'static str,
     pub label: &'static str,
     pub footnote: &'static str,
+    pub media: Option<Media>,
     clock: Clock,
 }
 
@@ -41,6 +43,8 @@ impl BigNumber {
             value: "70×",
             label: "local capability per dollar since 2022",
             footnote: "source: EOS-001 CH02 — verified against public inference pricing",
+            // Pulse is a SLIDE ambience (ratified 2026-07-22) — gallery gate.
+            media: Some(Media::Anim(Ambient::Pulse)),
             clock: Clock::default(),
         }
     }
@@ -59,6 +63,9 @@ impl SlideTemplate for BigNumber {
         let stage = Stage::of(ui.max_rect());
         let now = ui.input(|i| i.time);
         let t0 = self.clock.tick(now);
+        if let Some(m) = self.media {
+            media_backdrop(ui, ui.max_rect(), m, self.tone, now, t0);
+        }
         // Entrance: the receipt BLOOMS (spring overshoot on scale), the
         // supporting lines fade — settle first, one-time event, then rest.
         let bloom = cl::motion::ENTER_BLOOM.at(now, t0, 0);

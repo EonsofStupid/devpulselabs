@@ -1,0 +1,11 @@
+[package]
+name = "dpl-backdrop"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "The app backdrop feature domain: exactly two loops (DPL, Dragon); every click pulls a random AUTHORED mood from the generated registry. Colocated consumer of coldlight's moods."
+
+[dependencies]
+egui.workspace = true
+dpl-coldlight.workspace = true
+dpl-video.workspace = true

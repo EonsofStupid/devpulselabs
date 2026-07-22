@@ -14,6 +14,7 @@ use egui::RichText;
 pub const HUB: HubId = HubId("library");
 pub const COMPONENTS: SubId = SubId("components");
 pub const TEMPLATES: SubId = SubId("templates");
+pub const MOODS: SubId = SubId("moods");
 
 static SPEC: HubSpec = HubSpec {
     id: HUB,
@@ -30,6 +31,11 @@ static SPEC: HubSpec = HubSpec {
             id: TEMPLATES,
             label: "Slide templates",
             blurb: "Every registered template, live — blocks, templates, infographics, animating.",
+        },
+        SubRoute {
+            id: MOODS,
+            label: "Backdrop moods",
+            blurb: "Every authored mood from tokens/moods.json — the backdrop's random pulls.",
         },
     ],
 };
@@ -64,6 +70,8 @@ impl Hub for LibraryHub {
     fn ui(&mut self, ui: &mut egui::Ui, route: Route) {
         if route.sub == TEMPLATES {
             self.templates_gallery(ui);
+        } else if route.sub == MOODS {
+            moods_wall(ui);
         } else {
             // Unknown subs degrade to the pool wall, never crash.
             pool_wall(ui);
@@ -254,5 +262,67 @@ fn pool_wall(ui: &mut egui::Ui) {
             }
             ui.add_space(cl::space::S3);
         }
+    });
+}
+
+/// The moods wall — every AUTHORED backdrop mood renders as a live gradient
+/// swatch (the gallery gate: if it's in tokens/moods.json, it's on this
+/// wall). Card = the mood's 135° gradient under its own scrim, name, stop
+/// count, and accent dot.
+fn moods_wall(ui: &mut egui::Ui) {
+    ui.label(
+        RichText::new(format!(
+            "BACKDROP MOODS — {} authored · every click on a backdrop tile pulls one at random",
+            cl::MOOD_COUNT
+        ))
+        .small()
+        .color(cl::ink::SUBTLE),
+    );
+    ui.add_space(cl::space::S2);
+
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        let card = egui::vec2(236.0, 128.0);
+        ui.horizontal_wrapped(|ui| {
+            for mood in cl::MOODS.iter() {
+                let (rect, _) = ui.allocate_exact_size(card, egui::Sense::hover());
+                let painter = ui.painter();
+                // The treatment exactly as the backdrop composes it:
+                // gradient, then the mood's tinted scrim at half alpha so
+                // the swatch stays legible on the wall.
+                cl::mood_gradient(painter, rect, mood);
+                let s = mood.scrim_color();
+                painter.rect_filled(
+                    rect,
+                    cl::RADIUS_SM,
+                    egui::Color32::from_rgba_unmultiplied(s.r(), s.g(), s.b(), s.a() / 2),
+                );
+                painter.rect(
+                    rect,
+                    cl::RADIUS_SM,
+                    egui::Color32::TRANSPARENT,
+                    egui::Stroke::new(1.0, cl::surface::HAIRLINE),
+                    egui::StrokeKind::Inside,
+                );
+                painter.circle_filled(
+                    egui::pos2(rect.min.x + 14.0, rect.max.y - 16.0),
+                    5.0,
+                    mood.accent_color(),
+                );
+                painter.text(
+                    egui::pos2(rect.min.x + 26.0, rect.max.y - 16.0),
+                    egui::Align2::LEFT_CENTER,
+                    mood.name,
+                    egui::FontId::proportional(13.0),
+                    cl::ink::STRONG,
+                );
+                painter.text(
+                    egui::pos2(rect.max.x - 10.0, rect.max.y - 16.0),
+                    egui::Align2::RIGHT_CENTER,
+                    format!("{} stops", mood.stops.len()),
+                    egui::FontId::monospace(10.5),
+                    cl::ink::BASE,
+                );
+            }
+        });
     });
 }
