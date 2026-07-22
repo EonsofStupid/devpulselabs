@@ -1,0 +1,25 @@
+{
+  "$schema": "authored motion source — durations in seconds, eases as cubic-bezier control points (ported verbatim from the prior theme.css), effects = the named vocabulary slides pull",
+  "durations": { "fast": 0.12, "base": 0.2, "slow": 0.32 },
+  "eases": {
+    "standard": [0.4, 0.0, 0.2, 1.0],
+    "decelerate": [0.0, 0.0, 0.2, 1.0],
+    "emphasized": [0.2, 0.0, 0.0, 1.0],
+    "bounce": [0.68, -0.55, 0.265, 1.55],
+    "spring-soft": [0.34, 1.56, 0.64, 1.0],
+    "spring-crisp": [0.22, 1.61, 0.36, 1.0]
+  },
+  "effects": {
+    "chart-rise": { "dur": 0.6, "ease": "emphasized", "stagger": 0.12 },
+    "chart-draw": { "dur": 1.1, "ease": "emphasized", "stagger": 0.2 },
+    "chart-fade": { "dur": 0.6, "ease": "decelerate", "stagger": 0.14 },
+    "chart-sweep": { "dur": 0.9, "ease": "decelerate", "stagger": 0.14 },
+    "gauge-sweep": { "dur": 1.2, "ease": "emphasized", "delay": 0.2 },
+    "layer-fade": { "dur": 0.5, "ease": "decelerate", "stagger": 0.08 },
+    "bar-grow": { "dur": 0.7, "ease": "decelerate", "stagger": 0.09 },
+    "reward-pulse": { "dur": 0.6, "ease": "spring-soft" },
+    "reward-bloom": { "dur": 0.9, "ease": "spring-soft" },
+    "drag-shake": { "dur": 0.45, "ease": "standard" },
+    "hotspot-pulse": { "dur": 1.6, "ease": "standard", "loop": true }
+  }
+}

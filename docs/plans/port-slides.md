@@ -243,3 +243,34 @@ execution — same file, appended, re-approved.)
 One S1 commit:
 `feat(slides): the catalog returns — vector engine, blocks, first templates, 6 infographics, live gallery`
 adds `crates/vector`, `crates/slides`, library gallery route, baselines. No push.
+
+---
+
+## S1a amendment (operator direction, 2026-07-21, mid-S1)
+
+*"so i can then click on each slide, preview it the animation… strong motion and
+interaction effects… not scoping them but generating in a way where they exist
+in the generated runtime and then get pulled to colocate with the folder that
+is per slide."*
+
+1. **Motion is a generated runtime.** New authored source
+   `crates/coldlight/tokens/motion.json` — durations, the six eases (ported
+   verbatim from theme.css: standard/decelerate/emphasized/bounce/spring-soft/
+   spring-crisp cubic-béziers) and the named effect vocabulary (chart-rise/
+   draw/fade/sweep, gauge-sweep, layer-fade, bar-grow, reward-pulse/bloom,
+   drag-shake, hotspot-pulse[loop]). build.rs emits `motion_gen.rs`; coldlight
+   ships the `motion` runtime (`Effect::at(now, t0, index)` — bezier eval,
+   delay + stagger, loop wrap). Templates pull `cl::motion::CHART_RISE` etc. —
+   NO per-template magic durations.
+2. **Replayable preview.** `SlideTemplate` gains `restart()`; each template
+   colocates a `motion::Clock` + interaction state and resets both. The
+   gallery restarts a slide when its card is clicked into solo view, and the
+   solo header carries a replay affordance. Clicking each slide = watch its
+   animation from zero, every time.
+3. **Folder colocation.** One directory per slide:
+   `templates/<name>/mod.rs`, `infographics/<name>/mod.rs` (engine files
+   `stage.rs`/`tone_cycle.rs` stay engine-level).
+4. `vector::anim` is deleted — geometry stays in vector, ALL timing lives in
+   the generated motion runtime (one vocabulary, no drift).
+5. Donut fixes from proof review: side-aware label anchors, center note sized
+   to the hole, `«` instead of the uncovered `←` glyph.

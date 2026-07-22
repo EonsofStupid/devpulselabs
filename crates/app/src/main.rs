@@ -24,6 +24,21 @@ fn main() -> eframe::Result {
         .position(|a| a == "--route")
         .and_then(|i| args.get(i + 1))
         .and_then(|r| r.split_once('/').map(|(h, s)| (h.to_string(), s.to_string())));
+    // `--focus <template-id>` — boot the Library gallery solo'd on one
+    // template, for per-template proof shots.
+    let focus: Option<String> = args
+        .iter()
+        .position(|a| a == "--focus")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
+    // `--shot-frame <n>` — capture later than the default frame 6, so sweep
+    // animations can reach their rest state before the proof is taken.
+    let shot_frame: u32 = args
+        .iter()
+        .position(|a| a == "--shot-frame")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|n| n.parse().ok())
+        .unwrap_or(6);
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -38,7 +53,7 @@ fn main() -> eframe::Result {
         options,
         Box::new(move |cc| {
             dpl_coldlight::apply_theme(&cc.egui_ctx);
-            Ok(Box::new(App::new(shot, boot_route)))
+            Ok(Box::new(App::new(shot, boot_route, focus, shot_frame)))
         }),
     )
 }
@@ -47,15 +62,25 @@ struct App {
     shell: Shell,
     shot: Option<std::path::PathBuf>,
     frames: u32,
+    shot_frame: u32,
 }
 
 impl App {
-    fn new(shot: Option<std::path::PathBuf>, boot_route: Option<(String, String)>) -> Self {
+    fn new(
+        shot: Option<std::path::PathBuf>,
+        boot_route: Option<(String, String)>,
+        focus: Option<String>,
+        shot_frame: u32,
+    ) -> Self {
+        let mut library = dpl_hub_library::LibraryHub::default();
+        if let Some(id) = focus {
+            library.set_focus(id);
+        }
         // The registry — a new hub is ONE line here and nothing else.
         let hubs: Vec<Box<dyn Hub>> = vec![
             Box::new(dpl_hub_home::HomeHub),
             Box::new(dpl_hub_workbench::WorkbenchHub),
-            Box::new(dpl_hub_library::LibraryHub),
+            Box::new(library),
             Box::new(dpl_hub_wiredfront::WiredfrontHub),
             Box::new(dpl_hub_chat::ChatHub),
         ];
@@ -78,16 +103,17 @@ impl App {
             }),
         }
 
-        Self { shell, shot, frames: 0 }
+        Self { shell, shot, frames: 0, shot_frame }
     }
 
-    /// The harness: request a screenshot on frame 6 (theme + fonts settled),
+    /// The harness: request a screenshot on `shot_frame` (default 6 — theme +
+    /// fonts settled; pass a later frame to let sweeps reach rest first),
     /// save it when the event arrives, exit.
     fn screenshot_harness(&mut self, ctx: &egui::Context) {
         let Some(path) = self.shot.clone() else { return };
 
         self.frames += 1;
-        if self.frames == 6 {
+        if self.frames == self.shot_frame {
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
         }
 
@@ -120,7 +146,7 @@ impl App {
 
         // Keep frames flowing while we wait for the capture to come back.
         ctx.request_repaint();
-        if self.frames > 300 {
+        if self.frames > self.shot_frame + 300 {
             eprintln!("screenshot never arrived after 300 frames");
             std::process::exit(1);
         }

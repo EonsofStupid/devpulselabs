@@ -1,0 +1,10 @@
+[package]
+name = "dpl-slides"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+egui.workspace = true
+dpl-coldlight.workspace = true
+dpl-vector.workspace = true

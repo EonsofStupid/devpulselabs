@@ -3,6 +3,8 @@ resolver = "2"
 members = [
     "crates/hub",
     "crates/coldlight",
+    "crates/vector",
+    "crates/slides",
     "crates/fabric",
     "crates/shell",
     "crates/hubs/home",
@@ -26,6 +28,8 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 
 dpl-hub = { path = "crates/hub" }
 dpl-coldlight = { path = "crates/coldlight" }
+dpl-vector = { path = "crates/vector" }
+dpl-slides = { path = "crates/slides" }
 dpl-fabric = { path = "crates/fabric" }
 dpl-shell = { path = "crates/shell" }
 dpl-hub-home = { path = "crates/hubs/home" }

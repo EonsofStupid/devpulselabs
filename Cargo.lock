@@ -861,6 +861,7 @@ version = "0.1.0"
 dependencies = [
  "dpl-coldlight",
  "dpl-hub",
+ "dpl-slides",
  "egui",
 ]
 
@@ -891,6 +892,22 @@ dependencies = [
  "dpl-hub",
  "egui",
  "tokio",
+]
+
+[[package]]
+name = "dpl-slides"
+version = "0.1.0"
+dependencies = [
+ "dpl-coldlight",
+ "dpl-vector",
+ "egui",
+]
+
+[[package]]
+name = "dpl-vector"
+version = "0.1.0"
+dependencies = [
+ "egui",
 ]
 
 [[package]]
