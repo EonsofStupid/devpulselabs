@@ -26,6 +26,21 @@ system, end to end.
    editor follows ADR-010 (`devpulse labs/docs/wiredfront/editor-spec.md`)
    with its render/job design intact.
 
+## The migration pipeline (skills — `.claude/skills/`)
+
+Porting the prior app runs through three skills, in order, each planning then
+executing only its own part:
+
+1. **`/port-capture <subsystem>`** — senior-dev audit of the prior repo: full
+   capability inventory, disposition table (port-verbatim / reauthor / retire —
+   no silent drops), produces the approved plan in `docs/plans/`.
+2. **`/egui-build <plan>`** — executes the approved plan; Rust drives (typed ids,
+   registry, pool colors, `Fluid::of`, paint vocabulary); mandatory self-review
+   pass on the draft before commit.
+3. **`/true-verify [routes]`** — the real-artifact gate: tests green, exe
+   screenshots per route vs committed baselines in `docs/proof/`, gallery gate,
+   and slides-are-blocks/templates enforcement.
+
 ## Reference
 
 - `docs/foundation-plan.md` — the ratified start-over plan, salvage map included.
