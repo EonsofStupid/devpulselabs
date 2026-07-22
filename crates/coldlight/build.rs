@@ -524,6 +524,17 @@ fn generate_fluid(out_dir: &str) {
         names.len()
     )
     .unwrap();
+    // The names, enumerable — dpl-doc validates size refs against this.
+    writeln!(
+        code,
+        "pub static FLUID_TOKEN_NAMES: &[&str] = &[{}];",
+        names
+            .iter()
+            .map(|n| format!("{n:?}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+    .unwrap();
 
     std::fs::write(Path::new(out_dir).join("fluid_gen.rs"), code).expect("write fluid_gen.rs");
 }

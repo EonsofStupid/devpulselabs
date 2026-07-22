@@ -1100,6 +1100,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "dpl-doc"
+version = "0.1.0"
+dependencies = [
+ "dpl-coldlight",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "dpl-engine-capture"
 version = "0.1.0"
 dependencies = [

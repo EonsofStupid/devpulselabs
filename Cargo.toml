@@ -10,6 +10,7 @@ members = [
     "crates/engine-media",
     "crates/engine-steps",
     "crates/slides",
+    "crates/doc",
     "crates/pixvix",
     "crates/fabric",
     "crates/shell",
@@ -45,6 +46,9 @@ eframe = { version = "0.35", features = ["wgpu"] }
 egui_extras = { version = "0.35", features = ["image", "file", "webp"] }
 # Headless UI test harness (dev-only) — MUST track the egui minor version.
 egui_kittest = { version = "0.35", default-features = false }
+# The document layer (dpl-doc): slide.json is serde data, end to end.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 tokio = { version = "1", default-features = false, features = ["sync"] }
 # png for the harness; jpeg for the backdrop posters (B1); webp so the app
 # DISPLAYS what the media pipeline emits (B3). AVIF decode is deliberately
