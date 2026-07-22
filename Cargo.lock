@@ -1409,7 +1409,6 @@ version = "0.1.0"
 dependencies = [
  "egui",
  "egui-pilot-ai-protocol",
- "egui-pilot-ai-runner",
 ]
 
 [[package]]

@@ -519,6 +519,10 @@ impl RuntimeGuard {
             .expect("EguiPilotAI capture worker");
         self.pending_capture = Some(pending);
         self.capture_job = Some(rx);
+        // Keep the UI loop alive while the encoder works. A native egui app can
+        // otherwise go completely idle after the stable screenshot frame,
+        // leaving the completed worker result unobserved until runner timeout.
+        self.ctx.request_repaint_after(Duration::from_millis(1));
     }
 
     fn poll_capture_job(&mut self) {
@@ -554,7 +558,9 @@ impl RuntimeGuard {
                 }
                 self.ctx.request_repaint();
             }
-            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Empty) => {
+                self.ctx.request_repaint_after(Duration::from_millis(1));
+            }
             Err(TryRecvError::Disconnected) => {
                 self.capture_job = None;
                 let pending = self.pending_capture.take().expect("capture metadata");

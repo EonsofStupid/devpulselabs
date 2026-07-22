@@ -334,6 +334,29 @@ mod tests {
         ClientCommand, ClientEnvelope, ServerEnvelope, ServerEvent, SessionId,
     };
     use std::io::Cursor;
+    #[cfg(not(target_arch = "wasm32"))]
+    use std::sync::{Arc, Mutex};
+    #[cfg(not(target_arch = "wasm32"))]
+    use std::time::{Duration, Instant};
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[derive(Clone, Default)]
+    struct SharedWriter(Arc<Mutex<Vec<u8>>>);
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl std::io::Write for SharedWriter {
+        fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+            self.0
+                .lock()
+                .expect("shared writer")
+                .extend_from_slice(buffer);
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
 
     fn client(sequence: u64) -> ClientEnvelope {
         ClientEnvelope {
@@ -384,5 +407,42 @@ mod tests {
         let bytes = ((MAX_ENVELOPE_BYTES as u32) + 1).to_be_bytes();
         let error = read_frame::<_, ClientEnvelope>(&mut Cursor::new(bytes)).unwrap_err();
         assert!(matches!(error, TransportError::EnvelopeTooLarge { .. }));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn stdio_adapter_conforms_to_nonblocking_envelope_contract() {
+        let expected_client = client(7);
+        let mut input = Vec::new();
+        write_frame(&mut input, &expected_client).unwrap();
+        let output = SharedWriter::default();
+        let output_view = output.clone();
+        let mut transport = StdioTransport::from_io(Cursor::new(input), output, 2);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let received = loop {
+            match transport.try_receive() {
+                Ok(Some(envelope)) => break envelope,
+                Ok(None) if Instant::now() < deadline => std::thread::yield_now(),
+                result => panic!("stdio inbound did not settle: {result:?}"),
+            }
+        };
+        assert_eq!(received, expected_client);
+
+        let expected_server = server(8);
+        transport.try_send(expected_server.clone()).unwrap();
+        let output_bytes = loop {
+            let bytes = output_view.0.lock().expect("shared writer").clone();
+            if bytes.len() >= 4 {
+                let length = u32::from_be_bytes(bytes[..4].try_into().unwrap()) as usize;
+                if bytes.len() >= 4 + length {
+                    break bytes;
+                }
+            }
+            assert!(Instant::now() < deadline, "stdio outbound did not settle");
+            std::thread::yield_now();
+        };
+        let decoded: ServerEnvelope = read_frame(&mut Cursor::new(output_bytes)).unwrap().unwrap();
+        assert_eq!(decoded, expected_server);
+        transport.close().unwrap();
     }
 }

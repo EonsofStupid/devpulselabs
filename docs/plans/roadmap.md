@@ -6,9 +6,17 @@ Screenshot-only proofs are the fallback, not the standard, from here on.
 
 ## THE PILOT LAW (applies to every pass in this roadmap)
 
-EguiPilotAI grows with the app — boring, consistent, aligned with how the
-respected tools (Playwright / WebDriver BiDi / Maestro) shaped the same
-problems:
+The reusable extension contract is canonical in `docs/plans/eguipilotai.md`;
+the copyable DevPULSE feature path is
+`docs/eguipilotai-devpulse-authoring.md`; current Playwright parity and gaps
+are tracked in `docs/eguipilotai-playwright-review.md`; detailed protocol,
+accessibility, runner, evidence, and DevPULSE census work is indexed in
+`docs/research/eguipilotai/README.md`. Implementation follows the gated slices
+in `docs/plans/eguipilotai-v1-delivery.md`.
+
+EguiPilotAI grows with the app — boring, consistent, aligned with the mature
+contracts in Playwright, WebDriver BiDi/Actions, AccessKit, and egui while
+remaining native:
 
 1. **Stable IDs first** (Playwright's `data-testid` doctrine): every new
    interactive surface registers `PilotId`s at build time, named
@@ -36,6 +44,12 @@ problems:
      → C-passes/D4
    - fixture parameterization (seeded content roots per scenario) → X1
    - trace viewer polish in Test Lab (step timeline ↔ captures) → ongoing
+
+Runner parallelism does not begin until protocol response/event routing,
+stateful input cleanup, and actual AccessKit parity are complete. Feature
+passes may add owner semantics and scenarios against the serial runner, but
+they must not invent temporary per-feature harnesses around those foundation
+gates.
 
 ## Program D — Deck/Present runtime (census #1, the show machine)
 

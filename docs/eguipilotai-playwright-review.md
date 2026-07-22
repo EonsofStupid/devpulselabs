@@ -1,0 +1,139 @@
+# EguiPilotAI Playwright capability review
+
+Reviewed 2026-07-22 against the official Playwright documentation. Playwright
+is the behavioral reference for reliable automation; its browser/DOM surface
+is not an API to copy into egui.
+
+The broad adopt/adapt/reject/later decision is in
+`docs/research/eguipilotai/playwright-capability-catalog.md`. The deeper
+engineering contracts and local source census are indexed at
+`docs/research/eguipilotai/README.md`. The dependency-ordered execution plan is
+`docs/plans/eguipilotai-v1-delivery.md`.
+
+Status words are strict:
+
+- **Ready** means a real DevPULSE process has exercised the capability.
+- **Core** means reusable code and unit/conformance tests exist, but the whole
+  operator flow is not yet qualified.
+- **Partial** means types, fields, or UI placeholders exist without the full
+  vertical behavior.
+- **Missing** means no dependable product contract exists yet.
+- **Translate** means the browser feature needs a native equivalent rather
+  than direct parity.
+
+## Capability matrix
+
+| Playwright contract | Native EguiPilotAI contract | Status now | What remains |
+|---|---|---:|---|
+| Fresh, strict locators | Resolve `PilotId` or role/name/text/within against the latest semantic frame | Core | Exact/contains/regex options, label/description/state filters, chained/scoped queries, locator diagnostics and picker |
+| Auto-waiting and actionability | Unique, visible through clip chain, stable for two frames, enabled/editable, hit-testable | Core | Per-action check matrix, actionable timeout diagnostics, working auto-scroll adapters, trial mode |
+| Real input actions | egui pointer/key/text microframes | Ready for shell hover/click path | Check/uncheck/select, focus/blur, key-down/up, granular mouse, configurable drag paths and keyboard drag alternatives |
+| Retrying assertions | Semantic expectation polling | Core | Timeout per expectation, contains/exact/regex, checked/selected/editable/in-viewport/accessibility matchers, negation, soft assertions, custom messages |
+| Accessibility/ARIA snapshots | Pilot semantic frame, real AccessKit tree, parity report, and pruned agent snapshot | Partial | Current code records rich pilot metadata separately but only basic `WidgetInfo` into AccessKit and retains only an update-present boolean; implement real TreeUpdate capture/reconstruction, complete projection, ActionRequest tests, snapshot matchers, and keyboard traversal |
+| Test isolation | One separately launched target process and run directory | Ready | Explicit clean fixture lifecycle and guaranteed temporary data roots |
+| Fixtures | Trusted named argument/environment bundles | Partial | Typed setup/use/teardown, composition/dependencies, worker versus scenario scope, attachments, deterministic service seams |
+| Projects and emulation | Named profile/project with renderer policy | Partial | Actually execute project matrices; window size, DPI, theme, locale, timezone, font pack, input mode and fixture parameters |
+| Parallel workers, sharding, retries | Fields exist on `Project` | Partial | Scheduler, deterministic shard algorithm, retry isolation, flaky classification and mergeable reports |
+| Test discovery/filtering | Direct scenario-path execution | Missing | Catalog/list, project/tag/ID filters, fail-fast, last-failed and stable ordering |
+| Annotations, tags and expected failures | Stable catalog metadata and explicit result policy | Missing | Conditional skip, expected-failure/unexpected-pass, fixme with required reason/issue, and report-visible annotations; no hidden timeout mutation |
+| Named/nested steps and hooks | Typed step groups plus fixture lifecycles | Partial | Nested groups with source/deadline/evidence, reusable Rust flow fragments, and boxed failures; fixtures replace arbitrary setup/teardown hooks |
+| Parameterized and repeated tests | Stable author-supplied `CaseId` plus repeat ordinal | Missing | Rust/TOML case expansion, collision validation, `--repeat-each`, per-repeat isolation, and reports that preserve every repetition |
+| Project/setup dependencies | Visible dependency scenarios and fixture DAGs | Missing | Acyclic project dependencies with normal traces/retries/reports; immutable content-addressed outputs only, never opaque global setup |
+| Timeout hierarchy | Profile-wide request timeout | Partial | Run/action/expect/fixture timeouts with clear precedence and timeout evidence |
+| Reporters | Run manifest, trace JSONL and stderr | Partial | Reporter trait plus console, JSON and JUnit outputs; final pass/fail/flaky/skip summary |
+| Trace viewer/UI Mode | Raw framed trace and passive Test Lab preview | Partial | Structured step timeline, before/after semantic revisions, input batches, attachments, locator/actionability panes, replay-to-step |
+| Screenshots and visual comparison | Stable capture, renderer key, comparison and immutable approval primitives | Core | Wire comparison/approval into runner and Test Lab; masks/region capture; update policy; expected/actual/diff presentation |
+| Clock control | `PilotClock` and natural/fast-forward/suppressed motion | Core | Scenario-level policy, explicit clock actions, all-policy DevPULSE scenarios, uncontrolled wall-clock inventory |
+| Code generator and locator picker | TOML normalization command | Partial | Record successful exploration, choose stable locators, generate assertions, review diff, export valid Rust/TOML |
+| Multiple pages/tabs | Native viewport discovery | Partial | Locator viewport scope, viewport lifecycle waits, PixVix launch/interaction/capture/shutdown |
+| Attachments, uploads and downloads | Run artifact directory | Translate | Typed attachment API and fixture-owned jailed file sandbox; no unrestricted paths |
+| Authentication/storage state | Seeded application fixture | Translate | Typed deterministic app-state fixture and reusable setup dependency |
+| Network/HAR/API mocking | Application service seam | Translate | Named typed fake/record/replay adapters where DevPULSE has external services; no generic packet interception |
+| Dialogs and popups | Modal/viewport semantics | Translate | Modal roles, blocking-state diagnostics and typed accept/dismiss actions only where the app exposes them |
+| Device/browser emulation | Native project matrix | Translate | Window/DPI/theme/locale/input profiles rather than browser user-agent or DOM emulation |
+| Browser eval/CSS/DOM | No native equivalent | Intentionally absent | Use semantic metadata, typed probes, unit tests or fixture adapters; never add arbitrary code execution |
+
+## Misleading surfaces to close first
+
+These currently look more complete than they are:
+
+1. The protocol currently uses one `ServerEvent` enum for command replies and
+   progress events. `receive_for` claims one-message lockstep while `run`
+   consumes multiple step messages for one sequence. Protocol v2 must separate
+   exactly one correlated command response from independent runtime events.
+2. `NodeMetadata` is richer than the `WidgetInfo::labeled` data currently sent
+   to egui/AccessKit, and the plugin does not retain the real `TreeUpdate`.
+   Pilot semantics must not be reported as verified AccessKit semantics.
+3. `Action::SetValue` and `Action::ScrollIntoView` serialize but return runtime
+   errors. They must either get real behavior and conformance tests or remain
+   explicitly experimental in generated documentation.
+4. `Expectation::Screenshot` serializes but is rejected by the runtime. Visual
+   comparison belongs in a complete capture/compare/approval step.
+5. `Project.workers` and `Project.retries` load from configuration but no
+   scheduler consumes them.
+6. `codegen` currently parses and rewrites TOML; it is not a recorder.
+7. Test Lab tabs are useful passive views, but live control, actionability
+   explanations, structured replay and visual approval are not implemented.
+
+## Ordered backlog
+
+### P0 — dependable runner
+
+1. Protocol v2 with correlated responses, independent runtime events,
+   cancellation, capability negotiation, and bounded event pressure.
+2. Stateful input-source/tick executor with release-all cleanup.
+3. Complete pilot-to-AccessKit projection, actual TreeUpdate reconstruction,
+   parity diagnostics, and accessibility action tests.
+4. Test catalog, selection, tags and deterministic ordering.
+5. Explicit annotations, stable parameterized cases, nested step groups, and
+   repeat-each behavior.
+6. Run/action/expect/fixture timeout hierarchy.
+7. Complete semantic/accessibility assertion vocabulary and failure messages.
+8. Project scheduler with visible dependency scenarios, process-per-test
+   isolation, retries, shards and
+   flaky classification.
+9. Reporter trait with console, JSON and JUnit implementations.
+10. Structured trace schema with step spans, input ticks, semantic/AccessKit deltas,
+   busy/motion events, logs and attachments.
+11. Fixture lifecycle and fixture-owned temporary data roots.
+12. Runner-integrated semantic, accessibility and visual snapshot comparison.
+
+### P1 — DevPULSE qualification
+
+1. Instrument every interactive template with owner-declared IDs and state.
+2. Keyboard traversal and keyboard-only Drag Match.
+3. Configurable drag trajectories and auto-scroll.
+4. Multi-viewport PixVix flows.
+5. Named document/data-root probes for save/import/index assertions.
+6. Real Test Lab timeline, actionability explanation, highlight and visual
+   candidate review.
+7. Performance and 10,000-frame memory gates.
+
+### P2 — agent ergonomics and future targets
+
+1. Exploration recorder, locator picker and reviewed codegen.
+2. Property/fuzz case generation layered on stable explicit case identities.
+3. Touch/swipe/pinch vocabulary where DevPULSE actually supports it.
+4. WASM browser transport/runtime adapter after native publication.
+
+## Source references
+
+- [Locators](https://playwright.dev/docs/locators)
+- [Auto-waiting and actionability](https://playwright.dev/docs/actionability)
+- [Assertions](https://playwright.dev/docs/test-assertions)
+- [Fixtures](https://playwright.dev/docs/test-fixtures)
+- [Projects](https://playwright.dev/docs/test-projects)
+- [Annotations and tags](https://playwright.dev/docs/test-annotations)
+- [Test steps](https://playwright.dev/docs/api/class-test#test-step)
+- [Parameterized tests](https://playwright.dev/docs/test-parameterize)
+- [Project dependencies and global setup](https://playwright.dev/docs/test-global-setup-teardown)
+- [Configuration](https://playwright.dev/docs/test-configuration)
+- [Retries](https://playwright.dev/docs/test-retries)
+- [Sharding](https://playwright.dev/docs/test-sharding)
+- [Reporters](https://playwright.dev/docs/test-reporters)
+- [Trace viewer](https://playwright.dev/docs/trace-viewer-intro)
+- [Visual comparisons](https://playwright.dev/docs/test-snapshots)
+- [ARIA snapshots](https://playwright.dev/docs/aria-snapshots)
+- [Code generation](https://playwright.dev/docs/codegen-intro)
+- [Clock](https://playwright.dev/docs/clock)
+- [Network interception](https://playwright.dev/docs/network)
