@@ -329,3 +329,25 @@ First interactive tranche — four templates onto the motion runtime:
 motion.json += `reveal-pop` (0.45s spring-crisp, no delay) → 15 effects.
 Registry 8 → 12 demos; counts pinned in tests. Interaction state logic unit
 tested (tap advance clamps, truth resolution); visual proof via solo shots.
+
+---
+
+## S2b execution spec (2026-07-21)
+
+Three templates, carried behavior + the vocabulary:
+
+1. `quiz-panel` (interactive): commit-then-explain. Single (radio replace) /
+   multi (toggle; ALL correct must be picked). Choices on a card plate;
+   "Lock it in" armed once anything is picked; on commit — correct choices
+   get tone wash + ring, wrong picks dim, the "Called it / Not quite" banner
+   + explanation fades in on the entrance beat, reward-pulse when right.
+   No scoring persistence (doctrine). restart clears picks + commit.
+2. `stats-grid` (static; flip is flourish, not a beat): auto-fit card grid,
+   per-stat tone values; tap a card → crossfade to its detail back on the
+   new `flip-fade` effect (0.25s standard, no settle — tap feedback);
+   cards without detail are plain plates. Entrance: staggered layer-fade.
+3. `code-block` (static): raw code plate — gutter line numbers, tone-washed
+   highlight lines with a left tone edge, Copy via egui clipboard holding a
+   1.4s "Copied" rest, ScrollArea for overflow. Entrance enter-fade.
+
+motion.json += `flip-fade` → 16 effects. Registry 12 → 15. Counts pinned.

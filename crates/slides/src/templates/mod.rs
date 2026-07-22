@@ -5,6 +5,9 @@
 pub mod big_number;
 pub mod callout_card;
 pub mod choice_poll;
+pub mod code_block;
+pub mod quiz_panel;
 pub mod reveal_list;
 pub mod split_panel;
+pub mod stats_grid;
 pub mod title_card;
