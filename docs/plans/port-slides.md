@@ -306,3 +306,26 @@ interaction events."*
    interactive in S2. Industry alignment: this is the egui analog of
    framer-motion's initial/animate/whileHover, expressed as generated
    Effects + per-slide Clocks.
+
+---
+
+## S2a execution spec (approved "go", 2026-07-21)
+
+First interactive tranche — four templates onto the motion runtime:
+
+1. `reveal-list` (interactive): whole stage is the tap target; each tap
+   reveals the next numbered item with the new `reveal-pop` effect (tap
+   response = NO settle delay — settle is for entrances, not feedback);
+   unrevealed items keep ghost plates (stable rest layout, carried law);
+   counter eyebrow n/total; rest = all revealed; restart clears.
+2. `choice-poll` (interactive): predict-then-reveal A/B; tap either plate →
+   the truth fills its tone (surface color + ring) with a one-time
+   reward-pulse ring bloom, the loser dims, the LAND line fades in on the
+   entrance beat. restart clears the call.
+3. `callout-card` (static): tone bar + sheen on a raised plate, enter-rise.
+4. `split` (Split class): then→now A/B columns (LEFT=hype RIGHT=truth,
+   carried), accent ring, staggered layer-fade entrance.
+
+motion.json += `reveal-pop` (0.45s spring-crisp, no delay) → 15 effects.
+Registry 8 → 12 demos; counts pinned in tests. Interaction state logic unit
+tested (tap advance clamps, truth resolution); visual proof via solo shots.

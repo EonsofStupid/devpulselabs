@@ -69,6 +69,10 @@ pub fn demos() -> Vec<Box<dyn SlideTemplate>> {
     vec![
         Box::new(templates::title_card::TitleCard::demo()),
         Box::new(templates::big_number::BigNumber::demo()),
+        Box::new(templates::callout_card::CalloutCard::demo()),
+        Box::new(templates::split_panel::SplitPanel::demo()),
+        Box::new(templates::reveal_list::RevealList::demo()),
+        Box::new(templates::choice_poll::ChoicePoll::demo()),
         Box::new(infographics::donut_share::DonutShare::demo()),
         Box::new(infographics::bar_compare::BarCompare::demo()),
         Box::new(infographics::line_trend::LineTrend::demo()),
@@ -86,7 +90,7 @@ mod tests {
     #[test]
     fn the_registry_is_the_census() {
         let all = demos();
-        assert_eq!(all.len(), 8, "S1 ships 2 templates + 6 infographics");
+        assert_eq!(all.len(), 12, "S1 2 + S2a 4 templates + 6 infographics");
         let ids: HashSet<&str> = all.iter().map(|t| t.spec().id.0).collect();
         assert_eq!(ids.len(), all.len(), "template ids must be unique");
         for t in &all {

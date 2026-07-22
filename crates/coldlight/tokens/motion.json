@@ -118,6 +118,10 @@
       "dur": 0.9,
       "ease": "spring-soft",
       "delay": 0.35
+    },
+    "reveal-pop": {
+      "dur": 0.45,
+      "ease": "spring-crisp"
     }
   }
 }

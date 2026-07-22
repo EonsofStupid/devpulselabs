@@ -340,7 +340,7 @@ pub mod motion {
 
         #[test]
         fn the_vocabulary_is_generated_and_complete() {
-            assert_eq!(EFFECT_COUNT, 14, "motion.json ships 14 named effects");
+            assert_eq!(EFFECT_COUNT, 15, "motion.json ships 15 named effects");
             assert!(effect("enter-rise").is_some(), "the entrance law is authored");
             assert!(effect("chart-rise").is_some());
             assert!(effect("hotspot-pulse").unwrap().looped);

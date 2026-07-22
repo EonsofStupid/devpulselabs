@@ -3,4 +3,8 @@
 //! `registry::demos`.
 
 pub mod big_number;
+pub mod callout_card;
+pub mod choice_poll;
+pub mod reveal_list;
+pub mod split_panel;
 pub mod title_card;
