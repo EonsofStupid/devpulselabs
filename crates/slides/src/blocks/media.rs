@@ -104,11 +104,27 @@ pub fn media_backdrop(ui: &mut Ui, rect: Rect, media: Media, tone: Tone, now: f6
                 }
             }
         }
-        Media::Anim(Ambient::Drift) => {
+        Media::Anim(amb) => ambient_backdrop(ui, rect, amb, tone.color(), now, t0),
+    }
+}
+
+/// Paint a named ambience colored by `color` — media_backdrop's tone path
+/// and the document renderer's mood-accent path share this one painter.
+pub fn ambient_backdrop(
+    ui: &mut Ui,
+    rect: Rect,
+    amb: Ambient,
+    color: egui::Color32,
+    now: f64,
+    t0: f64,
+) {
+    let painter = ui.painter();
+    match amb {
+        Ambient::Drift => {
             // Three slanted tone bands crossing the surface on a 12s loop —
             // per-vertex tinted parallelograms, crisp edges, never blur.
             let fx = cl::motion::AMBIENT_DRIFT;
-            let c = tone.color();
+            let c = color;
             for k in 0..3u32 {
                 let p = fx.at(now + (k as f64) * (fx.dur as f64) / 3.0, t0, 0);
                 let w = rect.width();
@@ -132,10 +148,10 @@ pub fn media_backdrop(ui: &mut Ui, rect: Rect, media: Media, tone: Tone, now: f6
             }
             ui.ctx().request_repaint();
         }
-        Media::Anim(Ambient::Pulse) => {
+        Ambient::Pulse => {
             // The constellation: three phase-offset ring centers.
             let fx = cl::motion::HOTSPOT_PULSE;
-            let c = tone.color();
+            let c = color;
             let anchors = [(0.25f32, 0.35f32), (0.72, 0.28), (0.55, 0.72)];
             for (k, (ax, ay)) in anchors.iter().enumerate() {
                 let center = egui::pos2(
@@ -160,10 +176,10 @@ pub fn media_backdrop(ui: &mut Ui, rect: Rect, media: Media, tone: Tone, now: f6
             }
             ui.ctx().request_repaint();
         }
-        Media::Anim(Ambient::Rings) => {
+        Ambient::Rings => {
             // Three breathing rings, phase-offset thirds of the loop.
             let fx = cl::motion::HOTSPOT_PULSE;
-            let c = tone.color();
+            let c = color;
             let center = rect.center();
             let max_r = rect.width().min(rect.height()) * 0.48;
             for k in 0..3u32 {

@@ -9,6 +9,7 @@ egui.workspace = true
 dpl-coldlight.workspace = true
 dpl-vector.workspace = true
 dpl-video.workspace = true
+dpl-doc.workspace = true
 egui_extras.workspace = true
 
 [lints]

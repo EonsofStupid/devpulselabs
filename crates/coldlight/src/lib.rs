@@ -382,6 +382,56 @@ impl Mood {
     }
 }
 
+impl Mood {
+    /// Blend two moods' gradient samples: `mix` 0 = all `a`, 1 = all `b`.
+    /// Pure — the mood-blend background paints through this, tests pin it.
+    pub fn blend_at(a: &Mood, b: &Mood, t: f32, mix: f32) -> Color32 {
+        let (ca, cb) = (a.at(t), b.at(t));
+        let m = mix.clamp(0.0, 1.0);
+        let lerp = |p: u8, q: u8| (p as f32 + (q as f32 - p as f32) * m).round() as u8;
+        Color32::from_rgb(
+            lerp(ca.r(), cb.r()),
+            lerp(ca.g(), cb.g()),
+            lerp(ca.b(), cb.b()),
+        )
+    }
+}
+
+/// Paint TWO moods blended across `rect` — one mesh, the blend happens in
+/// the per-vertex SAMPLE (never stacked translucent layers). `mix`
+/// crossfades a→b; `pan` shifts the diagonal phase (±, `at` clamps — no
+/// wrap seam). The document mood-blend background drives both from the
+/// authored `blend-drift` clock.
+pub fn mood_blend(painter: &egui::Painter, rect: Rect, a: &Mood, b: &Mood, mix: f32, pan: f32) {
+    use egui::epaint::{Mesh, Vertex, WHITE_UV};
+    const COLS: usize = 24;
+    const ROWS: usize = 14;
+
+    let denom = (rect.width() + rect.height()).max(1.0);
+    let mut mesh = Mesh::default();
+    for r in 0..=ROWS {
+        for c in 0..=COLS {
+            let x = rect.min.x + rect.width() * c as f32 / COLS as f32;
+            let y = rect.min.y + rect.height() * r as f32 / ROWS as f32;
+            let t = ((x - rect.min.x) + (y - rect.min.y)) / denom + pan;
+            mesh.vertices.push(Vertex {
+                pos: egui::pos2(x, y),
+                uv: WHITE_UV,
+                color: Mood::blend_at(a, b, t, mix),
+            });
+        }
+    }
+    let w = COLS as u32 + 1;
+    for r in 0..ROWS as u32 {
+        for c in 0..COLS as u32 {
+            let i = r * w + c;
+            mesh.indices
+                .extend_from_slice(&[i, i + 1, i + w, i + w, i + 1, i + w + 1]);
+        }
+    }
+    painter.add(egui::Shape::mesh(mesh));
+}
+
 /// Paint a mood's 135° gradient across `rect` — same grid technique as the
 /// aurora, colors from the mood's pool-resolved stops.
 pub fn mood_gradient(painter: &egui::Painter, rect: Rect, mood: &Mood) {
@@ -622,7 +672,7 @@ pub mod motion {
 
         #[test]
         fn the_vocabulary_is_generated_and_complete() {
-            assert_eq!(EFFECT_COUNT, 17, "motion.json ships 17 named effects");
+            assert_eq!(EFFECT_COUNT, 18, "motion.json ships 18 named effects");
             assert!(
                 effect("enter-rise").is_some(),
                 "the entrance law is authored"
@@ -964,6 +1014,23 @@ mod tests {
             FLUID_TOKEN_COUNT, 36,
             "space 8 + type 10 + radius 3 + shell 7 + control 8"
         );
+    }
+
+    #[test]
+    fn mood_blend_endpoints_are_the_single_moods_and_the_middle_is_between() {
+        let (a, b) = (&MOODS[0], &MOODS[1]);
+        for t in [0.0f32, 0.33, 0.7, 1.0] {
+            assert_eq!(Mood::blend_at(a, b, t, 0.0), a.at(t));
+            assert_eq!(Mood::blend_at(a, b, t, 1.0), b.at(t));
+            let mid = Mood::blend_at(a, b, t, 0.5);
+            let between = |m: u8, p: u8, q: u8| {
+                let (lo, hi) = (p.min(q), p.max(q));
+                m >= lo.saturating_sub(1) && m <= hi.saturating_add(1)
+            };
+            assert!(between(mid.r(), a.at(t).r(), b.at(t).r()));
+            assert!(between(mid.g(), a.at(t).g(), b.at(t).g()));
+            assert!(between(mid.b(), a.at(t).b(), b.at(t).b()));
+        }
     }
 
     #[test]

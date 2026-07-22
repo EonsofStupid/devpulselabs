@@ -25,6 +25,7 @@
 //!   preview pane and on the 75" kiosk.
 
 pub mod blocks;
+pub mod document;
 pub mod frame;
 pub mod infographics;
 pub mod motion;

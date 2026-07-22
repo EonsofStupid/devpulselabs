@@ -1200,7 +1200,9 @@ name = "dpl-hub-workbench"
 version = "0.1.0"
 dependencies = [
  "dpl-coldlight",
+ "dpl-doc",
  "dpl-hub",
+ "dpl-slides",
  "egui",
 ]
 
@@ -1235,6 +1237,7 @@ name = "dpl-slides"
 version = "0.1.0"
 dependencies = [
  "dpl-coldlight",
+ "dpl-doc",
  "dpl-vector",
  "dpl-video",
  "egui",

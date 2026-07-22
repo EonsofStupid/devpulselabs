@@ -131,6 +131,11 @@
       "dur": 12.0,
       "ease": "standard",
       "loop": true
+    },
+    "blend-drift": {
+      "dur": 16.0,
+      "ease": "standard",
+      "loop": true
     }
   }
 }
