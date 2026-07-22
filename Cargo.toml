@@ -4,6 +4,7 @@ members = [
     "crates/hub",
     "crates/coldlight",
     "crates/vector",
+    "crates/video",
     "crates/engine-capture",
     "crates/engine-steps",
     "crates/slides",
@@ -27,11 +28,13 @@ egui = "0.35"
 eframe = { version = "0.35", features = ["wgpu"] }
 egui_extras = { version = "0.35", features = ["image"] }
 tokio = { version = "1", default-features = false, features = ["sync"] }
-image = { version = "0.25", default-features = false, features = ["png"] }
+# png for the harness; jpeg for the backdrop posters (B1). webp lands with B3.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 
 dpl-hub = { path = "crates/hub" }
 dpl-coldlight = { path = "crates/coldlight" }
 dpl-vector = { path = "crates/vector" }
+dpl-video = { path = "crates/video" }
 dpl-engine-capture = { path = "crates/engine-capture" }
 dpl-engine-steps = { path = "crates/engine-steps" }
 dpl-slides = { path = "crates/slides" }

@@ -1045,6 +1045,7 @@ dependencies = [
  "dpl-coldlight",
  "dpl-hub",
  "dpl-slides",
+ "dpl-video",
  "egui",
 ]
 
@@ -1093,12 +1094,20 @@ version = "0.1.0"
 dependencies = [
  "dpl-coldlight",
  "dpl-vector",
+ "dpl-video",
  "egui",
  "egui_extras",
 ]
 
 [[package]]
 name = "dpl-vector"
+version = "0.1.0"
+dependencies = [
+ "egui",
+]
+
+[[package]]
+name = "dpl-video"
 version = "0.1.0"
 dependencies = [
  "egui",
@@ -2031,6 +2040,8 @@ dependencies = [
  "num-traits",
  "png",
  "tiff",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]

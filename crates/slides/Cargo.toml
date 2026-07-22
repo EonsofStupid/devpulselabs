@@ -8,4 +8,5 @@ publish.workspace = true
 egui.workspace = true
 dpl-coldlight.workspace = true
 dpl-vector.workspace = true
+dpl-video.workspace = true
 egui_extras.workspace = true

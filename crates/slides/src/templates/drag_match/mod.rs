@@ -186,7 +186,6 @@ impl SlideTemplate for DragMatch {
 
         // The tray: unplaced chips, draggable.
         let tray_top = top + bucket_h + fluid.sp_5();
-        let chip_h = fluid.sp_8();
         let land_h = fluid.fs_h4() * 1.8;
         let mut cx = stage.rect.min.x;
         let mut drop: Option<(usize, Option<usize>)> = None;

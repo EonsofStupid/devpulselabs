@@ -201,6 +201,65 @@ pub fn gradient_tint(painter: &egui::Painter, rect: Rect, tone: Tone) {
     painter.add(egui::Shape::mesh(mesh));
 }
 
+// ── AURORA — the mainpage base layer, ported verbatim ───────────────────
+// Generated stops (oklch-interpolated 135° teal gradient) + the scrim the
+// old BackdropStage layered over the loop. See build.rs::generate_aurora.
+
+include!(concat!(env!("OUT_DIR"), "/aurora_gen.rs"));
+
+/// Sample the aurora ramp at `t` ∈ 0..1 (linear between generated samples).
+pub fn aurora_at(t: f32) -> Color32 {
+    let n = AURORA.len() - 1;
+    let x = t.clamp(0.0, 1.0) * n as f32;
+    // Clamp the INDEX, not the float: `n as f32 - EPSILON` rounds back to n
+    // at this magnitude and t=1.0 would index past the end.
+    let i = (x.floor() as usize).min(n - 1);
+    let f = x - i as f32;
+    let (a, b) = (AURORA[i], AURORA[i + 1]);
+    let lerp = |p: u8, q: u8| (p as f32 + (q as f32 - p as f32) * f).round() as u8;
+    Color32::from_rgb(lerp(a.r(), b.r()), lerp(a.g(), b.g()), lerp(a.b(), b.b()))
+}
+
+/// The scrim color at a given alpha (old: 70% over media, 35% bare).
+pub fn scrim(alpha: u8) -> Color32 {
+    let (r, g, b) = SCRIM_RGB;
+    Color32::from_rgba_unmultiplied(r, g, b, alpha)
+}
+pub const SCRIM_MEDIA_A: u8 = 179; // 70%
+pub const SCRIM_BARE_A: u8 = 89; // 35%
+
+/// Paint the 135° oklch aurora across `rect` — a per-vertex-tinted grid
+/// (no shader). CSS 135° runs top-left → bottom-right; the projection is
+/// the CSS gradient-line formula reduced for the diagonal case.
+pub fn aurora(painter: &egui::Painter, rect: Rect) {
+    use egui::epaint::{Mesh, Vertex, WHITE_UV};
+    const COLS: usize = 24;
+    const ROWS: usize = 14;
+
+    let denom = (rect.width() + rect.height()).max(1.0);
+    let mut mesh = Mesh::default();
+    for r in 0..=ROWS {
+        for c in 0..=COLS {
+            let x = rect.min.x + rect.width() * c as f32 / COLS as f32;
+            let y = rect.min.y + rect.height() * r as f32 / ROWS as f32;
+            let t = ((x - rect.min.x) + (y - rect.min.y)) / denom;
+            mesh.vertices.push(Vertex {
+                pos: egui::pos2(x, y),
+                uv: WHITE_UV,
+                color: aurora_at(t),
+            });
+        }
+    }
+    let w = COLS as u32 + 1;
+    for r in 0..ROWS as u32 {
+        for c in 0..COLS as u32 {
+            let i = r * w + c;
+            mesh.indices.extend_from_slice(&[i, i + 1, i + w, i + w, i + 1, i + w + 1]);
+        }
+    }
+    painter.add(egui::Shape::mesh(mesh));
+}
+
 // ── FLUID — the clamp core, container-based ─────────────────────────────
 //
 // The comparable of `clamp(min, calc(base + N·vw + M·svh), max)`, as real
@@ -484,6 +543,19 @@ mod tests {
     #[test]
     fn unknown_hue_degrades_to_none_not_panic() {
         assert!(ramp("definitely-not-a-hue").is_none());
+    }
+
+    #[test]
+    fn aurora_endpoints_are_exact_and_in_bounds() {
+        // Regression: t=1.0 must land on the LAST sample, not index past it
+        // (f32::EPSILON is invisible at magnitude 32 — the index is clamped).
+        assert_eq!(aurora_at(0.0), AURORA[0]);
+        assert_eq!(aurora_at(1.0), AURORA[AURORA.len() - 1]);
+        assert_eq!(aurora_at(2.0), AURORA[AURORA.len() - 1]); // clamped
+        // The ramp is teal: green/blue dominate red at every sample.
+        for c in AURORA.iter() {
+            assert!(c.g() > c.r(), "aurora must stay teal: {c:?}");
+        }
     }
 
     #[test]

@@ -1,0 +1,9 @@
+[package]
+name = "dpl-video"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Looping video → egui texture via an ffmpeg SUBPROCESS (ADR-009). No codec crates."
+
+[dependencies]
+egui.workspace = true

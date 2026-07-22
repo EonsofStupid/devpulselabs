@@ -44,14 +44,42 @@ pub fn media_backdrop(ui: &mut Ui, rect: Rect, media: Media, tone: Tone, now: f6
             painter.rect_filled(rect, cl::RADIUS, egui::Color32::from_black_alpha(120));
         }
         Media::Video(path) => {
-            painter.rect_filled(rect, cl::RADIUS, cl::surface::RAISED);
-            painter.text(
-                rect.center(),
-                Align2::CENTER_CENTER,
-                format!("video · {path} · engine pass (ADR-009)"),
-                egui::FontId::monospace(12.0),
-                cl::ink::SUBTLE,
-            );
+            // Real playback (B1): ffmpeg-subprocess loop → texture. Honest
+            // degradation ladder: frames → poster still → labeled plate.
+            match dpl_video::locate_asset(path) {
+                Some(file) => {
+                    if !dpl_video::loop_backdrop(ui, rect, &file) {
+                        let poster = dpl_video::poster_of(&file);
+                        if poster.is_file() {
+                            let uri = poster.to_string_lossy().replace('\\', "/");
+                            egui::Image::new(format!("file://{uri}"))
+                                .corner_radius(cl::RADIUS)
+                                .paint_at(ui, rect);
+                        } else {
+                            painter.rect_filled(rect, cl::RADIUS, cl::surface::RAISED);
+                            painter.text(
+                                rect.center(),
+                                Align2::CENTER_CENTER,
+                                format!("video · {path} · waiting for ffmpeg"),
+                                egui::FontId::monospace(12.0),
+                                cl::ink::SUBTLE,
+                            );
+                        }
+                    }
+                    // Legibility diffusion, same as the image slot.
+                    ui.painter().rect_filled(rect, cl::RADIUS, egui::Color32::from_black_alpha(120));
+                }
+                None => {
+                    painter.rect_filled(rect, cl::RADIUS, cl::surface::RAISED);
+                    painter.text(
+                        rect.center(),
+                        Align2::CENTER_CENTER,
+                        format!("video · {path} · file not found"),
+                        egui::FontId::monospace(12.0),
+                        cl::ink::SUBTLE,
+                    );
+                }
+            }
         }
         Media::Anim(Ambient::Drift) => {
             // Three slanted tone bands crossing the surface on a 12s loop —
