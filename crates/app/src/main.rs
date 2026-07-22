@@ -53,6 +53,8 @@ fn main() -> eframe::Result {
         options,
         Box::new(move |cc| {
             dpl_coldlight::apply_theme(&cc.egui_ctx);
+            // Media blocks: file:// images resolve through these loaders.
+            egui_extras::install_image_loaders(&cc.egui_ctx);
             Ok(Box::new(App::new(shot, boot_route, focus, shot_frame)))
         }),
     )

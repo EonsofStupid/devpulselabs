@@ -4,8 +4,10 @@
 
 pub mod badge;
 pub mod eyebrow;
+pub mod media;
 pub mod stat;
 
 pub use badge::badge;
+pub use media::{media_backdrop, Ambient, Media};
 pub use eyebrow::{eyebrow, tracked};
 pub use stat::stat;

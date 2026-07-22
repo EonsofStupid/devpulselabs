@@ -1,12 +1,18 @@
 //! TitleCard — episode / segment opener. Eyebrow in the slide's tone,
 //! display-scale title, muted subtitle. Align left (default) or center.
+//!
+//! Entrance law (S1b): after the authored settle, the three lines RISE in,
+//! staggered — the one-time event, then rest. An optional media slot
+//! (image / video / pre-made ambience) composes behind the type.
 
 use dpl_coldlight::{self as cl};
 use dpl_coldlight::Tone;
 use egui::{Align2, FontId, Ui};
 
 use crate::blocks::eyebrow::tracked;
+use crate::blocks::{media_backdrop, Ambient, Media};
 use crate::frame::Stage;
+use crate::motion::Clock;
 use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
 
 static SPEC: TemplateSpec = TemplateSpec {
@@ -28,6 +34,8 @@ pub struct TitleCard {
     pub title: &'static str,
     pub subtitle: &'static str,
     pub align: TitleAlign,
+    pub media: Option<Media>,
+    clock: Clock,
 }
 
 impl TitleCard {
@@ -38,6 +46,8 @@ impl TitleCard {
             title: "The stack, laid bare",
             subtitle: "What actually runs when you ask a model a question — and what it costs.",
             align: TitleAlign::Left,
+            media: Some(Media::Anim(Ambient::Rings)),
+            clock: Clock::default(),
         }
     }
 }
@@ -47,10 +57,28 @@ impl SlideTemplate for TitleCard {
         &SPEC
     }
 
+    fn restart(&mut self) {
+        self.clock.restart();
+    }
+
     fn ui(&mut self, ui: &mut Ui) {
         let stage = Stage::of(ui.max_rect());
+        let now = ui.input(|i| i.time);
+        let t0 = self.clock.tick(now);
+        if let Some(m) = self.media {
+            media_backdrop(ui, ui.max_rect(), m, self.tone, now, t0);
+        }
         let fluid = &stage.fluid;
         let painter = ui.painter();
+        // The entrance: settle, then each line rises in (one-time event).
+        let enter = cl::motion::ENTER_RISE;
+        let lift = |p: f32| fluid.sp_5() * (1.0 - p);
+        let p0 = enter.at(now, t0, 0);
+        let p1 = enter.at(now, t0, 1);
+        let p2 = enter.at(now, t0, 2);
+        if enter.in_flight(now, t0, 3) {
+            ui.ctx().request_repaint();
+        }
 
         let title_size = fluid.fs_display();
         let sub_size = fluid.fs_h3();
@@ -64,25 +92,25 @@ impl SlideTemplate for TitleCard {
         };
 
         painter.text(
-            egui::pos2(x, top),
+            egui::pos2(x, top + lift(p0)),
             anchor,
             tracked(self.eyebrow),
             FontId::monospace(eyebrow_size),
-            self.tone.color(),
+            self.tone.color().gamma_multiply(p0),
         );
         painter.text(
-            egui::pos2(x, top + eyebrow_size + fluid.sp_5()),
+            egui::pos2(x, top + eyebrow_size + fluid.sp_5() + lift(p1)),
             anchor,
             self.title,
             FontId::proportional(title_size),
-            cl::ink::STRONG,
+            cl::ink::STRONG.gamma_multiply(p1),
         );
         painter.text(
-            egui::pos2(x, top + eyebrow_size + fluid.sp_5() + title_size * 0.95 + fluid.sp_6()),
+            egui::pos2(x, top + eyebrow_size + fluid.sp_5() + title_size * 0.95 + fluid.sp_6() + lift(p2)),
             anchor,
             self.subtitle,
             FontId::proportional(sub_size),
-            cl::ink::MUTED,
+            cl::ink::MUTED.gamma_multiply(p2),
         );
         ui.allocate_rect(stage.rect, egui::Sense::hover());
     }

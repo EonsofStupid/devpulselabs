@@ -23,6 +23,7 @@ publish = false
 [workspace.dependencies]
 egui = "0.35"
 eframe = { version = "0.35", features = ["wgpu"] }
+egui_extras = { version = "0.35", features = ["image"] }
 tokio = { version = "1", default-features = false, features = ["sync"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 

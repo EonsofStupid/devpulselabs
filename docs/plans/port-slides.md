@@ -274,3 +274,35 @@ is per slide."*
    the generated motion runtime (one vocabulary, no drift).
 5. Donut fixes from proof review: side-aware label anchors, center note sized
    to the hole, `«` instead of the uncovered `←` glyph.
+
+---
+
+## S1b amendment (operator direction, 2026-07-21)
+
+*"slides/animations should be a diverse variety — static even should be a
+slight delay that ensures it is fully visually loaded and then activate the
+svg onetime event. The slides need to be setup where I can easily add a
+pre-made animation, video, image, and have it work with the component…
+these need to be blocks, the elements… the egui version of motion and
+interaction events."*
+
+1. **Entrance law.** EVERY template — including statics — plays a one-time
+   entrance: an authored SETTLE delay (the surface is fully painted first),
+   then the effect fires once and rests. motion.json gains entrance effects
+   (`enter-fade`, `enter-rise` staggered per line, `enter-bloom` spring) each
+   carrying the settle in its authored `delay`; the chart effects gain the
+   same settle delay. Diversity is authored per template, never one global
+   fade.
+2. **Media slots are blocks.** `blocks::media` — `Media::{Image(path),
+   Video(path), Anim(kind)}` + a slot renderer. A template takes
+   `media: Option<Media>` and composes it (backdrop/figure) with its
+   content. Image via egui's file loader (egui_extras image loaders
+   installed at boot). `Anim` = pre-made vector ambience (named, drawn from
+   the pool + motion runtime). `Video` renders an honest labeled plate until
+   the engine pass lands frames (ADR-009: ffmpeg subprocess — never a
+   crate dep).
+3. **Interaction events on blocks** — hover/press feedback pulled from the
+   same effect vocabulary (reward-pulse on press etc.) as templates go
+   interactive in S2. Industry alignment: this is the egui analog of
+   framer-motion's initial/animate/whileHover, expressed as generated
+   Effects + per-slide Clocks.
