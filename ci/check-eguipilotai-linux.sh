@@ -29,12 +29,14 @@ native_modules=(
   libpipewire-0.3
   libudev
   wayland-client
+  x11
   x11-xcb
   xcursor
   xi
   xinerama
   xkbcommon
   xrandr
+  xtst
 )
 
 for module in "${native_modules[@]}"; do

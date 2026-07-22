@@ -18,7 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         fonts-dejavu-core git libasound2-dev libegl1-mesa-dev \
         libfontconfig1-dev libpipewire-0.3-dev libudev-dev \
         libvulkan1 libwayland-dev libx11-xcb-dev libxkbcommon-dev \
-        libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev \
+        libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev libxtst-dev \
         mesa-vulkan-drivers pkg-config xauth xvfb \
     && rm -rf /var/lib/apt/lists/* \
     && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
