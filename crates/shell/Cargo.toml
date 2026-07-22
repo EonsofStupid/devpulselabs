@@ -13,6 +13,9 @@ dpl-backdrop.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true
+# The layout contract tests (docs/shell.md) — egui's official headless
+# harness, version-locked to the workspace egui.
+egui_kittest.workspace = true
 
 [lints]
 workspace = true

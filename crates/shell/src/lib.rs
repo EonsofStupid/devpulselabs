@@ -7,22 +7,47 @@
 //! bevel at every chrome/well boundary, black diffusion scattered into the
 //! well on all four sides. The topbar seam answers the active hub's tone.
 //!
-//! The left rail lists every registered hub; **clicking a hub routes to it
-//! and auto-extends the rail beneath it, showing that hub's subcategories** —
-//! only the active hub is extended. Every navigation publishes
+//! Layout v2 (docs/shell.md): five named ZONES — TOP, STATUS, RAIL, PANEL,
+//! CONTENT — every dimension resolved through the generated fluid `shell`
+//! token group at the live viewport; nothing hardcoded (workspace law). The
+//! rail is ICON mode: hovering a hub opens the mood-tinted subroute flyout,
+//! clicking routes to its default. The status bar is a data-driven cell
+//! registry ([`status`]). Every navigation publishes
 //! `ShellEvent::RouteChanged` on the fabric.
+
+pub mod status;
 
 use dpl_coldlight::{self as cl, Tone};
 use dpl_fabric::{Fabric, ShellEvent};
 use dpl_hub::{Hub, HubId, Route, SubId};
 use egui::{Align, Color32, CornerRadius, Layout, Rect, RichText, Sense};
 
-const RAIL_WIDTH: f32 = 232.0;
-const INSPECTOR_WIDTH: f32 = 252.0;
-const TOP_HEIGHT: f32 = 44.0;
-// Taller than the old 30 — the footer now carries the launchers (the old
-// bottombar clamped 65–76px; 40 fits the sprite chrome without the bulk).
-const FOOT_HEIGHT: f32 = 40.0;
+/// The five named zones (docs/shell.md), captured from the REAL panel rects
+/// every frame — the layout is observable, therefore testable.
+#[derive(Debug, Clone, Copy)]
+pub struct Zones {
+    /// The space the shell was handed this frame (the whole viewport under
+    /// eframe — its root ui carries no margin; test harnesses may inset it).
+    pub root: Rect,
+    pub top: Rect,
+    pub status: Rect,
+    pub rail: Rect,
+    pub panel: Rect,
+    pub content: Rect,
+}
+
+impl Default for Zones {
+    fn default() -> Self {
+        Self {
+            root: Rect::ZERO,
+            top: Rect::ZERO,
+            status: Rect::ZERO,
+            rail: Rect::ZERO,
+            panel: Rect::ZERO,
+            content: Rect::ZERO,
+        }
+    }
+}
 
 pub struct Shell {
     hubs: Vec<Box<dyn Hub>>,
@@ -42,6 +67,13 @@ pub struct Shell {
     /// The build stamp the footer shows (git hash · utc) — the running app
     /// itself proves which code it is.
     build: &'static str,
+    /// The boot-rolled mood tinting the rail flyout ("on reload so we have
+    /// variety of color") — fixed for the session, fresh every launch.
+    tooltip_mood: usize,
+    /// The open subroute flyout: which hub, and the anchor y of its tile.
+    flyout: Option<(HubId, f32)>,
+    /// Last frame's zone rects (docs/shell.md).
+    zones: Zones,
 }
 
 impl Shell {
@@ -65,7 +97,20 @@ impl Shell {
             signal_count: 0,
             full_bleed: false,
             build: "",
+            tooltip_mood: dpl_backdrop::random_mood_index(),
+            flyout: None,
+            zones: Zones::default(),
         }
+    }
+
+    /// Last frame's zone rects — the layout contract, observable.
+    pub fn zones(&self) -> Zones {
+        self.zones
+    }
+
+    /// The mood tinting the rail flyout — rolled once at boot.
+    pub fn tooltip_mood(&self) -> &'static cl::Mood {
+        &cl::MOODS[self.tooltip_mood]
     }
 
     pub fn set_build(&mut self, stamp: &'static str) {
@@ -132,6 +177,11 @@ impl Shell {
     /// One frame of the whole shell. Panel order matters (outermost first,
     /// CentralPanel last); the frame overlay paints after everything.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        // EVERY chrome dimension resolves through the generated fluid `shell`
+        // token group at the live viewport — nothing hardcoded (workspace law).
+        let fl = cl::Fluid::of(ui.ctx().content_rect());
+        let root = ui.max_rect();
+
         // Esc leaves full-bleed (the old shell's escape hatch).
         if self.full_bleed && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
             self.full_bleed = false;
@@ -140,30 +190,44 @@ impl Shell {
         if self.full_bleed {
             // Content owns the viewport; the only chrome is the exit chip.
             let content = self.central(ui);
+            self.zones = Zones {
+                root,
+                content,
+                ..Zones::default()
+            };
             self.fullbleed_exit(ui, content);
             return;
         }
 
         let tone = self.active_tone();
-        if self.top_bar(ui) {
+        let (top, go_fullbleed) = self.top_bar(ui, &fl);
+        if go_fullbleed {
             self.full_bleed = true;
         }
-        let footer = self.status_bar(ui);
-        if footer.snip {
-            self.summon_pixvix();
+        let (status_rect, actions) = self.status_bar(ui, &fl);
+        for action in actions {
+            match action {
+                status::StatusAction::Snip => self.summon_pixvix(),
+                // The agent dock is deferred (ledger); until it lands the
+                // Agents launcher targets the agent hub by its well-known
+                // id — unregistered degrades to a no-op, never a panic.
+                status::StatusAction::Agents => self.activate_hub(HubId("chat")),
+            }
         }
-        if footer.bot {
-            // The agent dock is deferred (ledger); until it lands the Bot
-            // launcher targets the agent hub by its well-known id —
-            // unregistered degrades to a no-op, never a panic.
-            self.activate_hub(HubId("chat"));
-        }
-        let clicked = self.rail(ui);
+        let (rail, clicked) = self.rail(ui, &fl);
         if let Some(route) = clicked {
             self.navigate(route);
         }
-        self.inspector(ui);
+        let panel = self.inspector(ui, &fl);
         let content = self.central(ui);
+        self.zones = Zones {
+            root,
+            top,
+            status: status_rect,
+            rail,
+            panel,
+            content,
+        };
         // The overlay: seams + diffusion framing the well. Painted last, on
         // top of every plate edge — this is what makes the chrome float.
         cl::frame_overlay(ui.painter(), content, tone);
@@ -200,14 +264,14 @@ impl Shell {
         }
     }
 
-    // ── top bar: identity + breadcrumb; backdrop tiles + full-bleed right ─
-    /// Returns true when the full-bleed toggle was clicked.
-    fn top_bar(&mut self, ui: &mut egui::Ui) -> bool {
+    // ── TOP: identity + breadcrumb; backdrop tiles + full-bleed right ────
+    /// Returns the zone rect and whether the full-bleed toggle was clicked.
+    fn top_bar(&mut self, ui: &mut egui::Ui, fl: &cl::Fluid) -> (Rect, bool) {
         let (hub_label, sub_label, tone) = self.breadcrumb();
         let backdrop = &mut self.backdrop;
         let mut go_fullbleed = false;
-        egui::Panel::top("dpl_top")
-            .exact_size(TOP_HEIGHT)
+        let resp = egui::Panel::top("dpl_top")
+            .exact_size(fl.topbar_height())
             .show_separator_line(false)
             .frame(
                 egui::Frame::new()
@@ -238,17 +302,15 @@ impl Shell {
                     });
                 });
             });
-        go_fullbleed
+        (resp.response.rect, go_fullbleed)
     }
 
-    // ── footer: the status bar, rebuilt to the OLD inventory ────────────
-    // Left: brand dot + ColdLight + the Snip launcher. Center: the live
-    // viewport readout. Right: kbd legend + the Bot agent launcher.
-    fn status_bar(&self, ui: &mut egui::Ui) -> FooterClicks {
-        let mut clicks = FooterClicks::default();
+    // ── STATUS: the indicator grid — three lanes of registered cells ────
+    fn status_bar(&self, ui: &mut egui::Ui, fl: &cl::Fluid) -> (Rect, Vec<status::StatusAction>) {
+        let mut actions = Vec::new();
         let tone = self.active_tone();
-        egui::Panel::bottom("dpl_status")
-            .exact_size(FOOT_HEIGHT)
+        let resp = egui::Panel::bottom("dpl_status")
+            .exact_size(fl.bottombar_height())
             .show_separator_line(false)
             .frame(
                 egui::Frame::new()
@@ -257,94 +319,122 @@ impl Shell {
             )
             .show(ui, |ui| {
                 cl::sheen(ui.painter(), ui.max_rect().expand(6.0));
-                let bar = ui.max_rect();
-                ui.horizontal_centered(|ui| {
-                    // Painted, not a glyph — ● has no coverage in the stack.
-                    cl::tone_dot(ui, tone);
-                    ui.label(RichText::new("ColdLight").small().color(cl::ink::MUTED));
-                    ui.add_space(cl::space::S3);
-                    if launcher_chip(ui, cl::icon::SNIP, "Snip", tone) {
-                        clicks.snip = true;
-                    }
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if launcher_chip(ui, cl::icon::BOT, "Agents", tone) {
-                            clicks.bot = true;
-                        }
-                        ui.add_space(cl::space::S3);
-                        ui.label(
-                            RichText::new(format!("signals · {}", self.signal_count))
-                                .small()
-                                .color(cl::ink::SUBTLE),
-                        );
-                        if !self.build.is_empty() {
-                            ui.add_space(cl::space::S3);
-                            ui.label(
-                                RichText::new(self.build)
-                                    .monospace()
-                                    .size(10.0)
-                                    .color(cl::ink::SUBTLE),
-                            );
-                        }
-                    });
-                });
-                // The center readout, painted so the flex sides can't shove it.
-                let size = ui.ctx().content_rect().size();
-                let ppp = ui.ctx().pixels_per_point();
-                ui.painter().text(
-                    bar.center(),
-                    egui::Align2::CENTER_CENTER,
-                    format!("{:.0} × {:.0} · dpr {ppp:.2}", size.x, size.y),
-                    egui::FontId::monospace(10.5),
-                    cl::ink::SUBTLE,
-                );
+                let cx = status::StatusCtx {
+                    tone,
+                    viewport: ui.ctx().content_rect().size(),
+                    ppp: ui.ctx().pixels_per_point(),
+                    navs: self.nav_count,
+                    signals: self.signal_count,
+                    build: self.build,
+                    mood: self.backdrop.mood(),
+                };
+                actions = status::grid(ui, &cx);
             });
-        clicks
+        (resp.response.rect, actions)
     }
 
-    // ── left rail: hubs, active one auto-extended ───────────────────────
-    fn rail(&self, ui: &mut egui::Ui) -> Option<Route> {
+    // ── RAIL: icon mode; hover opens the mood-tinted subroute flyout ────
+    fn rail(&mut self, ui: &mut egui::Ui, fl: &cl::Fluid) -> (Rect, Option<Route>) {
         let mut clicked: Option<Route> = None;
-        egui::Panel::left("dpl_rail")
-            .exact_size(RAIL_WIDTH)
+        let mut hovered: Option<(HubId, f32)> = None;
+        let resp = egui::Panel::left("dpl_rail")
+            .exact_size(fl.rail_collapsed())
             .resizable(false)
             .show_separator_line(false)
             .frame(
                 egui::Frame::new()
                     .fill(cl::surface::RAISED)
-                    .inner_margin(egui::Margin::symmetric(10, 12)),
+                    .inner_margin(egui::Margin::symmetric(6, 10)),
             )
             .show(ui, |ui| {
                 cl::sheen(ui.painter(), ui.max_rect().expand(10.0));
                 for hub in &self.hubs {
                     let spec = hub.spec();
                     let active = spec.id == self.route.hub;
-                    if rail_item(ui, spec.icon, spec.label, spec.tone, active) {
+                    let r = icon_tile(ui, spec.icon, spec.tone, active, fl.tap_min());
+                    if r.hovered() {
+                        hovered = Some((spec.id, r.rect.min.y));
+                    }
+                    if r.clicked() {
                         clicked = Some(spec.default_route());
                     }
-                    // The auto-extension: ONLY the active hub shows its
-                    // subcategories, indented beneath it.
-                    if active {
-                        for sub in spec.subroutes {
-                            let selected = sub.id == self.route.sub;
-                            if sub_item(ui, sub.label, spec.tone, selected) {
-                                clicked = Some(Route {
-                                    hub: spec.id,
-                                    sub: sub.id,
-                                });
-                            }
-                        }
-                        ui.add_space(cl::space::S2);
-                    }
+                    ui.add_space(cl::space::S1);
                 }
             });
-        clicked
+        let rail_rect = resp.response.rect;
+
+        // Hovering a tile (re-)anchors the flyout on that hub; otherwise it
+        // survives while the pointer holds the card, and closes on anything
+        // else (a click included).
+        if let Some(anchor) = hovered {
+            self.flyout = Some(anchor);
+        }
+        if let Some((id, y)) = self.flyout {
+            let holds = self.flyout_ui(ui.ctx(), fl, rail_rect, id, y, &mut clicked);
+            if clicked.is_some() || (hovered.is_none() && !holds) {
+                self.flyout = None;
+            }
+        }
+        (rail_rect, clicked)
     }
 
-    // ── right rail: the inspector ───────────────────────────────────────
-    fn inspector(&self, ui: &mut egui::Ui) {
+    /// The rail flyout — the hub's subroutes on a card tinted by the
+    /// boot-rolled mood ("mouse over produces a random generated mood
+    /// tooltip on reload"). Returns true while the pointer holds it open.
+    fn flyout_ui(
+        &self,
+        ctx: &egui::Context,
+        fl: &cl::Fluid,
+        rail: Rect,
+        id: HubId,
+        y: f32,
+        clicked: &mut Option<Route>,
+    ) -> bool {
+        let Some(spec) = self.hubs.iter().map(|h| h.spec()).find(|s| s.id == id) else {
+            return false;
+        };
+        let mood = self.tooltip_mood();
+        let area = egui::Area::new(egui::Id::new("dpl_rail_flyout"))
+            .fixed_pos(egui::pos2(rail.max.x, y))
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                cl::card_frame().show(ui, |ui| {
+                    ui.set_min_width(fl.rail_expanded());
+                    // The mood strip + label — the mood "tooltip" itself.
+                    let (strip, _) = ui.allocate_exact_size(
+                        egui::vec2(ui.available_width().max(fl.rail_expanded()), 4.0),
+                        Sense::hover(),
+                    );
+                    cl::mood_gradient(ui.painter(), strip, mood);
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(spec.icon).size(14.0).color(spec.tone.color()));
+                        ui.label(
+                            RichText::new(spec.label)
+                                .strong()
+                                .color(mood.accent_color()),
+                        );
+                    });
+                    for sub in spec.subroutes {
+                        let selected = spec.id == self.route.hub && sub.id == self.route.sub;
+                        if sub_item(ui, sub.label, spec.tone, selected) {
+                            *clicked = Some(Route {
+                                hub: spec.id,
+                                sub: sub.id,
+                            });
+                        }
+                    }
+                });
+            });
+        // A hair of slack covers the pointer crossing rail → card.
+        let hold = area.response.rect.expand(8.0);
+        ctx.pointer_latest_pos().is_some_and(|p| hold.contains(p))
+    }
+
+    // ── PANEL: the inspector ────────────────────────────────────────────
+    fn inspector(&self, ui: &mut egui::Ui, fl: &cl::Fluid) -> Rect {
         let (hub_label, sub_label, tone) = self.breadcrumb();
-        egui::Panel::right("dpl_inspector")
-            .exact_size(INSPECTOR_WIDTH)
+        let resp = egui::Panel::right("dpl_inspector")
+            .exact_size(fl.panel_width())
             .resizable(false)
             .show_separator_line(false)
             .frame(
@@ -405,6 +495,7 @@ impl Shell {
                         .color(cl::ink::SUBTLE),
                 );
             });
+        resp.response.rect
     }
 
     // ── central: the recessed well, dispatch to the active hub ──────────
@@ -460,13 +551,6 @@ impl Shell {
     }
 }
 
-/// What the footer's interactive chrome reported this frame.
-#[derive(Default)]
-struct FooterClicks {
-    snip: bool,
-    bot: bool,
-}
-
 /// A quiet icon-only button (topbar/full-bleed chrome).
 fn icon_button(ui: &mut egui::Ui, glyph: &str, tip: &str) -> bool {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(28.0, 24.0), Sense::click());
@@ -493,8 +577,9 @@ fn icon_button(ui: &mut egui::Ui, glyph: &str, tip: &str) -> bool {
 }
 
 /// A footer launcher chip: icon + label, tone-halo on hover — the Snip and
-/// Bot launchers from the old bottombar, in the sprite vocabulary.
-fn launcher_chip(ui: &mut egui::Ui, glyph: &str, label: &str, tone: Tone) -> bool {
+/// Bot launchers from the old bottombar, in the sprite vocabulary. Status
+/// cells (`status.rs`) paint through this.
+pub(crate) fn launcher_chip(ui: &mut egui::Ui, glyph: &str, label: &str, tone: Tone) -> bool {
     let galley = ui.painter().layout_no_wrap(
         label.into(),
         egui::FontId::proportional(12.5),
@@ -533,17 +618,22 @@ fn launcher_chip(ui: &mut egui::Ui, glyph: &str, label: &str, tone: Tone) -> boo
     resp.clicked()
 }
 
-/// A hub row as a sprite: crisp wash when active with a 1px lit top edge and
-/// 1px dark bottom edge (the bevel), tone accent bar on the left, hairline
-/// wash on hover. Hand-painted for pixel control.
-fn rail_item(ui: &mut egui::Ui, icon: &str, label: &str, tone: Tone, active: bool) -> bool {
+/// A hub tile in the icon rail: centered glyph, tone wash + sprite bevel
+/// (1px lit top, 1px dark bottom) + left accent bar when active — the sprite
+/// vocabulary in icon-mode geometry. Height is the `tap-min` token.
+fn icon_tile(
+    ui: &mut egui::Ui,
+    icon: &str,
+    tone: Tone,
+    active: bool,
+    height: f32,
+) -> egui::Response {
     let width = ui.available_width();
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 34.0), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), Sense::click());
     let painter = ui.painter();
 
     if active {
         painter.rect_filled(rect, CornerRadius::same(cl::RADIUS_SM), tone.wash());
-        // Sprite bevel: lit top, dark bottom — one pixel each, no feathered halo.
         let lit = Color32::from_rgba_unmultiplied(0xff, 0xff, 0xff, 14);
         let dark = Color32::from_black_alpha(120);
         painter.rect_filled(
@@ -573,30 +663,17 @@ fn rail_item(ui: &mut egui::Ui, icon: &str, label: &str, tone: Tone, active: boo
         );
     }
 
-    let ink = if active {
-        cl::ink::STRONG
-    } else {
-        cl::ink::BASE
-    };
     painter.text(
-        egui::pos2(rect.min.x + 14.0, rect.center().y),
-        egui::Align2::LEFT_CENTER,
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
         icon,
-        egui::FontId::proportional(15.0),
+        egui::FontId::proportional(19.0),
         if active { tone.color() } else { cl::ink::MUTED },
     );
-    painter.text(
-        egui::pos2(rect.min.x + 40.0, rect.center().y),
-        egui::Align2::LEFT_CENTER,
-        label,
-        egui::FontId::proportional(14.5),
-        ink,
-    );
-    response.clicked()
+    response
 }
 
-/// A subcategory row under the active hub — indented, quieter, tone dot when
-/// selected.
+/// A subroute row in the flyout card — quiet, tone dot when selected.
 fn sub_item(ui: &mut egui::Ui, label: &str, tone: Tone, selected: bool) -> bool {
     let width = ui.available_width();
     let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 26.0), Sense::click());
@@ -612,7 +689,7 @@ fn sub_item(ui: &mut egui::Ui, label: &str, tone: Tone, selected: bool) -> bool 
             egui::StrokeKind::Inside,
         );
         painter.circle_filled(
-            egui::pos2(rect.min.x + 26.0, rect.center().y),
+            egui::pos2(rect.min.x + 10.0, rect.center().y),
             2.5,
             tone.color(),
         );
@@ -625,7 +702,7 @@ fn sub_item(ui: &mut egui::Ui, label: &str, tone: Tone, selected: bool) -> bool 
     }
 
     painter.text(
-        egui::pos2(rect.min.x + 40.0, rect.center().y),
+        egui::pos2(rect.min.x + 22.0, rect.center().y),
         egui::Align2::LEFT_CENTER,
         label,
         egui::FontId::proportional(13.0),
@@ -776,5 +853,55 @@ mod tests {
         assert!(!shell.full_bleed());
         shell.set_full_bleed(true);
         assert!(shell.full_bleed());
+    }
+
+    #[test]
+    fn the_boot_tooltip_mood_comes_from_the_registry() {
+        let (shell, _rx) = shell();
+        assert!(cl::MOODS
+            .iter()
+            .any(|m| m.name == shell.tooltip_mood().name));
+    }
+
+    /// THE layout contract (docs/shell.md), pinned headlessly at two real
+    /// viewport sizes: chrome dimensions ARE the generated fluid `shell`
+    /// tokens, the status bar ends exactly at the viewport bottom (the v1
+    /// regression), and the well tiles inside the chrome without overlap.
+    #[test]
+    fn zones_pin_chrome_to_the_viewport_at_any_size() {
+        for size in [egui::vec2(1280.0, 800.0), egui::vec2(1920.0, 1080.0)] {
+            let (sh, _rx) = shell();
+            let mut harness = egui_kittest::Harness::builder()
+                .with_size(size)
+                .build_ui_state(|ui, sh: &mut Shell| sh.ui(ui), sh);
+            harness.run_steps(3);
+            let z = harness.state().zones();
+            let fl = cl::Fluid::of(Rect::from_min_size(egui::Pos2::ZERO, size));
+            let eq = |a: f32, b: f32| (a - b).abs() < 0.75;
+
+            // Kittest insets the root by a small test-only outer margin
+            // (eframe's real root has none) — the root must still span
+            // essentially the whole viewport.
+            assert!(size.y - z.root.height() <= 20.0, "root lost the viewport");
+            assert!(
+                eq(z.status.max.y, z.root.max.y),
+                "status bottom {} != root bottom {} — the off-screen-footer regression",
+                z.status.max.y,
+                z.root.max.y
+            );
+            assert!(
+                eq(z.top.min.y, z.root.min.y),
+                "topbar not pinned to the top"
+            );
+            assert!(eq(z.top.height(), fl.topbar_height()));
+            assert!(eq(z.status.height(), fl.bottombar_height()));
+            assert!(eq(z.rail.width(), fl.rail_collapsed()));
+            assert!(eq(z.panel.width(), fl.panel_width()));
+
+            assert!(z.content.min.y >= z.top.max.y - 0.5);
+            assert!(z.content.max.y <= z.status.min.y + 0.5);
+            assert!(z.content.min.x >= z.rail.max.x - 0.5);
+            assert!(z.content.max.x <= z.panel.min.x + 0.5);
+        }
     }
 }

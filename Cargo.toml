@@ -43,6 +43,8 @@ eframe = { version = "0.35", features = ["wgpu"] }
 # "file" installs the file:// loader (without it every Media::Image errors);
 # "webp" adds animated-webp support on top of the image crate's static decode.
 egui_extras = { version = "0.35", features = ["image", "file", "webp"] }
+# Headless UI test harness (dev-only) — MUST track the egui minor version.
+egui_kittest = { version = "0.35", default-features = false }
 tokio = { version = "1", default-features = false, features = ["sync"] }
 # png for the harness; jpeg for the backdrop posters (B1); webp so the app
 # DISPLAYS what the media pipeline emits (B3). AVIF decode is deliberately

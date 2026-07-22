@@ -41,8 +41,8 @@ because a running instance masks a failed link — mtime is truth.
 
 ## Adopt deliberately (documented, not yet wired)
 
-- `egui_kittest` — egui's official accesskit test harness (per-component
-  snapshot tests; adopt with the shell-layout pass).
+- ~~`egui_kittest`~~ — ADOPTED (shell-layout pass): headless harness pinning
+  the zone contract (`crates/shell`, docs/shell.md). Extend per-surface.
 - `cargo-nextest` (faster test runs), `insta` (data snapshots),
   `proptest` (engine invariants), `puffin` (frame profiler),
   `cargo-deny`/`cargo-audit` binaries on the dev machine.

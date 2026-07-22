@@ -46,6 +46,22 @@ impl Loop {
     }
 }
 
+/// One random mood index, time-seeded — the shell's boot tooltip mood
+/// ("on reload so we have variety of color") rolls here so mood randomness
+/// stays colocated with the backdrop domain.
+pub fn random_mood_index() -> usize {
+    let seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos() as u64 ^ d.as_secs())
+        .unwrap_or(0x9E37_79B9)
+        | 1;
+    let mut x = seed;
+    x ^= x << 13;
+    x ^= x >> 7;
+    x ^= x << 17;
+    (x.wrapping_mul(0x2545_F491_4F6C_DD1D) % cl::MOOD_COUNT as u64) as usize
+}
+
 pub struct Backdrop {
     current: Loop,
     mood: usize,
@@ -237,6 +253,13 @@ mod tests {
         assert_eq!(b.mood().name, cl::MOODS[3].name);
         b.set_mood(cl::MOOD_COUNT + 2);
         assert_eq!(b.mood, 2);
+    }
+
+    #[test]
+    fn the_boot_tooltip_roll_always_lands_inside_the_registry() {
+        for _ in 0..64 {
+            assert!(random_mood_index() < cl::MOOD_COUNT);
+        }
     }
 
     #[test]

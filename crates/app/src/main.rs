@@ -61,7 +61,11 @@ fn main() -> eframe::Result {
     let pixvix_snap = args.iter().any(|a| a == "--pixvix-snap");
 
     let options = eframe::NativeOptions {
+        // MAXIMIZED — a fixed logical size overflows small displays at
+        // dpr > 1 and shoves the status bar under the taskbar (the v1 bug).
+        // The inner size only names the restored-state fallback.
         viewport: egui::ViewportBuilder::default()
+            .with_maximized(true)
             .with_inner_size([1440.0, 900.0])
             .with_min_inner_size([960.0, 600.0]),
         renderer: eframe::Renderer::Wgpu,
@@ -128,6 +132,9 @@ impl App {
             pixvix.open_now();
         }
         let mut shell = Shell::new(hubs, fabric);
+        // The provenance stamp (git hash · utc, build.rs) — the running app
+        // proves which code it is, in the status grid's build cell.
+        shell.set_build(env!("DPL_BUILD"));
         if let Some(m) = mood {
             shell.backdrop_mut().set_mood(m);
         }
