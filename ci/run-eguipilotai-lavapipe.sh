@@ -8,6 +8,8 @@ export EGUIPILOTAI_ADAPTER_POLICY=software-required
 export TZ=UTC
 export LANG=C.UTF-8
 
+bash ci/check-eguipilotai-linux.sh
+
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace

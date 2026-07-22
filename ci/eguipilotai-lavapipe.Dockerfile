@@ -22,7 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         mesa-vulkan-drivers pkg-config xauth xvfb \
     && rm -rf /var/lib/apt/lists/* \
     && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-        | sh -s -- -y --profile minimal --default-toolchain stable \
+        | sh -s -- -y --profile minimal --default-toolchain 1.92.0 \
     && rustup component add rustfmt clippy \
     && rustup target add wasm32-unknown-unknown \
     && fc-cache -f

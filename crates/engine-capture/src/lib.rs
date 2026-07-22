@@ -1024,11 +1024,7 @@ pub fn list_audio_devices() -> Vec<String> {
         .map(str::trim)
         .filter(|l| !l.is_empty() && !l.starts_with("Auto-detected") && !l.ends_with(':'))
         .filter_map(|l| {
-            let name = l
-                .trim_start_matches('*')
-                .trim_start()
-                .split_whitespace()
-                .next()?;
+            let name = l.trim_start_matches('*').split_whitespace().next()?;
             (name.contains('.') || name.contains('_')).then(|| name.to_string())
         })
         .collect()
