@@ -1,0 +1,105 @@
+{
+	"$description": "AUTHORED — the DevPULSE / ColdLight palette registry. Migrated 1:1 from the foundry palette sources (source/palettes/*.palette.ts). Every palette carries its anchor { hue, chroma } and its curves — `curve` (lightness, per build/generate-scales.mjs LIGHTNESS) and `chromaCurve` (chroma multiplier, per CHROMA). This is the real DevPULSE color system, not a flat approximation. Read by build/generate-scales.mjs → 13-step OKLCH ladders; not a DTCG file, sits outside tokens/src/.",
+
+	"$laws": [
+		"L2 — ONE theme. DevPULSE IS ColdLight. Every hue is a primary available inside the single theme as --color-{id}-{step}. No data-brand, no scope, no picker.",
+		"L4 — a large pool. Adding a palette costs one object and yields a 13-step ladder + Tailwind utilities + TS types.",
+		"Never pure black as a generated step — the ladder floors at L=0.10. The void base anchor (L=0.08) and absolute black are authored exceptions."
+	],
+
+	"groups": {
+		"brand": {
+			"$description": "DevPULSE brand primaries — the identity hues, higher chroma, curved for punch.",
+			"hues": [
+				{ "id": "viridian",       "hue": 155, "chroma": 0.16,  "curve": "brand",         "chromaCurve": "linear-to-500", "description": "True green brand primary." },
+				{ "id": "teal",           "hue": 190, "chroma": 0.145, "curve": "brand",         "chromaCurve": "linear-to-500", "description": "DevPULSE cold teal — the namesake." },
+				{ "id": "cyan",           "hue": 210, "chroma": 0.15,  "curve": "brand",         "chromaCurve": "linear-to-500", "description": "News cyan." },
+				{ "id": "cyan-ice",       "hue": 220, "chroma": 0.14,  "curve": "luminous",      "chromaCurve": "bloom",         "description": "Cyan-ice — cool bright cyan." },
+				{ "id": "cerulean",       "hue": 230, "chroma": 0.17,  "curve": "brand",         "chromaCurve": "linear-to-500", "description": "Cerulean brand blue." },
+				{ "id": "electric",       "hue": 275, "chroma": 0.22,  "curve": "luminous",      "chromaCurve": "bloom",         "description": "Electric violet-blue, high chroma." },
+				{ "id": "magenta",        "hue": 340, "chroma": 0.22,  "curve": "brand",         "chromaCurve": "linear-to-500", "description": "Vibes hot magenta." },
+				{ "id": "magenta-orchid", "hue": 320, "chroma": 0.2,   "curve": "brand",         "chromaCurve": "peak-at-400",   "description": "Magenta-orchid brand." },
+				{ "id": "vermilion",      "hue": 30,  "chroma": 0.2,   "curve": "brand",         "chromaCurve": "peak-at-400",   "description": "Vermilion brand red-orange." },
+				{ "id": "amber-ember",    "hue": 45,  "chroma": 0.18,  "curve": "high-contrast", "chromaCurve": "peak-at-600",   "description": "Amber-ember brand." },
+				{ "id": "saffron",        "hue": 65,  "chroma": 0.17,  "curve": "brand",         "chromaCurve": "linear-to-500", "description": "Saffron brand amber." },
+				{ "id": "amber",          "hue": 75,  "chroma": 0.17,  "curve": "brand",         "chromaCurve": "linear-to-500", "description": "EoS amber brand." }
+			]
+		},
+
+		"accent": {
+			"$description": "The DevPULSE accent wheel — full-spectrum tuned palettes for surfaces, effects, and data viz.",
+			"hues": [
+				{ "id": "crimson",    "hue": 20,  "chroma": 0.22,  "curve": "high-contrast", "chromaCurve": "linear-to-500", "description": "Crimson." },
+				{ "id": "oxblood",    "hue": 20,  "chroma": 0.15,  "curve": "low-key",       "chromaCurve": "peak-at-600",   "description": "Oxblood — deep red." },
+				{ "id": "coral",      "hue": 25,  "chroma": 0.2,   "curve": "brand",         "chromaCurve": "linear-to-500", "description": "Coral." },
+				{ "id": "rose",       "hue": 10,  "chroma": 0.17,  "curve": "brand",         "chromaCurve": "linear-to-500", "description": "Rose." },
+				{ "id": "terracotta", "hue": 40,  "chroma": 0.13,  "curve": "brand",         "chromaCurve": "soft",          "description": "Terracotta earthy accent." },
+				{ "id": "orange",     "hue": 50,  "chroma": 0.18,  "curve": "brand",         "chromaCurve": "linear-to-500", "description": "Orange." },
+				{ "id": "gold",       "hue": 85,  "chroma": 0.14,  "curve": "brand",         "chromaCurve": "soft",          "description": "Gold." },
+				{ "id": "chartreuse", "hue": 115, "chroma": 0.2,   "curve": "luminous",      "chromaCurve": "peak-at-400",   "description": "Chartreuse." },
+				{ "id": "lime",       "hue": 128, "chroma": 0.2,   "curve": "brand",         "chromaCurve": "linear-to-500", "description": "Lime." },
+				{ "id": "botanical",  "hue": 140, "chroma": 0.13,  "curve": "brand",         "chromaCurve": "soft",          "description": "Botanical green." },
+				{ "id": "emerald",    "hue": 150, "chroma": 0.16,  "curve": "high-contrast", "chromaCurve": "peak-at-600",   "description": "Emerald." },
+				{ "id": "sage",       "hue": 150, "chroma": 0.06,  "curve": "muted",         "chromaCurve": "soft",          "description": "Sage — muted green." },
+				{ "id": "jade",       "hue": 165, "chroma": 0.12,  "curve": "brand",         "chromaCurve": "soft",          "description": "Jade." },
+				{ "id": "mint",       "hue": 165, "chroma": 0.11,  "curve": "luminous",      "chromaCurve": "bloom",         "description": "Mint." },
+				{ "id": "teal-accent","hue": 190, "chroma": 0.13,  "curve": "brand",         "chromaCurve": "linear-to-500", "description": "Teal accent (softer than the brand teal)." },
+				{ "id": "sky",        "hue": 230, "chroma": 0.13,  "curve": "luminous",      "chromaCurve": "bloom",         "description": "Sky." },
+				{ "id": "azure",      "hue": 250, "chroma": 0.18,  "curve": "brand",         "chromaCurve": "linear-to-500", "description": "Azure." },
+				{ "id": "indigo",     "hue": 265, "chroma": 0.2,   "curve": "high-contrast", "chromaCurve": "peak-at-600",   "description": "Indigo." },
+				{ "id": "violet",     "hue": 290, "chroma": 0.2,   "curve": "brand",         "chromaCurve": "linear-to-500", "description": "Violet." },
+				{ "id": "purple",     "hue": 295, "chroma": 0.22,  "curve": "brand",         "chromaCurve": "linear-to-500", "description": "Purple." },
+				{ "id": "lavender",   "hue": 295, "chroma": 0.1,   "curve": "luminous",      "chromaCurve": "soft",          "description": "Lavender — soft violet." },
+				{ "id": "plum",       "hue": 325, "chroma": 0.14,  "curve": "muted",         "chromaCurve": "soft",          "description": "Plum." },
+				{ "id": "aubergine",  "hue": 320, "chroma": 0.1,   "curve": "low-key",       "chromaCurve": "peak-at-600",   "description": "Aubergine — deep muted purple." },
+				{ "id": "fuchsia",    "hue": 345, "chroma": 0.24,  "curve": "luminous",      "chromaCurve": "peak-at-400",   "description": "Fuchsia — high chroma." },
+				{ "id": "pink",       "hue": 355, "chroma": 0.12,  "curve": "brand",         "chromaCurve": "soft",          "description": "Pink." }
+			]
+		},
+
+		"utility": {
+			"$description": "Semantic utility palettes — danger/warning/info + their soft variants. Roles resolve to these.",
+			"hues": [
+				{ "id": "danger",       "hue": 25,  "chroma": 0.22, "curve": "brand", "chromaCurve": "linear-to-500", "description": "Danger red." },
+				{ "id": "danger-soft",  "hue": 25,  "chroma": 0.08, "curve": "muted", "chromaCurve": "soft",          "description": "Danger — soft." },
+				{ "id": "warning",      "hue": 65,  "chroma": 0.15, "curve": "brand", "chromaCurve": "linear-to-500", "description": "Warning amber." },
+				{ "id": "warning-soft", "hue": 65,  "chroma": 0.08, "curve": "muted", "chromaCurve": "soft",          "description": "Warning — soft." },
+				{ "id": "info",         "hue": 240, "chroma": 0.14, "curve": "brand", "chromaCurve": "linear-to-500", "description": "Info blue." },
+				{ "id": "info-soft",    "hue": 230, "chroma": 0.06, "curve": "muted", "chromaCurve": "soft",          "description": "Info — soft." }
+			]
+		},
+
+		"surface": {
+			"$description": "Tinted neutral surface families — low chroma with a hue whisper, for panels warmer/cooler than the void. Dark ends overridden so they never hit pure black.",
+			"hues": [
+				{ "id": "graphite",  "hue": 60,  "chroma": 0.012, "curve": "neutral", "chromaCurve": "flat", "description": "Warm-grey graphite.", "overrides": { "950": { "l": 0.14, "c": 0.01, "h": 60 }, "975": { "l": 0.11, "c": 0.008, "h": 60 } } },
+				{ "id": "ink",       "hue": 260, "chroma": 0.014, "curve": "neutral", "chromaCurve": "flat", "description": "Cool blue-black ink.", "overrides": { "950": { "l": 0.14, "c": 0.012, "h": 260 } } },
+				{ "id": "midnight",  "hue": 260, "chroma": 0.04,  "curve": "low-key", "chromaCurve": "flat", "description": "Midnight — deep blue neutral." },
+				{ "id": "mocha",     "hue": 40,  "chroma": 0.02,  "curve": "neutral", "chromaCurve": "flat", "description": "Mocha — warm brown neutral.", "overrides": { "950": { "l": 0.14, "c": 0.016, "h": 40 }, "975": { "l": 0.11, "c": 0.014, "h": 40 } } },
+				{ "id": "porcelain", "hue": 90,  "chroma": 0.008, "curve": "neutral", "chromaCurve": "flat", "description": "Porcelain — near-white warm." },
+				{ "id": "slate",     "hue": 245, "chroma": 0.018, "curve": "neutral", "chromaCurve": "flat", "description": "Slate — cool grey-blue.", "overrides": { "950": { "l": 0.13, "c": 0.014, "h": 245 }, "975": { "l": 0.11, "c": 0.012, "h": 245 } } }
+			]
+		},
+
+		"achromatic": {
+			"$description": "Greyscale and absolutes. `void` is the deep app-background family — ultra-low chroma with a cool hue whisper; its dark end + base anchor are pinned so surfaces read cool, never dead grey.",
+			"hues": [
+				{ "id": "neutral", "hue": 0, "chroma": 0, "curve": "neutral", "chromaCurve": "flat", "description": "Pure greyscale — no hue, no chroma." },
+				{
+					"id": "void",
+					"hue": 220,
+					"chroma": 0.01,
+					"curve": "neutral",
+					"chromaCurve": "flat",
+					"description": "Ultra-low-chroma dark scale — deepest app backgrounds and void surfaces.",
+					"overrides": { "900": { "l": 0.19, "c": 0.01, "h": 220 }, "950": { "l": 0.12, "c": 0.01, "h": 220 }, "975": { "l": 0.1, "c": 0.01, "h": 220 } },
+					"anchors": {
+						"base": { "lightness": 0.08, "chroma": 0.01, "hue": 220, "description": "Void base — the deepest app-background anchor. Below the ramp floor by design; authored, not generated." }
+					}
+				},
+				{ "id": "white", "kind": "single", "components": [1, 0, 0], "description": "Absolute white — oklch(1 0 0)." },
+				{ "id": "black", "kind": "single", "components": [0, 0, 0], "description": "Absolute black — oklch(0 0 0). Exempt from the L-floor." }
+			]
+		}
+	}
+}

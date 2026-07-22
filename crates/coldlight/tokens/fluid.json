@@ -1,0 +1,67 @@
+{
+	"$description": "AUTHORED — the fluid scale. min/max rem pairs; build/generate-fluid.mjs runs each through fluidAxis (the XY clamp core) into a clamp() custom property. Adapted faithfully from the operator's foundry fluid sources (source/fluid/*.fluid.ts). Read by the generator, not by Style Dictionary directly (it sits outside tokens/src/, like hues.json).\n\nEvery value here interpolates: min at the small viewport corner, max at the large one, tracking BOTH width and height. Names match what the app/shell consume (--sp-*, --fs-*, --r-*).",
+
+	"groups": {
+		"space": {
+			"$description": "Fluid spacing steps → --sp-1..8.",
+			"tokens": [
+				{ "name": "sp-1", "min": 0.25, "max": 0.375 },
+				{ "name": "sp-2", "min": 0.5, "max": 0.75 },
+				{ "name": "sp-3", "min": 0.75, "max": 1.125 },
+				{ "name": "sp-4", "min": 1.0, "max": 1.5 },
+				{ "name": "sp-5", "min": 1.25, "max": 1.875 },
+				{ "name": "sp-6", "min": 1.5, "max": 2.25 },
+				{ "name": "sp-7", "min": 2.0, "max": 3.0 },
+				{ "name": "sp-8", "min": 3.0, "max": 4.5 }
+			]
+		},
+		"type": {
+			"$description": "Fluid type ramp → --fs-*. Leading companions are static (not fluid) and ride along.",
+			"tokens": [
+				{ "name": "fs-eyebrow", "min": 0.6875, "max": 0.9375 },
+				{ "name": "fs-body-sm", "min": 0.8125, "max": 0.9375 },
+				{ "name": "fs-body", "min": 0.9375, "max": 1.125 },
+				{ "name": "fs-body-lg", "min": 1.0625, "max": 1.25 },
+				{ "name": "fs-h4", "min": 1.125, "max": 1.375 },
+				{ "name": "fs-h3", "min": 1.375, "max": 1.75 },
+				{ "name": "fs-h2", "min": 1.75, "max": 2.5 },
+				{ "name": "fs-h1", "min": 2.25, "max": 3.5 },
+				{ "name": "fs-display", "min": 3.0, "max": 5.5 },
+				{ "name": "fs-display-xl", "min": 4.0, "max": 8.5 }
+			]
+		},
+		"radius": {
+			"$description": "Fluid radii → --r-sm/-md/-lg.",
+			"tokens": [
+				{ "name": "r-sm", "min": 0.25, "max": 0.375 },
+				{ "name": "r-md", "min": 0.5, "max": 0.75 },
+				{ "name": "r-lg", "min": 0.75, "max": 1.125 }
+			]
+		},
+		"shell": {
+			"$description": "Shell geometry → --topbar-height, --bottombar-height, --rail-*, --panel-width, --dock-lip, --tap-min. Ported byte-identical from the foundry shell.fluid.ts clamps (primitives.css). The shell components read these directly.",
+			"tokens": [
+				{ "name": "topbar-height", "min": 3.0, "max": 3.75 },
+				{ "name": "bottombar-height", "min": 4.0625, "max": 4.75 },
+				{ "name": "rail-collapsed", "min": 3.5, "max": 4.25 },
+				{ "name": "rail-expanded", "min": 8.5, "max": 10.3125 },
+				{ "name": "panel-width", "min": 20.0, "max": 28.0 },
+				{ "name": "dock-lip", "min": 1.5, "max": 2.0 },
+				{ "name": "tap-min", "min": 4.0, "max": 4.0 }
+			]
+		},
+		"control": {
+			"$description": "Control geometry → --ctl-*. Ported from the foundry control.fluid.ts clamps. Feeds the app @theme inline `--spacing-ctl-* → var(--ctl-*)` so `size-ctl-icon`, `min-w-ctl-btn` etc. resolve.",
+			"tokens": [
+				{ "name": "ctl-icon", "min": 1.125, "max": 1.625 },
+				{ "name": "ctl-badge", "min": 4.5, "max": 6.5 },
+				{ "name": "ctl-badge-icon", "min": 1.875, "max": 2.75 },
+				{ "name": "ctl-bar", "min": 0.5, "max": 0.75 },
+				{ "name": "ctl-btn", "min": 2.25, "max": 3.0 },
+				{ "name": "ctl-thumb-w", "min": 3.5, "max": 5.0 },
+				{ "name": "ctl-thumb-h", "min": 2.1875, "max": 3.125 },
+				{ "name": "ctl-clear", "min": 5.0, "max": 7.0 }
+			]
+		}
+	}
+}

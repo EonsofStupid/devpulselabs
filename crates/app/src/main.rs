@@ -12,13 +12,18 @@ use dpl_hub::{Hub, Route};
 use dpl_shell::Shell;
 
 fn main() -> eframe::Result {
-    let shot: Option<std::path::PathBuf> = {
-        let args: Vec<String> = std::env::args().collect();
-        args.iter()
-            .position(|a| a == "--screenshot")
-            .and_then(|i| args.get(i + 1))
-            .map(std::path::PathBuf::from)
-    };
+    let args: Vec<String> = std::env::args().collect();
+    let shot: Option<std::path::PathBuf> = args
+        .iter()
+        .position(|a| a == "--screenshot")
+        .and_then(|i| args.get(i + 1))
+        .map(std::path::PathBuf::from);
+    // `--route hub/sub` — boot anywhere, so every surface can prove itself.
+    let boot_route: Option<(String, String)> = args
+        .iter()
+        .position(|a| a == "--route")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|r| r.split_once('/').map(|(h, s)| (h.to_string(), s.to_string())));
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -33,7 +38,7 @@ fn main() -> eframe::Result {
         options,
         Box::new(move |cc| {
             dpl_coldlight::apply_theme(&cc.egui_ctx);
-            Ok(Box::new(App::new(shot)))
+            Ok(Box::new(App::new(shot, boot_route)))
         }),
     )
 }
@@ -45,7 +50,7 @@ struct App {
 }
 
 impl App {
-    fn new(shot: Option<std::path::PathBuf>) -> Self {
+    fn new(shot: Option<std::path::PathBuf>, boot_route: Option<(String, String)>) -> Self {
         // The registry — a new hub is ONE line here and nothing else.
         let hubs: Vec<Box<dyn Hub>> = vec![
             Box::new(dpl_hub_home::HomeHub),
@@ -56,12 +61,22 @@ impl App {
         ];
 
         let mut shell = Shell::new(hubs, Fabric::new());
-        // Boot on wiredFRONT so the very first frame shows the rail extended —
-        // the behavior this scaffold exists to prove.
-        shell.navigate(Route {
-            hub: dpl_hub_wiredfront::HUB,
-            sub: dpl_hub_wiredfront::PIXVIX,
-        });
+        match boot_route {
+            // The harness route: HubId/SubId are &'static str newtypes, so the
+            // CLI strings are leaked once — a harness-only allocation.
+            Some((h, s)) => {
+                let route = Route {
+                    hub: dpl_hub::HubId(Box::leak(h.into_boxed_str())),
+                    sub: dpl_hub::SubId(Box::leak(s.into_boxed_str())),
+                };
+                shell.navigate(route);
+            }
+            // Default boot: wiredFRONT with the rail extended.
+            None => shell.navigate(Route {
+                hub: dpl_hub_wiredfront::HUB,
+                sub: dpl_hub_wiredfront::PIXVIX,
+            }),
+        }
 
         Self { shell, shot, frames: 0 }
     }

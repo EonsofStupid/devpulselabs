@@ -6,3 +6,7 @@ publish.workspace = true
 
 [dependencies]
 egui.workspace = true
+
+[build-dependencies]
+serde_json = "1"
+palette = "0.7"

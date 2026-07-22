@@ -9,7 +9,23 @@
 
 use egui::{Color32, CornerRadius, Rect, Shadow, Stroke};
 
-/// The tone slots. Each hub claims one; the fx vocabulary tints by it.
+// ── THE GENERATED ENGINE ────────────────────────────────────────────────
+// build.rs ports the palette engine (generate-scales.mjs) and the fluid XY
+// clamp core (fluid-axis.mjs) from the vendored authored sources. Editing
+// tokens/*.json and running `cargo build` IS the design build.
+include!(concat!(env!("OUT_DIR"), "/ramps_gen.rs"));
+
+/// Index of the 500 step (the accent anchor) in `LADDER_STEPS`.
+pub const STEP_500: usize = 6;
+
+/// Position of a ladder step, when it exists.
+pub fn step_index(step: u32) -> Option<usize> {
+    LADDER_STEPS.iter().position(|s| *s == step)
+}
+
+/// The hub tone slots — semantic names over the GENERATED pool. No hex lives
+/// here anymore: every color resolves through a curved 13-step OKLCH ladder.
+/// (The 18 fx-tone slots arrive with the fx port; this enum is the shell's.)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Tone {
     Cyan,
@@ -20,14 +36,27 @@ pub enum Tone {
 }
 
 impl Tone {
-    /// The saturated accent — text, active edges, dots.
-    pub const fn color(self) -> Color32 {
+    /// The hue id this tone resolves through in the pool.
+    pub const fn hue_id(self) -> &'static str {
         match self {
-            Tone::Cyan => Color32::from_rgb(0x39, 0xd7, 0xff),
-            Tone::Lime => Color32::from_rgb(0xa8, 0xe6, 0x3e),
-            Tone::Violet => Color32::from_rgb(0xa8, 0x7c, 0xff),
-            Tone::Amber => Color32::from_rgb(0xff, 0xb8, 0x2e),
-            Tone::Magenta => Color32::from_rgb(0xff, 0x4f, 0xc3),
+            Tone::Cyan => "cyan",
+            Tone::Lime => "lime",
+            Tone::Violet => "violet",
+            Tone::Amber => "amber",
+            Tone::Magenta => "magenta",
+        }
+    }
+
+    /// The saturated accent — the ladder's 400 step (curved, not flat).
+    pub fn color(self) -> Color32 {
+        // The pool is generated from the same registry these ids come from, so
+        // the lookup cannot miss; degrade loudly in debug if it ever does.
+        match ramp(self.hue_id()) {
+            Some(r) => r.steps[STEP_500 - 1], // 400 — punchier on the dark stack
+            None => {
+                debug_assert!(false, "tone hue missing from pool: {}", self.hue_id());
+                Color32::GRAY
+            }
         }
     }
 
@@ -170,6 +199,34 @@ pub fn gradient_tint(painter: &egui::Painter, rect: Rect, tone: Tone) {
     painter.add(egui::Shape::mesh(mesh));
 }
 
+// ── FLUID — the clamp core, container-based ─────────────────────────────
+//
+// The comparable of `clamp(min, calc(base + N·vw + M·svh), max)`, as real
+// math. THE UPGRADE over the CSS version: `Fluid::of(rect)` takes ANY rect,
+// so a slide sizes to its STAGE — fullscreen on the 75" kiosk, an editor pane
+// in Workbench — with identical code and zero ScaledStage/transform hacks.
+// 1 rem = 16 egui points; DPI lives below this layer (points already scale).
+
+#[derive(Debug, Clone, Copy)]
+pub struct Fluid {
+    w_rem: f32,
+    h_rem: f32,
+}
+
+impl Fluid {
+    /// Fluid sizing for content laid out inside `rect`.
+    pub fn of(rect: Rect) -> Self {
+        Self { w_rem: rect.width() / 16.0, h_rem: rect.height() / 16.0 }
+    }
+
+    #[inline]
+    fn eval(&self, min: f32, max: f32, slope: f32, slope_y: f32, intercept: f32) -> f32 {
+        (intercept + slope * self.w_rem + slope_y * self.h_rem).clamp(min, max) * 16.0
+    }
+}
+
+include!(concat!(env!("OUT_DIR"), "/fluid_gen.rs"));
+
 /// A small tone dot — status, provider chips, active markers.
 pub fn tone_dot(ui: &mut egui::Ui, tone: Tone) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
@@ -278,4 +335,72 @@ pub fn frame_overlay(painter: &egui::Painter, content: Rect, top_accent: Tone) {
     seam(painter, c, Edge::Left, None);
     seam(painter, c, Edge::Right, None);
     seam(painter, c, Edge::Bottom, None);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_pool_is_the_whole_registry_not_a_seed() {
+        // The disease this crate exists to cure: hand-seeding a handful of
+        // tones and calling it a system. The vendored registry carries 53.
+        assert_eq!(HUE_COUNT, 53, "the generated pool must match hues.json");
+        let listed: usize = HUE_GROUPS.iter().map(|(_, ids)| ids.len()).sum();
+        assert_eq!(listed, HUE_COUNT);
+    }
+
+    #[test]
+    fn every_registered_hue_resolves() {
+        for (_, ids) in HUE_GROUPS.iter() {
+            for id in ids.iter() {
+                assert!(ramp(id).is_some(), "hue \"{id}\" is registered but has no ramp");
+            }
+        }
+    }
+
+    #[test]
+    fn unknown_hue_degrades_to_none_not_panic() {
+        assert!(ramp("definitely-not-a-hue").is_none());
+    }
+
+    #[test]
+    fn ladders_are_curves_not_flat_ramps() {
+        let cyan = ramp("cyan").unwrap();
+        let first = cyan.steps[0];
+        let last = cyan.steps[12];
+        // Light end is light, dark end is dark, and the two differ wildly —
+        // a flat ramp or a constant fill would fail all three.
+        let sum = |c: Color32| c.r() as u16 + c.g() as u16 + c.b() as u16;
+        assert!(sum(first) > 600, "step 25 must be near-white");
+        assert!(sum(last) < 200, "step 975 must be deep");
+        assert_ne!(first, last);
+    }
+
+    #[test]
+    fn hub_tones_resolve_through_the_pool() {
+        for tone in [Tone::Cyan, Tone::Lime, Tone::Violet, Tone::Amber, Tone::Magenta] {
+            assert!(ramp(tone.hue_id()).is_some());
+            assert_ne!(tone.color(), Color32::GRAY, "tone must not hit the debug fallback");
+        }
+    }
+
+    #[test]
+    fn fluid_hits_min_at_the_small_corner_and_max_at_the_large() {
+        // 24rem × 40rem — the small corner of both windows.
+        let small = Fluid::of(Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(24.0 * 16.0, 40.0 * 16.0)));
+        // 120rem × 100rem — the large corner.
+        let large = Fluid::of(Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(120.0 * 16.0, 100.0 * 16.0)));
+        // sp-4 is authored 1.0rem … 1.5rem.
+        assert!((small.sp_4() - 16.0).abs() < 0.01, "sp_4 at small corner: {}", small.sp_4());
+        assert!((large.sp_4() - 24.0).abs() < 0.01, "sp_4 at large corner: {}", large.sp_4());
+        // Between the corners it interpolates, inside the clamp.
+        let mid = Fluid::of(Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(72.0 * 16.0, 70.0 * 16.0)));
+        assert!(mid.sp_4() > small.sp_4() && mid.sp_4() < large.sp_4());
+    }
+
+    #[test]
+    fn the_full_fluid_scale_generated() {
+        assert_eq!(FLUID_TOKEN_COUNT, 36, "space 8 + type 10 + radius 3 + shell 7 + control 8");
+    }
 }
