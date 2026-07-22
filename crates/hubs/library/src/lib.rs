@@ -15,6 +15,7 @@ pub const HUB: HubId = HubId("library");
 pub const COMPONENTS: SubId = SubId("components");
 pub const TEMPLATES: SubId = SubId("templates");
 pub const MOODS: SubId = SubId("moods");
+pub const FONTS: SubId = SubId("fonts");
 
 static SPEC: HubSpec = HubSpec {
     id: HUB,
@@ -36,6 +37,11 @@ static SPEC: HubSpec = HubSpec {
             id: MOODS,
             label: "Backdrop moods",
             blurb: "Every authored mood from tokens/moods.json — the backdrop's random pulls.",
+        },
+        SubRoute {
+            id: FONTS,
+            label: "Fonts",
+            blurb: "The vendored pool from tokens/fonts.json — every face rendered in itself.",
         },
     ],
 };
@@ -75,6 +81,8 @@ impl Hub for LibraryHub {
             self.templates_gallery(ui);
         } else if route.sub == MOODS {
             moods_wall(ui);
+        } else if route.sub == FONTS {
+            fonts_wall(ui);
         } else {
             // Unknown subs degrade to the pool wall, never crash.
             pool_wall(ui);
@@ -283,6 +291,68 @@ fn pool_wall(ui: &mut egui::Ui) {
             ui.add_space(cl::space::S3);
         }
     });
+}
+
+/// The fonts wall — every vendored pool font (tokens/fonts.json) renders IN
+/// ITSELF: its label at display size, a sample line, class + id. The
+/// gallery gate for the 5th token source — pick a face by eye, not by name.
+fn fonts_wall(ui: &mut egui::Ui) {
+    ui.label(
+        RichText::new(format!(
+            "FONT POOL — {} vendored faces (SIL OFL, assets/fonts) · chrome default is chosen here, in the design session",
+            cl::FONT_COUNT
+        ))
+        .small()
+        .color(cl::ink::SUBTLE),
+    );
+    ui.add_space(cl::space::S2);
+
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            for class in ["display", "retro", "ui", "mono"] {
+                ui.label(
+                    RichText::new(class.to_uppercase())
+                        .small()
+                        .color(cl::ink::SUBTLE),
+                );
+                ui.add_space(cl::space::S1);
+                for def in cl::FONTS.iter().filter(|d| d.class == class) {
+                    let resp = cl::card_frame().show(ui, |ui| {
+                        ui.set_width(ui.available_width().min(720.0));
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(def.label)
+                                    .font(egui::FontId::new(26.0, cl::font_family(def.id)))
+                                    .color(cl::ink::STRONG),
+                            );
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.label(
+                                        RichText::new(def.id)
+                                            .monospace()
+                                            .small()
+                                            .color(cl::ink::SUBTLE),
+                                    );
+                                },
+                            );
+                        });
+                        ui.label(
+                            RichText::new(
+                                "The quick brown fox jumps over 0123456789 — DevPULSE Labs",
+                            )
+                            .font(egui::FontId::new(17.0, cl::font_family(def.id)))
+                            .color(cl::ink::BASE),
+                        );
+                        ui.label(RichText::new(def.blurb).small().color(cl::ink::MUTED));
+                    });
+                    let _ = resp;
+                    ui.add_space(cl::space::S2);
+                }
+                ui.add_space(cl::space::S3);
+            }
+        });
 }
 
 /// The moods wall — every AUTHORED backdrop mood renders as a live gradient

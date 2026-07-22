@@ -110,6 +110,25 @@ pub mod space {
 pub const RADIUS: u8 = 10;
 pub const RADIUS_SM: u8 = 6;
 
+/// One vendored font in the pool (tokens/fonts.json → build.rs). The
+/// registry the Library fonts wall renders and `apply_theme` registers.
+#[derive(Debug, Clone, Copy)]
+pub struct FontDef {
+    pub id: &'static str,
+    pub label: &'static str,
+    /// display | retro | ui | mono — what the face is FOR.
+    pub class: &'static str,
+    pub blurb: &'static str,
+    pub bytes: &'static [u8],
+}
+
+include!(concat!(env!("OUT_DIR"), "/fonts_gen.rs"));
+
+/// The egui family for a pool font: `FontId::new(size, cl::font_family("orbitron"))`.
+pub fn font_family(id: &str) -> egui::FontFamily {
+    egui::FontFamily::Name(id.into())
+}
+
 /// Apply the dark theme once at boot.
 pub fn apply_theme(ctx: &egui::Context) {
     use egui::{FontFamily, FontId, TextStyle};
@@ -132,6 +151,29 @@ pub fn apply_theme(ctx: &egui::Context) {
             .entry(family)
             .or_default()
             .push("phosphor".into());
+    }
+
+    // The pool (tokens/fonts.json, vendored OFL): every font registers as
+    // its own named family — `cl::font_family(id)` — with the default sans
+    // and the icon font as glyph fallback. The default families stay
+    // untouched; a chrome default is a design-session decision, not a boot
+    // side effect.
+    let default_sans = fonts
+        .families
+        .get(&egui::FontFamily::Proportional)
+        .and_then(|f| f.first())
+        .cloned();
+    for def in FONTS {
+        fonts.font_data.insert(
+            def.id.into(),
+            std::sync::Arc::new(egui::FontData::from_static(def.bytes)),
+        );
+        let mut stack = vec![def.id.to_owned()];
+        stack.extend(default_sans.clone());
+        stack.push("phosphor".into());
+        fonts
+            .families
+            .insert(egui::FontFamily::Name(def.id.into()), stack);
     }
     ctx.set_fonts(fonts);
 
@@ -922,5 +964,34 @@ mod tests {
             FLUID_TOKEN_COUNT, 36,
             "space 8 + type 10 + radius 3 + shell 7 + control 8"
         );
+    }
+
+    #[test]
+    fn font_pool_ids_are_unique_and_classed() {
+        assert_eq!(FONTS.len(), FONT_COUNT);
+        for (i, a) in FONTS.iter().enumerate() {
+            assert!(matches!(a.class, "display" | "retro" | "ui" | "mono"));
+            for b in &FONTS[i + 1..] {
+                assert_ne!(a.id, b.id, "duplicate font id");
+            }
+        }
+    }
+
+    /// Every vendored TTF must actually PARSE and shape a glyph — a corrupt
+    /// or unsupported file fails here in the gate, not at app boot.
+    #[test]
+    fn every_pool_font_lays_out_through_a_real_context() {
+        let ctx = egui::Context::default();
+        apply_theme(&ctx);
+        let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                for def in FONTS {
+                    ui.label(
+                        egui::RichText::new(format!("{} Ag01", def.label))
+                            .font(egui::FontId::new(16.0, font_family(def.id))),
+                    );
+                }
+            });
+        });
     }
 }
