@@ -123,3 +123,20 @@ presenter."* Two fixes to §1/§3:
    is CARRIED as part of the slide PRESENTER: re-dispositioned
    REAUTHOR → the deck/presenter pass in port-slides (draw-over-slide,
    pool-colored ink, presenter-paced). Nothing about it was superseded.
+
+## OQ-PV1 RESOLVED (ground truth, 2026-07-22)
+
+The §2 claim "no loop video assets exist in old content" was true of
+`content/` but wrong in conclusion: **the two loops are real mp4 files in
+`public/backdrops/`** — `dpl.mp4` (1,356,318 B) + `clyffy-chases-the-dragon
+.mp4` (789,677 B), each with a poster jpg. The old mainpage backdrop chain
+(`BackdropStage`, mounted once by AppShell behind every route) is: static
+teal aurora gradient (135° in oklch) → the selected mp4 loop (`object-cover`,
+muted, default `dpl`) → surface scrim (70% alpha over video, 35% aurora-only);
+reduced-motion swaps video for the poster. Nothing procedural.
+
+Disposition update: `mainpage background loops ×2` → **PORT: copy the four
+files (never move) + a video-loop player (ffmpeg SUBPROCESS → egui texture,
+ADR-009)**. Drift/Pulse stay as additional authored options — never delete.
+Executed as pass B1 of docs/plans/build-app.md, which also carries the PV2
+overlay spec forward as its pass B4.
