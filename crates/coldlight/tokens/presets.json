@@ -1,0 +1,70 @@
+{
+	"$description": "AUTHORED — presets, the 6th token source. A preset is a NAMED BUNDLE OF REFS into the other registries (fonts/moods/motion) — data composed FROM the generated styling, zero new code per preset. Cross-validated at build: an unknown ref fails the build. look = one-tap slide looks (W4 trays); motion = entrance choices. The editor's Save-as-preset appends here (data in the authored format, never generated output).",
+
+	"look": [
+		{
+			"id": "neon-intro",
+			"label": "Neon intro",
+			"font": "orbitron",
+			"moods": ["ember-drift", "deep-lagoon"],
+			"motion": "blend-drift",
+			"ambience": "pulse",
+			"blurb": "Sci-fi opener — ember heat cooling into lagoon, pulse breathing."
+		},
+		{
+			"id": "glacier-stat",
+			"label": "Glacier stat",
+			"font": "rajdhani",
+			"moods": ["glacier-signal", "violet-static"],
+			"motion": "blend-drift",
+			"blurb": "Cold clean numbers — glacier light over violet static."
+		},
+		{
+			"id": "arcade-flash",
+			"label": "Arcade flash",
+			"font": "pressstart2p",
+			"moods": ["botanical-night", "jade-current"],
+			"motion": "blend-drift",
+			"ambience": "drift",
+			"blurb": "8-bit night — botanical dark riding the jade current."
+		},
+		{
+			"id": "warm-editorial",
+			"label": "Warm editorial",
+			"font": "michroma",
+			"moods": ["terracotta-dusk", "solar-flare"],
+			"motion": "blend-drift",
+			"blurb": "Aerospace headline warmth — terracotta into solar flare."
+		},
+		{
+			"id": "fuchsia-signal",
+			"label": "Fuchsia signal",
+			"font": "audiowide",
+			"moods": ["fuchsia-arc", "orchid-haze"],
+			"motion": "blend-drift",
+			"ambience": "rings",
+			"blurb": "Synthwave broadcast — fuchsia arcing through orchid haze."
+		}
+	],
+
+	"motion": [
+		{
+			"id": "calm-rise",
+			"label": "Calm rise",
+			"enter": "enter-rise",
+			"blurb": "Lines rise in, staggered — the default entrance."
+		},
+		{
+			"id": "soft-fade",
+			"label": "Soft fade",
+			"enter": "enter-fade",
+			"blurb": "No movement, just presence — for dense slides."
+		},
+		{
+			"id": "bloom-in",
+			"label": "Bloom in",
+			"enter": "enter-bloom",
+			"blurb": "A spring-soft bloom — for reveals that deserve drama."
+		}
+	]
+}

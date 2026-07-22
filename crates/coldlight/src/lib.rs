@@ -129,6 +129,39 @@ pub fn font_family(id: &str) -> egui::FontFamily {
     egui::FontFamily::Name(id.into())
 }
 
+/// A LOOK preset — a named bundle of REFS (font, two moods, blend motion,
+/// optional ambience) from tokens/presets.json, the 6th source. Applying
+/// one is swapping refs on a document; presets are never new code.
+#[derive(Debug, Clone, Copy)]
+pub struct LookPreset {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub blurb: &'static str,
+    pub font: &'static str,
+    pub moods: (&'static str, &'static str),
+    pub motion: &'static str,
+    pub ambience: Option<&'static str>,
+}
+
+/// A MOTION preset — a named entrance choice over the effect vocabulary.
+#[derive(Debug, Clone, Copy)]
+pub struct MotionPreset {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub blurb: &'static str,
+    pub enter: &'static str,
+}
+
+include!(concat!(env!("OUT_DIR"), "/presets_gen.rs"));
+
+pub fn look_preset(id: &str) -> Option<&'static LookPreset> {
+    LOOK_PRESETS.iter().find(|p| p.id == id)
+}
+
+pub fn motion_preset(id: &str) -> Option<&'static MotionPreset> {
+    MOTION_PRESETS.iter().find(|p| p.id == id)
+}
+
 /// Apply the dark theme once at boot.
 pub fn apply_theme(ctx: &egui::Context) {
     use egui::{FontFamily, FontId, TextStyle};
@@ -1031,6 +1064,37 @@ mod tests {
             assert!(between(mid.g(), a.at(t).g(), b.at(t).g()));
             assert!(between(mid.b(), a.at(t).b(), b.at(t).b()));
         }
+    }
+
+    #[test]
+    fn preset_refs_all_resolve_through_the_live_registries() {
+        assert_eq!(LOOK_PRESETS.len(), LOOK_PRESET_COUNT);
+        assert_eq!(MOTION_PRESETS.len(), MOTION_PRESET_COUNT);
+        let mut ids: Vec<&str> = LOOK_PRESETS.iter().map(|p| p.id).collect();
+        ids.extend(MOTION_PRESETS.iter().map(|p| p.id));
+        let n = ids.len();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), n, "duplicate preset id");
+        for p in LOOK_PRESETS {
+            assert!(FONTS.iter().any(|f| f.id == p.font), "{}: font", p.id);
+            for m in [p.moods.0, p.moods.1] {
+                assert!(MOODS.iter().any(|x| x.name == m), "{}: mood {m}", p.id);
+            }
+            assert!(motion::effect(p.motion).is_some(), "{}: motion", p.id);
+            if let Some(a) = p.ambience {
+                assert!(
+                    matches!(a, "pulse" | "drift" | "rings"),
+                    "{}: ambience",
+                    p.id
+                );
+            }
+        }
+        for p in MOTION_PRESETS {
+            assert!(motion::effect(p.enter).is_some(), "{}: enter", p.id);
+        }
+        assert!(look_preset("neon-intro").is_some());
+        assert!(look_preset("ghost").is_none());
     }
 
     #[test]
