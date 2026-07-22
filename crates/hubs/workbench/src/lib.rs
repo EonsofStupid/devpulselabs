@@ -13,6 +13,7 @@ use std::path::PathBuf;
 
 pub const HUB: HubId = HubId("workbench");
 pub const SEEDS: SubId = SubId("seeds");
+pub const EDITOR: SubId = SubId("editor");
 pub const STUDIO: SubId = SubId("studio");
 pub const LIBRARY: SubId = SubId("library");
 pub const TOKENS: SubId = SubId("tokens");
@@ -28,6 +29,11 @@ static SPEC: HubSpec = HubSpec {
             id: SEEDS,
             label: "Seed slides",
             blurb: "The default styling slides — documents from seeds/slides, rendered live.",
+        },
+        SubRoute {
+            id: EDITOR,
+            label: "Editor",
+            blurb: "Tap a slide to change it — font, colours, motion; edits write the colocated file.",
         },
         SubRoute {
             id: STUDIO,
@@ -66,6 +72,8 @@ pub struct WorkbenchHub {
     /// Loaded on first visit; the reload chip clears it (edits to the
     /// colocated files show up without restarting the app).
     seeds: Option<Vec<SeedEntry>>,
+    /// The open editor (EDITOR subroute) — None shows the seed picker.
+    editor: Option<dpl_editor::Editor>,
     test_lab: egui_pilot_ai_lab::TestLab,
 }
 
@@ -185,6 +193,8 @@ impl Hub for WorkbenchHub {
     fn ui(&mut self, ui: &mut egui::Ui, route: Route) {
         if route.sub == SEEDS {
             self.seeds_wall(ui);
+        } else if route.sub == EDITOR {
+            self.editor_surface(ui);
         } else if route.sub == TEST_LAB {
             self.test_lab.ui(ui);
         } else {
@@ -194,6 +204,69 @@ impl Hub for WorkbenchHub {
                 route,
                 "The episode factory. Everything captured or generated ends up on a slide here.",
             );
+        }
+    }
+}
+
+impl WorkbenchHub {
+    /// The EDITOR subroute: a seed picker until one is opened, then the
+    /// tap-to-edit editor. A back chip returns to the picker.
+    fn editor_surface(&mut self, ui: &mut egui::Ui) {
+        if self.editor.is_some() {
+            let back = ui
+                .horizontal(|ui| {
+                    ui.label(RichText::new("‹ pick another slide").color(SPEC.tone.color()))
+                        .interact(egui::Sense::click())
+                })
+                .inner;
+            if back.clicked() {
+                self.editor = None;
+                return;
+            }
+            if let Some(ed) = self.editor.as_mut() {
+                ed.ui(ui);
+            }
+            return;
+        }
+
+        ui.label(
+            RichText::new("Pick a slide to edit — tap it, then tap what you want to change")
+                .small()
+                .color(cl::ink::SUBTLE),
+        );
+        ui.add_space(cl::space::S2);
+        let mut open: Option<PathBuf> = None;
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for (id, dir) in dpl_doc::list_seeds() {
+                    let resp = cl::card_frame().show(ui, |ui| {
+                        ui.set_width(ui.available_width().min(560.0));
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(&id).strong().color(cl::ink::STRONG));
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.label(
+                                        RichText::new("edit ›").small().color(SPEC.tone.color()),
+                                    );
+                                },
+                            );
+                        });
+                    });
+                    if resp.response.interact(egui::Sense::click()).clicked() {
+                        open = Some(dir);
+                    }
+                    ui.add_space(cl::space::S2);
+                }
+            });
+        if let Some(dir) = open {
+            match dpl_editor::Editor::open(&dir) {
+                Ok(ed) => self.editor = Some(ed),
+                Err(e) => {
+                    ui.label(RichText::new(format!("could not open: {e}")).color(cl::ink::MUTED));
+                }
+            }
         }
     }
 }

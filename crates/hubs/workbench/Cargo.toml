@@ -10,6 +10,7 @@ dpl-hub.workspace = true
 dpl-coldlight.workspace = true
 dpl-doc.workspace = true
 dpl-slides.workspace = true
+dpl-editor.workspace = true
 egui-pilot-ai-lab.workspace = true
 
 [lints]

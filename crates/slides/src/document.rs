@@ -147,8 +147,48 @@ fn ambient_backdrop_clipped(
     ambient_backdrop(&mut child, rect, amb, color, now, t0);
 }
 
+/// Where each part of a document landed after paint — the editor (W4)
+/// hit-tests taps against this. `background` is the whole stage; `blocks`
+/// pairs each block id with the rect it painted into.
+#[derive(Debug, Clone)]
+pub struct RenderMap {
+    pub background: Rect,
+    pub blocks: Vec<(String, Rect)>,
+}
+
+impl Default for RenderMap {
+    fn default() -> Self {
+        Self {
+            background: Rect::ZERO,
+            blocks: Vec::new(),
+        }
+    }
+}
+
+impl RenderMap {
+    /// The innermost block a point falls in (topmost wins), else None.
+    pub fn block_at(&self, p: egui::Pos2) -> Option<&str> {
+        self.blocks
+            .iter()
+            .rev()
+            .find(|(_, r)| r.contains(p))
+            .map(|(id, _)| id.as_str())
+    }
+}
+
 /// Render a document into `rect`. The ONE path — every surface calls this.
 pub fn render(ui: &mut Ui, rect: Rect, slide: &dpl_doc::Slide, now: f64, t0: f64) {
+    let _ = render_traced(ui, rect, slide, now, t0);
+}
+
+/// Render AND return where every block landed (for the editor's hit-test).
+pub fn render_traced(
+    ui: &mut Ui,
+    rect: Rect,
+    slide: &dpl_doc::Slide,
+    now: f64,
+    t0: f64,
+) -> RenderMap {
     let accent = background(ui, rect, slide, now, t0);
 
     let fluid = cl::Fluid::of(rect);
@@ -180,14 +220,18 @@ pub fn render(ui: &mut Ui, rect: Rect, slide: &dpl_doc::Slide, now: f64, t0: f64
     if rising && fx.in_flight(now, t0, slide.blocks.len()) {
         ui.ctx().request_repaint();
     }
+    let mut map = RenderMap {
+        background: rect,
+        blocks: Vec::with_capacity(slide.blocks.len()),
+    };
     let mut y = rect.center().y - total * 0.5;
     for (i, block) in slide.blocks.iter().enumerate() {
         let dpl_doc::Block::Text {
+            id,
             text,
             font,
             size,
             ink,
-            ..
         } = block;
         let p = if rising { fx.at(now, t0, i) } else { 1.0 };
         let px = size_of(&fluid, size).unwrap_or_else(|| fluid.fs_body());
@@ -198,10 +242,18 @@ pub fn render(ui: &mut Ui, rect: Rect, slide: &dpl_doc::Slide, now: f64, t0: f64
             color,
             wrap,
         );
+        // The stable rect (rest position) — hit-testing ignores the
+        // one-time entrance lift so a tap lands where the text settles.
+        let block_rect = Rect::from_min_size(
+            egui::pos2(rect.min.x + pad, y),
+            egui::vec2(galley.size().x.max(wrap * 0.15), heights[i]),
+        );
+        map.blocks.push((id.clone(), block_rect));
         let lift = fluid.sp_5() * (1.0 - p);
         painter.galley(egui::pos2(rect.min.x + pad, y + lift), galley, color);
         y += heights[i] + gap;
     }
+    map
 }
 
 /// A document with its own clock — the wall/stage wrapper.

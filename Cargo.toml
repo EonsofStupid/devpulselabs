@@ -18,6 +18,7 @@ members = [
     "crates/engine-steps",
     "crates/slides",
     "crates/doc",
+    "crates/editor",
     "crates/pixvix",
     "crates/fabric",
     "crates/shell",
@@ -81,6 +82,7 @@ dpl-engine-media = { path = "crates/engine-media" }
 dpl-engine-steps = { path = "crates/engine-steps" }
 dpl-slides = { path = "crates/slides" }
 dpl-doc = { path = "crates/doc" }
+dpl-editor = { path = "crates/editor" }
 dpl-pixvix = { path = "crates/pixvix" }
 dpl-fabric = { path = "crates/fabric" }
 dpl-shell = { path = "crates/shell" }

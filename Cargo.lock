@@ -1114,6 +1114,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "dpl-editor"
+version = "0.1.0"
+dependencies = [
+ "dpl-coldlight",
+ "dpl-doc",
+ "dpl-slides",
+ "egui",
+]
+
+[[package]]
 name = "dpl-engine-capture"
 version = "0.1.0"
 dependencies = [
@@ -1206,6 +1216,7 @@ version = "0.1.0"
 dependencies = [
  "dpl-coldlight",
  "dpl-doc",
+ "dpl-editor",
  "dpl-hub",
  "dpl-slides",
  "egui",
