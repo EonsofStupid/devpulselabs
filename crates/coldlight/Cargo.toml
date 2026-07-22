@@ -1,0 +1,8 @@
+[package]
+name = "dpl-coldlight"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+egui.workspace = true

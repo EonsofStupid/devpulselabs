@@ -1,0 +1,9 @@
+[package]
+name = "dpl-fabric"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+tokio.workspace = true
+dpl-hub.workspace = true

@@ -1,0 +1,38 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/hub",
+    "crates/coldlight",
+    "crates/fabric",
+    "crates/shell",
+    "crates/hubs/home",
+    "crates/hubs/workbench",
+    "crates/hubs/wiredfront",
+    "crates/hubs/chat",
+    "crates/hubs/library",
+    "crates/app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace.dependencies]
+egui = "0.35"
+eframe = { version = "0.35", features = ["wgpu"] }
+tokio = { version = "1", default-features = false, features = ["sync"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+dpl-hub = { path = "crates/hub" }
+dpl-coldlight = { path = "crates/coldlight" }
+dpl-fabric = { path = "crates/fabric" }
+dpl-shell = { path = "crates/shell" }
+dpl-hub-home = { path = "crates/hubs/home" }
+dpl-hub-workbench = { path = "crates/hubs/workbench" }
+dpl-hub-wiredfront = { path = "crates/hubs/wiredfront" }
+dpl-hub-chat = { path = "crates/hubs/chat" }
+dpl-hub-library = { path = "crates/hubs/library" }
+
+[profile.release]
+lto = "thin"

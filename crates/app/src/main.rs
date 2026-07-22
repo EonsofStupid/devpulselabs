@@ -1,0 +1,121 @@
+//! The binary: boot eframe, register hubs (one line each — Law 4), wire the
+//! fabric, and carry the self-verification harness.
+//!
+//! `devpulselabs --screenshot out.png` boots the real app, paints a few
+//! frames, captures its own window to PNG, and exits — Law 2 (test the real
+//! artifact) with no human in the loop.
+
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+use dpl_fabric::Fabric;
+use dpl_hub::{Hub, Route};
+use dpl_shell::Shell;
+
+fn main() -> eframe::Result {
+    let shot: Option<std::path::PathBuf> = {
+        let args: Vec<String> = std::env::args().collect();
+        args.iter()
+            .position(|a| a == "--screenshot")
+            .and_then(|i| args.get(i + 1))
+            .map(std::path::PathBuf::from)
+    };
+
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1440.0, 900.0])
+            .with_min_inner_size([960.0, 600.0]),
+        renderer: eframe::Renderer::Wgpu,
+        ..Default::default()
+    };
+
+    eframe::run_native(
+        "DevPULSE Labs",
+        options,
+        Box::new(move |cc| {
+            dpl_coldlight::apply_theme(&cc.egui_ctx);
+            Ok(Box::new(App::new(shot)))
+        }),
+    )
+}
+
+struct App {
+    shell: Shell,
+    shot: Option<std::path::PathBuf>,
+    frames: u32,
+}
+
+impl App {
+    fn new(shot: Option<std::path::PathBuf>) -> Self {
+        // The registry — a new hub is ONE line here and nothing else.
+        let hubs: Vec<Box<dyn Hub>> = vec![
+            Box::new(dpl_hub_home::HomeHub),
+            Box::new(dpl_hub_workbench::WorkbenchHub),
+            Box::new(dpl_hub_library::LibraryHub),
+            Box::new(dpl_hub_wiredfront::WiredfrontHub),
+            Box::new(dpl_hub_chat::ChatHub),
+        ];
+
+        let mut shell = Shell::new(hubs, Fabric::new());
+        // Boot on wiredFRONT so the very first frame shows the rail extended —
+        // the behavior this scaffold exists to prove.
+        shell.navigate(Route {
+            hub: dpl_hub_wiredfront::HUB,
+            sub: dpl_hub_wiredfront::PIXVIX,
+        });
+
+        Self { shell, shot, frames: 0 }
+    }
+
+    /// The harness: request a screenshot on frame 6 (theme + fonts settled),
+    /// save it when the event arrives, exit.
+    fn screenshot_harness(&mut self, ctx: &egui::Context) {
+        let Some(path) = self.shot.clone() else { return };
+
+        self.frames += 1;
+        if self.frames == 6 {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
+        }
+
+        let captured = ctx.input(|i| {
+            i.events.iter().find_map(|e| match e {
+                egui::Event::Screenshot { image, .. } => Some(image.clone()),
+                _ => None,
+            })
+        });
+
+        if let Some(img) = captured {
+            let [w, h] = img.size;
+            let mut rgba = Vec::with_capacity(w * h * 4);
+            for px in &img.pixels {
+                rgba.extend_from_slice(&px.to_array());
+            }
+            match image::RgbaImage::from_raw(w as u32, h as u32, rgba)
+                .map(|buf| buf.save(&path))
+            {
+                Some(Ok(())) => {
+                    eprintln!("screenshot written: {}", path.display());
+                    std::process::exit(0);
+                }
+                other => {
+                    eprintln!("screenshot FAILED: {other:?}");
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        // Keep frames flowing while we wait for the capture to come back.
+        ctx.request_repaint();
+        if self.frames > 300 {
+            eprintln!("screenshot never arrived after 300 frames");
+            std::process::exit(1);
+        }
+    }
+}
+
+impl eframe::App for App {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.shell.ui(ui);
+        let ctx = ui.ctx().clone();
+        self.screenshot_harness(&ctx);
+    }
+}
