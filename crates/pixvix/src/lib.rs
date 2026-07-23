@@ -44,6 +44,8 @@ const STEPS_START: PilotId = PilotId::new("pixvix.steps.start");
 const STEPS_MARK: PilotId = PilotId::new("pixvix.steps.mark");
 const STEPS_STOP: PilotId = PilotId::new("pixvix.steps.stop");
 const REGION_DRAG: PilotId = PilotId::new("pixvix.region.drag");
+const DELAY_CYCLE: PilotId = PilotId::new("pixvix.delay");
+const RESNIP: PilotId = PilotId::new("pixvix.resnip");
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {
@@ -82,11 +84,48 @@ impl Tab {
     }
 }
 
-/// The frozen-frame region flow's state.
+/// Which shape the frozen-frame editor is collecting (C1).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SnipMode {
+    /// Drag → armed rect → nudge (arrows, Shift=10px) → Enter/double-click.
+    Rect,
+    /// Click vertices → close on the first vertex or Enter (≥3);
+    /// Backspace removes the last vertex.
+    Free,
+}
+
+/// The frozen-frame editor's state (region AND freeform ride one
+/// viewport — same freeze, same veil, same loupe).
 struct RegionSelect {
     tex: egui::TextureHandle,
     frozen: PathBuf,
-    drag: Option<(egui::Pos2, egui::Pos2)>,
+    mode: SnipMode,
+    /// Rect mode: the ARMED selection (survives release for the nudge
+    /// ceremony; a new drag replaces it).
+    sel: Option<Rect>,
+    /// Rect mode: the live drag's anchor while the button is down.
+    dragging: Option<egui::Pos2>,
+    /// Free mode: the collected vertices, screen space.
+    poly: Vec<egui::Pos2>,
+}
+
+/// The last successful still's SHAPE — Re-snip re-fires it against a
+/// fresh frame without re-dragging (C1).
+#[derive(Clone)]
+enum LastSnip {
+    Full,
+    Window(u32),
+    Region(cap::FracRect),
+    Free(Vec<[f64; 2]>),
+}
+
+/// A capture waiting on the delay timer (C1): what to do when it fires.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PendingSnip {
+    Full,
+    Window,
+    OpenEditor(SnipMode),
+    Resnip,
 }
 
 /// A running video recording (record_ctl_to on its own thread).
@@ -115,6 +154,12 @@ pub struct Pixvix {
     session: Option<session::SessionRec>,
     windows: Vec<cap::WindowInfo>,
     picked_window: usize,
+    /// The capture delay in seconds — one chip cycles 0 → 3 → 10 (C1).
+    delay: u8,
+    /// A snap waiting out the delay; the status line counts it down.
+    delay_armed: Option<(Instant, PendingSnip)>,
+    /// The last successful still's shape — Re-snip's memory.
+    last: Option<LastSnip>,
 }
 
 impl Pixvix {
@@ -141,6 +186,9 @@ impl Pixvix {
             session: None,
             windows: Vec::new(),
             picked_window: 0,
+            delay: 0,
+            delay_armed: None,
+            last: None,
         }
     }
 
@@ -187,8 +235,8 @@ impl Pixvix {
 
     /// Harness: fire the Img/Full action through the real handler and
     /// report the status line (`--pixvix-snap` — Law 2 without a mouse).
-    pub fn snap_full_now(&mut self) -> &str {
-        self.snap_full();
+    pub fn snap_full_now(&mut self, ctx: &egui::Context) -> &str {
+        self.snap_full(ctx);
         &self.status
     }
 
@@ -276,7 +324,25 @@ impl Pixvix {
         }
     }
 
-    fn snap_full(&mut self) {
+    /// C1: land the written still on the OS clipboard too — egui's own
+    /// image clipboard, no extra dependency. Failure is a status suffix,
+    /// never a block.
+    fn copy_to_clipboard(ctx: &egui::Context, path: &Path) -> String {
+        match image::open(path) {
+            Ok(img) => {
+                let rgba = img.to_rgba8();
+                let color = egui::ColorImage::from_rgba_unmultiplied(
+                    [rgba.width() as usize, rgba.height() as usize],
+                    &rgba,
+                );
+                ctx.copy_image(color);
+                " · copied".into()
+            }
+            Err(e) => format!(" · clipboard: {e}"),
+        }
+    }
+
+    fn snap_full(&mut self, ctx: &egui::Context) {
         let result = Self::inbox().and_then(|inbox| {
             let primary = cap::list_targets()
                 .0
@@ -288,33 +354,115 @@ impl Pixvix {
             Ok(out)
         });
         self.status = match result {
-            Ok(p) => format!("saved {}{}", p.display(), Self::index_capture(&p, "image")),
+            Ok(p) => {
+                self.last = Some(LastSnip::Full);
+                format!(
+                    "saved {}{}{}",
+                    p.display(),
+                    Self::index_capture(&p, "image"),
+                    Self::copy_to_clipboard(ctx, &p)
+                )
+            }
             Err(e) => e,
         };
     }
 
-    fn snap_window(&mut self) {
+    fn snap_window(&mut self, ctx: &egui::Context) {
         let Some(win) = self.windows.get(self.picked_window) else {
             self.status = "pick a window first".into();
             return;
         };
         let (id, title) = (win.id, win.title.clone());
+        self.snap_window_id(ctx, id, &title);
+    }
+
+    fn snap_window_id(&mut self, ctx: &egui::Context, id: u32, title: &str) {
         let result = Self::inbox().and_then(|inbox| {
             let out = Self::unique_path(&inbox, "pix", "png");
             cap::still_window_to(&out, id)?;
             Ok(out)
         });
         self.status = match result {
-            Ok(p) => format!(
-                "saved {} ({title}){}",
-                p.display(),
-                Self::index_capture(&p, "image")
-            ),
+            Ok(p) => {
+                self.last = Some(LastSnip::Window(id));
+                format!(
+                    "saved {} ({title}){}{}",
+                    p.display(),
+                    Self::index_capture(&p, "image"),
+                    Self::copy_to_clipboard(ctx, &p)
+                )
+            }
             Err(e) => e,
         };
     }
 
-    fn begin_region(&mut self, ctx: &egui::Context) {
+    /// Re-snip (C1): re-fire the LAST successful still's shape against a
+    /// fresh frame — no re-dragging. Region/Free go straight at the live
+    /// screen (the engine's `still_*_to`); no freeze ceremony.
+    fn resnip(&mut self, ctx: &egui::Context) {
+        let Some(last) = self.last.clone() else {
+            self.status = "nothing snapped yet — Re-snip repeats the last shape".into();
+            return;
+        };
+        match last {
+            LastSnip::Full => self.snap_full(ctx),
+            LastSnip::Window(id) => self.snap_window_id(ctx, id, "re-snip"),
+            LastSnip::Region(frac) => {
+                let result = Self::inbox().and_then(|inbox| {
+                    let out = Self::unique_path(&inbox, "pix", "png");
+                    cap::still_region_to(&out, frac)?;
+                    Ok(out)
+                });
+                self.status = match result {
+                    Ok(p) => format!(
+                        "saved {}{}{}",
+                        p.display(),
+                        Self::index_capture(&p, "image"),
+                        Self::copy_to_clipboard(ctx, &p)
+                    ),
+                    Err(e) => e,
+                };
+            }
+            LastSnip::Free(points) => {
+                let result = Self::inbox().and_then(|inbox| {
+                    let out = Self::unique_path(&inbox, "pix", "png");
+                    cap::still_freeform_to(&out, &points)?;
+                    Ok(out)
+                });
+                self.status = match result {
+                    Ok(p) => format!(
+                        "saved {}{}{}",
+                        p.display(),
+                        Self::index_capture(&p, "image"),
+                        Self::copy_to_clipboard(ctx, &p)
+                    ),
+                    Err(e) => e,
+                };
+            }
+        }
+    }
+
+    /// Fire a pending snap NOW, or arm the delay countdown (C1).
+    fn arm_or_fire(&mut self, pending: PendingSnip, ctx: &egui::Context) {
+        if self.delay == 0 {
+            self.fire(pending, ctx);
+        } else {
+            let deadline = Instant::now() + std::time::Duration::from_secs(u64::from(self.delay));
+            self.delay_armed = Some((deadline, pending));
+            self.status = format!("snapping in {}s…", self.delay);
+        }
+    }
+
+    fn fire(&mut self, pending: PendingSnip, ctx: &egui::Context) {
+        match pending {
+            PendingSnip::Full => self.snap_full(ctx),
+            PendingSnip::Window => self.snap_window(ctx),
+            PendingSnip::OpenEditor(mode) => self.begin_editor(ctx, mode),
+            PendingSnip::Resnip => self.resnip(ctx),
+        }
+    }
+
+    fn begin_editor(&mut self, ctx: &egui::Context, mode: SnipMode) {
         let result = (|| -> Result<RegionSelect, String> {
             let frozen = std::env::temp_dir().join("dpl-pixvix-freeze.png");
             cap::freeze_primary_to(&frozen)?;
@@ -328,7 +476,10 @@ impl Pixvix {
             Ok(RegionSelect {
                 tex,
                 frozen,
-                drag: None,
+                mode,
+                sel: None,
+                dragging: None,
+                poly: Vec::new(),
             })
         })();
         match result {
@@ -501,6 +652,19 @@ impl Pixvix {
             }
         }
 
+        // The delay countdown (C1): fire when it elapses, tick otherwise.
+        if let Some((deadline, pending)) = self.delay_armed {
+            let now = Instant::now();
+            if now >= deadline {
+                self.delay_armed = None;
+                self.fire(pending, ctx);
+            } else {
+                let left = (deadline - now).as_secs() + 1;
+                self.status = format!("snapping in {left}s…");
+                ctx.request_repaint_after(std::time::Duration::from_millis(200));
+            }
+        }
+
         if self.region.is_some() {
             self.region_viewport(ctx);
         }
@@ -538,6 +702,7 @@ impl Pixvix {
             .map(|w| format!("{} — {}", w.app, w.title))
             .collect();
         let picked = self.picked_window;
+        let delay = self.delay;
         let note = self
             .steps_note
             .lock()
@@ -564,13 +729,16 @@ impl Pixvix {
                         } else {
                             palette(
                                 ui,
-                                tab,
-                                &status,
-                                &windows,
-                                picked,
-                                video_elapsed,
-                                session_state,
-                                &note,
+                                &PaletteView {
+                                    tab,
+                                    status: &status,
+                                    windows: &windows,
+                                    picked,
+                                    video_elapsed,
+                                    session_state,
+                                    steps_note: &note,
+                                    delay,
+                                },
                                 &mut actions,
                             );
                         }
@@ -595,17 +763,32 @@ impl Pixvix {
         if actions.close {
             self.open = false;
         }
+        if actions.cycle_delay {
+            self.delay = match self.delay {
+                0 => 3,
+                3 => 10,
+                _ => 0,
+            };
+            self.status = if self.delay == 0 {
+                "delay off".into()
+            } else {
+                format!("delay {}s", self.delay)
+            };
+        }
         if actions.snap_full {
-            self.snap_full();
+            self.arm_or_fire(PendingSnip::Full, ctx);
         }
         if actions.snap_window {
-            self.snap_window();
+            self.arm_or_fire(PendingSnip::Window, ctx);
         }
         if actions.begin_region {
-            self.begin_region(ctx);
+            self.arm_or_fire(PendingSnip::OpenEditor(SnipMode::Rect), ctx);
         }
-        if actions.free_deferred {
-            self.status = "freeform lasso lands with the polygon editor (PV2 slice)".into();
+        if actions.begin_free {
+            self.arm_or_fire(PendingSnip::OpenEditor(SnipMode::Free), ctx);
+        }
+        if actions.resnip {
+            self.arm_or_fire(PendingSnip::Resnip, ctx);
         }
         if actions.refresh_windows {
             self.windows = cap::list_targets().1;
@@ -634,9 +817,14 @@ impl Pixvix {
         }
     }
 
-    // ── the region-select viewport (frozen frame + loupe) ───────────────
+    // ── the frozen-frame editor: region rect + freeform polygon (C1) ────
     fn region_viewport(&mut self, ctx: &egui::Context) {
-        let mut finish: Option<Option<(egui::Pos2, egui::Pos2, egui::Vec2)>> = None;
+        enum Done {
+            Cancel,
+            Rect(Rect, egui::Vec2),
+            Free(Vec<egui::Pos2>, egui::Vec2),
+        }
+        let mut finish: Option<Done> = None;
         let region = self.region.as_mut().expect("region state");
         let builder = ViewportBuilder::default()
             .with_title("PixVix region")
@@ -664,31 +852,159 @@ impl Pixvix {
                             Color32::WHITE,
                         );
 
-                        let resp =
-                            ui.interact(full, egui::Id::new("pixvix-region-drag"), Sense::drag());
+                        let resp = ui.interact(
+                            full,
+                            egui::Id::new("pixvix-region-drag"),
+                            Sense::click_and_drag(),
+                        );
+                        let state_word = match region.mode {
+                            SnipMode::Rect if region.dragging.is_some() => "dragging".into(),
+                            SnipMode::Rect if region.sel.is_some() => "armed".into(),
+                            SnipMode::Rect => "drag to select".into(),
+                            SnipMode::Free => format!("polygon · {} vertices", region.poly.len()),
+                        };
                         let mut metadata = NodeMetadata::new(
                             REGION_DRAG,
                             PilotRole::Region,
-                            "PixVix region selection",
+                            "PixVix snip selection",
                         )
-                        .value("drag to select");
+                        .value(state_word);
                         metadata.actions = vec![PilotActionKind::Drag];
                         ui.pilot_track(&resp, metadata);
-                        if resp.drag_started() {
-                            if let Some(p) = resp.interact_pointer_pos() {
-                                region.drag = Some((p, p));
+
+                        match region.mode {
+                            SnipMode::Rect => {
+                                // Drag paints live; release ARMS (the old
+                                // pro-snip ceremony) — a new drag replaces.
+                                if resp.drag_started() {
+                                    if let Some(p) = resp.interact_pointer_pos() {
+                                        region.dragging = Some(p);
+                                        region.sel = Some(Rect::from_two_pos(p, p));
+                                    }
+                                }
+                                if let (Some(anchor), Some(p)) =
+                                    (region.dragging, resp.interact_pointer_pos())
+                                {
+                                    if resp.dragged() {
+                                        region.sel = Some(Rect::from_two_pos(anchor, p));
+                                    }
+                                }
+                                if resp.drag_stopped() {
+                                    region.dragging = None;
+                                }
+                                // The nudge: arrows move the armed rect 1px,
+                                // Shift makes it 10.
+                                if region.dragging.is_none() {
+                                    if let Some(sel) = region.sel.as_mut() {
+                                        let step = if ui.input(|i| i.modifiers.shift) {
+                                            10.0
+                                        } else {
+                                            1.0
+                                        };
+                                        let mut d = egui::Vec2::ZERO;
+                                        ui.input(|i| {
+                                            if i.key_pressed(egui::Key::ArrowLeft) {
+                                                d.x -= step;
+                                            }
+                                            if i.key_pressed(egui::Key::ArrowRight) {
+                                                d.x += step;
+                                            }
+                                            if i.key_pressed(egui::Key::ArrowUp) {
+                                                d.y -= step;
+                                            }
+                                            if i.key_pressed(egui::Key::ArrowDown) {
+                                                d.y += step;
+                                            }
+                                        });
+                                        if d != egui::Vec2::ZERO {
+                                            *sel = sel.translate(d);
+                                        }
+                                    }
+                                }
+                                // Enter or double-click CAPTURES the armed rect.
+                                let confirm = ui.input(|i| i.key_pressed(egui::Key::Enter))
+                                    || resp.double_clicked();
+                                if confirm {
+                                    if let Some(sel) = region.sel {
+                                        finish = Some(Done::Rect(sel, full.size()));
+                                    }
+                                }
                             }
-                        }
-                        if let (Some((start, _)), Some(p)) =
-                            (region.drag, resp.interact_pointer_pos())
-                        {
-                            if resp.dragged() {
-                                region.drag = Some((start, p));
+                            SnipMode::Free => {
+                                // Every click adds a vertex; a click near the
+                                // FIRST vertex (≥3) closes; Enter closes too;
+                                // Backspace removes the last.
+                                if resp.clicked() {
+                                    if let Some(p) = resp.interact_pointer_pos() {
+                                        let closes = region.poly.len() >= 3
+                                            && (p - region.poly[0]).length() < 8.0;
+                                        if closes {
+                                            finish = Some(Done::Free(
+                                                region.poly.clone(),
+                                                full.size(),
+                                            ));
+                                        } else {
+                                            region.poly.push(p);
+                                        }
+                                    }
+                                }
+                                if ui.input(|i| i.key_pressed(egui::Key::Backspace)) {
+                                    region.poly.pop();
+                                }
+                                if ui.input(|i| i.key_pressed(egui::Key::Enter))
+                                    && region.poly.len() >= 3
+                                {
+                                    finish =
+                                        Some(Done::Free(region.poly.clone(), full.size()));
+                                }
                             }
                         }
 
-                        // The veil: darken everything OUTSIDE the selection.
-                        let sel = region.drag.map(|(a, b)| Rect::from_two_pos(a, b));
+                        // The veil + guides, per mode.
+                        let sel = match region.mode {
+                            SnipMode::Rect => region.sel,
+                            SnipMode::Free => None,
+                        };
+                        if region.mode == SnipMode::Free {
+                            painter.rect_filled(full, 0, Color32::from_black_alpha(60));
+                            for w in region.poly.windows(2) {
+                                painter.line_segment(
+                                    [w[0], w[1]],
+                                    egui::Stroke::new(1.5, TONE.color()),
+                                );
+                            }
+                            if let (Some(&first), Some(p)) =
+                                (region.poly.first(), ui.ctx().pointer_latest_pos())
+                            {
+                                if let Some(&last) = region.poly.last() {
+                                    painter.line_segment(
+                                        [last, p],
+                                        egui::Stroke::new(
+                                            1.0,
+                                            TONE.color().gamma_multiply(0.5),
+                                        ),
+                                    );
+                                }
+                                // The close target glows once it can close.
+                                if region.poly.len() >= 3 {
+                                    painter.circle_stroke(
+                                        first,
+                                        8.0,
+                                        egui::Stroke::new(1.5, TONE.color()),
+                                    );
+                                }
+                            }
+                            for v in &region.poly {
+                                painter.circle_filled(*v, 3.0, TONE.color());
+                            }
+                            painter.text(
+                                egui::pos2(full.center().x, full.max.y - 28.0),
+                                Align2::CENTER_CENTER,
+                                "click to add vertices · click the first (or Enter) closes · Backspace undoes · Esc cancels",
+                                FontId::proportional(14.0),
+                                cl::ink::STRONG,
+                            );
+                        }
                         let veil = Color32::from_black_alpha(140);
                         match sel {
                             Some(r) => {
@@ -720,8 +1036,18 @@ impl Pixvix {
                                     FontId::monospace(12.0),
                                     cl::ink::STRONG,
                                 );
+                                // The ceremony hint, once armed.
+                                if region.dragging.is_none() {
+                                    painter.text(
+                                        egui::pos2(full.center().x, full.max.y - 28.0),
+                                        Align2::CENTER_CENTER,
+                                        "arrows nudge (Shift = 10px) · Enter or double-click captures · drag again to redo · Esc cancels",
+                                        FontId::proportional(14.0),
+                                        cl::ink::STRONG,
+                                    );
+                                }
                             }
-                            None => {
+                            None if region.mode == SnipMode::Rect => {
                                 painter.rect_filled(full, 0, Color32::from_black_alpha(60));
                                 painter.text(
                                     full.center(),
@@ -731,6 +1057,7 @@ impl Pixvix {
                                     cl::ink::STRONG,
                                 );
                             }
+                            None => {}
                         }
 
                         // The loupe: 4× zoom around the cursor, ColdLight-framed.
@@ -777,46 +1104,72 @@ impl Pixvix {
                             );
                         }
 
-                        if resp.drag_stopped() {
-                            finish = Some(region.drag.map(|(a, b)| (a, b, full.size())));
-                        }
                         if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                            finish = Some(None);
+                            finish = Some(Done::Cancel);
                         }
                     });
             },
         );
         if close_requested {
-            finish = Some(None);
+            finish = Some(Done::Cancel);
         }
 
         if let Some(done) = finish {
             let state = self.region.take().expect("region state");
-            if let Some((a, b, screen)) = done {
-                let r = Rect::from_two_pos(a, b);
-                if r.width() >= 4.0 && r.height() >= 4.0 {
-                    let frac = cap::FracRect {
-                        x: (r.min.x / screen.x) as f64,
-                        y: (r.min.y / screen.y) as f64,
-                        w: (r.width() / screen.x) as f64,
-                        h: (r.height() / screen.y) as f64,
-                    };
+            match done {
+                Done::Rect(r, screen) => {
+                    if r.width() >= 4.0 && r.height() >= 4.0 {
+                        let frac = cap::FracRect {
+                            x: (r.min.x / screen.x) as f64,
+                            y: (r.min.y / screen.y) as f64,
+                            w: (r.width() / screen.x) as f64,
+                            h: (r.height() / screen.y) as f64,
+                        };
+                        let result = Self::inbox().and_then(|inbox| {
+                            let out = Self::unique_path(&inbox, "pix", "png");
+                            cap::still_region_from_png(&state.frozen, &out, frac)?;
+                            Ok(out)
+                        });
+                        self.status = match result {
+                            Ok(p) => {
+                                self.last = Some(LastSnip::Region(frac));
+                                format!(
+                                    "saved {}{}{}",
+                                    p.display(),
+                                    Self::index_capture(&p, "image"),
+                                    Self::copy_to_clipboard(ctx, &p)
+                                )
+                            }
+                            Err(e) => e,
+                        };
+                    } else {
+                        self.status = "region too small".into();
+                    }
+                }
+                Done::Free(poly, screen) => {
+                    let points: Vec<[f64; 2]> = poly
+                        .iter()
+                        .map(|p| [(p.x / screen.x) as f64, (p.y / screen.y) as f64])
+                        .collect();
                     let result = Self::inbox().and_then(|inbox| {
                         let out = Self::unique_path(&inbox, "pix", "png");
-                        cap::still_region_from_png(&state.frozen, &out, frac)?;
+                        cap::still_freeform_from_png(&state.frozen, &out, &points)?;
                         Ok(out)
                     });
                     self.status = match result {
                         Ok(p) => {
-                            format!("saved {}{}", p.display(), Self::index_capture(&p, "image"))
+                            self.last = Some(LastSnip::Free(points));
+                            format!(
+                                "saved {}{}{}",
+                                p.display(),
+                                Self::index_capture(&p, "image"),
+                                Self::copy_to_clipboard(ctx, &p)
+                            )
                         }
                         Err(e) => e,
                     };
-                } else {
-                    self.status = "region too small".into();
                 }
-            } else {
-                self.status = "region cancelled".into();
+                Done::Cancel => self.status = "snip cancelled".into(),
             }
             let _ = std::fs::remove_file(&state.frozen); // temp freeze only
         }
@@ -832,9 +1185,11 @@ struct PaletteActions {
     snap_full: bool,
     snap_window: bool,
     begin_region: bool,
+    begin_free: bool,
+    resnip: bool,
+    cycle_delay: bool,
     refresh_windows: bool,
     pick_window: Option<usize>,
-    free_deferred: bool,
     video_start: bool,
     video_stop: bool,
     session_start: bool,
@@ -844,18 +1199,31 @@ struct PaletteActions {
     steps_stop: bool,
 }
 
-#[allow(clippy::too_many_arguments)]
-fn palette(
-    ui: &mut egui::Ui,
+/// Everything the palette closure READS this frame — bundled so the
+/// paint fn stays inside the argument budget without an `#[allow]`
+/// (the workspace law; this retires the one grandfathered exception).
+struct PaletteView<'a> {
     tab: Tab,
-    status: &str,
-    windows: &[String],
+    status: &'a str,
+    windows: &'a [String],
     picked: usize,
     video_elapsed: Option<u64>,
     session_state: Option<(u64, usize)>,
-    steps_note: &str,
-    actions: &mut PaletteActions,
-) {
+    steps_note: &'a str,
+    delay: u8,
+}
+
+fn palette(ui: &mut egui::Ui, view: &PaletteView<'_>, actions: &mut PaletteActions) {
+    let PaletteView {
+        tab,
+        status,
+        windows,
+        picked,
+        video_elapsed,
+        session_state,
+        steps_note,
+        delay,
+    } = *view;
     // Title row: identity + close.
     ui.horizontal(|ui| {
         ui.label(RichText::new(cl::icon::SNIP).color(TONE.color()).size(14.0));
@@ -903,8 +1271,19 @@ fn palette(
                     actions.snap_full = true;
                 }
                 if pilot_chip(ui, FREEFORM, cl::icon::FREE, "Free", TONE) {
-                    // Honest: the polygon editor is a later slice of PV2.
-                    actions.free_deferred = true;
+                    actions.begin_free = true;
+                }
+                // The delay chip cycles 0 → 3 → 10 seconds (C1).
+                let delay_label = if delay == 0 {
+                    "0s".to_string()
+                } else {
+                    format!("{delay}s")
+                };
+                if pilot_chip(ui, DELAY_CYCLE, "", &delay_label, TONE) {
+                    actions.cycle_delay = true;
+                }
+                if pilot_chip(ui, RESNIP, "", "Re-snip", TONE) {
+                    actions.resnip = true;
                 }
             });
             ui.add_space(cl::space::S2);
@@ -932,9 +1311,11 @@ fn palette(
                 }
             });
             ui.label(
-                RichText::new("Free (lasso) lands with the polygon editor.")
-                    .small()
-                    .color(cl::ink::SUBTLE),
+                RichText::new(
+                    "Region arms · arrows nudge · Enter captures. Free: click a polygon closed.",
+                )
+                .small()
+                .color(cl::ink::SUBTLE),
             );
         }
         Tab::Video => match video_elapsed {

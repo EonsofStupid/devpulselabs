@@ -520,7 +520,7 @@ impl eframe::App for App {
         if self.pixvix_snap {
             self.snap_frames += 1;
             if self.snap_frames == 30 {
-                let msg = self.pixvix.snap_full_now().to_string();
+                let msg = self.pixvix.snap_full_now(&ctx).to_string();
                 eprintln!("pixvix-snap: {msg}");
                 std::process::exit(if msg.starts_with("saved") { 0 } else { 1 });
             }
