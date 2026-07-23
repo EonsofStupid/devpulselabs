@@ -33,6 +33,21 @@ content/inbox/session-<stamp>/
   works today, keep works via X3. The guide system stays separate
   (operator's line) — sessions are recordings, not slide generators.
 
+## The web ruling (operator, 2026-07-23)
+
+"Session needs to be web… if not then it gets turned into a
+capability/custom workflow for the video recorder to export."
+
+There is no DOM to replay — the egui app cannot host rrweb-style
+maintained web sessions. So the ratified shape IS the operator's
+fallback, made first-class: sessions are a **capability of the video
+recorder**, and the artifact is **web-playable by construction** — the
+same self-contained pattern as the guide export (Program G): mp4 +
+events.jsonl + a small dependency-free HTML player whose seek rail
+carries the event ticks. Watchable in the app (S2) AND exportable to
+any browser/static host (S3 gains `export-session`, sharing G1's
+player shell once it exists — but never blocking on it).
+
 ## Passes (after X3; independent of D4/D5)
 
 - **S1 capture**: session recorder (start/stop from PixVix's Session

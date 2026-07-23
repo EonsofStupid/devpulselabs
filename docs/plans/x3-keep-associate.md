@@ -12,7 +12,11 @@ content/<show-name>/<episode-name>/     the operator's REAL shows
                                         episode-level assets home
 ```
 
-- The show name IS the stream category: `content/devpulse-news/<ep>`.
+- The show name IS the stream category. The operator's shows
+  (2026-07-23): **DevPULSE News** (`devpulse-news`), **Eons of
+  Stupidity** (`eons-of-stupidity`), **EffingAI** (`effingai`) — the
+  clone flow offers these three as suggestions when content is empty
+  (kebab via the metadata law); any new category is just a folder name.
 - Seeds stay pristine templates; a new show COPIES a seed into content.
 - **EPISODES ARE NOT GUIDES** (operator's emphasis): the Steps/guide
   system files through the inbox and stays separate. A guide's frames
