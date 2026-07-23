@@ -61,6 +61,23 @@ struct VideoRec {
     done: Arc<Mutex<Option<Result<u32, String>>>>,
 }
 
+/// The C3 video matrix — engine ids + chip labels. AV1 is offered but
+/// mp4 stays the default (CPU-heavy encode, the engine's own note).
+pub(crate) const FORMATS: [(&str, &str); 3] =
+    [("mp4", "MP4"), ("webm-vp9", "VP9"), ("webm-av1", "AV1")];
+/// Audio modes — "system" needs a loopback device (Stereo Mix/virtual
+/// cable on Windows); the engine errors honestly without one.
+pub(crate) const AUDIO: [(&str, &str); 3] =
+    [("none", "Silent"), ("system", "System"), ("mic", "Mic")];
+/// Max-cap chip stops the recording automatically (touch law: a cycling
+/// chip, not the old free-text seconds field — recorded deviation).
+pub(crate) const CAPS: [(Option<u32>, &str); 4] = [
+    (None, "no cap"),
+    (Some(60), "1m"),
+    (Some(300), "5m"),
+    (Some(900), "15m"),
+];
+
 /// A stopped-but-unfiled guide waiting on the Save card (C2). The
 /// engine keeps the session PENDING until `save` or `discard` decides.
 pub(crate) struct PendingGuide {
@@ -95,6 +112,15 @@ pub struct Pixvix {
     session: Option<session::SessionRec>,
     windows: Vec<cap::WindowInfo>,
     picked_window: usize,
+    /// C3 video matrix state — indices into FORMATS / AUDIO / CAPS.
+    video_format: usize,
+    video_audio: usize,
+    video_cap: usize,
+    /// false = primary screen, true = the picked window.
+    video_window: bool,
+    /// ffmpeg-enumerated audio devices; filled when audio leaves Silent.
+    audio_devices: Vec<String>,
+    picked_audio: usize,
     /// The capture delay in seconds — one chip cycles 0 → 3 → 10 (C1).
     delay: u8,
     /// A snap waiting out the delay; the status line counts it down.
@@ -130,6 +156,12 @@ impl Pixvix {
             session: None,
             windows: Vec::new(),
             picked_window: 0,
+            video_format: 0,
+            video_audio: 0,
+            video_cap: 0,
+            video_window: false,
+            audio_devices: Vec::new(),
+            picked_audio: 0,
             delay: 0,
             delay_armed: None,
             last: None,
@@ -169,6 +201,29 @@ impl Pixvix {
         }
     }
 
+    /// X1 write-through for a finished VIDEO — the row carries the
+    /// convention poster when it exists (C3; same degrade law).
+    fn index_video(out: &Path) -> String {
+        let root = cap::content_root();
+        let mut record = dpl_index::record_for_capture(out, &root, "video", "pixvix");
+        let poster = Self::poster_path(out);
+        if poster.is_file() {
+            if let Some(name) = poster.file_name() {
+                let name = name.to_string_lossy();
+                record.poster_rel_path = Some(match record.rel_path.rsplit_once('/') {
+                    Some((parent, _)) => format!("{parent}/{name}"),
+                    None => name.to_string(),
+                });
+            }
+        }
+        let result = dpl_index::sidecar::write(out, &record)
+            .and_then(|()| dpl_index::Index::open_default()?.upsert(&record));
+        match result {
+            Ok(()) => String::new(),
+            Err(e) => format!(" · index: {e}"),
+        }
+    }
+
     fn inbox() -> Result<PathBuf, String> {
         let dir = cap::content_root().join("inbox");
         std::fs::create_dir_all(&dir).map_err(|e| format!("inbox: {e}"))?;
@@ -184,6 +239,34 @@ impl Pixvix {
         (2..)
             .map(|n| dir.join(format!("{stem}-{n}.{ext}")))
             .find(|p| !p.exists())
+            .expect("unbounded range")
+    }
+
+    /// The repo's poster convention: `x.mp4` → `x-poster.jpg`.
+    fn poster_path(video: &Path) -> PathBuf {
+        let stem = video
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "vix".into());
+        video.with_file_name(format!("{stem}-poster.jpg"))
+    }
+
+    /// Video stems must be unique across CONTAINERS too — `vix.mp4` and
+    /// `vix.webm` would otherwise share one `vix-poster.jpg` and the
+    /// later recording's poster clobbers the earlier's (caught live by
+    /// the C3 matrix drill).
+    fn unique_video_path(dir: &Path, ext: &str) -> PathBuf {
+        let free = |stem: &str| {
+            let vid = dir.join(format!("{stem}.{ext}"));
+            !vid.exists() && !Self::poster_path(&vid).exists()
+        };
+        if free("vix") {
+            return dir.join(format!("vix.{ext}"));
+        }
+        (2..)
+            .map(|n| format!("vix-{n}"))
+            .find(|s| free(s))
+            .map(|s| dir.join(format!("{s}.{ext}")))
             .expect("unbounded range")
     }
 
@@ -477,35 +560,59 @@ impl Pixvix {
         }
     }
 
+    /// Start▸Stop recording with the C3 matrix: screen or the picked
+    /// window, 720p (the old default; the engine downscales), format +
+    /// audio + cap from the chips. The engine owns every refusal.
     fn start_video(&mut self) {
+        let (format_id, format_label) = FORMATS[self.video_format];
+        let (audio_id, audio_label) = AUDIO[self.video_audio];
+        let (cap_secs, _) = CAPS[self.video_cap];
+        let target = if self.video_window {
+            match self.windows.get(self.picked_window) {
+                Some(w) => cap::RecTarget::Window(w.id),
+                None => {
+                    self.status = "pick a window first (Img tab scans them)".into();
+                    return;
+                }
+            }
+        } else {
+            match cap::list_targets().0.into_iter().find(|m| m.is_primary) {
+                Some(m) => cap::RecTarget::Monitor(m.id),
+                None => {
+                    self.status = "no primary monitor".into();
+                    return;
+                }
+            }
+        };
+        // A mode that records audio needs a device: the picked one,
+        // else the first enumerated — the engine refuses honestly when
+        // "system" has none at all.
+        let device = if audio_id == "none" {
+            None
+        } else {
+            self.audio_devices
+                .get(self.picked_audio)
+                .or_else(|| self.audio_devices.first())
+                .cloned()
+        };
         let result = Self::inbox().and_then(|inbox| {
-            let primary = cap::list_targets()
-                .0
-                .into_iter()
-                .find(|m| m.is_primary)
-                .ok_or("no primary monitor")?;
-            let out = Self::unique_path(&inbox, "vix", "mp4");
+            let out = Self::unique_video_path(&inbox, cap::ext_for_format(format_id));
             let stop = Arc::new(AtomicBool::new(false));
             let done = Arc::new(Mutex::new(None));
             let (t_stop, t_done, t_out) = (Arc::clone(&stop), Arc::clone(&done), out.clone());
+            let opts = cap::VideoOpts {
+                height: 720,
+                format: format_id.into(),
+                audio: audio_id.into(),
+                audio_device: device,
+                max_seconds: cap_secs,
+            };
             std::thread::Builder::new()
                 .name("pixvix-video".into())
                 .spawn(move || {
-                    let opts = cap::VideoOpts {
-                        height: 1080,
-                        format: "mp4".into(),
-                        audio: "none".into(),
-                        audio_device: None,
-                        max_seconds: None,
-                    };
-                    let r = cap::record_ctl_to(
-                        &t_out.to_string_lossy(),
-                        cap::RecTarget::Monitor(primary.id),
-                        &opts,
-                        &t_stop,
-                    );
+                    let r = cap::record_ctl_to(&t_out.to_string_lossy(), target, &opts, &t_stop);
                     if r.is_ok() {
-                        let poster = t_out.with_extension("jpg");
+                        let poster = Self::poster_path(&t_out);
                         cap::poster_for(&t_out.to_string_lossy(), &poster.to_string_lossy());
                     }
                     *t_done.lock().expect("video done lock") = Some(r);
@@ -520,11 +627,40 @@ impl Pixvix {
         });
         match result {
             Ok(v) => {
-                self.status = format!("recording {}", v.out.display());
+                self.status = format!(
+                    "recording {} · {format_label} · {audio_label}",
+                    v.out.display()
+                );
                 self.video = Some(v);
             }
             Err(e) => self.status = e,
         }
+    }
+
+    /// Harness: start a recording through the REAL handler, optionally
+    /// pinning the format (`--video-drill`).
+    pub fn video_start_now(&mut self, format: Option<&str>) -> &str {
+        if let Some(f) = format {
+            match FORMATS.iter().position(|(id, _)| *id == f) {
+                Some(i) => self.video_format = i,
+                None => {
+                    self.status = format!("unknown video format {f:?}");
+                    return &self.status;
+                }
+            }
+        }
+        self.start_video();
+        &self.status
+    }
+
+    /// True while a recording runs or its thread is still closing.
+    pub fn video_active(&self) -> bool {
+        self.video.is_some()
+    }
+
+    /// Harness: request the running recording's stop.
+    pub fn video_stop_now(&mut self) {
+        self.stop_video();
     }
 
     fn stop_video(&mut self) {
@@ -644,7 +780,7 @@ impl Pixvix {
                     Ok(frames) => format!(
                         "saved {} ({frames} frames){}",
                         out.display(),
-                        Self::index_capture(&out, "video")
+                        Self::index_video(&out)
                     ),
                     Err(e) => format!("video: {e}"),
                 };
@@ -734,6 +870,13 @@ impl Pixvix {
             .collect();
         let picked = self.picked_window;
         let delay = self.delay;
+        let video_window = self.video_window;
+        let format_label = FORMATS[self.video_format].1;
+        let audio_label = AUDIO[self.video_audio].1;
+        let audio_silent = AUDIO[self.video_audio].0 == "none";
+        let cap_label = CAPS[self.video_cap].1;
+        let audio_devices = self.audio_devices.clone();
+        let picked_audio = self.picked_audio;
         let note = self
             .steps_note
             .lock()
@@ -766,6 +909,13 @@ impl Pixvix {
                                     windows: &windows,
                                     picked,
                                     video_elapsed,
+                                    video_window,
+                                    format_label,
+                                    audio_label,
+                                    audio_silent,
+                                    cap_label,
+                                    audio_devices: &audio_devices,
+                                    picked_audio,
                                     session_state,
                                     steps_note: &note,
                                     delay,
@@ -826,6 +976,41 @@ impl Pixvix {
         if actions.refresh_windows {
             self.windows = cap::list_targets().1;
             self.status = format!("{} windows", self.windows.len());
+        }
+        if actions.cycle_format {
+            self.video_format = (self.video_format + 1) % FORMATS.len();
+            self.status = format!("format {}", FORMATS[self.video_format].1);
+        }
+        if actions.cycle_audio {
+            self.video_audio = (self.video_audio + 1) % AUDIO.len();
+            self.status = format!("audio {}", AUDIO[self.video_audio].1);
+            // Leaving Silent needs the device list; enumerate once.
+            if AUDIO[self.video_audio].0 != "none" && self.audio_devices.is_empty() {
+                self.audio_devices = cap::list_audio_devices();
+                if self.audio_devices.is_empty() {
+                    self.status = format!(
+                        "audio {} · no devices found (system needs a loopback device)",
+                        AUDIO[self.video_audio].1
+                    );
+                }
+            }
+        }
+        if actions.refresh_audio {
+            self.audio_devices = cap::list_audio_devices();
+            self.status = format!("{} audio devices", self.audio_devices.len());
+        }
+        if let Some(idx) = actions.pick_audio {
+            self.picked_audio = idx;
+        }
+        if actions.cycle_cap {
+            self.video_cap = (self.video_cap + 1) % CAPS.len();
+            self.status = format!("cap {}", CAPS[self.video_cap].1);
+        }
+        if actions.toggle_video_target {
+            self.video_window = !self.video_window;
+            if self.video_window && self.windows.is_empty() {
+                self.windows = cap::list_targets().1;
+            }
         }
         if actions.video_start {
             self.start_video();
@@ -894,6 +1079,24 @@ mod tests {
         assert!(second.ends_with("pix-2.png"), "{second:?}");
         std::fs::write(&second, b"x").unwrap();
         assert!(Pixvix::unique_path(&dir, "pix", "png").ends_with("pix-3.png"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn video_stems_never_share_a_poster() {
+        let dir = std::env::temp_dir().join(format!("dpl-vix-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let first = Pixvix::unique_video_path(&dir, "mp4");
+        assert!(first.ends_with("vix.mp4"));
+        std::fs::write(&first, b"x").unwrap();
+        std::fs::write(Pixvix::poster_path(&first), b"x").unwrap();
+        let second = Pixvix::unique_video_path(&dir, "webm");
+        assert!(
+            second.ends_with("vix-2.webm"),
+            "a webm must not reuse the mp4's stem (poster collision): {second:?}"
+        );
+        assert!(Pixvix::poster_path(&second).ends_with("vix-2-poster.jpg"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -154,7 +154,12 @@ the deck track in session capture. Original charter follows.
   targets).
 - **C3 Video parity:** format matrix (mp4/webm-vp9/av1), audio
   (loopback/mic + device list), 720p default + max-cap, REC timer +
-  poster. Pilot: recorder lifecycle scenario w/ suppressed-motion capture.
+  poster. Pilot: recorder lifecycle scenario w/ suppressed-motion
+  capture. ✅ DONE (plan docs/plans/c3-video-parity.md;
+  `--video-drill <secs> [--video-format <f>]` proves mp4 + vp9 on the
+  exe; poster convention fixed to `<stem>-poster.jpg` with
+  cross-container stem uniqueness; lifecycle pilot scenario waits on
+  the Codex multi-window targets).
 - **C4 ViziWiz ink editor** (wiredFRONT-side, never mixed with Workbench):
   ink tones/width/undo, flatten → inbox via forced metadata. Pilot: stroke
   + flatten flow, baseline on the composite.

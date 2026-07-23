@@ -68,6 +68,19 @@ fn main() -> eframe::Result {
     // Steps recorder (C2). Real input end-to-end; the pilot never fakes
     // OS hooks.
     let steps_hotkey_drill = args.iter().any(|a| a == "--steps-hotkey-drill");
+    // `--video-drill <secs>` — record the screen for real through the
+    // palette's own handler, stop, and exit on the reported status (C3).
+    // `--video-format <f>` pins the format so the matrix is drillable.
+    let video_drill: Option<u32> = args
+        .iter()
+        .position(|a| a == "--video-drill")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|n| n.parse().ok());
+    let video_format: Option<String> = args
+        .iter()
+        .position(|a| a == "--video-format")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
     // `--session-drill <secs>` — start a REAL session through the
     // palette's own handler, hop routes (observed fabric traffic), stop
     // after the window, exit on the recorder's own verdict (S1).
@@ -181,6 +194,8 @@ fn main() -> eframe::Result {
                 pixvix_open,
                 pixvix_snap,
                 steps_hotkey_drill,
+                video_drill,
+                video_format,
                 mood,
                 present,
                 presenter_drill,
@@ -211,6 +226,8 @@ struct Boot {
     pixvix_open: bool,
     pixvix_snap: bool,
     steps_hotkey_drill: bool,
+    video_drill: Option<u32>,
+    video_format: Option<String>,
     mood: Option<usize>,
     present: Option<String>,
     presenter_drill: Option<usize>,
@@ -233,6 +250,10 @@ struct App {
     hotkey_frames: u32,
     hotkey_phase: u8,
     hotkey_mark: u32,
+    video_drill: Option<u32>,
+    video_format: Option<String>,
+    video_frames: u32,
+    video_started: Option<std::time::Instant>,
     session_drill: Option<u32>,
     drill_frames: u32,
     drill_started: Option<std::time::Instant>,
@@ -250,6 +271,8 @@ impl App {
             pixvix_open,
             pixvix_snap,
             steps_hotkey_drill,
+            video_drill,
+            video_format,
             mood,
             present,
             presenter_drill,
@@ -353,6 +376,10 @@ impl App {
             hotkey_frames: 0,
             hotkey_phase: 0,
             hotkey_mark: 0,
+            video_drill,
+            video_format,
+            video_frames: 0,
+            video_started: None,
             session_drill,
             drill_frames: 0,
             drill_started: None,
@@ -577,6 +604,40 @@ impl eframe::App for App {
                     self.pixvix.status_text()
                 );
                 std::process::exit(1);
+            }
+            ctx.request_repaint();
+        }
+
+        // `--video-drill <secs>`: fire the REAL Record handler (C3 —
+        // format pinned by `--video-format`), stop after the window,
+        // exit on the recorder's own reported status.
+        if let Some(secs) = self.video_drill {
+            self.video_frames += 1;
+            if self.video_frames == 30 {
+                let format = self.video_format.clone();
+                let msg = self.pixvix.video_start_now(format.as_deref()).to_string();
+                eprintln!("video-drill: {msg}");
+                if !msg.starts_with("recording") {
+                    std::process::exit(1);
+                }
+                self.video_started = Some(std::time::Instant::now());
+            }
+            if let Some(t0) = self.video_started {
+                if self.pixvix.video_active() && t0.elapsed().as_secs() >= u64::from(secs) {
+                    self.pixvix.video_stop_now();
+                }
+                if !self.pixvix.video_active() {
+                    let msg = self.pixvix.status_text().to_string();
+                    eprintln!("video-drill: {msg}");
+                    std::process::exit(if msg.starts_with("saved") { 0 } else { 1 });
+                }
+                if t0.elapsed().as_secs() > u64::from(secs) + 60 {
+                    eprintln!(
+                        "video-drill: TIMEOUT · status: {}",
+                        self.pixvix.status_text()
+                    );
+                    std::process::exit(1);
+                }
             }
             ctx.request_repaint();
         }

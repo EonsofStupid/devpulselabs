@@ -24,6 +24,10 @@ const SNAP_WINDOW: PilotId = PilotId::new("pixvix.snap.window");
 const REFRESH_WINDOWS: PilotId = PilotId::new("pixvix.windows.refresh");
 const VIDEO_START: PilotId = PilotId::new("pixvix.video.start");
 const VIDEO_STOP: PilotId = PilotId::new("pixvix.video.stop");
+const VIDEO_TARGET: PilotId = PilotId::new("pixvix.video.target");
+const VIDEO_FORMAT: PilotId = PilotId::new("pixvix.video.format");
+const VIDEO_AUDIO: PilotId = PilotId::new("pixvix.video.audio");
+const VIDEO_CAP: PilotId = PilotId::new("pixvix.video.cap");
 const SESSION_START: PilotId = PilotId::new("pixvix.session.start");
 const SESSION_STOP: PilotId = PilotId::new("pixvix.session.stop");
 const STEPS_START: PilotId = PilotId::new("pixvix.steps.start");
@@ -90,6 +94,12 @@ pub(crate) struct PaletteActions {
     pub(crate) pick_window: Option<usize>,
     pub(crate) video_start: bool,
     pub(crate) video_stop: bool,
+    pub(crate) cycle_format: bool,
+    pub(crate) cycle_audio: bool,
+    pub(crate) cycle_cap: bool,
+    pub(crate) toggle_video_target: bool,
+    pub(crate) pick_audio: Option<usize>,
+    pub(crate) refresh_audio: bool,
     pub(crate) session_start: bool,
     pub(crate) session_stop: bool,
     pub(crate) steps_start: bool,
@@ -108,6 +118,13 @@ pub(crate) struct PaletteView<'a> {
     pub(crate) windows: &'a [String],
     pub(crate) picked: usize,
     pub(crate) video_elapsed: Option<u64>,
+    pub(crate) video_window: bool,
+    pub(crate) format_label: &'static str,
+    pub(crate) audio_label: &'static str,
+    pub(crate) audio_silent: bool,
+    pub(crate) cap_label: &'static str,
+    pub(crate) audio_devices: &'a [String],
+    pub(crate) picked_audio: usize,
     pub(crate) session_state: Option<(u64, usize)>,
     pub(crate) steps_note: &'a str,
     pub(crate) delay: u8,
@@ -125,6 +142,13 @@ pub(crate) fn palette(
         windows,
         picked,
         video_elapsed,
+        video_window,
+        format_label,
+        audio_label,
+        audio_silent,
+        cap_label,
+        audio_devices,
+        picked_audio,
         session_state,
         steps_note,
         delay,
@@ -242,15 +266,58 @@ pub(crate) fn palette(
                 });
             }
             None => {
+                // The C3 matrix: cycling chips (touch law) + the device
+                // list when a mode records audio.
                 ui.horizontal(|ui| {
-                    if pilot_chip(ui, VIDEO_START, cl::icon::REC, "Record screen", TONE) {
+                    let target = if video_window { "Window" } else { "Screen" };
+                    if pilot_chip(ui, VIDEO_TARGET, "", target, TONE) {
+                        actions.toggle_video_target = true;
+                    }
+                    if pilot_chip(ui, VIDEO_FORMAT, "", format_label, TONE) {
+                        actions.cycle_format = true;
+                    }
+                    if pilot_chip(ui, VIDEO_AUDIO, "", audio_label, TONE) {
+                        actions.cycle_audio = true;
+                    }
+                    if pilot_chip(ui, VIDEO_CAP, "", cap_label, TONE) {
+                        actions.cycle_cap = true;
+                    }
+                });
+                if !audio_silent {
+                    ui.horizontal(|ui| {
+                        let current = audio_devices
+                            .get(picked_audio)
+                            .cloned()
+                            .unwrap_or_else(|| "no audio devices found".into());
+                        egui::ComboBox::from_id_salt("pixvix-audio-device")
+                            .width(220.0)
+                            .selected_text(RichText::new(truncate(&current, 30)).small())
+                            .show_ui(ui, |ui| {
+                                for (i, d) in audio_devices.iter().enumerate() {
+                                    if ui
+                                        .selectable_label(i == picked_audio, truncate(d, 44))
+                                        .clicked()
+                                    {
+                                        actions.pick_audio = Some(i);
+                                    }
+                                }
+                            });
+                        if ui.button("↻").clicked() {
+                            actions.refresh_audio = true;
+                        }
+                    });
+                }
+                ui.horizontal(|ui| {
+                    if pilot_chip(ui, VIDEO_START, cl::icon::REC, "Record", TONE) {
                         actions.video_start = true;
                     }
                 });
                 ui.label(
-                    RichText::new("Primary monitor · 1080p x264 · silent (audio in PV3).")
-                        .small()
-                        .color(cl::ink::SUBTLE),
+                    RichText::new(
+                        "720p · Stop when done (or the cap stops it) · System audio needs a loopback device.",
+                    )
+                    .small()
+                    .color(cl::ink::SUBTLE),
                 );
             }
         },
