@@ -115,6 +115,27 @@ impl WorkbenchHub {
         self.lib_section = LibSection::Templates;
     }
 
+    /// Open one episode's wall — the same path a picker tap takes (also
+    /// the `--open-episode` harness seam). Accepts the picker's badge
+    /// vocabulary: `<show>/<id>`, `template/<id>` (a seed), or a bare id
+    /// (content wins collisions — the union's order). Unknown ids
+    /// degrade to the picker.
+    pub fn open_episode(&mut self, id: &str) {
+        let union = dpl_doc::all_episodes(&dpl_engine_capture::content_root());
+        let hit = match id.split_once('/') {
+            Some(("template", ep)) => union.into_iter().find(|e| e.show.is_none() && e.id == ep),
+            Some((show, ep)) => union
+                .into_iter()
+                .find(|e| e.show.as_deref() == Some(show) && e.id == ep),
+            None => union.into_iter().find(|e| e.id == id),
+        };
+        if let Some(entry) = hit {
+            if let Ok(v) = EpisodeView::open(&entry.dir, entry.id) {
+                self.episode_view = Some(v);
+            }
+        }
+    }
+
     /// The ingredient LIBRARY (doctrine §1.1): the section chip row over
     /// the walls — seeds by class, live templates, colors, presets,
     /// fonts, moods.
@@ -292,11 +313,20 @@ impl Hub for WorkbenchHub {
 }
 
 /// An opened episode's live slides, in the authored chapter→slide order.
+/// One wall row: the chapter header (first slide of a chapter), the
+/// slide, and its script chip (D5) — "script · N beats" when a clean
+/// script.mdx is colocated; broken scripts surface as doctor issues.
+struct EpisodeRow {
+    head: Option<String>,
+    name: String,
+    doc: DocSlide,
+    script: Option<String>,
+}
+
 struct EpisodeView {
     id: String,
     title: String,
-    /// (chapter title on the first slide of the chapter, slide name, doc).
-    rows: Vec<(Option<String>, String, DocSlide)>,
+    rows: Vec<EpisodeRow>,
     issues: Vec<dpl_doc::Issue>,
 }
 
@@ -313,10 +343,20 @@ impl EpisodeView {
         for chapter in &ep.chapters {
             for (i, name) in chapter.slides.iter().enumerate() {
                 let head = (i == 0).then(|| chapter.title.clone());
-                let doc = dpl_doc::load(&dir.join(name))
+                let slide_dir = dir.join(name);
+                let doc = dpl_doc::load(&slide_dir)
                     .map(|s| DocSlide::with_look(s, look.clone()))
                     .map_err(|e| e.to_string())?;
-                rows.push((head, name.clone(), doc));
+                let script = dpl_doc::script::load_script(&slide_dir)
+                    .ok()
+                    .flatten()
+                    .map(|s| format!("script · {} beats", s.beats.len()));
+                rows.push(EpisodeRow {
+                    head,
+                    name: name.clone(),
+                    doc,
+                    script,
+                });
             }
         }
         Ok(Self {
@@ -364,8 +404,8 @@ impl WorkbenchHub {
                 .show(ui, |ui| {
                     let stage_w = (ui.available_width() - cl::space::S4 * 2.0).min(720.0);
                     let stage_h = stage_w * 9.0 / 16.0;
-                    for (n, (head, name, doc)) in view.rows.iter_mut().enumerate() {
-                        if let Some(title) = head {
+                    for (n, row) in view.rows.iter_mut().enumerate() {
+                        if let Some(title) = &row.head {
                             ui.add_space(cl::space::S3);
                             ui.label(
                                 RichText::new(title.to_uppercase())
@@ -379,7 +419,17 @@ impl WorkbenchHub {
                                     .monospace()
                                     .color(SPEC.tone.color()),
                             );
-                            ui.label(RichText::new(name.as_str()).color(cl::ink::MUTED));
+                            ui.label(RichText::new(row.name.as_str()).color(cl::ink::MUTED));
+                            // The script chip (D5): the teleprompter's
+                            // data, visible before D4 consumes it.
+                            if let Some(chip) = &row.script {
+                                ui.label(
+                                    RichText::new(chip.as_str())
+                                        .monospace()
+                                        .small()
+                                        .color(SPEC.tone.color()),
+                                );
+                            }
                         });
                         let (stage, _) = ui.allocate_exact_size(
                             egui::vec2(stage_w, stage_h),
@@ -387,7 +437,7 @@ impl WorkbenchHub {
                         );
                         ui.painter()
                             .rect_filled(stage, cl::RADIUS, cl::surface::WELL);
-                        doc.ui(ui, stage.shrink(2.0));
+                        row.doc.ui(ui, stage.shrink(2.0));
                         ui.painter().rect_stroke(
                             stage,
                             cl::RADIUS,

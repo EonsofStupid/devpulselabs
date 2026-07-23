@@ -85,6 +85,13 @@ fn main() -> eframe::Result {
         .position(|a| a == "--open-session")
         .and_then(|i| args.get(i + 1))
         .cloned();
+    // `--open-episode <id>` boots the Workbench episode wall on one
+    // episode (D5 proofs) — the same code path a picker tap takes.
+    let open_episode: Option<String> = args
+        .iter()
+        .position(|a| a == "--open-episode")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
     // `--open-replay <rel>` boots the GALLERY's in-place session player
     // (L1e) — the same code path a session-thumb tap takes.
     let open_replay: Option<String> = args
@@ -166,6 +173,7 @@ fn main() -> eframe::Result {
                 open_session,
                 open_replay,
                 open_rail,
+                open_episode,
             });
             #[cfg(feature = "eguipilotai-devtools")]
             let app = {
@@ -193,6 +201,7 @@ struct Boot {
     open_session: Option<String>,
     open_replay: Option<String>,
     open_rail: Option<String>,
+    open_episode: Option<String>,
 }
 
 struct App {
@@ -225,10 +234,15 @@ impl App {
             open_session,
             open_replay,
             open_rail,
+            open_episode,
         } = boot;
         let mut workbench = dpl_hub_workbench::WorkbenchHub::default();
         if let Some(id) = focus {
             workbench.set_focus(id);
+        }
+        // The episode-wall seam (D5 proofs).
+        if let Some(id) = &open_episode {
+            workbench.open_episode(id);
         }
         // ONE fabric, shared: the shell publishes AND (since D2) listens;
         // the Present hub requests full-bleed over it.

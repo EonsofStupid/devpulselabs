@@ -5,6 +5,8 @@
 //! or a font path. The editor (W4) is a view over this data: it swaps a
 //! ref and saves. Pure data — no egui in this crate.
 
+pub mod script;
+
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -395,7 +397,7 @@ pub fn episode_slides(dir: &Path, ep: &Episode) -> Vec<SlideRef> {
 // The FOLDER CONTRACT (W3b): each folder holds reserved names only, one
 // concern per file, so "auto-growing" stays strict — a new concern claims
 // a reserved name here, it never squats. The doctor flags everything else.
-const SLIDE_RESERVED: &[&str] = &["slide.json", "ink.json", "notes.md", "assets"];
+const SLIDE_RESERVED: &[&str] = &["slide.json", "ink.json", "notes.md", "script.mdx", "assets"];
 const EPISODE_RESERVED: &[&str] = &["episode.json", "look.json", "assets"];
 
 /// Contract-check one folder's entries: leftover save transients and
@@ -477,6 +479,26 @@ pub fn validate_episode(dir: &Path, ep: &Episode) -> Vec<Issue> {
                 Ok(slide) => {
                     for sub in validate(&slide) {
                         push(format!("{at} → {}", sub.path), sub.message);
+                    }
+                    // The script arm (D5): optional; present means it
+                    // parses, names ITS slide, and keeps beat parity.
+                    match script::load_script(&slide_dir) {
+                        Ok(Some(s)) => {
+                            if s.slide_id != *name {
+                                push(
+                                    format!("{at} → script"),
+                                    format!(
+                                        "script names slideId {:?} but lives in {name:?}",
+                                        s.slide_id
+                                    ),
+                                );
+                            }
+                            for sub in script::parity_issues(&slide, &s) {
+                                push(format!("{at} → {}", sub.path), sub.message);
+                            }
+                        }
+                        Ok(None) => {}
+                        Err(e) => push(format!("{at} → script"), e),
                     }
                 }
                 Err(e) => push(at, format!("slide does not load: {e}")),
@@ -1125,6 +1147,41 @@ mod tests {
         assert_eq!(refs[0].chapter, "intro");
         assert_eq!(refs[2].chapter, "end");
         assert!(validate_episode(&dir, &ep).is_empty());
+    }
+
+    /// D5: a clean colocated script.mdx validates quietly; a script
+    /// naming the wrong slide or breaking beat parity is NAMED.
+    #[test]
+    fn episode_scripts_validate_and_parity_breaks_are_named() {
+        let dir = ep_scratch("scripts");
+        for s in ["a", "b", "c"] {
+            write_ok_slide(&dir.join(s));
+        }
+        let ep = ep_sample();
+        save_episode(&dir, &ep).unwrap();
+        // sample() has no reveals → the script is one "setup" beat.
+        std::fs::write(
+            dir.join("a").join(script::SCRIPT_FILE),
+            "---\nslideId: a\ntitle: A\nbeats:\n  - id: setup\n    cue: open\n---\nprose\n",
+        )
+        .unwrap();
+        assert!(validate_episode(&dir, &ep).is_empty());
+
+        // Wrong slideId AND a phantom beat — both named.
+        std::fs::write(
+            dir.join("b").join(script::SCRIPT_FILE),
+            "---\nslideId: zz\ntitle: B\nbeats:\n  - id: setup\n    cue: x\n  - id: ghost\n    cue: y\n---\n",
+        )
+        .unwrap();
+        let issues = validate_episode(&dir, &ep);
+        assert!(
+            issues.iter().any(|i| i.message.contains("slideId \"zz\"")),
+            "wrong slideId named: {issues:?}"
+        );
+        assert!(
+            issues.iter().any(|i| i.message.contains("ghost")),
+            "parity break named: {issues:?}"
+        );
     }
 
     #[test]
