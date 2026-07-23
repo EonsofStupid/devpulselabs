@@ -1566,8 +1566,11 @@ name = "dpl-hub-wiredfront"
 version = "0.1.0"
 dependencies = [
  "dpl-coldlight",
+ "dpl-engine-capture",
  "dpl-hub",
+ "dpl-index",
  "egui",
+ "egui-pilot-ai",
 ]
 
 [[package]]

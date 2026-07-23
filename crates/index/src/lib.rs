@@ -326,6 +326,28 @@ impl Index {
         })
     }
 
+    /// DUMP an inbox artifact (X2): delete the file (a guide folder
+    /// recursively) + its companions (sidecar; a video's poster), then
+    /// SOFT-clear the row (history survives). Jailed to `root/inbox` BY
+    /// CONSTRUCTION — a rel_path outside it is refused, never resolved.
+    pub fn dump(&self, root: &Path, rel_path: &str) -> Result<(), String> {
+        let target = jail_inbox(root, rel_path)?;
+        if target.is_dir() {
+            // A guide folder: everything inside it (frames, guide.json,
+            // artifact.meta.json) goes together.
+            std::fs::remove_dir_all(&target).map_err(|e| format!("dump: {e}"))?;
+        } else {
+            std::fs::remove_file(&target).map_err(|e| format!("dump: {e}"))?;
+            let side = sidecar::path_for(&target);
+            let _ = std::fs::remove_file(side);
+            // The poster companion travels with its video.
+            if kind_of(&target) == Some("video") {
+                let _ = std::fs::remove_file(target.with_extension("jpg"));
+            }
+        }
+        self.soft_clear(rel_path)
+    }
+
     /// Rebuild from the disk TRUTH: walk `root/inbox`, merge each find
     /// with its sidecar (sidecar wins for authored fields; the fs supplies
     /// size/modified), upsert everything, and soft-clear inbox rows whose
@@ -360,6 +382,32 @@ impl Index {
             cleared,
         })
     }
+}
+
+/// The inbox JAIL: only `inbox/<name...>` rel paths, no traversal or
+/// absolute components, and the resolved target must exist UNDER the
+/// canonical inbox (symlink escapes included).
+fn jail_inbox(root: &Path, rel_path: &str) -> Result<PathBuf, String> {
+    let rel = Path::new(rel_path);
+    let mut parts = rel.components();
+    if parts.next() != Some(std::path::Component::Normal("inbox".as_ref())) {
+        return Err(format!("dump refused: {rel_path:?} is not in the inbox"));
+    }
+    if !parts.all(|c| matches!(c, std::path::Component::Normal(_))) {
+        return Err(format!("dump refused: invalid path {rel_path:?}"));
+    }
+    let inbox = root
+        .join("inbox")
+        .canonicalize()
+        .map_err(|e| format!("dump: inbox missing: {e}"))?;
+    let target = root
+        .join(rel)
+        .canonicalize()
+        .map_err(|e| format!("dump: not found: {rel_path:?} ({e})"))?;
+    if !target.starts_with(&inbox) {
+        return Err(format!("dump refused: {rel_path:?} escapes the inbox"));
+    }
+    Ok(target)
 }
 
 // ── turso value readers (pre-1.0 FromValue set is narrow; read the enum) ─
@@ -737,6 +785,75 @@ mod tests {
         let ix = Index::open(&db).unwrap();
         ix.upsert(&rec("inbox/a.png", "image")).unwrap();
         assert!(db.with_extension("db.corrupt").exists(), "quarantined");
+    }
+
+    // ── dump + the inbox jail (X2) ──────────────────────────────────────
+
+    #[test]
+    fn dump_removes_the_file_its_companions_and_soft_clears_only_it() {
+        let root = scratch("dump");
+        let inbox = root.join("inbox");
+        std::fs::write(inbox.join("pix.png"), b"img").unwrap();
+        std::fs::write(inbox.join("keep.png"), b"img2").unwrap();
+        std::fs::write(inbox.join("vix.mp4"), b"vid").unwrap();
+        std::fs::write(inbox.join("vix.jpg"), b"poster").unwrap();
+        let ix = Index::open(&root.join("artifacts.db")).unwrap();
+        for f in ["pix.png", "keep.png"] {
+            sidecar::write(&inbox.join(f), &rec(&format!("inbox/{f}"), "image")).unwrap();
+        }
+        ix.reindex(&root).unwrap();
+        assert_eq!(ix.recent(10, None).unwrap().len(), 3);
+
+        ix.dump(&root, "inbox/pix.png").unwrap();
+        assert!(!inbox.join("pix.png").exists());
+        assert!(
+            !inbox.join("pix.png.meta.json").exists(),
+            "sidecar went too"
+        );
+        assert!(inbox.join("keep.png").exists(), "neighbors untouched");
+        assert_eq!(ix.recent(10, None).unwrap().len(), 2, "row soft-cleared");
+
+        ix.dump(&root, "inbox/vix.mp4").unwrap();
+        assert!(!inbox.join("vix.jpg").exists(), "the poster rides along");
+    }
+
+    #[test]
+    fn dump_takes_a_guide_folder_recursively() {
+        let root = scratch("dump-guide");
+        let guide = root.join("inbox").join("guide-1");
+        std::fs::create_dir_all(&guide).unwrap();
+        std::fs::write(guide.join("guide.json"), "{}").unwrap();
+        std::fs::write(guide.join("step-001.webp"), b"frame").unwrap();
+        let ix = Index::open(&root.join("artifacts.db")).unwrap();
+        ix.reindex(&root).unwrap();
+        ix.dump(&root, "inbox/guide-1").unwrap();
+        assert!(!guide.exists(), "the whole folder went");
+        assert!(ix.recent(10, None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_jail_refuses_everything_outside_the_inbox() {
+        let root = scratch("jail");
+        std::fs::create_dir_all(root.join("shows")).unwrap();
+        std::fs::write(root.join("shows").join("x.png"), b"content").unwrap();
+        std::fs::write(root.join("inbox").join("a.png"), b"img").unwrap();
+        let ix = Index::open(&root.join("artifacts.db")).unwrap();
+        for bad in [
+            "shows/x.png",
+            "inbox/../shows/x.png",
+            "../etc/passwd",
+            "C:/windows/system32",
+            "inbox/./../shows/x.png",
+        ] {
+            let err = ix.dump(&root, bad).unwrap_err();
+            assert!(err.contains("refused"), "{bad} must refuse: {err}");
+        }
+        assert!(root.join("shows").join("x.png").exists(), "content intact");
+        // A vanished target is an honest not-found, not a panic.
+        assert!(ix
+            .dump(&root, "inbox/ghost.png")
+            .unwrap_err()
+            .contains("not found"));
     }
 
     #[test]

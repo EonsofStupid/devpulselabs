@@ -8,6 +8,9 @@ publish.workspace = true
 egui.workspace = true
 dpl-hub.workspace = true
 dpl-coldlight.workspace = true
+dpl-index.workspace = true
+dpl-engine-capture.workspace = true
+egui-pilot-ai.workspace = true
 
 [lints]
 workspace = true

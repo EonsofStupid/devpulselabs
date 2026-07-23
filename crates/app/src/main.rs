@@ -170,7 +170,7 @@ impl App {
             Box::new(present_hub),
             Box::new(dpl_hub_workbench::WorkbenchHub::default()),
             Box::new(library),
-            Box::new(dpl_hub_wiredfront::WiredfrontHub),
+            Box::new(dpl_hub_wiredfront::WiredfrontHub::default()),
             Box::new(dpl_hub_chat::ChatHub),
         ];
 

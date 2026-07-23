@@ -71,12 +71,16 @@ problems:
   pixvix save paths, reindex-from-disk truth w/ soft-clear + empty-scan
   guard, rekey, additive migrations. Pilot: fixture-parameterized seeded
   data-root scenarios; index-cli for headless drills.
-- **X2 Inbox review + Gallery.** keep (into EXISTING episode, companions,
-  rekey) / dump (inbox-only) with the jail suite; wiredFRONT Gallery =
-  ContentLibrary wall (filters, thumbs, honest fallbacks, rescan). Pilot:
-  gallery scenario (filter taps, row assertions) + review flow.
-- **X3 Associate/import.** copy-never-move into episode generated assets;
-  frame-to-slide seam for W-track.
+- **X2 Inbox review + Gallery.** dump (inbox-only, companions, guide
+  recursive) with the jail suite; wiredFRONT Gallery = ContentLibrary
+  wall (filters, thumbs, honest fallbacks, rescan). Pilot: gallery
+  scenario (filter taps, row assertions) + review flow. (KEEP moved to
+  X3 — same filing-into-content doctrine as associate.)
+- **X3 Keep + associate/import.** The operator-content tree doctrine
+  (where kept artifacts LIVE — old repo: content/shows/<show>/<ep>/
+  generated; the rewrite ratifies its own shape with the operator
+  BEFORE code) + keep (into EXISTING episode, companions, rekey) +
+  associate/import copy-never-move; frame-to-slide seam for W-track.
 
 ## Program W — Authoring (continues #104/#105)
 
