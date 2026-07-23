@@ -59,7 +59,9 @@ fn v_suffix(name: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn compact_timestamp() -> String {
+/// `YYYYMMDD-HHMMSS` (UTC) — the one timestamp every capture vehicle
+/// names artifacts with (auto capture names here; session folders, S1).
+pub fn compact_timestamp() -> String {
     let t = time::OffsetDateTime::now_utc();
     format!(
         "{:04}{:02}{:02}-{:02}{:02}{:02}",

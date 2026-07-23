@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "font": "michroma",
+  "ink": "base",
+  "background": {
+    "kind": "mood-blend",
+    "moods": [
+      "terracotta-dusk",
+      "solar-flare"
+    ],
+    "motion": "blend-drift"
+  },
+  "enter": "rise"
+}

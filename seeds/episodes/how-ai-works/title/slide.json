@@ -1,0 +1,39 @@
+{
+  "v": 1,
+  "template": "title",
+  "background": {
+    "kind": "mood-blend",
+    "moods": [
+      "ember-drift",
+      "deep-lagoon"
+    ],
+    "motion": "blend-drift",
+    "ambience": "pulse"
+  },
+  "blocks": [
+    {
+      "kind": "text",
+      "id": "eyebrow",
+      "text": "Echoes of Sentience",
+      "font": "sharetechmono",
+      "size": "eyebrow",
+      "ink": "tone"
+    },
+    {
+      "kind": "text",
+      "id": "title",
+      "text": "The stack, laid bare",
+      "font": "orbitron",
+      "size": "display",
+      "ink": "strong"
+    },
+    {
+      "kind": "text",
+      "id": "subtitle",
+      "text": "What actually runs when you ask a model a question — and what it costs.",
+      "font": "spacegrotesk",
+      "size": "h3",
+      "ink": "muted"
+    }
+  ]
+}

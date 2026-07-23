@@ -84,6 +84,36 @@ Everything in quotes on the right side of a style key is a REGISTRY ID or
 PRESET ID. rustc + a doc validator enforce that unknown ids degrade to
 labeled plates (Law: degrade, never crash) and the doctor flags them.
 
+### The look cascade (W3b — ratified 2026-07-22)
+
+An episode carries an authored **`look.json`** — the show's trait, refs
+only (default font, ink, background, enter). Slide styling fields are
+**sparse**: absent = inherit the look; present = a deliberate override
+(`enter: "none"` = explicitly static; `background {"kind":"none"}` =
+deliberately bare). `dpl_doc::resolve(slide, look)` is the whole cascade —
+**exactly two levels, never more** (the slide-master pattern; PPTX's
+three-deep chain is the cautionary tale). Standalone `seeds/slides/*`
+stay FULLY specified by design — they are self-contained starters with
+no show to inherit from; episodes without a look.json resolve against
+`Look::fallback()`.
+
+**The folder contract** (doctor-enforced — strays, orphan slide folders,
+leftover save transients, and bad look refs are all flagged):
+
+```
+seeds/episodes/<id>/
+  episode.json      structure: chapters → slide subfolder names
+  look.json         the show's authored trait (optional; refs only)
+  <slide>/
+    slide.json      structure + content + sparse style overrides
+    (reserved: ink.json D3, notes.md D4, assets/ X-track)
+```
+
+A new concern claims a reserved filename here first; nothing squats. In
+the editor, trays show the RESOLVED value and a "Show look" chip clears
+an override back to inheritance — restyling a whole show is one edit to
+look.json.
+
 **The mood-blend background** (the operator's spec): two authored moods,
 their gradients crossfaded and slowly panned by an authored motion effect
 (`blend-drift` — new entry in tokens/motion.json, subtle by construction),

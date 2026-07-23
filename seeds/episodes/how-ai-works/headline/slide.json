@@ -1,0 +1,30 @@
+{
+  "v": 1,
+  "template": "title",
+  "blocks": [
+    {
+      "kind": "text",
+      "id": "eyebrow",
+      "text": "PLAIN ENGLISH",
+      "size": "eyebrow",
+      "ink": "tone"
+    },
+    {
+      "kind": "text",
+      "id": "title",
+      "text": "What is a GPU, actually?",
+      "size": "h1",
+      "ink": "strong"
+    },
+    {
+      "kind": "text",
+      "id": "subtitle",
+      "text": "Ten thousand tiny calculators that all raise their hands at once.",
+      "font": "spacegrotesk",
+      "size": "h3"
+    }
+  ],
+  "reveals": [
+    "subtitle"
+  ]
+}

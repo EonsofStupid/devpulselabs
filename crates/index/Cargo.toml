@@ -1,0 +1,19 @@
+[package]
+name = "dpl-index"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+# TURSO — the pure-Rust SQLite engine, operator-ratified (x1-index.md):
+# the same engine the old repo proved, as a local embedded file. Its
+# async API wraps behind this crate's sync surface via a current-thread
+# tokio runtime; fresh connection per op (a local file opens cheaply).
+turso = "0.7"
+tokio = { workspace = true, features = ["rt"] }
+serde.workspace = true
+serde_json.workspace = true
+dpl-engine-capture.workspace = true
+
+[lints]
+workspace = true

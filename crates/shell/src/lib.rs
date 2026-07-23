@@ -54,6 +54,9 @@ pub struct Shell {
     hubs: Vec<Box<dyn Hub>>,
     route: Route,
     fabric: Fabric,
+    /// The shell's own ear on the fabric (D2): hubs may request
+    /// full-bleed (`ShellEvent::FullBleedRequest`); drained every frame.
+    events: dpl_fabric::ShellReceiver,
     /// The app backdrop — two loops + authored random moods, painted under
     /// EVERY route's content; tiles live in the topbar.
     backdrop: dpl_backdrop::Backdrop,
@@ -89,10 +92,12 @@ impl Shell {
                 hub: HubId("_none"),
                 sub: SubId("_none"),
             });
+        let events = fabric.subscribe_shell();
         Self {
             hubs,
             route,
             fabric,
+            events,
             backdrop: dpl_backdrop::Backdrop::default(),
             nav_count: 0,
             signal_count: 0,
@@ -188,6 +193,14 @@ impl Shell {
         // token group at the live viewport — nothing hardcoded (workspace law).
         let fl = cl::Fluid::of(ui.ctx().content_rect());
         let root = ui.max_rect();
+
+        // Drain the fabric ear: a hub may have requested full-bleed (D2).
+        // Lagged is fine — these are signals, the latest state wins.
+        while let Ok(ev) = self.events.try_recv() {
+            if let ShellEvent::FullBleedRequest(on) = ev {
+                self.full_bleed = on;
+            }
+        }
 
         // Esc leaves full-bleed (the old shell's escape hatch).
         if self.full_bleed && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
@@ -885,6 +898,25 @@ mod tests {
         assert!(!shell.full_bleed());
         shell.set_full_bleed(true);
         assert!(shell.full_bleed());
+    }
+
+    /// D2: a hub's FullBleedRequest on the fabric flips the shell on the
+    /// next frame — the shell's first fabric CONSUMER.
+    #[test]
+    fn a_full_bleed_request_on_the_fabric_takes_effect_next_frame() {
+        let fabric = Fabric::new();
+        let sh = Shell::new(vec![Box::new(Fake(&SPEC_A))], fabric.clone());
+        let mut harness = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(1280.0, 800.0))
+            .build_ui_state(|ui, sh: &mut Shell| sh.ui(ui), sh);
+        harness.run_steps(1);
+        assert!(!harness.state().full_bleed());
+        fabric.publish_shell(ShellEvent::FullBleedRequest(true));
+        harness.run_steps(1);
+        assert!(harness.state().full_bleed(), "the shell must hear the hub");
+        fabric.publish_shell(ShellEvent::FullBleedRequest(false));
+        harness.run_steps(1);
+        assert!(!harness.state().full_bleed());
     }
 
     #[test]

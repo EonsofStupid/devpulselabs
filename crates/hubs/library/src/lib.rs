@@ -16,6 +16,7 @@ pub const COMPONENTS: SubId = SubId("components");
 pub const TEMPLATES: SubId = SubId("templates");
 pub const MOODS: SubId = SubId("moods");
 pub const FONTS: SubId = SubId("fonts");
+pub const PRESETS: SubId = SubId("presets");
 
 static SPEC: HubSpec = HubSpec {
     id: HUB,
@@ -42,6 +43,11 @@ static SPEC: HubSpec = HubSpec {
             id: FONTS,
             label: "Fonts",
             blurb: "The vendored pool from tokens/fonts.json — every face rendered in itself.",
+        },
+        SubRoute {
+            id: PRESETS,
+            label: "Presets",
+            blurb: "Named bundles of refs from tokens/presets.json — one-tap looks and motions.",
         },
     ],
 };
@@ -83,6 +89,8 @@ impl Hub for LibraryHub {
             moods_wall(ui);
         } else if route.sub == FONTS {
             fonts_wall(ui);
+        } else if route.sub == PRESETS {
+            presets_wall(ui);
         } else {
             // Unknown subs degrade to the pool wall, never crash.
             pool_wall(ui);
@@ -291,6 +299,108 @@ fn pool_wall(ui: &mut egui::Ui) {
             ui.add_space(cl::space::S3);
         }
     });
+}
+
+/// The presets wall — every authored preset (tokens/presets.json, the 6th
+/// source) renders as itself: a look card paints ITS mood blend and sets
+/// ITS label in ITS font; motion presets list their entrance effect. The
+/// gallery gate for bundles-of-refs — W4's trays offer exactly these.
+fn presets_wall(ui: &mut egui::Ui) {
+    ui.label(
+        RichText::new(format!(
+            "PRESETS — {} looks · {} motions · named bundles of refs, editable in tokens/presets.json",
+            cl::LOOK_PRESET_COUNT,
+            cl::MOTION_PRESET_COUNT
+        ))
+        .small()
+        .color(cl::ink::SUBTLE),
+    );
+    ui.add_space(cl::space::S2);
+
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            ui.label(RichText::new("LOOK").small().color(cl::ink::SUBTLE));
+            ui.add_space(cl::space::S1);
+            let card = egui::vec2(320.0, 170.0);
+            ui.horizontal_wrapped(|ui| {
+                for p in cl::LOOK_PRESETS.iter() {
+                    let (rect, _) = ui.allocate_exact_size(card, egui::Sense::hover());
+                    let painter = ui.painter_at(rect);
+                    let find = |n: &str| cl::MOODS.iter().find(|m| m.name == n);
+                    match (find(p.moods.0), find(p.moods.1)) {
+                        (Some(a), Some(b)) => {
+                            // The preset's own blend, held at a readable mix.
+                            cl::mood_blend(&painter, rect, a, b, 0.45, 0.0);
+                            let s = a.scrim_color();
+                            painter.rect_filled(
+                                rect,
+                                cl::RADIUS_SM,
+                                egui::Color32::from_rgba_unmultiplied(
+                                    s.r(),
+                                    s.g(),
+                                    s.b(),
+                                    s.a() / 2,
+                                ),
+                            );
+                        }
+                        _ => {
+                            painter.rect_filled(rect, cl::RADIUS_SM, cl::surface::RAISED);
+                        }
+                    }
+                    painter.text(
+                        egui::pos2(rect.min.x + 14.0, rect.min.y + 18.0),
+                        egui::Align2::LEFT_CENTER,
+                        p.label,
+                        egui::FontId::new(22.0, cl::font_family(p.font)),
+                        cl::ink::STRONG,
+                    );
+                    painter.text(
+                        egui::pos2(rect.min.x + 14.0, rect.max.y - 40.0),
+                        egui::Align2::LEFT_CENTER,
+                        format!(
+                            "{} × {} · {}{}",
+                            p.moods.0,
+                            p.moods.1,
+                            p.motion,
+                            p.ambience.map(|a| format!(" + {a}")).unwrap_or_default()
+                        ),
+                        egui::FontId::monospace(10.5),
+                        cl::ink::BASE,
+                    );
+                    painter.text(
+                        egui::pos2(rect.min.x + 14.0, rect.max.y - 18.0),
+                        egui::Align2::LEFT_CENTER,
+                        p.blurb,
+                        egui::FontId::proportional(11.5),
+                        cl::ink::MUTED,
+                    );
+                    painter.rect(
+                        rect,
+                        cl::RADIUS_SM,
+                        egui::Color32::TRANSPARENT,
+                        egui::Stroke::new(1.0, cl::surface::HAIRLINE),
+                        egui::StrokeKind::Inside,
+                    );
+                }
+            });
+
+            ui.add_space(cl::space::S4);
+            ui.label(RichText::new("MOTION").small().color(cl::ink::SUBTLE));
+            ui.add_space(cl::space::S1);
+            for p in cl::MOTION_PRESETS.iter() {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(p.label).strong().color(cl::ink::STRONG));
+                    ui.label(
+                        RichText::new(p.enter)
+                            .monospace()
+                            .small()
+                            .color(SPEC.tone.color()),
+                    );
+                    ui.label(RichText::new(p.blurb).small().color(cl::ink::MUTED));
+                });
+            }
+        });
 }
 
 /// The fonts wall — every vendored pool font (tokens/fonts.json) renders IN

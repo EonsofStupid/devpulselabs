@@ -63,6 +63,49 @@ fn main() -> eframe::Result {
         .and_then(|i| args.get(i + 1))
         .and_then(|n| n.parse().ok());
     let pixvix_snap = args.iter().any(|a| a == "--pixvix-snap");
+    // `--session-drill <secs>` — start a REAL session through the
+    // palette's own handler, hop routes (observed fabric traffic), stop
+    // after the window, exit on the recorder's own verdict (S1).
+    let session_drill: Option<u32> = args
+        .iter()
+        .position(|a| a == "--session-drill")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|n| n.parse().ok());
+    // `--present <episode-id>` boots straight into the show, full-bleed —
+    // the deck surface proves itself on the real exe.
+    let present: Option<String> = args
+        .iter()
+        .position(|a| a == "--present")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
+    // `--clone-seed <seed-id> <show> <episode>` — the headless clone
+    // drill (X3): copy a seed into the real content tree through the
+    // engine (`dpl_doc::clone_episode`) and exit; no window boots.
+    if let Some(i) = args.iter().position(|a| a == "--clone-seed") {
+        let (Some(seed), Some(show), Some(ep)) =
+            (args.get(i + 1), args.get(i + 2), args.get(i + 3))
+        else {
+            eprintln!("usage: --clone-seed <seed-id> <show> <episode>");
+            std::process::exit(2);
+        };
+        let Some((_, dir)) = dpl_doc::list_episodes()
+            .into_iter()
+            .find(|(e, _)| e == seed)
+        else {
+            eprintln!("unknown seed episode {seed:?}");
+            std::process::exit(2);
+        };
+        match dpl_doc::clone_episode(&dir, &dpl_engine_capture::content_root(), show, ep) {
+            Ok(dest) => {
+                println!("cloned {seed} → {}", dest.display());
+                std::process::exit(0);
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        }
+    }
 
     let options = eframe::NativeOptions {
         // MAXIMIZED — a fixed logical size overflows small displays at
@@ -88,7 +131,7 @@ fn main() -> eframe::Result {
             egui_pilot_ai::install(&cc.egui_ctx);
             // Media blocks: file:// images resolve through these loaders.
             egui_extras::install_image_loaders(&cc.egui_ctx);
-            let app = App::new(
+            let app = App::new(Boot {
                 shot,
                 boot_route,
                 focus,
@@ -96,7 +139,9 @@ fn main() -> eframe::Result {
                 pixvix_open,
                 pixvix_snap,
                 mood,
-            );
+                present,
+                session_drill,
+            });
             #[cfg(feature = "eguipilotai-devtools")]
             let app = {
                 let mut app = app;
@@ -108,6 +153,20 @@ fn main() -> eframe::Result {
     )
 }
 
+/// The harness/boot flags, parsed once in `main` — one value, not a
+/// nine-argument constructor.
+struct Boot {
+    shot: Option<std::path::PathBuf>,
+    boot_route: Option<(String, String)>,
+    focus: Option<String>,
+    shot_frame: u32,
+    pixvix_open: bool,
+    pixvix_snap: bool,
+    mood: Option<usize>,
+    present: Option<String>,
+    session_drill: Option<u32>,
+}
+
 struct App {
     shell: Shell,
     pixvix: dpl_pixvix::Pixvix,
@@ -116,35 +175,47 @@ struct App {
     shot_frame: u32,
     pixvix_snap: bool,
     snap_frames: u32,
+    session_drill: Option<u32>,
+    drill_frames: u32,
+    drill_started: Option<std::time::Instant>,
     #[cfg(feature = "eguipilotai-devtools")]
     pilot_runtime: Option<egui_pilot_ai_runtime::RuntimeGuard>,
 }
 
 impl App {
-    fn new(
-        shot: Option<std::path::PathBuf>,
-        boot_route: Option<(String, String)>,
-        focus: Option<String>,
-        shot_frame: u32,
-        pixvix_open: bool,
-        pixvix_snap: bool,
-        mood: Option<usize>,
-    ) -> Self {
+    fn new(boot: Boot) -> Self {
+        let Boot {
+            shot,
+            boot_route,
+            focus,
+            shot_frame,
+            pixvix_open,
+            pixvix_snap,
+            mood,
+            present,
+            session_drill,
+        } = boot;
         let mut library = dpl_hub_library::LibraryHub::default();
         if let Some(id) = focus {
             library.set_focus(id);
         }
+        // ONE fabric, shared: the shell publishes AND (since D2) listens;
+        // the Present hub requests full-bleed over it.
+        let fabric = Fabric::new();
+        let mut present_hub = dpl_hub_present::PresentHub::new(fabric.clone());
+        if let Some(id) = &present {
+            present_hub.open_show(id);
+        }
         // The registry — a new hub is ONE line here and nothing else.
         let hubs: Vec<Box<dyn Hub>> = vec![
             Box::new(dpl_hub_home::HomeHub),
+            Box::new(present_hub),
             Box::new(dpl_hub_workbench::WorkbenchHub::default()),
             Box::new(library),
-            Box::new(dpl_hub_wiredfront::WiredfrontHub),
+            Box::new(dpl_hub_wiredfront::WiredfrontHub::default()),
             Box::new(dpl_hub_chat::ChatHub),
         ];
 
-        // ONE fabric, shared: the shell publishes, the overlay subscribes.
-        let fabric = Fabric::new();
         let mut pixvix = dpl_pixvix::Pixvix::new(&fabric);
         if pixvix_open {
             pixvix.open_now();
@@ -172,6 +243,15 @@ impl App {
                 sub: dpl_hub_wiredfront::PIXVIX,
             }),
         }
+        if present.is_some() {
+            // The harness path: the hub opened its deck before the shell
+            // subscribed to the fabric, so full-bleed is set directly.
+            shell.navigate(Route {
+                hub: dpl_hub_present::HUB,
+                sub: dpl_hub_present::SHOWS,
+            });
+            shell.set_full_bleed(true);
+        }
 
         Self {
             shell,
@@ -181,6 +261,9 @@ impl App {
             shot_frame,
             pixvix_snap,
             snap_frames: 0,
+            session_drill,
+            drill_frames: 0,
+            drill_started: None,
             #[cfg(feature = "eguipilotai-devtools")]
             pilot_runtime: None,
         }
@@ -364,6 +447,48 @@ impl eframe::App for App {
                 let msg = self.pixvix.snap_full_now().to_string();
                 eprintln!("pixvix-snap: {msg}");
                 std::process::exit(if msg.starts_with("saved") { 0 } else { 1 });
+            }
+            ctx.request_repaint();
+        }
+
+        // `--session-drill <secs>`: the S1 drill — the real session
+        // handler, two real route hops (the shell PUBLISHES RouteChanged;
+        // the recorder only ever observes), stop after the window, exit
+        // on the recorder's own status verdict.
+        if let Some(secs) = self.session_drill {
+            self.drill_frames += 1;
+            match self.drill_frames {
+                30 => {
+                    let msg = self.pixvix.session_start_now().to_string();
+                    eprintln!("session-drill: {msg}");
+                    if !msg.starts_with("session recording") {
+                        std::process::exit(1);
+                    }
+                    self.drill_started = Some(std::time::Instant::now());
+                }
+                60 => self.shell.navigate(Route {
+                    hub: dpl_hub_workbench::HUB,
+                    sub: dpl_hub_workbench::SEEDS,
+                }),
+                90 => self.shell.navigate(Route {
+                    hub: dpl_hub_present::HUB,
+                    sub: dpl_hub_present::SHOWS,
+                }),
+                _ => {}
+            }
+            if let Some(t0) = self.drill_started {
+                if self.pixvix.session_active() && t0.elapsed().as_secs() >= u64::from(secs) {
+                    self.pixvix.session_stop_now();
+                }
+                if !self.pixvix.session_active() {
+                    let msg = self.pixvix.status_text().to_string();
+                    eprintln!("session-drill: {msg}");
+                    std::process::exit(if msg.starts_with("session saved") {
+                        0
+                    } else {
+                        1
+                    });
+                }
             }
             ctx.request_repaint();
         }

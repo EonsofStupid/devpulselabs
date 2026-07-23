@@ -71,25 +71,48 @@ gates.
   PilotClock-settled capture baseline.
 - **D4 Presenter + sync.** Second viewport teleprompter (beat list, active
   script, up-next, timer) synced over the fabric (typed event, not
-  BroadcastChannel). Pilot: multi-window target extension; dual-surface
-  position-mirroring scenario.
+  BroadcastChannel). LANES (operator, 2026-07-23): EguiPilotAI
+  extensions (multi-window targets included) are the CODEX seat's work —
+  this seat authors the feature and declares the pilot deferral until
+  the extension lands; never extends the toolkit itself.
 - **D5 Scripts.** MDX-lite format kept byte-compatible (YAML frontmatter +
   inert body), parsed in dpl-doc; beats-parity validation; teleprompter
   consumes. Pilot: units + presenter scenario extension.
 
 ## Program X — Artifact index + library (census #2)
 
-- **X1 Index engine.** `dpl-index` crate: embedded SQLite (rusqlite — the
-  boring choice), 15-field record, sidecar law, upsert write-through from
+- **X1 Index engine.** `dpl-index` crate: embedded SQLite via TURSO (the
+  pure-Rust engine — operator-ratified 2026-07-22, same engine the old
+  repo proved), 15-field record, sidecar law, upsert write-through from
   pixvix save paths, reindex-from-disk truth w/ soft-clear + empty-scan
   guard, rekey, additive migrations. Pilot: fixture-parameterized seeded
   data-root scenarios; index-cli for headless drills.
-- **X2 Inbox review + Gallery.** keep (into EXISTING episode, companions,
-  rekey) / dump (inbox-only) with the jail suite; wiredFRONT Gallery =
-  ContentLibrary wall (filters, thumbs, honest fallbacks, rescan). Pilot:
-  gallery scenario (filter taps, row assertions) + review flow.
-- **X3 Associate/import.** copy-never-move into episode generated assets;
-  frame-to-slide seam for W-track.
+- **X2 Inbox review + Gallery.** dump (inbox-only, companions, guide
+  recursive) with the jail suite; wiredFRONT Gallery = ContentLibrary
+  wall (filters, thumbs, honest fallbacks, rescan). Pilot: gallery
+  scenario (filter taps, row assertions) + review flow. (KEEP moved to
+  X3 — same filing-into-content doctrine as associate.)
+- **X3 Keep + associate/import.** CONTENT TREE RATIFIED (operator,
+  2026-07-23): `content/<show-name>/<episode-name>/` — the show name IS
+  the stream category (e.g. `content/devpulse-news/<episode>`); episode
+  folders carry the SAME doctor-enforced contract as seeds (episode.json
+  + look.json + slide folders) plus a reserved episode-level `assets/`
+  for kept artifacts. Seeds stay pristine templates; "new show" copies a
+  seed into content; episode listings union both roots. EPISODES ARE NOT
+  GUIDES (operator's emphasis): the Steps/guide system files through the
+  inbox and stays separate — a guide only enters an episode via an
+  explicit associate/T4 action, never by filing. Keep = move inbox
+  artifact + companions into `<ep>/assets/` + rekey; associate/import =
+  copy-never-move; frame-to-slide seam for W-track. ✅ DONE (plan
+  docs/plans/x3-keep-associate.md §8 records the execution): dpl-doc
+  content tier (list_shows/list_content_episodes/all_episodes/
+  clone_episode, EPISODE_RESERVED += assets), dpl-index keep/associate
+  (jail-bound source, episode-must-exist, companions, never-clobber,
+  sidecar rewrite + rekey+upsert), Gallery Keep flow, union pickers in
+  Present + Workbench + editor, "copy to my shows" chip w/ the three
+  ratified show suggestions; drills: index-cli keep/associate, app
+  `--clone-seed`; the first real show exists:
+  content/devpulse-news/how-ai-works.
 
 ## Program W — Authoring (continues #104/#105)
 
@@ -129,8 +152,50 @@ gates.
   slots). Pilot: gallery-gate baselines per template.
 - **T2** hotspots, diagram; replay template waits on Program S.
 - **T3** minigame doctrine as data + drag-match keyboard path +
-  reduced-motion support. Pilot: keyboard-only drag-match scenario (the
+  reduced-motion support. DOCTRINE RATIFIED (operator, 2026-07-23):
+  authored data, NEVER hardcoded — one `doctrine.json` shape also
+  carries the deferred per-slide flags (chrome-hidden, ink opt-out,
+  chapter-lock, budgets). Pilot: keyboard-only drag-match scenario (the
   old repo's Pass Q, now machine-verified every run).
+- **T4 guide-slide template** (operator's spec, 2026-07-22): a FULL
+  recorded guide becomes ONE slide — its internal reveal steps ARE the
+  recorded steps, ridden by the D2 beat grammar (advance/retreat walks
+  the do→done frames with the click-highlight ring; one guide = one
+  slide in a show, stepped through live on the 75"). A new
+  `Block::Guide` kind referencing the captured guide through the folder
+  contract (frames live under the slide's reserved `assets/`); frames
+  render through the one renderer; editable like any slide (the W5
+  reviewer owns reorder/delete/caption). Depends: C2 (capture), D2
+  (beat grammar), X1 (guides indexed). Pilot: a fixture guide steps
+  end-to-end via the deck scenario.
+
+## Program G — Guide export (net-new; operator's spec 2026-07-22)
+
+The full guide pipeline this program completes: **C2 capture → W5
+review/edit in Workbench → T4 guide-slide in a show → G1 standalone
+export**. The export is the operator's shareable artifact: *"a self
+contained guide i can later share on my website... a vlc like
+experience... stand alone easy to download and browser and be optimized
+while styling engaging."*
+
+- **G1 self-contained guide export:** one download — a folder (or
+  single-file HTML) bundling the guide's WebP frames + guide.json + a
+  small dependency-free player: VLC-like transport (play/pause/
+  step-forward/back, scrub, keyboard + touch), progress rail with step
+  ticks, do→done toggle, click-highlight ring, captions from guide
+  metadata. Styled FROM ColdLight — the mood/ink/font vocabulary
+  generated out as CSS from the same token sources (never hand-authored
+  twice; a build-time emitter, same pattern as the registries). Browser-
+  optimized: WebP frames, lazy-load + preload-next, zero network
+  dependencies — works from file:// and any static host. Pilot: export
+  a fixture guide → engine-unit asserts the bundle is CLOSED (no
+  external refs) + a headless-browser drill steps it end-to-end.
+- **G2 export polish:** poster/OG share card, optional autoplay demo
+  mode, size-budget report at export time. After G1 proves out.
+
+Operator (2026-07-23): the portable guide export is a SEPARATE,
+later, independent bonus feature — never entangled with the show
+doctrine or the episode tree.
 
 ## Program A — Agent console (census #7)
 
@@ -141,10 +206,11 @@ gates.
 
 ## Program S — Sessions, rethought (census #8)
 
-- **S-ADR**: rrweb was webview tech; ratify the video-first session
-  vehicle (screen-record the app itself via the existing recorder +
-  navigation event track from the fabric → seekable session artifact).
-  No code before the ADR is ratified with the operator.
+- **S-ADR — RATIFIED (operator, 2026-07-23: "yes we have to go
+  native")**: the video-first native session vehicle — screen-record the
+  app itself via the existing recorder + a navigation event track from
+  the fabric → a seekable session artifact. Full plan:
+  docs/plans/s-adr-sessions.md.
 
 ## Program P — Portable/kiosk (census #9)
 
@@ -163,6 +229,7 @@ gates.
 
 W3 → W4 (in flight, small) run first; then **D1–D2** (the show machine
 core) with X1 in parallel (index is UI-independent); then X2/W5, D3–D5,
-C-passes, T, A1, P, H. S-ADR whenever the operator wants the session
+C-passes, T (T4 after C2+D2+X1 land), **G1** (after T4 — the pipeline's
+payoff), A1, P, H. S-ADR whenever the operator wants the session
 conversation. Every pass lands its pilot scenarios in the same commit —
 coverage and features never diverge.

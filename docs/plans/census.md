@@ -165,6 +165,13 @@ C2+ agent driving, provider mesh, RROFlow, right-panel tools, ai_labels
 producer — all were plans/stubs in the old repo too; they enter the ledger as
 net-new features, not port debt.
 
+**Decided net-new (2026-07-22, roadmap Programs T4/G):** the guide-slide
+template (a full recorded guide = ONE slide, reveals = its steps, D2 beat
+grammar) and the self-contained web guide export (VLC-like standalone
+player, ColdLight-styled, zero-dependency, shareable from the operator's
+website). The old repo only ever sketched these (Studio P3 / steps-plan
+S6); the rewrite owns them as first-class roadmap programs.
+
 **Rewrite is AHEAD on:** moods/mood-blend backdrop, fonts pool, fluid-as-
 container math, typed fabric, status-cell registry, chart infographics,
 document layer (refs-never-values), the green gate, and EguiPilotAI.
