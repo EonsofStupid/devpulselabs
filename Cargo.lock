@@ -1610,9 +1610,11 @@ dependencies = [
  "dpl-engine-capture",
  "dpl-engine-steps",
  "dpl-fabric",
+ "dpl-hub",
  "dpl-index",
  "egui",
  "image",
+ "serde_json",
  "tokio",
 ]
 

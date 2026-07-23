@@ -65,15 +65,22 @@ struct VideoRec {
     done: Arc<Mutex<Option<Result<u32, String>>>>,
 }
 
+pub mod session;
+
 pub struct Pixvix {
     open: bool,
     tab: Tab,
     status: String,
     rx: tokio::sync::broadcast::Receiver<ShellEvent>,
+    /// Kept whole so a session can take a FRESH subscription at start —
+    /// a broadcast receiver only sees traffic after it subscribes.
+    fabric: Fabric,
     steps: Arc<StepsRecorder>,
     steps_note: Arc<Mutex<String>>,
     region: Option<RegionSelect>,
     video: Option<VideoRec>,
+    /// The running session recording (S1), if any.
+    session: Option<session::SessionRec>,
     windows: Vec<cap::WindowInfo>,
     picked_window: usize,
 }
@@ -94,10 +101,12 @@ impl Pixvix {
             tab: Tab::Img,
             status: String::new(),
             rx: fabric.subscribe_shell(),
+            fabric: fabric.clone(),
             steps: StepsRecorder::new(sink),
             steps_note,
             region: None,
             video: None,
+            session: None,
             windows: Vec::new(),
             picked_window: 0,
         }
@@ -148,6 +157,28 @@ impl Pixvix {
     /// report the status line (`--pixvix-snap` — Law 2 without a mouse).
     pub fn snap_full_now(&mut self) -> &str {
         self.snap_full();
+        &self.status
+    }
+
+    /// Harness: start a session through the REAL handler
+    /// (`--session-drill` — Law 2 without a mouse).
+    pub fn session_start_now(&mut self) -> &str {
+        self.start_session();
+        &self.status
+    }
+
+    /// Harness: request the running session's stop.
+    pub fn session_stop_now(&mut self) {
+        self.stop_session();
+    }
+
+    /// True while a session records or its video leg is still closing.
+    pub fn session_active(&self) -> bool {
+        self.session.is_some()
+    }
+
+    /// The honest status line — the drill's verdict source.
+    pub fn status_text(&self) -> &str {
         &self.status
     }
 
@@ -331,6 +362,62 @@ impl Pixvix {
         }
     }
 
+    /// Start a SESSION (S1): the folder artifact, the video leg on its
+    /// thread, and a fresh fabric subscription feeding events.jsonl.
+    fn start_session(&mut self) {
+        if self.session.is_some() {
+            return;
+        }
+        let rx = self.fabric.subscribe_shell();
+        let result = Self::inbox().and_then(|inbox| {
+            let dir = session::session_dir(&inbox);
+            std::fs::create_dir_all(&dir).map_err(|e| format!("session: {e}"))?;
+            let events = session::EventLog::create(&dir.join("events.jsonl"))?;
+            let stop = Arc::new(AtomicBool::new(false));
+            let done = Arc::new(Mutex::new(None));
+            session::spawn_video(&dir, Arc::clone(&stop), Arc::clone(&done))?;
+            Ok(session::SessionRec {
+                dir,
+                stop,
+                started: Instant::now(),
+                done,
+                rx,
+                events,
+            })
+        });
+        match result {
+            Ok(s) => {
+                self.status = format!("session recording {}", s.dir.display());
+                self.session = Some(s);
+            }
+            Err(e) => self.status = e,
+        }
+    }
+
+    fn stop_session(&mut self) {
+        if let Some(s) = &self.session {
+            s.stop.store(true, Ordering::Release);
+            self.status = format!("stopping {}", s.dir.display());
+        }
+    }
+
+    /// X1 write-through for a finished (or partial) session FOLDER —
+    /// kind "session", poster when the video leg produced one. Same
+    /// status-line degrade law as `index_capture`.
+    fn index_session(dir: &Path) -> String {
+        let root = cap::content_root();
+        let mut record = dpl_index::record_for_capture(dir, &root, "session", "pixvix");
+        if dir.join("session.jpg").is_file() {
+            record.poster_rel_path = Some(format!("{}/session.jpg", record.rel_path));
+        }
+        let result = dpl_index::sidecar::write(dir, &record)
+            .and_then(|()| dpl_index::Index::open_default()?.upsert(&record));
+        match result {
+            Ok(()) => String::new(),
+            Err(e) => format!(" · index: {e}"),
+        }
+    }
+
     /// Drive the overlay for this frame: consume summons, then render the
     /// palette viewport (or the REC pill) and the region-select viewport.
     pub fn ui(&mut self, ctx: &egui::Context) {
@@ -354,6 +441,31 @@ impl Pixvix {
                     Err(e) => format!("video: {e}"),
                 };
                 self.video = None;
+            }
+        }
+
+        // The running session: drain observed fabric traffic into the
+        // track every frame; a finished video leg files the folder once.
+        // A video ERROR still files — events.jsonl makes it a partial
+        // session, and files are the truth.
+        if let Some(s) = &mut self.session {
+            s.drain();
+            let done = s.done.lock().expect("session done lock").take();
+            if let Some(result) = done {
+                let dir = s.dir.clone();
+                let n = s.events.count();
+                self.status = match result {
+                    Ok(frames) => format!(
+                        "session saved {} ({frames} frames · {n} events){}",
+                        dir.display(),
+                        Self::index_session(&dir)
+                    ),
+                    Err(e) => format!(
+                        "session video: {e} · partial kept ({n} events){}",
+                        Self::index_session(&dir)
+                    ),
+                };
+                self.session = None;
             }
         }
 
@@ -384,6 +496,10 @@ impl Pixvix {
         let status = self.status.clone();
         let steps_state = self.steps.status();
         let video_elapsed = self.video.as_ref().map(|v| v.started.elapsed().as_secs());
+        let session_state = self
+            .session
+            .as_ref()
+            .map(|s| (s.started.elapsed().as_secs(), s.events.count()));
         let windows: Vec<String> = self
             .windows
             .iter()
@@ -415,6 +531,7 @@ impl Pixvix {
                             &windows,
                             picked,
                             video_elapsed,
+                            session_state,
                             &note,
                             &mut actions,
                         );
@@ -456,6 +573,12 @@ impl Pixvix {
         }
         if actions.video_start {
             self.start_video();
+        }
+        if actions.session_start {
+            self.start_session();
+        }
+        if actions.session_stop {
+            self.stop_session();
         }
         if actions.video_stop {
             self.stop_video();
@@ -660,6 +783,8 @@ struct PaletteActions {
     free_deferred: bool,
     video_start: bool,
     video_stop: bool,
+    session_start: bool,
+    session_stop: bool,
     steps_start: bool,
     steps_mark: bool,
     steps_stop: bool,
@@ -673,6 +798,7 @@ fn palette(
     windows: &[String],
     picked: usize,
     video_elapsed: Option<u64>,
+    session_state: Option<(u64, usize)>,
     steps_note: &str,
     actions: &mut PaletteActions,
 ) {
@@ -779,16 +905,44 @@ fn palette(
                 );
             }
         },
-        Tab::Session => {
-            ui.label(
-                RichText::new("Session replay (video-first) lands with PV1c —")
-                    .color(cl::ink::MUTED),
-            );
-            ui.label(
-                RichText::new("the inbox/index engine pass. Honest placeholder.")
-                    .color(cl::ink::MUTED),
-            );
-        }
+        Tab::Session => match session_state {
+            Some((secs, events)) => {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(cl::icon::REC)
+                            .color(Tone::Coral.color())
+                            .size(15.0),
+                    );
+                    ui.label(
+                        RichText::new(format!("REC {:02}:{:02}", secs / 60, secs % 60))
+                            .monospace()
+                            .color(Tone::Coral.color()),
+                    );
+                    ui.label(
+                        RichText::new(format!("{events} events"))
+                            .small()
+                            .color(cl::ink::SUBTLE),
+                    );
+                    if chip(ui, cl::icon::STOP, "Stop", TONE) {
+                        actions.session_stop = true;
+                    }
+                });
+            }
+            None => {
+                ui.horizontal(|ui| {
+                    if chip(ui, cl::icon::REC, "Record session", TONE) {
+                        actions.session_start = true;
+                    }
+                });
+                ui.label(
+                    RichText::new(
+                        "Screen video + a typed event track (routes, beats) — one session artifact.",
+                    )
+                    .small()
+                    .color(cl::ink::SUBTLE),
+                );
+            }
+        },
         Tab::Steps => {
             ui.horizontal(|ui| {
                 if chip(ui, cl::icon::REC, "Start guide", TONE) {

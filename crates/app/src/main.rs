@@ -63,6 +63,14 @@ fn main() -> eframe::Result {
         .and_then(|i| args.get(i + 1))
         .and_then(|n| n.parse().ok());
     let pixvix_snap = args.iter().any(|a| a == "--pixvix-snap");
+    // `--session-drill <secs>` — start a REAL session through the
+    // palette's own handler, hop routes (observed fabric traffic), stop
+    // after the window, exit on the recorder's own verdict (S1).
+    let session_drill: Option<u32> = args
+        .iter()
+        .position(|a| a == "--session-drill")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|n| n.parse().ok());
     // `--present <episode-id>` boots straight into the show, full-bleed —
     // the deck surface proves itself on the real exe.
     let present: Option<String> = args
@@ -132,6 +140,7 @@ fn main() -> eframe::Result {
                 pixvix_snap,
                 mood,
                 present,
+                session_drill,
             });
             #[cfg(feature = "eguipilotai-devtools")]
             let app = {
@@ -155,6 +164,7 @@ struct Boot {
     pixvix_snap: bool,
     mood: Option<usize>,
     present: Option<String>,
+    session_drill: Option<u32>,
 }
 
 struct App {
@@ -165,6 +175,9 @@ struct App {
     shot_frame: u32,
     pixvix_snap: bool,
     snap_frames: u32,
+    session_drill: Option<u32>,
+    drill_frames: u32,
+    drill_started: Option<std::time::Instant>,
     #[cfg(feature = "eguipilotai-devtools")]
     pilot_runtime: Option<egui_pilot_ai_runtime::RuntimeGuard>,
 }
@@ -180,6 +193,7 @@ impl App {
             pixvix_snap,
             mood,
             present,
+            session_drill,
         } = boot;
         let mut library = dpl_hub_library::LibraryHub::default();
         if let Some(id) = focus {
@@ -247,6 +261,9 @@ impl App {
             shot_frame,
             pixvix_snap,
             snap_frames: 0,
+            session_drill,
+            drill_frames: 0,
+            drill_started: None,
             #[cfg(feature = "eguipilotai-devtools")]
             pilot_runtime: None,
         }
@@ -430,6 +447,48 @@ impl eframe::App for App {
                 let msg = self.pixvix.snap_full_now().to_string();
                 eprintln!("pixvix-snap: {msg}");
                 std::process::exit(if msg.starts_with("saved") { 0 } else { 1 });
+            }
+            ctx.request_repaint();
+        }
+
+        // `--session-drill <secs>`: the S1 drill — the real session
+        // handler, two real route hops (the shell PUBLISHES RouteChanged;
+        // the recorder only ever observes), stop after the window, exit
+        // on the recorder's own status verdict.
+        if let Some(secs) = self.session_drill {
+            self.drill_frames += 1;
+            match self.drill_frames {
+                30 => {
+                    let msg = self.pixvix.session_start_now().to_string();
+                    eprintln!("session-drill: {msg}");
+                    if !msg.starts_with("session recording") {
+                        std::process::exit(1);
+                    }
+                    self.drill_started = Some(std::time::Instant::now());
+                }
+                60 => self.shell.navigate(Route {
+                    hub: dpl_hub_workbench::HUB,
+                    sub: dpl_hub_workbench::SEEDS,
+                }),
+                90 => self.shell.navigate(Route {
+                    hub: dpl_hub_present::HUB,
+                    sub: dpl_hub_present::SHOWS,
+                }),
+                _ => {}
+            }
+            if let Some(t0) = self.drill_started {
+                if self.pixvix.session_active() && t0.elapsed().as_secs() >= u64::from(secs) {
+                    self.pixvix.session_stop_now();
+                }
+                if !self.pixvix.session_active() {
+                    let msg = self.pixvix.status_text().to_string();
+                    eprintln!("session-drill: {msg}");
+                    std::process::exit(if msg.starts_with("session saved") {
+                        0
+                    } else {
+                        1
+                    });
+                }
             }
             ctx.request_repaint();
         }

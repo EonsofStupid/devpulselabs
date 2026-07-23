@@ -435,8 +435,9 @@ impl Index {
             .ok_or_else(|| format!("no file name in {rel_path:?}"))?;
 
         if source.is_dir() {
-            // A guide folder travels WHOLE — frames, guide.json, and its
-            // artifact.meta.json sidecar are already inside it.
+            // A folder artifact (guide, session) travels WHOLE — frames,
+            // manifest, and its artifact.meta.json sidecar are inside it.
+            let kind = folder_kind(&source).unwrap_or("folder");
             let dest = never_clobber(&assets, &file_name, false);
             match op {
                 FileOp::Move => {
@@ -445,7 +446,7 @@ impl Index {
                 FileOp::Copy => copy_dir(&source, &dest)?,
             }
             let new_rel = rel_path_of(&dest, root);
-            let mut r = record_for(&dest, root, "guide", &file_name);
+            let mut r = record_for(&dest, root, kind, &file_name);
             self.relocate(&dest, &mut r, &new_rel, show, episode)?;
             if op == FileOp::Move {
                 self.rekey(rel_path, &new_rel, Some(show), Some(episode))?;
@@ -678,6 +679,20 @@ pub mod sidecar {
 
 // ── the disk scan (reindex's truth feed) ────────────────────────────────
 
+/// What a FOLDER artifact is, by its marker file: a guide (guide.json)
+/// or a session (session.mp4 / events.jsonl — a partial session with
+/// only the event track still counts; files are the truth). None = not
+/// an artifact folder.
+fn folder_kind(dir: &Path) -> Option<&'static str> {
+    if dir.join("guide.json").is_file() {
+        Some("guide")
+    } else if dir.join("session.mp4").is_file() || dir.join("events.jsonl").is_file() {
+        Some("session")
+    } else {
+        None
+    }
+}
+
 fn kind_of(path: &Path) -> Option<&'static str> {
     match path
         .extension()
@@ -705,8 +720,8 @@ fn scan_inbox(root: &Path) -> Result<Vec<Record>, String> {
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().into_owned();
         if path.is_dir() {
-            if path.join("guide.json").is_file() {
-                out.push(record_for(&path, root, "guide", &name));
+            if let Some(kind) = folder_kind(&path) {
+                out.push(record_for(&path, root, kind, &name));
             }
             continue;
         }
@@ -1186,6 +1201,45 @@ mod tests {
         let rows = ix.list(Some("guide"), Some("content")).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].rel_path, new_rel);
+    }
+
+    // ── sessions (S1) — folder artifacts beyond guides ──────────────────
+
+    #[test]
+    fn a_session_folder_reindexes_even_partial_and_keeps_its_kind() {
+        let root = scratch("session");
+        let ses = root.join("inbox").join("session-20260723-120000");
+        std::fs::create_dir_all(&ses).unwrap();
+        std::fs::write(ses.join("session.mp4"), b"vid").unwrap();
+        std::fs::write(ses.join("session.jpg"), b"poster").unwrap();
+        std::fs::write(ses.join("events.jsonl"), "{\"ms\":0}\n").unwrap();
+        // A PARTIAL session — the app died before the video finished.
+        let part = root.join("inbox").join("session-partial");
+        std::fs::create_dir_all(&part).unwrap();
+        std::fs::write(part.join("events.jsonl"), "{\"ms\":0}\n").unwrap();
+
+        let ix = Index::open(&root.join("artifacts.db")).unwrap();
+        let report = ix.reindex(&root).unwrap();
+        assert_eq!(report.indexed, 2, "full + partial both index");
+        let rows = ix.list(Some("session"), None).unwrap();
+        assert_eq!(rows.len(), 2);
+
+        // Keep preserves the kind — no guide mislabel.
+        content_episode(&root, "devpulse-news", "ep1");
+        let new_rel = ix
+            .keep(
+                &root,
+                "inbox/session-20260723-120000",
+                "devpulse-news",
+                "ep1",
+            )
+            .unwrap();
+        let kept = ix.list(Some("session"), Some("content")).unwrap();
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].rel_path, new_rel);
+        assert!(root
+            .join("devpulse-news/ep1/assets/session-20260723-120000/events.jsonl")
+            .is_file());
     }
 
     #[test]

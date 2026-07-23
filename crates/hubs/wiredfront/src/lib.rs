@@ -108,11 +108,12 @@ pub struct WiredfrontHub {
     gallery: Option<GalleryView>,
 }
 
-const FILTERS: [(&str, Option<&'static str>); 4] = [
+const FILTERS: [(&str, Option<&'static str>); 5] = [
     ("all", None),
     ("image", Some("image")),
     ("video", Some("video")),
     ("guide", Some("guide")),
+    ("session", Some("session")),
 ];
 
 impl WiredfrontHub {
@@ -357,10 +358,12 @@ fn artifact_card(
                             cl::ink::SUBTLE
                         }))
                         .interact(Sense::click());
+                    // Per-CARD id — a shared "gallery.keep" duplicates
+                    // (and panics) the moment two inbox cards render.
                     ui.pilot_track(
                         &resp,
                         NodeMetadata::new(
-                            PilotId::new("gallery").child(&PilotKey::new("keep")),
+                            PilotId::new("gallery.keep").child(&PilotKey::new(&r.rel_path)),
                             egui_pilot_ai::protocol::Role::Button,
                             "Keep into a show",
                         )
@@ -421,6 +424,12 @@ fn thumb_uri(r: &dpl_index::Record, root: &std::path::Path) -> Option<String> {
             first
                 .is_file()
                 .then_some(format!("{}/step-001.webp", r.rel_path))
+        }
+        "session" => {
+            let poster = root.join(&r.rel_path).join("session.jpg");
+            poster
+                .is_file()
+                .then_some(format!("{}/session.jpg", r.rel_path))
         }
         _ => None,
     }?;
