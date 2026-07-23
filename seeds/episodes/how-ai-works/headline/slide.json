@@ -23,5 +23,8 @@
       "font": "spacegrotesk",
       "size": "h3"
     }
+  ],
+  "reveals": [
+    "subtitle"
   ]
 }

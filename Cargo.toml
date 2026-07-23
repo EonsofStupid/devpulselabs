@@ -19,10 +19,12 @@ members = [
     "crates/slides",
     "crates/doc",
     "crates/editor",
+    "crates/deck",
     "crates/pixvix",
     "crates/fabric",
     "crates/shell",
     "crates/hubs/home",
+    "crates/hubs/present",
     "crates/hubs/workbench",
     "crates/hubs/wiredfront",
     "crates/hubs/chat",
@@ -83,10 +85,12 @@ dpl-engine-steps = { path = "crates/engine-steps" }
 dpl-slides = { path = "crates/slides" }
 dpl-doc = { path = "crates/doc" }
 dpl-editor = { path = "crates/editor" }
+dpl-deck = { path = "crates/deck" }
 dpl-pixvix = { path = "crates/pixvix" }
 dpl-fabric = { path = "crates/fabric" }
 dpl-shell = { path = "crates/shell" }
 dpl-hub-home = { path = "crates/hubs/home" }
+dpl-hub-present = { path = "crates/hubs/present" }
 dpl-hub-workbench = { path = "crates/hubs/workbench" }
 dpl-hub-wiredfront = { path = "crates/hubs/wiredfront" }
 dpl-hub-chat = { path = "crates/hubs/chat" }

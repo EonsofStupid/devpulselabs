@@ -200,6 +200,7 @@ pub fn render(
 }
 
 /// Render AND return where every block landed (for the editor's hit-test).
+/// Wall mode: every block visible, the entrance staggers them all.
 pub fn render_traced(
     ui: &mut Ui,
     rect: Rect,
@@ -208,9 +209,40 @@ pub fn render_traced(
     now: f64,
     t0: f64,
 ) -> RenderMap {
+    render_inner(ui, rect, slide, look, None, now, t0)
+}
+
+/// Deck mode (D2): render at a BEAT position. Step 0 = setup (unrevealed
+/// blocks hidden, the visible ones play the slide entrance); step k shows
+/// reveals[0..k], the LATEST reveal rising from `t0` (the deck restarts
+/// its clock every beat, so each beat animates exactly one thing). Layout
+/// measures ALL blocks — no reflow between steps; hidden blocks aren't
+/// painted but their rects still land in the RenderMap.
+pub fn render_step(
+    ui: &mut Ui,
+    rect: Rect,
+    slide: &dpl_doc::Slide,
+    look: &dpl_doc::Look,
+    step: usize,
+    now: f64,
+    t0: f64,
+) -> RenderMap {
+    render_inner(ui, rect, slide, look, Some(step), now, t0)
+}
+
+fn render_inner(
+    ui: &mut Ui,
+    rect: Rect,
+    slide: &dpl_doc::Slide,
+    look: &dpl_doc::Look,
+    step: Option<usize>,
+    now: f64,
+    t0: f64,
+) -> RenderMap {
     // The whole cascade happens HERE, once — the body below paints a
     // fully-specified document exactly as before W3b.
     let slide = &dpl_doc::resolve(slide, look);
+    let step = step.map(|s| s.min(slide.step_count() - 1));
     let accent = background(ui, rect, slide.background.as_ref(), now, t0);
 
     let fluid = cl::Fluid::of(rect);
@@ -219,6 +251,7 @@ pub fn render_traced(
     let wrap = (rect.width() - pad * 2.0).max(40.0);
 
     // Pass 1 — measure (galley layout is cached by egui, this is cheap).
+    // ALL blocks measure, revealed or not — steps never reflow the stack.
     let mut heights = Vec::with_capacity(slide.blocks.len());
     for block in &slide.blocks {
         let dpl_doc::Block::Text {
@@ -239,9 +272,11 @@ pub fn render_traced(
     // Pass 2 — the entrance (rise, staggered) and the real paint.
     let rising = slide.enter.as_deref() == Some("rise");
     let fx = cl::motion::ENTER_RISE;
-    if rising && fx.in_flight(now, t0, slide.blocks.len()) {
+    if fx.in_flight(now, t0, slide.blocks.len()) && (rising || step.is_some_and(|s| s > 0)) {
         ui.ctx().request_repaint();
     }
+    // Where each block sits in the reveal order (None = always visible).
+    let reveal_pos = |id: &str| slide.reveals.iter().position(|r| r == id);
     let mut map = RenderMap {
         background: rect,
         blocks: Vec::with_capacity(slide.blocks.len()),
@@ -255,7 +290,34 @@ pub fn render_traced(
             size,
             ink,
         } = block;
-        let p = if rising { fx.at(now, t0, i) } else { 1.0 };
+        // The stable rect (rest position) — hit-testing ignores the
+        // one-time entrance lift so a tap lands where the text settles.
+        let block_rect =
+            Rect::from_min_size(egui::pos2(rect.min.x + pad, y), egui::vec2(0.0, heights[i]));
+        let rp = reveal_pos(id);
+        let visible = match (step, rp) {
+            (Some(s), Some(p)) => p < s,
+            _ => true, // wall mode, or a block outside the reveal order
+        };
+        // Animation policy: wall mode / step 0 = the slide entrance
+        // staggering all VISIBLE blocks; later steps animate only the
+        // block that just revealed.
+        let p = match step {
+            None | Some(0) => {
+                if rising {
+                    fx.at(now, t0, i)
+                } else {
+                    1.0
+                }
+            }
+            Some(s) => {
+                if rp == Some(s - 1) {
+                    fx.at(now, t0, 0)
+                } else {
+                    1.0
+                }
+            }
+        };
         let px = size_of(&fluid, size).unwrap_or_else(|| fluid.fs_body());
         let color = ink_of(ink.as_deref().unwrap_or("base"), accent).gamma_multiply(p);
         let galley = painter.layout(
@@ -264,15 +326,15 @@ pub fn render_traced(
             color,
             wrap,
         );
-        // The stable rect (rest position) — hit-testing ignores the
-        // one-time entrance lift so a tap lands where the text settles.
         let block_rect = Rect::from_min_size(
-            egui::pos2(rect.min.x + pad, y),
+            block_rect.min,
             egui::vec2(galley.size().x.max(wrap * 0.15), heights[i]),
         );
         map.blocks.push((id.clone(), block_rect));
-        let lift = fluid.sp_5() * (1.0 - p);
-        painter.galley(egui::pos2(rect.min.x + pad, y + lift), galley, color);
+        if visible {
+            let lift = fluid.sp_5() * (1.0 - p);
+            painter.galley(egui::pos2(rect.min.x + pad, y + lift), galley, color);
+        }
         y += heights[i] + gap;
     }
     map
@@ -361,6 +423,7 @@ mod tests {
                 ink: Some("chartreuse".into()),
             }],
             enter: Some("rise".into()),
+            reveals: Vec::new(),
         };
         let ctx = egui::Context::default();
         cl::apply_theme(&ctx);
@@ -388,6 +451,7 @@ mod tests {
                 ink: None,
             }],
             enter: None,
+            reveals: Vec::new(),
         };
         let ctx = egui::Context::default();
         cl::apply_theme(&ctx);
@@ -397,6 +461,52 @@ mod tests {
                 render(ui, rect, &sparse, &dpl_doc::Look::fallback(), 1.0, 0.0);
             });
         });
+    }
+
+    /// The beat renderer (D2): every step of a reveal slide paints without
+    /// panicking, and the RenderMap's block rects are IDENTICAL across
+    /// steps — reveals never reflow the stack.
+    #[test]
+    fn render_step_is_stable_across_every_beat() {
+        let slide = dpl_doc::Slide {
+            v: dpl_doc::SCHEMA_V,
+            template: "title".into(),
+            background: None,
+            blocks: vec![
+                dpl_doc::Block::Text {
+                    id: "title".into(),
+                    text: "Always there".into(),
+                    font: None,
+                    size: "h1".into(),
+                    ink: None,
+                },
+                dpl_doc::Block::Text {
+                    id: "sub".into(),
+                    text: "Revealed on beat one".into(),
+                    font: None,
+                    size: "h3".into(),
+                    ink: None,
+                },
+            ],
+            enter: None,
+            reveals: vec!["sub".into()],
+        };
+        assert_eq!(slide.step_count(), 2);
+        let look = dpl_doc::Look::fallback();
+        let ctx = egui::Context::default();
+        cl::apply_theme(&ctx);
+        let mut maps: Vec<RenderMap> = Vec::new();
+        for step in 0..slide.step_count() {
+            let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let rect = ui.max_rect();
+                    maps.push(render_step(ui, rect, &slide, &look, step, 5.0, 0.0));
+                });
+            });
+        }
+        let rects = |m: &RenderMap| m.blocks.clone();
+        assert_eq!(rects(&maps[0]), rects(&maps[1]), "steps must not reflow");
+        assert_eq!(maps[0].blocks.len(), 2, "hidden blocks still hit-test");
     }
 
     /// Every SEED renders through the real pipeline (registries + theme).

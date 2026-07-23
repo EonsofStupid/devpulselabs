@@ -32,6 +32,20 @@ pub struct Slide {
     /// static; "rise" = the entrance.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enter: Option<String>,
+    /// The beat grammar's reveals (D2): an ORDERED list of block ids
+    /// revealed one per step. Step 0 is the SETUP (only unlisted blocks
+    /// visible — arriving never pre-reveals); step k shows reveals[0..k].
+    /// Empty = a single-step slide; callers never branch.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reveals: Vec<String>,
+}
+
+impl Slide {
+    /// The deck's step count for this slide: `reveals + 1` (step 0 =
+    /// setup). Never zero.
+    pub fn step_count(&self) -> usize {
+        self.reveals.len() + 1
+    }
 }
 
 /// The slide's backdrop — the operator's tap-the-background target.
@@ -255,6 +269,27 @@ pub fn validate(slide: &Slide) -> Vec<Issue> {
             issues.push(Issue {
                 path: "enter".into(),
                 message: format!("unknown enter {e:?}"),
+            });
+        }
+    }
+
+    // Reveals (D2): every entry names an existing block, exactly once.
+    let mut seen_reveal = std::collections::BTreeSet::new();
+    for r in &slide.reveals {
+        let exists = slide.blocks.iter().any(|b| {
+            let Block::Text { id, .. } = b;
+            id == r
+        });
+        if !exists {
+            issues.push(Issue {
+                path: "reveals".into(),
+                message: format!("reveal names unknown block {r:?}"),
+            });
+        }
+        if !seen_reveal.insert(r.clone()) {
+            issues.push(Issue {
+                path: "reveals".into(),
+                message: format!("duplicate reveal {r:?}"),
             });
         }
     }
@@ -680,6 +715,7 @@ mod tests {
                 ink: Some("strong".into()),
             }],
             enter: Some("rise".into()),
+            reveals: Vec::new(),
         }
     }
 
@@ -971,6 +1007,7 @@ mod tests {
                 },
             ],
             enter: None,
+            reveals: Vec::new(),
         };
         let r = resolve(&sparse, &look);
         assert_eq!(r.background, Some(look.background.clone()));
@@ -1001,6 +1038,7 @@ mod tests {
                 ink: None,
             }],
             enter: None,
+            reveals: Vec::new(),
         };
         save(&dir, &sparse).unwrap();
         let raw = std::fs::read_to_string(dir.join("slide.json")).unwrap();
@@ -1071,6 +1109,37 @@ mod tests {
         assert!(
             !all.contains("\"look.json\""),
             "look flagged as stray: {all}"
+        );
+    }
+
+    // ── reveals (D2) ────────────────────────────────────────────────────
+
+    #[test]
+    fn reveals_validate_against_block_ids_and_count_steps() {
+        let mut slide = sample();
+        assert_eq!(slide.step_count(), 1, "no reveals = single step");
+        slide.reveals = vec!["title".into()];
+        assert_eq!(slide.step_count(), 2);
+        assert_eq!(validate(&slide), Vec::new(), "a real block id is clean");
+
+        slide.reveals = vec!["ghost".into(), "title".into(), "title".into()];
+        let all = validate(&slide)
+            .iter()
+            .map(|i| i.message.clone())
+            .collect::<Vec<_>>()
+            .join(" | ");
+        assert!(all.contains("unknown block \"ghost\""), "{all}");
+        assert!(all.contains("duplicate reveal \"title\""), "{all}");
+    }
+
+    #[test]
+    fn empty_reveals_stay_absent_on_disk() {
+        let dir = scratch("reveals");
+        save(&dir, &sample()).unwrap();
+        let raw = std::fs::read_to_string(dir.join("slide.json")).unwrap();
+        assert!(
+            !raw.contains("\"reveals\""),
+            "empty reveals crept in: {raw}"
         );
     }
 

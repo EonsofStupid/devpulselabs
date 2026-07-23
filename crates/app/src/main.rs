@@ -63,6 +63,13 @@ fn main() -> eframe::Result {
         .and_then(|i| args.get(i + 1))
         .and_then(|n| n.parse().ok());
     let pixvix_snap = args.iter().any(|a| a == "--pixvix-snap");
+    // `--present <episode-id>` boots straight into the show, full-bleed —
+    // the deck surface proves itself on the real exe.
+    let present: Option<String> = args
+        .iter()
+        .position(|a| a == "--present")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
 
     let options = eframe::NativeOptions {
         // MAXIMIZED — a fixed logical size overflows small displays at
@@ -88,7 +95,7 @@ fn main() -> eframe::Result {
             egui_pilot_ai::install(&cc.egui_ctx);
             // Media blocks: file:// images resolve through these loaders.
             egui_extras::install_image_loaders(&cc.egui_ctx);
-            let app = App::new(
+            let app = App::new(Boot {
                 shot,
                 boot_route,
                 focus,
@@ -96,7 +103,8 @@ fn main() -> eframe::Result {
                 pixvix_open,
                 pixvix_snap,
                 mood,
-            );
+                present,
+            });
             #[cfg(feature = "eguipilotai-devtools")]
             let app = {
                 let mut app = app;
@@ -106,6 +114,19 @@ fn main() -> eframe::Result {
             Ok(Box::new(app))
         }),
     )
+}
+
+/// The harness/boot flags, parsed once in `main` — one value, not a
+/// nine-argument constructor.
+struct Boot {
+    shot: Option<std::path::PathBuf>,
+    boot_route: Option<(String, String)>,
+    focus: Option<String>,
+    shot_frame: u32,
+    pixvix_open: bool,
+    pixvix_snap: bool,
+    mood: Option<usize>,
+    present: Option<String>,
 }
 
 struct App {
@@ -121,30 +142,38 @@ struct App {
 }
 
 impl App {
-    fn new(
-        shot: Option<std::path::PathBuf>,
-        boot_route: Option<(String, String)>,
-        focus: Option<String>,
-        shot_frame: u32,
-        pixvix_open: bool,
-        pixvix_snap: bool,
-        mood: Option<usize>,
-    ) -> Self {
+    fn new(boot: Boot) -> Self {
+        let Boot {
+            shot,
+            boot_route,
+            focus,
+            shot_frame,
+            pixvix_open,
+            pixvix_snap,
+            mood,
+            present,
+        } = boot;
         let mut library = dpl_hub_library::LibraryHub::default();
         if let Some(id) = focus {
             library.set_focus(id);
         }
+        // ONE fabric, shared: the shell publishes AND (since D2) listens;
+        // the Present hub requests full-bleed over it.
+        let fabric = Fabric::new();
+        let mut present_hub = dpl_hub_present::PresentHub::new(fabric.clone());
+        if let Some(id) = &present {
+            present_hub.open_show(id);
+        }
         // The registry — a new hub is ONE line here and nothing else.
         let hubs: Vec<Box<dyn Hub>> = vec![
             Box::new(dpl_hub_home::HomeHub),
+            Box::new(present_hub),
             Box::new(dpl_hub_workbench::WorkbenchHub::default()),
             Box::new(library),
             Box::new(dpl_hub_wiredfront::WiredfrontHub),
             Box::new(dpl_hub_chat::ChatHub),
         ];
 
-        // ONE fabric, shared: the shell publishes, the overlay subscribes.
-        let fabric = Fabric::new();
         let mut pixvix = dpl_pixvix::Pixvix::new(&fabric);
         if pixvix_open {
             pixvix.open_now();
@@ -171,6 +200,15 @@ impl App {
                 hub: dpl_hub_wiredfront::HUB,
                 sub: dpl_hub_wiredfront::PIXVIX,
             }),
+        }
+        if present.is_some() {
+            // The harness path: the hub opened its deck before the shell
+            // subscribed to the fabric, so full-bleed is set directly.
+            shell.navigate(Route {
+                hub: dpl_hub_present::HUB,
+                sub: dpl_hub_present::SHOWS,
+            });
+            shell.set_full_bleed(true);
         }
 
         Self {

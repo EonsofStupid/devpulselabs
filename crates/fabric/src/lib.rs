@@ -22,7 +22,15 @@ pub enum ShellEvent {
     /// Consumer: the pixvix crate (B4); until then the inspector's signal
     /// count is the visible proof the launcher fires.
     PixvixSummon,
+    /// A hub asks the shell to enter/leave full-bleed (D2: the Present
+    /// hub's deck owns the viewport while a show runs). Consumer: the
+    /// shell, which drains its receiver each frame.
+    FullBleedRequest(bool),
 }
+
+/// A shell-domain subscription — consumers hold this without needing a
+/// tokio dependency of their own.
+pub type ShellReceiver = broadcast::Receiver<ShellEvent>;
 
 /// The fabric hands out senders and subscriptions; it never processes.
 /// Broadcast is deliberately lossy under pressure (oldest dropped, receiver

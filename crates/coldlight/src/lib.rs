@@ -259,6 +259,7 @@ pub mod icon {
     pub const LIBRARY: &str = "\u{E464}"; // squares-four
     pub const WIREDFRONT: &str = "\u{E8C2}"; // film-slate
     pub const BOT: &str = "\u{E762}"; // robot
+    pub const PRESENT: &str = "\u{E58C}"; // monitor-play — the show machine
 
     // The footer + chrome.
     pub const SNIP: &str = "\u{E10E}"; // camera

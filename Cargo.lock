@@ -1010,6 +1010,7 @@ dependencies = [
  "dpl-hub-chat",
  "dpl-hub-home",
  "dpl-hub-library",
+ "dpl-hub-present",
  "dpl-hub-wiredfront",
  "dpl-hub-workbench",
  "dpl-pixvix",
@@ -1102,6 +1103,17 @@ dependencies = [
  "egui",
  "palette",
  "serde_json",
+]
+
+[[package]]
+name = "dpl-deck"
+version = "0.1.0"
+dependencies = [
+ "dpl-coldlight",
+ "dpl-doc",
+ "dpl-slides",
+ "egui",
+ "egui-pilot-ai",
 ]
 
 [[package]]
@@ -1198,6 +1210,18 @@ dependencies = [
  "dpl-coldlight",
  "dpl-hub",
  "dpl-slides",
+ "egui",
+]
+
+[[package]]
+name = "dpl-hub-present"
+version = "0.1.0"
+dependencies = [
+ "dpl-coldlight",
+ "dpl-deck",
+ "dpl-doc",
+ "dpl-fabric",
+ "dpl-hub",
  "egui",
 ]
 

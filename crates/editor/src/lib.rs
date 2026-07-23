@@ -745,6 +745,7 @@ mod tests {
                 ink: Some("strong".into()),
             }],
             enter: Some("rise".into()),
+            reveals: Vec::new(),
         }
     }
 
@@ -762,6 +763,7 @@ mod tests {
                 ink: None,
             }],
             enter: None,
+            reveals: Vec::new(),
         }
     }
 
