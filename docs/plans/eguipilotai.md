@@ -1,11 +1,22 @@
 # EguiPilotAI — canonical agent-first egui testing architecture
 
-Status: ratified for implementation on 2026-07-22.
+Status: ratified for implementation on 2026-07-22; native multi-viewport
+contract amended on 2026-07-23 after the exact egui 0.35 and DevPULSE audit.
 
 EguiPilotAI is a reusable Rust toolkit for deterministic agent exploration and
 durable testing of native egui applications. DevPULSE Labs is the first
 qualification target. Autonomous MCP exploration and reviewed Rust/TOML tests
 are equal product contracts backed by one typed scenario model.
+
+The implementation is reviewed against Playwright's behavioral contracts in
+`docs/eguipilotai-playwright-review.md`. DevPULSE's one-path authoring rules
+live in `docs/eguipilotai-devpulse-authoring.md`. Those files report status and
+show usage; this file remains the only architectural authority.
+
+Detailed engineering contracts and the source census are indexed in
+`docs/research/eguipilotai/README.md`. The dependency-ordered execution plan is
+`docs/plans/eguipilotai-v1-delivery.md`. Those documents elaborate this
+architecture and must not weaken its security, production, or evidence laws.
 
 `eguidev` is research inspiration only. Browser concepts are translated to
 native equivalents. WASM execution is outside v1, but protocol, transport,
@@ -34,6 +45,12 @@ server.
 7. Approved baseline bytes are immutable and content-addressed.
 8. MCP selects named profiles and fixtures only. It accepts no executable,
    environment, shell, or unrestricted artifact path.
+9. Every accepted protocol command has exactly one correlated success/error
+   response. Asynchronous runtime events are independently identified and
+   never masquerade as command responses.
+10. Pilot semantics and the real AccessKit output are distinct verified
+    projections of one owner registration. Reports never call pilot-only data
+    an accessibility tree.
 
 ## Crate boundaries
 
@@ -62,12 +79,50 @@ Register one `EguiPilotPlugin` with the application's `egui::Context`.
 
 - Input hooks inject queued events, modifiers, viewport identity, and virtual
   time.
-- Pass/output hooks commit semantic frames, output/AccessKit diagnostics,
-  screenshots, repaint state, and viewport mappings.
+- Pass/output hooks commit semantic frames, actual AccessKit deltas and their
+  reconstructed per-viewport trees, screenshots, repaint state, diagnostics,
+  and viewport mappings.
 - `UiPilotExt` wraps standard widgets; `pilot_track` instruments custom
   `allocate_rect` interactions.
-- Automation and accessibility data originate from the same registration.
+- Standard wrappers and `pilot_interact` correlate the stable `PilotPath`, real
+  `egui::Id`, and AccessKit tree/node IDs. Automation and accessibility data
+  originate from the same registration and are parity-checked.
 - The control runtime is compiled only by the devtools feature.
+
+## Boring extension contract
+
+EguiPilotAI deliberately has one extension lane. A new capability is not
+complete when only a protocol enum or a Test Lab button exists. It lands as a
+vertical slice in this order:
+
+1. shared typed protocol data and serialization tests;
+2. runtime behavior using real egui input, or an explicitly named white-box
+   adapter when real input cannot represent the operation;
+3. runner orchestration, artifact capture, and failure classification;
+4. durable TOML/Rust authoring support;
+5. compact MCP exposure only when an autonomous agent genuinely needs it;
+6. Test Lab inspection/replay support;
+7. one toolkit conformance test and one real DevPULSE scenario.
+
+Application customization does not fork the toolkit. DevPULSE supplies only:
+
+- IDs and semantic metadata in the crate that owns the control;
+- named profiles, projects, and fixtures in `.eguipilotai.toml`;
+- deterministic fixture/service adapters registered by typed ID;
+- durable flows under `tests/eguipilotai/`;
+- renderer-keyed approvals under `tests/ui/baselines/`.
+
+Stable controls use one declared `PilotId`. Repeated controls use one declared
+parent plus a domain-stable `PilotKey`. Standard widgets use `UiPilotExt`;
+custom-painted interactions use `pilot_track`. Async work holds one busy token
+for its exact lifetime. Visual motion consumes `PilotClock` or registers once
+at its point of authorship. There is no second instrumentation path.
+
+App-specific operations such as seeding a content root, inspecting a saved
+document, or simulating an OS boundary use a named, typed adapter. They are
+reported as adapter operations in traces and are never described as pointer or
+keyboard input. MCP may select a predeclared adapter through a fixture, but may
+not supply executable code, paths, environment, or arbitrary adapter names.
 
 ## Transport and protocol
 
@@ -85,6 +140,15 @@ and stdio remain target-gated; core crates compile for
 The handshake validates protocol version, target build, session ID, and a
 nonce that exists only in the private launch environment. Stdout contains only
 framed protocol bytes; target diagnostics are captured from stderr.
+
+Commands, responses, and runtime events are distinct envelopes. Typed request
+IDs correlate exactly one success/error response to every accepted command;
+typed event IDs order independent lifecycle, step, diagnostic, viewport,
+motion, and attachment events. Long-running runs may emit progress events and
+finish out of request order while status/cancel commands remain serviceable.
+Required events are lossless; declared high-rate telemetry may coalesce with a
+reported drop count. Full trees and image bytes are externalized as bounded,
+jailed attachments rather than queued inline.
 
 ## Agent snapshot contract
 
@@ -126,10 +190,60 @@ Pointer operations use real hover, press, move, and release frames. Drag uses
 multiple pointer-move frames between source and target. Keyboard actions use
 real key/text events.
 
+High-level actions compile into an internal stateful input sequence with typed
+keyboard, pointer, and wheel sources and synchronized per-frame ticks. The
+runtime tracks pressed keys/buttons/modifiers and performs release-all cleanup
+after success, failure, timeout, cancellation, stop, or recoverable panic. A
+cleanup failure prevents process reuse. Input plans and ticks are traceable;
+raw event injection is not an MCP capability.
+
 Settlement requires no pending input action, no busy token, and stable relevant
 semantic/layout hashes for two frames. Global repaint silence is never required
 because DevPULSE intentionally contains perpetual ambient loops. Assertions
 retry through normal frame timing until their bounded deadline.
+
+## Native multi-viewport contract
+
+An additional egui viewport is a first-class window lifetime inside the same
+target process and session. It is not inferred from the presence of semantic
+nodes and is not modeled as an unrelated process or browser page.
+
+- Applications declare a stable typed `PilotViewportKey` beside the code that
+  owns each window. Root is registered automatically.
+- The runtime allocates a new `ViewportId` generation every time a declared
+  key becomes live. Durable scenarios select the key; actions pin and recheck
+  the current lifetime so reopened windows cannot satisfy stale work.
+- The registry records parent, immediate/deferred/embedded class, title,
+  focus/visibility/minimize/maximize/occlusion state, logical geometry,
+  native pixels-per-point, and lifecycle revision from authoritative
+  `RawInput.viewports`.
+- Created, close-requested, focused, and closed transitions are lossless
+  runtime events. Geometry/status updates may coalesce.
+- Closed windows are removed from live semantics, AccessKit mirrors, input,
+  captures, motion/busy ownership, and lookup maps. Bounded tombstones exist
+  only for waits and evidence and are never actionable.
+- Locators, non-node keyboard/wheel actions, focus/close operations, and
+  captures use strict `ViewportSelector` resolution. An omitted selector is
+  valid only when exactly one viewport is live.
+- Input source state is viewport-bound. Cross-window drag remains unsupported
+  because per-viewport `RawInput` cannot honestly represent OS-global drag.
+- Captures resolve one viewport strictly, match screenshot events to that
+  viewport, settle against its semantic/geometry/pixel hashes, and record its
+  key, lifetime, class, dimensions, and DPI. Root capture is qualified.
+  Immediate child capture is explicitly unsupported in eframe 0.35 native wgpu
+  because its renderer drops screenshot requests; deferred capture remains
+  unqualified. Session-wide stitched capture is a separate future capability.
+- Native-required projects reject `EmbeddedWindow` fallback. Platform-optional
+  geometry such as Wayland outer position is never fabricated.
+- Shutdown releases input, closes children leaf-first, flushes lifecycle
+  evidence, then closes root.
+
+The shared instrumentation wrapper currently supports immediate egui viewports.
+PixVix qualifies discovery, focus, targeted input, lifecycle, close, and
+teardown. A reusable deferred wrapper and fixture must qualify independent
+repainting and renderer-supported capture before the planned presenter viewport
+uses that path. The detailed gap audit, protocol shape, evidence, and open
+gates are in `docs/research/eguipilotai/multi-viewport.md`.
 
 ## Deterministic motion and capture
 
@@ -188,6 +302,12 @@ CLI surface:
 - `eguipilotai open`
 - `eguipilotai agent install codex|cursor|claude`
 
+Runner parity also requires predictable commands/options for test discovery,
+project selection, filtering/tags, timeout hierarchy, workers, sharding,
+retries, fail-fast, last-failed, structured reporters, trace opening, and
+baseline candidate review. These are runner/CLI concerns and do not expand the
+six-tool MCP surface.
+
 MCP exposes exactly:
 
 - `pilot_start`
@@ -232,17 +352,35 @@ Workbench Test Lab provides:
 
 ## Delivery sequence
 
-1. Ratify architecture and the test/devtools IPC exception.
-2. Implement protocol, transport, typed semantics, pruning, and in-memory
-   conformance.
-3. Instrument the DevPULSE shell and prove an exploratory-plus-durable slice.
-4. Implement native stdio runtime, actionability, real input, clocks, motion,
-   fixtures, capture settlement, and multi-viewport discovery.
-5. Implement process runner, durable scenarios, retries/sharding/reporters,
-   traces, and exploration export.
-6. Add Lavapipe CI, renderer-keyed visuals, replay, and Test Lab.
-7. Complete DevPULSE interaction/accessibility coverage, agent conformance,
-   performance gates, WASM gates, and publication qualification.
+1. Freeze honest current status and protocol-v1 migration evidence.
+2. Implement protocol-v2 correlated responses, independent events,
+   cancellation, capabilities, and bounded pressure.
+3. Implement the stateful input-source/tick executor and release-all cleanup.
+4. Implement native viewport identity, lifecycle, targeting, scoped capture,
+   and deterministic child-first shutdown.
+5. Implement one semantic registration projected into pilot and actual
+   AccessKit output, with tree reconstruction and parity tests.
+6. Implement the serial catalog/assertion/timeout runner.
+7. Add fixture lifecycles, project scheduling, isolated retries, sharding, and
+   structured reports.
+8. Add structured traces, deterministic replay, renderer-keyed visuals, and
+   immutable approval.
+9. Instrument DevPULSE in shell/Library, templates, then Workbench/PixVix
+   waves, each with real-process pointer, keyboard, accessibility, and motion
+   scenarios.
+10. Project the shared runner/evidence model into Test Lab and reviewed agent
+   recorder/codegen workflows.
+11. Complete Lavapipe/hardware CI, security/performance/memory/WASM gates, and
+    publication qualification.
+
+Exact slice deliverables, tests, non-goals, and exit gates live in
+`docs/plans/eguipilotai-v1-delivery.md`.
+
+The sequence is capability-gated. Data types or UI placeholders do not advance
+a phase. In particular, project `workers`/`retries`, structured reporters,
+fixture lifecycle, semantic snapshot matching, baseline approval, recorder
+codegen, replay, and Test Lab live control remain incomplete until their full
+vertical slices pass real-process scenarios.
 
 ## Publication gates
 
@@ -254,7 +392,9 @@ interaction/capture/shutdown; accessibility snapshots; and keyboard-only use.
 
 Required diagnostics cover duplicate IDs, ambiguity, clipping, disabled
 targets, uncontrolled motion, stalled busy tokens, protocol mismatch,
-disconnect, timeout, panic, and renderer failure.
+disconnect, timeout, panic, renderer failure, stale viewport lifetime,
+ambiguous viewport, unsupported embedded fallback, child capture mismatch,
+and child shutdown timeout.
 
 Quantitative gates:
 

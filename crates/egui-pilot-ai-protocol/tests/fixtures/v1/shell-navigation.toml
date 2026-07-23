@@ -1,0 +1,34 @@
+id = "shell-navigation"
+record = true
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/shell.rail/workbench"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "hover"
+
+[steps.action.target]
+id = "root/shell.rail/workbench"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+role = "menu-item"
+name = "Test Lab"
+
+[[steps]]
+kind = "capture"
+name = "workbench-test-lab-flyout"

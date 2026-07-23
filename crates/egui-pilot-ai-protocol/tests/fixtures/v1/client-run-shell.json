@@ -1,0 +1,33 @@
+{
+  "sequence": 3,
+  "session": "compat",
+  "command": {
+    "type": "run",
+    "id": "shell-navigation",
+    "steps": [
+      {
+        "kind": "expect",
+        "expectation": {
+          "type": "visible",
+          "target": { "id": "root/shell.rail/workbench", "volatile": false }
+        }
+      },
+      {
+        "kind": "action",
+        "action": {
+          "type": "hover",
+          "target": { "id": "root/shell.rail/workbench", "volatile": false }
+        }
+      },
+      {
+        "kind": "expect",
+        "expectation": {
+          "type": "visible",
+          "target": { "role": "menu-item", "name": "Test Lab", "volatile": false }
+        }
+      },
+      { "kind": "capture", "name": "workbench-test-lab-flyout" }
+    ],
+    "record": true
+  }
+}

@@ -1,4 +1,6 @@
 [alias]
+# Conventional cargo-xtask entry point used by local docs and CI diagnostics.
+xtask = "run -p xtask --"
 # THE gate: fmt-check + clippy(-D warnings) + tests + release build with exe-mtime assert.
 green = "run -p xtask --release --"
 gate = "clippy --workspace --all-targets -- -D warnings"

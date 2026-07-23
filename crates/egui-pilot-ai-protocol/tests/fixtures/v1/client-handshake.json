@@ -1,0 +1,10 @@
+{
+  "sequence": 1,
+  "session": "compat",
+  "command": {
+    "type": "handshake",
+    "protocol_version": 1,
+    "build": "runner-v1",
+    "session_nonce": "nonce-v1"
+  }
+}

@@ -4,7 +4,7 @@
 //! threads or browser callbacks, but every call made from an egui pass is
 //! nonblocking.
 
-use egui_pilot_ai_protocol::{ClientEnvelope, ServerEnvelope, MAX_ENVELOPE_BYTES};
+use egui_pilot_ai_protocol::{CommandEnvelope, ServerMessage, MAX_ENVELOPE_BYTES};
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
@@ -38,17 +38,18 @@ impl std::fmt::Display for TransportError {
 impl std::error::Error for TransportError {}
 
 /// Application-side endpoint. It receives client commands and emits server
-/// events. The trait intentionally has no `Send`, async, or native-I/O bound.
+/// messages. The trait intentionally has no `Send`, async, or native-I/O
+/// bound.
 pub trait Transport {
-    fn try_receive(&mut self) -> Result<Option<ClientEnvelope>, TransportError>;
-    fn try_send(&mut self, envelope: ServerEnvelope) -> Result<(), TransportError>;
+    fn try_receive(&mut self) -> Result<Option<CommandEnvelope>, TransportError>;
+    fn try_send(&mut self, message: ServerMessage) -> Result<(), TransportError>;
     fn close(&mut self) -> Result<(), TransportError>;
     fn is_closed(&self) -> bool;
 }
 
 struct MemoryState {
-    to_runtime: VecDeque<ClientEnvelope>,
-    to_client: VecDeque<ServerEnvelope>,
+    to_runtime: VecDeque<CommandEnvelope>,
+    to_client: VecDeque<ServerMessage>,
     capacity: usize,
     closed: bool,
 }
@@ -80,7 +81,7 @@ pub fn in_memory_pair(capacity: usize) -> (InMemoryClient, InMemoryTransport) {
 }
 
 impl InMemoryClient {
-    pub fn try_send(&self, envelope: ClientEnvelope) -> Result<(), TransportError> {
+    pub fn try_send(&self, envelope: CommandEnvelope) -> Result<(), TransportError> {
         let mut state = self.state.borrow_mut();
         if state.closed {
             return Err(TransportError::Closed);
@@ -94,7 +95,7 @@ impl InMemoryClient {
         Ok(())
     }
 
-    pub fn try_receive(&self) -> Result<Option<ServerEnvelope>, TransportError> {
+    pub fn try_receive(&self) -> Result<Option<ServerMessage>, TransportError> {
         let mut state = self.state.borrow_mut();
         if state.closed && state.to_client.is_empty() {
             return Err(TransportError::Closed);
@@ -108,7 +109,7 @@ impl InMemoryClient {
 }
 
 impl Transport for InMemoryTransport {
-    fn try_receive(&mut self) -> Result<Option<ClientEnvelope>, TransportError> {
+    fn try_receive(&mut self) -> Result<Option<CommandEnvelope>, TransportError> {
         let mut state = self.state.borrow_mut();
         if state.closed && state.to_runtime.is_empty() {
             return Err(TransportError::Closed);
@@ -116,7 +117,7 @@ impl Transport for InMemoryTransport {
         Ok(state.to_runtime.pop_front())
     }
 
-    fn try_send(&mut self, envelope: ServerEnvelope) -> Result<(), TransportError> {
+    fn try_send(&mut self, envelope: ServerMessage) -> Result<(), TransportError> {
         let mut state = self.state.borrow_mut();
         if state.closed {
             return Err(TransportError::Closed);
@@ -171,11 +172,15 @@ pub fn read_frame<R: std::io::Read, T: serde::de::DeserializeOwned>(
     reader: &mut R,
 ) -> Result<Option<T>, TransportError> {
     let mut prefix = [0u8; 4];
-    match reader.read_exact(&mut prefix) {
-        Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
+    match reader.read(&mut prefix[..1]) {
+        Ok(0) => return Ok(None),
+        Ok(1) => {}
+        Ok(_) => unreachable!("one-byte prefix read returned more than one byte"),
         Err(error) => return Err(TransportError::Io(error.to_string())),
     }
+    reader
+        .read_exact(&mut prefix[1..])
+        .map_err(|error| TransportError::Io(error.to_string()))?;
     let length = u32::from_be_bytes(prefix) as usize;
     if length > MAX_ENVELOPE_BYTES {
         return Err(TransportError::EnvelopeTooLarge {
@@ -195,19 +200,19 @@ pub fn read_frame<R: std::io::Read, T: serde::de::DeserializeOwned>(
 #[cfg(not(target_arch = "wasm32"))]
 mod stdio {
     use super::{read_frame, write_frame, Transport, TransportError};
-    use egui_pilot_ai_protocol::{ClientEnvelope, ServerEnvelope};
+    use egui_pilot_ai_protocol::{CommandEnvelope, ServerMessage};
     use std::io::{Read, Write};
     use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError};
 
     enum Outbound {
-        Envelope(Box<ServerEnvelope>),
+        Envelope(Box<ServerMessage>),
         Close,
     }
 
     /// Native framed transport. Reader and writer block only on dedicated
     /// worker threads; runtime calls interact with bounded channels.
     pub struct StdioTransport {
-        inbound: Receiver<Result<ClientEnvelope, TransportError>>,
+        inbound: Receiver<Result<CommandEnvelope, TransportError>>,
         outbound: SyncSender<Outbound>,
         capacity: usize,
         closed: bool,
@@ -271,7 +276,7 @@ mod stdio {
     }
 
     impl Transport for StdioTransport {
-        fn try_receive(&mut self) -> Result<Option<ClientEnvelope>, TransportError> {
+        fn try_receive(&mut self) -> Result<Option<CommandEnvelope>, TransportError> {
             if self.closed {
                 return Err(TransportError::Closed);
             }
@@ -285,7 +290,7 @@ mod stdio {
             }
         }
 
-        fn try_send(&mut self, envelope: ServerEnvelope) -> Result<(), TransportError> {
+        fn try_send(&mut self, envelope: ServerMessage) -> Result<(), TransportError> {
             if self.closed {
                 return Err(TransportError::Closed);
             }
@@ -331,33 +336,68 @@ pub use stdio::StdioTransport;
 mod tests {
     use super::*;
     use egui_pilot_ai_protocol::{
-        ClientCommand, ClientEnvelope, ServerEnvelope, ServerEvent, SessionId,
+        ClientCommand, CommandEnvelope, CommandResult, RequestId, ResponseEnvelope,
+        ResponseOutcome, ServerMessage, SessionId,
     };
     use std::io::Cursor;
+    #[cfg(not(target_arch = "wasm32"))]
+    use std::sync::{Arc, Mutex};
+    #[cfg(not(target_arch = "wasm32"))]
+    use std::time::{Duration, Instant};
 
-    fn client(sequence: u64) -> ClientEnvelope {
-        ClientEnvelope {
-            sequence,
+    #[cfg(not(target_arch = "wasm32"))]
+    #[derive(Clone, Default)]
+    struct SharedWriter(Arc<Mutex<Vec<u8>>>);
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl std::io::Write for SharedWriter {
+        fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+            self.0
+                .lock()
+                .expect("shared writer")
+                .extend_from_slice(buffer);
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn client(sequence: u64) -> CommandEnvelope {
+        CommandEnvelope {
+            request_id: RequestId::new(format!("request-{sequence}")),
             session: SessionId::new("test"),
             command: ClientCommand::Status,
         }
     }
 
-    fn server(sequence: u64) -> ServerEnvelope {
-        ServerEnvelope {
-            sequence,
+    fn server(sequence: u64) -> ServerMessage {
+        ServerMessage::response(ResponseEnvelope {
+            request_id: RequestId::new(format!("request-{sequence}")),
             session: SessionId::new("test"),
-            event: ServerEvent::Stopped,
-        }
+            outcome: ResponseOutcome::Success {
+                result: Box::new(CommandResult::Stopped),
+            },
+        })
     }
 
     #[test]
     fn in_memory_pair_is_bidirectional() {
         let (client_side, mut runtime) = in_memory_pair(2);
         client_side.try_send(client(1)).unwrap();
-        assert_eq!(runtime.try_receive().unwrap().unwrap().sequence, 1);
+        assert_eq!(
+            runtime.try_receive().unwrap().unwrap().request_id,
+            RequestId::new("request-1")
+        );
         runtime.try_send(server(2)).unwrap();
-        assert_eq!(client_side.try_receive().unwrap().unwrap().sequence, 2);
+        let message = client_side.try_receive().unwrap().unwrap();
+        assert!(matches!(
+            message,
+            ServerMessage::Response {
+                envelope: ResponseEnvelope { request_id, .. }
+            } if request_id == RequestId::new("request-2")
+        ));
     }
 
     #[test]
@@ -375,14 +415,80 @@ mod tests {
         let expected = client(42);
         let mut bytes = Vec::new();
         write_frame(&mut bytes, &expected).unwrap();
-        let decoded: ClientEnvelope = read_frame(&mut Cursor::new(bytes)).unwrap().unwrap();
+        let decoded: CommandEnvelope = read_frame(&mut Cursor::new(bytes)).unwrap().unwrap();
         assert_eq!(decoded, expected);
     }
 
     #[test]
     fn oversized_prefix_is_rejected_before_allocation() {
         let bytes = ((MAX_ENVELOPE_BYTES as u32) + 1).to_be_bytes();
-        let error = read_frame::<_, ClientEnvelope>(&mut Cursor::new(bytes)).unwrap_err();
+        let error = read_frame::<_, CommandEnvelope>(&mut Cursor::new(bytes)).unwrap_err();
         assert!(matches!(error, TransportError::EnvelopeTooLarge { .. }));
+    }
+
+    #[test]
+    fn corrupt_and_truncated_frames_fail_closed() {
+        let payload = b"{not-json}";
+        let mut corrupt = Vec::from((payload.len() as u32).to_be_bytes());
+        corrupt.extend_from_slice(payload);
+        assert!(matches!(
+            read_frame::<_, CommandEnvelope>(&mut Cursor::new(corrupt)),
+            Err(TransportError::Protocol(_))
+        ));
+
+        assert!(matches!(
+            read_frame::<_, CommandEnvelope>(&mut Cursor::new([0, 0])),
+            Err(TransportError::Io(_))
+        ));
+        assert!(matches!(
+            read_frame::<_, CommandEnvelope>(&mut Cursor::new([0, 0, 0, 4, b'{'])),
+            Err(TransportError::Io(_))
+        ));
+    }
+
+    #[test]
+    fn in_memory_disconnect_is_explicit_after_queued_messages_drain() {
+        let (client_side, mut runtime) = in_memory_pair(2);
+        client_side.try_send(client(1)).unwrap();
+        client_side.close();
+        assert_eq!(runtime.try_receive().unwrap(), Some(client(1)));
+        assert_eq!(runtime.try_receive(), Err(TransportError::Closed));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn stdio_adapter_conforms_to_nonblocking_envelope_contract() {
+        let expected_client = client(7);
+        let mut input = Vec::new();
+        write_frame(&mut input, &expected_client).unwrap();
+        let output = SharedWriter::default();
+        let output_view = output.clone();
+        let mut transport = StdioTransport::from_io(Cursor::new(input), output, 2);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let received = loop {
+            match transport.try_receive() {
+                Ok(Some(envelope)) => break envelope,
+                Ok(None) if Instant::now() < deadline => std::thread::yield_now(),
+                result => panic!("stdio inbound did not settle: {result:?}"),
+            }
+        };
+        assert_eq!(received, expected_client);
+
+        let expected_server = server(8);
+        transport.try_send(expected_server.clone()).unwrap();
+        let output_bytes = loop {
+            let bytes = output_view.0.lock().expect("shared writer").clone();
+            if bytes.len() >= 4 {
+                let length = u32::from_be_bytes(bytes[..4].try_into().unwrap()) as usize;
+                if bytes.len() >= 4 + length {
+                    break bytes;
+                }
+            }
+            assert!(Instant::now() < deadline, "stdio outbound did not settle");
+            std::thread::yield_now();
+        };
+        let decoded: ServerMessage = read_frame(&mut Cursor::new(output_bytes)).unwrap().unwrap();
+        assert_eq!(decoded, expected_server);
+        transport.close().unwrap();
     }
 }

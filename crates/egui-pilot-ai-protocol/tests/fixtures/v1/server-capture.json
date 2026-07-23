@@ -1,0 +1,11 @@
+{
+  "sequence": 3,
+  "session": "compat",
+  "event": {
+    "type": "capture",
+    "name": "workbench-test-lab-flyout",
+    "artifact": "captures/0123456789abcdef.png",
+    "content_hash": "0123456789abcdef",
+    "renderer_key": "windows-compat"
+  }
+}

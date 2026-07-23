@@ -15,12 +15,35 @@ use dpl_fabric::{Fabric, ShellEvent};
 use egui::{
     Align2, Color32, CornerRadius, FontId, Rect, RichText, Sense, ViewportBuilder, ViewportId,
 };
+use egui_pilot_ai::protocol::{ActionKind as PilotActionKind, PilotViewportKey, Role as PilotRole};
+use egui_pilot_ai::{ContextPilotExt, NodeMetadata, PilotId, UiPilotExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 const TONE: Tone = Tone::Magenta; // wiredFRONT's tone — the capture family.
+const PALETTE_KEY: &str = "devpulse.pixvix.palette";
+const REGION_KEY: &str = "devpulse.pixvix.region";
+const PALETTE_TITLE: PilotId = PilotId::new("pixvix.title");
+const PALETTE_CLOSE: PilotId = PilotId::new("pixvix.close");
+const TAB_IMG: PilotId = PilotId::new("pixvix.tab.img");
+const TAB_VIDEO: PilotId = PilotId::new("pixvix.tab.video");
+const TAB_SESSION: PilotId = PilotId::new("pixvix.tab.session");
+const TAB_STEPS: PilotId = PilotId::new("pixvix.tab.steps");
+const REGION_OPEN: PilotId = PilotId::new("pixvix.region.open");
+const SNAP_FULL: PilotId = PilotId::new("pixvix.snap.full");
+const FREEFORM: PilotId = PilotId::new("pixvix.freeform");
+const SNAP_WINDOW: PilotId = PilotId::new("pixvix.snap.window");
+const REFRESH_WINDOWS: PilotId = PilotId::new("pixvix.windows.refresh");
+const VIDEO_START: PilotId = PilotId::new("pixvix.video.start");
+const VIDEO_STOP: PilotId = PilotId::new("pixvix.video.stop");
+const SESSION_START: PilotId = PilotId::new("pixvix.session.start");
+const SESSION_STOP: PilotId = PilotId::new("pixvix.session.stop");
+const STEPS_START: PilotId = PilotId::new("pixvix.steps.start");
+const STEPS_MARK: PilotId = PilotId::new("pixvix.steps.mark");
+const STEPS_STOP: PilotId = PilotId::new("pixvix.steps.stop");
+const REGION_DRAG: PilotId = PilotId::new("pixvix.region.drag");
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {
@@ -46,6 +69,15 @@ impl Tab {
             Tab::Video => "Video",
             Tab::Session => "Session",
             Tab::Steps => "Steps",
+        }
+    }
+
+    fn pilot_id(self) -> PilotId {
+        match self {
+            Self::Img => TAB_IMG,
+            Self::Video => TAB_VIDEO,
+            Self::Session => TAB_SESSION,
+            Self::Steps => TAB_STEPS,
         }
     }
 }
@@ -512,32 +544,40 @@ impl Pixvix {
             .map(|n| n.clone())
             .unwrap_or_default();
 
-        ctx.show_viewport_immediate(ViewportId::from_hash_of("pixvix"), builder, |ctx, _| {
-            egui::CentralPanel::default()
-                .frame(
-                    egui::Frame::new()
-                        .fill(cl::surface::RAISED)
-                        .stroke(egui::Stroke::new(1.0, cl::surface::HAIRLINE))
-                        .inner_margin(egui::Margin::same(10)),
-                )
-                .show(ctx, |ui| {
-                    if steps_state.recording {
-                        rec_pill(ui, steps_state.count, &mut actions);
-                    } else {
-                        palette(
-                            ui,
-                            tab,
-                            &status,
-                            &windows,
-                            picked,
-                            video_elapsed,
-                            session_state,
-                            &note,
-                            &mut actions,
-                        );
-                    }
-                });
-        });
+        let mut close_requested = false;
+        ctx.pilot_show_viewport_immediate(
+            PilotViewportKey::new(PALETTE_KEY),
+            ViewportId::from_hash_of("pixvix"),
+            builder,
+            |ctx, _| {
+                close_requested = ctx.input(|input| input.viewport().close_requested());
+                egui::CentralPanel::default()
+                    .frame(
+                        egui::Frame::new()
+                            .fill(cl::surface::RAISED)
+                            .stroke(egui::Stroke::new(1.0, cl::surface::HAIRLINE))
+                            .inner_margin(egui::Margin::same(10)),
+                    )
+                    .show(ctx, |ui| {
+                        if steps_state.recording {
+                            rec_pill(ui, steps_state.count, &mut actions);
+                        } else {
+                            palette(
+                                ui,
+                                tab,
+                                &status,
+                                &windows,
+                                picked,
+                                video_elapsed,
+                                session_state,
+                                &note,
+                                &mut actions,
+                            );
+                        }
+                    });
+            },
+        );
+        actions.close |= close_requested;
 
         self.apply(actions, ctx);
     }
@@ -604,10 +644,13 @@ impl Pixvix {
             .with_always_on_top()
             .with_decorations(false);
 
-        ctx.show_viewport_immediate(
+        let mut close_requested = false;
+        ctx.pilot_show_viewport_immediate(
+            PilotViewportKey::new(REGION_KEY),
             ViewportId::from_hash_of("pixvix-region"),
             builder,
             |ctx, _| {
+                close_requested = ctx.input(|input| input.viewport().close_requested());
                 egui::CentralPanel::default()
                     .frame(egui::Frame::new().fill(Color32::BLACK))
                     .show(ctx, |ui| {
@@ -623,6 +666,14 @@ impl Pixvix {
 
                         let resp =
                             ui.interact(full, egui::Id::new("pixvix-region-drag"), Sense::drag());
+                        let mut metadata = NodeMetadata::new(
+                            REGION_DRAG,
+                            PilotRole::Region,
+                            "PixVix region selection",
+                        )
+                        .value("drag to select");
+                        metadata.actions = vec![PilotActionKind::Drag];
+                        ui.pilot_track(&resp, metadata);
                         if resp.drag_started() {
                             if let Some(p) = resp.interact_pointer_pos() {
                                 region.drag = Some((p, p));
@@ -735,6 +786,9 @@ impl Pixvix {
                     });
             },
         );
+        if close_requested {
+            finish = Some(None);
+        }
 
         if let Some(done) = finish {
             let state = self.region.take().expect("region state");
@@ -805,9 +859,13 @@ fn palette(
     // Title row: identity + close.
     ui.horizontal(|ui| {
         ui.label(RichText::new(cl::icon::SNIP).color(TONE.color()).size(14.0));
-        ui.label(RichText::new("PixVix").strong().color(cl::ink::STRONG));
+        let title = ui.label(RichText::new("PixVix").strong().color(cl::ink::STRONG));
+        ui.pilot_track(
+            &title,
+            NodeMetadata::new(PALETTE_TITLE, PilotRole::Heading, "PixVix"),
+        );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if chip(ui, cl::icon::CLOSE, "", TONE) {
+            if pilot_chip(ui, PALETTE_CLOSE, cl::icon::CLOSE, "", TONE) {
                 actions.close = true;
             }
         });
@@ -823,7 +881,12 @@ fn palette(
             } else {
                 RichText::new(text).color(cl::ink::MUTED)
             };
-            if ui.selectable_label(active, rich).clicked() {
+            let response = ui.selectable_label(active, rich);
+            let mut metadata =
+                NodeMetadata::new(t.pilot_id(), PilotRole::Tab, t.label().to_string());
+            metadata.selected = Some(active);
+            ui.pilot_track(&response, metadata);
+            if response.clicked() {
                 actions.tab = Some(t);
             }
         }
@@ -833,13 +896,13 @@ fn palette(
     match tab {
         Tab::Img => {
             ui.horizontal(|ui| {
-                if chip(ui, cl::icon::REGION, "Region", TONE) {
+                if pilot_chip(ui, REGION_OPEN, cl::icon::REGION, "Region", TONE) {
                     actions.begin_region = true;
                 }
-                if chip(ui, cl::icon::FULL, "Full", TONE) {
+                if pilot_chip(ui, SNAP_FULL, cl::icon::FULL, "Full", TONE) {
                     actions.snap_full = true;
                 }
-                if chip(ui, cl::icon::FREE, "Free", TONE) {
+                if pilot_chip(ui, FREEFORM, cl::icon::FREE, "Free", TONE) {
                     // Honest: the polygon editor is a later slice of PV2.
                     actions.free_deferred = true;
                 }
@@ -861,10 +924,10 @@ fn palette(
                             }
                         }
                     });
-                if chip(ui, cl::icon::SNIP, "Snap", TONE) {
+                if pilot_chip(ui, SNAP_WINDOW, cl::icon::SNIP, "Snap", TONE) {
                     actions.snap_window = true;
                 }
-                if ui.small_button("↻").clicked() {
+                if ui.pilot_button(REFRESH_WINDOWS, "↻").clicked() {
                     actions.refresh_windows = true;
                 }
             });
@@ -887,14 +950,14 @@ fn palette(
                             .monospace()
                             .color(Tone::Coral.color()),
                     );
-                    if chip(ui, cl::icon::STOP, "Stop", TONE) {
+                    if pilot_chip(ui, VIDEO_STOP, cl::icon::STOP, "Stop", TONE) {
                         actions.video_stop = true;
                     }
                 });
             }
             None => {
                 ui.horizontal(|ui| {
-                    if chip(ui, cl::icon::REC, "Record screen", TONE) {
+                    if pilot_chip(ui, VIDEO_START, cl::icon::REC, "Record screen", TONE) {
                         actions.video_start = true;
                     }
                 });
@@ -923,14 +986,14 @@ fn palette(
                             .small()
                             .color(cl::ink::SUBTLE),
                     );
-                    if chip(ui, cl::icon::STOP, "Stop", TONE) {
+                    if pilot_chip(ui, SESSION_STOP, cl::icon::STOP, "Stop", TONE) {
                         actions.session_stop = true;
                     }
                 });
             }
             None => {
                 ui.horizontal(|ui| {
-                    if chip(ui, cl::icon::REC, "Record session", TONE) {
+                    if pilot_chip(ui, SESSION_START, cl::icon::REC, "Record session", TONE) {
                         actions.session_start = true;
                     }
                 });
@@ -945,7 +1008,7 @@ fn palette(
         },
         Tab::Steps => {
             ui.horizontal(|ui| {
-                if chip(ui, cl::icon::REC, "Start guide", TONE) {
+                if pilot_chip(ui, STEPS_START, cl::icon::REC, "Start guide", TONE) {
                     actions.steps_start = true;
                 }
             });
@@ -994,29 +1057,37 @@ fn rec_pill(ui: &mut egui::Ui, count: u32, actions: &mut PaletteActions) {
                 .monospace()
                 .color(Tone::Coral.color()),
         );
-        if chip(ui, cl::icon::MARK, "Mark", TONE) {
+        if pilot_chip(ui, STEPS_MARK, cl::icon::MARK, "Mark", TONE) {
             actions.steps_mark = true;
         }
-        if chip(ui, cl::icon::STOP, "Stop", TONE) {
+        if pilot_chip(ui, STEPS_STOP, cl::icon::STOP, "Stop", TONE) {
             actions.steps_stop = true;
         }
         ui.ctx().request_repaint(); // the pulse never rests while recording
     });
 }
 
-fn chip(ui: &mut egui::Ui, glyph: &str, label: &str, tone: Tone) -> bool {
+fn pilot_chip(ui: &mut egui::Ui, id: PilotId, glyph: &str, label: &str, tone: Tone) -> bool {
     let text = if label.is_empty() {
         glyph.to_string()
     } else {
         format!("{glyph} {label}")
     };
-    ui.add(
+    let response = ui.add(
         egui::Button::new(RichText::new(text).color(cl::ink::BASE))
             .fill(cl::surface::OVERLAY)
             .stroke(egui::Stroke::new(1.0, tone.wash()))
             .corner_radius(CornerRadius::same(cl::RADIUS_SM)),
-    )
-    .clicked()
+    );
+    ui.pilot_track(
+        &response,
+        NodeMetadata::new(
+            id,
+            PilotRole::Button,
+            if label.is_empty() { glyph } else { label },
+        ),
+    );
+    response.clicked()
 }
 
 fn truncate(s: &str, max: usize) -> String {

@@ -16,6 +16,7 @@ dpl-index.workspace = true
 serde_json.workspace = true
 # The fabric's broadcast receiver type.
 tokio.workspace = true
+egui-pilot-ai.workspace = true
 
 [dev-dependencies]
 dpl-hub.workspace = true

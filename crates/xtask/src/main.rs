@@ -33,6 +33,7 @@ fn exe_mtime(path: &Path) -> Option<SystemTime> {
 
 fn green() -> Result<(), String> {
     run("fmt", &["fmt", "--all", "--", "--check"])?;
+    docs_status()?;
     run(
         "clippy",
         &[
@@ -46,10 +47,11 @@ fn green() -> Result<(), String> {
     )?;
     run("test", &["test", "--workspace"])?;
 
-    let exe = Path::new("target/release/devpulselabs.exe");
-    let before = exe_mtime(exe);
+    let exe_name = format!("devpulselabs{}", std::env::consts::EXE_SUFFIX);
+    let exe = Path::new("target/release").join(exe_name);
+    let before = exe_mtime(&exe);
     run("release build", &["build", "--release"])?;
-    let after = exe_mtime(exe);
+    let after = exe_mtime(&exe);
     match (before, after) {
         (_, None) => Err("release exe missing after build".into()),
         // Fresh-but-unchanged is fine ONLY when cargo declared it fresh —
@@ -63,10 +65,62 @@ fn green() -> Result<(), String> {
     }
 }
 
+fn docs_status() -> Result<(), String> {
+    let path = Path::new("docs/eguipilotai-playwright-review.md");
+    let text =
+        std::fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))?;
+    let mut in_matrix = false;
+    let mut checked = 0usize;
+    for (index, line) in text.lines().enumerate() {
+        if line == "## Capability matrix" {
+            in_matrix = true;
+            continue;
+        }
+        if in_matrix && line.starts_with("## ") {
+            break;
+        }
+        if !in_matrix || !line.starts_with('|') || line.starts_with("|---") {
+            continue;
+        }
+        let columns: Vec<_> = line.split('|').map(str::trim).collect();
+        if columns.get(1) == Some(&"Playwright contract") {
+            continue;
+        }
+        let status = columns.get(3).copied().unwrap_or_default();
+        if status == "Core"
+            || status == "Partial"
+            || status == "Missing"
+            || status.starts_with("Ready")
+        {
+            let evidence = columns.get(5).copied().unwrap_or_default();
+            if !["test:`", "slice:`", "issue:`"]
+                .iter()
+                .any(|marker| evidence.contains(marker))
+            {
+                return Err(format!(
+                    "{}:{} status `{status}` needs test:, slice:, or issue: evidence",
+                    path.display(),
+                    index + 1
+                ));
+            }
+            checked += 1;
+        }
+    }
+    if checked == 0 {
+        return Err(format!(
+            "{}: capability matrix was not found or contained no checked statuses",
+            path.display()
+        ));
+    }
+    println!("docs status: {checked} evidence-backed capability rows");
+    Ok(())
+}
+
 fn main() -> ExitCode {
     let task = std::env::args().nth(1).unwrap_or_else(|| "green".into());
     let result = match task.as_str() {
         "green" => green(),
+        "docs-status" => docs_status(),
         "fix" => run("fmt", &["fmt", "--all"]).and_then(|()| {
             run(
                 "clippy --fix",
@@ -79,7 +133,9 @@ fn main() -> ExitCode {
                 ],
             )
         }),
-        other => Err(format!("unknown task \"{other}\" — tasks: green, fix")),
+        other => Err(format!(
+            "unknown task \"{other}\" — tasks: green, docs-status, fix"
+        )),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

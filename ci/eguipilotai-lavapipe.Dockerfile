@@ -8,20 +8,22 @@ ENV DEBIAN_FRONTEND=noninteractive \
     TZ=UTC \
     WGPU_BACKEND=vulkan \
     LIBGL_ALWAYS_SOFTWARE=true \
-    VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json \
+    VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json \
     RUSTUP_HOME=/opt/rustup \
     CARGO_HOME=/opt/cargo \
     PATH=/opt/cargo/bin:${PATH}
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential ca-certificates clang cmake curl fontconfig \
-        fonts-dejavu-core git libasound2-dev libfontconfig1-dev libudev-dev \
+        fonts-dejavu-core git libasound2-dev libegl1-mesa-dev \
+        libfontconfig1-dev libpipewire-0.3-dev libudev-dev \
         libvulkan1 libwayland-dev libx11-xcb-dev libxkbcommon-dev \
-        libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev \
+        libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev libxtst-dev \
         mesa-vulkan-drivers pkg-config xauth xvfb \
     && rm -rf /var/lib/apt/lists/* \
     && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-        | sh -s -- -y --profile minimal --default-toolchain stable \
+        | sh -s -- -y --profile minimal --default-toolchain 1.92.0 \
+    && rustup component add rustfmt clippy \
     && rustup target add wasm32-unknown-unknown \
     && fc-cache -f
 

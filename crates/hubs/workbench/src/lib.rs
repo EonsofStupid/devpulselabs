@@ -59,7 +59,7 @@ static SPEC: HubSpec = HubSpec {
         SubRoute {
             id: TEST_LAB,
             label: "Test Lab",
-            blurb: "Agent snapshots, full semantics, isolated runs, traces, and visual approvals.",
+            blurb: "Passive agent snapshots, full semantics, run bundles, and trace previews. Live control and approval are not implemented.",
         },
     ],
 };

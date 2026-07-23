@@ -1,0 +1,5 @@
+{
+  "sequence": 2,
+  "session": "compat",
+  "command": { "type": "status" }
+}

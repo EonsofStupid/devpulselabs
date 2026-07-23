@@ -3,14 +3,27 @@ set -euo pipefail
 
 export WGPU_BACKEND=vulkan
 export LIBGL_ALWAYS_SOFTWARE=true
-export VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+export VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json
 export EGUIPILOTAI_ADAPTER_POLICY=software-required
 export TZ=UTC
 export LANG=C.UTF-8
 
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+bash ci/check-eguipilotai-linux.sh
+
+# Use the same repository-owned gate developers run locally. It includes the
+# documentation evidence check, format, warning-free lint, workspace tests,
+# and the ordinary production release build.
+cargo green
+
+mkdir -p target/eguipilotai
+cargo tree -p devpulselabs --edges normal --prefix none \
+  > target/eguipilotai/production-dependencies.txt
+if grep -Eq '^egui-pilot-ai-(runtime|transport|runner|cli) ' \
+  target/eguipilotai/production-dependencies.txt; then
+  echo "production DevPULSE depends on a forbidden EguiPilotAI control crate" >&2
+  exit 1
+fi
+
 cargo check \
   -p egui-pilot-ai-protocol \
   -p egui-pilot-ai-transport \

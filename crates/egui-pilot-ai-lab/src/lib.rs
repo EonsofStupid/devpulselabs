@@ -1,6 +1,6 @@
-//! Native operator surfaces for semantic inspection, runs, traces, and visual
-//! approval. The Lab is a viewer/controller for a *separate* target process;
-//! it never attaches a control runtime to itself.
+//! Passive native previews for semantic inspection, run bundles, and traces.
+//! Live target control, replay, and visual approval are intentionally marked
+//! unsupported until their delivery slices land.
 
 use egui_pilot_ai_protocol::{
     project_snapshot, AgentSnapshot, SemanticFrame, SessionStatus, SnapshotRequest,
@@ -98,7 +98,7 @@ impl TestLab {
         ui.horizontal(|ui| {
             ui.heading("EguiPilotAI Test Lab");
             ui.label(
-                egui::RichText::new("separate-process control only")
+                egui::RichText::new("PASSIVE PREVIEW · LIVE CONTROL UNSUPPORTED")
                     .monospace()
                     .small()
                     .color(egui::Color32::from_rgb(130, 205, 255)),
@@ -285,7 +285,7 @@ impl TestLab {
     fn visual(&mut self, ui: &mut egui::Ui) {
         empty(
             ui,
-            "Expected, actual, and diff images remain renderer-keyed. Approval adds a new content-addressed baseline; it never overwrites an existing image.",
+            "Preview only. Expected/actual/diff comparison, replay, and visual approval are unsupported until slice 5/6.",
         );
         if let Some(run) = self.selected_run.and_then(|index| self.runs.get(index)) {
             ui.monospace(run.path.join("captures").display().to_string());

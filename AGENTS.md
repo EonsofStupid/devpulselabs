@@ -8,6 +8,9 @@ EguiPilotAI's canonical architecture is `docs/plans/eguipilotai.md`. Its
 private inherited-pipe control channel is the ratified test/devtools-only
 exception to the no-IPC production law. It must remain feature-gated; normal
 production builds contain no runtime endpoint or MCP server.
+Implementation order is `docs/plans/eguipilotai-v1-delivery.md`; current
+evidence, gaps, and the DevPULSE census are indexed at
+`docs/research/eguipilotai/README.md`.
 
 ## Laws
 

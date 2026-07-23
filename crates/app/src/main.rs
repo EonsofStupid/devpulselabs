@@ -240,7 +240,7 @@ impl App {
         // proves which code it is, in the status grid's build cell.
         shell.set_build(env!("DPL_BUILD"));
         if let Some(m) = mood {
-            shell.backdrop_mut().set_mood(m);
+            shell.set_harness_mood(m);
         }
         match boot_route {
             // The harness route: HubId/SubId are &'static str newtypes, so the

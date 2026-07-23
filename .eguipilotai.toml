@@ -20,7 +20,7 @@ timeout_ms = 45000
 [profiles.devpulse-cloud.environment]
 EGUIPILOTAI_ADAPTER_POLICY = "software-required"
 WGPU_BACKEND = "vulkan"
-VK_DRIVER_FILES = "/usr/share/vulkan/icd.d/lvp_icd.x86_64.json"
+VK_DRIVER_FILES = "/usr/share/vulkan/icd.d/lvp_icd.json"
 LIBGL_ALWAYS_SOFTWARE = "true"
 TZ = "UTC"
 LANG = "C.UTF-8"
@@ -36,10 +36,13 @@ timeout_ms = 30000
 EGUIPILOTAI_ADAPTER_POLICY = "hardware-required"
 
 [fixtures.test-lab]
-arguments = ["--route", "workbench/test-lab"]
+arguments = ["--route", "workbench/test-lab", "--mood", "0"]
 
 [fixtures.library]
-arguments = ["--route", "library/templates"]
+arguments = ["--route", "library/templates", "--mood", "0"]
+
+[fixtures.pixvix]
+arguments = ["--route", "wiredfront/pixvix", "--pixvix", "--mood", "0"]
 
 [[projects]]
 id = "devpulse-cloud"
@@ -47,7 +50,7 @@ profile = "devpulse-cloud"
 adapter_policy = "software-required"
 required = true
 workers = 1
-retries = 1
+retries = 0
 
 [[projects]]
 id = "devpulse-hardware"

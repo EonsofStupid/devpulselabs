@@ -1,0 +1,9 @@
+{
+  "sequence": 3,
+  "session": "compat",
+  "event": {
+    "type": "error",
+    "code": "locator-ambiguous",
+    "message": "two nodes matched"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "kind": "event",
+  "event_id": "event-00000000000000000001",
+  "session": "session",
+  "scope": {},
+  "event": { "type": "input-cleanup" }
+}
