@@ -14,6 +14,7 @@ dpl-engine-capture.workspace = true
 dpl-engine-steps.workspace = true
 # The fabric's broadcast receiver type.
 tokio.workspace = true
+egui-pilot-ai.workspace = true
 
 [lints]
 workspace = true

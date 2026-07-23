@@ -9,7 +9,8 @@ use egui_pilot_ai_transport::{read_frame, write_frame, TransportError};
 use protocol::{
     AdapterPolicy, CaptureResult, ClientCommand, CommandEnvelope, CommandResult, Flow, Handshake,
     HandshakeRequest, PilotError, Project, RendererIdentity, RequestId, ResponseOutcome, RunId,
-    RunResult, RuntimeEventEnvelope, ServerMessage, SessionId, SnapshotRequest, PROTOCOL_VERSION,
+    RunResult, RuntimeEventEnvelope, ServerMessage, SessionId, SnapshotRequest, ViewportSelector,
+    PROTOCOL_VERSION,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
@@ -515,7 +516,15 @@ impl ProcessSession {
     }
 
     pub fn capture(&mut self, name: String) -> Result<CaptureResult, RunnerError> {
-        match self.request(ClientCommand::Capture { name })? {
+        self.capture_viewport(name, None)
+    }
+
+    pub fn capture_viewport(
+        &mut self,
+        name: String,
+        viewport: Option<ViewportSelector>,
+    ) -> Result<CaptureResult, RunnerError> {
+        match self.request(ClientCommand::Capture { name, viewport })? {
             CommandResult::Capture { capture } => Ok(capture),
             result => Err(unexpected("capture", result)),
         }
@@ -628,7 +637,7 @@ fn route_server_message(
                 )));
             }
             *last_event_sequence = sequence;
-            events.push_back(envelope);
+            events.push_back(*envelope);
         }
     }
     Ok(())
@@ -1060,5 +1069,27 @@ mod tests {
         config.projects[0].workers = 1;
         config.projects[0].retries = 1;
         assert!(config.validate(Path::new(".")).is_err());
+    }
+
+    #[test]
+    fn pixvix_multi_viewport_scenario_is_durable_toml() {
+        let flow: Flow = toml::from_str(include_str!(
+            "../../../tests/eguipilotai/pixvix-multi-viewport.toml"
+        ))
+        .expect("PixVix multi-viewport scenario");
+        assert_eq!(flow.id, protocol::ScenarioId::new("pixvix-multi-viewport"));
+        assert!(flow.steps.iter().any(|step| matches!(
+            step,
+            protocol::Step::Action {
+                action: protocol::Action::FocusViewport { .. }
+            }
+        )));
+        assert!(flow.steps.iter().any(|step| matches!(
+            step,
+            protocol::Step::Action {
+                action: protocol::Action::CloseViewport { .. }
+            }
+        )));
+        assert!(protocol::unsupported_capabilities(&flow).is_empty());
     }
 }

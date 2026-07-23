@@ -1221,6 +1221,7 @@ dependencies = [
  "dpl-engine-steps",
  "dpl-fabric",
  "egui",
+ "egui-pilot-ai",
  "image",
  "tokio",
 ]

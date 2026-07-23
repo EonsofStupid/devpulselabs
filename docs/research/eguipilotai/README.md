@@ -17,20 +17,23 @@ complexity required to make that path reliable belongs in the toolkit.
 2. [`protocol-input.md`](protocol-input.md) defines the wire lifecycle and the
    stateful input model. Slice 1 replaced the v1 lockstep response/event
    conflation before retries, traces, or multi-viewport work can depend on it.
-3. [`accessibility-semantics.md`](accessibility-semantics.md) defines one
+3. [`multi-viewport.md`](multi-viewport.md) audits the current node-tagging
+   partial implementation and defines stable native window identity, lifetime,
+   targeting, capture, close, and immediate/deferred qualification.
+4. [`accessibility-semantics.md`](accessibility-semantics.md) defines one
    semantic registration projected into both pilot and real AccessKit output.
-4. [`runner-contract.md`](runner-contract.md) defines discovery, selection,
+5. [`runner-contract.md`](runner-contract.md) defines discovery, selection,
    timeouts, assertions, fixtures, scheduling, retries, sharding, and reports.
-5. [`traces-artifacts-visuals.md`](traces-artifacts-visuals.md) defines the
+6. [`traces-artifacts-visuals.md`](traces-artifacts-visuals.md) defines the
    evidence model, deterministic replay, and immutable visual approval.
-6. [`devpulse-census.md`](devpulse-census.md) maps the live application onto
+7. [`devpulse-census.md`](devpulse-census.md) maps the live application onto
    those contracts and records the actual instrumentation gap.
-7. [`../../plans/eguipilotai-v1-delivery.md`](../../plans/eguipilotai-v1-delivery.md)
+8. [`../../plans/eguipilotai-v1-delivery.md`](../../plans/eguipilotai-v1-delivery.md)
    converts the findings into dependency-ordered implementation slices.
-8. [`slice-0-shell-baseline.md`](slice-0-shell-baseline.md) freezes the first
+9. [`slice-0-shell-baseline.md`](slice-0-shell-baseline.md) freezes the first
    native DevPULSE launch evidence without misrepresenting it as a frame-time
    or long-run memory qualification result.
-9. [`slice-1-protocol-v2-evidence.md`](slice-1-protocol-v2-evidence.md)
+10. [`slice-1-protocol-v2-evidence.md`](slice-1-protocol-v2-evidence.md)
    records the frozen v1 evidence, protocol v2 conformance, real child-process
    proof, and the exact frontier left for Slice 2.
 
@@ -91,6 +94,7 @@ The design uses primary sources and local source code:
 - [Playwright trace viewer](https://playwright.dev/docs/trace-viewer-intro)
 - [Playwright visual comparisons](https://playwright.dev/docs/test-snapshots)
 - [Playwright ARIA snapshots](https://playwright.dev/docs/aria-snapshots)
+- [Playwright pages and popups](https://playwright.dev/docs/pages)
 - [W3C WebDriver BiDi](https://www.w3.org/TR/webdriver-bidi/)
 - [W3C WebDriver](https://www.w3.org/TR/webdriver/)
 - [AccessKit `TreeUpdate`](https://docs.rs/accesskit/latest/accesskit/struct.TreeUpdate.html)
@@ -98,3 +102,4 @@ The design uses primary sources and local source code:
 - [egui `Context`](https://docs.rs/egui/latest/egui/struct.Context.html)
 - [egui `RawInput`](https://docs.rs/egui/latest/egui/struct.RawInput.html)
 - [egui `FullOutput`](https://docs.rs/egui/latest/egui/struct.FullOutput.html)
+- [egui `ViewportInfo`](https://docs.rs/egui/latest/egui/struct.ViewportInfo.html)

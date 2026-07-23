@@ -1,0 +1,93 @@
+id = "pixvix-multi-viewport"
+fixture = "pixvix"
+record = true
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "open"
+
+[steps.expectation.viewport]
+key = "devpulse.pixvix.palette"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "focus-viewport"
+
+[steps.action.viewport]
+key = "devpulse.pixvix.palette"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "focused"
+
+[steps.expectation.viewport]
+key = "devpulse.pixvix.palette"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+role = "button"
+name = "Region"
+
+[steps.action.target.viewport]
+key = "devpulse.pixvix.palette"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "open"
+
+[steps.expectation.viewport]
+key = "devpulse.pixvix.region"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "close-viewport"
+
+[steps.action.viewport]
+key = "devpulse.pixvix.region"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "closed"
+
+[steps.expectation.viewport]
+key = "devpulse.pixvix.region"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "close-viewport"
+
+[steps.action.viewport]
+key = "devpulse.pixvix.palette"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "closed"
+
+[steps.expectation.viewport]
+key = "devpulse.pixvix.palette"

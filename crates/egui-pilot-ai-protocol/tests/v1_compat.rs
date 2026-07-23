@@ -225,6 +225,7 @@ fn current_v2_types_do_not_accidentally_match_v1_shapes() {
         pending_actions: 0,
         busy_tokens: 0,
         viewport_count: 1,
+        viewports: Vec::new(),
         renderer_key: None,
         renderer_device_type: None,
         active_run: None,
@@ -238,6 +239,8 @@ fn current_v2_types_do_not_accidentally_match_v1_shapes() {
         artifact: "x.png".into(),
         content_hash: "test".into(),
         renderer_key: "test".into(),
+        viewport: None,
+        logical_size: None,
     })
     .unwrap()
     .get("attachment")
@@ -255,6 +258,6 @@ fn current_v2_types_do_not_accidentally_match_v1_shapes() {
     .is_some());
     assert_eq!(
         json!(egui_pilot_ai_protocol::PROTOCOL_VERSION),
-        json!({"major": 2, "minor": 0})
+        json!({"major": 2, "minor": 1})
     );
 }

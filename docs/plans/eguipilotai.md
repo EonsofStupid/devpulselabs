@@ -1,6 +1,7 @@
 # EguiPilotAI — canonical agent-first egui testing architecture
 
-Status: ratified for implementation on 2026-07-22.
+Status: ratified for implementation on 2026-07-22; native multi-viewport
+contract amended on 2026-07-23 after the exact egui 0.35 and DevPULSE audit.
 
 EguiPilotAI is a reusable Rust toolkit for deterministic agent exploration and
 durable testing of native egui applications. DevPULSE Labs is the first
@@ -201,6 +202,49 @@ semantic/layout hashes for two frames. Global repaint silence is never required
 because DevPULSE intentionally contains perpetual ambient loops. Assertions
 retry through normal frame timing until their bounded deadline.
 
+## Native multi-viewport contract
+
+An additional egui viewport is a first-class window lifetime inside the same
+target process and session. It is not inferred from the presence of semantic
+nodes and is not modeled as an unrelated process or browser page.
+
+- Applications declare a stable typed `PilotViewportKey` beside the code that
+  owns each window. Root is registered automatically.
+- The runtime allocates a new `ViewportId` generation every time a declared
+  key becomes live. Durable scenarios select the key; actions pin and recheck
+  the current lifetime so reopened windows cannot satisfy stale work.
+- The registry records parent, immediate/deferred/embedded class, title,
+  focus/visibility/minimize/maximize/occlusion state, logical geometry,
+  native pixels-per-point, and lifecycle revision from authoritative
+  `RawInput.viewports`.
+- Created, close-requested, focused, and closed transitions are lossless
+  runtime events. Geometry/status updates may coalesce.
+- Closed windows are removed from live semantics, AccessKit mirrors, input,
+  captures, motion/busy ownership, and lookup maps. Bounded tombstones exist
+  only for waits and evidence and are never actionable.
+- Locators, non-node keyboard/wheel actions, focus/close operations, and
+  captures use strict `ViewportSelector` resolution. An omitted selector is
+  valid only when exactly one viewport is live.
+- Input source state is viewport-bound. Cross-window drag remains unsupported
+  because per-viewport `RawInput` cannot honestly represent OS-global drag.
+- Captures resolve one viewport strictly, match screenshot events to that
+  viewport, settle against its semantic/geometry/pixel hashes, and record its
+  key, lifetime, class, dimensions, and DPI. Root capture is qualified.
+  Immediate child capture is explicitly unsupported in eframe 0.35 native wgpu
+  because its renderer drops screenshot requests; deferred capture remains
+  unqualified. Session-wide stitched capture is a separate future capability.
+- Native-required projects reject `EmbeddedWindow` fallback. Platform-optional
+  geometry such as Wayland outer position is never fabricated.
+- Shutdown releases input, closes children leaf-first, flushes lifecycle
+  evidence, then closes root.
+
+The shared instrumentation wrapper currently supports immediate egui viewports.
+PixVix qualifies discovery, focus, targeted input, lifecycle, close, and
+teardown. A reusable deferred wrapper and fixture must qualify independent
+repainting and renderer-supported capture before the planned presenter viewport
+uses that path. The detailed gap audit, protocol shape, evidence, and open
+gates are in `docs/research/eguipilotai/multi-viewport.md`.
+
 ## Deterministic motion and capture
 
 Public motion vocabulary:
@@ -312,19 +356,21 @@ Workbench Test Lab provides:
 2. Implement protocol-v2 correlated responses, independent events,
    cancellation, capabilities, and bounded pressure.
 3. Implement the stateful input-source/tick executor and release-all cleanup.
-4. Implement one semantic registration projected into pilot and actual
+4. Implement native viewport identity, lifecycle, targeting, scoped capture,
+   and deterministic child-first shutdown.
+5. Implement one semantic registration projected into pilot and actual
    AccessKit output, with tree reconstruction and parity tests.
-5. Implement the serial catalog/assertion/timeout runner.
-6. Add fixture lifecycles, project scheduling, isolated retries, sharding, and
+6. Implement the serial catalog/assertion/timeout runner.
+7. Add fixture lifecycles, project scheduling, isolated retries, sharding, and
    structured reports.
-7. Add structured traces, deterministic replay, renderer-keyed visuals, and
+8. Add structured traces, deterministic replay, renderer-keyed visuals, and
    immutable approval.
-8. Instrument DevPULSE in shell/Library, templates, then Workbench/PixVix
+9. Instrument DevPULSE in shell/Library, templates, then Workbench/PixVix
    waves, each with real-process pointer, keyboard, accessibility, and motion
    scenarios.
-9. Project the shared runner/evidence model into Test Lab and reviewed agent
+10. Project the shared runner/evidence model into Test Lab and reviewed agent
    recorder/codegen workflows.
-10. Complete Lavapipe/hardware CI, security/performance/memory/WASM gates, and
+11. Complete Lavapipe/hardware CI, security/performance/memory/WASM gates, and
     publication qualification.
 
 Exact slice deliverables, tests, non-goals, and exit gates live in
@@ -346,7 +392,9 @@ interaction/capture/shutdown; accessibility snapshots; and keyboard-only use.
 
 Required diagnostics cover duplicate IDs, ambiguity, clipping, disabled
 targets, uncontrolled motion, stalled busy tokens, protocol mismatch,
-disconnect, timeout, panic, and renderer failure.
+disconnect, timeout, panic, renderer failure, stale viewport lifetime,
+ambiguous viewport, unsupported embedded fallback, child capture mismatch,
+and child shutdown timeout.
 
 Quantitative gates:
 

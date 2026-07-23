@@ -122,7 +122,22 @@ fn test(
             "run_directory": run_dir,
         }))?
     );
-    Ok(())
+    require_passing_outcome(&result, &run_dir)
+}
+
+fn require_passing_outcome(
+    result: &egui_pilot_ai_protocol::RunResult,
+    run_dir: &Path,
+) -> Result<(), CliError> {
+    if result.outcome == RunOutcome::Passed {
+        return Ok(());
+    }
+    Err(CliError::ScenarioFailed(format!(
+        "scenario `{}` finished with {:?}; artifacts: {}",
+        result.scenario,
+        result.outcome,
+        run_dir.display()
+    )))
 }
 
 fn inspect(workspace: &Path, profile: &str, fixture: Option<&str>) -> Result<(), CliError> {
@@ -302,7 +317,35 @@ fn mcp_tools() -> Vec<Value> {
             "Read a pruned, changed, or explicitly full semantic projection",
             json!({
                 "type": "object", "additionalProperties": false,
-                "properties": {"request": {"type": "object"}}
+                "properties": {"request": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "mode": {"type": "string", "enum": ["agent", "changes", "full"]},
+                        "filter": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "viewport": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "id": {"type": "string", "maxLength": 240},
+                                        "key": {"type": "string", "maxLength": 240}
+                                    }
+                                },
+                                "subtree": {"type": "string", "maxLength": 512},
+                                "role": {"type": "string"},
+                                "include_hidden": {"type": "boolean"},
+                                "include_decorative": {"type": "boolean"}
+                            }
+                        },
+                        "since_revision": {"type": "integer", "minimum": 0},
+                        "continuation": {"type": "string", "maxLength": 120},
+                        "max_nodes": {"type": "integer", "minimum": 1, "maximum": 1000},
+                        "max_bytes": {"type": "integer", "minimum": 512, "maximum": 65536}
+                    }
+                }}
             }),
         ),
         tool(
@@ -312,18 +355,28 @@ fn mcp_tools() -> Vec<Value> {
                 "type": "object", "required": ["flow"], "additionalProperties": false,
                 "properties": {"flow": {
                     "type": "object",
-                    "description": "Supported: click, double-click, hover, fill, clear, type, press, drag-to, scroll, semantic expectations, wait, capture. Unsupported: set-value, scroll-into-view, screenshot expectations.",
-                    "x-eguipilotai-unsupported": ["action.set-value", "action.scroll-into-view", "expect.screenshot"]
+                    "description": "Supported: click, double-click, hover, fill, clear, type, press, drag-to, scroll, focus-viewport, close-viewport, semantic and viewport expectations, wait, and renderer-supported capture. Unsupported: set-value, scroll-into-view, screenshot expectations, deferred viewports, and immediate child capture.",
+                    "x-eguipilotai-unsupported": ["action.set-value", "action.scroll-into-view", "expect.screenshot", "viewport.deferred", "viewport.capture.immediate"]
                 }}
             }),
         ),
         tool(
             "pilot_capture",
-            "Capture a deterministic content-addressed image. Baseline comparison and approval are unsupported.",
+            "Capture one renderer-supported viewport as a deterministic content-addressed image. Eframe 0.35 native wgpu immediate child capture, baseline comparison, and approval are unsupported.",
             json!({
                 "type": "object", "required": ["name"], "additionalProperties": false,
-                "properties": {"name": {"type": "string", "maxLength": 120}},
-                "x-eguipilotai-unsupported": ["expect.screenshot", "visual.approval"]
+                "properties": {
+                    "name": {"type": "string", "maxLength": 120},
+                    "viewport": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                            "id": {"type": "string"},
+                            "key": {"type": "string"}
+                        }
+                    }
+                },
+                "x-eguipilotai-unsupported": ["viewport.capture.immediate", "viewport.capture.deferred", "expect.screenshot", "visual.approval"]
             }),
         ),
         tool(
@@ -380,7 +433,14 @@ fn call_tool(state: &mut McpState, name: &str, arguments: Value) -> Result<Value
         }
         "pilot_capture" => {
             let name = string_field(&arguments, "name")?.to_string();
-            Ok(serde_json::to_value(active(state)?.capture(name)?)?)
+            let viewport = arguments
+                .get("viewport")
+                .cloned()
+                .map(serde_json::from_value)
+                .transpose()?;
+            Ok(serde_json::to_value(
+                active(state)?.capture_viewport(name, viewport)?,
+            )?)
         }
         "pilot_stop" => {
             let mut session = state
@@ -412,6 +472,7 @@ fn string_field<'a>(value: &'a Value, field: &str) -> Result<&'a str, CliError> 
 #[derive(Debug)]
 enum CliError {
     Usage(String),
+    ScenarioFailed(String),
     Io(io::Error),
     Json(serde_json::Error),
     Runner(RunnerError),
@@ -421,6 +482,7 @@ impl std::fmt::Display for CliError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Usage(message) => f.write_str(message),
+            Self::ScenarioFailed(message) => f.write_str(message),
             Self::Io(error) => error.fmt(f),
             Self::Json(error) => error.fmt(f),
             Self::Runner(error) => error.fmt(f),
@@ -457,6 +519,19 @@ mod tests {
         assert!(tools
             .iter()
             .all(|tool| tool["inputSchema"]["additionalProperties"] == false));
+        let snapshot = tools
+            .iter()
+            .find(|tool| tool["name"] == "pilot_snapshot")
+            .expect("pilot_snapshot");
+        assert_eq!(
+            snapshot["inputSchema"]["properties"]["request"]["additionalProperties"],
+            false
+        );
+        assert_eq!(
+            snapshot["inputSchema"]["properties"]["request"]["properties"]["filter"]
+                ["additionalProperties"],
+            false
+        );
     }
 
     #[test]
@@ -465,5 +540,19 @@ mod tests {
             SnapshotRequest::default().mode,
             egui_pilot_ai_protocol::SnapshotMode::Agent
         );
+    }
+
+    #[test]
+    fn failed_scenarios_produce_a_cli_error() {
+        let result = egui_pilot_ai_protocol::RunResult {
+            run_id: egui_pilot_ai_protocol::RunId::new("run-1"),
+            scenario: egui_pilot_ai_protocol::ScenarioId::new("failure"),
+            outcome: RunOutcome::Failed,
+            steps: Vec::new(),
+            error: None,
+        };
+        let error = require_passing_outcome(&result, Path::new("target/run"))
+            .expect_err("failed scenarios must make the process exit non-zero");
+        assert!(error.to_string().contains("finished with Failed"));
     }
 }

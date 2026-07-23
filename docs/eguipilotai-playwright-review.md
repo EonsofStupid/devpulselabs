@@ -45,7 +45,7 @@ Status words are strict:
 | Screenshots and visual comparison | Stable capture and renderer key; approval workflow unsupported | Core | Wire comparison/approval into runner and Test Lab; masks/region capture; update policy; expected/actual/diff presentation | slice:`5` |
 | Clock control | `PilotClock` and natural/fast-forward/suppressed motion | Core | Scenario-level policy, explicit clock actions, all-policy DevPULSE scenarios, uncontrolled wall-clock inventory | test:`egui_pilot_ai::suppression_rejects_uncontrolled_ambient_motion` |
 | Code generator and locator picker | Experimental TOML normalizer; recorder unsupported | Partial | Record successful exploration, choose stable locators, generate assertions, review diff, export valid Rust/TOML | slice:`6` |
-| Multiple pages/tabs | Native viewport discovery | Partial | Locator viewport scope, viewport lifecycle waits, PixVix launch/interaction/capture/shutdown | slice:`3` |
+| Multiple pages/tabs | Typed native viewport lifetimes and qualified PixVix focus/input/close flow | Partial | Deferred wrapper/fixture, richer selector filters, reopen/stress gates, and a reviewed child-pixel path; eframe 0.35 native wgpu immediate capture is explicitly unsupported | slice:`2B` |
 | Attachments, uploads and downloads | Run artifact directory | Translate | Typed attachment API and fixture-owned jailed file sandbox; no unrestricted paths | slice:`4` |
 | Authentication/storage state | Seeded application fixture | Translate | Typed deterministic app-state fixture and reusable setup dependency | slice:`4` |
 | Network/HAR/API mocking | Application service seam | Translate | Named typed fake/record/replay adapters where DevPULSE has external services; no generic packet interception | slice:`4` |
@@ -104,7 +104,7 @@ These currently look more complete than they are:
 1. Instrument every interactive template with owner-declared IDs and state.
 2. Keyboard traversal and keyboard-only Drag Match.
 3. Configurable drag trajectories and auto-scroll.
-4. Multi-viewport PixVix flows.
+4. Slice 2B native viewport registry plus multi-viewport PixVix flows.
 5. Named document/data-root probes for save/import/index assertions.
 6. Real Test Lab timeline, actionability explanation, highlight and visual
    candidate review.

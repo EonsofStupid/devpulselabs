@@ -1,9 +1,11 @@
 # EguiPilotAI v1 delivery plan
 
 Status: active execution plan derived from the 2026-07-22 Playwright/W3C/
-AccessKit/egui review and DevPULSE source census. Slice 0 and the protocol-v2
-core of Slice 1 are implemented and locally qualified; the next implementation
-frontier is Slice 2. The canonical product architecture remains
+AccessKit/egui review and DevPULSE source census. Slice 0, the protocol-v2 core
+of Slice 1, the stateful viewport-bound input core, and the Slice 2B immediate
+PixVix vertical are locally qualified. Slice 2B remains open for deferred
+viewports, renderer-supported child capture, richer selectors, reopen and
+stress qualification. The canonical product architecture remains
 `docs/plans/eguipilotai.md`.
 
 This plan intentionally favors dependency order over visible UI progress. A
@@ -116,6 +118,72 @@ Tests:
 
 Exit gate: no action is assembled from one-off runtime event vectors; input
 state is empty after every test outcome.
+
+## Slice 2B — native viewport lifecycle and targeting
+
+Purpose: make extended/second windows dependable before per-viewport
+accessibility, runner assertions, visual evidence, PixVix, or presenter work
+depends on them.
+
+Dependency: Slice 2 must already bind every input source to a viewport and
+guarantee release-all cleanup.
+
+Deliverables:
+
+- typed durable `PilotViewportKey` declarations and generated runtime
+  `ViewportId` lifetimes with monotonic reopen generations;
+- one immediate/deferred instrumentation wrapper plus automatic root
+  registration;
+- authoritative inventory from `RawInput.viewports`, including parent, class,
+  title, focus/visibility/window state, geometry, DPI, and lifecycle revision;
+- required created/close-requested/focused/closed events, coalesced metadata
+  changes, bounded tombstones, and immediate stale-state pruning;
+- strict viewport selectors and lifecycle expectations;
+- viewport-bound press, wheel, focus, close, repaint, capture, settlement,
+  input cleanup, and leaf-to-root shutdown;
+- scoped screenshot matching and artifacts with viewport identity/geometry;
+- granular capability IDs for inventory, lifecycle, targeted input/capture,
+  focus, close, immediate, deferred, and native-window support;
+- compact status/snapshot inventory and run/capture schema extensions through
+  the existing six MCP tools;
+- explicit unsupported results for cross-window drag, arbitrary egui IDs,
+  session stitching, and embedded fallback in native-required projects.
+
+Tests:
+
+- protocol serde/schema goldens and capability preflight;
+- in-memory registry state machine for create/change/close/reopen and
+  generation monotonicity;
+- immediate and deferred native fixture conformance;
+- event ordering/backpressure and lifecycle tombstone bounds;
+- targeted input/focus/repaint/capture and wrong-window screenshot rejection;
+- child-close/stop/timeout/input-cleanup failure matrix;
+- one hundred open/close cycles without stale live resources or budget-breaking
+  memory growth;
+- real PixVix palette -> region -> capture -> cancel -> close -> reopen flow;
+- manual Windows hardware and pinned Lavapipe/Xvfb qualification.
+
+Exit gate: a durable scenario can discover a newly opened window by stable key,
+interact and capture only that lifetime, observe deterministic closure, reject
+the stale lifetime, reopen the same key as a new generation, and stop with
+exactly zero child viewports or pressed input sources.
+
+Detailed contract:
+`docs/research/eguipilotai/multi-viewport.md`.
+
+Implementation checkpoint (2026-07-23):
+
+- complete locally: durable key/lifetime registry, authoritative inventory,
+  lifecycle events and bounded closed journal, viewport-bound input/focus/
+  close, source cleanup, strict status/run/MCP targeting, child-aware stop,
+  protocol 2.1 fail-closed negotiation, PixVix palette/region instrumentation,
+  and the real Windows flow;
+- fail-closed boundary: immediate child capture reports
+  `viewport-capture-unsupported` because eframe 0.35 native wgpu does not
+  forward screenshot requests from `render_immediate_viewport`;
+- still required for the exit gate: deferred wrapper/fixture, reopen through
+  the root launcher, richer selector filters, stress/memory proof, Lavapipe
+  qualification, and a reviewed path to renderer-supported child pixels.
 
 ## Slice 3 — semantic and AccessKit bridge
 
@@ -268,7 +336,8 @@ toolkit ad hoc.
 ### 7D Workbench and PixVix
 
 - seed reload with fixture lifecycle;
-- palette/region viewport roots and lifecycle;
+- palette/region viewport roots and lifecycle through the completed Slice 2B
+  registry—no PixVix-private window harness;
 - tabs/combo/actions/status, busy tokens, REC motion;
 - jailed output probes and capture engine boundaries;
 - launch/interact/cancel/capture/shutdown scenarios.

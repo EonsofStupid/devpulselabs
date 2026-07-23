@@ -6,7 +6,9 @@
 pub use egui_pilot_ai_protocol as protocol;
 use protocol::{
     ActionKind, FrameDiagnostics, MotionId as WireMotionId, NodeId, NodeState, Rect, Role,
-    SemanticFrame, SemanticNode, SnapshotError, SnapshotRequest, SourceLocation, ViewportId,
+    SemanticFrame, SemanticNode, SnapshotError, SnapshotRequest, SourceLocation,
+    ViewportClass as WireViewportClass, ViewportDescriptor, ViewportId, ViewportLifecycle,
+    ViewportLifecycleEvent, ViewportSelector,
 };
 use std::collections::{HashMap, VecDeque};
 use std::panic::Location;
@@ -252,9 +254,23 @@ struct ViewportFrame {
     ids: HashMap<NodeId, &'static Location<'static>>,
 }
 
+#[derive(Debug, Clone)]
+struct ViewportDeclaration {
+    key: protocol::PilotViewportKey,
+    class: WireViewportClass,
+    title: String,
+}
+
+#[derive(Debug, Clone)]
+struct LiveViewport {
+    egui_id: egui::ViewportId,
+    descriptor: ViewportDescriptor,
+}
+
 #[derive(Default)]
 struct SharedState {
     revision: u64,
+    viewport_revision: u64,
     staging: HashMap<egui::ViewportId, ViewportFrame>,
     committed: HashMap<egui::ViewportId, Vec<SemanticNode>>,
     latest: SemanticFrame,
@@ -264,7 +280,12 @@ struct SharedState {
     motions: HashMap<MotionId, MotionRegistration>,
     busy: HashMap<u64, String>,
     next_busy: u64,
-    viewports: HashMap<String, egui::ViewportId>,
+    declarations: HashMap<egui::ViewportId, ViewportDeclaration>,
+    live_viewports: HashMap<egui::ViewportId, LiveViewport>,
+    viewport_ids: HashMap<String, egui::ViewportId>,
+    viewport_generations: HashMap<String, u64>,
+    viewport_events: VecDeque<ViewportLifecycleEvent>,
+    viewport_commands: VecDeque<(egui::ViewportId, egui::ViewportCommand)>,
     motion_policy: MotionPolicy,
 }
 
@@ -302,16 +323,142 @@ impl PilotHandle {
     }
 
     pub fn egui_viewport(&self, viewport: &ViewportId) -> Option<egui::ViewportId> {
-        lock(&self.shared).viewports.get(&viewport.0).copied()
+        lock(&self.shared).viewport_ids.get(&viewport.0).copied()
+    }
+
+    pub fn viewports(&self) -> Vec<ViewportDescriptor> {
+        let mut viewports: Vec<_> = lock(&self.shared)
+            .live_viewports
+            .values()
+            .map(|live| live.descriptor.clone())
+            .collect();
+        viewports.sort_by(|left, right| left.id.0.cmp(&right.id.0));
+        viewports
+    }
+
+    pub fn resolve_viewport(
+        &self,
+        selector: &ViewportSelector,
+    ) -> Result<(ViewportDescriptor, egui::ViewportId), String> {
+        let shared = lock(&self.shared);
+        let matches: Vec<_> = shared
+            .live_viewports
+            .values()
+            .filter(|live| {
+                selector
+                    .id
+                    .as_ref()
+                    .is_none_or(|id| id == &live.descriptor.id)
+                    && selector
+                        .key
+                        .as_ref()
+                        .is_none_or(|key| key == &live.descriptor.key)
+            })
+            .collect();
+        match matches.as_slice() {
+            [live] => Ok((live.descriptor.clone(), live.egui_id)),
+            [] => Err(format!(
+                "viewport selector matched no live viewport: {selector:?}"
+            )),
+            matches => Err(format!(
+                "viewport selector matched {} live viewports: {}",
+                matches.len(),
+                matches
+                    .iter()
+                    .map(|live| live.descriptor.id.0.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )),
+        }
+    }
+
+    pub fn only_viewport(&self) -> Result<(ViewportDescriptor, egui::ViewportId), String> {
+        self.resolve_viewport(&ViewportSelector::default())
+    }
+
+    pub fn take_viewport_events(&self) -> Vec<ViewportLifecycleEvent> {
+        lock(&self.shared).viewport_events.drain(..).collect()
+    }
+
+    pub fn declare_viewport(
+        &self,
+        egui_id: egui::ViewportId,
+        key: protocol::PilotViewportKey,
+        class: WireViewportClass,
+        title: impl Into<String>,
+    ) {
+        let mut shared = lock(&self.shared);
+        let declaration = ViewportDeclaration {
+            key,
+            class,
+            title: title.into(),
+        };
+        if let Some(existing) = shared.declarations.get(&egui_id) {
+            assert_eq!(
+                existing.key, declaration.key,
+                "egui viewport id reused for a different PilotViewportKey"
+            );
+            assert_eq!(
+                existing.class, declaration.class,
+                "egui viewport id reused for a different viewport class"
+            );
+        }
+        shared.declarations.insert(egui_id, declaration);
+    }
+
+    pub fn queue_viewport_command(
+        &self,
+        viewport: egui::ViewportId,
+        command: egui::ViewportCommand,
+    ) {
+        lock(&self.shared)
+            .viewport_commands
+            .push_back((viewport, command));
+    }
+
+    fn take_viewport_commands(&self, viewport: egui::ViewportId) -> Vec<egui::ViewportCommand> {
+        let mut shared = lock(&self.shared);
+        let mut commands = Vec::new();
+        while let Some(index) = shared
+            .viewport_commands
+            .iter()
+            .position(|(target, _)| *target == viewport)
+        {
+            let (_, command) = shared
+                .viewport_commands
+                .remove(index)
+                .expect("viewport command index");
+            commands.push(command);
+        }
+        commands
+    }
+
+    pub fn pending_viewport_commands(&self) -> usize {
+        lock(&self.shared).viewport_commands.len()
     }
 
     pub fn take_capture(&self) -> Option<CapturedImage> {
         lock(&self.shared).captures.pop_front()
     }
 
+    pub fn take_capture_for(&self, viewport: egui::ViewportId) -> Option<CapturedImage> {
+        let mut shared = lock(&self.shared);
+        let index = shared
+            .captures
+            .iter()
+            .position(|capture| capture.viewport == viewport)?;
+        shared.captures.remove(index)
+    }
+
     /// Discards screenshot events left over from an earlier capture request.
     pub fn clear_captures(&self) {
         lock(&self.shared).captures.clear();
+    }
+
+    pub fn clear_captures_for(&self, viewport: egui::ViewportId) {
+        lock(&self.shared)
+            .captures
+            .retain(|capture| capture.viewport != viewport);
     }
 
     pub fn set_clock_mode(&self, mode: ClockMode) {
@@ -469,17 +616,28 @@ impl EguiPilotPlugin {
     fn register(&mut self, ui: &egui::Ui, response: &egui::Response, metadata: NodeMetadata) {
         let source = Location::caller();
         let viewport = ui.ctx().viewport_id();
-        let viewport_name = viewport_name(viewport);
-        let id = NodeId::new(format!("{viewport_name}/{}", metadata.path.as_str()));
+        let (viewport_lifetime, viewport_key) = {
+            let mut shared = lock(&self.shared);
+            let lifetime = ensure_viewport(&mut shared, viewport, None);
+            let key = shared
+                .live_viewports
+                .get(&viewport)
+                .expect("registered viewport")
+                .descriptor
+                .key
+                .clone();
+            (lifetime, key)
+        };
+        let id = NodeId::new(format!("{viewport_key}/{}", metadata.path.as_str()));
         let parent = metadata
             .parent
             .as_ref()
-            .map(|path| NodeId::new(format!("{viewport_name}/{}", path.as_str())));
+            .map(|path| NodeId::new(format!("{viewport_key}/{}", path.as_str())));
         let clip_rect = ui.clip_rect();
         let visible = ui.is_rect_visible(response.rect);
         let node = SemanticNode {
             id: id.clone(),
-            viewport: ViewportId::new(viewport_name),
+            viewport: viewport_lifetime,
             parent,
             role: metadata.role,
             name: metadata.name,
@@ -546,7 +704,6 @@ impl egui::Plugin for EguiPilotPlugin {
         let viewport = ui.ctx().viewport_id();
         let time = ui.input(|input| input.time);
         let mut shared = lock(&self.shared);
-        shared.viewports.insert(viewport_name(viewport), viewport);
         let staged = shared.staging.remove(&viewport).unwrap_or_default();
         shared.revision += 1;
         let revision = shared.revision;
@@ -588,12 +745,14 @@ impl egui::Plugin for EguiPilotPlugin {
             revision,
             timestamp_seconds: time,
             nodes: all_nodes,
+            viewports: live_descriptors(&shared),
             diagnostics,
         };
     }
 
     fn input_hook(&mut self, _ctx: &egui::Context, input: &mut egui::RawInput) {
         let mut shared = lock(&self.shared);
+        sync_viewports(&mut shared, input);
         input.time = shared.clock.resolve_input(input.time);
         for event in &input.events {
             if let egui::Event::Screenshot {
@@ -622,12 +781,253 @@ impl egui::Plugin for EguiPilotPlugin {
         }
     }
 
-    fn output_hook(&mut self, _ctx: &egui::Context, output: &mut egui::FullOutput) {
+    fn output_hook(&mut self, ctx: &egui::Context, output: &mut egui::FullOutput) {
         let mut shared = lock(&self.shared);
         shared.latest.diagnostics.output_events = output.platform_output.events.len();
         shared.latest.diagnostics.accesskit_updated =
             output.platform_output.accesskit_update.is_some();
+        let viewport = ctx.viewport_id();
+        if let Some(viewport_output) = output.viewport_output.get_mut(&viewport) {
+            while let Some(index) = shared
+                .viewport_commands
+                .iter()
+                .position(|(target, _)| *target == viewport)
+            {
+                let (_, command) = shared
+                    .viewport_commands
+                    .remove(index)
+                    .expect("viewport command index");
+                viewport_output.commands.push(command);
+            }
+        }
     }
+}
+
+fn sync_viewports(shared: &mut SharedState, input: &egui::RawInput) {
+    if input.viewport_id == egui::ViewportId::ROOT {
+        let observed: Vec<_> = input.viewports.keys().copied().collect();
+        for viewport in &observed {
+            let info = input.viewports.get(viewport);
+            ensure_viewport(shared, *viewport, info);
+        }
+        for viewport in &observed {
+            if let Some(info) = input.viewports.get(viewport) {
+                update_viewport(shared, *viewport, info);
+            }
+        }
+
+        let closed: Vec<_> = shared
+            .live_viewports
+            .keys()
+            .filter(|viewport| **viewport != egui::ViewportId::ROOT)
+            .filter(|viewport| !input.viewports.contains_key(viewport))
+            .copied()
+            .collect();
+        for viewport in closed {
+            close_viewport(shared, viewport);
+        }
+    } else {
+        let info = input.viewports.get(&input.viewport_id);
+        ensure_viewport(shared, input.viewport_id, info);
+        if let Some(info) = info {
+            update_viewport(shared, input.viewport_id, info);
+        }
+    }
+}
+
+fn ensure_viewport(
+    shared: &mut SharedState,
+    egui_id: egui::ViewportId,
+    info: Option<&egui::ViewportInfo>,
+) -> ViewportId {
+    if let Some(live) = shared.live_viewports.get(&egui_id) {
+        return live.descriptor.id.clone();
+    }
+
+    let declaration = if egui_id == egui::ViewportId::ROOT {
+        ViewportDeclaration {
+            key: protocol::PilotViewportKey::new("root"),
+            class: WireViewportClass::Root,
+            title: info
+                .and_then(|value| value.title.clone())
+                .unwrap_or_else(|| "Root".into()),
+        }
+    } else {
+        shared
+            .declarations
+            .get(&egui_id)
+            .cloned()
+            .unwrap_or_else(|| ViewportDeclaration {
+                key: protocol::PilotViewportKey::new(format!(
+                    "egui.unregistered.{}",
+                    sanitize_viewport_debug(egui_id)
+                )),
+                class: WireViewportClass::Embedded,
+                title: info
+                    .and_then(|value| value.title.clone())
+                    .unwrap_or_default(),
+            })
+    };
+    if let Some(existing) = shared
+        .live_viewports
+        .values()
+        .find(|live| live.egui_id != egui_id && live.descriptor.key == declaration.key)
+    {
+        panic!(
+            "duplicate live EguiPilotAI viewport key `{}`: existing lifetime `{}` and egui viewport {egui_id:?}",
+            declaration.key, existing.descriptor.id
+        );
+    }
+    let generation = if egui_id == egui::ViewportId::ROOT {
+        1
+    } else {
+        let generation = shared
+            .viewport_generations
+            .entry(declaration.key.0.clone())
+            .or_default();
+        *generation = generation.saturating_add(1);
+        *generation
+    };
+    let id = if egui_id == egui::ViewportId::ROOT {
+        ViewportId::new("root")
+    } else {
+        ViewportId::new(format!("{}#{generation}", declaration.key))
+    };
+    shared.viewport_revision = shared.viewport_revision.saturating_add(1);
+    let parent = info.and_then(|value| value.parent).and_then(|parent| {
+        shared
+            .live_viewports
+            .get(&parent)
+            .map(|live| live.descriptor.id.clone())
+    });
+    let descriptor = ViewportDescriptor {
+        id: id.clone(),
+        key: declaration.key,
+        parent,
+        class: declaration.class,
+        title: declaration.title,
+        lifecycle: ViewportLifecycle::Open,
+        lifecycle_revision: shared.viewport_revision,
+        close_requested: false,
+        visible: info.and_then(egui::ViewportInfo::visible).unwrap_or(true),
+        focused: info.and_then(|value| value.focused).unwrap_or(false),
+        minimized: info.and_then(|value| value.minimized).unwrap_or(false),
+        maximized: info.and_then(|value| value.maximized).unwrap_or(false),
+        occluded: info.and_then(|value| value.occluded).unwrap_or(false),
+        inner_rect: info.and_then(|value| value.inner_rect).map(rect),
+        outer_rect: info.and_then(|value| value.outer_rect).map(rect),
+        native_pixels_per_point: info.and_then(|value| value.native_pixels_per_point),
+    };
+    shared.viewport_ids.insert(id.0.clone(), egui_id);
+    shared.live_viewports.insert(
+        egui_id,
+        LiveViewport {
+            egui_id,
+            descriptor: descriptor.clone(),
+        },
+    );
+    shared.viewport_events.push_back(ViewportLifecycleEvent {
+        kind: protocol::ViewportEventKind::Created,
+        viewport: descriptor,
+        state: ViewportLifecycle::Open,
+    });
+    id
+}
+
+fn update_viewport(shared: &mut SharedState, egui_id: egui::ViewportId, info: &egui::ViewportInfo) {
+    let parent = info.parent.and_then(|parent| {
+        shared
+            .live_viewports
+            .get(&parent)
+            .map(|live| live.descriptor.id.clone())
+    });
+    let Some(live) = shared.live_viewports.get_mut(&egui_id) else {
+        return;
+    };
+    let previous = live.descriptor.clone();
+    if let Some(title) = &info.title {
+        live.descriptor.title.clone_from(title);
+    }
+    live.descriptor.parent = parent;
+    live.descriptor.visible = info.visible().unwrap_or(true);
+    live.descriptor.focused = info.focused.unwrap_or(false);
+    live.descriptor.minimized = info.minimized.unwrap_or(false);
+    live.descriptor.maximized = info.maximized.unwrap_or(false);
+    live.descriptor.occluded = info.occluded.unwrap_or(false);
+    live.descriptor.inner_rect = info.inner_rect.map(rect);
+    live.descriptor.outer_rect = info.outer_rect.map(rect);
+    live.descriptor.native_pixels_per_point = info.native_pixels_per_point;
+    live.descriptor.close_requested = info.close_requested();
+    live.descriptor.lifecycle = if live.descriptor.close_requested {
+        ViewportLifecycle::CloseRequested
+    } else {
+        ViewportLifecycle::Open
+    };
+    if previous != live.descriptor {
+        shared.viewport_revision = shared.viewport_revision.saturating_add(1);
+        live.descriptor.lifecycle_revision = shared.viewport_revision;
+        let kind = if !previous.close_requested && live.descriptor.close_requested {
+            protocol::ViewportEventKind::CloseRequested
+        } else if !previous.focused && live.descriptor.focused {
+            protocol::ViewportEventKind::Focused
+        } else {
+            protocol::ViewportEventKind::Changed
+        };
+        shared.viewport_events.push_back(ViewportLifecycleEvent {
+            kind,
+            viewport: live.descriptor.clone(),
+            state: live.descriptor.lifecycle,
+        });
+    }
+}
+
+fn close_viewport(shared: &mut SharedState, egui_id: egui::ViewportId) {
+    let Some(mut live) = shared.live_viewports.remove(&egui_id) else {
+        return;
+    };
+    shared.viewport_revision = shared.viewport_revision.saturating_add(1);
+    live.descriptor.lifecycle = ViewportLifecycle::Closed;
+    live.descriptor.lifecycle_revision = shared.viewport_revision;
+    shared.viewport_ids.remove(&live.descriptor.id.0);
+    shared.staging.remove(&egui_id);
+    shared.committed.remove(&egui_id);
+    shared.input.retain(|input| input.viewport != egui_id);
+    shared
+        .captures
+        .retain(|capture| capture.viewport != egui_id);
+    shared
+        .viewport_commands
+        .retain(|(viewport, _)| *viewport != egui_id);
+    shared.viewport_events.push_back(ViewportLifecycleEvent {
+        kind: protocol::ViewportEventKind::Closed,
+        viewport: live.descriptor,
+        state: ViewportLifecycle::Closed,
+    });
+}
+
+fn live_descriptors(shared: &SharedState) -> Vec<ViewportDescriptor> {
+    let mut viewports: Vec<_> = shared
+        .live_viewports
+        .values()
+        .map(|live| live.descriptor.clone())
+        .collect();
+    viewports.sort_by(|left, right| left.id.0.cmp(&right.id.0));
+    viewports
+}
+
+fn sanitize_viewport_debug(viewport: egui::ViewportId) -> String {
+    format!("{viewport:?}")
+        .chars()
+        .map(|value| {
+            if value.is_ascii_alphanumeric() {
+                value.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string()
 }
 
 pub fn install(ctx: &egui::Context) -> PilotHandle {
@@ -641,6 +1041,49 @@ pub fn install(ctx: &egui::Context) -> PilotHandle {
 
 pub fn handle(ctx: &egui::Context) -> Option<PilotHandle> {
     ctx.with_plugin::<EguiPilotPlugin, _>(|plugin| plugin.handle())
+}
+
+pub trait ContextPilotExt {
+    fn pilot_show_viewport_immediate<T, F>(
+        &self,
+        key: protocol::PilotViewportKey,
+        viewport_id: egui::ViewportId,
+        builder: egui::ViewportBuilder,
+        viewport_ui_cb: F,
+    ) -> T
+    where
+        F: FnMut(&mut egui::Ui, egui::ViewportClass) -> T;
+}
+
+impl ContextPilotExt for egui::Context {
+    fn pilot_show_viewport_immediate<T, F>(
+        &self,
+        key: protocol::PilotViewportKey,
+        viewport_id: egui::ViewportId,
+        builder: egui::ViewportBuilder,
+        mut viewport_ui_cb: F,
+    ) -> T
+    where
+        F: FnMut(&mut egui::Ui, egui::ViewportClass) -> T,
+    {
+        let pilot = handle(self);
+        if let Some(handle) = &pilot {
+            handle.declare_viewport(
+                viewport_id,
+                key,
+                WireViewportClass::Immediate,
+                builder.title.clone().unwrap_or_default(),
+            );
+        }
+        self.show_viewport_immediate(viewport_id, builder, move |ui, class| {
+            if let Some(handle) = &pilot {
+                for command in handle.take_viewport_commands(viewport_id) {
+                    ui.ctx().send_viewport_cmd(command);
+                }
+            }
+            viewport_ui_cb(ui, class)
+        })
+    }
 }
 
 pub trait UiPilotExt {
@@ -697,14 +1140,6 @@ fn widget_type(role: Role) -> egui::WidgetType {
         Role::Window | Role::Dialog => egui::WidgetType::Window,
         Role::Label | Role::Heading | Role::Status | Role::Alert => egui::WidgetType::Label,
         _ => egui::WidgetType::Other,
-    }
-}
-
-fn viewport_name(viewport: egui::ViewportId) -> String {
-    if viewport == egui::ViewportId::ROOT {
-        "root".to_string()
-    } else {
-        format!("{viewport:?}")
     }
 }
 
@@ -801,5 +1236,68 @@ mod tests {
             observed.set(ui.input(|input| input.time));
         });
         assert_eq!(observed.get(), 42.0);
+    }
+
+    #[test]
+    fn viewport_registry_removes_closed_state_and_advances_generation() {
+        let ctx = egui::Context::default();
+        let pilot = install(&ctx);
+        let child = egui::ViewportId::from_hash_of("pilot-child");
+        let child_key = protocol::PilotViewportKey::new("test.child");
+        pilot.declare_viewport(
+            child,
+            child_key.clone(),
+            WireViewportClass::Immediate,
+            "Child",
+        );
+
+        let mut input = egui::RawInput::default();
+        input
+            .viewports
+            .insert(egui::ViewportId::ROOT, egui::ViewportInfo::default());
+        input.viewports.insert(
+            child,
+            egui::ViewportInfo {
+                parent: Some(egui::ViewportId::ROOT),
+                title: Some("Child".into()),
+                focused: Some(true),
+                ..Default::default()
+            },
+        );
+        sync_viewports(&mut lock(&pilot.shared), &input);
+        let first = pilot
+            .viewports()
+            .into_iter()
+            .find(|viewport| viewport.key == child_key)
+            .expect("child viewport");
+        assert_eq!(first.id, ViewportId::new("test.child#1"));
+
+        let mut root_only = egui::RawInput::default();
+        root_only
+            .viewports
+            .insert(egui::ViewportId::ROOT, egui::ViewportInfo::default());
+        sync_viewports(&mut lock(&pilot.shared), &root_only);
+        assert!(pilot
+            .viewports()
+            .iter()
+            .all(|viewport| viewport.key != child_key));
+        assert!(pilot.take_viewport_events().iter().any(|event| {
+            event.viewport.id == first.id && event.state == ViewportLifecycle::Closed
+        }));
+
+        let mut reopened = egui::RawInput::default();
+        reopened
+            .viewports
+            .insert(egui::ViewportId::ROOT, egui::ViewportInfo::default());
+        reopened
+            .viewports
+            .insert(child, egui::ViewportInfo::default());
+        sync_viewports(&mut lock(&pilot.shared), &reopened);
+        let second = pilot
+            .viewports()
+            .into_iter()
+            .find(|viewport| viewport.key == child_key)
+            .expect("reopened child viewport");
+        assert_eq!(second.id, ViewportId::new("test.child#2"));
     }
 }

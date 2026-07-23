@@ -1,8 +1,11 @@
 # Protocol and input execution contract
 
-Status: protocol v2 core implemented in Slice 1; the stateful input executor
-remains specified for Slice 2. Scheduler, trace viewer, recorder, and
-multi-viewport expansion remain blocked on their later slices.
+Status: protocol v2 core implemented in Slice 1. The stateful executor now binds
+pressed keyboard and pointer sources to one viewport, rejects source switching,
+and releases cleanup in the original viewport. Scheduler, trace viewer, and
+recorder remain blocked on later slices. The implemented immediate-window
+vertical and remaining native window gaps are tracked in
+[`multi-viewport.md`](multi-viewport.md).
 
 ## Why the v1 shape had to change
 
