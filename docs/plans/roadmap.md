@@ -57,8 +57,10 @@ problems:
   PilotClock-settled capture baseline.
 - **D4 Presenter + sync.** Second viewport teleprompter (beat list, active
   script, up-next, timer) synced over the fabric (typed event, not
-  BroadcastChannel). Pilot: multi-window target extension; dual-surface
-  position-mirroring scenario.
+  BroadcastChannel). LANES (operator, 2026-07-23): EguiPilotAI
+  extensions (multi-window targets included) are the CODEX seat's work —
+  this seat authors the feature and declares the pilot deferral until
+  the extension lands; never extends the toolkit itself.
 - **D5 Scripts.** MDX-lite format kept byte-compatible (YAML frontmatter +
   inert body), parsed in dpl-doc; beats-parity validation; teleprompter
   consumes. Pilot: units + presenter scenario extension.
@@ -76,11 +78,18 @@ problems:
   wall (filters, thumbs, honest fallbacks, rescan). Pilot: gallery
   scenario (filter taps, row assertions) + review flow. (KEEP moved to
   X3 — same filing-into-content doctrine as associate.)
-- **X3 Keep + associate/import.** The operator-content tree doctrine
-  (where kept artifacts LIVE — old repo: content/shows/<show>/<ep>/
-  generated; the rewrite ratifies its own shape with the operator
-  BEFORE code) + keep (into EXISTING episode, companions, rekey) +
-  associate/import copy-never-move; frame-to-slide seam for W-track.
+- **X3 Keep + associate/import.** CONTENT TREE RATIFIED (operator,
+  2026-07-23): `content/<show-name>/<episode-name>/` — the show name IS
+  the stream category (e.g. `content/devpulse-news/<episode>`); episode
+  folders carry the SAME doctor-enforced contract as seeds (episode.json
+  + look.json + slide folders) plus a reserved episode-level `assets/`
+  for kept artifacts. Seeds stay pristine templates; "new show" copies a
+  seed into content; episode listings union both roots. EPISODES ARE NOT
+  GUIDES (operator's emphasis): the Steps/guide system files through the
+  inbox and stays separate — a guide only enters an episode via an
+  explicit associate/T4 action, never by filing. Keep = move inbox
+  artifact + companions into `<ep>/assets/` + rekey; associate/import =
+  copy-never-move; frame-to-slide seam for W-track.
 
 ## Program W — Authoring (continues #104/#105)
 
@@ -120,7 +129,10 @@ problems:
   slots). Pilot: gallery-gate baselines per template.
 - **T2** hotspots, diagram; replay template waits on Program S.
 - **T3** minigame doctrine as data + drag-match keyboard path +
-  reduced-motion support. Pilot: keyboard-only drag-match scenario (the
+  reduced-motion support. DOCTRINE RATIFIED (operator, 2026-07-23):
+  authored data, NEVER hardcoded — one `doctrine.json` shape also
+  carries the deferred per-slide flags (chrome-hidden, ink opt-out,
+  chapter-lock, budgets). Pilot: keyboard-only drag-match scenario (the
   old repo's Pass Q, now machine-verified every run).
 - **T4 guide-slide template** (operator's spec, 2026-07-22): a FULL
   recorded guide becomes ONE slide — its internal reveal steps ARE the
@@ -158,6 +170,10 @@ while styling engaging."*
 - **G2 export polish:** poster/OG share card, optional autoplay demo
   mode, size-budget report at export time. After G1 proves out.
 
+Operator (2026-07-23): the portable guide export is a SEPARATE,
+later, independent bonus feature — never entangled with the show
+doctrine or the episode tree.
+
 ## Program A — Agent console (census #7)
 
 - **A1** port C1: session sidebar (Claude+Codex JSONL on disk), transcript
@@ -167,10 +183,11 @@ while styling engaging."*
 
 ## Program S — Sessions, rethought (census #8)
 
-- **S-ADR**: rrweb was webview tech; ratify the video-first session
-  vehicle (screen-record the app itself via the existing recorder +
-  navigation event track from the fabric → seekable session artifact).
-  No code before the ADR is ratified with the operator.
+- **S-ADR — RATIFIED (operator, 2026-07-23: "yes we have to go
+  native")**: the video-first native session vehicle — screen-record the
+  app itself via the existing recorder + a navigation event track from
+  the fabric → a seekable session artifact. Full plan:
+  docs/plans/s-adr-sessions.md.
 
 ## Program P — Portable/kiosk (census #9)
 
