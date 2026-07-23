@@ -120,14 +120,18 @@ SHOWS (the Shows rail) ──▶ PRESENT (play) · export · social post
    operator's own accounts AFTER content approval; shares the
    browser-driver ADR with Program DEMO.)
 
-## 6. The rebuild passes (once §5 closes)
+## 6. The rebuild passes — ALL EXECUTED (2026-07-23)
 
-- **L1a — the accordion rail** (shell): the wanted overlay behavior.
-- **L1b — seeds into class folders** + doc-layer walk + doctor.
-- **L1c — Workbench/Library rebuilt** as the sectioned ingredient
-  library (walls absorbed; SEEDS/TOKENS subroutes dissolve; Library
-  hub crate dissolves; --focus repointed; rail loses the hub).
-- **L1d — the Shows rail entry**: per-show pages over `content/<show>`
-  (episodes · gallery · social sections per §5's answers).
-- **L1e — Gallery plays sessions in place.**
-Each: plan → green → real-exe proof → commit, as always.
+- ✅ **L1a — the accordion rail** (docs/plans/l1a-accordion-rail.md).
+- ✅ **L1b — seeds into class folders** (l1b-seed-class-folders.md).
+- ✅ **L1c — Workbench/Library rebuilt; the Library hub dissolved**
+  (l1c-workbench-library.md).
+- ✅ **L1d — the Shows rail entry** (l1d-shows-rail.md).
+- ✅ **L1e — Gallery plays sessions in place** (l1e-gallery-replay.md).
+Each: plan → green → real-exe proof → commit → push. Program L (#118)
+is COMPLETE; the roadmap resumes.
+
+Deferred descendants recorded on the roadmap: a fabric navigate event
+for cross-hub jumps (episode card → Present/Editor), blocks/elements
+Library sections (Z7-era), and the Workbench social/PDF lane (its own
+ADR with Program DEMO's browser driver).

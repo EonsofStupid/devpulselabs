@@ -213,7 +213,17 @@ doctrine or the episode tree.
   docs/plans/s-adr-sessions.md. ✅ S1 capture (51bc34b) + S2 playback
   done; S3 export remains.
 
-## Program L — the IA doctrine rebuild (operator, 2026-07-23) — PRIORITY
+## Program L — the IA doctrine rebuild (operator, 2026-07-23) — ✅ COMPLETE
+
+All five passes executed, proven on the exe, and pushed on 2026-07-23:
+L1a accordion rail (ceb9c49) → L1b seed class folders (a5e6a65) →
+L1c Workbench/Library + hub dissolution (80f7887) → L1d Shows rail
+(afb648c) → L1e Gallery in-place replay (this commit). Deferred
+descendants: a fabric NAVIGATE event for cross-hub jumps (episode
+card → Present/Editor — touches S1's exhaustive EventLog match, its
+own small pass); blocks/elements Library sections (Z7-era); the
+Workbench social/PDF lane (ADR shared with Program DEMO's browser
+driver). Original charter follows.
 
 The operator's IA correction OUTRANKS the roadmap order ("we can
 resume the roadmap whenever but this is more important"). Full capture

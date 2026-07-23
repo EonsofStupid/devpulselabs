@@ -85,6 +85,13 @@ fn main() -> eframe::Result {
         .position(|a| a == "--open-session")
         .and_then(|i| args.get(i + 1))
         .cloned();
+    // `--open-replay <rel>` boots the GALLERY's in-place session player
+    // (L1e) — the same code path a session-thumb tap takes.
+    let open_replay: Option<String> = args
+        .iter()
+        .position(|a| a == "--open-replay")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
     // `--open-rail <hub>` pins the accordion open on one house (L1a) —
     // proof shots of the unfolded rail reproduce. Unknown hub degrades to
     // a folded rail, never a panic.
@@ -157,6 +164,7 @@ fn main() -> eframe::Result {
                 present,
                 session_drill,
                 open_session,
+                open_replay,
                 open_rail,
             });
             #[cfg(feature = "eguipilotai-devtools")]
@@ -183,6 +191,7 @@ struct Boot {
     present: Option<String>,
     session_drill: Option<u32>,
     open_session: Option<String>,
+    open_replay: Option<String>,
     open_rail: Option<String>,
 }
 
@@ -214,6 +223,7 @@ impl App {
             present,
             session_drill,
             open_session,
+            open_replay,
             open_rail,
         } = boot;
         let mut workbench = dpl_hub_workbench::WorkbenchHub::default();
@@ -231,6 +241,10 @@ impl App {
         let mut wiredfront = dpl_hub_wiredfront::WiredfrontHub::default();
         if let Some(rel) = &open_session {
             wiredfront.open_session(rel);
+        }
+        // The gallery's in-place replay seam (L1e).
+        if let Some(rel) = &open_replay {
+            wiredfront.open_replay(rel);
         }
         // The registry — a new hub is ONE line here and nothing else.
         let hubs: Vec<Box<dyn Hub>> = vec![

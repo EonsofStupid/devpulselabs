@@ -101,12 +101,17 @@ enum CardAct {
     KeepToggle,
     /// Keep into (show, episode).
     KeepTo(String, String),
+    /// Play a session card IN PLACE (doctrine §1.2).
+    Open,
 }
 
 #[derive(Default)]
 pub struct WiredfrontHub {
     gallery: Option<GalleryView>,
     sessions: Option<SessionsView>,
+    /// The Gallery's in-place session player (doctrine §1.2: "tapping a
+    /// session card opens the player right there") + its status line.
+    replay: Option<(SessionPlay, String)>,
 }
 
 /// One parsed events.jsonl line — exactly what S1 recorded, no
@@ -196,6 +201,14 @@ const FILTERS: [(&str, Option<&'static str>); 5] = [
 
 impl WiredfrontHub {
     fn gallery_surface(&mut self, ui: &mut egui::Ui) {
+        // The in-place replay (doctrine §1.2): a tapped session card
+        // plays RIGHT HERE; back returns to the wall.
+        if let Some((play, status)) = self.replay.as_mut() {
+            if session_player_ui(ui, play, status, "‹ gallery", "gallery.replay") {
+                self.replay = None;
+            }
+            return;
+        }
         let view = self.gallery.get_or_insert_with(|| GalleryView::load(None));
 
         // The header row: filters · rescan · status.
@@ -330,6 +343,9 @@ impl WiredfrontHub {
                 view.armed = None;
                 view.keep_open = (view.keep_open.as_deref() != Some(rel.as_str())).then_some(rel);
             }
+            Some((rel, CardAct::Open)) => {
+                self.open_replay(&rel);
+            }
             Some((rel, CardAct::KeepTo(show, ep))) => {
                 let status = match dpl_index::Index::open_default()
                     .and_then(|ix| ix.keep(&root, &rel, &show, &ep))
@@ -377,8 +393,31 @@ fn artifact_card(
     let mut disarm = false;
     ui.vertical(|ui| {
         ui.set_width(w);
-        // The thumbnail well.
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(w, thumb_h), Sense::hover());
+        // The thumbnail well. A SESSION thumb is tappable — playback in
+        // place (doctrine §1.2); other kinds stay inert here.
+        let playable = r.kind == "session";
+        let (rect, thumb_resp) = ui.allocate_exact_size(
+            egui::vec2(w, thumb_h),
+            if playable {
+                Sense::click()
+            } else {
+                Sense::hover()
+            },
+        );
+        if playable {
+            ui.pilot_track(
+                &thumb_resp,
+                NodeMetadata::new(
+                    PilotId::new("gallery.play").child(&PilotKey::new(&r.rel_path)),
+                    egui_pilot_ai::protocol::Role::Button,
+                    "Play the session in place",
+                ),
+            );
+            if thumb_resp.clicked() {
+                act = Some(CardAct::Open);
+            }
+            thumb_resp.clone().on_hover_text("play ›");
+        }
         ui.painter()
             .rect_filled(rect, cl::RADIUS_SM, cl::surface::WELL);
         match thumb_uri(r, root) {
@@ -549,246 +588,70 @@ fn filter_chip(ui: &mut egui::Ui, label: &str, on: bool) -> egui::Response {
     resp
 }
 
+/// Build one session's playback state + its honest status line — the ONE
+/// path every player entry takes (sessions list tap, gallery in-place
+/// tap, both harness seams).
+fn build_session_play(root: &std::path::Path, rel: &str, name: String) -> (SessionPlay, String) {
+    let dir = root.join(rel);
+    let mp4 = dir.join("session.mp4");
+    let player = mp4
+        .is_file()
+        .then(|| dpl_video::clip::ClipPlayer::open(mp4));
+    let poster = dir.is_dir().then(|| dir.join("session.jpg")).and_then(|p| {
+        p.is_file()
+            .then(|| format!("file:///{}", p.to_string_lossy().replace('\\', "/")))
+    });
+    let events = parse_events(&dir.join("events.jsonl"));
+    let status = if player.is_none() {
+        "partial session — event track only".into()
+    } else {
+        format!("{} events", events.len())
+    };
+    (
+        SessionPlay {
+            name,
+            player,
+            poster,
+            events,
+        },
+        status,
+    )
+}
+
 impl WiredfrontHub {
-    /// Open one session for playback — the same path a card tap takes
-    /// (also the `--open-session` harness seam).
+    /// Open one session on the SESSIONS surface — the same path a list
+    /// card tap takes (also the `--open-session` harness seam).
     pub fn open_session(&mut self, rel: &str) {
         let view = self.sessions.get_or_insert_with(SessionsView::load);
-        let root = dpl_engine_capture::content_root();
-        let dir = root.join(rel);
         let name = view
             .rows
             .iter()
             .find(|r| r.rel_path == rel)
             .map(|r| r.name.clone())
             .unwrap_or_else(|| rel.to_string());
-        let mp4 = dir.join("session.mp4");
-        let player = mp4
-            .is_file()
-            .then(|| dpl_video::clip::ClipPlayer::open(mp4));
-        let poster = dir.is_dir().then(|| dir.join("session.jpg")).and_then(|p| {
-            p.is_file()
-                .then(|| format!("file:///{}", p.to_string_lossy().replace('\\', "/")))
-        });
-        let events = parse_events(&dir.join("events.jsonl"));
-        view.status = if player.is_none() {
-            "partial session — event track only".into()
-        } else {
-            format!("{} events", events.len())
-        };
-        view.open = Some(SessionPlay {
-            name,
-            player,
-            poster,
-            events,
-        });
+        let (play, status) = build_session_play(&dpl_engine_capture::content_root(), rel, name);
+        view.status = status;
+        view.open = Some(play);
+    }
+
+    /// Open one session IN PLACE on the Gallery (doctrine §1.2) — the
+    /// same path a session thumb tap takes (also `--open-replay`).
+    pub fn open_replay(&mut self, rel: &str) {
+        let name = dpl_index::Index::open_default()
+            .and_then(|ix| ix.list(Some("session"), None))
+            .ok()
+            .and_then(|rows| rows.into_iter().find(|r| r.rel_path == rel).map(|r| r.name))
+            .unwrap_or_else(|| rel.to_string());
+        let (play, status) = build_session_play(&dpl_engine_capture::content_root(), rel, name);
+        self.replay = Some((play, status));
     }
 
     fn sessions_surface(&mut self, ui: &mut egui::Ui) {
         let view = self.sessions.get_or_insert_with(SessionsView::load);
 
         if let Some(play) = view.open.as_mut() {
-            // ── the player ──────────────────────────────────────────
-            let back = ui
-                .horizontal(|ui| {
-                    let b = ui
-                        .label(RichText::new("‹ sessions").color(cl::Tone::Magenta.color()))
-                        .interact(Sense::click());
-                    ui.pilot_track(
-                        &b,
-                        NodeMetadata::new(
-                            PilotId::new("sessions").child(&PilotKey::new("back")),
-                            egui_pilot_ai::protocol::Role::Button,
-                            "Back to sessions",
-                        ),
-                    );
-                    ui.label(RichText::new(&play.name).strong().color(cl::ink::STRONG));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(RichText::new(&view.status).small().color(cl::ink::SUBTLE));
-                    });
-                    b
-                })
-                .inner;
-            if back.clicked() {
+            if session_player_ui(ui, play, &view.status, "‹ sessions", "sessions") {
                 view.open = None;
-                return;
-            }
-            ui.add_space(cl::space::S2);
-
-            // The 16:9 stage: decoded frames, else the poster, else an
-            // honest label.
-            let stage_w = (ui.available_width() - cl::space::S4).min(960.0);
-            let stage_h = stage_w * 9.0 / 16.0;
-            let (stage, _) = ui.allocate_exact_size(egui::vec2(stage_w, stage_h), Sense::hover());
-            ui.painter()
-                .rect_filled(stage, cl::RADIUS, cl::surface::WELL);
-            let mut painted = false;
-            if let Some(player) = &play.player {
-                if let Some(tex) = player.texture(ui.ctx()) {
-                    ui.painter().image(
-                        tex,
-                        stage,
-                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                        egui::Color32::WHITE,
-                    );
-                    painted = true;
-                }
-                if player.playing() {
-                    ui.ctx()
-                        .request_repaint_after(std::time::Duration::from_millis(16));
-                }
-            }
-            if !painted {
-                match &play.poster {
-                    Some(uri) => {
-                        egui::Image::new(uri.as_str())
-                            .corner_radius(cl::RADIUS)
-                            .paint_at(ui, stage);
-                    }
-                    None => {
-                        ui.painter().text(
-                            stage.center(),
-                            egui::Align2::CENTER_CENTER,
-                            if play.player.is_none() {
-                                "partial session — event track only"
-                            } else {
-                                "starting…"
-                            },
-                            egui::FontId::monospace(13.0),
-                            cl::ink::SUBTLE,
-                        );
-                    }
-                }
-            }
-            ui.painter().rect_stroke(
-                stage,
-                cl::RADIUS,
-                egui::Stroke::new(1.0, cl::surface::HAIRLINE),
-                egui::StrokeKind::Inside,
-            );
-            ui.add_space(cl::space::S2);
-
-            // Controls + the RAIL (ticks = the recorded events).
-            let mut seek_to: Option<f32> = None;
-            if let Some(player) = play.player.as_mut() {
-                let pos = player.position();
-                let span = player
-                    .duration
-                    .or_else(|| play.events.last().map(|e| e.ms as f32 / 1000.0))
-                    .unwrap_or(1.0)
-                    .max(0.1);
-                ui.horizontal(|ui| {
-                    let label = if player.ended() {
-                        "Replay"
-                    } else if player.playing() {
-                        "Pause"
-                    } else {
-                        "Play"
-                    };
-                    let resp = filter_chip(ui, label, player.playing());
-                    ui.pilot_track(
-                        &resp,
-                        NodeMetadata::new(
-                            PilotId::new("sessions").child(&PilotKey::new("play")),
-                            egui_pilot_ai::protocol::Role::Button,
-                            "Play/pause",
-                        )
-                        .value(label),
-                    );
-                    if resp.clicked() {
-                        player.toggle();
-                    }
-                    ui.label(
-                        RichText::new(format!("{} / {}", mmss(pos), mmss(span)))
-                            .monospace()
-                            .small()
-                            .color(cl::ink::BASE),
-                    );
-                });
-                ui.add_space(cl::space::S1);
-
-                // The rail: tap anywhere to seek; a tap near a tick
-                // snaps to its event; hover names the nearest event.
-                let (rail, resp) =
-                    ui.allocate_exact_size(egui::vec2(stage_w, 22.0), Sense::click());
-                ui.pilot_track(
-                    &resp,
-                    NodeMetadata::new(
-                        PilotId::new("sessions").child(&PilotKey::new("rail")),
-                        egui_pilot_ai::protocol::Role::Slider,
-                        "Seek rail",
-                    )
-                    .value(format!("{pos:.1}/{span:.1}")),
-                );
-                let line_y = rail.center().y;
-                let painter = ui.painter().clone();
-                painter.line_segment(
-                    [
-                        egui::pos2(rail.left(), line_y),
-                        egui::pos2(rail.right(), line_y),
-                    ],
-                    egui::Stroke::new(3.0, cl::surface::OVERLAY),
-                );
-                let frac = (pos / span).clamp(0.0, 1.0);
-                painter.line_segment(
-                    [
-                        egui::pos2(rail.left(), line_y),
-                        egui::pos2(rail.left() + rail.width() * frac, line_y),
-                    ],
-                    egui::Stroke::new(3.0, cl::Tone::Magenta.color()),
-                );
-                let tick_x = |ms: u64| {
-                    rail.left() + rail.width() * ((ms as f32 / 1000.0) / span).clamp(0.0, 1.0)
-                };
-                for ev in &play.events {
-                    let x = tick_x(ev.ms);
-                    painter.line_segment(
-                        [
-                            egui::pos2(x, rail.top() + 3.0),
-                            egui::pos2(x, rail.bottom() - 3.0),
-                        ],
-                        egui::Stroke::new(2.0, cl::Tone::Coral.color()),
-                    );
-                }
-                if let Some(p) = resp.hover_pos() {
-                    if let Some(near) = play
-                        .events
-                        .iter()
-                        .min_by_key(|e| (tick_x(e.ms) - p.x).abs() as u32)
-                        .filter(|e| (tick_x(e.ms) - p.x).abs() < 8.0)
-                    {
-                        resp.clone().on_hover_text(format!(
-                            "{} · {}",
-                            mmss(near.ms as f32 / 1000.0),
-                            near.label
-                        ));
-                    }
-                }
-                if resp.clicked() {
-                    if let Some(p) = resp.interact_pointer_pos() {
-                        let snapped = play
-                            .events
-                            .iter()
-                            .find(|e| (tick_x(e.ms) - p.x).abs() < 8.0)
-                            .map(|e| e.ms as f32 / 1000.0);
-                        seek_to = Some(snapped.unwrap_or_else(|| {
-                            ((p.x - rail.left()) / rail.width()).clamp(0.0, 1.0) * span
-                        }));
-                    }
-                }
-            } else {
-                // Partial session: the event track stands alone,
-                // readable — nothing to seek.
-                for ev in &play.events {
-                    ui.label(
-                        RichText::new(format!("{}  {}", mmss(ev.ms as f32 / 1000.0), ev.label))
-                            .monospace()
-                            .color(cl::ink::BASE),
-                    );
-                }
-            }
-            if let (Some(t), Some(player)) = (seek_to, play.player.as_mut()) {
-                player.seek(t);
             }
             return;
         }
@@ -869,6 +732,218 @@ impl WiredfrontHub {
             self.open_session(&rel);
         }
     }
+}
+
+/// The session player — back row · 16:9 stage · controls · the event-tick
+/// seek rail (or the partial-session text track). ONE body for the
+/// SESSIONS surface and the Gallery's in-place replay (doctrine §1.2);
+/// `ns` keys the pilot ids per surface. Returns true when back is tapped.
+fn session_player_ui(
+    ui: &mut egui::Ui,
+    play: &mut SessionPlay,
+    status: &str,
+    back_label: &str,
+    ns: &'static str,
+) -> bool {
+    let back = ui
+        .horizontal(|ui| {
+            let b = ui
+                .label(RichText::new(back_label).color(cl::Tone::Magenta.color()))
+                .interact(Sense::click());
+            ui.pilot_track(
+                &b,
+                NodeMetadata::new(
+                    PilotId::new(ns).child(&PilotKey::new("back")),
+                    egui_pilot_ai::protocol::Role::Button,
+                    "Back to the list",
+                ),
+            );
+            ui.label(RichText::new(&play.name).strong().color(cl::ink::STRONG));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(RichText::new(status).small().color(cl::ink::SUBTLE));
+            });
+            b
+        })
+        .inner;
+    if back.clicked() {
+        return true;
+    }
+    ui.add_space(cl::space::S2);
+
+    // The 16:9 stage: decoded frames, else the poster, else an honest
+    // label.
+    let stage_w = (ui.available_width() - cl::space::S4).min(960.0);
+    let stage_h = stage_w * 9.0 / 16.0;
+    let (stage, _) = ui.allocate_exact_size(egui::vec2(stage_w, stage_h), Sense::hover());
+    ui.painter()
+        .rect_filled(stage, cl::RADIUS, cl::surface::WELL);
+    let mut painted = false;
+    if let Some(player) = &play.player {
+        if let Some(tex) = player.texture(ui.ctx()) {
+            ui.painter().image(
+                tex,
+                stage,
+                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                egui::Color32::WHITE,
+            );
+            painted = true;
+        }
+        if player.playing() {
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(16));
+        }
+    }
+    if !painted {
+        match &play.poster {
+            Some(uri) => {
+                egui::Image::new(uri.as_str())
+                    .corner_radius(cl::RADIUS)
+                    .paint_at(ui, stage);
+            }
+            None => {
+                ui.painter().text(
+                    stage.center(),
+                    egui::Align2::CENTER_CENTER,
+                    if play.player.is_none() {
+                        "partial session — event track only"
+                    } else {
+                        "starting…"
+                    },
+                    egui::FontId::monospace(13.0),
+                    cl::ink::SUBTLE,
+                );
+            }
+        }
+    }
+    ui.painter().rect_stroke(
+        stage,
+        cl::RADIUS,
+        egui::Stroke::new(1.0, cl::surface::HAIRLINE),
+        egui::StrokeKind::Inside,
+    );
+    ui.add_space(cl::space::S2);
+
+    // Controls + the RAIL (ticks = the recorded events).
+    let mut seek_to: Option<f32> = None;
+    if let Some(player) = play.player.as_mut() {
+        let pos = player.position();
+        let span = player
+            .duration
+            .or_else(|| play.events.last().map(|e| e.ms as f32 / 1000.0))
+            .unwrap_or(1.0)
+            .max(0.1);
+        ui.horizontal(|ui| {
+            let label = if player.ended() {
+                "Replay"
+            } else if player.playing() {
+                "Pause"
+            } else {
+                "Play"
+            };
+            let resp = filter_chip(ui, label, player.playing());
+            ui.pilot_track(
+                &resp,
+                NodeMetadata::new(
+                    PilotId::new(ns).child(&PilotKey::new("play")),
+                    egui_pilot_ai::protocol::Role::Button,
+                    "Play/pause",
+                )
+                .value(label),
+            );
+            if resp.clicked() {
+                player.toggle();
+            }
+            ui.label(
+                RichText::new(format!("{} / {}", mmss(pos), mmss(span)))
+                    .monospace()
+                    .small()
+                    .color(cl::ink::BASE),
+            );
+        });
+        ui.add_space(cl::space::S1);
+
+        // The rail: tap anywhere to seek; a tap near a tick snaps to
+        // its event; hover names the nearest event.
+        let (rail, resp) = ui.allocate_exact_size(egui::vec2(stage_w, 22.0), Sense::click());
+        ui.pilot_track(
+            &resp,
+            NodeMetadata::new(
+                PilotId::new(ns).child(&PilotKey::new("rail")),
+                egui_pilot_ai::protocol::Role::Slider,
+                "Seek rail",
+            )
+            .value(format!("{pos:.1}/{span:.1}")),
+        );
+        let line_y = rail.center().y;
+        let painter = ui.painter().clone();
+        painter.line_segment(
+            [
+                egui::pos2(rail.left(), line_y),
+                egui::pos2(rail.right(), line_y),
+            ],
+            egui::Stroke::new(3.0, cl::surface::OVERLAY),
+        );
+        let frac = (pos / span).clamp(0.0, 1.0);
+        painter.line_segment(
+            [
+                egui::pos2(rail.left(), line_y),
+                egui::pos2(rail.left() + rail.width() * frac, line_y),
+            ],
+            egui::Stroke::new(3.0, cl::Tone::Magenta.color()),
+        );
+        let tick_x =
+            |ms: u64| rail.left() + rail.width() * ((ms as f32 / 1000.0) / span).clamp(0.0, 1.0);
+        for ev in &play.events {
+            let x = tick_x(ev.ms);
+            painter.line_segment(
+                [
+                    egui::pos2(x, rail.top() + 3.0),
+                    egui::pos2(x, rail.bottom() - 3.0),
+                ],
+                egui::Stroke::new(2.0, cl::Tone::Coral.color()),
+            );
+        }
+        if let Some(p) = resp.hover_pos() {
+            if let Some(near) = play
+                .events
+                .iter()
+                .min_by_key(|e| (tick_x(e.ms) - p.x).abs() as u32)
+                .filter(|e| (tick_x(e.ms) - p.x).abs() < 8.0)
+            {
+                resp.clone().on_hover_text(format!(
+                    "{} · {}",
+                    mmss(near.ms as f32 / 1000.0),
+                    near.label
+                ));
+            }
+        }
+        if resp.clicked() {
+            if let Some(p) = resp.interact_pointer_pos() {
+                let snapped = play
+                    .events
+                    .iter()
+                    .find(|e| (tick_x(e.ms) - p.x).abs() < 8.0)
+                    .map(|e| e.ms as f32 / 1000.0);
+                seek_to = Some(snapped.unwrap_or_else(|| {
+                    ((p.x - rail.left()) / rail.width()).clamp(0.0, 1.0) * span
+                }));
+            }
+        }
+    } else {
+        // Partial session: the event track stands alone, readable —
+        // nothing to seek.
+        for ev in &play.events {
+            ui.label(
+                RichText::new(format!("{}  {}", mmss(ev.ms as f32 / 1000.0), ev.label))
+                    .monospace()
+                    .color(cl::ink::BASE),
+            );
+        }
+    }
+    if let (Some(t), Some(player)) = (seek_to, play.player.as_mut()) {
+        player.seek(t);
+    }
+    false
 }
 
 impl Hub for WiredfrontHub {
