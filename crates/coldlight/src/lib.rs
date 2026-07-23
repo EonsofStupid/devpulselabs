@@ -94,6 +94,9 @@ pub mod ink {
     pub const BASE: Color32 = Color32::from_rgb(0xc2, 0xc9, 0xd6);
     pub const MUTED: Color32 = Color32::from_rgb(0x8a, 0x93, 0xa6);
     pub const SUBTLE: Color32 = Color32::from_rgb(0x5b, 0x64, 0x78);
+    /// The stream-annotation stroke (D3) — the old `--ink-annotate`
+    /// fallback's warm near-white, visible over every mood.
+    pub const ANNOTATE: Color32 = Color32::from_rgb(0xf8, 0xf1, 0xdd);
 }
 
 /// Spacing steps. Fluid ramps (viewport-aware fns) arrive in P1;

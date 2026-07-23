@@ -10,6 +10,7 @@
 //! render_step`); a slide that fails to load degrades to an honest labeled
 //! plate, never a crash. Ink/annotate is D3; presenter+sync is D4.
 
+pub mod ink;
 pub mod nav;
 
 use dpl_coldlight::{self as cl};
@@ -50,6 +51,10 @@ pub struct DeckHost {
     pos: nav::Position,
     chrome_hidden: bool,
     navigator_open: bool,
+    /// The ink layer (D3): stream markup, cleared when the SLIDE changes
+    /// (steps keep it — the old slide-key law).
+    annotate_on: bool,
+    ink: ink::InkLayer,
     /// Restarted on EVERY beat — each beat animates exactly one thing.
     clock: dpl_slides::motion::Clock,
 }
@@ -101,6 +106,8 @@ impl DeckHost {
             pos: nav::Position { index: 0, step: 0 },
             chrome_hidden: false,
             navigator_open: false,
+            annotate_on: false,
+            ink: ink::InkLayer::default(),
             clock: dpl_slides::motion::Clock::default(),
         })
     }
@@ -111,6 +118,10 @@ impl DeckHost {
 
     fn go(&mut self, pos: nav::Position) {
         if pos != self.pos {
+            // Ink is per-SLIDE: a new slide clears it, a step keeps it.
+            if pos.index != self.pos.index {
+                self.ink.clear();
+            }
             self.pos = pos;
             self.clock.restart();
         }
@@ -142,6 +153,7 @@ impl DeckHost {
             egui::Key::ArrowDown => self.slide_next(),
             egui::Key::G => self.navigator_open = !self.navigator_open,
             egui::Key::H => self.chrome_hidden = !self.chrome_hidden,
+            egui::Key::A => self.annotate_on = !self.annotate_on,
             _ => {}
         }
     }
@@ -164,6 +176,7 @@ impl DeckHost {
                 egui::Key::Space,
                 egui::Key::G,
                 egui::Key::H,
+                egui::Key::A,
             ]
             .into_iter()
             .filter(|k| i.key_pressed(*k))
@@ -202,6 +215,9 @@ impl DeckHost {
             }
         }
 
+        // The ink, above the slide and below every control.
+        self.ink.paint(ui, rect);
+
         // Edge tap zones (12% width, full height) — always tappable; the
         // chevrons only PAINT while chrome shows.
         let zone_w = rect.width() * 0.12;
@@ -238,13 +254,13 @@ impl DeckHost {
                 "disabled"
             }),
         );
-        if lr.clicked() {
+        if lr.clicked() && !self.annotate_on {
             self.beat_prev();
         }
-        if rr.clicked() {
+        if rr.clicked() && !self.annotate_on {
             self.beat_next();
         }
-        if !self.chrome_hidden {
+        if !self.chrome_hidden && !self.annotate_on {
             chevron(
                 ui,
                 left,
@@ -259,6 +275,57 @@ impl DeckHost {
                 nav::can_advance(&self.steps, self.pos),
                 true,
             );
+        }
+
+        // Annotating: a full-rect drag capture registered AFTER the zones
+        // (it wins — an edge tap can't fire mid-stroke; the old "EdgeNav
+        // hidden while annotating").
+        if self.annotate_on {
+            let dr = ui.interact(rect, ui.id().with("deck_ink"), Sense::drag());
+            // Touch force when the screen reports it; mouse = the old 0.5.
+            let force = ui.input(|i| {
+                i.events.iter().rev().find_map(|e| match e {
+                    egui::Event::Touch { force, .. } => *force,
+                    _ => None,
+                })
+            });
+            if let Some(pos) = dr.interact_pointer_pos() {
+                let p = ink::normalize(pos, rect);
+                if dr.drag_started() {
+                    self.ink.begin(p, force);
+                } else if dr.dragged() {
+                    self.ink.extend(p, force);
+                }
+            }
+            if dr.drag_stopped() {
+                self.ink.finish();
+            }
+            ui.pilot_track(
+                &dr,
+                NodeMetadata::new(
+                    PilotId::new("deck").child(&PilotKey::new("ink")),
+                    egui_pilot_ai::protocol::Role::Region,
+                    "Ink surface",
+                )
+                .value(if self.ink.is_empty() {
+                    "empty"
+                } else {
+                    "inked"
+                }),
+            );
+            // The Clear chip, bottom-right above the toolbar.
+            let fl = cl::Fluid::of(rect);
+            let chip = Rect::from_min_size(
+                egui::pos2(
+                    rect.max.x - 120.0 - cl::space::S4,
+                    rect.max.y - fl.tap_min() * 2.0 - cl::space::S6 * 2.0,
+                ),
+                egui::vec2(120.0, 34.0),
+            );
+            if tool_button(ui, chip, "Clear ink", "deck_ink_clear", "Wipe the markup") {
+                self.ink.clear();
+            }
+            self.track_button(ui, chip, "ink.clear", "Clear ink");
         }
 
         // Progress rail: top strip, fill = (index+1)/total, chapter ticks.
@@ -363,6 +430,11 @@ impl DeckHost {
             self.navigator_open = !self.navigator_open;
         }
         self.track_button(ui, navi, "navigator", "All slides");
+        let inkb = navi.translate(egui::vec2(btn + cl::space::S2, 0.0));
+        if tool_button(ui, inkb, "Ink", "deck_ink_toggle", "Draw on the slide (A)") {
+            self.annotate_on = !self.annotate_on;
+        }
+        self.track_button(ui, inkb, "ink.toggle", "Toggle ink");
 
         // Right: counter + chrome eye.
         let eye = Rect::from_center_size(
@@ -699,6 +771,27 @@ mod tests {
         assert!(host.chrome_hidden);
         host.press(egui::Key::G);
         assert!(host.navigator_open);
+    }
+
+    #[test]
+    fn ink_survives_steps_and_clears_on_slide_change() {
+        let mut host = DeckHost::open(&scratch_episode("ink")).unwrap();
+        host.press(egui::Key::A);
+        assert!(host.annotate_on, "A toggles the ink layer");
+        host.ink.begin(egui::Pos2::new(0.2, 0.2), None);
+        host.ink.extend(egui::Pos2::new(0.4, 0.4), None);
+        host.ink.finish();
+        assert_eq!(host.ink.stroke_count(), 1);
+        // slide 0 -> slide 1 step 0 (SLIDE change) — clears.
+        host.press(egui::Key::ArrowRight);
+        assert!(host.ink.is_empty(), "a new slide clears the ink");
+        // Draw again, then advance WITHIN slide 1 (step change) — keeps.
+        host.ink.begin(egui::Pos2::new(0.5, 0.5), None);
+        host.ink.extend(egui::Pos2::new(0.6, 0.6), None);
+        host.ink.finish();
+        host.press(egui::Key::ArrowRight);
+        assert_eq!(host.position(), nav::Position { index: 1, step: 1 });
+        assert_eq!(host.ink.stroke_count(), 1, "steps keep the ink");
     }
 
     #[test]
