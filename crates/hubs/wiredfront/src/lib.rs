@@ -11,6 +11,14 @@ use dpl_hub::{Hub, HubId, HubSpec, Route, SubId, SubRoute};
 use egui::{RichText, Sense};
 use egui_pilot_ai::{NodeMetadata, PilotId, PilotKey, UiPilotExt};
 
+mod viziwiz;
+
+/// Headless `--ink-drill <rel>` seam: a real stroke through the real
+/// flatten path, no window (C4).
+pub fn ink_drill(root: &std::path::Path, rel: &str) -> Result<String, String> {
+    viziwiz::drill(root, rel)
+}
+
 pub const HUB: HubId = HubId("wiredfront");
 pub const OVERVIEW: SubId = SubId("overview");
 pub const PIXVIX: SubId = SubId("pixvix");
@@ -109,6 +117,7 @@ enum CardAct {
 pub struct WiredfrontHub {
     gallery: Option<GalleryView>,
     sessions: Option<SessionsView>,
+    viziwiz: Option<viziwiz::VizView>,
     /// The Gallery's in-place session player (doctrine §1.2: "tapping a
     /// session card opens the player right there") + its status line.
     replay: Option<(SessionPlay, String)>,
@@ -958,6 +967,10 @@ impl Hub for WiredfrontHub {
         }
         if route.sub == SESSIONS {
             self.sessions_surface(ui);
+            return;
+        }
+        if route.sub == VIZIWIZ {
+            viziwiz::surface(&mut self.viziwiz, ui);
             return;
         }
         dpl_hub::placeholder::surface(

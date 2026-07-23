@@ -1574,11 +1574,14 @@ dependencies = [
  "dpl-coldlight",
  "dpl-doc",
  "dpl-engine-capture",
+ "dpl-engine-media",
+ "dpl-engine-steps",
  "dpl-hub",
  "dpl-index",
  "dpl-video",
  "egui",
  "egui-pilot-ai",
+ "image",
  "serde_json",
 ]
 

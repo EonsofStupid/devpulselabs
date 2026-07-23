@@ -135,7 +135,7 @@ the deck track in session capture. Original charter follows.
   ring, reorder/delete/caption editing over guide.json; import a frame as
   a still slide. Depends X1/X2.
 
-## Program C — Capture parity (census #4)
+## Program C — Capture parity (census #4) — ✅ COMPLETE
 
 - **C1 Stills parity:** freeform polygon (overlay + engine), window-mode
   stills + picker, capture delay, re-snip, clipboard auto-copy, arrow-key
@@ -162,7 +162,10 @@ the deck track in session capture. Original charter follows.
   the Codex multi-window targets).
 - **C4 ViziWiz ink editor** (wiredFRONT-side, never mixed with Workbench):
   ink tones/width/undo, flatten → inbox via forced metadata. Pilot: stroke
-  + flatten flow, baseline on the composite.
+  + flatten flow, baseline on the composite. ✅ DONE (plan
+  docs/plans/c4-viziwiz-ink.md; `engine-media::ink::flatten_ink` +
+  `--ink-drill` prove the composite with source-bytes equality; the
+  in-app stroke scenario waits on the Test Lab runner lane).
 
 ## Program T — Templates & interaction (census #5)
 

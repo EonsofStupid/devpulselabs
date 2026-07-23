@@ -133,6 +133,25 @@ fn main() -> eframe::Result {
         .position(|a| a == "--open-rail")
         .and_then(|i| args.get(i + 1))
         .cloned();
+    // `--ink-drill <rel>` — the headless ViziWiz flatten drill (C4): a
+    // real corner-to-corner stroke through the real flatten path (auto
+    // `-annot` metadata), asserting the source never changes. No window.
+    if let Some(i) = args.iter().position(|a| a == "--ink-drill") {
+        let Some(rel) = args.get(i + 1) else {
+            eprintln!("usage: --ink-drill <inbox-relative-image>");
+            std::process::exit(2);
+        };
+        match dpl_hub_wiredfront::ink_drill(&dpl_engine_capture::content_root(), rel) {
+            Ok(msg) => {
+                println!("ink-drill: {msg}");
+                std::process::exit(0);
+            }
+            Err(e) => {
+                eprintln!("ink-drill: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
     // `--clone-seed <seed-id> <show> <episode>` — the headless clone
     // drill (X3): copy a seed into the real content tree through the
     // engine (`dpl_doc::clone_episode`) and exit; no window boots.

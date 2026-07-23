@@ -14,6 +14,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
+pub mod ink;
+
 // ── the constants, verbatim from optimize-media.mjs ─────────────────────
 pub const MAX_IMAGE_WIDTH: u32 = 2560;
 pub const AVIF_QUALITY: f32 = 60.0;
