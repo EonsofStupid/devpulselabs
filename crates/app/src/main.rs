@@ -70,6 +70,34 @@ fn main() -> eframe::Result {
         .position(|a| a == "--present")
         .and_then(|i| args.get(i + 1))
         .cloned();
+    // `--clone-seed <seed-id> <show> <episode>` — the headless clone
+    // drill (X3): copy a seed into the real content tree through the
+    // engine (`dpl_doc::clone_episode`) and exit; no window boots.
+    if let Some(i) = args.iter().position(|a| a == "--clone-seed") {
+        let (Some(seed), Some(show), Some(ep)) =
+            (args.get(i + 1), args.get(i + 2), args.get(i + 3))
+        else {
+            eprintln!("usage: --clone-seed <seed-id> <show> <episode>");
+            std::process::exit(2);
+        };
+        let Some((_, dir)) = dpl_doc::list_episodes()
+            .into_iter()
+            .find(|(e, _)| e == seed)
+        else {
+            eprintln!("unknown seed episode {seed:?}");
+            std::process::exit(2);
+        };
+        match dpl_doc::clone_episode(&dir, &dpl_engine_capture::content_root(), show, ep) {
+            Ok(dest) => {
+                println!("cloned {seed} → {}", dest.display());
+                std::process::exit(0);
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        }
+    }
 
     let options = eframe::NativeOptions {
         // MAXIMIZED — a fixed logical size overflows small displays at

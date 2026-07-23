@@ -54,13 +54,19 @@ static SPEC: HubSpec = HubSpec {
 };
 
 /// The Gallery's state: rows loaded once per visit, a kind filter, the
-/// armed dump target (two-tap law), and the honest status line.
+/// armed dump target (two-tap law), the open Keep target list (X3), and
+/// the honest status line.
 struct GalleryView {
     rows: Vec<dpl_index::Record>,
     filter: Option<&'static str>,
     /// rel_path armed for dump — the second tap fires, anything else
     /// disarms (a destructive action never rides one stray tap).
     armed: Option<String>,
+    /// rel_path whose Keep target list is open (inbox artifacts only).
+    keep_open: Option<String>,
+    /// The keep destinations: every CONTENT episode as (show, episode).
+    /// Seeds are templates, never keep targets.
+    targets: Vec<(String, String)>,
     status: String,
 }
 
@@ -74,13 +80,27 @@ impl GalleryView {
                 }
                 Err(e) => (Vec::new(), e),
             };
+        let targets = dpl_doc::list_content_episodes(&dpl_engine_capture::content_root())
+            .into_iter()
+            .map(|(show, ep, _)| (show, ep))
+            .collect();
         Self {
             rows,
             filter,
             armed: None,
+            keep_open: None,
+            targets,
             status,
         }
     }
+}
+
+/// What one card asked for this frame.
+enum CardAct {
+    Dump,
+    KeepToggle,
+    /// Keep into (show, episode).
+    KeepTo(String, String),
 }
 
 #[derive(Default)]
@@ -177,7 +197,7 @@ impl WiredfrontHub {
         }
 
         // The wall: adaptive card grid.
-        let mut dump: Option<String> = None;
+        let mut act: Option<(String, CardAct)> = None;
         let mut disarm = false;
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
@@ -192,17 +212,16 @@ impl WiredfrontHub {
                     .show(ui, |ui| {
                         for (n, i) in visible.iter().enumerate() {
                             let r = &view.rows[*i];
-                            let (fired, disarmed) = artifact_card(
-                                ui,
-                                r,
-                                &root,
-                                card_w,
-                                thumb_h,
-                                view.armed.as_deref() == Some(r.rel_path.as_str()),
-                                &mut view.armed,
-                            );
-                            if fired {
-                                dump = Some(r.rel_path.clone());
+                            let state = CardState {
+                                armed: view.armed.as_deref() == Some(r.rel_path.as_str()),
+                                keep_open: view.keep_open.as_deref() == Some(r.rel_path.as_str()),
+                                targets: &view.targets,
+                                arm: &mut view.armed,
+                            };
+                            let (card_act, disarmed) =
+                                artifact_card(ui, r, &root, card_w, thumb_h, state);
+                            if let Some(a) = card_act {
+                                act = Some((r.rel_path.clone(), a));
                             }
                             if disarmed {
                                 disarm = true;
@@ -216,32 +235,66 @@ impl WiredfrontHub {
         if disarm {
             view.armed = None;
         }
-        if let Some(rel) = dump {
-            let status = match dpl_index::Index::open_default().and_then(|ix| ix.dump(&root, &rel))
-            {
-                Ok(()) => format!("dumped {rel}"),
-                Err(e) => e,
-            };
-            let filter = view.filter;
-            let mut fresh = GalleryView::load(filter);
-            fresh.status = status;
-            self.gallery = Some(fresh);
+        match act {
+            Some((rel, CardAct::Dump)) => {
+                let status =
+                    match dpl_index::Index::open_default().and_then(|ix| ix.dump(&root, &rel)) {
+                        Ok(()) => format!("dumped {rel}"),
+                        Err(e) => e,
+                    };
+                let filter = view.filter;
+                let mut fresh = GalleryView::load(filter);
+                fresh.status = status;
+                self.gallery = Some(fresh);
+            }
+            Some((rel, CardAct::KeepToggle)) => {
+                view.armed = None;
+                view.keep_open = (view.keep_open.as_deref() != Some(rel.as_str())).then_some(rel);
+            }
+            Some((rel, CardAct::KeepTo(show, ep))) => {
+                let status = match dpl_index::Index::open_default()
+                    .and_then(|ix| ix.keep(&root, &rel, &show, &ep))
+                {
+                    Ok(new_rel) => format!("kept → {new_rel}"),
+                    Err(e) => e,
+                };
+                let filter = view.filter;
+                let mut fresh = GalleryView::load(filter);
+                fresh.status = status;
+                self.gallery = Some(fresh);
+            }
+            None => {}
         }
     }
 }
 
-/// One artifact card: thumb (honest fallback), name, kind+tags line, and
-/// the two-tap Dump. Returns (dump_fired, disarm_requested).
+/// The view state one card renders against (keeps the card's signature
+/// inside the argument budget — no `#[allow]`, the workspace law).
+struct CardState<'a> {
+    armed: bool,
+    keep_open: bool,
+    targets: &'a [(String, String)],
+    arm: &'a mut Option<String>,
+}
+
+/// One artifact card: thumb (honest fallback), name, kind+tags line, the
+/// two-tap Dump, and (inbox rows) the Keep flow — a toggle opening the
+/// content-episode target list in place. Returns (action, disarm).
 fn artifact_card(
     ui: &mut egui::Ui,
     r: &dpl_index::Record,
     root: &std::path::Path,
     w: f32,
     thumb_h: f32,
-    armed: bool,
-    arm: &mut Option<String>,
-) -> (bool, bool) {
-    let mut fired = false;
+    state: CardState,
+) -> (Option<CardAct>, bool) {
+    let CardState {
+        armed,
+        keep_open,
+        targets,
+        arm,
+    } = state;
+    let mut act: Option<CardAct> = None;
     let mut disarm = false;
     ui.vertical(|ui| {
         ui.set_width(w);
@@ -285,7 +338,7 @@ fn artifact_card(
                     .interact(Sense::click());
                 if resp.clicked() {
                     if armed {
-                        fired = true;
+                        act = Some(CardAct::Dump);
                     } else {
                         *arm = Some(r.rel_path.clone());
                     }
@@ -294,6 +347,29 @@ fn artifact_card(
                     // deletes.
                     disarm = true;
                 }
+                // Keep (X3) — inbox artifacts only; the jail binds the
+                // source anyway, this just keeps the surface honest.
+                if r.location == "inbox" {
+                    let resp = ui
+                        .label(RichText::new("Keep").small().color(if keep_open {
+                            cl::Tone::Magenta.color()
+                        } else {
+                            cl::ink::SUBTLE
+                        }))
+                        .interact(Sense::click());
+                    ui.pilot_track(
+                        &resp,
+                        NodeMetadata::new(
+                            PilotId::new("gallery").child(&PilotKey::new("keep")),
+                            egui_pilot_ai::protocol::Role::Button,
+                            "Keep into a show",
+                        )
+                        .value(if keep_open { "open" } else { "closed" }),
+                    );
+                    if resp.clicked() {
+                        act = Some(CardAct::KeepToggle);
+                    }
+                }
             });
         });
         let mut meta = format!("{} · {}", r.kind, r.captured_at);
@@ -301,8 +377,37 @@ fn artifact_card(
             meta = format!("{meta} · {}", r.tags.join(", "));
         }
         ui.label(RichText::new(meta).small().color(cl::ink::MUTED));
+
+        // The Keep target list, in place: every CONTENT episode. Seeds are
+        // templates, never targets; an empty content tree says so.
+        if keep_open {
+            if targets.is_empty() {
+                ui.label(
+                    RichText::new("no shows yet — use \"copy to my shows\" in Workbench")
+                        .small()
+                        .color(cl::ink::MUTED),
+                );
+            }
+            ui.horizontal_wrapped(|ui| {
+                for (show, ep) in targets {
+                    let label = format!("{show}/{ep}");
+                    let resp = filter_chip(ui, &label, false);
+                    ui.pilot_track(
+                        &resp,
+                        NodeMetadata::new(
+                            PilotId::new("gallery.keep.target").child(&PilotKey::new(&label)),
+                            egui_pilot_ai::protocol::Role::Button,
+                            &label,
+                        ),
+                    );
+                    if resp.clicked() {
+                        act = Some(CardAct::KeepTo(show.clone(), ep.clone()));
+                    }
+                }
+            });
+        }
     });
-    (fired, disarm)
+    (act, disarm)
 }
 
 /// The thumbnail source, or None for the honest kind-label fallback:

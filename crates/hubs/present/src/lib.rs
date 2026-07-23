@@ -41,12 +41,21 @@ impl PresentHub {
         }
     }
 
-    /// Open a seed show by its folder id (also the `--present` harness
-    /// path). Unknown ids degrade to staying on the picker.
+    /// Open a show by its episode id, or `show/episode` (also the
+    /// `--present` harness path). The union lists content first, so a
+    /// real show wins an id collision with a template. Unknown ids
+    /// degrade to staying on the picker.
     pub fn open_show(&mut self, id: &str) {
-        let Some((_, dir)) = dpl_doc::list_episodes().into_iter().find(|(e, _)| e == id) else {
+        let entries = dpl_doc::all_episodes(&dpl_engine_capture::content_root());
+        let Some(entry) = entries.iter().find(|e| {
+            e.id == id
+                || e.show
+                    .as_deref()
+                    .is_some_and(|s| format!("{s}/{}", e.id) == id)
+        }) else {
             return;
         };
+        let dir = entry.dir.clone();
         self.open_dir(&dir);
     }
 
@@ -86,13 +95,19 @@ impl PresentHub {
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                for (id, dir) in dpl_doc::list_episodes() {
-                    let (title, count) = match dpl_doc::load_episode(&dir) {
+                // The union (X3): the operator's content shows FIRST,
+                // then the seed templates, labelled as such.
+                for entry in dpl_doc::all_episodes(&dpl_engine_capture::content_root()) {
+                    let (title, count) = match dpl_doc::load_episode(&entry.dir) {
                         Ok(ep) => {
-                            let n = dpl_doc::episode_slides(&dir, &ep).len();
+                            let n = dpl_doc::episode_slides(&entry.dir, &ep).len();
                             (ep.title, n)
                         }
-                        Err(_) => (id.clone(), 0),
+                        Err(_) => (entry.id.clone(), 0),
+                    };
+                    let badge = match &entry.show {
+                        Some(show) => format!("{show}/{}", entry.id),
+                        None => format!("template · {}", entry.id),
                     };
                     let resp = cl::card_frame().show(ui, |ui| {
                         ui.set_width(ui.available_width().min(560.0));
@@ -110,7 +125,7 @@ impl PresentHub {
                                             .color(cl::ink::SUBTLE),
                                     );
                                     ui.label(
-                                        RichText::new(&id)
+                                        RichText::new(&badge)
                                             .monospace()
                                             .small()
                                             .color(cl::ink::SUBTLE),
@@ -120,7 +135,7 @@ impl PresentHub {
                         });
                     });
                     if resp.response.interact(egui::Sense::click()).clicked() {
-                        open = Some(dir);
+                        open = Some(entry.dir.clone());
                     }
                     ui.add_space(cl::space::S2);
                 }

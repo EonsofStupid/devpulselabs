@@ -382,30 +382,225 @@ impl Index {
             cleared,
         })
     }
+
+    /// KEEP (X3): MOVE an inbox artifact into an EXISTING content episode
+    /// — `content/<show>/<episode>/assets/` — companions travelling
+    /// (sidecar; a video's poster; a guide folder whole), the sidecar
+    /// rewritten, the row re-keyed. Keep never creates shows: a missing
+    /// destination episode is refused (the old filing law). The source is
+    /// inbox-jailed like dump. Returns the new rel_path.
+    pub fn keep(
+        &self,
+        root: &Path,
+        rel_path: &str,
+        show: &str,
+        episode: &str,
+    ) -> Result<String, String> {
+        self.file_into_episode(root, rel_path, show, episode, FileOp::Move)
+    }
+
+    /// ASSOCIATE (X3): COPY, never move — the library master (file, row,
+    /// sidecar) stays exactly where it is; the copy gets its own sidecar
+    /// and its own row. Same destination law as keep.
+    pub fn associate(
+        &self,
+        root: &Path,
+        rel_path: &str,
+        show: &str,
+        episode: &str,
+    ) -> Result<String, String> {
+        self.file_into_episode(root, rel_path, show, episode, FileOp::Copy)
+    }
+
+    fn file_into_episode(
+        &self,
+        root: &Path,
+        rel_path: &str,
+        show: &str,
+        episode: &str,
+        op: FileOp,
+    ) -> Result<String, String> {
+        let source = jail_inbox(root, rel_path)?;
+        let ep_dir = root.join(show).join(episode);
+        if !ep_dir.join("episode.json").is_file() {
+            return Err(format!(
+                "refused: {show}/{episode} is not an existing episode (keep never creates shows)"
+            ));
+        }
+        let assets = ep_dir.join("assets");
+        std::fs::create_dir_all(&assets).map_err(|e| format!("assets: {e}"))?;
+        let file_name = source
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .ok_or_else(|| format!("no file name in {rel_path:?}"))?;
+
+        if source.is_dir() {
+            // A guide folder travels WHOLE — frames, guide.json, and its
+            // artifact.meta.json sidecar are already inside it.
+            let dest = never_clobber(&assets, &file_name, false);
+            match op {
+                FileOp::Move => {
+                    std::fs::rename(&source, &dest).map_err(|e| format!("keep: {e}"))?
+                }
+                FileOp::Copy => copy_dir(&source, &dest)?,
+            }
+            let new_rel = rel_path_of(&dest, root);
+            let mut r = record_for(&dest, root, "guide", &file_name);
+            self.relocate(&dest, &mut r, &new_rel, show, episode)?;
+            if op == FileOp::Move {
+                self.rekey(rel_path, &new_rel, Some(show), Some(episode))?;
+            }
+            self.upsert(&r)?;
+            return Ok(new_rel);
+        }
+
+        // A media file: authored truth is read BEFORE the move, then the
+        // file + companions land under one never-clobbered stem (the
+        // poster law needs `vix-2.jpg` beside `vix-2.mp4`).
+        let authored = sidecar::read(&source);
+        let kind = kind_of(&source).unwrap_or("file");
+        let dest = never_clobber(&assets, &file_name, true);
+        transfer(&source, &dest, op)?;
+        let mut poster_rel = None;
+        if kind == "video" {
+            let poster = source.with_extension("jpg");
+            if poster.is_file() {
+                let poster_dest = dest.with_extension("jpg");
+                transfer(&poster, &poster_dest, op)?;
+                poster_rel = Some(rel_path_of(&poster_dest, root));
+            }
+        }
+        if op == FileOp::Move {
+            let _ = std::fs::remove_file(sidecar::path_for(&source));
+        }
+
+        let dest_name = dest
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or(file_name);
+        let mut r = record_for(&dest, root, kind, &dest_name);
+        if let Some(side) = authored {
+            r.name = side.name;
+            r.tags = side.tags;
+            r.source = side.source;
+            r.target = side.target;
+            r.seconds = side.seconds;
+            r.ai_labels = side.ai_labels;
+            if !side.captured_at.is_empty() {
+                r.captured_at = side.captured_at;
+            }
+        }
+        r.poster_rel_path = poster_rel;
+        let new_rel = r.rel_path.clone();
+        self.relocate(&dest, &mut r, &new_rel, show, episode)?;
+        if op == FileOp::Move {
+            self.rekey(rel_path, &new_rel, Some(show), Some(episode))?;
+        }
+        self.upsert(&r)?;
+        Ok(new_rel)
+    }
+
+    /// Stamp the content location onto a record and write its sidecar —
+    /// the file tier stays the truth.
+    fn relocate(
+        &self,
+        media: &Path,
+        r: &mut Record,
+        new_rel: &str,
+        show: &str,
+        episode: &str,
+    ) -> Result<(), String> {
+        r.rel_path = new_rel.to_string();
+        r.location = "content".into();
+        r.show_id = Some(show.to_string());
+        r.episode_folder = Some(episode.to_string());
+        sidecar::write(media, r)
+    }
 }
 
-/// The inbox JAIL: only `inbox/<name...>` rel paths, no traversal or
-/// absolute components, and the resolved target must exist UNDER the
-/// canonical inbox (symlink escapes included).
+/// Keep vs associate — the ONLY difference is move vs copy.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FileOp {
+    Move,
+    Copy,
+}
+
+fn transfer(from: &Path, to: &Path, op: FileOp) -> Result<(), String> {
+    match op {
+        FileOp::Move => std::fs::rename(from, to).map_err(|e| format!("keep: {e}")),
+        FileOp::Copy => std::fs::copy(from, to)
+            .map(|_| ())
+            .map_err(|e| format!("associate: {e}")),
+    }
+}
+
+fn copy_dir(from: &Path, to: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(to).map_err(|e| format!("copy {}: {e}", to.display()))?;
+    let entries = std::fs::read_dir(from).map_err(|e| format!("copy {}: {e}", from.display()))?;
+    for entry in entries.flatten() {
+        let src = entry.path();
+        let dst = to.join(entry.file_name());
+        if src.is_dir() {
+            copy_dir(&src, &dst)?;
+        } else {
+            std::fs::copy(&src, &dst).map_err(|e| format!("copy {}: {e}", src.display()))?;
+        }
+    }
+    Ok(())
+}
+
+/// The never-clobber name: `pix.png` → `pix-2.png` → `pix-3.png`…
+/// (`split_ext: false` for folders — a guide folder's dots are content,
+/// not an extension).
+fn never_clobber(dir: &Path, name: &str, split_ext: bool) -> PathBuf {
+    let first = dir.join(name);
+    if !first.exists() {
+        return first;
+    }
+    let (stem, ext) = if split_ext {
+        match name.rsplit_once('.') {
+            Some((s, e)) => (s.to_string(), Some(e.to_string())),
+            None => (name.to_string(), None),
+        }
+    } else {
+        (name.to_string(), None)
+    };
+    let mut n = 2u32;
+    loop {
+        let candidate = match &ext {
+            Some(e) => dir.join(format!("{stem}-{n}.{e}")),
+            None => dir.join(format!("{stem}-{n}")),
+        };
+        if !candidate.exists() {
+            return candidate;
+        }
+        n += 1;
+    }
+}
+
+/// The inbox JAIL (dump's source AND keep/associate's source): only
+/// `inbox/<name...>` rel paths, no traversal or absolute components, and
+/// the resolved target must exist UNDER the canonical inbox (symlink
+/// escapes included).
 fn jail_inbox(root: &Path, rel_path: &str) -> Result<PathBuf, String> {
     let rel = Path::new(rel_path);
     let mut parts = rel.components();
     if parts.next() != Some(std::path::Component::Normal("inbox".as_ref())) {
-        return Err(format!("dump refused: {rel_path:?} is not in the inbox"));
+        return Err(format!("refused: {rel_path:?} is not in the inbox"));
     }
     if !parts.all(|c| matches!(c, std::path::Component::Normal(_))) {
-        return Err(format!("dump refused: invalid path {rel_path:?}"));
+        return Err(format!("refused: invalid path {rel_path:?}"));
     }
     let inbox = root
         .join("inbox")
         .canonicalize()
-        .map_err(|e| format!("dump: inbox missing: {e}"))?;
+        .map_err(|e| format!("inbox missing: {e}"))?;
     let target = root
         .join(rel)
         .canonicalize()
-        .map_err(|e| format!("dump: not found: {rel_path:?} ({e})"))?;
+        .map_err(|e| format!("not found: {rel_path:?} ({e})"))?;
     if !target.starts_with(&inbox) {
-        return Err(format!("dump refused: {rel_path:?} escapes the inbox"));
+        return Err(format!("refused: {rel_path:?} escapes the inbox"));
     }
     Ok(target)
 }
@@ -542,7 +737,7 @@ fn scan_inbox(root: &Path) -> Result<Vec<Record>, String> {
 /// Build the record for one on-disk find: fs facts first, then the
 /// sidecar's authored fields WIN where present.
 fn record_for(path: &Path, root: &Path, kind: &str, file_name: &str) -> Record {
-    let rel = rel_path(path, root);
+    let rel = rel_path_of(path, root);
     let (size_kb, modified_ms) = fs_facts(path);
     let stem = file_name
         .rsplit_once('.')
@@ -561,7 +756,7 @@ fn record_for(path: &Path, root: &Path, kind: &str, file_name: &str) -> Record {
     if kind == "video" {
         let poster = path.with_extension("jpg");
         if poster.is_file() {
-            r.poster_rel_path = Some(rel_path(&poster, root));
+            r.poster_rel_path = Some(rel_path_of(&poster, root));
         }
     }
     if let Some(side) = sidecar::read(path) {
@@ -584,7 +779,7 @@ fn record_for(path: &Path, root: &Path, kind: &str, file_name: &str) -> Record {
     r
 }
 
-fn rel_path(path: &Path, root: &Path) -> String {
+fn rel_path_of(path: &Path, root: &Path) -> String {
     path.strip_prefix(root)
         .unwrap_or(path)
         .to_string_lossy()
@@ -861,5 +1056,165 @@ mod tests {
         // 2026-07-23T00:00:00Z == 1784764800000 ms.
         assert_eq!(iso_from_ms(1_784_764_800_000), "2026-07-23T00:00:00Z");
         assert_eq!(iso_from_ms(0), "1970-01-01T00:00:00Z");
+    }
+
+    // ── keep + associate (X3) ───────────────────────────────────────────
+
+    /// An existing content episode — keep's precondition (keep never
+    /// creates shows; the doc tier's clone does).
+    fn content_episode(root: &Path, show: &str, episode: &str) {
+        let dir = root.join(show).join(episode);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("episode.json"), "{}").unwrap();
+    }
+
+    #[test]
+    fn keep_refuses_a_missing_episode_and_a_non_inbox_source() {
+        let root = scratch("keep-refuse");
+        std::fs::write(root.join("inbox").join("pix.png"), b"img").unwrap();
+        let ix = Index::open(&root.join("artifacts.db")).unwrap();
+        // No episode exists — refused, nothing created.
+        let err = ix
+            .keep(&root, "inbox/pix.png", "devpulse-news", "ep1")
+            .unwrap_err();
+        assert!(err.contains("refused"), "{err}");
+        assert!(!root.join("devpulse-news").exists(), "keep never creates");
+        assert!(root.join("inbox").join("pix.png").exists(), "source stays");
+        // The jail binds keep + associate sources exactly like dump.
+        content_episode(&root, "devpulse-news", "ep1");
+        std::fs::create_dir_all(root.join("shows")).unwrap();
+        std::fs::write(root.join("shows").join("x.png"), b"content").unwrap();
+        for bad in ["shows/x.png", "inbox/../shows/x.png", "../etc/passwd"] {
+            assert!(ix.keep(&root, bad, "devpulse-news", "ep1").is_err());
+            assert!(ix.associate(&root, bad, "devpulse-news", "ep1").is_err());
+        }
+    }
+
+    #[test]
+    fn keep_moves_the_artifact_its_companions_and_rekeys_the_row() {
+        let root = scratch("keep-move");
+        let inbox = root.join("inbox");
+        std::fs::write(inbox.join("pix.png"), b"img").unwrap();
+        let mut authored = rec("inbox/pix.png", "image");
+        authored.name = "gpu-explainer".into();
+        authored.tags = vec!["ai".into()];
+        sidecar::write(&inbox.join("pix.png"), &authored).unwrap();
+        std::fs::write(inbox.join("vix.mp4"), b"vid").unwrap();
+        std::fs::write(inbox.join("vix.jpg"), b"poster").unwrap();
+        content_episode(&root, "devpulse-news", "ep1");
+        let ix = Index::open(&root.join("artifacts.db")).unwrap();
+        ix.reindex(&root).unwrap();
+
+        let new_rel = ix
+            .keep(&root, "inbox/pix.png", "devpulse-news", "ep1")
+            .unwrap();
+        assert_eq!(new_rel, "devpulse-news/ep1/assets/pix.png");
+        let dest = root.join("devpulse-news/ep1/assets/pix.png");
+        assert!(dest.is_file(), "the file moved");
+        assert!(!inbox.join("pix.png").exists(), "the inbox copy is gone");
+        assert!(
+            !inbox.join("pix.png.meta.json").exists(),
+            "the sidecar travelled"
+        );
+        let side = sidecar::read(&dest).unwrap();
+        assert_eq!(side.rel_path, new_rel, "sidecar rewritten");
+        assert_eq!(side.location, "content");
+        assert_eq!(side.show_id.as_deref(), Some("devpulse-news"));
+        assert_eq!(side.name, "gpu-explainer", "authored truth survived");
+        let content_rows = ix.list(None, Some("content")).unwrap();
+        assert_eq!(content_rows.len(), 1, "the row re-keyed");
+        assert_eq!(content_rows[0].rel_path, new_rel);
+        assert_eq!(
+            ix.list(None, Some("inbox")).unwrap().len(),
+            1,
+            "only the video still sits in the inbox"
+        );
+
+        // The video: its poster rides along, in file, sidecar AND row.
+        let new_rel = ix
+            .keep(&root, "inbox/vix.mp4", "devpulse-news", "ep1")
+            .unwrap();
+        assert!(root.join("devpulse-news/ep1/assets/vix.jpg").is_file());
+        assert!(!inbox.join("vix.jpg").exists());
+        let rows = ix.list(Some("video"), Some("content")).unwrap();
+        assert_eq!(rows[0].rel_path, new_rel);
+        assert_eq!(
+            rows[0].poster_rel_path.as_deref(),
+            Some("devpulse-news/ep1/assets/vix.jpg")
+        );
+    }
+
+    #[test]
+    fn keep_never_clobbers_an_existing_name() {
+        let root = scratch("keep-clobber");
+        std::fs::write(root.join("inbox").join("pix.png"), b"new").unwrap();
+        content_episode(&root, "effingai", "pilot");
+        let assets = root.join("effingai").join("pilot").join("assets");
+        std::fs::create_dir_all(&assets).unwrap();
+        std::fs::write(assets.join("pix.png"), b"old").unwrap();
+        let ix = Index::open(&root.join("artifacts.db")).unwrap();
+        let new_rel = ix
+            .keep(&root, "inbox/pix.png", "effingai", "pilot")
+            .unwrap();
+        assert_eq!(new_rel, "effingai/pilot/assets/pix-2.png");
+        assert_eq!(std::fs::read(assets.join("pix.png")).unwrap(), b"old");
+        assert_eq!(std::fs::read(assets.join("pix-2.png")).unwrap(), b"new");
+    }
+
+    #[test]
+    fn a_guide_folder_keeps_whole() {
+        let root = scratch("keep-guide");
+        let guide = root.join("inbox").join("guide-1");
+        std::fs::create_dir_all(&guide).unwrap();
+        std::fs::write(guide.join("guide.json"), "{}").unwrap();
+        std::fs::write(guide.join("step-001.webp"), b"frame").unwrap();
+        content_episode(&root, "eons-of-stupidity", "ep1");
+        let ix = Index::open(&root.join("artifacts.db")).unwrap();
+        ix.reindex(&root).unwrap();
+
+        let new_rel = ix
+            .keep(&root, "inbox/guide-1", "eons-of-stupidity", "ep1")
+            .unwrap();
+        assert_eq!(new_rel, "eons-of-stupidity/ep1/assets/guide-1");
+        let dest = root.join("eons-of-stupidity/ep1/assets/guide-1");
+        assert!(dest.join("guide.json").is_file());
+        assert!(dest.join("step-001.webp").is_file(), "frames travelled");
+        assert!(!guide.exists(), "the inbox folder is gone");
+        let side = sidecar::read(&dest).unwrap();
+        assert_eq!(side.location, "content");
+        assert_eq!(side.kind, "guide");
+        let rows = ix.list(Some("guide"), Some("content")).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].rel_path, new_rel);
+    }
+
+    #[test]
+    fn associate_copies_and_the_library_master_stays() {
+        let root = scratch("associate");
+        let inbox = root.join("inbox");
+        std::fs::write(inbox.join("pix.png"), b"img").unwrap();
+        sidecar::write(&inbox.join("pix.png"), &rec("inbox/pix.png", "image")).unwrap();
+        content_episode(&root, "devpulse-news", "ep1");
+        let ix = Index::open(&root.join("artifacts.db")).unwrap();
+        ix.reindex(&root).unwrap();
+
+        let new_rel = ix
+            .associate(&root, "inbox/pix.png", "devpulse-news", "ep1")
+            .unwrap();
+        assert_eq!(new_rel, "devpulse-news/ep1/assets/pix.png");
+        assert!(inbox.join("pix.png").exists(), "the master stays");
+        assert!(
+            inbox.join("pix.png.meta.json").exists(),
+            "the master's sidecar stays"
+        );
+        assert!(root.join("devpulse-news/ep1/assets/pix.png").is_file());
+        let side = sidecar::read(&root.join("devpulse-news/ep1/assets/pix.png")).unwrap();
+        assert_eq!(side.location, "content", "the copy's own sidecar");
+        assert_eq!(ix.list(None, Some("inbox")).unwrap().len(), 1);
+        assert_eq!(
+            ix.list(None, Some("content")).unwrap().len(),
+            1,
+            "a NEW row for the copy — two rows total"
+        );
     }
 }

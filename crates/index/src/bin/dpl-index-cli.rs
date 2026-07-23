@@ -41,8 +41,23 @@ fn run() -> i32 {
             let n = rest.get(1).and_then(|s| s.parse().ok()).unwrap_or(20);
             index.recent(n, None).map(print_rows)
         }
+        Some(op @ ("keep" | "associate")) => {
+            let (Some(rel), Some(show), Some(ep)) = (rest.get(1), rest.get(2), rest.get(3)) else {
+                eprintln!("usage: dpl-index-cli [--root <dir>] {op} <rel_path> <show> <episode>");
+                return 2;
+            };
+            let run = if op == "keep" {
+                index.keep(&root, rel, show, ep)
+            } else {
+                index.associate(&root, rel, show, ep)
+            };
+            run.map(|new_rel| println!("{op}: {rel} → {new_rel}"))
+        }
         _ => {
-            eprintln!("usage: dpl-index-cli [--root <dir>] <reindex | list [kind] | recent [n]>");
+            eprintln!(
+                "usage: dpl-index-cli [--root <dir>] <reindex | list [kind] | recent [n] | \
+                 keep <rel> <show> <ep> | associate <rel> <show> <ep>>"
+            );
             return 2;
         }
     };

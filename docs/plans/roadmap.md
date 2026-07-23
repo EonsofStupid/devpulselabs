@@ -89,7 +89,16 @@ problems:
   inbox and stays separate — a guide only enters an episode via an
   explicit associate/T4 action, never by filing. Keep = move inbox
   artifact + companions into `<ep>/assets/` + rekey; associate/import =
-  copy-never-move; frame-to-slide seam for W-track.
+  copy-never-move; frame-to-slide seam for W-track. ✅ DONE (plan
+  docs/plans/x3-keep-associate.md §8 records the execution): dpl-doc
+  content tier (list_shows/list_content_episodes/all_episodes/
+  clone_episode, EPISODE_RESERVED += assets), dpl-index keep/associate
+  (jail-bound source, episode-must-exist, companions, never-clobber,
+  sidecar rewrite + rekey+upsert), Gallery Keep flow, union pickers in
+  Present + Workbench + editor, "copy to my shows" chip w/ the three
+  ratified show suggestions; drills: index-cli keep/associate, app
+  `--clone-seed`; the first real show exists:
+  content/devpulse-news/how-ai-works.
 
 ## Program W — Authoring (continues #104/#105)
 

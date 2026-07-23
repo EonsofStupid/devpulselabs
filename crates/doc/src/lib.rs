@@ -396,7 +396,7 @@ pub fn episode_slides(dir: &Path, ep: &Episode) -> Vec<SlideRef> {
 // concern per file, so "auto-growing" stays strict — a new concern claims
 // a reserved name here, it never squats. The doctor flags everything else.
 const SLIDE_RESERVED: &[&str] = &["slide.json", "ink.json", "notes.md", "assets"];
-const EPISODE_RESERVED: &[&str] = &["episode.json", "look.json"];
+const EPISODE_RESERVED: &[&str] = &["episode.json", "look.json", "assets"];
 
 /// Contract-check one folder's entries: leftover save transients and
 /// unreserved names are flagged; `dirs_are_slides` marks subfolders as
@@ -690,6 +690,147 @@ pub fn list_seeds() -> Vec<(String, PathBuf)> {
         .collect();
     seeds.sort();
     seeds
+}
+
+// ── the CONTENT tier (X3) — the operator's real shows ───────────────────
+//
+// The RATIFIED tree (operator, 2026-07-23): `content/<show>/<episode>/`,
+// the show name IS the stream category. Seeds stay pristine templates;
+// a new show COPIES a seed into content. Episodes are NOT guides — the
+// guide system files through the inbox and only enters an episode via an
+// explicit associate (dpl-index's lane).
+
+/// One entry in the seeds+content UNION every picker lists: `show` names
+/// the content category, or None for a seed template.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EpisodeEntry {
+    pub show: Option<String>,
+    pub id: String,
+    pub dir: PathBuf,
+}
+
+/// The content root's shows: subfolders holding at least one episode
+/// folder. The machine tier (`inbox/`, `artifacts.db*`) is skipped by
+/// name; anything else without an episode inside simply isn't a show yet.
+pub fn list_shows(content_root: &Path) -> Vec<(String, PathBuf)> {
+    let Ok(entries) = std::fs::read_dir(content_root) else {
+        return Vec::new();
+    };
+    let mut shows: Vec<(String, PathBuf)> = entries
+        .flatten()
+        .filter(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let dir = e.path();
+            name != "inbox"
+                && !name.starts_with("artifacts.db")
+                && dir.is_dir()
+                && holds_an_episode(&dir)
+        })
+        .map(|e| (e.file_name().to_string_lossy().into_owned(), e.path()))
+        .collect();
+    shows.sort();
+    shows
+}
+
+/// A show is a folder with at least one episode inside — a guide folder
+/// (guide.json, no episode.json) never qualifies.
+fn holds_an_episode(show_dir: &Path) -> bool {
+    std::fs::read_dir(show_dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .any(|e| e.path().join(EPISODE_FILE).is_file())
+        })
+        .unwrap_or(false)
+}
+
+/// Every content episode as (show, episode, dir), sorted.
+pub fn list_content_episodes(content_root: &Path) -> Vec<(String, String, PathBuf)> {
+    let mut out = Vec::new();
+    for (show, show_dir) in list_shows(content_root) {
+        let Ok(entries) = std::fs::read_dir(&show_dir) else {
+            continue;
+        };
+        for e in entries.flatten() {
+            if e.path().join(EPISODE_FILE).is_file() {
+                out.push((
+                    show.clone(),
+                    e.file_name().to_string_lossy().into_owned(),
+                    e.path(),
+                ));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// The UNION every picker lists: content episodes FIRST (they are the
+/// point), then the seed templates.
+pub fn all_episodes(content_root: &Path) -> Vec<EpisodeEntry> {
+    let mut out: Vec<EpisodeEntry> = list_content_episodes(content_root)
+        .into_iter()
+        .map(|(show, id, dir)| EpisodeEntry {
+            show: Some(show),
+            id,
+            dir,
+        })
+        .collect();
+    out.extend(list_episodes().into_iter().map(|(id, dir)| EpisodeEntry {
+        show: None,
+        id,
+        dir,
+    }));
+    out
+}
+
+/// The kebab name law — the capture metadata law's predicate, restated
+/// here like `find_upward`: the document layer must not depend on the
+/// capture engine for a character check.
+fn kebab_ok(s: &str) -> bool {
+    !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '_'))
+}
+
+/// "New show from a seed": copy a seed episode into
+/// `content/<show>/<episode>/`. COPY never move; an existing destination
+/// is refused; seeds are never written. Creates the episode-level
+/// `assets/` home (reserved by the folder contract).
+pub fn clone_episode(
+    seed_dir: &Path,
+    content_root: &Path,
+    show: &str,
+    episode: &str,
+) -> Result<PathBuf, String> {
+    if !kebab_ok(show) || !kebab_ok(episode) {
+        return Err("show and episode names are kebab-case (a-z, 0-9, -, _)".into());
+    }
+    if !seed_dir.join(EPISODE_FILE).is_file() {
+        return Err(format!("not an episode folder: {}", seed_dir.display()));
+    }
+    let dest = content_root.join(show).join(episode);
+    if dest.exists() {
+        return Err(format!("{show}/{episode} already exists — clone refused"));
+    }
+    copy_dir(seed_dir, &dest)?;
+    std::fs::create_dir_all(dest.join("assets")).map_err(|e| format!("assets: {e}"))?;
+    Ok(dest)
+}
+
+fn copy_dir(from: &Path, to: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(to).map_err(|e| format!("copy {}: {e}", to.display()))?;
+    let entries = std::fs::read_dir(from).map_err(|e| format!("copy {}: {e}", from.display()))?;
+    for entry in entries.flatten() {
+        let src = entry.path();
+        let dst = to.join(entry.file_name());
+        if src.is_dir() {
+            copy_dir(&src, &dst)?;
+        } else {
+            std::fs::copy(&src, &dst).map_err(|e| format!("copy {}: {e}", src.display()))?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1160,6 +1301,102 @@ mod tests {
                 .iter()
                 .any(|i| i.path == "look.font" && i.message.contains("comic-sans")),
             "expected the look's bad font named: {issues:?}"
+        );
+    }
+
+    // ── the content tier (X3) ───────────────────────────────────────────
+
+    /// A scratch pair: a seed episode OUTSIDE the content root (so the
+    /// tree listings never see it) and an empty content root.
+    fn content_scratch(name: &str) -> (PathBuf, PathBuf) {
+        let base = std::env::temp_dir()
+            .join("dpl-content-tests")
+            .join(format!("{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let seed = base.join("seed-src");
+        for s in ["a", "b", "c"] {
+            write_ok_slide(&seed.join(s));
+        }
+        save_episode(&seed, &ep_sample()).unwrap();
+        save_look(&seed, &Look::fallback()).unwrap();
+        (seed, base.join("content"))
+    }
+
+    #[test]
+    fn clone_copies_the_seed_never_moves_and_refuses_repeats() {
+        let (seed, content) = content_scratch("clone");
+        let dest = clone_episode(&seed, &content, "devpulse-news", "ep1").unwrap();
+        assert_eq!(dest, content.join("devpulse-news").join("ep1"));
+        assert!(dest.join("episode.json").is_file());
+        assert!(dest.join("look.json").is_file());
+        assert!(dest.join("a").join("slide.json").is_file());
+        assert!(dest.join("assets").is_dir(), "the assets home is created");
+        // The seed is untouched — copy, never move.
+        assert!(seed.join("episode.json").is_file());
+        assert!(seed.join("a").join("slide.json").is_file());
+        // The clone validates clean under the contract (assets/ reserved).
+        let ep = load_episode(&dest).unwrap();
+        assert_eq!(validate_episode(&dest, &ep), Vec::new());
+        // An existing destination is refused, and nothing was clobbered.
+        let err = clone_episode(&seed, &content, "devpulse-news", "ep1").unwrap_err();
+        assert!(err.contains("refused"), "{err}");
+        // The kebab law names bad show/episode names.
+        assert!(clone_episode(&seed, &content, "DevPULSE News", "ep2").is_err());
+        assert!(clone_episode(&seed, &content, "effingai", "Ep Two").is_err());
+        // A non-episode source is refused.
+        assert!(clone_episode(&seed.join("a"), &content, "effingai", "ep2").is_err());
+    }
+
+    #[test]
+    fn the_content_tree_lists_shows_and_skips_the_machine_tier() {
+        let (seed, content) = content_scratch("tree");
+        clone_episode(&seed, &content, "devpulse-news", "ep1").unwrap();
+        clone_episode(&seed, &content, "devpulse-news", "ep2").unwrap();
+        clone_episode(&seed, &content, "effingai", "pilot").unwrap();
+        // The machine tier and non-show folders never list.
+        std::fs::create_dir_all(content.join("inbox")).unwrap();
+        std::fs::write(content.join("inbox").join("pix.png"), b"img").unwrap();
+        std::fs::write(content.join("artifacts.db"), b"db").unwrap();
+        std::fs::create_dir_all(content.join("empty-folder")).unwrap();
+        // A guide folder inside a show is NOT an episode.
+        let guide = content.join("devpulse-news").join("guide-20260723");
+        std::fs::create_dir_all(&guide).unwrap();
+        std::fs::write(guide.join("guide.json"), "{}").unwrap();
+
+        let shows: Vec<String> = list_shows(&content).into_iter().map(|(s, _)| s).collect();
+        assert_eq!(shows, ["devpulse-news", "effingai"]);
+        let eps: Vec<(String, String)> = list_content_episodes(&content)
+            .into_iter()
+            .map(|(s, e, _)| (s, e))
+            .collect();
+        assert_eq!(
+            eps,
+            [
+                ("devpulse-news".into(), "ep1".into()),
+                ("devpulse-news".into(), "ep2".into()),
+                ("effingai".to_string(), "pilot".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_union_lists_content_first_then_the_seed_templates() {
+        let (seed, content) = content_scratch("union");
+        clone_episode(&seed, &content, "eons-of-stupidity", "ep1").unwrap();
+        let all = all_episodes(&content);
+        assert!(
+            all.first().is_some_and(|e| e.show.is_some()),
+            "content leads: {all:?}"
+        );
+        let content_count = all.iter().filter(|e| e.show.is_some()).count();
+        assert_eq!(content_count, 1);
+        assert!(
+            all.iter().any(|e| e.show.is_none()),
+            "the seed templates still list: {all:?}"
+        );
+        assert!(
+            all.iter().take(content_count).all(|e| e.show.is_some()),
+            "no template sorts above content: {all:?}"
         );
     }
 }

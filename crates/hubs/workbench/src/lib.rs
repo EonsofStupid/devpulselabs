@@ -82,8 +82,24 @@ pub struct WorkbenchHub {
     editor: Option<dpl_editor::Editor>,
     /// The episode-wall's live slide docs, loaded once per episode open.
     episode_view: Option<EpisodeView>,
+    /// The "copy to my shows" form (X3) — open on the episodes picker.
+    clone_form: Option<CloneForm>,
     test_lab: egui_pilot_ai_lab::TestLab,
 }
+
+/// The clone-a-seed form: names a show category + episode (kebab law),
+/// runs `dpl_doc::clone_episode`. Seeds are read, never written.
+struct CloneForm {
+    seed_id: String,
+    seed_dir: PathBuf,
+    show: String,
+    episode: String,
+    error: Option<String>,
+}
+
+/// The operator's ratified stream categories (2026-07-23) — offered as
+/// suggestions while the content tree is empty; any folder name works.
+const SHOW_SUGGESTIONS: [&str; 3] = ["devpulse-news", "eons-of-stupidity", "effingai"];
 
 impl WorkbenchHub {
     fn load_seeds() -> Vec<SeedEntry> {
@@ -333,14 +349,32 @@ impl WorkbenchHub {
                 .color(cl::ink::SUBTLE),
         );
         ui.add_space(cl::space::S2);
+
+        // The "copy to my shows" form (X3): name the show category + the
+        // episode, then clone_episode copies the seed into content.
+        if let Some(done) = self.clone_form_ui(ui) {
+            if done {
+                self.clone_form = None;
+            }
+        }
+
+        let content_root = dpl_engine_capture::content_root();
         let mut open: Option<(String, PathBuf)> = None;
+        let mut clone_from: Option<(String, PathBuf)> = None;
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                for (id, dir) in dpl_doc::list_episodes() {
-                    let title = dpl_doc::load_episode(&dir)
+                // The union (X3): content shows first, templates after.
+                for entry in dpl_doc::all_episodes(&content_root) {
+                    let title = dpl_doc::load_episode(&entry.dir)
                         .map(|e| e.title)
-                        .unwrap_or_else(|_| id.clone());
+                        .unwrap_or_else(|_| entry.id.clone());
+                    let badge = match &entry.show {
+                        Some(show) => format!("{show}/{}", entry.id),
+                        None => format!("template · {}", entry.id),
+                    };
+                    let is_template = entry.show.is_none();
+                    let mut copy_clicked = false;
                     let resp = cl::card_frame().show(ui, |ui| {
                         ui.set_width(ui.available_width().min(560.0));
                         ui.horizontal(|ui| {
@@ -352,21 +386,45 @@ impl WorkbenchHub {
                                         RichText::new("open ›").small().color(SPEC.tone.color()),
                                     );
                                     ui.label(
-                                        RichText::new(&id)
+                                        RichText::new(&badge)
                                             .monospace()
                                             .small()
                                             .color(cl::ink::SUBTLE),
                                     );
+                                    if is_template {
+                                        let chip = ui
+                                            .label(
+                                                RichText::new("copy to my shows")
+                                                    .small()
+                                                    .color(cl::Tone::Amber.color()),
+                                            )
+                                            .interact(egui::Sense::click());
+                                        if chip.clicked() {
+                                            copy_clicked = true;
+                                        }
+                                    }
                                 },
                             );
                         });
                     });
-                    if resp.response.interact(egui::Sense::click()).clicked() {
-                        open = Some((id, dir));
+                    if copy_clicked {
+                        clone_from = Some((entry.id.clone(), entry.dir.clone()));
+                    } else if resp.response.interact(egui::Sense::click()).clicked() {
+                        open = Some((entry.id.clone(), entry.dir.clone()));
                     }
                     ui.add_space(cl::space::S2);
                 }
             });
+        if let Some((id, dir)) = clone_from {
+            self.clone_form = Some(CloneForm {
+                seed_id: id,
+                seed_dir: dir,
+                show: String::new(),
+                episode: String::new(),
+                error: None,
+            });
+            return;
+        }
         if let Some((id, dir)) = open {
             match EpisodeView::open(&dir, id) {
                 Ok(v) => self.episode_view = Some(v),
@@ -375,6 +433,77 @@ impl WorkbenchHub {
                 }
             }
         }
+    }
+
+    /// The clone form, when open. Returns Some(true) when it finished
+    /// (created or cancelled) and should close.
+    fn clone_form_ui(&mut self, ui: &mut egui::Ui) -> Option<bool> {
+        let form = self.clone_form.as_mut()?;
+        let content_root = dpl_engine_capture::content_root();
+        let mut done = false;
+        cl::card_frame().show(ui, |ui| {
+            ui.set_width(ui.available_width().min(560.0));
+            ui.label(
+                RichText::new(format!("Copy \"{}\" into my shows", form.seed_id))
+                    .strong()
+                    .color(cl::ink::STRONG),
+            );
+            ui.add_space(cl::space::S1);
+            // Show suggestions: the existing shows, or the operator's
+            // three ratified categories while content is still empty.
+            let existing: Vec<String> = dpl_doc::list_shows(&content_root)
+                .into_iter()
+                .map(|(s, _)| s)
+                .collect();
+            let suggestions: Vec<String> = if existing.is_empty() {
+                SHOW_SUGGESTIONS.iter().map(|s| s.to_string()).collect()
+            } else {
+                existing
+            };
+            ui.horizontal_wrapped(|ui| {
+                for s in &suggestions {
+                    let chip = ui
+                        .label(RichText::new(s).small().color(SPEC.tone.color()))
+                        .interact(egui::Sense::click());
+                    if chip.clicked() {
+                        form.show = s.clone();
+                    }
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("show").small().color(cl::ink::SUBTLE));
+                ui.add(egui::TextEdit::singleline(&mut form.show).desired_width(200.0));
+                ui.label(RichText::new("episode").small().color(cl::ink::SUBTLE));
+                ui.add(egui::TextEdit::singleline(&mut form.episode).desired_width(200.0));
+            });
+            if let Some(e) = &form.error {
+                ui.label(RichText::new(e).small().color(cl::Tone::Coral.color()));
+            }
+            ui.horizontal(|ui| {
+                let create = ui
+                    .label(RichText::new("create").color(SPEC.tone.color()))
+                    .interact(egui::Sense::click());
+                let cancel = ui
+                    .label(RichText::new("cancel").color(cl::ink::MUTED))
+                    .interact(egui::Sense::click());
+                if create.clicked() {
+                    match dpl_doc::clone_episode(
+                        &form.seed_dir,
+                        &content_root,
+                        form.show.trim(),
+                        form.episode.trim(),
+                    ) {
+                        Ok(_) => done = true,
+                        Err(e) => form.error = Some(e),
+                    }
+                }
+                if cancel.clicked() {
+                    done = true;
+                }
+            });
+        });
+        ui.add_space(cl::space::S2);
+        Some(done)
     }
 
     /// The EDITOR subroute: a seed picker until one is opened, then the
@@ -426,11 +555,16 @@ impl WorkbenchHub {
                 for (id, dir) in dpl_doc::list_seeds() {
                     picker_card(ui, &id, &mut open, dir);
                 }
-                // The shows (W3b): episode slides edit against their show's
-                // look — the editor detects it from the parent folder.
-                for (ep_id, ep_dir) in dpl_doc::list_episodes() {
-                    let Ok(ep) = dpl_doc::load_episode(&ep_dir) else {
+                // The shows (W3b/X3): the seeds+content UNION — episode
+                // slides edit against their show's look (the editor
+                // detects it from the parent folder), content first.
+                for entry in dpl_doc::all_episodes(&dpl_engine_capture::content_root()) {
+                    let Ok(ep) = dpl_doc::load_episode(&entry.dir) else {
                         continue;
+                    };
+                    let badge = match &entry.show {
+                        Some(show) => format!("{show}/{}", entry.id),
+                        None => format!("template · {}", entry.id),
                     };
                     ui.add_space(cl::space::S3);
                     ui.label(
@@ -438,8 +572,8 @@ impl WorkbenchHub {
                             .small()
                             .color(cl::ink::SUBTLE),
                     )
-                    .on_hover_text(ep_id);
-                    for r in dpl_doc::episode_slides(&ep_dir, &ep) {
+                    .on_hover_text(badge);
+                    for r in dpl_doc::episode_slides(&entry.dir, &ep) {
                         picker_card(ui, &format!("{} · {}", r.chapter, r.name), &mut open, r.dir);
                     }
                 }

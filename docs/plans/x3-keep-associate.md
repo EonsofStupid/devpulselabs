@@ -118,3 +118,24 @@ show above the seed templates on the real exe.
 
 `feat(content): X3 — the ratified content tree, keep, associate` on
 main; push backgrounded.
+
+## 8. Executed — deviations recorded (corrections law)
+
+- The headless drill needed engine paths, so two harness surfaces grew
+  beyond §4's list: `dpl-index-cli` gained `keep`/`associate`
+  subcommands, and the app gained `--clone-seed <seed-id> <show> <ep>`
+  (runs `dpl_doc::clone_episode` against the real content root and
+  exits — the same do-and-exit shape as `--present`).
+- The inbox jail's messages were de-dump-ified ("refused…", "not
+  found…") since keep/associate reuse it verbatim.
+- `Index::rekey` alone leaves poster_rel_path stale, so keep re-keys
+  THEN upserts the corrected record (same new rel_path → full refresh).
+- Kebab checking lives in `dpl_doc` as a restated predicate (the
+  `find_upward` precedent: the document layer doesn't depend on the
+  capture engine for a character check).
+- Proofs: docs/proof/x3-present-union.png (devpulse-news/how-ai-works
+  above the template), x3-workbench-union.png ("copy to my shows"
+  chip), x3-gallery-keep.png (Keep beside Dump); CLI drill moved a pix
+  + associated a guide into a temp tree with honest refusals.
+  `content/devpulse-news/how-ai-works` is the first REAL show on disk,
+  cloned through the engine.

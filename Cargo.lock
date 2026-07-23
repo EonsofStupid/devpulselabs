@@ -1335,6 +1335,8 @@ name = "devpulselabs"
 version = "0.1.0"
 dependencies = [
  "dpl-coldlight",
+ "dpl-doc",
+ "dpl-engine-capture",
  "dpl-fabric",
  "dpl-hub",
  "dpl-hub-chat",
@@ -1556,6 +1558,7 @@ dependencies = [
  "dpl-coldlight",
  "dpl-deck",
  "dpl-doc",
+ "dpl-engine-capture",
  "dpl-fabric",
  "dpl-hub",
  "egui",
@@ -1566,6 +1569,7 @@ name = "dpl-hub-wiredfront"
 version = "0.1.0"
 dependencies = [
  "dpl-coldlight",
+ "dpl-doc",
  "dpl-engine-capture",
  "dpl-hub",
  "dpl-index",
@@ -1580,6 +1584,7 @@ dependencies = [
  "dpl-coldlight",
  "dpl-doc",
  "dpl-editor",
+ "dpl-engine-capture",
  "dpl-hub",
  "dpl-slides",
  "egui",
