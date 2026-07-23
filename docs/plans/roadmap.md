@@ -196,7 +196,32 @@ doctrine or the episode tree.
   native")**: the video-first native session vehicle — screen-record the
   app itself via the existing recorder + a navigation event track from
   the fabric → a seekable session artifact. Full plan:
-  docs/plans/s-adr-sessions.md.
+  docs/plans/s-adr-sessions.md. ✅ S1 capture (51bc34b) + S2 playback
+  done; S3 export remains.
+
+## Program DEMO — agent-driven demonstrations (operator, 2026-07-23)
+
+The operator's convergence insight, decided net-new (ledger #117):
+"record demonstration using eguiPilot" — the route-aware chat gains a
+UI mode that COMPOSES the tools already built: an EguiPilotAI scenario
+DRIVES the app while the session recorder (S1) and/or the Steps
+recorder CAPTURE it; the artifact is a guide or a session, web-playable
+by construction (the G pattern). Say "record the steps for enabling
+X", and the demonstration records itself.
+
+- **In-app tier:** pilot scenario + recorder — every piece exists
+  after S1/S2; the composition waits on F3 (typed chat tools) and the
+  Codex seat's pilot extensions (their lane, unchanged).
+- **External tier:** demonstrations of OTHER tools (e.g. a browser on
+  Lovable): spin up a browser, drive it, and let Steps record the
+  screen — the Steps recorder is already app-agnostic (OS-wide clicks).
+  The browser DRIVER needs its own ADR (CDP, install-on-demand
+  tooling — "whatever tools we need to install to make this
+  streamlined", operator's words) — planned properly, not smuggled.
+- **Standing word restated (operator, 2026-07-23):** absorbing After
+  Effects capabilities is NOT to be gated — this is a private
+  quality-of-life tool; licensing is a non-constraint (also recorded
+  at R1 and in the vision doc).
 
 ## Program P — Portable/kiosk (census #9)
 

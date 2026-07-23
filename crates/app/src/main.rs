@@ -78,6 +78,13 @@ fn main() -> eframe::Result {
         .position(|a| a == "--present")
         .and_then(|i| args.get(i + 1))
         .cloned();
+    // `--open-session <rel>` boots the SESSIONS player on one session
+    // (S2) — the same code path a card tap takes.
+    let open_session: Option<String> = args
+        .iter()
+        .position(|a| a == "--open-session")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
     // `--clone-seed <seed-id> <show> <episode>` — the headless clone
     // drill (X3): copy a seed into the real content tree through the
     // engine (`dpl_doc::clone_episode`) and exit; no window boots.
@@ -141,6 +148,7 @@ fn main() -> eframe::Result {
                 mood,
                 present,
                 session_drill,
+                open_session,
             });
             #[cfg(feature = "eguipilotai-devtools")]
             let app = {
@@ -165,6 +173,7 @@ struct Boot {
     mood: Option<usize>,
     present: Option<String>,
     session_drill: Option<u32>,
+    open_session: Option<String>,
 }
 
 struct App {
@@ -194,6 +203,7 @@ impl App {
             mood,
             present,
             session_drill,
+            open_session,
         } = boot;
         let mut library = dpl_hub_library::LibraryHub::default();
         if let Some(id) = focus {
@@ -206,13 +216,18 @@ impl App {
         if let Some(id) = &present {
             present_hub.open_show(id);
         }
+        // The harness path into the SESSIONS player (S2).
+        let mut wiredfront = dpl_hub_wiredfront::WiredfrontHub::default();
+        if let Some(rel) = &open_session {
+            wiredfront.open_session(rel);
+        }
         // The registry — a new hub is ONE line here and nothing else.
         let hubs: Vec<Box<dyn Hub>> = vec![
             Box::new(dpl_hub_home::HomeHub),
             Box::new(present_hub),
             Box::new(dpl_hub_workbench::WorkbenchHub::default()),
             Box::new(library),
-            Box::new(dpl_hub_wiredfront::WiredfrontHub::default()),
+            Box::new(wiredfront),
             Box::new(dpl_hub_chat::ChatHub),
         ];
 

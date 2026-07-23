@@ -106,6 +106,84 @@ enum CardAct {
 #[derive(Default)]
 pub struct WiredfrontHub {
     gallery: Option<GalleryView>,
+    sessions: Option<SessionsView>,
+}
+
+/// One parsed events.jsonl line — exactly what S1 recorded, no
+/// synthesis: bad lines skip, absent files mean no ticks.
+struct SessionEvent {
+    ms: u64,
+    label: String,
+}
+
+/// The open session's playback state.
+struct SessionPlay {
+    name: String,
+    /// None = a partial session (no session.mp4) — event track only.
+    player: Option<dpl_video::clip::ClipPlayer>,
+    poster: Option<String>,
+    events: Vec<SessionEvent>,
+}
+
+/// The SESSIONS subroute: the session list, or one open player.
+struct SessionsView {
+    rows: Vec<dpl_index::Record>,
+    open: Option<SessionPlay>,
+    status: String,
+}
+
+impl SessionsView {
+    fn load() -> Self {
+        let (rows, status) =
+            match dpl_index::Index::open_default().and_then(|ix| ix.list(Some("session"), None)) {
+                Ok(rows) => {
+                    let status = format!("{} sessions", rows.len());
+                    (rows, status)
+                }
+                Err(e) => (Vec::new(), e),
+            };
+        Self {
+            rows,
+            open: None,
+            status,
+        }
+    }
+}
+
+/// events.jsonl → the tick list. Each line parses independently;
+/// anything malformed is skipped, never invented.
+fn parse_events(path: &std::path::Path) -> Vec<SessionEvent> {
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    raw.lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter_map(|v| {
+            let ms = v.get("ms")?.as_u64()?;
+            let kind = v.get("type")?.as_str()?.to_string();
+            let label = match kind.as_str() {
+                "route-changed" => format!(
+                    "{}/{}",
+                    v.get("hub").and_then(|h| h.as_str()).unwrap_or("?"),
+                    v.get("sub").and_then(|s| s.as_str()).unwrap_or("?"),
+                ),
+                "full-bleed" => {
+                    if v.get("on").and_then(|o| o.as_bool()).unwrap_or(false) {
+                        "full-bleed on".into()
+                    } else {
+                        "full-bleed off".into()
+                    }
+                }
+                other => other.to_string(),
+            };
+            Some(SessionEvent { ms, label })
+        })
+        .collect()
+}
+
+fn mmss(secs: f32) -> String {
+    let s = secs.max(0.0) as u64;
+    format!("{:02}:{:02}", s / 60, s % 60)
 }
 
 const FILTERS: [(&str, Option<&'static str>); 5] = [
@@ -471,6 +549,328 @@ fn filter_chip(ui: &mut egui::Ui, label: &str, on: bool) -> egui::Response {
     resp
 }
 
+impl WiredfrontHub {
+    /// Open one session for playback — the same path a card tap takes
+    /// (also the `--open-session` harness seam).
+    pub fn open_session(&mut self, rel: &str) {
+        let view = self.sessions.get_or_insert_with(SessionsView::load);
+        let root = dpl_engine_capture::content_root();
+        let dir = root.join(rel);
+        let name = view
+            .rows
+            .iter()
+            .find(|r| r.rel_path == rel)
+            .map(|r| r.name.clone())
+            .unwrap_or_else(|| rel.to_string());
+        let mp4 = dir.join("session.mp4");
+        let player = mp4
+            .is_file()
+            .then(|| dpl_video::clip::ClipPlayer::open(mp4));
+        let poster = dir.is_dir().then(|| dir.join("session.jpg")).and_then(|p| {
+            p.is_file()
+                .then(|| format!("file:///{}", p.to_string_lossy().replace('\\', "/")))
+        });
+        let events = parse_events(&dir.join("events.jsonl"));
+        view.status = if player.is_none() {
+            "partial session — event track only".into()
+        } else {
+            format!("{} events", events.len())
+        };
+        view.open = Some(SessionPlay {
+            name,
+            player,
+            poster,
+            events,
+        });
+    }
+
+    fn sessions_surface(&mut self, ui: &mut egui::Ui) {
+        let view = self.sessions.get_or_insert_with(SessionsView::load);
+
+        if let Some(play) = view.open.as_mut() {
+            // ── the player ──────────────────────────────────────────
+            let back = ui
+                .horizontal(|ui| {
+                    let b = ui
+                        .label(RichText::new("‹ sessions").color(cl::Tone::Magenta.color()))
+                        .interact(Sense::click());
+                    ui.pilot_track(
+                        &b,
+                        NodeMetadata::new(
+                            PilotId::new("sessions").child(&PilotKey::new("back")),
+                            egui_pilot_ai::protocol::Role::Button,
+                            "Back to sessions",
+                        ),
+                    );
+                    ui.label(RichText::new(&play.name).strong().color(cl::ink::STRONG));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(RichText::new(&view.status).small().color(cl::ink::SUBTLE));
+                    });
+                    b
+                })
+                .inner;
+            if back.clicked() {
+                view.open = None;
+                return;
+            }
+            ui.add_space(cl::space::S2);
+
+            // The 16:9 stage: decoded frames, else the poster, else an
+            // honest label.
+            let stage_w = (ui.available_width() - cl::space::S4).min(960.0);
+            let stage_h = stage_w * 9.0 / 16.0;
+            let (stage, _) = ui.allocate_exact_size(egui::vec2(stage_w, stage_h), Sense::hover());
+            ui.painter()
+                .rect_filled(stage, cl::RADIUS, cl::surface::WELL);
+            let mut painted = false;
+            if let Some(player) = &play.player {
+                if let Some(tex) = player.texture(ui.ctx()) {
+                    ui.painter().image(
+                        tex,
+                        stage,
+                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                        egui::Color32::WHITE,
+                    );
+                    painted = true;
+                }
+                if player.playing() {
+                    ui.ctx()
+                        .request_repaint_after(std::time::Duration::from_millis(16));
+                }
+            }
+            if !painted {
+                match &play.poster {
+                    Some(uri) => {
+                        egui::Image::new(uri.as_str())
+                            .corner_radius(cl::RADIUS)
+                            .paint_at(ui, stage);
+                    }
+                    None => {
+                        ui.painter().text(
+                            stage.center(),
+                            egui::Align2::CENTER_CENTER,
+                            if play.player.is_none() {
+                                "partial session — event track only"
+                            } else {
+                                "starting…"
+                            },
+                            egui::FontId::monospace(13.0),
+                            cl::ink::SUBTLE,
+                        );
+                    }
+                }
+            }
+            ui.painter().rect_stroke(
+                stage,
+                cl::RADIUS,
+                egui::Stroke::new(1.0, cl::surface::HAIRLINE),
+                egui::StrokeKind::Inside,
+            );
+            ui.add_space(cl::space::S2);
+
+            // Controls + the RAIL (ticks = the recorded events).
+            let mut seek_to: Option<f32> = None;
+            if let Some(player) = play.player.as_mut() {
+                let pos = player.position();
+                let span = player
+                    .duration
+                    .or_else(|| play.events.last().map(|e| e.ms as f32 / 1000.0))
+                    .unwrap_or(1.0)
+                    .max(0.1);
+                ui.horizontal(|ui| {
+                    let label = if player.ended() {
+                        "Replay"
+                    } else if player.playing() {
+                        "Pause"
+                    } else {
+                        "Play"
+                    };
+                    let resp = filter_chip(ui, label, player.playing());
+                    ui.pilot_track(
+                        &resp,
+                        NodeMetadata::new(
+                            PilotId::new("sessions").child(&PilotKey::new("play")),
+                            egui_pilot_ai::protocol::Role::Button,
+                            "Play/pause",
+                        )
+                        .value(label),
+                    );
+                    if resp.clicked() {
+                        player.toggle();
+                    }
+                    ui.label(
+                        RichText::new(format!("{} / {}", mmss(pos), mmss(span)))
+                            .monospace()
+                            .small()
+                            .color(cl::ink::BASE),
+                    );
+                });
+                ui.add_space(cl::space::S1);
+
+                // The rail: tap anywhere to seek; a tap near a tick
+                // snaps to its event; hover names the nearest event.
+                let (rail, resp) =
+                    ui.allocate_exact_size(egui::vec2(stage_w, 22.0), Sense::click());
+                ui.pilot_track(
+                    &resp,
+                    NodeMetadata::new(
+                        PilotId::new("sessions").child(&PilotKey::new("rail")),
+                        egui_pilot_ai::protocol::Role::Slider,
+                        "Seek rail",
+                    )
+                    .value(format!("{pos:.1}/{span:.1}")),
+                );
+                let line_y = rail.center().y;
+                let painter = ui.painter().clone();
+                painter.line_segment(
+                    [
+                        egui::pos2(rail.left(), line_y),
+                        egui::pos2(rail.right(), line_y),
+                    ],
+                    egui::Stroke::new(3.0, cl::surface::OVERLAY),
+                );
+                let frac = (pos / span).clamp(0.0, 1.0);
+                painter.line_segment(
+                    [
+                        egui::pos2(rail.left(), line_y),
+                        egui::pos2(rail.left() + rail.width() * frac, line_y),
+                    ],
+                    egui::Stroke::new(3.0, cl::Tone::Magenta.color()),
+                );
+                let tick_x = |ms: u64| {
+                    rail.left() + rail.width() * ((ms as f32 / 1000.0) / span).clamp(0.0, 1.0)
+                };
+                for ev in &play.events {
+                    let x = tick_x(ev.ms);
+                    painter.line_segment(
+                        [
+                            egui::pos2(x, rail.top() + 3.0),
+                            egui::pos2(x, rail.bottom() - 3.0),
+                        ],
+                        egui::Stroke::new(2.0, cl::Tone::Coral.color()),
+                    );
+                }
+                if let Some(p) = resp.hover_pos() {
+                    if let Some(near) = play
+                        .events
+                        .iter()
+                        .min_by_key(|e| (tick_x(e.ms) - p.x).abs() as u32)
+                        .filter(|e| (tick_x(e.ms) - p.x).abs() < 8.0)
+                    {
+                        resp.clone().on_hover_text(format!(
+                            "{} · {}",
+                            mmss(near.ms as f32 / 1000.0),
+                            near.label
+                        ));
+                    }
+                }
+                if resp.clicked() {
+                    if let Some(p) = resp.interact_pointer_pos() {
+                        let snapped = play
+                            .events
+                            .iter()
+                            .find(|e| (tick_x(e.ms) - p.x).abs() < 8.0)
+                            .map(|e| e.ms as f32 / 1000.0);
+                        seek_to = Some(snapped.unwrap_or_else(|| {
+                            ((p.x - rail.left()) / rail.width()).clamp(0.0, 1.0) * span
+                        }));
+                    }
+                }
+            } else {
+                // Partial session: the event track stands alone,
+                // readable — nothing to seek.
+                for ev in &play.events {
+                    ui.label(
+                        RichText::new(format!("{}  {}", mmss(ev.ms as f32 / 1000.0), ev.label))
+                            .monospace()
+                            .color(cl::ink::BASE),
+                    );
+                }
+            }
+            if let (Some(t), Some(player)) = (seek_to, play.player.as_mut()) {
+                player.seek(t);
+            }
+            return;
+        }
+
+        // ── the list ────────────────────────────────────────────────
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new("Sessions — the app on video, with its event track")
+                    .small()
+                    .color(cl::ink::SUBTLE),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(RichText::new(&view.status).small().color(cl::ink::SUBTLE));
+            });
+        });
+        ui.add_space(cl::space::S2);
+        if view.rows.is_empty() {
+            ui.label(
+                RichText::new("no sessions yet — record one from PixVix's Session tab")
+                    .color(cl::ink::MUTED),
+            );
+            return;
+        }
+        let root = dpl_engine_capture::content_root();
+        let mut open: Option<String> = None;
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for r in &view.rows {
+                    let resp = cl::card_frame().show(ui, |ui| {
+                        ui.set_width(ui.available_width().min(720.0));
+                        ui.horizontal(|ui| {
+                            let (thumb, _) =
+                                ui.allocate_exact_size(egui::vec2(128.0, 72.0), Sense::hover());
+                            ui.painter()
+                                .rect_filled(thumb, cl::RADIUS_SM, cl::surface::WELL);
+                            if let Some(uri) = thumb_uri(r, &root) {
+                                egui::Image::new(uri)
+                                    .corner_radius(cl::RADIUS_SM)
+                                    .paint_at(ui, thumb);
+                            }
+                            ui.vertical(|ui| {
+                                ui.label(RichText::new(&r.name).strong().color(cl::ink::STRONG));
+                                ui.label(
+                                    RichText::new(format!("{} · {}", r.captured_at, r.location))
+                                        .small()
+                                        .color(cl::ink::MUTED),
+                                );
+                            });
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.label(
+                                        RichText::new("play ›")
+                                            .small()
+                                            .color(cl::Tone::Magenta.color()),
+                                    );
+                                },
+                            );
+                        });
+                    });
+                    let click = resp.response.interact(Sense::click());
+                    ui.pilot_track(
+                        &click,
+                        NodeMetadata::new(
+                            PilotId::new("sessions.open").child(&PilotKey::new(&r.rel_path)),
+                            egui_pilot_ai::protocol::Role::Button,
+                            &r.name,
+                        ),
+                    );
+                    if click.clicked() {
+                        open = Some(r.rel_path.clone());
+                    }
+                    ui.add_space(cl::space::S2);
+                }
+            });
+        if let Some(rel) = open {
+            self.open_session(&rel);
+        }
+    }
+}
+
 impl Hub for WiredfrontHub {
     fn spec(&self) -> &'static HubSpec {
         &SPEC
@@ -479,6 +879,10 @@ impl Hub for WiredfrontHub {
     fn ui(&mut self, ui: &mut egui::Ui, route: Route) {
         if route.sub == GALLERY {
             self.gallery_surface(ui);
+            return;
+        }
+        if route.sub == SESSIONS {
+            self.sessions_surface(ui);
             return;
         }
         dpl_hub::placeholder::surface(

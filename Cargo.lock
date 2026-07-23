@@ -1573,8 +1573,10 @@ dependencies = [
  "dpl-engine-capture",
  "dpl-hub",
  "dpl-index",
+ "dpl-video",
  "egui",
  "egui-pilot-ai",
+ "serde_json",
 ]
 
 [[package]]

@@ -10,6 +10,8 @@
 //! poster/aurora instead), with a cooldown retry — never a panic, never a
 //! spawn storm.
 
+pub mod clip;
+
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -21,7 +23,7 @@ use std::time::{Duration, Instant};
 /// =increase` + center crop), so every frame is exactly this many pixels.
 pub const DECODE_W: usize = 960;
 pub const DECODE_H: usize = 540;
-const FRAME_BYTES: usize = DECODE_W * DECODE_H * 4;
+pub(crate) const FRAME_BYTES: usize = DECODE_W * DECODE_H * 4;
 /// After a spawn/pipe failure, wait this long before trying ffmpeg again.
 const RETRY_COOLDOWN: Duration = Duration::from_secs(10);
 
@@ -34,7 +36,7 @@ pub fn set_ffmpeg_path(p: PathBuf) {
     let _ = FFMPEG.set(p);
 }
 
-fn ffmpeg_program() -> PathBuf {
+pub(crate) fn ffmpeg_program() -> PathBuf {
     FFMPEG
         .get()
         .cloned()

@@ -11,6 +11,8 @@ dpl-coldlight.workspace = true
 dpl-index.workspace = true
 dpl-doc.workspace = true
 dpl-engine-capture.workspace = true
+dpl-video.workspace = true
+serde_json.workspace = true
 egui-pilot-ai.workspace = true
 
 [lints]
