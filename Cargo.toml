@@ -29,7 +29,6 @@ members = [
     "crates/hubs/workbench",
     "crates/hubs/wiredfront",
     "crates/hubs/chat",
-    "crates/hubs/library",
     "crates/app",
     "crates/xtask",
 ]
@@ -56,7 +55,7 @@ egui-wgpu = "0.35"
 # "file" installs the file:// loader (without it every Media::Image errors);
 # "webp" adds animated-webp support on top of the image crate's static decode.
 egui_extras = { version = "0.35", features = ["image", "file", "webp"] }
-# Headless UI test harness (dev-only) — MUST track the egui minor version.
+# Headless UI test harness (dev-only) â€” MUST track the egui minor version.
 egui_kittest = { version = "0.35", default-features = false }
 # The document layer (dpl-doc): slide.json is serde data, end to end.
 serde = { version = "1", features = ["derive"] }
@@ -65,7 +64,7 @@ toml = "0.9"
 tokio = { version = "1", default-features = false, features = ["sync"] }
 # png for the harness; jpeg for the backdrop posters (B1); webp so the app
 # DISPLAYS what the media pipeline emits (B3). AVIF decode is deliberately
-# absent — the pipeline always writes a webp sibling for display.
+# absent â€” the pipeline always writes a webp sibling for display.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 
 egui-pilot-ai-protocol = { path = "crates/egui-pilot-ai-protocol" }
@@ -96,7 +95,6 @@ dpl-hub-present = { path = "crates/hubs/present" }
 dpl-hub-workbench = { path = "crates/hubs/workbench" }
 dpl-hub-wiredfront = { path = "crates/hubs/wiredfront" }
 dpl-hub-chat = { path = "crates/hubs/chat" }
-dpl-hub-library = { path = "crates/hubs/library" }
 
 [profile.release]
 lto = "thin"

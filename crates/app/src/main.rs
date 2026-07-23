@@ -38,8 +38,8 @@ fn main() -> eframe::Result {
             r.split_once('/')
                 .map(|(h, s)| (h.to_string(), s.to_string()))
         });
-    // `--focus <template-id>` — boot the Library gallery solo'd on one
-    // template, for per-template proof shots.
+    // `--focus <template-id>` — boot the Workbench Library's TEMPLATES
+    // section solo'd on one template, for per-template proof shots.
     let focus: Option<String> = args
         .iter()
         .position(|a| a == "--focus")
@@ -216,9 +216,9 @@ impl App {
             open_session,
             open_rail,
         } = boot;
-        let mut library = dpl_hub_library::LibraryHub::default();
+        let mut workbench = dpl_hub_workbench::WorkbenchHub::default();
         if let Some(id) = focus {
-            library.set_focus(id);
+            workbench.set_focus(id);
         }
         // ONE fabric, shared: the shell publishes AND (since D2) listens;
         // the Present hub requests full-bleed over it.
@@ -236,8 +236,7 @@ impl App {
         let hubs: Vec<Box<dyn Hub>> = vec![
             Box::new(dpl_hub_home::HomeHub),
             Box::new(present_hub),
-            Box::new(dpl_hub_workbench::WorkbenchHub::default()),
-            Box::new(library),
+            Box::new(workbench),
             Box::new(wiredfront),
             Box::new(dpl_hub_chat::ChatHub),
         ];
@@ -499,7 +498,7 @@ impl eframe::App for App {
                 }
                 60 => self.shell.navigate(Route {
                     hub: dpl_hub_workbench::HUB,
-                    sub: dpl_hub_workbench::SEEDS,
+                    sub: dpl_hub_workbench::LIBRARY,
                 }),
                 90 => self.shell.navigate(Route {
                     hub: dpl_hub_present::HUB,

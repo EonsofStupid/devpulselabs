@@ -1341,7 +1341,6 @@ dependencies = [
  "dpl-hub",
  "dpl-hub-chat",
  "dpl-hub-home",
- "dpl-hub-library",
  "dpl-hub-present",
  "dpl-hub-wiredfront",
  "dpl-hub-workbench",
@@ -1533,16 +1532,6 @@ dependencies = [
 
 [[package]]
 name = "dpl-hub-home"
-version = "0.1.0"
-dependencies = [
- "dpl-coldlight",
- "dpl-hub",
- "dpl-slides",
- "egui",
-]
-
-[[package]]
-name = "dpl-hub-library"
 version = "0.1.0"
 dependencies = [
  "dpl-coldlight",

@@ -1,35 +1,38 @@
-//! Workbench — the internal slide + full-episode builder: blocks, elements,
-//! templates, then effects (the operator's stated stage order).
+//! Workbench — the BUILD house (doctrine §1.1): the ingredient LIBRARY
+//! leads, then the editor tailors, episodes compose, the studio polishes.
 //!
-//! SEEDS leads (the hub's default route): the default styling slides — real
-//! `dpl_doc` documents from `seeds/slides/`, rendered LIVE through the one
-//! document renderer. The editor (W4) opens exactly these.
+//! LIBRARY is the hub's default route: ALL the raw ingredients on one
+//! sectioned surface — seed slides by class folder, every registered
+//! template live, and the vocabulary walls (colors · presets · fonts ·
+//! moods). The editor (W4) opens exactly these documents.
+
+mod library;
 
 use dpl_coldlight::{self as cl, Tone};
 use dpl_hub::{Hub, HubId, HubSpec, Route, SubId, SubRoute};
 use dpl_slides::document::DocSlide;
+use dpl_slides::SlideTemplate;
 use egui::RichText;
+use library::LibSection;
 use std::path::PathBuf;
 
 pub const HUB: HubId = HubId("workbench");
-pub const SEEDS: SubId = SubId("seeds");
+pub const LIBRARY: SubId = SubId("library");
 pub const EPISODES: SubId = SubId("episodes");
 pub const EDITOR: SubId = SubId("editor");
 pub const STUDIO: SubId = SubId("studio");
-pub const LIBRARY: SubId = SubId("library");
-pub const TOKENS: SubId = SubId("tokens");
 pub const TEST_LAB: SubId = SubId("test-lab");
 
-static SPEC: HubSpec = HubSpec {
+pub(crate) static SPEC: HubSpec = HubSpec {
     id: HUB,
     label: "Workbench",
     icon: cl::icon::WORKBENCH,
     tone: Tone::Amber,
     subroutes: &[
         SubRoute {
-            id: SEEDS,
-            label: "Seed slides",
-            blurb: "The default styling slides — documents from seeds/slides, rendered live.",
+            id: LIBRARY,
+            label: "Library",
+            blurb: "ALL the raw ingredients: seed slides by class, live templates, colors, presets, fonts, moods.",
         },
         SubRoute {
             id: EDITOR,
@@ -45,16 +48,6 @@ static SPEC: HubSpec = HubSpec {
             id: STUDIO,
             label: "Studio",
             blurb: "Compose episodes: blocks → elements → templates → effects, onto sequenced slides.",
-        },
-        SubRoute {
-            id: LIBRARY,
-            label: "Library",
-            blurb: "Every registered building block, rendered live with fixture props.",
-        },
-        SubRoute {
-            id: TOKENS,
-            label: "Tokens",
-            blurb: "ColdLight's tones, spacing, and paint vocabulary — the authored source, visualized.",
         },
         SubRoute {
             id: TEST_LAB,
@@ -83,6 +76,14 @@ pub struct WorkbenchHub {
     /// The seed-tree doctor's findings, refreshed with `seeds` — an
     /// unclassed/unknown folder under seeds/slides is NAMED, never hidden.
     tree_issues: Vec<dpl_doc::Issue>,
+    /// The Library surface's open section (chip row).
+    lib_section: LibSection,
+    /// One live instance per registered template — the TEMPLATES section's
+    /// stock, lazy so Default stays derivable.
+    demos: Option<Vec<Box<dyn SlideTemplate>>>,
+    /// TEMPLATES solo view: one template full-stage (tap to enter, « to
+    /// leave). Also the harness's per-template proof hook (`--focus <id>`).
+    focus: Option<String>,
     /// The open editor (EDITOR subroute) — None shows the seed picker.
     editor: Option<dpl_editor::Editor>,
     /// The episode-wall's live slide docs, loaded once per episode open.
@@ -107,6 +108,31 @@ struct CloneForm {
 const SHOW_SUGGESTIONS: [&str; 3] = ["devpulse-news", "eons-of-stupidity", "effingai"];
 
 impl WorkbenchHub {
+    /// Solo one template on the Library's TEMPLATES section (unknown ids
+    /// degrade to the wall). The `--focus <template-id>` proof hook.
+    pub fn set_focus(&mut self, id: impl Into<String>) {
+        self.focus = Some(id.into());
+        self.lib_section = LibSection::Templates;
+    }
+
+    /// The ingredient LIBRARY (doctrine §1.1): the section chip row over
+    /// the walls — seeds by class, live templates, colors, presets,
+    /// fonts, moods.
+    fn library_surface(&mut self, ui: &mut egui::Ui) {
+        library::chip_row(ui, &mut self.lib_section);
+        match self.lib_section {
+            LibSection::Seeds => self.seeds_wall(ui),
+            LibSection::Templates => {
+                let demos = self.demos.get_or_insert_with(dpl_slides::demos);
+                library::templates_gallery(ui, demos, &mut self.focus);
+            }
+            LibSection::Colors => library::pool_wall(ui),
+            LibSection::Presets => library::presets_wall(ui),
+            LibSection::Fonts => library::fonts_wall(ui),
+            LibSection::Moods => library::moods_wall(ui),
+        }
+    }
+
     fn load_seeds() -> Vec<SeedEntry> {
         dpl_doc::list_seeds()
             .into_iter()
@@ -142,7 +168,7 @@ impl WorkbenchHub {
         ui.horizontal(|ui| {
             ui.label(
                 RichText::new(format!(
-                    "SEED SLIDES — {} documents · each is its own folder; the editor edits the colocated slide.json",
+                    "SEED SLIDES — {} raw ingredients · one folder per seed, sectioned by class; the editor edits the colocated slide.json",
                     seeds.len()
                 ))
                 .small()
@@ -246,8 +272,8 @@ impl Hub for WorkbenchHub {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, route: Route) {
-        if route.sub == SEEDS {
-            self.seeds_wall(ui);
+        if route.sub == LIBRARY {
+            self.library_surface(ui);
         } else if route.sub == EDITOR {
             self.editor_surface(ui);
         } else if route.sub == EPISODES {

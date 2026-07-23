@@ -1,271 +1,231 @@
-//! Library — the gallery GATE.
+//! The Workbench LIBRARY — ALL the raw ingredients on one surface
+//! (doctrine §1.1): seed slides by class, every registered template LIVE,
+//! and the vocabulary walls (color pool · presets · fonts · moods).
 //!
-//! The anti-recurrence law, rendered: the old app generated 18 tone slots and
-//! used three, because nothing ever surfaced the rest. This hub renders
-//! **everything that exists**: the entire generated color pool on one wall,
-//! and every registered slide template LIVE (real instances, real state,
-//! real animation) on the other. If it exists, it is on a wall here.
+//! The anti-recurrence law rode in with the walls: this surface renders
+//! **everything that exists** — a template or token that never shows here
+//! cannot exist. Blocks/elements sections join later; the chip row leaves
+//! room.
 
-use dpl_coldlight::{self as cl, Tone};
-use dpl_hub::{Hub, HubId, HubSpec, Route, SubId, SubRoute};
+use super::SPEC;
+use dpl_coldlight::{self as cl};
 use dpl_slides::SlideTemplate;
 use egui::RichText;
 
-pub const HUB: HubId = HubId("library");
-pub const COMPONENTS: SubId = SubId("components");
-pub const TEMPLATES: SubId = SubId("templates");
-pub const MOODS: SubId = SubId("moods");
-pub const FONTS: SubId = SubId("fonts");
-pub const PRESETS: SubId = SubId("presets");
-
-static SPEC: HubSpec = HubSpec {
-    id: HUB,
-    label: "Library",
-    icon: cl::icon::LIBRARY,
-    tone: Tone::Violet,
-    subroutes: &[
-        SubRoute {
-            id: COMPONENTS,
-            label: "Color pool",
-            blurb: "The whole generated pool — every hue, every step. The visual regression floor.",
-        },
-        SubRoute {
-            id: TEMPLATES,
-            label: "Slide templates",
-            blurb: "Every registered template, live — blocks, templates, infographics, animating.",
-        },
-        SubRoute {
-            id: MOODS,
-            label: "Backdrop moods",
-            blurb: "Every authored mood from tokens/moods.json — the backdrop's random pulls.",
-        },
-        SubRoute {
-            id: FONTS,
-            label: "Fonts",
-            blurb: "The vendored pool from tokens/fonts.json — every face rendered in itself.",
-        },
-        SubRoute {
-            id: PRESETS,
-            label: "Presets",
-            blurb: "Named bundles of refs from tokens/presets.json — one-tap looks and motions.",
-        },
-    ],
-};
-
-pub struct LibraryHub {
-    /// One live instance per registered template — the gallery gate's stock.
-    demos: Vec<Box<dyn SlideTemplate>>,
-    /// Solo view: one template rendered full-stage (tap a card header to
-    /// enter, tap again to return to the wall). Also the harness's
-    /// per-template proof hook (`--focus <template-id>`).
-    focus: Option<String>,
+/// The Library's sections — the chip row's vocabulary. SEEDS leads (the
+/// ingredient the editor tailors first).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum LibSection {
+    #[default]
+    Seeds,
+    Templates,
+    Colors,
+    Presets,
+    Fonts,
+    Moods,
 }
 
-impl Default for LibraryHub {
-    fn default() -> Self {
-        Self {
-            demos: dpl_slides::demos(),
-            focus: None,
+impl LibSection {
+    pub(crate) const ALL: [LibSection; 6] = [
+        LibSection::Seeds,
+        LibSection::Templates,
+        LibSection::Colors,
+        LibSection::Presets,
+        LibSection::Fonts,
+        LibSection::Moods,
+    ];
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            LibSection::Seeds => "seeds",
+            LibSection::Templates => "templates",
+            LibSection::Colors => "colors",
+            LibSection::Presets => "presets",
+            LibSection::Fonts => "fonts",
+            LibSection::Moods => "moods",
         }
     }
 }
 
-impl LibraryHub {
-    /// Focus one template by id (unknown ids degrade to the wall).
-    pub fn set_focus(&mut self, id: impl Into<String>) {
-        self.focus = Some(id.into());
-    }
-}
-
-impl Hub for LibraryHub {
-    fn spec(&self) -> &'static HubSpec {
-        &SPEC
-    }
-
-    fn ui(&mut self, ui: &mut egui::Ui, route: Route) {
-        if route.sub == TEMPLATES {
-            self.templates_gallery(ui);
-        } else if route.sub == MOODS {
-            moods_wall(ui);
-        } else if route.sub == FONTS {
-            fonts_wall(ui);
-        } else if route.sub == PRESETS {
-            presets_wall(ui);
-        } else {
-            // Unknown subs degrade to the pool wall, never crash.
-            pool_wall(ui);
+/// The section chip row — tap a chip, that wall renders below.
+pub(crate) fn chip_row(ui: &mut egui::Ui, current: &mut LibSection) {
+    ui.horizontal(|ui| {
+        for section in LibSection::ALL {
+            let active = *current == section;
+            let chip = ui
+                .label(RichText::new(section.label()).monospace().color(if active {
+                    SPEC.tone.color()
+                } else {
+                    cl::ink::MUTED
+                }))
+                .interact(egui::Sense::click());
+            if chip.clicked() {
+                *current = section;
+            }
         }
-    }
+    });
+    ui.add_space(cl::space::S2);
 }
 
-impl LibraryHub {
-    /// The live template gallery: every `registry::demos()` entry on a 16:9
-    /// stage over the WELL, labeled with its id and class. Interactions and
-    /// sweeps run for real — this IS the app surface, not a picture of it.
-    fn templates_gallery(&mut self, ui: &mut egui::Ui) {
-        // Solo view: one template on the full stage.
-        if let Some(id) = self.focus.clone() {
-            if let Some(demo) = self.demos.iter_mut().find(|d| d.spec().id.0 == id) {
-                let spec = demo.spec();
-                let back = ui.horizontal(|ui| {
-                    let back = ui
-                        .label(
-                            RichText::new(format!("« {}", spec.label))
-                                .strong()
-                                .color(cl::ink::STRONG),
-                        )
-                        .interact(egui::Sense::click());
-                    ui.label(
-                        RichText::new(spec.class.label())
+/// The live template gallery: every `registry::demos()` entry on a 16:9
+/// stage over the WELL, labeled with its id and class. Interactions and
+/// sweeps run for real — this IS the app surface, not a picture of it.
+/// Tap a title to SOLO it (`focus`); replay restarts its clock.
+pub(crate) fn templates_gallery(
+    ui: &mut egui::Ui,
+    demos: &mut [Box<dyn SlideTemplate>],
+    focus: &mut Option<String>,
+) {
+    // Solo view: one template on the full stage.
+    if let Some(id) = focus.clone() {
+        if let Some(demo) = demos.iter_mut().find(|d| d.spec().id.0 == id) {
+            let spec = demo.spec();
+            let back = ui.horizontal(|ui| {
+                let back = ui
+                    .label(
+                        RichText::new(format!("« {}", spec.label))
+                            .strong()
+                            .color(cl::ink::STRONG),
+                    )
+                    .interact(egui::Sense::click());
+                ui.label(
+                    RichText::new(spec.class.label())
+                        .monospace()
+                        .small()
+                        .color(SPEC.tone.color()),
+                );
+                ui.label(
+                    RichText::new(spec.id.0)
+                        .monospace()
+                        .small()
+                        .color(cl::ink::SUBTLE),
+                );
+                let replay = ui
+                    .label(
+                        RichText::new("replay")
                             .monospace()
                             .small()
                             .color(SPEC.tone.color()),
-                    );
-                    ui.label(
-                        RichText::new(spec.id.0)
-                            .monospace()
-                            .small()
-                            .color(cl::ink::SUBTLE),
-                    );
-                    let replay = ui
-                        .label(
-                            RichText::new("replay")
-                                .monospace()
-                                .small()
-                                .color(SPEC.tone.color()),
-                        )
-                        .interact(egui::Sense::click());
-                    (back, replay)
-                });
-                let stage = ui.available_rect_before_wrap().shrink(cl::space::S2);
-                ui.painter()
-                    .rect_filled(stage, cl::RADIUS, cl::surface::WELL);
-                ui.painter().rect_stroke(
-                    stage,
-                    cl::RADIUS,
-                    egui::Stroke::new(1.0, cl::surface::HAIRLINE),
-                    egui::StrokeKind::Inside,
-                );
-                ui.scope_builder(egui::UiBuilder::new().max_rect(stage.shrink(2.0)), |ui| {
-                    demo.ui(ui);
-                });
-                let (back, replay) = back.inner;
-                if replay.clicked() {
+                    )
+                    .interact(egui::Sense::click());
+                (back, replay)
+            });
+            let stage = ui.available_rect_before_wrap().shrink(cl::space::S2);
+            ui.painter()
+                .rect_filled(stage, cl::RADIUS, cl::surface::WELL);
+            ui.painter().rect_stroke(
+                stage,
+                cl::RADIUS,
+                egui::Stroke::new(1.0, cl::surface::HAIRLINE),
+                egui::StrokeKind::Inside,
+            );
+            ui.scope_builder(egui::UiBuilder::new().max_rect(stage.shrink(2.0)), |ui| {
+                demo.ui(ui);
+            });
+            let (back, replay) = back.inner;
+            if replay.clicked() {
+                demo.restart();
+            }
+            if back.clicked() {
+                *focus = None;
+            }
+            return;
+        }
+        // Unknown focus id: degrade to the wall, never crash.
+        *focus = None;
+    }
+
+    let fluid = cl::Fluid::of(ui.max_rect());
+
+    ui.label(
+        RichText::new(format!(
+            "{} templates registered — every one rendered live below. \
+             A template that exists but doesn't show here cannot exist.",
+            demos.len(),
+        ))
+        .small()
+        .color(cl::ink::MUTED),
+    );
+    ui.add_space(cl::space::S2);
+
+    let mut focus_request: Option<String> = None;
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        let avail_w = ui.available_width();
+        let stage_w = avail_w - cl::space::S4 * 2.0;
+        let stage_h = stage_w * 9.0 / 16.0;
+        for demo in demos.iter_mut() {
+            let spec = demo.spec();
+            ui.horizontal(|ui| {
+                let title = ui
+                    .label(
+                        RichText::new(spec.label)
+                            .size(fluid.fs_h4())
+                            .strong()
+                            .color(cl::ink::STRONG),
+                    )
+                    .interact(egui::Sense::click());
+                if title.clicked() {
+                    focus_request = Some(spec.id.0.to_string());
                     demo.restart();
                 }
-                if back.clicked() {
-                    self.focus = None;
-                }
-                return;
-            }
-            // Unknown focus id: degrade to the wall, never crash.
-            self.focus = None;
-        }
-
-        let fluid = cl::Fluid::of(ui.max_rect());
-
-        ui.add_space(cl::space::S2);
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(SPEC.icon).size(22.0).color(SPEC.tone.color()));
-            ui.label(
-                RichText::new("The catalog")
-                    .heading()
-                    .color(cl::ink::STRONG),
-            );
-        });
-        ui.label(
-            RichText::new(format!(
-                "{} templates registered — every one rendered live below. \
-                 A template that exists but doesn't show here cannot exist.",
-                self.demos.len(),
-            ))
-            .color(cl::ink::MUTED),
-        );
-        ui.add_space(cl::space::S4);
-
-        let mut focus_request: Option<String> = None;
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            let avail_w = ui.available_width();
-            let stage_w = avail_w - cl::space::S4 * 2.0;
-            let stage_h = stage_w * 9.0 / 16.0;
-            for demo in self.demos.iter_mut() {
-                let spec = demo.spec();
-                ui.horizontal(|ui| {
-                    let title = ui
-                        .label(
-                            RichText::new(spec.label)
-                                .size(fluid.fs_h4())
-                                .strong()
-                                .color(cl::ink::STRONG),
-                        )
-                        .interact(egui::Sense::click());
-                    if title.clicked() {
-                        focus_request = Some(spec.id.0.to_string());
-                        demo.restart();
-                    }
-                    ui.label(
-                        RichText::new(spec.class.label())
-                            .monospace()
-                            .small()
-                            .color(SPEC.tone.color()),
-                    );
-                    ui.label(
-                        RichText::new(spec.id.0)
-                            .monospace()
-                            .small()
-                            .color(cl::ink::SUBTLE),
-                    );
-                });
-                ui.label(RichText::new(spec.blurb).small().color(cl::ink::MUTED));
-                ui.add_space(cl::space::S1);
-
-                // The stage: a recessed 16:9 WELL plate the slide renders on —
-                // the same surface contract the deck runtime will provide.
-                let (stage, _) =
-                    ui.allocate_exact_size(egui::vec2(stage_w, stage_h), egui::Sense::hover());
-                ui.painter()
-                    .rect_filled(stage, cl::RADIUS, cl::surface::WELL);
-                ui.painter().rect_stroke(
-                    stage,
-                    cl::RADIUS,
-                    egui::Stroke::new(1.0, cl::surface::HAIRLINE),
-                    egui::StrokeKind::Inside,
+                ui.label(
+                    RichText::new(spec.class.label())
+                        .monospace()
+                        .small()
+                        .color(SPEC.tone.color()),
                 );
-                ui.scope_builder(egui::UiBuilder::new().max_rect(stage.shrink(2.0)), |ui| {
-                    demo.ui(ui);
-                });
-                ui.add_space(cl::space::S5);
-            }
-        });
-        if focus_request.is_some() {
-            self.focus = focus_request;
+                ui.label(
+                    RichText::new(spec.id.0)
+                        .monospace()
+                        .small()
+                        .color(cl::ink::SUBTLE),
+                );
+            });
+            ui.label(RichText::new(spec.blurb).small().color(cl::ink::MUTED));
+            ui.add_space(cl::space::S1);
+
+            // The stage: a recessed 16:9 WELL plate the slide renders on —
+            // the same surface contract the deck runtime provides.
+            let (stage, _) =
+                ui.allocate_exact_size(egui::vec2(stage_w, stage_h), egui::Sense::hover());
+            ui.painter()
+                .rect_filled(stage, cl::RADIUS, cl::surface::WELL);
+            ui.painter().rect_stroke(
+                stage,
+                cl::RADIUS,
+                egui::Stroke::new(1.0, cl::surface::HAIRLINE),
+                egui::StrokeKind::Inside,
+            );
+            ui.scope_builder(egui::UiBuilder::new().max_rect(stage.shrink(2.0)), |ui| {
+                demo.ui(ui);
+            });
+            ui.add_space(cl::space::S5);
         }
+    });
+    if focus_request.is_some() {
+        *focus = focus_request;
     }
 }
 
-/// The color pool wall (unchanged from P1): 53 hues × 13 steps, all rendered.
-fn pool_wall(ui: &mut egui::Ui) {
+/// The color pool wall: every generated hue × step, all rendered.
+pub(crate) fn pool_wall(ui: &mut egui::Ui) {
     let fluid = cl::Fluid::of(ui.max_rect());
     let swatch_h = fluid.sp_5();
     let swatch_w = fluid.sp_6();
     let gap = 2.0;
 
-    ui.add_space(cl::space::S2);
-    ui.horizontal(|ui| {
-        ui.label(RichText::new(SPEC.icon).size(22.0).color(SPEC.tone.color()));
-        ui.label(RichText::new("The pool").heading().color(cl::ink::STRONG));
-    });
     ui.label(
         RichText::new(format!(
-            "{} hues × {} steps = {} colors — generated from hues.json by cargo. \
+            "COLOR POOL — {} hues × {} steps = {} colors, generated from hues.json by cargo. \
              Curved OKLCH ladders, gamut-clamped. If it exists, it renders here.",
             cl::HUE_COUNT,
             cl::LADDER_STEPS.len(),
             cl::HUE_COUNT * cl::LADDER_STEPS.len(),
         ))
-        .color(cl::ink::MUTED),
+        .small()
+        .color(cl::ink::SUBTLE),
     );
-    ui.add_space(cl::space::S4);
+    ui.add_space(cl::space::S2);
 
     egui::ScrollArea::vertical().show(ui, |ui| {
         for (group, ids) in cl::HUE_GROUPS.iter() {
@@ -305,7 +265,7 @@ fn pool_wall(ui: &mut egui::Ui) {
 /// source) renders as itself: a look card paints ITS mood blend and sets
 /// ITS label in ITS font; motion presets list their entrance effect. The
 /// gallery gate for bundles-of-refs — W4's trays offer exactly these.
-fn presets_wall(ui: &mut egui::Ui) {
+pub(crate) fn presets_wall(ui: &mut egui::Ui) {
     ui.label(
         RichText::new(format!(
             "PRESETS — {} looks · {} motions · named bundles of refs, editable in tokens/presets.json",
@@ -406,7 +366,7 @@ fn presets_wall(ui: &mut egui::Ui) {
 /// The fonts wall — every vendored pool font (tokens/fonts.json) renders IN
 /// ITSELF: its label at display size, a sample line, class + id. The
 /// gallery gate for the 5th token source — pick a face by eye, not by name.
-fn fonts_wall(ui: &mut egui::Ui) {
+pub(crate) fn fonts_wall(ui: &mut egui::Ui) {
     ui.label(
         RichText::new(format!(
             "FONT POOL — {} vendored faces (SIL OFL, assets/fonts) · chrome default is chosen here, in the design session",
@@ -469,7 +429,7 @@ fn fonts_wall(ui: &mut egui::Ui) {
 /// swatch (the gallery gate: if it's in tokens/moods.json, it's on this
 /// wall). Card = the mood's 135° gradient under its own scrim, name, stop
 /// count, and accent dot.
-fn moods_wall(ui: &mut egui::Ui) {
+pub(crate) fn moods_wall(ui: &mut egui::Ui) {
     ui.label(
         RichText::new(format!(
             "BACKDROP MOODS — {} authored · every click on a backdrop tile pulls one at random",
