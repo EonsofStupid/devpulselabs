@@ -1,0 +1,5 @@
+{
+  "request_id": "request-00000000000000000001",
+  "session": "session",
+  "command": { "type": "status" }
+}

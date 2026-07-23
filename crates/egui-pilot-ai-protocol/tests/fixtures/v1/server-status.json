@@ -1,0 +1,13 @@
+{
+  "sequence": 2,
+  "session": "compat",
+  "event": {
+    "type": "status",
+    "running": true,
+    "revision": 7,
+    "pending_actions": 0,
+    "busy_tokens": 0,
+    "viewport_count": 1,
+    "renderer_key": null
+  }
+}

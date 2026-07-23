@@ -8,10 +8,12 @@ use egui_pilot_ai::{install, MotionPolicy, PilotHandle, QueuedInput};
 pub use egui_pilot_ai_protocol as protocol;
 use egui_pilot_ai_transport::{Transport, TransportError};
 use protocol::{
-    Action, ActionKind, AgentSnapshot, CaptureResult, ClientCommand, ClientEnvelope, Expectation,
-    Flow, Handshake, Locator, NodeId, PilotError, PointerButton, SemanticFrame, SemanticNode,
-    ServerEnvelope, ServerEvent, SessionId, SessionStatus, SnapshotRequest, Step, StepOutcome,
-    PROTOCOL_VERSION,
+    Action, ActionKind, AgentSnapshot, CancellationResult, CancellationState, CaptureResult,
+    ClientCommand, CommandEnvelope, CommandResult, EventId, EventScope, Expectation, Flow,
+    Handshake, HandshakeRequest, Locator, NodeId, PilotError, PointerButton, RequestId,
+    ResponseEnvelope, ResponseOutcome, RunId, RunOutcome, RunResult, RuntimeEvent,
+    RuntimeEventEnvelope, SemanticFrame, SemanticNode, ServerMessage, SessionId, SessionStatus,
+    SnapshotRequest, Step, StepId, StepOutcome, PROTOCOL_VERSION,
 };
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -47,22 +49,32 @@ impl RuntimeConfig {
 
     pub fn handshake(&self) -> Handshake {
         Handshake {
-            protocol_version: PROTOCOL_VERSION,
+            protocol: PROTOCOL_VERSION,
             build: self.build.clone(),
             session_nonce: self.session_nonce.clone(),
+            features: vec!["native-runtime".into(), "semantic-projection".into()],
+            capabilities: protocol::supported_capabilities(),
+            limits: protocol::ProtocolLimits::default(),
+            queues: protocol::QueuePolicy::default(),
+            renderer: self.renderer_identity.clone(),
         }
     }
 }
 
 struct ActiveFlow {
-    sequence: u64,
+    request_id: RequestId,
+    run_id: RunId,
     flow: Flow,
     index: usize,
     wait_started: Option<Instant>,
+    step_started: bool,
+    outcomes: Vec<StepOutcome>,
 }
 
 struct ActionExecution {
-    sequence: u64,
+    request_id: RequestId,
+    run_id: RunId,
+    step_id: StepId,
     step_index: usize,
     started: Instant,
     batches: VecDeque<QueuedInput>,
@@ -75,13 +87,17 @@ struct Stability {
 }
 
 struct PendingCapture {
-    sequence: u64,
+    request_id: RequestId,
+    run_id: Option<RunId>,
+    step_id: Option<StepId>,
     name: String,
     flow_step: Option<usize>,
     last_semantic_hash: Option<String>,
     last_geometry_hash: Option<String>,
     last_pixel_hash: Option<String>,
     attempts: u8,
+    started_at: Instant,
+    last_request_at: Instant,
 }
 
 pub struct RuntimeGuard {
@@ -90,12 +106,17 @@ pub struct RuntimeGuard {
     transport: Box<dyn Transport>,
     config: RuntimeConfig,
     authenticated: bool,
-    outbound: VecDeque<ServerEnvelope>,
+    outbound: VecDeque<ServerMessage>,
+    telemetry: Option<(EventScope, RuntimeEvent)>,
+    dropped_telemetry: u64,
+    event_sequence: u64,
     active_flow: Option<ActiveFlow>,
     action: Option<ActionExecution>,
     stability: HashMap<NodeId, Stability>,
     pending_capture: Option<PendingCapture>,
     capture_job: Option<Receiver<Result<CaptureResult, PilotError>>>,
+    terminal_runs: VecDeque<RunResult>,
+    stopping: bool,
     stopped: bool,
 }
 
@@ -124,11 +145,16 @@ impl RuntimeGuard {
             config,
             authenticated: false,
             outbound: VecDeque::new(),
+            telemetry: None,
+            dropped_telemetry: 0,
+            event_sequence: 0,
             active_flow: None,
             action: None,
             stability: HashMap::new(),
             pending_capture: None,
             capture_job: None,
+            terminal_runs: VecDeque::new(),
+            stopping: false,
             stopped: false,
         }
     }
@@ -147,12 +173,24 @@ impl RuntimeGuard {
             return;
         }
         self.flush_outbound();
+        if self.stopping {
+            self.finish_stop_if_flushed();
+            return;
+        }
+        // Required responses and events are lossless. When the transport is
+        // pressured, stop producing at this frame boundary until it drains.
+        if self.outbound.len() >= self.config.handshake().queues.required_event_capacity {
+            return;
+        }
         self.poll_capture_job();
         self.accept_captured_image();
         self.advance_action();
         self.advance_flow();
 
         for _ in 0..self.config.max_commands_per_frame {
+            if self.outbound.len() + 4 >= self.config.handshake().queues.required_event_capacity {
+                break;
+            }
             match self.transport.try_receive() {
                 Ok(Some(envelope)) => self.handle_command(envelope),
                 Ok(None) => break,
@@ -161,18 +199,28 @@ impl RuntimeGuard {
                     break;
                 }
                 Err(error) => {
-                    self.queue_error(0, "transport", error.to_string(), None);
+                    self.queue_event(
+                        EventScope::default(),
+                        RuntimeEvent::Diagnostic {
+                            error: PilotError {
+                                code: "transport".into(),
+                                message: error.to_string(),
+                                context: None,
+                            },
+                        },
+                    );
                     break;
                 }
             }
         }
         self.flush_outbound();
+        self.finish_stop_if_flushed();
     }
 
-    fn handle_command(&mut self, envelope: ClientEnvelope) {
+    fn handle_command(&mut self, envelope: CommandEnvelope) {
         if envelope.session != self.config.session {
             self.queue_error(
-                envelope.sequence,
+                envelope.request_id,
                 "session-mismatch",
                 "command session does not match the target session".into(),
                 None,
@@ -180,12 +228,12 @@ impl RuntimeGuard {
             return;
         }
         if let ClientCommand::Handshake(handshake) = envelope.command {
-            self.handshake(envelope.sequence, handshake);
+            self.handshake(envelope.request_id, handshake);
             return;
         }
         if !self.authenticated {
             self.queue_error(
-                envelope.sequence,
+                envelope.request_id,
                 "handshake-required",
                 "a valid handshake is required before control commands".into(),
                 None,
@@ -193,31 +241,52 @@ impl RuntimeGuard {
             return;
         }
         match envelope.command {
-            ClientCommand::Snapshot(request) => self.snapshot(envelope.sequence, &request),
-            ClientCommand::Run(flow) => self.start_flow(envelope.sequence, flow),
-            ClientCommand::Capture { name } => self.start_capture(envelope.sequence, name, None),
-            ClientCommand::Status => self.status(envelope.sequence),
-            ClientCommand::Stop => self.stop(envelope.sequence),
+            ClientCommand::Snapshot(request) => self.snapshot(envelope.request_id, &request),
+            ClientCommand::Run { run_id, flow } => {
+                self.start_flow(envelope.request_id, run_id, flow)
+            }
+            ClientCommand::Capture { name } => {
+                self.start_capture(envelope.request_id, name, None, None, None)
+            }
+            ClientCommand::Status => self.status(envelope.request_id),
+            ClientCommand::Cancel { run_id } => self.cancel(envelope.request_id, run_id),
+            ClientCommand::Stop => self.stop(envelope.request_id),
             ClientCommand::Handshake(_) => unreachable!("handshake handled above"),
         }
     }
 
-    fn handshake(&mut self, sequence: u64, handshake: Handshake) {
-        if handshake.protocol_version != PROTOCOL_VERSION {
+    fn handshake(&mut self, request_id: RequestId, handshake: HandshakeRequest) {
+        if handshake.protocol.major != PROTOCOL_VERSION.major {
             self.queue_error(
-                sequence,
+                request_id,
                 "protocol-version",
                 format!(
                     "target protocol is {PROTOCOL_VERSION}, client requested {}",
-                    handshake.protocol_version
+                    handshake.protocol
                 ),
+                None,
+            );
+            return;
+        }
+        let supported = protocol::supported_capabilities();
+        let missing: Vec<_> = handshake
+            .required_capabilities
+            .iter()
+            .filter(|capability| !supported.contains(capability))
+            .cloned()
+            .collect();
+        if !missing.is_empty() {
+            self.queue_error(
+                request_id,
+                "missing-capability",
+                format!("target does not support required capabilities: {missing:?}"),
                 None,
             );
             return;
         }
         if handshake.session_nonce != self.config.session_nonce {
             self.queue_error(
-                sequence,
+                request_id,
                 "nonce-mismatch",
                 "session nonce did not match the private child launch".into(),
                 None,
@@ -225,58 +294,90 @@ impl RuntimeGuard {
             return;
         }
         self.authenticated = true;
-        self.queue(sequence, ServerEvent::Ready(self.config.handshake()));
+        self.queue_success(
+            request_id,
+            CommandResult::Ready {
+                handshake: self.config.handshake(),
+            },
+        );
     }
 
-    fn snapshot(&mut self, sequence: u64, request: &SnapshotRequest) {
+    fn snapshot(&mut self, request_id: RequestId, request: &SnapshotRequest) {
         match self.pilot.snapshot(request) {
-            Ok(snapshot) => self.queue(sequence, ServerEvent::Snapshot(snapshot)),
-            Err(error) => self.queue_error(sequence, "snapshot", error.to_string(), None),
+            Ok(snapshot) => self.queue_success(request_id, CommandResult::Snapshot { snapshot }),
+            Err(error) => self.queue_error(request_id, "snapshot", error.to_string(), None),
         }
     }
 
-    fn status(&mut self, sequence: u64) {
+    fn status(&mut self, request_id: RequestId) {
         let frame = self.pilot.latest_frame();
         let mut viewports: Vec<_> = frame.nodes.iter().map(|node| &node.viewport).collect();
         viewports.sort_by(|left, right| left.0.cmp(&right.0));
         viewports.dedup();
-        self.queue(
-            sequence,
-            ServerEvent::Status(SessionStatus {
-                running: !self.stopped,
-                revision: frame.revision,
-                pending_actions: self.pilot.pending_input() + usize::from(self.action.is_some()),
-                busy_tokens: frame.diagnostics.busy_tokens.len(),
-                viewport_count: viewports.len(),
-                renderer_key: self
-                    .config
-                    .renderer_identity
-                    .as_ref()
-                    .map(protocol::RendererIdentity::baseline_key),
-                renderer_device_type: self
-                    .config
-                    .renderer_identity
-                    .as_ref()
-                    .map(|renderer| renderer.device_type.clone()),
-            }),
+        self.queue_success(
+            request_id,
+            CommandResult::Status {
+                status: SessionStatus {
+                    running: !self.stopped,
+                    revision: frame.revision,
+                    pending_actions: self.pilot.pending_input()
+                        + usize::from(self.action.is_some()),
+                    busy_tokens: frame.diagnostics.busy_tokens.len(),
+                    viewport_count: viewports.len(),
+                    renderer_key: self
+                        .config
+                        .renderer_identity
+                        .as_ref()
+                        .map(protocol::RendererIdentity::baseline_key),
+                    renderer_device_type: self
+                        .config
+                        .renderer_identity
+                        .as_ref()
+                        .map(|renderer| renderer.device_type.clone()),
+                    active_run: self.active_flow.as_ref().map(|flow| flow.run_id.clone()),
+                },
+            },
         );
     }
 
-    fn start_flow(&mut self, sequence: u64, flow: Flow) {
+    fn start_flow(&mut self, request_id: RequestId, run_id: RunId, flow: Flow) {
+        let unsupported = protocol::unsupported_capabilities(&flow);
+        if !unsupported.is_empty() {
+            self.queue_error(
+                request_id,
+                "unsupported-capability",
+                format!("flow requires unsupported capabilities: {unsupported:?}"),
+                None,
+            );
+            return;
+        }
         if self.active_flow.is_some() || self.action.is_some() {
             self.queue_error(
-                sequence,
+                request_id,
                 "busy",
                 "another flow is already active".into(),
                 self.failure_context(None),
             );
             return;
         }
+        self.queue_event(
+            EventScope {
+                request_id: Some(request_id.clone()),
+                run_id: Some(run_id.clone()),
+                ..Default::default()
+            },
+            RuntimeEvent::RunStarted {
+                scenario: flow.id.clone(),
+            },
+        );
         self.active_flow = Some(ActiveFlow {
-            sequence,
+            request_id,
+            run_id,
             flow,
             index: 0,
             wait_started: None,
+            step_started: false,
+            outcomes: Vec::new(),
         });
         self.ctx.request_repaint();
     }
@@ -289,11 +390,33 @@ impl RuntimeGuard {
             return;
         };
         let Some(step) = active.flow.steps.get(active.index).cloned() else {
+            self.finish_run(active, RunOutcome::Passed, None);
             return;
         };
+        let step_id = active.flow.step_id(active.index);
+        if !active.step_started {
+            self.queue_event(
+                EventScope {
+                    request_id: Some(active.request_id.clone()),
+                    run_id: Some(active.run_id.clone()),
+                    step_id: Some(step_id.clone()),
+                    ..Default::default()
+                },
+                RuntimeEvent::StepStarted {
+                    index: active.index,
+                },
+            );
+            active.step_started = true;
+        }
         match step {
             Step::Action { action } => {
-                match self.prepare_action(active.sequence, active.index, action) {
+                match self.prepare_action(
+                    active.request_id.clone(),
+                    active.run_id.clone(),
+                    step_id,
+                    active.index,
+                    action,
+                ) {
                     Ok(Some(execution)) => {
                         self.action = Some(execution);
                         self.active_flow = Some(active);
@@ -303,25 +426,22 @@ impl RuntimeGuard {
                         self.active_flow = Some(active);
                         self.ctx.request_repaint();
                     }
-                    Err(error) => self.fail_flow(active.sequence, active.index, error),
+                    Err(error) => self.fail_flow(active, error),
                 }
             }
             Step::Expect { expectation } => {
                 let started = *active.wait_started.get_or_insert_with(Instant::now);
                 match evaluate_expectation(&self.pilot.latest_frame(), &expectation) {
                     Ok(()) => {
-                        self.queue(
-                            active.sequence,
-                            ServerEvent::Step(StepOutcome {
-                                index: active.index,
-                                passed: true,
-                                elapsed_ms: started.elapsed().as_millis() as u64,
-                                message: None,
-                                context: None,
-                            }),
-                        );
-                        active.index += 1;
-                        active.wait_started = None;
+                        let outcome = StepOutcome {
+                            id: step_id,
+                            index: active.index,
+                            passed: true,
+                            elapsed_ms: started.elapsed().as_millis() as u64,
+                            message: None,
+                            context: None,
+                        };
+                        self.complete_step(&mut active, outcome);
                         self.active_flow = Some(active);
                         self.ctx.request_repaint();
                     }
@@ -329,40 +449,41 @@ impl RuntimeGuard {
                         self.active_flow = Some(active);
                         self.ctx.request_repaint_after(Duration::from_millis(1));
                     }
-                    Err(error) => self.fail_flow(active.sequence, active.index, error),
+                    Err(error) => self.fail_flow(active, error),
                 }
             }
             Step::Wait { milliseconds } => {
                 let started = active.wait_started.get_or_insert_with(Instant::now);
                 if started.elapsed() >= Duration::from_millis(milliseconds) {
-                    self.queue(
-                        active.sequence,
-                        ServerEvent::Step(StepOutcome {
-                            index: active.index,
-                            passed: true,
-                            elapsed_ms: started.elapsed().as_millis() as u64,
-                            message: None,
-                            context: None,
-                        }),
-                    );
-                    active.index += 1;
-                    active.wait_started = None;
+                    let elapsed_ms = started.elapsed().as_millis() as u64;
+                    let outcome = StepOutcome {
+                        id: step_id,
+                        index: active.index,
+                        passed: true,
+                        elapsed_ms,
+                        message: None,
+                        context: None,
+                    };
+                    self.complete_step(&mut active, outcome);
                 }
                 self.active_flow = Some(active);
                 self.ctx.request_repaint_after(Duration::from_millis(1));
             }
             Step::Capture { name } => {
                 let index = active.index;
-                let sequence = active.sequence;
+                let request_id = active.request_id.clone();
+                let run_id = active.run_id.clone();
                 self.active_flow = Some(active);
-                self.start_capture(sequence, name, Some(index));
+                self.start_capture(request_id, name, Some(index), Some(run_id), Some(step_id));
             }
         }
     }
 
     fn prepare_action(
         &mut self,
-        sequence: u64,
+        request_id: RequestId,
+        run_id: RunId,
+        step_id: StepId,
         step_index: usize,
         action: Action,
     ) -> Result<Option<ActionExecution>, PilotError> {
@@ -392,7 +513,9 @@ impl RuntimeGuard {
         }
         let batches = action_batches(&self.pilot, &frame, &action)?;
         Ok(Some(ActionExecution {
-            sequence,
+            request_id,
+            run_id,
+            step_id,
             step_index,
             started: Instant::now(),
             batches: batches.into(),
@@ -414,29 +537,40 @@ impl RuntimeGuard {
             self.ctx.request_repaint();
             return;
         }
-        self.queue(
-            action.sequence,
-            ServerEvent::Step(StepOutcome {
-                index: action.step_index,
-                passed: true,
-                elapsed_ms: action.started.elapsed().as_millis() as u64,
-                message: None,
-                context: None,
-            }),
-        );
-        if let Some(active) = &mut self.active_flow {
-            active.index += 1;
+        let outcome = StepOutcome {
+            id: action.step_id,
+            index: action.step_index,
+            passed: true,
+            elapsed_ms: action.started.elapsed().as_millis() as u64,
+            message: None,
+            context: None,
+        };
+        if let Some(mut active) = self.active_flow.take() {
+            debug_assert_eq!(active.request_id, action.request_id);
+            debug_assert_eq!(active.run_id, action.run_id);
+            self.complete_step(&mut active, outcome);
+            self.active_flow = Some(active);
         }
         self.ctx.request_repaint();
     }
 
-    fn start_capture(&mut self, sequence: u64, name: String, flow_step: Option<usize>) {
+    fn start_capture(
+        &mut self,
+        request_id: RequestId,
+        name: String,
+        flow_step: Option<usize>,
+        run_id: Option<RunId>,
+        step_id: Option<StepId>,
+    ) {
         if self.pending_capture.is_some() || self.capture_job.is_some() {
-            self.queue_error(
-                sequence,
-                "capture-busy",
-                "another capture is already active".into(),
-                None,
+            self.fail_capture_start(
+                request_id,
+                flow_step,
+                PilotError {
+                    code: "capture-busy".into(),
+                    message: "another capture is already active".into(),
+                    context: None,
+                },
             );
             return;
         }
@@ -444,30 +578,85 @@ impl RuntimeGuard {
             .pilot
             .prepare_motion(&self.ctx, MotionPolicy::Suppressed)
         {
-            self.queue_error(
-                sequence,
-                "uncontrolled-motion",
-                format!("capture blocked by uncontrolled motion: {motions:?}"),
-                self.failure_context(None),
-            );
+            let error = PilotError {
+                code: "uncontrolled-motion".into(),
+                message: format!("capture blocked by uncontrolled motion: {motions:?}"),
+                context: self.failure_context(None).map(Box::new),
+            };
+            self.fail_capture_start(request_id, flow_step, error);
             return;
         }
         self.pending_capture = Some(PendingCapture {
-            sequence,
+            request_id,
+            run_id,
+            step_id,
             name,
             flow_step,
             last_semantic_hash: None,
             last_geometry_hash: None,
             last_pixel_hash: None,
             attempts: 0,
+            started_at: Instant::now(),
+            last_request_at: Instant::now(),
         });
+        self.pilot.clear_captures();
         self.ctx
             .send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
         self.ctx.request_repaint();
     }
 
+    fn fail_capture_start(
+        &mut self,
+        request_id: RequestId,
+        flow_step: Option<usize>,
+        error: PilotError,
+    ) {
+        if flow_step.is_some() {
+            if let Some(active) = self.active_flow.take() {
+                self.fail_flow(active, error);
+            }
+        } else {
+            self.queue_error(
+                request_id,
+                &error.code,
+                error.message,
+                error.context.map(|context| *context),
+            );
+        }
+    }
+
     fn accept_captured_image(&mut self) {
+        if self.capture_job.is_some() {
+            return;
+        }
         let Some(capture) = self.pilot.take_capture() else {
+            let Some(pending) = self.pending_capture.as_mut() else {
+                return;
+            };
+            if pending.started_at.elapsed() >= Duration::from_secs(10) {
+                let pending = self.pending_capture.take().expect("capture metadata");
+                self.fail_capture_start(
+                    pending.request_id,
+                    pending.flow_step,
+                    PilotError {
+                        code: "capture-response-timeout".into(),
+                        message: format!(
+                            "renderer did not return a screenshot after {} settle attempts",
+                            pending.attempts
+                        ),
+                        context: None,
+                    },
+                );
+                return;
+            }
+            if pending.last_request_at.elapsed() >= Duration::from_millis(250) {
+                self.ctx
+                    .send_viewport_cmd(
+                        egui::ViewportCommand::Screenshot(egui::UserData::default()),
+                    );
+                pending.last_request_at = Instant::now();
+            }
+            self.ctx.request_repaint_after(Duration::from_millis(16));
             return;
         };
         let Some(mut pending) = self.pending_capture.take() else {
@@ -485,14 +674,26 @@ impl RuntimeGuard {
             pending.last_geometry_hash = Some(geometry_hash);
             pending.last_pixel_hash = Some(pixel_hash);
             pending.attempts = pending.attempts.saturating_add(1);
+            self.queue_telemetry(
+                EventScope {
+                    request_id: Some(pending.request_id.clone()),
+                    run_id: pending.run_id.clone(),
+                    step_id: pending.step_id.clone(),
+                    ..Default::default()
+                },
+                RuntimeEvent::Telemetry {
+                    channel: "capture-settle-attempt".into(),
+                    revision: u64::from(pending.attempts),
+                },
+            );
             if pending.attempts >= 30 {
-                self.queue_error(
-                    pending.sequence,
-                    "unstable-capture",
-                    "semantic, geometry, and pixel hashes did not settle within 30 frames".into(),
-                    self.failure_context(None),
-                );
-                self.active_flow = None;
+                let error = PilotError {
+                    code: "unstable-capture".into(),
+                    message: "semantic, geometry, and pixel hashes did not settle within 30 frames"
+                        .into(),
+                    context: self.failure_context(None).map(Box::new),
+                };
+                self.fail_capture_start(pending.request_id, pending.flow_step, error);
                 return;
             }
             self.pending_capture = Some(pending);
@@ -535,25 +736,41 @@ impl RuntimeGuard {
                 let pending = self.pending_capture.take().expect("capture metadata");
                 match result {
                     Ok(capture) => {
-                        self.queue(pending.sequence, ServerEvent::Capture(capture));
+                        self.queue_event(
+                            EventScope {
+                                request_id: Some(pending.request_id.clone()),
+                                run_id: pending.run_id.clone(),
+                                step_id: pending.step_id.clone(),
+                                ..Default::default()
+                            },
+                            RuntimeEvent::AttachmentCommitted {
+                                capture: capture.clone(),
+                            },
+                        );
                         if let Some(index) = pending.flow_step {
-                            self.queue(
-                                pending.sequence,
-                                ServerEvent::Step(StepOutcome {
+                            if let Some(mut active) = self.active_flow.take() {
+                                let outcome = StepOutcome {
+                                    id: pending
+                                        .step_id
+                                        .unwrap_or_else(|| active.flow.step_id(index)),
                                     index,
                                     passed: true,
                                     elapsed_ms: 0,
                                     message: Some("capture stabilized and written".into()),
                                     context: None,
-                                }),
-                            );
-                            if let Some(active) = &mut self.active_flow {
-                                active.index += 1;
+                                };
+                                self.complete_step(&mut active, outcome);
+                                self.active_flow = Some(active);
                             }
+                        } else {
+                            self.queue_success(
+                                pending.request_id,
+                                CommandResult::Capture { capture },
+                            );
                         }
                     }
                     Err(error) => {
-                        self.fail_flow(pending.sequence, pending.flow_step.unwrap_or(0), error)
+                        self.fail_capture_start(pending.request_id, pending.flow_step, error)
                     }
                 }
                 self.ctx.request_repaint();
@@ -564,33 +781,102 @@ impl RuntimeGuard {
             Err(TryRecvError::Disconnected) => {
                 self.capture_job = None;
                 let pending = self.pending_capture.take().expect("capture metadata");
-                self.queue_error(
-                    pending.sequence,
-                    "capture-worker",
-                    "capture worker disconnected".into(),
-                    None,
+                self.fail_capture_start(
+                    pending.request_id,
+                    pending.flow_step,
+                    PilotError {
+                        code: "capture-worker".into(),
+                        message: "capture worker disconnected".into(),
+                        context: None,
+                    },
                 );
             }
         }
     }
 
-    fn fail_flow(&mut self, sequence: u64, index: usize, mut error: PilotError) {
+    fn complete_step(&mut self, active: &mut ActiveFlow, outcome: StepOutcome) {
+        self.queue_event(
+            EventScope {
+                request_id: Some(active.request_id.clone()),
+                run_id: Some(active.run_id.clone()),
+                step_id: Some(outcome.id.clone()),
+                ..Default::default()
+            },
+            RuntimeEvent::StepFinished {
+                outcome: outcome.clone(),
+            },
+        );
+        active.outcomes.push(outcome);
+        active.index += 1;
+        active.wait_started = None;
+        active.step_started = false;
+    }
+
+    fn fail_flow(&mut self, mut active: ActiveFlow, mut error: PilotError) {
         if error.context.is_none() {
             error.context = self.failure_context(None).map(Box::new);
         }
-        self.queue(
-            sequence,
-            ServerEvent::Step(StepOutcome {
-                index,
-                passed: false,
-                elapsed_ms: 0,
-                message: Some(error.message.clone()),
-                context: error.context.clone(),
-            }),
-        );
-        self.queue(sequence, ServerEvent::Error(error));
-        self.active_flow = None;
+        let outcome = StepOutcome {
+            id: active.flow.step_id(active.index),
+            index: active.index,
+            passed: false,
+            elapsed_ms: 0,
+            message: Some(error.message.clone()),
+            context: error.context.clone(),
+        };
+        self.complete_step(&mut active, outcome);
         self.action = None;
+        self.finish_run(active, RunOutcome::Failed, Some(error));
+    }
+
+    fn finish_run(&mut self, active: ActiveFlow, outcome: RunOutcome, error: Option<PilotError>) {
+        let result = RunResult {
+            run_id: active.run_id,
+            scenario: active.flow.id,
+            outcome,
+            steps: active.outcomes,
+            error,
+        };
+        self.queue_success(
+            active.request_id,
+            CommandResult::Run {
+                result: result.clone(),
+            },
+        );
+        self.terminal_runs.push_back(result);
+        while self.terminal_runs.len() > 32 {
+            self.terminal_runs.pop_front();
+        }
+    }
+
+    fn cancel(&mut self, request_id: RequestId, run_id: RunId) {
+        let state = if self.active_flow.as_ref().map(|run| &run.run_id) == Some(&run_id) {
+            let active = self.active_flow.take().expect("matched active run");
+            self.action = None;
+            self.pending_capture = None;
+            self.capture_job = None;
+            self.pilot.clear_input();
+            self.queue_event(
+                EventScope {
+                    request_id: Some(active.request_id.clone()),
+                    run_id: Some(run_id.clone()),
+                    ..Default::default()
+                },
+                RuntimeEvent::InputCleanup,
+            );
+            self.finish_run(active, RunOutcome::Cancelled, None);
+            CancellationState::Requested
+        } else if self.terminal_runs.iter().any(|run| run.run_id == run_id) {
+            CancellationState::AlreadyTerminal
+        } else {
+            CancellationState::NotFound
+        };
+        self.queue_success(
+            request_id,
+            CommandResult::Cancel {
+                cancellation: CancellationResult { run_id, state },
+            },
+        );
     }
 
     fn failure_context(&self, node: Option<&NodeId>) -> Option<AgentSnapshot> {
@@ -606,53 +892,118 @@ impl RuntimeGuard {
         self.pilot.snapshot(&request).ok()
     }
 
-    fn stop(&mut self, sequence: u64) {
-        self.queue(sequence, ServerEvent::Stopped);
+    fn stop(&mut self, request_id: RequestId) {
+        if let Some(active) = self.active_flow.take() {
+            self.action = None;
+            self.pending_capture = None;
+            self.capture_job = None;
+            self.pilot.clear_input();
+            self.queue_event(
+                EventScope {
+                    request_id: Some(active.request_id.clone()),
+                    run_id: Some(active.run_id.clone()),
+                    ..Default::default()
+                },
+                RuntimeEvent::InputCleanup,
+            );
+            self.finish_run(active, RunOutcome::Cancelled, None);
+        }
+        self.queue_success(request_id, CommandResult::Stopped);
+        self.stopping = true;
         self.flush_outbound();
-        let _ = self.transport.close();
-        self.stopped = true;
-        self.ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        self.finish_stop_if_flushed();
+    }
+
+    fn finish_stop_if_flushed(&mut self) {
+        if self.stopping && self.outbound.is_empty() && self.telemetry.is_none() {
+            let _ = self.transport.close();
+            self.stopped = true;
+            self.ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
     }
 
     fn queue_error(
         &mut self,
-        sequence: u64,
+        request_id: RequestId,
         code: &str,
         message: String,
         context: Option<AgentSnapshot>,
     ) {
-        self.queue(
-            sequence,
-            ServerEvent::Error(PilotError {
-                code: code.into(),
-                message,
-                context: context.map(Box::new),
-            }),
-        );
+        self.outbound
+            .push_back(ServerMessage::response(ResponseEnvelope {
+                request_id,
+                session: self.config.session.clone(),
+                outcome: ResponseOutcome::Error {
+                    error: PilotError {
+                        code: code.into(),
+                        message,
+                        context: context.map(Box::new),
+                    },
+                },
+            }));
     }
 
-    fn queue(&mut self, sequence: u64, event: ServerEvent) {
-        self.outbound.push_back(ServerEnvelope {
-            sequence,
-            session: self.config.session.clone(),
-            event,
-        });
+    fn queue_success(&mut self, request_id: RequestId, result: CommandResult) {
+        self.outbound
+            .push_back(ServerMessage::response(ResponseEnvelope {
+                request_id,
+                session: self.config.session.clone(),
+                outcome: ResponseOutcome::Success {
+                    result: Box::new(result),
+                },
+            }));
+    }
+
+    fn queue_event(&mut self, scope: EventScope, event: RuntimeEvent) {
+        self.event_sequence = self.event_sequence.saturating_add(1);
+        self.outbound
+            .push_back(ServerMessage::event(RuntimeEventEnvelope {
+                event_id: EventId::from_sequence(self.event_sequence),
+                session: self.config.session.clone(),
+                scope,
+                event,
+            }));
+    }
+
+    /// Queue opt-in high-rate telemetry. Only the newest sample is retained;
+    /// pressure is reported as a required event before that sample is sent.
+    pub fn queue_telemetry(&mut self, scope: EventScope, event: RuntimeEvent) {
+        if self.telemetry.replace((scope, event)).is_some() {
+            self.dropped_telemetry = self.dropped_telemetry.saturating_add(1);
+        }
     }
 
     fn flush_outbound(&mut self) {
-        while let Some(envelope) = self.outbound.pop_front() {
-            match self.transport.try_send(envelope.clone()) {
-                Ok(()) => {}
-                Err(TransportError::Backpressure { .. }) => {
-                    // Preserve ordering and retry next frame.
-                    self.outbound.push_front(envelope);
-                    break;
-                }
-                Err(_) => {
-                    self.stopped = true;
-                    break;
+        loop {
+            while let Some(message) = self.outbound.pop_front() {
+                match self.transport.try_send(message.clone()) {
+                    Ok(()) => {}
+                    Err(TransportError::Backpressure { .. }) => {
+                        self.outbound.push_front(message);
+                        return;
+                    }
+                    Err(_) => {
+                        self.stopped = true;
+                        return;
+                    }
                 }
             }
+            if self.dropped_telemetry > 0 {
+                let dropped = std::mem::take(&mut self.dropped_telemetry);
+                self.queue_event(
+                    EventScope::default(),
+                    RuntimeEvent::QueuePressure {
+                        queue: "telemetry".into(),
+                        dropped,
+                    },
+                );
+                continue;
+            }
+            if let Some((scope, event)) = self.telemetry.take() {
+                self.queue_event(scope, event);
+                continue;
+            }
+            break;
         }
     }
 }
@@ -1127,6 +1478,7 @@ fn write_capture(
         })?;
     }
     Ok(CaptureResult {
+        attachment: protocol::AttachmentId::new(format!("fnv1a64:{hash}")),
         name: name.into(),
         artifact: path.to_string_lossy().into_owned(),
         content_hash: hash,
@@ -1229,29 +1581,363 @@ mod tests {
         };
         let mut runtime = RuntimeGuard::attach(&ctx, transport, config);
         client
-            .try_send(ClientEnvelope {
-                sequence: 1,
+            .try_send(CommandEnvelope {
+                request_id: RequestId::new("request-1"),
                 session: SessionId::new("s"),
                 command: ClientCommand::Status,
             })
             .unwrap();
         runtime.pump();
         let response = client.try_receive().unwrap().unwrap();
-        assert!(matches!(response.event, ServerEvent::Error(_)));
+        assert!(matches!(
+            response,
+            ServerMessage::Response {
+                envelope: ResponseEnvelope {
+                    outcome: ResponseOutcome::Error { .. },
+                    ..
+                }
+            }
+        ));
 
         client
-            .try_send(ClientEnvelope {
-                sequence: 2,
+            .try_send(CommandEnvelope {
+                request_id: RequestId::new("request-2"),
                 session: SessionId::new("s"),
-                command: ClientCommand::Handshake(Handshake {
-                    protocol_version: PROTOCOL_VERSION,
+                command: ClientCommand::Handshake(HandshakeRequest {
+                    protocol: PROTOCOL_VERSION,
                     build: "runner".into(),
                     session_nonce: "n".into(),
+                    required_capabilities: vec![],
+                    trace_level: protocol::TraceLevel::Off,
                 }),
             })
             .unwrap();
         runtime.pump();
         let response = client.try_receive().unwrap().unwrap();
-        assert!(matches!(response.event, ServerEvent::Ready(_)));
+        assert!(matches!(
+            response,
+            ServerMessage::Response {
+                envelope: ResponseEnvelope {
+                    outcome: ResponseOutcome::Success { result },
+                    ..
+                }
+            } if matches!(result.as_ref(), CommandResult::Ready { .. })
+        ));
+    }
+
+    #[test]
+    fn protocol_major_mismatch_fails_before_authentication() {
+        let (_ctx, client, mut runtime) = test_runtime(8);
+        client
+            .try_send(CommandEnvelope {
+                request_id: RequestId::new("handshake-v3"),
+                session: SessionId::new("session"),
+                command: ClientCommand::Handshake(HandshakeRequest {
+                    protocol: protocol::ProtocolVersion { major: 3, minor: 0 },
+                    build: "future-runner".into(),
+                    session_nonce: "nonce".into(),
+                    required_capabilities: vec![],
+                    trace_level: protocol::TraceLevel::Off,
+                }),
+            })
+            .unwrap();
+        runtime.pump();
+        assert!(matches!(
+            client.try_receive().unwrap().unwrap(),
+            ServerMessage::Response {
+                envelope: ResponseEnvelope {
+                    outcome: ResponseOutcome::Error {
+                        error: PilotError { code, .. }
+                    },
+                    ..
+                }
+            } if code == "protocol-version"
+        ));
+
+        client
+            .try_send(CommandEnvelope {
+                request_id: RequestId::new("status-after-v3"),
+                session: SessionId::new("session"),
+                command: ClientCommand::Status,
+            })
+            .unwrap();
+        runtime.pump();
+        assert!(matches!(
+            client.try_receive().unwrap().unwrap(),
+            ServerMessage::Response {
+                envelope: ResponseEnvelope {
+                    outcome: ResponseOutcome::Error {
+                        error: PilotError { code, .. }
+                    },
+                    ..
+                }
+            } if code == "handshake-required"
+        ));
+    }
+
+    fn test_runtime(
+        capacity: usize,
+    ) -> (
+        egui::Context,
+        egui_pilot_ai_transport::InMemoryClient,
+        RuntimeGuard,
+    ) {
+        let ctx = egui::Context::default();
+        let (client, transport) = in_memory_pair(capacity);
+        let config = RuntimeConfig {
+            build: "test".into(),
+            session: SessionId::new("session"),
+            session_nonce: "nonce".into(),
+            artifact_root: std::env::temp_dir().join("eguipilotai-runtime-v2-test"),
+            max_commands_per_frame: 8,
+            renderer_identity: None,
+        };
+        let runtime = RuntimeGuard::attach(&ctx, transport, config);
+        (ctx, client, runtime)
+    }
+
+    fn authenticate(client: &egui_pilot_ai_transport::InMemoryClient, runtime: &mut RuntimeGuard) {
+        client
+            .try_send(CommandEnvelope {
+                request_id: RequestId::new("handshake"),
+                session: SessionId::new("session"),
+                command: ClientCommand::Handshake(HandshakeRequest {
+                    protocol: PROTOCOL_VERSION,
+                    build: "test".into(),
+                    session_nonce: "nonce".into(),
+                    required_capabilities: vec![],
+                    trace_level: protocol::TraceLevel::Off,
+                }),
+            })
+            .unwrap();
+        runtime.pump();
+        assert!(matches!(
+            client.try_receive().unwrap().unwrap(),
+            ServerMessage::Response {
+                envelope: ResponseEnvelope {
+                    outcome: ResponseOutcome::Success { result },
+                    ..
+                }
+            } if matches!(result.as_ref(), CommandResult::Ready { .. })
+        ));
+    }
+
+    #[test]
+    fn run_progress_is_event_only_and_run_has_one_terminal_response() {
+        let (_ctx, client, mut runtime) = test_runtime(16);
+        authenticate(&client, &mut runtime);
+        client
+            .try_send(CommandEnvelope {
+                request_id: RequestId::new("run-request"),
+                session: SessionId::new("session"),
+                command: ClientCommand::Run {
+                    run_id: RunId::new("run"),
+                    flow: Flow {
+                        id: protocol::ScenarioId::new("empty"),
+                        fixture: None,
+                        steps: vec![],
+                        record: false,
+                    },
+                },
+            })
+            .unwrap();
+        runtime.pump();
+        assert!(matches!(
+            client.try_receive().unwrap().unwrap(),
+            ServerMessage::Event {
+                envelope: RuntimeEventEnvelope {
+                    event: RuntimeEvent::RunStarted { .. },
+                    ..
+                }
+            }
+        ));
+        runtime.pump();
+        let response = client.try_receive().unwrap().unwrap();
+        assert!(matches!(
+            response,
+            ServerMessage::Response {
+                envelope: ResponseEnvelope {
+                    request_id,
+                    outcome: ResponseOutcome::Success { result },
+                    ..
+                }
+            } if request_id == RequestId::new("run-request") && matches!(
+                result.as_ref(),
+                CommandResult::Run {
+                            result: RunResult {
+                                outcome: RunOutcome::Passed,
+                                ..
+                            }
+                        }
+            )
+        ));
+        assert!(client.try_receive().unwrap().is_none());
+    }
+
+    #[test]
+    fn status_interleaves_with_run_and_cancellation_is_idempotent() {
+        let (_ctx, client, mut runtime) = test_runtime(32);
+        authenticate(&client, &mut runtime);
+        client
+            .try_send(CommandEnvelope {
+                request_id: RequestId::new("run-request"),
+                session: SessionId::new("session"),
+                command: ClientCommand::Run {
+                    run_id: RunId::new("run"),
+                    flow: Flow {
+                        id: protocol::ScenarioId::new("waiting"),
+                        fixture: None,
+                        steps: vec![Step::Wait {
+                            milliseconds: 60_000,
+                        }],
+                        record: false,
+                    },
+                },
+            })
+            .unwrap();
+        runtime.pump();
+        let _ = client.try_receive().unwrap();
+
+        runtime.pilot.queue_input(QueuedInput {
+            viewport: egui::ViewportId::ROOT,
+            events: vec![egui::Event::Text("must-not-leak".into())],
+            time: None,
+            modifiers: None,
+        });
+        assert_eq!(runtime.pilot.pending_input(), 1);
+        runtime.pump();
+        let _ = client.try_receive().unwrap();
+
+        client
+            .try_send(CommandEnvelope {
+                request_id: RequestId::new("status"),
+                session: SessionId::new("session"),
+                command: ClientCommand::Status,
+            })
+            .unwrap();
+        client
+            .try_send(CommandEnvelope {
+                request_id: RequestId::new("cancel"),
+                session: SessionId::new("session"),
+                command: ClientCommand::Cancel {
+                    run_id: RunId::new("run"),
+                },
+            })
+            .unwrap();
+        runtime.pump();
+        let mut terminal_requests = Vec::new();
+        while let Some(message) = client.try_receive().unwrap() {
+            if let ServerMessage::Response { envelope } = message {
+                terminal_requests.push(envelope.request_id);
+            }
+        }
+        assert!(terminal_requests.contains(&RequestId::new("status")));
+        assert!(terminal_requests.contains(&RequestId::new("run-request")));
+        assert!(terminal_requests.contains(&RequestId::new("cancel")));
+        assert_eq!(runtime.pilot.pending_input(), 0);
+
+        client
+            .try_send(CommandEnvelope {
+                request_id: RequestId::new("cancel-again"),
+                session: SessionId::new("session"),
+                command: ClientCommand::Cancel {
+                    run_id: RunId::new("run"),
+                },
+            })
+            .unwrap();
+        runtime.pump();
+        assert!(matches!(
+            client.try_receive().unwrap().unwrap(),
+            ServerMessage::Response {
+                envelope: ResponseEnvelope {
+                    outcome: ResponseOutcome::Success { result },
+                    ..
+                }
+            } if matches!(
+                result.as_ref(),
+                CommandResult::Cancel {
+                            cancellation: CancellationResult {
+                                state: CancellationState::AlreadyTerminal,
+                                ..
+                            }
+                        }
+            )
+        ));
+    }
+
+    #[test]
+    fn unsupported_actions_fail_before_run_start() {
+        let (_ctx, client, mut runtime) = test_runtime(16);
+        authenticate(&client, &mut runtime);
+        client
+            .try_send(CommandEnvelope {
+                request_id: RequestId::new("run-request"),
+                session: SessionId::new("session"),
+                command: ClientCommand::Run {
+                    run_id: RunId::new("run"),
+                    flow: Flow {
+                        id: protocol::ScenarioId::new("unsupported"),
+                        fixture: None,
+                        steps: vec![Step::Action {
+                            action: Action::SetValue {
+                                target: Locator::default(),
+                                value: "5".into(),
+                            },
+                        }],
+                        record: false,
+                    },
+                },
+            })
+            .unwrap();
+        runtime.pump();
+        assert!(matches!(
+            client.try_receive().unwrap().unwrap(),
+            ServerMessage::Response {
+                envelope: ResponseEnvelope {
+                    outcome: ResponseOutcome::Error { error },
+                    ..
+                }
+            } if error.code == "unsupported-capability"
+        ));
+        assert!(client.try_receive().unwrap().is_none());
+    }
+
+    #[test]
+    fn telemetry_pressure_coalesces_and_reports_drops() {
+        let (_ctx, client, mut runtime) = test_runtime(1);
+        runtime.queue_telemetry(
+            EventScope::default(),
+            RuntimeEvent::Telemetry {
+                channel: "frame".into(),
+                revision: 1,
+            },
+        );
+        runtime.queue_telemetry(
+            EventScope::default(),
+            RuntimeEvent::Telemetry {
+                channel: "frame".into(),
+                revision: 2,
+            },
+        );
+        runtime.pump();
+        assert!(matches!(
+            client.try_receive().unwrap().unwrap(),
+            ServerMessage::Event {
+                envelope: RuntimeEventEnvelope {
+                    event: RuntimeEvent::QueuePressure { dropped: 1, .. },
+                    ..
+                }
+            }
+        ));
+        runtime.pump();
+        assert!(matches!(
+            client.try_receive().unwrap().unwrap(),
+            ServerMessage::Event {
+                envelope: RuntimeEventEnvelope {
+                    event: RuntimeEvent::Telemetry { revision: 2, .. },
+                    ..
+                }
+            }
+        ));
     }
 }

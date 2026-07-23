@@ -1,4 +1,4 @@
-use egui_pilot_ai_protocol::{Flow, SnapshotRequest};
+use egui_pilot_ai_protocol::{Flow, RunOutcome, SnapshotRequest};
 use egui_pilot_ai_runner::{
     load_flow, save_flow, EguiPilotConfig, ProcessSession, RunnerError, CONFIG_FILE,
 };
@@ -53,7 +53,7 @@ fn run() -> Result<(), CliError> {
         },
         "help" | "--help" | "-h" => {
             println!(
-                "EguiPilotAI\n\n  doctor\n  mcp\n  test <profile> <scenario.toml> [fixture]\n  inspect <profile> [fixture]\n  fixtures\n  codegen <input.toml> <output.toml>\n  open <run-directory>\n  agent install codex|cursor|claude"
+                "EguiPilotAI\n\n  doctor\n  mcp\n  test <profile> <scenario.toml> [fixture]\n  inspect <profile> [fixture]\n  fixtures\n  codegen <input.toml> <output.toml>  [EXPERIMENTAL normalizer; NOT a recorder]\n  open <run-directory>\n  agent install codex|cursor|claude\n\nUnsupported in this build: set-value, scroll-into-view, screenshot expectations, parallel workers, retries, recorder codegen, replay, visual approval, and Test Lab live control."
             );
             Ok(())
         }
@@ -94,6 +94,7 @@ fn doctor(workspace: &Path) -> Result<(), CliError> {
             "config": workspace.join(CONFIG_FILE),
             "profiles": profiles,
             "fixtures": config.fixtures.keys().collect::<Vec<_>>(),
+            "capabilities": egui_pilot_ai_protocol::capability_catalog(),
         }))?
     );
     Ok(())
@@ -108,14 +109,16 @@ fn test(
     let config = EguiPilotConfig::load(workspace)?;
     let flow = load_flow(scenario)?;
     let mut session = ProcessSession::launch(workspace, &config, profile, fixture)?;
-    let outcomes = session.run(flow)?;
+    let result = session.run(flow)?;
     let run_dir = session.run_dir.clone();
     session.stop()?;
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({
-            "passed": true,
-            "steps": outcomes,
+            "passed": result.outcome == RunOutcome::Passed,
+            "outcome": result.outcome,
+            "steps": result.steps,
+            "error": result.error,
             "run_directory": run_dir,
         }))?
     );
@@ -143,7 +146,10 @@ fn fixtures(workspace: &Path) -> Result<(), CliError> {
 fn codegen(input: &Path, output: &Path) -> Result<(), CliError> {
     let flow = load_flow(input)?;
     save_flow(output, &flow)?;
-    println!("wrote durable scenario {}", output.display());
+    println!(
+        "EXPERIMENTAL normalizer only (not a recorder): wrote durable scenario {}",
+        output.display()
+    );
     Ok(())
 }
 
@@ -301,18 +307,23 @@ fn mcp_tools() -> Vec<Value> {
         ),
         tool(
             "pilot_run",
-            "Run a typed exploratory or durable-compatible flow",
+            "Run a typed flow. Unsupported actions and assertions are rejected before execution.",
             json!({
                 "type": "object", "required": ["flow"], "additionalProperties": false,
-                "properties": {"flow": {"type": "object"}}
+                "properties": {"flow": {
+                    "type": "object",
+                    "description": "Supported: click, double-click, hover, fill, clear, type, press, drag-to, scroll, semantic expectations, wait, capture. Unsupported: set-value, scroll-into-view, screenshot expectations.",
+                    "x-eguipilotai-unsupported": ["action.set-value", "action.scroll-into-view", "expect.screenshot"]
+                }}
             }),
         ),
         tool(
             "pilot_capture",
-            "Capture a deterministic content-addressed image",
+            "Capture a deterministic content-addressed image. Baseline comparison and approval are unsupported.",
             json!({
                 "type": "object", "required": ["name"], "additionalProperties": false,
-                "properties": {"name": {"type": "string", "maxLength": 120}}
+                "properties": {"name": {"type": "string", "maxLength": 120}},
+                "x-eguipilotai-unsupported": ["expect.screenshot", "visual.approval"]
             }),
         ),
         tool(

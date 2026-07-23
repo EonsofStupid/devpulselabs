@@ -1,0 +1,10 @@
+{
+  "sequence": 3,
+  "session": "compat",
+  "event": {
+    "type": "step",
+    "index": 0,
+    "passed": true,
+    "elapsed_ms": 2
+  }
+}

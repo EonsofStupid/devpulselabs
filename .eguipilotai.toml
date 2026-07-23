@@ -36,10 +36,10 @@ timeout_ms = 30000
 EGUIPILOTAI_ADAPTER_POLICY = "hardware-required"
 
 [fixtures.test-lab]
-arguments = ["--route", "workbench/test-lab"]
+arguments = ["--route", "workbench/test-lab", "--mood", "0"]
 
 [fixtures.library]
-arguments = ["--route", "library/templates"]
+arguments = ["--route", "library/templates", "--mood", "0"]
 
 [[projects]]
 id = "devpulse-cloud"
@@ -47,7 +47,7 @@ profile = "devpulse-cloud"
 adapter_policy = "software-required"
 required = true
 workers = 1
-retries = 1
+retries = 0
 
 [[projects]]
 id = "devpulse-hardware"

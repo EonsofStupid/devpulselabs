@@ -1,15 +1,15 @@
 # Protocol and input execution contract
 
-Status: specified, not implemented. This is a breaking correction to the
-current protocol and must land before scheduler, trace viewer, recorder, or
-multi-viewport expansion.
+Status: protocol v2 core implemented in Slice 1; the stateful input executor
+remains specified for Slice 2. Scheduler, trace viewer, recorder, and
+multi-viewport expansion remain blocked on their later slices.
 
-## Why the current shape must change
+## Why the v1 shape had to change
 
-The current `ClientEnvelope.sequence -> ServerEnvelope.sequence` design puts
+The frozen v1 `ClientEnvelope.sequence -> ServerEnvelope.sequence` design put
 command results, step progress, captures, errors, readiness, and stop notices
-in one `ServerEvent` enum. `ProcessSession::receive_for` describes strict
-one-message lockstep, while `run` deliberately receives many `Step` messages
+in one `ServerEvent` enum. `ProcessSession::receive_for` described strict
+one-message lockstep, while `run` deliberately received many `Step` messages
 for the same sequence. That contradiction makes unsolicited diagnostics,
 viewport lifecycle events, cancellation, concurrent status, and reliable
 tracing impossible to add without special cases.

@@ -1,8 +1,10 @@
 # EguiPilotAI v1 delivery plan
 
-Status: proposed execution plan derived from the 2026-07-22 Playwright/W3C/
-AccessKit/egui review and DevPULSE source census. The canonical product
-architecture remains `docs/plans/eguipilotai.md`.
+Status: active execution plan derived from the 2026-07-22 Playwright/W3C/
+AccessKit/egui review and DevPULSE source census. Slice 0 and the protocol-v2
+core of Slice 1 are implemented and locally qualified; the next implementation
+frontier is Slice 2. The canonical product architecture remains
+`docs/plans/eguipilotai.md`.
 
 This plan intentionally favors dependency order over visible UI progress. A
 later slice may start only when the previous slice's exit gate is green. Types,
@@ -24,6 +26,11 @@ capabilities by themselves.
    correction.
 
 ## Slice 0 — truth and compatibility baseline
+
+Implementation: **complete for the declared Slice 0 scope.** Frozen wire and
+shell fixtures, capability truth labels, evidence-backed status validation,
+and the provisional native launch baseline are recorded in
+`docs/research/eguipilotai/`.
 
 Purpose: make the current partial surfaces unambiguous before breaking work.
 
@@ -48,6 +55,12 @@ Exit gate:
 Non-goal: add new automation behavior.
 
 ## Slice 1 — protocol v2 routing and lifecycle
+
+Implementation: **core complete and exercised through a real DevPULSE child
+process.** The evidence record is
+`docs/research/eguipilotai/slice-1-protocol-v2-evidence.md`. The pinned
+Lavapipe fifty-capture job still requires an assigned Linux runner before its
+separate renderer qualification can be claimed.
 
 Purpose: establish one response per command and independent runtime events
 before trace, cancellation, multi-viewport, or concurrency depend on the wire.

@@ -1,0 +1,9 @@
+{
+  "kind": "response",
+  "request_id": "request-00000000000000000001",
+  "session": "session",
+  "outcome": {
+    "status": "success",
+    "result": { "type": "stopped" }
+  }
+}

@@ -7,12 +7,12 @@
 use egui_pilot_ai_protocol as protocol;
 use egui_pilot_ai_transport::{read_frame, write_frame, TransportError};
 use protocol::{
-    AdapterPolicy, CaptureResult, ClientCommand, ClientEnvelope, Flow, Handshake, PilotError,
-    Project, RendererIdentity, ServerEnvelope, ServerEvent, SessionId, SnapshotRequest,
-    StepOutcome, PROTOCOL_VERSION,
+    AdapterPolicy, CaptureResult, ClientCommand, CommandEnvelope, CommandResult, Flow, Handshake,
+    HandshakeRequest, PilotError, Project, RendererIdentity, RequestId, ResponseOutcome, RunId,
+    RunResult, RuntimeEventEnvelope, ServerMessage, SessionId, SnapshotRequest, PROTOCOL_VERSION,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fs::{self, OpenOptions};
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Component, Path, PathBuf};
@@ -78,6 +78,18 @@ impl EguiPilotConfig {
                 return Err(RunnerError::config(format!(
                     "project `{}` names missing profile `{}`",
                     project.id, project.profile
+                )));
+            }
+            if project.workers != 1 {
+                return Err(RunnerError::config(format!(
+                    "project `{}` requests workers={}; parallel workers are unsupported until slice 4",
+                    project.id, project.workers
+                )));
+            }
+            if project.retries != 0 {
+                return Err(RunnerError::config(format!(
+                    "project `{}` requests retries={}; isolated retries are unsupported until slice 4",
+                    project.id, project.retries
                 )));
             }
         }
@@ -213,7 +225,7 @@ impl From<TransportError> for RunnerError {
 }
 
 enum TargetMessage {
-    Envelope(ServerEnvelope),
+    Message(Box<ServerMessage>),
     Error(RunnerError),
     Eof,
 }
@@ -226,9 +238,15 @@ pub struct ProcessSession {
     inbound: Receiver<TargetMessage>,
     stderr: Receiver<Vec<u8>>,
     pub session: SessionId,
-    sequence: u64,
+    next_request: u64,
+    next_run: u64,
+    outstanding: HashSet<RequestId>,
+    responses: HashMap<RequestId, ResponseOutcome>,
+    events: VecDeque<RuntimeEventEnvelope>,
+    last_event_sequence: u64,
     timeout: Duration,
     pub run_dir: PathBuf,
+    pub handshake: Option<Handshake>,
     trace: BufWriter<fs::File>,
 }
 
@@ -301,8 +319,11 @@ impl ProcessSession {
                 let mut reader = BufReader::new(stdout);
                 loop {
                     match read_frame(&mut reader) {
-                        Ok(Some(envelope)) => {
-                            if inbound_tx.send(TargetMessage::Envelope(envelope)).is_err() {
+                        Ok(Some(message)) => {
+                            if inbound_tx
+                                .send(TargetMessage::Message(Box::new(message)))
+                                .is_err()
+                            {
                                 break;
                             }
                         }
@@ -336,22 +357,34 @@ impl ProcessSession {
             inbound,
             stderr: stderr_rx,
             session,
-            sequence: 0,
+            next_request: 0,
+            next_run: 0,
+            outstanding: HashSet::new(),
+            responses: HashMap::new(),
+            events: VecDeque::new(),
+            last_event_sequence: 0,
             timeout: Duration::from_millis(profile.timeout_ms),
             run_dir,
+            handshake: None,
             trace: BufWriter::new(trace_file),
         };
         launched.write_manifest(profile_name, fixture_name, &executable, profile)?;
-        let event = launched.request(ClientCommand::Handshake(Handshake {
-            protocol_version: PROTOCOL_VERSION,
+        let result = launched.request(ClientCommand::Handshake(HandshakeRequest {
+            protocol: PROTOCOL_VERSION,
             build: env!("CARGO_PKG_VERSION").into(),
             session_nonce: nonce,
+            required_capabilities: vec![
+                protocol::CapabilityId::new(protocol::capability::PROTOCOL_V2),
+                protocol::CapabilityId::new(protocol::capability::INTERLEAVED_EVENTS),
+                protocol::CapabilityId::new(protocol::capability::CANCELLATION),
+            ],
+            trace_level: protocol::TraceLevel::RetainOnFailure,
         }))?;
-        if !matches!(event, ServerEvent::Ready(_)) {
-            return Err(RunnerError::Protocol(format!(
-                "target did not acknowledge handshake: {event:?}"
-            )));
-        }
+        let handshake = match result {
+            CommandResult::Ready { handshake } => handshake,
+            result => return Err(unexpected("ready handshake", result)),
+        };
+        launched.handshake = Some(handshake);
         let renderer_status = launched.status()?;
         validate_status_adapter(profile.adapter_policy, &renderer_status)?;
         write_new_json(launched.run_dir.join("renderer.json"), &renderer_status)?;
@@ -367,7 +400,7 @@ impl ProcessSession {
     ) -> Result<(), RunnerError> {
         #[derive(Serialize)]
         struct Manifest<'a> {
-            protocol_version: u32,
+            protocol_version: protocol::ProtocolVersion,
             session: &'a str,
             profile: &'a str,
             fixture: Option<&'a str>,
@@ -385,64 +418,89 @@ impl ProcessSession {
         write_new_json(self.run_dir.join("manifest.json"), &manifest)
     }
 
-    pub fn request(&mut self, command: ClientCommand) -> Result<ServerEvent, RunnerError> {
-        let sequence = self.send(command)?;
-        self.receive_for(sequence)
+    pub fn request(&mut self, command: ClientCommand) -> Result<CommandResult, RunnerError> {
+        let request_id = self.send(command)?;
+        self.receive_for(&request_id)
     }
 
-    pub fn send(&mut self, command: ClientCommand) -> Result<u64, RunnerError> {
-        self.sequence = self.sequence.saturating_add(1);
-        let envelope = ClientEnvelope {
-            sequence: self.sequence,
+    pub fn send(&mut self, command: ClientCommand) -> Result<RequestId, RunnerError> {
+        self.next_request = self.next_request.saturating_add(1);
+        let request_id = RequestId::new(format!("request-{:020}", self.next_request));
+        let envelope = CommandEnvelope {
+            request_id: request_id.clone(),
             session: self.session.clone(),
             command,
         };
-        trace_record(&mut self.trace, "client", &envelope)?;
+        trace_record(&mut self.trace, "client-command", &envelope)?;
         write_frame(&mut self.stdin, &envelope)?;
-        Ok(self.sequence)
-    }
-
-    pub fn receive_for(&mut self, sequence: u64) -> Result<ServerEvent, RunnerError> {
-        // Strict lockstep: exactly ONE message answers a sequence — a stray,
-        // stale, or mismatched envelope is a protocol error, never skipped.
-        // (No receive loop by design; clippy::never_loop agrees.)
-        if self.timeout.is_zero() {
-            return Err(RunnerError::Timeout(format!(
-                "target did not answer sequence {sequence}"
+        if !self.outstanding.insert(request_id.clone()) {
+            return Err(RunnerError::Protocol(format!(
+                "duplicate request id `{request_id}`"
             )));
         }
-        match self.inbound.recv_timeout(self.timeout) {
-            Ok(TargetMessage::Envelope(envelope)) => {
-                trace_record(&mut self.trace, "server", &envelope)?;
-                if envelope.session != self.session {
-                    return Err(RunnerError::Protocol("response session mismatch".into()));
-                }
-                if envelope.sequence != sequence {
-                    return Err(RunnerError::Protocol(format!(
-                        "expected sequence {sequence}, received {}",
-                        envelope.sequence
-                    )));
-                }
-                if let ServerEvent::Error(error) = envelope.event {
-                    return Err(RunnerError::Target(Box::new(error)));
-                }
-                Ok(envelope.event)
+        Ok(request_id)
+    }
+
+    pub fn receive_for(&mut self, request_id: &RequestId) -> Result<CommandResult, RunnerError> {
+        // Route interleaved events and out-of-order responses until this
+        // request's one terminal response arrives.
+        let deadline = Instant::now() + self.timeout;
+        loop {
+            if let Some(outcome) = self.responses.remove(request_id) {
+                return match outcome {
+                    ResponseOutcome::Success { result } => Ok(*result),
+                    ResponseOutcome::Error { error } => Err(RunnerError::Target(Box::new(error))),
+                };
             }
-            Ok(TargetMessage::Error(error)) => Err(error),
-            Ok(TargetMessage::Eof) => Err(RunnerError::Protocol("target disconnected".into())),
-            Err(RecvTimeoutError::Timeout) => Err(RunnerError::Timeout(format!(
-                "target did not answer sequence {sequence}"
-            ))),
-            Err(RecvTimeoutError::Disconnected) => {
-                Err(RunnerError::Protocol("target reader disconnected".into()))
+            if !self.outstanding.contains(request_id) {
+                return Err(RunnerError::Protocol(format!(
+                    "request `{request_id}` is not outstanding"
+                )));
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                return Err(RunnerError::Timeout(format!(
+                    "target did not answer request `{request_id}`"
+                )));
+            }
+            match self.inbound.recv_timeout(deadline - now) {
+                Ok(TargetMessage::Message(message)) => self.route_message(*message)?,
+                Ok(TargetMessage::Error(error)) => return Err(error),
+                Ok(TargetMessage::Eof) => {
+                    return Err(RunnerError::Protocol("target disconnected".into()))
+                }
+                Err(RecvTimeoutError::Timeout) => {
+                    return Err(RunnerError::Timeout(format!(
+                        "target did not answer request `{request_id}`"
+                    )))
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    return Err(RunnerError::Protocol("target reader disconnected".into()))
+                }
             }
         }
+    }
+
+    fn route_message(&mut self, message: ServerMessage) -> Result<(), RunnerError> {
+        trace_record(&mut self.trace, "server-message", &message)?;
+        route_server_message(
+            &self.session,
+            &mut self.outstanding,
+            &mut self.responses,
+            &mut self.events,
+            &mut self.last_event_sequence,
+            message,
+        )
+    }
+
+    pub fn next_event(&mut self) -> Option<RuntimeEventEnvelope> {
+        self.events.pop_front()
     }
 
     pub fn status(&mut self) -> Result<protocol::SessionStatus, RunnerError> {
         match self.request(ClientCommand::Status)? {
-            ServerEvent::Status(status) => Ok(status),
-            event => Err(unexpected("status", event)),
+            CommandResult::Status { status } => Ok(status),
+            result => Err(unexpected("status", result)),
         }
     }
 
@@ -451,37 +509,38 @@ impl ProcessSession {
         request: SnapshotRequest,
     ) -> Result<protocol::AgentSnapshot, RunnerError> {
         match self.request(ClientCommand::Snapshot(request))? {
-            ServerEvent::Snapshot(snapshot) => Ok(snapshot),
-            event => Err(unexpected("snapshot", event)),
+            CommandResult::Snapshot { snapshot } => Ok(snapshot),
+            result => Err(unexpected("snapshot", result)),
         }
     }
 
     pub fn capture(&mut self, name: String) -> Result<CaptureResult, RunnerError> {
         match self.request(ClientCommand::Capture { name })? {
-            ServerEvent::Capture(capture) => Ok(capture),
-            event => Err(unexpected("capture", event)),
+            CommandResult::Capture { capture } => Ok(capture),
+            result => Err(unexpected("capture", result)),
         }
     }
 
-    pub fn run(&mut self, flow: Flow) -> Result<Vec<StepOutcome>, RunnerError> {
-        let step_count = flow.steps.len();
-        let sequence = self.send(ClientCommand::Run(flow))?;
-        let mut outcomes = Vec::with_capacity(step_count);
-        while outcomes.len() < step_count {
-            match self.receive_for(sequence)? {
-                ServerEvent::Step(outcome) => {
-                    if !outcome.passed {
-                        return Err(RunnerError::Protocol(
-                            outcome.message.unwrap_or_else(|| "step failed".into()),
-                        ));
-                    }
-                    outcomes.push(outcome);
-                }
-                ServerEvent::Capture(_) => {}
-                event => return Err(unexpected("step outcome", event)),
-            }
+    pub fn run(&mut self, flow: Flow) -> Result<RunResult, RunnerError> {
+        let unsupported = protocol::unsupported_capabilities(&flow);
+        if !unsupported.is_empty() {
+            return Err(RunnerError::Protocol(format!(
+                "flow requires unsupported capabilities: {unsupported:?}"
+            )));
         }
-        Ok(outcomes)
+        self.next_run = self.next_run.saturating_add(1);
+        let run_id = RunId::new(format!("run-{:020}", self.next_run));
+        match self.request(ClientCommand::Run { run_id, flow })? {
+            CommandResult::Run { result } => Ok(result),
+            result => Err(unexpected("run result", result)),
+        }
+    }
+
+    pub fn cancel(&mut self, run_id: RunId) -> Result<protocol::CancellationResult, RunnerError> {
+        match self.request(ClientCommand::Cancel { run_id })? {
+            CommandResult::Cancel { cancellation } => Ok(cancellation),
+            result => Err(unexpected("cancellation", result)),
+        }
     }
 
     pub fn stop(&mut self) -> Result<(), RunnerError> {
@@ -522,8 +581,57 @@ impl Drop for ProcessSession {
     }
 }
 
-fn unexpected(expected: &str, event: ServerEvent) -> RunnerError {
-    RunnerError::Protocol(format!("expected {expected}, received {event:?}"))
+fn unexpected(expected: &str, result: CommandResult) -> RunnerError {
+    RunnerError::Protocol(format!("expected {expected}, received {result:?}"))
+}
+
+fn route_server_message(
+    session: &SessionId,
+    outstanding: &mut HashSet<RequestId>,
+    responses: &mut HashMap<RequestId, ResponseOutcome>,
+    events: &mut VecDeque<RuntimeEventEnvelope>,
+    last_event_sequence: &mut u64,
+    message: ServerMessage,
+) -> Result<(), RunnerError> {
+    match message {
+        ServerMessage::Response { envelope } => {
+            if &envelope.session != session {
+                return Err(RunnerError::Protocol("response session mismatch".into()));
+            }
+            if !outstanding.remove(&envelope.request_id) {
+                return Err(RunnerError::Protocol(format!(
+                    "response for unknown or completed request `{}`",
+                    envelope.request_id
+                )));
+            }
+            if responses
+                .insert(envelope.request_id.clone(), envelope.outcome)
+                .is_some()
+            {
+                return Err(RunnerError::Protocol(format!(
+                    "duplicate terminal response for `{}`",
+                    envelope.request_id
+                )));
+            }
+        }
+        ServerMessage::Event { envelope } => {
+            if &envelope.session != session {
+                return Err(RunnerError::Protocol("event session mismatch".into()));
+            }
+            let sequence = envelope.event_id.sequence().ok_or_else(|| {
+                RunnerError::Protocol(format!("invalid event id `{}`", envelope.event_id))
+            })?;
+            let expected = last_event_sequence.saturating_add(1);
+            if sequence != expected {
+                return Err(RunnerError::Protocol(format!(
+                    "event sequence gap: expected {expected}, received {sequence}"
+                )));
+            }
+            *last_event_sequence = sequence;
+            events.push_back(envelope);
+        }
+    }
+    Ok(())
 }
 
 fn trace_record<T: Serialize>(
@@ -825,5 +933,132 @@ mod tests {
             identity("cpu").baseline_key(),
             identity("gpu").baseline_key()
         );
+    }
+
+    fn response(request_id: &str) -> ServerMessage {
+        ServerMessage::response(protocol::ResponseEnvelope {
+            request_id: RequestId::new(request_id),
+            session: SessionId::new("session"),
+            outcome: ResponseOutcome::Success {
+                result: Box::new(CommandResult::Stopped),
+            },
+        })
+    }
+
+    fn event(sequence: u64) -> ServerMessage {
+        ServerMessage::event(protocol::RuntimeEventEnvelope {
+            event_id: protocol::EventId::from_sequence(sequence),
+            session: SessionId::new("session"),
+            scope: protocol::EventScope::default(),
+            event: protocol::RuntimeEvent::InputCleanup,
+        })
+    }
+
+    #[test]
+    fn router_accepts_interleaved_events_and_out_of_order_responses() {
+        let session = SessionId::new("session");
+        let first = RequestId::new("first");
+        let second = RequestId::new("second");
+        let mut outstanding = HashSet::from([first.clone(), second.clone()]);
+        let mut responses = HashMap::new();
+        let mut events = VecDeque::new();
+        let mut last_event = 0;
+
+        route_server_message(
+            &session,
+            &mut outstanding,
+            &mut responses,
+            &mut events,
+            &mut last_event,
+            event(1),
+        )
+        .unwrap();
+        route_server_message(
+            &session,
+            &mut outstanding,
+            &mut responses,
+            &mut events,
+            &mut last_event,
+            response("second"),
+        )
+        .unwrap();
+        route_server_message(
+            &session,
+            &mut outstanding,
+            &mut responses,
+            &mut events,
+            &mut last_event,
+            response("first"),
+        )
+        .unwrap();
+
+        assert_eq!(events.len(), 1);
+        assert!(responses.contains_key(&first));
+        assert!(responses.contains_key(&second));
+        assert!(outstanding.is_empty());
+    }
+
+    #[test]
+    fn router_rejects_event_gaps_and_duplicate_terminal_responses() {
+        let session = SessionId::new("session");
+        let request = RequestId::new("request");
+        let mut outstanding = HashSet::from([request]);
+        let mut responses = HashMap::new();
+        let mut events = VecDeque::new();
+        let mut last_event = 0;
+
+        assert!(route_server_message(
+            &session,
+            &mut outstanding,
+            &mut responses,
+            &mut events,
+            &mut last_event,
+            event(2),
+        )
+        .is_err());
+        route_server_message(
+            &session,
+            &mut outstanding,
+            &mut responses,
+            &mut events,
+            &mut last_event,
+            response("request"),
+        )
+        .unwrap();
+        assert!(route_server_message(
+            &session,
+            &mut outstanding,
+            &mut responses,
+            &mut events,
+            &mut last_event,
+            response("request"),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn unsupported_scheduler_settings_fail_configuration_validation() {
+        let profile = Profile {
+            executable: PathBuf::from("target/app"),
+            platforms: Vec::new(),
+            arguments: Vec::new(),
+            environment: BTreeMap::new(),
+            adapter_policy: AdapterPolicy::HardwareThenSoftware,
+            timeout_ms: 1,
+        };
+        let mut config = EguiPilotConfig::default();
+        config.profiles.insert("app".into(), profile);
+        config.projects.push(Project {
+            id: protocol::ProjectId::new("project"),
+            profile: "app".into(),
+            adapter_policy: AdapterPolicy::HardwareThenSoftware,
+            required: true,
+            workers: 2,
+            retries: 0,
+        });
+        assert!(config.validate(Path::new(".")).is_err());
+        config.projects[0].workers = 1;
+        config.projects[0].retries = 1;
+        assert!(config.validate(Path::new(".")).is_err());
     }
 }

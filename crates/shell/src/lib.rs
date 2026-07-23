@@ -118,10 +118,16 @@ impl Shell {
         self.build = stamp;
     }
 
-    /// Harness access (`--mood <n>` pins the boot mood for reproducible
-    /// proof shots).
+    /// Direct backdrop access for operator interactions and focused tests.
     pub fn backdrop_mut(&mut self) -> &mut dpl_backdrop::Backdrop {
         &mut self.backdrop
+    }
+
+    /// Pins every boot-randomized shell mood for deterministic harness runs.
+    pub fn set_harness_mood(&mut self, index: usize) {
+        let index = index % cl::MOOD_COUNT;
+        self.backdrop.set_mood(index);
+        self.tooltip_mood = index;
     }
 
     pub fn full_bleed(&self) -> bool {
@@ -887,6 +893,14 @@ mod tests {
         assert!(cl::MOODS
             .iter()
             .any(|m| m.name == shell.tooltip_mood().name));
+    }
+
+    #[test]
+    fn harness_mood_pins_backdrop_and_flyout_together() {
+        let (mut shell, _rx) = shell();
+        shell.set_harness_mood(3);
+        assert_eq!(shell.backdrop.mood().name, cl::MOODS[3].name);
+        assert_eq!(shell.tooltip_mood().name, cl::MOODS[3].name);
     }
 
     /// THE layout contract (docs/shell.md), pinned headlessly at two real

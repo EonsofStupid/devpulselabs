@@ -293,12 +293,25 @@ impl PilotHandle {
         lock(&self.shared).input.len()
     }
 
+    /// Discards automation input that has not yet been injected into an egui frame.
+    ///
+    /// The runtime calls this on cancellation and shutdown so a later session can
+    /// never inherit a queued press, release, key, or text event.
+    pub fn clear_input(&self) {
+        lock(&self.shared).input.clear();
+    }
+
     pub fn egui_viewport(&self, viewport: &ViewportId) -> Option<egui::ViewportId> {
         lock(&self.shared).viewports.get(&viewport.0).copied()
     }
 
     pub fn take_capture(&self) -> Option<CapturedImage> {
         lock(&self.shared).captures.pop_front()
+    }
+
+    /// Discards screenshot events left over from an earlier capture request.
+    pub fn clear_captures(&self) {
+        lock(&self.shared).captures.clear();
     }
 
     pub fn set_clock_mode(&self, mode: ClockMode) {

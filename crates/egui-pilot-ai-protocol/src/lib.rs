@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 2, minor: 0 };
 pub const DEFAULT_AGENT_NODES: usize = 200;
 pub const DEFAULT_AGENT_BYTES: usize = 12 * 1024;
 pub const MAX_AGENT_NODES: usize = 1_000;
@@ -42,6 +42,34 @@ string_id!(ScenarioId);
 string_id!(ProjectId);
 string_id!(SessionId);
 string_id!(MotionId);
+string_id!(RequestId);
+string_id!(RunId);
+string_id!(StepId);
+string_id!(AttachmentId);
+string_id!(CapabilityId);
+string_id!(EventId);
+
+impl EventId {
+    pub fn from_sequence(sequence: u64) -> Self {
+        Self(format!("event-{sequence:020}"))
+    }
+
+    pub fn sequence(&self) -> Option<u64> {
+        self.0.strip_prefix("event-")?.parse().ok()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProtocolVersion {
+    pub major: u16,
+    pub minor: u16,
+}
+
+impl std::fmt::Display for ProtocolVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}.{}", self.major, self.minor)
+    }
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub struct Rect {
@@ -654,6 +682,24 @@ pub struct Flow {
     pub record: bool,
 }
 
+impl Flow {
+    /// Derive a durable step identity from scenario identity, canonical step
+    /// content, and the occurrence count of an identical step. Inserting an
+    /// unrelated step does not renumber the existing identities.
+    pub fn step_id(&self, index: usize) -> StepId {
+        let Some(step) = self.steps.get(index) else {
+            return StepId::new(format!("{}:missing-{index}", self.id));
+        };
+        let bytes = serde_json::to_vec(step).unwrap_or_default();
+        let hash = stable_hash(&bytes);
+        let occurrence = self.steps[..index]
+            .iter()
+            .filter(|candidate| serde_json::to_vec(candidate).unwrap_or_default() == bytes)
+            .count();
+        StepId::new(format!("{}:{hash}:{occurrence}", self.id))
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum AdapterPolicy {
@@ -730,16 +776,314 @@ fn sanitize_key(value: &str) -> String {
         .to_string()
 }
 
+pub mod capability {
+    pub const PROTOCOL_V2: &str = "protocol.v2";
+    pub const INTERLEAVED_EVENTS: &str = "protocol.interleaved-events";
+    pub const CANCELLATION: &str = "protocol.cancellation";
+    pub const SNAPSHOT_AGENT: &str = "snapshot.agent";
+    pub const SNAPSHOT_CHANGES: &str = "snapshot.changes";
+    pub const SNAPSHOT_FULL: &str = "snapshot.full";
+    pub const ACTION_CLICK: &str = "action.click";
+    pub const ACTION_DOUBLE_CLICK: &str = "action.double-click";
+    pub const ACTION_HOVER: &str = "action.hover";
+    pub const ACTION_FILL: &str = "action.fill";
+    pub const ACTION_CLEAR: &str = "action.clear";
+    pub const ACTION_TYPE: &str = "action.type";
+    pub const ACTION_PRESS: &str = "action.press";
+    pub const ACTION_DRAG: &str = "action.drag";
+    pub const ACTION_SCROLL: &str = "action.scroll";
+    pub const ACTION_SET_VALUE: &str = "action.set-value";
+    pub const ACTION_SCROLL_INTO_VIEW: &str = "action.scroll-into-view";
+    pub const EXPECT_SEMANTIC: &str = "expect.semantic";
+    pub const EXPECT_SCREENSHOT: &str = "expect.screenshot";
+    pub const CAPTURE_DETERMINISTIC: &str = "capture.deterministic";
+    pub const RUNNER_WORKERS: &str = "runner.workers";
+    pub const RUNNER_RETRIES: &str = "runner.retries";
+    pub const CODEGEN_RECORDER: &str = "codegen.recorder";
+    pub const TRACE_REPLAY: &str = "trace.replay";
+    pub const VISUAL_APPROVAL: &str = "visual.approval";
+    pub const TEST_LAB_LIVE_CONTROL: &str = "test-lab.live-control";
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CapabilityState {
+    Supported,
+    Experimental,
+    Unsupported,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Handshake {
-    pub protocol_version: u32,
+pub struct CapabilityDescriptor {
+    pub id: CapabilityId,
+    pub state: CapabilityState,
+    pub detail: String,
+    pub evidence: String,
+}
+
+pub fn capability_catalog() -> Vec<CapabilityDescriptor> {
+    use capability as id;
+    let supported = |value: &str, detail: &str, evidence: &str| CapabilityDescriptor {
+        id: CapabilityId::new(value),
+        state: CapabilityState::Supported,
+        detail: detail.into(),
+        evidence: evidence.into(),
+    };
+    let unsupported = |value: &str, detail: &str, evidence: &str| CapabilityDescriptor {
+        id: CapabilityId::new(value),
+        state: CapabilityState::Unsupported,
+        detail: detail.into(),
+        evidence: evidence.into(),
+    };
+    vec![
+        supported(
+            id::PROTOCOL_V2,
+            "typed command/response/event envelopes",
+            "slice-1",
+        ),
+        supported(
+            id::INTERLEAVED_EVENTS,
+            "events are routed independently from responses",
+            "slice-1",
+        ),
+        supported(
+            id::CANCELLATION,
+            "active run cancellation is idempotent",
+            "slice-1",
+        ),
+        supported(
+            id::SNAPSHOT_AGENT,
+            "bounded pruned agent projection",
+            "protocol::agent_projection_prunes_layout_and_decorative_nodes",
+        ),
+        supported(
+            id::SNAPSHOT_CHANGES,
+            "revision-scoped projection",
+            "protocol::changes_mode_uses_node_revision",
+        ),
+        supported(
+            id::SNAPSHOT_FULL,
+            "bounded diagnostic full projection",
+            "protocol::projection_is_bounded_and_continuable_without_loss",
+        ),
+        supported(
+            id::ACTION_CLICK,
+            "real pointer click frames",
+            "runtime::action_batches",
+        ),
+        supported(
+            id::ACTION_DOUBLE_CLICK,
+            "two real pointer click sequences",
+            "runtime::action_batches",
+        ),
+        supported(
+            id::ACTION_HOVER,
+            "real pointer move",
+            "runtime::action_batches",
+        ),
+        supported(
+            id::ACTION_FILL,
+            "focus, select-all, and text input",
+            "runtime::action_batches",
+        ),
+        supported(
+            id::ACTION_CLEAR,
+            "focus, select-all, and delete",
+            "runtime::action_batches",
+        ),
+        supported(
+            id::ACTION_TYPE,
+            "focus and text input",
+            "runtime::action_batches",
+        ),
+        supported(
+            id::ACTION_PRESS,
+            "key down/up input",
+            "runtime::action_batches",
+        ),
+        supported(
+            id::ACTION_DRAG,
+            "pointer move/press/move/release",
+            "runtime::action_batches",
+        ),
+        supported(id::ACTION_SCROLL, "wheel input", "runtime::action_batches"),
+        supported(
+            id::EXPECT_SEMANTIC,
+            "semantic state and text assertions",
+            "runtime::evaluate_expectation",
+        ),
+        supported(
+            id::CAPTURE_DETERMINISTIC,
+            "motion-suppressed stable capture",
+            "runtime::capture_waits_for_three_stable_hashes",
+        ),
+        unsupported(
+            id::ACTION_SET_VALUE,
+            "requires a typed value adapter",
+            "slice-3",
+        ),
+        unsupported(
+            id::ACTION_SCROLL_INTO_VIEW,
+            "requires a registered scroll adapter",
+            "slice-3",
+        ),
+        unsupported(
+            id::EXPECT_SCREENSHOT,
+            "use a capture step; baseline assertions are not wired",
+            "slice-5",
+        ),
+        unsupported(
+            id::RUNNER_WORKERS,
+            "the scheduler is not implemented",
+            "slice-4",
+        ),
+        unsupported(
+            id::RUNNER_RETRIES,
+            "isolated retry attempts are not implemented",
+            "slice-4",
+        ),
+        unsupported(
+            id::CODEGEN_RECORDER,
+            "codegen only normalizes an existing scenario",
+            "slice-6",
+        ),
+        unsupported(id::TRACE_REPLAY, "trace preview is passive", "slice-5"),
+        unsupported(
+            id::VISUAL_APPROVAL,
+            "approval primitives are not an operator workflow",
+            "slice-5",
+        ),
+        unsupported(
+            id::TEST_LAB_LIVE_CONTROL,
+            "Test Lab does not own a live target session",
+            "slice-6",
+        ),
+    ]
+}
+
+pub fn supported_capabilities() -> Vec<CapabilityId> {
+    capability_catalog()
+        .into_iter()
+        .filter(|entry| entry.state == CapabilityState::Supported)
+        .map(|entry| entry.id)
+        .collect()
+}
+
+pub fn required_capabilities(flow: &Flow) -> Vec<CapabilityId> {
+    use capability as id;
+    let mut required = Vec::new();
+    for step in &flow.steps {
+        let value = match step {
+            Step::Action { action } => match action {
+                Action::Click { .. } => id::ACTION_CLICK,
+                Action::DoubleClick { .. } => id::ACTION_DOUBLE_CLICK,
+                Action::Hover { .. } => id::ACTION_HOVER,
+                Action::Fill { .. } => id::ACTION_FILL,
+                Action::Clear { .. } => id::ACTION_CLEAR,
+                Action::Type { .. } => id::ACTION_TYPE,
+                Action::Press { .. } => id::ACTION_PRESS,
+                Action::DragTo { .. } => id::ACTION_DRAG,
+                Action::Scroll { .. } => id::ACTION_SCROLL,
+                Action::ScrollIntoView { .. } => id::ACTION_SCROLL_INTO_VIEW,
+                Action::SetValue { .. } => id::ACTION_SET_VALUE,
+            },
+            Step::Expect {
+                expectation: Expectation::Screenshot { .. },
+            } => id::EXPECT_SCREENSHOT,
+            Step::Expect { .. } => id::EXPECT_SEMANTIC,
+            Step::Capture { .. } => id::CAPTURE_DETERMINISTIC,
+            Step::Wait { .. } => continue,
+        };
+        let capability = CapabilityId::new(value);
+        if !required.contains(&capability) {
+            required.push(capability);
+        }
+    }
+    required
+}
+
+pub fn unsupported_capabilities(flow: &Flow) -> Vec<CapabilityDescriptor> {
+    let required = required_capabilities(flow);
+    capability_catalog()
+        .into_iter()
+        .filter(|entry| required.contains(&entry.id) && entry.state != CapabilityState::Supported)
+        .collect()
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TraceLevel {
+    Off,
+    Failure,
+    #[default]
+    RetainOnFailure,
+    On,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProtocolLimits {
+    pub max_command_bytes: usize,
+    pub max_event_bytes: usize,
+    pub max_attachment_descriptor_bytes: usize,
+}
+
+impl Default for ProtocolLimits {
+    fn default() -> Self {
+        Self {
+            max_command_bytes: MAX_ENVELOPE_BYTES,
+            max_event_bytes: MAX_ENVELOPE_BYTES,
+            max_attachment_descriptor_bytes: 64 * 1024,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueuePolicy {
+    pub command_capacity: usize,
+    pub required_event_capacity: usize,
+    pub telemetry_capacity: usize,
+    pub telemetry_coalesces: bool,
+}
+
+impl Default for QueuePolicy {
+    fn default() -> Self {
+        Self {
+            command_capacity: 64,
+            required_event_capacity: 256,
+            telemetry_capacity: 32,
+            telemetry_coalesces: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HandshakeRequest {
+    pub protocol: ProtocolVersion,
     pub build: String,
     pub session_nonce: String,
+    #[serde(default)]
+    pub required_capabilities: Vec<CapabilityId>,
+    #[serde(default)]
+    pub trace_level: TraceLevel,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ClientEnvelope {
-    pub sequence: u64,
+pub struct Handshake {
+    pub protocol: ProtocolVersion,
+    pub build: String,
+    pub session_nonce: String,
+    #[serde(default)]
+    pub features: Vec<String>,
+    pub capabilities: Vec<CapabilityId>,
+    pub limits: ProtocolLimits,
+    pub queues: QueuePolicy,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub renderer: Option<RendererIdentity>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CommandEnvelope {
+    pub request_id: RequestId,
     pub session: SessionId,
     pub command: ClientCommand,
 }
@@ -747,35 +1091,101 @@ pub struct ClientEnvelope {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum ClientCommand {
-    Handshake(Handshake),
+    Handshake(HandshakeRequest),
     Snapshot(SnapshotRequest),
-    Run(Flow),
+    Run { run_id: RunId, flow: Flow },
     Capture { name: String },
     Status,
+    Cancel { run_id: RunId },
     Stop,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ServerEnvelope {
-    pub sequence: u64,
+pub struct ResponseEnvelope {
+    pub request_id: RequestId,
     pub session: SessionId,
-    pub event: ServerEvent,
+    pub outcome: ResponseOutcome,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "kebab-case")]
+pub enum ResponseOutcome {
+    Success { result: Box<CommandResult> },
+    Error { error: PilotError },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
-pub enum ServerEvent {
-    Ready(Handshake),
-    Snapshot(AgentSnapshot),
-    Step(StepOutcome),
-    Status(SessionStatus),
-    Capture(CaptureResult),
-    Error(PilotError),
+pub enum CommandResult {
+    Ready { handshake: Handshake },
+    Snapshot { snapshot: AgentSnapshot },
+    Run { result: RunResult },
+    Status { status: SessionStatus },
+    Capture { capture: CaptureResult },
+    Cancel { cancellation: CancellationResult },
     Stopped,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventScope {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<RequestId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<RunId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step_id: Option<StepId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub viewport_id: Option<ViewportId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RuntimeEventEnvelope {
+    pub event_id: EventId,
+    pub session: SessionId,
+    #[serde(default)]
+    pub scope: EventScope,
+    pub event: RuntimeEvent,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum RuntimeEvent {
+    RunStarted { scenario: ScenarioId },
+    StepStarted { index: usize },
+    StepFinished { outcome: StepOutcome },
+    AttachmentCommitted { capture: CaptureResult },
+    Diagnostic { error: PilotError },
+    QueuePressure { queue: String, dropped: u64 },
+    Telemetry { channel: String, revision: u64 },
+    InputCleanup,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum ServerMessage {
+    Response {
+        #[serde(flatten)]
+        envelope: ResponseEnvelope,
+    },
+    Event {
+        #[serde(flatten)]
+        envelope: RuntimeEventEnvelope,
+    },
+}
+
+impl ServerMessage {
+    pub fn response(envelope: ResponseEnvelope) -> Self {
+        Self::Response { envelope }
+    }
+
+    pub fn event(envelope: RuntimeEventEnvelope) -> Self {
+        Self::Event { envelope }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StepOutcome {
+    pub id: StepId,
     pub index: usize,
     pub passed: bool,
     pub elapsed_ms: u64,
@@ -795,14 +1205,52 @@ pub struct SessionStatus {
     pub renderer_key: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub renderer_device_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_run: Option<RunId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CaptureResult {
+    pub attachment: AttachmentId,
     pub name: String,
     pub artifact: String,
     pub content_hash: String,
     pub renderer_key: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RunOutcome {
+    Passed,
+    Failed,
+    Cancelled,
+    InfrastructureFailed,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunResult {
+    pub run_id: RunId,
+    pub scenario: ScenarioId,
+    pub outcome: RunOutcome,
+    #[serde(default)]
+    pub steps: Vec<StepOutcome>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<PilotError>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CancellationState {
+    Requested,
+    AlreadyRequested,
+    AlreadyTerminal,
+    NotFound,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CancellationResult {
+    pub run_id: RunId,
+    pub state: CancellationState,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

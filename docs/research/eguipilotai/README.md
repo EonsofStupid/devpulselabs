@@ -15,8 +15,8 @@ complexity required to make that path reliable belongs in the toolkit.
    records the adopt/adapt/reject/later decision for the broad Playwright
    surface and fixes the allowed DevPULSE extension seams.
 2. [`protocol-input.md`](protocol-input.md) defines the wire lifecycle and the
-   stateful input model. It corrects the current lockstep response/event
-   conflation before retries, traces, or multi-viewport work depend on it.
+   stateful input model. Slice 1 replaced the v1 lockstep response/event
+   conflation before retries, traces, or multi-viewport work can depend on it.
 3. [`accessibility-semantics.md`](accessibility-semantics.md) defines one
    semantic registration projected into both pilot and real AccessKit output.
 4. [`runner-contract.md`](runner-contract.md) defines discovery, selection,
@@ -27,6 +27,12 @@ complexity required to make that path reliable belongs in the toolkit.
    those contracts and records the actual instrumentation gap.
 7. [`../../plans/eguipilotai-v1-delivery.md`](../../plans/eguipilotai-v1-delivery.md)
    converts the findings into dependency-ordered implementation slices.
+8. [`slice-0-shell-baseline.md`](slice-0-shell-baseline.md) freezes the first
+   native DevPULSE launch evidence without misrepresenting it as a frame-time
+   or long-run memory qualification result.
+9. [`slice-1-protocol-v2-evidence.md`](slice-1-protocol-v2-evidence.md)
+   records the frozen v1 evidence, protocol v2 conformance, real child-process
+   proof, and the exact frontier left for Slice 2.
 
 ## Evidence hierarchy
 

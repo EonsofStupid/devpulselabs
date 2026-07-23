@@ -1,0 +1,10 @@
+{
+  "sequence": 1,
+  "session": "compat",
+  "event": {
+    "type": "ready",
+    "protocol_version": 1,
+    "build": "target-v1",
+    "session_nonce": "nonce-v1"
+  }
+}

@@ -10,9 +10,20 @@ export LANG=C.UTF-8
 
 bash ci/check-eguipilotai-linux.sh
 
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+# Use the same repository-owned gate developers run locally. It includes the
+# documentation evidence check, format, warning-free lint, workspace tests,
+# and the ordinary production release build.
+cargo green
+
+mkdir -p target/eguipilotai
+cargo tree -p devpulselabs --edges normal --prefix none \
+  > target/eguipilotai/production-dependencies.txt
+if grep -Eq '^egui-pilot-ai-(runtime|transport|runner|cli) ' \
+  target/eguipilotai/production-dependencies.txt; then
+  echo "production DevPULSE depends on a forbidden EguiPilotAI control crate" >&2
+  exit 1
+fi
+
 cargo check \
   -p egui-pilot-ai-protocol \
   -p egui-pilot-ai-transport \
