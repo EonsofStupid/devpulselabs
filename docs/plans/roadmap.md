@@ -65,8 +65,9 @@ problems:
 
 ## Program X — Artifact index + library (census #2)
 
-- **X1 Index engine.** `dpl-index` crate: embedded SQLite (rusqlite — the
-  boring choice), 15-field record, sidecar law, upsert write-through from
+- **X1 Index engine.** `dpl-index` crate: embedded SQLite via TURSO (the
+  pure-Rust engine — operator-ratified 2026-07-22, same engine the old
+  repo proved), 15-field record, sidecar law, upsert write-through from
   pixvix save paths, reindex-from-disk truth w/ soft-clear + empty-scan
   guard, rekey, additive migrations. Pilot: fixture-parameterized seeded
   data-root scenarios; index-cli for headless drills.

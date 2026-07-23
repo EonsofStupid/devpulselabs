@@ -12,6 +12,7 @@ dpl-coldlight.workspace = true
 dpl-fabric.workspace = true
 dpl-engine-capture.workspace = true
 dpl-engine-steps.workspace = true
+dpl-index.workspace = true
 # The fabric's broadcast receiver type.
 tokio.workspace = true
 

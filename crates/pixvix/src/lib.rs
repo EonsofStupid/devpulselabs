@@ -103,6 +103,20 @@ impl Pixvix {
         }
     }
 
+    /// X1 write-through: sidecar + index upsert for a fresh capture.
+    /// Capture NEVER fails because indexing did — a problem comes back as
+    /// a status-line suffix instead.
+    fn index_capture(path: &Path, kind: &str) -> String {
+        let root = cap::content_root();
+        let record = dpl_index::record_for_capture(path, &root, kind, "pixvix");
+        let result = dpl_index::sidecar::write(path, &record)
+            .and_then(|()| dpl_index::Index::open_default()?.upsert(&record));
+        match result {
+            Ok(()) => String::new(),
+            Err(e) => format!(" · index: {e}"),
+        }
+    }
+
     fn inbox() -> Result<PathBuf, String> {
         let dir = cap::content_root().join("inbox");
         std::fs::create_dir_all(&dir).map_err(|e| format!("inbox: {e}"))?;
@@ -186,7 +200,12 @@ impl Pixvix {
                     self.steps.save(&inbox, meta)
                 });
                 self.status = match filed {
-                    Ok(folder) => format!("steps: {} steps → {folder}", stop.count),
+                    Ok(folder) => {
+                        let warn = Self::inbox()
+                            .map(|inbox| Self::index_capture(&inbox.join(&folder), "guide"))
+                            .unwrap_or_default();
+                        format!("steps: {} steps → {folder}{warn}", stop.count)
+                    }
                     Err(e) => format!("steps: stop ok, save failed: {e}"),
                 };
             }
@@ -206,7 +225,7 @@ impl Pixvix {
             Ok(out)
         });
         self.status = match result {
-            Ok(p) => format!("saved {}", p.display()),
+            Ok(p) => format!("saved {}{}", p.display(), Self::index_capture(&p, "image")),
             Err(e) => e,
         };
     }
@@ -223,7 +242,11 @@ impl Pixvix {
             Ok(out)
         });
         self.status = match result {
-            Ok(p) => format!("saved {} ({title})", p.display()),
+            Ok(p) => format!(
+                "saved {} ({title}){}",
+                p.display(),
+                Self::index_capture(&p, "image")
+            ),
             Err(e) => e,
         };
     }
@@ -321,8 +344,13 @@ impl Pixvix {
         if let Some(v) = &self.video {
             let done = v.done.lock().expect("video done lock").take();
             if let Some(result) = done {
+                let out = v.out.clone();
                 self.status = match result {
-                    Ok(frames) => format!("saved {} ({frames} frames)", v.out.display()),
+                    Ok(frames) => format!(
+                        "saved {} ({frames} frames){}",
+                        out.display(),
+                        Self::index_capture(&out, "video")
+                    ),
                     Err(e) => format!("video: {e}"),
                 };
                 self.video = None;
@@ -602,7 +630,9 @@ impl Pixvix {
                         Ok(out)
                     });
                     self.status = match result {
-                        Ok(p) => format!("saved {}", p.display()),
+                        Ok(p) => {
+                            format!("saved {}{}", p.display(), Self::index_capture(&p, "image"))
+                        }
                         Err(e) => e,
                     };
                 } else {
