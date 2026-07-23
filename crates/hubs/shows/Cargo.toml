@@ -1,0 +1,15 @@
+[package]
+name = "dpl-hub-shows"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+egui.workspace = true
+dpl-hub.workspace = true
+dpl-coldlight.workspace = true
+dpl-doc.workspace = true
+dpl-engine-capture.workspace = true
+
+[lints]
+workspace = true

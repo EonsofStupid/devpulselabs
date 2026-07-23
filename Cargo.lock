@@ -1342,6 +1342,7 @@ dependencies = [
  "dpl-hub-chat",
  "dpl-hub-home",
  "dpl-hub-present",
+ "dpl-hub-shows",
  "dpl-hub-wiredfront",
  "dpl-hub-workbench",
  "dpl-pixvix",
@@ -1549,6 +1550,17 @@ dependencies = [
  "dpl-doc",
  "dpl-engine-capture",
  "dpl-fabric",
+ "dpl-hub",
+ "egui",
+]
+
+[[package]]
+name = "dpl-hub-shows"
+version = "0.1.0"
+dependencies = [
+ "dpl-coldlight",
+ "dpl-doc",
+ "dpl-engine-capture",
  "dpl-hub",
  "egui",
 ]

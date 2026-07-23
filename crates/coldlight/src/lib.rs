@@ -261,6 +261,7 @@ pub mod icon {
     pub const WORKBENCH: &str = "\u{E80E}"; // hammer
     pub const LIBRARY: &str = "\u{E464}"; // squares-four
     pub const WIREDFRONT: &str = "\u{E8C2}"; // film-slate
+    pub const SHOWS: &str = "\u{E464}"; // squares-four — the operator's content, by category
     pub const BOT: &str = "\u{E762}"; // robot
     pub const PRESENT: &str = "\u{E58C}"; // monitor-play — the show machine
 

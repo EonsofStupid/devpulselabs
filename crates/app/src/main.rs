@@ -235,6 +235,9 @@ impl App {
         // The registry — a new hub is ONE line here and nothing else.
         let hubs: Vec<Box<dyn Hub>> = vec![
             Box::new(dpl_hub_home::HomeHub),
+            // The doctrine map (§3): the operator's content rides right
+            // under Home. Shows are discovered once at boot.
+            Box::new(dpl_hub_shows::ShowsHub::new()),
             Box::new(present_hub),
             Box::new(workbench),
             Box::new(wiredfront),

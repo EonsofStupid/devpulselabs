@@ -12,7 +12,7 @@ eguipilotai-devtools = [
 ]
 
 [dependencies]
-# Structured logging â€” RUST_LOG drives verbosity (tracing is the modern std).
+# Structured logging Ã¢â‚¬â€ RUST_LOG drives verbosity (tracing is the modern std).
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 egui.workspace = true
@@ -28,6 +28,7 @@ dpl-pixvix.workspace = true
 dpl-doc.workspace = true
 dpl-engine-capture.workspace = true
 dpl-hub-home.workspace = true
+dpl-hub-shows.workspace = true
 dpl-hub-present.workspace = true
 dpl-hub-workbench.workspace = true
 dpl-hub-wiredfront.workspace = true
