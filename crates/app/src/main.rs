@@ -85,6 +85,14 @@ fn main() -> eframe::Result {
         .position(|a| a == "--open-session")
         .and_then(|i| args.get(i + 1))
         .cloned();
+    // `--open-rail <hub>` pins the accordion open on one house (L1a) —
+    // proof shots of the unfolded rail reproduce. Unknown hub degrades to
+    // a folded rail, never a panic.
+    let open_rail: Option<String> = args
+        .iter()
+        .position(|a| a == "--open-rail")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
     // `--clone-seed <seed-id> <show> <episode>` — the headless clone
     // drill (X3): copy a seed into the real content tree through the
     // engine (`dpl_doc::clone_episode`) and exit; no window boots.
@@ -149,6 +157,7 @@ fn main() -> eframe::Result {
                 present,
                 session_drill,
                 open_session,
+                open_rail,
             });
             #[cfg(feature = "eguipilotai-devtools")]
             let app = {
@@ -174,6 +183,7 @@ struct Boot {
     present: Option<String>,
     session_drill: Option<u32>,
     open_session: Option<String>,
+    open_rail: Option<String>,
 }
 
 struct App {
@@ -204,6 +214,7 @@ impl App {
             present,
             session_drill,
             open_session,
+            open_rail,
         } = boot;
         let mut library = dpl_hub_library::LibraryHub::default();
         if let Some(id) = focus {
@@ -252,11 +263,16 @@ impl App {
                 };
                 shell.navigate(route);
             }
-            // Default boot: wiredFRONT with the rail extended.
+            // Default boot: wiredFRONT, the prep house (rail boots folded).
             None => shell.navigate(Route {
                 hub: dpl_hub_wiredfront::HUB,
                 sub: dpl_hub_wiredfront::PIXVIX,
             }),
+        }
+        // `--open-rail <hub>` — the accordion pinned open (L1a proofs).
+        // The CLI string is leaked once, like the boot route's.
+        if let Some(h) = open_rail {
+            shell.set_open_house(Some(dpl_hub::HubId(Box::leak(h.into_boxed_str()))));
         }
         if present.is_some() {
             // The harness path: the hub opened its deck before the shell

@@ -10,10 +10,11 @@
 //! Layout v2 (docs/shell.md): five named ZONES — TOP, STATUS, RAIL, PANEL,
 //! CONTENT — every dimension resolved through the generated fluid `shell`
 //! token group at the live viewport; nothing hardcoded (workspace law). The
-//! rail is ICON mode: hovering a hub opens the mood-tinted subroute flyout,
-//! clicking routes to its default. The status bar is a data-driven cell
-//! registry ([`status`]). Every navigation publishes
-//! `ShellEvent::RouteChanged` on the fabric.
+//! rail is an ACCORDION (Program L, doctrine §5.2): tapping a house unfolds
+//! its subroutes downward inside the rail — the houses below push down —
+//! and folds whatever was open; one open at a time, folded is icon-mode
+//! compact. The status bar is a data-driven cell registry ([`status`]).
+//! Every navigation publishes `ShellEvent::RouteChanged` on the fabric.
 
 pub mod status;
 
@@ -71,11 +72,13 @@ pub struct Shell {
     /// The build stamp the footer shows (git hash · utc) — the running app
     /// itself proves which code it is.
     build: &'static str,
-    /// The boot-rolled mood tinting the rail flyout ("on reload so we have
-    /// variety of color") — fixed for the session, fresh every launch.
+    /// The boot-rolled mood tinting the accordion's unfold strip ("on
+    /// reload so we have variety of color") — fixed for the session, fresh
+    /// every launch.
     tooltip_mood: usize,
-    /// The open subroute flyout: which hub, and the anchor y of its tile.
-    flyout: Option<(HubId, f32)>,
+    /// The accordion's ONE open house (doctrine §5.2) — its subroutes
+    /// unfold beneath its rail row; `None` = fully folded, icon-compact.
+    open_house: Option<HubId>,
     /// Last frame's zone rects (docs/shell.md).
     zones: Zones,
 }
@@ -104,7 +107,7 @@ impl Shell {
             full_bleed: false,
             build: "",
             tooltip_mood: dpl_backdrop::random_mood_index(),
-            flyout: None,
+            open_house: None,
             zones: Zones::default(),
         }
     }
@@ -114,7 +117,7 @@ impl Shell {
         self.zones
     }
 
-    /// The mood tinting the rail flyout — rolled once at boot.
+    /// The mood tinting the accordion's unfold strip — rolled once at boot.
     pub fn tooltip_mood(&self) -> &'static cl::Mood {
         &cl::MOODS[self.tooltip_mood]
     }
@@ -183,6 +186,30 @@ impl Shell {
             .map(|h| h.spec())
         {
             self.navigate(spec.default_route());
+        }
+    }
+
+    /// The accordion's open house (doctrine §5.2) — `None` = folded.
+    pub fn open_house(&self) -> Option<HubId> {
+        self.open_house
+    }
+
+    /// Harness access (`--open-rail <hub>` pins the accordion open for
+    /// reproducible proof shots).
+    pub fn set_open_house(&mut self, id: Option<HubId>) {
+        self.open_house = id;
+    }
+
+    /// Tapping a house in the rail — THE accordion gesture: the open house
+    /// folds (no navigation); any other house becomes the one open house
+    /// (folding the previous implicitly) AND navigates to its default
+    /// subroute, so one tap still goes somewhere (touch-first law).
+    pub fn toggle_house(&mut self, id: HubId) {
+        if self.open_house == Some(id) {
+            self.open_house = None;
+        } else {
+            self.open_house = Some(id);
+            self.activate_hub(id);
         }
     }
 
@@ -353,12 +380,40 @@ impl Shell {
         (resp.response.rect, actions)
     }
 
-    // ── RAIL: icon mode; hover opens the mood-tinted subroute flyout ────
+    // ── RAIL: the accordion — tap a house, its subroutes unfold beneath
+    // it and the houses below push down; ONE open at a time (doctrine
+    // §5.2), folded is icon-compact. ─────────────────────────────────────
     fn rail(&mut self, ui: &mut egui::Ui, fl: &cl::Fluid) -> (Rect, Option<Route>) {
         let mut clicked: Option<Route> = None;
-        let mut hovered: Option<(HubId, f32)> = None;
+        let mut toggled: Option<HubId> = None;
+        // One unfold factor per house, animated toward "is the open house".
+        // Computed BEFORE the panel because the rail's WIDTH answers the
+        // accordion: folded rides the collapsed token, an open house widens
+        // it to the expanded token (both generated — workspace law).
+        let factors: Vec<f32> = self
+            .hubs
+            .iter()
+            .map(|h| {
+                let id = h.spec().id;
+                ui.ctx().animate_bool_with_time(
+                    egui::Id::new(("dpl_rail_unfold", id.0)),
+                    self.open_house == Some(id),
+                    0.18,
+                )
+            })
+            .collect();
+        let max_f = factors.iter().copied().fold(0.0_f32, f32::max);
+        let collapsed = fl.rail_collapsed();
+        let width = collapsed + (fl.rail_expanded() - collapsed) * max_f;
+        // The icon keeps the collapsed column's center while the rail
+        // widens (6+6 = the panel's symmetric inner margin).
+        let icon_col = collapsed - 12.0;
+        let mood = self.tooltip_mood();
+        let route = self.route;
+        let open_house = self.open_house;
+        let hubs = &self.hubs;
         let resp = egui::Panel::left("dpl_rail")
-            .exact_size(fl.rail_collapsed())
+            .exact_size(width)
             .resizable(false)
             .show_separator_line(false)
             .frame(
@@ -368,10 +423,22 @@ impl Shell {
             )
             .show(ui, |ui| {
                 cl::sheen(ui.painter(), ui.max_rect().expand(10.0));
-                for hub in &self.hubs {
+                for (hub, &f) in hubs.iter().zip(&factors) {
                     let spec = hub.spec();
-                    let active = spec.id == self.route.hub;
-                    let r = icon_tile(ui, spec.icon, spec.tone, active, fl.tap_min());
+                    let active = spec.id == route.hub;
+                    let open = open_house == Some(spec.id);
+                    let r = house_tile(
+                        ui,
+                        &HouseTile {
+                            icon: spec.icon,
+                            label: spec.label,
+                            tone: spec.tone,
+                            active,
+                            expand: max_f,
+                            height: fl.tap_min(),
+                            icon_col,
+                        },
+                    );
                     ui.pilot_track(
                         &r,
                         NodeMetadata::new(
@@ -379,100 +446,71 @@ impl Shell {
                             egui_pilot_ai::protocol::Role::Button,
                             spec.label,
                         )
-                        .value(if active { "active" } else { "inactive" }),
+                        .value(match (active, open) {
+                            (true, true) => "active+open",
+                            (true, false) => "active",
+                            (false, true) => "open",
+                            (false, false) => "inactive",
+                        }),
                     );
-                    if r.hovered() {
-                        hovered = Some((spec.id, r.rect.min.y));
-                    }
                     if r.clicked() {
-                        clicked = Some(spec.default_route());
+                        toggled = Some(spec.id);
+                    }
+                    // The unfold: the section allocates its full height
+                    // scaled by the factor and clip-reveals from the top —
+                    // subroutes extend DOWN, the houses below push down.
+                    if f > 0.001 {
+                        let w = ui.available_width();
+                        let gap = ui.spacing().item_spacing.y;
+                        let rows = spec.subroutes.len() as f32;
+                        let full_h = 8.0 + rows * 26.0 + (rows - 1.0).max(0.0) * gap;
+                        let (rect, _) =
+                            ui.allocate_exact_size(egui::vec2(w, full_h * f), Sense::hover());
+                        let mut child = ui.new_child(
+                            egui::UiBuilder::new()
+                                .max_rect(Rect::from_min_size(rect.min, egui::vec2(w, full_h)))
+                                .layout(Layout::top_down(Align::Min)),
+                        );
+                        child.set_clip_rect(rect.intersect(ui.clip_rect()));
+                        // The boot-rolled mood strip — the "random mood on
+                        // reload", carried over from the flyout it replaces.
+                        let strip = Rect::from_min_size(rect.min, egui::vec2(w, 3.0));
+                        cl::mood_gradient(child.painter(), strip, mood);
+                        child.add_space(8.0);
+                        for sub in spec.subroutes {
+                            let selected = active && sub.id == route.sub;
+                            let response = sub_item(&mut child, sub.label, spec.tone, selected);
+                            child.pilot_track(
+                                &response,
+                                NodeMetadata::new(
+                                    PilotId::new("shell.rail.sub").child(&PilotKey::new(format!(
+                                        "{}/{}",
+                                        spec.id.0, sub.id.0
+                                    ))),
+                                    egui_pilot_ai::protocol::Role::MenuItem,
+                                    sub.label,
+                                )
+                                .value(if selected {
+                                    "selected"
+                                } else {
+                                    "available"
+                                }),
+                            );
+                            if response.clicked() {
+                                clicked = Some(Route {
+                                    hub: spec.id,
+                                    sub: sub.id,
+                                });
+                            }
+                        }
                     }
                     ui.add_space(cl::space::S1);
                 }
             });
-        let rail_rect = resp.response.rect;
-
-        // Hovering a tile (re-)anchors the flyout on that hub; otherwise it
-        // survives while the pointer holds the card, and closes on anything
-        // else (a click included).
-        if let Some(anchor) = hovered {
-            self.flyout = Some(anchor);
+        if let Some(id) = toggled {
+            self.toggle_house(id);
         }
-        if let Some((id, y)) = self.flyout {
-            let holds = self.flyout_ui(ui.ctx(), fl, rail_rect, id, y, &mut clicked);
-            if clicked.is_some() || (hovered.is_none() && !holds) {
-                self.flyout = None;
-            }
-        }
-        (rail_rect, clicked)
-    }
-
-    /// The rail flyout — the hub's subroutes on a card tinted by the
-    /// boot-rolled mood ("mouse over produces a random generated mood
-    /// tooltip on reload"). Returns true while the pointer holds it open.
-    fn flyout_ui(
-        &self,
-        ctx: &egui::Context,
-        fl: &cl::Fluid,
-        rail: Rect,
-        id: HubId,
-        y: f32,
-        clicked: &mut Option<Route>,
-    ) -> bool {
-        let Some(spec) = self.hubs.iter().map(|h| h.spec()).find(|s| s.id == id) else {
-            return false;
-        };
-        let mood = self.tooltip_mood();
-        let area = egui::Area::new(egui::Id::new("dpl_rail_flyout"))
-            .fixed_pos(egui::pos2(rail.max.x, y))
-            .order(egui::Order::Foreground)
-            .show(ctx, |ui| {
-                cl::card_frame().show(ui, |ui| {
-                    // Pin the card to the rail-expanded token — inside an
-                    // Area, available_width() is the rest of the SCREEN and
-                    // must never drive sizing (the giant-flyout bug).
-                    let w = fl.rail_expanded();
-                    ui.set_width(w);
-                    // The mood strip + label — the mood "tooltip" itself.
-                    let (strip, _) = ui.allocate_exact_size(egui::vec2(w, 4.0), Sense::hover());
-                    cl::mood_gradient(ui.painter(), strip, mood);
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(spec.icon).size(14.0).color(spec.tone.color()));
-                        ui.label(
-                            RichText::new(spec.label)
-                                .strong()
-                                .color(mood.accent_color()),
-                        );
-                    });
-                    for sub in spec.subroutes {
-                        let selected = spec.id == self.route.hub && sub.id == self.route.sub;
-                        let response = sub_item(ui, sub.label, spec.tone, selected);
-                        ui.pilot_track(
-                            &response,
-                            NodeMetadata::new(
-                                PilotId::new("shell.flyout")
-                                    .child(&PilotKey::new(format!("{}/{}", spec.id.0, sub.id.0))),
-                                egui_pilot_ai::protocol::Role::MenuItem,
-                                sub.label,
-                            )
-                            .value(if selected {
-                                "selected"
-                            } else {
-                                "available"
-                            }),
-                        );
-                        if response.clicked() {
-                            *clicked = Some(Route {
-                                hub: spec.id,
-                                sub: sub.id,
-                            });
-                        }
-                    }
-                });
-            });
-        // A hair of slack covers the pointer crossing rail → card.
-        let hold = area.response.rect.expand(8.0);
-        ctx.pointer_latest_pos().is_some_and(|p| hold.contains(p))
+        (resp.response.rect, clicked)
     }
 
     // ── PANEL: the inspector ────────────────────────────────────────────
@@ -663,16 +701,36 @@ pub(crate) fn launcher_chip(ui: &mut egui::Ui, glyph: &str, label: &str, tone: T
     resp.clicked()
 }
 
-/// A hub tile in the icon rail: centered glyph, tone wash + sprite bevel
-/// (1px lit top, 1px dark bottom) + left accent bar when active — the sprite
-/// vocabulary in icon-mode geometry. Height is the `tap-min` token.
-fn icon_tile(
-    ui: &mut egui::Ui,
-    icon: &str,
+/// One house row's paint inputs (bundled — the workspace's no-`#[allow]`
+/// law meets clippy's argument budget the honest way).
+struct HouseTile<'a> {
+    icon: &'a str,
+    label: &'a str,
     tone: Tone,
     active: bool,
+    /// The rail's widen factor 0..1 — the label fades in with it.
+    expand: f32,
+    /// Row height — the `tap-min` token.
     height: f32,
-) -> egui::Response {
+    /// The COLLAPSED column's inner width; the glyph keeps its center
+    /// while the rail widens.
+    icon_col: f32,
+}
+
+/// A house row in the accordion rail: glyph centered in the collapsed
+/// column, the hub label fading in beside it as the rail widens; tone
+/// wash, sprite bevel (1px lit top, 1px dark bottom), and the left accent
+/// bar when active — the icon-rail sprite vocabulary, width-aware.
+fn house_tile(ui: &mut egui::Ui, t: &HouseTile) -> egui::Response {
+    let HouseTile {
+        icon,
+        label,
+        tone,
+        active,
+        expand,
+        height,
+        icon_col,
+    } = *t;
     let width = ui.available_width();
     let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), Sense::click());
     let painter = ui.painter();
@@ -709,16 +767,31 @@ fn icon_tile(
     }
 
     painter.text(
-        rect.center(),
+        egui::pos2(rect.min.x + icon_col / 2.0, rect.center().y),
         egui::Align2::CENTER_CENTER,
         icon,
         egui::FontId::proportional(19.0),
         if active { tone.color() } else { cl::ink::MUTED },
     );
+    if expand > 0.01 {
+        painter.text(
+            egui::pos2(rect.min.x + icon_col + 2.0, rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            label,
+            egui::FontId::proportional(13.5),
+            (if active {
+                cl::ink::STRONG
+            } else {
+                cl::ink::BASE
+            })
+            .gamma_multiply(expand),
+        );
+    }
     response
 }
 
-/// A subroute row in the flyout card — quiet, tone dot when selected.
+/// A subroute row in the accordion's unfold — quiet, tone dot when
+/// selected.
 fn sub_item(ui: &mut egui::Ui, label: &str, tone: Tone, selected: bool) -> egui::Response {
     let width = ui.available_width();
     let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 26.0), Sense::click());
@@ -858,6 +931,66 @@ mod tests {
         assert_eq!(shell.nav_count(), 0);
         shell.activate_hub(HubId("b"));
         assert_eq!(shell.nav_count(), 1);
+    }
+
+    #[test]
+    fn tapping_a_closed_house_opens_it_and_navigates() {
+        let (mut shell, mut rx) = shell();
+        shell.toggle_house(HubId("b"));
+        assert_eq!(shell.open_house(), Some(HubId("b")));
+        let expected = Route {
+            hub: HubId("b"),
+            sub: SubId("only"),
+        };
+        assert_eq!(shell.route(), expected);
+        assert_eq!(
+            rx.try_recv().unwrap(),
+            ShellEvent::RouteChanged { route: expected }
+        );
+    }
+
+    #[test]
+    fn tapping_the_open_house_folds_without_navigating() {
+        let (mut shell, mut rx) = shell();
+        shell.toggle_house(HubId("b"));
+        let _ = rx.try_recv();
+        let before = shell.route();
+        shell.toggle_house(HubId("b"));
+        assert_eq!(shell.open_house(), None, "the open house must fold");
+        assert_eq!(shell.route(), before, "folding never navigates");
+        assert!(rx.try_recv().is_err(), "folding publishes nothing");
+    }
+
+    #[test]
+    fn opening_another_house_folds_the_first() {
+        let (mut shell, _rx) = shell();
+        shell.toggle_house(HubId("b"));
+        shell.toggle_house(HubId("a"));
+        // ONE open at a time (doctrine §5.2) — b folded when a opened.
+        assert_eq!(shell.open_house(), Some(HubId("a")));
+        assert_eq!(shell.route().hub, HubId("a"));
+    }
+
+    /// The accordion's width contract: an open house widens the rail from
+    /// the collapsed token to the expanded token (both generated).
+    #[test]
+    fn an_open_house_widens_the_rail_to_the_expanded_token() {
+        let size = egui::vec2(1280.0, 800.0);
+        let (mut sh, _rx) = shell();
+        sh.set_open_house(Some(HubId("a")));
+        let mut harness = egui_kittest::Harness::builder()
+            .with_size(size)
+            .build_ui_state(|ui, sh: &mut Shell| sh.ui(ui), sh);
+        // Enough steps for the 0.18s unfold animation to settle.
+        harness.run_steps(90);
+        let z = harness.state().zones();
+        let fl = cl::Fluid::of(Rect::from_min_size(egui::Pos2::ZERO, size));
+        assert!(
+            (z.rail.width() - fl.rail_expanded()).abs() < 0.75,
+            "open rail width {} != rail_expanded {}",
+            z.rail.width(),
+            fl.rail_expanded()
+        );
     }
 
     #[test]
