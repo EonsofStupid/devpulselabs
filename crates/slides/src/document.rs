@@ -516,7 +516,8 @@ mod tests {
         assert!(!seeds.is_empty(), "seed set missing");
         let ctx = egui::Context::default();
         cl::apply_theme(&ctx);
-        for (id, dir) in seeds {
+        for s in seeds {
+            let (id, dir) = (s.id, s.dir);
             let slide = dpl_doc::load(&dir).unwrap_or_else(|e| panic!("seed {id}: {e}"));
             let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {

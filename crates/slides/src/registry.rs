@@ -93,6 +93,26 @@ mod tests {
     use super::*;
     use std::collections::HashSet;
 
+    /// Doctrine §1.3: the seed class FOLDERS restate this registry's
+    /// taxonomy — the two vocabularies must never drift.
+    #[test]
+    fn the_folder_law_matches_the_registry_taxonomy() {
+        let classes = [
+            TemplateClass::Static,
+            TemplateClass::Split,
+            TemplateClass::Animation,
+            TemplateClass::Interactive,
+        ];
+        assert_eq!(classes.len(), dpl_doc::SEED_CLASSES.len());
+        for c in classes {
+            assert!(
+                dpl_doc::SEED_CLASSES.contains(&c.label()),
+                "class {:?} has no seed folder in dpl_doc::SEED_CLASSES",
+                c.label()
+            );
+        }
+    }
+
     #[test]
     fn the_registry_is_the_census() {
         let all = demos();

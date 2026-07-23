@@ -675,21 +675,90 @@ pub fn list_episodes() -> Vec<(String, PathBuf)> {
     eps
 }
 
-/// Every seed folder holding a slide.json, as (id, dir), sorted by id.
-pub fn list_seeds() -> Vec<(String, PathBuf)> {
-    let Some(root) = seeds_root() else {
+/// The seed CLASS folders (doctrine §1.3): `seeds/slides/<class>/<id>/`.
+/// The doc layer restates the registry's `TemplateClass` vocabulary as
+/// folder law — like `kebab_ok`, doc never depends on the slides crate;
+/// a slides-side test pins the two in sync.
+pub const SEED_CLASSES: [&str; 4] = ["static", "split", "animation", "interactive"];
+
+/// One seed slide document, classed by its folder.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Seed {
+    /// The class folder it lives in — always one of [`SEED_CLASSES`].
+    pub class: &'static str,
+    pub id: String,
+    pub dir: PathBuf,
+}
+
+/// Every seed as [`Seed`], class folders walked in [`SEED_CLASSES`] order,
+/// ids sorted within a class. A missing class folder is simply empty. A
+/// slide.json folder sitting DIRECTLY under `seeds/slides/` (the old flat
+/// layout) is NOT listed — [`seed_tree_issues`] names it instead.
+pub fn list_seeds() -> Vec<Seed> {
+    seeds_root()
+        .map(|root| list_seeds_in(&root))
+        .unwrap_or_default()
+}
+
+/// [`list_seeds`] against an explicit root (tests walk scratch trees).
+fn list_seeds_in(root: &Path) -> Vec<Seed> {
+    let mut out = Vec::new();
+    for class in SEED_CLASSES {
+        let Ok(entries) = std::fs::read_dir(root.join(class)) else {
+            continue;
+        };
+        let mut seeds: Vec<Seed> = entries
+            .flatten()
+            .filter(|e| e.path().join(FILE).is_file())
+            .map(|e| Seed {
+                class,
+                id: e.file_name().to_string_lossy().into_owned(),
+                dir: e.path(),
+            })
+            .collect();
+        seeds.sort_by(|a, b| a.id.cmp(&b.id));
+        out.extend(seeds);
+    }
+    out
+}
+
+/// The seed-tree doctor: names every top-level entry of `seeds/slides/`
+/// that is not a class folder — an UNCLASSED seed (a folder holding
+/// slide.json, the old flat layout) or an unknown folder. Files inside
+/// class folders (.gitkeep) are fine; empty class folders are fine.
+pub fn seed_tree_issues() -> Vec<Issue> {
+    seeds_root()
+        .map(|root| seed_tree_issues_in(&root))
+        .unwrap_or_default()
+}
+
+/// [`seed_tree_issues`] against an explicit root.
+fn seed_tree_issues_in(root: &Path) -> Vec<Issue> {
+    let Ok(entries) = std::fs::read_dir(root) else {
         return Vec::new();
     };
-    let Ok(entries) = std::fs::read_dir(&root) else {
-        return Vec::new();
-    };
-    let mut seeds: Vec<(String, PathBuf)> = entries
-        .flatten()
-        .filter(|e| e.path().join(FILE).is_file())
-        .map(|e| (e.file_name().to_string_lossy().into_owned(), e.path()))
-        .collect();
-    seeds.sort();
-    seeds
+    let mut issues = Vec::new();
+    for e in entries.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let dir = e.path();
+        if !dir.is_dir() || SEED_CLASSES.contains(&name.as_str()) {
+            continue;
+        }
+        let message = if dir.join(FILE).is_file() {
+            format!("unclassed seed — move it into seeds/slides/<class>/{name}")
+        } else {
+            format!(
+                "unknown folder — seed classes are {}",
+                SEED_CLASSES.join(", ")
+            )
+        };
+        issues.push(Issue {
+            path: name,
+            message,
+        });
+    }
+    issues.sort_by(|a, b| a.path.cmp(&b.path));
+    issues
 }
 
 // ── the CONTENT tier (X3) — the operator's real shows ───────────────────
@@ -952,11 +1021,56 @@ mod tests {
             "expected the seed set, found {}: {seeds:?}",
             seeds.len()
         );
-        for (id, dir) in seeds {
-            let slide = load(&dir).unwrap_or_else(|e| panic!("seed {id}: {e}"));
+        for s in seeds {
+            assert!(
+                SEED_CLASSES.contains(&s.class),
+                "seed {} carries unknown class {}",
+                s.id,
+                s.class
+            );
+            let slide = load(&s.dir).unwrap_or_else(|e| panic!("seed {}: {e}", s.id));
             let issues = validate(&slide);
-            assert!(issues.is_empty(), "seed {id} has unknown refs: {issues:?}");
+            assert!(
+                issues.is_empty(),
+                "seed {} has unknown refs: {issues:?}",
+                s.id
+            );
         }
+    }
+
+    /// Doctrine §1.3: the walk lists classed seeds only; the old flat
+    /// layout is refused AND named by the doctor.
+    #[test]
+    fn seeds_list_by_class_and_flat_layout_is_refused() {
+        let root = std::env::temp_dir().join("dpl-doc-test-seed-classes");
+        let _ = std::fs::remove_dir_all(&root);
+        let doc = r#"{ "v": 1, "template": "title", "blocks": [] }"#;
+        std::fs::create_dir_all(root.join("static/classed-seed")).unwrap();
+        std::fs::write(root.join("static/classed-seed").join(FILE), doc).unwrap();
+        std::fs::create_dir_all(root.join("flat-seed")).unwrap();
+        std::fs::write(root.join("flat-seed").join(FILE), doc).unwrap();
+        std::fs::create_dir_all(root.join("mystery")).unwrap();
+
+        let seeds = list_seeds_in(&root);
+        assert_eq!(seeds.len(), 1, "only the classed seed lists: {seeds:?}");
+        assert_eq!(seeds[0].class, "static");
+        assert_eq!(seeds[0].id, "classed-seed");
+
+        let issues = seed_tree_issues_in(&root);
+        let named: Vec<&str> = issues.iter().map(|i| i.path.as_str()).collect();
+        assert_eq!(
+            named,
+            vec!["flat-seed", "mystery"],
+            "the doctor names both strays: {issues:?}"
+        );
+        assert!(issues[0].message.contains("unclassed seed"));
+        assert!(issues[1].message.contains("unknown folder"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn seed_tree_issues_is_quiet_on_the_real_tree() {
+        assert_eq!(seed_tree_issues(), Vec::new());
     }
 
     // ── episode tier (D1) ───────────────────────────────────────────────

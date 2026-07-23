@@ -67,6 +67,8 @@ static SPEC: HubSpec = HubSpec {
 /// One loaded seed: its id, the colocated folder, the live document (or the
 /// load error, honestly), and the validator's findings.
 struct SeedEntry {
+    /// The seed's class folder (doctrine §1.3) — the wall sections by it.
+    class: &'static str,
     id: String,
     dir: PathBuf,
     doc: Result<DocSlide, String>,
@@ -78,6 +80,9 @@ pub struct WorkbenchHub {
     /// Loaded on first visit; the reload chip clears it (edits to the
     /// colocated files show up without restarting the app).
     seeds: Option<Vec<SeedEntry>>,
+    /// The seed-tree doctor's findings, refreshed with `seeds` — an
+    /// unclassed/unknown folder under seeds/slides is NAMED, never hidden.
+    tree_issues: Vec<dpl_doc::Issue>,
     /// The open editor (EDITOR subroute) — None shows the seed picker.
     editor: Option<dpl_editor::Editor>,
     /// The episode-wall's live slide docs, loaded once per episode open.
@@ -105,19 +110,21 @@ impl WorkbenchHub {
     fn load_seeds() -> Vec<SeedEntry> {
         dpl_doc::list_seeds()
             .into_iter()
-            .map(|(id, dir)| match dpl_doc::load(&dir) {
+            .map(|s| match dpl_doc::load(&s.dir) {
                 Ok(slide) => {
                     let issues = dpl_doc::validate(&slide);
                     SeedEntry {
-                        id,
-                        dir,
+                        class: s.class,
+                        id: s.id,
+                        dir: s.dir,
                         doc: Ok(DocSlide::new(slide)),
                         issues,
                     }
                 }
                 Err(e) => SeedEntry {
-                    id,
-                    dir,
+                    class: s.class,
+                    id: s.id,
+                    dir: s.dir,
                     doc: Err(e.to_string()),
                     issues: Vec::new(),
                 },
@@ -126,6 +133,9 @@ impl WorkbenchHub {
     }
 
     fn seeds_wall(&mut self, ui: &mut egui::Ui) {
+        if self.seeds.is_none() {
+            self.tree_issues = dpl_doc::seed_tree_issues();
+        }
         let seeds = self.seeds.get_or_insert_with(Self::load_seeds);
 
         let mut reload = false;
@@ -147,9 +157,16 @@ impl WorkbenchHub {
         });
         ui.add_space(cl::space::S2);
 
+        for issue in &self.tree_issues {
+            ui.label(
+                RichText::new(format!("⚠ seeds/slides/{} — {}", issue.path, issue.message))
+                    .small()
+                    .color(SPEC.tone.color()),
+            );
+        }
         if seeds.is_empty() {
             ui.label(
-                RichText::new("no seeds found — expected seeds/slides/<id>/slide.json")
+                RichText::new("no seeds found — expected seeds/slides/<class>/<id>/slide.json")
                     .color(cl::ink::MUTED),
             );
         }
@@ -160,7 +177,21 @@ impl WorkbenchHub {
                 let avail_w = ui.available_width();
                 let stage_w = avail_w - cl::space::S4 * 2.0;
                 let stage_h = stage_w * 9.0 / 16.0;
+                // The wall sections ARE the class folders (doctrine §1.3);
+                // list_seeds delivers class-ordered, so one header per run.
+                let mut last_class: Option<&str> = None;
                 for entry in seeds.iter_mut() {
+                    if last_class != Some(entry.class) {
+                        last_class = Some(entry.class);
+                        ui.add_space(cl::space::S2);
+                        ui.label(
+                            RichText::new(format!("{} —", entry.class.to_uppercase()))
+                                .small()
+                                .strong()
+                                .color(SPEC.tone.color()),
+                        );
+                        ui.add_space(cl::space::S2);
+                    }
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(&entry.id).strong().color(cl::ink::STRONG));
                         ui.label(
@@ -552,8 +583,8 @@ impl WorkbenchHub {
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                for (id, dir) in dpl_doc::list_seeds() {
-                    picker_card(ui, &id, &mut open, dir);
+                for s in dpl_doc::list_seeds() {
+                    picker_card(ui, &format!("{} · {}", s.class, s.id), &mut open, s.dir);
                 }
                 // The shows (W3b/X3): the seeds+content UNION — episode
                 // slides edit against their show's look (the editor
