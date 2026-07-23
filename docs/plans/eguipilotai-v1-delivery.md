@@ -24,6 +24,9 @@ capabilities by themselves.
 7. Each slice ends with formatting, warning-free lint, focused/workspace tests,
    release build where affected, WASM gates where affected, and status-doc
    correction.
+8. Development validation is local-first. The expensive pinned Lavapipe
+   qualification is manual-only until Slice 9 explicitly ratifies an automated
+   schedule or release gate; ordinary pushes and pull requests must not start it.
 
 ## Slice 0 — truth and compatibility baseline
 
@@ -59,8 +62,9 @@ Non-goal: add new automation behavior.
 Implementation: **core complete and exercised through a real DevPULSE child
 process.** The evidence record is
 `docs/research/eguipilotai/slice-1-protocol-v2-evidence.md`. The pinned
-Lavapipe fifty-capture job still requires an assigned Linux runner before its
-separate renderer qualification can be claimed.
+Lavapipe fifty-capture job is an explicit `workflow_dispatch` qualification
+and still requires an assigned Linux runner before its separate renderer
+qualification can be claimed.
 
 Purpose: establish one response per command and independent runtime events
 before trace, cancellation, multi-viewport, or concurrency depend on the wire.
