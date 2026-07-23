@@ -117,6 +117,41 @@ problems:
 - **T3** minigame doctrine as data + drag-match keyboard path +
   reduced-motion support. Pilot: keyboard-only drag-match scenario (the
   old repo's Pass Q, now machine-verified every run).
+- **T4 guide-slide template** (operator's spec, 2026-07-22): a FULL
+  recorded guide becomes ONE slide — its internal reveal steps ARE the
+  recorded steps, ridden by the D2 beat grammar (advance/retreat walks
+  the do→done frames with the click-highlight ring; one guide = one
+  slide in a show, stepped through live on the 75"). A new
+  `Block::Guide` kind referencing the captured guide through the folder
+  contract (frames live under the slide's reserved `assets/`); frames
+  render through the one renderer; editable like any slide (the W5
+  reviewer owns reorder/delete/caption). Depends: C2 (capture), D2
+  (beat grammar), X1 (guides indexed). Pilot: a fixture guide steps
+  end-to-end via the deck scenario.
+
+## Program G — Guide export (net-new; operator's spec 2026-07-22)
+
+The full guide pipeline this program completes: **C2 capture → W5
+review/edit in Workbench → T4 guide-slide in a show → G1 standalone
+export**. The export is the operator's shareable artifact: *"a self
+contained guide i can later share on my website... a vlc like
+experience... stand alone easy to download and browser and be optimized
+while styling engaging."*
+
+- **G1 self-contained guide export:** one download — a folder (or
+  single-file HTML) bundling the guide's WebP frames + guide.json + a
+  small dependency-free player: VLC-like transport (play/pause/
+  step-forward/back, scrub, keyboard + touch), progress rail with step
+  ticks, do→done toggle, click-highlight ring, captions from guide
+  metadata. Styled FROM ColdLight — the mood/ink/font vocabulary
+  generated out as CSS from the same token sources (never hand-authored
+  twice; a build-time emitter, same pattern as the registries). Browser-
+  optimized: WebP frames, lazy-load + preload-next, zero network
+  dependencies — works from file:// and any static host. Pilot: export
+  a fixture guide → engine-unit asserts the bundle is CLOSED (no
+  external refs) + a headless-browser drill steps it end-to-end.
+- **G2 export polish:** poster/OG share card, optional autoplay demo
+  mode, size-budget report at export time. After G1 proves out.
 
 ## Program A — Agent console (census #7)
 
@@ -149,6 +184,7 @@ problems:
 
 W3 → W4 (in flight, small) run first; then **D1–D2** (the show machine
 core) with X1 in parallel (index is UI-independent); then X2/W5, D3–D5,
-C-passes, T, A1, P, H. S-ADR whenever the operator wants the session
+C-passes, T (T4 after C2+D2+X1 land), **G1** (after T4 — the pipeline's
+payoff), A1, P, H. S-ADR whenever the operator wants the session
 conversation. Every pass lands its pilot scenarios in the same commit —
 coverage and features never diverge.
