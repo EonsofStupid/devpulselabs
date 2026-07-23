@@ -27,6 +27,8 @@ use serde::{Deserialize, Serialize};
 
 use dpl_engine_capture as engine;
 
+pub mod edit;
+
 /// Lossy-WebP quality for step images (carried: visually lossless for UI).
 const STEP_QUALITY: f32 = 82.0;
 /// Settle between the "do" and "done" frames (carried).
@@ -188,7 +190,51 @@ pub struct StopResult {
 /// Latest global mouse position (rdev's ButtonPress carries no coordinates).
 static MOUSE_X: AtomicI32 = AtomicI32::new(0);
 static MOUSE_Y: AtomicI32 = AtomicI32::new(0);
+/// Live Ctrl/Shift state, tracked from global press/release — rdev events
+/// carry no modifier field, so the hook remembers (C2).
+static CTRL_DOWN: AtomicBool = AtomicBool::new(false);
+static SHIFT_DOWN: AtomicBool = AtomicBool::new(false);
 static TRIGGERS: OnceLock<Sender<Trigger>> = OnceLock::new();
+
+/// The OS-global chords (C2) — the old app's three shortcuts, now ridden
+/// on the SAME rdev hook as the click capture (no shortcut plugin).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Hotkey {
+    /// Ctrl+Shift+S — summon/dismiss the capture palette.
+    Palette,
+    /// Ctrl+Shift+9 — start/stop the Steps recorder from any app.
+    ToggleSteps,
+    /// Ctrl+Shift+X — mark THIS moment as a step (always kept).
+    MarkStep,
+}
+
+/// Receives chords on the HOOK thread — push to a queue and request a
+/// repaint; never do real work here (a slow global hook lags the desktop).
+pub type HotkeySink = Arc<dyn Fn(Hotkey) + Send + Sync>;
+
+/// Pure chord map — unit-testable without OS events.
+fn chord_hotkey(key: rdev::Key, ctrl: bool, shift: bool) -> Option<Hotkey> {
+    if !(ctrl && shift) {
+        return None;
+    }
+    match key {
+        rdev::Key::KeyS => Some(Hotkey::Palette),
+        rdev::Key::Num9 => Some(Hotkey::ToggleSteps),
+        rdev::Key::KeyX => Some(Hotkey::MarkStep),
+        _ => None,
+    }
+}
+
+/// Track a modifier press/release; true when the key WAS a modifier.
+fn track_modifier(key: rdev::Key, down: bool) -> bool {
+    let flag = match key {
+        rdev::Key::ControlLeft | rdev::Key::ControlRight => &CTRL_DOWN,
+        rdev::Key::ShiftLeft | rdev::Key::ShiftRight => &SHIFT_DOWN,
+        _ => return false,
+    };
+    flag.store(down, Ordering::Relaxed);
+    true
+}
 
 pub struct StepsRecorder {
     inner: Mutex<Option<Session>>,
@@ -457,8 +503,15 @@ fn relative_click(gx: f64, gy: f64, shot: &engine::StepShot) -> Option<(f64, f64
     Some((fx.clamp(0.0, 1.0), fy.clamp(0.0, 1.0)))
 }
 
-/// Install the global hook + capture worker exactly once (carried design).
+/// The lazy fallback `start()` uses — hotkeys need the boot-time install.
 fn ensure_hook(recorder: Arc<StepsRecorder>) {
+    install_hook(&recorder, None);
+}
+
+/// Install the global hook + capture worker exactly once (carried design).
+/// Call at BOOT with a sink so the chords work before any recording;
+/// hotkeys fire regardless of the `running` gate — that is their point.
+pub fn install_hook(recorder: &Arc<StepsRecorder>, hotkeys: Option<HotkeySink>) {
     if TRIGGERS.get().is_some() {
         return;
     }
@@ -475,10 +528,30 @@ fn ensure_hook(recorder: Arc<StepsRecorder>) {
     let running = recorder.running.clone();
     std::thread::spawn(move || {
         if let Err(e) = rdev::listen(move |event| {
-            if let rdev::EventType::MouseMove { x, y } = event.event_type {
-                MOUSE_X.store(x as i32, Ordering::Relaxed);
-                MOUSE_Y.store(y as i32, Ordering::Relaxed);
-                return;
+            match event.event_type {
+                rdev::EventType::MouseMove { x, y } => {
+                    MOUSE_X.store(x as i32, Ordering::Relaxed);
+                    MOUSE_Y.store(y as i32, Ordering::Relaxed);
+                    return;
+                }
+                rdev::EventType::KeyPress(key) => {
+                    if track_modifier(key, true) {
+                        return;
+                    }
+                    let ctrl = CTRL_DOWN.load(Ordering::Relaxed);
+                    let shift = SHIFT_DOWN.load(Ordering::Relaxed);
+                    if let Some(hotkey) = chord_hotkey(key, ctrl, shift) {
+                        if let Some(sink) = &hotkeys {
+                            sink(hotkey);
+                        }
+                        return; // a chord is never a step trigger
+                    }
+                }
+                rdev::EventType::KeyRelease(key) => {
+                    track_modifier(key, false);
+                    return;
+                }
+                _ => {}
             }
             if !running.load(Ordering::Relaxed) {
                 return;
@@ -500,6 +573,26 @@ fn ensure_hook(recorder: Arc<StepsRecorder>) {
             eprintln!("[steps] global input hook failed: {e:?}");
         }
     });
+}
+
+/// Send a REAL Ctrl+Shift+9 through the OS (`rdev::simulate`) — the
+/// hotkey drill's input side. Real input, never a faked hook event; the
+/// settles between events are rdev's own guidance.
+pub fn simulate_toggle_chord() -> Result<(), String> {
+    use rdev::{simulate, EventType, Key};
+    let sequence = [
+        EventType::KeyPress(Key::ControlLeft),
+        EventType::KeyPress(Key::ShiftLeft),
+        EventType::KeyPress(Key::Num9),
+        EventType::KeyRelease(Key::Num9),
+        EventType::KeyRelease(Key::ShiftLeft),
+        EventType::KeyRelease(Key::ControlLeft),
+    ];
+    for ev in sequence {
+        simulate(&ev).map_err(|e| format!("simulate {ev:?}: {e:?}"))?;
+        std::thread::sleep(Duration::from_millis(30));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -597,6 +690,33 @@ mod tests {
             "filing happens exactly once"
         );
         let _ = std::fs::remove_dir_all(&inbox);
+    }
+
+    #[test]
+    fn the_chords_map_and_miss_honestly() {
+        use rdev::Key;
+        assert_eq!(chord_hotkey(Key::KeyS, true, true), Some(Hotkey::Palette));
+        assert_eq!(
+            chord_hotkey(Key::Num9, true, true),
+            Some(Hotkey::ToggleSteps)
+        );
+        assert_eq!(chord_hotkey(Key::KeyX, true, true), Some(Hotkey::MarkStep));
+        assert_eq!(chord_hotkey(Key::Num9, true, false), None, "shift required");
+        assert_eq!(chord_hotkey(Key::Num9, false, true), None, "ctrl required");
+        assert_eq!(
+            chord_hotkey(Key::Return, true, true),
+            None,
+            "not a chord key"
+        );
+        assert!(
+            track_modifier(Key::ControlRight, true),
+            "either ctrl tracks"
+        );
+        assert!(
+            !track_modifier(Key::KeyS, true),
+            "letters are not modifiers"
+        );
+        track_modifier(Key::ControlRight, false);
     }
 
     #[test]

@@ -63,6 +63,11 @@ fn main() -> eframe::Result {
         .and_then(|i| args.get(i + 1))
         .and_then(|n| n.parse().ok());
     let pixvix_snap = args.iter().any(|a| a == "--pixvix-snap");
+    // `--steps-hotkey-drill` — send a REAL Ctrl+Shift+9 through the OS
+    // (rdev::simulate) and verify the global hook starts, then stops, the
+    // Steps recorder (C2). Real input end-to-end; the pilot never fakes
+    // OS hooks.
+    let steps_hotkey_drill = args.iter().any(|a| a == "--steps-hotkey-drill");
     // `--session-drill <secs>` — start a REAL session through the
     // palette's own handler, hop routes (observed fabric traffic), stop
     // after the window, exit on the recorder's own verdict (S1).
@@ -175,6 +180,7 @@ fn main() -> eframe::Result {
                 shot_frame,
                 pixvix_open,
                 pixvix_snap,
+                steps_hotkey_drill,
                 mood,
                 present,
                 presenter_drill,
@@ -204,6 +210,7 @@ struct Boot {
     shot_frame: u32,
     pixvix_open: bool,
     pixvix_snap: bool,
+    steps_hotkey_drill: bool,
     mood: Option<usize>,
     present: Option<String>,
     presenter_drill: Option<usize>,
@@ -222,6 +229,10 @@ struct App {
     shot_frame: u32,
     pixvix_snap: bool,
     snap_frames: u32,
+    steps_hotkey_drill: bool,
+    hotkey_frames: u32,
+    hotkey_phase: u8,
+    hotkey_mark: u32,
     session_drill: Option<u32>,
     drill_frames: u32,
     drill_started: Option<std::time::Instant>,
@@ -238,6 +249,7 @@ impl App {
             shot_frame,
             pixvix_open,
             pixvix_snap,
+            steps_hotkey_drill,
             mood,
             present,
             presenter_drill,
@@ -337,6 +349,10 @@ impl App {
             shot_frame,
             pixvix_snap,
             snap_frames: 0,
+            steps_hotkey_drill,
+            hotkey_frames: 0,
+            hotkey_phase: 0,
+            hotkey_mark: 0,
             session_drill,
             drill_frames: 0,
             drill_started: None,
@@ -480,22 +496,9 @@ impl eframe::App for App {
         self.shell.ui(ui);
         let ctx = ui.ctx().clone();
 
-        // The Steps chords, app-focused scope (OS-global is on the ledger):
-        // Ctrl+Shift+9 toggles a guide recording, Ctrl+Shift+X marks.
-        let (toggle, mark) = ctx.input(|i| {
-            let chord = i.modifiers.ctrl && i.modifiers.shift;
-            (
-                chord && i.key_pressed(egui::Key::Num9),
-                chord && i.key_pressed(egui::Key::X),
-            )
-        });
-        if toggle {
-            self.pixvix.toggle_steps();
-        }
-        if mark {
-            self.pixvix.mark_step();
-        }
-
+        // The Steps chords (Ctrl+Shift+S/9/X) are OS-GLOBAL since C2 —
+        // the rdev hook inside pixvix sees them whether or not this app
+        // has focus, so no egui input handling here (it would double-fire).
         self.pixvix.ui(&ctx);
 
         // F12: egui's native inspection overlay — the UI debugger.
@@ -523,6 +526,57 @@ impl eframe::App for App {
                 let msg = self.pixvix.snap_full_now(&ctx).to_string();
                 eprintln!("pixvix-snap: {msg}");
                 std::process::exit(if msg.starts_with("saved") { 0 } else { 1 });
+            }
+            ctx.request_repaint();
+        }
+
+        // `--steps-hotkey-drill`: REAL Ctrl+Shift+9 through the OS →
+        // rdev hook → chord → recorder. Phase 0 settles the hook thread,
+        // then each chord flips the recorder and the drill watches the
+        // real state. Exit by verdict; a hung phase times out honestly.
+        if self.steps_hotkey_drill {
+            self.hotkey_frames += 1;
+            match self.hotkey_phase {
+                0 if self.hotkey_frames >= 30 => {
+                    self.hotkey_phase = 1;
+                    std::thread::spawn(|| {
+                        if let Err(e) = dpl_engine_steps::simulate_toggle_chord() {
+                            eprintln!("steps-hotkey-drill: send failed: {e}");
+                        }
+                    });
+                }
+                1 if self.pixvix.steps_recording() => {
+                    eprintln!("steps-hotkey-drill: chord STARTED the recorder");
+                    // Settle before the stop chord — two overlapping
+                    // simulated sequences interleave their modifier
+                    // releases and break the second chord (seen live).
+                    self.hotkey_phase = 2;
+                    self.hotkey_mark = self.hotkey_frames;
+                }
+                2 if self.hotkey_frames >= self.hotkey_mark + 60 => {
+                    self.hotkey_phase = 3;
+                    std::thread::spawn(|| {
+                        if let Err(e) = dpl_engine_steps::simulate_toggle_chord() {
+                            eprintln!("steps-hotkey-drill: send failed: {e}");
+                        }
+                    });
+                }
+                3 if !self.pixvix.steps_recording() => {
+                    eprintln!(
+                        "steps-hotkey-drill: chord STOPPED the recorder · status: {}",
+                        self.pixvix.status_text()
+                    );
+                    std::process::exit(0);
+                }
+                _ => {}
+            }
+            if self.hotkey_frames > 600 {
+                eprintln!(
+                    "steps-hotkey-drill: TIMEOUT in phase {} · status: {}",
+                    self.hotkey_phase,
+                    self.pixvix.status_text()
+                );
+                std::process::exit(1);
             }
             ctx.request_repaint();
         }

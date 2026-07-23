@@ -1337,6 +1337,7 @@ dependencies = [
  "dpl-coldlight",
  "dpl-doc",
  "dpl-engine-capture",
+ "dpl-engine-steps",
  "dpl-fabric",
  "dpl-hub",
  "dpl-hub-chat",

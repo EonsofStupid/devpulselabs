@@ -7,107 +7,32 @@
 //!
 //! Every action calls an engine function and reports honestly in the
 //! status line. Filing: `content_root()/inbox`, never-clobber names.
+//!
+//! Modules (the C2 alignment split): `palette` paints the palette + Save
+//! card, `editor` is the frozen-frame region/polygon editor, `session`
+//! the S1 session vehicle. State and every engine call live HERE.
 
-use dpl_coldlight::{self as cl, Tone};
+use dpl_coldlight::Tone;
 use dpl_engine_capture as cap;
-use dpl_engine_steps::{normalize_meta_auto, CaptureMeta, StepsRecorder};
+use dpl_engine_steps::{normalize_meta_auto, CaptureMeta, Hotkey, StepsRecorder};
 use dpl_fabric::{Fabric, ShellEvent};
-use egui::{
-    Align2, Color32, CornerRadius, FontId, Rect, RichText, Sense, ViewportBuilder, ViewportId,
-};
-use egui_pilot_ai::protocol::{ActionKind as PilotActionKind, PilotViewportKey, Role as PilotRole};
-use egui_pilot_ai::{ContextPilotExt, NodeMetadata, PilotId, UiPilotExt};
+use egui::{ViewportBuilder, ViewportId};
+use egui_pilot_ai::protocol::PilotViewportKey;
+use egui_pilot_ai::ContextPilotExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-const TONE: Tone = Tone::Magenta; // wiredFRONT's tone — the capture family.
+pub(crate) const TONE: Tone = Tone::Magenta; // wiredFRONT's tone — the capture family.
 const PALETTE_KEY: &str = "devpulse.pixvix.palette";
-const REGION_KEY: &str = "devpulse.pixvix.region";
-const PALETTE_TITLE: PilotId = PilotId::new("pixvix.title");
-const PALETTE_CLOSE: PilotId = PilotId::new("pixvix.close");
-const TAB_IMG: PilotId = PilotId::new("pixvix.tab.img");
-const TAB_VIDEO: PilotId = PilotId::new("pixvix.tab.video");
-const TAB_SESSION: PilotId = PilotId::new("pixvix.tab.session");
-const TAB_STEPS: PilotId = PilotId::new("pixvix.tab.steps");
-const REGION_OPEN: PilotId = PilotId::new("pixvix.region.open");
-const SNAP_FULL: PilotId = PilotId::new("pixvix.snap.full");
-const FREEFORM: PilotId = PilotId::new("pixvix.freeform");
-const SNAP_WINDOW: PilotId = PilotId::new("pixvix.snap.window");
-const REFRESH_WINDOWS: PilotId = PilotId::new("pixvix.windows.refresh");
-const VIDEO_START: PilotId = PilotId::new("pixvix.video.start");
-const VIDEO_STOP: PilotId = PilotId::new("pixvix.video.stop");
-const SESSION_START: PilotId = PilotId::new("pixvix.session.start");
-const SESSION_STOP: PilotId = PilotId::new("pixvix.session.stop");
-const STEPS_START: PilotId = PilotId::new("pixvix.steps.start");
-const STEPS_MARK: PilotId = PilotId::new("pixvix.steps.mark");
-const STEPS_STOP: PilotId = PilotId::new("pixvix.steps.stop");
-const REGION_DRAG: PilotId = PilotId::new("pixvix.region.drag");
-const DELAY_CYCLE: PilotId = PilotId::new("pixvix.delay");
-const RESNIP: PilotId = PilotId::new("pixvix.resnip");
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Tab {
-    Img,
-    Video,
-    Session,
-    Steps,
-}
+mod editor;
+mod palette;
+pub mod session;
 
-impl Tab {
-    const ALL: [Tab; 4] = [Tab::Img, Tab::Video, Tab::Session, Tab::Steps];
-    fn icon(self) -> &'static str {
-        match self {
-            Tab::Img => cl::icon::IMG,
-            Tab::Video => cl::icon::VIDEO,
-            Tab::Session => cl::icon::SESSION,
-            Tab::Steps => cl::icon::STEPS,
-        }
-    }
-    fn label(self) -> &'static str {
-        match self {
-            Tab::Img => "Img",
-            Tab::Video => "Video",
-            Tab::Session => "Session",
-            Tab::Steps => "Steps",
-        }
-    }
-
-    fn pilot_id(self) -> PilotId {
-        match self {
-            Self::Img => TAB_IMG,
-            Self::Video => TAB_VIDEO,
-            Self::Session => TAB_SESSION,
-            Self::Steps => TAB_STEPS,
-        }
-    }
-}
-
-/// Which shape the frozen-frame editor is collecting (C1).
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum SnipMode {
-    /// Drag → armed rect → nudge (arrows, Shift=10px) → Enter/double-click.
-    Rect,
-    /// Click vertices → close on the first vertex or Enter (≥3);
-    /// Backspace removes the last vertex.
-    Free,
-}
-
-/// The frozen-frame editor's state (region AND freeform ride one
-/// viewport — same freeze, same veil, same loupe).
-struct RegionSelect {
-    tex: egui::TextureHandle,
-    frozen: PathBuf,
-    mode: SnipMode,
-    /// Rect mode: the ARMED selection (survives release for the nudge
-    /// ceremony; a new drag replaces it).
-    sel: Option<Rect>,
-    /// Rect mode: the live drag's anchor while the button is down.
-    dragging: Option<egui::Pos2>,
-    /// Free mode: the collected vertices, screen space.
-    poly: Vec<egui::Pos2>,
-}
+use editor::{RegionSelect, SnipMode};
+use palette::{PaletteActions, PaletteView, Tab};
 
 /// The last successful still's SHAPE — Re-snip re-fires it against a
 /// fresh frame without re-dragging (C1).
@@ -136,7 +61,18 @@ struct VideoRec {
     done: Arc<Mutex<Option<Result<u32, String>>>>,
 }
 
-pub mod session;
+/// A stopped-but-unfiled guide waiting on the Save card (C2). The
+/// engine keeps the session PENDING until `save` or `discard` decides.
+pub(crate) struct PendingGuide {
+    pub(crate) count: u32,
+    pub(crate) name: String,
+    /// Space/comma-separated entry; split on save.
+    pub(crate) tags: String,
+    /// General library ⇄ episode destination (the forced-metadata law).
+    pub(crate) library: bool,
+    pub(crate) show: String,
+    pub(crate) episode: String,
+}
 
 pub struct Pixvix {
     open: bool,
@@ -148,6 +84,11 @@ pub struct Pixvix {
     fabric: Fabric,
     steps: Arc<StepsRecorder>,
     steps_note: Arc<Mutex<String>>,
+    /// OS-global chords, queued on the hook thread, drained each frame.
+    hotkeys: Arc<Mutex<Vec<Hotkey>>>,
+    hook_wired: bool,
+    /// The Save card's state — Some between Stop and Save/Discard.
+    pending: Option<PendingGuide>,
     region: Option<RegionSelect>,
     video: Option<VideoRec>,
     /// The running session recording (S1), if any.
@@ -181,6 +122,9 @@ impl Pixvix {
             fabric: fabric.clone(),
             steps: StepsRecorder::new(sink),
             steps_note,
+            hotkeys: Arc::new(Mutex::new(Vec::new())),
+            hook_wired: false,
+            pending: None,
             region: None,
             video: None,
             session: None,
@@ -198,6 +142,25 @@ impl Pixvix {
     fn index_capture(path: &Path, kind: &str) -> String {
         let root = cap::content_root();
         let record = dpl_index::record_for_capture(path, &root, kind, "pixvix");
+        let result = dpl_index::sidecar::write(path, &record)
+            .and_then(|()| dpl_index::Index::open_default()?.upsert(&record));
+        match result {
+            Ok(()) => String::new(),
+            Err(e) => format!(" · index: {e}"),
+        }
+    }
+
+    /// The Save card's write-through (C2): the guide row carries the
+    /// card's tags and — for an episode destination — the association,
+    /// like the old `index_saved`. Same degrade law as `index_capture`.
+    fn index_guide(path: &Path, meta: &CaptureMeta) -> String {
+        let root = cap::content_root();
+        let mut record = dpl_index::record_for_capture(path, &root, "guide", "pixvix");
+        record.tags = meta.tags.clone();
+        if !meta.library {
+            record.show_id = Some(meta.show.clone());
+            record.episode_folder = Some(meta.episode.clone());
+        }
         let result = dpl_index::sidecar::write(path, &record)
             .and_then(|()| dpl_index::Index::open_default()?.upsert(&record));
         match result {
@@ -257,13 +220,18 @@ impl Pixvix {
         self.session.is_some()
     }
 
+    /// True while the Steps recorder runs (the hotkey drill's verdict).
+    pub fn steps_recording(&self) -> bool {
+        self.steps.status().recording
+    }
+
     /// The honest status line — the drill's verdict source.
     pub fn status_text(&self) -> &str {
         &self.status
     }
 
-    /// The steps hotkey (Ctrl+Shift+9): start when idle, stop+file when
-    /// recording — the old toggle, in-app scope for now (ledger: OS-global).
+    /// The Steps toggle (Ctrl+Shift+9, OS-global since C2): start when
+    /// idle, stop into the Save card when recording.
     pub fn toggle_steps(&mut self) {
         if self.steps.status().recording {
             self.stop_steps();
@@ -278,12 +246,14 @@ impl Pixvix {
         }
     }
 
-    /// Blank meta for the auto path — normalize_meta_auto fills the name
-    /// (`guide-<timestamp>`) and the default tag; the forced-metadata Save
-    /// card is PV3.
+    /// Blank meta for the recording-folder auto path — the operator's
+    /// real name/tags/destination arrive via the Save card on stop (C2).
+    /// General library here: the auto path must never block on a
+    /// destination (the first hotkey drill caught `library: false`
+    /// refusing every start).
     fn blank_meta() -> CaptureMeta {
         CaptureMeta {
-            library: false,
+            library: true,
             show: String::new(),
             episode: String::new(),
             name: String::new(),
@@ -292,6 +262,13 @@ impl Pixvix {
     }
 
     fn start_steps(&mut self) {
+        if self.pending.is_some() {
+            // Starting would drop the unfiled session — the card decides.
+            self.status = "a guide is waiting on the Save card — Save or Discard first".into();
+            self.tab = Tab::Steps;
+            self.open = true;
+            return;
+        }
         match Self::inbox().and_then(|inbox| {
             let meta = normalize_meta_auto(Self::blank_meta(), "guide")?;
             self.steps.start(&inbox, meta)
@@ -301,27 +278,65 @@ impl Pixvix {
         }
     }
 
+    /// Stop keeps the session PENDING and opens the Save card seeded
+    /// from the first captured window's title (C2 — the old flow).
     fn stop_steps(&mut self) {
         match self.steps.stop() {
             Ok(stop) => {
-                // Auto-file with generated meta; the forced-metadata Save
-                // card arrives with PV3.
-                let filed = Self::inbox().and_then(|inbox| {
-                    let meta = normalize_meta_auto(Self::blank_meta(), "guide")?;
-                    self.steps.save(&inbox, meta)
+                self.pending = Some(PendingGuide {
+                    count: stop.count,
+                    name: seed_name(&stop.seed_title),
+                    tags: String::new(),
+                    library: true,
+                    show: String::new(),
+                    episode: String::new(),
                 });
-                self.status = match filed {
-                    Ok(folder) => {
-                        let warn = Self::inbox()
-                            .map(|inbox| Self::index_capture(&inbox.join(&folder), "guide"))
-                            .unwrap_or_default();
-                        format!("steps: {} steps → {folder}{warn}", stop.count)
-                    }
-                    Err(e) => format!("steps: stop ok, save failed: {e}"),
-                };
+                self.tab = Tab::Steps;
+                self.open = true;
+                self.status = format!("{} steps pending — name your guide to file it", stop.count);
             }
             Err(e) => self.status = format!("steps: {e}"),
         }
+    }
+
+    /// The Save card's Save: STRICT metadata (kebab name + auto `_v1`,
+    /// ≥1 tag, episode/General) — a refusal keeps the pending guide and
+    /// lands in the status line. Filing happens exactly once, in the
+    /// engine.
+    fn save_pending(&mut self) {
+        let Some(p) = self.pending.as_ref() else {
+            return;
+        };
+        let tags: Vec<String> = p
+            .tags
+            .split([' ', ','])
+            .filter(|t| !t.is_empty())
+            .map(str::to_string)
+            .collect();
+        let meta = CaptureMeta {
+            library: p.library,
+            show: p.show.trim().to_string(),
+            episode: p.episode.trim().to_string(),
+            name: p.name.trim().to_string(),
+            tags,
+        };
+        let saved = Self::inbox().and_then(|inbox| self.steps.save(&inbox, meta.clone()));
+        match saved {
+            Ok(folder) => {
+                let count = self.pending.take().map(|p| p.count).unwrap_or(0);
+                let warn = Self::inbox()
+                    .map(|inbox| Self::index_guide(&inbox.join(&folder), &meta))
+                    .unwrap_or_default();
+                self.status = format!("guide: {count} steps → {folder}{warn}");
+            }
+            Err(e) => self.status = format!("guide: {e}"),
+        }
+    }
+
+    fn discard_pending(&mut self) {
+        self.steps.discard();
+        self.pending = None;
+        self.status = "guide discarded".into();
     }
 
     /// C1: land the written still on the OS clipboard too — egui's own
@@ -462,32 +477,6 @@ impl Pixvix {
         }
     }
 
-    fn begin_editor(&mut self, ctx: &egui::Context, mode: SnipMode) {
-        let result = (|| -> Result<RegionSelect, String> {
-            let frozen = std::env::temp_dir().join("dpl-pixvix-freeze.png");
-            cap::freeze_primary_to(&frozen)?;
-            let img = image::open(&frozen).map_err(|e| format!("freeze decode: {e}"))?;
-            let rgba = img.to_rgba8();
-            let color = egui::ColorImage::from_rgba_unmultiplied(
-                [rgba.width() as usize, rgba.height() as usize],
-                &rgba,
-            );
-            let tex = ctx.load_texture("pixvix-freeze", color, egui::TextureOptions::LINEAR);
-            Ok(RegionSelect {
-                tex,
-                frozen,
-                mode,
-                sel: None,
-                dragging: None,
-                poly: Vec::new(),
-            })
-        })();
-        match result {
-            Ok(r) => self.region = Some(r),
-            Err(e) => self.status = format!("freeze: {e}"),
-        }
-    }
-
     fn start_video(&mut self) {
         let result = Self::inbox().and_then(|inbox| {
             let primary = cap::list_targets()
@@ -601,12 +590,48 @@ impl Pixvix {
         }
     }
 
-    /// Drive the overlay for this frame: consume summons, then render the
-    /// palette viewport (or the REC pill) and the region-select viewport.
+    /// Install the OS-global hook ONCE (first frame): chords queue on the
+    /// hook thread and wake the UI — never any work over there (C2).
+    fn wire_hotkeys(&mut self, ctx: &egui::Context) {
+        if self.hook_wired {
+            return;
+        }
+        self.hook_wired = true;
+        let queue = Arc::clone(&self.hotkeys);
+        let repaint = ctx.clone();
+        let sink: dpl_engine_steps::HotkeySink = Arc::new(move |hotkey| {
+            if let Ok(mut q) = queue.lock() {
+                q.push(hotkey);
+            }
+            repaint.request_repaint();
+        });
+        dpl_engine_steps::install_hook(&self.steps, Some(sink));
+    }
+
+    /// Drive the overlay for this frame: consume summons + chords, then
+    /// render the palette viewport (or the REC pill) and the editor.
     pub fn ui(&mut self, ctx: &egui::Context) {
+        self.wire_hotkeys(ctx);
         while let Ok(ev) = self.rx.try_recv() {
             if ev == ShellEvent::PixvixSummon {
                 self.open = true;
+            }
+        }
+        let fired: Vec<Hotkey> = self
+            .hotkeys
+            .lock()
+            .map(|mut q| std::mem::take(&mut *q))
+            .unwrap_or_default();
+        for hotkey in fired {
+            match hotkey {
+                Hotkey::Palette => self.open = !self.open,
+                Hotkey::ToggleSteps => self.toggle_steps(),
+                // No error spam when idle — the old hotkey semantics.
+                Hotkey::MarkStep => {
+                    if self.steps.status().recording {
+                        self.mark_step();
+                    }
+                }
             }
         }
 
@@ -676,6 +701,9 @@ impl Pixvix {
 
         let size = if recording_steps {
             egui::vec2(236.0, 56.0)
+        } else if self.pending.is_some() {
+            // The Save card needs the extra rows.
+            egui::vec2(380.0, 310.0)
         } else {
             egui::vec2(380.0, 240.0)
         };
@@ -687,10 +715,13 @@ impl Pixvix {
             .with_resizable(false);
 
         // Immediate viewport: state lives here, the closure just paints.
+        // The pending guide is LENT to the closure — its text fields edit
+        // in place; Save/Discard come back as actions.
         let mut actions = PaletteActions::default();
         let tab = self.tab;
         let status = self.status.clone();
         let steps_state = self.steps.status();
+        let mut pending = self.pending.take();
         let video_elapsed = self.video.as_ref().map(|v| v.started.elapsed().as_secs());
         let session_state = self
             .session
@@ -719,15 +750,15 @@ impl Pixvix {
                 egui::CentralPanel::default()
                     .frame(
                         egui::Frame::new()
-                            .fill(cl::surface::RAISED)
-                            .stroke(egui::Stroke::new(1.0, cl::surface::HAIRLINE))
+                            .fill(dpl_coldlight::surface::RAISED)
+                            .stroke(egui::Stroke::new(1.0, dpl_coldlight::surface::HAIRLINE))
                             .inner_margin(egui::Margin::same(10)),
                     )
                     .show(ctx, |ui| {
                         if steps_state.recording {
-                            rec_pill(ui, steps_state.count, &mut actions);
+                            palette::rec_pill(ui, steps_state.count, &mut actions);
                         } else {
-                            palette(
+                            palette::palette(
                                 ui,
                                 &PaletteView {
                                     tab,
@@ -739,6 +770,7 @@ impl Pixvix {
                                     steps_note: &note,
                                     delay,
                                 },
+                                pending.as_mut(),
                                 &mut actions,
                             );
                         }
@@ -746,6 +778,7 @@ impl Pixvix {
             },
         );
         actions.close |= close_requested;
+        self.pending = pending;
 
         self.apply(actions, ctx);
     }
@@ -815,669 +848,34 @@ impl Pixvix {
         if actions.steps_stop {
             self.stop_steps();
         }
-    }
-
-    // ── the frozen-frame editor: region rect + freeform polygon (C1) ────
-    fn region_viewport(&mut self, ctx: &egui::Context) {
-        enum Done {
-            Cancel,
-            Rect(Rect, egui::Vec2),
-            Free(Vec<egui::Pos2>, egui::Vec2),
+        if actions.guide_save {
+            self.save_pending();
         }
-        let mut finish: Option<Done> = None;
-        let region = self.region.as_mut().expect("region state");
-        let builder = ViewportBuilder::default()
-            .with_title("PixVix region")
-            .with_fullscreen(true)
-            .with_always_on_top()
-            .with_decorations(false);
-
-        let mut close_requested = false;
-        ctx.pilot_show_viewport_immediate(
-            PilotViewportKey::new(REGION_KEY),
-            ViewportId::from_hash_of("pixvix-region"),
-            builder,
-            |ctx, _| {
-                close_requested = ctx.input(|input| input.viewport().close_requested());
-                egui::CentralPanel::default()
-                    .frame(egui::Frame::new().fill(Color32::BLACK))
-                    .show(ctx, |ui| {
-                        let full = ui.max_rect();
-                        let painter = ui.painter().clone();
-                        let tex = region.tex.id();
-                        painter.image(
-                            tex,
-                            full,
-                            Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                            Color32::WHITE,
-                        );
-
-                        let resp = ui.interact(
-                            full,
-                            egui::Id::new("pixvix-region-drag"),
-                            Sense::click_and_drag(),
-                        );
-                        let state_word = match region.mode {
-                            SnipMode::Rect if region.dragging.is_some() => "dragging".into(),
-                            SnipMode::Rect if region.sel.is_some() => "armed".into(),
-                            SnipMode::Rect => "drag to select".into(),
-                            SnipMode::Free => format!("polygon · {} vertices", region.poly.len()),
-                        };
-                        let mut metadata = NodeMetadata::new(
-                            REGION_DRAG,
-                            PilotRole::Region,
-                            "PixVix snip selection",
-                        )
-                        .value(state_word);
-                        metadata.actions = vec![PilotActionKind::Drag];
-                        ui.pilot_track(&resp, metadata);
-
-                        match region.mode {
-                            SnipMode::Rect => {
-                                // Drag paints live; release ARMS (the old
-                                // pro-snip ceremony) — a new drag replaces.
-                                if resp.drag_started() {
-                                    if let Some(p) = resp.interact_pointer_pos() {
-                                        region.dragging = Some(p);
-                                        region.sel = Some(Rect::from_two_pos(p, p));
-                                    }
-                                }
-                                if let (Some(anchor), Some(p)) =
-                                    (region.dragging, resp.interact_pointer_pos())
-                                {
-                                    if resp.dragged() {
-                                        region.sel = Some(Rect::from_two_pos(anchor, p));
-                                    }
-                                }
-                                if resp.drag_stopped() {
-                                    region.dragging = None;
-                                }
-                                // The nudge: arrows move the armed rect 1px,
-                                // Shift makes it 10.
-                                if region.dragging.is_none() {
-                                    if let Some(sel) = region.sel.as_mut() {
-                                        let step = if ui.input(|i| i.modifiers.shift) {
-                                            10.0
-                                        } else {
-                                            1.0
-                                        };
-                                        let mut d = egui::Vec2::ZERO;
-                                        ui.input(|i| {
-                                            if i.key_pressed(egui::Key::ArrowLeft) {
-                                                d.x -= step;
-                                            }
-                                            if i.key_pressed(egui::Key::ArrowRight) {
-                                                d.x += step;
-                                            }
-                                            if i.key_pressed(egui::Key::ArrowUp) {
-                                                d.y -= step;
-                                            }
-                                            if i.key_pressed(egui::Key::ArrowDown) {
-                                                d.y += step;
-                                            }
-                                        });
-                                        if d != egui::Vec2::ZERO {
-                                            *sel = sel.translate(d);
-                                        }
-                                    }
-                                }
-                                // Enter or double-click CAPTURES the armed rect.
-                                let confirm = ui.input(|i| i.key_pressed(egui::Key::Enter))
-                                    || resp.double_clicked();
-                                if confirm {
-                                    if let Some(sel) = region.sel {
-                                        finish = Some(Done::Rect(sel, full.size()));
-                                    }
-                                }
-                            }
-                            SnipMode::Free => {
-                                // Every click adds a vertex; a click near the
-                                // FIRST vertex (≥3) closes; Enter closes too;
-                                // Backspace removes the last.
-                                if resp.clicked() {
-                                    if let Some(p) = resp.interact_pointer_pos() {
-                                        let closes = region.poly.len() >= 3
-                                            && (p - region.poly[0]).length() < 8.0;
-                                        if closes {
-                                            finish = Some(Done::Free(
-                                                region.poly.clone(),
-                                                full.size(),
-                                            ));
-                                        } else {
-                                            region.poly.push(p);
-                                        }
-                                    }
-                                }
-                                if ui.input(|i| i.key_pressed(egui::Key::Backspace)) {
-                                    region.poly.pop();
-                                }
-                                if ui.input(|i| i.key_pressed(egui::Key::Enter))
-                                    && region.poly.len() >= 3
-                                {
-                                    finish =
-                                        Some(Done::Free(region.poly.clone(), full.size()));
-                                }
-                            }
-                        }
-
-                        // The veil + guides, per mode.
-                        let sel = match region.mode {
-                            SnipMode::Rect => region.sel,
-                            SnipMode::Free => None,
-                        };
-                        if region.mode == SnipMode::Free {
-                            painter.rect_filled(full, 0, Color32::from_black_alpha(60));
-                            for w in region.poly.windows(2) {
-                                painter.line_segment(
-                                    [w[0], w[1]],
-                                    egui::Stroke::new(1.5, TONE.color()),
-                                );
-                            }
-                            if let (Some(&first), Some(p)) =
-                                (region.poly.first(), ui.ctx().pointer_latest_pos())
-                            {
-                                if let Some(&last) = region.poly.last() {
-                                    painter.line_segment(
-                                        [last, p],
-                                        egui::Stroke::new(
-                                            1.0,
-                                            TONE.color().gamma_multiply(0.5),
-                                        ),
-                                    );
-                                }
-                                // The close target glows once it can close.
-                                if region.poly.len() >= 3 {
-                                    painter.circle_stroke(
-                                        first,
-                                        8.0,
-                                        egui::Stroke::new(1.5, TONE.color()),
-                                    );
-                                }
-                            }
-                            for v in &region.poly {
-                                painter.circle_filled(*v, 3.0, TONE.color());
-                            }
-                            painter.text(
-                                egui::pos2(full.center().x, full.max.y - 28.0),
-                                Align2::CENTER_CENTER,
-                                "click to add vertices · click the first (or Enter) closes · Backspace undoes · Esc cancels",
-                                FontId::proportional(14.0),
-                                cl::ink::STRONG,
-                            );
-                        }
-                        let veil = Color32::from_black_alpha(140);
-                        match sel {
-                            Some(r) => {
-                                for shade in [
-                                    Rect::from_min_max(full.min, egui::pos2(full.max.x, r.min.y)),
-                                    Rect::from_min_max(egui::pos2(full.min.x, r.max.y), full.max),
-                                    Rect::from_min_max(
-                                        egui::pos2(full.min.x, r.min.y),
-                                        egui::pos2(r.min.x, r.max.y),
-                                    ),
-                                    Rect::from_min_max(
-                                        egui::pos2(r.max.x, r.min.y),
-                                        egui::pos2(full.max.x, r.max.y),
-                                    ),
-                                ] {
-                                    painter.rect_filled(shade, 0, veil);
-                                }
-                                painter.rect(
-                                    r,
-                                    0,
-                                    Color32::TRANSPARENT,
-                                    egui::Stroke::new(1.5, TONE.color()),
-                                    egui::StrokeKind::Outside,
-                                );
-                                painter.text(
-                                    r.min - egui::vec2(0.0, 6.0),
-                                    Align2::LEFT_BOTTOM,
-                                    format!("{:.0} × {:.0}", r.width(), r.height()),
-                                    FontId::monospace(12.0),
-                                    cl::ink::STRONG,
-                                );
-                                // The ceremony hint, once armed.
-                                if region.dragging.is_none() {
-                                    painter.text(
-                                        egui::pos2(full.center().x, full.max.y - 28.0),
-                                        Align2::CENTER_CENTER,
-                                        "arrows nudge (Shift = 10px) · Enter or double-click captures · drag again to redo · Esc cancels",
-                                        FontId::proportional(14.0),
-                                        cl::ink::STRONG,
-                                    );
-                                }
-                            }
-                            None if region.mode == SnipMode::Rect => {
-                                painter.rect_filled(full, 0, Color32::from_black_alpha(60));
-                                painter.text(
-                                    full.center(),
-                                    Align2::CENTER_CENTER,
-                                    "drag to select · Esc cancels",
-                                    FontId::proportional(15.0),
-                                    cl::ink::STRONG,
-                                );
-                            }
-                            None => {}
-                        }
-
-                        // The loupe: 4× zoom around the cursor, ColdLight-framed.
-                        if let Some(p) = ui.ctx().pointer_latest_pos() {
-                            let zoom = 4.0;
-                            let box_size = 120.0;
-                            let uv_half = box_size / zoom / 2.0;
-                            let uv = Rect::from_min_max(
-                                egui::pos2(
-                                    ((p.x - uv_half) / full.width()).clamp(0.0, 1.0),
-                                    ((p.y - uv_half) / full.height()).clamp(0.0, 1.0),
-                                ),
-                                egui::pos2(
-                                    ((p.x + uv_half) / full.width()).clamp(0.0, 1.0),
-                                    ((p.y + uv_half) / full.height()).clamp(0.0, 1.0),
-                                ),
-                            );
-                            let offset = egui::vec2(24.0, 24.0);
-                            let mut anchor = p + offset;
-                            if anchor.x + box_size > full.max.x {
-                                anchor.x = p.x - offset.x - box_size;
-                            }
-                            if anchor.y + box_size > full.max.y {
-                                anchor.y = p.y - offset.y - box_size;
-                            }
-                            let loupe = Rect::from_min_size(anchor, egui::vec2(box_size, box_size));
-                            painter.image(tex, loupe, uv, Color32::WHITE);
-                            painter.rect(
-                                loupe,
-                                CornerRadius::same(cl::RADIUS_SM),
-                                Color32::TRANSPARENT,
-                                egui::Stroke::new(1.5, TONE.color()),
-                                egui::StrokeKind::Outside,
-                            );
-                            // Crosshair at the loupe center = the cursor pixel.
-                            let c = loupe.center();
-                            painter.line_segment(
-                                [c - egui::vec2(8.0, 0.0), c + egui::vec2(8.0, 0.0)],
-                                egui::Stroke::new(1.0, TONE.color()),
-                            );
-                            painter.line_segment(
-                                [c - egui::vec2(0.0, 8.0), c + egui::vec2(0.0, 8.0)],
-                                egui::Stroke::new(1.0, TONE.color()),
-                            );
-                        }
-
-                        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                            finish = Some(Done::Cancel);
-                        }
-                    });
-            },
-        );
-        if close_requested {
-            finish = Some(Done::Cancel);
-        }
-
-        if let Some(done) = finish {
-            let state = self.region.take().expect("region state");
-            match done {
-                Done::Rect(r, screen) => {
-                    if r.width() >= 4.0 && r.height() >= 4.0 {
-                        let frac = cap::FracRect {
-                            x: (r.min.x / screen.x) as f64,
-                            y: (r.min.y / screen.y) as f64,
-                            w: (r.width() / screen.x) as f64,
-                            h: (r.height() / screen.y) as f64,
-                        };
-                        let result = Self::inbox().and_then(|inbox| {
-                            let out = Self::unique_path(&inbox, "pix", "png");
-                            cap::still_region_from_png(&state.frozen, &out, frac)?;
-                            Ok(out)
-                        });
-                        self.status = match result {
-                            Ok(p) => {
-                                self.last = Some(LastSnip::Region(frac));
-                                format!(
-                                    "saved {}{}{}",
-                                    p.display(),
-                                    Self::index_capture(&p, "image"),
-                                    Self::copy_to_clipboard(ctx, &p)
-                                )
-                            }
-                            Err(e) => e,
-                        };
-                    } else {
-                        self.status = "region too small".into();
-                    }
-                }
-                Done::Free(poly, screen) => {
-                    let points: Vec<[f64; 2]> = poly
-                        .iter()
-                        .map(|p| [(p.x / screen.x) as f64, (p.y / screen.y) as f64])
-                        .collect();
-                    let result = Self::inbox().and_then(|inbox| {
-                        let out = Self::unique_path(&inbox, "pix", "png");
-                        cap::still_freeform_from_png(&state.frozen, &out, &points)?;
-                        Ok(out)
-                    });
-                    self.status = match result {
-                        Ok(p) => {
-                            self.last = Some(LastSnip::Free(points));
-                            format!(
-                                "saved {}{}{}",
-                                p.display(),
-                                Self::index_capture(&p, "image"),
-                                Self::copy_to_clipboard(ctx, &p)
-                            )
-                        }
-                        Err(e) => e,
-                    };
-                }
-                Done::Cancel => self.status = "snip cancelled".into(),
-            }
-            let _ = std::fs::remove_file(&state.frozen); // temp freeze only
+        if actions.guide_discard {
+            self.discard_pending();
         }
     }
 }
 
-/// What the palette closure asks the owner to do (immediate viewports paint;
-/// the owner mutates).
-#[derive(Default)]
-struct PaletteActions {
-    tab: Option<Tab>,
-    close: bool,
-    snap_full: bool,
-    snap_window: bool,
-    begin_region: bool,
-    begin_free: bool,
-    resnip: bool,
-    cycle_delay: bool,
-    refresh_windows: bool,
-    pick_window: Option<usize>,
-    video_start: bool,
-    video_stop: bool,
-    session_start: bool,
-    session_stop: bool,
-    steps_start: bool,
-    steps_mark: bool,
-    steps_stop: bool,
-}
-
-/// Everything the palette closure READS this frame — bundled so the
-/// paint fn stays inside the argument budget without an `#[allow]`
-/// (the workspace law; this retires the one grandfathered exception).
-struct PaletteView<'a> {
-    tab: Tab,
-    status: &'a str,
-    windows: &'a [String],
-    picked: usize,
-    video_elapsed: Option<u64>,
-    session_state: Option<(u64, usize)>,
-    steps_note: &'a str,
-    delay: u8,
-}
-
-fn palette(ui: &mut egui::Ui, view: &PaletteView<'_>, actions: &mut PaletteActions) {
-    let PaletteView {
-        tab,
-        status,
-        windows,
-        picked,
-        video_elapsed,
-        session_state,
-        steps_note,
-        delay,
-    } = *view;
-    // Title row: identity + close.
-    ui.horizontal(|ui| {
-        ui.label(RichText::new(cl::icon::SNIP).color(TONE.color()).size(14.0));
-        let title = ui.label(RichText::new("PixVix").strong().color(cl::ink::STRONG));
-        ui.pilot_track(
-            &title,
-            NodeMetadata::new(PALETTE_TITLE, PilotRole::Heading, "PixVix"),
-        );
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if pilot_chip(ui, PALETTE_CLOSE, cl::icon::CLOSE, "", TONE) {
-                actions.close = true;
-            }
-        });
-    });
-
-    // The tab strip.
-    ui.horizontal(|ui| {
-        for t in Tab::ALL {
-            let active = t == tab;
-            let text = format!("{} {}", t.icon(), t.label());
-            let rich = if active {
-                RichText::new(text).color(TONE.color())
-            } else {
-                RichText::new(text).color(cl::ink::MUTED)
-            };
-            let response = ui.selectable_label(active, rich);
-            let mut metadata =
-                NodeMetadata::new(t.pilot_id(), PilotRole::Tab, t.label().to_string());
-            metadata.selected = Some(active);
-            ui.pilot_track(&response, metadata);
-            if response.clicked() {
-                actions.tab = Some(t);
-            }
-        }
-    });
-    ui.separator();
-
-    match tab {
-        Tab::Img => {
-            ui.horizontal(|ui| {
-                if pilot_chip(ui, REGION_OPEN, cl::icon::REGION, "Region", TONE) {
-                    actions.begin_region = true;
-                }
-                if pilot_chip(ui, SNAP_FULL, cl::icon::FULL, "Full", TONE) {
-                    actions.snap_full = true;
-                }
-                if pilot_chip(ui, FREEFORM, cl::icon::FREE, "Free", TONE) {
-                    actions.begin_free = true;
-                }
-                // The delay chip cycles 0 → 3 → 10 seconds (C1).
-                let delay_label = if delay == 0 {
-                    "0s".to_string()
-                } else {
-                    format!("{delay}s")
-                };
-                if pilot_chip(ui, DELAY_CYCLE, "", &delay_label, TONE) {
-                    actions.cycle_delay = true;
-                }
-                if pilot_chip(ui, RESNIP, "", "Re-snip", TONE) {
-                    actions.resnip = true;
-                }
-            });
-            ui.add_space(cl::space::S2);
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(cl::icon::WINDOW).color(cl::ink::MUTED));
-                let current = windows
-                    .get(picked)
-                    .cloned()
-                    .unwrap_or_else(|| "no windows scanned".into());
-                egui::ComboBox::from_id_salt("pixvix-window")
-                    .width(220.0)
-                    .selected_text(RichText::new(truncate(&current, 30)).small())
-                    .show_ui(ui, |ui| {
-                        for (i, w) in windows.iter().enumerate() {
-                            if ui.selectable_label(i == picked, truncate(w, 44)).clicked() {
-                                actions.pick_window = Some(i);
-                            }
-                        }
-                    });
-                if pilot_chip(ui, SNAP_WINDOW, cl::icon::SNIP, "Snap", TONE) {
-                    actions.snap_window = true;
-                }
-                if ui.pilot_button(REFRESH_WINDOWS, "↻").clicked() {
-                    actions.refresh_windows = true;
-                }
-            });
-            ui.label(
-                RichText::new(
-                    "Region arms · arrows nudge · Enter captures. Free: click a polygon closed.",
-                )
-                .small()
-                .color(cl::ink::SUBTLE),
-            );
-        }
-        Tab::Video => match video_elapsed {
-            Some(secs) => {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(cl::icon::REC)
-                            .color(Tone::Coral.color())
-                            .size(15.0),
-                    );
-                    ui.label(
-                        RichText::new(format!("REC {:02}:{:02}", secs / 60, secs % 60))
-                            .monospace()
-                            .color(Tone::Coral.color()),
-                    );
-                    if pilot_chip(ui, VIDEO_STOP, cl::icon::STOP, "Stop", TONE) {
-                        actions.video_stop = true;
-                    }
-                });
-            }
-            None => {
-                ui.horizontal(|ui| {
-                    if pilot_chip(ui, VIDEO_START, cl::icon::REC, "Record screen", TONE) {
-                        actions.video_start = true;
-                    }
-                });
-                ui.label(
-                    RichText::new("Primary monitor · 1080p x264 · silent (audio in PV3).")
-                        .small()
-                        .color(cl::ink::SUBTLE),
-                );
-            }
-        },
-        Tab::Session => match session_state {
-            Some((secs, events)) => {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(cl::icon::REC)
-                            .color(Tone::Coral.color())
-                            .size(15.0),
-                    );
-                    ui.label(
-                        RichText::new(format!("REC {:02}:{:02}", secs / 60, secs % 60))
-                            .monospace()
-                            .color(Tone::Coral.color()),
-                    );
-                    ui.label(
-                        RichText::new(format!("{events} events"))
-                            .small()
-                            .color(cl::ink::SUBTLE),
-                    );
-                    if pilot_chip(ui, SESSION_STOP, cl::icon::STOP, "Stop", TONE) {
-                        actions.session_stop = true;
-                    }
-                });
-            }
-            None => {
-                ui.horizontal(|ui| {
-                    if pilot_chip(ui, SESSION_START, cl::icon::REC, "Record session", TONE) {
-                        actions.session_start = true;
-                    }
-                });
-                ui.label(
-                    RichText::new(
-                        "Screen video + a typed event track (routes, beats) — one session artifact.",
-                    )
-                    .small()
-                    .color(cl::ink::SUBTLE),
-                );
-            }
-        },
-        Tab::Steps => {
-            ui.horizontal(|ui| {
-                if pilot_chip(ui, STEPS_START, cl::icon::REC, "Start guide", TONE) {
-                    actions.steps_start = true;
-                }
-            });
-            ui.label(
-                RichText::new("Every click/Enter auto-snaps a step; Ctrl+Shift+9 toggles, Ctrl+Shift+X marks (app focused).")
-                    .small()
-                    .color(cl::ink::SUBTLE),
-            );
-            if !steps_note.is_empty() {
-                ui.label(
-                    RichText::new(steps_note)
-                        .small()
-                        .monospace()
-                        .color(cl::ink::MUTED),
-                );
-            }
+/// Seed a Save-card name from the first captured window's title —
+/// Scribe-style: "Downloads - File Explorer" suggests "downloads". The
+/// trailing " - App" segment drops; the rest kebab-ifies. The operator
+/// edits from there; the STRICT law applies on save.
+fn seed_name(title: &str) -> String {
+    let base = title
+        .rsplit_once(" - ")
+        .map(|(head, _)| head)
+        .unwrap_or(title);
+    let mut out = String::new();
+    for c in base.chars() {
+        let c = c.to_ascii_lowercase();
+        if c.is_ascii_lowercase() || c.is_ascii_digit() {
+            out.push(c);
+        } else if !out.is_empty() && !out.ends_with('-') {
+            out.push('-');
         }
     }
-
-    ui.add_space(cl::space::S2);
-    if !status.is_empty() {
-        ui.label(
-            RichText::new(status)
-                .small()
-                .monospace()
-                .color(cl::ink::BASE),
-        );
-    }
-}
-
-/// The REC pill — the palette collapsed while Steps records.
-fn rec_pill(ui: &mut egui::Ui, count: u32, actions: &mut PaletteActions) {
-    ui.horizontal_centered(|ui| {
-        // The pulse: alpha breathes on the motion runtime's loop.
-        let t = ui.input(|i| i.time);
-        let p = cl::motion::HOTSPOT_PULSE.at(t, 0.0, 0);
-        let alpha = 140 + (110.0 * (1.0 - p)) as u8;
-        let c = Tone::Coral.color();
-        ui.label(
-            RichText::new(cl::icon::REC)
-                .size(16.0)
-                .color(Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), alpha)),
-        );
-        ui.label(
-            RichText::new(format!("REC · {count}"))
-                .monospace()
-                .color(Tone::Coral.color()),
-        );
-        if pilot_chip(ui, STEPS_MARK, cl::icon::MARK, "Mark", TONE) {
-            actions.steps_mark = true;
-        }
-        if pilot_chip(ui, STEPS_STOP, cl::icon::STOP, "Stop", TONE) {
-            actions.steps_stop = true;
-        }
-        ui.ctx().request_repaint(); // the pulse never rests while recording
-    });
-}
-
-fn pilot_chip(ui: &mut egui::Ui, id: PilotId, glyph: &str, label: &str, tone: Tone) -> bool {
-    let text = if label.is_empty() {
-        glyph.to_string()
-    } else {
-        format!("{glyph} {label}")
-    };
-    let response = ui.add(
-        egui::Button::new(RichText::new(text).color(cl::ink::BASE))
-            .fill(cl::surface::OVERLAY)
-            .stroke(egui::Stroke::new(1.0, tone.wash()))
-            .corner_radius(CornerRadius::same(cl::RADIUS_SM)),
-    );
-    ui.pilot_track(
-        &response,
-        NodeMetadata::new(
-            id,
-            PilotRole::Button,
-            if label.is_empty() { glyph } else { label },
-        ),
-    );
-    response.clicked()
-}
-
-fn truncate(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        s.to_string()
-    } else {
-        let cut: String = s.chars().take(max.saturating_sub(1)).collect();
-        format!("{cut}…")
-    }
+    out.trim_matches('-').to_string()
 }
 
 #[cfg(test)]
@@ -1501,7 +899,18 @@ mod tests {
 
     #[test]
     fn truncate_is_char_safe() {
-        assert_eq!(truncate("short", 30), "short");
-        assert_eq!(truncate("ABCDEFGHIJ", 5), "ABCD…");
+        assert_eq!(palette::truncate("short", 30), "short");
+        assert_eq!(palette::truncate("ABCDEFGHIJ", 5), "ABCD…");
+    }
+
+    #[test]
+    fn seed_name_strips_the_app_and_kebabs() {
+        assert_eq!(seed_name("Downloads - File Explorer"), "downloads");
+        assert_eq!(
+            seed_name("Users & Auth — Setup - Google Chrome"),
+            "users-auth-setup"
+        );
+        assert_eq!(seed_name("Notepad"), "notepad");
+        assert_eq!(seed_name(""), "", "empty seeds stay empty — the law asks");
     }
 }

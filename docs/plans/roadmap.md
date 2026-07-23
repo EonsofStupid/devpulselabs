@@ -140,12 +140,18 @@ the deck track in session capture. Original charter follows.
 - **C1 Stills parity:** freeform polygon (overlay + engine), window-mode
   stills + picker, capture delay, re-snip, clipboard auto-copy, arrow-key
   nudge ceremony. Pilot: overlay flows via the multi-window extension;
-  engine units for polygon masking.
+  engine units for polygon masking. ✅ DONE (plan
+  docs/plans/c1-stills-parity.md, a8c63f0; overlay pilot scenarios wait
+  on the Codex multi-window targets).
 - **C2 Steps parity:** rdev OS-global hooks (Ctrl+Shift+S/9/X), global
   click hook + window-following + click coords + do→done fingerprint
   dedup, seed-name from window title, forced-metadata Save card, guide
   EDIT rewrite. Pilot: in-app portions scenario-driven; OS-global portions
-  engine-unit + drill (the pilot never fakes OS hooks).
+  engine-unit + drill (the pilot never fakes OS hooks). ✅ DONE (plan
+  docs/plans/c2-steps-parity.md; `--steps-hotkey-drill` proves the real
+  OS chord loop; `edit::update_guide` engine-side, the W5 reviewer UI
+  consumes it; Save-card pilot scenario waits on the Codex multi-window
+  targets).
 - **C3 Video parity:** format matrix (mp4/webm-vp9/av1), audio
   (loopback/mic + device list), 720p default + max-cap, REC timer +
   poster. Pilot: recorder lifecycle scenario w/ suppressed-motion capture.
