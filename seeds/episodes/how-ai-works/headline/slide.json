@@ -1,20 +1,11 @@
 {
   "v": 1,
   "template": "title",
-  "background": {
-    "kind": "mood-blend",
-    "moods": [
-      "terracotta-dusk",
-      "solar-flare"
-    ],
-    "motion": "blend-drift"
-  },
   "blocks": [
     {
       "kind": "text",
       "id": "eyebrow",
       "text": "PLAIN ENGLISH",
-      "font": "michroma",
       "size": "eyebrow",
       "ink": "tone"
     },
@@ -22,7 +13,6 @@
       "kind": "text",
       "id": "title",
       "text": "What is a GPU, actually?",
-      "font": "michroma",
       "size": "h1",
       "ink": "strong"
     },
@@ -31,9 +21,7 @@
       "id": "subtitle",
       "text": "Ten thousand tiny calculators that all raise their hands at once.",
       "font": "spacegrotesk",
-      "size": "h3",
-      "ink": "base"
+      "size": "h3"
     }
-  ],
-  "enter": "rise"
+  ]
 }

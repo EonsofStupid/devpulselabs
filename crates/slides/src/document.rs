@@ -74,11 +74,19 @@ fn plate(ui: &Ui, rect: Rect, message: &str) {
 }
 
 /// Paint the document's background into `rect`; returns the leading accent
-/// color (the "tone" ink and the ambience ride it).
-fn background(ui: &mut Ui, rect: Rect, slide: &dpl_doc::Slide, now: f64, t0: f64) -> Color32 {
+/// color (the "tone" ink and the ambience ride it). Takes the RESOLVED
+/// background — `None` only if resolution was skipped, painting as the
+/// bare well (defensive; `resolve` always fills it).
+fn background(
+    ui: &mut Ui,
+    rect: Rect,
+    bg: Option<&dpl_doc::Background>,
+    now: f64,
+    t0: f64,
+) -> Color32 {
     let find = |name: &str| cl::MOODS.iter().find(|m| m.name == name);
     let painter = ui.painter_at(rect);
-    match &slide.background {
+    match bg.unwrap_or(&dpl_doc::Background::None) {
         dpl_doc::Background::MoodBlend {
             moods, ambience, ..
         } => {
@@ -177,8 +185,18 @@ impl RenderMap {
 }
 
 /// Render a document into `rect`. The ONE path — every surface calls this.
-pub fn render(ui: &mut Ui, rect: Rect, slide: &dpl_doc::Slide, now: f64, t0: f64) {
-    let _ = render_traced(ui, rect, slide, now, t0);
+/// `look` is the show's trait (W3b): the slide's absent styling fields
+/// inherit from it via `dpl_doc::resolve`; standalone slides pass
+/// `&dpl_doc::Look::fallback()`.
+pub fn render(
+    ui: &mut Ui,
+    rect: Rect,
+    slide: &dpl_doc::Slide,
+    look: &dpl_doc::Look,
+    now: f64,
+    t0: f64,
+) {
+    let _ = render_traced(ui, rect, slide, look, now, t0);
 }
 
 /// Render AND return where every block landed (for the editor's hit-test).
@@ -186,10 +204,14 @@ pub fn render_traced(
     ui: &mut Ui,
     rect: Rect,
     slide: &dpl_doc::Slide,
+    look: &dpl_doc::Look,
     now: f64,
     t0: f64,
 ) -> RenderMap {
-    let accent = background(ui, rect, slide, now, t0);
+    // The whole cascade happens HERE, once — the body below paints a
+    // fully-specified document exactly as before W3b.
+    let slide = &dpl_doc::resolve(slide, look);
+    let accent = background(ui, rect, slide.background.as_ref(), now, t0);
 
     let fluid = cl::Fluid::of(rect);
     let painter = ui.painter_at(rect);
@@ -205,7 +227,7 @@ pub fn render_traced(
         let px = size_of(&fluid, size).unwrap_or_else(|| fluid.fs_body());
         let galley = painter.layout(
             text.clone(),
-            egui::FontId::new(px, family_of(font)),
+            egui::FontId::new(px, family_of(font.as_deref().unwrap_or(""))),
             cl::ink::BASE,
             wrap,
         );
@@ -235,10 +257,10 @@ pub fn render_traced(
         } = block;
         let p = if rising { fx.at(now, t0, i) } else { 1.0 };
         let px = size_of(&fluid, size).unwrap_or_else(|| fluid.fs_body());
-        let color = ink_of(ink, accent).gamma_multiply(p);
+        let color = ink_of(ink.as_deref().unwrap_or("base"), accent).gamma_multiply(p);
         let galley = painter.layout(
             text.clone(),
-            egui::FontId::new(px, family_of(font)),
+            egui::FontId::new(px, family_of(font.as_deref().unwrap_or(""))),
             color,
             wrap,
         );
@@ -259,13 +281,21 @@ pub fn render_traced(
 /// A document with its own clock — the wall/stage wrapper.
 pub struct DocSlide {
     pub slide: dpl_doc::Slide,
+    look: dpl_doc::Look,
     clock: Clock,
 }
 
 impl DocSlide {
+    /// Standalone document — resolves against the fallback look.
     pub fn new(slide: dpl_doc::Slide) -> Self {
+        Self::with_look(slide, dpl_doc::Look::fallback())
+    }
+
+    /// A document inside a show — resolves against the show's look.
+    pub fn with_look(slide: dpl_doc::Slide, look: dpl_doc::Look) -> Self {
         Self {
             slide,
+            look,
             clock: Clock::default(),
         }
     }
@@ -277,7 +307,7 @@ impl DocSlide {
     pub fn ui(&mut self, ui: &mut Ui, rect: Rect) {
         let now = ui.input(|i| i.time);
         let t0 = self.clock.tick(now);
-        render(ui, rect, &self.slide, now, t0);
+        render(ui, rect, &self.slide, &self.look, now, t0);
     }
 }
 
@@ -318,17 +348,17 @@ mod tests {
         let slide = dpl_doc::Slide {
             v: dpl_doc::SCHEMA_V,
             template: "ghost".into(),
-            background: dpl_doc::Background::MoodBlend {
+            background: Some(dpl_doc::Background::MoodBlend {
                 moods: vec!["no-such-mood".into(), "also-missing".into()],
                 motion: "warp".into(),
                 ambience: Some("strobe".into()),
-            },
+            }),
             blocks: vec![dpl_doc::Block::Text {
                 id: "t".into(),
                 text: "still here".into(),
-                font: "comic-sans".into(),
+                font: Some("comic-sans".into()),
                 size: "gigantic".into(),
-                ink: "chartreuse".into(),
+                ink: Some("chartreuse".into()),
             }],
             enter: Some("rise".into()),
         };
@@ -337,7 +367,34 @@ mod tests {
         let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
                 let rect = ui.max_rect();
-                render(ui, rect, &slide, 1.0, 0.0);
+                render(ui, rect, &slide, &dpl_doc::Look::fallback(), 1.0, 0.0);
+            });
+        });
+    }
+
+    /// The cascade at the paint layer: a slide with NO styling of its own
+    /// renders through a look without panicking (W3b).
+    #[test]
+    fn a_sparse_slide_renders_with_the_looks_styling() {
+        let sparse = dpl_doc::Slide {
+            v: dpl_doc::SCHEMA_V,
+            template: "title".into(),
+            background: None,
+            blocks: vec![dpl_doc::Block::Text {
+                id: "t".into(),
+                text: "styled by the show".into(),
+                font: None,
+                size: "h1".into(),
+                ink: None,
+            }],
+            enter: None,
+        };
+        let ctx = egui::Context::default();
+        cl::apply_theme(&ctx);
+        let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let rect = ui.max_rect();
+                render(ui, rect, &sparse, &dpl_doc::Look::fallback(), 1.0, 0.0);
             });
         });
     }
@@ -354,7 +411,7 @@ mod tests {
             let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     let rect = ui.max_rect();
-                    render(ui, rect, &slide, 2.0, 0.0);
+                    render(ui, rect, &slide, &dpl_doc::Look::fallback(), 2.0, 0.0);
                 });
             });
         }

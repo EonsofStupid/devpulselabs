@@ -231,12 +231,17 @@ impl EpisodeView {
     fn open(dir: &std::path::Path, id: String) -> Result<Self, String> {
         let ep = dpl_doc::load_episode(dir).map_err(|e| e.to_string())?;
         let issues = dpl_doc::validate_episode(dir, &ep);
+        // The show's authored look (W3b) — every slide resolves through it.
+        let look = dpl_doc::load_look(dir)
+            .ok()
+            .flatten()
+            .unwrap_or_else(dpl_doc::Look::fallback);
         let mut rows = Vec::new();
         for chapter in &ep.chapters {
             for (i, name) in chapter.slides.iter().enumerate() {
                 let head = (i == 0).then(|| chapter.title.clone());
                 let doc = dpl_doc::load(&dir.join(name))
-                    .map(DocSlide::new)
+                    .map(|s| DocSlide::with_look(s, look.clone()))
                     .map_err(|e| e.to_string())?;
                 rows.push((head, name.clone(), doc));
             }
@@ -399,28 +404,44 @@ impl WorkbenchHub {
         );
         ui.add_space(cl::space::S2);
         let mut open: Option<PathBuf> = None;
+        let picker_card =
+            |ui: &mut egui::Ui, label: &str, open: &mut Option<PathBuf>, dir: PathBuf| {
+                let resp = cl::card_frame().show(ui, |ui| {
+                    ui.set_width(ui.available_width().min(560.0));
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(label).strong().color(cl::ink::STRONG));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(RichText::new("edit ›").small().color(SPEC.tone.color()));
+                        });
+                    });
+                });
+                if resp.response.interact(egui::Sense::click()).clicked() {
+                    *open = Some(dir);
+                }
+                ui.add_space(cl::space::S2);
+            };
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 for (id, dir) in dpl_doc::list_seeds() {
-                    let resp = cl::card_frame().show(ui, |ui| {
-                        ui.set_width(ui.available_width().min(560.0));
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new(&id).strong().color(cl::ink::STRONG));
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    ui.label(
-                                        RichText::new("edit ›").small().color(SPEC.tone.color()),
-                                    );
-                                },
-                            );
-                        });
-                    });
-                    if resp.response.interact(egui::Sense::click()).clicked() {
-                        open = Some(dir);
+                    picker_card(ui, &id, &mut open, dir);
+                }
+                // The shows (W3b): episode slides edit against their show's
+                // look — the editor detects it from the parent folder.
+                for (ep_id, ep_dir) in dpl_doc::list_episodes() {
+                    let Ok(ep) = dpl_doc::load_episode(&ep_dir) else {
+                        continue;
+                    };
+                    ui.add_space(cl::space::S3);
+                    ui.label(
+                        RichText::new(ep.title.to_uppercase())
+                            .small()
+                            .color(cl::ink::SUBTLE),
+                    )
+                    .on_hover_text(ep_id);
+                    for r in dpl_doc::episode_slides(&ep_dir, &ep) {
+                        picker_card(ui, &format!("{} · {}", r.chapter, r.name), &mut open, r.dir);
                     }
-                    ui.add_space(cl::space::S2);
                 }
             });
         if let Some(dir) = open {

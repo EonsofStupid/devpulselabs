@@ -13,15 +13,23 @@ use std::path::{Path, PathBuf};
 pub const SCHEMA_V: u32 = 1;
 
 /// One slide document — the editable truth of `<slide-dir>/slide.json`.
+///
+/// Styling fields are SPARSE (W3b): absent means "inherit the show's
+/// [`Look`]"; present means a deliberate override. Exactly two cascade
+/// levels — episode look, then slide — resolved by [`resolve`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Slide {
     pub v: u32,
     /// Which registered template renders this document (W2 resolves;
     /// unknown degrades to a labeled plate, never a crash).
     pub template: String,
-    pub background: Background,
+    /// None = inherit the show look's background. An explicit
+    /// `{"kind": "none"}` is the deliberately bare well.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background: Option<Background>,
     pub blocks: Vec<Block>,
-    /// Entrance motion preset ref (e.g. "rise"). None = static.
+    /// Entrance ref: None = inherit the look; "none" = explicitly
+    /// static; "rise" = the entrance.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enter: Option<String>,
 }
@@ -52,12 +60,17 @@ pub enum Block {
     Text {
         id: String,
         text: String,
-        /// Font pool id (`cl::FONTS`).
-        font: String,
+        /// Font pool id (`cl::FONTS`). None = inherit the look's font.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        font: Option<String>,
         /// Fluid type ref, `fs-` stripped: "display", "h3", "eyebrow"…
+        /// REQUIRED — size is structural (an eyebrow is not an h1),
+        /// never a show-wide default.
         size: String,
         /// Semantic ink: strong | base | muted | subtle | tone.
-        ink: String,
+        /// None = inherit the look's ink.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ink: Option<String>,
     },
 }
 
@@ -104,17 +117,17 @@ pub fn load(dir: &Path) -> Result<Slide, DocError> {
     Ok(slide)
 }
 
-/// Save to `<dir>/slide.json` — pretty JSON + trailing LF, crash-safe:
-/// the full content lands in a sibling tmp first, then swaps in (Windows
-/// cannot rename over an existing file, so the old file steps aside as
-/// `.bak` for the swap and the bak is removed on success).
-pub fn save(dir: &Path, slide: &Slide) -> Result<(), DocError> {
+/// Crash-safe pretty-JSON+LF write: the full content lands in a sibling
+/// tmp first, then swaps in (Windows cannot rename over an existing file,
+/// so the old file steps aside as `.bak` for the swap and the bak is
+/// removed on success). One writer for every document kind.
+fn save_json<T: serde::Serialize>(dir: &Path, file: &str, value: &T) -> Result<(), DocError> {
     std::fs::create_dir_all(dir).map_err(DocError::Io)?;
-    let target = dir.join(FILE);
-    let tmp = dir.join("slide.json.tmp");
-    let bak = dir.join("slide.json.bak");
+    let target = dir.join(file);
+    let tmp = dir.join(format!("{file}.tmp"));
+    let bak = dir.join(format!("{file}.bak"));
 
-    let mut json = serde_json::to_string_pretty(slide).map_err(DocError::Parse)?;
+    let mut json = serde_json::to_string_pretty(value).map_err(DocError::Parse)?;
     json.push('\n');
     std::fs::write(&tmp, json).map_err(DocError::Io)?;
 
@@ -127,32 +140,31 @@ pub fn save(dir: &Path, slide: &Slide) -> Result<(), DocError> {
     Ok(())
 }
 
+/// Save to `<dir>/slide.json`.
+pub fn save(dir: &Path, slide: &Slide) -> Result<(), DocError> {
+    save_json(dir, FILE, slide)
+}
+
 // W1 allowlists — replaced by registry checks as later passes wire the
 // runtime: ambience/motion/enter become authored-motion refs in W2/W3.
 const INKS: &[&str] = &["strong", "base", "muted", "subtle", "tone"];
 const AMBIENCES: &[&str] = &["pulse", "drift", "rings"];
 const BLEND_MOTIONS: &[&str] = &["blend-drift"];
-const ENTERS: &[&str] = &["rise"];
+/// "none" is the explicit static override — a slide opting OUT of the
+/// show look's entrance (absent would mean inherit, not static).
+const ENTERS: &[&str] = &["rise", "none"];
 
-/// Name every unknown ref in the document. Empty = clean.
-pub fn validate(slide: &Slide) -> Vec<Issue> {
-    let mut issues = Vec::new();
-    let mut push = |path: &str, message: String| {
-        issues.push(Issue {
-            path: path.to_string(),
-            message,
-        })
-    };
+fn font_ok(id: &str) -> bool {
+    dpl_coldlight::FONTS.iter().any(|f| f.id == id)
+}
+fn mood_ok(name: &str) -> bool {
+    dpl_coldlight::MOODS.iter().any(|m| m.name == name)
+}
 
-    let font_ok = |id: &str| dpl_coldlight::FONTS.iter().any(|f| f.id == id);
-    let mood_ok = |name: &str| dpl_coldlight::MOODS.iter().any(|m| m.name == name);
-    let size_ok = |name: &str| {
-        dpl_coldlight::FLUID_TOKEN_NAMES
-            .iter()
-            .any(|n| *n == format!("fs-{name}"))
-    };
-
-    match &slide.background {
+/// The Background ref checks — shared by the slide and look validators.
+fn validate_background(bg: &Background, at: &str, issues: &mut Vec<Issue>) {
+    let mut push = |path: String, message: String| issues.push(Issue { path, message });
+    match bg {
         Background::MoodBlend {
             moods,
             motion,
@@ -160,35 +172,51 @@ pub fn validate(slide: &Slide) -> Vec<Issue> {
         } => {
             if moods.len() != 2 {
                 push(
-                    "background.moods",
+                    format!("{at}.moods"),
                     format!("mood-blend takes exactly 2 moods, got {}", moods.len()),
                 );
             }
             for m in moods {
                 if !mood_ok(m) {
-                    push("background.moods", format!("unknown mood {m:?}"));
+                    push(format!("{at}.moods"), format!("unknown mood {m:?}"));
                 }
             }
             if !BLEND_MOTIONS.contains(&motion.as_str()) {
                 push(
-                    "background.motion",
+                    format!("{at}.motion"),
                     format!("unknown blend motion {motion:?}"),
                 );
             }
             if let Some(a) = ambience {
                 if !AMBIENCES.contains(&a.as_str()) {
-                    push("background.ambience", format!("unknown ambience {a:?}"));
+                    push(format!("{at}.ambience"), format!("unknown ambience {a:?}"));
                 }
             }
         }
         Background::Mood { mood } => {
             if !mood_ok(mood) {
-                push("background.mood", format!("unknown mood {mood:?}"));
+                push(format!("{at}.mood"), format!("unknown mood {mood:?}"));
             }
         }
         Background::None => {}
     }
+}
 
+/// Name every unknown ref in the document. Empty = clean. Absent styling
+/// fields are LEGAL (they inherit the show look) — only present refs are
+/// checked.
+pub fn validate(slide: &Slide) -> Vec<Issue> {
+    let mut issues = Vec::new();
+
+    if let Some(bg) = &slide.background {
+        validate_background(bg, "background", &mut issues);
+    }
+
+    let size_ok = |name: &str| {
+        dpl_coldlight::FLUID_TOKEN_NAMES
+            .iter()
+            .any(|n| *n == format!("fs-{name}"))
+    };
     for block in &slide.blocks {
         match block {
             Block::Text {
@@ -199,14 +227,24 @@ pub fn validate(slide: &Slide) -> Vec<Issue> {
                 ..
             } => {
                 let at = format!("blocks.{id}");
-                if !font_ok(font) {
-                    push(&at, format!("unknown font {font:?}"));
+                let mut push = |message: String| {
+                    issues.push(Issue {
+                        path: at.clone(),
+                        message,
+                    })
+                };
+                if let Some(font) = font {
+                    if !font_ok(font) {
+                        push(format!("unknown font {font:?}"));
+                    }
                 }
                 if !size_ok(size) {
-                    push(&at, format!("unknown size {size:?} (fluid fs-* ref)"));
+                    push(format!("unknown size {size:?} (fluid fs-* ref)"));
                 }
-                if !INKS.contains(&ink.as_str()) {
-                    push(&at, format!("unknown ink {ink:?}"));
+                if let Some(ink) = ink {
+                    if !INKS.contains(&ink.as_str()) {
+                        push(format!("unknown ink {ink:?}"));
+                    }
                 }
             }
         }
@@ -214,7 +252,10 @@ pub fn validate(slide: &Slide) -> Vec<Issue> {
 
     if let Some(e) = &slide.enter {
         if !ENTERS.contains(&e.as_str()) {
-            push("enter", format!("unknown enter {e:?}"));
+            issues.push(Issue {
+                path: "enter".into(),
+                message: format!("unknown enter {e:?}"),
+            });
         }
     }
 
@@ -294,22 +335,7 @@ pub fn load_episode(dir: &Path) -> Result<Episode, DocError> {
 
 /// Save `<dir>/episode.json` — same crash-safe pretty+LF write as slides.
 pub fn save_episode(dir: &Path, ep: &Episode) -> Result<(), DocError> {
-    std::fs::create_dir_all(dir).map_err(DocError::Io)?;
-    let target = dir.join(EPISODE_FILE);
-    let tmp = dir.join("episode.json.tmp");
-    let bak = dir.join("episode.json.bak");
-
-    let mut json = serde_json::to_string_pretty(ep).map_err(DocError::Parse)?;
-    json.push('\n');
-    std::fs::write(&tmp, json).map_err(DocError::Io)?;
-
-    if target.exists() {
-        let _ = std::fs::remove_file(&bak);
-        std::fs::rename(&target, &bak).map_err(DocError::Io)?;
-    }
-    std::fs::rename(&tmp, &target).map_err(DocError::Io)?;
-    let _ = std::fs::remove_file(&bak);
-    Ok(())
+    save_json(dir, EPISODE_FILE, ep)
 }
 
 /// The flat, ordered slide walk the deck consumes — one SlideRef per slide
@@ -331,12 +357,58 @@ pub fn episode_slides(dir: &Path, ep: &Episode) -> Vec<SlideRef> {
     out
 }
 
+// The FOLDER CONTRACT (W3b): each folder holds reserved names only, one
+// concern per file, so "auto-growing" stays strict — a new concern claims
+// a reserved name here, it never squats. The doctor flags everything else.
+const SLIDE_RESERVED: &[&str] = &["slide.json", "ink.json", "notes.md", "assets"];
+const EPISODE_RESERVED: &[&str] = &["episode.json", "look.json"];
+
+/// Contract-check one folder's entries: leftover save transients and
+/// unreserved names are flagged; `dirs_are_slides` marks subfolders as
+/// slide folders (legal in an episode) instead of strays.
+fn check_folder_contract(
+    dir: &Path,
+    at: &str,
+    reserved: &[&str],
+    dirs_are_slides: bool,
+    issues: &mut Vec<Issue>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let is_dir = entry.path().is_dir();
+        if is_dir && (dirs_are_slides || reserved.contains(&name.as_str())) {
+            continue;
+        }
+        if reserved.contains(&name.as_str()) {
+            continue;
+        }
+        let message = if name.ends_with(".tmp") || name.ends_with(".bak") {
+            format!("leftover transient {name:?} from an interrupted save")
+        } else {
+            format!(
+                "unexpected {} {name:?} (contract: {})",
+                if is_dir { "folder" } else { "file" },
+                reserved.join(", ")
+            )
+        };
+        issues.push(Issue {
+            path: at.to_string(),
+            message,
+        });
+    }
+}
+
 /// Structural doctrine (platform-free, the old doctor's core): duplicate
 /// chapter ids, empty episode/chapter, each slide ref resolving to a
 /// slide.json that loads AND validates clean (its issues bubble up,
-/// path-prefixed), and no slide ref used twice. Show-kind doctrine
-/// (chapter-lock, interaction budgets, slide bands) is a later authored-
-/// doctrine pass — TODO(doctrine).
+/// path-prefixed), and no slide ref used twice. Plus the W3b contract:
+/// the authored look's refs, stray/transient files, and orphan slide
+/// folders no chapter references. Show-kind doctrine (chapter-lock,
+/// interaction budgets, slide bands) is a later authored-doctrine pass —
+/// TODO(doctrine).
 pub fn validate_episode(dir: &Path, ep: &Episode) -> Vec<Issue> {
     let mut issues = Vec::new();
     let mut push = |path: String, message: String| issues.push(Issue { path, message });
@@ -374,6 +446,168 @@ pub fn validate_episode(dir: &Path, ep: &Episode) -> Vec<Issue> {
                 }
                 Err(e) => push(at, format!("slide does not load: {e}")),
             }
+        }
+    }
+
+    // The authored look (when present) must itself resolve.
+    match load_look(dir) {
+        Ok(Some(look)) => {
+            for sub in validate_look(&look) {
+                push(format!("look.{}", sub.path), sub.message);
+            }
+        }
+        Ok(None) => {}
+        Err(e) => push("look".into(), format!("look.json does not load: {e}")),
+    }
+
+    // The folder contract, episode level + each referenced slide folder.
+    check_folder_contract(dir, "folder", EPISODE_RESERVED, true, &mut issues);
+    for chapter in &ep.chapters {
+        for name in &chapter.slides {
+            let slide_dir = dir.join(name);
+            if slide_dir.is_dir() {
+                check_folder_contract(
+                    &slide_dir,
+                    &format!("chapters.{}.{name} → folder", chapter.id),
+                    SLIDE_RESERVED,
+                    false,
+                    &mut issues,
+                );
+            }
+        }
+    }
+
+    // Orphans: a subfolder holding a slide.json that no chapter names.
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if entry.path().join(FILE).is_file() && !seen_slide.contains(&name) {
+                issues.push(Issue {
+                    path: "folder".into(),
+                    message: format!("orphan slide folder {name:?} — not in any chapter"),
+                });
+            }
+        }
+    }
+
+    issues
+}
+
+// ── the LOOK tier (W3b) — the show's authored trait ─────────────────────
+
+const LOOK_FILE: &str = "look.json";
+
+/// The show-level styling trait — `<episode-dir>/look.json`. Refs only,
+/// like every document: a look names registry ids, never values. Slides
+/// inherit these unless they carry an explicit override; [`resolve`] is
+/// the whole cascade (exactly two levels — this is the slide-master
+/// pattern, deliberately without a third tier).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Look {
+    pub v: u32,
+    /// Default font pool id for every text block.
+    pub font: String,
+    /// Default semantic ink for every text block.
+    pub ink: String,
+    pub background: Background,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enter: Option<String>,
+}
+
+impl Look {
+    /// The built-in default — used wherever no look.json is authored
+    /// (standalone seeds, episodes without one). Known-good refs; a test
+    /// proves they resolve through the live registries.
+    pub fn fallback() -> Self {
+        Self {
+            v: SCHEMA_V,
+            font: "spacegrotesk".into(),
+            ink: "base".into(),
+            background: Background::MoodBlend {
+                moods: vec!["ember-drift".into(), "deep-lagoon".into()],
+                motion: "blend-drift".into(),
+                ambience: None,
+            },
+            enter: Some("rise".into()),
+        }
+    }
+}
+
+/// Load `<dir>/look.json`; Ok(None) when none is authored (= fallback).
+pub fn load_look(dir: &Path) -> Result<Option<Look>, DocError> {
+    let path = dir.join(LOOK_FILE);
+    if !path.exists() {
+        return Ok(None);
+    }
+    let raw = std::fs::read_to_string(&path).map_err(DocError::Io)?;
+    let look: Look = serde_json::from_str(&raw).map_err(DocError::Parse)?;
+    if look.v > SCHEMA_V {
+        return Err(DocError::Version(look.v));
+    }
+    Ok(Some(look))
+}
+
+/// Save `<dir>/look.json` — same crash-safe pretty+LF write.
+pub fn save_look(dir: &Path, look: &Look) -> Result<(), DocError> {
+    save_json(dir, LOOK_FILE, look)
+}
+
+/// The look a slide folder resolves against: its parent episode's
+/// authored look, else the fallback. (A slide is "in a show" when its
+/// PARENT folder holds an episode.json.)
+pub fn look_for_slide(slide_dir: &Path) -> Look {
+    slide_dir
+        .parent()
+        .filter(|p| p.join(EPISODE_FILE).is_file())
+        .and_then(|p| load_look(p).ok().flatten())
+        .unwrap_or_else(Look::fallback)
+}
+
+/// THE CASCADE — slide override wins, else the look fills in. Pure;
+/// returns a fully-specified document the renderer paints as-is. A
+/// fully-specified slide is a fixed point.
+pub fn resolve(slide: &Slide, look: &Look) -> Slide {
+    let mut out = slide.clone();
+    if out.background.is_none() {
+        out.background = Some(look.background.clone());
+    }
+    if out.enter.is_none() {
+        out.enter = look.enter.clone();
+    }
+    for b in &mut out.blocks {
+        let Block::Text { font, ink, .. } = b;
+        if font.is_none() {
+            *font = Some(look.font.clone());
+        }
+        if ink.is_none() {
+            *ink = Some(look.ink.clone());
+        }
+    }
+    out
+}
+
+/// Name every unknown ref in a look. Empty = clean.
+pub fn validate_look(look: &Look) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    if !font_ok(&look.font) {
+        issues.push(Issue {
+            path: "font".into(),
+            message: format!("unknown font {:?}", look.font),
+        });
+    }
+    if !INKS.contains(&look.ink.as_str()) {
+        issues.push(Issue {
+            path: "ink".into(),
+            message: format!("unknown ink {:?}", look.ink),
+        });
+    }
+    validate_background(&look.background, "background", &mut issues);
+    if let Some(e) = &look.enter {
+        if !ENTERS.contains(&e.as_str()) {
+            issues.push(Issue {
+                path: "enter".into(),
+                message: format!("unknown enter {e:?}"),
+            });
         }
     }
     issues
@@ -427,21 +661,23 @@ pub fn list_seeds() -> Vec<(String, PathBuf)> {
 mod tests {
     use super::*;
 
+    /// Fully specified on purpose — every field `Some` so the round-trip
+    /// and validation tests keep their pre-W3b meaning.
     fn sample() -> Slide {
         Slide {
             v: SCHEMA_V,
             template: "title".into(),
-            background: Background::MoodBlend {
+            background: Some(Background::MoodBlend {
                 moods: vec!["ember-drift".into(), "deep-lagoon".into()],
                 motion: "blend-drift".into(),
                 ambience: Some("pulse".into()),
-            },
+            }),
             blocks: vec![Block::Text {
                 id: "title".into(),
                 text: "The stack, laid bare".into(),
-                font: "orbitron".into(),
+                font: Some("orbitron".into()),
                 size: "display".into(),
-                ink: "strong".into(),
+                ink: Some("strong".into()),
             }],
             enter: Some("rise".into()),
         }
@@ -498,17 +734,17 @@ mod tests {
     #[test]
     fn unknown_refs_are_named_not_swallowed() {
         let mut slide = sample();
-        slide.background = Background::MoodBlend {
+        slide.background = Some(Background::MoodBlend {
             moods: vec!["not-a-mood".into()],
             motion: "warp".into(),
             ambience: Some("strobe".into()),
-        };
+        });
         slide.blocks = vec![Block::Text {
             id: "t".into(),
             text: "x".into(),
-            font: "comic-sans".into(),
+            font: Some("comic-sans".into()),
             size: "gigantic".into(),
-            ink: "chartreuse".into(),
+            ink: Some("chartreuse".into()),
         }];
         slide.enter = Some("teleport".into());
         let issues = validate(&slide);
@@ -652,9 +888,9 @@ mod tests {
         bad.blocks[0] = Block::Text {
             id: "t".into(),
             text: "x".into(),
-            font: "comic-sans".into(),
+            font: Some("comic-sans".into()),
             size: "display".into(),
-            ink: "strong".into(),
+            ink: Some("strong".into()),
         };
         save(&dir.join("a"), &bad).unwrap();
         let ep = Episode {
@@ -689,5 +925,172 @@ mod tests {
                 "episode {id} has no slides"
             );
         }
+    }
+
+    // ── the look tier + cascade (W3b) ───────────────────────────────────
+
+    #[test]
+    fn the_fallback_look_resolves_through_the_live_registries() {
+        assert_eq!(validate_look(&Look::fallback()), Vec::new());
+    }
+
+    #[test]
+    fn look_round_trips_and_absent_look_is_ok_none() {
+        let dir = ep_scratch("look");
+        assert!(load_look(&dir).unwrap().is_none(), "no folder yet");
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(load_look(&dir).unwrap().is_none(), "no look.json");
+        let look = Look::fallback();
+        save_look(&dir, &look).unwrap();
+        assert_eq!(load_look(&dir).unwrap(), Some(look));
+        assert!(!dir.join("look.json.tmp").exists());
+        assert!(!dir.join("look.json.bak").exists());
+    }
+
+    #[test]
+    fn resolve_prefers_the_slide_override_and_fills_the_rest() {
+        let look = Look::fallback();
+        let sparse = Slide {
+            v: SCHEMA_V,
+            template: "title".into(),
+            background: None,
+            blocks: vec![
+                Block::Text {
+                    id: "a".into(),
+                    text: "override".into(),
+                    font: Some("orbitron".into()),
+                    size: "h1".into(),
+                    ink: None,
+                },
+                Block::Text {
+                    id: "b".into(),
+                    text: "inherit".into(),
+                    font: None,
+                    size: "body".into(),
+                    ink: None,
+                },
+            ],
+            enter: None,
+        };
+        let r = resolve(&sparse, &look);
+        assert_eq!(r.background, Some(look.background.clone()));
+        assert_eq!(r.enter, look.enter);
+        let Block::Text { font, ink, .. } = &r.blocks[0];
+        assert_eq!(font.as_deref(), Some("orbitron"), "the override wins");
+        assert_eq!(ink.as_deref(), Some(look.ink.as_str()));
+        let Block::Text { font, .. } = &r.blocks[1];
+        assert_eq!(font.as_deref(), Some(look.font.as_str()), "inherited");
+        // A fully-specified slide is a fixed point.
+        assert_eq!(resolve(&sample(), &look), sample());
+        // The resolved sparse slide validates clean.
+        assert_eq!(validate(&r), Vec::new());
+    }
+
+    #[test]
+    fn a_sparse_slide_saves_without_the_absent_fields() {
+        let dir = scratch("sparse");
+        let sparse = Slide {
+            v: SCHEMA_V,
+            template: "title".into(),
+            background: None,
+            blocks: vec![Block::Text {
+                id: "t".into(),
+                text: "words only".into(),
+                font: None,
+                size: "h2".into(),
+                ink: None,
+            }],
+            enter: None,
+        };
+        save(&dir, &sparse).unwrap();
+        let raw = std::fs::read_to_string(dir.join("slide.json")).unwrap();
+        for absent in ["\"background\"", "\"font\"", "\"ink\"", "\"enter\""] {
+            assert!(!raw.contains(absent), "{absent} must be absent: {raw}");
+        }
+        assert_eq!(load(&dir).unwrap(), sparse);
+        // Absent styling is legal — the validator has nothing to say.
+        assert_eq!(validate(&sparse), Vec::new());
+    }
+
+    #[test]
+    fn a_v1_fully_specified_file_still_loads() {
+        // The pre-W3b shape: every styling field present. No version bump.
+        let dir = scratch("compat");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("slide.json"),
+            r#"{ "v": 1, "template": "title",
+                 "background": { "kind": "mood-blend",
+                   "moods": ["ember-drift", "deep-lagoon"],
+                   "motion": "blend-drift" },
+                 "blocks": [ { "kind": "text", "id": "t", "text": "old",
+                   "font": "orbitron", "size": "h1", "ink": "strong" } ],
+                 "enter": "rise" }"#,
+        )
+        .unwrap();
+        let slide = load(&dir).unwrap();
+        let Block::Text { font, ink, .. } = &slide.blocks[0];
+        assert_eq!(font.as_deref(), Some("orbitron"));
+        assert_eq!(ink.as_deref(), Some("strong"));
+        assert!(slide.background.is_some());
+        assert_eq!(validate(&slide), Vec::new());
+    }
+
+    #[test]
+    fn the_folder_contract_names_strays_orphans_and_transients() {
+        let dir = ep_scratch("contract");
+        for s in ["a", "b", "c"] {
+            write_ok_slide(&dir.join(s));
+        }
+        let ep = ep_sample();
+        save_episode(&dir, &ep).unwrap();
+        assert!(validate_episode(&dir, &ep).is_empty(), "clean to start");
+
+        // A stray in a slide folder, a transient, an episode-level stray,
+        // and an orphan slide folder no chapter names.
+        std::fs::write(dir.join("a").join("styles.css"), "nope").unwrap();
+        std::fs::write(dir.join("b").join("slide.json.tmp"), "{}").unwrap();
+        std::fs::write(dir.join("readme.txt"), "hi").unwrap();
+        write_ok_slide(&dir.join("zz-unused"));
+        // Reserved names are NOT strays.
+        std::fs::write(dir.join("a").join("notes.md"), "presenter notes").unwrap();
+        save_look(&dir, &Look::fallback()).unwrap();
+
+        let all = validate_episode(&dir, &ep)
+            .iter()
+            .map(|i| format!("{} {}", i.path, i.message))
+            .collect::<Vec<_>>()
+            .join(" | ");
+        // Flagged names are quoted ({name:?}); the contract enumeration in
+        // the message is not — assert on the quoted form.
+        assert!(all.contains("\"styles.css\""), "slide stray: {all}");
+        assert!(all.contains("leftover transient"), "transient: {all}");
+        assert!(all.contains("\"readme.txt\""), "episode stray: {all}");
+        assert!(all.contains("orphan slide folder"), "orphan: {all}");
+        assert!(!all.contains("\"notes.md\""), "reserved flagged: {all}");
+        assert!(
+            !all.contains("\"look.json\""),
+            "look flagged as stray: {all}"
+        );
+    }
+
+    #[test]
+    fn a_bad_look_ref_is_named_via_the_episode_doctor() {
+        let dir = ep_scratch("badlook");
+        for s in ["a", "b", "c"] {
+            write_ok_slide(&dir.join(s));
+        }
+        let ep = ep_sample();
+        save_episode(&dir, &ep).unwrap();
+        let mut look = Look::fallback();
+        look.font = "comic-sans".into();
+        save_look(&dir, &look).unwrap();
+        let issues = validate_episode(&dir, &ep);
+        assert!(
+            issues
+                .iter()
+                .any(|i| i.path == "look.font" && i.message.contains("comic-sans")),
+            "expected the look's bad font named: {issues:?}"
+        );
     }
 }

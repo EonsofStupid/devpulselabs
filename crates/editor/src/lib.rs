@@ -31,12 +31,27 @@ enum Selection {
 pub struct Editor {
     dir: PathBuf,
     slide: dpl_doc::Slide,
+    /// The show's look (W3b) — auto-detected from the parent episode
+    /// folder, else the fallback. Trays show RESOLVED values; tapping a
+    /// card writes an override; "Show look" clears one.
+    look: dpl_doc::Look,
     clock: dpl_slides::motion::Clock,
     selection: Selection,
     /// Snapshots for Undo — the doc is a small value, snapshot per edit.
     undo: Vec<dpl_doc::Slide>,
     /// Last save's outcome, shown as an honest footer crumb.
     saved: Result<(), String>,
+}
+
+/// A text block's tray view: values resolved through the show look, with
+/// the override flags that drive the "Show look" chips.
+struct TextFields {
+    text: String,
+    font: String,
+    size: String,
+    ink: String,
+    font_overridden: bool,
+    ink_overridden: bool,
 }
 
 const UNDO_CAP: usize = 50;
@@ -62,6 +77,7 @@ impl Editor {
         Ok(Self {
             dir: dir.to_path_buf(),
             slide,
+            look: dpl_doc::look_for_slide(dir),
             clock: dpl_slides::motion::Clock::default(),
             selection: Selection::None,
             undo: Vec::new(),
@@ -119,7 +135,14 @@ impl Editor {
         let map = {
             let mut child = ui.new_child(egui::UiBuilder::new().max_rect(stage.shrink(2.0)));
             child.set_clip_rect(stage);
-            document::render_traced(&mut child, stage.shrink(2.0), &self.slide, now, t0)
+            document::render_traced(
+                &mut child,
+                stage.shrink(2.0),
+                &self.slide,
+                &self.look,
+                now,
+                t0,
+            )
         };
         ui.painter().rect_stroke(
             stage,
@@ -241,10 +264,22 @@ impl Editor {
             });
     }
 
-    /// Background selected → Colours (mood A/B) + Ambience.
+    /// Background selected → Colours (mood A/B) + Ambience. Shows the
+    /// RESOLVED background; "Show look" clears the slide's override.
     fn background_tray(&mut self, ui: &mut Ui) {
-        ui.label(tray_title("Background"));
-        let (cur_a, cur_b, cur_amb) = match &self.slide.background {
+        let overridden = self.slide.background.is_some();
+        ui.horizontal(|ui| {
+            ui.label(tray_title("Background"));
+            if chip(ui, "Show look", !overridden) && overridden {
+                self.mutate(|s| s.background = None);
+            }
+        });
+        let resolved = self
+            .slide
+            .background
+            .clone()
+            .unwrap_or_else(|| self.look.background.clone());
+        let (cur_a, cur_b, cur_amb) = match &resolved {
             dpl_doc::Background::MoodBlend {
                 moods, ambience, ..
             } => (
@@ -292,11 +327,13 @@ impl Editor {
         let _ = AMBIENCES;
     }
 
-    /// Text block selected → Font / Size / Ink / Text.
+    /// Text block selected → Font / Size / Ink / Text. Font and ink show
+    /// the RESOLVED value; "Show look" clears an override back to the show.
     fn text_tray(&mut self, ui: &mut Ui, id: &str) {
-        let Some((text, font, size, ink)) = self.text_fields(id) else {
+        let Some(tf) = self.text_fields(id) else {
             return;
         };
+        let (text, font, size, ink) = (tf.text, tf.font, tf.size, tf.ink);
         ui.label(tray_title("Text"));
 
         // The words.
@@ -347,6 +384,10 @@ impl Editor {
                             self.mutate(|s| set_text(s, &id, |b| b.1 = fid.clone()));
                         }
                     }
+                    // Lit = following the show; tap while overridden = go back.
+                    if chip(ui, "Show look", !tf.font_overridden) && tf.font_overridden {
+                        self.clear_font(id);
+                    }
                 });
             });
 
@@ -373,6 +414,9 @@ impl Editor {
                             self.mutate(|s| set_text(s, &id, |b| b.3 = name.clone()));
                         }
                     }
+                    if chip(ui, "Show look", !tf.ink_overridden) && tf.ink_overridden {
+                        self.clear_ink(id);
+                    }
                 });
             });
         });
@@ -380,7 +424,9 @@ impl Editor {
 
     // ── mutation helpers ────────────────────────────────────────────────
 
-    fn text_fields(&self, id: &str) -> Option<(String, String, String, String)> {
+    /// A block's fields RESOLVED through the look, plus whether font/ink
+    /// are slide-level overrides (vs inherited from the show).
+    fn text_fields(&self, id: &str) -> Option<TextFields> {
         self.slide.blocks.iter().find_map(|b| {
             let dpl_doc::Block::Text {
                 id: bid,
@@ -389,13 +435,53 @@ impl Editor {
                 size,
                 ink,
             } = b;
-            (bid == id).then(|| (text.clone(), font.clone(), size.clone(), ink.clone()))
+            (bid == id).then(|| TextFields {
+                text: text.clone(),
+                font: font.clone().unwrap_or_else(|| self.look.font.clone()),
+                size: size.clone(),
+                ink: ink.clone().unwrap_or_else(|| self.look.ink.clone()),
+                font_overridden: font.is_some(),
+                ink_overridden: ink.is_some(),
+            })
         })
     }
 
+    /// Clear a block's font override — back to the show look.
+    fn clear_font(&mut self, id: &str) {
+        let id = id.to_string();
+        self.mutate(move |s| {
+            for b in &mut s.blocks {
+                let dpl_doc::Block::Text { id: bid, font, .. } = b;
+                if *bid == id {
+                    *font = None;
+                }
+            }
+        });
+    }
+
+    /// Clear a block's ink override — back to the show look.
+    fn clear_ink(&mut self, id: &str) {
+        let id = id.to_string();
+        self.mutate(move |s| {
+            for b in &mut s.blocks {
+                let dpl_doc::Block::Text { id: bid, ink, .. } = b;
+                if *bid == id {
+                    *ink = None;
+                }
+            }
+        });
+    }
+
     fn set_blend_mood(&mut self, slot: usize, pick: String) {
-        self.mutate(|s| {
-            let (mut a, mut b, motion, ambience) = match &s.background {
+        // Editing an INHERITED background starts from the look's values —
+        // the first touch materializes an override with the show as base.
+        let base = self
+            .slide
+            .background
+            .clone()
+            .unwrap_or_else(|| self.look.background.clone());
+        self.mutate(move |s| {
+            let (mut a, mut b, motion, ambience) = match &base {
                 dpl_doc::Background::MoodBlend {
                     moods,
                     motion,
@@ -418,38 +504,49 @@ impl Editor {
             } else {
                 b = pick.clone();
             }
-            s.background = dpl_doc::Background::MoodBlend {
+            s.background = Some(dpl_doc::Background::MoodBlend {
                 moods: vec![a, b],
                 motion,
                 ambience,
-            };
+            });
         });
     }
 
     fn set_ambience(&mut self, amb: Option<String>) {
-        self.mutate(|s| {
-            if let dpl_doc::Background::MoodBlend { ambience, .. } = &mut s.background {
+        let base = self
+            .slide
+            .background
+            .clone()
+            .unwrap_or_else(|| self.look.background.clone());
+        self.mutate(move |s| {
+            let mut bg = base;
+            if let dpl_doc::Background::MoodBlend { ambience, .. } = &mut bg {
                 *ambience = amb;
             }
+            s.background = Some(bg);
         });
     }
 }
 
 // ── free helpers ────────────────────────────────────────────────────────
 
+/// Applying a preset to a slide is an explicit whole-slide OVERRIDE —
+/// every write is `Some`, deliberately.
 fn apply_look(s: &mut dpl_doc::Slide, p: &cl::LookPreset) {
-    s.background = dpl_doc::Background::MoodBlend {
+    s.background = Some(dpl_doc::Background::MoodBlend {
         moods: vec![p.moods.0.to_string(), p.moods.1.to_string()],
         motion: p.motion.to_string(),
         ambience: p.ambience.map(str::to_string),
-    };
+    });
     for b in &mut s.blocks {
         let dpl_doc::Block::Text { font, .. } = b;
-        *font = p.font.to_string();
+        *font = Some(p.font.to_string());
     }
 }
 
-/// Edit a text block's (text, font, size, ink) tuple in place.
+/// Edit a text block's (text, font, size, ink) tuple in place. Font/ink
+/// become overrides ONLY when the closure actually changes them — an
+/// untouched inherited field stays absent on disk (sparse stays sparse).
 fn set_text(
     s: &mut dpl_doc::Slide,
     id: &str,
@@ -464,12 +561,22 @@ fn set_text(
             ink,
         } = b;
         if bid == id {
-            let mut t = (text.clone(), font.clone(), size.clone(), ink.clone());
+            let before = (
+                text.clone(),
+                font.clone().unwrap_or_default(),
+                size.clone(),
+                ink.clone().unwrap_or_default(),
+            );
+            let mut t = before.clone();
             f(&mut t);
             *text = t.0;
-            *font = t.1;
+            if t.1 != before.1 {
+                *font = Some(t.1);
+            }
             *size = t.2;
-            *ink = t.3;
+            if t.3 != before.3 {
+                *ink = Some(t.3);
+            }
             return;
         }
     }
@@ -620,23 +727,41 @@ fn big_button(ui: &mut Ui, label: &str, enabled: bool) -> bool {
 mod tests {
     use super::*;
 
+    /// Fully specified — the pre-W3b shape; overrides everywhere.
     fn seed() -> dpl_doc::Slide {
         dpl_doc::Slide {
             v: dpl_doc::SCHEMA_V,
             template: "title".into(),
-            background: dpl_doc::Background::MoodBlend {
+            background: Some(dpl_doc::Background::MoodBlend {
                 moods: vec!["ember-drift".into(), "deep-lagoon".into()],
                 motion: "blend-drift".into(),
                 ambience: None,
-            },
+            }),
             blocks: vec![dpl_doc::Block::Text {
                 id: "title".into(),
                 text: "Hello".into(),
-                font: "spacegrotesk".into(),
+                font: Some("spacegrotesk".into()),
                 size: "display".into(),
-                ink: "strong".into(),
+                ink: Some("strong".into()),
             }],
             enter: Some("rise".into()),
+        }
+    }
+
+    /// Styling-free — everything inherits the look.
+    fn sparse_seed() -> dpl_doc::Slide {
+        dpl_doc::Slide {
+            v: dpl_doc::SCHEMA_V,
+            template: "title".into(),
+            background: None,
+            blocks: vec![dpl_doc::Block::Text {
+                id: "title".into(),
+                text: "Hello".into(),
+                font: None,
+                size: "display".into(),
+                ink: None,
+            }],
+            enter: None,
         }
     }
 
@@ -663,11 +788,11 @@ mod tests {
             ink,
             ..
         } = &on_disk.blocks[0];
-        assert_eq!(font, "orbitron", "font ref swapped");
+        assert_eq!(font.as_deref(), Some("orbitron"), "font ref swapped");
         // Nothing else moved.
         assert_eq!(text, "Hello");
         assert_eq!(size, "display");
-        assert_eq!(ink, "strong");
+        assert_eq!(ink.as_deref(), Some("strong"));
         assert_eq!(on_disk.background, seed().background);
         // The edit still validates against the real registries.
         assert!(dpl_doc::validate(&on_disk).is_empty());
@@ -693,8 +818,8 @@ mod tests {
         ed.mutate(|s| apply_look(s, &p));
         let on_disk = dpl_doc::load(&dir).unwrap();
         let dpl_doc::Block::Text { font, .. } = &on_disk.blocks[0];
-        assert_eq!(font, p.font);
-        if let dpl_doc::Background::MoodBlend { moods, .. } = &on_disk.background {
+        assert_eq!(font.as_deref(), Some(p.font));
+        if let Some(dpl_doc::Background::MoodBlend { moods, .. }) = &on_disk.background {
             assert_eq!(moods, &vec![p.moods.0.to_string(), p.moods.1.to_string()]);
         } else {
             panic!("look must set a mood-blend background");
@@ -709,12 +834,45 @@ mod tests {
         let mut ed = Editor::open(&dir).unwrap();
         ed.set_blend_mood(1, "jade-current".into());
         let on_disk = dpl_doc::load(&dir).unwrap();
-        if let dpl_doc::Background::MoodBlend { moods, .. } = &on_disk.background {
+        if let Some(dpl_doc::Background::MoodBlend { moods, .. }) = &on_disk.background {
             assert_eq!(moods[0], "ember-drift");
             assert_eq!(moods[1], "jade-current");
         } else {
             panic!("still a blend");
         }
         assert!(dpl_doc::validate(&on_disk).is_empty());
+    }
+
+    // ── the cascade in the editor (W3b) ─────────────────────────────────
+
+    #[test]
+    fn editing_text_on_a_sparse_slide_does_not_densify_styling() {
+        let dir = scratch("sparse-text");
+        dpl_doc::save(&dir, &sparse_seed()).unwrap();
+        let mut ed = Editor::open(&dir).unwrap();
+        ed.mutate(|s| set_text(s, "title", |b| b.0 = "New words".into()));
+        let raw = std::fs::read_to_string(dir.join("slide.json")).unwrap();
+        assert!(raw.contains("New words"));
+        for absent in ["\"font\"", "\"ink\"", "\"background\""] {
+            assert!(!raw.contains(absent), "{absent} crept in: {raw}");
+        }
+    }
+
+    #[test]
+    fn show_look_clears_the_override_on_disk() {
+        let dir = scratch("show-look");
+        dpl_doc::save(&dir, &sparse_seed()).unwrap();
+        let mut ed = Editor::open(&dir).unwrap();
+        // Override the font, then put it back to the show.
+        ed.mutate(|s| set_text(s, "title", |b| b.1 = "orbitron".into()));
+        let raw = std::fs::read_to_string(dir.join("slide.json")).unwrap();
+        assert!(raw.contains("\"font\": \"orbitron\""), "override written");
+        ed.clear_font("title");
+        let raw = std::fs::read_to_string(dir.join("slide.json")).unwrap();
+        assert!(!raw.contains("\"font\""), "override cleared on disk: {raw}");
+        // The tray resolves back to the look's font.
+        let tf = ed.text_fields("title").unwrap();
+        assert_eq!(tf.font, dpl_doc::Look::fallback().font);
+        assert!(!tf.font_overridden);
     }
 }
