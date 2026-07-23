@@ -199,6 +199,26 @@ doctrine or the episode tree.
   docs/plans/s-adr-sessions.md. ✅ S1 capture (51bc34b) + S2 playback
   done; S3 export remains.
 
+## Program L — the IA doctrine rebuild (operator, 2026-07-23) — PRIORITY
+
+The operator's IA correction OUTRANKS the roadmap order ("we can
+resume the roadmap whenever but this is more important"). Full capture
++ all rulings: docs/plans/l1-library-doctrine.md. Ledger #118. In
+one breath: the ACCORDION rail (one house open, subroutes unfold
+downward); a SHOWS rail entry (EffingAI · DevPulse News · Eons of
+Stupidity — each page = Episodes · Gallery · Social over
+content/<show>); Workbench = the BUILD house whose LIBRARY absorbs
+the top-level Library hub's walls plus seeds (class folders:
+static/split/animation/interactive) — the hub dissolves, pre-release
+no-shims; wiredFRONT = the PREP house (captures reviewed + played in
+place in the Gallery; custom slides minted here file as Library
+INGREDIENTS); Home stays the streaming-prop backdrop; Workbench later
+grows PDF carousels + execute-and-post social automation (YouTube, X,
+TikTok, IG/FB, potentially Twitch + the operator's own community
+platform — adapter registry leaves room for first-party). Passes:
+L1a accordion rail → L1b seed class folders → L1c Library rebuild →
+L1d Shows rail → L1e Gallery plays sessions in place.
+
 ## Program DEMO — agent-driven demonstrations (operator, 2026-07-23)
 
 The operator's convergence insight, decided net-new (ledger #117):
