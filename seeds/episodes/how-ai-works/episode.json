@@ -1,0 +1,29 @@
+{
+  "v": 1,
+  "id": "how-ai-works",
+  "title": "How AI actually works",
+  "chapters": [
+    {
+      "id": "intro",
+      "title": "The setup",
+      "slides": [
+        "title",
+        "headline"
+      ]
+    },
+    {
+      "id": "cost",
+      "title": "What it costs",
+      "slides": [
+        "stat"
+      ]
+    },
+    {
+      "id": "wrap",
+      "title": "Where the news comes from",
+      "slides": [
+        "terminal"
+      ]
+    }
+  ]
+}

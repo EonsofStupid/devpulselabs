@@ -1,0 +1,40 @@
+{
+  "v": 1,
+  "template": "title",
+  "background": {
+    "kind": "mood-blend",
+    "moods": [
+      "botanical-night",
+      "jade-current"
+    ],
+    "motion": "blend-drift",
+    "ambience": "drift"
+  },
+  "blocks": [
+    {
+      "kind": "text",
+      "id": "eyebrow",
+      "text": "> boot sequence",
+      "font": "vt323",
+      "size": "h4",
+      "ink": "tone"
+    },
+    {
+      "kind": "text",
+      "id": "title",
+      "text": "HOW THE NEWS GETS MADE",
+      "font": "pressstart2p",
+      "size": "h1",
+      "ink": "strong"
+    },
+    {
+      "kind": "text",
+      "id": "subtitle",
+      "text": "from wire to feed in ninety seconds",
+      "font": "vt323",
+      "size": "h3",
+      "ink": "muted"
+    }
+  ],
+  "enter": "rise"
+}

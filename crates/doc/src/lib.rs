@@ -248,9 +248,162 @@ pub fn find_upward(rel: &str) -> Option<PathBuf> {
     None
 }
 
+// ── the EPISODE tier (D1) — a show over slide folders ───────────────────
+
+const EPISODE_FILE: &str = "episode.json";
+
+/// An episode document — the editable truth of `<episode-dir>/episode.json`:
+/// an ordered chapter→slide structure over slide SUBFOLDERS (each a Slide
+/// document). Refs never values here too: a chapter's slides are subfolder
+/// names, resolved to `<episode-dir>/<name>/slide.json`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Episode {
+    pub v: u32,
+    pub id: String,
+    pub title: String,
+    pub chapters: Vec<Chapter>,
+}
+
+/// One chapter — a titled ordered run of slide-subfolder names.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Chapter {
+    pub id: String,
+    pub title: String,
+    pub slides: Vec<String>,
+}
+
+/// One resolved slide in an episode's flat ordered walk — what the deck
+/// (D2) steps through. `index` is the episode-global slide position.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SlideRef {
+    pub chapter: String,
+    pub name: String,
+    pub dir: PathBuf,
+    pub index: usize,
+}
+
+/// Load `<dir>/episode.json`.
+pub fn load_episode(dir: &Path) -> Result<Episode, DocError> {
+    let raw = std::fs::read_to_string(dir.join(EPISODE_FILE)).map_err(DocError::Io)?;
+    let ep: Episode = serde_json::from_str(&raw).map_err(DocError::Parse)?;
+    if ep.v > SCHEMA_V {
+        return Err(DocError::Version(ep.v));
+    }
+    Ok(ep)
+}
+
+/// Save `<dir>/episode.json` — same crash-safe pretty+LF write as slides.
+pub fn save_episode(dir: &Path, ep: &Episode) -> Result<(), DocError> {
+    std::fs::create_dir_all(dir).map_err(DocError::Io)?;
+    let target = dir.join(EPISODE_FILE);
+    let tmp = dir.join("episode.json.tmp");
+    let bak = dir.join("episode.json.bak");
+
+    let mut json = serde_json::to_string_pretty(ep).map_err(DocError::Parse)?;
+    json.push('\n');
+    std::fs::write(&tmp, json).map_err(DocError::Io)?;
+
+    if target.exists() {
+        let _ = std::fs::remove_file(&bak);
+        std::fs::rename(&target, &bak).map_err(DocError::Io)?;
+    }
+    std::fs::rename(&tmp, &target).map_err(DocError::Io)?;
+    let _ = std::fs::remove_file(&bak);
+    Ok(())
+}
+
+/// The flat, ordered slide walk the deck consumes — one SlideRef per slide
+/// in chapter order. Does not validate; pair with `validate_episode`.
+pub fn episode_slides(dir: &Path, ep: &Episode) -> Vec<SlideRef> {
+    let mut out = Vec::new();
+    let mut index = 0;
+    for chapter in &ep.chapters {
+        for name in &chapter.slides {
+            out.push(SlideRef {
+                chapter: chapter.id.clone(),
+                name: name.clone(),
+                dir: dir.join(name),
+                index,
+            });
+            index += 1;
+        }
+    }
+    out
+}
+
+/// Structural doctrine (platform-free, the old doctor's core): duplicate
+/// chapter ids, empty episode/chapter, each slide ref resolving to a
+/// slide.json that loads AND validates clean (its issues bubble up,
+/// path-prefixed), and no slide ref used twice. Show-kind doctrine
+/// (chapter-lock, interaction budgets, slide bands) is a later authored-
+/// doctrine pass — TODO(doctrine).
+pub fn validate_episode(dir: &Path, ep: &Episode) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    let mut push = |path: String, message: String| issues.push(Issue { path, message });
+
+    if ep.chapters.is_empty() {
+        push("chapters".into(), "episode has no chapters".into());
+    }
+
+    let mut seen_chapter = std::collections::BTreeSet::new();
+    let mut seen_slide = std::collections::BTreeSet::new();
+    for chapter in &ep.chapters {
+        if !seen_chapter.insert(chapter.id.clone()) {
+            push(
+                format!("chapters.{}", chapter.id),
+                "duplicate chapter id".into(),
+            );
+        }
+        if chapter.slides.is_empty() {
+            push(
+                format!("chapters.{}", chapter.id),
+                "chapter has no slides".into(),
+            );
+        }
+        for name in &chapter.slides {
+            let at = format!("chapters.{}.{name}", chapter.id);
+            if !seen_slide.insert(name.clone()) {
+                push(at.clone(), "slide referenced more than once".into());
+            }
+            let slide_dir = dir.join(name);
+            match load(&slide_dir) {
+                Ok(slide) => {
+                    for sub in validate(&slide) {
+                        push(format!("{at} → {}", sub.path), sub.message);
+                    }
+                }
+                Err(e) => push(at, format!("slide does not load: {e}")),
+            }
+        }
+    }
+    issues
+}
+
 /// The repo/install seed set: `seeds/slides/`.
 pub fn seeds_root() -> Option<PathBuf> {
     find_upward("seeds/slides")
+}
+
+/// The seed episodes root: `seeds/episodes/`.
+pub fn episodes_root() -> Option<PathBuf> {
+    find_upward("seeds/episodes")
+}
+
+/// Every seed episode folder holding an episode.json, as (id, dir), sorted.
+pub fn list_episodes() -> Vec<(String, PathBuf)> {
+    let Some(root) = episodes_root() else {
+        return Vec::new();
+    };
+    let Ok(entries) = std::fs::read_dir(&root) else {
+        return Vec::new();
+    };
+    let mut eps: Vec<(String, PathBuf)> = entries
+        .flatten()
+        .filter(|e| e.path().join(EPISODE_FILE).is_file())
+        .map(|e| (e.file_name().to_string_lossy().into_owned(), e.path()))
+        .collect();
+    eps.sort();
+    eps
 }
 
 /// Every seed folder holding a slide.json, as (id, dir), sorted by id.
@@ -390,6 +543,151 @@ mod tests {
             let slide = load(&dir).unwrap_or_else(|e| panic!("seed {id}: {e}"));
             let issues = validate(&slide);
             assert!(issues.is_empty(), "seed {id} has unknown refs: {issues:?}");
+        }
+    }
+
+    // ── episode tier (D1) ───────────────────────────────────────────────
+
+    fn ep_scratch(name: &str) -> PathBuf {
+        let d = std::env::temp_dir()
+            .join("dpl-episode-tests")
+            .join(format!("{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        d
+    }
+
+    fn write_ok_slide(dir: &Path) {
+        save(dir, &sample()).unwrap();
+    }
+
+    fn ep_sample() -> Episode {
+        Episode {
+            v: SCHEMA_V,
+            id: "demo".into(),
+            title: "Demo show".into(),
+            chapters: vec![
+                Chapter {
+                    id: "intro".into(),
+                    title: "Setup".into(),
+                    slides: vec!["a".into(), "b".into()],
+                },
+                Chapter {
+                    id: "end".into(),
+                    title: "Wrap".into(),
+                    slides: vec!["c".into()],
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn episode_round_trips_and_flattens_in_authored_order() {
+        let dir = ep_scratch("flat");
+        for s in ["a", "b", "c"] {
+            write_ok_slide(&dir.join(s));
+        }
+        let ep = ep_sample();
+        save_episode(&dir, &ep).unwrap();
+        assert_eq!(load_episode(&dir).unwrap(), ep);
+        assert!(!dir.join("episode.json.tmp").exists());
+
+        let refs = episode_slides(&dir, &ep);
+        let order: Vec<&str> = refs.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(order, ["a", "b", "c"]);
+        assert_eq!(refs[2].index, 2);
+        assert_eq!(refs[0].chapter, "intro");
+        assert_eq!(refs[2].chapter, "end");
+        assert!(validate_episode(&dir, &ep).is_empty());
+    }
+
+    #[test]
+    fn a_newer_episode_version_is_refused() {
+        let dir = ep_scratch("epver");
+        let mut ep = ep_sample();
+        ep.v = SCHEMA_V + 1;
+        save_episode(&dir, &ep).unwrap();
+        assert!(matches!(load_episode(&dir), Err(DocError::Version(_))));
+    }
+
+    #[test]
+    fn episode_doctrine_names_dangling_dup_and_empty() {
+        let dir = ep_scratch("doctrine");
+        write_ok_slide(&dir.join("a"));
+        // 'b' folder intentionally missing → dangling ref.
+        let ep = Episode {
+            v: SCHEMA_V,
+            id: "bad".into(),
+            title: "Bad".into(),
+            chapters: vec![
+                Chapter {
+                    id: "one".into(),
+                    title: "One".into(),
+                    slides: vec!["a".into(), "b".into(), "a".into()],
+                },
+                Chapter {
+                    id: "one".into(),
+                    title: "Dup".into(),
+                    slides: vec![],
+                },
+            ],
+        };
+        let all = validate_episode(&dir, &ep)
+            .iter()
+            .map(|i| format!("{} {}", i.path, i.message))
+            .collect::<Vec<_>>()
+            .join(" | ");
+        assert!(all.contains("duplicate chapter id"), "{all}");
+        assert!(all.contains("does not load"), "dangling: {all}");
+        assert!(
+            all.contains("referenced more than once"),
+            "dup slide: {all}"
+        );
+        assert!(all.contains("no slides"), "empty chapter: {all}");
+    }
+
+    #[test]
+    fn a_nested_bad_slide_bubbles_up_path_prefixed() {
+        let dir = ep_scratch("nested");
+        let mut bad = sample();
+        bad.blocks[0] = Block::Text {
+            id: "t".into(),
+            text: "x".into(),
+            font: "comic-sans".into(),
+            size: "display".into(),
+            ink: "strong".into(),
+        };
+        save(&dir.join("a"), &bad).unwrap();
+        let ep = Episode {
+            v: SCHEMA_V,
+            id: "n".into(),
+            title: "N".into(),
+            chapters: vec![Chapter {
+                id: "c".into(),
+                title: "C".into(),
+                slides: vec!["a".into()],
+            }],
+        };
+        let issues = validate_episode(&dir, &ep);
+        assert!(
+            issues
+                .iter()
+                .any(|i| i.path.contains("chapters.c.a →") && i.message.contains("comic-sans")),
+            "expected path-prefixed nested finding: {issues:?}"
+        );
+    }
+
+    #[test]
+    fn the_seed_episode_loads_validates_and_flattens() {
+        let eps = list_episodes();
+        assert!(!eps.is_empty(), "expected a seed episode");
+        for (id, dir) in eps {
+            let ep = load_episode(&dir).unwrap_or_else(|e| panic!("episode {id}: {e}"));
+            let issues = validate_episode(&dir, &ep);
+            assert!(issues.is_empty(), "episode {id} doctrine: {issues:?}");
+            assert!(
+                !episode_slides(&dir, &ep).is_empty(),
+                "episode {id} has no slides"
+            );
         }
     }
 }

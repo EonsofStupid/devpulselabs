@@ -13,6 +13,7 @@ use std::path::PathBuf;
 
 pub const HUB: HubId = HubId("workbench");
 pub const SEEDS: SubId = SubId("seeds");
+pub const EPISODES: SubId = SubId("episodes");
 pub const EDITOR: SubId = SubId("editor");
 pub const STUDIO: SubId = SubId("studio");
 pub const LIBRARY: SubId = SubId("library");
@@ -34,6 +35,11 @@ static SPEC: HubSpec = HubSpec {
             id: EDITOR,
             label: "Editor",
             blurb: "Tap a slide to change it — font, colours, motion; edits write the colocated file.",
+        },
+        SubRoute {
+            id: EPISODES,
+            label: "Episodes",
+            blurb: "The shows — an ordered chapter→slide sequence over slide folders, rendered live.",
         },
         SubRoute {
             id: STUDIO,
@@ -74,6 +80,8 @@ pub struct WorkbenchHub {
     seeds: Option<Vec<SeedEntry>>,
     /// The open editor (EDITOR subroute) — None shows the seed picker.
     editor: Option<dpl_editor::Editor>,
+    /// The episode-wall's live slide docs, loaded once per episode open.
+    episode_view: Option<EpisodeView>,
     test_lab: egui_pilot_ai_lab::TestLab,
 }
 
@@ -195,6 +203,8 @@ impl Hub for WorkbenchHub {
             self.seeds_wall(ui);
         } else if route.sub == EDITOR {
             self.editor_surface(ui);
+        } else if route.sub == EPISODES {
+            self.episodes_surface(ui);
         } else if route.sub == TEST_LAB {
             self.test_lab.ui(ui);
         } else {
@@ -208,7 +218,160 @@ impl Hub for WorkbenchHub {
     }
 }
 
+/// An opened episode's live slides, in the authored chapter→slide order.
+struct EpisodeView {
+    id: String,
+    title: String,
+    /// (chapter title on the first slide of the chapter, slide name, doc).
+    rows: Vec<(Option<String>, String, DocSlide)>,
+    issues: Vec<dpl_doc::Issue>,
+}
+
+impl EpisodeView {
+    fn open(dir: &std::path::Path, id: String) -> Result<Self, String> {
+        let ep = dpl_doc::load_episode(dir).map_err(|e| e.to_string())?;
+        let issues = dpl_doc::validate_episode(dir, &ep);
+        let mut rows = Vec::new();
+        for chapter in &ep.chapters {
+            for (i, name) in chapter.slides.iter().enumerate() {
+                let head = (i == 0).then(|| chapter.title.clone());
+                let doc = dpl_doc::load(&dir.join(name))
+                    .map(DocSlide::new)
+                    .map_err(|e| e.to_string())?;
+                rows.push((head, name.clone(), doc));
+            }
+        }
+        Ok(Self {
+            id,
+            title: ep.title,
+            rows,
+            issues,
+        })
+    }
+}
+
 impl WorkbenchHub {
+    /// The EPISODES subroute: an episode picker, then the show's slides in
+    /// order (chapter headers + each slide live). Read-only gallery gate.
+    fn episodes_surface(&mut self, ui: &mut egui::Ui) {
+        if let Some(view) = self.episode_view.as_mut() {
+            let back = ui
+                .horizontal(|ui| {
+                    let b = ui
+                        .label(RichText::new("‹ all shows").color(SPEC.tone.color()))
+                        .interact(egui::Sense::click());
+                    ui.label(RichText::new(&view.title).strong().color(cl::ink::STRONG));
+                    ui.label(
+                        RichText::new(&view.id)
+                            .monospace()
+                            .small()
+                            .color(cl::ink::SUBTLE),
+                    );
+                    b
+                })
+                .inner;
+            if back.clicked() {
+                self.episode_view = None;
+                return;
+            }
+            for issue in &view.issues {
+                ui.label(
+                    RichText::new(format!("⚠ {} — {}", issue.path, issue.message))
+                        .small()
+                        .color(SPEC.tone.color()),
+                );
+            }
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    let stage_w = (ui.available_width() - cl::space::S4 * 2.0).min(720.0);
+                    let stage_h = stage_w * 9.0 / 16.0;
+                    for (n, (head, name, doc)) in view.rows.iter_mut().enumerate() {
+                        if let Some(title) = head {
+                            ui.add_space(cl::space::S3);
+                            ui.label(
+                                RichText::new(title.to_uppercase())
+                                    .small()
+                                    .color(cl::ink::SUBTLE),
+                            );
+                        }
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(format!("{}", n + 1))
+                                    .monospace()
+                                    .color(SPEC.tone.color()),
+                            );
+                            ui.label(RichText::new(name.as_str()).color(cl::ink::MUTED));
+                        });
+                        let (stage, _) = ui.allocate_exact_size(
+                            egui::vec2(stage_w, stage_h),
+                            egui::Sense::hover(),
+                        );
+                        ui.painter()
+                            .rect_filled(stage, cl::RADIUS, cl::surface::WELL);
+                        doc.ui(ui, stage.shrink(2.0));
+                        ui.painter().rect_stroke(
+                            stage,
+                            cl::RADIUS,
+                            egui::Stroke::new(1.0, cl::surface::HAIRLINE),
+                            egui::StrokeKind::Inside,
+                        );
+                        ui.add_space(cl::space::S4);
+                    }
+                });
+            return;
+        }
+
+        ui.label(
+            RichText::new("The shows — tap one to see its slides in order")
+                .small()
+                .color(cl::ink::SUBTLE),
+        );
+        ui.add_space(cl::space::S2);
+        let mut open: Option<(String, PathBuf)> = None;
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for (id, dir) in dpl_doc::list_episodes() {
+                    let title = dpl_doc::load_episode(&dir)
+                        .map(|e| e.title)
+                        .unwrap_or_else(|_| id.clone());
+                    let resp = cl::card_frame().show(ui, |ui| {
+                        ui.set_width(ui.available_width().min(560.0));
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(&title).strong().color(cl::ink::STRONG));
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.label(
+                                        RichText::new("open ›").small().color(SPEC.tone.color()),
+                                    );
+                                    ui.label(
+                                        RichText::new(&id)
+                                            .monospace()
+                                            .small()
+                                            .color(cl::ink::SUBTLE),
+                                    );
+                                },
+                            );
+                        });
+                    });
+                    if resp.response.interact(egui::Sense::click()).clicked() {
+                        open = Some((id, dir));
+                    }
+                    ui.add_space(cl::space::S2);
+                }
+            });
+        if let Some((id, dir)) = open {
+            match EpisodeView::open(&dir, id) {
+                Ok(v) => self.episode_view = Some(v),
+                Err(e) => {
+                    ui.label(RichText::new(format!("could not open: {e}")).color(cl::ink::MUTED));
+                }
+            }
+        }
+    }
+
     /// The EDITOR subroute: a seed picker until one is opened, then the
     /// tap-to-edit editor. A back chip returns to the picker.
     fn editor_surface(&mut self, ui: &mut egui::Ui) {
