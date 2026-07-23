@@ -78,6 +78,14 @@ fn main() -> eframe::Result {
         .position(|a| a == "--present")
         .and_then(|i| args.get(i + 1))
         .cloned();
+    // `--presenter-drill <n>` — with `--present`, open the teleprompter
+    // in PANEL mode (main-viewport screenshots) after walking the deck
+    // n beats through its real key path (D4 proofs).
+    let presenter_drill: Option<usize> = args
+        .iter()
+        .position(|a| a == "--presenter-drill")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|n| n.parse().ok());
     // `--open-session <rel>` boots the SESSIONS player on one session
     // (S2) — the same code path a card tap takes.
     let open_session: Option<String> = args
@@ -169,6 +177,7 @@ fn main() -> eframe::Result {
                 pixvix_snap,
                 mood,
                 present,
+                presenter_drill,
                 session_drill,
                 open_session,
                 open_replay,
@@ -197,6 +206,7 @@ struct Boot {
     pixvix_snap: bool,
     mood: Option<usize>,
     present: Option<String>,
+    presenter_drill: Option<usize>,
     session_drill: Option<u32>,
     open_session: Option<String>,
     open_replay: Option<String>,
@@ -230,6 +240,7 @@ impl App {
             pixvix_snap,
             mood,
             present,
+            presenter_drill,
             session_drill,
             open_session,
             open_replay,
@@ -250,6 +261,10 @@ impl App {
         let mut present_hub = dpl_hub_present::PresentHub::new(fabric.clone());
         if let Some(id) = &present {
             present_hub.open_show(id);
+            // The teleprompter drill (D4 proofs) rides an open show.
+            if let Some(n) = presenter_drill {
+                present_hub.presenter_drill(n);
+            }
         }
         // The harness path into the SESSIONS player (S2).
         let mut wiredfront = dpl_hub_wiredfront::WiredfrontHub::default();

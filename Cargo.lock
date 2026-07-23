@@ -1449,6 +1449,7 @@ version = "0.1.0"
 dependencies = [
  "dpl-coldlight",
  "dpl-doc",
+ "dpl-fabric",
  "dpl-slides",
  "egui",
  "egui-pilot-ai",

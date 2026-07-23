@@ -51,7 +51,15 @@ passes may add owner semantics and scenarios against the serial runner, but
 they must not invent temporary per-feature harnesses around those foundation
 gates.
 
-## Program D — Deck/Present runtime (census #1, the show machine)
+## Program D — Deck/Present runtime (census #1) — ✅ COMPLETE
+
+All five passes landed: D1 episode docs → D2 DeckHost (fe0902f) → D3
+ink (8772e30) → D5 scripts (ba30c61, executed before D4 per the
+recorded order) → D4 presenter+sync (this commit — the fabric's DECK
+domain, the teleprompter viewport + panel-mode harness, pilot deferral
+declared on the Codex seat's multi-window targets). Deferred
+descendants: presenter-drives-deck (two-way sync), navigator paging,
+the deck track in session capture. Original charter follows.
 
 - **D1 Episode documents.** `dpl-doc` grows the EPISODE tier: an episode
   folder owns `episode.json` (show meta, chapter list, ordered slide-folder

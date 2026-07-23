@@ -32,6 +32,25 @@ pub enum ShellEvent {
 /// tokio dependency of their own.
 pub type ShellReceiver = broadcast::Receiver<ShellEvent>;
 
+/// Deck-domain signals (D4): the show machine's position, published on
+/// every real move. Indices only — consumers that need names/scripts
+/// resolve them from the episode themselves (the event stays Copy and
+/// process-portable). Consumer: the presenter teleprompter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeckEvent {
+    /// The deck landed on `slides[index]` at `step` (0 = setup);
+    /// `slides`/`steps` size the show and the current slide.
+    Beat {
+        index: usize,
+        step: usize,
+        slides: usize,
+        steps: usize,
+    },
+}
+
+/// A deck-domain subscription.
+pub type DeckReceiver = broadcast::Receiver<DeckEvent>;
+
 /// The fabric hands out senders and subscriptions; it never processes.
 /// Broadcast is deliberately lossy under pressure (oldest dropped, receiver
 /// told how many) — correct for signals, wrong for jobs. Job queues get
@@ -40,6 +59,7 @@ pub type ShellReceiver = broadcast::Receiver<ShellEvent>;
 #[derive(Clone)]
 pub struct Fabric {
     shell: broadcast::Sender<ShellEvent>,
+    deck: broadcast::Sender<DeckEvent>,
 }
 
 impl Default for Fabric {
@@ -51,7 +71,8 @@ impl Default for Fabric {
 impl Fabric {
     pub fn new() -> Self {
         let (shell, _) = broadcast::channel(64);
-        Self { shell }
+        let (deck, _) = broadcast::channel(64);
+        Self { shell, deck }
     }
 
     /// Publish, ignoring "no subscribers yet" — a signal with no listeners
@@ -62,6 +83,14 @@ impl Fabric {
 
     pub fn subscribe_shell(&self) -> broadcast::Receiver<ShellEvent> {
         self.shell.subscribe()
+    }
+
+    pub fn publish_deck(&self, event: DeckEvent) {
+        let _ = self.deck.send(event);
+    }
+
+    pub fn subscribe_deck(&self) -> DeckReceiver {
+        self.deck.subscribe()
     }
 }
 
@@ -80,6 +109,24 @@ mod tests {
         };
         fabric.publish_shell(ShellEvent::RouteChanged { route });
         assert_eq!(rx.try_recv().unwrap(), ShellEvent::RouteChanged { route });
+    }
+
+    #[test]
+    fn the_deck_domain_round_trips_typed_beats() {
+        let fabric = Fabric::new();
+        let mut rx = fabric.subscribe_deck();
+        let beat = DeckEvent::Beat {
+            index: 1,
+            step: 2,
+            slides: 4,
+            steps: 3,
+        };
+        fabric.publish_deck(beat);
+        assert_eq!(rx.try_recv().unwrap(), beat);
+        // Domains are separate channels — a deck beat never wakes shell ears.
+        let mut shell_rx = fabric.subscribe_shell();
+        fabric.publish_deck(beat);
+        assert!(shell_rx.try_recv().is_err());
     }
 
     #[test]

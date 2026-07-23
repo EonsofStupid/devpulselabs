@@ -25,6 +25,9 @@ pub enum DeckAction {
     None,
     /// The operator asked to leave the show (toolbar Home / home dot).
     Exit,
+    /// The toolbar Cue button — the mount opens/closes the presenter
+    /// teleprompter (D4).
+    TogglePresenter,
 }
 
 /// One slide in the flat walk: its chapter, folder name, and the loaded
@@ -57,6 +60,13 @@ pub struct DeckHost {
     ink: ink::InkLayer,
     /// Restarted on EVERY beat — each beat animates exactly one thing.
     clock: dpl_slides::motion::Clock,
+    /// The sync ear's other end (D4): every real move publishes a
+    /// `DeckEvent::Beat` on the fabric's deck domain. None = unwired
+    /// (headless tests, standalone mounts) — the deck never requires it.
+    fabric: Option<dpl_fabric::Fabric>,
+    /// The toolbar Cue button fired this frame — `ui()` converts it to
+    /// [`DeckAction::TogglePresenter`] (Exit wins when both fire).
+    presenter_asked: bool,
 }
 
 impl DeckHost {
@@ -109,7 +119,28 @@ impl DeckHost {
             annotate_on: false,
             ink: ink::InkLayer::default(),
             clock: dpl_slides::motion::Clock::default(),
+            fabric: None,
+            presenter_asked: false,
         })
+    }
+
+    /// Wire the sync channel (D4): from here on every real move
+    /// publishes a `DeckEvent::Beat` the presenter consumes.
+    pub fn wire_fabric(&mut self, fabric: dpl_fabric::Fabric) {
+        self.fabric = Some(fabric);
+    }
+
+    /// Publish the CURRENT position — the presenter's opening snapshot
+    /// (a fresh subscriber only hears traffic after it subscribes).
+    pub fn publish_position(&self) {
+        if let Some(f) = &self.fabric {
+            f.publish_deck(dpl_fabric::DeckEvent::Beat {
+                index: self.pos.index,
+                step: self.pos.step,
+                slides: self.slides.len(),
+                steps: self.steps[self.pos.index],
+            });
+        }
     }
 
     pub fn position(&self) -> nav::Position {
@@ -124,6 +155,7 @@ impl DeckHost {
             }
             self.pos = pos;
             self.clock.restart();
+            self.publish_position();
         }
     }
 
@@ -359,6 +391,14 @@ impl DeckHost {
             self.navigator(ui, rect);
         }
 
+        // The Cue ask, unless Exit already won this frame.
+        if self.presenter_asked {
+            self.presenter_asked = false;
+            if action == DeckAction::None {
+                action = DeckAction::TogglePresenter;
+            }
+        }
+
         ui.ctx().request_repaint(); // backgrounds never rest
         action
     }
@@ -435,6 +475,12 @@ impl DeckHost {
             self.annotate_on = !self.annotate_on;
         }
         self.track_button(ui, inkb, "ink.toggle", "Toggle ink");
+        // Cue (D4): the mount opens/closes the presenter teleprompter.
+        let cue = inkb.translate(egui::vec2(btn + cl::space::S2, 0.0));
+        if tool_button(ui, cue, "Cue", "deck_presenter", "Presenter window") {
+            self.presenter_asked = true;
+        }
+        self.track_button(ui, cue, "presenter", "Presenter window");
 
         // Right: counter + chrome eye.
         let eye = Rect::from_center_size(
@@ -771,6 +817,44 @@ mod tests {
         assert!(host.chrome_hidden);
         host.press(egui::Key::G);
         assert!(host.navigator_open);
+    }
+
+    /// D4: a wired deck publishes every real move on the fabric's deck
+    /// domain; no-op moves publish nothing; the snapshot seam works.
+    #[test]
+    fn advancing_publishes_the_beat_on_the_deck_channel() {
+        let mut host = DeckHost::open(&scratch_episode("sync")).unwrap();
+        let fabric = dpl_fabric::Fabric::new();
+        let mut rx = fabric.subscribe_deck();
+        host.wire_fabric(fabric);
+        host.press(egui::Key::ArrowRight);
+        assert_eq!(
+            rx.try_recv().unwrap(),
+            dpl_fabric::DeckEvent::Beat {
+                index: 1,
+                step: 0,
+                slides: 3,
+                steps: 2
+            }
+        );
+        // Holding at the end is a no-op — nothing publishes.
+        for _ in 0..6 {
+            host.press(egui::Key::ArrowRight);
+        }
+        while rx.try_recv().is_ok() {}
+        host.press(egui::Key::ArrowRight);
+        assert!(rx.try_recv().is_err(), "a held position publishes nothing");
+        // The presenter's opening snapshot: current position on demand.
+        host.publish_position();
+        assert_eq!(
+            rx.try_recv().unwrap(),
+            dpl_fabric::DeckEvent::Beat {
+                index: 2,
+                step: 0,
+                slides: 3,
+                steps: 1
+            }
+        );
     }
 
     #[test]
