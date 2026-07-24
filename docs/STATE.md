@@ -60,10 +60,13 @@ Operator exe rebuilt 2026-07-23 16:51.
    in plain words, the solo view's back/replay tip, wall titles say
    "Tap to see this one big". Deck toolbar audited: already compliant
    (tool_button carries tips).
-   **Remaining**: ViziWiz canvas/meta polish, then the fabric NAVIGATE
-   seam (hub cards tap-to-navigate — the frictionless fix), then the
-   feel-bar review pass across all routes against the old app. Every
-   UI pass MUST invoke `dpl-style`.
+   Sweep 6 DONE: ViziWiz — tone dots name their color, width slider,
+   back, and picker cards all tip in plain words.
+   **Remaining**: the fabric NAVIGATE seam (hub cards tap-to-navigate
+   — the frictionless fix; needs a plan doc: ShellEvent variant breaks
+   the session EventLog's exhaustive match by design), then the
+   feel-bar review pass across every route against the old app.
+   Every UI pass MUST invoke `dpl-style`.
 3. Content root resolves from CWD (`./content`) — double-clicked exe reads
    `target/release/content`. Program P's data_root law not yet ported.
 4. Stale EguiPilotAI scenarios/fixtures (pre-Program-L flyout/Library refs).
