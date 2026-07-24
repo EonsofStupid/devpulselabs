@@ -41,6 +41,8 @@ pub struct Composer {
     palette: Option<Vec<Record>>,
     /// The off-thread stitch render's shared state.
     render: Arc<Mutex<RenderState>>,
+    /// The active workflow tab (the editor's current mode).
+    tab: Tab,
     status: String,
 }
 
@@ -53,6 +55,7 @@ impl Default for Composer {
             preview: None,
             palette: None,
             render: Arc::new(Mutex::new(RenderState::Idle)),
+            tab: Tab::Edit,
             status: "New composition — add clips from the palette on the left.".into(),
         }
     }
@@ -63,11 +66,58 @@ enum Act {
     New,
     Save,
     Render,
+    Tab(Tab),
     Add(usize),
     Select(String),
     Remove(String),
     MoveUp(String),
     MoveDown(String),
+}
+
+/// The editor's workflow modes — the top-tab spine (WiredFRONT inventory).
+#[derive(Clone, Copy, PartialEq)]
+enum Tab {
+    Capture,
+    Annotate,
+    Edit,
+    Narrate,
+    Preview,
+    Export,
+}
+
+impl Tab {
+    const ALL: [Tab; 6] = [
+        Tab::Capture,
+        Tab::Annotate,
+        Tab::Edit,
+        Tab::Narrate,
+        Tab::Preview,
+        Tab::Export,
+    ];
+    fn label(self) -> &'static str {
+        match self {
+            Tab::Capture => "Capture",
+            Tab::Annotate => "Annotate",
+            Tab::Edit => "Edit",
+            Tab::Narrate => "Narrate",
+            Tab::Preview => "Preview",
+            Tab::Export => "Export",
+        }
+    }
+    fn blurb(self) -> &'static str {
+        match self {
+            Tab::Capture => {
+                "Grab screens, windows, and recordings — the ViziWiz overlay feeds here."
+            }
+            Tab::Annotate => {
+                "Holographic arrows, numbered callouts, and spotlights over each scene."
+            }
+            Tab::Edit => "Arrange and stitch your clips into one video.",
+            Tab::Narrate => "Record or drop a voiceover; the waveform rides the timeline.",
+            Tab::Preview => "Play the guide as your audience will — Touch, Mouse, or Keyboard.",
+            Tab::Export => "Ship a self-contained .guide, or render the video.",
+        }
+    }
 }
 
 /// The async stitch-render job's state — the toolbar polls it each frame.
@@ -280,6 +330,8 @@ impl Composer {
     }
 
     /// The Composer surface — what the WiredFRONT hub calls for its subroute.
+    /// The editor SHELL: a workflow-tab spine (top) + a SCENES/ASSETS rail
+    /// (left) + the active mode's surface (WiredFRONT editor inventory).
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         self.ensure_palette();
         // A render in flight keeps the frame alive so its status pill updates.
@@ -291,50 +343,39 @@ impl Composer {
         }
         let mut act: Option<Act> = None;
 
-        // Manual five-region layout (the house idiom — `new_child` over
-        // computed rects; egui panels attach to the viewport, not a hub's
-        // sub-area). Rows: toolbar / body / timeline; body cols: palette /
-        // preview / inspector.
         let full = ui.max_rect();
-        let side_w = 240.0_f32;
-        let toolbar_h = 40.0_f32;
-        let timeline_h = 150.0_f32;
+        let tabbar_h = 44.0_f32;
+        let rail_w = 196.0_f32;
         let pad = cl::space::S2;
-        let body_top = full.min.y + toolbar_h + pad;
-        let body_bottom = (full.max.y - timeline_h - pad).max(body_top + 1.0);
-        let toolbar_rect =
-            Rect::from_min_max(full.min, egui::pos2(full.max.x, full.min.y + toolbar_h));
-        let timeline_rect = Rect::from_min_max(egui::pos2(full.min.x, body_bottom + pad), full.max);
-        let left_rect = Rect::from_min_max(
+        let tabbar_rect =
+            Rect::from_min_max(full.min, egui::pos2(full.max.x, full.min.y + tabbar_h));
+        let body_top = full.min.y + tabbar_h + pad;
+        let rail_rect = Rect::from_min_max(
             egui::pos2(full.min.x, body_top),
-            egui::pos2(full.min.x + side_w, body_bottom),
+            egui::pos2(full.min.x + rail_w, full.max.y),
         );
-        let right_rect = Rect::from_min_max(
-            egui::pos2(full.max.x - side_w, body_top),
-            egui::pos2(full.max.x, body_bottom),
-        );
-        let center_rect = Rect::from_min_max(
-            egui::pos2(full.min.x + side_w + pad, body_top),
-            egui::pos2(full.max.x - side_w - pad, body_bottom),
-        );
+        let content_rect =
+            Rect::from_min_max(egui::pos2(full.min.x + rail_w + pad, body_top), full.max);
 
-        // The four-pane plates — WELL recesses at the token radius.
-        for r in [left_rect, right_rect, timeline_rect, center_rect] {
+        // Recessed plates behind the rail + content (voltage WELL).
+        for r in [rail_rect, content_rect] {
             ui.painter()
                 .rect_filled(r, CornerRadius::same(cl::RADIUS), cl::surface::WELL);
         }
 
-        let mut pane = |rect: Rect| ui.new_child(UiBuilder::new().max_rect(rect.shrink(pad)));
-        self.toolbar(&mut pane(toolbar_rect), &mut act);
-        self.palette_pane(&mut pane(left_rect), &mut act);
-        self.inspector_pane(&mut pane(right_rect));
-        self.timeline_pane(&mut pane(timeline_rect), &mut act);
-        self.preview_pane(&mut pane(center_rect));
+        let mut mk = |rect: Rect| ui.new_child(UiBuilder::new().max_rect(rect.shrink(pad)));
+        self.workflow_tabs(&mut mk(tabbar_rect), &mut act);
+        self.left_rail(&mut mk(rail_rect), &mut act);
+        match self.tab {
+            Tab::Edit => self.edit_tab(&mut mk(content_rect), &mut act),
+            other => tab_stub(&mut mk(content_rect), other),
+        }
 
         match act {
             Some(Act::New) => *self = Composer::default(),
             Some(Act::Save) => self.save(),
             Some(Act::Render) => self.start_render(),
+            Some(Act::Tab(t)) => self.tab = t,
             Some(Act::Add(i)) => {
                 if let Some(rec) = self.palette.as_ref().and_then(|p| p.get(i)).cloned() {
                     self.add_clip(&rec);
@@ -348,23 +389,123 @@ impl Composer {
         }
     }
 
+    /// The workflow-tab spine — the editor's modes; active glows voltage.
+    fn workflow_tabs(&self, ui: &mut egui::Ui, act: &mut Option<Act>) {
+        ui.horizontal(|ui| {
+            for t in Tab::ALL {
+                let active = self.tab == t;
+                let tone = if active { Tone::Magenta } else { Tone::Cyan };
+                let resp = cl::tip(chip(ui, tone, t.label(), ("tab", t.label())), t.blurb());
+                ui.pilot_track(
+                    &resp,
+                    NodeMetadata::new(
+                        PilotId::new("composer.tab").child(&PilotKey::new(t.label())),
+                        Role::Button,
+                        t.label(),
+                    )
+                    .value(if active { "active" } else { "available" }),
+                );
+                if resp.clicked() && !active {
+                    *act = Some(Act::Tab(t));
+                }
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if cl::tip(
+                    chip(ui, Tone::Magenta, "Export .guide", "export-guide"),
+                    "Ship a self-contained guide (the export mode)",
+                )
+                .clicked()
+                {
+                    *act = Some(Act::Tab(Tab::Export));
+                }
+            });
+        });
+    }
+
+    /// The left rail — SCENES (single-composition stub for now) over the
+    /// ASSETS clip list.
+    fn left_rail(&self, ui: &mut egui::Ui, act: &mut Option<Act>) {
+        ui.label(
+            RichText::new("SCENES")
+                .small()
+                .strong()
+                .color(cl::ink::MUTED),
+        );
+        cl::clay().show(ui, |ui| {
+            ui.label(RichText::new("Full composition").strong());
+            ui.label(
+                RichText::new(format!(
+                    "{} clip(s) · {:.1}s",
+                    self.layers().len(),
+                    self.comp.duration()
+                ))
+                .small()
+                .color(cl::ink::SUBTLE),
+            );
+        });
+        ui.label(
+            RichText::new("Multiple scenes land in the next pass.")
+                .small()
+                .color(cl::ink::SUBTLE),
+        );
+        ui.add_space(cl::space::S3);
+        self.palette_pane(ui, act);
+    }
+
+    /// The EDIT mode — the working timeline editor: preview + inspector +
+    /// timeline (assets now live in the left rail).
+    fn edit_tab(&self, ui: &mut egui::Ui, act: &mut Option<Act>) {
+        let rect = ui.max_rect();
+        let toolbar_h = 38.0_f32;
+        let inspector_w = 240.0_f32;
+        let timeline_h = 150.0_f32;
+        let pad = cl::space::S2;
+        let body_top = rect.min.y + toolbar_h + pad;
+        let body_bottom = (rect.max.y - timeline_h - pad).max(body_top + 1.0);
+        let toolbar_rect =
+            Rect::from_min_max(rect.min, egui::pos2(rect.max.x, rect.min.y + toolbar_h));
+        let timeline_rect = Rect::from_min_max(
+            egui::pos2(rect.min.x, body_bottom + pad),
+            egui::pos2(rect.max.x, rect.max.y),
+        );
+        let inspector_rect = Rect::from_min_max(
+            egui::pos2(rect.max.x - inspector_w, body_top),
+            egui::pos2(rect.max.x, body_bottom),
+        );
+        let preview_rect = Rect::from_min_max(
+            egui::pos2(rect.min.x, body_top),
+            egui::pos2(rect.max.x - inspector_w - pad, body_bottom),
+        );
+        for r in [preview_rect, inspector_rect, timeline_rect] {
+            ui.painter()
+                .rect_filled(r, CornerRadius::same(cl::RADIUS), cl::surface::BASE);
+        }
+        let mut mk = |r: Rect| ui.new_child(UiBuilder::new().max_rect(r.shrink(pad)));
+        self.toolbar(&mut mk(toolbar_rect), act);
+        self.preview_pane(&mut mk(preview_rect));
+        self.inspector_pane(&mut mk(inspector_rect));
+        self.timeline_pane(&mut mk(timeline_rect), act);
+    }
+
     fn toolbar(&self, ui: &mut egui::Ui, act: &mut Option<Act>) {
         // Snapshot the render state once (don't hold the lock across the UI).
         let (rendering, pill) = {
             let st = self.render.lock().expect("render state");
             match &*st {
                 RenderState::Idle => (false, None),
-                RenderState::Running => (true, Some(("⏳ Rendering…".to_string(), cl::ink::BASE))),
+                RenderState::Running => (true, Some(("Rendering...".to_string(), cl::ink::BASE))),
                 RenderState::Done(p) => (
                     false,
-                    Some((format!("✓ Rendered → {}", Self::short(p)), cl::ink::STRONG)),
+                    Some((format!("Rendered: {}", Self::short(p)), cl::ink::STRONG)),
                 ),
-                RenderState::Failed(e) => (false, Some((format!("✗ {e}"), cl::ink::MUTED))),
+                RenderState::Failed(e) => {
+                    (false, Some((format!("Render failed: {e}"), cl::ink::MUTED)))
+                }
             }
         };
         ui.horizontal(|ui| {
             if cl::tip(
-                chip(ui, Tone::Lime, "＋ New", "new"),
+                chip(ui, Tone::Lime, "New", "new"),
                 "Start a fresh composition",
             )
             .clicked()
@@ -372,7 +513,7 @@ impl Composer {
                 *act = Some(Act::New);
             }
             if cl::tip(
-                chip(ui, Tone::Cyan, "▤ Save", "save"),
+                chip(ui, Tone::Cyan, "Save", "save"),
                 "Write this composition to your inbox as comp.json",
             )
             .clicked()
@@ -383,7 +524,7 @@ impl Composer {
             if !self.layers().is_empty()
                 && !rendering
                 && cl::tip(
-                    chip(ui, Tone::Magenta, "⏵ Render", "render"),
+                    chip(ui, Tone::Magenta, "Render", "render"),
                     "Stitch these clips into one video file in your inbox",
                 )
                 .clicked()
@@ -453,7 +594,7 @@ impl Composer {
     fn timeline_pane(&self, ui: &mut egui::Ui, act: &mut Option<Act>) {
         ui.label(RichText::new("TIMELINE — the clip list").small().strong());
         ui.label(
-            RichText::new("Clips play in this order. Tap to select; ↑ ↓ to reorder.")
+            RichText::new("Clips play in this order. Tap to select; ^ v to reorder.")
                 .small()
                 .color(cl::ink::SUBTLE),
         );
@@ -496,7 +637,7 @@ impl Composer {
                     if selected {
                         ui.vertical(|ui| {
                             if cl::tip(
-                                small_btn(ui, "↑", ("up", layer.id.as_str())),
+                                small_btn(ui, "^", ("up", layer.id.as_str())),
                                 "Move this clip earlier",
                             )
                             .clicked()
@@ -504,7 +645,7 @@ impl Composer {
                                 *act = Some(Act::MoveUp(layer.id.clone()));
                             }
                             if cl::tip(
-                                small_btn(ui, "↓", ("down", layer.id.as_str())),
+                                small_btn(ui, "v", ("down", layer.id.as_str())),
                                 "Move this clip later",
                             )
                             .clicked()
@@ -512,7 +653,7 @@ impl Composer {
                                 *act = Some(Act::MoveDown(layer.id.clone()));
                             }
                             if cl::tip(
-                                small_btn(ui, "✕", ("rm", layer.id.as_str())),
+                                small_btn(ui, "x", ("rm", layer.id.as_str())),
                                 "Remove this clip from the composition",
                             )
                             .clicked()
@@ -624,6 +765,11 @@ fn small_btn(
         egui::Id::new(("composer-sbtn", key)),
         Sense::click(),
     )
+}
+
+/// An honest stub for a workflow mode not yet built — names what it will do.
+fn tab_stub(ui: &mut egui::Ui, tab: Tab) {
+    plate(ui, tab.label(), tab.blurb());
 }
 
 /// A passive claymorphic plate with a title + hint — the empty/loading state.

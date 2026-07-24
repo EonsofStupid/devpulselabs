@@ -54,6 +54,19 @@ is DELETED. Memory: `chat-is-a-peer-window`.
   (docs/proof/r1b-stitch-render-demo.mp4). Plan
   `docs/plans/r1b-stitch-render.md`. R1b.2 (xfade + composited preview +
   egui_tiles docking) is the next rider; then R1c–R1f.
+- **R1s — editor SHELL landed** (branch `feat/r1s-editor-shell`, stacked on
+  R1b): the operator's real design reference (two images, 2026-07-24) is now
+  captured in `docs/design/wiredfront-editor-inventory.md` — THE fidelity
+  bar (the gate KNOWN BROKEN #5 said was never authored). The Composer was
+  reshaped from a flat 4-pane skeleton to the **WiredFRONT editor spine**: a
+  workflow-tab bar (Capture · Annotate · Edit · Narrate · Preview · Export +
+  Export .guide, active glows voltage), a SCENES/ASSETS left rail, and the
+  active mode's surface — EDIT hosts the working timeline editor, the other
+  five tabs are honest styled stubs naming what each will do. Tofu-box
+  glyphs (＋/↑/✕) replaced with font-safe labels. `cargo green ✔`; proof
+  docs/proof/r1s-editor-shell.png. Pass order to full fidelity is in the
+  inventory doc §"Pass order": R1-scene → R1-annotate → R1-steps →
+  R1-narrate → R1-preview → R1-export, interleaved with R1c–R1f.
 
 ## KNOWN BROKEN / regressed (the honest list)
 
