@@ -185,10 +185,29 @@ fn main() -> eframe::Result {
         // MAXIMIZED — a fixed logical size overflows small displays at
         // dpr > 1 and shoves the status bar under the taskbar (the v1 bug).
         // The inner size only names the restored-state fallback.
-        viewport: egui::ViewportBuilder::default()
-            .with_maximized(true)
-            .with_inner_size([1440.0, 900.0])
-            .with_min_inner_size([960.0, 600.0]),
+        // `--window <w>x<h>` boots RESTORED at that size — proofs must
+        // run at real window sizes, not only maximized (the footer bug
+        // hid behind maximized-only screenshots).
+        viewport: {
+            let all: Vec<String> = std::env::args().collect();
+            let restored: Option<(f32, f32)> = all
+                .iter()
+                .position(|a| a == "--window")
+                .and_then(|i| all.get(i + 1))
+                .and_then(|s| {
+                    let (w, h) = s.split_once('x')?;
+                    Some((w.parse().ok()?, h.parse().ok()?))
+                });
+            // Min small enough for scaled displays (the shell's zone test
+            // pins chrome at ANY size); the fit guard owns the rest.
+            let builder = egui::ViewportBuilder::default().with_min_inner_size([640.0, 480.0]);
+            match restored {
+                Some((w, h)) => builder.with_maximized(false).with_inner_size([w, h]),
+                None => builder
+                    .with_maximized(true)
+                    .with_inner_size([1440.0, 900.0]),
+            }
+        },
         renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };
@@ -537,8 +556,54 @@ fn configure_pilot_adapter(mut options: eframe::NativeOptions) -> eframe::Native
     options
 }
 
+/// The taskbar law, continuous (old repo's `lib.rs`, ported): whenever the
+/// RESTORED window exceeds the monitor's usable area — boot on a scaled
+/// display, a DPI change, a drag across monitors — shrink the inner size
+/// (minus the decoration delta) and nudge the window fully on-screen, so
+/// the footer is always physically visible. Maximized/fullscreen already
+/// respect the work area and are left alone.
+fn fit_window(ctx: &egui::Context) {
+    // Decide under the input lock; SEND after releasing it.
+    let (resize, reposition) = ctx.input(|i| {
+        let v = i.viewport();
+        let (Some(monitor), Some(outer), Some(inner)) =
+            (v.monitor_size, v.outer_rect, v.inner_rect)
+        else {
+            return (None, None);
+        };
+        if v.maximized.unwrap_or(false) || v.fullscreen.unwrap_or(false) {
+            return (None, None);
+        }
+        // egui exposes the monitor, not the work area — allow a
+        // conservative 48 logical px for the taskbar/panel.
+        let work = egui::vec2(monitor.x, monitor.y - 48.0);
+        let decor = outer.size() - inner.size();
+        let max_inner = work - decor;
+        let mut size = inner.size();
+        let mut resize = None;
+        if size.x > max_inner.x || size.y > max_inner.y {
+            size.x = size.x.min(max_inner.x).max(600.0);
+            size.y = size.y.min(max_inner.y).max(400.0);
+            resize = Some(size);
+        }
+        let fitted = resize.map_or(outer.size(), |s| s + decor);
+        let mut pos = outer.min;
+        pos.x = pos.x.min(work.x - fitted.x).max(0.0);
+        pos.y = pos.y.min(work.y - fitted.y).max(0.0);
+        let reposition = (pos != outer.min).then_some(pos);
+        (resize, reposition)
+    });
+    if let Some(size) = resize {
+        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(size));
+    }
+    if let Some(pos) = reposition {
+        ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(pos));
+    }
+}
+
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        fit_window(ui.ctx());
         self.shell.ui(ui);
         let ctx = ui.ctx().clone();
 

@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '=== STATE (docs/STATE.md) ===' && cat docs/STATE.md && echo '=== last 5 commits ===' && git log --oneline -5 && echo '=== working tree ===' && git status --short --branch"
+          }
+        ]
+      }
+    ]
+  }
+}
