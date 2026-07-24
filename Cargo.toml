@@ -38,6 +38,7 @@ members = [
     "crates/index",
     "crates/viziwiz",
     "crates/fabric",
+    "crates/seam",
     "crates/shell",
     "crates/hubs/home",
     "crates/hubs/shows",
@@ -77,6 +78,12 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.9"
 tokio = { version = "1", default-features = false, features = ["sync"] }
+# The agent seam (R1v): localhost HTTP over the fabric — axum is the
+# operator-ratified server; tokio-stream folds broadcast → SSE; tower is
+# dev-only endpoint testing (oneshot, no sockets).
+axum = "0.8"
+tokio-stream = { version = "0.1", default-features = false, features = ["sync"] }
+tower = "0.5"
 # png for the harness; jpeg for the backdrop posters (B1); webp so the app
 # DISPLAYS what the media pipeline emits (B3). AVIF decode is deliberately
 # absent Ã¢â‚¬â€ the pipeline always writes a webp sibling for display.
@@ -120,6 +127,7 @@ dpl-deck = { path = "crates/deck" }
 dpl-index = { path = "crates/index" }
 dpl-viziwiz = { path = "crates/viziwiz" }
 dpl-fabric = { path = "crates/fabric" }
+dpl-seam = { path = "crates/seam" }
 dpl-shell = { path = "crates/shell" }
 dpl-hub-home = { path = "crates/hubs/home" }
 dpl-hub-shows = { path = "crates/hubs/shows" }

@@ -94,9 +94,20 @@ is DELETED. Memory: `chat-is-a-peer-window`.
   the Nth ingredient = JSON + regenerate, zero UI code. Gate ✔ (fmt,
   clippy, all tests, release; ran in the pre-push hook). Proof:
   docs/proof/r1u-{editor-1280,editor-1100,library,rail-open}.png. Plan:
-  docs/plans/r1u-editor-fidelity.md. NEXT (r1v): the axum agent seam —
-  fabric ↔ HTTP endpoints (GET /state · POST /command doctor-validated ·
-  GET /signals SSE) so chat generates into and drives the editors.
+  docs/plans/r1u-editor-fidelity.md.
+- **R1v — the AGENT SEAM landed** (branch `feat/r1v-agent-seam`, stacked on
+  R1u): `dpl-seam` — axum on `127.0.0.1:7341` (own thread + runtime, egui
+  never touched; `--seam-port <n>` / `--no-seam`): `GET /state` (last-heard
+  route + the full hub/subroute registry built from the SAME HubSpecs the
+  shell registers), `POST /command` (navigate / viziwiz-summon — unknown
+  routes refused BY NAME, 422 + issues, doctor-style), `GET /signals` (every
+  ShellEvent as SSE; wire shapes pinned by test, fabric stays serde-free).
+  5 tests. LIVE PROOF: POST navigate → the real exe navigated (GET /state
+  flipped to wiredfront/editor) and SSE captured navigate-request +
+  route-changed (§8 of docs/plans/r1v-agent-seam.md). This is how chat
+  drives the editors; comp-document mutation endpoints ride the doc
+  doctors next (R1f). Estate (Fjall+Moka) is pushed on
+  `feat/estate-fjall-moka`, ready to join the seam for agent persistence.
 
 ## KNOWN BROKEN / regressed (the honest list)
 

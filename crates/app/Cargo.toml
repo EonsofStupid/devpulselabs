@@ -44,6 +44,7 @@ dpl-hub-wiredfront.workspace = true
 egui-pilot-ai.workspace = true
 egui-pilot-ai-runtime = { workspace = true, optional = true }
 egui-pilot-ai-transport = { workspace = true, optional = true }
+dpl-seam.workspace = true
 
 [[bin]]
 name = "devpulselabs"
