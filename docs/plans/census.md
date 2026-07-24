@@ -108,7 +108,8 @@ Legend: ✅ CAPTURED in the rewrite · 🟡 PARTIAL (exists, gaps named) ·
 |---|---|
 | C1 read-only console: session sidebar (Claude+Codex on disk), transcript normalizer (never drops lines), event-renderer registry, 6 renderers, tabs store, quota telemetry, jailed Rust reader | ❌ all — chat hub is a placeholder |
 | Agent launcher tile + dock | 🟡 — footer Agents chip routes to the hub (no dock) |
-| C2 drive Claude · C3 drive Codex · C4 Council · COSTAR · 5-provider mesh · context registry | ✖ planned-only in old too (plan docs are the salvage) |
+| Route-aware, provider-isolated Chat platform; authenticated Codex/Claude/Gemini/Grok adapters; context registry; overlays/extensions; attached windows; explicit handoff; Council | 📋 canonical plan: [`chat-architecture.md`](chat-architecture.md); live runtime blocked on the draft [`chat-provider-runtime-adr.md`](chat-provider-runtime-adr.md) |
+| Provider protocol/auth evidence and qualification status | 📋 [`../research/chat-provider-capabilities.md`](../research/chat-provider-capabilities.md) |
 | Signals v2 typed events | ⬆ the fabric already IS typed Rust enums end-to-end |
 
 ## 7. Shell / app-wide — 🟡

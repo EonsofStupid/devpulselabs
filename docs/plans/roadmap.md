@@ -219,12 +219,29 @@ Operator (2026-07-23): the portable guide export is a SEPARATE,
 later, independent bonus feature — never entangled with the show
 doctrine or the episode tree.
 
-## Program A — Agent console (census #7)
+## Program A — Chat platform (census #6)
 
-- **A1** port C1: session sidebar (Claude+Codex JSONL on disk), transcript
-  normalizer (never drops a line), event-renderer registry, tabs, quota
-  telemetry, jailed reader. Pilot: fixture transcript dir scenario.
-- **A2+** C2 driving/Council/mesh — from the old plan docs, own ADR first.
+Canonical architecture and slice acceptance:
+[`chat-architecture.md`](chat-architecture.md). Current provider evidence:
+[`../research/chat-provider-capabilities.md`](../research/chat-provider-capabilities.md).
+The named-provider runtime exception is ratified. Live provider processes
+remain fail-closed until the launch checklist in
+[`chat-provider-runtime-adr.md`](chat-provider-runtime-adr.md) is green.
+
+- **CH0 architecture/governance:** typed ownership, provider research, runtime
+  ADR, generic shell accessory contract.
+- **CH1 provider-neutral foundation:** core types, capability registry,
+  normalized events, fake providers, data-driven tabs.
+- **CH2 read-only sessions:** jailed readers, bounded paging, transcript
+  normalization, renderer registry, virtualized C1 surface.
+- **CH3 route context/extensions:** explicit context consent/provenance,
+  route-aware suggestions, shell accessories, passive extension triggers.
+- **CH4–CH7 live providers:** Codex app-server, Claude structured stream,
+  Gemini ACP, Grok ACP — each version-pinned and qualified independently.
+- **CH8 extensions/windows:** overlays, docks, inspectors, stable attached
+  windows, multi-viewport proof.
+- **CH9 handoff/Council:** explicit cross-provider export, caps, approvals, and
+  COSTAR only after every participating provider works alone.
 
 ## Program S — Sessions, rethought (census #8)
 

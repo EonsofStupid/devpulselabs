@@ -1334,6 +1334,12 @@ dependencies = [
 name = "devpulselabs"
 version = "0.1.0"
 dependencies = [
+ "dpl-chat-claude",
+ "dpl-chat-codex",
+ "dpl-chat-gemini",
+ "dpl-chat-grok",
+ "dpl-chat-runtime",
+ "dpl-chat-store",
  "dpl-coldlight",
  "dpl-doc",
  "dpl-engine-capture",
@@ -1436,6 +1442,97 @@ dependencies = [
 ]
 
 [[package]]
+name = "dpl-chat-claude"
+version = "0.1.0"
+dependencies = [
+ "dpl-chat-core",
+ "dpl-chat-store",
+ "serde_json",
+]
+
+[[package]]
+name = "dpl-chat-codex"
+version = "0.1.0"
+dependencies = [
+ "dpl-chat-core",
+ "dpl-chat-store",
+ "serde_json",
+]
+
+[[package]]
+name = "dpl-chat-context"
+version = "0.1.0"
+dependencies = [
+ "dpl-chat-core",
+ "dpl-hub",
+]
+
+[[package]]
+name = "dpl-chat-core"
+version = "0.1.0"
+
+[[package]]
+name = "dpl-chat-extensions"
+version = "0.1.0"
+dependencies = [
+ "dpl-chat-core",
+ "dpl-hub",
+]
+
+[[package]]
+name = "dpl-chat-gemini"
+version = "0.1.0"
+dependencies = [
+ "dpl-chat-core",
+]
+
+[[package]]
+name = "dpl-chat-grok"
+version = "0.1.0"
+dependencies = [
+ "dpl-chat-core",
+]
+
+[[package]]
+name = "dpl-chat-renderers"
+version = "0.1.0"
+dependencies = [
+ "dpl-chat-core",
+ "dpl-coldlight",
+ "egui",
+]
+
+[[package]]
+name = "dpl-chat-runtime"
+version = "0.1.0"
+dependencies = [
+ "dpl-chat-core",
+]
+
+[[package]]
+name = "dpl-chat-store"
+version = "0.1.0"
+dependencies = [
+ "dpl-chat-core",
+]
+
+[[package]]
+name = "dpl-chat-testkit"
+version = "0.1.0"
+dependencies = [
+ "dpl-chat-core",
+ "dpl-chat-runtime",
+]
+
+[[package]]
+name = "dpl-chat-windows"
+version = "0.1.0"
+dependencies = [
+ "dpl-chat-core",
+ "dpl-hub",
+]
+
+[[package]]
 name = "dpl-coldlight"
 version = "0.1.0"
 dependencies = [
@@ -1528,10 +1625,20 @@ dependencies = [
 name = "dpl-hub-chat"
 version = "0.1.0"
 dependencies = [
+ "dpl-chat-context",
+ "dpl-chat-core",
+ "dpl-chat-extensions",
+ "dpl-chat-renderers",
+ "dpl-chat-runtime",
+ "dpl-chat-store",
+ "dpl-chat-testkit",
+ "dpl-chat-windows",
  "dpl-coldlight",
  "dpl-fabric",
  "dpl-hub",
  "egui",
+ "egui-pilot-ai",
+ "egui_kittest",
 ]
 
 [[package]]
