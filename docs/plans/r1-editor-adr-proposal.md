@@ -1,9 +1,38 @@
 # R1 PROPOSAL — the WiredFRONT editor (for operator ratification)
 
-Status: PROPOSAL — the operator gave the vision (2026-07-23); this is
-the architecture half. Ratify, amend, or redline before any code.
-Parents: ADR-011 (rendering-stack.md), ADR-009 (ffmpeg subprocess law),
-ADR-010 (ComfyUI first pluggable backend). Ledger #114.
+Status: PARTIALLY RATIFIED — the operator gave the vision (2026-07-23)
+and, in the 2026-07-24 ratification conversation, resolved the four
+gating forks (see "Ratified decisions" below). This is the architecture
+half; the passes may now begin, R1a first. Parents: ADR-011
+(rendering-stack.md — RS4 names the R1 stack: egui_tiles docking +
+egui_wgpu/vello compositor behind our own Layer/Compositor traits),
+ADR-009 (ffmpeg subprocess law), ADR-010 (ComfyUI first pluggable
+backend). Ledger #114.
+
+## Ratified decisions (operator, 2026-07-24)
+
+1. **Generation/editing backend = HYBRID from day one.** A
+   backend-agnostic job queue: each media op (image gen/edit, video,
+   effects) routes to whichever backend — LOCAL (ComfyUI, ADR-010) or
+   HOSTED (media-model APIs) — is configured. The chat mesh
+   (Claude/Codex/Grok) ORCHESTRATES either way; the pixels come from a
+   backend, never from the chat channel itself. CAPABILITY REALITY
+   recorded: Claude/Codex subscriptions are text/vision (they instruct
+   and edit-by-description); actual image/video/matte pixels need a media
+   backend (Grok image gen, dedicated image/video keys, or local
+   ComfyUI). The ffmpeg/effect tier stays local regardless. This
+   SUPERSEDES §5's "ComfyUI first, hosted later" — both from the start,
+   behind one `GenBackend` trait.
+2. **Background removal = LOCAL ort + BiRefNet** (§6 confirmed). Needs
+   the ort-runtime mini-ADR (GPU execution provider) authored before its
+   pass (R1e).
+3. **Elements = COPY ALL into `content/elements/<pack>/`.** This
+   OVERRIDES §4's "index in place, copy-on-use" recommendation: the gigs
+   are ingested into the content tree up front (operator data, gitignored
+   — never committed), then X1-indexed from there. Self-contained; the
+   palette and agents search one root.
+4. **Scope = amend R1 (this edit), then plan + build R1a** (comp
+   document + doctor + editor panes shell + clip-list stitching UI).
 
 ## The vision (operator, 2026-07-23, their words compressed)
 
@@ -53,25 +82,29 @@ An INGEST pass walks the operator's element stores (rendered
 transparent media: alpha WebM/MOV, PNG sequences; Lottie where
 exported), writes X1 sidecars (kind "element", pack + tags), and
 indexes them — the palette and the AGENTS then search the same index.
-OPEN QUESTION 1: copy into `content/elements/<pack>/` vs index
-in-place on the external drive (rec: index in-place + copy-on-use into
-the comp's folder, so gigs stay where they live and comps stay
-portable).
+RESOLVED (ratified decision 3): COPY ALL into
+`content/elements/<pack>/` up front, then X1-index from there — one
+root the palette and agents both search. (The earlier index-in-place
+recommendation is retired.)
 
 **5. The agent seam — "chat route aware".**
 The route-aware chat (F3 provider mesh / Council) gets TYPED tools:
 search the elements/artifact index; propose comp.json edits (validated
 by the comp doctor before apply — an agent cannot write an invalid
-comp); enqueue generation jobs (ComfyUI first per ADR-010, hosted
-APIs as later adapters) whose outputs land as REAL FILES in the inbox
+comp); enqueue generation jobs (RATIFIED decision 1: HYBRID — local ComfyUI
+per ADR-010 AND hosted media APIs from day one, behind one `GenBackend`
+trait; the chat mesh orchestrates, a backend renders) whose outputs
+land as REAL FILES in the inbox
 (write-through indexes them — nothing synthesized); enqueue renders.
 Generation is an engine job queue (mpsc, not broadcast — the fabric
 doc's own rule).
 
 **6. Matting — background removal / transparency.**
 ort + BiRefNet as an engine job: images first, video as a batched
-frame pipeline. Needs its own mini-ADR (ort runtime + GPU execution
-provider choice) — flagged, not smuggled in.
+frame pipeline. CONFIRMED (ratified decision 2): local ort + BiRefNet
+is the matting path. Needs its own mini-ADR (ort runtime + GPU
+execution provider choice) authored before R1e — flagged, not smuggled
+in.
 
 ## Proposed passes
 
@@ -83,13 +116,19 @@ R1e matting (after the ort mini-ADR) →
 R1f agent tools (needs F3 mesh).
 Each pass: plan → green → real-exe proof, as always.
 
-## Open questions for the ratification conversation
+## Open questions
 
-1. Elements: index-in-place from your drives (rec) or copy-in? And a
-   sample inventory of the formats in the gigs (alpha video? PNG
-   sequences? .aep sources needing render-out first?).
-2. Preview bar for v1: reduced-res realtime play (rec) or frame-scrub
-   only?
-3. Comps as inbox artifacts keepable into episodes (rec) — confirm.
-4. Generation backends order: ComfyUI local first (ADR-010), then
-   which hosted APIs?
+RESOLVED 2026-07-24: #1 elements storage (→ copy-all, decision 3) and
+#4 backend order (→ hybrid, decision 1). STILL OPEN, needed before the
+passes they gate — not before R1a:
+
+- **Element format inventory** (gates R1c): what actually lives in the
+  gigs — alpha WebM/MOV? PNG/EXR sequences? Lottie exports? `.aep`
+  sources that must be rendered out first (the app never runs After
+  Effects)? A sample listing sets the ingest matrix.
+- **Preview tier for R1b** (gates R1b): reduced-res realtime play (rec)
+  or frame-scrub only for v1?
+- **Comps as inbox artifacts keepable into episodes** (rec) — confirm at
+  R1's keep seam (leans yes; matches the X3 doctrine).
+- **Hosted backend roster** (gates the hybrid adapters): which media
+  APIs first — Grok image gen + which image/video/matte services?

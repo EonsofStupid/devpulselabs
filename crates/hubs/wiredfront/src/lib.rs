@@ -19,6 +19,7 @@ pub const OVERVIEW: SubId = SubId("overview");
 pub const VIZIWIZ: SubId = SubId("viziwiz");
 pub const GALLERY: SubId = SubId("gallery");
 pub const SESSIONS: SubId = SubId("sessions");
+pub const COMPOSER: SubId = SubId("composer");
 
 static SPEC: HubSpec = HubSpec {
     id: HUB,
@@ -45,6 +46,11 @@ static SPEC: HubSpec = HubSpec {
             id: SESSIONS,
             label: "Sessions",
             blurb: "Session recordings — video-first (the rrweb path retired with the webview).",
+        },
+        SubRoute {
+            id: COMPOSER,
+            label: "Composer",
+            blurb: "Stitch clips into a video — the After-Effects-style editor (R1a foundation).",
         },
     ],
 };
@@ -110,6 +116,8 @@ pub struct WiredfrontHub {
     /// The Gallery's in-place session player (doctrine §1.2: "tapping a
     /// session card opens the player right there") + its status line.
     replay: Option<(SessionPlay, String)>,
+    /// The R1a Composer surface — the WiredFRONT video editor.
+    composer: dpl_composer::Composer,
 }
 
 /// One parsed events.jsonl line — exactly what S1 recorded, no
@@ -1018,6 +1026,10 @@ impl Hub for WiredfrontHub {
         }
         if route.sub == SESSIONS {
             self.sessions_surface(ui);
+            return;
+        }
+        if route.sub == COMPOSER {
+            self.composer.ui(ui);
             return;
         }
         if let Some(go) = dpl_hub::placeholder::surface(
