@@ -15,13 +15,19 @@
 //! autosave/undo (R1z), the ephemeral ✦ + chat seam pass. The comp stays
 //! plain validated `comp.json` — the document the agent seam edits.
 
+mod browse;
+pub mod import;
+
 use dpl_coldlight::{self as cl, Tone};
 use dpl_comp::{Composition, Layer, Source};
 use dpl_engine_media::StitchClip;
 use dpl_index::Record;
 use dpl_video::{clip::ClipPlayer, DECODE_H, DECODE_W};
 use egui::{Color32, CornerRadius, Rect, RichText, Sense, UiBuilder};
-use egui_pilot_ai::{protocol::Role, NodeMetadata, PilotId, PilotKey, UiPilotExt};
+use egui_pilot_ai::{
+    protocol::{PilotViewportKey, Role},
+    ContextPilotExt, NodeMetadata, PilotId, PilotKey, UiPilotExt,
+};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -80,6 +86,14 @@ pub struct Composer {
     info_open: bool,
     /// The Effects & Presets search text.
     fx_search: String,
+    /// Open Browse windows (peer viewports); slots never reuse.
+    browsers: Vec<Arc<Mutex<browse::Browser>>>,
+    /// The next Browse window's slot id.
+    next_browser: usize,
+    /// The seeded comp/guide name the guided Save/Export flows use.
+    save_name: String,
+    /// Keep targets: every CONTENT episode as (show, episode).
+    episodes: Option<Vec<(String, String)>>,
     status: String,
 }
 
@@ -118,6 +132,10 @@ impl Default for Composer {
             expanded: BTreeSet::new(),
             info_open: true,
             fx_search: String::new(),
+            browsers: Vec::new(),
+            next_browser: 0,
+            save_name: String::new(),
+            episodes: None,
             status: "New composition — add footage from the Project panel.".into(),
         }
     }
@@ -148,6 +166,10 @@ enum Act {
     Step(f32),
     ToggleInfo,
     Zoom(f32),
+    /// Open a new Browse window (a native peer viewport onto a folder).
+    Browse,
+    /// File the finished render into (show, episode) — the tag seam.
+    Keep(String, String),
 }
 
 /// The workflow tabs — Editor leads; the others are TAILORED surfaces
@@ -444,9 +466,25 @@ impl Composer {
     }
 
     /// Persist `comp.json` to an inbox folder (inbox-born per R1 §1).
+    /// The GUIDED path: a typed name (sanitized to kebab, no-clobber)
+    /// names the folder; blank falls back to the seeded `comp-N`.
     fn save(&mut self) {
         if self.dir.is_none() {
-            self.dir = Some(Self::fresh_comp_dir());
+            self.dir = Some(match import::sanitize_name(&self.save_name) {
+                Some(name) => {
+                    let inbox = Self::content_root().join("inbox");
+                    let first = inbox.join(&name);
+                    if first.exists() {
+                        (2..)
+                            .map(|n| inbox.join(format!("{name}-{n}")))
+                            .find(|p| !p.exists())
+                            .unwrap()
+                    } else {
+                        first
+                    }
+                }
+                None => Self::fresh_comp_dir(),
+            });
         }
         let dir = self.dir.clone().unwrap();
         self.status = match dpl_comp::save(&dir, &self.comp) {
@@ -520,7 +558,12 @@ impl Composer {
             .spawn(move || {
                 let result = dpl_engine_media::render_stitch(&clips, w, h, fps, &out);
                 *state.lock().expect("render state") = match result {
-                    Ok(()) => RenderState::Done(out),
+                    Ok(()) => {
+                        // Write-through: the render becomes an ordinary
+                        // indexed artifact so Gallery/Keep/agents see it.
+                        index_render(&out);
+                        RenderState::Done(out)
+                    }
                     Err(e) => RenderState::Failed(e),
                 };
             })
@@ -572,6 +615,159 @@ impl Composer {
         if self.elements.is_none() {
             self.elements = Some(count_files(&Self::content_root().join("elements")));
         }
+        if self.episodes.is_none() {
+            self.episodes = Some(
+                dpl_doc::list_content_episodes(&Self::content_root())
+                    .into_iter()
+                    .map(|(show, ep, _)| (show, ep))
+                    .collect(),
+            );
+        }
+    }
+
+    /// Show every open Browse window as a DEFERRED peer viewport (the
+    /// chat window's law: a real window or an honest failure, never a
+    /// silent embed). Closed windows are dropped.
+    fn show_browsers(&mut self, ctx: &egui::Context) {
+        for b in &self.browsers {
+            let (slot, title, open) = {
+                let b = lock(b);
+                (b.slot, b.title(), b.open)
+            };
+            if !open {
+                continue;
+            }
+            let builder = egui::ViewportBuilder::default()
+                .with_title(title)
+                .with_inner_size([560.0, 640.0])
+                .with_min_inner_size([380.0, 420.0])
+                .with_resizable(true)
+                .with_decorations(true)
+                .with_taskbar(true);
+            let shared = Arc::clone(b);
+            ctx.pilot_show_viewport_deferred(
+                PilotViewportKey::new(format!("devpulse.browse.{slot}")),
+                egui::ViewportId::from_hash_of(("dpl.browse", slot)),
+                builder,
+                move |ui, class| {
+                    let mut b = lock(&shared);
+                    if class == egui::ViewportClass::EmbeddedWindow {
+                        ui.colored_label(
+                            Tone::Coral.color(),
+                            "Browse needs native multi-viewport support; this backend \
+                             embedded the window.",
+                        );
+                        b.open = false;
+                        return;
+                    }
+                    if ui.ctx().input(|i| i.viewport().close_requested()) {
+                        b.open = false;
+                    }
+                    egui::CentralPanel::default()
+                        .frame(
+                            egui::Frame::new()
+                                .fill(cl::surface::WELL)
+                                .inner_margin(egui::Margin::same(8)),
+                        )
+                        .show(ui, |ui| browse::window_ui(ui, &mut b));
+                },
+            );
+        }
+        self.browsers.retain(|b| lock(b).open);
+    }
+
+    /// ONE funnel for both feeders: Browse-window picks and files
+    /// dropped from Explorer onto the main window. Imports copy into
+    /// the content tree and write through the index; videos also land
+    /// on the timeline. Any import refreshes the project caches.
+    fn drain_media_feeds(&mut self, ctx: &egui::Context) {
+        let mut incoming: Vec<PathBuf> = Vec::new();
+        for b in &self.browsers {
+            incoming.append(&mut lock(b).picked);
+        }
+        incoming.extend(
+            ctx.input(|i| i.raw.dropped_files.clone())
+                .into_iter()
+                .filter_map(|f| f.path),
+        );
+        if incoming.is_empty() {
+            return;
+        }
+        for src in incoming {
+            self.handle_import(&src);
+        }
+        self.palette = None;
+        self.elements = None;
+    }
+
+    /// The harness seam (`--import-drill <dir>`): import every media
+    /// file in `dir` through the SAME path an Explorer drop takes —
+    /// the real-exe proof of the import seam.
+    pub fn import_dir(&mut self, dir: &Path) {
+        let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_file())
+            .collect();
+        files.sort();
+        for f in files {
+            self.handle_import(&f);
+        }
+        self.palette = None;
+        self.elements = None;
+    }
+
+    /// Route one imported file: videos join the timeline, images join
+    /// the library, elements file into the elements shelf — honestly.
+    fn handle_import(&mut self, src: &Path) {
+        match import::import_file(src) {
+            Ok(rec) if rec.kind == "video" => self.add_clip(&rec),
+            Ok(rec) if rec.kind == "element" => {
+                self.status = format!(
+                    "{} filed into your elements — parsing lands with the .aep pass.",
+                    rec.name
+                );
+            }
+            Ok(rec) => self.status = format!("Added {} to your library.", rec.name),
+            Err(e) => self.status = format!("Import failed: {e}"),
+        }
+    }
+
+    /// The guided workflow's NEXT-step suggestion, from real state.
+    fn next_hint(&self, rendering: bool, done: bool) -> &'static str {
+        if self.layers().is_empty() {
+            "NEXT: add footage — tap a clip, Browse… a folder, or drop files from Explorer"
+        } else if self.dir.is_none() {
+            "NEXT: name it (optional) and Save — comp.json lands in your inbox"
+        } else if rendering {
+            "Rendering — the pill here updates when it finishes"
+        } else if done {
+            "NEXT: file the render into a show, or keep editing"
+        } else {
+            "NEXT: Render stitches your layers into one video"
+        }
+    }
+
+    /// File the finished render into a show/episode (the tag seam) —
+    /// `Index::keep` moves the artifact and its index row together.
+    fn keep_render(&mut self, show: &str, ep: &str) {
+        let path = match &*self.render.lock().expect("render state") {
+            RenderState::Done(p) => p.clone(),
+            _ => return,
+        };
+        let root = Self::content_root();
+        let rel = Self::short(&path);
+        self.status =
+            match dpl_index::Index::open_default().and_then(|ix| ix.keep(&root, &rel, show, ep)) {
+                Ok(new_rel) => {
+                    *self.render.lock().expect("render state") = RenderState::Idle;
+                    self.renders = None;
+                    format!("Filed into {show}/{ep} → {new_rel}")
+                }
+                Err(e) => format!("Keep failed: {e}"),
+            };
     }
 
     /// The timeline's row model: one row per layer, plus the timing
@@ -593,6 +789,8 @@ impl Composer {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         self.ensure_project();
         self.tick_playback(ui.ctx());
+        self.show_browsers(ui.ctx());
+        self.drain_media_feeds(ui.ctx());
         // A render in flight keeps the frame alive so its status pill updates.
         if matches!(
             *self.render.lock().expect("render state"),
@@ -621,6 +819,7 @@ impl Composer {
         match self.tab {
             Tab::Editor => self.ae_screen(ui, body, &mut act),
             Tab::Annotate => self.annotate_tab(&mut mk(body), &mut act),
+            Tab::Guide => self.guide_tab(&mut mk(body), &mut act),
             other => tab_stub(&mut mk(body), other),
         }
 
@@ -687,6 +886,20 @@ impl Composer {
             }
             Some(Act::ToggleInfo) => self.info_open = !self.info_open,
             Some(Act::Zoom(f)) => self.px_per_sec = (self.px_per_sec * f).clamp(20.0, 240.0),
+            Some(Act::Browse) => {
+                let start = std::env::var("USERPROFILE")
+                    .map(|p| Path::new(&p).join("Videos"))
+                    .ok()
+                    .filter(|p| p.is_dir())
+                    .or_else(|| std::env::var("USERPROFILE").ok().map(PathBuf::from))
+                    .unwrap_or_else(|| PathBuf::from("C:\\"));
+                self.browsers.push(Arc::new(Mutex::new(browse::Browser::new(
+                    self.next_browser,
+                    start,
+                ))));
+                self.next_browser += 1;
+            }
+            Some(Act::Keep(show, ep)) => self.keep_render(&show, &ep),
             None => {}
         }
     }
@@ -719,7 +932,7 @@ impl Composer {
     fn ae_screen(&mut self, ui: &mut egui::Ui, body: Rect, act: &mut Option<Act>) {
         let pad = cl::space::S2;
         let tools_h = 40.0_f32;
-        let status_h = 32.0_f32;
+        let status_h = 58.0_f32;
         // The timeline grows with twirled rows, within honest bounds.
         let rows_h: f32 = self.rows().iter().map(Row::height).sum();
         let timeline_h = (RULER_H + rows_h + 40.0).clamp(150.0, body.height() * 0.42);
@@ -786,6 +999,19 @@ impl Composer {
         self.fx_pane(&mut mk(fx_rect));
         self.timeline_panel(&mut mk(timeline_rect), act);
         self.status_row(&mut mk(status_rect), act);
+        // Explorer drag-drop affordance: hovering files lights the whole
+        // editor as the drop target; the drop itself drains next frame.
+        if ui.ctx().input(|i| !i.raw.hovered_files.is_empty()) {
+            ui.painter()
+                .rect_filled(body, CornerRadius::same(cl::RADIUS), Tone::Magenta.wash());
+            ui.painter().text(
+                body.center(),
+                egui::Align2::CENTER_CENTER,
+                "Drop to import into your library",
+                egui::FontId::proportional(22.0),
+                cl::ink::STRONG,
+            );
+        }
     }
 
     /// The AE tool strip: the operator's set + the later-phase affordances,
@@ -834,7 +1060,25 @@ impl Composer {
     /// The PROJECT panel: preview well + COMPS / FOOTAGE / ELEMENTS /
     /// RENDERS sections. Footage taps add videos to the timeline.
     fn project_panel(&self, ui: &mut egui::Ui, act: &mut Option<Act>) {
-        ui.label(RichText::new("PROJECT").small().strong());
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("PROJECT").small().strong());
+            let resp = cl::tip(
+                small_btn(ui, "Browse…", "browse"),
+                "Open a separate window onto one of your folders — click a file there \
+                 to pull it in. You can also drop files here straight from Explorer.",
+            );
+            ui.pilot_track(
+                &resp,
+                NodeMetadata::new(
+                    PilotId::new("composer.project").child(&PilotKey::new("browse")),
+                    Role::Button,
+                    "Browse folders",
+                ),
+            );
+            if resp.clicked() {
+                *act = Some(Act::Browse);
+            }
+        });
         // The preview well: the highlighted footage row's thumbnail.
         let w = ui.available_width();
         let (well, _) = ui.allocate_exact_size(egui::vec2(w, w * 9.0 / 16.0), Sense::hover());
@@ -1440,20 +1684,27 @@ impl Composer {
 
     /// The status row: New · Save · Render + the render pill, then the
     /// saved crumb + comp facts + the Info reopen toggle.
-    fn status_row(&self, ui: &mut egui::Ui, act: &mut Option<Act>) {
+    fn status_row(&mut self, ui: &mut egui::Ui, act: &mut Option<Act>) {
         // Snapshot the render state once (don't hold the lock across the UI).
-        let (rendering, pill) = {
+        let (rendering, done, pill) = {
             let st = self.render.lock().expect("render state");
             match &*st {
-                RenderState::Idle => (false, None),
-                RenderState::Running => (true, Some(("Rendering...".to_string(), cl::ink::BASE))),
+                RenderState::Idle => (false, false, None),
+                RenderState::Running => (
+                    true,
+                    false,
+                    Some(("Rendering...".to_string(), cl::ink::BASE)),
+                ),
                 RenderState::Done(p) => (
                     false,
+                    true,
                     Some((format!("Rendered: {}", Self::short(p)), cl::ink::STRONG)),
                 ),
-                RenderState::Failed(e) => {
-                    (false, Some((format!("Render failed: {e}"), cl::ink::MUTED)))
-                }
+                RenderState::Failed(e) => (
+                    false,
+                    false,
+                    Some((format!("Render failed: {e}"), cl::ink::MUTED)),
+                ),
             }
         };
         ui.horizontal(|ui| {
@@ -1473,6 +1724,13 @@ impl Composer {
             {
                 *act = Some(Act::Save);
             }
+            let field = egui::TextEdit::singleline(&mut self.save_name)
+                .hint_text("name this comp")
+                .desired_width(120.0);
+            cl::tip(
+                ui.add(field),
+                "Names the comp folder on Save (kebab-cased); blank uses comp-N",
+            );
             if !self.layers().is_empty()
                 && !rendering
                 && cl::tip(
@@ -1488,6 +1746,18 @@ impl Composer {
             } else {
                 ui.label(RichText::new(&self.status).small().color(cl::ink::SUBTLE));
             }
+            if done {
+                self.keep_chips(ui, act);
+            }
+        });
+        // Line 2: the guided NEXT step left, the comp facts right —
+        // never fighting line 1's actions for width.
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new(self.next_hint(rendering, done))
+                    .small()
+                    .color(Tone::Lime.color()),
+            );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if !self.info_open {
                     let resp = cl::tip(
@@ -1516,6 +1786,170 @@ impl Composer {
                 );
             });
         });
+    }
+
+    /// The show KEEP chips — tag the finished render into any show,
+    /// one tap. No shows yet says so honestly.
+    fn keep_chips(&self, ui: &mut egui::Ui, act: &mut Option<Act>) {
+        let episodes = self.episodes.as_deref().unwrap_or(&[]);
+        if episodes.is_empty() {
+            ui.label(
+                RichText::new("no shows yet — create one in Workbench to file this")
+                    .small()
+                    .color(cl::ink::SUBTLE),
+            );
+            return;
+        }
+        for (show, ep) in episodes.iter().take(4) {
+            let label = format!("→ {show}/{ep}");
+            let resp = cl::tip(
+                small_btn(ui, &label, ("keep", label.as_str())),
+                "File the finished render into this show",
+            );
+            ui.pilot_track(
+                &resp,
+                NodeMetadata::new(
+                    PilotId::new("composer.keep").child(&PilotKey::new(&label)),
+                    Role::Button,
+                    &label,
+                ),
+            );
+            if resp.clicked() {
+                *act = Some(Act::Keep(show.clone(), ep.clone()));
+            }
+        }
+    }
+
+    /// GUIDE — the tailored export flow (operator spec: streamlined,
+    /// seeded suggestions, tooltips; the standalone double-click player
+    /// is its own ratified product pass, stated honestly).
+    fn guide_tab(&mut self, ui: &mut egui::Ui, act: &mut Option<Act>) {
+        let (rendering, pill) = {
+            let st = self.render.lock().expect("render state");
+            match &*st {
+                RenderState::Idle => (false, None),
+                RenderState::Running => (true, Some("Rendering...".to_string())),
+                RenderState::Done(p) => (false, Some(format!("Rendered: {}", Self::short(p)))),
+                RenderState::Failed(e) => (false, Some(format!("Render failed: {e}"))),
+            }
+        };
+        let done = pill.as_deref().is_some_and(|p| p.starts_with("Rendered"));
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.set_max_width(560.0);
+                    ui.add_space(cl::space::S3);
+                    ui.label(
+                        RichText::new("Export a standalone guide")
+                            .heading()
+                            .color(cl::ink::STRONG),
+                    );
+                    ui.label(
+                        RichText::new(
+                            "A double-click file for your audience — easy to load on a phone \
+                             while you follow along on your computer.",
+                        )
+                        .small()
+                        .color(cl::ink::SUBTLE),
+                    );
+                    ui.add_space(cl::space::S3);
+
+                    cl::clay().show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.label(RichText::new("1 · WHAT SHIPS").small().strong());
+                        if self.layers().is_empty() {
+                            ui.label(
+                                RichText::new(
+                                    "Nothing yet — stitch clips together in the Editor first.",
+                                )
+                                .small()
+                                .color(cl::ink::SUBTLE),
+                            );
+                        } else {
+                            ui.label(
+                                RichText::new(format!(
+                                    "{} layer(s) · {:.1}s · {}×{} @{}fps",
+                                    self.layers().len(),
+                                    self.comp.duration(),
+                                    self.comp.w,
+                                    self.comp.h,
+                                    self.comp.fps
+                                ))
+                                .color(cl::ink::BASE),
+                            );
+                        }
+                    });
+                    ui.add_space(cl::space::S2);
+
+                    cl::clay().show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.label(RichText::new("2 · NAME IT").small().strong());
+                        let field = egui::TextEdit::singleline(&mut self.save_name)
+                            .hint_text("guide name")
+                            .desired_width(f32::INFINITY);
+                        cl::tip(ui.add(field), "Names the folder everything ships under");
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(RichText::new("suggestions:").small().color(cl::ink::MUTED));
+                            for seed in name_seeds() {
+                                let resp = cl::tip(
+                                    small_btn(ui, &seed, ("seed", seed.as_str())),
+                                    "Use this name",
+                                );
+                                if resp.clicked() {
+                                    self.save_name = seed.clone();
+                                }
+                            }
+                        });
+                    });
+                    ui.add_space(cl::space::S2);
+
+                    cl::clay().show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.label(RichText::new("3 · RENDER THE VIDEO").small().strong());
+                        ui.horizontal(|ui| {
+                            if !self.layers().is_empty()
+                                && !rendering
+                                && cl::tip(
+                                    chip(ui, Tone::Magenta, "Render", "guide-render"),
+                                    "Stitch the layers into one video beside the comp",
+                                )
+                                .clicked()
+                            {
+                                *act = Some(Act::Render);
+                            }
+                            if let Some(text) = &pill {
+                                ui.label(RichText::new(text).small().color(cl::ink::BASE));
+                            }
+                        });
+                    });
+                    ui.add_space(cl::space::S2);
+
+                    cl::clay().show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.label(RichText::new("4 · FILE IT INTO A SHOW").small().strong());
+                        if done {
+                            ui.horizontal_wrapped(|ui| self.keep_chips(ui, act));
+                        } else {
+                            ui.label(
+                                RichText::new("Render first — the show chips appear here.")
+                                    .small()
+                                    .color(cl::ink::SUBTLE),
+                            );
+                        }
+                    });
+                    ui.add_space(cl::space::S3);
+                    ui.label(
+                        RichText::new(
+                            "Honest note: the double-click .guide player app is its own \
+                             ratified pass — this flow prepares and files the video today; \
+                             the standalone wrapper rides that pass.",
+                        )
+                        .small()
+                        .color(cl::ink::MUTED),
+                    );
+                });
+            });
     }
 
     /// ANNOTATE — its own tool set beside the scene canvas. Tool behaviour
@@ -1585,6 +2019,54 @@ impl Composer {
 /// The tone cycle for layer rows/bars (Magenta is the selection voice).
 fn row_tone(i: usize) -> Tone {
     [Tone::Cyan, Tone::Lime, Tone::Coral][i % 3]
+}
+
+/// A poison-proof lock on one Browse window's shared state.
+fn lock(b: &Mutex<browse::Browser>) -> std::sync::MutexGuard<'_, browse::Browser> {
+    b.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Write-through for a finished render: poster + duration + index row
+/// (kind video, source "render") — so the Gallery, the Keep seam, and
+/// the agents all see it. Runs on the render thread; failures degrade
+/// the card, never the render.
+fn index_render(out: &Path) {
+    let root = dpl_engine_capture::content_root();
+    let mut rec = dpl_index::record_for_capture(out, &root, "video", "render");
+    let poster = out.with_file_name("render-poster.jpg");
+    if dpl_engine_media::write_poster(out, &poster).is_ok() {
+        rec.poster_rel_path = poster
+            .strip_prefix(&root)
+            .ok()
+            .map(|p| p.to_string_lossy().replace('\\', "/"));
+    }
+    rec.seconds = dpl_video::clip::clip_duration(out)
+        .filter(|d| *d > 0.0)
+        .map(|d| d.round() as u32);
+    if let Ok(ix) = dpl_index::Index::open_default() {
+        let _ = ix.upsert(&rec);
+    }
+}
+
+/// Seeded name suggestions: the next free comp folder + a date-stamped
+/// guide name (the index's own clock — no new deps).
+fn name_seeds() -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(n) = Composer::fresh_comp_dir()
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+    {
+        out.push(n);
+    }
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let iso = dpl_index::iso_from_ms(ms);
+    if iso.len() >= 10 {
+        out.push(format!("guide-{}", &iso[..10]));
+    }
+    out
 }
 
 /// A full-rect tappable brutal chip (touch law: the whole surface is the hit
@@ -1928,6 +2410,18 @@ mod tests {
         assert_eq!(clips.len(), 2, "element source is skipped");
         assert!(clips[0].path.to_string_lossy().contains("a.mp4"));
         assert!((clips[1].out_pt - 4.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn next_hint_walks_the_guided_flow() {
+        let mut c = Composer::default();
+        assert!(c.next_hint(false, false).contains("add footage"));
+        c.add_clip(&video_rec("A", "inbox/a.mp4", Some(3)));
+        assert!(c.next_hint(false, false).contains("Save"));
+        c.dir = Some(PathBuf::from("inbox/comp-1"));
+        assert!(c.next_hint(false, false).contains("Render"));
+        assert!(c.next_hint(true, false).contains("Rendering"));
+        assert!(c.next_hint(false, true).contains("file the render"));
     }
 
     #[test]

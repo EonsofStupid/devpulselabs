@@ -10,14 +10,28 @@ The fix, ratified via a mock-first loop: `docs/design/mocks/
 wiredfront-editor-mock.html` (v2.1) is THE editor spec — **After Effects,
 panel for panel** — and `docs/plans/wiredfront-experience.md` is the UX
 GATE: every editor pass must move a row of its §5 friction audit.
-**W1 landed** (this branch): the editor rebuilt to the mock. Exe rebuilt
-2026-07-24. NEXT: R1y (`docs/plans/r1y-media-windows.md`, plan approved
-in-session) — Browse peer windows + Explorer drag-drop; then R1z
-(autosave/undo/reopen-last). Ratified: 3D/camera/tracker/motion-blur are
-LATER phases; AI is ephemeral in-app + chat (one seam); WiredFRONT before
-Workbench (it feeds Workbench the finished media). Memory:
-`experience-first-gate`. OPEN operator question: does "import my After
-Effects" need `.aep` project parsing, or rendered elements + Lottie?
+**W1 landed** (PR #28): the editor rebuilt to the mock. **W2 landed**
+(`feat/r1y-media-windows`, `docs/plans/w2-guided-stitch.md`): R1y's
+media windows (Browse peer viewports onto local folders + Explorer
+drag-drop, both through ONE import seam — copy to inbox/elements,
+poster+seconds, index write-through, sources never touched) PLUS the
+guided stitch workflow (NEXT-step hint strip · seeded comp names on
+Save · renders indexed with posters · KEEP chips file the render into
+any show from the editor) and the GUIDE tab as the tailored 1-2-3-4
+export flow (seeded name chips, honest player-pass note).
+**RATIFIED 2026-07-24 (operator): `.aep` + `.lottie` are first-class
+imports** (personal-use tool) — they enter as ELEMENT artifacts
+(`content/elements/imported/`, indexed); PARSING into comp layers is
+its own spike, never faked. New harness seam: `--import-drill <dir>` +
+the ignored FS drill `composer/tests/import_drill.rs`.
+Exe rebuilt 2026-07-24. NEXT: R1z (autosave/undo/reopen-last +
+keyboard map), then R2a elements ingest (the gigs), R2b effects, the
+.aep parse spike. Ratified: 3D/camera/tracker/motion-blur are LATER;
+AI is ephemeral in-app + chat (one seam); WiredFRONT before Workbench.
+Memory: `experience-first-gate`.
+KNOWN (pre-existing, observed by the W2 cross-process drill): opening
+`artifacts.db` with a WAL left by ANOTHER process trips the index's
+quarantine (`.corrupt`); in-app (same-process) flows unaffected.
 NOTE: `seeds/slides/static/headline-clean/slide.json` carries an
 operator edit (fonts→orbitron, moods) left uncommitted on purpose.
 

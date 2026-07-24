@@ -130,6 +130,15 @@ fn main() -> eframe::Result {
         .position(|a| a == "--open-replay")
         .and_then(|i| args.get(i + 1))
         .cloned();
+    // `--import-drill <dir>` (W2) imports every media file in the staged
+    // folder at boot through the SAME seam an Explorer drop takes —
+    // copy to the content tree, poster, index write-through, videos onto
+    // the timeline. The real-exe proof of the import path.
+    let import_drill: Option<String> = args
+        .iter()
+        .position(|a| a == "--import-drill")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
     // `--open-rail <hub>` pins the accordion open on one house (L1a) —
     // proof shots of the unfolded rail reproduce. Unknown hub degrades to
     // a folded rail, never a panic.
@@ -243,6 +252,7 @@ fn main() -> eframe::Result {
                 open_replay,
                 open_rail,
                 open_episode,
+                import_drill,
                 seam_port,
             });
             #[cfg(feature = "eguipilotai-devtools")]
@@ -277,6 +287,7 @@ struct Boot {
     open_replay: Option<String>,
     open_rail: Option<String>,
     open_episode: Option<String>,
+    import_drill: Option<String>,
     /// The agent seam's port; None = `--no-seam`.
     seam_port: Option<u16>,
 }
@@ -326,6 +337,7 @@ impl App {
             open_replay,
             open_rail,
             open_episode,
+            import_drill,
             seam_port,
         } = boot;
         let mut workbench = dpl_hub_workbench::WorkbenchHub::default();
@@ -355,6 +367,11 @@ impl App {
         // The gallery's in-place replay seam (L1e).
         if let Some(rel) = &open_replay {
             wiredfront.open_replay(rel);
+        }
+        // The import seam's real-exe drill (W2): the SAME path an
+        // Explorer drop takes, headlessly staged.
+        if let Some(dir) = &import_drill {
+            wiredfront.import_drill(std::path::Path::new(dir));
         }
         // The NAVIGATE seam: hubs that render tappable subroute cards
         // publish their asks through the one fabric.
