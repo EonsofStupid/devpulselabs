@@ -271,6 +271,12 @@ fn poster_args(src: &Path, out: &Path) -> Vec<String> {
     ]
 }
 
+/// One poster frame for `src`, written to `out` — the import/render
+/// seams' thumbnail source (the same args the capture pipeline uses).
+pub fn write_poster(src: &Path, out: &Path) -> Result<(), String> {
+    run_ffmpeg(poster_args(src, out))
+}
+
 fn run_ffmpeg(args: Vec<String>) -> Result<(), String> {
     let status = Command::new(ffmpeg_program())
         .args(&args)

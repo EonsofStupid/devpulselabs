@@ -815,6 +815,12 @@ impl WiredfrontHub {
         view.open = Some(play);
     }
 
+    /// The `--import-drill <dir>` harness seam (W2): the editor imports
+    /// every media file in the staged folder — the Explorer-drop path.
+    pub fn import_drill(&mut self, dir: &std::path::Path) {
+        self.composer.import_dir(dir);
+    }
+
     /// Open one session IN PLACE on the Gallery (doctrine §1.2) — the
     /// same path a session thumb tap takes (also `--open-replay`).
     pub fn open_replay(&mut self, rel: &str) {

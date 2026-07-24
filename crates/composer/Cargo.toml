@@ -16,3 +16,4 @@ dpl-video.workspace = true
 dpl-index.workspace = true
 dpl-engine-capture.workspace = true
 dpl-engine-media.workspace = true
+dpl-doc.workspace = true
