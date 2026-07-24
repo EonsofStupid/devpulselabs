@@ -35,10 +35,16 @@ Operator exe rebuilt 2026-07-23 16:51.
    First application landed: the shared `filter_chip` is brutal (hard
    offset shadow, hover press) with layman tips on gallery filters,
    rescan, and ViziWiz Undo/Clear/Flatten.
-   **Retrofit sweep still owed** (surface by surface, doctrine-clean):
-   pixvix palette `pilot_chip` + tabs, shell footer launchers + rail
-   (tips), hub/subroute cards → clay, session player controls, Save
-   card, workbench walls. Every UI pass MUST invoke `dpl-style`.
+   Sweep 1 DONE: pixvix palette — every chip brutal via the tip-mandatory
+   `pilot_chip` (18 controls with layman tips: snap modes, delay, re-snip,
+   video matrix, session, guide Save/Discard, REC pill Mark/Stop) + tab
+   tips + refresh buttons. NOTE: the palette is its own OS viewport —
+   visual proof awaits the operator's eyes / pilot capture (immediate-
+   viewport capture unsupported); compile+green verified, tips visible in
+   pilot snapshots.
+   **Retrofit sweep still owed**: shell footer launchers + rail (tips),
+   hub/subroute cards → clay, session player controls, workbench walls,
+   Save-card text fields' labels. Every UI pass MUST invoke `dpl-style`.
 3. Content root resolves from CWD (`./content`) — double-clicked exe reads
    `target/release/content`. Program P's data_root law not yet ported.
 4. Stale EguiPilotAI scenarios/fixtures (pre-Program-L flyout/Library refs).
