@@ -41,9 +41,19 @@ is DELETED. Memory: `chat-is-a-peer-window`.
   gen backend (local ComfyUI + hosted media APIs behind one `GenBackend`
   trait, chat mesh orchestrates), local ort+BiRefNet matting, copy-all
   elements into `content/elements/`. Plan `docs/plans/r1a-comp-document.md`.
-  R1b (ffmpeg stitch render + composited preview; egui_tiles docking) →
   R1c (elements ingest) → R1d (ViziWiz mode) → R1e (matting) → R1f (agent
   tools) remain. Memory: [[wiredfront-editor-is-r1]].
+- **R1b.1 — the stitch RENDER landed** (branch `feat/r1b-stitch-render`,
+  stacked on R1a): `engine-media::stitch_args`/`render_stitch` (decoupled,
+  primitive inputs — no dpl-comp dep) build the ffmpeg CONCAT filtergraph
+  (trim → fps-normalize → scale+pad → concat, `-an`, faststart, crf 21,
+  ADR-009 subprocess) + a **Render** chip in the Composer that stitches the
+  clip-list into `inbox/<comp>/render.mp4` OFF the UI thread (polled
+  `RenderState`). `cargo green ✔`. END-TO-END PROOF: two mismatched clips
+  (640×480@30 + 800×600@24) → one 1280×720@30 file of exactly 5.00s
+  (docs/proof/r1b-stitch-render-demo.mp4). Plan
+  `docs/plans/r1b-stitch-render.md`. R1b.2 (xfade + composited preview +
+  egui_tiles docking) is the next rider; then R1c–R1f.
 
 ## KNOWN BROKEN / regressed (the honest list)
 
