@@ -6,6 +6,7 @@ use dpl_chat_core::{
     SessionState, SessionSummary, TurnId,
 };
 use dpl_chat_runtime::ProviderRegistration;
+use std::collections::BTreeSet;
 
 pub const FIXTURE_PROVIDER: ProviderId = ProviderId("fixture");
 
@@ -42,6 +43,7 @@ pub fn ready_provider() -> ProviderRegistration {
     ProviderRegistration {
         manifest: FIXTURE_MANIFEST,
         activation: ActivationState::Ready,
+        qualified_capabilities: CAPABILITIES.iter().copied().collect::<BTreeSet<_>>(),
         account: None,
         sessions: vec![SessionSummary {
             id: session_id,

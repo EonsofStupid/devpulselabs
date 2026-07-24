@@ -6,6 +6,8 @@ publish.workspace = true
 
 [dependencies]
 dpl-chat-core.workspace = true
+dpl-chat-store.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

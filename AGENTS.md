@@ -12,6 +12,12 @@ Implementation order is `docs/plans/eguipilotai-v1-delivery.md`; current
 evidence, gaps, and the DevPULSE census are indexed at
 `docs/research/eguipilotai/README.md`.
 
+Chat's named provider adapters are the only ratified production-process
+exception to the no-IPC law. The exact allowed boundary, launch gates, and
+forbidden behavior are canonical in
+`docs/plans/chat-provider-runtime-adr.md`; no generic command runner or
+credential-handling path is permitted.
+
 ## Laws
 
 1. **Plan before code.** Every pass has a plan in `docs/`. Reality contradicting

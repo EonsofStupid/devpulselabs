@@ -1,0 +1,13 @@
+[package]
+name = "dpl-chat-renderers"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+egui.workspace = true
+dpl-chat-core.workspace = true
+dpl-coldlight.workspace = true
+
+[lints]
+workspace = true

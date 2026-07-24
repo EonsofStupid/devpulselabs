@@ -224,8 +224,9 @@ doctrine or the episode tree.
 Canonical architecture and slice acceptance:
 [`chat-architecture.md`](chat-architecture.md). Current provider evidence:
 [`../research/chat-provider-capabilities.md`](../research/chat-provider-capabilities.md).
-Live provider processes remain blocked until the operator ratifies
-[`chat-provider-runtime-adr.md`](chat-provider-runtime-adr.md).
+The named-provider runtime exception is ratified. Live provider processes
+remain fail-closed until the launch checklist in
+[`chat-provider-runtime-adr.md`](chat-provider-runtime-adr.md) is green.
 
 - **CH0 architecture/governance:** typed ownership, provider research, runtime
   ADR, generic shell accessory contract.

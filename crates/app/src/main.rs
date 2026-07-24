@@ -364,7 +364,8 @@ impl App {
             tracing::error!(%error, "chat provider registry rejected");
             dpl_chat_runtime::ChatRuntime::default()
         });
-        let mut chat = dpl_hub_chat::ChatHub::new(chat_runtime);
+        let mut chat =
+            dpl_hub_chat::ChatHub::with_history(chat_runtime, local_chat_history_catalog());
         chat.wire_fabric(&fabric);
         // The registry — a new hub is ONE line here and nothing else.
         let hubs: Vec<Box<dyn Hub>> = vec![
@@ -536,6 +537,52 @@ impl App {
             std::process::exit(1);
         }
     }
+}
+
+fn local_chat_history_catalog() -> dpl_chat_store::HistoryCatalog {
+    let mut catalog = dpl_chat_store::HistoryCatalog::default();
+    #[cfg(windows)]
+    let user_profile = std::env::var_os("USERPROFILE").map(std::path::PathBuf::from);
+    #[cfg(not(windows))]
+    let user_profile = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    let Some(user_profile) = user_profile else {
+        tracing::warn!("Chat history disabled: user profile root is unavailable");
+        return catalog;
+    };
+
+    let codex_root = user_profile.join(".codex").join("sessions");
+    if codex_root.is_dir() {
+        match dpl_chat_store::JsonlHistorySource::open(
+            codex_root,
+            dpl_chat_codex::CodexHistoryDecoder,
+            dpl_chat_store::HistoryLimits::default(),
+        ) {
+            Ok(source) => {
+                if let Err(error) = catalog.register(source) {
+                    tracing::warn!(%error, "Codex history source rejected");
+                }
+            }
+            Err(error) => tracing::warn!(%error, "Codex history source unavailable"),
+        }
+    }
+
+    let claude_root = user_profile.join(".claude").join("projects");
+    if claude_root.is_dir() {
+        match dpl_chat_store::JsonlHistorySource::open(
+            claude_root,
+            dpl_chat_claude::ClaudeHistoryDecoder,
+            dpl_chat_store::HistoryLimits::default(),
+        ) {
+            Ok(source) => {
+                if let Err(error) = catalog.register(source) {
+                    tracing::warn!(%error, "Claude history source rejected");
+                }
+            }
+            Err(error) => tracing::warn!(%error, "Claude history source unavailable"),
+        }
+    }
+
+    catalog
 }
 
 #[cfg(feature = "eguipilotai-devtools")]

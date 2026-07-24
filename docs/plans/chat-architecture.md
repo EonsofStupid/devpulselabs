@@ -2,8 +2,9 @@
 
 **Status:** CANONICAL PLAN — implementation proceeds in the slices below
 **Date:** 2026-07-23
-**Runtime blocker:** live providers require ratification of
-[`chat-provider-runtime-adr.md`](chat-provider-runtime-adr.md)
+**Runtime gate:** the narrow named-provider exception is ratified, but live
+launch remains fail-closed on the safety checklist in
+[`chat-provider-runtime-adr.md`](chat-provider-runtime-adr.md).
 **Provider evidence:**
 [`chat-provider-capabilities.md`](../research/chat-provider-capabilities.md)
 
@@ -871,7 +872,8 @@ implicitly.
 
 ### CH4 — Codex live adapter
 
-Blocked until ADR ratification.
+Implementation is authorized. Live launch remains blocked until every ADR
+launch gate is green.
 
 - Codex app-server lifecycle and handshake;
 - ChatGPT-owned authentication status/login/logout;

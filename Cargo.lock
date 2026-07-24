@@ -1339,6 +1339,7 @@ dependencies = [
  "dpl-chat-gemini",
  "dpl-chat-grok",
  "dpl-chat-runtime",
+ "dpl-chat-store",
  "dpl-coldlight",
  "dpl-doc",
  "dpl-engine-capture",
@@ -1445,6 +1446,8 @@ name = "dpl-chat-claude"
 version = "0.1.0"
 dependencies = [
  "dpl-chat-core",
+ "dpl-chat-store",
+ "serde_json",
 ]
 
 [[package]]
@@ -1452,6 +1455,8 @@ name = "dpl-chat-codex"
 version = "0.1.0"
 dependencies = [
  "dpl-chat-core",
+ "dpl-chat-store",
+ "serde_json",
 ]
 
 [[package]]
@@ -1489,7 +1494,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "dpl-chat-renderers"
+version = "0.1.0"
+dependencies = [
+ "dpl-chat-core",
+ "dpl-coldlight",
+ "egui",
+]
+
+[[package]]
 name = "dpl-chat-runtime"
+version = "0.1.0"
+dependencies = [
+ "dpl-chat-core",
+]
+
+[[package]]
+name = "dpl-chat-store"
 version = "0.1.0"
 dependencies = [
  "dpl-chat-core",
@@ -1607,13 +1628,16 @@ dependencies = [
  "dpl-chat-context",
  "dpl-chat-core",
  "dpl-chat-extensions",
+ "dpl-chat-renderers",
  "dpl-chat-runtime",
+ "dpl-chat-store",
  "dpl-chat-testkit",
  "dpl-chat-windows",
  "dpl-coldlight",
  "dpl-fabric",
  "dpl-hub",
  "egui",
+ "egui-pilot-ai",
  "egui_kittest",
 ]
 

@@ -1,10 +1,19 @@
 # ADR proposal: Chat provider runtime exception
 
-**Status:** DRAFT — operator ratification required before live provider work
+**Status:** RATIFIED — implementation allowed; live launch remains gated
 **Date:** 2026-07-23
 **Owner:** DevPULSE operator
 **Architecture:** [`chat-architecture.md`](chat-architecture.md)
 **Evidence:** [`chat-provider-capabilities.md`](../research/chat-provider-capabilities.md)
+
+## Ratification record
+
+The DevPULSE operator explicitly approved execution of this narrow exception
+on 2026-07-23. Ratification authorizes implementation of the named adapter
+boundary; it does not waive the launch gates below. The first live adapter is
+Codex app-server over local stdio. Live launch remains fail-closed until its
+supported version range, workspace jail, redaction, process reaping, and
+containment checks are implemented and green.
 
 ## Decision
 
@@ -18,10 +27,11 @@ The proposed decision is:
 > Permit a narrow production process/protocol exception for named Chat
 > provider adapters. Keep the no-IPC law everywhere else.
 
-This proposal is not self-ratifying. Provider-neutral types, read-only
-history, route context, fake providers, UI composition, and tests may proceed.
-No production provider process may be launched until the operator ratifies
-this exception and the governing `AGENTS.md` receives a concise pointer.
+Provider-neutral types, read-only history, route context, fake providers, UI
+composition, and containment tests may proceed. No production provider process
+may be launched merely because the exception is ratified; every required
+launch gate must also pass and the governing `AGENTS.md` must retain its
+concise pointer.
 
 ## Why an exception is necessary
 
@@ -144,14 +154,17 @@ Costs:
 - supported versions become a compatibility matrix;
 - dependency audits must prove no unrelated production IPC appeared.
 
-## Ratification checklist
+## Ratification and launch checklist
 
-- [ ] Operator explicitly approves the narrow Chat provider-runtime exception.
-- [ ] Allowed and forbidden behavior is accepted.
-- [ ] The first live adapter and supported version range are chosen.
+- [x] Operator explicitly approves the narrow Chat provider-runtime exception.
+- [x] Allowed and forbidden behavior is accepted.
+- [ ] The first live adapter and supported version range are chosen. Codex is
+  selected; its supported version range remains to be pinned from generated
+  schemas and conformance evidence.
 - [ ] Workspace jail and provider profiles are defined.
 - [ ] Secret-redaction and process-reaping tests exist.
 - [ ] Production dependency inspection proves containment.
-- [ ] A concise exception/pointer is added to `AGENTS.md`.
+- [x] A concise exception/pointer is added to `AGENTS.md`.
 
-Until all required items are complete, live provider launch remains blocked.
+Until every unchecked launch item is complete, live provider launch remains
+blocked.

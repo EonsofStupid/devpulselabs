@@ -4,16 +4,17 @@
 //! the Chat provider-runtime ADR.
 
 use dpl_chat_core::{
-    AccountSummary, ActivationState, ChatEvent, ChatSessionId, ProviderId, ProviderManifest,
-    SessionSummary,
+    AccountSummary, ActivationState, Capability, ChatEvent, ChatSessionId, ProviderId,
+    ProviderManifest, RecoveryAction, RecoveryActionKind, SessionSummary,
 };
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::fmt;
 
 #[derive(Debug, Clone)]
 pub struct ProviderRegistration {
     pub manifest: ProviderManifest,
     pub activation: ActivationState,
+    pub qualified_capabilities: BTreeSet<Capability>,
     pub account: Option<AccountSummary>,
     pub sessions: Vec<SessionSummary>,
     pub events: Vec<ChatEvent>,
@@ -27,16 +28,24 @@ impl ProviderRegistration {
                     "{} has a reviewed integration boundary but no qualified live adapter.",
                     manifest.descriptor.label
                 ),
-                action: format!(
-                    "Complete {} and its conformance gate.",
-                    manifest.delivery_slice
-                ),
+                recovery: vec![RecoveryAction::new(
+                    RecoveryActionKind::OpenDiagnostics,
+                    format!(
+                        "Complete {} and its conformance gate.",
+                        manifest.delivery_slice
+                    ),
+                )],
             },
             manifest,
+            qualified_capabilities: BTreeSet::new(),
             account: None,
             sessions: Vec::new(),
             events: Vec::new(),
         }
+    }
+
+    pub fn has_capability(&self, capability: Capability) -> bool {
+        self.qualified_capabilities.contains(&capability)
     }
 }
 
@@ -58,6 +67,14 @@ pub struct ProviderView {
 pub enum RegistryError {
     DuplicateProvider(ProviderId),
     UnknownProvider(ProviderId),
+    UnknownSession {
+        provider: ProviderId,
+        session: ChatSessionId,
+    },
+    CapabilityNotDeclared {
+        provider: ProviderId,
+        capability: Capability,
+    },
 }
 
 impl fmt::Display for RegistryError {
@@ -65,6 +82,13 @@ impl fmt::Display for RegistryError {
         match self {
             Self::DuplicateProvider(id) => write!(f, "provider {id} was registered twice"),
             Self::UnknownProvider(id) => write!(f, "provider {id} is not registered"),
+            Self::UnknownSession { provider, session } => {
+                write!(f, "session {session} is not registered for {provider}")
+            }
+            Self::CapabilityNotDeclared {
+                provider,
+                capability,
+            } => write!(f, "{provider} did not declare capability {capability:?}"),
         }
     }
 }
@@ -156,13 +180,68 @@ impl ChatRuntime {
             .iter_mut()
             .find(|entry| entry.registration.manifest.descriptor.id == provider_id)
             .ok_or(RegistryError::UnknownProvider(provider_id))?;
-        if entry
+        if !entry
             .registration
             .sessions
             .iter()
             .any(|session| session.id == session_id)
         {
-            entry.active_session = Some(session_id);
+            return Err(RegistryError::UnknownSession {
+                provider: provider_id,
+                session: session_id,
+            });
+        }
+        entry.active_session = Some(session_id);
+        Ok(())
+    }
+
+    pub fn replace_sessions(
+        &mut self,
+        provider_id: ProviderId,
+        sessions: Vec<SessionSummary>,
+    ) -> Result<(), RegistryError> {
+        let entry = self
+            .providers
+            .iter_mut()
+            .find(|entry| entry.registration.manifest.descriptor.id == provider_id)
+            .ok_or(RegistryError::UnknownProvider(provider_id))?;
+        let valid_active = entry
+            .active_session
+            .is_some_and(|active| sessions.iter().any(|session| session.id == active));
+        entry.registration.sessions = sessions;
+        if !valid_active {
+            entry.active_session = entry
+                .registration
+                .sessions
+                .first()
+                .map(|session| session.id);
+        }
+        Ok(())
+    }
+
+    pub fn qualify_capabilities(
+        &mut self,
+        provider_id: ProviderId,
+        capabilities: impl IntoIterator<Item = Capability>,
+    ) -> Result<(), RegistryError> {
+        let entry = self
+            .providers
+            .iter_mut()
+            .find(|entry| entry.registration.manifest.descriptor.id == provider_id)
+            .ok_or(RegistryError::UnknownProvider(provider_id))?;
+        for capability in capabilities {
+            if !entry
+                .registration
+                .manifest
+                .target_capabilities
+                .contains(&capability)
+            {
+                return Err(RegistryError::CapabilityNotDeclared {
+                    provider: provider_id,
+                    capability,
+                });
+            }
+            entry.registration.qualified_capabilities.insert(capability);
         }
         Ok(())
     }
@@ -263,6 +342,47 @@ mod tests {
         assert_eq!(
             runtime.select_provider(OTHER),
             Err(RegistryError::UnknownProvider(OTHER))
+        );
+    }
+
+    #[test]
+    fn declared_capabilities_do_not_become_qualified_implicitly() {
+        let mut runtime =
+            ChatRuntime::try_from_registrations([ProviderRegistration::planned(MANIFEST)])
+                .expect("valid registry");
+        assert!(!runtime
+            .selected_provider()
+            .expect("provider")
+            .registration
+            .has_capability(Capability::ReadSessions));
+        runtime
+            .qualify_capabilities(ID, [Capability::ReadSessions])
+            .expect("declared capability");
+        assert!(runtime
+            .selected_provider()
+            .expect("provider")
+            .registration
+            .has_capability(Capability::ReadSessions));
+        assert_eq!(
+            runtime.qualify_capabilities(ID, [Capability::StreamTurns]),
+            Err(RegistryError::CapabilityNotDeclared {
+                provider: ID,
+                capability: Capability::StreamTurns,
+            })
+        );
+    }
+
+    #[test]
+    fn selecting_an_unknown_session_fails_instead_of_silently_ignoring_it() {
+        let mut runtime =
+            ChatRuntime::try_from_registrations([ProviderRegistration::planned(MANIFEST)])
+                .expect("valid registry");
+        assert_eq!(
+            runtime.select_session(ID, ChatSessionId(99)),
+            Err(RegistryError::UnknownSession {
+                provider: ID,
+                session: ChatSessionId(99),
+            })
         );
     }
 }

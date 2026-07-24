@@ -5,6 +5,8 @@
 
 use std::fmt;
 
+pub const MAX_NATIVE_PAYLOAD_BYTES: usize = 8 * 1024;
+
 macro_rules! static_id {
     ($name:ident) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -34,6 +36,12 @@ impl fmt::Display for ChatSessionId {
 /// DevPULSE-owned identity for an event inside one normalized history.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ChatEventId(pub u64);
+
+impl fmt::Display for ChatEventId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "event-{}", self.0)
+    }
+}
 
 /// Provider-native identities remain typed even though their payload is owned.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -127,16 +135,40 @@ pub struct ProviderManifest {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActivationState {
-    NotInstalled { reason: String, action: String },
-    VersionUnsupported { reason: String, action: String },
-    SignedOut { reason: String, action: String },
+    NotInstalled {
+        reason: String,
+        recovery: Vec<RecoveryAction>,
+    },
+    VersionUnsupported {
+        reason: String,
+        recovery: Vec<RecoveryAction>,
+    },
+    SignedOut {
+        reason: String,
+        recovery: Vec<RecoveryAction>,
+    },
     SigningIn,
     Ready,
-    Degraded { reason: String, action: String },
-    Experimental { reason: String, action: String },
-    Blocked { reason: String, action: String },
-    Failed { reason: String, action: String },
-    Disabled { reason: String, action: String },
+    Degraded {
+        reason: String,
+        recovery: Vec<RecoveryAction>,
+    },
+    Experimental {
+        reason: String,
+        recovery: Vec<RecoveryAction>,
+    },
+    Blocked {
+        reason: String,
+        recovery: Vec<RecoveryAction>,
+    },
+    Failed {
+        reason: String,
+        recovery: Vec<RecoveryAction>,
+    },
+    Disabled {
+        reason: String,
+        recovery: Vec<RecoveryAction>,
+    },
 }
 
 impl ActivationState {
@@ -173,17 +205,17 @@ impl ActivationState {
         }
     }
 
-    pub fn action(&self) -> Option<&str> {
+    pub fn recovery(&self) -> &[RecoveryAction] {
         match self {
-            Self::NotInstalled { action, .. }
-            | Self::VersionUnsupported { action, .. }
-            | Self::SignedOut { action, .. }
-            | Self::Degraded { action, .. }
-            | Self::Experimental { action, .. }
-            | Self::Blocked { action, .. }
-            | Self::Failed { action, .. }
-            | Self::Disabled { action, .. } => Some(action),
-            Self::SigningIn | Self::Ready => None,
+            Self::NotInstalled { recovery, .. }
+            | Self::VersionUnsupported { recovery, .. }
+            | Self::SignedOut { recovery, .. }
+            | Self::Degraded { recovery, .. }
+            | Self::Experimental { recovery, .. }
+            | Self::Blocked { recovery, .. }
+            | Self::Failed { recovery, .. }
+            | Self::Disabled { recovery, .. } => recovery,
+            Self::SigningIn | Self::Ready => &[],
         }
     }
 }
@@ -192,6 +224,30 @@ impl ActivationState {
 pub struct AccountSummary {
     pub display_name: String,
     pub plan: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RecoveryActionKind {
+    InstallInstructions,
+    SignIn,
+    Retry,
+    UpdateProvider,
+    OpenDiagnostics,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecoveryAction {
+    pub kind: RecoveryActionKind,
+    pub label: String,
+}
+
+impl RecoveryAction {
+    pub fn new(kind: RecoveryActionKind, label: impl Into<String>) -> Self {
+        Self {
+            kind,
+            label: label.into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -214,6 +270,45 @@ pub struct SessionSummary {
     pub state: SessionState,
 }
 
+/// A provider-native diagnostic projection with a hard byte ceiling.
+///
+/// The value is expected to be redacted before construction. This type keeps
+/// unknown provider data discoverable without retaining an unbounded raw
+/// record in application state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BoundedNativePayload {
+    pub schema: String,
+    pub redacted_summary: String,
+    pub original_bytes: usize,
+    pub truncated: bool,
+}
+
+impl BoundedNativePayload {
+    pub fn redacted(schema: impl Into<String>, summary: impl AsRef<str>) -> Self {
+        Self::redacted_with_limit(schema, summary, MAX_NATIVE_PAYLOAD_BYTES)
+    }
+
+    pub fn redacted_with_limit(
+        schema: impl Into<String>,
+        summary: impl AsRef<str>,
+        max_bytes: usize,
+    ) -> Self {
+        let summary = summary.as_ref();
+        let original_bytes = summary.len();
+        let limit = max_bytes.min(original_bytes);
+        let mut boundary = limit;
+        while boundary > 0 && !summary.is_char_boundary(boundary) {
+            boundary -= 1;
+        }
+        Self {
+            schema: schema.into(),
+            redacted_summary: summary[..boundary].to_owned(),
+            original_bytes,
+            truncated: original_bytes > boundary,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChatEventContent {
     SessionStarted,
@@ -221,33 +316,60 @@ pub enum ChatEventContent {
     AssistantMessage(String),
     PlanUpdated(String),
     StatusUpdated(String),
-    ToolStarted {
-        label: String,
-    },
-    ToolCompleted {
-        label: String,
-        succeeded: bool,
-    },
+    ToolStarted { label: String },
+    ToolCompleted { label: String, succeeded: bool },
     DiffUpdated(String),
-    ApprovalRequested {
-        summary: String,
-    },
-    ApprovalResolved {
-        accepted: bool,
-    },
-    UsageUpdated {
-        summary: String,
-    },
+    ApprovalRequested { summary: String },
+    ApprovalResolved { accepted: bool },
+    UsageUpdated { summary: String },
     TurnCompleted,
     TurnInterrupted,
-    TurnFailed {
-        message: String,
-    },
+    TurnFailed { message: String },
     ProviderWarning(String),
-    Unknown {
-        schema: String,
-        redacted_summary: String,
-    },
+    Unknown(BoundedNativePayload),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum ChatEventKind {
+    SessionStarted,
+    UserMessage,
+    AssistantMessage,
+    PlanUpdated,
+    StatusUpdated,
+    ToolStarted,
+    ToolCompleted,
+    DiffUpdated,
+    ApprovalRequested,
+    ApprovalResolved,
+    UsageUpdated,
+    TurnCompleted,
+    TurnInterrupted,
+    TurnFailed,
+    ProviderWarning,
+    Unknown,
+}
+
+impl ChatEventContent {
+    pub const fn kind(&self) -> ChatEventKind {
+        match self {
+            Self::SessionStarted => ChatEventKind::SessionStarted,
+            Self::UserMessage(_) => ChatEventKind::UserMessage,
+            Self::AssistantMessage(_) => ChatEventKind::AssistantMessage,
+            Self::PlanUpdated(_) => ChatEventKind::PlanUpdated,
+            Self::StatusUpdated(_) => ChatEventKind::StatusUpdated,
+            Self::ToolStarted { .. } => ChatEventKind::ToolStarted,
+            Self::ToolCompleted { .. } => ChatEventKind::ToolCompleted,
+            Self::DiffUpdated(_) => ChatEventKind::DiffUpdated,
+            Self::ApprovalRequested { .. } => ChatEventKind::ApprovalRequested,
+            Self::ApprovalResolved { .. } => ChatEventKind::ApprovalResolved,
+            Self::UsageUpdated { .. } => ChatEventKind::UsageUpdated,
+            Self::TurnCompleted => ChatEventKind::TurnCompleted,
+            Self::TurnInterrupted => ChatEventKind::TurnInterrupted,
+            Self::TurnFailed { .. } => ChatEventKind::TurnFailed,
+            Self::ProviderWarning(_) => ChatEventKind::ProviderWarning,
+            Self::Unknown(_) => ChatEventKind::Unknown,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -273,22 +395,36 @@ mod tests {
         assert!(ActivationState::Ready.can_send());
         assert!(ActivationState::Experimental {
             reason: "fixture".into(),
-            action: "inspect".into(),
+            recovery: vec![RecoveryAction::new(
+                RecoveryActionKind::OpenDiagnostics,
+                "Inspect",
+            )],
         }
         .can_send());
         assert!(!ActivationState::Blocked {
             reason: "not qualified".into(),
-            action: "read the plan".into(),
+            recovery: vec![RecoveryAction::new(
+                RecoveryActionKind::OpenDiagnostics,
+                "Read the plan",
+            )],
         }
         .can_send());
     }
 
     #[test]
     fn unknown_events_remain_first_class() {
-        let content = ChatEventContent::Unknown {
-            schema: "fixture.v2".into(),
-            redacted_summary: "new provider item".into(),
-        };
-        assert!(matches!(content, ChatEventContent::Unknown { .. }));
+        let content = ChatEventContent::Unknown(BoundedNativePayload::redacted(
+            "fixture.v2",
+            "new provider item",
+        ));
+        assert!(matches!(content, ChatEventContent::Unknown(_)));
+    }
+
+    #[test]
+    fn native_payloads_are_utf8_safe_and_bounded() {
+        let payload = BoundedNativePayload::redacted_with_limit("future", "ééé", 5);
+        assert_eq!(payload.redacted_summary, "éé");
+        assert_eq!(payload.original_bytes, 6);
+        assert!(payload.truncated);
     }
 }

@@ -11,7 +11,9 @@ members = [
     "crates/chat/core",
     "crates/chat/context",
     "crates/chat/extensions",
+    "crates/chat/renderers",
     "crates/chat/runtime",
+    "crates/chat/store",
     "crates/chat/testkit",
     "crates/chat/windows",
     "crates/chat/providers/codex",
@@ -88,7 +90,9 @@ egui-pilot-ai-lab = { path = "crates/egui-pilot-ai-lab" }
 dpl-chat-core = { path = "crates/chat/core" }
 dpl-chat-context = { path = "crates/chat/context" }
 dpl-chat-extensions = { path = "crates/chat/extensions" }
+dpl-chat-renderers = { path = "crates/chat/renderers" }
 dpl-chat-runtime = { path = "crates/chat/runtime" }
+dpl-chat-store = { path = "crates/chat/store" }
 dpl-chat-testkit = { path = "crates/chat/testkit" }
 dpl-chat-windows = { path = "crates/chat/windows" }
 dpl-chat-codex = { path = "crates/chat/providers/codex" }
