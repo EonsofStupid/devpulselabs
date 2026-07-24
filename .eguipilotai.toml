@@ -45,7 +45,10 @@ arguments = ["--route", "library/templates", "--mood", "0"]
 arguments = ["--route", "wiredfront/pixvix", "--pixvix", "--mood", "0"]
 
 [fixtures.chat]
-arguments = ["--route", "chat/sessions", "--mood", "0"]
+arguments = ["--chat-open", "--mood", "0"]
+
+[fixtures.chat-peer]
+arguments = ["--chat-open", "--mood", "0"]
 
 [[projects]]
 id = "devpulse-cloud"

@@ -7,6 +7,8 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod chat;
+
 use dpl_fabric::Fabric;
 use dpl_hub::{Hub, Route};
 use dpl_shell::Shell;
@@ -63,6 +65,9 @@ fn main() -> eframe::Result {
         .and_then(|i| args.get(i + 1))
         .and_then(|n| n.parse().ok());
     let pixvix_snap = args.iter().any(|a| a == "--pixvix-snap");
+    // `--chat-open` opens the independent primary Chat peer at boot. The
+    // named EguiPilotAI fixture uses this path; ordinary launches stay quiet.
+    let chat_open = args.iter().any(|a| a == "--chat-open");
     // `--steps-hotkey-drill` — send a REAL Ctrl+Shift+9 through the OS
     // (rdev::simulate) and verify the global hook starts, then stops, the
     // Steps recorder (C2). Real input end-to-end; the pilot never fakes
@@ -231,6 +236,7 @@ fn main() -> eframe::Result {
                 shot_frame,
                 pixvix_open,
                 pixvix_snap,
+                chat_open,
                 steps_hotkey_drill,
                 video_drill,
                 video_format,
@@ -263,6 +269,7 @@ struct Boot {
     shot_frame: u32,
     pixvix_open: bool,
     pixvix_snap: bool,
+    chat_open: bool,
     steps_hotkey_drill: bool,
     video_drill: Option<u32>,
     video_format: Option<String>,
@@ -278,6 +285,7 @@ struct Boot {
 
 struct App {
     shell: Shell,
+    chat: chat::ChatWindowCoordinator,
     pixvix: dpl_pixvix::Pixvix,
     shot: Option<std::path::PathBuf>,
     frames: u32,
@@ -308,6 +316,7 @@ impl App {
             shot_frame,
             pixvix_open,
             pixvix_snap,
+            chat_open,
             steps_hotkey_drill,
             video_drill,
             video_format,
@@ -352,8 +361,9 @@ impl App {
         // publish their asks through the one fabric.
         workbench.wire_fabric(&fabric);
         wiredfront.wire_fabric(&fabric);
-        // Chat providers register as data. The hub never names one and every
-        // manifest remains visibly blocked until its real adapter qualifies.
+        // Chat providers register as data. The peer-window UI never names one
+        // and every manifest remains visibly blocked until its real adapter
+        // qualifies.
         let chat_runtime = dpl_chat_runtime::ChatRuntime::try_from_registrations([
             dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_codex::MANIFEST),
             dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_claude::MANIFEST),
@@ -364,9 +374,6 @@ impl App {
             tracing::error!(%error, "chat provider registry rejected");
             dpl_chat_runtime::ChatRuntime::default()
         });
-        let mut chat =
-            dpl_hub_chat::ChatHub::with_history(chat_runtime, local_chat_history_catalog());
-        chat.wire_fabric(&fabric);
         // The registry — a new hub is ONE line here and nothing else.
         let hubs: Vec<Box<dyn Hub>> = vec![
             Box::new(dpl_hub_home::HomeHub),
@@ -376,14 +383,23 @@ impl App {
             Box::new(present_hub),
             Box::new(workbench),
             Box::new(wiredfront),
-            Box::new(chat),
         ];
 
         let mut pixvix = dpl_pixvix::Pixvix::new(&fabric);
         if pixvix_open {
             pixvix.open_now();
         }
-        let mut shell = Shell::new(hubs, fabric);
+        let mut shell = Shell::new(hubs, fabric.clone());
+        shell
+            .register_window_accessory(dpl_shell::status::WindowAccessory {
+                key: dpl_chat_window::WINDOW_KEY,
+                pilot_id: dpl_chat_window::LAUNCHER_ID,
+                glyph: dpl_coldlight::icon::BOT,
+                label: "Chat",
+                tone: dpl_coldlight::Tone::Cyan,
+                tooltip: "Open, restore, or focus the DevPULSE Chat peer window",
+            })
+            .unwrap_or_else(|key| panic!("duplicate shell window accessory: {key}"));
         // The provenance stamp (git hash · utc, build.rs) — the running app
         // proves which code it is, in the status grid's build cell.
         shell.set_build(env!("DPL_BUILD"));
@@ -420,9 +436,12 @@ impl App {
             });
             shell.set_full_bleed(true);
         }
+        let chat =
+            chat::ChatWindowCoordinator::new(&fabric, chat_runtime, shell.route(), chat_open);
 
         Self {
             shell,
+            chat,
             pixvix,
             shot,
             frames: 0,
@@ -539,52 +558,6 @@ impl App {
     }
 }
 
-fn local_chat_history_catalog() -> dpl_chat_store::HistoryCatalog {
-    let mut catalog = dpl_chat_store::HistoryCatalog::default();
-    #[cfg(windows)]
-    let user_profile = std::env::var_os("USERPROFILE").map(std::path::PathBuf::from);
-    #[cfg(not(windows))]
-    let user_profile = std::env::var_os("HOME").map(std::path::PathBuf::from);
-    let Some(user_profile) = user_profile else {
-        tracing::warn!("Chat history disabled: user profile root is unavailable");
-        return catalog;
-    };
-
-    let codex_root = user_profile.join(".codex").join("sessions");
-    if codex_root.is_dir() {
-        match dpl_chat_store::JsonlHistorySource::open(
-            codex_root,
-            dpl_chat_codex::CodexHistoryDecoder,
-            dpl_chat_store::HistoryLimits::default(),
-        ) {
-            Ok(source) => {
-                if let Err(error) = catalog.register(source) {
-                    tracing::warn!(%error, "Codex history source rejected");
-                }
-            }
-            Err(error) => tracing::warn!(%error, "Codex history source unavailable"),
-        }
-    }
-
-    let claude_root = user_profile.join(".claude").join("projects");
-    if claude_root.is_dir() {
-        match dpl_chat_store::JsonlHistorySource::open(
-            claude_root,
-            dpl_chat_claude::ClaudeHistoryDecoder,
-            dpl_chat_store::HistoryLimits::default(),
-        ) {
-            Ok(source) => {
-                if let Err(error) = catalog.register(source) {
-                    tracing::warn!(%error, "Claude history source rejected");
-                }
-            }
-            Err(error) => tracing::warn!(%error, "Claude history source unavailable"),
-        }
-    }
-
-    catalog
-}
-
 #[cfg(feature = "eguipilotai-devtools")]
 fn configure_pilot_adapter(mut options: eframe::NativeOptions) -> eframe::NativeOptions {
     use egui_wgpu::wgpu::DeviceType;
@@ -668,9 +641,11 @@ fn fit_window(ctx: &egui::Context) {
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.chat.root_close_requested(ui.ctx());
         fit_window(ui.ctx());
         self.shell.ui(ui);
         let ctx = ui.ctx().clone();
+        self.chat.frame(&ctx, self.shell.route());
 
         // The Steps chords (Ctrl+Shift+S/9/X) are OS-GLOBAL since C2 —
         // the rdev hook inside pixvix sees them whether or not this app

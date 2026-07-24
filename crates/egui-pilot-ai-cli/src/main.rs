@@ -108,6 +108,8 @@ fn test(
 ) -> Result<(), CliError> {
     let config = EguiPilotConfig::load(workspace)?;
     let flow = load_flow(scenario)?;
+    let declared_fixture = flow.fixture.as_ref().map(|fixture| fixture.0.as_str());
+    let fixture = fixture.or(declared_fixture);
     let mut session = ProcessSession::launch(workspace, &config, profile, fixture)?;
     let result = session.run(flow)?;
     let run_dir = session.run_dir.clone();

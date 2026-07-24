@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 2, minor: 1 };
+pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 2, minor: 2 };
 pub const DEFAULT_AGENT_NODES: usize = 200;
 pub const DEFAULT_AGENT_BYTES: usize = 12 * 1024;
 pub const MAX_AGENT_NODES: usize = 1_000;
@@ -179,6 +179,8 @@ pub struct ViewportDescriptor {
 pub enum ViewportExpectationState {
     Open,
     Focused,
+    Minimized,
+    Restored,
     CloseRequested,
     Closed,
 }
@@ -818,6 +820,12 @@ pub enum Action {
     FocusViewport {
         viewport: ViewportSelector,
     },
+    MinimizeViewport {
+        viewport: ViewportSelector,
+    },
+    RestoreViewport {
+        viewport: ViewportSelector,
+    },
     CloseViewport {
         viewport: ViewportSelector,
     },
@@ -1023,6 +1031,8 @@ pub mod capability {
     pub const VIEWPORT_IMMEDIATE_CAPTURE: &str = "viewport.capture.immediate";
     pub const VIEWPORT_DEFERRED_CAPTURE: &str = "viewport.capture.deferred";
     pub const VIEWPORT_FOCUS: &str = "viewport.focus";
+    pub const VIEWPORT_MINIMIZE: &str = "viewport.minimize";
+    pub const VIEWPORT_RESTORE: &str = "viewport.restore";
     pub const VIEWPORT_CLOSE: &str = "viewport.close";
     pub const VIEWPORT_IMMEDIATE: &str = "viewport.immediate";
     pub const VIEWPORT_DEFERRED: &str = "viewport.deferred";
@@ -1179,13 +1189,23 @@ pub fn capability_catalog() -> Vec<CapabilityDescriptor> {
         ),
         unsupported(
             id::VIEWPORT_DEFERRED_CAPTURE,
-            "deferred viewports are not instrumented or qualified yet",
-            "slice-2b-follow-up",
+            "eframe 0.35 native wgpu does not deliver queued screenshot requests for background deferred viewports",
+            "chat-peer-window-real-process",
         ),
         supported(
             id::VIEWPORT_FOCUS,
             "native viewport focus command with observable confirmation",
             "slice-2b",
+        ),
+        supported(
+            id::VIEWPORT_MINIMIZE,
+            "native viewport minimize command with observable confirmation",
+            "chat-peer-window-real-process",
+        ),
+        supported(
+            id::VIEWPORT_RESTORE,
+            "native viewport restore command with observable confirmation",
+            "chat-peer-window-real-process",
         ),
         supported(
             id::VIEWPORT_CLOSE,
@@ -1197,10 +1217,10 @@ pub fn capability_catalog() -> Vec<CapabilityDescriptor> {
             "declared immediate viewport registration",
             "pixvix-real-process",
         ),
-        unsupported(
+        supported(
             id::VIEWPORT_DEFERRED,
-            "deferred viewport wrapper and independent repaint fixture are not implemented",
-            "slice-2b-follow-up",
+            "declared deferred viewport registration, independent repaint, input, focus, and lifecycle",
+            "chat-peer-window-real-process",
         ),
         supported(
             id::VIEWPORT_NATIVE,
@@ -1275,6 +1295,8 @@ pub fn required_capabilities(flow: &Flow) -> Vec<CapabilityId> {
                 Action::DragTo { .. } => id::ACTION_DRAG,
                 Action::Scroll { .. } => id::ACTION_SCROLL,
                 Action::FocusViewport { .. } => id::VIEWPORT_FOCUS,
+                Action::MinimizeViewport { .. } => id::VIEWPORT_MINIMIZE,
+                Action::RestoreViewport { .. } => id::VIEWPORT_RESTORE,
                 Action::CloseViewport { .. } => id::VIEWPORT_CLOSE,
                 Action::ScrollIntoView { .. } => id::ACTION_SCROLL_INTO_VIEW,
                 Action::SetValue { .. } => id::ACTION_SET_VALUE,
@@ -1781,5 +1803,34 @@ mod tests {
         assert_eq!(capability.state, CapabilityState::Unsupported);
         assert!(capability.detail.contains("eframe 0.35"));
         assert!(capability.evidence.contains("render_immediate_viewport"));
+    }
+
+    #[test]
+    fn deferred_viewport_lifecycle_is_supported_without_claiming_capture() {
+        let catalog = capability_catalog();
+        let state = |id: &str| {
+            catalog
+                .iter()
+                .find(|entry| entry.id == CapabilityId::new(id))
+                .map(|entry| entry.state)
+                .expect("catalog capability")
+        };
+
+        assert_eq!(
+            state(capability::VIEWPORT_DEFERRED),
+            CapabilityState::Supported
+        );
+        assert_eq!(
+            state(capability::VIEWPORT_MINIMIZE),
+            CapabilityState::Supported
+        );
+        assert_eq!(
+            state(capability::VIEWPORT_RESTORE),
+            CapabilityState::Supported
+        );
+        assert_eq!(
+            state(capability::VIEWPORT_DEFERRED_CAPTURE),
+            CapabilityState::Unsupported
+        );
     }
 }

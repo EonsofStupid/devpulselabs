@@ -258,6 +258,6 @@ fn current_v2_types_do_not_accidentally_match_v1_shapes() {
     .is_some());
     assert_eq!(
         json!(egui_pilot_ai_protocol::PROTOCOL_VERSION),
-        json!({"major": 2, "minor": 1})
+        json!({"major": 2, "minor": 2})
     );
 }

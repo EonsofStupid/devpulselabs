@@ -1092,4 +1092,39 @@ mod tests {
         )));
         assert!(protocol::unsupported_capabilities(&flow).is_empty());
     }
+
+    #[test]
+    fn chat_peer_window_scenario_is_durable_toml() {
+        let flow: Flow = toml::from_str(include_str!(
+            "../../../tests/eguipilotai/chat-peer-window.toml"
+        ))
+        .expect("Chat peer-window scenario");
+        assert_eq!(flow.id, protocol::ScenarioId::new("chat-peer-window"));
+        assert_eq!(flow.fixture, Some(protocol::FixtureId::new("chat-peer")));
+        assert!(flow.steps.iter().any(|step| matches!(
+            step,
+            protocol::Step::Action {
+                action: protocol::Action::FocusViewport { .. }
+            }
+        )));
+        assert!(flow.steps.iter().any(|step| matches!(
+            step,
+            protocol::Step::Action {
+                action: protocol::Action::MinimizeViewport { .. }
+            }
+        )));
+        assert!(flow.steps.iter().any(|step| matches!(
+            step,
+            protocol::Step::Action {
+                action: protocol::Action::RestoreViewport { .. }
+            }
+        )));
+        assert!(flow.steps.iter().any(|step| matches!(
+            step,
+            protocol::Step::Action {
+                action: protocol::Action::CloseViewport { .. }
+            }
+        )));
+        assert!(protocol::unsupported_capabilities(&flow).is_empty());
+    }
 }

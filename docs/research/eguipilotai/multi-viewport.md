@@ -1,11 +1,11 @@
 # EguiPilotAI native multi-viewport contract
 
-Status: specified from a source audit on 2026-07-23. The immediate-window
-discovery/input/focus/close vertical is implemented and locally qualified
-against the real PixVix process. Generic multi-viewport support is not complete:
-deferred viewports are unimplemented, immediate child screenshots are blocked
-by an explicit eframe 0.35 wgpu limitation, and the remaining conformance gates
-below are still open.
+Status: specified from a source audit on 2026-07-23 and extended with real Chat
+qualification on 2026-07-24. Immediate and deferred discovery, input, focus,
+close, and reopen paths are implemented and locally qualified against real
+DevPULSE processes. Native child screenshots remain blocked by measured eframe
+0.35 wgpu behavior, and the remaining stress, renderer, and Test Lab gates below
+are still open.
 
 “Extended window”, “second window”, and “multi-window” mean an additional
 native egui viewport owned by the same target process and EguiPilotAI session.
@@ -15,7 +15,7 @@ copying Playwright's browser `Page` API.
 DevPULSE has two qualification targets:
 
 - PixVix's existing immediate `pixvix` and `pixvix-region` viewports;
-- the planned deferred presenter/teleprompter viewport.
+- the deferred `chat.primary` peer window.
 
 The toolkit must support both egui viewport classes before calling its native
 multi-window contract reusable.
@@ -63,18 +63,18 @@ External references:
 | Layer | Evidence now | Status | Remaining behavior |
 |---|---|---:|---|
 | Protocol | Typed durable keys, generated lifetime IDs, descriptors, strict key/ID selectors, lifecycle expectations/events, viewport fields, granular capability catalog | Implemented core | Title/class/parent/state selector filters, exact-count expectation, repeated-key policy, additional schema goldens |
-| Instrumentation | Automatic root, typed immediate declaration wrapper, authoritative inventory diff, generation counter, stale semantic/input/capture pruning | Implemented immediate | Deferred wrapper, source-location duplicate diagnostics, AccessKit tree-per-lifetime work in Slice 3 |
-| Runtime input | Viewport-bound pointer/keyboard state, source-switch rejection, cleanup in original viewport, target repaint, focus/close waits | Implemented core | Cross-window drag remains intentionally unsupported; deferred independent-repaint proof remains |
-| Runtime capture | Strict target resolution, screenshot-event matching, viewport-scoped hashes and artifact metadata | Root only | Immediate child capture is explicitly unsupported by the eframe 0.35 wgpu path; deferred capture is unqualified |
+| Instrumentation | Automatic root, typed immediate and deferred declaration wrappers, authoritative inventory diff, generation counter, stale semantic/input/capture pruning | Implemented both | Source-location viewport duplicate diagnostics and AccessKit tree-per-lifetime work remain |
+| Runtime input | Viewport-bound pointer/keyboard state, source-switch rejection, cleanup in original viewport, target/owner repaint, focus/close/minimize/restore waits | Implemented core | Cross-window drag remains intentionally unsupported |
+| Runtime capture | Strict target resolution, screenshot-event matching, viewport-scoped hashes and artifact metadata | Root only | Immediate and background deferred child capture are explicitly unsupported by measured eframe 0.35 wgpu behavior |
 | Runtime stop | Child close requests, bounded closure wait, lifecycle forwarding, root/transport close after child teardown | Implemented core | Deep parent ordering and forced-timeout real-process fixture |
 | Runner/CLI/MCP | Durable TOML viewport actions/expectations, compact live inventory, viewport-scoped capture schema, failed CLI scenarios return non-zero | Implemented core | Catalog discovery, stale-instance negative flow, richer selector authoring, report/Test Lab projection |
-| DevPULSE | Stable PixVix palette/region keys and controls; real discover/focus/click/open/close scenario | Qualified on Windows | Reopen through the root launcher, same-window region drag, deferred presenter proof, child visual evidence |
-| Conformance | Registry reopen-generation unit test, input ownership tests, stop-waits-for-child test, real PixVix process flow | Partial | Deferred fixture, 100-cycle/memory gate, Lavapipe qualification, renderer-supported child capture |
+| DevPULSE | Stable PixVix and Chat keys; real immediate and deferred discover/focus/click/open/close/reopen scenarios; Main minimize/restore with Chat interaction | Qualified on Windows | Same-window region drag, stress cycles, and renderer-backed child visual evidence |
+| Conformance | Registry reopen-generation, input ownership, owner-mediated deferred close, stop-waits-for-child, and real PixVix/Chat process flows | Partial | 100-cycle/memory gate, Lavapipe qualification, and a future renderer-supported child capture backend |
 
 The current boundary is deliberately fail-closed:
 
 1. immediate child capture returns `viewport-capture-unsupported` immediately;
-2. deferred capture returns `viewport-capture-unqualified`;
+2. deferred capture returns `viewport-capture-unsupported` immediately;
 3. a required native operation rejects embedded fallback;
 4. ambiguous omitted viewport selectors fail when more than one lifetime is
    live;
@@ -155,7 +155,7 @@ Rules:
 
 ## Protocol and capability surface
 
-Protocol 2.1 adds:
+Protocol 2.1 established:
 
 - `PilotViewportKey`, lifetime `ViewportId`, `ViewportClass`,
   `ViewportDescriptor`, `ViewportSelector`, and `ViewportExpectation`;
@@ -168,6 +168,12 @@ Protocol 2.1 adds:
 - lifecycle expectations for open, visible, focused, close-requested, closed,
   and exact count.
 
+Protocol 2.2 adds native minimize and restore actions plus observable
+`minimized` and `restored` expectations. Deferred close uses a one-shot request
+consumed by the application code that owns the declaration; this is necessary
+because an imperative native close can otherwise be undone by immediate
+redeclaration.
+
 Capability IDs remain granular:
 
 - `viewport.inventory`
@@ -175,6 +181,8 @@ Capability IDs remain granular:
 - `viewport.targeted-input`
 - `viewport.targeted-capture`
 - `viewport.focus`
+- `viewport.minimize`
+- `viewport.restore`
 - `viewport.close`
 - `viewport.immediate`
 - `viewport.deferred`
@@ -201,8 +209,9 @@ are errors. Arbitrary egui debug IDs from MCP are rejected.
 - Cleanup releases input in the original viewport and renders its cleanup
   pass. A closed original viewport makes cleanup an infrastructure error and
   prevents process reuse.
-- Child injection requests repaint for the child. Immediate children also
-  wake the parent; deferred children repaint independently.
+- Child injection requests repaint for the child and wakes its declaration
+  owner for lifecycle reconciliation. Deferred children still repaint
+  independently during ordinary application operation.
 - Keyboard actionability requires the target viewport to be focused. A
   scenario may explicitly focus it and wait for focus. Platforms where native
   focus cannot be proven fail `viewport.focus` rather than faking it.
@@ -225,13 +234,16 @@ are errors. Arbitrary egui debug IDs from MCP are rejected.
   silently stitching native windows.
 - Renderer baselines include viewport key, logical size, DPI, and class.
 
-Root capture is qualified. Deferred capture remains unqualified. Native wgpu
-capture of an immediate child is unavailable in eframe 0.35 because
+Root capture is qualified. Native wgpu capture of an immediate child is
+unavailable in eframe 0.35 because
 `render_immediate_viewport` hard-codes an empty screenshot request list; that
 class fails immediately with evidence instead of entering settlement. Resolving
 this requires an upstream eframe change, a reviewed dependency patch, or a
-separately specified native-client-area capture backend. OS desktop cropping is
-not accepted as a silent substitute for deterministic renderer output.
+separately specified native-client-area capture backend. Real Chat
+qualification also showed that a background deferred viewport accumulates
+queued screenshot commands without returning an image, so it fails the same
+preflight. OS desktop cropping is not accepted as a silent substitute for
+deterministic renderer output.
 
 ## Close and shutdown ownership
 
@@ -305,9 +317,9 @@ can release it deterministically.
    their controls and close-request handling, then qualify discovery, focus,
    targeted input, opening, closure, and teardown. Record immediate child
    screenshot capture as an upstream-blocked capability.
-7. **Reusable deferred proof:** qualify a deferred fixture window before the
-   toolkit claims generic support; the real presenter window later repeats
-   that proof in DevPULSE.
+7. **Reusable deferred proof:** qualified through the app-owned Chat peer
+   window for independent repaint, Main minimize/restore, targeted input,
+   owner-mediated close, reopen, and explicit capture rejection.
 8. **Test Lab projection:** after its runner-backed slice, show inventory,
    parent tree, per-window semantics/captures, and lifecycle traces.
 
@@ -386,5 +398,31 @@ The implementation checkpoint above was qualified locally before push:
   shutdown waiting, immediate-capture preflight, protocol mismatch, bounded
   snapshot hashing, and failed CLI outcomes returning an error.
 
-This evidence does not close the deferred, immediate-child-pixel, reopen-
-through-launcher, stress/memory, Lavapipe, or Test Lab gates.
+This evidence did not close the deferred, immediate-child-pixel,
+reopen-through-launcher, stress/memory, Lavapipe, or Test Lab gates.
+
+## Local evidence — 2026-07-24
+
+- Protocol 2.2 added observable native minimize/restore without changing the
+  locked major-version boundary.
+- `chat-peer-window.toml` passed the real Windows/wgpu process: deferred Chat
+  discovery and focus; root minimization; Chat-scoped provider interaction
+  while Main was minimized; root restore; owner-mediated Chat close; root
+  launcher reopen; and semantic rediscovery.
+- A direct targeted deferred capture experiment failed with
+  `capture-response-timeout` while screenshot commands accumulated. The
+  experiment was removed from the durable green flow and frozen as an
+  immediate `viewport-capture-unsupported` preflight with a unit test.
+- The deferred close experiment exposed a background-window race. Protocol
+  close now signals the declaration owner, which stops declaring the viewport;
+  the real scenario then closes in milliseconds instead of relying on repaint
+  timing.
+- A stronger minimize/restore drill exposed the same ownership rule for native
+  commands: a minimized deferred child cannot drain its own callback queue.
+  The deferred wrapper now forwards queued commands from its repaintable
+  declaration owner. The real scenario minimizes and restores Chat, then
+  restores Main through Chat's own `Show Main` control.
+
+This evidence closes the deferred discovery/input/lifecycle and
+reopen-through-launcher gaps. Child pixels, stress/memory, Lavapipe, and Test
+Lab remain open.
