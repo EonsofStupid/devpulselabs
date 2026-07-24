@@ -5,7 +5,7 @@
 //! owner lends for the frame).
 
 use dpl_coldlight::{self as cl, Tone};
-use egui::{Align2, Color32, CornerRadius, FontId, Rect, RichText, Sense, StrokeKind};
+use egui::{Align2, Color32, CornerRadius, FontId, RichText, Sense, StrokeKind};
 use egui_pilot_ai::protocol::Role as PilotRole;
 use egui_pilot_ai::{NodeMetadata, PilotId, UiPilotExt};
 
@@ -652,8 +652,13 @@ pub(crate) fn rec_pill(ui: &mut egui::Ui, count: u32, actions: &mut PaletteActio
     });
 }
 
-/// A BRUTAL palette chip (doctrine): hard offset shadow, thick tone
-/// edge, hover presses the chip onto its shadow. The `tip` is LAW —
+/// A neubrutalist palette chip, painted from the ColdLight trait system
+/// (`compose` → `ResolvedStyle`) — zero magic numbers, all of fill / edge /
+/// hard-offset-shadow / ink sourced from `tokens/traits.json`. Compact
+/// toolbar sizing is preserved; the authored hover/active states supply the
+/// depth and the press (`[3,3]` → `[1,1]`). The back-glow is deliberately
+/// omitted for these dense chips — its spread would bleed into neighbours
+/// (the "lit-from-behind" glow is a hero-surface move). The `tip` is LAW —
 /// every chip explains itself in layman language.
 fn pilot_chip(
     ui: &mut egui::Ui,
@@ -673,36 +678,31 @@ fn pilot_chip(
             .layout_no_wrap(text.clone(), FontId::proportional(13.0), cl::ink::BASE);
     let (slot, resp) =
         ui.allocate_exact_size(egui::vec2(galley.size().x + 24.0, 30.0), Sense::click());
-    let lift = if resp.hovered() && !resp.is_pointer_button_down_on() {
-        egui::Vec2::ZERO
+    let state = if resp.is_pointer_button_down_on() {
+        cl::TraitState::Active
+    } else if resp.hovered() {
+        cl::TraitState::Hover
     } else {
-        egui::vec2(1.0, 1.0)
+        cl::TraitState::Idle
     };
-    let chip = Rect::from_min_size(slot.min + lift, slot.size() - egui::vec2(3.0, 3.0));
-    let shadow = chip.translate(egui::vec2(3.0, 3.0) - lift);
+    let style = cl::compose(tone, "neubrutalist", &[], state);
+    let cr = CornerRadius::same(style.radius);
     let painter = ui.painter();
-    painter.rect_filled(
-        shadow,
-        CornerRadius::same(cl::RADIUS_SM),
-        Color32::from_black_alpha(230),
-    );
-    painter.rect_filled(
-        chip,
-        CornerRadius::same(cl::RADIUS_SM),
-        cl::surface::OVERLAY,
-    );
-    painter.rect_stroke(
-        chip,
-        CornerRadius::same(cl::RADIUS_SM),
-        egui::Stroke::new(2.0, tone.wash()),
-        StrokeKind::Inside,
-    );
+    // The hard offset shadow (a shape, never a blur) — the primary shadow the
+    // trait authors; behind_shapes' glow is skipped here (dense-row bleed).
+    if let Some(shadow) = style.shadows.first() {
+        painter.add(egui::Shape::from(shadow.as_shape(slot, cr)));
+    }
+    painter.rect_filled(slot, cr, style.fill);
+    if style.edge.width > 0.0 {
+        painter.rect_stroke(slot, cr, style.edge, StrokeKind::Inside);
+    }
     painter.text(
-        chip.center(),
+        slot.center(),
         Align2::CENTER_CENTER,
         text,
         FontId::proportional(13.0),
-        cl::ink::BASE,
+        style.ink,
     );
     ui.pilot_track(
         &resp,

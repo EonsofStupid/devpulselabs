@@ -2,8 +2,18 @@
 
 Updated every pass. This file is the first read of every session.
 
-**Tip:** `5593c40` on `main` (2026-07-23). One checkout, worktree removed.
-Operator exe rebuilt 2026-07-23 16:51.
+**Tip:** `54ba46d` on `main` (2026-07-24) — PR #18 consolidated the coldlight
+trait system + viziwiz rename + main's #15/#17 native peer-window chat + the
+three-product plan. W-CAP claymorphism next on `design/viziwiz-claymorphism`.
+Exe rebuilt 2026-07-24 10:06.
+
+**Architecture (ratified):** three products, all Rust/egui —
+`docs/design/viziwiz-architecture-spec.md` + the rewritten
+`docs/plans/port-viziwiz.md`: WiredFRONT capture / Workbench authoring /
+Native Guide Player (winit+wgpu+libmpv; `.guide` ZIP + portable `.exe`).
+**Chat = a status-bar-triggered peer window** (Steam-overlay-like, loads
+routes), NOT a hub route — the rail-hub chat is drift to fold in (next pass;
+see memory `chat-is-a-peer-window`).
 
 ## Proven working (engine layer)
 

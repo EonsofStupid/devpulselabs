@@ -835,13 +835,16 @@ impl Viziwiz {
             return;
         }
 
+        // Sizes carry the claymorphic plate's chrome: a thin WELL gutter (6)
+        // for the plate's directional shadow to fall into + the clay inner
+        // margin (10) on each side.
         let size = if recording_steps {
-            egui::vec2(236.0, 56.0)
+            egui::vec2(248.0, 76.0)
         } else if self.pending.is_some() {
             // The Save card needs the extra rows.
-            egui::vec2(380.0, 310.0)
+            egui::vec2(396.0, 330.0)
         } else {
-            egui::vec2(380.0, 240.0)
+            egui::vec2(396.0, 260.0)
         };
         let builder = ViewportBuilder::default()
             .with_title("ViziWiz")
@@ -891,39 +894,48 @@ impl Viziwiz {
             |ctx, _| {
                 close_requested = ctx.input(|input| input.viewport().close_requested());
                 egui::CentralPanel::default()
+                    // The recessed WELL behind the plate — a thin gutter the
+                    // claymorphic plate's directional shadow falls into.
                     .frame(
                         egui::Frame::new()
-                            .fill(dpl_coldlight::surface::RAISED)
-                            .stroke(egui::Stroke::new(1.0, dpl_coldlight::surface::HAIRLINE))
-                            .inner_margin(egui::Margin::same(10)),
+                            .fill(dpl_coldlight::surface::WELL)
+                            .inner_margin(egui::Margin::same(6)),
                     )
                     .show(ctx, |ui| {
-                        if steps_state.recording {
-                            palette::rec_pill(ui, steps_state.count, &mut actions);
-                        } else {
-                            palette::palette(
-                                ui,
-                                &PaletteView {
-                                    tab,
-                                    status: &status,
-                                    windows: &windows,
-                                    picked,
-                                    video_elapsed,
-                                    video_window,
-                                    format_label,
-                                    audio_label,
-                                    audio_silent,
-                                    cap_label,
-                                    audio_devices: &audio_devices,
-                                    picked_audio,
-                                    session_state,
-                                    steps_note: &note,
-                                    delay,
-                                },
-                                pending.as_mut(),
-                                &mut actions,
-                            );
-                        }
+                        // The palette rides a claymorphic passive plane (the
+                        // trait system, not a bespoke frame) — a soft extruded
+                        // plate the dense capture chrome sits IN.
+                        dpl_coldlight::clay()
+                            .margin(egui::Margin::same(10))
+                            .show(ui, |ui| {
+                                ui.set_width(ui.available_width());
+                                if steps_state.recording {
+                                    palette::rec_pill(ui, steps_state.count, &mut actions);
+                                } else {
+                                    palette::palette(
+                                        ui,
+                                        &PaletteView {
+                                            tab,
+                                            status: &status,
+                                            windows: &windows,
+                                            picked,
+                                            video_elapsed,
+                                            video_window,
+                                            format_label,
+                                            audio_label,
+                                            audio_silent,
+                                            cap_label,
+                                            audio_devices: &audio_devices,
+                                            picked_audio,
+                                            session_state,
+                                            steps_note: &note,
+                                            delay,
+                                        },
+                                        pending.as_mut(),
+                                        &mut actions,
+                                    );
+                                }
+                            });
                     });
             },
         );
