@@ -153,6 +153,7 @@ impl WorkbenchHub {
                 let demos = self.demos.get_or_insert_with(dpl_slides::demos);
                 library::templates_gallery(ui, demos, &mut self.focus);
             }
+            LibSection::Traits => library::traits_wall(ui),
             LibSection::Colors => library::pool_wall(ui),
             LibSection::Presets => library::presets_wall(ui),
             LibSection::Fonts => library::fonts_wall(ui),

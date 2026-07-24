@@ -2,10 +2,24 @@
 
 Updated every pass. This file is the first read of every session.
 
-**Tip:** on `main` (2026-07-24). This session landed, via PR: the coldlight
-trait system + viziwiz rename + main's #15/#17 native peer-window chat + the
-three-product plan (#18); W-CAP palette claymorphism (#19); and the chat
-consolidation (this branch). Exe rebuilt 2026-07-24.
+**Tip:** on `main` (2026-07-24, late). THE COURSE CORRECTION SESSION: the
+operator ruled the R1 sequencing a failure (plumbing landed while the
+editor stayed a chip list, and R1u's editor spine was GUIDE-maker DNA —
+Capture/Annotate/Edit/Narrate/Preview/Export + an Export .guide chip).
+The fix, ratified via a mock-first loop: `docs/design/mocks/
+wiredfront-editor-mock.html` (v2.1) is THE editor spec — **After Effects,
+panel for panel** — and `docs/plans/wiredfront-experience.md` is the UX
+GATE: every editor pass must move a row of its §5 friction audit.
+**W1 landed** (this branch): the editor rebuilt to the mock. Exe rebuilt
+2026-07-24. NEXT: R1y (`docs/plans/r1y-media-windows.md`, plan approved
+in-session) — Browse peer windows + Explorer drag-drop; then R1z
+(autosave/undo/reopen-last). Ratified: 3D/camera/tracker/motion-blur are
+LATER phases; AI is ephemeral in-app + chat (one seam); WiredFRONT before
+Workbench (it feeds Workbench the finished media). Memory:
+`experience-first-gate`. OPEN operator question: does "import my After
+Effects" need `.aep` project parsing, or rendered elements + Lottie?
+NOTE: `seeds/slides/static/headline-clean/slide.json` carries an
+operator edit (fonts→orbitron, moods) left uncommitted on purpose.
 
 **Architecture (ratified):** three products, all Rust/egui —
 `docs/design/viziwiz-architecture-spec.md` + the rewritten

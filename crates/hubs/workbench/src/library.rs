@@ -8,7 +8,7 @@
 //! room.
 
 use super::SPEC;
-use dpl_coldlight::{self as cl};
+use dpl_coldlight::{self as cl, Tone};
 use dpl_slides::SlideTemplate;
 use egui::RichText;
 
@@ -19,6 +19,7 @@ pub(crate) enum LibSection {
     #[default]
     Seeds,
     Templates,
+    Traits,
     Colors,
     Presets,
     Fonts,
@@ -26,9 +27,10 @@ pub(crate) enum LibSection {
 }
 
 impl LibSection {
-    pub(crate) const ALL: [LibSection; 6] = [
+    pub(crate) const ALL: [LibSection; 7] = [
         LibSection::Seeds,
         LibSection::Templates,
+        LibSection::Traits,
         LibSection::Colors,
         LibSection::Presets,
         LibSection::Fonts,
@@ -39,6 +41,7 @@ impl LibSection {
         match self {
             LibSection::Seeds => "seeds",
             LibSection::Templates => "templates",
+            LibSection::Traits => "traits",
             LibSection::Colors => "colors",
             LibSection::Presets => "presets",
             LibSection::Fonts => "fonts",
@@ -51,12 +54,79 @@ impl LibSection {
         match self {
             LibSection::Seeds => "Ready-made starter slides you can copy into a show",
             LibSection::Templates => "Every slide design, running live — tap one to see it big",
+            LibSection::Traits => "The composable treatments every surface is dressed in",
             LibSection::Colors => "The whole color pool the app draws from",
             LibSection::Presets => "Saved style bundles — one tap applies a whole look",
             LibSection::Fonts => "Every typeface in the app, shown in its own face",
             LibSection::Moods => "The color moods the backdrop rolls on launch",
         }
     }
+}
+
+/// The traits wall — every generated trait rendered LIVE through the
+/// compositor (moved here from the WiredFRONT composer under the
+/// two-libraries law: ColdLight ingredients belong to WORKBENCH).
+pub(crate) fn traits_wall(ui: &mut egui::Ui) {
+    ui.label(
+        RichText::new(format!(
+            "TRAITS — {} generated treatments · base traits stand alone, stack traits ride the \
+             neubrutalist base (their real use)",
+            cl::TRAITS.len()
+        ))
+        .small()
+        .color(cl::ink::SUBTLE),
+    );
+    ui.add_space(cl::space::S2);
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                for def in cl::TRAITS {
+                    trait_swatch(ui, def);
+                    ui.add_space(cl::space::S2);
+                }
+            });
+        });
+}
+
+/// One trait, rendered LIVE through the compositor — base traits stand
+/// alone; stack traits ride the neubrutalist base (their real use).
+fn trait_swatch(ui: &mut egui::Ui, def: &cl::TraitDef) {
+    let (base, stack): (&str, &[&str]) = if def.role == "base" {
+        (def.id, &[])
+    } else {
+        ("neubrutalist", std::slice::from_ref(&def.id))
+    };
+    let style = cl::compose(Tone::Magenta, base, stack, cl::TraitState::Idle);
+    // The swatch leaves room for the hard offset shadow on its right/bottom.
+    let (slot, resp) = ui.allocate_exact_size(egui::vec2(136.0, 52.0), egui::Sense::hover());
+    let rect = egui::Rect::from_min_size(slot.min, slot.size() - egui::vec2(4.0, 4.0));
+    let painter = ui.painter();
+    for shape in style.behind_shapes(rect) {
+        painter.add(shape);
+    }
+    for sh in &style.shadows {
+        painter.rect_filled(
+            rect.translate(egui::vec2(sh.offset[0] as f32, sh.offset[1] as f32)),
+            egui::CornerRadius::same(style.radius),
+            sh.color,
+        );
+    }
+    painter.rect_filled(rect, egui::CornerRadius::same(style.radius), style.fill);
+    painter.rect_stroke(
+        rect,
+        egui::CornerRadius::same(style.radius),
+        style.edge,
+        egui::StrokeKind::Inside,
+    );
+    painter.text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        def.label,
+        egui::FontId::proportional(13.0),
+        style.ink,
+    );
+    cl::tip(resp, def.blurb);
 }
 
 /// The section chip row — tap a chip, that wall renders below.
