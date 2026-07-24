@@ -46,8 +46,12 @@ Operator exe rebuilt 2026-07-23 16:51.
    with layman tips; rail house tiles tip their hub name; unfolded
    subroute rows tip their blurbs (proof:
    docs/proof/doctrine-footer-launchers.png).
-   **Retrofit sweep still owed**: hub/subroute cards → clay (the
-   placeholder surface + gallery/session cards), session player
+   Sweep 3 DONE: hub placeholder subroute cards → CLAY (passive planes;
+   active keeps the tone scatter). FINDING for its own pass: these
+   cards LOOK tappable but are inert — hubs have no navigation seam;
+   needs the deferred fabric NAVIGATE event, then the cards go brutal
+   and tap-to-navigate (frictionless law).
+   **Retrofit sweep still owed**: gallery/session cards + player
    controls, workbench walls, Save-card field labels, deck toolbar.
    Every UI pass MUST invoke `dpl-style`.
 3. Content root resolves from CWD (`./content`) — double-clicked exe reads
