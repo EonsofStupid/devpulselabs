@@ -1348,7 +1348,6 @@ dependencies = [
  "dpl-engine-steps",
  "dpl-fabric",
  "dpl-hub",
- "dpl-hub-chat",
  "dpl-hub-home",
  "dpl-hub-present",
  "dpl-hub-shows",
@@ -1533,6 +1532,7 @@ dependencies = [
  "dpl-chat-context",
  "dpl-chat-core",
  "dpl-chat-runtime",
+ "dpl-chat-store",
  "dpl-coldlight",
  "dpl-fabric",
  "dpl-hub",
@@ -1636,26 +1636,6 @@ version = "0.1.0"
 dependencies = [
  "dpl-coldlight",
  "egui",
-]
-
-[[package]]
-name = "dpl-hub-chat"
-version = "0.1.0"
-dependencies = [
- "dpl-chat-context",
- "dpl-chat-core",
- "dpl-chat-extensions",
- "dpl-chat-renderers",
- "dpl-chat-runtime",
- "dpl-chat-store",
- "dpl-chat-testkit",
- "dpl-chat-windows",
- "dpl-coldlight",
- "dpl-fabric",
- "dpl-hub",
- "egui",
- "egui-pilot-ai",
- "egui_kittest",
 ]
 
 [[package]]

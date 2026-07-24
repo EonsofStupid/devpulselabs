@@ -1,4 +1,5 @@
 use dpl_chat_runtime::ChatRuntime;
+use dpl_chat_store::HistoryCatalog;
 use dpl_chat_window::{ChatWindow, HostIntent};
 use dpl_chat_windows::{
     ChatCloseDecision, ChatWindowId, ChatWindowRegistry, PeerLifetime, RootCloseDecision,
@@ -17,6 +18,10 @@ struct Shared {
     registry: ChatWindowRegistry,
     lifetime: PeerLifetime,
     window: ChatWindow,
+    /// A fabric handle for PUBLISHING the peer window's own navigation asks.
+    /// The coordinator publishes `ShellEvent::NavigateRequest`; the shell
+    /// drains it and navigates the main window.
+    fabric: Fabric,
 }
 
 /// The sole owner of primary Chat viewport creation and peer lifetime policy.
@@ -30,6 +35,8 @@ impl ChatWindowCoordinator {
         fabric: &Fabric,
         runtime: ChatRuntime,
         initial_route: Route,
+        catalog: HistoryCatalog,
+        routes: Vec<(String, Route)>,
         open_at_boot: bool,
     ) -> Self {
         let mut registry = ChatWindowRegistry::default();
@@ -41,7 +48,8 @@ impl ChatWindowCoordinator {
             shared: Arc::new(Mutex::new(Shared {
                 registry,
                 lifetime: PeerLifetime::default(),
-                window: ChatWindow::new(runtime, initial_route),
+                window: ChatWindow::new(runtime, initial_route, catalog, routes),
+                fabric: fabric.clone(),
             })),
             events: fabric.subscribe_shell(),
         }
@@ -247,6 +255,14 @@ fn viewport_geometry(viewport: &egui::ViewportInfo) -> Option<(Option<[i32; 2]>,
 
 fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: HostIntent) {
     match intent {
+        HostIntent::NavigateTo(route) => {
+            // Route loading lives in the MAIN app: publish the ask and let the
+            // shell drain it and navigate. Chat never renders the route itself.
+            lock(shared)
+                .fabric
+                .publish_shell(ShellEvent::NavigateRequest { route });
+            ctx.request_repaint_of(egui::ViewportId::ROOT);
+        }
         HostIntent::ShowMain => {
             lock(shared).lifetime.restore_main();
             ctx.send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::Visible(true));

@@ -42,7 +42,6 @@ members = [
     "crates/hubs/present",
     "crates/hubs/workbench",
     "crates/hubs/wiredfront",
-    "crates/hubs/chat",
     "crates/app",
     "crates/xtask",
 ]
@@ -123,7 +122,6 @@ dpl-hub-shows = { path = "crates/hubs/shows" }
 dpl-hub-present = { path = "crates/hubs/present" }
 dpl-hub-workbench = { path = "crates/hubs/workbench" }
 dpl-hub-wiredfront = { path = "crates/hubs/wiredfront" }
-dpl-hub-chat = { path = "crates/hubs/chat" }
 
 [profile.release]
 lto = "thin"
