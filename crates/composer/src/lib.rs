@@ -14,11 +14,13 @@
 
 use dpl_coldlight::{self as cl, Tone};
 use dpl_comp::{Composition, Layer, Source};
+use dpl_engine_media::StitchClip;
 use dpl_index::Record;
 use dpl_video::{clip::ClipPlayer, DECODE_H, DECODE_W};
 use egui::{Color32, CornerRadius, Rect, RichText, Sense, UiBuilder};
 use egui_pilot_ai::{protocol::Role, NodeMetadata, PilotId, PilotKey, UiPilotExt};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// The default trimmed length for a clip whose duration we cannot probe.
@@ -37,6 +39,8 @@ pub struct Composer {
     preview: Option<(String, ClipPlayer)>,
     /// Video artifacts from the index — the clips you can append.
     palette: Option<Vec<Record>>,
+    /// The off-thread stitch render's shared state.
+    render: Arc<Mutex<RenderState>>,
     status: String,
 }
 
@@ -48,6 +52,7 @@ impl Default for Composer {
             selected: None,
             preview: None,
             palette: None,
+            render: Arc::new(Mutex::new(RenderState::Idle)),
             status: "New composition — add clips from the palette on the left.".into(),
         }
     }
@@ -57,11 +62,20 @@ impl Default for Composer {
 enum Act {
     New,
     Save,
+    Render,
     Add(usize),
     Select(String),
     Remove(String),
     MoveUp(String),
     MoveDown(String),
+}
+
+/// The async stitch-render job's state — the toolbar polls it each frame.
+enum RenderState {
+    Idle,
+    Running,
+    Done(PathBuf),
+    Failed(String),
 }
 
 impl Composer {
@@ -197,6 +211,59 @@ impl Composer {
             .unwrap()
     }
 
+    /// The main track's playable (artifact) layers → stitch clips, in order.
+    /// Element sources have no file yet (R1c) — skipped.
+    fn stitch_clips(&self) -> Vec<StitchClip> {
+        self.layers()
+            .iter()
+            .filter_map(|l| match &l.source {
+                Source::Artifact { rel } => Some(StitchClip {
+                    path: Self::resolve(rel),
+                    in_pt: l.in_pt,
+                    out_pt: l.out_pt,
+                }),
+                Source::Element { .. } => None,
+            })
+            .collect()
+    }
+
+    /// Kick off the ffmpeg stitch render OFF the UI thread; the toolbar polls
+    /// the shared `RenderState`. Output colocates with the comp as
+    /// `<comp-dir>/render.mp4` (the comp folder is minted if unsaved).
+    fn start_render(&mut self) {
+        let clips = self.stitch_clips();
+        if clips.is_empty() {
+            *self.render.lock().expect("render state") =
+                RenderState::Failed("no playable clips to render yet".into());
+            return;
+        }
+        if self.dir.is_none() {
+            self.dir = Some(Self::fresh_comp_dir());
+        }
+        let out = self.dir.clone().unwrap().join("render.mp4");
+        let (w, h, fps) = (self.comp.w, self.comp.h, self.comp.fps);
+        let state = Arc::clone(&self.render);
+        *state.lock().expect("render state") = RenderState::Running;
+        std::thread::Builder::new()
+            .name("dpl-composer-render".into())
+            .spawn(move || {
+                let result = dpl_engine_media::render_stitch(&clips, w, h, fps, &out);
+                *state.lock().expect("render state") = match result {
+                    Ok(()) => RenderState::Done(out),
+                    Err(e) => RenderState::Failed(e),
+                };
+            })
+            .expect("spawn render thread");
+    }
+
+    /// A short display path: relative to the content root when possible.
+    fn short(p: &Path) -> String {
+        p.strip_prefix(Self::content_root())
+            .unwrap_or(p)
+            .to_string_lossy()
+            .replace('\\', "/")
+    }
+
     fn ensure_palette(&mut self) {
         if self.palette.is_some() {
             return;
@@ -215,6 +282,13 @@ impl Composer {
     /// The Composer surface — what the WiredFRONT hub calls for its subroute.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         self.ensure_palette();
+        // A render in flight keeps the frame alive so its status pill updates.
+        if matches!(
+            *self.render.lock().expect("render state"),
+            RenderState::Running
+        ) {
+            ui.ctx().request_repaint_after(Duration::from_millis(200));
+        }
         let mut act: Option<Act> = None;
 
         // Manual five-region layout (the house idiom — `new_child` over
@@ -260,6 +334,7 @@ impl Composer {
         match act {
             Some(Act::New) => *self = Composer::default(),
             Some(Act::Save) => self.save(),
+            Some(Act::Render) => self.start_render(),
             Some(Act::Add(i)) => {
                 if let Some(rec) = self.palette.as_ref().and_then(|p| p.get(i)).cloned() {
                     self.add_clip(&rec);
@@ -274,6 +349,19 @@ impl Composer {
     }
 
     fn toolbar(&self, ui: &mut egui::Ui, act: &mut Option<Act>) {
+        // Snapshot the render state once (don't hold the lock across the UI).
+        let (rendering, pill) = {
+            let st = self.render.lock().expect("render state");
+            match &*st {
+                RenderState::Idle => (false, None),
+                RenderState::Running => (true, Some(("⏳ Rendering…".to_string(), cl::ink::BASE))),
+                RenderState::Done(p) => (
+                    false,
+                    Some((format!("✓ Rendered → {}", Self::short(p)), cl::ink::STRONG)),
+                ),
+                RenderState::Failed(e) => (false, Some((format!("✗ {e}"), cl::ink::MUTED))),
+            }
+        };
         ui.horizontal(|ui| {
             if cl::tip(
                 chip(ui, Tone::Lime, "＋ New", "new"),
@@ -290,6 +378,20 @@ impl Composer {
             .clicked()
             {
                 *act = Some(Act::Save);
+            }
+            // Render is offered only with clips to stitch and no job running.
+            if !self.layers().is_empty()
+                && !rendering
+                && cl::tip(
+                    chip(ui, Tone::Magenta, "⏵ Render", "render"),
+                    "Stitch these clips into one video file in your inbox",
+                )
+                .clicked()
+            {
+                *act = Some(Act::Render);
+            }
+            if let Some((text, color)) = pill {
+                ui.label(RichText::new(text).small().color(color));
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(
@@ -604,5 +706,25 @@ mod tests {
         assert_eq!(fmt_secs(Some(0)), "—");
         assert_eq!(fmt_secs(Some(6)), "6s");
         assert_eq!(fmt_secs(Some(64)), "1:04");
+    }
+
+    #[test]
+    fn stitch_clips_map_in_order_skipping_elements() {
+        let mut c = Composer::default();
+        c.add_clip(&video_rec("A", "inbox/a.mp4", Some(3)));
+        c.add_clip(&video_rec("B", "inbox/b.mp4", Some(4)));
+        if let Some(t) = c.comp.tracks.first_mut() {
+            t.layers.push(Layer {
+                id: "el".into(),
+                source: Source::Element { id: "spark".into() },
+                start: 0.0,
+                in_pt: 0.0,
+                out_pt: 2.0,
+            });
+        }
+        let clips = c.stitch_clips();
+        assert_eq!(clips.len(), 2, "element source is skipped");
+        assert!(clips[0].path.to_string_lossy().contains("a.mp4"));
+        assert!((clips[1].out_pt - 4.0).abs() < 1e-6);
     }
 }

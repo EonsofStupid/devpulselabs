@@ -1573,6 +1573,7 @@ dependencies = [
  "dpl-coldlight",
  "dpl-comp",
  "dpl-engine-capture",
+ "dpl-engine-media",
  "dpl-index",
  "dpl-video",
  "egui",

@@ -283,6 +283,135 @@ fn run_ffmpeg(args: Vec<String>) -> Result<(), String> {
     }
 }
 
+// ── the STITCH render (R1b) — concat many trimmed clips into one mp4 ─────
+//
+// The FINAL render tier (R1 §3): ffmpeg concatenates trimmed, uniform
+// frames. Decoupled on purpose — primitive inputs, no dpl-comp dep, so the
+// encode engine never learns the document schema. The Composer maps its
+// Composition → these clips.
+
+/// One trimmed source clip in a stitch render.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StitchClip {
+    pub path: PathBuf,
+    pub in_pt: f32,
+    pub out_pt: f32,
+}
+
+/// The concat filtergraph args to stitch `clips` end-to-end into one H.264
+/// mp4 at `w`×`h`@`fps` (ADR-009: args verbatim). Each input is trimmed to
+/// [in,out], PTS-reset, fps-normalized, then scaled + PADDED (never cropped
+/// — the comp frame is the canvas) to a uniform frame, then `concat`. Audio
+/// dropped (`-an`), faststart + crf like the single-clip `video_args`.
+pub fn stitch_args(clips: &[StitchClip], w: u32, h: u32, fps: u32, out: &Path) -> Vec<String> {
+    let mut args: Vec<String> = vec!["-y".into(), "-v".into(), "error".into()];
+    for c in clips {
+        args.push("-i".into());
+        args.push(c.path.to_string_lossy().into_owned());
+    }
+    let mut graph = String::new();
+    for (i, c) in clips.iter().enumerate() {
+        let s = c.in_pt.max(0.0);
+        let e = c.out_pt.max(s);
+        graph.push_str(&format!(
+            "[{i}:v]trim=start={s:.3}:end={e:.3},setpts=PTS-STARTPTS,fps={fps},scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1[v{i}];"
+        ));
+    }
+    for i in 0..clips.len() {
+        graph.push_str(&format!("[v{i}]"));
+    }
+    graph.push_str(&format!("concat=n={}:v=1:a=0[out]", clips.len()));
+    args.extend([
+        "-filter_complex".into(),
+        graph,
+        "-map".into(),
+        "[out]".into(),
+        "-c:v".into(),
+        "libx264".into(),
+        "-preset".into(),
+        "slow".into(),
+        "-crf".into(),
+        VIDEO_CRF.to_string(),
+        "-movflags".into(),
+        "+faststart".into(),
+        "-an".into(),
+        out.to_string_lossy().into_owned(),
+    ]);
+    args
+}
+
+/// Render a stitch to `out` (creating its parent). Honest errors: no clips,
+/// or ffmpeg failure. Blocks — callers run it off the UI thread.
+pub fn render_stitch(
+    clips: &[StitchClip],
+    w: u32,
+    h: u32,
+    fps: u32,
+    out: &Path,
+) -> Result<(), String> {
+    if clips.is_empty() {
+        return Err("nothing to render — the composition is empty".into());
+    }
+    if let Some(dir) = out.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("render dir: {e}"))?;
+    }
+    run_ffmpeg(stitch_args(clips, w, h, fps, out))
+}
+
+#[cfg(test)]
+mod stitch_tests {
+    use super::*;
+
+    #[test]
+    fn stitch_args_trims_scales_pads_and_concats() {
+        let clips = vec![
+            StitchClip {
+                path: "a.mp4".into(),
+                in_pt: 0.0,
+                out_pt: 6.0,
+            },
+            StitchClip {
+                path: "b.mp4".into(),
+                in_pt: 1.0,
+                out_pt: 9.0,
+            },
+        ];
+        let a = stitch_args(&clips, 1920, 1080, 30, Path::new("out.mp4")).join(" ");
+        assert!(a.contains("-i a.mp4"), "{a}");
+        assert!(a.contains("-i b.mp4"), "{a}");
+        assert!(a.contains("trim=start=0.000:end=6.000"), "{a}");
+        assert!(a.contains("trim=start=1.000:end=9.000"), "{a}");
+        assert!(
+            a.contains("scale=1920:1080:force_original_aspect_ratio=decrease"),
+            "{a}"
+        );
+        assert!(a.contains("pad=1920:1080:(ow-iw)/2:(oh-ih)/2"), "{a}");
+        assert!(a.contains("concat=n=2:v=1:a=0[out]"), "{a}");
+        assert!(
+            a.contains("-map [out] -c:v libx264 -preset slow -crf 21"),
+            "{a}"
+        );
+        assert!(a.contains("-movflags +faststart -an out.mp4"), "{a}");
+    }
+
+    #[test]
+    fn a_single_clip_still_concats_cleanly() {
+        let clips = vec![StitchClip {
+            path: "solo.mp4".into(),
+            in_pt: 2.0,
+            out_pt: 5.0,
+        }];
+        let a = stitch_args(&clips, 1280, 720, 24, Path::new("o.mp4")).join(" ");
+        assert!(a.contains("concat=n=1:v=1:a=0[out]"), "{a}");
+        assert!(a.contains("[v0]"), "{a}");
+    }
+
+    #[test]
+    fn render_refuses_an_empty_stitch() {
+        assert!(render_stitch(&[], 1920, 1080, 30, Path::new("x.mp4")).is_err());
+    }
+}
+
 /// Anim: `<stem>.webp` (animated) + `<stem>-poster.jpg`, freshness-skipped.
 pub fn optimize_anim(src: &Path, out_dir: &Path) -> Result<Outputs, String> {
     ffmpeg_pair(src, out_dir, "webp", anim_args)
