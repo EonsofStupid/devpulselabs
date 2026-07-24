@@ -8,6 +8,16 @@ members = [
     "crates/egui-pilot-ai-runner",
     "crates/egui-pilot-ai-cli",
     "crates/egui-pilot-ai-lab",
+    "crates/chat/core",
+    "crates/chat/context",
+    "crates/chat/extensions",
+    "crates/chat/runtime",
+    "crates/chat/testkit",
+    "crates/chat/windows",
+    "crates/chat/providers/codex",
+    "crates/chat/providers/claude",
+    "crates/chat/providers/gemini",
+    "crates/chat/providers/grok",
     "crates/hub",
     "crates/coldlight",
     "crates/vector",
@@ -74,6 +84,17 @@ egui-pilot-ai = { path = "crates/egui-pilot-ai" }
 egui-pilot-ai-runtime = { path = "crates/egui-pilot-ai-runtime" }
 egui-pilot-ai-runner = { path = "crates/egui-pilot-ai-runner" }
 egui-pilot-ai-lab = { path = "crates/egui-pilot-ai-lab" }
+
+dpl-chat-core = { path = "crates/chat/core" }
+dpl-chat-context = { path = "crates/chat/context" }
+dpl-chat-extensions = { path = "crates/chat/extensions" }
+dpl-chat-runtime = { path = "crates/chat/runtime" }
+dpl-chat-testkit = { path = "crates/chat/testkit" }
+dpl-chat-windows = { path = "crates/chat/windows" }
+dpl-chat-codex = { path = "crates/chat/providers/codex" }
+dpl-chat-claude = { path = "crates/chat/providers/claude" }
+dpl-chat-gemini = { path = "crates/chat/providers/gemini" }
+dpl-chat-grok = { path = "crates/chat/providers/grok" }
 
 dpl-hub = { path = "crates/hub" }
 dpl-coldlight = { path = "crates/coldlight" }

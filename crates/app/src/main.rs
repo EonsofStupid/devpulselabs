@@ -352,7 +352,19 @@ impl App {
         // publish their asks through the one fabric.
         workbench.wire_fabric(&fabric);
         wiredfront.wire_fabric(&fabric);
-        let mut chat = dpl_hub_chat::ChatHub::default();
+        // Chat providers register as data. The hub never names one and every
+        // manifest remains visibly blocked until its real adapter qualifies.
+        let chat_runtime = dpl_chat_runtime::ChatRuntime::try_from_registrations([
+            dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_codex::MANIFEST),
+            dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_claude::MANIFEST),
+            dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_grok::MANIFEST),
+            dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_gemini::MANIFEST),
+        ])
+        .unwrap_or_else(|error| {
+            tracing::error!(%error, "chat provider registry rejected");
+            dpl_chat_runtime::ChatRuntime::default()
+        });
+        let mut chat = dpl_hub_chat::ChatHub::new(chat_runtime);
         chat.wire_fabric(&fabric);
         // The registry — a new hub is ONE line here and nothing else.
         let hubs: Vec<Box<dyn Hub>> = vec![
