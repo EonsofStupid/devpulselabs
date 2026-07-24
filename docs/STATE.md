@@ -89,13 +89,23 @@ Operator exe rebuilt 2026-07-23 16:51.
    invention with no reference to the original's look. AND the Workbench
    Library holds only 4 authored seed slides (all `static`) of ~27 catalog
    types — the renderers are ~90% ported but the slides aren't organized.
-   FIX (planned, awaiting ratification): `docs/plans/pass0-coldlight-
-   treatments.md` — decide+capture neubrutalism/claymorphism (base) +
-   cyber/retro (stack) as authored trait data + a pure compositor +
-   manifest, then port the full slide catalog in passes, each with an
-   organized seed under Workbench (category × stackable tags). Driven by
-   the `coldlight-system` + `slide-catalog-pass` skills. See memory
-   `port-fidelity-standard`.
+   FIX (ratified 2026-07-24 "go", IN FLIGHT on PR #16 branch
+   `design/coldlight-traits`): `docs/plans/pass0-coldlight-treatments.md`.
+   LANDED: (1) doctrine rewritten to the composable trait system;
+   (2) `tokens/traits.json` (neubrutalist/claymorphic base + cyber/retro
+   stack) + build.rs generator (validated); (3) the pure compositor
+   `compose(tone, base, stack, state) -> ResolvedStyle` (additive
+   concatenate / override last-wins / state overlay; tests); (4) the
+   paint API `cl::treated`/`brutal`/`clay` — `brutal_frame`/`clay_frame`
+   RETIRED, all 9 callers migrated; the treatments RENDER (proof:
+   docs/proof/traits-chat-{1100x700,1600x1000}.png — selected Codex chip
+   is a bright neubrutalist button, lit-from-behind, dark text, over
+   claymorphic panels). REMAINING in this program: tints painting +
+   cyber/retro anim (needs motion.json + painter), the generated
+   manifest the Workbench editor reads, the experience-inventory doc,
+   then the `slide-catalog-pass` loop (port all ~27 slides, each an
+   organized seed under Workbench: category × stackable tags). Skills:
+   `coldlight-system` + `slide-catalog-pass`. Memory: `port-fidelity-standard`.
 
 ## CI + process (live as of #11/#12)
 
