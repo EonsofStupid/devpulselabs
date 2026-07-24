@@ -10,7 +10,7 @@ use protocol::{
     ViewportClass as WireViewportClass, ViewportDescriptor, ViewportId, ViewportLifecycle,
     ViewportLifecycleEvent, ViewportSelector,
 };
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::panic::Location;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
@@ -286,6 +286,7 @@ struct SharedState {
     viewport_generations: HashMap<String, u64>,
     viewport_events: VecDeque<ViewportLifecycleEvent>,
     viewport_commands: VecDeque<(egui::ViewportId, egui::ViewportCommand)>,
+    viewport_close_requests: HashSet<egui::ViewportId>,
     motion_policy: MotionPolicy,
 }
 
@@ -414,6 +415,17 @@ impl PilotHandle {
         lock(&self.shared)
             .viewport_commands
             .push_back((viewport, command));
+    }
+
+    /// Ask the application-owned deferred viewport registry to stop declaring
+    /// this viewport. Native `Close` commands alone are insufficient for a
+    /// deferred viewport because its owner may immediately declare it again.
+    pub fn request_viewport_close(&self, viewport: egui::ViewportId) {
+        lock(&self.shared).viewport_close_requests.insert(viewport);
+    }
+
+    fn take_viewport_close_request(&self, viewport: egui::ViewportId) -> bool {
+        lock(&self.shared).viewport_close_requests.remove(&viewport)
     }
 
     fn take_viewport_commands(&self, viewport: egui::ViewportId) -> Vec<egui::ViewportCommand> {
@@ -998,6 +1010,7 @@ fn close_viewport(shared: &mut SharedState, egui_id: egui::ViewportId) {
     shared
         .viewport_commands
         .retain(|(viewport, _)| *viewport != egui_id);
+    shared.viewport_close_requests.remove(&egui_id);
     shared.viewport_events.push_back(ViewportLifecycleEvent {
         kind: protocol::ViewportEventKind::Closed,
         viewport: live.descriptor,
@@ -1044,6 +1057,22 @@ pub fn handle(ctx: &egui::Context) -> Option<PilotHandle> {
 }
 
 pub trait ContextPilotExt {
+    /// Consume a one-shot close request from the automation runtime.
+    ///
+    /// The code that owns the deferred viewport's declaration should consume
+    /// this request and stop declaring the viewport. The viewport callback
+    /// might not repaint while its native window is in the background.
+    fn pilot_take_viewport_close_request(&self, viewport_id: egui::ViewportId) -> bool;
+
+    fn pilot_show_viewport_deferred<F>(
+        &self,
+        key: protocol::PilotViewportKey,
+        viewport_id: egui::ViewportId,
+        builder: egui::ViewportBuilder,
+        viewport_ui_cb: F,
+    ) where
+        F: Fn(&mut egui::Ui, egui::ViewportClass) + Send + Sync + 'static;
+
     fn pilot_show_viewport_immediate<T, F>(
         &self,
         key: protocol::PilotViewportKey,
@@ -1056,6 +1085,39 @@ pub trait ContextPilotExt {
 }
 
 impl ContextPilotExt for egui::Context {
+    fn pilot_take_viewport_close_request(&self, viewport_id: egui::ViewportId) -> bool {
+        handle(self).is_some_and(|pilot| pilot.take_viewport_close_request(viewport_id))
+    }
+
+    fn pilot_show_viewport_deferred<F>(
+        &self,
+        key: protocol::PilotViewportKey,
+        viewport_id: egui::ViewportId,
+        builder: egui::ViewportBuilder,
+        viewport_ui_cb: F,
+    ) where
+        F: Fn(&mut egui::Ui, egui::ViewportClass) + Send + Sync + 'static,
+    {
+        let pilot = handle(self);
+        if let Some(handle) = &pilot {
+            handle.declare_viewport(
+                viewport_id,
+                key,
+                WireViewportClass::Deferred,
+                builder.title.clone().unwrap_or_default(),
+            );
+            // A minimized or background deferred viewport may not run its own
+            // callback, so it cannot drain commands that would restore or
+            // focus itself. Its declaration owner is already repaintable and
+            // can target native commands at the child without transferring
+            // rendering ownership.
+            for command in handle.take_viewport_commands(viewport_id) {
+                self.send_viewport_cmd_to(viewport_id, command);
+            }
+        }
+        self.show_viewport_deferred(viewport_id, builder, viewport_ui_cb);
+    }
+
     fn pilot_show_viewport_immediate<T, F>(
         &self,
         key: protocol::PilotViewportKey,
@@ -1271,6 +1333,7 @@ mod tests {
             .find(|viewport| viewport.key == child_key)
             .expect("child viewport");
         assert_eq!(first.id, ViewportId::new("test.child#1"));
+        pilot.request_viewport_close(child);
 
         let mut root_only = egui::RawInput::default();
         root_only
@@ -1284,6 +1347,7 @@ mod tests {
         assert!(pilot.take_viewport_events().iter().any(|event| {
             event.viewport.id == first.id && event.state == ViewportLifecycle::Closed
         }));
+        assert!(!ctx.pilot_take_viewport_close_request(child));
 
         let mut reopened = egui::RawInput::default();
         reopened
@@ -1299,5 +1363,17 @@ mod tests {
             .find(|viewport| viewport.key == child_key)
             .expect("reopened child viewport");
         assert_eq!(second.id, ViewportId::new("test.child#2"));
+    }
+
+    #[test]
+    fn deferred_close_request_is_consumed_once_by_its_owner() {
+        let ctx = egui::Context::default();
+        let pilot = install(&ctx);
+        let child = egui::ViewportId::from_hash_of("deferred-child");
+
+        pilot.request_viewport_close(child);
+
+        assert!(ctx.pilot_take_viewport_close_request(child));
+        assert!(!ctx.pilot_take_viewport_close_request(child));
     }
 }

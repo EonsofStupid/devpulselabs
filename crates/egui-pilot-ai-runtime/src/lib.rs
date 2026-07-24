@@ -631,6 +631,24 @@ impl RuntimeGuard {
                 self.request_viewport_repaint(egui_viewport, &descriptor);
                 Some((viewport.clone(), ViewportExpectationState::Focused))
             }
+            Action::MinimizeViewport { viewport } => {
+                let (descriptor, egui_viewport) = self.resolve_viewport(viewport)?;
+                require_native_viewport(&descriptor)?;
+                self.pilot
+                    .queue_viewport_command(egui_viewport, egui::ViewportCommand::Minimized(true));
+                self.request_viewport_repaint(egui_viewport, &descriptor);
+                Some((viewport.clone(), ViewportExpectationState::Minimized))
+            }
+            Action::RestoreViewport { viewport } => {
+                let (descriptor, egui_viewport) = self.resolve_viewport(viewport)?;
+                require_native_viewport(&descriptor)?;
+                self.pilot
+                    .queue_viewport_command(egui_viewport, egui::ViewportCommand::Visible(true));
+                self.pilot
+                    .queue_viewport_command(egui_viewport, egui::ViewportCommand::Minimized(false));
+                self.request_viewport_repaint(egui_viewport, &descriptor);
+                Some((viewport.clone(), ViewportExpectationState::Restored))
+            }
             Action::CloseViewport { viewport } => {
                 let (descriptor, egui_viewport) = self.resolve_viewport(viewport)?;
                 require_native_viewport(&descriptor)?;
@@ -641,8 +659,12 @@ impl RuntimeGuard {
                         context: None,
                     });
                 }
-                self.pilot
-                    .queue_viewport_command(egui_viewport, egui::ViewportCommand::Close);
+                if descriptor.class == protocol::ViewportClass::Deferred {
+                    self.pilot.request_viewport_close(egui_viewport);
+                } else {
+                    self.pilot
+                        .queue_viewport_command(egui_viewport, egui::ViewportCommand::Close);
+                }
                 self.request_viewport_repaint(egui_viewport, &descriptor);
                 Some((viewport.clone(), ViewportExpectationState::Closed))
             }
@@ -1139,14 +1161,13 @@ impl RuntimeGuard {
         descriptor: &ViewportDescriptor,
     ) {
         self.ctx.request_repaint_of(egui_viewport);
-        if descriptor.class == protocol::ViewportClass::Immediate {
-            if let Some(parent) = descriptor
+        if descriptor.class != protocol::ViewportClass::Root {
+            let parent = descriptor
                 .parent
                 .as_ref()
                 .and_then(|parent| self.pilot.egui_viewport(parent))
-            {
-                self.ctx.request_repaint_of(parent);
-            }
+                .unwrap_or(egui::ViewportId::ROOT);
+            self.ctx.request_repaint_of(parent);
         }
     }
 
@@ -1167,6 +1188,8 @@ impl RuntimeGuard {
         match state {
             ViewportExpectationState::Open => viewport.lifecycle == ViewportLifecycle::Open,
             ViewportExpectationState::Focused => viewport.focused,
+            ViewportExpectationState::Minimized => viewport.minimized,
+            ViewportExpectationState::Restored => viewport.visible && !viewport.minimized,
             ViewportExpectationState::CloseRequested => viewport.close_requested,
             ViewportExpectationState::Closed => false,
         }
@@ -1231,8 +1254,12 @@ impl RuntimeGuard {
         if !children.is_empty() {
             for (descriptor, egui_id) in children {
                 if self.stop_close_requested.insert(egui_id) {
-                    self.pilot
-                        .queue_viewport_command(egui_id, egui::ViewportCommand::Close);
+                    if descriptor.class == protocol::ViewportClass::Deferred {
+                        self.pilot.request_viewport_close(egui_id);
+                    } else {
+                        self.pilot
+                            .queue_viewport_command(egui_id, egui::ViewportCommand::Close);
+                    }
                     self.request_viewport_repaint(egui_id, &descriptor);
                 }
             }
@@ -1516,6 +1543,8 @@ fn primary_target(action: &Action) -> Option<&Locator> {
         Action::Press { .. }
         | Action::Scroll { .. }
         | Action::FocusViewport { .. }
+        | Action::MinimizeViewport { .. }
+        | Action::RestoreViewport { .. }
         | Action::CloseViewport { .. } => None,
     }
 }
@@ -1615,6 +1644,8 @@ fn assert_actionable(node: &SemanticNode, action: &Action) -> Result<(), PilotEr
         Action::Press { .. }
         | Action::Scroll { .. }
         | Action::FocusViewport { .. }
+        | Action::MinimizeViewport { .. }
+        | Action::RestoreViewport { .. }
         | Action::CloseViewport { .. } => None,
     };
     if required.is_some_and(|kind| !node.actions.contains(&kind)) && !forced {
@@ -1675,7 +1706,10 @@ fn action_batches(
                 }],
             )])
         }
-        Action::FocusViewport { .. } | Action::CloseViewport { .. } => {
+        Action::FocusViewport { .. }
+        | Action::MinimizeViewport { .. }
+        | Action::RestoreViewport { .. }
+        | Action::CloseViewport { .. } => {
             unreachable!("viewport commands are prepared without input batches")
         }
         Action::SetValue { .. } => Err(PilotError {
@@ -1846,9 +1880,9 @@ fn viewport_capture_support_error(viewport: &ViewportDescriptor) -> Option<Pilot
             context: None,
         }),
         protocol::ViewportClass::Deferred => Some(PilotError {
-            code: "viewport-capture-unqualified".into(),
+            code: "viewport-capture-unsupported".into(),
             message: format!(
-                "native screenshot capture is not qualified for deferred viewport `{}`",
+                "native screenshot capture is unsupported for deferred viewport `{}`: eframe 0.35 does not deliver its queued screenshot requests",
                 viewport.key
             ),
             context: None,
@@ -2639,6 +2673,32 @@ mod tests {
             .expect("immediate child capture must fail explicitly");
         assert_eq!(error.code, "viewport-capture-unsupported");
         assert!(error.message.contains("eframe 0.35"));
+    }
+
+    #[test]
+    fn deferred_viewport_capture_fails_before_renderer_timeout() {
+        let viewport = ViewportDescriptor {
+            id: ViewportId::new("chat.primary#1"),
+            key: protocol::PilotViewportKey::new("chat.primary"),
+            parent: Some(ViewportId::new("root")),
+            class: protocol::ViewportClass::Deferred,
+            title: "DevPULSE Chat".into(),
+            lifecycle: protocol::ViewportLifecycle::Open,
+            lifecycle_revision: 1,
+            close_requested: false,
+            visible: true,
+            focused: true,
+            minimized: false,
+            maximized: false,
+            occluded: false,
+            inner_rect: None,
+            outer_rect: None,
+            native_pixels_per_point: None,
+        };
+        let error = viewport_capture_support_error(&viewport)
+            .expect("deferred child capture must fail explicitly");
+        assert_eq!(error.code, "viewport-capture-unsupported");
+        assert!(error.message.contains("queued screenshot requests"));
     }
 
     #[test]

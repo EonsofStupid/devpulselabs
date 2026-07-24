@@ -10,7 +10,28 @@
 //! shape exactly.
 
 use dpl_hub::Route;
+use std::fmt;
 use tokio::sync::broadcast;
+
+/// Stable identity for an application-owned native window.
+///
+/// Shell accessories publish this identity without knowing which feature owns
+/// the window. The application coordinator resolves it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct AppWindowKey(pub &'static str);
+
+impl fmt::Display for AppWindowKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+/// Small, typed window requests suitable for the broadcast signal fabric.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppWindowAction {
+    /// Create the window when closed; otherwise restore and focus it.
+    OpenOrFocus,
+}
 
 /// Shell-domain signals. Copy — signals are values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,6 +51,12 @@ pub enum ShellEvent {
     /// subroute cards publish this; the shell drains and navigates.
     /// `RouteChanged` remains the truth of ARRIVAL — this is the ask.
     NavigateRequest { route: Route },
+    /// A generic shell accessory asks the application owner to open, restore,
+    /// and focus a native peer window.
+    WindowRequest {
+        target: AppWindowKey,
+        action: AppWindowAction,
+    },
 }
 
 /// A shell-domain subscription — consumers hold this without needing a
@@ -146,6 +173,18 @@ mod tests {
             rx.try_recv().unwrap(),
             ShellEvent::NavigateRequest { route }
         );
+    }
+
+    #[test]
+    fn a_window_request_round_trips_without_shell_feature_knowledge() {
+        let fabric = Fabric::new();
+        let mut rx = fabric.subscribe_shell();
+        let event = ShellEvent::WindowRequest {
+            target: AppWindowKey("chat.primary"),
+            action: AppWindowAction::OpenOrFocus,
+        };
+        fabric.publish_shell(event);
+        assert_eq!(rx.try_recv().unwrap(), event);
     }
 
     #[test]

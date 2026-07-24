@@ -1,9 +1,17 @@
-# Chat CH1 closeout + CH2 read-only sessions
+# Chat CH1/CH2 foundation and read-only session evidence
 
-**Status:** IMPLEMENTED — local qualification complete
-**Date:** 2026-07-23
+**Status:** BACKEND QUALIFIED — EMBEDDED PRESENTATION SUPERSEDED
+**Date:** 2026-07-24
 **Parent:** [`chat-architecture.md`](chat-architecture.md)
+**Product authority:**
+[`chat-window-product-vision.md`](chat-window-product-vision.md)
 **Runtime boundary:** [`chat-provider-runtime-adr.md`](chat-provider-runtime-adr.md)
+
+The contracts, bounded store, provider decoders, normalization, renderer
+registry, fixtures, and local read-only evidence remain accepted. The
+`dpl-hub-chat` three-panel screen is rejected as the final product
+presentation. It must be rebound into the independent primary Chat window in
+`CHAT-2`; it is not a compatibility promise.
 
 ## Objective
 
@@ -13,9 +21,9 @@ operator must be able to browse deterministic fixtures and existing local
 Codex/Claude histories without launching a provider, inferring authentication,
 or loading an entire transcript into memory.
 
-This is deliberately a boring data pass. It does not launch Codex or Claude,
-send prompts, mutate provider history, read credentials, or create attached
-windows.
+This was deliberately a boring data pass. It does not launch Codex or Claude,
+send prompts, mutate provider history, read credentials, or prove peer-window
+lifecycle.
 
 ## Locked implementation patterns
 
@@ -73,19 +81,24 @@ An absent root is an unavailable read-only source, not a provider failure.
 
 ### UI ownership
 
-The Chat hub owns a `HistoryCatalog` separate from live provider runtime state.
-The session rail requests a bounded provider index. Selecting a session requests
-one bounded tail page. Conversation rendering uses an event-renderer registry
-and a virtualized fixed-row projection; it never instantiates one egui widget
-per event in a 50,000-event history.
+The reusable Chat view model owns a `HistoryCatalog` separate from live
+provider runtime state. The primary `dpl-chat-window` agent library requests a
+bounded provider index. Selecting a session requests one bounded tail page.
+Conversation rendering uses an event-renderer registry and a virtualized
+fixed-row projection; it never instantiates one egui widget per event in a
+50,000-event history.
 
-The hub displays:
+The primary Chat window displays:
 
 - the provider/source owning the session;
 - whether the view begins mid-history;
 - a deterministic "load earlier" action when a cursor exists;
 - explicit malformed/unknown records;
 - source errors scoped to the selected provider.
+
+The current hub screen demonstrates that these contracts can render, but it
+has no product authority. The main shell will retain only a Chat
+launcher/status accessory. `ChatWindowCoordinator` owns the primary viewport.
 
 EguiPilotAI profiles own executable and renderer selection only. Named
 fixtures own route and deterministic launch arguments. Chat sessions are
@@ -130,7 +143,9 @@ Real artifact:
 
 ## Qualification evidence
 
-- Bounded store, provider decoder, runtime, renderer, and hub suites pass
+### Accepted foundation evidence
+
+- Bounded store, provider decoder, runtime, renderer, and presentation suites pass
   locally.
 - Two artifacts sharing one provider-native session ID remain separately
   addressable, with distinct DevPULSE session and event identities.
@@ -143,6 +158,15 @@ Real artifact:
   disabled live controls, bounded transcript events, region breadcrumbs, and
   no duplicate-ID, busy-token, or uncontrolled-motion diagnostics.
 
+### Evidence that must be re-established
+
+- primary Chat renders in an independent native peer viewport;
+- Main can be minimized while Chat remains interactive;
+- the launcher opens, restores, and focuses Chat;
+- read-only catalog/session state survives Chat close and reopen;
+- peer and utility viewports have stable EguiPilotAI identity;
+- wide, standard, and companion window compositions pass real-app proof.
+
 Local qualification does not authorize live provider launch. The launch
 checklist in the runtime ADR remains authoritative.
 
@@ -151,7 +175,10 @@ checklist in the runtime ADR remains authoritative.
 CH1 exits when target and qualified capabilities are separate, recovery actions
 are typed, and unknown payloads are bounded.
 
-CH2 exits when fixture and local read-only histories can be discovered and
-paged through the native Chat hub with no provider writes, credential
-inference, unbounded transcript load, provider-specific UI branch, or whole
-history widget tree.
+The CH2 backing model exits when fixture and local read-only histories can be
+discovered and paged with no provider writes, credential inference, unbounded
+transcript load, provider-specific UI branch, or whole-history widget tree.
+
+The product presentation does not exit until `CHAT-2` proves the same model in
+the independent primary Chat window. The embedded hub proof cannot satisfy
+that gate.

@@ -1,7 +1,9 @@
-# DevPULSE Chat — route-aware multi-agent application platform
+# DevPULSE Chat — route-aware peer-window multi-agent platform
 
 **Status:** CANONICAL PLAN — implementation proceeds in the slices below
-**Date:** 2026-07-23
+**Date:** 2026-07-24
+**Product and visual authority:**
+[`chat-window-product-vision.md`](chat-window-product-vision.md)
 **Runtime gate:** the narrow named-provider exception is ratified, but live
 launch remains fail-closed on the safety checklist in
 [`chat-provider-runtime-adr.md`](chat-provider-runtime-adr.md).
@@ -10,10 +12,12 @@ launch remains fail-closed on the safety checklist in
 
 ## 1. Product intent
 
-Chat is not a transcript pane and the provider names are not cosmetic tabs.
-It is a first-class, route-aware DevPULSE platform for authenticated coding
-agents, durable sessions, explicit context, approvals, tools, artifacts,
-extensions, overlays, and attached windows.
+Chat is not a transcript pane, a hub route, or a cosmetic row of provider
+tabs. It is a first-class, independently focusable native window in the same
+DevPULSE process as the main creative application. The two windows are equal
+peers over one shared runtime. Chat remains available while Main is minimized
+and owns authenticated coding agents, durable sessions, explicit context,
+approvals, tools, artifacts, declarative interactions, and utility windows.
 
 Codex, Claude, Gemini, and Grok each retain their own:
 
@@ -29,47 +33,65 @@ providers have identical protocols.
 
 ### Locked product decisions
 
-1. Provider integration is registry-driven. Adding a provider adapter does not
+1. Main and Chat are independent OS-level peer windows. Neither is the owned
+   child of the other, and minimizing or closing one does not implicitly
+   minimize or close the other.
+2. The main shell owns only a typed Chat launcher/status accessory. It does
+   not render the primary Chat experience.
+3. `ChatWindowCoordinator` is the sole owner of primary and utility Chat
+   viewport lifecycle.
+4. Provider integration is registry-driven. Adding a provider adapter does not
    add a provider branch to the shell or Chat UI.
-2. Provider credentials remain provider-owned. DevPULSE never reads or stores
+5. Provider credentials remain provider-owned. DevPULSE never reads or stores
    tokens.
-3. Route changes may update the visible context offer; they never
+6. Route changes may update the visible context offer; they never
    automatically send context or a message.
-4. Context-triggered UI may become available or peek. It does not steal focus
+7. Chat may request a typed main-app route only through an explicit operator
+   action or separately approved tool intent. Providers never receive Fabric
+   or a shell navigation handle.
+8. Context-triggered UI may become available or peek. It does not steal focus
    or open a new window by default.
-5. Provider-native history remains the source of truth. DevPULSE may keep
+9. Provider-native history remains the source of truth. DevPULSE may keep
    bounded app-owned metadata, indexes, drafts, links, and provenance.
-6. Session handoff creates a new linked session with an explicit context
+10. Session handoff creates a new linked session with an explicit context
    export. A Claude session cannot silently become a Codex session.
-7. Additional windows are stable Chat surfaces with typed identities and
+11. Additional windows are stable Chat surfaces with typed identities and
    lifecycle, not transient ad-hoc `show_viewport` calls.
-8. Unknown provider events remain inspectable; they are never silently
+12. AI-generated UI is a validated declarative `InteractionSpec`, rendered
+    from host-owned components. Providers cannot inject arbitrary egui code.
+13. Unknown provider events remain inspectable; they are never silently
    dropped.
-9. Council/orchestration is last. Every provider must work predictably alone
+14. Council/orchestration is last. Every provider must work predictably alone
    before providers can coordinate.
-10. Unsupported behavior is visible as `Unavailable` or `Experimental` with a
+15. Unsupported behavior is visible as `Unavailable` or `Experimental` with a
     reason. Placeholder success is forbidden.
 
 ## 2. Current reality
 
-The rewrite currently contains:
+The Chat branch currently contains:
 
-- a `ChatHub` placeholder;
-- `Sessions` and `Council` routes;
-- a hardcoded visual list of five provider names;
-- a cloned `Fabric` handle used only for navigation.
+- provider/account/session/event identities and capability contracts;
+- a data-driven provider registry and deterministic fake providers;
+- bounded, path-jailed read-only history discovery and paging;
+- transcript normalization that preserves malformed and unknown input;
+- renderer, context, extension, runtime, testkit, and window-state crates;
+- a `ChatHub`-owned embedded three-panel presentation.
 
-It does not contain:
+The contracts, stores, readers, normalization, and deterministic tests are
+useful evidence. The embedded presentation is not. It incorrectly makes Chat
+subordinate to the main shell and must be replaced by the peer-window product
+defined in
+[`chat-window-product-vision.md`](chat-window-product-vision.md).
 
-- provider/account/session types;
-- authentication or executable detection;
-- read-only transcript discovery;
-- live provider runtimes;
-- session paging or virtualization;
-- route context capture or consent;
-- extensions, overlays, docks, or attached windows;
-- provider conformance tests;
-- a scalable Chat store.
+The rewrite still does not contain:
+
+- an independently discoverable primary Chat native viewport;
+- a `ChatWindowCoordinator` with peer-window lifetime policy;
+- a launcher that opens/restores/focuses that viewport;
+- bidirectional route snapshots and typed route-open outcomes;
+- the governed Interaction Library;
+- live, version-qualified provider runtimes;
+- real-executable multi-window qualification.
 
 The prior DevPULSE app is salvage evidence, not a base. Its useful C1
 capabilities were a read-only Claude/Codex session browser, a transcript
@@ -90,12 +112,15 @@ provider adapter -> typed command/event boundary -> ChatRuntime
                    +--------------------------------+-------------------+
                    |                                |                   |
                    v                                v                   v
-               ChatStore                    ContextRegistry     ExtensionRegistry
+               ChatStore                    ContextRegistry     InteractionRegistry
                    |                                |                   |
                    +------------------------ ChatViewModel -------------+
                                                     |
                                                     v
-                                              dpl-hub-chat UI
+                                             dpl-chat-window UI
+                                                    |
+                                                    v
+                                          ChatWindowCoordinator
 ```
 
 - Commands use bounded MPSC queues.
@@ -245,18 +270,19 @@ remain a hardcoded fifth exception in the UI.
 
 ### `dpl-chat-context`
 
-Route-aware context without hidden data transfer:
+Bidirectional route-aware context without hidden data transfer:
 
 - context contributor registry;
 - revisioned snapshots;
 - item provenance and sensitivity;
 - selection and attachment state;
 - size estimates and provider compatibility;
-- explicit export bundles for turns and handoffs.
+- explicit export bundles for turns and handoffs;
+- typed route-open requests, provenance, validation, and outcomes.
 
 ### `dpl-chat-extensions`
 
-Declarative UI extension and trigger registry:
+Feature-owned extension and trigger registry:
 
 - extension manifests;
 - placement and ordering;
@@ -268,9 +294,25 @@ Declarative UI extension and trigger registry:
 Extensions contribute models and actions, not arbitrary egui callbacks from
 provider crates.
 
+### `dpl-chat-interactions`
+
+Governed AI/operator surface vocabulary:
+
+- versioned `InteractionSpec` schemas;
+- stable interaction identity and provenance;
+- typed fields, actions, permissions, and outcomes;
+- inline, stage, overlay, toast, and utility-window placements;
+- validation, bounds, expiry, dismissal, and retention;
+- host-owned native renderers and accessibility semantics;
+- fixture serialization and deterministic replay.
+
+It accepts declarative content. It never accepts provider-supplied egui
+callbacks, raw colors, fonts, z-order, coordinates, or unrestricted shell
+actions.
+
 ### `dpl-chat-windows`
 
-Attached/detached surface state:
+Primary and utility-window state:
 
 - stable window identity;
 - window kind and binding;
@@ -278,6 +320,10 @@ Attached/detached surface state:
 - focus/close/restore policy;
 - layout persistence;
 - EguiPilotAI viewport metadata.
+
+`ChatWindowId::PRIMARY` is the persistent peer Chat window. Utility windows
+may bind to sessions, turns, interactions, routes, or artifacts. The app-owned
+`ChatWindowCoordinator` is the sole viewport creator.
 
 ### `dpl-chat-testkit`
 
@@ -290,15 +336,31 @@ Deterministic provider fakes and fixtures:
 - secret-shaped redaction fixtures;
 - cross-provider capability matrices.
 
-### `dpl-hub-chat`
+### `dpl-chat-window`
 
-UI composition only:
+Primary Chat viewport composition only:
 
 - converts registered state into zones;
 - virtualizes lists and transcripts;
 - renders normalized events through a renderer registry;
-- delegates provider-native optional panels through safe extension models;
+- delegates optional panels through safe extension/interaction models;
 - emits typed user intents.
+
+It does not implement `Hub`, own provider processes, mutate routes, or create
+viewports.
+
+### `dpl-chat-launcher`
+
+Main-shell accessory only:
+
+- reports Chat open/running/attention state;
+- emits open, restore, and focus intents;
+- remains registry-provided and shell-generic;
+- never expands into a transcript or owns Chat state.
+
+The existing `dpl-hub-chat` UI is migration scaffolding. It is retired when
+the peer-window slice lands and does not define a public compatibility
+surface.
 
 ### Dependency direction
 
@@ -308,11 +370,14 @@ chat-core
    +-- chat-store
    +-- chat-context
    +-- chat-extensions
+   +-- chat-interactions
    +-- chat-windows
    +-- chat-runtime <-- provider adapters
             ^
             |
-       hub-chat <-- app/shell composition
+       chat-window <-- app/ChatWindowCoordinator
+                          |
+                          `-- shell renders chat-launcher generically
 
 chat-testkit -> all contract consumers in tests only
 ```
@@ -475,6 +540,8 @@ handoff mechanism.
 ## 8. Route-aware context
 
 `ShellEvent::RouteChanged` is an ephemeral signal, not the context model.
+Main and Chat share a revisioned route bridge. Observation and mutation are
+separate contracts.
 
 Each participating hub registers a `ContextContributor` that can produce a
 revisioned `ContextSnapshot` for its current route. A snapshot may contain:
@@ -489,6 +556,10 @@ revisioned `ContextSnapshot` for its current route. A snapshot may contain:
 - size estimate;
 - source revision and content hash.
 
+Main publishes the current snapshot whether Chat is visible, minimized, or
+closed. Chat may show the route breadcrumb and context offer immediately, but
+opening, attaching, or sending remain separate actions.
+
 ### Consent rules
 
 - route changes update the context offer only;
@@ -499,6 +570,21 @@ revisioned `ContextSnapshot` for its current route. A snapshot may contain:
 - sensitive/unshareable items cannot be attached;
 - provider adapters receive an explicit immutable export, not shell access;
 - every sent bundle records provenance for replay and handoff.
+
+### Chat-to-Main navigation
+
+Chat may emit a typed `RouteOpenRequest` containing:
+
+- requested route and optional typed selection;
+- provider/session/event/interaction provenance;
+- whether Main may be restored and focused;
+- operator-action or approved-tool provenance;
+- correlation ID.
+
+Main resolves the request against the same route registry used by the shell
+and returns `Opened`, `Unavailable`, `Rejected`, or `Failed`. A provider never
+receives Fabric, a hub instance, or an unchecked navigation callback. Model
+output may propose a route card; only an explicit typed action can execute it.
 
 ### Route-aware suggestions
 
@@ -515,7 +601,7 @@ A trigger may:
 - add a passive action;
 - show a dismissible peek;
 - illuminate an existing dock/tab;
-- offer an attached window.
+- offer a utility window.
 
 It may not:
 
@@ -527,79 +613,32 @@ It may not:
 - open a window automatically unless a separate, explicit safe policy allows
   that exact extension.
 
-## 9. UI zoning
+## 9. Primary-window zoning
 
-Chat owns a predictable set of surfaces. Features extend these surfaces
-through registries instead of adding floating layout code.
+The canonical visual, responsive, and interaction specification is
+[`chat-window-product-vision.md`](chat-window-product-vision.md). Architecture
+protects its stable zones:
 
-### Zone A — provider bar
+1. command header — workspace, observed route, search, health, account, and
+   window actions;
+2. agent library — provider tabs, projects, sessions, filters, and activity
+   state;
+3. conversation workspace — virtualized normalized events and inline
+   interactions;
+4. context work stage — route previews, artifacts, plans, diffs, tools,
+   inspectors, and generated surfaces;
+5. composer deck — explicit context, attachments, model/mode/permission, and
+   send/stop/steer;
+6. activity shelf — running, waiting, approval, blocked, and completed work.
 
-- data-driven provider tabs;
-- activation/auth/account state;
-- current model, mode, and health;
-- provider-local unread/running indicators;
-- no hardcoded provider `match` in the UI.
+The work stage is conditional and detachable. The activity shelf is
+collapsible. Responsive compositions retain provider identity, conversation,
+composer, route context, and running state. Primary zones never overlap or
+create uncontrolled nested scrolling.
 
-### Zone B — session rail
-
-- new session;
-- project/workspace filter;
-- search;
-- pinned/recent/provider-grouped sessions;
-- running and attention states;
-- bounded lazy loading.
-
-### Zone C — conversation well
-
-- virtualized normalized events;
-- renderer registry by event kind;
-- streaming deltas without full-tree rebuild;
-- inline tools, diffs, plans, approvals, warnings, and unknown events;
-- stable scroll anchoring when history pages prepend;
-- explicit jump-to-live behavior.
-
-### Zone D — context inspector
-
-- route context offer;
-- attached context and provenance;
-- artifacts, plans, diffs, tool details, and provider diagnostics;
-- extension-provided inspector sections;
-- sensitivity and size budget.
-
-### Zone E — composer deck
-
-- per-provider/per-session draft;
-- input and attachments;
-- provider model/mode/permission controls;
-- capability-driven actions;
-- send/stop/steer state;
-- keyboard and screen-reader operation.
-
-### Zone F — overlay layer
-
-- approvals;
-- account/login progress;
-- warnings and recoverable failures;
-- command palettes and lightweight context cards;
-- extension peeks;
-- deterministic stacking and focus return.
-
-### Zone G — attached windows
-
-- detached conversation;
-- plan/diff review;
-- tool run/output;
-- artifact preview;
-- provider diagnostics;
-- future Council.
-
-### Responsive collapse
-
-1. Collapse the context inspector into a drawer.
-2. Collapse the session rail into a session picker.
-3. Retain provider identity, conversation, and composer.
-4. Never allow overlapping primary zones or nested uncontrolled scrolling.
-5. Attached-window layouts use their own declared minimum sizes.
+Approvals, sign-in progress, recovery, command palette, and passive context
+peeks use the overlay layer. The main-shell launcher is not part of this
+window composition.
 
 ## 10. Extension contract
 
@@ -624,11 +663,15 @@ Initial placements:
 - `ContextInspectorSection`
 - `Overlay`
 - `StatusDock`
-- `AttachedWindow`
+- `UtilityWindow`
 
 Extensions produce declarative view models and typed intents. They do not
 receive unrestricted `egui::Context`, provider process handles, arbitrary
 filesystem access, or shell mutation.
+
+AI/operator-generated working surfaces use `dpl-chat-interactions`, not this
+feature-extension contract. Extensions declare who can contribute; interaction
+specs declare the concrete surface instance.
 
 The registry resolves order deterministically:
 
@@ -640,27 +683,28 @@ The registry resolves order deterministically:
 
 Conflicts degrade to one visible diagnostic, never nondeterministic order.
 
-## 11. Shell and Fabric integration
+## 11. Application, shell, and Fabric integration
 
-The current `Hub` trait renders only the center surface. Chat needs docks,
-overlays, inspector content, status actions, and windows without teaching the
-shell about Chat.
+Chat is not a `Hub`. The app owns `ChatWindowCoordinator` beside the main
+shell coordinator. Both use shared in-process services while retaining
+independent native viewport lifetimes.
 
-Add a generic shell accessory registry. Conceptual surface kinds:
+The main shell receives Chat only through the generic accessory registry.
+Conceptual launcher surface kinds:
 
 - `StatusAction`
 - `Dock`
-- `InspectorSection`
-- `Overlay`
-- `WindowRequest`
+- `OverlayLauncher`
+- `WindowFocusRequest`
 
-The app registers Chat's accessory producer beside the Chat hub. The shell
-renders registered accessories generically and never checks `HUB == chat`.
+The app registers Chat's launcher/status producer beside other accessories.
+The shell renders it generically and never checks `HUB == chat`. Activating it
+emits a typed open/restore/focus intent to `ChatWindowCoordinator`.
 
 Fabric remains appropriate for ephemeral shell signals:
 
 - route changed;
-- navigate request;
+- validated navigate request/outcome;
 - window focus/close notices;
 - application lifecycle.
 
@@ -668,9 +712,10 @@ Fabric broadcast is not appropriate for provider jobs, transcript streams, or
 large context payloads. Those use bounded MPSC/session stores. Route context
 is queried by revision through `dpl-chat-context`, not broadcast as a blob.
 
-## 12. Attached-window lifecycle
+## 12. Peer and utility-window lifecycle
 
-Every additional window has:
+The primary Chat window has a declared singleton identity and peer lifetime.
+Every Chat window has:
 
 - `ChatWindowId`;
 - `WindowKind`;
@@ -691,7 +736,10 @@ Requested -> Opening -> Visible -> Closing -> Closed
 
 Rules:
 
-- the shell/window coordinator owns viewport creation;
+- `ChatWindowCoordinator` owns viewport creation;
+- the primary Chat viewport is not an owned child of Main;
+- minimizing or closing Main cannot minimize or close Chat;
+- application exit occurs on last-peer close or explicit Quit;
 - provider adapters request typed intents and never create viewports;
 - closing a window never closes its session unless explicitly chosen;
 - closing a session gives bound windows a deterministic close/detach choice;
@@ -795,7 +843,7 @@ No live adapter is marked qualified from fixtures alone.
 - unknown event diagnostic;
 - overlay open/dismiss/pin/focus return;
 - extension trigger and conflict behavior;
-- attached window discover/focus/close/reopen;
+- primary and utility-window discover/focus/close/reopen;
 - multi-window session preservation;
 - provider crash with no orphan process;
 - keyboard-only provider/session/context/composer/approval flow;
@@ -827,63 +875,83 @@ No live adapter is marked qualified from fixtures alone.
 Each slice ends green locally, proves the real artifact where UI changes, and
 is independently reviewable.
 
-### CH0 — architecture and governance
+The original CH1 provider-neutral contracts and CH2 read-only backing store
+are retained as implementation evidence. Their embedded hub presentation is
+not retained. Product execution now follows the corrected `CHAT-*` sequence
+from
+[`chat-window-product-vision.md`](chat-window-product-vision.md):
 
-- canonical plan, provider evidence, and runtime ADR;
-- update roadmap/census;
-- ratify runtime exception before live provider work;
-- define generic shell accessory contract.
+### CHAT-0 — contract freeze
 
-Exit: no ambiguous provider/auth/IPC/window ownership remains.
+- reconcile product vision, architecture, roadmap, and census;
+- mark the embedded CH2 screen as rejected presentation;
+- retain and freeze provider/store compatibility evidence;
+- define deterministic window, route, and interaction fixtures.
 
-### CH1 — provider-neutral foundation
+Exit: no active plan calls Chat a hub or calls its primary viewport an
+attachment.
 
-- `dpl-chat-core`;
-- `dpl-chat-testkit`;
-- provider registry and capabilities;
-- normalized events and view-model contracts;
-- deterministic fake providers;
-- replace hardcoded provider roster with registered descriptors.
+### CHAT-1 — peer-window foundation
 
-Exit: all four providers appear from registry data with truthful fake
-activation/capability states.
+- app-owned `ChatWindowCoordinator`;
+- one real independently discoverable primary Chat viewport;
+- main-shell launcher/status accessory;
+- independent minimize, focus, close, reopen, geometry restore, explicit Quit,
+  and last-window exit;
+- ColdLight Ember empty/new-session shell in wide, standard, and companion
+  compositions;
+- stable EguiPilotAI viewport-scoped identity.
 
-### CH2 — read-only sessions
+Exit: Chat remains interactive while Main is minimized in the real native
+executable.
 
-- `dpl-chat-store`;
-- jailed bounded readers;
-- C1 Claude/Codex history adapters;
-- session rail, transcript virtualization, renderer registry;
-- unknown/malformed event preservation.
+### CHAT-2 — read-only sessions in the peer window
 
-Exit: fixture and real local histories can be browsed without provider writes
-or credential inference.
+- bind the existing provider registry, bounded readers, paging, normalization,
+  and renderer contracts into `dpl-chat-window`;
+- remove the embedded three-panel page as product authority;
+- add the agent library, conversation workspace, and activity state;
+- prove provider view-state isolation and large-history virtualization.
 
-### CH3 — route context and extensible shell
+Exit: fixture and real local histories browse read-only in the peer window
+without provider writes or credential inference.
 
-- `dpl-chat-context`;
-- generic shell accessory registry;
-- context strip/inspector;
-- extension manifests and passive route-aware actions;
-- provenance and export hashing.
+### CHAT-3 — bidirectional route awareness
 
-Exit: route changes update suggestions; nothing is attached or sent
-implicitly.
+- revisioned route snapshots and context contributors;
+- explicit context strip/stage with provenance;
+- typed route-open request/outcome;
+- Chat-driven Main restore/focus on explicit action;
+- stale, unavailable, rejected, and failed route behavior.
 
-### CH4 — Codex live adapter
+Exit: route changes update Chat without implicit attachment or sending, and
+Chat can explicitly open a valid route in Main.
 
-Implementation is authorized. Live launch remains blocked until every ADR
-launch gate is green.
+### CHAT-4 — Interaction Library
+
+- `dpl-chat-interactions` schema, validation, registry, and native renderers;
+- initial notice, choice, form, progress, approval, route card, artifact,
+  diff, and window request;
+- inline, stage, overlay, toast, and utility-window placement;
+- deterministic fixtures, accessibility, and privileged-action gates.
+
+Exit: AI can propose useful native surfaces without arbitrary UI or shell
+privilege.
+
+### CHAT-5 — Codex live adapter
+
+Implementation is authorized only after every runtime ADR launch gate is
+green.
 
 - Codex app-server lifecycle and handshake;
 - ChatGPT-owned authentication status/login/logout;
 - threads, turns, streaming, plans, diffs, tools, approvals, usage, interrupt;
-- real version-pinned conformance.
+- real version-pinned conformance and child teardown.
 
 Exit: one complete subscription-backed provider works alone and leaves no
 orphan process.
 
-### CH5 — Claude live adapter
+### CHAT-6 — Claude live adapter
 
 - documented structured stream;
 - Pro/Max-owned authentication state;
@@ -891,38 +959,28 @@ orphan process.
 - model/permission/max-turn behavior;
 - conformance and normalization.
 
-Exit: Claude works alone without provider-specific UI branches.
+Exit: Claude works alone without provider-specific primary-layout branches.
 
-### CH6 — Gemini live adapter
+### CHAT-7 — Gemini and Grok qualification
 
-- explicit operator install;
-- ACP mode and client-mediated filesystem;
-- provider-owned Google authentication;
-- session/prompt/cancel/mode/model conformance.
+- explicit operator installation;
+- ACP boundaries and provider-owned authentication;
+- session/prompt/cancel/mode/model conformance;
+- experimental qualification and version-drift handling.
 
-Exit: Gemini is qualified or remains truthfully unavailable.
+Exit: each provider is qualified, experimental with a reason, or unavailable.
 
-### CH7 — Grok live adapter
+### CHAT-8 — advanced surfaces
 
-- explicit operator install;
-- `grok agent stdio` ACP integration;
-- subscription login/device flow;
-- experimental qualification and version drift handling.
+- richer artifacts, reviewable plans/diffs, tool consoles, and comments;
+- detachable context stage and saved utility-window layouts;
+- background/monitoring activity;
+- declared feature extensions and route triggers.
 
-Exit: Grok is qualified, experimental with a reason, or unavailable—never
-cosmetically green.
+Exit: adding a surface does not modify provider adapters or the primary
+window's structural layout.
 
-### CH8 — extensions and attached windows
-
-- extension registry and all declared placements;
-- `dpl-chat-windows`;
-- plan/diff/tool/artifact/detached-session windows;
-- layout persistence and EguiPilotAI multi-window proof.
-
-Exit: contextual surfaces can extend Chat without modifying its core layout or
-provider adapters.
-
-### CH9 — handoff and Council
+### CHAT-9 — handoff and Council
 
 - explicit cross-provider export/handoff;
 - operator/agent roles;
@@ -931,22 +989,30 @@ provider adapters.
 - COSTAR templates as data.
 
 Exit: orchestration reuses qualified single-provider primitives and cannot
-bypass context consent or approval policy.
+bypass context consent, route validation, capability, or approval policy.
 
 ## 17. Acceptance contract
 
 The Chat program is not complete until:
 
+- Main and Chat are independently discoverable native peer windows;
+- Chat remains interactive when Main is minimized;
+- closing/minimizing either peer follows the declared policy without
+  implicitly closing/minimizing the other;
+- the main shell exposes only a launcher/status accessory, not embedded Chat;
 - provider tabs come solely from a registry;
 - each provider has isolated account/session/draft/mode state;
 - every visible action is capability-gated and truthful;
 - credentials never enter DevPULSE-owned state or artifacts;
 - route context never attaches or sends itself;
+- explicit Chat route actions resolve through typed validation and outcomes;
 - sessions are paged, virtualized, and bounded;
 - unknown provider data is preserved and diagnosable;
 - extensions use declared placements/triggers and deterministic order;
+- generated interactions are schema-bound, host-rendered, and privilege-gated;
 - overlays return focus predictably;
-- attached windows have stable identity, restore safely, and preserve sessions;
+- primary and utility windows have stable identity, restore safely, and
+  preserve sessions;
 - provider failure does not take down other providers or the app;
 - cancellation/app exit leaves no child process;
 - keyboard and accessibility flows cover all primary surfaces;
@@ -962,9 +1028,10 @@ The Chat program is not complete until:
 - automatic approval;
 - credential import/export;
 - unrestricted plugins or arbitrary command adapters;
+- provider-supplied egui callbacks or arbitrary generated layout;
 - hidden cross-provider continuation;
 - remote/cloud DevPULSE provider proxy;
 - generic browser embedding;
-- claiming attached-window visual support without real wgpu proof.
+- claiming peer/utility-window visual support without real wgpu proof.
 
 These require new plans or ADR amendments. They are not accidental gaps.
