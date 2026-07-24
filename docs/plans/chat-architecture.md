@@ -75,13 +75,16 @@ The Chat branch currently contains:
 - bounded, path-jailed read-only history discovery and paging;
 - transcript normalization that preserves malformed and unknown input;
 - renderer, context, extension, runtime, testkit, and window-state crates;
-- a `ChatHub`-owned embedded three-panel presentation.
+- the status-bar-triggered peer window (`dpl-chat-window`), which carries the
+  read-only session histories and the lite route launcher.
 
 The contracts, stores, readers, normalization, and deterministic tests are
-useful evidence. The embedded presentation is not. It incorrectly makes Chat
-subordinate to the main shell and must be replaced by the peer-window product
-defined in
-[`chat-window-product-vision.md`](chat-window-product-vision.md).
+useful evidence. The earlier `ChatHub`-owned embedded three-panel presentation
+incorrectly made Chat subordinate to the main shell; it has been retired and
+its two unique features (bounded read-only session histories and route
+loading) were folded into the peer-window product defined in
+[`chat-window-product-vision.md`](chat-window-product-vision.md). Chat is now
+the peer window only — there is no rail hub route.
 
 The rewrite still does not contain:
 
@@ -358,9 +361,11 @@ Main-shell accessory only:
 - remains registry-provided and shell-generic;
 - never expands into a transcript or owns Chat state.
 
-The existing `dpl-hub-chat` UI is migration scaffolding. It is retired when
-the peer-window slice lands and does not define a public compatibility
-surface.
+The former `dpl-hub-chat` UI was migration scaffolding. It has been retired
+(pre-release, no shim): the peer window (`dpl-chat-window`) absorbed its
+read-only session histories, and route loading now happens in the main app via
+an explicit `NavigateTo` intent that the coordinator publishes as
+`ShellEvent::NavigateRequest`. It defines no public compatibility surface.
 
 ### Dependency direction
 

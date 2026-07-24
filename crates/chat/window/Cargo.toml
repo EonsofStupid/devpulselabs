@@ -9,6 +9,7 @@ egui.workspace = true
 dpl-chat-context.workspace = true
 dpl-chat-core.workspace = true
 dpl-chat-runtime.workspace = true
+dpl-chat-store.workspace = true
 dpl-coldlight.workspace = true
 dpl-fabric.workspace = true
 dpl-hub.workspace = true

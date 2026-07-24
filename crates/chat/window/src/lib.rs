@@ -5,8 +5,9 @@
 //! provider process.
 
 use dpl_chat_context::RouteContextState;
-use dpl_chat_core::{ActivationState, ProviderAccent, ProviderId};
+use dpl_chat_core::{ActivationState, ProviderAccent, ProviderId, SessionState};
 use dpl_chat_runtime::{ChatRuntime, ProviderView, RegistryError};
+use dpl_chat_store::{HistoryCatalog, HistoryIndex, IndexedSession};
 use dpl_coldlight::{self as cl, Tone};
 use dpl_fabric::AppWindowKey;
 use dpl_hub::Route;
@@ -15,6 +16,7 @@ use egui_pilot_ai::{
     protocol::{PilotViewportKey, Role},
     NodeMetadata, PilotId, PilotKey, UiPilotExt,
 };
+use std::collections::HashMap;
 
 pub const WINDOW_KEY: AppWindowKey = AppWindowKey("chat.primary");
 pub const LAUNCHER_ID: PilotId = PilotId::new("shell.window.chat");
@@ -22,6 +24,8 @@ pub const ROUTE_ID: PilotId = PilotId::new("chat.header.route");
 pub const SHOW_MAIN_ID: PilotId = PilotId::new("chat.header.show-main");
 pub const QUIT_ID: PilotId = PilotId::new("chat.header.quit");
 pub const PROVIDERS_ID: PilotId = PilotId::new("chat.providers");
+pub const SESSIONS_ID: PilotId = PilotId::new("chat.sessions");
+pub const ROUTE_LAUNCHER_ID: PilotId = PilotId::new("chat.route-launcher");
 pub const WORKSPACE_ID: PilotId = PilotId::new("chat.workspace.new-session");
 pub const COMPOSER_ID: PilotId = PilotId::new("chat.composer");
 pub const SEND_ID: PilotId = PilotId::new("chat.composer.send");
@@ -53,31 +57,91 @@ impl Composition {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChatWindowIntent {
     SelectProvider(ProviderId),
-    UpdateDraft { provider: ProviderId, value: String },
+    UpdateDraft {
+        provider: ProviderId,
+        value: String,
+    },
+    /// The lite route launcher was tapped: ask the host to open a main-app
+    /// route. Chat never renders the route itself — it only requests it.
+    NavigateTo(Route),
     ShowMain,
     QuitApplication,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostIntent {
+    /// Publish a `NavigateRequest` on the shell fabric; the shell drains it
+    /// and navigates the MAIN window. Chat stays "portable lite".
+    NavigateTo(Route),
     ShowMain,
     QuitApplication,
+}
+
+/// One provider's bounded, read-only history index (or the read error), taken
+/// once from the catalog at construction. The peer window never mutates
+/// provider stores — it only displays what the bounded reader surfaced.
+#[derive(Debug, Clone)]
+struct ProviderHistory {
+    index: Option<HistoryIndex>,
+    error: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct ChatWindow {
     runtime: ChatRuntime,
     route_context: RouteContextState,
+    /// Bounded read-only session indexes, keyed by provider, read once from
+    /// the catalog at construction.
+    histories: HashMap<ProviderId, ProviderHistory>,
+    /// The app's navigable routes for the lite launcher: `(label, route)`.
+    routes: Vec<(String, Route)>,
 }
 
 impl ChatWindow {
-    pub fn new(runtime: ChatRuntime, initial_route: Route) -> Self {
+    pub fn new(
+        runtime: ChatRuntime,
+        initial_route: Route,
+        catalog: HistoryCatalog,
+        routes: Vec<(String, Route)>,
+    ) -> Self {
         let mut route_context = RouteContextState::default();
         route_context.observe(initial_route);
+        // Read the bounded index once per provider that owns a source. This is
+        // the only history read the peer window performs; it is read-only and
+        // never writes a provider store.
+        let mut histories = HashMap::new();
+        for view in runtime.provider_views() {
+            let provider = view.registration.manifest.descriptor.id;
+            if !catalog.has_source(provider) {
+                continue;
+            }
+            let entry = match catalog.list(provider, None) {
+                Ok(index) => ProviderHistory {
+                    index: Some(index),
+                    error: None,
+                },
+                Err(error) => ProviderHistory {
+                    index: None,
+                    error: Some(error.to_string()),
+                },
+            };
+            histories.insert(provider, entry);
+        }
         Self {
             runtime,
             route_context,
+            histories,
+            routes,
         }
+    }
+
+    /// The bounded read-only session index for a provider, if a source exists
+    /// and it read successfully. Read-only accessor for the sessions panel and
+    /// its tests.
+    pub fn session_history(&self, provider: ProviderId) -> Option<&HistoryIndex> {
+        self.histories
+            .get(&provider)
+            .and_then(|history| history.index.as_ref())
     }
 
     pub fn observe_route(&mut self, route: Route) {
@@ -98,6 +162,7 @@ impl ChatWindow {
                 self.runtime.set_draft(provider, value)?;
                 Ok(None)
             }
+            ChatWindowIntent::NavigateTo(route) => Ok(Some(HostIntent::NavigateTo(route))),
             ChatWindowIntent::ShowMain => Ok(Some(HostIntent::ShowMain)),
             ChatWindowIntent::QuitApplication => Ok(Some(HostIntent::QuitApplication)),
         }
@@ -236,7 +301,7 @@ impl ChatWindow {
                     ui.allocate_ui_with_layout(
                         egui::vec2(library, ui.available_height()),
                         Layout::top_down(Align::Min),
-                        |ui| self.provider_library(ui, false, intents),
+                        |ui| self.provider_library(ui, false, true, intents),
                     );
                     ui.add_space(cl::space::S3);
                     ui.allocate_ui_with_layout(
@@ -245,20 +310,45 @@ impl ChatWindow {
                         |ui| self.conversation(ui),
                     );
                     ui.add_space(cl::space::S3);
+                    // The work stage carries the read-only sessions panel and the
+                    // lite route launcher below the context slots; the column
+                    // scrolls so nothing reaches under the composer.
                     ui.allocate_ui_with_layout(
                         egui::vec2(stage, ui.available_height()),
                         Layout::top_down(Align::Min),
-                        |ui| self.work_stage(ui),
+                        |ui| {
+                            egui::ScrollArea::vertical()
+                                .id_salt("chat-window-stage")
+                                .show(ui, |ui| {
+                                    self.work_stage(ui);
+                                    ui.add_space(cl::space::S3);
+                                    self.sessions(ui);
+                                    ui.add_space(cl::space::S3);
+                                    self.route_launcher(ui, intents);
+                                });
+                        },
                     );
                 });
             }
             Composition::Standard => {
                 ui.horizontal_top(|ui| {
                     let library = 210.0;
+                    // Provider library, then the sessions panel and route
+                    // launcher stacked below it, all in one scrolling column.
                     ui.allocate_ui_with_layout(
                         egui::vec2(library, ui.available_height()),
                         Layout::top_down(Align::Min),
-                        |ui| self.provider_library(ui, false, intents),
+                        |ui| {
+                            egui::ScrollArea::vertical()
+                                .id_salt("chat-window-library-standard")
+                                .show(ui, |ui| {
+                                    self.provider_library(ui, false, false, intents);
+                                    ui.add_space(cl::space::S3);
+                                    self.sessions(ui);
+                                    ui.add_space(cl::space::S3);
+                                    self.route_launcher(ui, intents);
+                                });
+                        },
                     );
                     ui.add_space(cl::space::S3);
                     ui.allocate_ui_with_layout(
@@ -272,7 +362,12 @@ impl ChatWindow {
                 });
             }
             Composition::Companion => {
-                self.provider_library(ui, true, intents);
+                // The narrowest composition keeps the primary controls
+                // (conversation + composer) prominent and unclipped. The
+                // sessions panel and route launcher belong to the roomier
+                // Standard/Wide compositions; widening the window surfaces
+                // them. Forcing them here would push the composer off-screen.
+                self.provider_library(ui, true, false, intents);
                 ui.add_space(cl::space::S2);
                 self.conversation(ui);
             }
@@ -283,6 +378,7 @@ impl ChatWindow {
         &self,
         ui: &mut egui::Ui,
         compact: bool,
+        pin_footer: bool,
         intents: &mut Vec<ChatWindowIntent>,
     ) {
         let response = egui::Frame::new()
@@ -314,13 +410,24 @@ impl ChatWindow {
                         self.provider_control(ui, provider, intents);
                         ui.add_space(cl::space::S2);
                     }
-                    ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
+                    // Pin the footer to the column bottom only when the library
+                    // owns the whole column (Wide); when the sessions panel and
+                    // launcher stack beneath it, keep the note inline.
+                    if pin_footer {
+                        ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
+                            ui.label(
+                                RichText::new("Adapters qualify independently")
+                                    .small()
+                                    .color(cl::ink::SUBTLE),
+                            );
+                        });
+                    } else {
                         ui.label(
                             RichText::new("Adapters qualify independently")
                                 .small()
                                 .color(cl::ink::SUBTLE),
                         );
-                    });
+                    }
                 }
             })
             .response;
@@ -457,7 +564,10 @@ impl ChatWindow {
             .corner_radius(CornerRadius::same(cl::RADIUS))
             .inner_margin(egui::Margin::same(14))
             .show(ui, |ui| {
-                ui.set_min_height((ui.available_height() - 28.0).max(180.0));
+                // Compact fixed height: the stage now shares its column with the
+                // sessions panel and route launcher inside a scroll area, so it
+                // must not grab the full column height.
+                ui.set_min_height(180.0);
                 ui.label(
                     RichText::new("WORK STAGE")
                         .monospace()
@@ -482,6 +592,204 @@ impl ChatWindow {
                 stage_slot(ui, "DIFF", Tone::Amber);
                 stage_slot(ui, "ROUTE", Tone::Cyan);
             });
+    }
+
+    /// The read-only sessions panel: the selected provider's bounded local
+    /// history index, ported from the retired rail hub's session rail. It
+    /// never writes a provider store and never mutates runtime state.
+    fn sessions(&self, ui: &mut egui::Ui) {
+        let response = egui::Frame::new()
+            .fill(Color32::from_rgb(8, 14, 18))
+            .stroke(Stroke::new(1.0, teal_hairline()))
+            .corner_radius(CornerRadius::same(cl::RADIUS))
+            .inner_margin(egui::Margin::same(12))
+            .show(ui, |ui| {
+                ui.label(
+                    RichText::new("SESSIONS")
+                        .monospace()
+                        .small()
+                        .color(cl::ink::MUTED),
+                );
+                ui.label(
+                    RichText::new("Read-only · never written")
+                        .small()
+                        .color(cl::ink::SUBTLE),
+                );
+                ui.add_space(cl::space::S2);
+
+                let Some(provider) = self.runtime.selected_provider() else {
+                    ui.label(
+                        RichText::new("Select an agent.")
+                            .small()
+                            .color(cl::ink::MUTED),
+                    );
+                    return;
+                };
+                let descriptor = provider.registration.manifest.descriptor;
+                ui.label(
+                    RichText::new(descriptor.label)
+                        .strong()
+                        .color(cl::ink::STRONG),
+                );
+                ui.add_space(cl::space::S2);
+
+                let Some(history) = self.histories.get(&descriptor.id) else {
+                    ui.label(
+                        RichText::new("No bounded local history source is available.")
+                            .small()
+                            .color(cl::ink::SUBTLE),
+                    );
+                    return;
+                };
+                if let Some(error) = &history.error {
+                    ui.add(
+                        egui::Label::new(RichText::new(error).small().color(Tone::Coral.color()))
+                            .wrap(),
+                    );
+                }
+                let Some(index) = &history.index else {
+                    return;
+                };
+                ui.label(
+                    RichText::new(format!(
+                        "{} local read-only session{}{}",
+                        index.sessions.len(),
+                        if index.sessions.len() == 1 { "" } else { "s" },
+                        if index.truncated {
+                            " · INDEX CAPPED"
+                        } else {
+                            ""
+                        }
+                    ))
+                    .small()
+                    .color(cl::ink::MUTED),
+                );
+                ui.add_space(cl::space::S2);
+                if index.sessions.is_empty() {
+                    ui.label(
+                        RichText::new("No sessions available.")
+                            .small()
+                            .color(cl::ink::MUTED),
+                    );
+                    return;
+                }
+                egui::ScrollArea::vertical()
+                    .id_salt(("chat-window-sessions", descriptor.id.0))
+                    .max_height(220.0)
+                    .show(ui, |ui| {
+                        for session in &index.sessions {
+                            self.session_card(ui, session);
+                        }
+                    });
+            })
+            .response;
+        ui.pilot_track(
+            &response,
+            NodeMetadata::new(SESSIONS_ID, Role::Region, "Chat sessions"),
+        );
+    }
+
+    fn session_card(&self, ui: &mut egui::Ui, session: &IndexedSession) {
+        egui::Frame::new()
+            .fill(Color32::from_rgb(14, 19, 25))
+            .stroke(Stroke::new(1.0, cl::surface::HAIRLINE))
+            .corner_radius(CornerRadius::same(cl::RADIUS_SM))
+            .inner_margin(egui::Margin::symmetric(10, 8))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(session_state_glyph(session.summary.state))
+                            .color(Tone::Cyan.color()),
+                    );
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(&session.summary.title)
+                                .strong()
+                                .color(cl::ink::BASE),
+                        )
+                        .truncate(),
+                    );
+                });
+                ui.add(
+                    egui::Label::new(
+                        RichText::new(&session.summary.workspace)
+                            .small()
+                            .color(cl::ink::SUBTLE),
+                    )
+                    .truncate(),
+                );
+            });
+        ui.add_space(cl::space::S2);
+    }
+
+    /// The lite route launcher: taps emit `NavigateTo(route)` so the host can
+    /// publish a `NavigateRequest` and the MAIN window navigates. Chat launches
+    /// routes; it never embeds them.
+    fn route_launcher(&self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
+        let response = egui::Frame::new()
+            .fill(Color32::from_rgb(8, 14, 18))
+            .stroke(Stroke::new(1.0, teal_hairline()))
+            .corner_radius(CornerRadius::same(cl::RADIUS))
+            .inner_margin(egui::Margin::same(12))
+            .show(ui, |ui| {
+                ui.label(
+                    RichText::new("LOAD ROUTE")
+                        .monospace()
+                        .small()
+                        .color(cl::ink::MUTED),
+                );
+                ui.label(
+                    RichText::new("Jump the main window to an app route")
+                        .small()
+                        .color(cl::ink::SUBTLE),
+                );
+                ui.add_space(cl::space::S2);
+                if self.routes.is_empty() {
+                    ui.label(
+                        RichText::new("No routes are available.")
+                            .small()
+                            .color(cl::ink::MUTED),
+                    );
+                    return;
+                }
+                egui::ScrollArea::vertical()
+                    .id_salt("chat-window-route-launcher")
+                    .max_height(200.0)
+                    .show(ui, |ui| {
+                        for (label, route) in &self.routes {
+                            let button = cl::brutal(Tone::Cyan)
+                                .show(ui, |ui| {
+                                    ui.label(RichText::new(label).strong().color(cl::ink::STRONG));
+                                })
+                                .response
+                                .interact(Sense::click());
+                            let button = cl::tip(
+                                button,
+                                &format!("Open {label} in the main DevPULSE window"),
+                            );
+                            ui.pilot_track(
+                                &button,
+                                NodeMetadata::new(
+                                    ROUTE_LAUNCHER_ID.child(&PilotKey::new(format!(
+                                        "{}/{}",
+                                        route.hub, route.sub
+                                    ))),
+                                    Role::Button,
+                                    label.clone(),
+                                ),
+                            );
+                            if button.clicked() {
+                                intents.push(ChatWindowIntent::NavigateTo(*route));
+                            }
+                            ui.add_space(cl::space::S2);
+                        }
+                    });
+            })
+            .response;
+        ui.pilot_track(
+            &response,
+            NodeMetadata::new(ROUTE_LAUNCHER_ID, Role::Region, "Route launcher"),
+        );
     }
 
     fn composer(&self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
@@ -691,6 +999,17 @@ fn teal_hairline() -> Color32 {
     Color32::from_rgba_unmultiplied(cyan.r(), cyan.g(), cyan.b(), 52)
 }
 
+fn session_state_glyph(state: SessionState) -> &'static str {
+    match state {
+        SessionState::ReadOnly => "◇",
+        SessionState::Idle => "○",
+        SessionState::Running => "●",
+        SessionState::Attention => "!",
+        SessionState::Failed => "×",
+        SessionState::Expired => "–",
+    }
+}
+
 fn provider_tone(accent: ProviderAccent) -> Tone {
     match accent {
         ProviderAccent::Amber => Tone::Amber,
@@ -719,8 +1038,15 @@ fn activation_color(state: &ActivationState, tone: Tone) -> Color32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dpl_chat_core::{Capability, ProviderDescriptor, ProviderManifest, ProviderProfileId};
+    use dpl_chat_core::{
+        Capability, ChatEventContent, ProviderDescriptor, ProviderManifest, ProviderProfileId,
+        ProviderSessionId,
+    };
     use dpl_chat_runtime::ProviderRegistration;
+    use dpl_chat_store::{
+        DecodeOutcome, DecodedHistoryEvent, HistoryDecoder, HistoryIndexMetadata, HistoryLimits,
+        JsonlHistorySource,
+    };
     use dpl_hub::{HubId, SubId};
 
     const PROVIDER: ProviderId = ProviderId("fixture");
@@ -749,7 +1075,107 @@ mod tests {
             ChatRuntime::try_from_registrations([ProviderRegistration::planned(MANIFEST)])
                 .expect("registry"),
             ROUTE,
+            HistoryCatalog::default(),
+            Vec::new(),
         )
+    }
+
+    struct FixtureHistoryDecoder;
+
+    impl HistoryDecoder for FixtureHistoryDecoder {
+        fn provider_id(&self) -> ProviderId {
+            PROVIDER
+        }
+
+        fn index_metadata(
+            &self,
+            path: &std::path::Path,
+            _prefix: &str,
+        ) -> Option<HistoryIndexMetadata> {
+            Some(HistoryIndexMetadata {
+                native_id: ProviderSessionId(path.file_stem()?.to_string_lossy().into_owned()),
+                title: path.file_stem()?.to_string_lossy().into_owned(),
+                workspace: "C:/fixture".into(),
+                started_at: "2026-07-24T00:00:00Z".into(),
+            })
+        }
+
+        fn decode_line(&self, line: &str) -> DecodeOutcome {
+            DecodeOutcome::Event(DecodedHistoryEvent {
+                turn_id: None,
+                content: ChatEventContent::AssistantMessage(line.to_owned()),
+            })
+        }
+    }
+
+    #[test]
+    fn navigate_to_yields_a_host_navigation_intent_and_leaves_selection_alone() {
+        let target = Route {
+            hub: HubId("workbench"),
+            sub: SubId("library"),
+        };
+        let mut window = window();
+        assert_eq!(
+            window
+                .apply(ChatWindowIntent::NavigateTo(target))
+                .expect("host intent"),
+            Some(HostIntent::NavigateTo(target)),
+        );
+        // Launching a route must not disturb the selected provider.
+        assert_eq!(window.selected_provider_id(), Some(PROVIDER));
+    }
+
+    #[test]
+    fn sessions_panel_honors_the_catalog_bounded_cap() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "devpulse-chat-window-{}-{nanos}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).expect("create fixture tree");
+        std::fs::write(root.join("a.jsonl"), "one\n").expect("write a");
+        std::fs::write(root.join("b.jsonl"), "two\n").expect("write b");
+
+        let mut catalog = HistoryCatalog::default();
+        catalog
+            .register(
+                JsonlHistorySource::open(
+                    &root,
+                    FixtureHistoryDecoder,
+                    HistoryLimits {
+                        max_files: 1,
+                        ..HistoryLimits::default()
+                    },
+                )
+                .expect("open fixture source"),
+            )
+            .expect("register source");
+
+        let window = ChatWindow::new(
+            ChatRuntime::try_from_registrations([ProviderRegistration::planned(MANIFEST)])
+                .expect("registry"),
+            ROUTE,
+            catalog,
+            Vec::new(),
+        );
+
+        let index = window
+            .session_history(PROVIDER)
+            .expect("a bounded read-only index");
+        assert_eq!(
+            index.sessions.len(),
+            1,
+            "the catalog cap must bound the session list"
+        );
+        assert!(
+            index.truncated,
+            "the truncation flag must surface the INDEX CAPPED note"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

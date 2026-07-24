@@ -342,9 +342,9 @@ impl App {
         // publish their asks through the one fabric.
         workbench.wire_fabric(&fabric);
         wiredfront.wire_fabric(&fabric);
-        // Chat providers register as data. Neither the rail hub nor the
-        // peer-window UI names one; every manifest remains visibly blocked
-        // until its real adapter qualifies.
+        // Chat providers register as data. The peer-window UI never names one;
+        // every manifest remains visibly blocked until its real adapter
+        // qualifies. Chat is ONLY the status-bar peer window now — no rail hub.
         let chat_runtime = dpl_chat_runtime::ChatRuntime::try_from_registrations([
             dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_codex::MANIFEST),
             dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_claude::MANIFEST),
@@ -355,12 +355,6 @@ impl App {
             tracing::error!(%error, "chat provider registry rejected");
             dpl_chat_runtime::ChatRuntime::default()
         });
-        // The rail Chat hub carries the bounded read-only histories and the
-        // ColdLight-trait provider chips. It shares the runtime with the peer
-        // window (both read the same registrations) via a clone.
-        let mut chat_hub =
-            dpl_hub_chat::ChatHub::with_history(chat_runtime.clone(), local_chat_history_catalog());
-        chat_hub.wire_fabric(&fabric);
         // The registry — a new hub is ONE line here and nothing else.
         let hubs: Vec<Box<dyn Hub>> = vec![
             Box::new(dpl_hub_home::HomeHub),
@@ -370,8 +364,17 @@ impl App {
             Box::new(present_hub),
             Box::new(workbench),
             Box::new(wiredfront),
-            Box::new(chat_hub),
         ];
+        // The lite route launcher's targets: each registered hub's label and
+        // its home route (HubSpec::default_route → first subroute). Built here,
+        // before `hubs` is moved into the shell, and handed to the peer window.
+        let chat_routes: Vec<(String, Route)> = hubs
+            .iter()
+            .map(|hub| {
+                let spec = hub.spec();
+                (spec.label.to_owned(), spec.default_route())
+            })
+            .collect();
 
         let mut viziwiz = dpl_viziwiz::Viziwiz::new(&fabric);
         if viziwiz_open {
@@ -424,8 +427,14 @@ impl App {
             });
             shell.set_full_bleed(true);
         }
-        let chat =
-            chat::ChatWindowCoordinator::new(&fabric, chat_runtime, shell.route(), chat_open);
+        let chat = chat::ChatWindowCoordinator::new(
+            &fabric,
+            chat_runtime,
+            shell.route(),
+            local_chat_history_catalog(),
+            chat_routes,
+            chat_open,
+        );
 
         Self {
             shell,
