@@ -397,7 +397,12 @@ impl App {
         // route registry — the seam can never name a surface the app lacks.
         if let Some(port) = seam_port {
             let registry = dpl_seam::Registry::new(hubs.iter().map(|h| h.spec()).collect());
-            dpl_seam::spawn(fabric.clone(), registry, port);
+            dpl_seam::spawn(
+                fabric.clone(),
+                registry,
+                dpl_engine_capture::content_root(),
+                port,
+            );
         }
 
         let mut viziwiz = dpl_viziwiz::Viziwiz::new(&fabric);

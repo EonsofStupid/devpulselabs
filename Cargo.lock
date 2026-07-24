@@ -1798,6 +1798,8 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "dpl-coldlight",
+ "dpl-comp",
+ "dpl-engine-media",
  "dpl-fabric",
  "dpl-hub",
  "serde",

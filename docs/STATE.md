@@ -105,9 +105,23 @@ is DELETED. Memory: `chat-is-a-peer-window`.
   5 tests. LIVE PROOF: POST navigate → the real exe navigated (GET /state
   flipped to wiredfront/editor) and SSE captured navigate-request +
   route-changed (§8 of docs/plans/r1v-agent-seam.md). This is how chat
-  drives the editors; comp-document mutation endpoints ride the doc
-  doctors next (R1f). Estate (Fjall+Moka) is pushed on
+  drives the editors. Estate (Fjall+Moka) is pushed on
   `feat/estate-fjall-moka`, ready to join the seam for agent persistence.
+- **R1w — CHAT RENDERS VIDEO over the seam** (branch
+  `feat/r1w-comp-endpoints`, stacked on R1v): the comp-document surface —
+  `GET /comps` (inbox census) · `GET /comp?dir=` (document + live doctor
+  report) · `POST /comp` (DOCTOR-GATED write: invalid → 422 with every
+  issue named, NOTHING touches disk; absent dir mints `inbox/comp-N`) ·
+  `POST /command {"cmd":"render"}` + `GET /render?dir=` (the ffmpeg stitch
+  off-thread, polled; sources never mutated, output is always the NEW
+  render.mp4). Rel dirs JAILED inside the content root (`..`/absolute/
+  drive-letter refused by name). 9 tests. LIVE PROOF (scratchpad
+  CONTENT_ROOT): POST a 2-clip comp over HTTP → render → ffprobe
+  `duration=5.000000` exactly, mismatched sources (640x480@30 + 800x600@24)
+  normalized to 1280x720@30 — an agent authored a composition and got a
+  rendered video via HTTP end to end (§8 of docs/plans/
+  r1w-comp-endpoints.md). NEXT riders: R1c elements ingest → Library;
+  annotation model for the left-rail tools; estate-backed agent state.
 
 ## KNOWN BROKEN / regressed (the honest list)
 
