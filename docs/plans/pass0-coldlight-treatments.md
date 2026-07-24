@@ -188,10 +188,32 @@ DEVIATIONS from §3 (corrections law):
   is carried in the schema, empty in data. Tracked for the next foundation step.
 - **State scope.** Interaction states implemented for neubrutalist (hover/active);
   claymorphic/cyber/retro carry no state overlay (correct — passive/stack).
-- **Not yet done (own passes, deliberately deferred for care + proof):** the paint
-  application API (back-glow + Frame + content), migrating the 9 `brutal_frame`/
-  `clay_frame` callers, retiring the bespoke helpers, the generated manifest, and
-  the experience inventory (§4 steps 3-migration, 4, 5).
+- **Not yet done (own passes, deliberately deferred for care + proof):** the
+  generated manifest and the experience inventory (§4 steps 4, 5).
+
+**Step 3 migration — the treatments now RENDER (2026-07-24, follow-on commit):**
+
+- **Paint application API.** `Treated` + `cl::treated(tone, base, &[stack], state)`
+  and the `brutal(tone)` / `clay()` shortcuts. `Treated::show` paints fill/edge/
+  radius/primary-shadow via egui's proven `Frame` background, with the back-glow +
+  directional shadows in a slot reserved BEHIND it (`ResolvedStyle::behind_shapes`,
+  a cheap concentric falloff — no blur). Returns the content `InnerResponse` so
+  call sites keep `.response`.
+- **Migrated all 9 callers, retired the helpers.** `brutal_frame`/`clay_frame`
+  deleted (no shims). 6 chat clay containers → `cl::clay()`; the hub subroute card
+  + chat provider chip (mixed branches) use a shared body-closure so scatter/card
+  and treated arms unify. Zero `*_frame` callers remain.
+- **Contrast fix.** neubrutalist `ink` → `surface::WELL` (dark) for legibility on
+  the bright `tone@400` fill; the provider chip colors its content dark when
+  selected.
+- DEVIATION: `tints` not yet painted (opaque fills hide the authored washes) —
+  deferred with cyber/retro anim. Noted in `behind_shapes`.
+
+PROOF (feel-bar, at real sizes): `docs/proof/traits-chat-1100x700.png` and
+`traits-chat-1600x1000.png` (auto-fit 1522×778). The selected **Codex** chip
+renders as a bright saturated cyan neubrutalist button — dark legible text, a
+lit-from-behind glow — against quiet claymorphic cards + soft claymorphic
+containers. Clear hierarchy, on-doctrine. `cargo green` ✔; operator exe rebuilt.
 
 PROOF: `cargo green` ✔ (fmt + clippy + 23 coldlight tests incl. 5 new trait tests:
 additive-concatenate, override-last-wins, state-overlay-replaces, tone-relative

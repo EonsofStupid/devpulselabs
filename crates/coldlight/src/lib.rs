@@ -117,46 +117,10 @@ pub const RADIUS_LG: u8 = 16;
 
 // ── the DESIGN LANGUAGE primitives (docs/design/doctrine.md) ────────────
 //
-// Two NAMED treatments, chosen deliberately, never mixed on one element:
-// BRUTAL for actionable chrome (chips, buttons, anything that DOES) and
-// CLAY for passive planes (wells, panels, cards that HOLD). Tooltips are
-// LAW: every interactive control ships one (`tip`). The doctrine doc is
-// the contract; these fns are its only implementation — surfaces never
-// hand-roll the treatments.
-
-/// Neubrutal actionable surface: thick tone edge, HARD offset shadow —
-/// zero blur, the shadow is a shape, not a glow. Flat fill. Punchy,
-/// honest, unmistakably tappable.
-pub fn brutal_frame(tone: Tone) -> egui::Frame {
-    egui::Frame::new()
-        .fill(surface::OVERLAY)
-        .stroke(Stroke::new(2.0, tone.color()))
-        .corner_radius(CornerRadius::same(RADIUS_SM))
-        .shadow(Shadow {
-            offset: [3, 3],
-            blur: 0,
-            spread: 0,
-            color: Color32::from_black_alpha(230),
-        })
-        .inner_margin(egui::Margin::symmetric(10, 6))
-}
-
-/// Claymorphic passive plane: soft extruded plate — generous radius,
-/// deep diffuse scatter, hairline edge. Calm and touchable; never a
-/// button.
-pub fn clay_frame() -> egui::Frame {
-    egui::Frame::new()
-        .fill(surface::RAISED)
-        .stroke(Stroke::new(1.0, surface::HAIRLINE))
-        .corner_radius(CornerRadius::same(RADIUS_LG))
-        .shadow(Shadow {
-            offset: [0, 10],
-            blur: 32,
-            spread: 4,
-            color: Color32::from_black_alpha(180),
-        })
-        .inner_margin(egui::Margin::same(16))
-}
+// The treatments are the composable TRAIT system below (neubrutalist/
+// claymorphic base + cyber/retro stack, resolved by `compose`). Surfaces
+// paint via `cl::treated(...)` / the `brutal`/`clay` shortcuts — never a
+// bespoke frame. `tip` stays here as the tooltip-law primitive.
 
 /// The tooltip LAW: every interactive control explains itself on hover.
 /// One call at every control site — a control without a `tip` is a
@@ -451,6 +415,123 @@ pub fn compose(tone: Tone, base: &str, stack: &[&str], state: TraitState) -> Res
     rs
 }
 
+impl ResolvedStyle {
+    /// The shapes painted BEHIND the frame: the back-glow (a cheap concentric
+    /// falloff — no blur, doctrine — so a saturated surface reads as "lit from
+    /// directly behind"), plus any directional shadows beyond the first (the
+    /// frame itself paints fill/edge/radius/primary-shadow). Pure + testable.
+    pub fn behind_shapes(&self, rect: Rect) -> Vec<egui::Shape> {
+        const GLOW_STEPS: usize = 5;
+        let cr = CornerRadius::same(self.radius);
+        let mut shapes: Vec<egui::Shape> = Vec::new();
+        for glow in &self.back_glow {
+            // Faintest, widest ring first; strongest ring hugs the rect last.
+            for i in (0..GLOW_STEPS).rev() {
+                let t = (i as f32 + 1.0) / GLOW_STEPS as f32;
+                let alpha = (f32::from(glow.color.a()) * (1.0 - t) * 0.9) as u8;
+                if alpha == 0 {
+                    continue;
+                }
+                let c = Color32::from_rgba_unmultiplied(
+                    glow.color.r(),
+                    glow.color.g(),
+                    glow.color.b(),
+                    alpha,
+                );
+                let expand = glow.spread * t;
+                shapes.push(egui::Shape::rect_filled(
+                    rect.expand(expand),
+                    CornerRadius::same(self.radius.saturating_add(expand as u8)),
+                    c,
+                ));
+            }
+        }
+        // Directional shadows beyond the primary (e.g. claymorphic's light).
+        for sh in self.shadows.iter().skip(1) {
+            shapes.push(egui::Shape::from(sh.as_shape(rect, cr)));
+        }
+        shapes
+    }
+}
+
+/// A treated surface: resolves a trait stack and paints the FULL treatment
+/// (back-glow + shadows + fill + edge + tints) behind its content. The
+/// drop-in successor to `brutal_frame`/`clay_frame` — `.show(ui, |ui| …)`.
+pub struct Treated {
+    tone: Tone,
+    base: &'static str,
+    stack: &'static [&'static str],
+    state: TraitState,
+    margin: egui::Margin,
+}
+
+/// Begin a treated surface with an explicit trait stack + state.
+pub fn treated(
+    tone: Tone,
+    base: &'static str,
+    stack: &'static [&'static str],
+    state: TraitState,
+) -> Treated {
+    let margin = if base == "claymorphic" {
+        egui::Margin::same(16)
+    } else {
+        egui::Margin::symmetric(10, 6)
+    };
+    Treated {
+        tone,
+        base,
+        stack,
+        state,
+        margin,
+    }
+}
+
+/// The neubrutalist actionable surface (idle). Successor to `brutal_frame`.
+pub fn brutal(tone: Tone) -> Treated {
+    treated(tone, "neubrutalist", &[], TraitState::Idle)
+}
+
+/// The claymorphic passive plane. Successor to `clay_frame`. Claymorphic
+/// uses only fixed surface/ink refs, so the tone is inert here.
+pub fn clay() -> Treated {
+    treated(Tone::Cyan, "claymorphic", &[], TraitState::Idle)
+}
+
+impl Treated {
+    /// Override the content inset.
+    pub fn margin(mut self, margin: egui::Margin) -> Self {
+        self.margin = margin;
+        self
+    }
+
+    /// Paint the treatment behind `add_contents`. Returns the content's
+    /// `InnerResponse`, so call sites keep their `.response` usage. The frame
+    /// paints fill/edge/radius/primary-shadow (egui's proven background path);
+    /// the back-glow + directional shadows paint into a slot reserved behind.
+    pub fn show<R>(
+        self,
+        ui: &mut egui::Ui,
+        add_contents: impl FnOnce(&mut egui::Ui) -> R,
+    ) -> egui::InnerResponse<R> {
+        let style = compose(self.tone, self.base, self.stack, self.state);
+        let behind = ui.painter().add(egui::Shape::Noop);
+        let mut frame = egui::Frame::new()
+            .fill(style.fill)
+            .stroke(style.edge)
+            .corner_radius(CornerRadius::same(style.radius))
+            .inner_margin(self.margin);
+        if let Some(shadow) = style.shadows.first() {
+            frame = frame.shadow(*shadow);
+        }
+        let inner = frame.show(ui, add_contents);
+        let shapes = style.behind_shapes(inner.response.rect);
+        if !shapes.is_empty() {
+            ui.painter().set(behind, egui::Shape::Vec(shapes));
+        }
+        inner
+    }
+}
+
 #[cfg(test)]
 mod trait_tests {
     use super::*;
@@ -499,6 +580,17 @@ mod trait_tests {
         let cyan = compose(Tone::Cyan, "neubrutalist", &[], TraitState::Idle);
         assert_ne!(lime.fill, cyan.fill);
         assert_eq!(lime.fill, step_on("lime", 400));
+    }
+
+    #[test]
+    fn neubrutalist_paints_a_back_glow() {
+        let s = compose(Tone::Lime, "neubrutalist", &[], TraitState::Idle);
+        let rect = Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(100.0, 40.0));
+        // neubrutalist authors one back-glow → concentric rings behind.
+        assert!(
+            !s.behind_shapes(rect).is_empty(),
+            "neubrutalist should paint a back-glow behind the frame"
+        );
     }
 }
 

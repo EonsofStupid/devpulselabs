@@ -321,7 +321,7 @@ impl ChatHub {
     fn provider_bar(&mut self, ui: &mut egui::Ui) {
         let views = self.runtime.provider_views();
         if views.is_empty() {
-            cl::clay_frame().show(ui, |ui| {
+            cl::clay().show(ui, |ui| {
                 ui.label(
                     RichText::new("No provider adapters registered")
                         .strong()
@@ -347,38 +347,47 @@ impl ChatHub {
                         let tone = provider_tone(descriptor.accent);
                         let is_selected = selected == Some(descriptor.id);
                         ui.push_id(descriptor.id.0, |ui| {
-                            let frame = if is_selected {
-                                cl::brutal_frame(tone)
-                            } else {
-                                cl::card_frame()
-                            };
-                            let response = frame
-                                .show(ui, |ui| {
-                                    ui.horizontal(|ui| {
-                                        ui.label(
-                                            RichText::new(descriptor.glyph)
-                                                .strong()
-                                                .color(tone.color()),
-                                        );
-                                        ui.label(RichText::new(descriptor.short_label).color(
-                                            if is_selected {
-                                                cl::ink::STRONG
+                            // Selected → the neubrutalist button (saturated
+                            // fill, lit-from-behind glow, DARK ink for contrast);
+                            // unselected → the quiet passive card. One body, so
+                            // both branches unify.
+                            let body = |ui: &mut egui::Ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label(RichText::new(descriptor.glyph).strong().color(
+                                        if is_selected {
+                                            cl::surface::WELL
+                                        } else {
+                                            tone.color()
+                                        },
+                                    ));
+                                    ui.label(RichText::new(descriptor.short_label).color(
+                                        if is_selected {
+                                            cl::surface::WELL
+                                        } else {
+                                            cl::ink::BASE
+                                        },
+                                    ));
+                                    ui.label(
+                                        RichText::new(view.registration.activation.label())
+                                            .small()
+                                            .color(if is_selected {
+                                                cl::surface::WELL
                                             } else {
-                                                cl::ink::BASE
-                                            },
-                                        ));
-                                        ui.label(
-                                            RichText::new(view.registration.activation.label())
-                                                .small()
-                                                .color(activation_color(
+                                                activation_color(
                                                     &view.registration.activation,
                                                     tone,
-                                                )),
-                                        );
-                                    });
-                                })
-                                .response
-                                .interact(egui::Sense::click());
+                                                )
+                                            }),
+                                    );
+                                });
+                            };
+                            let response = if is_selected {
+                                cl::brutal(tone).show(ui, body)
+                            } else {
+                                cl::card_frame().show(ui, body)
+                            }
+                            .response
+                            .interact(egui::Sense::click());
                             let response = cl::tip(
                                 response,
                                 &format!("Open {}. {}", descriptor.label, descriptor.summary),
@@ -403,9 +412,9 @@ impl ChatHub {
         if let Some(provider_id) = self.runtime.selected_provider_id() {
             self.ensure_history_index(provider_id);
         }
-        let response = cl::clay_frame()
+        let response = cl::clay()
             .show(ui, |ui| {
-                // `clay_frame` adds inner/outer chrome around this content. Budget
+                // `clay` adds inner/outer chrome around this content. Budget
                 // it here so the plate never reaches behind the shell status bar.
                 ui.set_min_height((ui.available_height() - 44.0).max(120.0));
                 zone_label(ui, "SESSIONS");
@@ -535,7 +544,7 @@ impl ChatHub {
         let transcript_content_height = (transcript_outer_height - 44.0).max(136.0);
 
         let mut load_earlier = false;
-        let transcript_response = cl::clay_frame()
+        let transcript_response = cl::clay()
             .show(ui, |ui| {
                 ui.set_min_height(transcript_content_height);
                 ui.set_max_height(transcript_content_height);
@@ -639,7 +648,7 @@ impl ChatHub {
                 .registration
                 .has_capability(Capability::StreamTurns)
             && provider.active_session.is_some();
-        let composer_response = cl::clay_frame()
+        let composer_response = cl::clay()
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     zone_label(ui, "COMPOSER");
@@ -741,7 +750,7 @@ impl ChatHub {
     }
 
     fn context_inspector(&mut self, ui: &mut egui::Ui) {
-        cl::clay_frame().show(ui, |ui| {
+        cl::clay().show(ui, |ui| {
             ui.set_min_height((ui.available_height() - 44.0).max(120.0));
             zone_label(ui, "CONTEXT");
             let provider_id = self.runtime.selected_provider_id();
@@ -859,7 +868,7 @@ impl ChatHub {
             ui.label(RichText::new("Council").heading().color(cl::ink::STRONG));
         });
         ui.add_space(cl::space::S4);
-        cl::clay_frame().show(ui, |ui| {
+        cl::clay().show(ui, |ui| {
             ui.label(
                 RichText::new("Deliberately unavailable")
                     .strong()

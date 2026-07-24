@@ -10,7 +10,7 @@
 			"fill": { "tone": 400 },
 			"edge": { "width": 2.0, "color": { "tone": 700 } },
 			"radius": 6,
-			"ink": { "ink": "STRONG" },
+			"ink": { "surface": "WELL" },
 			"shadows": [
 				{ "offset": [3, 3], "blur": 0, "spread": 0, "color": { "black": true, "alpha": 230 } }
 			],
