@@ -15,11 +15,12 @@ use egui::{RichText, Sense};
 use egui_pilot_ai::{NodeMetadata, PilotId, PilotKey, UiPilotExt};
 
 pub const HUB: HubId = HubId("wiredfront");
+pub const EDITOR: SubId = SubId("editor");
+pub const LIBRARY: SubId = SubId("library");
 pub const OVERVIEW: SubId = SubId("overview");
 pub const VIZIWIZ: SubId = SubId("viziwiz");
 pub const GALLERY: SubId = SubId("gallery");
 pub const SESSIONS: SubId = SubId("sessions");
-pub const COMPOSER: SubId = SubId("composer");
 
 static SPEC: HubSpec = HubSpec {
     id: HUB,
@@ -27,6 +28,19 @@ static SPEC: HubSpec = HubSpec {
     icon: cl::icon::WIREDFRONT,
     tone: Tone::Magenta,
     subroutes: &[
+        // The EDITOR leads — it is the product (the operator's After
+        // Effects); the Library is its generated-ingredient shelf; the
+        // capture floors follow.
+        SubRoute {
+            id: EDITOR,
+            label: "Editor",
+            blurb: "The WiredFRONT editor — stitch, post-process, effects, fonts, elements.",
+        },
+        SubRoute {
+            id: LIBRARY,
+            label: "Library",
+            blurb: "Every generated ingredient — traits, presets, fonts, moods. Never a one-off.",
+        },
         SubRoute {
             id: OVERVIEW,
             label: "Overview",
@@ -46,11 +60,6 @@ static SPEC: HubSpec = HubSpec {
             id: SESSIONS,
             label: "Sessions",
             blurb: "Session recordings — video-first (the rrweb path retired with the webview).",
-        },
-        SubRoute {
-            id: COMPOSER,
-            label: "Composer",
-            blurb: "Stitch clips into a video — the After-Effects-style editor (R1a foundation).",
         },
     ],
 };
@@ -1028,8 +1037,12 @@ impl Hub for WiredfrontHub {
             self.sessions_surface(ui);
             return;
         }
-        if route.sub == COMPOSER {
+        if route.sub == EDITOR {
             self.composer.ui(ui);
+            return;
+        }
+        if route.sub == LIBRARY {
+            dpl_composer::library_ui(ui);
             return;
         }
         if let Some(go) = dpl_hub::placeholder::surface(

@@ -510,6 +510,15 @@ impl Shell {
                                 .layout(Layout::top_down(Align::Min)),
                         );
                         child.set_clip_rect(rect.intersect(ui.clip_rect()));
+                        // The unfold PLATE: the open house's subroutes sit on
+                        // their own recessed background — visibly a different
+                        // layer than the rail (operator ask: "slightly
+                        // indented with a different background").
+                        child.painter().rect_filled(
+                            Rect::from_min_size(rect.min, egui::vec2(w, full_h)),
+                            CornerRadius::same(cl::RADIUS_SM),
+                            cl::surface::BASE,
+                        );
                         // The boot-rolled mood strip — the "random mood on
                         // reload", carried over from the flyout it replaces.
                         let strip = Rect::from_min_size(rect.min, egui::vec2(w, 3.0));
@@ -858,7 +867,10 @@ fn house_tile(ui: &mut egui::Ui, t: &HouseTile) -> egui::Response {
 /// selected.
 fn sub_item(ui: &mut egui::Ui, label: &str, tone: Tone, selected: bool) -> egui::Response {
     let width = ui.available_width();
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 26.0), Sense::click());
+    let (slot, response) = ui.allocate_exact_size(egui::vec2(width, 26.0), Sense::click());
+    // The row sits INDENTED on the unfold plate — the accordion's rows read
+    // as children of the house, not siblings.
+    let rect = Rect::from_min_max(egui::pos2(slot.min.x + 10.0, slot.min.y), slot.max);
     let painter = ui.painter();
 
     if selected {
@@ -890,6 +902,9 @@ fn sub_item(ui: &mut egui::Ui, label: &str, tone: Tone, selected: bool) -> egui:
         egui::FontId::proportional(13.0),
         if selected {
             tone.color()
+        } else if response.hovered() {
+            // The mouse-over effect: the ink wakes up under the pointer.
+            cl::ink::STRONG
         } else {
             cl::ink::MUTED
         },
