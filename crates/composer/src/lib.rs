@@ -9,8 +9,14 @@
 //! `ClipPlayer`); the COMPOSITED preview + ffmpeg stitch render land in R1b.
 //! The two-editors law holds: this is never the Workbench slide editor.
 //!
-//! Panes use egui's native panels (fixed layout) — RS4's `egui_tiles`
-//! drag-docking is R1b's rider, adopted when the layout needs rearranging.
+//! Layout (R1u, per the reference images): workflow tabs on top, SCENES/
+//! ASSETS rail far left, then per-mode — a LEFT tool rail, the canvas/
+//! preview center, inspector right, timeline above a full-width BOTTOM
+//! toolbar (the transport bar). Manual rects + `new_child` (the house
+//! idiom); `egui_tiles` drag-docking stays a later rider.
+
+mod library;
+pub use library::library_ui;
 
 use dpl_coldlight::{self as cl, Tone};
 use dpl_comp::{Composition, Layer, Source};
@@ -43,6 +49,9 @@ pub struct Composer {
     render: Arc<Mutex<RenderState>>,
     /// The active workflow tab (the editor's current mode).
     tab: Tab,
+    /// The selected canvas tool — the LEFT tool rail's persisted choice,
+    /// shared by the Edit and Annotate modes.
+    tool: Tool,
     status: String,
 }
 
@@ -56,6 +65,7 @@ impl Default for Composer {
             palette: None,
             render: Arc::new(Mutex::new(RenderState::Idle)),
             tab: initial_tab(),
+            tool: Tool::Select,
             status: "New composition — add clips from the palette on the left.".into(),
         }
     }
@@ -67,6 +77,7 @@ enum Act {
     Save,
     Render,
     Tab(Tab),
+    Tool(Tool),
     Add(usize),
     Select(String),
     Remove(String),
@@ -116,6 +127,51 @@ impl Tab {
             Tab::Narrate => "Record or drop a voiceover; the waveform rides the timeline.",
             Tab::Preview => "Play the guide as your audience will — Touch, Mouse, or Keyboard.",
             Tab::Export => "Ship a self-contained .guide, or render the video.",
+        }
+    }
+}
+
+/// The canvas tools — the LEFT tool rail (WiredFRONT reference: tool
+/// selection lives on the left edge, like every serious editor). Selection
+/// is real and persisted; each tool's canvas behaviour lands with the
+/// annotation model.
+#[derive(Clone, Copy, PartialEq)]
+enum Tool {
+    Select,
+    Arrow,
+    Callout,
+    Box,
+    Spotlight,
+    Text,
+}
+
+impl Tool {
+    const ALL: [Tool; 6] = [
+        Tool::Select,
+        Tool::Arrow,
+        Tool::Callout,
+        Tool::Box,
+        Tool::Spotlight,
+        Tool::Text,
+    ];
+    fn label(self) -> &'static str {
+        match self {
+            Tool::Select => "Select",
+            Tool::Arrow => "Arrow",
+            Tool::Callout => "Callout",
+            Tool::Box => "Box",
+            Tool::Spotlight => "Spot",
+            Tool::Text => "Text",
+        }
+    }
+    fn blurb(self) -> &'static str {
+        match self {
+            Tool::Select => "Pick and move things on the canvas.",
+            Tool::Arrow => "Draw a holographic arrow pointing at what matters.",
+            Tool::Callout => "Drop a numbered callout bubble.",
+            Tool::Box => "Draw a highlight box around a region.",
+            Tool::Spotlight => "Dim everything except the spot you choose.",
+            Tool::Text => "Place styled text over the scene.",
         }
     }
 }
@@ -369,7 +425,7 @@ impl Composer {
         match self.tab {
             Tab::Edit => self.edit_tab(&mut mk(content_rect), &mut act),
             Tab::Preview => self.preview_tab(&mut mk(content_rect)),
-            Tab::Annotate => self.annotate_tab(&mut mk(content_rect)),
+            Tab::Annotate => self.annotate_tab(&mut mk(content_rect), &mut act),
             other => tab_stub(&mut mk(content_rect), other),
         }
 
@@ -378,6 +434,7 @@ impl Composer {
             Some(Act::Save) => self.save(),
             Some(Act::Render) => self.start_render(),
             Some(Act::Tab(t)) => self.tab = t,
+            Some(Act::Tool(t)) => self.tool = t,
             Some(Act::Add(i)) => {
                 if let Some(rec) = self.palette.as_ref().and_then(|p| p.get(i)).cloned() {
                     self.add_clip(&rec);
@@ -454,39 +511,85 @@ impl Composer {
         self.palette_pane(ui, act);
     }
 
-    /// The EDIT mode — the working timeline editor: preview + inspector +
-    /// timeline (assets now live in the left rail).
+    /// The EDIT mode — the working editor laid out like the reference:
+    /// TOOLS on the LEFT edge, preview center, inspector right, the
+    /// timeline above a full-width BOTTOM toolbar (the transport bar).
     fn edit_tab(&self, ui: &mut egui::Ui, act: &mut Option<Act>) {
         let rect = ui.max_rect();
-        let toolbar_h = 38.0_f32;
-        let inspector_w = 240.0_f32;
-        let timeline_h = 150.0_f32;
+        let toolbar_h = 44.0_f32;
+        let tools_w = 76.0_f32;
+        // The inspector yields at small windows so the preview never
+        // starves (the 1100x700 fit-guard minimum is a real size).
+        let inspector_w = (rect.width() * 0.25).clamp(170.0, 240.0);
+        let timeline_h = 132.0_f32;
         let pad = cl::space::S2;
-        let body_top = rect.min.y + toolbar_h + pad;
-        let body_bottom = (rect.max.y - timeline_h - pad).max(body_top + 1.0);
+        // The BOTTOM toolbar spans the full width; everything works above it.
+        let work_bottom = (rect.max.y - toolbar_h - pad).max(rect.min.y + 1.0);
         let toolbar_rect =
-            Rect::from_min_max(rect.min, egui::pos2(rect.max.x, rect.min.y + toolbar_h));
+            Rect::from_min_max(egui::pos2(rect.min.x, rect.max.y - toolbar_h), rect.max);
+        // The LEFT tool strip runs from the top down to the toolbar.
+        let tools_rect =
+            Rect::from_min_max(rect.min, egui::pos2(rect.min.x + tools_w, work_bottom));
+        let body_left = rect.min.x + tools_w + pad;
+        let body_bottom = (work_bottom - timeline_h - pad).max(rect.min.y + 1.0);
         let timeline_rect = Rect::from_min_max(
-            egui::pos2(rect.min.x, body_bottom + pad),
-            egui::pos2(rect.max.x, rect.max.y),
+            egui::pos2(body_left, body_bottom + pad),
+            egui::pos2(rect.max.x, work_bottom),
         );
         let inspector_rect = Rect::from_min_max(
-            egui::pos2(rect.max.x - inspector_w, body_top),
+            egui::pos2(rect.max.x - inspector_w, rect.min.y),
             egui::pos2(rect.max.x, body_bottom),
         );
         let preview_rect = Rect::from_min_max(
-            egui::pos2(rect.min.x, body_top),
+            egui::pos2(body_left, rect.min.y),
             egui::pos2(rect.max.x - inspector_w - pad, body_bottom),
         );
-        for r in [preview_rect, inspector_rect, timeline_rect] {
+        for r in [
+            tools_rect,
+            preview_rect,
+            inspector_rect,
+            timeline_rect,
+            toolbar_rect,
+        ] {
             ui.painter()
                 .rect_filled(r, CornerRadius::same(cl::RADIUS), cl::surface::BASE);
         }
         let mut mk = |r: Rect| ui.new_child(UiBuilder::new().max_rect(r.shrink(pad)));
-        self.toolbar(&mut mk(toolbar_rect), act);
+        self.tool_rail(&mut mk(tools_rect), act);
         self.preview_pane(&mut mk(preview_rect));
         self.inspector_pane(&mut mk(inspector_rect));
         self.timeline_pane(&mut mk(timeline_rect), act);
+        self.toolbar(&mut mk(toolbar_rect), act);
+    }
+
+    /// The LEFT tool rail — the persisted canvas-tool selection, one
+    /// full-width button per tool; the active tool presses in (the
+    /// neubrutal Active state's [1,1] shadow).
+    fn tool_rail(&self, ui: &mut egui::Ui, act: &mut Option<Act>) {
+        ui.label(
+            RichText::new("TOOLS")
+                .small()
+                .strong()
+                .color(cl::ink::MUTED),
+        );
+        ui.add_space(cl::space::S1);
+        for t in Tool::ALL {
+            let active = self.tool == t;
+            let resp = cl::tip(tool_btn(ui, t.label(), active), t.blurb());
+            ui.pilot_track(
+                &resp,
+                NodeMetadata::new(
+                    PilotId::new("composer.tool").child(&PilotKey::new(t.label())),
+                    Role::Button,
+                    t.label(),
+                )
+                .value(if active { "active" } else { "available" }),
+            );
+            if resp.clicked() && !active {
+                *act = Some(Act::Tool(t));
+            }
+            ui.add_space(cl::space::S1);
+        }
     }
 
     /// PREVIEW mode — the composition in a device frame. Plays the selected
@@ -536,26 +639,24 @@ impl Composer {
         });
     }
 
-    /// ANNOTATE mode — the tool row over the scene canvas. Tool behaviour +
-    /// the annotation model land in the annotation pass; the canvas shows the
+    /// ANNOTATE mode — the SAME left tool rail as Edit (one selection, one
+    /// muscle memory) beside the scene canvas. Tool behaviour + the
+    /// annotation model land in the annotation pass; the canvas shows the
     /// selected frame today.
-    fn annotate_tab(&self, ui: &mut egui::Ui) {
+    fn annotate_tab(&self, ui: &mut egui::Ui, act: &mut Option<Act>) {
         let rect = ui.max_rect();
-        let toolrow_h = 36.0_f32;
-        let toolrow = Rect::from_min_max(rect.min, egui::pos2(rect.max.x, rect.min.y + toolrow_h));
-        let canvas = Rect::from_min_max(
-            egui::pos2(rect.min.x, rect.min.y + toolrow_h + cl::space::S2),
-            rect.max,
+        let tools_w = 76.0_f32;
+        let pad = cl::space::S2;
+        let tools_rect = Rect::from_min_max(rect.min, egui::pos2(rect.min.x + tools_w, rect.max.y));
+        let canvas =
+            Rect::from_min_max(egui::pos2(rect.min.x + tools_w + pad, rect.min.y), rect.max);
+        ui.painter().rect_filled(
+            tools_rect,
+            CornerRadius::same(cl::RADIUS),
+            cl::surface::BASE,
         );
-        let mut tr = ui.new_child(UiBuilder::new().max_rect(toolrow));
-        tr.horizontal(|ui| {
-            for name in ["Select", "Arrow", "Callout", "Box", "Spotlight", "Text"] {
-                cl::tip(
-                    chip(ui, Tone::Cyan, name, ("tool", name)),
-                    "Annotation tool — placing and styling lands in the annotation pass",
-                );
-            }
-        });
+        let mut tr = ui.new_child(UiBuilder::new().max_rect(tools_rect.shrink(pad)));
+        self.tool_rail(&mut tr, act);
         ui.painter()
             .rect_filled(canvas, CornerRadius::same(cl::RADIUS), cl::surface::WELL);
         match &self.preview {
@@ -837,6 +938,30 @@ fn chip(
     ui.interact(
         inner.response.rect,
         egui::Id::new(("composer-chip", key)),
+        Sense::click(),
+    )
+}
+
+/// One LEFT-rail tool button: full rail width, treated neubrutal; the
+/// active tool composes in the Active state, so it visibly presses in.
+fn tool_btn(ui: &mut egui::Ui, label: &'static str, active: bool) -> egui::Response {
+    let tone = if active { Tone::Magenta } else { Tone::Cyan };
+    let state = if active {
+        cl::TraitState::Active
+    } else {
+        cl::TraitState::Idle
+    };
+    let inner = cl::treated(tone, "neubrutalist", &[], state)
+        .margin(egui::Margin::symmetric(4, 7))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.vertical_centered(|ui| {
+                ui.label(RichText::new(label).small().strong());
+            });
+        });
+    ui.interact(
+        inner.response.rect,
+        egui::Id::new(("composer-tool", label)),
         Sense::click(),
     )
 }
