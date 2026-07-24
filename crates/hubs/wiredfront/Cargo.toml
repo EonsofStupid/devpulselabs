@@ -12,7 +12,6 @@ dpl-coldlight.workspace = true
 dpl-index.workspace = true
 dpl-doc.workspace = true
 dpl-engine-capture.workspace = true
-dpl-engine-media.workspace = true
 dpl-engine-steps.workspace = true
 dpl-video.workspace = true
 image.workspace = true

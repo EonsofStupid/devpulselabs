@@ -41,8 +41,8 @@ arguments = ["--route", "workbench/test-lab", "--mood", "0"]
 [fixtures.library]
 arguments = ["--route", "library/templates", "--mood", "0"]
 
-[fixtures.pixvix]
-arguments = ["--route", "wiredfront/pixvix", "--pixvix", "--mood", "0"]
+[fixtures.viziwiz]
+arguments = ["--route", "wiredfront/viziwiz", "--viziwiz", "--mood", "0"]
 
 [fixtures.chat]
 arguments = ["--route", "chat/sessions", "--mood", "0"]

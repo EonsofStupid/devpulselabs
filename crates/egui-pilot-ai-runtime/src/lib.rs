@@ -2618,11 +2618,11 @@ mod tests {
     #[test]
     fn immediate_viewport_capture_fails_before_renderer_timeout() {
         let viewport = ViewportDescriptor {
-            id: ViewportId::new("devpulse.pixvix.palette#1"),
-            key: protocol::PilotViewportKey::new("devpulse.pixvix.palette"),
+            id: ViewportId::new("devpulse.viziwiz.palette#1"),
+            key: protocol::PilotViewportKey::new("devpulse.viziwiz.palette"),
             parent: Some(ViewportId::new("root")),
             class: protocol::ViewportClass::Immediate,
-            title: "PixVix".into(),
+            title: "ViziWiz".into(),
             lifecycle: protocol::ViewportLifecycle::Open,
             lifecycle_revision: 1,
             close_requested: false,

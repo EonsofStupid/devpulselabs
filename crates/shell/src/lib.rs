@@ -147,10 +147,10 @@ impl Shell {
     }
 
     /// The footer Snip launcher (and the global hotkey, later): summon the
-    /// PixVix overlay via the fabric.
-    pub fn summon_pixvix(&mut self) {
+    /// ViziWiz overlay via the fabric.
+    pub fn summon_viziwiz(&mut self) {
         self.signal_count += 1;
-        self.fabric.publish_shell(ShellEvent::PixvixSummon);
+        self.fabric.publish_shell(ShellEvent::ViziwizSummon);
     }
 
     pub fn signal_count(&self) -> u64 {
@@ -229,7 +229,7 @@ impl Shell {
             match ev {
                 ShellEvent::FullBleedRequest(on) => self.full_bleed = on,
                 ShellEvent::NavigateRequest { route } => nav_request = Some(route),
-                ShellEvent::RouteChanged { .. } | ShellEvent::PixvixSummon => {}
+                ShellEvent::RouteChanged { .. } | ShellEvent::ViziwizSummon => {}
             }
         }
         if let Some(route) = nav_request {
@@ -261,7 +261,7 @@ impl Shell {
         let (status_rect, actions) = self.status_bar(ui, &fl);
         for action in actions {
             match action {
-                status::StatusAction::Snip => self.summon_pixvix(),
+                status::StatusAction::Snip => self.summon_viziwiz(),
                 // The agent dock is deferred (ledger); until it lands the
                 // Agents launcher targets the agent hub by its well-known
                 // id — unregistered degrades to a no-op, never a panic.
@@ -1045,10 +1045,10 @@ mod tests {
     }
 
     #[test]
-    fn the_snip_launcher_publishes_pixvix_summon() {
+    fn the_snip_launcher_publishes_viziwiz_summon() {
         let (mut shell, mut rx) = shell();
-        shell.summon_pixvix();
-        assert_eq!(rx.try_recv().unwrap(), ShellEvent::PixvixSummon);
+        shell.summon_viziwiz();
+        assert_eq!(rx.try_recv().unwrap(), ShellEvent::ViziwizSummon);
         assert_eq!(shell.signal_count(), 1);
     }
 
@@ -1056,7 +1056,7 @@ mod tests {
     fn signals_count_every_publish_navs_included() {
         let (mut shell, _rx) = shell();
         shell.activate_hub(HubId("b"));
-        shell.summon_pixvix();
+        shell.summon_viziwiz();
         assert_eq!(shell.nav_count(), 1);
         assert_eq!(shell.signal_count(), 2);
     }

@@ -11,35 +11,35 @@ use egui_pilot_ai::{NodeMetadata, PilotId, UiPilotExt};
 
 use crate::{PendingGuide, TONE};
 
-const PALETTE_TITLE: PilotId = PilotId::new("pixvix.title");
-const PALETTE_CLOSE: PilotId = PilotId::new("pixvix.close");
-const TAB_IMG: PilotId = PilotId::new("pixvix.tab.img");
-const TAB_VIDEO: PilotId = PilotId::new("pixvix.tab.video");
-const TAB_SESSION: PilotId = PilotId::new("pixvix.tab.session");
-const TAB_STEPS: PilotId = PilotId::new("pixvix.tab.steps");
-const REGION_OPEN: PilotId = PilotId::new("pixvix.region.open");
-const SNAP_FULL: PilotId = PilotId::new("pixvix.snap.full");
-const FREEFORM: PilotId = PilotId::new("pixvix.freeform");
-const SNAP_WINDOW: PilotId = PilotId::new("pixvix.snap.window");
-const REFRESH_WINDOWS: PilotId = PilotId::new("pixvix.windows.refresh");
-const VIDEO_START: PilotId = PilotId::new("pixvix.video.start");
-const VIDEO_STOP: PilotId = PilotId::new("pixvix.video.stop");
-const VIDEO_TARGET: PilotId = PilotId::new("pixvix.video.target");
-const VIDEO_FORMAT: PilotId = PilotId::new("pixvix.video.format");
-const VIDEO_AUDIO: PilotId = PilotId::new("pixvix.video.audio");
-const VIDEO_CAP: PilotId = PilotId::new("pixvix.video.cap");
-const SESSION_START: PilotId = PilotId::new("pixvix.session.start");
-const SESSION_STOP: PilotId = PilotId::new("pixvix.session.stop");
-const STEPS_START: PilotId = PilotId::new("pixvix.steps.start");
-const STEPS_MARK: PilotId = PilotId::new("pixvix.steps.mark");
-const STEPS_STOP: PilotId = PilotId::new("pixvix.steps.stop");
-const DELAY_CYCLE: PilotId = PilotId::new("pixvix.delay");
-const RESNIP: PilotId = PilotId::new("pixvix.resnip");
-const GUIDE_NAME: PilotId = PilotId::new("pixvix.guide.name");
-const GUIDE_TAGS: PilotId = PilotId::new("pixvix.guide.tags");
-const GUIDE_DEST: PilotId = PilotId::new("pixvix.guide.dest");
-const GUIDE_SAVE: PilotId = PilotId::new("pixvix.guide.save");
-const GUIDE_DISCARD: PilotId = PilotId::new("pixvix.guide.discard");
+const PALETTE_TITLE: PilotId = PilotId::new("viziwiz.title");
+const PALETTE_CLOSE: PilotId = PilotId::new("viziwiz.close");
+const TAB_IMG: PilotId = PilotId::new("viziwiz.tab.img");
+const TAB_VIDEO: PilotId = PilotId::new("viziwiz.tab.video");
+const TAB_SESSION: PilotId = PilotId::new("viziwiz.tab.session");
+const TAB_STEPS: PilotId = PilotId::new("viziwiz.tab.steps");
+const REGION_OPEN: PilotId = PilotId::new("viziwiz.region.open");
+const SNAP_FULL: PilotId = PilotId::new("viziwiz.snap.full");
+const FREEFORM: PilotId = PilotId::new("viziwiz.freeform");
+const SNAP_WINDOW: PilotId = PilotId::new("viziwiz.snap.window");
+const REFRESH_WINDOWS: PilotId = PilotId::new("viziwiz.windows.refresh");
+const VIDEO_START: PilotId = PilotId::new("viziwiz.video.start");
+const VIDEO_STOP: PilotId = PilotId::new("viziwiz.video.stop");
+const VIDEO_TARGET: PilotId = PilotId::new("viziwiz.video.target");
+const VIDEO_FORMAT: PilotId = PilotId::new("viziwiz.video.format");
+const VIDEO_AUDIO: PilotId = PilotId::new("viziwiz.video.audio");
+const VIDEO_CAP: PilotId = PilotId::new("viziwiz.video.cap");
+const SESSION_START: PilotId = PilotId::new("viziwiz.session.start");
+const SESSION_STOP: PilotId = PilotId::new("viziwiz.session.stop");
+const STEPS_START: PilotId = PilotId::new("viziwiz.steps.start");
+const STEPS_MARK: PilotId = PilotId::new("viziwiz.steps.mark");
+const STEPS_STOP: PilotId = PilotId::new("viziwiz.steps.stop");
+const DELAY_CYCLE: PilotId = PilotId::new("viziwiz.delay");
+const RESNIP: PilotId = PilotId::new("viziwiz.resnip");
+const GUIDE_NAME: PilotId = PilotId::new("viziwiz.guide.name");
+const GUIDE_TAGS: PilotId = PilotId::new("viziwiz.guide.tags");
+const GUIDE_DEST: PilotId = PilotId::new("viziwiz.guide.dest");
+const GUIDE_SAVE: PilotId = PilotId::new("viziwiz.guide.save");
+const GUIDE_DISCARD: PilotId = PilotId::new("viziwiz.guide.discard");
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Tab {
@@ -156,10 +156,10 @@ pub(crate) fn palette(
     // Title row: identity + close.
     ui.horizontal(|ui| {
         ui.label(RichText::new(cl::icon::SNIP).color(TONE.color()).size(14.0));
-        let title = ui.label(RichText::new("PixVix").strong().color(cl::ink::STRONG));
+        let title = ui.label(RichText::new("ViziWiz").strong().color(cl::ink::STRONG));
         ui.pilot_track(
             &title,
-            NodeMetadata::new(PALETTE_TITLE, PilotRole::Heading, "PixVix"),
+            NodeMetadata::new(PALETTE_TITLE, PilotRole::Heading, "ViziWiz"),
         );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if pilot_chip(
@@ -236,7 +236,7 @@ pub(crate) fn palette(
                 ) {
                     actions.begin_free = true;
                 }
-                // The delay chip cycles 0 → 3 → 10 seconds (C1).
+                // The delay chip cycles 0 → 3 → 5 → 10 seconds (C1).
                 let delay_label = if delay == 0 {
                     "0s".to_string()
                 } else {
@@ -248,7 +248,7 @@ pub(crate) fn palette(
                     "",
                     &delay_label,
                     TONE,
-                    "Wait before snapping — taps cycle 0s, 3s, 10s",
+                    "Wait before snapping — taps cycle 0s, 3s, 5s, 10s",
                 ) {
                     actions.cycle_delay = true;
                 }
@@ -270,7 +270,7 @@ pub(crate) fn palette(
                     .get(picked)
                     .cloned()
                     .unwrap_or_else(|| "no windows scanned".into());
-                egui::ComboBox::from_id_salt("pixvix-window")
+                egui::ComboBox::from_id_salt("viziwiz-window")
                     .width(220.0)
                     .selected_text(RichText::new(truncate(&current, 30)).small())
                     .show_ui(ui, |ui| {
@@ -384,7 +384,7 @@ pub(crate) fn palette(
                             .get(picked_audio)
                             .cloned()
                             .unwrap_or_else(|| "no audio devices found".into());
-                        egui::ComboBox::from_id_salt("pixvix-audio-device")
+                        egui::ComboBox::from_id_salt("viziwiz-audio-device")
                             .width(220.0)
                             .selected_text(RichText::new(truncate(&current, 30)).small())
                             .show_ui(ui, |ui| {

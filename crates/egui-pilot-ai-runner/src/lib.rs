@@ -1072,12 +1072,12 @@ mod tests {
     }
 
     #[test]
-    fn pixvix_multi_viewport_scenario_is_durable_toml() {
+    fn viziwiz_multi_viewport_scenario_is_durable_toml() {
         let flow: Flow = toml::from_str(include_str!(
-            "../../../tests/eguipilotai/pixvix-multi-viewport.toml"
+            "../../../tests/eguipilotai/viziwiz-multi-viewport.toml"
         ))
-        .expect("PixVix multi-viewport scenario");
-        assert_eq!(flow.id, protocol::ScenarioId::new("pixvix-multi-viewport"));
+        .expect("ViziWiz multi-viewport scenario");
+        assert_eq!(flow.id, protocol::ScenarioId::new("viziwiz-multi-viewport"));
         assert!(flow.steps.iter().any(|step| matches!(
             step,
             protocol::Step::Action {

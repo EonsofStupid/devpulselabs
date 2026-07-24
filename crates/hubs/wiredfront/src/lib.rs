@@ -1,5 +1,8 @@
-//! wiredFRONT — capture and media editing: PixVix, the video editor
-//! (ADR-010: stitch, ComfyUI workflows), image ops (cutout via ort).
+//! wiredFRONT — capture and media production. ViziWiz is the capture
+//! overlay (snip · steps · session · video), launched as its own
+//! always-on-top viewport; the hub floor is Overview + Gallery + Sessions.
+//! (Live image/media EDITING belongs to the WiredFRONT/Workbench editors,
+//! per the three-product architecture — never a hub subroute.)
 //!
 //! GALLERY (X2) is live: the content library wall over the artifact
 //! index — every capture thumbnailed (honest fallbacks, never a broken
@@ -11,17 +14,8 @@ use dpl_hub::{Hub, HubId, HubSpec, Route, SubId, SubRoute};
 use egui::{RichText, Sense};
 use egui_pilot_ai::{NodeMetadata, PilotId, PilotKey, UiPilotExt};
 
-mod viziwiz;
-
-/// Headless `--ink-drill <rel>` seam: a real stroke through the real
-/// flatten path, no window (C4).
-pub fn ink_drill(root: &std::path::Path, rel: &str) -> Result<String, String> {
-    viziwiz::drill(root, rel)
-}
-
 pub const HUB: HubId = HubId("wiredfront");
 pub const OVERVIEW: SubId = SubId("overview");
-pub const PIXVIX: SubId = SubId("pixvix");
 pub const VIZIWIZ: SubId = SubId("viziwiz");
 pub const GALLERY: SubId = SubId("gallery");
 pub const SESSIONS: SubId = SubId("sessions");
@@ -38,15 +32,9 @@ static SPEC: HubSpec = HubSpec {
             blurb: "The hub floor: inbox review, every capture vehicle one click away.",
         },
         SubRoute {
-            id: PIXVIX,
-            label: "PixVix",
-            blurb:
-                "The snapper — stills, clips, region, freeform. The engine port lands here first.",
-        },
-        SubRoute {
             id: VIZIWIZ,
             label: "ViziWiz",
-            blurb: "Image ops: annotate, flatten, cutout (ort + BiRefNet — no Node, no segfault).",
+            blurb: "The capture overlay — snip, steps, session, and video recording.",
         },
         SubRoute {
             id: GALLERY,
@@ -119,7 +107,6 @@ pub struct WiredfrontHub {
     fabric: Option<dpl_fabric::Fabric>,
     gallery: Option<GalleryView>,
     sessions: Option<SessionsView>,
-    viziwiz: Option<viziwiz::VizView>,
     /// The Gallery's in-place session player (doctrine §1.2: "tapping a
     /// session card opens the player right there") + its status line.
     replay: Option<(SessionPlay, String)>,
@@ -299,7 +286,7 @@ impl WiredfrontHub {
         if visible.is_empty() {
             ui.label(
                 RichText::new(
-                    "nothing here yet — PixVix captures land in the inbox and show up here",
+                    "nothing here yet — ViziWiz captures land in the inbox and show up here",
                 )
                 .color(cl::ink::MUTED),
             );
@@ -731,7 +718,7 @@ impl WiredfrontHub {
         ui.add_space(cl::space::S2);
         if view.rows.is_empty() {
             ui.label(
-                RichText::new("no sessions yet — record one from PixVix's Session tab")
+                RichText::new("no sessions yet — record one from ViziWiz's Session tab")
                     .color(cl::ink::MUTED),
             );
             return;
@@ -1031,10 +1018,6 @@ impl Hub for WiredfrontHub {
         }
         if route.sub == SESSIONS {
             self.sessions_surface(ui);
-            return;
-        }
-        if route.sub == VIZIWIZ {
-            viziwiz::surface(&mut self.viziwiz, ui);
             return;
         }
         if let Some(go) = dpl_hub::placeholder::surface(

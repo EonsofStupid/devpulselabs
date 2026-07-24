@@ -33,7 +33,7 @@ members = [
     "crates/editor",
     "crates/deck",
     "crates/index",
-    "crates/pixvix",
+    "crates/viziwiz",
     "crates/fabric",
     "crates/shell",
     "crates/hubs/home",
@@ -113,7 +113,7 @@ dpl-doc = { path = "crates/doc" }
 dpl-editor = { path = "crates/editor" }
 dpl-deck = { path = "crates/deck" }
 dpl-index = { path = "crates/index" }
-dpl-pixvix = { path = "crates/pixvix" }
+dpl-viziwiz = { path = "crates/viziwiz" }
 dpl-fabric = { path = "crates/fabric" }
 dpl-shell = { path = "crates/shell" }
 dpl-hub-home = { path = "crates/hubs/home" }

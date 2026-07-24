@@ -53,16 +53,16 @@ fn main() -> eframe::Result {
         .and_then(|i| args.get(i + 1))
         .and_then(|n| n.parse().ok())
         .unwrap_or(6);
-    // `--pixvix` opens the overlay at boot; `--pixvix-snap` fires a real
+    // `--viziwiz` opens the overlay at boot; `--viziwiz-snap` fires a real
     // Img/Full snip through the palette's own handler and exits.
-    let pixvix_open = args.iter().any(|a| a == "--pixvix");
+    let viziwiz_open = args.iter().any(|a| a == "--viziwiz");
     // `--mood <n>` pins the boot mood so backdrop proof shots reproduce.
     let mood: Option<usize> = args
         .iter()
         .position(|a| a == "--mood")
         .and_then(|i| args.get(i + 1))
         .and_then(|n| n.parse().ok());
-    let pixvix_snap = args.iter().any(|a| a == "--pixvix-snap");
+    let viziwiz_snap = args.iter().any(|a| a == "--viziwiz-snap");
     // `--steps-hotkey-drill` — send a REAL Ctrl+Shift+9 through the OS
     // (rdev::simulate) and verify the global hook starts, then stops, the
     // Steps recorder (C2). Real input end-to-end; the pilot never fakes
@@ -133,25 +133,6 @@ fn main() -> eframe::Result {
         .position(|a| a == "--open-rail")
         .and_then(|i| args.get(i + 1))
         .cloned();
-    // `--ink-drill <rel>` — the headless ViziWiz flatten drill (C4): a
-    // real corner-to-corner stroke through the real flatten path (auto
-    // `-annot` metadata), asserting the source never changes. No window.
-    if let Some(i) = args.iter().position(|a| a == "--ink-drill") {
-        let Some(rel) = args.get(i + 1) else {
-            eprintln!("usage: --ink-drill <inbox-relative-image>");
-            std::process::exit(2);
-        };
-        match dpl_hub_wiredfront::ink_drill(&dpl_engine_capture::content_root(), rel) {
-            Ok(msg) => {
-                println!("ink-drill: {msg}");
-                std::process::exit(0);
-            }
-            Err(e) => {
-                eprintln!("ink-drill: {e}");
-                std::process::exit(1);
-            }
-        }
-    }
     // `--clone-seed <seed-id> <show> <episode>` — the headless clone
     // drill (X3): copy a seed into the real content tree through the
     // engine (`dpl_doc::clone_episode`) and exit; no window boots.
@@ -229,8 +210,8 @@ fn main() -> eframe::Result {
                 boot_route,
                 focus,
                 shot_frame,
-                pixvix_open,
-                pixvix_snap,
+                viziwiz_open,
+                viziwiz_snap,
                 steps_hotkey_drill,
                 video_drill,
                 video_format,
@@ -261,8 +242,8 @@ struct Boot {
     boot_route: Option<(String, String)>,
     focus: Option<String>,
     shot_frame: u32,
-    pixvix_open: bool,
-    pixvix_snap: bool,
+    viziwiz_open: bool,
+    viziwiz_snap: bool,
     steps_hotkey_drill: bool,
     video_drill: Option<u32>,
     video_format: Option<String>,
@@ -278,11 +259,11 @@ struct Boot {
 
 struct App {
     shell: Shell,
-    pixvix: dpl_pixvix::Pixvix,
+    viziwiz: dpl_viziwiz::Viziwiz,
     shot: Option<std::path::PathBuf>,
     frames: u32,
     shot_frame: u32,
-    pixvix_snap: bool,
+    viziwiz_snap: bool,
     snap_frames: u32,
     steps_hotkey_drill: bool,
     hotkey_frames: u32,
@@ -306,8 +287,8 @@ impl App {
             boot_route,
             focus,
             shot_frame,
-            pixvix_open,
-            pixvix_snap,
+            viziwiz_open,
+            viziwiz_snap,
             steps_hotkey_drill,
             video_drill,
             video_format,
@@ -379,9 +360,9 @@ impl App {
             Box::new(chat),
         ];
 
-        let mut pixvix = dpl_pixvix::Pixvix::new(&fabric);
-        if pixvix_open {
-            pixvix.open_now();
+        let mut viziwiz = dpl_viziwiz::Viziwiz::new(&fabric);
+        if viziwiz_open {
+            viziwiz.open_now();
         }
         let mut shell = Shell::new(hubs, fabric);
         // The provenance stamp (git hash · utc, build.rs) — the running app
@@ -403,7 +384,7 @@ impl App {
             // Default boot: wiredFRONT, the prep house (rail boots folded).
             None => shell.navigate(Route {
                 hub: dpl_hub_wiredfront::HUB,
-                sub: dpl_hub_wiredfront::PIXVIX,
+                sub: dpl_hub_wiredfront::VIZIWIZ,
             }),
         }
         // `--open-rail <hub>` — the accordion pinned open (L1a proofs).
@@ -423,11 +404,11 @@ impl App {
 
         Self {
             shell,
-            pixvix,
+            viziwiz,
             shot,
             frames: 0,
             shot_frame,
-            pixvix_snap,
+            viziwiz_snap,
             snap_frames: 0,
             steps_hotkey_drill,
             hotkey_frames: 0,
@@ -673,9 +654,9 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
 
         // The Steps chords (Ctrl+Shift+S/9/X) are OS-GLOBAL since C2 —
-        // the rdev hook inside pixvix sees them whether or not this app
+        // the rdev hook inside viziwiz sees them whether or not this app
         // has focus, so no egui input handling here (it would double-fire).
-        self.pixvix.ui(&ctx);
+        self.viziwiz.ui(&ctx);
 
         // F12: egui's native inspection overlay — the UI debugger.
         if ctx.input(|i| i.key_pressed(egui::Key::F12)) {
@@ -694,13 +675,13 @@ impl eframe::App for App {
                 });
         }
 
-        // `--pixvix-snap`: after a few settle frames, fire the real Img/Full
+        // `--viziwiz-snap`: after a few settle frames, fire the real Img/Full
         // handler, report, exit by its own verdict.
-        if self.pixvix_snap {
+        if self.viziwiz_snap {
             self.snap_frames += 1;
             if self.snap_frames == 30 {
-                let msg = self.pixvix.snap_full_now(&ctx).to_string();
-                eprintln!("pixvix-snap: {msg}");
+                let msg = self.viziwiz.snap_full_now(&ctx).to_string();
+                eprintln!("viziwiz-snap: {msg}");
                 std::process::exit(if msg.starts_with("saved") { 0 } else { 1 });
             }
             ctx.request_repaint();
@@ -721,7 +702,7 @@ impl eframe::App for App {
                         }
                     });
                 }
-                1 if self.pixvix.steps_recording() => {
+                1 if self.viziwiz.steps_recording() => {
                     eprintln!("steps-hotkey-drill: chord STARTED the recorder");
                     // Settle before the stop chord — two overlapping
                     // simulated sequences interleave their modifier
@@ -737,10 +718,10 @@ impl eframe::App for App {
                         }
                     });
                 }
-                3 if !self.pixvix.steps_recording() => {
+                3 if !self.viziwiz.steps_recording() => {
                     eprintln!(
                         "steps-hotkey-drill: chord STOPPED the recorder · status: {}",
-                        self.pixvix.status_text()
+                        self.viziwiz.status_text()
                     );
                     std::process::exit(0);
                 }
@@ -750,7 +731,7 @@ impl eframe::App for App {
                 eprintln!(
                     "steps-hotkey-drill: TIMEOUT in phase {} · status: {}",
                     self.hotkey_phase,
-                    self.pixvix.status_text()
+                    self.viziwiz.status_text()
                 );
                 std::process::exit(1);
             }
@@ -764,7 +745,7 @@ impl eframe::App for App {
             self.video_frames += 1;
             if self.video_frames == 30 {
                 let format = self.video_format.clone();
-                let msg = self.pixvix.video_start_now(format.as_deref()).to_string();
+                let msg = self.viziwiz.video_start_now(format.as_deref()).to_string();
                 eprintln!("video-drill: {msg}");
                 if !msg.starts_with("recording") {
                     std::process::exit(1);
@@ -772,18 +753,18 @@ impl eframe::App for App {
                 self.video_started = Some(std::time::Instant::now());
             }
             if let Some(t0) = self.video_started {
-                if self.pixvix.video_active() && t0.elapsed().as_secs() >= u64::from(secs) {
-                    self.pixvix.video_stop_now();
+                if self.viziwiz.video_active() && t0.elapsed().as_secs() >= u64::from(secs) {
+                    self.viziwiz.video_stop_now();
                 }
-                if !self.pixvix.video_active() {
-                    let msg = self.pixvix.status_text().to_string();
+                if !self.viziwiz.video_active() {
+                    let msg = self.viziwiz.status_text().to_string();
                     eprintln!("video-drill: {msg}");
                     std::process::exit(if msg.starts_with("saved") { 0 } else { 1 });
                 }
                 if t0.elapsed().as_secs() > u64::from(secs) + 60 {
                     eprintln!(
                         "video-drill: TIMEOUT · status: {}",
-                        self.pixvix.status_text()
+                        self.viziwiz.status_text()
                     );
                     std::process::exit(1);
                 }
@@ -799,7 +780,7 @@ impl eframe::App for App {
             self.drill_frames += 1;
             match self.drill_frames {
                 30 => {
-                    let msg = self.pixvix.session_start_now().to_string();
+                    let msg = self.viziwiz.session_start_now().to_string();
                     eprintln!("session-drill: {msg}");
                     if !msg.starts_with("session recording") {
                         std::process::exit(1);
@@ -817,11 +798,11 @@ impl eframe::App for App {
                 _ => {}
             }
             if let Some(t0) = self.drill_started {
-                if self.pixvix.session_active() && t0.elapsed().as_secs() >= u64::from(secs) {
-                    self.pixvix.session_stop_now();
+                if self.viziwiz.session_active() && t0.elapsed().as_secs() >= u64::from(secs) {
+                    self.viziwiz.session_stop_now();
                 }
-                if !self.pixvix.session_active() {
-                    let msg = self.pixvix.status_text().to_string();
+                if !self.viziwiz.session_active() {
+                    let msg = self.viziwiz.status_text().to_string();
                     eprintln!("session-drill: {msg}");
                     std::process::exit(if msg.starts_with("session saved") {
                         0

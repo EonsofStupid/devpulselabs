@@ -52,8 +52,8 @@ impl EventLog {
                 "ms": ms, "type": "route-changed",
                 "hub": route.hub.0, "sub": route.sub.0,
             }),
-            ShellEvent::PixvixSummon => serde_json::json!({
-                "ms": ms, "type": "pixvix-summon",
+            ShellEvent::ViziwizSummon => serde_json::json!({
+                "ms": ms, "type": "viziwiz-summon",
             }),
             ShellEvent::FullBleedRequest(on) => serde_json::json!({
                 "ms": ms, "type": "full-bleed", "on": on,
@@ -123,7 +123,7 @@ pub fn spawn_video(
         .ok_or("no primary monitor")?;
     let out = dir.join("session.mp4");
     std::thread::Builder::new()
-        .name("pixvix-session".into())
+        .name("viziwiz-session".into())
         .spawn(move || {
             let opts = cap::VideoOpts {
                 height: 1080,
@@ -174,7 +174,7 @@ mod tests {
             },
         });
         log.log(&ShellEvent::FullBleedRequest(true));
-        log.log(&ShellEvent::PixvixSummon);
+        log.log(&ShellEvent::ViziwizSummon);
         assert_eq!(log.count(), 3);
 
         // Read back WHILE the log is still open — flushed-per-line is
@@ -189,7 +189,7 @@ mod tests {
         assert_eq!(lines[0]["hub"], "present");
         assert_eq!(lines[1]["type"], "full-bleed");
         assert_eq!(lines[1]["on"], true);
-        assert_eq!(lines[2]["type"], "pixvix-summon");
+        assert_eq!(lines[2]["type"], "viziwiz-summon");
         let ms: Vec<u64> = lines.iter().map(|l| l["ms"].as_u64().unwrap()).collect();
         assert!(ms.windows(2).all(|w| w[0] <= w[1]), "monotonic ms: {ms:?}");
     }

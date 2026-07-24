@@ -1,7 +1,7 @@
 //! The frozen-frame editor (C1) — region rect + freeform polygon over a
 //! `freeze_primary_to` still, in a borderless fullscreen viewport with
 //! the magnifier loupe. Split out of `lib.rs` in the C2 alignment pass;
-//! the owner (`Pixvix`) holds the state, this module paints and finishes.
+//! the owner (`Viziwiz`) holds the state, this module paints and finishes.
 
 use dpl_coldlight::{self as cl};
 use dpl_engine_capture as cap;
@@ -10,10 +10,10 @@ use egui_pilot_ai::protocol::{ActionKind as PilotActionKind, PilotViewportKey, R
 use egui_pilot_ai::{ContextPilotExt, NodeMetadata, PilotId, UiPilotExt};
 use std::path::PathBuf;
 
-use crate::{LastSnip, Pixvix, TONE};
+use crate::{LastSnip, Viziwiz, TONE};
 
-const REGION_KEY: &str = "devpulse.pixvix.region";
-const REGION_DRAG: PilotId = PilotId::new("pixvix.region.drag");
+const REGION_KEY: &str = "devpulse.viziwiz.region";
+const REGION_DRAG: PilotId = PilotId::new("viziwiz.region.drag");
 
 /// Which shape the frozen-frame editor is collecting (C1).
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -40,10 +40,10 @@ pub(crate) struct RegionSelect {
     poly: Vec<egui::Pos2>,
 }
 
-impl Pixvix {
+impl Viziwiz {
     pub(crate) fn begin_editor(&mut self, ctx: &egui::Context, mode: SnipMode) {
         let result = (|| -> Result<RegionSelect, String> {
-            let frozen = std::env::temp_dir().join("dpl-pixvix-freeze.png");
+            let frozen = std::env::temp_dir().join("dpl-viziwiz-freeze.png");
             cap::freeze_primary_to(&frozen)?;
             let img = image::open(&frozen).map_err(|e| format!("freeze decode: {e}"))?;
             let rgba = img.to_rgba8();
@@ -51,7 +51,7 @@ impl Pixvix {
                 [rgba.width() as usize, rgba.height() as usize],
                 &rgba,
             );
-            let tex = ctx.load_texture("pixvix-freeze", color, egui::TextureOptions::LINEAR);
+            let tex = ctx.load_texture("viziwiz-freeze", color, egui::TextureOptions::LINEAR);
             Ok(RegionSelect {
                 tex,
                 frozen,
@@ -76,7 +76,7 @@ impl Pixvix {
         let mut finish: Option<Done> = None;
         let region = self.region.as_mut().expect("region state");
         let builder = ViewportBuilder::default()
-            .with_title("PixVix region")
+            .with_title("ViziWiz region")
             .with_fullscreen(true)
             .with_always_on_top()
             .with_decorations(false);
@@ -84,7 +84,7 @@ impl Pixvix {
         let mut close_requested = false;
         ctx.pilot_show_viewport_immediate(
             PilotViewportKey::new(REGION_KEY),
-            ViewportId::from_hash_of("pixvix-region"),
+            ViewportId::from_hash_of("viziwiz-region"),
             builder,
             |ctx, _| {
                 close_requested = ctx.input(|input| input.viewport().close_requested());
@@ -103,7 +103,7 @@ impl Pixvix {
 
                         let resp = ui.interact(
                             full,
-                            egui::Id::new("pixvix-region-drag"),
+                            egui::Id::new("viziwiz-region-drag"),
                             Sense::click_and_drag(),
                         );
                         let state_word = match region.mode {
@@ -115,7 +115,7 @@ impl Pixvix {
                         let mut metadata = NodeMetadata::new(
                             REGION_DRAG,
                             PilotRole::Region,
-                            "PixVix snip selection",
+                            "ViziWiz snip selection",
                         )
                         .value(state_word);
                         metadata.actions = vec![PilotActionKind::Drag];
