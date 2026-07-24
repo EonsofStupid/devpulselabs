@@ -217,6 +217,291 @@ pub fn motion_preset(id: &str) -> Option<&'static MotionPreset> {
     MOTION_PRESETS.iter().find(|p| p.id == id)
 }
 
+// ── THE TRAIT SYSTEM (docs/design/doctrine.md) ──────────────────────────
+//
+// A trait is a STACKABLE partial look, authored in tokens/traits.json,
+// generated to traits_gen.rs, and resolved per-axis against a runtime Tone
+// by `compose`. Additive axes (shadows/back_glow/tints/anim) concatenate
+// across the stack; override axes (fill/edge/radius/ink/font) last-wins.
+// This is the original ColdLight trait compositor, ported: one pure fn →
+// a concrete `ResolvedStyle`, which the paint layer consumes.
+
+/// The base of a trait color ref, resolved at compose-time.
+#[derive(Debug, Clone, Copy)]
+pub enum ColorBase {
+    /// The surface Tone's ladder at this step (e.g. 400 fill, 700 edge).
+    ToneStep(u32),
+    /// A fixed pool hue at a step (cyber's cyan, retro's amber).
+    Hue(&'static str, u32),
+    /// A fixed color (a surface/ink slot, or black for shadows).
+    Fixed(Color32),
+}
+
+/// A trait color ref: a ladder-relative or fixed base, plus an alpha.
+#[derive(Debug, Clone, Copy)]
+pub struct ColorRef {
+    pub base: ColorBase,
+    pub alpha: u8,
+}
+
+/// The pool color at `hue`@`step`, or a loud debug fallback.
+fn step_on(hue: &str, step: u32) -> Color32 {
+    match (ramp(hue), step_index(step)) {
+        (Some(r), Some(i)) => r.steps[i],
+        _ => {
+            debug_assert!(false, "trait ref missing from pool: {hue}@{step}");
+            Color32::GRAY
+        }
+    }
+}
+
+impl ColorRef {
+    /// Resolve against the surface's tone and the generated pool.
+    pub fn resolve(self, tone: Tone) -> Color32 {
+        let base = match self.base {
+            ColorBase::ToneStep(step) => step_on(tone.hue_id(), step),
+            ColorBase::Hue(id, step) => step_on(id, step),
+            ColorBase::Fixed(c) => c,
+        };
+        if self.alpha == 255 {
+            base
+        } else {
+            Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), self.alpha)
+        }
+    }
+}
+
+/// A tone edge: a width + a color ref (override axis).
+#[derive(Debug, Clone, Copy)]
+pub struct EdgeSpec {
+    pub width: f32,
+    pub color: ColorRef,
+}
+
+/// A hard/soft shadow spec (additive axis) — egui geometry + a color ref.
+#[derive(Debug, Clone, Copy)]
+pub struct ShadowSpec {
+    pub offset: [i8; 2],
+    pub blur: u8,
+    pub spread: u8,
+    pub color: ColorRef,
+}
+
+/// A back-glow spec (additive) — the cheap painted "lit-from-behind" halo.
+#[derive(Debug, Clone, Copy)]
+pub struct GlowSpec {
+    pub color: ColorRef,
+    pub spread: f32,
+}
+
+/// A tint/wash layer (additive) — a directional gradient overlay.
+#[derive(Debug, Clone, Copy)]
+pub struct TintSpec {
+    pub color: ColorRef,
+    pub dir: f32,
+}
+
+/// The per-axis map of a trait (or a state overlay). Every field is Option:
+/// `None` means "this trait does not touch this axis".
+#[derive(Debug, Clone, Copy)]
+pub struct Axes {
+    pub fill: Option<ColorRef>,
+    pub edge: Option<EdgeSpec>,
+    pub radius: Option<u8>,
+    pub ink: Option<ColorRef>,
+    pub font: Option<&'static str>,
+    pub shadows: Option<&'static [ShadowSpec]>,
+    pub back_glow: Option<&'static [GlowSpec]>,
+    pub tints: Option<&'static [TintSpec]>,
+    pub anim: Option<&'static [&'static str]>,
+}
+
+/// A stackable trait: its base axes + optional hover/active state overlays.
+#[derive(Debug, Clone, Copy)]
+pub struct TraitDef {
+    pub id: &'static str,
+    /// base = neubrutalist/claymorphic (one per surface); stack = cyber/retro.
+    pub role: &'static str,
+    pub label: &'static str,
+    pub blurb: &'static str,
+    pub base: Axes,
+    pub hover: Option<Axes>,
+    pub active: Option<Axes>,
+}
+
+include!(concat!(env!("OUT_DIR"), "/traits_gen.rs"));
+
+/// The interaction state a surface is resolved in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TraitState {
+    Idle,
+    Hover,
+    Active,
+}
+
+/// A resolved back-glow (color already carries alpha; painter draws behind).
+#[derive(Debug, Clone, Copy)]
+pub struct Glow {
+    pub color: Color32,
+    pub spread: f32,
+}
+
+/// A resolved tint layer.
+#[derive(Debug, Clone, Copy)]
+pub struct Tint {
+    pub color: Color32,
+    pub dir: f32,
+}
+
+/// The concrete style a paint fn consumes — the compositor's output. Pure
+/// input → pure output, so it is cacheable by (tone, base, stack, state).
+#[derive(Debug, Clone, Default)]
+pub struct ResolvedStyle {
+    pub fill: Color32,
+    pub edge: Stroke,
+    pub radius: u8,
+    pub ink: Color32,
+    pub font: Option<&'static str>,
+    pub shadows: Vec<Shadow>,
+    pub back_glow: Vec<Glow>,
+    pub tints: Vec<Tint>,
+    pub anim: Vec<&'static str>,
+}
+
+/// A trait by id, or None (unknown → degrade, never panic).
+pub fn trait_def(id: &str) -> Option<&'static TraitDef> {
+    TRAITS.iter().find(|t| t.id == id)
+}
+
+/// A trait's axes for a state: the base overlaid by the state patch, where
+/// the patch REPLACES an axis it names (additive axes included) — so a
+/// hover shadow replaces the idle shadow rather than stacking on itself.
+fn merged(def: &TraitDef, state: TraitState) -> Axes {
+    let patch = match state {
+        TraitState::Idle => None,
+        TraitState::Hover => def.hover,
+        TraitState::Active => def.active,
+    };
+    match patch {
+        None => def.base,
+        Some(p) => Axes {
+            fill: p.fill.or(def.base.fill),
+            edge: p.edge.or(def.base.edge),
+            radius: p.radius.or(def.base.radius),
+            ink: p.ink.or(def.base.ink),
+            font: p.font.or(def.base.font),
+            shadows: p.shadows.or(def.base.shadows),
+            back_glow: p.back_glow.or(def.base.back_glow),
+            tints: p.tints.or(def.base.tints),
+            anim: p.anim.or(def.base.anim),
+        },
+    }
+}
+
+/// Compose a base trait + a stack of traits into a `ResolvedStyle`, resolved
+/// against `tone` and `state`. Override axes take the last trait that names
+/// them; additive axes concatenate every trait's contribution. Pure.
+pub fn compose(tone: Tone, base: &str, stack: &[&str], state: TraitState) -> ResolvedStyle {
+    let mut rs = ResolvedStyle::default();
+    for id in std::iter::once(base).chain(stack.iter().copied()) {
+        let Some(def) = trait_def(id) else {
+            debug_assert!(false, "unknown trait in stack: {id}");
+            continue;
+        };
+        let ax = merged(def, state);
+        if let Some(c) = ax.fill {
+            rs.fill = c.resolve(tone);
+        }
+        if let Some(e) = ax.edge {
+            rs.edge = Stroke::new(e.width, e.color.resolve(tone));
+        }
+        if let Some(r) = ax.radius {
+            rs.radius = r;
+        }
+        if let Some(c) = ax.ink {
+            rs.ink = c.resolve(tone);
+        }
+        if let Some(f) = ax.font {
+            rs.font = Some(f);
+        }
+        if let Some(shadows) = ax.shadows {
+            rs.shadows.extend(shadows.iter().map(|s| Shadow {
+                offset: s.offset,
+                blur: s.blur,
+                spread: s.spread,
+                color: s.color.resolve(tone),
+            }));
+        }
+        if let Some(glows) = ax.back_glow {
+            rs.back_glow.extend(glows.iter().map(|g| Glow {
+                color: g.color.resolve(tone),
+                spread: g.spread,
+            }));
+        }
+        if let Some(tints) = ax.tints {
+            rs.tints.extend(tints.iter().map(|t| Tint {
+                color: t.color.resolve(tone),
+                dir: t.dir,
+            }));
+        }
+        if let Some(anim) = ax.anim {
+            rs.anim.extend(anim.iter().copied());
+        }
+    }
+    rs
+}
+
+#[cfg(test)]
+mod trait_tests {
+    use super::*;
+
+    #[test]
+    fn every_trait_paints_something_in_every_state() {
+        for def in TRAITS {
+            for state in [TraitState::Idle, TraitState::Hover, TraitState::Active] {
+                let rs = compose(Tone::Lime, def.id, &[], state);
+                assert!(
+                    rs.edge.width > 0.0 || rs.fill.a() > 0,
+                    "trait {} state {state:?} paints nothing",
+                    def.id
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn additive_axes_concatenate_across_the_stack() {
+        // neubrutalist has 1 back-glow; cyber adds 2 → 3 total.
+        let base = compose(Tone::Cyan, "neubrutalist", &[], TraitState::Idle);
+        let stacked = compose(Tone::Cyan, "neubrutalist", &["cyber"], TraitState::Idle);
+        assert_eq!(base.back_glow.len(), 1);
+        assert_eq!(stacked.back_glow.len(), 3);
+    }
+
+    #[test]
+    fn override_axes_last_in_the_stack_wins() {
+        // cyber overrides the edge → stacked edge is cyan@400, not tone@700.
+        let stacked = compose(Tone::Lime, "neubrutalist", &["cyber"], TraitState::Idle);
+        assert_eq!(stacked.edge.color, step_on("cyan", 400));
+    }
+
+    #[test]
+    fn state_overlay_replaces_within_the_trait() {
+        let idle = compose(Tone::Amber, "neubrutalist", &[], TraitState::Idle);
+        let active = compose(Tone::Amber, "neubrutalist", &[], TraitState::Active);
+        assert_eq!(idle.shadows[0].offset, [3, 3]);
+        assert_eq!(active.shadows[0].offset, [1, 1]);
+    }
+
+    #[test]
+    fn tone_relative_fill_tracks_the_surface_tone() {
+        let lime = compose(Tone::Lime, "neubrutalist", &[], TraitState::Idle);
+        let cyan = compose(Tone::Cyan, "neubrutalist", &[], TraitState::Idle);
+        assert_ne!(lime.fill, cyan.fill);
+        assert_eq!(lime.fill, step_on("lime", 400));
+    }
+}
+
 /// Apply the dark theme once at boot.
 pub fn apply_theme(ctx: &egui::Context) {
     use egui::{FontFamily, FontId, TextStyle};
