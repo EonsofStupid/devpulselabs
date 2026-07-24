@@ -1,5 +1,5 @@
-id = "pixvix-multi-viewport"
-fixture = "pixvix"
+id = "viziwiz-multi-viewport"
+fixture = "viziwiz"
 record = true
 
 [[steps]]
@@ -10,7 +10,7 @@ type = "viewport"
 state = "open"
 
 [steps.expectation.viewport]
-key = "devpulse.pixvix.palette"
+key = "devpulse.viziwiz.palette"
 
 [[steps]]
 kind = "action"
@@ -19,7 +19,7 @@ kind = "action"
 type = "focus-viewport"
 
 [steps.action.viewport]
-key = "devpulse.pixvix.palette"
+key = "devpulse.viziwiz.palette"
 
 [[steps]]
 kind = "expect"
@@ -29,7 +29,7 @@ type = "viewport"
 state = "focused"
 
 [steps.expectation.viewport]
-key = "devpulse.pixvix.palette"
+key = "devpulse.viziwiz.palette"
 
 [[steps]]
 kind = "action"
@@ -42,7 +42,7 @@ role = "button"
 name = "Region"
 
 [steps.action.target.viewport]
-key = "devpulse.pixvix.palette"
+key = "devpulse.viziwiz.palette"
 
 [[steps]]
 kind = "expect"
@@ -52,7 +52,7 @@ type = "viewport"
 state = "open"
 
 [steps.expectation.viewport]
-key = "devpulse.pixvix.region"
+key = "devpulse.viziwiz.region"
 
 [[steps]]
 kind = "action"
@@ -61,7 +61,7 @@ kind = "action"
 type = "close-viewport"
 
 [steps.action.viewport]
-key = "devpulse.pixvix.region"
+key = "devpulse.viziwiz.region"
 
 [[steps]]
 kind = "expect"
@@ -71,7 +71,7 @@ type = "viewport"
 state = "closed"
 
 [steps.expectation.viewport]
-key = "devpulse.pixvix.region"
+key = "devpulse.viziwiz.region"
 
 [[steps]]
 kind = "action"
@@ -80,7 +80,7 @@ kind = "action"
 type = "close-viewport"
 
 [steps.action.viewport]
-key = "devpulse.pixvix.palette"
+key = "devpulse.viziwiz.palette"
 
 [[steps]]
 kind = "expect"
@@ -90,4 +90,4 @@ type = "viewport"
 state = "closed"
 
 [steps.expectation.viewport]
-key = "devpulse.pixvix.palette"
+key = "devpulse.viziwiz.palette"

@@ -117,46 +117,10 @@ pub const RADIUS_LG: u8 = 16;
 
 // ── the DESIGN LANGUAGE primitives (docs/design/doctrine.md) ────────────
 //
-// Two NAMED treatments, chosen deliberately, never mixed on one element:
-// BRUTAL for actionable chrome (chips, buttons, anything that DOES) and
-// CLAY for passive planes (wells, panels, cards that HOLD). Tooltips are
-// LAW: every interactive control ships one (`tip`). The doctrine doc is
-// the contract; these fns are its only implementation — surfaces never
-// hand-roll the treatments.
-
-/// Neubrutal actionable surface: thick tone edge, HARD offset shadow —
-/// zero blur, the shadow is a shape, not a glow. Flat fill. Punchy,
-/// honest, unmistakably tappable.
-pub fn brutal_frame(tone: Tone) -> egui::Frame {
-    egui::Frame::new()
-        .fill(surface::OVERLAY)
-        .stroke(Stroke::new(2.0, tone.color()))
-        .corner_radius(CornerRadius::same(RADIUS_SM))
-        .shadow(Shadow {
-            offset: [3, 3],
-            blur: 0,
-            spread: 0,
-            color: Color32::from_black_alpha(230),
-        })
-        .inner_margin(egui::Margin::symmetric(10, 6))
-}
-
-/// Claymorphic passive plane: soft extruded plate — generous radius,
-/// deep diffuse scatter, hairline edge. Calm and touchable; never a
-/// button.
-pub fn clay_frame() -> egui::Frame {
-    egui::Frame::new()
-        .fill(surface::RAISED)
-        .stroke(Stroke::new(1.0, surface::HAIRLINE))
-        .corner_radius(CornerRadius::same(RADIUS_LG))
-        .shadow(Shadow {
-            offset: [0, 10],
-            blur: 32,
-            spread: 4,
-            color: Color32::from_black_alpha(180),
-        })
-        .inner_margin(egui::Margin::same(16))
-}
+// The treatments are the composable TRAIT system below (neubrutalist/
+// claymorphic base + cyber/retro stack, resolved by `compose`). Surfaces
+// paint via `cl::treated(...)` / the `brutal`/`clay` shortcuts — never a
+// bespoke frame. `tip` stays here as the tooltip-law primitive.
 
 /// The tooltip LAW: every interactive control explains itself on hover.
 /// One call at every control site — a control without a `tip` is a
@@ -215,6 +179,419 @@ pub fn look_preset(id: &str) -> Option<&'static LookPreset> {
 
 pub fn motion_preset(id: &str) -> Option<&'static MotionPreset> {
     MOTION_PRESETS.iter().find(|p| p.id == id)
+}
+
+// ── THE TRAIT SYSTEM (docs/design/doctrine.md) ──────────────────────────
+//
+// A trait is a STACKABLE partial look, authored in tokens/traits.json,
+// generated to traits_gen.rs, and resolved per-axis against a runtime Tone
+// by `compose`. Additive axes (shadows/back_glow/tints/anim) concatenate
+// across the stack; override axes (fill/edge/radius/ink/font) last-wins.
+// This is the original ColdLight trait compositor, ported: one pure fn →
+// a concrete `ResolvedStyle`, which the paint layer consumes.
+
+/// The base of a trait color ref, resolved at compose-time.
+#[derive(Debug, Clone, Copy)]
+pub enum ColorBase {
+    /// The surface Tone's ladder at this step (e.g. 400 fill, 700 edge).
+    ToneStep(u32),
+    /// A fixed pool hue at a step (cyber's cyan, retro's amber).
+    Hue(&'static str, u32),
+    /// A fixed color (a surface/ink slot, or black for shadows).
+    Fixed(Color32),
+}
+
+/// A trait color ref: a ladder-relative or fixed base, plus an alpha.
+#[derive(Debug, Clone, Copy)]
+pub struct ColorRef {
+    pub base: ColorBase,
+    pub alpha: u8,
+}
+
+/// The pool color at `hue`@`step`, or a loud debug fallback.
+fn step_on(hue: &str, step: u32) -> Color32 {
+    match (ramp(hue), step_index(step)) {
+        (Some(r), Some(i)) => r.steps[i],
+        _ => {
+            debug_assert!(false, "trait ref missing from pool: {hue}@{step}");
+            Color32::GRAY
+        }
+    }
+}
+
+impl ColorRef {
+    /// Resolve against the surface's tone and the generated pool.
+    pub fn resolve(self, tone: Tone) -> Color32 {
+        let base = match self.base {
+            ColorBase::ToneStep(step) => step_on(tone.hue_id(), step),
+            ColorBase::Hue(id, step) => step_on(id, step),
+            ColorBase::Fixed(c) => c,
+        };
+        if self.alpha == 255 {
+            base
+        } else {
+            Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), self.alpha)
+        }
+    }
+}
+
+/// A tone edge: a width + a color ref (override axis).
+#[derive(Debug, Clone, Copy)]
+pub struct EdgeSpec {
+    pub width: f32,
+    pub color: ColorRef,
+}
+
+/// A hard/soft shadow spec (additive axis) — egui geometry + a color ref.
+#[derive(Debug, Clone, Copy)]
+pub struct ShadowSpec {
+    pub offset: [i8; 2],
+    pub blur: u8,
+    pub spread: u8,
+    pub color: ColorRef,
+}
+
+/// A back-glow spec (additive) — the cheap painted "lit-from-behind" halo.
+#[derive(Debug, Clone, Copy)]
+pub struct GlowSpec {
+    pub color: ColorRef,
+    pub spread: f32,
+}
+
+/// A tint/wash layer (additive) — a directional gradient overlay.
+#[derive(Debug, Clone, Copy)]
+pub struct TintSpec {
+    pub color: ColorRef,
+    pub dir: f32,
+}
+
+/// The per-axis map of a trait (or a state overlay). Every field is Option:
+/// `None` means "this trait does not touch this axis".
+#[derive(Debug, Clone, Copy)]
+pub struct Axes {
+    pub fill: Option<ColorRef>,
+    pub edge: Option<EdgeSpec>,
+    pub radius: Option<u8>,
+    pub ink: Option<ColorRef>,
+    pub font: Option<&'static str>,
+    pub shadows: Option<&'static [ShadowSpec]>,
+    pub back_glow: Option<&'static [GlowSpec]>,
+    pub tints: Option<&'static [TintSpec]>,
+    pub anim: Option<&'static [&'static str]>,
+}
+
+/// A stackable trait: its base axes + optional hover/active state overlays.
+#[derive(Debug, Clone, Copy)]
+pub struct TraitDef {
+    pub id: &'static str,
+    /// base = neubrutalist/claymorphic (one per surface); stack = cyber/retro.
+    pub role: &'static str,
+    pub label: &'static str,
+    pub blurb: &'static str,
+    pub base: Axes,
+    pub hover: Option<Axes>,
+    pub active: Option<Axes>,
+}
+
+include!(concat!(env!("OUT_DIR"), "/traits_gen.rs"));
+
+/// The interaction state a surface is resolved in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TraitState {
+    Idle,
+    Hover,
+    Active,
+}
+
+/// A resolved back-glow (color already carries alpha; painter draws behind).
+#[derive(Debug, Clone, Copy)]
+pub struct Glow {
+    pub color: Color32,
+    pub spread: f32,
+}
+
+/// A resolved tint layer.
+#[derive(Debug, Clone, Copy)]
+pub struct Tint {
+    pub color: Color32,
+    pub dir: f32,
+}
+
+/// The concrete style a paint fn consumes — the compositor's output. Pure
+/// input → pure output, so it is cacheable by (tone, base, stack, state).
+#[derive(Debug, Clone, Default)]
+pub struct ResolvedStyle {
+    pub fill: Color32,
+    pub edge: Stroke,
+    pub radius: u8,
+    pub ink: Color32,
+    pub font: Option<&'static str>,
+    pub shadows: Vec<Shadow>,
+    pub back_glow: Vec<Glow>,
+    pub tints: Vec<Tint>,
+    pub anim: Vec<&'static str>,
+}
+
+/// A trait by id, or None (unknown → degrade, never panic).
+pub fn trait_def(id: &str) -> Option<&'static TraitDef> {
+    TRAITS.iter().find(|t| t.id == id)
+}
+
+/// A trait's axes for a state: the base overlaid by the state patch, where
+/// the patch REPLACES an axis it names (additive axes included) — so a
+/// hover shadow replaces the idle shadow rather than stacking on itself.
+fn merged(def: &TraitDef, state: TraitState) -> Axes {
+    let patch = match state {
+        TraitState::Idle => None,
+        TraitState::Hover => def.hover,
+        TraitState::Active => def.active,
+    };
+    match patch {
+        None => def.base,
+        Some(p) => Axes {
+            fill: p.fill.or(def.base.fill),
+            edge: p.edge.or(def.base.edge),
+            radius: p.radius.or(def.base.radius),
+            ink: p.ink.or(def.base.ink),
+            font: p.font.or(def.base.font),
+            shadows: p.shadows.or(def.base.shadows),
+            back_glow: p.back_glow.or(def.base.back_glow),
+            tints: p.tints.or(def.base.tints),
+            anim: p.anim.or(def.base.anim),
+        },
+    }
+}
+
+/// Compose a base trait + a stack of traits into a `ResolvedStyle`, resolved
+/// against `tone` and `state`. Override axes take the last trait that names
+/// them; additive axes concatenate every trait's contribution. Pure.
+pub fn compose(tone: Tone, base: &str, stack: &[&str], state: TraitState) -> ResolvedStyle {
+    let mut rs = ResolvedStyle::default();
+    for id in std::iter::once(base).chain(stack.iter().copied()) {
+        let Some(def) = trait_def(id) else {
+            debug_assert!(false, "unknown trait in stack: {id}");
+            continue;
+        };
+        let ax = merged(def, state);
+        if let Some(c) = ax.fill {
+            rs.fill = c.resolve(tone);
+        }
+        if let Some(e) = ax.edge {
+            rs.edge = Stroke::new(e.width, e.color.resolve(tone));
+        }
+        if let Some(r) = ax.radius {
+            rs.radius = r;
+        }
+        if let Some(c) = ax.ink {
+            rs.ink = c.resolve(tone);
+        }
+        if let Some(f) = ax.font {
+            rs.font = Some(f);
+        }
+        if let Some(shadows) = ax.shadows {
+            rs.shadows.extend(shadows.iter().map(|s| Shadow {
+                offset: s.offset,
+                blur: s.blur,
+                spread: s.spread,
+                color: s.color.resolve(tone),
+            }));
+        }
+        if let Some(glows) = ax.back_glow {
+            rs.back_glow.extend(glows.iter().map(|g| Glow {
+                color: g.color.resolve(tone),
+                spread: g.spread,
+            }));
+        }
+        if let Some(tints) = ax.tints {
+            rs.tints.extend(tints.iter().map(|t| Tint {
+                color: t.color.resolve(tone),
+                dir: t.dir,
+            }));
+        }
+        if let Some(anim) = ax.anim {
+            rs.anim.extend(anim.iter().copied());
+        }
+    }
+    rs
+}
+
+impl ResolvedStyle {
+    /// The shapes painted BEHIND the frame: the back-glow (a cheap concentric
+    /// falloff — no blur, doctrine — so a saturated surface reads as "lit from
+    /// directly behind"), plus any directional shadows beyond the first (the
+    /// frame itself paints fill/edge/radius/primary-shadow). Pure + testable.
+    pub fn behind_shapes(&self, rect: Rect) -> Vec<egui::Shape> {
+        const GLOW_STEPS: usize = 5;
+        let cr = CornerRadius::same(self.radius);
+        let mut shapes: Vec<egui::Shape> = Vec::new();
+        for glow in &self.back_glow {
+            // Faintest, widest ring first; strongest ring hugs the rect last.
+            for i in (0..GLOW_STEPS).rev() {
+                let t = (i as f32 + 1.0) / GLOW_STEPS as f32;
+                let alpha = (f32::from(glow.color.a()) * (1.0 - t) * 0.9) as u8;
+                if alpha == 0 {
+                    continue;
+                }
+                let c = Color32::from_rgba_unmultiplied(
+                    glow.color.r(),
+                    glow.color.g(),
+                    glow.color.b(),
+                    alpha,
+                );
+                let expand = glow.spread * t;
+                shapes.push(egui::Shape::rect_filled(
+                    rect.expand(expand),
+                    CornerRadius::same(self.radius.saturating_add(expand as u8)),
+                    c,
+                ));
+            }
+        }
+        // Directional shadows beyond the primary (e.g. claymorphic's light).
+        for sh in self.shadows.iter().skip(1) {
+            shapes.push(egui::Shape::from(sh.as_shape(rect, cr)));
+        }
+        shapes
+    }
+}
+
+/// A treated surface: resolves a trait stack and paints the FULL treatment
+/// (back-glow + shadows + fill + edge + tints) behind its content. The
+/// drop-in successor to `brutal_frame`/`clay_frame` — `.show(ui, |ui| …)`.
+pub struct Treated {
+    tone: Tone,
+    base: &'static str,
+    stack: &'static [&'static str],
+    state: TraitState,
+    margin: egui::Margin,
+}
+
+/// Begin a treated surface with an explicit trait stack + state.
+pub fn treated(
+    tone: Tone,
+    base: &'static str,
+    stack: &'static [&'static str],
+    state: TraitState,
+) -> Treated {
+    let margin = if base == "claymorphic" {
+        egui::Margin::same(16)
+    } else {
+        egui::Margin::symmetric(10, 6)
+    };
+    Treated {
+        tone,
+        base,
+        stack,
+        state,
+        margin,
+    }
+}
+
+/// The neubrutalist actionable surface (idle). Successor to `brutal_frame`.
+pub fn brutal(tone: Tone) -> Treated {
+    treated(tone, "neubrutalist", &[], TraitState::Idle)
+}
+
+/// The claymorphic passive plane. Successor to `clay_frame`. Claymorphic
+/// uses only fixed surface/ink refs, so the tone is inert here.
+pub fn clay() -> Treated {
+    treated(Tone::Cyan, "claymorphic", &[], TraitState::Idle)
+}
+
+impl Treated {
+    /// Override the content inset.
+    pub fn margin(mut self, margin: egui::Margin) -> Self {
+        self.margin = margin;
+        self
+    }
+
+    /// Paint the treatment behind `add_contents`. Returns the content's
+    /// `InnerResponse`, so call sites keep their `.response` usage. The frame
+    /// paints fill/edge/radius/primary-shadow (egui's proven background path);
+    /// the back-glow + directional shadows paint into a slot reserved behind.
+    pub fn show<R>(
+        self,
+        ui: &mut egui::Ui,
+        add_contents: impl FnOnce(&mut egui::Ui) -> R,
+    ) -> egui::InnerResponse<R> {
+        let style = compose(self.tone, self.base, self.stack, self.state);
+        let behind = ui.painter().add(egui::Shape::Noop);
+        let mut frame = egui::Frame::new()
+            .fill(style.fill)
+            .stroke(style.edge)
+            .corner_radius(CornerRadius::same(style.radius))
+            .inner_margin(self.margin);
+        if let Some(shadow) = style.shadows.first() {
+            frame = frame.shadow(*shadow);
+        }
+        let inner = frame.show(ui, add_contents);
+        let shapes = style.behind_shapes(inner.response.rect);
+        if !shapes.is_empty() {
+            ui.painter().set(behind, egui::Shape::Vec(shapes));
+        }
+        inner
+    }
+}
+
+#[cfg(test)]
+mod trait_tests {
+    use super::*;
+
+    #[test]
+    fn every_trait_paints_something_in_every_state() {
+        for def in TRAITS {
+            for state in [TraitState::Idle, TraitState::Hover, TraitState::Active] {
+                let rs = compose(Tone::Lime, def.id, &[], state);
+                assert!(
+                    rs.edge.width > 0.0 || rs.fill.a() > 0,
+                    "trait {} state {state:?} paints nothing",
+                    def.id
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn additive_axes_concatenate_across_the_stack() {
+        // neubrutalist has 1 back-glow; cyber adds 2 → 3 total.
+        let base = compose(Tone::Cyan, "neubrutalist", &[], TraitState::Idle);
+        let stacked = compose(Tone::Cyan, "neubrutalist", &["cyber"], TraitState::Idle);
+        assert_eq!(base.back_glow.len(), 1);
+        assert_eq!(stacked.back_glow.len(), 3);
+    }
+
+    #[test]
+    fn override_axes_last_in_the_stack_wins() {
+        // cyber overrides the edge → stacked edge is cyan@400, not tone@700.
+        let stacked = compose(Tone::Lime, "neubrutalist", &["cyber"], TraitState::Idle);
+        assert_eq!(stacked.edge.color, step_on("cyan", 400));
+    }
+
+    #[test]
+    fn state_overlay_replaces_within_the_trait() {
+        let idle = compose(Tone::Amber, "neubrutalist", &[], TraitState::Idle);
+        let active = compose(Tone::Amber, "neubrutalist", &[], TraitState::Active);
+        assert_eq!(idle.shadows[0].offset, [3, 3]);
+        assert_eq!(active.shadows[0].offset, [1, 1]);
+    }
+
+    #[test]
+    fn tone_relative_fill_tracks_the_surface_tone() {
+        let lime = compose(Tone::Lime, "neubrutalist", &[], TraitState::Idle);
+        let cyan = compose(Tone::Cyan, "neubrutalist", &[], TraitState::Idle);
+        assert_ne!(lime.fill, cyan.fill);
+        assert_eq!(lime.fill, step_on("lime", 400));
+    }
+
+    #[test]
+    fn neubrutalist_paints_a_back_glow() {
+        let s = compose(Tone::Lime, "neubrutalist", &[], TraitState::Idle);
+        let rect = Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(100.0, 40.0));
+        // neubrutalist authors one back-glow → concentric rings behind.
+        assert!(
+            !s.behind_shapes(rect).is_empty(),
+            "neubrutalist should paint a back-glow behind the frame"
+        );
+    }
 }
 
 /// Apply the dark theme once at boot.

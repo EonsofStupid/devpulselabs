@@ -93,6 +93,7 @@ fn main() {
     println!("cargo:rerun-if-changed=tokens/fonts.json");
     println!("cargo:rerun-if-changed=assets/fonts");
     println!("cargo:rerun-if-changed=tokens/presets.json");
+    println!("cargo:rerun-if-changed=tokens/traits.json");
     let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR");
 
     generate_ramps(&out_dir);
@@ -102,6 +103,7 @@ fn main() {
     generate_moods(&out_dir);
     generate_fonts(&out_dir);
     generate_presets(&out_dir);
+    generate_traits(&out_dir);
 }
 
 // ── fonts — the vendored pool (the 5th token source) ────────────────────
@@ -672,4 +674,213 @@ fn generate_presets(out_dir: &str) {
     .unwrap();
 
     std::fs::write(Path::new(out_dir).join("presets_gen.rs"), code).expect("write presets_gen.rs");
+}
+
+// ── traits — the stackable partial looks (docs/design/doctrine.md) ───────
+
+/// tokens/traits.json → the TRAITS registry. A trait is DATA: per-axis
+/// specs whose color refs are LADDER-RELATIVE ({tone:STEP}) or fixed pool
+/// refs ({hue:ID,step:STEP}) or slots — resolved against a runtime Tone by
+/// the compositor in src. Hue/step refs are cross-validated HERE against the
+/// generated pool + LADDER_STEPS (unknown → build fails), the same
+/// manifest⇄truth law fonts/presets use. NOTE: `anim` refs are carried
+/// verbatim (deferred vocabulary) and not yet cross-checked against motion.
+fn generate_traits(out_dir: &str) {
+    let raw = std::fs::read_to_string("tokens/traits.json").expect("read traits.json");
+    let doc: serde_json::Value = serde_json::from_str(&raw).expect("parse traits.json");
+    let traits = doc["traits"].as_array().expect("traits.json: traits[]");
+    assert!(!traits.is_empty(), "traits.json: empty");
+
+    // Valid hue ids — collected from the same source generate_ramps reads.
+    let hues_doc: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string("tokens/hues.json").expect("read hues.json"))
+            .expect("parse hues.json");
+    let mut hue_ids: Vec<String> = Vec::new();
+    for group in hues_doc["groups"]
+        .as_object()
+        .expect("hues.json: groups")
+        .values()
+    {
+        for hue in group["hues"].as_array().expect("group.hues") {
+            hue_ids.push(hue["id"].as_str().expect("hue.id").to_string());
+        }
+    }
+
+    const SURF_SLOTS: [&str; 5] = ["WELL", "BASE", "RAISED", "OVERLAY", "HAIRLINE"];
+    const INK_SLOTS: [&str; 5] = ["STRONG", "BASE", "MUTED", "SUBTLE", "ANNOTATE"];
+
+    // A color ref JSON → a `ColorRef` Rust expression. Validates every ref.
+    let color_ref = |v: &serde_json::Value, ctx: &str| -> String {
+        let alpha = v.get("alpha").and_then(|a| a.as_u64()).unwrap_or(255);
+        assert!(alpha <= 255, "{ctx}: alpha {alpha} > 255");
+        let base = if let Some(step) = v.get("tone").and_then(|s| s.as_u64()) {
+            assert!(
+                LADDER_STEPS.contains(&(step as u32)),
+                "{ctx}: tone step {step} not in LADDER_STEPS"
+            );
+            format!("ColorBase::ToneStep({step})")
+        } else if let Some(hue) = v.get("hue").and_then(|h| h.as_str()) {
+            let step = v
+                .get("step")
+                .and_then(|s| s.as_u64())
+                .unwrap_or_else(|| panic!("{ctx}: hue ref needs a step"));
+            assert!(
+                hue_ids.iter().any(|h| h == hue),
+                "{ctx}: unknown hue {hue:?}"
+            );
+            assert!(
+                LADDER_STEPS.contains(&(step as u32)),
+                "{ctx}: hue step {step} not in LADDER_STEPS"
+            );
+            format!("ColorBase::Hue({hue:?}, {step})")
+        } else if let Some(slot) = v.get("surface").and_then(|s| s.as_str()) {
+            assert!(
+                SURF_SLOTS.contains(&slot),
+                "{ctx}: unknown surface slot {slot:?}"
+            );
+            format!("ColorBase::Fixed(surface::{slot})")
+        } else if let Some(slot) = v.get("ink").and_then(|s| s.as_str()) {
+            assert!(
+                INK_SLOTS.contains(&slot),
+                "{ctx}: unknown ink slot {slot:?}"
+            );
+            format!("ColorBase::Fixed(ink::{slot})")
+        } else if v.get("black").and_then(|b| b.as_bool()).unwrap_or(false) {
+            "ColorBase::Fixed(egui::Color32::BLACK)".to_string()
+        } else {
+            panic!("{ctx}: color ref names no base ({v})");
+        };
+        format!("ColorRef {{ base: {base}, alpha: {alpha} }}")
+    };
+
+    let f32_lit = |v: f64| format!("{}f32", v as f32);
+
+    // An axes JSON object → an `Axes { .. }` Rust expression (every field Option).
+    let axes = |o: &serde_json::Value, ctx: &str| -> String {
+        let opt_color = |key: &str| match o.get(key) {
+            Some(v) => format!("Some({})", color_ref(v, &format!("{ctx}.{key}"))),
+            None => "None".to_string(),
+        };
+        let edge = match o.get("edge") {
+            Some(e) => format!(
+                "Some(EdgeSpec {{ width: {}, color: {} }})",
+                f32_lit(e["width"].as_f64().expect("edge.width")),
+                color_ref(&e["color"], &format!("{ctx}.edge"))
+            ),
+            None => "None".to_string(),
+        };
+        let radius = match o.get("radius").and_then(|r| r.as_u64()) {
+            Some(r) => format!("Some({r})"),
+            None => "None".to_string(),
+        };
+        let font = match o.get("font").and_then(|f| f.as_str()) {
+            Some(f) => format!("Some({f:?})"),
+            None => "None".to_string(),
+        };
+        let shadows = match o.get("shadows").and_then(|s| s.as_array()) {
+            Some(arr) => {
+                let items: Vec<String> = arr
+                    .iter()
+                    .map(|s| {
+                        let off = s["offset"].as_array().expect("shadow.offset");
+                        format!(
+                            "ShadowSpec {{ offset: [{}, {}], blur: {}, spread: {}, color: {} }}",
+                            off[0].as_i64().expect("offset.0"),
+                            off[1].as_i64().expect("offset.1"),
+                            s["blur"].as_u64().expect("shadow.blur"),
+                            s["spread"].as_u64().expect("shadow.spread"),
+                            color_ref(&s["color"], &format!("{ctx}.shadow"))
+                        )
+                    })
+                    .collect();
+                format!("Some(&[{}])", items.join(", "))
+            }
+            None => "None".to_string(),
+        };
+        let back_glow = match o.get("back_glow").and_then(|s| s.as_array()) {
+            Some(arr) => {
+                let items: Vec<String> = arr
+                    .iter()
+                    .map(|g| {
+                        format!(
+                            "GlowSpec {{ color: {}, spread: {} }}",
+                            color_ref(&g["color"], &format!("{ctx}.back_glow")),
+                            f32_lit(g["spread"].as_f64().expect("glow.spread"))
+                        )
+                    })
+                    .collect();
+                format!("Some(&[{}])", items.join(", "))
+            }
+            None => "None".to_string(),
+        };
+        let tints = match o.get("tints").and_then(|s| s.as_array()) {
+            Some(arr) => {
+                let items: Vec<String> = arr
+                    .iter()
+                    .map(|t| {
+                        format!(
+                            "TintSpec {{ color: {}, dir: {} }}",
+                            color_ref(&t["color"], &format!("{ctx}.tint")),
+                            f32_lit(t["dir"].as_f64().expect("tint.dir"))
+                        )
+                    })
+                    .collect();
+                format!("Some(&[{}])", items.join(", "))
+            }
+            None => "None".to_string(),
+        };
+        let anim = match o.get("anim").and_then(|s| s.as_array()) {
+            Some(arr) => {
+                let items: Vec<String> = arr
+                    .iter()
+                    .map(|a| format!("{:?}", a.as_str().expect("anim id")))
+                    .collect();
+                format!("Some(&[{}])", items.join(", "))
+            }
+            None => "None".to_string(),
+        };
+        format!(
+            "Axes {{ fill: {}, edge: {edge}, radius: {radius}, ink: {}, font: {font}, \
+             shadows: {shadows}, back_glow: {back_glow}, tints: {tints}, anim: {anim} }}",
+            opt_color("fill"),
+            opt_color("ink")
+        )
+    };
+
+    let mut code = String::new();
+    writeln!(
+        code,
+        "// GENERATED by build.rs from tokens/traits.json — DO NOT EDIT."
+    )
+    .unwrap();
+    writeln!(code, "pub static TRAITS: &[TraitDef] = &[").unwrap();
+    for t in traits {
+        let id = t["id"].as_str().expect("trait.id");
+        let role = t["role"].as_str().expect("trait.role");
+        assert!(
+            matches!(role, "base" | "stack"),
+            "trait {id}: role must be base|stack, got {role:?}"
+        );
+        let label = t["label"].as_str().expect("trait.label");
+        let blurb = t["blurb"].as_str().expect("trait.blurb");
+        let base = axes(t, &format!("trait[{id}]"));
+        let hover = match t.get("hover") {
+            Some(h) => format!("Some({})", axes(h, &format!("trait[{id}].hover"))),
+            None => "None".to_string(),
+        };
+        let active = match t.get("active") {
+            Some(a) => format!("Some({})", axes(a, &format!("trait[{id}].active"))),
+            None => "None".to_string(),
+        };
+        writeln!(
+            code,
+            "    TraitDef {{ id: {id:?}, role: {role:?}, label: {label:?}, blurb: {blurb:?}, \
+             base: {base}, hover: {hover}, active: {active} }},"
+        )
+        .unwrap();
+    }
+    writeln!(code, "];").unwrap();
+    writeln!(code, "pub const TRAIT_COUNT: usize = {};", traits.len()).unwrap();
+
+    std::fs::write(Path::new(out_dir).join("traits_gen.rs"), code).expect("write traits_gen.rs");
 }

@@ -74,7 +74,7 @@ impl ChatWindowCoordinator {
                         target,
                         action: AppWindowAction::OpenOrFocus,
                     } if target == dpl_chat_window::WINDOW_KEY => open_requested = true,
-                    ShellEvent::PixvixSummon
+                    ShellEvent::ViziwizSummon
                     | ShellEvent::FullBleedRequest(_)
                     | ShellEvent::NavigateRequest { .. }
                     | ShellEvent::WindowRequest { .. } => {}

@@ -100,12 +100,7 @@ pub mod placeholder {
             let active = sub.id == route.sub;
             // Doctrine: the card body is CLAY (it holds); the tappable
             // affordance is the hover's tone edge + the tip.
-            let frame = if active {
-                cl::scatter_frame(spec.tone)
-            } else {
-                cl::clay_frame()
-            };
-            let resp = frame.show(ui, |ui| {
+            let body = |ui: &mut egui::Ui| {
                 ui.set_width(ui.available_width().min(560.0));
                 ui.horizontal(|ui| {
                     if active {
@@ -118,7 +113,12 @@ pub mod placeholder {
                     }));
                 });
                 ui.label(RichText::new(sub.blurb).small().color(cl::ink::MUTED));
-            });
+            };
+            let resp = if active {
+                cl::scatter_frame(spec.tone).show(ui, body)
+            } else {
+                cl::clay().show(ui, body)
+            };
             if active {
                 // The gradient tint: painted over the card's top band.
                 cl::gradient_tint(ui.painter(), resp.response.rect, spec.tone);

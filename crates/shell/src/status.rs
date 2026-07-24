@@ -23,7 +23,7 @@ pub enum Lane {
 /// shell — they answer, the shell acts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StatusAction {
-    /// Summon the PixVix overlay (the Snip launcher).
+    /// Summon the ViziWiz overlay (the Snip launcher).
     Snip,
     /// Ask the app owner to open, restore, and focus a native window.
     Window(AppWindowKey),

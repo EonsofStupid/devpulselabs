@@ -1215,7 +1215,7 @@ pub fn capability_catalog() -> Vec<CapabilityDescriptor> {
         supported(
             id::VIEWPORT_IMMEDIATE,
             "declared immediate viewport registration",
-            "pixvix-real-process",
+            "viziwiz-real-process",
         ),
         supported(
             id::VIEWPORT_DEFERRED,

@@ -379,7 +379,7 @@ fn finish(out_dir: &Path, stem: &str, rec: Result<u32, String>) -> CaptureResult
     }
 }
 
-// ── Pass X: PixVix target enumeration + stills + record-to-path API ─────────
+// ── Pass X: ViziWiz target enumeration + stills + record-to-path API ─────────
 //
 // The app layer owns filing (inbox + sidecar metadata); these functions take
 // RESOLVED OUTPUT PATHS and a concrete target. Window clips are a per-frame

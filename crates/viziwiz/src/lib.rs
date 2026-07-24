@@ -1,4 +1,4 @@
-//! PixVix — the capture overlay (PV2), rebuilt in egui on the ported
+//! ViziWiz — the capture overlay (PV2), rebuilt in egui on the ported
 //! engines. The palette is a compact ALWAYS-ON-TOP viewport with the old
 //! four tabs (Img · Video · Session · Steps); region select is a borderless
 //! fullscreen viewport over the FROZEN frame (`freeze_primary_to`) with the
@@ -25,7 +25,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 pub(crate) const TONE: Tone = Tone::Magenta; // wiredFRONT's tone — the capture family.
-const PALETTE_KEY: &str = "devpulse.pixvix.palette";
+const PALETTE_KEY: &str = "devpulse.viziwiz.palette";
 
 mod editor;
 mod palette;
@@ -91,7 +91,7 @@ pub(crate) struct PendingGuide {
     pub(crate) episode: String,
 }
 
-pub struct Pixvix {
+pub struct Viziwiz {
     open: bool,
     tab: Tab,
     status: String,
@@ -121,7 +121,7 @@ pub struct Pixvix {
     /// ffmpeg-enumerated audio devices; filled when audio leaves Silent.
     audio_devices: Vec<String>,
     picked_audio: usize,
-    /// The capture delay in seconds — one chip cycles 0 → 3 → 10 (C1).
+    /// The capture delay in seconds — one chip cycles 0 → 3 → 5 → 10 (C1).
     delay: u8,
     /// A snap waiting out the delay; the status line counts it down.
     delay_armed: Option<(Instant, PendingSnip)>,
@@ -129,7 +129,7 @@ pub struct Pixvix {
     last: Option<LastSnip>,
 }
 
-impl Pixvix {
+impl Viziwiz {
     pub fn new(fabric: &Fabric) -> Self {
         let steps_note = Arc::new(Mutex::new(String::new()));
         let note = Arc::clone(&steps_note);
@@ -173,7 +173,7 @@ impl Pixvix {
     /// a status-line suffix instead.
     fn index_capture(path: &Path, kind: &str) -> String {
         let root = cap::content_root();
-        let record = dpl_index::record_for_capture(path, &root, kind, "pixvix");
+        let record = dpl_index::record_for_capture(path, &root, kind, "viziwiz");
         let result = dpl_index::sidecar::write(path, &record)
             .and_then(|()| dpl_index::Index::open_default()?.upsert(&record));
         match result {
@@ -187,7 +187,7 @@ impl Pixvix {
     /// like the old `index_saved`. Same degrade law as `index_capture`.
     fn index_guide(path: &Path, meta: &CaptureMeta) -> String {
         let root = cap::content_root();
-        let mut record = dpl_index::record_for_capture(path, &root, "guide", "pixvix");
+        let mut record = dpl_index::record_for_capture(path, &root, "guide", "viziwiz");
         record.tags = meta.tags.clone();
         if !meta.library {
             record.show_id = Some(meta.show.clone());
@@ -205,7 +205,7 @@ impl Pixvix {
     /// convention poster when it exists (C3; same degrade law).
     fn index_video(out: &Path) -> String {
         let root = cap::content_root();
-        let mut record = dpl_index::record_for_capture(out, &root, "video", "pixvix");
+        let mut record = dpl_index::record_for_capture(out, &root, "video", "viziwiz");
         let poster = Self::poster_path(out);
         if poster.is_file() {
             if let Some(name) = poster.file_name() {
@@ -274,13 +274,13 @@ impl Pixvix {
         self.open = !self.open;
     }
 
-    /// Harness: open the palette at boot (`--pixvix`).
+    /// Harness: open the palette at boot (`--viziwiz`).
     pub fn open_now(&mut self) {
         self.open = true;
     }
 
     /// Harness: fire the Img/Full action through the real handler and
-    /// report the status line (`--pixvix-snap` — Law 2 without a mouse).
+    /// report the status line (`--viziwiz-snap` — Law 2 without a mouse).
     pub fn snap_full_now(&mut self, ctx: &egui::Context) -> &str {
         self.snap_full(ctx);
         &self.status
@@ -608,7 +608,7 @@ impl Pixvix {
                 max_seconds: cap_secs,
             };
             std::thread::Builder::new()
-                .name("pixvix-video".into())
+                .name("viziwiz-video".into())
                 .spawn(move || {
                     let r = cap::record_ctl_to(&t_out.to_string_lossy(), target, &opts, &t_stop);
                     if r.is_ok() {
@@ -714,7 +714,7 @@ impl Pixvix {
     /// status-line degrade law as `index_capture`.
     fn index_session(dir: &Path) -> String {
         let root = cap::content_root();
-        let mut record = dpl_index::record_for_capture(dir, &root, "session", "pixvix");
+        let mut record = dpl_index::record_for_capture(dir, &root, "session", "viziwiz");
         if dir.join("session.jpg").is_file() {
             record.poster_rel_path = Some(format!("{}/session.jpg", record.rel_path));
         }
@@ -749,7 +749,7 @@ impl Pixvix {
     pub fn ui(&mut self, ctx: &egui::Context) {
         self.wire_hotkeys(ctx);
         while let Ok(ev) = self.rx.try_recv() {
-            if ev == ShellEvent::PixvixSummon {
+            if ev == ShellEvent::ViziwizSummon {
                 self.open = true;
             }
         }
@@ -844,7 +844,7 @@ impl Pixvix {
             egui::vec2(380.0, 240.0)
         };
         let builder = ViewportBuilder::default()
-            .with_title("PixVix")
+            .with_title("ViziWiz")
             .with_inner_size(size)
             .with_always_on_top()
             .with_decorations(false)
@@ -886,7 +886,7 @@ impl Pixvix {
         let mut close_requested = false;
         ctx.pilot_show_viewport_immediate(
             PilotViewportKey::new(PALETTE_KEY),
-            ViewportId::from_hash_of("pixvix"),
+            ViewportId::from_hash_of("viziwiz"),
             builder,
             |ctx, _| {
                 close_requested = ctx.input(|input| input.viewport().close_requested());
@@ -949,7 +949,8 @@ impl Pixvix {
         if actions.cycle_delay {
             self.delay = match self.delay {
                 0 => 3,
-                3 => 10,
+                3 => 5,
+                5 => 10,
                 _ => 0,
             };
             self.status = if self.delay == 0 {
@@ -1069,16 +1070,16 @@ mod tests {
 
     #[test]
     fn unique_path_never_clobbers() {
-        let dir = std::env::temp_dir().join(format!("dpl-pixvix-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("dpl-viziwiz-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let first = Pixvix::unique_path(&dir, "pix", "png");
+        let first = Viziwiz::unique_path(&dir, "pix", "png");
         assert!(first.ends_with("pix.png"));
         std::fs::write(&first, b"x").unwrap();
-        let second = Pixvix::unique_path(&dir, "pix", "png");
+        let second = Viziwiz::unique_path(&dir, "pix", "png");
         assert!(second.ends_with("pix-2.png"), "{second:?}");
         std::fs::write(&second, b"x").unwrap();
-        assert!(Pixvix::unique_path(&dir, "pix", "png").ends_with("pix-3.png"));
+        assert!(Viziwiz::unique_path(&dir, "pix", "png").ends_with("pix-3.png"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1087,16 +1088,16 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("dpl-vix-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let first = Pixvix::unique_video_path(&dir, "mp4");
+        let first = Viziwiz::unique_video_path(&dir, "mp4");
         assert!(first.ends_with("vix.mp4"));
         std::fs::write(&first, b"x").unwrap();
-        std::fs::write(Pixvix::poster_path(&first), b"x").unwrap();
-        let second = Pixvix::unique_video_path(&dir, "webm");
+        std::fs::write(Viziwiz::poster_path(&first), b"x").unwrap();
+        let second = Viziwiz::unique_video_path(&dir, "webm");
         assert!(
             second.ends_with("vix-2.webm"),
             "a webm must not reuse the mp4's stem (poster collision): {second:?}"
         );
-        assert!(Pixvix::poster_path(&second).ends_with("vix-2-poster.jpg"));
+        assert!(Viziwiz::poster_path(&second).ends_with("vix-2-poster.jpg"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

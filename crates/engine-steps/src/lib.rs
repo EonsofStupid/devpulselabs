@@ -1,4 +1,4 @@
-//! Steps recorder engine — the PixVix "Steps" capability, ported from the
+//! Steps recorder engine — the ViziWiz "Steps" capability, ported from the
 //! prior repo's `commands/steps.rs` + the metadata law from
 //! `replay_capture.rs`, with the Tauri layer replaced by an event SINK the
 //! embedding shell bridges onto the fabric (real events only — a recorder
@@ -15,7 +15,7 @@
 //!   changed, which IS the no-op dedup. A MARKED moment is always kept.
 //! - Filing happens exactly once in `save`: rename-uniquify the temp folder,
 //!   write `guide.json`. (Sidecar + artifact index arrive with the PV1c
-//!   inbox/index port — tracked in docs/plans/port-pixvix.md.)
+//!   inbox/index port — tracked in docs/plans/port-viziwiz.md.)
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};

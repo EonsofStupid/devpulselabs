@@ -341,35 +341,38 @@ impl ChatWindow {
         let tone = provider_tone(descriptor.accent);
         let response = ui
             .push_id(descriptor.id.0, |ui| {
-                let frame = if selected {
-                    cl::brutal_frame(tone)
+                // Selected → the neubrutalist ColdLight treatment; unselected →
+                // the quiet dark card. One body, so both branches unify on the
+                // `.show(..)` `InnerResponse`.
+                let body = |ui: &mut egui::Ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(descriptor.glyph).strong().color(tone.color()));
+                        ui.label(RichText::new(descriptor.short_label).strong().color(
+                            if selected {
+                                cl::ink::STRONG
+                            } else {
+                                cl::ink::BASE
+                            },
+                        ));
+                    });
+                    ui.label(
+                        RichText::new(provider.registration.activation.label())
+                            .small()
+                            .color(activation_color(&provider.registration.activation, tone)),
+                    );
+                };
+                if selected {
+                    cl::brutal(tone).show(ui, body)
                 } else {
                     egui::Frame::new()
                         .fill(Color32::from_rgb(14, 19, 25))
                         .stroke(Stroke::new(1.0, cl::surface::HAIRLINE))
                         .corner_radius(CornerRadius::same(cl::RADIUS_SM))
                         .inner_margin(egui::Margin::symmetric(10, 8))
-                };
-                frame
-                    .show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new(descriptor.glyph).strong().color(tone.color()));
-                            ui.label(RichText::new(descriptor.short_label).strong().color(
-                                if selected {
-                                    cl::ink::STRONG
-                                } else {
-                                    cl::ink::BASE
-                                },
-                            ));
-                        });
-                        ui.label(
-                            RichText::new(provider.registration.activation.label())
-                                .small()
-                                .color(activation_color(&provider.registration.activation, tone)),
-                        );
-                    })
-                    .response
-                    .interact(Sense::click())
+                        .show(ui, body)
+                }
+                .response
+                .interact(Sense::click())
             })
             .inner;
         let response = cl::tip(
@@ -593,7 +596,7 @@ fn action_button(
     tone: Tone,
     tooltip: &str,
 ) -> egui::Response {
-    let response = cl::brutal_frame(tone)
+    let response = cl::brutal(tone)
         .show(ui, |ui| {
             ui.label(RichText::new(label).strong().color(cl::ink::STRONG));
         })

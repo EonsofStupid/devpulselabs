@@ -1,9 +1,9 @@
 [package]
-name = "dpl-pixvix"
+name = "dpl-viziwiz"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
-description = "The PixVix capture overlay — always-on-top palette (Img · Video · Session · Steps), frozen-frame region select with loupe, REC pill. UI over the engines; zero capture logic of its own."
+description = "The ViziWiz capture overlay — always-on-top palette (Img · Video · Session · Steps), frozen-frame region select with loupe, REC pill. UI over the engines; zero capture logic of its own."
 
 [dependencies]
 egui.workspace = true

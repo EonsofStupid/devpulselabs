@@ -922,7 +922,7 @@ mod tests {
         let mut authored = rec("inbox/pix.png", "image");
         authored.name = "gpu-explainer".into();
         authored.tags = vec!["ai".into(), "gpu".into()];
-        authored.source = "pixvix".into();
+        authored.source = "viziwiz".into();
         sidecar::write(&media, &authored).unwrap();
         assert_eq!(sidecar::read(&media).unwrap().name, "gpu-explainer");
 

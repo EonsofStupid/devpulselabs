@@ -39,10 +39,10 @@ pub enum ShellEvent {
     /// Navigation happened. Consumers: future chat context providers,
     /// telemetry, anything that cares where the operator is.
     RouteChanged { route: Route },
-    /// The footer Snip launcher was pressed — summon the PixVix overlay.
-    /// Consumer: the pixvix crate (B4); until then the inspector's signal
+    /// The footer Snip launcher was pressed — summon the ViziWiz overlay.
+    /// Consumer: the viziwiz crate (B4); until then the inspector's signal
     /// count is the visible proof the launcher fires.
-    PixvixSummon,
+    ViziwizSummon,
     /// A hub asks the shell to enter/leave full-bleed (D2: the Present
     /// hub's deck owns the viewport while a show runs). Consumer: the
     /// shell, which drains its receiver each frame.
@@ -136,7 +136,7 @@ mod tests {
         let mut rx = fabric.subscribe_shell();
         let route = Route {
             hub: HubId("wiredfront"),
-            sub: SubId("pixvix"),
+            sub: SubId("viziwiz"),
         };
         fabric.publish_shell(ShellEvent::RouteChanged { route });
         assert_eq!(rx.try_recv().unwrap(), ShellEvent::RouteChanged { route });

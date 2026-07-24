@@ -30,8 +30,16 @@ Operator exe rebuilt 2026-07-23 16:51.
 2. **The experience layer was never specced.** NOW BEING FIXED:
    `docs/design/doctrine.md` DEFINES the language (BRUTAL = actionable,
    CLAY = passive, tooltip law, token law, any-shape law, the feel bar)
-   and the `dpl-style` skill gates every UI pass on it. ColdLight grew
-   the primitives (`brutal_frame`/`clay_frame`/`tip`, `RADIUS_LG`).
+   and the `coldlight-system` skill (formerly `dpl-style`) gates every UI
+   pass on it. ColdLight grew the primitives (`brutal_frame`/`clay_frame`/
+   `tip`, `RADIUS_LG`).
+   SUPERSEDED (2026-07-24): the thin BRUTAL/CLAY doctrine is being
+   replaced by the composable TRAIT system faithfully ported from the
+   original ColdLight (neubrutalism/claymorphism base + cyber/retro
+   stack, per-axis compositor, generated manifest the Workbench editor
+   reads). Plan: `docs/plans/pass0-coldlight-treatments.md`. Skills:
+   `coldlight-system` (foundation gate) + `slide-catalog-pass` (per-slide
+   faithful port). See KNOWN BROKEN #5 below.
    First application landed: the shared `filter_chip` is brutal (hard
    offset shadow, hover press) with layman tips on gallery filters,
    rescan, and ViziWiz Undo/Clear/Flatten.
@@ -69,7 +77,35 @@ Operator exe rebuilt 2026-07-23 16:51.
    EventLog records `navigate-request` honestly.
    **Remaining**: the feel-bar review pass across every route against
    the old app (screenshot-by-screenshot). Every UI pass MUST invoke
-   `dpl-style`.
+   `coldlight-system` (the gate, formerly `dpl-style`).
+
+5. **The visual language was invented, not captured (operator, 2026-07-24).**
+   The port replaced the original's real ColdLight design system — authored
+   trait JSON (neumorphic/cyber/retro) composed per-axis, a manifest the
+   editor reads, documented in the original's `src/lib/design/TRUTH.md` —
+   with a hand-invented BRUTAL/CLAY doctrine + magic-number `*_frame`
+   helpers. The `experience-inventory.md` gate that both CLAUDE.md and
+   doctrine.md require WAS NEVER AUTHORED, so Sweeps 1–6 ran against the
+   invention with no reference to the original's look. AND the Workbench
+   Library holds only 4 authored seed slides (all `static`) of ~27 catalog
+   types — the renderers are ~90% ported but the slides aren't organized.
+   FIX (ratified 2026-07-24 "go", IN FLIGHT on PR #16 branch
+   `design/coldlight-traits`): `docs/plans/pass0-coldlight-treatments.md`.
+   LANDED: (1) doctrine rewritten to the composable trait system;
+   (2) `tokens/traits.json` (neubrutalist/claymorphic base + cyber/retro
+   stack) + build.rs generator (validated); (3) the pure compositor
+   `compose(tone, base, stack, state) -> ResolvedStyle` (additive
+   concatenate / override last-wins / state overlay; tests); (4) the
+   paint API `cl::treated`/`brutal`/`clay` — `brutal_frame`/`clay_frame`
+   RETIRED, all 9 callers migrated; the treatments RENDER (proof:
+   docs/proof/traits-chat-{1100x700,1600x1000}.png — selected Codex chip
+   is a bright neubrutalist button, lit-from-behind, dark text, over
+   claymorphic panels). REMAINING in this program: tints painting +
+   cyber/retro anim (needs motion.json + painter), the generated
+   manifest the Workbench editor reads, the experience-inventory doc,
+   then the `slide-catalog-pass` loop (port all ~27 slides, each an
+   organized seed under Workbench: category × stackable tags). Skills:
+   `coldlight-system` + `slide-catalog-pass`. Memory: `port-fidelity-standard`.
 
 ## CI + process (live as of #11/#12)
 

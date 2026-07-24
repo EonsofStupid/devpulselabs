@@ -24,11 +24,12 @@ dpl-hub.workspace = true
 dpl-coldlight.workspace = true
 dpl-fabric.workspace = true
 dpl-shell.workspace = true
-dpl-pixvix.workspace = true
+dpl-viziwiz.workspace = true
 dpl-doc.workspace = true
 dpl-engine-capture.workspace = true
 dpl-engine-steps.workspace = true
 dpl-chat-runtime.workspace = true
+dpl-chat-store.workspace = true
 dpl-chat-window.workspace = true
 dpl-chat-windows.workspace = true
 dpl-chat-codex.workspace = true
@@ -40,6 +41,7 @@ dpl-hub-shows.workspace = true
 dpl-hub-present.workspace = true
 dpl-hub-workbench.workspace = true
 dpl-hub-wiredfront.workspace = true
+dpl-hub-chat.workspace = true
 egui-pilot-ai.workspace = true
 egui-pilot-ai-runtime = { workspace = true, optional = true }
 egui-pilot-ai-transport = { workspace = true, optional = true }
