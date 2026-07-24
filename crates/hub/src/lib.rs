@@ -94,10 +94,12 @@ pub mod placeholder {
 
         for sub in spec.subroutes {
             let active = sub.id == route.sub;
+            // Doctrine: these cards HOLD (navigation lives in the rail
+            // until the fabric NAVIGATE event lands) — passive = CLAY.
             let frame = if active {
                 cl::scatter_frame(spec.tone)
             } else {
-                cl::card_frame()
+                cl::clay_frame()
             };
             let resp = frame.show(ui, |ui| {
                 ui.set_width(ui.available_width().min(560.0));
