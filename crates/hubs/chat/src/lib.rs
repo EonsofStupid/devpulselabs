@@ -40,7 +40,16 @@ static SPEC: HubSpec = HubSpec {
 };
 
 #[derive(Default)]
-pub struct ChatHub;
+pub struct ChatHub {
+    /// The NAVIGATE seam: tapped cards publish through here.
+    fabric: Option<dpl_fabric::Fabric>,
+}
+
+impl ChatHub {
+    pub fn wire_fabric(&mut self, fabric: &dpl_fabric::Fabric) {
+        self.fabric = Some(fabric.clone());
+    }
+}
 
 impl Hub for ChatHub {
     fn spec(&self) -> &'static HubSpec {
@@ -48,12 +57,16 @@ impl Hub for ChatHub {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, route: Route) {
-        dpl_hub::placeholder::surface(
+        if let Some(go) = dpl_hub::placeholder::surface(
             ui,
             &SPEC,
             route,
             "Route-aware, scaffolded for five providers from day one.",
-        );
+        ) {
+            if let Some(fabric) = &self.fabric {
+                fabric.publish_shell(dpl_fabric::ShellEvent::NavigateRequest { route: go });
+            }
+        }
 
         ui.add_space(cl::space::S4);
         ui.label(

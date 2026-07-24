@@ -1529,6 +1529,7 @@ name = "dpl-hub-chat"
 version = "0.1.0"
 dependencies = [
  "dpl-coldlight",
+ "dpl-fabric",
  "dpl-hub",
  "egui",
 ]
@@ -1576,6 +1577,7 @@ dependencies = [
  "dpl-engine-capture",
  "dpl-engine-media",
  "dpl-engine-steps",
+ "dpl-fabric",
  "dpl-hub",
  "dpl-index",
  "dpl-video",
@@ -1593,6 +1595,7 @@ dependencies = [
  "dpl-doc",
  "dpl-editor",
  "dpl-engine-capture",
+ "dpl-fabric",
  "dpl-hub",
  "dpl-slides",
  "egui",

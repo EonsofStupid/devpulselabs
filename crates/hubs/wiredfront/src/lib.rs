@@ -115,6 +115,8 @@ enum CardAct {
 
 #[derive(Default)]
 pub struct WiredfrontHub {
+    /// The NAVIGATE seam: tapped placeholder cards publish through here.
+    fabric: Option<dpl_fabric::Fabric>,
     gallery: Option<GalleryView>,
     sessions: Option<SessionsView>,
     viziwiz: Option<viziwiz::VizView>,
@@ -674,6 +676,10 @@ fn build_session_play(root: &std::path::Path, rel: &str, name: String) -> (Sessi
 }
 
 impl WiredfrontHub {
+    pub fn wire_fabric(&mut self, fabric: &dpl_fabric::Fabric) {
+        self.fabric = Some(fabric.clone());
+    }
+
     /// Open one session on the SESSIONS surface — the same path a list
     /// card tap takes (also the `--open-session` harness seam).
     pub fn open_session(&mut self, rel: &str) {
@@ -1031,12 +1037,16 @@ impl Hub for WiredfrontHub {
             viziwiz::surface(&mut self.viziwiz, ui);
             return;
         }
-        dpl_hub::placeholder::surface(
+        if let Some(go) = dpl_hub::placeholder::surface(
             ui,
             &SPEC,
             route,
             "Capture, stitch, generate, edit. ADR-010 is this hub's law: shot slots, \
              ffmpeg subprocess, ComfyUI as the first pluggable backend.",
-        );
+        ) {
+            if let Some(fabric) = &self.fabric {
+                fabric.publish_shell(dpl_fabric::ShellEvent::NavigateRequest { route: go });
+            }
+        }
     }
 }

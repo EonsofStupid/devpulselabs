@@ -58,6 +58,10 @@ impl EventLog {
             ShellEvent::FullBleedRequest(on) => serde_json::json!({
                 "ms": ms, "type": "full-bleed", "on": on,
             }),
+            ShellEvent::NavigateRequest { route } => serde_json::json!({
+                "ms": ms, "type": "navigate-request",
+                "hub": route.hub.0, "sub": route.sub.0,
+            }),
         };
         // Best-effort per line: a failed write must never take the
         // recording down with it.

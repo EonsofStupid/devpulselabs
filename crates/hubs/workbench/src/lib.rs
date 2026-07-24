@@ -70,6 +70,8 @@ struct SeedEntry {
 
 #[derive(Default)]
 pub struct WorkbenchHub {
+    /// The NAVIGATE seam: tapped placeholder cards publish through here.
+    fabric: Option<dpl_fabric::Fabric>,
     /// Loaded on first visit; the reload chip clears it (edits to the
     /// colocated files show up without restarting the app).
     seeds: Option<Vec<SeedEntry>>,
@@ -108,6 +110,10 @@ struct CloneForm {
 const SHOW_SUGGESTIONS: [&str; 3] = ["devpulse-news", "eons-of-stupidity", "effingai"];
 
 impl WorkbenchHub {
+    pub fn wire_fabric(&mut self, fabric: &dpl_fabric::Fabric) {
+        self.fabric = Some(fabric.clone());
+    }
+
     /// Solo one template on the Library's TEMPLATES section (unknown ids
     /// degrade to the wall). The `--focus <template-id>` proof hook.
     pub fn set_focus(&mut self, id: impl Into<String>) {
@@ -301,13 +307,15 @@ impl Hub for WorkbenchHub {
             self.episodes_surface(ui);
         } else if route.sub == TEST_LAB {
             self.test_lab.ui(ui);
-        } else {
-            dpl_hub::placeholder::surface(
-                ui,
-                &SPEC,
-                route,
-                "The episode factory. Everything captured or generated ends up on a slide here.",
-            );
+        } else if let Some(go) = dpl_hub::placeholder::surface(
+            ui,
+            &SPEC,
+            route,
+            "The episode factory. Everything captured or generated ends up on a slide here.",
+        ) {
+            if let Some(fabric) = &self.fabric {
+                fabric.publish_shell(dpl_fabric::ShellEvent::NavigateRequest { route: go });
+            }
         }
     }
 }

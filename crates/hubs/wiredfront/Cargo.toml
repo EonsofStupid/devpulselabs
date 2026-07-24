@@ -1,4 +1,4 @@
-[package]
+﻿[package]
 name = "dpl-hub-wiredfront"
 version.workspace = true
 edition.workspace = true
@@ -7,6 +7,7 @@ publish.workspace = true
 [dependencies]
 egui.workspace = true
 dpl-hub.workspace = true
+dpl-fabric.workspace = true
 dpl-coldlight.workspace = true
 dpl-index.workspace = true
 dpl-doc.workspace = true

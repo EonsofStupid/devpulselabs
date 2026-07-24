@@ -26,6 +26,10 @@ pub enum ShellEvent {
     /// hub's deck owns the viewport while a show runs). Consumer: the
     /// shell, which drains its receiver each frame.
     FullBleedRequest(bool),
+    /// A hub surface asks to GO somewhere (the NAVIGATE seam): tapped
+    /// subroute cards publish this; the shell drains and navigates.
+    /// `RouteChanged` remains the truth of ARRIVAL — this is the ask.
+    NavigateRequest { route: Route },
 }
 
 /// A shell-domain subscription — consumers hold this without needing a
@@ -127,6 +131,21 @@ mod tests {
         let mut shell_rx = fabric.subscribe_shell();
         fabric.publish_deck(beat);
         assert!(shell_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn a_navigate_request_round_trips() {
+        let fabric = Fabric::new();
+        let mut rx = fabric.subscribe_shell();
+        let route = Route {
+            hub: HubId("workbench"),
+            sub: SubId("library"),
+        };
+        fabric.publish_shell(ShellEvent::NavigateRequest { route });
+        assert_eq!(
+            rx.try_recv().unwrap(),
+            ShellEvent::NavigateRequest { route }
+        );
     }
 
     #[test]
