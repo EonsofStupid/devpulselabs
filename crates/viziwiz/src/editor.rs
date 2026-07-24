@@ -309,9 +309,11 @@ impl Viziwiz {
                             None => {}
                         }
 
-                        // The loupe: 4× zoom around the cursor, ColdLight-framed.
+                        // The loupe: 6× zoom around the cursor, ColdLight-framed
+                        // (the original PixVix magnifier — restored from the
+                        // port's 4× to the authored 6×).
                         if let Some(p) = ui.ctx().pointer_latest_pos() {
-                            let zoom = 4.0;
+                            let zoom = 6.0;
                             let box_size = 120.0;
                             let uv_half = box_size / zoom / 2.0;
                             let uv = Rect::from_min_max(
