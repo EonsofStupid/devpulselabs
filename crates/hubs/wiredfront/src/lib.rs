@@ -226,7 +226,11 @@ impl WiredfrontHub {
         ui.horizontal(|ui| {
             for (label, kind) in FILTERS {
                 let on = view.filter == kind;
-                let resp = filter_chip(ui, label, on);
+                let tip_text = match kind {
+                    None => "Show everything in your library".to_string(),
+                    Some(k) => format!("Show only your {k}s"),
+                };
+                let resp = cl::tip(filter_chip(ui, label, on), &tip_text);
                 ui.pilot_track(
                     &resp,
                     NodeMetadata::new(
@@ -241,7 +245,10 @@ impl WiredfrontHub {
                 }
             }
             ui.add_space(cl::space::S3);
-            let resp = filter_chip(ui, "rescan", false);
+            let resp = cl::tip(
+                filter_chip(ui, "rescan", false),
+                "Rebuild the library from what's actually on disk",
+            );
             ui.pilot_track(
                 &resp,
                 NodeMetadata::new(
@@ -566,29 +573,57 @@ fn thumb_uri(r: &dpl_index::Record, root: &std::path::Path) -> Option<String> {
         .then(|| format!("file:///{}", abs.to_string_lossy().replace('\\', "/")))
 }
 
-/// A quiet filter chip (tap-min height rides the label padding).
+/// A BRUTAL action chip (doctrine: actionable = neubrutal — thick tone
+/// edge, HARD offset shadow, flat fill; the shadow is a shape, not a
+/// glow). Hover lifts the chip onto its shadow; active fills with the
+/// tone wash.
 fn filter_chip(ui: &mut egui::Ui, label: &str, on: bool) -> egui::Response {
     let galley = ui.painter().layout_no_wrap(
         label.into(),
         egui::FontId::proportional(13.0),
         cl::ink::BASE,
     );
-    let (rect, resp) =
-        ui.allocate_exact_size(egui::vec2(galley.size().x + 22.0, 28.0), Sense::click());
+    let (slot, resp) =
+        ui.allocate_exact_size(egui::vec2(galley.size().x + 26.0, 31.0), Sense::click());
+    // The chip sits inside its slot leaving room for the hard shadow;
+    // hover translates it ONTO the shadow (the tactile press).
+    let lift = if resp.hovered() && !resp.is_pointer_button_down_on() {
+        egui::Vec2::ZERO
+    } else {
+        egui::vec2(1.0, 1.0)
+    };
+    let chip = egui::Rect::from_min_size(slot.min + lift, slot.size() - egui::vec2(3.0, 3.0));
+    let shadow = chip.translate(egui::vec2(3.0, 3.0) - lift);
     let painter = ui.painter();
     painter.rect_filled(
-        rect,
+        shadow,
+        egui::CornerRadius::same(cl::RADIUS_SM),
+        egui::Color32::from_black_alpha(230),
+    );
+    painter.rect_filled(
+        chip,
         egui::CornerRadius::same(cl::RADIUS_SM),
         if on {
             cl::Tone::Magenta.wash()
-        } else if resp.hovered() {
-            cl::surface::OVERLAY
         } else {
-            cl::surface::RAISED
+            cl::surface::OVERLAY
         },
     );
+    painter.rect_stroke(
+        chip,
+        egui::CornerRadius::same(cl::RADIUS_SM),
+        egui::Stroke::new(
+            2.0,
+            if on {
+                cl::Tone::Magenta.color()
+            } else {
+                cl::surface::HAIRLINE
+            },
+        ),
+        egui::StrokeKind::Inside,
+    );
     painter.text(
-        rect.center(),
+        chip.center(),
         egui::Align2::CENTER_CENTER,
         label,
         egui::FontId::proportional(13.0),
