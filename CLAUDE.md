@@ -32,6 +32,12 @@ other worktree. The operator double-clicks `target\release\devpulselabs.exe`
 ## Commands
 
 - Gate: `cargo green` · exe: `cargo build --release -p devpulselabs`
+- The gate is WIRED as a pre-push hook (`.githooks/pre-push`; fresh
+  clones run `git config core.hooksPath .githooks` once). Never bypass
+  with --no-verify. NOTE: GitHub branch protection / required checks are
+  Pro-gated on this private repo — the local hook IS the enforcement;
+  a self-hosted Actions runner + protection becomes worthwhile only if
+  the repo goes Pro or public.
 - Harness flags: `--screenshot <png> --shot-frame <n> --route <hub/sub>
   --window <w>x<h> --mood 0 --pixvix --pixvix-snap --present <id>
   --presenter-drill <n> --session-drill <s> --steps-hotkey-drill

@@ -1,0 +1,6 @@
+#!/bin/sh
+# The green gate, unskippable at the edge of the machine: nothing leaves
+# this repo without fmt + clippy -D warnings + tests + release build.
+# Wired via `git config core.hooksPath .githooks` (see CLAUDE.md).
+echo "[pre-push] cargo green — the gate runs before anything leaves"
+cargo green
