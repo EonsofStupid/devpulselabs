@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WiredFRONT Editor — AE panel-for-panel mock (v2.1, operator redlines applied)</title>
+<style>
+  :root{
+    --well:#0a0c10; --base:#12151c; --overlay:#1a1e28; --hairline:#2a2f3d;
+    --ink:#c8cdd8; --strong:#f0f3fa; --subtle:#7a8296; --muted:#565d70;
+    --magenta:#ff2d95; --cyan:#22d3ee; --lime:#a3e635; --coral:#ff6b5e;
+    --mag-wash:rgba(255,45,149,.14); --cyan-wash:rgba(34,211,238,.12);
+    --lime-wash:rgba(163,230,53,.12);
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{background:var(--well); color:var(--ink);
+    font:13px/1.45 "Segoe UI",system-ui,sans-serif;}
+  .mono{font-family:Consolas,ui-monospace,monospace;}
+  .app{max-width:1540px; margin:14px auto; padding:0 12px;}
+
+  .key{position:absolute; top:-9px; left:-9px; z-index:5; width:20px; height:20px;
+    border-radius:50%; background:var(--magenta); color:#fff; font-weight:700;
+    font-size:11px; display:flex; align-items:center; justify-content:center;
+    border:2px solid #000; box-shadow:2px 2px 0 #000;}
+  .panel{position:relative; background:var(--base); border:2px solid var(--hairline);
+    border-radius:6px; box-shadow:4px 4px 0 rgba(0,0,0,.9);}
+  .ptab{display:inline-block; padding:3px 12px; margin:6px 0 0 8px;
+    background:var(--overlay); border:2px solid var(--hairline); border-bottom:none;
+    border-radius:6px 6px 0 0; font-weight:600; font-size:12px; color:var(--strong);}
+  .ptab.dim{color:var(--muted); font-weight:400;}
+  .ptab .x{color:var(--muted); margin-left:8px; font-weight:400;}
+  .pbody{border-top:2px solid var(--hairline); padding:8px;}
+
+  .routebar{display:flex; align-items:center; gap:8px; padding:8px 4px; flex-wrap:wrap;}
+  .crumb{color:var(--subtle); font-size:12px;}
+  .crumb b{color:var(--strong);}
+  .chip{display:inline-block; padding:5px 14px; border:2px solid var(--hairline);
+    border-radius:6px; background:var(--overlay); color:var(--ink); font-weight:600;
+    box-shadow:3px 3px 0 rgba(0,0,0,.9); font-size:12px;}
+  .chip.active{border-color:var(--magenta); background:var(--mag-wash); color:var(--strong);}
+  .chip.cyan{border-color:var(--cyan); background:var(--cyan-wash);}
+  .note{color:var(--subtle); font-size:11px; font-style:italic;}
+
+  .tools{display:flex; gap:6px; align-items:center; padding:6px 8px; margin-top:8px; flex-wrap:wrap;}
+  .tool{min-width:34px; height:30px; padding:0 7px; display:flex; align-items:center;
+    justify-content:center; gap:5px; border:2px solid var(--hairline); border-radius:5px;
+    background:var(--overlay); box-shadow:2px 2px 0 rgba(0,0,0,.9); font-size:13px;
+    color:var(--ink);}
+  .tool.active{border-color:var(--magenta); background:var(--mag-wash);
+    box-shadow:1px 1px 0 rgba(0,0,0,.9); color:var(--strong);}
+  .tool.on{border-color:var(--lime); background:var(--lime-wash); color:var(--strong);}
+  .tool small{font-size:10px; color:var(--subtle);}
+  .tools .sep{width:2px; height:22px; background:var(--hairline); margin:0 4px;}
+
+  .main{display:grid; grid-template-columns:290px 1fr 265px; gap:12px; margin-top:10px;}
+
+  .projprev{display:flex; gap:8px; padding:6px; background:var(--well);
+    border:1px solid var(--hairline); border-radius:4px; margin-bottom:8px;}
+  .projprev .thumb{width:96px; height:54px; border-radius:3px; flex:none;
+    background:linear-gradient(135deg,#1b2b4a,#3a1657 60%,#5a1030);}
+  .projprev .meta{font-size:11px; color:var(--subtle);}
+  .projprev .meta b{color:var(--strong); font-size:12px;}
+  .cols{display:grid; grid-template-columns:1fr 52px 46px; padding:2px 6px;
+    font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em;}
+  .item{display:grid; grid-template-columns:1fr 52px 46px; align-items:center;
+    padding:4px 6px; border-radius:4px; font-size:12px;}
+  .item:nth-child(odd){background:rgba(255,255,255,.02);}
+  .item.sel{background:var(--mag-wash); outline:1px solid var(--magenta);}
+  .item .nm{display:flex; align-items:center; gap:7px; min-width:0;}
+  .item .nm span{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .item .ic{flex:none; width:26px; height:16px; border-radius:2px; border:1px solid var(--hairline);}
+  .ic.comp{background:var(--mag-wash); border-color:var(--magenta);}
+  .ic.vid{background:linear-gradient(135deg,#14324a,#0f4a44);}
+  .ic.img{background:linear-gradient(135deg,#3a2a10,#4a1a2a);}
+  .ic.el{background:repeating-conic-gradient(#20242e 0 25%, #2a2f3d 0 50%) 0 0/8px 8px;}
+  .ic.fold{background:none; border:none; text-align:center;}
+  .item .dur,.item .knd{color:var(--subtle); font-size:11px; text-align:right;}
+  .projbtns{display:flex; gap:8px; margin-top:10px;}
+  .bbtn{padding:5px 10px; font-size:11px; font-weight:700; border-radius:5px;
+    border:2px solid var(--cyan); background:var(--cyan-wash); color:var(--strong);
+    box-shadow:3px 3px 0 rgba(0,0,0,.9);}
+  .bbtn.mag{border-color:var(--magenta); background:var(--mag-wash);}
+
+  .stagewrap{padding:10px;}
+  .stage{aspect-ratio:16/9; border:1px solid var(--hairline); border-radius:4px;
+    background:
+      radial-gradient(ellipse at 70% 30%, rgba(34,211,238,.25), transparent 55%),
+      radial-gradient(ellipse at 25% 75%, rgba(255,45,149,.28), transparent 50%),
+      linear-gradient(160deg,#101726,#1d1030 70%,#260b18);
+    position:relative; overflow:hidden;}
+  .stage .lower3{position:absolute; left:6%; bottom:12%; padding:7px 16px;
+    border:2px solid var(--lime); background:rgba(10,12,16,.72); border-radius:4px;
+    color:var(--strong); font-weight:700; box-shadow:3px 3px 0 rgba(0,0,0,.8);}
+  .stage .selbox{position:absolute; left:6%; bottom:12%; width:190px; height:37px;
+    outline:1px dashed var(--cyan); outline-offset:4px;}
+  .stage .camhud{position:absolute; left:10px; top:8px; font-size:10px;
+    color:rgba(163,230,53,.8);}
+  .aighost{position:absolute; left:calc(6% + 205px); bottom:13%; padding:3px 10px;
+    border:1px dashed var(--cyan); border-radius:12px; background:rgba(10,12,16,.8);
+    color:var(--cyan); font-size:11px; font-weight:700;}
+  .stage .hud{position:absolute; top:8px; right:10px; font-size:10px; color:rgba(240,243,250,.55);}
+  .viewbar{display:flex; gap:12px; align-items:center; padding:7px 10px 2px;
+    font-size:11px; color:var(--subtle); flex-wrap:wrap;}
+  .viewbar .v{padding:2px 8px; border:1px solid var(--hairline); border-radius:4px;
+    background:var(--overlay);}
+  .transport{display:flex; gap:10px; align-items:center; justify-content:center;
+    padding:8px 10px 10px;}
+  .tbtn{width:34px; height:28px; border:2px solid var(--hairline); border-radius:5px;
+    background:var(--overlay); color:var(--strong); display:flex; align-items:center;
+    justify-content:center; box-shadow:2px 2px 0 rgba(0,0,0,.9); font-size:12px;}
+  .tbtn.play{border-color:var(--magenta); background:var(--mag-wash); width:44px;}
+  .tcode{font-size:16px; color:var(--strong); letter-spacing:.06em;}
+  .tcode small{color:var(--subtle); font-size:11px; letter-spacing:0;}
+
+  .rstack{display:flex; flex-direction:column; gap:12px;}
+  .kv{display:grid; grid-template-columns:auto 1fr; gap:2px 12px; font-size:11px; padding:2px 4px;}
+  .kv .k{color:var(--muted);}
+  .kv .v{color:var(--strong); text-align:right;}
+  .fxsearch{width:100%; padding:5px 8px; border:1px solid var(--hairline); border-radius:4px;
+    background:var(--well); color:var(--subtle); font-size:11px; margin-bottom:6px;}
+  .fxtree{font-size:12px;}
+  .fxtree .grp{color:var(--strong); font-weight:600; padding:3px 2px;}
+  .fxtree .fx{color:var(--ink); padding:2px 2px 2px 18px;}
+  .fxtree .fx i{color:var(--cyan); font-style:normal; margin-right:6px;}
+  .custom{margin-top:8px; border-top:1px solid var(--hairline); padding-top:8px; font-size:11px;}
+  .custom b{color:var(--strong); display:block; margin-bottom:5px;}
+  .custom .crow{display:flex; align-items:center; gap:7px; margin:4px 0; color:var(--subtle);}
+  .swatch{width:16px; height:16px; border-radius:3px; border:2px solid #000;
+    box-shadow:1px 1px 0 #000;}
+  .field{padding:2px 8px; border:1px solid var(--hairline); border-radius:4px;
+    background:var(--well); color:var(--strong); font-size:11px;}
+
+  .timeline{margin-top:12px;}
+  .tl{display:grid; grid-template-columns:474px 1fr;}
+  .tlhead{display:grid; grid-template-columns:22px 14px 1fr 46px 46px 78px; gap:6px;
+    padding:4px 8px; font-size:10px; color:var(--muted); text-transform:uppercase;
+    letter-spacing:.05em; border-bottom:1px solid var(--hairline); align-items:center;}
+  .lrow{display:grid; grid-template-columns:22px 14px 1fr 46px 46px 78px; gap:6px;
+    padding:5px 8px; align-items:center; font-size:12px;
+    border-bottom:1px solid rgba(42,47,61,.5); height:30px;}
+  .lrow.sel{background:var(--mag-wash);}
+  .lrow .n{color:var(--muted); font-size:11px;}
+  .lrow .clr{width:10px; height:10px; border-radius:2px;}
+  .lrow .lname{color:var(--strong); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .lrow .lname .tw{color:var(--subtle); margin-right:6px;}
+  .lrow .mode{color:var(--subtle); font-size:11px;}
+  .lrow .sw{font-size:11px; letter-spacing:2px;}
+  .lrow .sw .on{color:var(--lime);} .lrow .sw .off{color:var(--muted);}
+  .lrow .par{color:var(--cyan); font-size:11px; overflow:hidden; white-space:nowrap;
+    text-overflow:ellipsis;}
+  .lrow .par.none{color:var(--muted);}
+  .prow{display:grid; grid-template-columns:42px 1fr 90px; gap:6px; padding:2px 8px 2px 34px;
+    align-items:center; font-size:11px; color:var(--subtle);
+    border-bottom:1px solid rgba(42,47,61,.35); height:22px;}
+  .prow .pv{color:var(--cyan); text-align:right;}
+  .prow .sw{color:var(--magenta);}
+  .ruler{position:relative; height:26px; border-bottom:1px solid var(--hairline);
+    background:var(--well); font-size:9px; color:var(--muted);}
+  .ruler span{position:absolute; top:4px;}
+  .ruler i{position:absolute; bottom:0; width:1px; height:7px; background:var(--hairline);}
+  .lanes{position:relative;}
+  .lane{position:relative; height:30px; border-bottom:1px solid rgba(42,47,61,.5);}
+  .lane.p{height:22px; border-bottom:1px solid rgba(42,47,61,.35); background:rgba(255,255,255,.015);}
+  .bar{position:absolute; top:4px; height:22px; border-radius:4px; border:2px solid;
+    font-size:10px; color:var(--strong); display:flex; align-items:center;
+    padding:0 8px; overflow:hidden; white-space:nowrap;}
+  .bar.cy{border-color:var(--cyan); background:var(--cyan-wash);}
+  .bar.lm{border-color:var(--lime); background:var(--lime-wash);}
+  .bar.ghost{border-style:dashed; background:none; color:var(--subtle);}
+  .bar.sel{border-color:var(--magenta); background:var(--mag-wash);
+    box-shadow:2px 2px 0 rgba(0,0,0,.8);}
+  .bar.sel::before,.bar.sel::after{content:""; position:absolute; top:3px; bottom:3px;
+    width:3px; background:var(--strong); border-radius:1px;}
+  .bar.sel::before{left:2px;} .bar.sel::after{right:2px;}
+  .kf{position:absolute; top:5px; width:9px; height:9px; background:var(--cyan);
+    transform:rotate(45deg); border:1px solid #000;}
+  .kf.ee{transform:none; border-radius:50%; background:var(--lime);}
+  .cti{position:absolute; top:0; bottom:0; width:2px; background:var(--magenta);
+    box-shadow:0 0 8px rgba(255,45,149,.8); z-index:4;}
+  .cti::before{content:""; position:absolute; top:0; left:-6px; border:7px solid transparent;
+    border-top-color:var(--magenta);}
+  .workarea{position:absolute; top:0; height:4px; background:var(--subtle); opacity:.5;}
+
+  .statusbar{display:flex; gap:18px; margin-top:10px; padding:6px 10px;
+    font-size:11px; color:var(--subtle); align-items:center;}
+  .statusbar b{color:var(--strong); font-weight:600;}
+  .chatchip{margin-left:auto; padding:4px 12px; border:2px solid var(--cyan);
+    border-radius:6px; background:var(--cyan-wash); color:var(--strong); font-weight:700;
+    box-shadow:3px 3px 0 rgba(0,0,0,.9); font-size:11px;}
+
+  .legend{margin:26px 0 40px; border-top:2px solid var(--hairline); padding-top:14px;}
+  .legend h2{font-size:14px; color:var(--strong); margin-bottom:8px;}
+  .legend ol{margin-left:22px; display:grid; gap:7px; font-size:12px;}
+  .legend li b{color:var(--strong);}
+  .legend li{color:var(--subtle);}
+  .legend .q{color:var(--coral);}
+  .legend .ok{color:var(--lime); font-weight:700;}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ① route + workflow tabs -->
+  <div class="panel" style="margin-bottom:2px;">
+    <div class="key">1</div>
+    <div class="routebar">
+      <span class="crumb">wiredFRONT › <b>Editor</b></span>
+      <span class="chip active">Editor</span>
+      <span class="chip cyan">Capture</span>
+      <span class="chip cyan">Annotate</span>
+      <span class="chip cyan">Narrate</span>
+      <span class="chip cyan">Guide ⤓</span>
+      <span class="note">Capture/Annotate/Narrate kept — tailored surfaces; narration/ink can embed in the file or ship separate with the presentation; the ink tool ALSO rides the presenting toolbar live (tap the icon mid-stream). Guide = the standalone double-click export, phone-loadable.</span>
+    </div>
+  </div>
+
+  <!-- ② tool strip: the operator's set -->
+  <div class="panel">
+    <div class="key">2</div>
+    <div class="tools">
+      <div class="tool active" title="Selection (V)">▲</div>
+      <div class="tool" title="Hand (H)">✋</div>
+      <div class="tool" title="Pen / Mask (G)">✒</div>
+      <div class="tool" title="Camera (C) — orbit/pan/dolly the 3D view">🎥</div>
+      <div class="tool" title="Text — type on the comp">T</div>
+      <div class="sep"></div>
+      <div class="tool" title="New Null Object — a parenting rig handle">⊹ <small>null</small></div>
+      <div class="tool" title="Pre-compose the selected layers">⧉ <small>pre-comp</small></div>
+      <div class="tool" title="Tracker — track motion, pin layers to it">⌖ <small>track</small></div>
+      <div class="sep"></div>
+      <div class="tool on" title="Motion blur — comp switch">⨀ <small>m.blur</small></div>
+      <div class="tool on" title="3D — per-layer switch lives in the timeline">◇ <small>3D</small></div>
+    </div>
+  </div>
+
+  <div class="main">
+    <!-- ③ PROJECT panel -->
+    <div class="panel">
+      <div class="key">3</div>
+      <span class="ptab">Project</span><span class="ptab dim">Elements</span>
+      <div class="pbody">
+        <div class="projprev">
+          <div class="thumb"></div>
+          <div class="meta"><b>clip-02.mp4</b><br>1920×1080 · 29.97fps<br>0:11 · H.264</div>
+        </div>
+        <div class="cols"><span>Name</span><span style="text-align:right">Dur</span><span style="text-align:right">Kind</span></div>
+        <div class="item"><div class="nm"><div class="ic comp"></div><span>Comp 1 — teaser</span></div><span class="dur mono">0:34</span><span class="knd">comp</span></div>
+        <div class="item"><div class="nm"><div class="ic comp"></div><span>Pre-comp — intro rig</span></div><span class="dur mono">0:06</span><span class="knd">comp</span></div>
+        <div class="item"><div class="nm"><div class="ic fold">📁</div><span>Footage</span></div><span class="dur"></span><span class="knd"></span></div>
+        <div class="item sel"><div class="nm"><div class="ic vid"></div><span>clip-02.mp4</span></div><span class="dur mono">0:11</span><span class="knd">video</span></div>
+        <div class="item"><div class="nm"><div class="ic vid"></div><span>clip-01.mp4</span></div><span class="dur mono">0:08</span><span class="knd">video</span></div>
+        <div class="item"><div class="nm"><div class="ic img"></div><span>cover-art.png</span></div><span class="dur">—</span><span class="knd">image</span></div>
+        <div class="item"><div class="nm"><div class="ic fold">📁</div><span>Elements — glitch pack</span></div><span class="dur"></span><span class="knd"></span></div>
+        <div class="item"><div class="nm"><div class="ic el"></div><span>lower-third-neon.webm</span></div><span class="dur mono">0:06</span><span class="knd">α el</span></div>
+        <div class="item"><div class="nm"><div class="ic fold">📁</div><span>Renders</span></div><span class="dur"></span><span class="knd"></span></div>
+        <div class="projbtns">
+          <span class="bbtn">Browse folders…</span>
+          <span class="bbtn mag">＋ Import</span>
+        </div>
+        <div class="note" style="margin-top:8px;">Browse… pops a SEPARATE native window per folder (local · Drive later); Explorer drag-drop lands here too</div>
+      </div>
+    </div>
+
+    <!-- ④ COMPOSITION viewer -->
+    <div class="panel">
+      <div class="key">4</div>
+      <span class="ptab">Composition — Comp 1 ▾</span>
+      <div class="pbody" style="padding:0;">
+        <div class="stagewrap">
+          <div class="stage">
+            <div class="camhud mono">Camera 1 · Active Camera ▾</div>
+            <div class="hud mono">Half · 100% · 0:00:04:12</div>
+            <div class="lower3">NEON DROP — EP.04</div>
+            <div class="selbox"></div>
+            <div class="aighost">✦ ask</div>
+          </div>
+        </div>
+        <div class="viewbar">
+          <span class="v">100% ▾</span><span class="v">Half ▾</span>
+          <span class="v">▦ transparency</span><span class="v">guides</span>
+          <span class="v">1 view ▾ · Active Camera</span>
+          <span style="margin-left:auto" class="mono">1920×1080 · 29.97</span>
+        </div>
+        <div class="transport">
+          <div class="tbtn">⏮</div><div class="tbtn">◀◀</div>
+          <div class="tbtn play">▶</div>
+          <div class="tbtn">▶▶</div><div class="tbtn">⏭</div>
+          <span class="tcode mono">0:00:04:12 <small>/ 0:00:34:00</small></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ⑤⑥ right stack -->
+    <div class="rstack">
+      <div class="panel">
+        <div class="key">5</div>
+        <span class="ptab">Info<span class="x">✕</span></span><span class="ptab dim">Audio</span>
+        <div class="pbody kv">
+          <span class="k">X · Y</span><span class="v mono">712, 833</span>
+          <span class="k">RGBA</span><span class="v mono">22 D3 EE FF</span>
+          <span class="k">Layer</span><span class="v">lower-third-neon</span>
+        </div>
+      </div>
+      <div class="panel" style="flex:1;">
+        <div class="key">6</div>
+        <span class="ptab">Effects &amp; Presets</span>
+        <div class="pbody">
+          <div class="fxsearch">🔍 search effects…</div>
+          <div class="fxtree">
+            <div class="grp">▾ Transitions</div>
+            <div class="fx"><i>fx</i>Cross Dissolve (xfade)</div>
+            <div class="fx"><i>fx</i>Dip to Black</div>
+            <div class="grp">▾ Color</div>
+            <div class="fx"><i>fx</i>Curves</div>
+            <div class="fx"><i>fx</i>Glow</div>
+            <div class="grp">▸ Blur &amp; Sharpen · Motion Blur</div>
+            <div class="grp">▸ Keying — BG removal (BiRefNet)</div>
+            <div class="grp">▾ Presets — your elements</div>
+            <div class="fx"><i>el</i>lower-third-neon</div>
+            <div class="fx"><i>el</i>glitch-wipe-04</div>
+          </div>
+          <div class="custom">
+            <b>Applied preset — customize</b>
+            <div class="crow"><span>Color</span><span class="swatch" style="background:var(--lime)"></span><span class="swatch" style="background:var(--magenta)"></span><span class="swatch" style="background:var(--cyan)"></span></div>
+            <div class="crow"><span>Font</span><span class="field">Grotesk ▾</span></div>
+            <div class="crow"><span>Text</span><span class="field">NEON DROP — EP.04</span></div>
+            <div class="crow"><span>Ease</span><span class="field">Easy Ease ▾</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ⑦ TIMELINE -->
+  <div class="panel timeline">
+    <div class="key">7</div>
+    <span class="ptab">Comp 1 ⏱ 0:00:04:12</span><span class="ptab dim">Pre-comp — intro rig</span>
+    <div class="pbody" style="padding:0;">
+      <div class="tl">
+        <!-- left: layer outline -->
+        <div>
+          <div class="tlhead"><span>#</span><span></span><span>Layer name</span><span>Mode</span><span>◇ ⨀</span><span>Parent ＠</span></div>
+          <div class="lrow"><span class="n">1</span><div class="clr" style="background:var(--coral)"></div><div class="lname"><span class="tw">▸</span>🎥 Camera 1</div><span class="mode">—</span><span class="sw"><span class="on">◇</span><span class="off">⨀</span></span><span class="par none">None</span></div>
+          <div class="lrow"><span class="n">2</span><div class="clr" style="background:var(--lime)"></div><div class="lname"><span class="tw">▸</span>lower-third-neon.webm</div><span class="mode">Normal</span><span class="sw"><span class="on">◇</span><span class="on">⨀</span></span><span class="par">＠ 5. NULL rig</span></div>
+          <div class="lrow sel"><span class="n">3</span><div class="clr" style="background:var(--magenta)"></div><div class="lname"><span class="tw">▾</span>clip-02.mp4</div><span class="mode">Normal</span><span class="sw"><span class="off">◇</span><span class="on">⨀</span></span><span class="par none">None</span></div>
+          <div class="prow"><span class="sw">⏱</span><span>Position</span><span class="pv mono">960, 540</span></div>
+          <div class="prow"><span class="sw">⏱</span><span>Scale</span><span class="pv mono">104%</span></div>
+          <div class="prow"><span></span><span>Opacity</span><span class="pv mono">100%</span></div>
+          <div class="lrow"><span class="n">4</span><div class="clr" style="background:var(--cyan)"></div><div class="lname"><span class="tw">▸</span>clip-01.mp4</div><span class="mode">Normal</span><span class="sw"><span class="off">◇</span><span class="off">⨀</span></span><span class="par none">None</span></div>
+          <div class="lrow"><span class="n">5</span><div class="clr" style="background:var(--subtle)"></div><div class="lname"><span class="tw">▸</span>⊹ NULL rig</div><span class="mode">—</span><span class="sw"><span class="on">◇</span><span class="off">⨀</span></span><span class="par none">None</span></div>
+        </div>
+        <!-- right: ruler + bars -->
+        <div style="position:relative;">
+          <div class="ruler">
+            <span style="left:1%">0:00</span><i style="left:1%"></i>
+            <span style="left:17%">0:05</span><i style="left:17%"></i>
+            <span style="left:33%">0:10</span><i style="left:33%"></i>
+            <span style="left:49%">0:15</span><i style="left:49%"></i>
+            <span style="left:65%">0:20</span><i style="left:65%"></i>
+            <span style="left:81%">0:25</span><i style="left:81%"></i>
+            <span style="left:96%">0:30</span><i style="left:96%"></i>
+            <div class="workarea" style="left:1%; width:80%;"></div>
+          </div>
+          <div class="lanes">
+            <div class="lane"><div class="bar ghost" style="left:1%; width:95%; border-color:var(--coral);">Camera 1</div></div>
+            <div class="lane"><div class="bar lm" style="left:7.4%; width:19%;">lower-third-neon.webm</div></div>
+            <div class="lane"><div class="bar sel" style="left:26.6%; width:35%;">clip-02.mp4 · 11.0s</div></div>
+            <div class="lane p"><div class="kf ee" style="left:29%;"></div><div class="kf" style="left:44%;"></div></div>
+            <div class="lane p"><div class="kf ee" style="left:26.6%;"></div><div class="kf ee" style="left:61%;"></div></div>
+            <div class="lane p"></div>
+            <div class="lane"><div class="bar cy" style="left:1%; width:25.6%;">clip-01.mp4 · 8.0s</div></div>
+            <div class="lane"><div class="bar ghost" style="left:1%; width:95%; border-color:var(--subtle);">NULL rig</div></div>
+            <div class="cti" style="left:15.4%;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ⑧ status + chat -->
+  <div class="panel" style="margin-top:12px;">
+    <div class="key">8</div>
+    <div class="statusbar">
+      <span><b>Saved</b> inbox/comp-3 · autosave on</span>
+      <span>5 layers · 0:34 · 1920×1080 @29.97</span>
+      <span><b>Render ▸</b> queue empty</span>
+      <span class="chatchip">💬 Chat + ephemeral ✦ everywhere — one AI, FULL editor access</span>
+    </div>
+  </div>
+
+  <!-- redline legend -->
+  <div class="legend">
+    <h2>v2 — your redlines applied · say “N is wrong, should be …” for anything left</h2>
+    <ol>
+      <li><b>Route bar</b> — <span class="ok">APPLIED:</span> Capture · Annotate · Narrate restored as tailored tabs; Guide stays the standalone-export flow; ink also lives on the live presenting toolbar. <span class="q">Confirm: tabs are the right home for Capture/Narrate (vs tools inside the editor)?</span></li>
+      <li><b>Tool strip</b> — <span class="ok">APPLIED:</span> your set — selection · hand · pen · camera (+text for presets), null · pre-compose · tracker actions, motion-blur + 3D toggles. Honesty: 3D/camera/tracker/motion-blur are engine-heavy — the UI contract is committed now, the build phases them after the 2D core works.</li>
+      <li><b>Project panel</b> — unchanged from v1 + a pre-comp item. Browse windows + Explorer drop feed it.</li>
+      <li><b>Composition viewer</b> — camera HUD + Active Camera view selector added for 3D.</li>
+      <li><b>Info</b> — <span class="ok">APPLIED:</span> optional; shown by default, closable (✕).</li>
+      <li><b>Effects &amp; Presets</b> — <span class="ok">APPLIED:</span> pure AE tree; applied presets expose <b>Color · Font · Text · Ease</b> for customization. Keying/BG-removal + Motion Blur groups present.</li>
+      <li><b>Timeline</b> — <span class="ok">APPLIED:</span> AE columns: per-layer <b>3D switch ◇</b>, <b>motion blur ⨀</b>, <b>Parent + pick-whip ＠</b>; Camera + Null-rig layers; keyframes: ◆ linear, ● Easy Ease; pre-comp opens as its own timeline tab.</li>
+      <li><b>Status bar + ✦</b> — <span class="ok">APPLIED (your refinement):</span> AI exists EPHEMERALLY in the app AND in chat — the ✦ ghost appears contextually on whatever you're touching (selection, layer, preset) and the chat window carries the long-form conversation; both trigger seamlessly and drive the SAME full-access seam (doctor-gated, every apply one undo step).</li>
+    </ol>
+    <p style="margin-top:10px; font-size:12px;" class="q">One thing I did not want to guess: in your list, “3D Integration, Q1, …” — did “Q1” mean 3D lands in a later phase (quarter 1 / phase 1), or something else? It changes build order, not this screen.</p>
+  </div>
+</div>
+</body>
+</html>
