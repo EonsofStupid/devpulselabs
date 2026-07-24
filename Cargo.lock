@@ -1625,6 +1625,7 @@ version = "0.1.0"
 dependencies = [
  "dpl-coldlight",
  "dpl-comp",
+ "dpl-doc",
  "dpl-engine-capture",
  "dpl-engine-media",
  "dpl-index",
