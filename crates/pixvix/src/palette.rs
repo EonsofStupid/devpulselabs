@@ -5,7 +5,7 @@
 //! owner lends for the frame).
 
 use dpl_coldlight::{self as cl, Tone};
-use egui::{Color32, CornerRadius, RichText};
+use egui::{Align2, Color32, CornerRadius, FontId, Rect, RichText, Sense, StrokeKind};
 use egui_pilot_ai::protocol::Role as PilotRole;
 use egui_pilot_ai::{NodeMetadata, PilotId, UiPilotExt};
 
@@ -162,7 +162,14 @@ pub(crate) fn palette(
             NodeMetadata::new(PALETTE_TITLE, PilotRole::Heading, "PixVix"),
         );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if pilot_chip(ui, PALETTE_CLOSE, cl::icon::CLOSE, "", TONE) {
+            if pilot_chip(
+                ui,
+                PALETTE_CLOSE,
+                cl::icon::CLOSE,
+                "",
+                TONE,
+                "Close the palette",
+            ) {
                 actions.close = true;
             }
         });
@@ -178,7 +185,13 @@ pub(crate) fn palette(
             } else {
                 RichText::new(text).color(cl::ink::MUTED)
             };
-            let response = ui.selectable_label(active, rich);
+            let tab_tip = match t {
+                Tab::Img => "Snap still pictures of your screen",
+                Tab::Video => "Record your screen as video",
+                Tab::Session => "Record the screen and the app's own events together",
+                Tab::Steps => "Turn your clicks into a step-by-step guide",
+            };
+            let response = cl::tip(ui.selectable_label(active, rich), tab_tip);
             let mut metadata =
                 NodeMetadata::new(t.pilot_id(), PilotRole::Tab, t.label().to_string());
             metadata.selected = Some(active);
@@ -193,13 +206,34 @@ pub(crate) fn palette(
     match tab {
         Tab::Img => {
             ui.horizontal(|ui| {
-                if pilot_chip(ui, REGION_OPEN, cl::icon::REGION, "Region", TONE) {
+                if pilot_chip(
+                    ui,
+                    REGION_OPEN,
+                    cl::icon::REGION,
+                    "Region",
+                    TONE,
+                    "Draw a box around the part of the screen you want",
+                ) {
                     actions.begin_region = true;
                 }
-                if pilot_chip(ui, SNAP_FULL, cl::icon::FULL, "Full", TONE) {
+                if pilot_chip(
+                    ui,
+                    SNAP_FULL,
+                    cl::icon::FULL,
+                    "Full",
+                    TONE,
+                    "Snap the whole screen",
+                ) {
                     actions.snap_full = true;
                 }
-                if pilot_chip(ui, FREEFORM, cl::icon::FREE, "Free", TONE) {
+                if pilot_chip(
+                    ui,
+                    FREEFORM,
+                    cl::icon::FREE,
+                    "Free",
+                    TONE,
+                    "Draw any shape around what you want",
+                ) {
                     actions.begin_free = true;
                 }
                 // The delay chip cycles 0 → 3 → 10 seconds (C1).
@@ -208,10 +242,24 @@ pub(crate) fn palette(
                 } else {
                     format!("{delay}s")
                 };
-                if pilot_chip(ui, DELAY_CYCLE, "", &delay_label, TONE) {
+                if pilot_chip(
+                    ui,
+                    DELAY_CYCLE,
+                    "",
+                    &delay_label,
+                    TONE,
+                    "Wait before snapping — taps cycle 0s, 3s, 10s",
+                ) {
                     actions.cycle_delay = true;
                 }
-                if pilot_chip(ui, RESNIP, "", "Re-snip", TONE) {
+                if pilot_chip(
+                    ui,
+                    RESNIP,
+                    "",
+                    "Re-snip",
+                    TONE,
+                    "Snap the same area again, no re-drawing",
+                ) {
                     actions.resnip = true;
                 }
             });
@@ -232,10 +280,22 @@ pub(crate) fn palette(
                             }
                         }
                     });
-                if pilot_chip(ui, SNAP_WINDOW, cl::icon::SNIP, "Snap", TONE) {
+                if pilot_chip(
+                    ui,
+                    SNAP_WINDOW,
+                    cl::icon::SNIP,
+                    "Snap",
+                    TONE,
+                    "Snap just the chosen window",
+                ) {
                     actions.snap_window = true;
                 }
-                if ui.pilot_button(REFRESH_WINDOWS, "↻").clicked() {
+                if cl::tip(
+                    ui.pilot_button(REFRESH_WINDOWS, "↻"),
+                    "Look for windows again",
+                )
+                .clicked()
+                {
                     actions.refresh_windows = true;
                 }
             });
@@ -260,7 +320,14 @@ pub(crate) fn palette(
                             .monospace()
                             .color(Tone::Coral.color()),
                     );
-                    if pilot_chip(ui, VIDEO_STOP, cl::icon::STOP, "Stop", TONE) {
+                    if pilot_chip(
+                        ui,
+                        VIDEO_STOP,
+                        cl::icon::STOP,
+                        "Stop",
+                        TONE,
+                        "Stop and save the recording",
+                    ) {
                         actions.video_stop = true;
                     }
                 });
@@ -270,16 +337,44 @@ pub(crate) fn palette(
                 // list when a mode records audio.
                 ui.horizontal(|ui| {
                     let target = if video_window { "Window" } else { "Screen" };
-                    if pilot_chip(ui, VIDEO_TARGET, "", target, TONE) {
+                    if pilot_chip(
+                        ui,
+                        VIDEO_TARGET,
+                        "",
+                        target,
+                        TONE,
+                        "Record the whole screen, or just one window",
+                    ) {
                         actions.toggle_video_target = true;
                     }
-                    if pilot_chip(ui, VIDEO_FORMAT, "", format_label, TONE) {
+                    if pilot_chip(
+                        ui,
+                        VIDEO_FORMAT,
+                        "",
+                        format_label,
+                        TONE,
+                        "Video format — MP4 plays everywhere",
+                    ) {
                         actions.cycle_format = true;
                     }
-                    if pilot_chip(ui, VIDEO_AUDIO, "", audio_label, TONE) {
+                    if pilot_chip(
+                        ui,
+                        VIDEO_AUDIO,
+                        "",
+                        audio_label,
+                        TONE,
+                        "Record silent, computer sound, or your mic",
+                    ) {
                         actions.cycle_audio = true;
                     }
-                    if pilot_chip(ui, VIDEO_CAP, "", cap_label, TONE) {
+                    if pilot_chip(
+                        ui,
+                        VIDEO_CAP,
+                        "",
+                        cap_label,
+                        TONE,
+                        "Stop the recording automatically after this long",
+                    ) {
                         actions.cycle_cap = true;
                     }
                 });
@@ -302,13 +397,20 @@ pub(crate) fn palette(
                                     }
                                 }
                             });
-                        if ui.button("↻").clicked() {
+                        if cl::tip(ui.button("↻"), "Look for audio devices again").clicked() {
                             actions.refresh_audio = true;
                         }
                     });
                 }
                 ui.horizontal(|ui| {
-                    if pilot_chip(ui, VIDEO_START, cl::icon::REC, "Record", TONE) {
+                    if pilot_chip(
+                        ui,
+                        VIDEO_START,
+                        cl::icon::REC,
+                        "Record",
+                        TONE,
+                        "Start recording with the settings above",
+                    ) {
                         actions.video_start = true;
                     }
                 });
@@ -339,14 +441,28 @@ pub(crate) fn palette(
                             .small()
                             .color(cl::ink::SUBTLE),
                     );
-                    if pilot_chip(ui, SESSION_STOP, cl::icon::STOP, "Stop", TONE) {
+                    if pilot_chip(
+                        ui,
+                        SESSION_STOP,
+                        cl::icon::STOP,
+                        "Stop",
+                        TONE,
+                        "Stop and save the session",
+                    ) {
                         actions.session_stop = true;
                     }
                 });
             }
             None => {
                 ui.horizontal(|ui| {
-                    if pilot_chip(ui, SESSION_START, cl::icon::REC, "Record session", TONE) {
+                    if pilot_chip(
+                        ui,
+                        SESSION_START,
+                        cl::icon::REC,
+                        "Record session",
+                        TONE,
+                        "Record the screen AND what the app does, together",
+                    ) {
                         actions.session_start = true;
                     }
                 });
@@ -366,7 +482,14 @@ pub(crate) fn palette(
             Some(p) => save_card(ui, p, actions),
             None => {
                 ui.horizontal(|ui| {
-                    if pilot_chip(ui, STEPS_START, cl::icon::REC, "Start guide", TONE) {
+                    if pilot_chip(
+                        ui,
+                        STEPS_START,
+                        cl::icon::REC,
+                        "Start guide",
+                        TONE,
+                        "Every click you make becomes a step-by-step picture guide",
+                    ) {
                         actions.steps_start = true;
                     }
                 });
@@ -464,10 +587,24 @@ fn save_card(ui: &mut egui::Ui, p: &mut PendingGuide, actions: &mut PaletteActio
     });
     ui.add_space(cl::space::S1);
     ui.horizontal(|ui| {
-        if pilot_chip(ui, GUIDE_SAVE, "", "Save", TONE) {
+        if pilot_chip(
+            ui,
+            GUIDE_SAVE,
+            "",
+            "Save",
+            TONE,
+            "File the guide with this name and tags",
+        ) {
             actions.guide_save = true;
         }
-        if pilot_chip(ui, GUIDE_DISCARD, "", "Discard", TONE) {
+        if pilot_chip(
+            ui,
+            GUIDE_DISCARD,
+            "",
+            "Discard",
+            TONE,
+            "Throw this recording away — the steps are deleted",
+        ) {
             actions.guide_discard = true;
         }
     });
@@ -491,37 +628,91 @@ pub(crate) fn rec_pill(ui: &mut egui::Ui, count: u32, actions: &mut PaletteActio
                 .monospace()
                 .color(Tone::Coral.color()),
         );
-        if pilot_chip(ui, STEPS_MARK, cl::icon::MARK, "Mark", TONE) {
+        if pilot_chip(
+            ui,
+            STEPS_MARK,
+            cl::icon::MARK,
+            "Mark",
+            TONE,
+            "Keep THIS moment as a step (Ctrl+Shift+X from anywhere)",
+        ) {
             actions.steps_mark = true;
         }
-        if pilot_chip(ui, STEPS_STOP, cl::icon::STOP, "Stop", TONE) {
+        if pilot_chip(
+            ui,
+            STEPS_STOP,
+            cl::icon::STOP,
+            "Stop",
+            TONE,
+            "Stop recording and name your guide",
+        ) {
             actions.steps_stop = true;
         }
         ui.ctx().request_repaint(); // the pulse never rests while recording
     });
 }
 
-fn pilot_chip(ui: &mut egui::Ui, id: PilotId, glyph: &str, label: &str, tone: Tone) -> bool {
+/// A BRUTAL palette chip (doctrine): hard offset shadow, thick tone
+/// edge, hover presses the chip onto its shadow. The `tip` is LAW —
+/// every chip explains itself in layman language.
+fn pilot_chip(
+    ui: &mut egui::Ui,
+    id: PilotId,
+    glyph: &str,
+    label: &str,
+    tone: Tone,
+    tip: &str,
+) -> bool {
     let text = if label.is_empty() {
         glyph.to_string()
     } else {
         format!("{glyph} {label}")
     };
-    let response = ui.add(
-        egui::Button::new(RichText::new(text).color(cl::ink::BASE))
-            .fill(cl::surface::OVERLAY)
-            .stroke(egui::Stroke::new(1.0, tone.wash()))
-            .corner_radius(CornerRadius::same(cl::RADIUS_SM)),
+    let galley =
+        ui.painter()
+            .layout_no_wrap(text.clone(), FontId::proportional(13.0), cl::ink::BASE);
+    let (slot, resp) =
+        ui.allocate_exact_size(egui::vec2(galley.size().x + 24.0, 30.0), Sense::click());
+    let lift = if resp.hovered() && !resp.is_pointer_button_down_on() {
+        egui::Vec2::ZERO
+    } else {
+        egui::vec2(1.0, 1.0)
+    };
+    let chip = Rect::from_min_size(slot.min + lift, slot.size() - egui::vec2(3.0, 3.0));
+    let shadow = chip.translate(egui::vec2(3.0, 3.0) - lift);
+    let painter = ui.painter();
+    painter.rect_filled(
+        shadow,
+        CornerRadius::same(cl::RADIUS_SM),
+        Color32::from_black_alpha(230),
+    );
+    painter.rect_filled(
+        chip,
+        CornerRadius::same(cl::RADIUS_SM),
+        cl::surface::OVERLAY,
+    );
+    painter.rect_stroke(
+        chip,
+        CornerRadius::same(cl::RADIUS_SM),
+        egui::Stroke::new(2.0, tone.wash()),
+        StrokeKind::Inside,
+    );
+    painter.text(
+        chip.center(),
+        Align2::CENTER_CENTER,
+        text,
+        FontId::proportional(13.0),
+        cl::ink::BASE,
     );
     ui.pilot_track(
-        &response,
+        &resp,
         NodeMetadata::new(
             id,
             PilotRole::Button,
             if label.is_empty() { glyph } else { label },
         ),
     );
-    response.clicked()
+    cl::tip(resp, tip).clicked()
 }
 
 pub(crate) fn truncate(s: &str, max: usize) -> String {
