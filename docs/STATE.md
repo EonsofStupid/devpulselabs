@@ -67,6 +67,16 @@ is DELETED. Memory: `chat-is-a-peer-window`.
   docs/proof/r1s-editor-shell.png. Pass order to full fidelity is in the
   inventory doc §"Pass order": R1-scene → R1-annotate → R1-steps →
   R1-narrate → R1-preview → R1-export, interleaved with R1c–R1f.
+- **R1t — Preview + Annotate modes** (branch `feat/r1t-preview-annotate`,
+  stacked on R1s): the ANNOTATE tab now shows the tool row
+  (Select/Arrow/Callout/Box/Spotlight/Text) over a scene canvas; the
+  PREVIEW tab shows a 16:9 device frame + Touch/Mouse/Keyboard input chips;
+  both render the selected clip's frame via the ClipPlayer. A
+  `DPL_COMPOSER_TAB=<mode>` env override opens a specific tab for
+  screenshots (proof affordance, inert in normal use). Proof:
+  docs/proof/r1t-{annotate,preview}.png. Still stubs: tool behaviour, the
+  annotation data model, input-mode selection, sequence preview — the
+  annotation/preview passes fill them.
 
 ## KNOWN BROKEN / regressed (the honest list)
 
