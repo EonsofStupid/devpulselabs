@@ -39,7 +39,7 @@ static SPEC: HubSpec = HubSpec {
         SubRoute {
             id: LIBRARY,
             label: "Library",
-            blurb: "Every generated ingredient — traits, presets, fonts, moods. Never a one-off.",
+            blurb: "Your MEDIA shelf — clips, images, elements, renders. Raw material, never app ingredients.",
         },
         SubRoute {
             id: OVERVIEW,
@@ -563,6 +563,122 @@ fn artifact_card(
     (act, disarm)
 }
 
+/// The WiredFRONT LIBRARY — the MEDIA shelf (two-libraries law: raw
+/// media lives HERE; ColdLight ingredients live in Workbench). Today it
+/// holds the honest census: elements (awaiting the ingest pass) and the
+/// rendered comps on disk; the full thumbnailed shelf grows with the
+/// editor passes. The Gallery remains the capture wall.
+fn media_library(ui: &mut egui::Ui) {
+    // The shelf sits on its own recessed plate — the mood backdrop never
+    // fights the reading surface.
+    let full = ui.max_rect();
+    ui.painter().rect_filled(
+        full,
+        egui::CornerRadius::same(cl::RADIUS),
+        cl::surface::WELL,
+    );
+    let mut inner = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(full.shrink(cl::space::S3))
+            .layout(egui::Layout::top_down(egui::Align::Min)),
+    );
+    let ui = &mut inner;
+    let root = dpl_engine_capture::content_root();
+    ui.label(
+        RichText::new("The media shelf")
+            .heading()
+            .color(cl::ink::STRONG),
+    );
+    ui.label(
+        RichText::new(
+            "Raw material for the editor — clips, images, your AE elements, finished renders. \
+             App ingredients (traits, presets, fonts, moods) live in the Workbench Library.",
+        )
+        .small()
+        .color(cl::ink::SUBTLE),
+    );
+    ui.add_space(cl::space::S3);
+
+    ui.label(
+        RichText::new("ELEMENTS")
+            .small()
+            .strong()
+            .color(cl::ink::MUTED),
+    );
+    let elements_dir = root.join("elements");
+    let element_count = count_files(&elements_dir);
+    if element_count == 0 {
+        ui.label(
+            RichText::new(
+                "none yet — your After Effects element packs land in content/elements/ with \
+                 the ingest pass",
+            )
+            .small()
+            .color(cl::ink::SUBTLE),
+        );
+    } else {
+        ui.label(
+            RichText::new(format!(
+                "{element_count} element file(s) on disk — ingest pass next"
+            ))
+            .small()
+            .color(cl::ink::BASE),
+        );
+    }
+    ui.add_space(cl::space::S3);
+
+    ui.label(
+        RichText::new("RENDERS")
+            .small()
+            .strong()
+            .color(cl::ink::MUTED),
+    );
+    let inbox = root.join("inbox");
+    let mut renders: Vec<String> = std::fs::read_dir(&inbox)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir() && p.join("render.mp4").is_file())
+        .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .collect();
+    renders.sort();
+    if renders.is_empty() {
+        ui.label(
+            RichText::new(
+                "none yet — the Editor's Render button writes render.mp4 beside the comp",
+            )
+            .small()
+            .color(cl::ink::SUBTLE),
+        );
+    }
+    for name in renders {
+        ui.label(
+            RichText::new(format!("inbox/{name}/render.mp4"))
+                .monospace()
+                .small()
+                .color(cl::ink::BASE),
+        );
+    }
+}
+
+/// Count files under a directory tree (the elements census). Absent → 0.
+fn count_files(dir: &std::path::Path) -> usize {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    rd.flatten()
+        .map(|e| {
+            let p = e.path();
+            if p.is_dir() {
+                count_files(&p)
+            } else {
+                1
+            }
+        })
+        .sum()
+}
+
 /// The thumbnail source, or None for the honest kind-label fallback:
 /// image → itself; video → its poster; guide → its first frame.
 fn thumb_uri(r: &dpl_index::Record, root: &std::path::Path) -> Option<String> {
@@ -1042,7 +1158,7 @@ impl Hub for WiredfrontHub {
             return;
         }
         if route.sub == LIBRARY {
-            dpl_composer::library_ui(ui);
+            media_library(ui);
             return;
         }
         if let Some(go) = dpl_hub::placeholder::surface(
