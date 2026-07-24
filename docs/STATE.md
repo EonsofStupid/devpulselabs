@@ -76,7 +76,27 @@ is DELETED. Memory: `chat-is-a-peer-window`.
   screenshots (proof affordance, inert in normal use). Proof:
   docs/proof/r1t-{annotate,preview}.png. Still stubs: tool behaviour, the
   annotation data model, input-mode selection, sequence preview — the
-  annotation/preview passes fill them.
+  annotation/preview passes fill them. PR #24.
+- **R1u — editor FIDELITY** (branch `feat/r1u-editor-fidelity`, stacked on
+  R1t, PR #25): the operator's explicit layout ask landed — the transport
+  toolbar (New/Save/Render + stats) spans the full width along the BOTTOM
+  with the timeline directly above it; TOOL SELECTION is a real, persisted
+  LEFT rail (Select/Arrow/Callout/Box/Spot/Text, Active state presses in)
+  shared by Edit + Annotate; the inspector is adaptive (170–240) so
+  1100x700 never starves the preview. The RAIL ACCORDION unfolds
+  wiredFRONT → **Editor · Library** · Overview · ViziWiz · Gallery ·
+  Sessions on a recessed plate (surface::BASE), rows indented 10px, hover
+  wakes the ink (`composer` SubId renamed `editor`; no shim). NEW
+  `wiredfront/library`: the generated INGREDIENT LIBRARY
+  (`dpl_composer::library_ui`) — renders ONLY ColdLight's generated
+  registries: TRAITS composed live via `compose()`, LOOK/MOTION presets,
+  FONTS in their own faces, MOODS sampled via `Mood::at`. Never a one-off;
+  the Nth ingredient = JSON + regenerate, zero UI code. Gate ✔ (fmt,
+  clippy, all tests, release; ran in the pre-push hook). Proof:
+  docs/proof/r1u-{editor-1280,editor-1100,library,rail-open}.png. Plan:
+  docs/plans/r1u-editor-fidelity.md. NEXT (r1v): the axum agent seam —
+  fabric ↔ HTTP endpoints (GET /state · POST /command doctor-validated ·
+  GET /signals SSE) so chat generates into and drives the editors.
 
 ## KNOWN BROKEN / regressed (the honest list)
 
