@@ -102,13 +102,13 @@ Legend: ✅ CAPTURED in the rewrite · 🟡 PARTIAL (exists, gaps named) ·
 | Typed capture signal channel | ✅ fabric (⬆ typed end-to-end, no serialization) |
 | list_capture_targets (monitors + windows) | 🟡 engine-capture has monitor/region; window enumeration unverified |
 
-## 6. Chat / Agent console — ❌ (C1 was real in old; rewrite has a placeholder)
+## 6. Chat / Agent workspace — 🟡 (backing contracts exist; peer window is next)
 
 | | |
 |---|---|
-| C1 read-only console: session sidebar (Claude+Codex on disk), transcript normalizer (never drops lines), event-renderer registry, 6 renderers, tabs store, quota telemetry, jailed Rust reader | ❌ all — chat hub is a placeholder |
-| Agent launcher tile + dock | 🟡 — footer Agents chip routes to the hub (no dock) |
-| Route-aware, provider-isolated Chat platform; authenticated Codex/Claude/Gemini/Grok adapters; context registry; overlays/extensions; attached windows; explicit handoff; Council | 📋 canonical plan: [`chat-architecture.md`](chat-architecture.md); live runtime blocked on the draft [`chat-provider-runtime-adr.md`](chat-provider-runtime-adr.md) |
+| C1 read-only console: session library (Claude+Codex on disk), transcript normalizer (never drops lines), event-renderer registry, bounded paging, jailed Rust reader | 🟡 backing contracts implemented and locally qualified; embedded hub presentation superseded by [`chat-window-product-vision.md`](chat-window-product-vision.md) |
+| Agent launcher tile + dock | 🟡 current footer/hub navigation is migration scaffolding; CHAT-1 replaces it with a typed launcher/status accessory for the independent Chat window |
+| Route-aware, provider-isolated peer Chat window; authenticated Codex/Claude/Gemini/Grok adapters; bidirectional route bridge; governed Interaction Library; utility windows; explicit handoff; Council | 📋 canonical architecture: [`chat-architecture.md`](chat-architecture.md); product/visual authority: [`chat-window-product-vision.md`](chat-window-product-vision.md); live runtime remains gated by [`chat-provider-runtime-adr.md`](chat-provider-runtime-adr.md) |
 | Provider protocol/auth evidence and qualification status | 📋 [`../research/chat-provider-capabilities.md`](../research/chat-provider-capabilities.md) |
 | Signals v2 typed events | ⬆ the fabric already IS typed Rust enums end-to-end |
 
@@ -152,8 +152,8 @@ Legend: ✅ CAPTURED in the rewrite · 🟡 PARTIAL (exists, gaps named) ·
    minigame doctrine; reduced-motion.
 6. **Content doctrine** (§3): show/episode schemas, doctor, creator wizard,
    author flow — folds into the episode-document design (1).
-7. **Agent console C1** (§6): sidebar + transcript reader + renderers (chat hub
-   is empty; old C1 is a clean port source). C2+/mesh from the plan docs after.
+7. **Agent workspace** (§6): accepted provider/store/reader/renderer backing
+   contracts bind into the independent peer Chat window in CHAT-1/CHAT-2.
 8. **Session replay, rethought** (§5): rrweb is webview tech — design the
    video-first session vehicle (ADR) instead of porting.
 9. **Portable/kiosk** (§3/§7): package-portable, data_root law, runtime_status,

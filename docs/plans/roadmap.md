@@ -224,24 +224,31 @@ doctrine or the episode tree.
 Canonical architecture and slice acceptance:
 [`chat-architecture.md`](chat-architecture.md). Current provider evidence:
 [`../research/chat-provider-capabilities.md`](../research/chat-provider-capabilities.md).
+The peer-window product, visual system, route bridge, and governed generated
+surface contract are canonical in
+[`chat-window-product-vision.md`](chat-window-product-vision.md).
 The named-provider runtime exception is ratified. Live provider processes
 remain fail-closed until the launch checklist in
 [`chat-provider-runtime-adr.md`](chat-provider-runtime-adr.md) is green.
 
-- **CH0 architecture/governance:** typed ownership, provider research, runtime
-  ADR, generic shell accessory contract.
-- **CH1 provider-neutral foundation:** core types, capability registry,
-  normalized events, fake providers, data-driven tabs.
-- **CH2 read-only sessions:** jailed readers, bounded paging, transcript
-  normalization, renderer registry, virtualized C1 surface.
-- **CH3 route context/extensions:** explicit context consent/provenance,
-  route-aware suggestions, shell accessories, passive extension triggers.
-- **CH4–CH7 live providers:** Codex app-server, Claude structured stream,
-  Gemini ACP, Grok ACP — each version-pinned and qualified independently.
-- **CH8 extensions/windows:** overlays, docks, inspectors, stable attached
-  windows, multi-viewport proof.
-- **CH9 handoff/Council:** explicit cross-provider export, caps, approvals, and
-  COSTAR only after every participating provider works alone.
+- **CHAT-0 contract freeze:** preserve the accepted CH1/CH2 backing contracts,
+  reject the embedded hub presentation, and align plan/roadmap/census.
+- **CHAT-1 peer window:** app-owned `ChatWindowCoordinator`, independent
+  primary native Chat viewport, launcher/status accessory, lifecycle proof,
+  and ColdLight Ember responsive shell.
+- **CHAT-2 read-only sessions:** bind the accepted registry, jailed readers,
+  bounded paging, normalization, renderers, and fixtures into the peer window.
+- **CHAT-3 route bridge:** revisioned Main-to-Chat context plus explicit,
+  validated Chat-to-Main navigation and restore/focus.
+- **CHAT-4 Interaction Library:** schema-bound native inline/stage/overlay/
+  utility-window surfaces with accessibility, permissions, and deterministic
+  replay.
+- **CHAT-5–CHAT-7 live providers:** Codex app-server, Claude structured stream,
+  Gemini ACP, and Grok ACP, each version-pinned and qualified independently.
+- **CHAT-8 advanced surfaces:** artifacts, plans, diffs, tools, background
+  activity, detachable stage surfaces, and declared extensions.
+- **CHAT-9 handoff/Council:** explicit cross-provider export, caps, approvals,
+  and COSTAR only after every participating provider works alone.
 
 ## Program S — Sessions, rethought (census #8)
 

@@ -231,19 +231,22 @@ nodes and is not modeled as an unrelated process or browser page.
   viewport, settle against its semantic/geometry/pixel hashes, and record its
   key, lifetime, class, dimensions, and DPI. Root capture is qualified.
   Immediate child capture is explicitly unsupported in eframe 0.35 native wgpu
-  because its renderer drops screenshot requests; deferred capture remains
-  unqualified. Session-wide stitched capture is a separate future capability.
+  because its renderer drops screenshot requests. Real Chat qualification
+  also proves background deferred viewports do not deliver queued screenshot
+  requests. Both child classes fail at capability preflight. Session-wide
+  stitched capture is a separate future capability.
 - Native-required projects reject `EmbeddedWindow` fallback. Platform-optional
   geometry such as Wayland outer position is never fabricated.
 - Shutdown releases input, closes children leaf-first, flushes lifecycle
   evidence, then closes root.
 
-The shared instrumentation wrapper currently supports immediate egui viewports.
-PixVix qualifies discovery, focus, targeted input, lifecycle, close, and
-teardown. A reusable deferred wrapper and fixture must qualify independent
-repainting and renderer-supported capture before the planned presenter viewport
-uses that path. The detailed gap audit, protocol shape, evidence, and open
-gates are in `docs/research/eguipilotai/multi-viewport.md`.
+The shared instrumentation wrapper supports immediate and deferred egui
+viewports. PixVix qualifies the immediate path. The app-owned Chat peer window
+qualifies deferred discovery, independent interaction while Main is minimized,
+focus, minimize/restore, owner-mediated close, reopen, and teardown. Native
+child pixels remain a separate blocked capability and are never inferred from
+a root screenshot. The detailed evidence and open gates are in
+`docs/research/eguipilotai/multi-viewport.md`.
 
 ## Deterministic motion and capture
 

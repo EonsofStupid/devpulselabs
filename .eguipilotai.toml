@@ -47,6 +47,12 @@ arguments = ["--route", "wiredfront/viziwiz", "--viziwiz", "--mood", "0"]
 [fixtures.chat]
 arguments = ["--route", "chat/sessions", "--mood", "0"]
 
+[fixtures.chat]
+arguments = ["--chat-open", "--mood", "0"]
+
+[fixtures.chat-peer]
+arguments = ["--chat-open", "--mood", "0"]
+
 [[projects]]
 id = "devpulse-cloud"
 profile = "devpulse-cloud"

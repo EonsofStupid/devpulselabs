@@ -7,6 +7,8 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod chat;
+
 use dpl_fabric::Fabric;
 use dpl_hub::{Hub, Route};
 use dpl_shell::Shell;
@@ -63,6 +65,9 @@ fn main() -> eframe::Result {
         .and_then(|i| args.get(i + 1))
         .and_then(|n| n.parse().ok());
     let viziwiz_snap = args.iter().any(|a| a == "--viziwiz-snap");
+    // `--chat-open` opens the independent primary Chat peer at boot. The
+    // named EguiPilotAI fixture uses this path; ordinary launches stay quiet.
+    let chat_open = args.iter().any(|a| a == "--chat-open");
     // `--steps-hotkey-drill` — send a REAL Ctrl+Shift+9 through the OS
     // (rdev::simulate) and verify the global hook starts, then stops, the
     // Steps recorder (C2). Real input end-to-end; the pilot never fakes
@@ -212,6 +217,7 @@ fn main() -> eframe::Result {
                 shot_frame,
                 viziwiz_open,
                 viziwiz_snap,
+                chat_open,
                 steps_hotkey_drill,
                 video_drill,
                 video_format,
@@ -244,6 +250,7 @@ struct Boot {
     shot_frame: u32,
     viziwiz_open: bool,
     viziwiz_snap: bool,
+    chat_open: bool,
     steps_hotkey_drill: bool,
     video_drill: Option<u32>,
     video_format: Option<String>,
@@ -260,6 +267,7 @@ struct Boot {
 struct App {
     shell: Shell,
     viziwiz: dpl_viziwiz::Viziwiz,
+    chat: chat::ChatWindowCoordinator,
     shot: Option<std::path::PathBuf>,
     frames: u32,
     shot_frame: u32,
@@ -289,6 +297,7 @@ impl App {
             shot_frame,
             viziwiz_open,
             viziwiz_snap,
+            chat_open,
             steps_hotkey_drill,
             video_drill,
             video_format,
@@ -333,8 +342,9 @@ impl App {
         // publish their asks through the one fabric.
         workbench.wire_fabric(&fabric);
         wiredfront.wire_fabric(&fabric);
-        // Chat providers register as data. The hub never names one and every
-        // manifest remains visibly blocked until its real adapter qualifies.
+        // Chat providers register as data. Neither the rail hub nor the
+        // peer-window UI names one; every manifest remains visibly blocked
+        // until its real adapter qualifies.
         let chat_runtime = dpl_chat_runtime::ChatRuntime::try_from_registrations([
             dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_codex::MANIFEST),
             dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_claude::MANIFEST),
@@ -345,9 +355,12 @@ impl App {
             tracing::error!(%error, "chat provider registry rejected");
             dpl_chat_runtime::ChatRuntime::default()
         });
-        let mut chat =
-            dpl_hub_chat::ChatHub::with_history(chat_runtime, local_chat_history_catalog());
-        chat.wire_fabric(&fabric);
+        // The rail Chat hub carries the bounded read-only histories and the
+        // ColdLight-trait provider chips. It shares the runtime with the peer
+        // window (both read the same registrations) via a clone.
+        let mut chat_hub =
+            dpl_hub_chat::ChatHub::with_history(chat_runtime.clone(), local_chat_history_catalog());
+        chat_hub.wire_fabric(&fabric);
         // The registry — a new hub is ONE line here and nothing else.
         let hubs: Vec<Box<dyn Hub>> = vec![
             Box::new(dpl_hub_home::HomeHub),
@@ -357,14 +370,24 @@ impl App {
             Box::new(present_hub),
             Box::new(workbench),
             Box::new(wiredfront),
-            Box::new(chat),
+            Box::new(chat_hub),
         ];
 
         let mut viziwiz = dpl_viziwiz::Viziwiz::new(&fabric);
         if viziwiz_open {
             viziwiz.open_now();
         }
-        let mut shell = Shell::new(hubs, fabric);
+        let mut shell = Shell::new(hubs, fabric.clone());
+        shell
+            .register_window_accessory(dpl_shell::status::WindowAccessory {
+                key: dpl_chat_window::WINDOW_KEY,
+                pilot_id: dpl_chat_window::LAUNCHER_ID,
+                glyph: dpl_coldlight::icon::BOT,
+                label: "Chat",
+                tone: dpl_coldlight::Tone::Cyan,
+                tooltip: "Open, restore, or focus the DevPULSE Chat peer window",
+            })
+            .unwrap_or_else(|key| panic!("duplicate shell window accessory: {key}"));
         // The provenance stamp (git hash · utc, build.rs) — the running app
         // proves which code it is, in the status grid's build cell.
         shell.set_build(env!("DPL_BUILD"));
@@ -401,10 +424,13 @@ impl App {
             });
             shell.set_full_bleed(true);
         }
+        let chat =
+            chat::ChatWindowCoordinator::new(&fabric, chat_runtime, shell.route(), chat_open);
 
         Self {
             shell,
             viziwiz,
+            chat,
             shot,
             frames: 0,
             shot_frame,
@@ -649,9 +675,11 @@ fn fit_window(ctx: &egui::Context) {
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.chat.root_close_requested(ui.ctx());
         fit_window(ui.ctx());
         self.shell.ui(ui);
         let ctx = ui.ctx().clone();
+        self.chat.frame(&ctx, self.shell.route());
 
         // The Steps chords (Ctrl+Shift+S/9/X) are OS-GLOBAL since C2 —
         // the rdev hook inside viziwiz sees them whether or not this app

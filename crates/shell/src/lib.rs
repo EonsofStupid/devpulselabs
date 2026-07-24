@@ -19,7 +19,7 @@
 pub mod status;
 
 use dpl_coldlight::{self as cl, Tone};
-use dpl_fabric::{Fabric, ShellEvent};
+use dpl_fabric::{AppWindowAction, AppWindowKey, Fabric, ShellEvent};
 use dpl_hub::{Hub, HubId, Route, SubId};
 use egui::{Align, Color32, CornerRadius, Layout, Rect, RichText, Sense};
 use egui_pilot_ai::{NodeMetadata, PilotId, PilotKey, UiPilotExt};
@@ -81,6 +81,9 @@ pub struct Shell {
     open_house: Option<HubId>,
     /// Last frame's zone rects (docs/shell.md).
     zones: Zones,
+    /// Data-only launchers for app-owned native windows. The shell renders
+    /// these generically and never knows which feature owns a target.
+    window_accessories: Vec<status::WindowAccessory>,
 }
 
 impl Shell {
@@ -109,7 +112,27 @@ impl Shell {
             tooltip_mood: dpl_backdrop::random_mood_index(),
             open_house: None,
             zones: Zones::default(),
+            window_accessories: Vec::new(),
         }
+    }
+
+    /// Register one app-owned native-window launcher.
+    ///
+    /// Duplicate keys are a wiring error because one accessory must resolve
+    /// to exactly one coordinator target.
+    pub fn register_window_accessory(
+        &mut self,
+        accessory: status::WindowAccessory,
+    ) -> Result<(), AppWindowKey> {
+        if self
+            .window_accessories
+            .iter()
+            .any(|registered| registered.key == accessory.key)
+        {
+            return Err(accessory.key);
+        }
+        self.window_accessories.push(accessory);
+        Ok(())
     }
 
     /// Last frame's zone rects — the layout contract, observable.
@@ -229,7 +252,9 @@ impl Shell {
             match ev {
                 ShellEvent::FullBleedRequest(on) => self.full_bleed = on,
                 ShellEvent::NavigateRequest { route } => nav_request = Some(route),
-                ShellEvent::RouteChanged { .. } | ShellEvent::ViziwizSummon => {}
+                ShellEvent::RouteChanged { .. }
+                | ShellEvent::ViziwizSummon
+                | ShellEvent::WindowRequest { .. } => {}
             }
         }
         if let Some(route) = nav_request {
@@ -262,10 +287,13 @@ impl Shell {
         for action in actions {
             match action {
                 status::StatusAction::Snip => self.summon_viziwiz(),
-                // The agent dock is deferred (ledger); until it lands the
-                // Agents launcher targets the agent hub by its well-known
-                // id — unregistered degrades to a no-op, never a panic.
-                status::StatusAction::Agents => self.activate_hub(HubId("chat")),
+                status::StatusAction::Window(target) => {
+                    self.signal_count += 1;
+                    self.fabric.publish_shell(ShellEvent::WindowRequest {
+                        target,
+                        action: AppWindowAction::OpenOrFocus,
+                    });
+                }
             }
         }
         let (rail, clicked) = self.rail(ui, &fl);
@@ -382,7 +410,7 @@ impl Shell {
                     build: self.build,
                     mood: self.backdrop.mood(),
                 };
-                actions = status::grid(ui, &cx);
+                actions = status::grid(ui, &cx, &self.window_accessories);
             });
         (resp.response.rect, actions)
     }
@@ -680,7 +708,7 @@ pub(crate) fn launcher_chip(
     label: &str,
     tone: Tone,
     tip: &str,
-) -> bool {
+) -> egui::Response {
     let galley = ui.painter().layout_no_wrap(
         label.into(),
         egui::FontId::proportional(12.5),
@@ -734,7 +762,7 @@ pub(crate) fn launcher_chip(
             cl::ink::BASE
         },
     );
-    cl::tip(resp, tip).clicked()
+    cl::tip(resp, tip)
 }
 
 /// One house row's paint inputs (bundled — the workspace's no-`#[allow]`
@@ -1050,6 +1078,24 @@ mod tests {
         shell.summon_viziwiz();
         assert_eq!(rx.try_recv().unwrap(), ShellEvent::ViziwizSummon);
         assert_eq!(shell.signal_count(), 1);
+    }
+
+    #[test]
+    fn window_accessory_keys_are_unique() {
+        let (mut shell, _rx) = shell();
+        let accessory = status::WindowAccessory {
+            key: AppWindowKey("test.window"),
+            pilot_id: PilotId::new("shell.window.test"),
+            glyph: "W",
+            label: "Window",
+            tone: Tone::Cyan,
+            tooltip: "Open the test window",
+        };
+        assert!(shell.register_window_accessory(accessory).is_ok());
+        assert_eq!(
+            shell.register_window_accessory(accessory),
+            Err(AppWindowKey("test.window"))
+        );
     }
 
     #[test]

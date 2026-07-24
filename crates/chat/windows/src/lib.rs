@@ -10,6 +10,11 @@ use std::fmt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ChatWindowId(pub u64);
 
+impl ChatWindowId {
+    /// Stable singleton identity of the primary peer Chat window.
+    pub const PRIMARY: Self = Self(0);
+}
+
 impl fmt::Display for ChatWindowId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "chat-window-{}", self.0)
@@ -18,6 +23,39 @@ impl fmt::Display for ChatWindowId {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ViewportGeneration(pub u64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowGeometry {
+    pub outer_position: Option<[i32; 2]>,
+    pub inner_size: [u32; 2],
+}
+
+impl WindowGeometry {
+    pub const DEFAULT: Self = Self {
+        outer_position: None,
+        // Fits completely on a 1536×864 desktop at 125% scaling, including
+        // ordinary Windows decorations. Larger work-stage layouts remain a
+        // user resize away instead of opening partly off-screen.
+        inner_size: [1120, 640],
+    };
+    pub const MINIMUM: [u32; 2] = [520, 560];
+
+    pub fn validated(outer_position: Option<[i32; 2]>, inner_size: [u32; 2]) -> Option<Self> {
+        (inner_size[0] > 0 && inner_size[1] > 0).then_some(Self {
+            outer_position,
+            inner_size: [
+                inner_size[0].max(Self::MINIMUM[0]),
+                inner_size[1].max(Self::MINIMUM[1]),
+            ],
+        })
+    }
+}
+
+impl Default for WindowGeometry {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowKind {
@@ -48,6 +86,69 @@ pub enum WindowLifecycle {
     Failed { reason: String },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RootCloseDecision {
+    HideMain,
+    Exit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChatCloseDecision {
+    KeepRunning,
+    Exit,
+}
+
+/// Pure lifetime policy for the two independent application peers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PeerLifetime {
+    main_visible: bool,
+    quit_requested: bool,
+}
+
+impl Default for PeerLifetime {
+    fn default() -> Self {
+        Self {
+            main_visible: true,
+            quit_requested: false,
+        }
+    }
+}
+
+impl PeerLifetime {
+    pub const fn main_visible(self) -> bool {
+        self.main_visible
+    }
+
+    pub fn restore_main(&mut self) {
+        self.main_visible = true;
+    }
+
+    pub fn request_quit(&mut self) {
+        self.quit_requested = true;
+    }
+
+    pub const fn quit_requested(self) -> bool {
+        self.quit_requested
+    }
+
+    pub fn on_root_close(&mut self, chat_live: bool) -> RootCloseDecision {
+        if self.quit_requested || !chat_live {
+            RootCloseDecision::Exit
+        } else {
+            self.main_visible = false;
+            RootCloseDecision::HideMain
+        }
+    }
+
+    pub const fn on_chat_close(self) -> ChatCloseDecision {
+        if self.main_visible {
+            ChatCloseDecision::KeepRunning
+        } else {
+            ChatCloseDecision::Exit
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatWindowRecord {
     pub id: ChatWindowId,
@@ -55,6 +156,7 @@ pub struct ChatWindowRecord {
     pub kind: WindowKind,
     pub binding: WindowBinding,
     pub lifecycle: WindowLifecycle,
+    pub geometry: WindowGeometry,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,6 +189,23 @@ pub struct ChatWindowRegistry {
 }
 
 impl ChatWindowRegistry {
+    /// Register the one primary Chat peer. Repeated calls return the same
+    /// identity and never create a duplicate viewport.
+    pub fn request_primary(&mut self, binding: WindowBinding) -> ChatWindowId {
+        if self.window(ChatWindowId::PRIMARY).is_some() {
+            return ChatWindowId::PRIMARY;
+        }
+        self.windows.push(ChatWindowRecord {
+            id: ChatWindowId::PRIMARY,
+            generation: ViewportGeneration(1),
+            kind: WindowKind::Conversation,
+            binding,
+            lifecycle: WindowLifecycle::Requested,
+            geometry: WindowGeometry::default(),
+        });
+        ChatWindowId::PRIMARY
+    }
+
     pub fn request(&mut self, kind: WindowKind, binding: WindowBinding) -> ChatWindowId {
         self.next_id = self.next_id.saturating_add(1);
         let id = ChatWindowId(self.next_id);
@@ -96,6 +215,7 @@ impl ChatWindowRegistry {
             kind,
             binding,
             lifecycle: WindowLifecycle::Requested,
+            geometry: WindowGeometry::default(),
         });
         id
     }
@@ -167,6 +287,34 @@ impl ChatWindowRegistry {
         &self.windows
     }
 
+    pub fn record(&self, id: ChatWindowId) -> Option<&ChatWindowRecord> {
+        self.window(id)
+    }
+
+    pub fn update_geometry(
+        &mut self,
+        id: ChatWindowId,
+        outer_position: Option<[i32; 2]>,
+        inner_size: [u32; 2],
+    ) -> Result<bool, WindowError> {
+        let window = self.window_mut(id)?;
+        let Some(geometry) = WindowGeometry::validated(outer_position, inner_size) else {
+            return Ok(false);
+        };
+        let changed = window.geometry != geometry;
+        window.geometry = geometry;
+        Ok(changed)
+    }
+
+    pub fn is_live(&self, id: ChatWindowId) -> bool {
+        self.window(id).is_some_and(|window| {
+            matches!(
+                window.lifecycle,
+                WindowLifecycle::Requested | WindowLifecycle::Opening | WindowLifecycle::Visible
+            )
+        })
+    }
+
     pub fn visible_count(&self) -> usize {
         self.windows
             .iter()
@@ -198,6 +346,10 @@ impl ChatWindowRegistry {
             .iter_mut()
             .find(|window| window.id == id)
             .ok_or(WindowError::Unknown(id))
+    }
+
+    fn window(&self, id: ChatWindowId) -> Option<&ChatWindowRecord> {
+        self.windows.iter().find(|window| window.id == id)
     }
 }
 
@@ -253,5 +405,79 @@ mod tests {
         windows.request_close(id).expect("closing");
         windows.mark_closed(id).expect("closed");
         assert_eq!(windows.records()[0].binding.session_id, Some(session_id));
+    }
+
+    #[test]
+    fn primary_is_a_singleton_with_a_stable_identity() {
+        let mut windows = ChatWindowRegistry::default();
+        assert_eq!(
+            windows.request_primary(WindowBinding::default()),
+            ChatWindowId::PRIMARY
+        );
+        assert_eq!(
+            windows.request_primary(WindowBinding::default()),
+            ChatWindowId::PRIMARY
+        );
+        assert_eq!(windows.records().len(), 1);
+    }
+
+    #[test]
+    fn geometry_is_clamped_and_survives_reopen() {
+        let mut windows = ChatWindowRegistry::default();
+        let id = windows.request_primary(WindowBinding::default());
+        assert!(windows
+            .update_geometry(id, Some([40, 60]), [240, 320])
+            .expect("primary"));
+        assert_eq!(
+            windows.record(id).expect("primary").geometry,
+            WindowGeometry {
+                outer_position: Some([40, 60]),
+                inner_size: WindowGeometry::MINIMUM,
+            }
+        );
+        windows.request_close(id).expect("closing");
+        windows.mark_closed(id).expect("closed");
+        windows.reopen(id).expect("reopen");
+        assert_eq!(
+            windows.record(id).expect("primary").geometry.inner_size,
+            WindowGeometry::MINIMUM
+        );
+    }
+
+    #[test]
+    fn invalid_zero_geometry_is_rejected_without_erasing_the_last_value() {
+        let mut windows = ChatWindowRegistry::default();
+        let id = windows.request_primary(WindowBinding::default());
+        assert!(!windows
+            .update_geometry(id, None, [0, 720])
+            .expect("primary"));
+        assert_eq!(
+            windows.record(id).expect("primary").geometry,
+            WindowGeometry::DEFAULT
+        );
+    }
+
+    #[test]
+    fn root_close_hides_main_while_chat_is_live() {
+        let mut lifetime = PeerLifetime::default();
+        assert_eq!(lifetime.on_root_close(true), RootCloseDecision::HideMain);
+        assert!(!lifetime.main_visible());
+        assert_eq!(lifetime.on_chat_close(), ChatCloseDecision::Exit);
+    }
+
+    #[test]
+    fn last_root_close_exits_and_explicit_quit_always_exits() {
+        let mut lifetime = PeerLifetime::default();
+        assert_eq!(lifetime.on_root_close(false), RootCloseDecision::Exit);
+        lifetime.request_quit();
+        assert_eq!(lifetime.on_root_close(true), RootCloseDecision::Exit);
+    }
+
+    #[test]
+    fn restoring_main_keeps_the_process_after_chat_closes() {
+        let mut lifetime = PeerLifetime::default();
+        assert_eq!(lifetime.on_root_close(true), RootCloseDecision::HideMain);
+        lifetime.restore_main();
+        assert_eq!(lifetime.on_chat_close(), ChatCloseDecision::KeepRunning);
     }
 }

@@ -6,7 +6,9 @@
 //! [`StatusAction`] and the owner executes it (the PaletteActions pattern).
 
 use dpl_coldlight::{self as cl, Mood, Tone};
+use dpl_fabric::AppWindowKey;
 use egui::{Align, Layout, Rect, RichText, Ui, UiBuilder};
+use egui_pilot_ai::{protocol::Role, NodeMetadata, PilotId, UiPilotExt};
 
 /// The three columns of the bar. Left and Right pack from their outer edge;
 /// Center packs from the middle column's center.
@@ -23,8 +25,19 @@ pub enum Lane {
 pub enum StatusAction {
     /// Summon the ViziWiz overlay (the Snip launcher).
     Snip,
-    /// Route to the agent hub (the Agents launcher).
-    Agents,
+    /// Ask the app owner to open, restore, and focus a native window.
+    Window(AppWindowKey),
+}
+
+/// Data-only description of an app-owned window accessory.
+#[derive(Debug, Clone, Copy)]
+pub struct WindowAccessory {
+    pub key: AppWindowKey,
+    pub pilot_id: PilotId,
+    pub glyph: &'static str,
+    pub label: &'static str,
+    pub tone: Tone,
+    pub tooltip: &'static str,
 }
 
 /// Everything a cell may read this frame — the shell's live state, borrowed.
@@ -68,11 +81,6 @@ pub static CELLS: &[StatusCell] = &[
         render: mood,
     },
     StatusCell {
-        id: "agents",
-        lane: Lane::Right,
-        render: agents,
-    },
-    StatusCell {
         id: "signals",
         lane: Lane::Right,
         render: signals,
@@ -85,7 +93,11 @@ pub static CELLS: &[StatusCell] = &[
 ];
 
 /// Lay the bar as three lane columns and run every registered cell.
-pub fn grid(ui: &mut Ui, cx: &StatusCtx) -> Vec<StatusAction> {
+pub fn grid(
+    ui: &mut Ui,
+    cx: &StatusCtx,
+    window_accessories: &[WindowAccessory],
+) -> Vec<StatusAction> {
     let bar = ui.max_rect();
     let third = bar.width() / 3.0;
     let lane_rect = |i: f32| {
@@ -106,6 +118,29 @@ pub fn grid(ui: &mut Ui, cx: &StatusCtx) -> Vec<StatusAction> {
             Lane::Left => Layout::left_to_right(Align::Center),
         };
         let mut child = ui.new_child(UiBuilder::new().max_rect(rect).layout(layout));
+        if lane == Lane::Right {
+            for accessory in window_accessories {
+                let response = crate::launcher_chip(
+                    &mut child,
+                    accessory.glyph,
+                    accessory.label,
+                    accessory.tone,
+                    accessory.tooltip,
+                );
+                child.pilot_track(
+                    &response,
+                    NodeMetadata::new(
+                        accessory.pilot_id,
+                        Role::Button,
+                        format!("Open {}", accessory.label),
+                    ),
+                );
+                if response.clicked() {
+                    actions.push(StatusAction::Window(accessory.key));
+                }
+                child.add_space(cl::space::S3);
+            }
+        }
         for cell in CELLS.iter().filter(|c| c.lane == lane) {
             if let Some(action) = (cell.render)(&mut child, cx) {
                 actions.push(action);
@@ -132,6 +167,7 @@ fn snip(ui: &mut Ui, cx: &StatusCtx) -> Option<StatusAction> {
         cx.tone,
         "Open the capture palette (Ctrl+Shift+S from anywhere)",
     )
+    .clicked()
     .then_some(StatusAction::Snip)
 }
 
@@ -154,17 +190,6 @@ fn mood(ui: &mut Ui, cx: &StatusCtx) -> Option<StatusAction> {
         .circle_filled(rect.center(), 3.0, cx.mood.accent_color());
     ui.label(RichText::new(cx.mood.name).small().color(cl::ink::MUTED));
     None
-}
-
-fn agents(ui: &mut Ui, cx: &StatusCtx) -> Option<StatusAction> {
-    crate::launcher_chip(
-        ui,
-        cl::icon::BOT,
-        "Agents",
-        cx.tone,
-        "See what the AI agents are doing",
-    )
-    .then_some(StatusAction::Agents)
 }
 
 fn signals(ui: &mut Ui, cx: &StatusCtx) -> Option<StatusAction> {

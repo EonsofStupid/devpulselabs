@@ -62,6 +62,10 @@ impl EventLog {
                 "ms": ms, "type": "navigate-request",
                 "hub": route.hub.0, "sub": route.sub.0,
             }),
+            ShellEvent::WindowRequest { target, action } => serde_json::json!({
+                "ms": ms, "type": "window-request",
+                "target": target.0, "action": format!("{action:?}"),
+            }),
         };
         // Best-effort per line: a failed write must never take the
         // recording down with it.

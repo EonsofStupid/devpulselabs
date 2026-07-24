@@ -1340,6 +1340,8 @@ dependencies = [
  "dpl-chat-grok",
  "dpl-chat-runtime",
  "dpl-chat-store",
+ "dpl-chat-window",
+ "dpl-chat-windows",
  "dpl-coldlight",
  "dpl-doc",
  "dpl-engine-capture",
@@ -1522,6 +1524,21 @@ version = "0.1.0"
 dependencies = [
  "dpl-chat-core",
  "dpl-chat-runtime",
+]
+
+[[package]]
+name = "dpl-chat-window"
+version = "0.1.0"
+dependencies = [
+ "dpl-chat-context",
+ "dpl-chat-core",
+ "dpl-chat-runtime",
+ "dpl-coldlight",
+ "dpl-fabric",
+ "dpl-hub",
+ "egui",
+ "egui-pilot-ai",
+ "egui_kittest",
 ]
 
 [[package]]

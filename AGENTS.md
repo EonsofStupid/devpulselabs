@@ -18,6 +18,11 @@ forbidden behavior are canonical in
 `docs/plans/chat-provider-runtime-adr.md`; no generic command runner or
 credential-handling path is permitted.
 
+Chat's primary UI is an independent native peer window, never a hub route.
+The canonical product, visual, route, and generated-surface contract is
+`docs/plans/chat-window-product-vision.md`; architecture and delivery remain
+canonical in `docs/plans/chat-architecture.md`.
+
 ## Laws
 
 1. **Plan before code.** Every pass has a plan in `docs/`. Reality contradicting
