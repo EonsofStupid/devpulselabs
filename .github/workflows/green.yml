@@ -10,6 +10,10 @@ name: green
 on:
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+      - ".claude/**"
 
 env:
   CARGO_TERM_COLOR: always

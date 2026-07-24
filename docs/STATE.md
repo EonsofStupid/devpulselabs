@@ -70,6 +70,16 @@ Operator exe rebuilt 2026-07-23 16:51.
    **Remaining**: the feel-bar review pass across every route against
    the old app (screenshot-by-screenshot). Every UI pass MUST invoke
    `dpl-style`.
+
+## CI + process (live as of #11/#12)
+
+- Self-hosted runner `dpl-win-laptop` runs the green gate on every
+  code PR (first run PASSED, 18m cold); pre-push hook enforces locally;
+  PR → squash-merge flow; docs-only changes skip CI (paths-ignore).
+- Staged: the Ubuntu/Wayland `dpl-linux` runner lane (commands in
+  CLAUDE.md) — BOTH deploy targets (this laptop + the Wayland mini-PC)
+  build on every PR once registered. Reboot-persistence for the Windows
+  runner needs one elevated schtasks command (CLAUDE.md).
 3. Content root resolves from CWD (`./content`) — double-clicked exe reads
    `target/release/content`. Program P's data_root law not yet ported.
 4. Stale EguiPilotAI scenarios/fixtures (pre-Program-L flyout/Library refs).
