@@ -27,14 +27,18 @@ Operator exe rebuilt 2026-07-23 16:51.
    NOTE: egui exposes monitor size, not the work area — the guard
    reserves 48 logical px for the taskbar; if a taller taskbar clips,
    raise the allowance or port a Win32 work-area query.
-2. **The experience layer was never specced or ported.** No experience
-   inventory exists; the census counted features, not feel. Missing vs the
-   old app: tooltips on controls, neubrutalist/clay surface language,
-   transition polish, resize resilience, frictionless layman flows. The
-   operator rates current UI a regression — they are right. FIRST UI work:
-   author docs/plans/experience-inventory.md from the old app's real code
-   (`src/domains/ui/tooltip`, fx layer, design/TRUTH.md) + screenshots,
-   with pass/fail criteria; it gates all UI passes after.
+2. **The experience layer was never specced.** NOW BEING FIXED:
+   `docs/design/doctrine.md` DEFINES the language (BRUTAL = actionable,
+   CLAY = passive, tooltip law, token law, any-shape law, the feel bar)
+   and the `dpl-style` skill gates every UI pass on it. ColdLight grew
+   the primitives (`brutal_frame`/`clay_frame`/`tip`, `RADIUS_LG`).
+   First application landed: the shared `filter_chip` is brutal (hard
+   offset shadow, hover press) with layman tips on gallery filters,
+   rescan, and ViziWiz Undo/Clear/Flatten.
+   **Retrofit sweep still owed** (surface by surface, doctrine-clean):
+   pixvix palette `pilot_chip` + tabs, shell footer launchers + rail
+   (tips), hub/subroute cards → clay, session player controls, Save
+   card, workbench walls. Every UI pass MUST invoke `dpl-style`.
 3. Content root resolves from CWD (`./content`) — double-clicked exe reads
    `target/release/content`. Program P's data_root law not yet ported.
 4. Stale EguiPilotAI scenarios/fixtures (pre-Program-L flyout/Library refs).

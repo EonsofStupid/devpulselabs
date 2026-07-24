@@ -112,6 +112,58 @@ pub mod space {
 
 pub const RADIUS: u8 = 10;
 pub const RADIUS_SM: u8 = 6;
+/// Clay surfaces breathe — the generous radius of the soft plate.
+pub const RADIUS_LG: u8 = 16;
+
+// ── the DESIGN LANGUAGE primitives (docs/design/doctrine.md) ────────────
+//
+// Two NAMED treatments, chosen deliberately, never mixed on one element:
+// BRUTAL for actionable chrome (chips, buttons, anything that DOES) and
+// CLAY for passive planes (wells, panels, cards that HOLD). Tooltips are
+// LAW: every interactive control ships one (`tip`). The doctrine doc is
+// the contract; these fns are its only implementation — surfaces never
+// hand-roll the treatments.
+
+/// Neubrutal actionable surface: thick tone edge, HARD offset shadow —
+/// zero blur, the shadow is a shape, not a glow. Flat fill. Punchy,
+/// honest, unmistakably tappable.
+pub fn brutal_frame(tone: Tone) -> egui::Frame {
+    egui::Frame::new()
+        .fill(surface::OVERLAY)
+        .stroke(Stroke::new(2.0, tone.color()))
+        .corner_radius(CornerRadius::same(RADIUS_SM))
+        .shadow(Shadow {
+            offset: [3, 3],
+            blur: 0,
+            spread: 0,
+            color: Color32::from_black_alpha(230),
+        })
+        .inner_margin(egui::Margin::symmetric(10, 6))
+}
+
+/// Claymorphic passive plane: soft extruded plate — generous radius,
+/// deep diffuse scatter, hairline edge. Calm and touchable; never a
+/// button.
+pub fn clay_frame() -> egui::Frame {
+    egui::Frame::new()
+        .fill(surface::RAISED)
+        .stroke(Stroke::new(1.0, surface::HAIRLINE))
+        .corner_radius(CornerRadius::same(RADIUS_LG))
+        .shadow(Shadow {
+            offset: [0, 10],
+            blur: 32,
+            spread: 4,
+            color: Color32::from_black_alpha(180),
+        })
+        .inner_margin(egui::Margin::same(16))
+}
+
+/// The tooltip LAW: every interactive control explains itself on hover.
+/// One call at every control site — a control without a `tip` is a
+/// doctrine violation, not a style choice.
+pub fn tip(resp: egui::Response, text: &str) -> egui::Response {
+    resp.on_hover_text(text)
+}
 
 /// One vendored font in the pool (tokens/fonts.json → build.rs). The
 /// registry the Library fonts wall renders and `apply_theme` registers.

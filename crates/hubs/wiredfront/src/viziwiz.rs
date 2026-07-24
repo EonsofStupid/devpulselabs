@@ -359,10 +359,10 @@ fn editor(view: &mut VizView, ui: &mut egui::Ui) {
         }
         ui.add_space(cl::space::S2);
         ui.add(egui::Slider::new(&mut e.width, 2.0..=24.0).text("width"));
-        if filter_chip(ui, "Undo", false).clicked() {
+        if cl::tip(filter_chip(ui, "Undo", false), "Remove the last stroke").clicked() {
             e.strokes.pop();
         }
-        if filter_chip(ui, "Clear", false).clicked() {
+        if cl::tip(filter_chip(ui, "Clear", false), "Remove every stroke").clicked() {
             e.strokes.clear();
         }
     });
@@ -523,7 +523,10 @@ fn editor(view: &mut VizView, ui: &mut egui::Ui) {
                     .desired_width(70.0),
             );
         }
-        let go = filter_chip(ui, "Flatten & file", false);
+        let go = cl::tip(
+            filter_chip(ui, "Flatten & file", false),
+            "Save your drawing as a NEW image in the inbox — the original is never touched",
+        );
         ui.pilot_track(
             &go,
             NodeMetadata::new(
