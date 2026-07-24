@@ -42,9 +42,14 @@ Operator exe rebuilt 2026-07-23 16:51.
    visual proof awaits the operator's eyes / pilot capture (immediate-
    viewport capture unsupported); compile+green verified, tips visible in
    pilot snapshots.
-   **Retrofit sweep still owed**: shell footer launchers + rail (tips),
-   hub/subroute cards → clay, session player controls, workbench walls,
-   Save-card text fields' labels. Every UI pass MUST invoke `dpl-style`.
+   Sweep 2 DONE: shell chrome — footer launchers (Snip/Agents) brutal
+   with layman tips; rail house tiles tip their hub name; unfolded
+   subroute rows tip their blurbs (proof:
+   docs/proof/doctrine-footer-launchers.png).
+   **Retrofit sweep still owed**: hub/subroute cards → clay (the
+   placeholder surface + gallery/session cards), session player
+   controls, workbench walls, Save-card field labels, deck toolbar.
+   Every UI pass MUST invoke `dpl-style`.
 3. Content root resolves from CWD (`./content`) — double-clicked exe reads
    `target/release/content`. Program P's data_root law not yet ported.
 4. Stale EguiPilotAI scenarios/fixtures (pre-Program-L flyout/Library refs).

@@ -427,17 +427,20 @@ impl Shell {
                     let spec = hub.spec();
                     let active = spec.id == route.hub;
                     let open = open_house == Some(spec.id);
-                    let r = house_tile(
-                        ui,
-                        &HouseTile {
-                            icon: spec.icon,
-                            label: spec.label,
-                            tone: spec.tone,
-                            active,
-                            expand: max_f,
-                            height: fl.tap_min(),
-                            icon_col,
-                        },
+                    let r = cl::tip(
+                        house_tile(
+                            ui,
+                            &HouseTile {
+                                icon: spec.icon,
+                                label: spec.label,
+                                tone: spec.tone,
+                                active,
+                                expand: max_f,
+                                height: fl.tap_min(),
+                                icon_col,
+                            },
+                        ),
+                        spec.label,
                     );
                     ui.pilot_track(
                         &r,
@@ -479,7 +482,10 @@ impl Shell {
                         child.add_space(8.0);
                         for sub in spec.subroutes {
                             let selected = active && sub.id == route.sub;
-                            let response = sub_item(&mut child, sub.label, spec.tone, selected);
+                            let response = cl::tip(
+                                sub_item(&mut child, sub.label, spec.tone, selected),
+                                sub.blurb,
+                            );
                             child.pilot_track(
                                 &response,
                                 NodeMetadata::new(
@@ -659,36 +665,59 @@ fn icon_button(ui: &mut egui::Ui, glyph: &str, tip: &str) -> bool {
     resp.on_hover_text(tip).clicked()
 }
 
-/// A footer launcher chip: icon + label, tone-halo on hover — the Snip and
-/// Bot launchers from the old bottombar, in the sprite vocabulary. Status
-/// cells (`status.rs`) paint through this.
-pub(crate) fn launcher_chip(ui: &mut egui::Ui, glyph: &str, label: &str, tone: Tone) -> bool {
+/// A footer launcher chip — BRUTAL (doctrine): hard offset shadow, tone
+/// edge, hover presses the chip onto its shadow. The `tip` is LAW.
+pub(crate) fn launcher_chip(
+    ui: &mut egui::Ui,
+    glyph: &str,
+    label: &str,
+    tone: Tone,
+    tip: &str,
+) -> bool {
     let galley = ui.painter().layout_no_wrap(
         label.into(),
         egui::FontId::proportional(12.5),
         cl::ink::BASE,
     );
-    let w = 22.0 + galley.size().x + 16.0;
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, 26.0), Sense::click());
-    let painter = ui.painter();
-    if resp.hovered() {
-        painter.rect_filled(rect, CornerRadius::same(cl::RADIUS_SM), tone.wash());
+    let w = 22.0 + galley.size().x + 19.0;
+    let (slot, resp) = ui.allocate_exact_size(egui::vec2(w, 28.0), Sense::click());
+    let lift = if resp.hovered() && !resp.is_pointer_button_down_on() {
+        egui::Vec2::ZERO
     } else {
-        painter.rect_filled(
-            rect,
-            CornerRadius::same(cl::RADIUS_SM),
-            cl::surface::OVERLAY,
-        );
-    }
+        egui::vec2(1.0, 1.0)
+    };
+    let chip = egui::Rect::from_min_size(slot.min + lift, slot.size() - egui::vec2(3.0, 3.0));
+    let shadow = chip.translate(egui::vec2(3.0, 3.0) - lift);
+    let painter = ui.painter();
+    painter.rect_filled(
+        shadow,
+        CornerRadius::same(cl::RADIUS_SM),
+        egui::Color32::from_black_alpha(230),
+    );
+    painter.rect_filled(
+        chip,
+        CornerRadius::same(cl::RADIUS_SM),
+        if resp.hovered() {
+            tone.wash()
+        } else {
+            cl::surface::OVERLAY
+        },
+    );
+    painter.rect_stroke(
+        chip,
+        CornerRadius::same(cl::RADIUS_SM),
+        egui::Stroke::new(2.0, tone.wash()),
+        egui::StrokeKind::Inside,
+    );
     painter.text(
-        egui::pos2(rect.min.x + 8.0, rect.center().y),
+        egui::pos2(chip.min.x + 8.0, chip.center().y),
         egui::Align2::LEFT_CENTER,
         glyph,
         egui::FontId::proportional(14.0),
         tone.color(),
     );
     painter.text(
-        egui::pos2(rect.min.x + 24.0, rect.center().y),
+        egui::pos2(chip.min.x + 24.0, chip.center().y),
         egui::Align2::LEFT_CENTER,
         label,
         egui::FontId::proportional(12.5),
@@ -698,7 +727,7 @@ pub(crate) fn launcher_chip(ui: &mut egui::Ui, glyph: &str, label: &str, tone: T
             cl::ink::BASE
         },
     );
-    resp.clicked()
+    cl::tip(resp, tip).clicked()
 }
 
 /// One house row's paint inputs (bundled — the workspace's no-`#[allow]`

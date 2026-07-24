@@ -125,7 +125,14 @@ fn brand(ui: &mut Ui, cx: &StatusCtx) -> Option<StatusAction> {
 }
 
 fn snip(ui: &mut Ui, cx: &StatusCtx) -> Option<StatusAction> {
-    crate::launcher_chip(ui, cl::icon::SNIP, "Snip", cx.tone).then_some(StatusAction::Snip)
+    crate::launcher_chip(
+        ui,
+        cl::icon::SNIP,
+        "Snip",
+        cx.tone,
+        "Open the capture palette (Ctrl+Shift+S from anywhere)",
+    )
+    .then_some(StatusAction::Snip)
 }
 
 fn viewport(ui: &mut Ui, cx: &StatusCtx) -> Option<StatusAction> {
@@ -150,7 +157,14 @@ fn mood(ui: &mut Ui, cx: &StatusCtx) -> Option<StatusAction> {
 }
 
 fn agents(ui: &mut Ui, cx: &StatusCtx) -> Option<StatusAction> {
-    crate::launcher_chip(ui, cl::icon::BOT, "Agents", cx.tone).then_some(StatusAction::Agents)
+    crate::launcher_chip(
+        ui,
+        cl::icon::BOT,
+        "Agents",
+        cx.tone,
+        "See what the AI agents are doing",
+    )
+    .then_some(StatusAction::Agents)
 }
 
 fn signals(ui: &mut Ui, cx: &StatusCtx) -> Option<StatusAction> {
