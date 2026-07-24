@@ -2,18 +2,22 @@
 
 Updated every pass. This file is the first read of every session.
 
-**Tip:** `54ba46d` on `main` (2026-07-24) — PR #18 consolidated the coldlight
+**Tip:** on `main` (2026-07-24). This session landed, via PR: the coldlight
 trait system + viziwiz rename + main's #15/#17 native peer-window chat + the
-three-product plan. W-CAP claymorphism next on `design/viziwiz-claymorphism`.
-Exe rebuilt 2026-07-24 10:06.
+three-product plan (#18); W-CAP palette claymorphism (#19); and the chat
+consolidation (this branch). Exe rebuilt 2026-07-24.
 
 **Architecture (ratified):** three products, all Rust/egui —
 `docs/design/viziwiz-architecture-spec.md` + the rewritten
 `docs/plans/port-viziwiz.md`: WiredFRONT capture / Workbench authoring /
 Native Guide Player (winit+wgpu+libmpv; `.guide` ZIP + portable `.exe`).
-**Chat = a status-bar-triggered peer window** (Steam-overlay-like, loads
-routes), NOT a hub route — the rail-hub chat is drift to fold in (next pass;
-see memory `chat-is-a-peer-window`).
+
+**Chat is DONE as a peer window** (`docs/plans/chat-consolidation.md`): a
+status-bar-triggered, Steam-overlay-like native peer window — NOT a hub route.
+It carries the read-only session histories + trait provider chips, and a lite
+**route launcher** that publishes `NavigateRequest` so the MAIN window
+navigates (chat launches routes, never embeds them). The rail-hub `dpl-hub-chat`
+is DELETED. Memory: `chat-is-a-peer-window`.
 
 ## Proven working (engine layer)
 
@@ -23,6 +27,23 @@ see memory `chat-is-a-peer-window`).
 - OS-global hotkeys Ctrl+Shift+S/9/X (rdev); Steps Save card; video
   format/audio matrix; ink flatten (source never mutated).
 - EguiPilotAI client seat works: doctor green, live pixvix snapshot.
+- **WiredFRONT Composer (R1a)** — the "After Effects, chat-route-aware"
+  video editor's FOUNDATION landed (branch `feat/r1a-comp-document`, off
+  `refactor/chat-consolidation`): `dpl-comp` (the `comp.json` composition
+  document + doctor — tracks→layers→sources, refs-never-values, crash-safe
+  save, `validate → Vec<Issue>`, folder contract; mirrors `dpl-doc`; 8
+  tests) + `dpl-composer` (four-pane shell — Palette · Timeline clip-list ·
+  Inspector · single-source Preview via the S2 ClipPlayer; ColdLight paint,
+  cl::tip everywhere; 4 tests) mounted as the `wiredfront/composer`
+  subroute. `cargo green ✔`; proof
+  docs/proof/r1a-composer-{1100x700,maximized}.png. ADR
+  `r1-editor-adr-proposal.md` — four forks RATIFIED 2026-07-24: hybrid
+  gen backend (local ComfyUI + hosted media APIs behind one `GenBackend`
+  trait, chat mesh orchestrates), local ort+BiRefNet matting, copy-all
+  elements into `content/elements/`. Plan `docs/plans/r1a-comp-document.md`.
+  R1b (ffmpeg stitch render + composited preview; egui_tiles docking) →
+  R1c (elements ingest) → R1d (ViziWiz mode) → R1e (matting) → R1f (agent
+  tools) remain. Memory: [[wiredfront-editor-is-r1]].
 
 ## KNOWN BROKEN / regressed (the honest list)
 

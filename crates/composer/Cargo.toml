@@ -1,0 +1,17 @@
+[package]
+name = "dpl-composer"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+egui.workspace = true
+egui-pilot-ai.workspace = true
+dpl-comp.workspace = true
+dpl-coldlight.workspace = true
+dpl-video.workspace = true
+dpl-index.workspace = true
+dpl-engine-capture.workspace = true

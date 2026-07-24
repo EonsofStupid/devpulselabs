@@ -31,6 +31,8 @@ members = [
     "crates/engine-steps",
     "crates/slides",
     "crates/doc",
+    "crates/comp",
+    "crates/composer",
     "crates/editor",
     "crates/deck",
     "crates/index",
@@ -111,6 +113,8 @@ dpl-engine-media = { path = "crates/engine-media" }
 dpl-engine-steps = { path = "crates/engine-steps" }
 dpl-slides = { path = "crates/slides" }
 dpl-doc = { path = "crates/doc" }
+dpl-comp = { path = "crates/comp" }
+dpl-composer = { path = "crates/composer" }
 dpl-editor = { path = "crates/editor" }
 dpl-deck = { path = "crates/deck" }
 dpl-index = { path = "crates/index" }

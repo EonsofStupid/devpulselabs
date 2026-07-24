@@ -1559,6 +1559,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "dpl-comp"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "dpl-composer"
+version = "0.1.0"
+dependencies = [
+ "dpl-coldlight",
+ "dpl-comp",
+ "dpl-engine-capture",
+ "dpl-index",
+ "dpl-video",
+ "egui",
+ "egui-pilot-ai",
+]
+
+[[package]]
 name = "dpl-deck"
 version = "0.1.0"
 dependencies = [
@@ -1677,6 +1698,7 @@ name = "dpl-hub-wiredfront"
 version = "0.1.0"
 dependencies = [
  "dpl-coldlight",
+ "dpl-composer",
  "dpl-doc",
  "dpl-engine-capture",
  "dpl-engine-steps",
