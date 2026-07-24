@@ -80,6 +80,13 @@ Operator exe rebuilt 2026-07-23 16:51.
   CLAUDE.md) — BOTH deploy targets (this laptop + the Wayland mini-PC)
   build on every PR once registered. Reboot-persistence for the Windows
   runner needs one elevated schtasks command (CLAUDE.md).
+- Linux verification TODAY: WSL Ubuntu-26.04 has Rust 1.92 installed;
+  ONE operator sudo apt command (CLAUDE.md "INTERIM Linux lane")
+  unlocks `cargo check` inside Linux — cross-checking from Windows is
+  blocked at khronos-egl's build script, so the Linux gate must run in
+  Linux. The workspace's Linux code paths (pulse audio, Lavapipe
+  profiles) have NOT compiled since the port — first Linux check may
+  surface real findings.
 3. Content root resolves from CWD (`./content`) — double-clicked exe reads
    `target/release/content`. Program P's data_root law not yet ported.
 4. Stale EguiPilotAI scenarios/fixtures (pre-Program-L flyout/Library refs).

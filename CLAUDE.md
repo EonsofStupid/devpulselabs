@@ -61,6 +61,15 @@ other worktree. The operator double-clicks `target\release\devpulselabs.exe`
   runners/registration-token`), then uncomment the `green-linux` job in
   green.yml. The app targets BOTH: Windows laptop + Wayland Ubuntu
   mini-PC — cross-support is a product requirement, not a nicety.
+- INTERIM Linux lane via WSL (Ubuntu-26.04 on this laptop): Rust 1.92
+  is already installed (rustup, no sudo). Cross-checking from Windows
+  dies at khronos-egl's build script — the check must run INSIDE Linux.
+  ONE operator command finishes the setup (needs sudo):
+  `sudo apt-get update && sudo apt-get install -y build-essential pkg-config libssl-dev libegl1-mesa-dev libgl1-mesa-dev libwayland-dev libxkbcommon-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev`
+  After that, any session can run the Linux gate:
+  `wsl -e bash -lc "source ~/.cargo/env; cd /mnt/c/localdev/devpulselabs && cargo check --workspace"`
+  (and a WSL-side runner with label dpl-linux is an option until the
+  mini-PC takes the lane).
 
 ## Session end (every session, no exceptions)
 
