@@ -45,6 +45,18 @@ impl LibSection {
             LibSection::Moods => "moods",
         }
     }
+
+    /// The tooltip law — each wall explains itself in plain words.
+    fn tip(self) -> &'static str {
+        match self {
+            LibSection::Seeds => "Ready-made starter slides you can copy into a show",
+            LibSection::Templates => "Every slide design, running live — tap one to see it big",
+            LibSection::Colors => "The whole color pool the app draws from",
+            LibSection::Presets => "Saved style bundles — one tap applies a whole look",
+            LibSection::Fonts => "Every typeface in the app, shown in its own face",
+            LibSection::Moods => "The color moods the backdrop rolls on launch",
+        }
+    }
 }
 
 /// The section chip row — tap a chip, that wall renders below.
@@ -52,13 +64,15 @@ pub(crate) fn chip_row(ui: &mut egui::Ui, current: &mut LibSection) {
     ui.horizontal(|ui| {
         for section in LibSection::ALL {
             let active = *current == section;
-            let chip = ui
-                .label(RichText::new(section.label()).monospace().color(if active {
+            let chip = cl::tip(
+                ui.label(RichText::new(section.label()).monospace().color(if active {
                     SPEC.tone.color()
                 } else {
                     cl::ink::MUTED
                 }))
-                .interact(egui::Sense::click());
+                .interact(egui::Sense::click()),
+                section.tip(),
+            );
             if chip.clicked() {
                 *current = section;
             }
@@ -81,13 +95,15 @@ pub(crate) fn templates_gallery(
         if let Some(demo) = demos.iter_mut().find(|d| d.spec().id.0 == id) {
             let spec = demo.spec();
             let back = ui.horizontal(|ui| {
-                let back = ui
-                    .label(
+                let back = cl::tip(
+                    ui.label(
                         RichText::new(format!("« {}", spec.label))
                             .strong()
                             .color(cl::ink::STRONG),
                     )
-                    .interact(egui::Sense::click());
+                    .interact(egui::Sense::click()),
+                    "Back to the wall",
+                );
                 ui.label(
                     RichText::new(spec.class.label())
                         .monospace()
@@ -100,14 +116,16 @@ pub(crate) fn templates_gallery(
                         .small()
                         .color(cl::ink::SUBTLE),
                 );
-                let replay = ui
-                    .label(
+                let replay = cl::tip(
+                    ui.label(
                         RichText::new("replay")
                             .monospace()
                             .small()
                             .color(SPEC.tone.color()),
                     )
-                    .interact(egui::Sense::click());
+                    .interact(egui::Sense::click()),
+                    "Play this slide's animation again from the start",
+                );
                 (back, replay)
             });
             let stage = ui.available_rect_before_wrap().shrink(cl::space::S2);
@@ -156,14 +174,16 @@ pub(crate) fn templates_gallery(
         for demo in demos.iter_mut() {
             let spec = demo.spec();
             ui.horizontal(|ui| {
-                let title = ui
-                    .label(
+                let title = cl::tip(
+                    ui.label(
                         RichText::new(spec.label)
                             .size(fluid.fs_h4())
                             .strong()
                             .color(cl::ink::STRONG),
                     )
-                    .interact(egui::Sense::click());
+                    .interact(egui::Sense::click()),
+                    "Tap to see this one big",
+                );
                 if title.clicked() {
                     focus_request = Some(spec.id.0.to_string());
                     demo.restart();
