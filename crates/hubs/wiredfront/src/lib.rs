@@ -432,7 +432,7 @@ fn artifact_card(
             if thumb_resp.clicked() {
                 act = Some(CardAct::Open);
             }
-            thumb_resp.clone().on_hover_text("play ›");
+            cl::tip(thumb_resp.clone(), "Play this session right here");
         }
         ui.painter()
             .rect_filled(rect, cl::RADIUS_SM, cl::surface::WELL);
@@ -463,13 +463,19 @@ fn artifact_card(
             ui.label(RichText::new(&r.name).strong().color(cl::ink::STRONG));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let label = if armed { "Dump?" } else { "Dump" };
-                let resp = ui
-                    .label(RichText::new(label).small().color(if armed {
+                let resp = cl::tip(
+                    ui.label(RichText::new(label).small().color(if armed {
                         cl::Tone::Coral.color()
                     } else {
                         cl::ink::SUBTLE
                     }))
-                    .interact(Sense::click());
+                    .interact(Sense::click()),
+                    if armed {
+                        "Tap again to really delete it"
+                    } else {
+                        "Delete this — it takes two taps, so a stray tap never deletes"
+                    },
+                );
                 if resp.clicked() {
                     if armed {
                         act = Some(CardAct::Dump);
@@ -484,13 +490,15 @@ fn artifact_card(
                 // Keep (X3) — inbox artifacts only; the jail binds the
                 // source anyway, this just keeps the surface honest.
                 if r.location == "inbox" {
-                    let resp = ui
-                        .label(RichText::new("Keep").small().color(if keep_open {
+                    let resp = cl::tip(
+                        ui.label(RichText::new("Keep").small().color(if keep_open {
                             cl::Tone::Magenta.color()
                         } else {
                             cl::ink::SUBTLE
                         }))
-                        .interact(Sense::click());
+                        .interact(Sense::click()),
+                        "File this into one of your shows",
+                    );
                     // Per-CARD id — a shared "gallery.keep" duplicates
                     // (and panics) the moment two inbox cards render.
                     ui.pilot_track(
@@ -527,7 +535,10 @@ fn artifact_card(
             ui.horizontal_wrapped(|ui| {
                 for (show, ep) in targets {
                     let label = format!("{show}/{ep}");
-                    let resp = filter_chip(ui, &label, false);
+                    let resp = cl::tip(
+                        filter_chip(ui, &label, false),
+                        &format!("Move it into {show} › {ep}"),
+                    );
                     ui.pilot_track(
                         &resp,
                         NodeMetadata::new(
@@ -757,7 +768,10 @@ impl WiredfrontHub {
                             );
                         });
                     });
-                    let click = resp.response.interact(Sense::click());
+                    let click = cl::tip(
+                        resp.response.interact(Sense::click()),
+                        "Open and play this session",
+                    );
                     ui.pilot_track(
                         &click,
                         NodeMetadata::new(
@@ -791,9 +805,11 @@ fn session_player_ui(
 ) -> bool {
     let back = ui
         .horizontal(|ui| {
-            let b = ui
-                .label(RichText::new(back_label).color(cl::Tone::Magenta.color()))
-                .interact(Sense::click());
+            let b = cl::tip(
+                ui.label(RichText::new(back_label).color(cl::Tone::Magenta.color()))
+                    .interact(Sense::click()),
+                "Back to the list",
+            );
             ui.pilot_track(
                 &b,
                 NodeMetadata::new(
@@ -884,7 +900,10 @@ fn session_player_ui(
             } else {
                 "Play"
             };
-            let resp = filter_chip(ui, label, player.playing());
+            let resp = cl::tip(
+                filter_chip(ui, label, player.playing()),
+                "Play or pause the recording",
+            );
             ui.pilot_track(
                 &resp,
                 NodeMetadata::new(
@@ -909,6 +928,10 @@ fn session_player_ui(
         // The rail: tap anywhere to seek; a tap near a tick snaps to
         // its event; hover names the nearest event.
         let (rail, resp) = ui.allocate_exact_size(egui::vec2(stage_w, 22.0), Sense::click());
+        let resp = cl::tip(
+            resp,
+            "Tap anywhere to jump — the orange ticks are moments something happened",
+        );
         ui.pilot_track(
             &resp,
             NodeMetadata::new(

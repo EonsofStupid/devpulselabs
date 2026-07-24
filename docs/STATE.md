@@ -51,9 +51,15 @@ Operator exe rebuilt 2026-07-23 16:51.
    cards LOOK tappable but are inert — hubs have no navigation seam;
    needs the deferred fabric NAVIGATE event, then the cards go brutal
    and tap-to-navigate (frictionless law).
-   **Retrofit sweep still owed**: gallery/session cards + player
-   controls, workbench walls, Save-card field labels, deck toolbar.
-   Every UI pass MUST invoke `dpl-style`.
+   Sweep 4 DONE: gallery + sessions — layman tips on the session thumb
+   ("Play this session right here"), the two-tap Dump (armed state
+   explains itself), Keep + every keep-target chip, the session list
+   cards, the player's back/play controls, and the seek rail (names the
+   orange event ticks).
+   **Retrofit sweep still owed**: workbench walls, deck toolbar,
+   ViziWiz canvas/meta labels' polish pass, then the fabric NAVIGATE
+   seam (hub cards tap-to-navigate). Every UI pass MUST invoke
+   `dpl-style`.
 3. Content root resolves from CWD (`./content`) — double-clicked exe reads
    `target/release/content`. Program P's data_root law not yet ported.
 4. Stale EguiPilotAI scenarios/fixtures (pre-Program-L flyout/Library refs).
