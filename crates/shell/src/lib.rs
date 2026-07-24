@@ -221,12 +221,19 @@ impl Shell {
         let fl = cl::Fluid::of(ui.ctx().content_rect());
         let root = ui.max_rect();
 
-        // Drain the fabric ear: a hub may have requested full-bleed (D2).
-        // Lagged is fine — these are signals, the latest state wins.
+        // Drain the fabric ear: full-bleed asks (D2) and navigation asks
+        // (the NAVIGATE seam — tapped hub cards). Lagged is fine — these
+        // are signals, the latest state wins.
+        let mut nav_request: Option<Route> = None;
         while let Ok(ev) = self.events.try_recv() {
-            if let ShellEvent::FullBleedRequest(on) = ev {
-                self.full_bleed = on;
+            match ev {
+                ShellEvent::FullBleedRequest(on) => self.full_bleed = on,
+                ShellEvent::NavigateRequest { route } => nav_request = Some(route),
+                ShellEvent::RouteChanged { .. } | ShellEvent::PixvixSummon => {}
             }
+        }
+        if let Some(route) = nav_request {
+            self.navigate(route);
         }
 
         // Esc leaves full-bleed (the old shell's escape hatch).

@@ -83,7 +83,11 @@ pub mod placeholder {
     use dpl_coldlight as cl;
     use egui::RichText;
 
-    pub fn surface(ui: &mut egui::Ui, spec: &HubSpec, route: Route, intro: &str) {
+    /// Returns the route of a TAPPED card (the NAVIGATE seam) — the hub
+    /// publishes `ShellEvent::NavigateRequest` with it; the shell drains
+    /// and navigates. What looks tappable now IS (frictionless law).
+    pub fn surface(ui: &mut egui::Ui, spec: &HubSpec, route: Route, intro: &str) -> Option<Route> {
+        let mut go: Option<Route> = None;
         ui.add_space(cl::space::S2);
         ui.horizontal(|ui| {
             ui.label(RichText::new(spec.icon).size(22.0).color(spec.tone.color()));
@@ -94,8 +98,8 @@ pub mod placeholder {
 
         for sub in spec.subroutes {
             let active = sub.id == route.sub;
-            // Doctrine: these cards HOLD (navigation lives in the rail
-            // until the fabric NAVIGATE event lands) — passive = CLAY.
+            // Doctrine: the card body is CLAY (it holds); the tappable
+            // affordance is the hover's tone edge + the tip.
             let frame = if active {
                 cl::scatter_frame(spec.tone)
             } else {
@@ -118,8 +122,28 @@ pub mod placeholder {
             if active {
                 // The gradient tint: painted over the card's top band.
                 cl::gradient_tint(ui.painter(), resp.response.rect, spec.tone);
+            } else {
+                let click = cl::tip(
+                    resp.response.interact(egui::Sense::click()),
+                    &format!("Go to {}", sub.label),
+                );
+                if click.hovered() {
+                    ui.painter().rect_stroke(
+                        click.rect,
+                        egui::CornerRadius::same(cl::RADIUS_LG),
+                        egui::Stroke::new(2.0, spec.tone.color()),
+                        egui::StrokeKind::Inside,
+                    );
+                }
+                if click.clicked() {
+                    go = Some(Route {
+                        hub: spec.id,
+                        sub: sub.id,
+                    });
+                }
             }
         }
+        go
     }
 }
 

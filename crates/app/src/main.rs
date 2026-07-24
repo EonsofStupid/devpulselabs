@@ -348,6 +348,12 @@ impl App {
         if let Some(rel) = &open_replay {
             wiredfront.open_replay(rel);
         }
+        // The NAVIGATE seam: hubs that render tappable subroute cards
+        // publish their asks through the one fabric.
+        workbench.wire_fabric(&fabric);
+        wiredfront.wire_fabric(&fabric);
+        let mut chat = dpl_hub_chat::ChatHub::default();
+        chat.wire_fabric(&fabric);
         // The registry — a new hub is ONE line here and nothing else.
         let hubs: Vec<Box<dyn Hub>> = vec![
             Box::new(dpl_hub_home::HomeHub),
@@ -357,7 +363,7 @@ impl App {
             Box::new(present_hub),
             Box::new(workbench),
             Box::new(wiredfront),
-            Box::new(dpl_hub_chat::ChatHub),
+            Box::new(chat),
         ];
 
         let mut pixvix = dpl_pixvix::Pixvix::new(&fabric);
