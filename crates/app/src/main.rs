@@ -138,6 +138,20 @@ fn main() -> eframe::Result {
         .position(|a| a == "--open-rail")
         .and_then(|i| args.get(i + 1))
         .cloned();
+    // The AGENT SEAM (R1v): localhost HTTP over the fabric so chat can
+    // observe and drive the app. `--seam-port <n>` moves it; `--no-seam`
+    // turns it off. A busy port logs and degrades — never a boot failure.
+    let seam_port: Option<u16> = if args.iter().any(|a| a == "--no-seam") {
+        None
+    } else {
+        Some(
+            args.iter()
+                .position(|a| a == "--seam-port")
+                .and_then(|i| args.get(i + 1))
+                .and_then(|n| n.parse().ok())
+                .unwrap_or(7341),
+        )
+    };
     // `--clone-seed <seed-id> <show> <episode>` — the headless clone
     // drill (X3): copy a seed into the real content tree through the
     // engine (`dpl_doc::clone_episode`) and exit; no window boots.
@@ -229,6 +243,7 @@ fn main() -> eframe::Result {
                 open_replay,
                 open_rail,
                 open_episode,
+                seam_port,
             });
             #[cfg(feature = "eguipilotai-devtools")]
             let app = {
@@ -262,6 +277,8 @@ struct Boot {
     open_replay: Option<String>,
     open_rail: Option<String>,
     open_episode: Option<String>,
+    /// The agent seam's port; None = `--no-seam`.
+    seam_port: Option<u16>,
 }
 
 struct App {
@@ -309,6 +326,7 @@ impl App {
             open_replay,
             open_rail,
             open_episode,
+            seam_port,
         } = boot;
         let mut workbench = dpl_hub_workbench::WorkbenchHub::default();
         if let Some(id) = focus {
@@ -375,6 +393,12 @@ impl App {
                 (spec.label.to_owned(), spec.default_route())
             })
             .collect();
+        // The AGENT SEAM (R1v): the same registered specs become the HTTP
+        // route registry — the seam can never name a surface the app lacks.
+        if let Some(port) = seam_port {
+            let registry = dpl_seam::Registry::new(hubs.iter().map(|h| h.spec()).collect());
+            dpl_seam::spawn(fabric.clone(), registry, port);
+        }
 
         let mut viziwiz = dpl_viziwiz::Viziwiz::new(&fabric);
         if viziwiz_open {
