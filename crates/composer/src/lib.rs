@@ -55,7 +55,7 @@ impl Default for Composer {
             preview: None,
             palette: None,
             render: Arc::new(Mutex::new(RenderState::Idle)),
-            tab: Tab::Edit,
+            tab: initial_tab(),
             status: "New composition — add clips from the palette on the left.".into(),
         }
     }
@@ -368,6 +368,8 @@ impl Composer {
         self.left_rail(&mut mk(rail_rect), &mut act);
         match self.tab {
             Tab::Edit => self.edit_tab(&mut mk(content_rect), &mut act),
+            Tab::Preview => self.preview_tab(&mut mk(content_rect)),
+            Tab::Annotate => self.annotate_tab(&mut mk(content_rect)),
             other => tab_stub(&mut mk(content_rect), other),
         }
 
@@ -485,6 +487,96 @@ impl Composer {
         self.preview_pane(&mut mk(preview_rect));
         self.inspector_pane(&mut mk(inspector_rect));
         self.timeline_pane(&mut mk(timeline_rect), act);
+    }
+
+    /// PREVIEW mode — the composition in a device frame. Plays the selected
+    /// clip for now; the composited SEQUENCE preview lands with R1b.2.
+    fn preview_tab(&self, ui: &mut egui::Ui) {
+        let rect = ui.max_rect();
+        let controls_h = 40.0_f32;
+        let stage = Rect::from_min_max(
+            rect.min,
+            egui::pos2(rect.max.x, (rect.max.y - controls_h).max(rect.min.y + 1.0)),
+        );
+        let frame = fit_aspect(stage.shrink(cl::space::S3), 16.0 / 9.0);
+        ui.painter()
+            .rect_filled(frame, CornerRadius::same(cl::RADIUS), cl::surface::WELL);
+        match &self.preview {
+            Some((_, player)) => match player.texture(ui.ctx()) {
+                Some(tex) => {
+                    let uv = dpl_video::cover_uv(
+                        DECODE_W as f32 / DECODE_H as f32,
+                        frame.aspect_ratio(),
+                    );
+                    ui.painter().image(tex, frame, uv, Color32::WHITE);
+                    ui.ctx().request_repaint_after(Duration::from_millis(16));
+                }
+                None => painter_label(ui, frame, "Loading the frame..."),
+            },
+            None => painter_label(ui, frame, "Select a clip in Edit to preview it here"),
+        }
+        let bar = Rect::from_min_max(
+            egui::pos2(rect.min.x, (rect.max.y - controls_h).max(rect.min.y + 1.0)),
+            rect.max,
+        );
+        let mut c = ui.new_child(UiBuilder::new().max_rect(bar));
+        c.horizontal(|ui| {
+            ui.label(
+                RichText::new("Simulate input:")
+                    .small()
+                    .color(cl::ink::SUBTLE),
+            );
+            for (i, name) in ["Touch", "Mouse", "Keyboard"].iter().enumerate() {
+                let tone = if i == 0 { Tone::Magenta } else { Tone::Cyan };
+                cl::tip(
+                    chip(ui, tone, name, ("input", *name)),
+                    "How the preview simulates your audience (selection lands next)",
+                );
+            }
+        });
+    }
+
+    /// ANNOTATE mode — the tool row over the scene canvas. Tool behaviour +
+    /// the annotation model land in the annotation pass; the canvas shows the
+    /// selected frame today.
+    fn annotate_tab(&self, ui: &mut egui::Ui) {
+        let rect = ui.max_rect();
+        let toolrow_h = 36.0_f32;
+        let toolrow = Rect::from_min_max(rect.min, egui::pos2(rect.max.x, rect.min.y + toolrow_h));
+        let canvas = Rect::from_min_max(
+            egui::pos2(rect.min.x, rect.min.y + toolrow_h + cl::space::S2),
+            rect.max,
+        );
+        let mut tr = ui.new_child(UiBuilder::new().max_rect(toolrow));
+        tr.horizontal(|ui| {
+            for name in ["Select", "Arrow", "Callout", "Box", "Spotlight", "Text"] {
+                cl::tip(
+                    chip(ui, Tone::Cyan, name, ("tool", name)),
+                    "Annotation tool — placing and styling lands in the annotation pass",
+                );
+            }
+        });
+        ui.painter()
+            .rect_filled(canvas, CornerRadius::same(cl::RADIUS), cl::surface::WELL);
+        match &self.preview {
+            Some((_, player)) => match player.texture(ui.ctx()) {
+                Some(tex) => {
+                    let frame = fit_aspect(canvas.shrink(cl::space::S3), 16.0 / 9.0);
+                    let uv = dpl_video::cover_uv(
+                        DECODE_W as f32 / DECODE_H as f32,
+                        frame.aspect_ratio(),
+                    );
+                    ui.painter().image(tex, frame, uv, Color32::WHITE);
+                    ui.ctx().request_repaint_after(Duration::from_millis(16));
+                }
+                None => painter_label(ui, canvas, "Loading the frame..."),
+            },
+            None => painter_label(
+                ui,
+                canvas,
+                "Select a clip in Edit; annotate it here (arrows, callouts, spotlights next)",
+            ),
+        }
     }
 
     fn toolbar(&self, ui: &mut egui::Ui, act: &mut Option<Act>) {
@@ -767,9 +859,45 @@ fn small_btn(
     )
 }
 
+/// The initial workflow tab — Edit by default. A proof/env override lets
+/// screenshots open a specific mode (`DPL_COMPOSER_TAB=preview|annotate|…`),
+/// same spirit as the app's other proof flags; inert in normal use.
+fn initial_tab() -> Tab {
+    match std::env::var("DPL_COMPOSER_TAB").ok().as_deref() {
+        Some("capture") => Tab::Capture,
+        Some("annotate") => Tab::Annotate,
+        Some("narrate") => Tab::Narrate,
+        Some("preview") => Tab::Preview,
+        Some("export") => Tab::Export,
+        _ => Tab::Edit,
+    }
+}
+
 /// An honest stub for a workflow mode not yet built — names what it will do.
 fn tab_stub(ui: &mut egui::Ui, tab: Tab) {
     plate(ui, tab.label(), tab.blurb());
+}
+
+/// The largest rect of the given aspect ratio, centered inside `r`.
+fn fit_aspect(r: Rect, aspect: f32) -> Rect {
+    let (w, h) = (r.width().max(1.0), r.height().max(1.0));
+    let (fw, fh) = if w / h > aspect {
+        (h * aspect, h)
+    } else {
+        (w, w / aspect)
+    };
+    Rect::from_center_size(r.center(), egui::vec2(fw, fh))
+}
+
+/// Centered muted text painted directly (for canvas/stage placeholders).
+fn painter_label(ui: &egui::Ui, rect: Rect, text: &str) {
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        text,
+        egui::FontId::proportional(15.0),
+        cl::ink::SUBTLE,
+    );
 }
 
 /// A passive claymorphic plate with a title + hint — the empty/loading state.
