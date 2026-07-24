@@ -242,6 +242,7 @@ pub(crate) fn surface(view: &mut Option<VizView>, ui: &mut egui::Ui) {
                             ui.set_width(card_w);
                             let (rect, resp) =
                                 ui.allocate_exact_size(egui::vec2(card_w, thumb_h), Sense::click());
+                            let resp = cl::tip(resp, "Draw on this image");
                             ui.pilot_track(
                                 &resp,
                                 NodeMetadata::new(
@@ -311,9 +312,11 @@ fn editor(view: &mut VizView, ui: &mut egui::Ui) {
     };
 
     ui.horizontal(|ui| {
-        let back = ui
-            .label(RichText::new("‹ images").color(Tone::Magenta.color()))
-            .interact(Sense::click());
+        let back = cl::tip(
+            ui.label(RichText::new("‹ images").color(Tone::Magenta.color()))
+                .interact(Sense::click()),
+            "Back to your images",
+        );
         ui.pilot_track(
             &back,
             NodeMetadata::new(
@@ -336,6 +339,7 @@ fn editor(view: &mut VizView, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         for (i, tone) in INK_TONES.iter().enumerate() {
             let (rect, resp) = ui.allocate_exact_size(egui::vec2(24.0, 24.0), Sense::click());
+            let resp = cl::tip(resp, &format!("Draw in {}", tone.hue_id()));
             ui.pilot_track(
                 &resp,
                 NodeMetadata::new(
@@ -358,7 +362,10 @@ fn editor(view: &mut VizView, ui: &mut egui::Ui) {
             }
         }
         ui.add_space(cl::space::S2);
-        ui.add(egui::Slider::new(&mut e.width, 2.0..=24.0).text("width"));
+        cl::tip(
+            ui.add(egui::Slider::new(&mut e.width, 2.0..=24.0).text("width")),
+            "How thick the pen draws",
+        );
         if cl::tip(filter_chip(ui, "Undo", false), "Remove the last stroke").clicked() {
             e.strokes.pop();
         }
