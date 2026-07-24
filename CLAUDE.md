@@ -48,6 +48,20 @@ other worktree. The operator double-clicks `target\release\devpulselabs.exe`
   `target\release\eguipilotai.exe doctor | inspect devpulse-windows pixvix`.
   Kill any orphaned `devpulselabs` process after CLI runs.
 
+## CI runners (self-hosted, free)
+
+- `dpl-win-laptop` (labels: dpl-win) runs at `C:\actions-runner` on this
+  laptop — `.github/workflows/green.yml` runs the gate on every PR.
+  NOT yet a service: after a reboot, restart it (`C:\actions-runner\
+  run.cmd`) or, ONCE from an elevated shell, register the logon task:
+  `schtasks /Create /TN dpl-actions-runner /TR C:\actions-runner\run.cmd /SC ONLOGON`.
+- Ubuntu/Wayland mini-PC lane: register a runner there with label
+  `dpl-linux` (repo Settings → Actions → Runners → New self-hosted
+  runner, or `gh api -X POST repos/EonsofStupid/devpulselabs/actions/
+  runners/registration-token`), then uncomment the `green-linux` job in
+  green.yml. The app targets BOTH: Windows laptop + Wayland Ubuntu
+  mini-PC — cross-support is a product requirement, not a nicety.
+
 ## Session end (every session, no exceptions)
 
 1. Land the work on `main` via PR. 2. Rebuild `target\release\
