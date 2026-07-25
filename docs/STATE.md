@@ -73,6 +73,27 @@ of the plan (real-exe drill: 4 embedded stills + embedded mp4 + 0 http
 refs, guide-video exactly 15.000s; shots
 docs/proof/w5-guide-tab-{1100x700,1600x1000}.png). Proof-only env
 `DPL_GUIDE_PICK` opens the reviewer for screenshots.
+**W5.3 landed** (same branch, operator mid-session ask "full test by
+you ... exported as gif or whatever ... for linkedin"): the SOCIAL GIF
+(`replay.gif`, palettegen two-pass, 480px/12fps, Guide-tab toggle;
+LinkedIn-native = the bundled light session.mp4) + the AI-DRIVEN FULL
+TEST seam `--steps-drill <n>` (REAL recorder start via the palette
+handler with a drill-only self-capture opt-in, n real marked window
+captures, real Save-card save). FULL TEST RAN, all real: 3 stills
+captured by the drill, real 8s session (490 KB -> 44 KB light re-encode),
+replay.gif 179 KB/79 frames, guide-video 15.6s, self-contained html.
+FINDING FIXED: seeded guide names now clamp to 48 chars (a path-length
+window title minted a folder that broke Win32 cwd limits).
+**P1 landed** (same branch, `docs/plans/p1-data-root.md`): KNOWN #3
+FIXED -- the portable user-data root. Operator-ratified ONE folder
+(content/ stays the single tree); resolution law ported from the
+original: `--content-root` arg -> CONTENT_ROOT env -> exe-adjacent ->
+exe-parents walk-up -> cwd, first existing; nothing -> self-creates
+BESIDE THE EXE; `checked_roots()` honesty logged at boot. PROOF: exe
+run from target/release resolved the repo content root, no scatter.
+Operator-approved migration: the 9 scattered captures moved into the
+real inbox (2 renamed `-migrated-N`), stale tree removed. NOTE: one
+Gallery `rescan` tap reindexes them.
 **NEXT:** R1z (autosave/undo/reopen-last + keyboard map),
 R2a deep-pack browsing/tagging + the .aep/.mogrt parse spike, R2b
 effects (the 860 .cube LUTs first — ffmpeg lut3d). Ratified: 3D/camera/tracker/motion-blur are LATER;
@@ -309,8 +330,10 @@ is DELETED. Memory: `chat-is-a-peer-window`.
   Linux. The workspace's Linux code paths (pulse audio, Lavapipe
   profiles) have NOT compiled since the port — first Linux check may
   surface real findings.
-3. Content root resolves from CWD (`./content`) — double-clicked exe reads
-   `target/release/content`. Program P's data_root law not yet ported.
+3. **FIXED (P1, 2026-07-25)** — the portable user-data root law ported
+   (docs/plans/p1-data-root.md): resolution is arg -> env -> exe-adjacent ->
+   walk-up -> cwd; double-click finds the repo content root (proven);
+   scattered target/release/content migrated + removed.
 4. Stale EguiPilotAI scenarios/fixtures (pre-Program-L flyout/Library refs).
 
 ## Next

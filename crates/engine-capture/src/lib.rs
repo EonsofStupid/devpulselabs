@@ -87,16 +87,125 @@ fn ffmpeg_display() -> String {
     )
 }
 
-/// Repo content root — the capture tool writes into the same tree the web app
-/// reads. Set `CONTENT_ROOT` to the repo's `content/` dir when running the tool.
+/// The ONE user-data folder — everything the app reads AND writes (inbox,
+/// elements, shows, artifacts.db) lives under this root (operator-ratified:
+/// one organized folder, truly portable). The resolution law is the
+/// original app's `content.rs`, ported: turnkey from ANY launch context —
+/// a double-clicked exe must find the SAME folder a repo run uses, never
+/// scatter a fresh `content/` into whatever cwd it woke up in.
 ///
-/// NOTE: a deliberate twin of `content_root()` in `../src/commands/content.rs`.
-/// They stay split so core content data does NOT depend on this heavy media
-/// engine crate. T5+ removes this one by taking a resolved episode dir instead.
+/// ① `--content-root <path>` CLI arg — explicit beats ambient, authoritative
+///    even when the folder doesn't exist yet (drills mint fresh roots).
+/// ② `CONTENT_ROOT` env — the drill/test harness's spawn-time seam, same
+///    authority (existing harness contract, kept).
+/// ③ ambient candidates, first that EXISTS wins:
+///    `content/` beside the exe (the portable anchor) → `content/` walking
+///    UP from the exe dir (≤4 levels — finds the repo root from
+///    `target/release/`) → `./content` of the launch cwd.
+/// ④ nothing exists → the exe-adjacent candidate (a fresh portable folder
+///    self-creates BESIDE THE EXE, never scattered by cwd).
+///
+/// Absolutized + normalized, resolved ONCE per process. `checked_roots()`
+/// is the honesty surface: every location tried, in order, so boot can SAY
+/// where it looked (the original's content_status law).
 pub fn content_root() -> PathBuf {
-    std::env::var("CONTENT_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("./content"))
+    static ROOT: OnceLock<PathBuf> = OnceLock::new();
+    ROOT.get_or_init(resolve_content_root).clone()
+}
+
+fn resolve_content_root() -> PathBuf {
+    if let Some(explicit) = explicit_root() {
+        return normalize(&absolutize(&explicit));
+    }
+    let ambient = ambient_candidates();
+    let chosen = ambient
+        .iter()
+        .find(|p| p.exists())
+        .or(ambient.first())
+        .cloned()
+        .unwrap_or_else(|| PathBuf::from("./content"));
+    normalize(&absolutize(&chosen))
+}
+
+/// `--content-root <path>` / `--content-root=<path>` from the process args
+/// (a CLI arg is explicit and discoverable), else the `CONTENT_ROOT` env
+/// seam the harness already speaks.
+fn explicit_root() -> Option<PathBuf> {
+    let mut args = std::env::args().skip(1);
+    while let Some(a) = args.next() {
+        if a == "--content-root" {
+            return args.next().map(PathBuf::from);
+        }
+        if let Some(v) = a.strip_prefix("--content-root=") {
+            return Some(PathBuf::from(v));
+        }
+    }
+    std::env::var("CONTENT_ROOT").ok().map(PathBuf::from)
+}
+
+/// The ambient candidates, in order: exe-adjacent, the exe's parents
+/// (≤4 up), then the launch cwd.
+fn ambient_candidates() -> Vec<PathBuf> {
+    let mut v = Vec::new();
+    if let Some(dir) = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(Path::to_path_buf))
+    {
+        v.push(dir.join("content"));
+        let mut up = dir.clone();
+        for _ in 0..4 {
+            let Some(parent) = up.parent().map(Path::to_path_buf) else {
+                break;
+            };
+            v.push(parent.join("content"));
+            up = parent;
+        }
+    }
+    v.push(PathBuf::from("./content"));
+    v
+}
+
+/// Every location resolution would try, in order, display-normalized —
+/// boot logs this so "no content found" always says where it looked.
+pub fn checked_roots() -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    if let Some(p) = explicit_root() {
+        out.push(display_path(&p));
+    }
+    out.extend(ambient_candidates().iter().map(|p| display_path(p)));
+    out
+}
+
+fn absolutize(p: &Path) -> PathBuf {
+    if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map(|c| c.join(p))
+            .unwrap_or_else(|_| p.to_path_buf())
+    }
+}
+
+/// Fold `.`/`..` components so paths never display as `C:/./content`.
+fn normalize(p: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for c in p.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+fn display_path(p: &Path) -> String {
+    normalize(&absolutize(p))
+        .to_string_lossy()
+        .replace('\\', "/")
 }
 
 /// Resolve an episode dir by id or `id-slug` folder prefix (mirrors
@@ -1240,5 +1349,51 @@ pub fn record_ctl_to(
             let crop = to_crop(frac, fw, fh).ok_or("window is off-screen or too small")?;
             record_monitor_ctl(&mon, Some(crop), out_path, opts, stop)
         }
+    }
+}
+
+#[cfg(test)]
+mod root_tests {
+    use super::*;
+
+    #[test]
+    fn normalize_folds_dots_and_parents() {
+        assert_eq!(
+            normalize(Path::new("C:/repo/./content")),
+            PathBuf::from("C:/repo/content")
+        );
+        assert_eq!(
+            normalize(Path::new("C:/repo/target/release/../../content")),
+            PathBuf::from("C:/repo/content")
+        );
+    }
+
+    #[test]
+    fn ambient_candidates_walk_exe_first_then_cwd_last() {
+        let v = ambient_candidates();
+        assert!(v.len() >= 2, "exe candidates + cwd fallback: {v:?}");
+        assert_eq!(
+            v.last().unwrap(),
+            &PathBuf::from("./content"),
+            "the launch cwd is the LAST resort, never the first: {v:?}"
+        );
+        // Every exe-derived candidate ends in content/ and the first is
+        // exe-adjacent (the portable anchor).
+        let exe_dir = std::env::current_exe()
+            .ok()
+            .and_then(|e| e.parent().map(Path::to_path_buf))
+            .unwrap();
+        assert_eq!(v[0], exe_dir.join("content"), "portable anchor first");
+        assert!(v.iter().all(|p| p.ends_with("content")), "{v:?}");
+    }
+
+    #[test]
+    fn checked_roots_name_every_location_display_normalized() {
+        let out = checked_roots();
+        assert!(!out.is_empty());
+        assert!(
+            out.iter().all(|s| !s.contains('\\')),
+            "forward-slash display: {out:?}"
+        );
     }
 }
