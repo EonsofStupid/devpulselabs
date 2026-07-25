@@ -49,10 +49,14 @@ disk-full aborts honestly; ingested packs read **local** on the shelf.
 Sources on D: stay read-only, always. Literal NTFS symlinks under
 /content were REJECTED (they'd drag 70k files into rescans and blur
 the artifact jail).
-Exe rebuilt 2026-07-25. NEXT: R1z (autosave/undo/reopen-last +
-keyboard map), then R2a deep-pack browsing/tagging + the .aep/.mogrt
-parse spike, R2b effects (the 860 .cube LUTs are a natural first
-registry tier — ffmpeg lut3d). Ratified: 3D/camera/tracker/motion-blur are LATER;
+Exe rebuilt 2026-07-25. **NEXT (operator-directed, fresh session):
+W5 — the real .guide export** — steps stills + session replay in ONE
+standalone, phone-loadable `guide.html`; proposal-grade plan AUTHORED:
+`docs/plans/w5-guide-export-proposal.md` (verified inventory, design,
+boundaries, 3 open operator questions — re-read its §2 files IN FULL
+before coding). Then R1z (autosave/undo/reopen-last + keyboard map),
+R2a deep-pack browsing/tagging + the .aep/.mogrt parse spike, R2b
+effects (the 860 .cube LUTs first — ffmpeg lut3d). Ratified: 3D/camera/tracker/motion-blur are LATER;
 AI is ephemeral in-app + chat (one seam); WiredFRONT before Workbench.
 Memory: `experience-first-gate`.
 KNOWN (pre-existing, observed by the W2 cross-process drill): opening
