@@ -2,7 +2,25 @@
 
 Updated every pass. This file is the first read of every session.
 
-**Tip:** on `main` (2026-07-24, late). THE COURSE CORRECTION SESSION: the
+**Tip:** on `main` (2026-07-25). **DEMO-B landed**
+(`feat/demo-browser-driver`, `docs/plans/demo-browser-driver.md`,
+ADR-013): `dpl-engine-browser` — headless Chromium as a SUBPROCESS over
+CDP. Resolve-never-download (injected → `DPL_BROWSER` → bundled →
+Chrome installs → Edge, the Windows zero-install fallback → PATH incl.
+the Linux names); `--headless=new` + ephemeral profile + port from
+`DevToolsActivePort`; navigate/evaluate/click/insert-text/screenshot;
+`browser_cli shot <url> <png> [--window WxH]`; live `#[ignore]` drill
+PROVEN on real Chrome (1.3 s end-to-end). New workspace dep ratified:
+tungstenite 0.27 (no TLS — localhost only). Paper trail filed: the
+demo-pipeline charter (`docs/plans/demo-guide-pipeline.md`, DRAFT —
+DG1/DG2 ordering awaits ratification) + the first storyboard
+(`docs/plans/demos/demo-001-twilio-notification-keys.md`). Demo
+identity: clyffy@angrygaming.org (operator-established; credentials
+stay operator-side — the agent never enters passwords; captures ride a
+signed-in demo profile). NOTE: `feat/lottie-1-spike` work is
+uncommitted; its Cargo lines were parked and restored during this pass.
+
+2026-07-24 (late), THE COURSE CORRECTION SESSION: the
 operator ruled the R1 sequencing a failure (plumbing landed while the
 editor stayed a chip list, and R1u's editor spine was GUIDE-maker DNA —
 Capture/Annotate/Edit/Narrate/Preview/Export + an Export .guide chip).

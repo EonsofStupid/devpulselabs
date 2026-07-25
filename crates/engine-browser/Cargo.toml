@@ -1,0 +1,15 @@
+[package]
+name = "dpl-engine-browser"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Headless Chromium orchestration for Program DEMO's external tier: resolve an installed Chrome/Edge/Chromium (never download), launch it headless as a SUBPROCESS (ADR-013 — the ffmpeg/aerender pattern), and drive it over CDP on a localhost WebSocket: navigate, evaluate, click, type, screenshot."
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+# Pure-Rust WebSocket framing over OUR TcpStream, localhost only — no TLS.
+tungstenite.workspace = true
+
+[lints]
+workspace = true
