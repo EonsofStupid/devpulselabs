@@ -7,6 +7,8 @@
 [`chat-provider-capabilities.md`](../research/chat-provider-capabilities.md)
 **Runtime safety gate:**
 [`chat-provider-runtime-adr.md`](chat-provider-runtime-adr.md)
+**Active composition slice:**
+[`chat-steam-social-foundation.md`](chat-steam-social-foundation.md)
 
 ## 1. The product in one sentence
 
@@ -31,9 +33,11 @@ conversation experience.
 ## 2. Locked correction
 
 The existing provider-neutral contracts, bounded history readers, event
-normalization, capability qualification, and deterministic fixtures remain
-valid foundations. The embedded `dpl-hub-chat` presentation is rejected as
-the product direction.
+normalization, capability qualification, deterministic fixtures, native peer
+window, and launcher remain valid foundations. The embedded `dpl-hub-chat`
+presentation and the later permanent three-column `dpl-chat-window`
+presentation are rejected as product direction. Their contracts and native
+window infrastructure remain; their layout has no compatibility authority.
 
 These decisions outrank the older Chat slice order:
 
@@ -73,10 +77,10 @@ supervisable.
 
 The resulting DevPULSE pattern is:
 
-> A calm, dense agent library on the left; a readable conversation in the
-> center; a contextual work stage that appears only when useful; a persistent
-> composer and activity shelf; and separate utility windows for work that
-> deserves independent focus.
+> A compact AI/Social mode strip; a dense Steam Friends & Chat-style presence
+> and session sidebar; one dominant conversation and composer; governed
+> overlays for transient work; and adjacent native utility windows for work
+> that deserves independent focus.
 
 ## 4. Native window topology
 
@@ -134,156 +138,140 @@ discoverable native windows, the slice stops and the plan is amended.
 
 ## 5. Primary Chat window anatomy
 
-The primary window uses a stable five-zone frame:
+The primary window is a compact conversation client, not a dashboard. Its
+stable frame has six responsibilities:
 
 ```text
-+--------------------------------------------------------------------------+
-| A  Command header: workspace / route / search / account / window actions |
-+------------------+--------------------------------+----------------------+
-| B  Agent library | C  Conversation workspace     | D  Context work stage|
-|                  |                                |                      |
-| providers        | messages                       | artifact / diff      |
-| sessions         | plans and tool events          | route preview        |
-| projects         | approvals and citations        | inspector / form     |
-| activity badges  | generated inline interactions | detachable surfaces  |
-|                  |                                |                      |
-+------------------+--------------------------------+----------------------+
-| E  Composer deck: context chips / mode / attachments / send / stop       |
-+--------------------------------------------------------------------------+
-| F  Activity shelf: running / waiting / approval / failed / completed     |
-+--------------------------------------------------------------------------+
++-----------------------------------------------------------------------+
+| A  DevPULSE Chat | AI | Social | search | notices | account / presence |
++------------------+----------------------------------------------------+
+| B  presence and  | C  conversation                                    |
+|    session rail  |                                                    |
+|                  | messages, compact tool outcomes, inline interactions |
+| providers/people |                                                    |
+| pinned/active/   +----------------------------------------------------+
+| recent/projects  | D  composer and explicit route-context controls     |
++------------------+----------------------------------------------------+
+| E  governed overlays above origins | F native utilities beside Chat    |
++-----------------------------------------------------------------------+
 ```
 
-Zone D is conditional. When it is absent, the conversation expands rather
-than leaving an empty inspector. Zone F can collapse to a one-line status
-strip while preserving active-task and approval counts.
+The primary viewport has exactly two persistent content columns: the sidebar
+and the conversation. It never reserves a permanent stage, inspector, tool,
+or placeholder column. Sustained work opens in a typed adjacent utility
+window; short-lived work opens in the overlay layer.
 
-### A — command header
+The default size is `1040 × 640` logical points and the minimum is
+`720 × 560`.
 
-- DevPULSE Chat identity and current workspace;
-- observed main-app route breadcrumb;
-- `Open in Main` / `Show Main` action when a route binding exists;
-- command palette and global search;
-- offline/degraded/provider-runtime health;
-- account switcher and application-level window actions.
+### A — mode and command strip
 
-The header does not become a second navigation tree. It answers: where am I,
-what application context is available, and what is running?
+- DevPULSE Chat identity;
+- operator-visible `AI` and `Social` modes with unread badges;
+- global search and notifications;
+- truthful account/presence and provider-runtime health;
+- compact native window actions;
+- observed Main route as concise context rather than a second navigation
+  tree.
 
-### B — agent library
+`AI` is selected initially. Switching domains restores that domain's selected
+conversation, draft, scroll anchor, unread state, and overlay state.
 
-This is the Steam-inspired durable collection surface:
+### B — presence and session sidebar
 
-- registry-driven Codex, Claude, Gemini, and Grok provider tabs;
+The 252-point sidebar is the Steam Friends & Chat-inspired primary navigation.
+It is dense, status-rich, keyboard traversable, and never merely a row of
+provider logos.
+
+AI mode contains:
+
+- registry-driven ChatGPT/Codex, Claude, Gemini, and Grok presence;
 - truthful signed-out, unavailable, experimental, degraded, running, and
   attention states;
-- provider-local project/workspace groups;
-- pinned and recent sessions;
-- filters for active, unread, waiting, failed, and archived;
-- type-to-search and keyboard list navigation;
-- remembered expansion, selection, and scroll state;
-- compact status glyphs with text/tooltips, never color alone.
+- nested sessions grouped as `Pinned`, `Active`, and `Recent`;
+- persistent Councils with an explicit not-qualified state;
+- Interaction Library and Settings destinations;
+- remembered expansion, selection, and scroll state.
 
-Each provider retains its own active session, account, model, mode,
-permissions, draft, scroll anchor, context selection, and pending work.
-Switching providers never merges or destroys those states.
+Social mode replaces the rail contents without replacing the shell:
 
-An optional `All activity` lens may aggregate status. It is not a synthetic
-provider and cannot send messages.
+- global people and presence;
+- direct messages and groups;
+- project/team conversations;
+- unread and activity indicators;
+- remembered conversation selection and scroll state.
 
-### C — conversation workspace
+Presence and selection use text or tooltips as well as color. Production
+Social begins empty and visibly unavailable until its transport is qualified.
 
-- readable content measure instead of full-width transcript lines;
-- virtualized, cursor-paged history;
-- explicit user, assistant, system, provider, tool, and approval roles;
+### C — conversation
+
+- readable content measure and cursor-paged history;
+- explicit user, assistant, system, provider, tool, approval, and Social
+  author roles;
 - streaming without moving earlier content;
-- collapsible reasoning summaries, plans, tool calls, diffs, and diagnostics;
-- citations, provenance, timestamps, and provider-native identity where
-  useful;
-- stable scroll anchoring and an explicit `Jump to live` affordance;
-- inline interaction surfaces when they are small and conversational;
-- no chat bubbles for large plans, diffs, tables, or artifacts.
+- compact inline tool and route outcomes;
+- collapsible plans, diffs, diagnostics, and citations;
+- stable scroll anchoring and `Jump to live`;
+- no giant placeholder cards and no empty work-stage treatment.
 
-The conversation is the audit trail. A work surface may move to the context
-stage or a utility window, but its origin and outcome remain represented in
-the thread.
+The conversation is the audit trail. A sustained artifact or route preview
+keeps an origin event in the thread while rendering in a utility window.
 
-### D — context work stage
+### D — composer
 
-The stage is a typed companion to the conversation, inspired by Canvas and
-Artifacts:
+- multiline per-domain/per-conversation draft persistence;
+- exact route-context chips with source, revision, size, and remove action;
+- attachments, governed interaction components, voice, model, send, stop,
+  and steer only where capabilities allow;
+- truthful disabled reasons for unqualified providers or Social transport;
+- no prompt submission from route change, domain change, selection change,
+  or window restore.
 
-- route context and preview;
-- editable documents and authored plans;
-- diffs and review comments;
-- structured tool output;
-- images, captures, guides, slides, and other DevPULSE artifacts;
-- forms, comparison tables, and generated dashboards;
-- provider diagnostics and permission details;
-- version history and restore where the surface contract supports it.
+### E — governed overlays
 
-Stage surfaces can be pinned, replaced, returned to their originating event,
-or detached into a utility window. Replacing a stage surface never destroys
-its underlying artifact or thread event.
+One deterministic overlay coordinator renders:
 
-### E — composer deck
+- provider/person hover cards;
+- provider/session and Social pickers in compact mode;
+- menus and command search;
+- approvals and recovery;
+- notifications and passive context peeks.
 
-- multiline drafting with predictable keyboard behavior;
-- exact attached-context chips with source, revision, size, and remove action;
-- model, mode, permission, and provider capability summary;
-- attachment and interaction-library actions;
-- send, stop, steer, and approval state;
-- per-provider/per-session draft persistence;
-- disabled actions with a truthful reason;
-- no prompt submission caused by route change, tab change, or window restore.
+Blocking approvals trap focus. Dismissal or completion restores focus to the
+originating semantic control. Overlays do not become hidden permanent panels.
 
-### F — activity shelf
+### F — native utility windows
 
-Long-running work must not hide inside a scrolling transcript. The shelf
-provides a compact task queue:
-
-- running;
-- waiting for operator;
-- approval required;
-- blocked/degraded;
-- completed recently;
-- background/monitoring;
-- provider and session ownership;
-- elapsed time and bounded status text;
-- focus, cancel, retry, or open-detail actions when supported.
-
-This borrows Steam's download/status clarity and modern agent clients'
-background task supervision without turning the conversation into a log
-console.
+Artifact, route, diff, plan, and tool previews that outlive a moment open as
+typed native utility viewports. They may snap beside Chat, detach to a
+decorated taskbar window, and re-dock without losing binding or generation.
+Closing a utility never closes its session.
 
 ## 6. Responsive and windowed behavior
 
-The window supports three authored compositions:
+The primary shell has two authored compositions:
 
-### Wide
+### Full rail — 840 points and wider
 
-- agent library, conversation, and context stage visible;
-- activity shelf expanded on demand;
-- intended for primary work and review.
+- 252-point presence/session sidebar;
+- conversation consumes all remaining width;
+- composer remains attached to conversation;
+- overlays float above their semantic origin;
+- optional utility windows remain separate native viewports.
 
-### Standard
+### Presence rail — below 840 points
 
-- agent library remains visible;
-- context stage becomes a drawer or a detachable window;
-- conversation and composer remain stable.
-
-### Companion
-
-- session picker replaces the permanent library rail;
-- context stage is detached or modal-by-intent, never overlaid by accident;
-- provider identity, conversation, composer, running state, and route context
+- sidebar collapses to a 76-point presence rail;
+- provider, person, session, and conversation selection opens as an overlay;
+- active identity, conversation, composer, running state, and route context
   remain visible;
-- intended to sit beside another application or stay useful while Main is
-  minimized.
+- the composition never creates a permanent third column or nested full-page
+  scroller.
 
-The implementation uses ColdLight fluid constraints and declared minimums,
-not a pile of magic pixel branches. Every composition receives its own
-EguiPilotAI scenario and visual baseline.
+The implementation uses ColdLight fluid constraints and declared minimums.
+Harness and EguiPilotAI coverage is required at `720 × 560`, `1040 × 640`,
+and `1360 × 800`.
 
 ## 7. Visual direction — ColdLight Ember
 
@@ -452,8 +440,8 @@ Proposed -> Validating -> Visible -> Interacting -> Completed
 - important surfaces retain a thread event and audit outcome.
 
 The library is intentionally useful to both AI and operator. The operator can
-invoke the same components directly, pin them, move them to the stage, detach
-them, or dismiss them.
+invoke the same components directly, pin them, move them to a snapped utility,
+detach them, or dismiss them.
 
 ## 10. Auxiliary windows and overlays
 
@@ -469,7 +457,14 @@ Utility windows support:
 - future Council.
 
 Each has a stable `ChatWindowId`, kind, binding, generation, geometry,
-restore/focus policy, and EguiPilotAI viewport identity.
+`WindowAttachment::{Snapped, Detached}`, anchor edge, parent Chat window,
+persisted offset, restore/focus policy, and EguiPilotAI viewport identity.
+
+Snapped utilities are adjacent undecorated native viewports without their own
+taskbar entry. Detaching recreates the utility as a decorated taskbar window
+while retaining its binding and generation lineage. Re-docking restores the
+recorded edge and offset. Main-window minimize never affects Chat or its
+utilities, and closing a utility never closes its session.
 
 Overlays are reserved for short-lived decisions or launch affordances:
 
@@ -478,11 +473,14 @@ Overlays are reserved for short-lived decisions or launch affordances:
 - command palette;
 - context peek;
 - warning/recovery;
+- provider/person/session picker;
+- notifications;
 - launcher.
 
-An overlay is never the primary Chat experience. It returns focus
-deterministically and cannot open a utility window without an explicit typed
-action.
+One deterministic coordinator orders overlays. A blocking approval traps
+focus; dismissing or completing it restores focus to the originating semantic
+control. An overlay is never the primary Chat experience and cannot open a
+utility window without an explicit typed action.
 
 ## 11. Boring implementation boundaries
 
@@ -493,6 +491,7 @@ dpl-chat-core
    ^
    +-- dpl-chat-store
    +-- dpl-chat-context
+   +-- dpl-chat-social
    +-- dpl-chat-interactions
    +-- dpl-chat-windows
    +-- dpl-chat-runtime <-- named provider adapters
@@ -513,6 +512,8 @@ Responsibilities:
 - `dpl-chat-window` composes the primary Chat viewport and no provider
   process;
 - `dpl-chat-windows` owns all Chat window state and lifecycle;
+- `dpl-chat-social` owns people, projects, conversations, presence, messages,
+  drafts, unread state, and transport availability;
 - `dpl-chat-interactions` owns declarative generated-surface contracts;
 - `dpl-chat-context` owns observed context, consent, and the route bridge
   models;
@@ -545,17 +546,32 @@ attachment.
 - prove open, focus, minimize independence, close, reopen, geometry restore,
   explicit Quit, and last-window exit;
 - add primary/launcher typed IDs and EguiPilotAI viewport metadata;
-- author the empty/new-session visual shell and three responsive compositions.
+- freeze the existing native peer-window and launcher evidence.
 
 Exit: Chat remains fully interactive while Main is minimized, using the real
 executable.
+
+### CHAT-1A — Steam-Chat AI/Social foundation
+
+- replace the rejected permanent three-column presentation;
+- add `ChatDomain::{Ai, Social}` with isolated view state;
+- add typed Social people, projects, conversations, presence, messages, and
+  unavailable transport state;
+- add the compact mode strip, presence/session sidebar, dominant
+  conversation, and per-domain composer;
+- add the governed overlay coordinator and initial interaction vocabulary;
+- add snapped/detached/re-docked utility-window attachment state;
+- add the devtools-only `chat-authored` fixture and native-window proof.
+
+Exit: AI, Social, hover, approval, compact, and snapped-preview states pass the
+real-app evidence contract without fake provider or Social success.
 
 ### CHAT-2 — bind the proven read-only model
 
 - bind existing registry, capability, history, paging, normalization, and
   renderer work into `dpl-chat-window`;
-- remove the embedded three-panel page as product authority;
-- add the agent library, conversation workspace, and fixture providers;
+- bind into the compact AI conversation and sidebar without changing its
+  structural layout;
 - prove large-history virtualization and provider-state isolation.
 
 Exit: real local Codex/Claude histories browse read-only in the peer window
@@ -574,10 +590,9 @@ or automatic navigation.
 ### CHAT-4 — Interaction Library
 
 - implement schema, validation, registry, placements, and native renderers;
-- start with Notice, Choice, Form, Progress, Approval, RouteCard, Artifact,
-  Diff, and WindowRequest;
+- start with Notice, Approval, RouteResult, and ArtifactPreview;
 - add deterministic recorded fixtures and accessibility semantics;
-- prove inline, stage, overlay, and utility-window movement.
+- prove inline, overlay, snapped-utility, and detached-utility movement.
 
 Exit: AI can propose useful native UI without arbitrary layout or privilege.
 
@@ -609,7 +624,7 @@ Exit: each provider is truthfully qualified, experimental, or unavailable.
 ### CHAT-8 — advanced surfaces
 
 - richer artifacts, editable plans, review comments, tool consoles;
-- detachable stage surfaces and saved layouts;
+- saved snapped and detached utility layouts;
 - background/monitoring activity;
 - provider and route extensions through declared registries.
 
@@ -639,12 +654,12 @@ The product direction is not qualified until the real app proves:
 | Route opening | An explicit Chat action restores/focuses Main and opens the typed route |
 | Invalid route | Truthful unavailable/rejected result with no navigation side effect |
 | Provider isolation | Switching providers preserves account/session/draft/mode state |
-| Generated surface | Fixture spec renders identically inline, staged, and detached where allowed |
+| Generated surface | Fixture spec renders identically inline, overlaid, snapped, and detached where allowed |
 | Privileged action | Approval and provenance are visible before route/file/provider/window mutation |
 | Multi-viewport semantics | Stable viewport-scoped IDs and deterministic EguiPilotAI discovery |
-| Responsive states | Wide, standard, and companion layouts have no overlap or uncontrolled nested scrolling |
+| Responsive states | `720 × 560`, `1040 × 640`, and `1360 × 800` have no third column, overlap, or uncontrolled nested scrolling |
 | Motion capture | Fifty suppressed captures are byte-identical for the pinned renderer profile |
-| Accessibility | Keyboard-only launcher, provider/session switching, composer, stage, approvals, and window movement |
+| Accessibility | Keyboard-only launcher, AI/Social switching, provider/person/session switching, composer, approvals, and utility movement |
 | Scale | Large histories remain paged/virtualized and background activity remains bounded |
 
 ## 14. Anti-goals

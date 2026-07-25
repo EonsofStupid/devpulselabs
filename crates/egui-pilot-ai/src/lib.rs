@@ -160,6 +160,11 @@ pub struct QueuedInput {
     pub modifiers: Option<egui::Modifiers>,
 }
 
+struct PendingInput {
+    generation: u64,
+    input: QueuedInput,
+}
+
 #[derive(Clone)]
 pub struct CapturedImage {
     pub viewport: egui::ViewportId,
@@ -274,7 +279,10 @@ struct SharedState {
     staging: HashMap<egui::ViewportId, ViewportFrame>,
     committed: HashMap<egui::ViewportId, Vec<SemanticNode>>,
     latest: SemanticFrame,
-    input: VecDeque<QueuedInput>,
+    input: VecDeque<PendingInput>,
+    next_input_generation: u64,
+    viewport_pending_input_commit: HashMap<egui::ViewportId, u64>,
+    viewport_committed_input_generation: HashMap<egui::ViewportId, u64>,
     captures: VecDeque<CapturedImage>,
     clock: PilotClock,
     motions: HashMap<MotionId, MotionRegistration>,
@@ -287,6 +295,9 @@ struct SharedState {
     viewport_events: VecDeque<ViewportLifecycleEvent>,
     viewport_commands: VecDeque<(egui::ViewportId, egui::ViewportCommand)>,
     viewport_close_requests: HashSet<egui::ViewportId>,
+    retired_viewports: HashSet<egui::ViewportId>,
+    parent_wake_after_pass: HashMap<egui::ViewportId, u8>,
+    viewport_semantic_revisions: HashMap<egui::ViewportId, u64>,
     motion_policy: MotionPolicy,
 }
 
@@ -307,12 +318,67 @@ impl PilotHandle {
         protocol::project_snapshot(&self.latest_frame(), request)
     }
 
-    pub fn queue_input(&self, input: QueuedInput) {
-        lock(&self.shared).input.push_back(input);
+    pub fn queue_input(&self, input: QueuedInput) -> u64 {
+        let mut shared = lock(&self.shared);
+        shared.next_input_generation = shared.next_input_generation.saturating_add(1);
+        let generation = shared.next_input_generation;
+        shared.input.push_back(PendingInput { generation, input });
+        generation
     }
 
     pub fn pending_input(&self) -> usize {
         lock(&self.shared).input.len()
+    }
+
+    pub fn pending_input_viewports(&self) -> Vec<egui::ViewportId> {
+        let shared = lock(&self.shared);
+        let mut viewports: Vec<_> = shared
+            .input
+            .iter()
+            .map(|pending| pending.input.viewport)
+            .collect();
+        viewports.sort_unstable();
+        viewports.dedup();
+        viewports
+    }
+
+    /// Returns the latest semantic revision committed by one viewport.
+    ///
+    /// The global frame revision can advance when a sibling native window
+    /// paints. Action settlement must therefore use this viewport-scoped
+    /// revision or an unrelated utility window could make a target appear
+    /// settled before it has consumed its input.
+    pub fn viewport_semantic_revision(&self, viewport: egui::ViewportId) -> Option<u64> {
+        lock(&self.shared)
+            .viewport_semantic_revisions
+            .get(&viewport)
+            .copied()
+    }
+
+    /// Returns the latest queued-input generation whose target viewport pass
+    /// has fully committed semantics.
+    pub fn viewport_committed_input_generation(&self, viewport: egui::ViewportId) -> u64 {
+        lock(&self.shared)
+            .viewport_committed_input_generation
+            .get(&viewport)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// Wake the application-owned parent coordinator only after `viewport`
+    /// completes its next semantic pass.
+    ///
+    /// Deferred native viewports and their parent can otherwise race: waking
+    /// the parent before the child consumes input lets egui coalesce away the
+    /// completion wake.
+    pub fn request_parent_wake_after_next_pass(&self, viewport: egui::ViewportId) {
+        if viewport != egui::ViewportId::ROOT {
+            lock(&self.shared)
+                .parent_wake_after_pass
+                .entry(viewport)
+                .and_modify(|remaining| *remaining = (*remaining).max(2))
+                .or_insert(2);
+        }
     }
 
     /// Discards automation input that has not yet been injected into an egui frame.
@@ -422,6 +488,26 @@ impl PilotHandle {
     /// deferred viewport because its owner may immediately declare it again.
     pub fn request_viewport_close(&self, viewport: egui::ViewportId) {
         lock(&self.shared).viewport_close_requests.insert(viewport);
+    }
+
+    /// Retire a viewport that the application has intentionally stopped
+    /// declaring or is replacing with a new native generation.
+    ///
+    /// Native integrations can continue delivering a few frames for the old
+    /// OS window after `Close`. Keeping that stale lifetime live would make
+    /// action settlement wait forever even though its final input pass
+    /// committed. The retired id remains ignored until the integration drops
+    /// it from `RawInput::viewports`.
+    pub fn retire_viewport(&self, viewport: egui::ViewportId) {
+        let mut shared = lock(&self.shared);
+        let pending_commit = shared.viewport_pending_input_commit.get(&viewport).copied();
+        close_viewport(&mut shared, viewport);
+        if let Some(generation) = pending_commit {
+            shared
+                .viewport_pending_input_commit
+                .insert(viewport, generation);
+        }
+        shared.retired_viewports.insert(viewport);
     }
 
     fn take_viewport_close_request(&self, viewport: egui::ViewportId) -> bool {
@@ -628,6 +714,9 @@ impl EguiPilotPlugin {
     fn register(&mut self, ui: &egui::Ui, response: &egui::Response, metadata: NodeMetadata) {
         let source = Location::caller();
         let viewport = ui.ctx().viewport_id();
+        if lock(&self.shared).retired_viewports.contains(&viewport) {
+            return;
+        }
         let (viewport_lifetime, viewport_key) = {
             let mut shared = lock(&self.shared);
             let lifetime = ensure_viewport(&mut shared, viewport, None);
@@ -663,7 +752,10 @@ impl EguiPilotPlugin {
                 decorative: metadata.decorative,
                 disabled: !response.enabled(),
                 editable: metadata.editable,
-                focused: response.has_focus(),
+                // Logical widget focus is stable even when a native deferred
+                // viewport temporarily reports `RawInput::focused = false`.
+                // Native OS focus remains available on the viewport descriptor.
+                focused: ui.memory(|memory| memory.has_focus(response.id)),
                 checked: metadata.checked,
                 selected: metadata.selected,
                 expanded: metadata.expanded,
@@ -716,6 +808,26 @@ impl egui::Plugin for EguiPilotPlugin {
         let viewport = ui.ctx().viewport_id();
         let time = ui.input(|input| input.time);
         let mut shared = lock(&self.shared);
+        if shared.retired_viewports.contains(&viewport) {
+            shared.staging.remove(&viewport);
+            if let Some(generation) = shared.viewport_pending_input_commit.remove(&viewport) {
+                shared
+                    .viewport_committed_input_generation
+                    .insert(viewport, generation);
+            }
+            let wake_parent = shared
+                .parent_wake_after_pass
+                .remove(&viewport)
+                .and_then(|_| {
+                    ui.input(|input| input.viewport().parent)
+                        .or(Some(egui::ViewportId::ROOT))
+                });
+            drop(shared);
+            if let Some(parent) = wake_parent {
+                ui.ctx().request_repaint_of(parent);
+            }
+            return;
+        }
         let staged = shared.staging.remove(&viewport).unwrap_or_default();
         shared.revision += 1;
         let revision = shared.revision;
@@ -760,9 +872,40 @@ impl egui::Plugin for EguiPilotPlugin {
             viewports: live_descriptors(&shared),
             diagnostics,
         };
+        shared
+            .viewport_semantic_revisions
+            .insert(viewport, revision);
+        if let Some(generation) = shared.viewport_pending_input_commit.remove(&viewport) {
+            shared
+                .viewport_committed_input_generation
+                .insert(viewport, generation);
+        }
+        let wake_parent = shared
+            .parent_wake_after_pass
+            .get_mut(&viewport)
+            .map(|remaining| {
+                *remaining = remaining.saturating_sub(1);
+                *remaining
+            });
+        if wake_parent == Some(0) {
+            shared.parent_wake_after_pass.remove(&viewport);
+        }
+        let wake_parent = wake_parent.map(|_| {
+            shared
+                .live_viewports
+                .get(&viewport)
+                .and_then(|live| live.descriptor.parent.as_ref())
+                .and_then(|parent| shared.viewport_ids.get(&parent.0))
+                .copied()
+                .unwrap_or(egui::ViewportId::ROOT)
+        });
+        drop(shared);
+        if let Some(parent) = wake_parent {
+            ui.ctx().request_repaint_of(parent);
+        }
     }
 
-    fn input_hook(&mut self, _ctx: &egui::Context, input: &mut egui::RawInput) {
+    fn input_hook(&mut self, ctx: &egui::Context, input: &mut egui::RawInput) {
         let mut shared = lock(&self.shared);
         sync_viewports(&mut shared, input);
         input.time = shared.clock.resolve_input(input.time);
@@ -780,9 +923,19 @@ impl egui::Plugin for EguiPilotPlugin {
         if let Some(index) = shared
             .input
             .iter()
-            .position(|queued| queued.viewport == input.viewport_id)
+            .position(|pending| pending.input.viewport == input.viewport_id)
         {
-            let queued = shared.input.remove(index).expect("queued input index");
+            let pending = shared.input.remove(index).expect("queued input index");
+            let queued = pending.input;
+            // Targeted automation input represents an active interaction with
+            // this native viewport. Preserve the real OS focus command in the
+            // runtime, while ensuring egui does not discard the injected
+            // RawInput merely because a sibling peer window still owned the
+            // platform focus at the start of this pass.
+            input.focused = true;
+            if let Some(viewport) = input.viewports.get_mut(&input.viewport_id) {
+                viewport.focused = Some(true);
+            }
             input.events.extend(queued.events);
             if let Some(time) = queued.time {
                 input.time = Some(time);
@@ -790,6 +943,13 @@ impl egui::Plugin for EguiPilotPlugin {
             if let Some(modifiers) = queued.modifiers {
                 input.modifiers = modifiers;
             }
+            shared
+                .viewport_pending_input_commit
+                .insert(input.viewport_id, pending.generation);
+            // Guarantee one settling pass after the input pass. Combined with
+            // the two-pass parent wake barrier, this prevents either native
+            // redraw queue from losing the final one-tick hover/key action.
+            ctx.request_repaint_of(input.viewport_id);
         }
     }
 
@@ -817,7 +977,15 @@ impl egui::Plugin for EguiPilotPlugin {
 
 fn sync_viewports(shared: &mut SharedState, input: &egui::RawInput) {
     if input.viewport_id == egui::ViewportId::ROOT {
-        let observed: Vec<_> = input.viewports.keys().copied().collect();
+        shared
+            .retired_viewports
+            .retain(|viewport| input.viewports.contains_key(viewport));
+        let observed: Vec<_> = input
+            .viewports
+            .keys()
+            .filter(|viewport| !shared.retired_viewports.contains(viewport))
+            .copied()
+            .collect();
         for viewport in &observed {
             let info = input.viewports.get(viewport);
             ensure_viewport(shared, *viewport, info);
@@ -839,6 +1007,9 @@ fn sync_viewports(shared: &mut SharedState, input: &egui::RawInput) {
             close_viewport(shared, viewport);
         }
     } else {
+        if shared.retired_viewports.contains(&input.viewport_id) {
+            return;
+        }
         let info = input.viewports.get(&input.viewport_id);
         ensure_viewport(shared, input.viewport_id, info);
         if let Some(info) = info {
@@ -1003,7 +1174,9 @@ fn close_viewport(shared: &mut SharedState, egui_id: egui::ViewportId) {
     shared.viewport_ids.remove(&live.descriptor.id.0);
     shared.staging.remove(&egui_id);
     shared.committed.remove(&egui_id);
-    shared.input.retain(|input| input.viewport != egui_id);
+    shared
+        .input
+        .retain(|pending| pending.input.viewport != egui_id);
     shared
         .captures
         .retain(|capture| capture.viewport != egui_id);
@@ -1011,6 +1184,13 @@ fn close_viewport(shared: &mut SharedState, egui_id: egui::ViewportId) {
         .viewport_commands
         .retain(|(viewport, _)| *viewport != egui_id);
     shared.viewport_close_requests.remove(&egui_id);
+    shared.parent_wake_after_pass.remove(&egui_id);
+    shared.viewport_semantic_revisions.remove(&egui_id);
+    shared.viewport_pending_input_commit.remove(&egui_id);
+    // Keep the committed-input generation as a bounded session tombstone.
+    // A click can intentionally replace its deferred viewport (detach,
+    // re-dock, pop-out). The runtime must still prove that the initiating
+    // input pass committed after the old viewport leaves the live registry.
     shared.viewport_events.push_back(ViewportLifecycleEvent {
         kind: protocol::ViewportEventKind::Closed,
         viewport: live.descriptor,
@@ -1064,6 +1244,9 @@ pub trait ContextPilotExt {
     /// might not repaint while its native window is in the background.
     fn pilot_take_viewport_close_request(&self, viewport_id: egui::ViewportId) -> bool;
 
+    /// Mark an application-owned viewport lifetime as intentionally retired.
+    fn pilot_retire_viewport(&self, viewport_id: egui::ViewportId);
+
     fn pilot_show_viewport_deferred<F>(
         &self,
         key: protocol::PilotViewportKey,
@@ -1087,6 +1270,12 @@ pub trait ContextPilotExt {
 impl ContextPilotExt for egui::Context {
     fn pilot_take_viewport_close_request(&self, viewport_id: egui::ViewportId) -> bool {
         handle(self).is_some_and(|pilot| pilot.take_viewport_close_request(viewport_id))
+    }
+
+    fn pilot_retire_viewport(&self, viewport_id: egui::ViewportId) {
+        if let Some(pilot) = handle(self) {
+            pilot.retire_viewport(viewport_id);
+        }
     }
 
     fn pilot_show_viewport_deferred<F>(
@@ -1249,6 +1438,108 @@ mod tests {
     }
 
     #[test]
+    fn semantic_focus_is_logical_and_independent_from_native_window_focus() {
+        let ctx = egui::Context::default();
+        let pilot = install(&ctx);
+        let mut input = egui::RawInput {
+            focused: false,
+            ..Default::default()
+        };
+        input.viewports.insert(
+            egui::ViewportId::ROOT,
+            egui::ViewportInfo {
+                focused: Some(false),
+                ..Default::default()
+            },
+        );
+        let _ = ctx.run_ui(input, |ui| {
+            let (_, rect) = ui.allocate_space(egui::vec2(80.0, 24.0));
+            let response = ui.interact(rect, egui::Id::new("logical-focus"), egui::Sense::click());
+            response.request_focus();
+            assert!(!response.has_focus());
+            ui.pilot_track(&response, NodeMetadata::new(SAVE, Role::Button, "Save"));
+        });
+
+        let frame = pilot.latest_frame();
+        assert!(frame.nodes[0].state.focused);
+    }
+
+    #[test]
+    fn requested_parent_wake_runs_after_the_child_pass() {
+        let ctx = egui::Context::default();
+        let pilot = install(&ctx);
+        let child = egui::ViewportId::from_hash_of("pilot-input-child");
+        pilot.declare_viewport(
+            child,
+            protocol::PilotViewportKey::new("test.input-child"),
+            WireViewportClass::Deferred,
+            "Input child",
+        );
+        pilot.request_parent_wake_after_next_pass(child);
+
+        let repaints = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&repaints);
+        ctx.set_request_repaint_callback(move |request| {
+            lock(&recorded).push(request.viewport_id);
+        });
+
+        let mut input = egui::RawInput {
+            viewport_id: child,
+            ..Default::default()
+        };
+        input
+            .viewports
+            .insert(egui::ViewportId::ROOT, egui::ViewportInfo::default());
+        input.viewports.insert(
+            child,
+            egui::ViewportInfo {
+                parent: Some(egui::ViewportId::ROOT),
+                ..Default::default()
+            },
+        );
+        let _ = ctx.run_ui(input, |_ui| {});
+
+        assert!(lock(&repaints).contains(&egui::ViewportId::ROOT));
+    }
+
+    #[test]
+    fn semantic_revisions_are_scoped_to_the_viewport_that_committed() {
+        let ctx = egui::Context::default();
+        let pilot = install(&ctx);
+        let child = egui::ViewportId::from_hash_of("pilot-revision-child");
+
+        let _ = ctx.run_ui(Default::default(), |_ui| {});
+        let root_revision = pilot
+            .viewport_semantic_revision(egui::ViewportId::ROOT)
+            .expect("root semantic revision");
+        assert_eq!(pilot.viewport_semantic_revision(child), None);
+
+        let mut input = egui::RawInput {
+            viewport_id: child,
+            ..Default::default()
+        };
+        input
+            .viewports
+            .insert(egui::ViewportId::ROOT, egui::ViewportInfo::default());
+        input.viewports.insert(
+            child,
+            egui::ViewportInfo {
+                parent: Some(egui::ViewportId::ROOT),
+                ..Default::default()
+            },
+        );
+        let _ = ctx.run_ui(input, |_ui| {});
+
+        assert_eq!(
+            pilot.viewport_semantic_revision(egui::ViewportId::ROOT),
+            Some(root_revision)
+        );
+        assert!(pilot
+            .viewport_semantic_revision(child)
+            .is_some_and(|revision| revision > root_revision));
+    }
+
+    #[test]
     #[should_panic(expected = "duplicate EguiPilotAI id")]
     fn duplicate_ids_are_hard_failures() {
         let ctx = egui::Context::default();
@@ -1286,6 +1577,80 @@ mod tests {
             pilot.prepare_motion(&ctx, MotionPolicy::Suppressed),
             Err(vec![LOOP])
         );
+    }
+
+    #[test]
+    fn input_generation_commits_only_after_its_target_viewport_pass() {
+        let ctx = egui::Context::default();
+        let pilot = install(&ctx);
+        let child = egui::ViewportId::from_hash_of("pilot-input-generation-child");
+        let generation = pilot.queue_input(QueuedInput {
+            viewport: child,
+            events: vec![egui::Event::PointerMoved(egui::pos2(8.0, 9.0))],
+            time: None,
+            modifiers: None,
+        });
+        assert_eq!(pilot.viewport_committed_input_generation(child), 0);
+
+        let mut input = egui::RawInput {
+            viewport_id: child,
+            ..Default::default()
+        };
+        input
+            .viewports
+            .insert(egui::ViewportId::ROOT, egui::ViewportInfo::default());
+        input.viewports.insert(
+            child,
+            egui::ViewportInfo {
+                parent: Some(egui::ViewportId::ROOT),
+                ..Default::default()
+            },
+        );
+        let output = ctx.run_ui(input, |_ui| {});
+
+        assert!(output.platform_output.events.is_empty());
+        assert_eq!(pilot.viewport_committed_input_generation(child), generation);
+    }
+
+    #[test]
+    fn retiring_a_viewport_preserves_its_final_input_commit() {
+        let ctx = egui::Context::default();
+        let pilot = install(&ctx);
+        let child = egui::ViewportId::from_hash_of("pilot-retired-input-child");
+        pilot.declare_viewport(
+            child,
+            protocol::PilotViewportKey::new("test.retired-input-child"),
+            WireViewportClass::Immediate,
+            "Retired input child",
+        );
+        let generation = pilot.queue_input(QueuedInput {
+            viewport: child,
+            events: vec![egui::Event::PointerMoved(egui::pos2(8.0, 9.0))],
+            time: None,
+            modifiers: None,
+        });
+        let mut input = egui::RawInput {
+            viewport_id: child,
+            ..Default::default()
+        };
+        input
+            .viewports
+            .insert(egui::ViewportId::ROOT, egui::ViewportInfo::default());
+        input.viewports.insert(
+            child,
+            egui::ViewportInfo {
+                parent: Some(egui::ViewportId::ROOT),
+                ..Default::default()
+            },
+        );
+
+        let _ = ctx.run_ui(input, |_ui| pilot.retire_viewport(child));
+
+        assert_eq!(pilot.viewport_committed_input_generation(child), generation);
+        assert!(pilot
+            .viewports()
+            .iter()
+            .all(|viewport| viewport.key.0 != "test.retired-input-child"));
     }
 
     #[test]

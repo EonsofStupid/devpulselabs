@@ -505,6 +505,7 @@ pub struct MonitorInfo {
     pub name: String,
     pub width: u32,
     pub height: u32,
+    pub scale_factor: f32,
     pub is_primary: bool,
 }
 
@@ -514,14 +515,14 @@ pub struct WindowInfo {
     pub id: u32,
     pub app: String,
     pub title: String,
+    pub x: i32,
+    pub y: i32,
     pub width: u32,
     pub height: u32,
 }
 
-/// Everything capturable right now: every monitor + every visible, titled,
-/// non-minimized app window (Chrome, Firefox, anything on the computer).
-pub fn list_targets() -> (Vec<MonitorInfo>, Vec<WindowInfo>) {
-    let monitors = Monitor::all()
+pub fn list_monitors() -> Vec<MonitorInfo> {
+    Monitor::all()
         .into_iter()
         .flatten()
         .filter_map(|m| {
@@ -530,10 +531,17 @@ pub fn list_targets() -> (Vec<MonitorInfo>, Vec<WindowInfo>) {
                 name: m.name().ok()?,
                 width: m.width().ok()?,
                 height: m.height().ok()?,
+                scale_factor: m.scale_factor().ok()?,
                 is_primary: m.is_primary().unwrap_or(false),
             })
         })
-        .collect();
+        .collect()
+}
+
+/// Everything capturable right now: every monitor + every visible, titled,
+/// non-minimized app window (Chrome, Firefox, anything on the computer).
+pub fn list_targets() -> (Vec<MonitorInfo>, Vec<WindowInfo>) {
+    let monitors = list_monitors();
     let windows = Window::all()
         .into_iter()
         .flatten()
@@ -549,6 +557,8 @@ pub fn list_targets() -> (Vec<MonitorInfo>, Vec<WindowInfo>) {
                 id: w.id().ok()?,
                 app: w.app_name().unwrap_or_default(),
                 title,
+                x: w.x().ok()?,
+                y: w.y().ok()?,
                 width: w.width().ok()?,
                 height: w.height().ok()?,
             })

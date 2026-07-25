@@ -9,6 +9,7 @@ default = []
 eguipilotai-devtools = [
     "dep:egui-pilot-ai-runtime",
     "dep:egui-pilot-ai-transport",
+    "dep:dpl-chat-testkit",
 ]
 
 [dependencies]
@@ -30,7 +31,10 @@ dpl-engine-capture.workspace = true
 dpl-engine-steps.workspace = true
 dpl-composer.workspace = true
 dpl-guide.workspace = true
+dpl-chat-core.workspace = true
 dpl-chat-runtime.workspace = true
+dpl-chat-social.workspace = true
+dpl-chat-interactions.workspace = true
 dpl-chat-store.workspace = true
 dpl-chat-window.workspace = true
 dpl-chat-windows.workspace = true
@@ -46,11 +50,17 @@ dpl-hub-wiredfront.workspace = true
 egui-pilot-ai.workspace = true
 egui-pilot-ai-runtime = { workspace = true, optional = true }
 egui-pilot-ai-transport = { workspace = true, optional = true }
+dpl-chat-testkit = { workspace = true, optional = true }
 dpl-seam.workspace = true
 
 [[bin]]
 name = "devpulselabs"
 path = "src/main.rs"
+
+[[bin]]
+name = "chat-native-proof"
+path = "src/bin/chat_native_proof.rs"
+required-features = ["eguipilotai-devtools"]
 
 [lints]
 workspace = true

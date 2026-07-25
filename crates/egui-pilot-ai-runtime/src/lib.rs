@@ -80,6 +80,17 @@ struct ActionExecution {
     started: Instant,
     sequence: InputSequence,
     wait_viewport: Option<(ViewportSelector, ViewportExpectationState)>,
+    settlement: Option<ActionSettlement>,
+}
+
+struct ActionSettlement {
+    viewport: ViewportDescriptor,
+    egui_viewport: egui::ViewportId,
+    required_input_generation: u64,
+    last_viewport_revision: u64,
+    last_semantic_hash: Option<String>,
+    last_geometry_hash: Option<String>,
+    stable_frames: u8,
 }
 
 #[derive(Default)]
@@ -121,10 +132,10 @@ struct PendingCapture {
     last_request_at: Instant,
 }
 
-pub struct RuntimeGuard {
+pub struct RuntimeGuard<T: Transport> {
     ctx: egui::Context,
     pilot: PilotHandle,
-    transport: Box<dyn Transport>,
+    transport: T,
     config: RuntimeConfig,
     authenticated: bool,
     outbound: VecDeque<ServerMessage>,
@@ -149,12 +160,8 @@ pub struct RuntimeGuard {
     stopped: bool,
 }
 
-impl RuntimeGuard {
-    pub fn attach(
-        ctx: &egui::Context,
-        transport: impl Transport + 'static,
-        config: RuntimeConfig,
-    ) -> Self {
+impl<T: Transport> RuntimeGuard<T> {
+    pub fn attach(ctx: &egui::Context, transport: T, config: RuntimeConfig) -> Self {
         let pilot = install(ctx);
         if let Some(renderer) = &config.renderer_identity {
             let _ = std::fs::create_dir_all(&config.artifact_root);
@@ -170,7 +177,7 @@ impl RuntimeGuard {
         Self {
             ctx: ctx.clone(),
             pilot,
-            transport: Box::new(transport),
+            transport,
             config,
             authenticated: false,
             outbound: VecDeque::new(),
@@ -522,6 +529,14 @@ impl RuntimeGuard {
                     action,
                 ) {
                     Ok(Some(execution)) => {
+                        if let Some(settlement) = &execution.settlement {
+                            self.pilot
+                                .request_parent_wake_after_next_pass(settlement.egui_viewport);
+                            self.request_viewport_repaint(
+                                settlement.egui_viewport,
+                                &settlement.viewport,
+                            );
+                        }
                         self.action = Some(execution);
                         self.active_flow = Some(active);
                         self.ctx.request_repaint();
@@ -602,23 +617,76 @@ impl RuntimeGuard {
         let target = primary_target(&action)
             .map(|locator| resolve_locator(&frame, locator))
             .transpose()?;
+        let input_viewport = if let Some(node) = target {
+            let descriptor = frame
+                .viewports
+                .iter()
+                .find(|viewport| viewport.id == node.viewport)
+                .cloned()
+                .ok_or_else(|| {
+                    viewport_error(
+                        "viewport-not-found",
+                        format!("viewport `{}` is no longer live", node.viewport),
+                    )
+                })?;
+            self.pilot
+                .egui_viewport(&descriptor.id)
+                .map(|egui_viewport| (descriptor, egui_viewport))
+        } else {
+            match &action {
+                Action::Press { viewport, .. } | Action::Scroll { viewport, .. } => {
+                    Some(resolve_input_viewport(&self.pilot, viewport.as_ref())?)
+                }
+                Action::FocusViewport { .. }
+                | Action::MinimizeViewport { .. }
+                | Action::RestoreViewport { .. }
+                | Action::CloseViewport { .. }
+                | Action::Click { .. }
+                | Action::DoubleClick { .. }
+                | Action::Hover { .. }
+                | Action::Fill { .. }
+                | Action::Clear { .. }
+                | Action::Type { .. }
+                | Action::DragTo { .. }
+                | Action::ScrollIntoView { .. }
+                | Action::SetValue { .. } => None,
+            }
+        };
+        if let Some((descriptor, egui_viewport)) = input_viewport {
+            require_native_viewport(&descriptor)?;
+            if !descriptor.focused {
+                self.ctx
+                    .send_viewport_cmd_to(egui_viewport, egui::ViewportCommand::Focus);
+                self.request_viewport_repaint(egui_viewport, &descriptor);
+            }
+        }
         if let Some(node) = target {
             assert_actionable(node, &action)?;
-            let stable = self.stability.entry(node.id.clone()).or_insert(Stability {
-                rect: node.rect,
-                revision: frame.revision,
-                frames: 1,
-            });
-            if stable.revision != frame.revision {
-                if stable.rect == node.rect {
-                    stable.frames = stable.frames.saturating_add(1);
-                } else {
-                    stable.rect = node.rect;
-                    stable.frames = 1;
+            let needs_stability_frame = {
+                let stable = self.stability.entry(node.id.clone()).or_insert(Stability {
+                    rect: node.rect,
+                    revision: frame.revision,
+                    frames: 1,
+                });
+                if stable.revision != frame.revision {
+                    if stable.rect == node.rect {
+                        stable.frames = stable.frames.saturating_add(1);
+                    } else {
+                        stable.rect = node.rect;
+                        stable.frames = 1;
+                    }
+                    stable.revision = frame.revision;
                 }
-                stable.revision = frame.revision;
-            }
-            if stable.frames < 2 {
+                stable.frames < 2
+            };
+            if needs_stability_frame {
+                if let Some(egui_viewport) = self.pilot.egui_viewport(&node.viewport) {
+                    self.pilot
+                        .request_parent_wake_after_next_pass(egui_viewport);
+                    self.ctx.request_repaint_of(egui_viewport);
+                } else {
+                    self.ctx.request_repaint();
+                }
                 return Ok(None);
             }
         }
@@ -626,6 +694,8 @@ impl RuntimeGuard {
             Action::FocusViewport { viewport } => {
                 let (descriptor, egui_viewport) = self.resolve_viewport(viewport)?;
                 require_native_viewport(&descriptor)?;
+                self.ctx
+                    .send_viewport_cmd_to(egui_viewport, egui::ViewportCommand::Focus);
                 self.pilot
                     .queue_viewport_command(egui_viewport, egui::ViewportCommand::Focus);
                 self.request_viewport_repaint(egui_viewport, &descriptor);
@@ -634,6 +704,8 @@ impl RuntimeGuard {
             Action::MinimizeViewport { viewport } => {
                 let (descriptor, egui_viewport) = self.resolve_viewport(viewport)?;
                 require_native_viewport(&descriptor)?;
+                self.ctx
+                    .send_viewport_cmd_to(egui_viewport, egui::ViewportCommand::Minimized(true));
                 self.pilot
                     .queue_viewport_command(egui_viewport, egui::ViewportCommand::Minimized(true));
                 self.request_viewport_repaint(egui_viewport, &descriptor);
@@ -642,6 +714,10 @@ impl RuntimeGuard {
             Action::RestoreViewport { viewport } => {
                 let (descriptor, egui_viewport) = self.resolve_viewport(viewport)?;
                 require_native_viewport(&descriptor)?;
+                self.ctx
+                    .send_viewport_cmd_to(egui_viewport, egui::ViewportCommand::Visible(true));
+                self.ctx
+                    .send_viewport_cmd_to(egui_viewport, egui::ViewportCommand::Minimized(false));
                 self.pilot
                     .queue_viewport_command(egui_viewport, egui::ViewportCommand::Visible(true));
                 self.pilot
@@ -661,7 +737,11 @@ impl RuntimeGuard {
                 }
                 if descriptor.class == protocol::ViewportClass::Deferred {
                     self.pilot.request_viewport_close(egui_viewport);
+                    self.ctx
+                        .send_viewport_cmd_to(egui_viewport, egui::ViewportCommand::Close);
                 } else {
+                    self.ctx
+                        .send_viewport_cmd_to(egui_viewport, egui::ViewportCommand::Close);
                     self.pilot
                         .queue_viewport_command(egui_viewport, egui::ViewportCommand::Close);
                 }
@@ -675,6 +755,34 @@ impl RuntimeGuard {
         } else {
             action_batches(&self.pilot, &frame, &action)?
         };
+        let settlement = batches
+            .first()
+            .map(|batch| {
+                let viewport = self
+                    .pilot
+                    .viewports()
+                    .into_iter()
+                    .find(|viewport| self.pilot.egui_viewport(&viewport.id) == Some(batch.viewport))
+                    .ok_or_else(|| {
+                        viewport_error(
+                            "viewport-not-found",
+                            "input target viewport is no longer live",
+                        )
+                    })?;
+                Ok(ActionSettlement {
+                    viewport,
+                    egui_viewport: batch.viewport,
+                    required_input_generation: 0,
+                    last_viewport_revision: self
+                        .pilot
+                        .viewport_semantic_revision(batch.viewport)
+                        .unwrap_or_default(),
+                    last_semantic_hash: None,
+                    last_geometry_hash: None,
+                    stable_frames: 0,
+                })
+            })
+            .transpose()?;
         Ok(Some(ActionExecution {
             request_id,
             run_id,
@@ -685,6 +793,7 @@ impl RuntimeGuard {
                 ticks: batches.into(),
             },
             wait_viewport,
+            settlement,
         }))
     }
 
@@ -693,8 +802,17 @@ impl RuntimeGuard {
             return;
         };
         if self.pilot.pending_input() > 0 {
+            if let Some(settlement) = &action.settlement {
+                self.pilot
+                    .request_parent_wake_after_next_pass(settlement.egui_viewport);
+                self.request_viewport_repaint(settlement.egui_viewport, &settlement.viewport);
+            } else {
+                for viewport in self.pilot.pending_input_viewports() {
+                    self.pilot.request_parent_wake_after_next_pass(viewport);
+                    self.ctx.request_repaint_of(viewport);
+                }
+            }
             self.action = Some(action);
-            self.ctx.request_repaint();
             return;
         }
         if let Some((selector, state)) = &action.wait_viewport {
@@ -724,10 +842,87 @@ impl RuntimeGuard {
                 return;
             }
             let viewport = batch.viewport;
-            self.pilot.queue_input(batch);
+            let final_batch = action.sequence.ticks.is_empty();
+            let input_generation = self.pilot.queue_input(batch);
+            if final_batch {
+                if let Some(settlement) = &mut action.settlement {
+                    settlement.required_input_generation = input_generation;
+                    settlement.last_viewport_revision = self
+                        .pilot
+                        .viewport_semantic_revision(viewport)
+                        .unwrap_or_default();
+                    settlement.last_semantic_hash = None;
+                    settlement.last_geometry_hash = None;
+                    settlement.stable_frames = 0;
+                }
+            }
+            // Wake both the dormant target and its owning coordinator so a
+            // deferred native viewport is re-declared, then keep the
+            // post-pass parent wake armed so completion cannot be coalesced.
+            self.pilot.request_parent_wake_after_next_pass(viewport);
+            if let Some(settlement) = &action.settlement {
+                self.request_viewport_repaint(viewport, &settlement.viewport);
+            } else {
+                self.ctx.request_repaint_of(viewport);
+            }
             self.action = Some(action);
-            self.ctx.request_repaint_of(viewport);
             return;
+        }
+        if let Some(settlement) = &mut action.settlement {
+            if self
+                .pilot
+                .viewport_committed_input_generation(settlement.egui_viewport)
+                < settlement.required_input_generation
+            {
+                self.pilot
+                    .request_parent_wake_after_next_pass(settlement.egui_viewport);
+                self.request_viewport_repaint(settlement.egui_viewport, &settlement.viewport);
+                self.action = Some(action);
+                return;
+            }
+            let viewport_is_live =
+                self.pilot.egui_viewport(&settlement.viewport.id) == Some(settlement.egui_viewport);
+            let focus_transferred =
+                viewport_focus_transferred(&settlement.viewport, &self.pilot.latest_frame());
+            // Controls such as "Show Main" intentionally move native focus
+            // away from their source viewport. Once the final input pass is
+            // committed, that observed focus transfer is the terminal state:
+            // the backgrounded source may not receive two more render passes.
+            if viewport_is_live && !focus_transferred {
+                let viewport_revision = self
+                    .pilot
+                    .viewport_semantic_revision(settlement.egui_viewport)
+                    .unwrap_or_default();
+                if viewport_revision <= settlement.last_viewport_revision {
+                    self.pilot
+                        .request_parent_wake_after_next_pass(settlement.egui_viewport);
+                    self.request_viewport_repaint(settlement.egui_viewport, &settlement.viewport);
+                    self.action = Some(action);
+                    return;
+                }
+
+                let frame = self.pilot.latest_frame();
+                let semantic = semantic_hash(&frame, &settlement.viewport.id);
+                let geometry = geometry_hash(&frame, &settlement.viewport.id);
+                if settlement.last_semantic_hash.as_ref() == Some(&semantic)
+                    && settlement.last_geometry_hash.as_ref() == Some(&geometry)
+                {
+                    settlement.stable_frames = settlement.stable_frames.saturating_add(1);
+                } else {
+                    settlement.last_semantic_hash = Some(semantic);
+                    settlement.last_geometry_hash = Some(geometry);
+                    settlement.stable_frames = 1;
+                }
+                settlement.last_viewport_revision = viewport_revision;
+
+                if settlement.stable_frames < 2 {
+                    self.pilot
+                        .request_parent_wake_after_next_pass(settlement.egui_viewport);
+                    self.request_viewport_repaint(settlement.egui_viewport, &settlement.viewport);
+                    self.action = Some(action);
+                    return;
+                }
+            }
         }
         let outcome = StepOutcome {
             id: action.step_id,
@@ -1161,6 +1356,8 @@ impl RuntimeGuard {
         descriptor: &ViewportDescriptor,
     ) {
         self.ctx.request_repaint_of(egui_viewport);
+        self.ctx
+            .request_repaint_after_for(Duration::from_millis(1), egui_viewport);
         if descriptor.class != protocol::ViewportClass::Root {
             let parent = descriptor
                 .parent
@@ -1168,6 +1365,8 @@ impl RuntimeGuard {
                 .and_then(|parent| self.pilot.egui_viewport(parent))
                 .unwrap_or(egui::ViewportId::ROOT);
             self.ctx.request_repaint_of(parent);
+            self.ctx
+                .request_repaint_after_for(Duration::from_millis(1), parent);
         }
     }
 
@@ -1412,7 +1611,7 @@ fn process_identity() -> u32 {
     0
 }
 
-impl Drop for RuntimeGuard {
+impl<T: Transport> Drop for RuntimeGuard<T> {
     fn drop(&mut self) {
         let _ = self.transport.close();
     }
@@ -2137,6 +2336,19 @@ fn pixel_hash(image: &egui::ColorImage) -> String {
     protocol::stable_hash(&rgba)
 }
 
+fn viewport_focus_transferred(initial: &ViewportDescriptor, frame: &SemanticFrame) -> bool {
+    initial.focused
+        && (frame
+            .viewports
+            .iter()
+            .find(|viewport| viewport.id == initial.id)
+            .is_some_and(|viewport| !viewport.focused)
+            || frame
+                .viewports
+                .iter()
+                .any(|viewport| viewport.id != initial.id && viewport.focused))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2335,7 +2547,7 @@ mod tests {
     ) -> (
         egui::Context,
         egui_pilot_ai_transport::InMemoryClient,
-        RuntimeGuard,
+        RuntimeGuard<egui_pilot_ai_transport::InMemoryTransport>,
     ) {
         let ctx = egui::Context::default();
         let (client, transport) = in_memory_pair(capacity);
@@ -2351,7 +2563,10 @@ mod tests {
         (ctx, client, runtime)
     }
 
-    fn authenticate(client: &egui_pilot_ai_transport::InMemoryClient, runtime: &mut RuntimeGuard) {
+    fn authenticate(
+        client: &egui_pilot_ai_transport::InMemoryClient,
+        runtime: &mut RuntimeGuard<egui_pilot_ai_transport::InMemoryTransport>,
+    ) {
         client
             .try_send(CommandEnvelope {
                 request_id: RequestId::new("handshake"),
@@ -2699,6 +2914,56 @@ mod tests {
             .expect("deferred child capture must fail explicitly");
         assert_eq!(error.code, "viewport-capture-unsupported");
         assert!(error.message.contains("queued screenshot requests"));
+    }
+
+    #[test]
+    fn committed_action_can_settle_after_native_focus_transfers() {
+        let initial = ViewportDescriptor {
+            id: ViewportId::new("chat.primary#1"),
+            key: protocol::PilotViewportKey::new("chat.primary"),
+            parent: Some(ViewportId::new("root")),
+            class: protocol::ViewportClass::Deferred,
+            title: "DevPULSE Chat".into(),
+            lifecycle: protocol::ViewportLifecycle::Open,
+            lifecycle_revision: 1,
+            close_requested: false,
+            visible: true,
+            focused: true,
+            minimized: false,
+            maximized: false,
+            occluded: false,
+            inner_rect: None,
+            outer_rect: None,
+            native_pixels_per_point: None,
+        };
+        let mut transferred = initial.clone();
+        transferred.focused = false;
+        let mut root = initial.clone();
+        root.id = ViewportId::new("root");
+        root.key = protocol::PilotViewportKey::new("root");
+        let frame = SemanticFrame {
+            revision: 2,
+            timestamp_seconds: 0.0,
+            nodes: Vec::new(),
+            viewports: vec![transferred],
+            diagnostics: Default::default(),
+        };
+
+        assert!(viewport_focus_transferred(&initial, &frame));
+        assert!(!viewport_focus_transferred(
+            &initial,
+            &SemanticFrame {
+                viewports: vec![initial.clone()],
+                ..frame.clone()
+            }
+        ));
+        assert!(viewport_focus_transferred(
+            &initial,
+            &SemanticFrame {
+                viewports: vec![initial.clone(), root],
+                ..frame
+            }
+        ));
     }
 
     #[test]

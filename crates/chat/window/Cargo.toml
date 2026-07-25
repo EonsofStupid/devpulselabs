@@ -8,7 +8,9 @@ publish.workspace = true
 egui.workspace = true
 dpl-chat-context.workspace = true
 dpl-chat-core.workspace = true
+dpl-chat-interactions.workspace = true
 dpl-chat-runtime.workspace = true
+dpl-chat-social.workspace = true
 dpl-chat-store.workspace = true
 dpl-coldlight.workspace = true
 dpl-fabric.workspace = true
@@ -17,6 +19,7 @@ egui-pilot-ai.workspace = true
 
 [dev-dependencies]
 egui_kittest.workspace = true
+dpl-chat-testkit.workspace = true
 
 [lints]
 workspace = true

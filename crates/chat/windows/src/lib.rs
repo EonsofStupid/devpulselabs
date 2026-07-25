@@ -4,6 +4,7 @@
 //! crate defines ownership and transitions without depending on egui.
 
 use dpl_chat_core::{ChatSessionId, ProviderId, TurnId};
+use dpl_chat_interactions::InteractionId;
 use dpl_hub::Route;
 use std::fmt;
 
@@ -32,21 +33,29 @@ pub struct WindowGeometry {
 
 impl WindowGeometry {
     pub const DEFAULT: Self = Self {
-        outer_position: None,
-        // Fits completely on a 1536×864 desktop at 125% scaling, including
-        // ordinary Windows decorations. Larger work-stage layouts remain a
-        // user resize away instead of opening partly off-screen.
-        inner_size: [1120, 640],
+        outer_position: Some([32, 32]),
+        inner_size: [1040, 640],
     };
-    pub const MINIMUM: [u32; 2] = [520, 560];
+    pub const UTILITY_DEFAULT: Self = Self {
+        outer_position: None,
+        inner_size: [360, 600],
+    };
+    pub const MINIMUM: [u32; 2] = [720, 560];
+    pub const UTILITY_MINIMUM: [u32; 2] = [320, 360];
 
-    pub fn validated(outer_position: Option<[i32; 2]>, inner_size: [u32; 2]) -> Option<Self> {
+    pub fn validated_for(
+        primary: bool,
+        outer_position: Option<[i32; 2]>,
+        inner_size: [u32; 2],
+    ) -> Option<Self> {
+        let minimum = if primary {
+            Self::MINIMUM
+        } else {
+            Self::UTILITY_MINIMUM
+        };
         (inner_size[0] > 0 && inner_size[1] > 0).then_some(Self {
             outer_position,
-            inner_size: [
-                inner_size[0].max(Self::MINIMUM[0]),
-                inner_size[1].max(Self::MINIMUM[1]),
-            ],
+            inner_size: [inner_size[0].max(minimum[0]), inner_size[1].max(minimum[1])],
         })
     }
 }
@@ -68,12 +77,29 @@ pub enum WindowKind {
     Council,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SnapEdge {
+    Left,
+    Right,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowAttachment {
+    Snapped {
+        parent: ChatWindowId,
+        edge: SnapEdge,
+        offset: [i32; 2],
+    },
+    Detached,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct WindowBinding {
     pub provider_id: Option<ProviderId>,
     pub session_id: Option<ChatSessionId>,
     pub turn_id: Option<TurnId>,
     pub route: Option<Route>,
+    pub interaction_id: Option<InteractionId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -157,6 +183,8 @@ pub struct ChatWindowRecord {
     pub binding: WindowBinding,
     pub lifecycle: WindowLifecycle,
     pub geometry: WindowGeometry,
+    pub attachment: Option<WindowAttachment>,
+    pub pinned: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -167,6 +195,7 @@ pub enum WindowError {
         from: WindowLifecycle,
         to: &'static str,
     },
+    PrimaryAttachment,
 }
 
 impl fmt::Display for WindowError {
@@ -176,6 +205,7 @@ impl fmt::Display for WindowError {
             Self::InvalidTransition { id, from, to } => {
                 write!(f, "{id} cannot transition from {from:?} to {to}")
             }
+            Self::PrimaryAttachment => f.write_str("the primary Chat peer cannot be attached"),
         }
     }
 }
@@ -202,11 +232,23 @@ impl ChatWindowRegistry {
             binding,
             lifecycle: WindowLifecycle::Requested,
             geometry: WindowGeometry::default(),
+            attachment: None,
+            pinned: false,
         });
         ChatWindowId::PRIMARY
     }
 
     pub fn request(&mut self, kind: WindowKind, binding: WindowBinding) -> ChatWindowId {
+        self.request_attached(kind, binding, WindowAttachment::Detached)
+            .expect("utility requests always use a valid non-primary attachment")
+    }
+
+    pub fn request_attached(
+        &mut self,
+        kind: WindowKind,
+        binding: WindowBinding,
+        attachment: WindowAttachment,
+    ) -> Result<ChatWindowId, WindowError> {
         self.next_id = self.next_id.saturating_add(1);
         let id = ChatWindowId(self.next_id);
         self.windows.push(ChatWindowRecord {
@@ -215,9 +257,11 @@ impl ChatWindowRegistry {
             kind,
             binding,
             lifecycle: WindowLifecycle::Requested,
-            geometry: WindowGeometry::default(),
+            geometry: WindowGeometry::UTILITY_DEFAULT,
+            attachment: Some(attachment),
+            pinned: false,
         });
-        id
+        Ok(id)
     }
 
     pub fn mark_opening(&mut self, id: ChatWindowId) -> Result<(), WindowError> {
@@ -298,12 +342,43 @@ impl ChatWindowRegistry {
         inner_size: [u32; 2],
     ) -> Result<bool, WindowError> {
         let window = self.window_mut(id)?;
-        let Some(geometry) = WindowGeometry::validated(outer_position, inner_size) else {
+        let Some(geometry) = WindowGeometry::validated_for(
+            window.id == ChatWindowId::PRIMARY,
+            outer_position,
+            inner_size,
+        ) else {
             return Ok(false);
         };
         let changed = window.geometry != geometry;
         window.geometry = geometry;
         Ok(changed)
+    }
+
+    pub fn set_attachment(
+        &mut self,
+        id: ChatWindowId,
+        attachment: WindowAttachment,
+    ) -> Result<bool, WindowError> {
+        let window = self.window_mut(id)?;
+        if window.id == ChatWindowId::PRIMARY {
+            return Err(WindowError::PrimaryAttachment);
+        }
+        let changed = window.attachment != Some(attachment);
+        if changed {
+            window.attachment = Some(attachment);
+            window.generation = ViewportGeneration(window.generation.0.saturating_add(1));
+            window.lifecycle = WindowLifecycle::Requested;
+        }
+        Ok(changed)
+    }
+
+    pub fn toggle_pinned(&mut self, id: ChatWindowId) -> Result<bool, WindowError> {
+        let window = self.window_mut(id)?;
+        if window.id == ChatWindowId::PRIMARY {
+            return Err(WindowError::PrimaryAttachment);
+        }
+        window.pinned = !window.pinned;
+        Ok(window.pinned)
     }
 
     pub fn is_live(&self, id: ChatWindowId) -> bool {
@@ -454,6 +529,72 @@ mod tests {
         assert_eq!(
             windows.record(id).expect("primary").geometry,
             WindowGeometry::DEFAULT
+        );
+    }
+
+    #[test]
+    fn utility_snap_detach_and_redock_preserve_binding_and_identity() {
+        let mut windows = ChatWindowRegistry::default();
+        let session_id = ChatSessionId(9);
+        let snapped = WindowAttachment::Snapped {
+            parent: ChatWindowId::PRIMARY,
+            edge: SnapEdge::Right,
+            offset: [12, 0],
+        };
+        let id = windows
+            .request_attached(
+                WindowKind::Artifact,
+                WindowBinding {
+                    provider_id: Some(ProviderId("codex")),
+                    session_id: Some(session_id),
+                    ..WindowBinding::default()
+                },
+                snapped,
+            )
+            .expect("snapped utility");
+        assert_eq!(
+            windows.record(id).expect("utility").attachment,
+            Some(snapped)
+        );
+
+        assert!(windows
+            .set_attachment(id, WindowAttachment::Detached)
+            .expect("detach"));
+        let detached_generation = windows.record(id).expect("detached").generation;
+        assert_eq!(detached_generation, ViewportGeneration(2));
+        assert_eq!(
+            windows.record(id).expect("detached").binding.session_id,
+            Some(session_id)
+        );
+
+        assert!(windows.set_attachment(id, snapped).expect("redock"));
+        let redocked = windows.record(id).expect("redocked");
+        assert_eq!(redocked.id, id);
+        assert_eq!(redocked.generation, ViewportGeneration(3));
+        assert_eq!(redocked.attachment, Some(snapped));
+        assert_eq!(redocked.binding.session_id, Some(session_id));
+    }
+
+    #[test]
+    fn utility_geometry_uses_its_own_compact_minimum() {
+        let mut windows = ChatWindowRegistry::default();
+        let id = windows.request(WindowKind::Artifact, WindowBinding::default());
+        assert!(windows
+            .update_geometry(id, Some([1048, 24]), [120, 140])
+            .expect("utility"));
+        assert_eq!(
+            windows.record(id).expect("utility").geometry.inner_size,
+            WindowGeometry::UTILITY_MINIMUM
+        );
+    }
+
+    #[test]
+    fn primary_window_cannot_be_attached() {
+        let mut windows = ChatWindowRegistry::default();
+        let id = windows.request_primary(WindowBinding::default());
+        assert_eq!(
+            windows.set_attachment(id, WindowAttachment::Detached),
+            Err(WindowError::PrimaryAttachment)
         );
     }
 

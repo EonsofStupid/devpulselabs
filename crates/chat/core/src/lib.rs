@@ -7,6 +7,24 @@ use std::fmt;
 
 pub const MAX_NATIVE_PAYLOAD_BYTES: usize = 8 * 1024;
 
+/// Stable top-level Chat modes. Each domain owns independent selection,
+/// draft, scroll, unread, and overlay state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+pub enum ChatDomain {
+    #[default]
+    Ai,
+    Social,
+}
+
+impl ChatDomain {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Ai => "AI",
+            Self::Social => "Social",
+        }
+    }
+}
+
 macro_rules! static_id {
     ($name:ident) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -187,7 +205,7 @@ impl ActivationState {
         }
     }
 
-    pub const fn can_send(&self) -> bool {
+    pub const fn is_activated(&self) -> bool {
         matches!(self, Self::Ready | Self::Experimental { .. })
     }
 
@@ -391,8 +409,14 @@ mod tests {
     }
 
     #[test]
-    fn only_ready_and_explicit_experimental_states_can_send() {
-        assert!(ActivationState::Ready.can_send());
+    fn ai_is_the_default_chat_domain() {
+        assert_eq!(ChatDomain::default(), ChatDomain::Ai);
+        assert_eq!(ChatDomain::Social.label(), "Social");
+    }
+
+    #[test]
+    fn only_ready_and_explicit_experimental_states_are_activated() {
+        assert!(ActivationState::Ready.is_activated());
         assert!(ActivationState::Experimental {
             reason: "fixture".into(),
             recovery: vec![RecoveryAction::new(
@@ -400,7 +424,7 @@ mod tests {
                 "Inspect",
             )],
         }
-        .can_send());
+        .is_activated());
         assert!(!ActivationState::Blocked {
             reason: "not qualified".into(),
             recovery: vec![RecoveryAction::new(
@@ -408,7 +432,7 @@ mod tests {
                 "Read the plan",
             )],
         }
-        .can_send());
+        .is_activated());
     }
 
     #[test]

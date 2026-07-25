@@ -7,7 +7,7 @@ use dpl_chat_core::{
     AccountSummary, ActivationState, Capability, ChatEvent, ChatSessionId, ProviderId,
     ProviderManifest, RecoveryAction, RecoveryActionKind, SessionSummary,
 };
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt;
 
 #[derive(Debug, Clone)]
@@ -47,13 +47,20 @@ impl ProviderRegistration {
     pub fn has_capability(&self, capability: Capability) -> bool {
         self.qualified_capabilities.contains(&capability)
     }
+
+    pub fn can_send(&self) -> bool {
+        self.activation.is_activated()
+            && self.has_capability(Capability::StreamTurns)
+            && (self.has_capability(Capability::StartSession)
+                || self.has_capability(Capability::ResumeSession))
+    }
 }
 
 #[derive(Debug, Clone)]
 struct ProviderEntry {
     registration: ProviderRegistration,
     active_session: Option<ChatSessionId>,
-    draft: String,
+    drafts: BTreeMap<Option<ChatSessionId>, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -117,7 +124,7 @@ impl ChatRuntime {
             providers.push(ProviderEntry {
                 registration,
                 active_session,
-                draft: String::new(),
+                drafts: BTreeMap::new(),
             });
         }
 
@@ -136,7 +143,11 @@ impl ChatRuntime {
             .map(|entry| ProviderView {
                 registration: entry.registration.clone(),
                 active_session: entry.active_session,
-                draft: entry.draft.clone(),
+                draft: entry
+                    .drafts
+                    .get(&entry.active_session)
+                    .cloned()
+                    .unwrap_or_default(),
             })
             .collect()
     }
@@ -153,7 +164,11 @@ impl ChatRuntime {
             .map(|entry| ProviderView {
                 registration: entry.registration.clone(),
                 active_session: entry.active_session,
-                draft: entry.draft.clone(),
+                draft: entry
+                    .drafts
+                    .get(&entry.active_session)
+                    .cloned()
+                    .unwrap_or_default(),
             })
     }
 
@@ -246,6 +261,20 @@ impl ChatRuntime {
         Ok(())
     }
 
+    pub fn set_activation(
+        &mut self,
+        provider_id: ProviderId,
+        activation: ActivationState,
+    ) -> Result<(), RegistryError> {
+        let entry = self
+            .providers
+            .iter_mut()
+            .find(|entry| entry.registration.manifest.descriptor.id == provider_id)
+            .ok_or(RegistryError::UnknownProvider(provider_id))?;
+        entry.registration.activation = activation;
+        Ok(())
+    }
+
     pub fn set_draft(
         &mut self,
         provider_id: ProviderId,
@@ -256,7 +285,7 @@ impl ChatRuntime {
             .iter_mut()
             .find(|entry| entry.registration.manifest.descriptor.id == provider_id)
             .ok_or(RegistryError::UnknownProvider(provider_id))?;
-        entry.draft = draft;
+        entry.drafts.insert(entry.active_session, draft);
         Ok(())
     }
 }
@@ -370,6 +399,25 @@ mod tests {
                 capability: Capability::StreamTurns,
             })
         );
+    }
+
+    #[test]
+    fn activation_updates_do_not_replace_provider_local_state() {
+        let mut runtime =
+            ChatRuntime::try_from_registrations([ProviderRegistration::planned(MANIFEST)])
+                .expect("valid registry");
+        runtime.set_draft(ID, "kept draft".into()).expect("draft");
+        runtime
+            .set_activation(ID, ActivationState::Ready)
+            .expect("activation");
+
+        let provider = runtime.selected_provider().expect("selected provider");
+        assert!(matches!(
+            provider.registration.activation,
+            ActivationState::Ready
+        ));
+        assert_eq!(provider.draft, "kept draft");
+        assert!(!provider.registration.can_send());
     }
 
     #[test]

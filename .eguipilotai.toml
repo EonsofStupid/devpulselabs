@@ -45,13 +45,13 @@ arguments = ["--route", "library/templates", "--mood", "0"]
 arguments = ["--route", "wiredfront/viziwiz", "--viziwiz", "--mood", "0"]
 
 [fixtures.chat]
-arguments = ["--route", "chat/sessions", "--mood", "0"]
-
-[fixtures.chat]
 arguments = ["--chat-open", "--mood", "0"]
 
 [fixtures.chat-peer]
 arguments = ["--chat-open", "--mood", "0"]
+
+[fixtures.chat-authored]
+arguments = ["--chat-open", "--chat-authored", "--mood", "0"]
 
 [[projects]]
 id = "devpulse-cloud"

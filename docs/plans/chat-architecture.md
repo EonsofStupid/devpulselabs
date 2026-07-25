@@ -9,6 +9,8 @@ launch remains fail-closed on the safety checklist in
 [`chat-provider-runtime-adr.md`](chat-provider-runtime-adr.md).
 **Provider evidence:**
 [`chat-provider-capabilities.md`](../research/chat-provider-capabilities.md)
+**Active composition slice:**
+[`chat-steam-social-foundation.md`](chat-steam-social-foundation.md)
 
 ## 1. Product intent
 
@@ -86,15 +88,22 @@ loading) were folded into the peer-window product defined in
 [`chat-window-product-vision.md`](chat-window-product-vision.md). Chat is now
 the peer window only — there is no rail hub route.
 
+The current peer-window foundation contains an independently discoverable
+primary native viewport, `ChatWindowCoordinator`, and launcher lifecycle
+evidence. Its permanent library/conversation/work-stage composition is
+rejected presentation: this slice keeps the native infrastructure and replaces
+the presentation with the compact AI/Social shell.
+
 The rewrite still does not contain:
 
-- an independently discoverable primary Chat native viewport;
-- a `ChatWindowCoordinator` with peer-window lifetime policy;
-- a launcher that opens/restores/focuses that viewport;
+- typed Social people/project/conversation models;
+- isolated AI/Social view state;
+- governed overlay coordination with focus restoration;
+- snapped/detached/re-docked utility-window attachment state;
 - bidirectional route snapshots and typed route-open outcomes;
 - the governed Interaction Library;
 - live, version-qualified provider runtimes;
-- real-executable multi-window qualification.
+- native capture proof for the new Chat and utility surfaces.
 
 The prior DevPULSE app is salvage evidence, not a base. Its useful C1
 capabilities were a read-only Claude/Codex session browser, a transcript
@@ -283,6 +292,21 @@ Bidirectional route-aware context without hidden data transfer:
 - explicit export bundles for turns and handoffs;
 - typed route-open requests, provenance, validation, and outcomes.
 
+### `dpl-chat-social`
+
+Social-domain contracts without a network implementation:
+
+- typed person, project, conversation, and message identities;
+- `SocialThreadKind::{Direct, Group, Project}`;
+- `Presence::{Online, Away, InFlow, Offline}`;
+- people, projects, conversations, messages, unread counts, selections, and
+  per-conversation drafts;
+- explicit transport availability with a required unavailable reason.
+
+Production Social begins empty and unavailable. Deterministic people,
+projects, conversations, and messages are supplied only by the named
+devtools/test fixture.
+
 ### `dpl-chat-extensions`
 
 Feature-owned extension and trigger registry:
@@ -304,7 +328,8 @@ Governed AI/operator surface vocabulary:
 - versioned `InteractionSpec` schemas;
 - stable interaction identity and provenance;
 - typed fields, actions, permissions, and outcomes;
-- inline, stage, overlay, toast, and utility-window placements;
+- `Inline`, `Overlay`, `SnappedUtility`, and `DetachedUtility` placements;
+- initial notice, approval, route result, and artifact preview content;
 - validation, bounds, expiry, dismissal, and retention;
 - host-owned native renderers and accessibility semantics;
 - fixture serialization and deterministic replay.
@@ -319,6 +344,7 @@ Primary and utility-window state:
 
 - stable window identity;
 - window kind and binding;
+- snapped/detached attachment, anchor edge, parent, and persisted offset;
 - viewport generation/lifecycle;
 - focus/close/restore policy;
 - layout persistence;
@@ -478,6 +504,12 @@ Rules:
 - the UI does not ask users to paste subscription tokens;
 - API-key profiles, if ever supported, are a separate explicit product policy.
 
+The first activation-only slices are independently governed by
+[`chat-codex-activation.md`](chat-codex-activation.md) and
+[`chat-grok-activation.md`](chat-grok-activation.md). They qualify
+provider-owned browser login only. `Ready` authentication does not qualify
+conversation Send, sessions, tools, or Council.
+
 ## 7. Session model
 
 `ChatSessionId` is the app identity. A `SessionBinding` records:
@@ -622,24 +654,27 @@ It may not:
 
 The canonical visual, responsive, and interaction specification is
 [`chat-window-product-vision.md`](chat-window-product-vision.md). Architecture
-protects its stable zones:
+protects these responsibilities:
 
-1. command header — workspace, observed route, search, health, account, and
-   window actions;
-2. agent library — provider tabs, projects, sessions, filters, and activity
-   state;
-3. conversation workspace — virtualized normalized events and inline
+1. mode strip — DevPULSE Chat identity, `AI`/`Social`, search, notifications,
+   account/presence, and window actions;
+2. presence/session sidebar — AI providers and sessions or Social people,
+   DMs, groups, and projects;
+3. conversation — virtualized normalized events and compact inline
    interactions;
-4. context work stage — route previews, artifacts, plans, diffs, tools,
-   inspectors, and generated surfaces;
-5. composer deck — explicit context, attachments, model/mode/permission, and
-   send/stop/steer;
-6. activity shelf — running, waiting, approval, blocked, and completed work.
+4. composer — explicit route context, attachments, component library,
+   model/capability, send, stop, and steer;
+5. overlay host — hover cards, pickers, menus, approvals, notifications, and
+   context peeks;
+6. optional utility viewports — sustained artifact, route, diff, plan, and
+   tool surfaces.
 
-The work stage is conditional and detachable. The activity shelf is
-collapsible. Responsive compositions retain provider identity, conversation,
-composer, route context, and running state. Primary zones never overlap or
-create uncontrolled nested scrolling.
+The primary viewport always has two persistent content columns: sidebar and
+conversation. No composition may reserve a permanent work stage, inspector,
+or activity column. At widths below 840 points, the 252-point sidebar
+collapses to a 76-point presence rail and selection opens through the overlay
+host. Responsive compositions retain active identity, conversation, composer,
+route context, and running state without uncontrolled nested scrolling.
 
 Approvals, sign-in progress, recovery, command palette, and passive context
 peeks use the overlay layer. The main-shell launcher is not part of this
@@ -665,9 +700,7 @@ Initial placements:
 - `SessionRailSection`
 - `ConversationRenderer`
 - `ComposerAction`
-- `ContextInspectorSection`
 - `Overlay`
-- `StatusDock`
 - `UtilityWindow`
 
 Extensions produce declarative view models and typed intents. They do not
@@ -726,6 +759,8 @@ Every Chat window has:
 - `WindowKind`;
 - optional provider/session/turn binding;
 - optional route/context binding;
+- `WindowAttachment::{Snapped, Detached}` for utilities;
+- anchor edge, parent window, and persisted offset for snapped utilities;
 - stable egui viewport key;
 - generation and lifecycle state;
 - focus, close, reopen, and restore policy;
@@ -747,6 +782,10 @@ Rules:
 - application exit occurs on last-peer close or explicit Quit;
 - provider adapters request typed intents and never create viewports;
 - closing a window never closes its session unless explicitly chosen;
+- snapped utilities open adjacent to Chat without a taskbar entry;
+- detaching recreates a utility as decorated while retaining its binding and
+  generation lineage;
+- re-docking restores the recorded anchor edge and offset;
 - closing a session gives bound windows a deterministic close/detach choice;
 - context triggers offer windows without focus theft;
 - layout restoration validates monitor bounds and minimum sizes;
@@ -903,19 +942,32 @@ attachment.
 - main-shell launcher/status accessory;
 - independent minimize, focus, close, reopen, geometry restore, explicit Quit,
   and last-window exit;
-- ColdLight Ember empty/new-session shell in wide, standard, and companion
-  compositions;
+- frozen native peer-window and launcher evidence;
 - stable EguiPilotAI viewport-scoped identity.
 
 Exit: Chat remains interactive while Main is minimized in the real native
 executable.
 
+### CHAT-1A — Steam-Chat AI/Social foundation
+
+- compact `AI`/`Social` mode strip and isolated domain state;
+- Steam Friends & Chat-style presence/session sidebar;
+- dominant conversation and per-domain/per-conversation composer;
+- typed Social people, projects, conversations, presence, messages, and
+  unavailable transport;
+- governed overlay coordinator and initial interaction vocabulary;
+- snapped, detached, and re-docked utility-window lifecycle;
+- devtools-only authored fixture and native Chat/utility capture proof.
+
+Exit: the accepted compact AI, Social, hover, approval, compact, and snapped
+preview states are proven without placeholder transport success.
+
 ### CHAT-2 — read-only sessions in the peer window
 
 - bind the existing provider registry, bounded readers, paging, normalization,
   and renderer contracts into `dpl-chat-window`;
-- remove the embedded three-panel page as product authority;
-- add the agent library, conversation workspace, and activity state;
+- bind into the compact AI sidebar and conversation without structural layout
+  branches;
 - prove provider view-state isolation and large-history virtualization.
 
 Exit: fixture and real local histories browse read-only in the peer window
@@ -935,9 +987,8 @@ Chat can explicitly open a valid route in Main.
 ### CHAT-4 — Interaction Library
 
 - `dpl-chat-interactions` schema, validation, registry, and native renderers;
-- initial notice, choice, form, progress, approval, route card, artifact,
-  diff, and window request;
-- inline, stage, overlay, toast, and utility-window placement;
+- initial notice, approval, route result, and artifact preview;
+- inline, overlay, snapped-utility, and detached-utility placement;
 - deterministic fixtures, accessibility, and privileged-action gates.
 
 Exit: AI can propose useful native surfaces without arbitrary UI or shell
