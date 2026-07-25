@@ -1,0 +1,13 @@
+[package]
+name = "dpl-guide"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+dpl-engine-media.workspace = true

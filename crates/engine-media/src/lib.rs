@@ -364,6 +364,194 @@ pub fn render_stitch(
     run_ffmpeg(stitch_args(clips, w, h, fps, out))
 }
 
+// ── the GUIDE renders (W5) — the light replay + the standalone video ─────
+
+/// The "incredibly light" session-replay re-encode: screen capture
+/// compresses extremely well, so the bundled copy drops to ≤720p / 15fps /
+/// crf 30 — phone-friendly, embeddable, never the original file.
+pub const REPLAY_MAX_HEIGHT: u32 = 720;
+pub const REPLAY_FPS: u32 = 15;
+pub const REPLAY_CRF: u32 = 30;
+
+pub fn replay_args(src: &Path, out: &Path) -> Vec<String> {
+    vec![
+        "-y".into(),
+        "-v".into(),
+        "error".into(),
+        "-i".into(),
+        src.to_string_lossy().into_owned(),
+        "-vf".into(),
+        format!("scale=-2:'min({REPLAY_MAX_HEIGHT},ih)',fps={REPLAY_FPS}"),
+        "-c:v".into(),
+        "libx264".into(),
+        "-preset".into(),
+        "veryfast".into(),
+        "-crf".into(),
+        REPLAY_CRF.to_string(),
+        "-movflags".into(),
+        "+faststart".into(),
+        "-an".into(),
+        out.to_string_lossy().into_owned(),
+    ]
+}
+
+/// Re-encode a session recording into its light bundle copy (NEW file,
+/// source untouched). Blocks — callers run it off the UI thread.
+pub fn render_replay(src: &Path, out: &Path) -> Result<(), String> {
+    if !src.is_file() {
+        return Err(format!("no session video at {}", src.display()));
+    }
+    if let Some(dir) = out.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("replay dir: {e}"))?;
+    }
+    run_ffmpeg(replay_args(src, out))
+}
+
+/// The standalone guide VIDEO: every still held `secs_per_still`, then the
+/// replay footage, concatenated through the same scale+pad chain as the
+/// stitch (never cropped). Stills decode as RGBA — `format=yuv420p` keeps
+/// every leg encodable.
+pub fn guide_video_args(
+    stills: &[PathBuf],
+    secs_per_still: f32,
+    session: Option<&Path>,
+    w: u32,
+    h: u32,
+    fps: u32,
+    out: &Path,
+) -> Vec<String> {
+    let mut args: Vec<String> = vec!["-y".into(), "-v".into(), "error".into()];
+    for s in stills {
+        args.extend([
+            "-loop".into(),
+            "1".into(),
+            "-t".into(),
+            format!("{secs_per_still:.3}"),
+            "-i".into(),
+            s.to_string_lossy().into_owned(),
+        ]);
+    }
+    if let Some(v) = session {
+        args.push("-i".into());
+        args.push(v.to_string_lossy().into_owned());
+    }
+    let n = stills.len() + usize::from(session.is_some());
+    let mut graph = String::new();
+    for i in 0..n {
+        graph.push_str(&format!(
+            "[{i}:v]fps={fps},scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[v{i}];"
+        ));
+    }
+    for i in 0..n {
+        graph.push_str(&format!("[v{i}]"));
+    }
+    graph.push_str(&format!("concat=n={n}:v=1:a=0[out]"));
+    args.extend([
+        "-filter_complex".into(),
+        graph,
+        "-map".into(),
+        "[out]".into(),
+        "-c:v".into(),
+        "libx264".into(),
+        "-preset".into(),
+        "slow".into(),
+        "-crf".into(),
+        VIDEO_CRF.to_string(),
+        "-movflags".into(),
+        "+faststart".into(),
+        "-an".into(),
+        out.to_string_lossy().into_owned(),
+    ]);
+    args
+}
+
+/// Render the standalone guide video. Honest errors: no stills, or ffmpeg
+/// failure. Blocks — callers run it off the UI thread.
+pub fn render_guide_video(
+    stills: &[PathBuf],
+    secs_per_still: f32,
+    session: Option<&Path>,
+    w: u32,
+    h: u32,
+    fps: u32,
+    out: &Path,
+) -> Result<(), String> {
+    if stills.is_empty() {
+        return Err("nothing to render — the guide has no stills".into());
+    }
+    if let Some(dir) = out.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("render dir: {e}"))?;
+    }
+    run_ffmpeg(guide_video_args(
+        stills,
+        secs_per_still,
+        session,
+        w,
+        h,
+        fps,
+        out,
+    ))
+}
+
+#[cfg(test)]
+mod guide_render_tests {
+    use super::*;
+
+    #[test]
+    fn replay_args_are_light_and_faststarted() {
+        let a = replay_args(Path::new("session.mp4"), Path::new("out.mp4")).join(" ");
+        assert!(a.contains("scale=-2:'min(720,ih)',fps=15"), "{a}");
+        assert!(a.contains("-c:v libx264 -preset veryfast -crf 30"), "{a}");
+        assert!(a.contains("-movflags +faststart -an out.mp4"), "{a}");
+    }
+
+    #[test]
+    fn guide_video_args_hold_stills_then_append_the_replay() {
+        let stills = vec![
+            PathBuf::from("step-001.webp"),
+            PathBuf::from("step-002.webp"),
+        ];
+        let a = guide_video_args(
+            &stills,
+            3.0,
+            Some(Path::new("session.mp4")),
+            1280,
+            720,
+            30,
+            Path::new("guide-video.mp4"),
+        )
+        .join(" ");
+        assert!(a.contains("-loop 1 -t 3.000 -i step-001.webp"), "{a}");
+        assert!(a.contains("-loop 1 -t 3.000 -i step-002.webp"), "{a}");
+        assert!(a.contains("-i session.mp4"), "{a}");
+        assert!(a.contains("concat=n=3:v=1:a=0[out]"), "{a}");
+        assert!(a.contains("format=yuv420p[v0]"), "{a}");
+        assert!(
+            a.contains("scale=1280:720:force_original_aspect_ratio=decrease"),
+            "{a}"
+        );
+        assert!(
+            a.contains("-map [out] -c:v libx264 -preset slow -crf 21"),
+            "{a}"
+        );
+    }
+
+    #[test]
+    fn guide_video_without_a_session_still_concats() {
+        let stills = vec![PathBuf::from("s1.webp")];
+        let a = guide_video_args(&stills, 2.5, None, 1280, 720, 30, Path::new("o.mp4")).join(" ");
+        assert!(a.contains("-t 2.500"), "{a}");
+        assert!(a.contains("concat=n=1:v=1:a=0[out]"), "{a}");
+        assert!(!a.contains("session"), "{a}");
+    }
+
+    #[test]
+    fn guide_render_refuses_no_stills_and_replay_refuses_a_missing_source() {
+        assert!(render_guide_video(&[], 3.0, None, 1280, 720, 30, Path::new("x.mp4")).is_err());
+        assert!(render_replay(Path::new("definitely-missing.mp4"), Path::new("o.mp4")).is_err());
+    }
+}
+
 #[cfg(test)]
 mod stitch_tests {
     use super::*;
