@@ -174,6 +174,14 @@ fn main() -> eframe::Result {
         .filter_map(|(i, _)| args.get(i + 1))
         .cloned()
         .collect();
+    // `--save-comp <name>` (R1z) saves the booted comp under `name`
+    // through the Save chip's exact path — paired with `--import-drill`,
+    // the reopen-last drill's first half.
+    let save_comp: Option<String> = args
+        .iter()
+        .position(|a| a == "--save-comp")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
     // `--open-rail <hub>` pins the accordion open on one house (L1a) —
     // proof shots of the unfolded rail reproduce. Unknown hub degrades to
     // a folded rail, never a panic.
@@ -318,6 +326,7 @@ fn main() -> eframe::Result {
                 open_episode,
                 import_drill,
                 pin_packs,
+                save_comp,
                 seam_port,
             });
             #[cfg(feature = "eguipilotai-devtools")]
@@ -355,6 +364,7 @@ struct Boot {
     open_episode: Option<String>,
     import_drill: Option<String>,
     pin_packs: Vec<String>,
+    save_comp: Option<String>,
     /// The agent seam's port; None = `--no-seam`.
     seam_port: Option<u16>,
 }
@@ -411,6 +421,7 @@ impl App {
             open_episode,
             import_drill,
             pin_packs,
+            save_comp,
             seam_port,
         } = boot;
         let mut workbench = dpl_hub_workbench::WorkbenchHub::default();
@@ -449,6 +460,11 @@ impl App {
         // The pack shelf's harness seam (W3): pin sources at boot.
         for dir in &pin_packs {
             wiredfront.pin_pack(std::path::Path::new(dir));
+        }
+        // R1z's harness seam: persist the drilled comp (and the
+        // last-comp state) through the Save chip's exact path.
+        if let Some(name) = &save_comp {
+            wiredfront.save_comp(name);
         }
         // The NAVIGATE seam: hubs that render tappable subroute cards
         // publish their asks through the one fabric.

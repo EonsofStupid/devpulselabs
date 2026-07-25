@@ -827,6 +827,12 @@ impl WiredfrontHub {
         self.composer.pin_pack(dir);
     }
 
+    /// The `--save-comp <name>` harness seam (R1z): save the booted comp
+    /// through the Save chip's exact path — the reopen-last drill.
+    pub fn save_comp(&mut self, name: &str) {
+        self.composer.save_comp(name);
+    }
+
     /// Open one session IN PLACE on the Gallery (doctrine §1.2) — the
     /// same path a session thumb tap takes (also `--open-replay`).
     pub fn open_replay(&mut self, rel: &str) {
