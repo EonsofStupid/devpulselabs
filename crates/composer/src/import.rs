@@ -11,13 +11,17 @@
 use dpl_index::Record;
 use std::path::{Path, PathBuf};
 
-/// "video" / "image" / "element" by extension; None = not media we import.
+/// "video" / "image" / "audio" / "element" by extension; None = not
+/// media we import. The element tier carries the operator's real pack
+/// formats (2026-07-24 census): AE projects, Lottie, Motion Graphics
+/// Templates, LUTs, AE/Premiere presets.
 pub fn media_kind(path: &Path) -> Option<&'static str> {
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
     match ext.as_str() {
         "mp4" | "mov" | "mkv" | "webm" | "avi" | "m4v" => Some("video"),
         "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" => Some("image"),
-        "aep" | "lottie" => Some("element"),
+        "wav" | "mp3" | "ogg" | "flac" | "m4a" | "aac" => Some("audio"),
+        "aep" | "lottie" | "mogrt" | "cube" | "ffx" | "prfpset" => Some("element"),
         _ => None,
     }
 }
@@ -103,9 +107,16 @@ mod tests {
         assert_eq!(media_kind(Path::new("a.MOV")), Some("video"));
         assert_eq!(media_kind(Path::new("b.JPG")), Some("image"));
         assert_eq!(media_kind(Path::new("b.webp")), Some("image"));
+        assert_eq!(media_kind(Path::new("song.WAV")), Some("audio"));
+        assert_eq!(media_kind(Path::new("song.mp3")), Some("audio"));
         assert_eq!(media_kind(Path::new("gig.aep")), Some("element"));
         assert_eq!(media_kind(Path::new("gig.lottie")), Some("element"));
+        assert_eq!(media_kind(Path::new("title.MOGRT")), Some("element"));
+        assert_eq!(media_kind(Path::new("grade.cube")), Some("element"));
+        assert_eq!(media_kind(Path::new("preset.ffx")), Some("element"));
+        assert_eq!(media_kind(Path::new("preset.prfpset")), Some("element"));
         assert_eq!(media_kind(Path::new("c.txt")), None);
+        assert_eq!(media_kind(Path::new("pack.zip")), None);
         assert_eq!(media_kind(Path::new("noext")), None);
     }
 

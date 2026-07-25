@@ -17,6 +17,7 @@
 
 mod browse;
 pub mod import;
+mod packs;
 
 use dpl_coldlight::{self as cl, Tone};
 use dpl_comp::{Composition, Layer, Source};
@@ -61,6 +62,8 @@ pub struct Composer {
     renders: Option<Vec<(String, String)>>,
     /// ELEMENTS — the census count under `content/elements/`.
     elements: Option<usize>,
+    /// The PACK SHELF — pinned sources' packs, listed live (in place).
+    packs: Option<Vec<packs::Pack>>,
     /// The footage row highlighted in the project preview well.
     proj_sel: Option<usize>,
     /// The off-thread stitch render's shared state.
@@ -120,6 +123,7 @@ impl Default for Composer {
             comps: None,
             renders: None,
             elements: None,
+            packs: None,
             proj_sel: None,
             render: Arc::new(Mutex::new(RenderState::Idle)),
             tab: initial_tab(),
@@ -168,6 +172,8 @@ enum Act {
     Zoom(f32),
     /// Open a new Browse window (a native peer viewport onto a folder).
     Browse,
+    /// Open a Browse window rooted at a specific folder (a shelf pack).
+    BrowseAt(PathBuf),
     /// File the finished render into (show, episode) — the tag seam.
     Keep(String, String),
 }
@@ -623,6 +629,29 @@ impl Composer {
                     .collect(),
             );
         }
+        if self.packs.is_none() {
+            self.packs = Some(packs::list_packs(&Self::content_root()));
+        }
+    }
+
+    /// Open a Browse peer window rooted at `start`.
+    fn open_browser(&mut self, start: PathBuf) {
+        self.browsers.push(Arc::new(Mutex::new(browse::Browser::new(
+            self.next_browser,
+            start,
+        ))));
+        self.next_browser += 1;
+    }
+
+    /// Pin one folder as a pack source — the shelf lists it in place;
+    /// nothing is copied. The Browse-window chip and the
+    /// `--pin-pack <dir>` harness seam both land here.
+    pub fn pin_pack(&mut self, dir: &Path) {
+        self.status = match packs::add_source(&Self::content_root(), dir) {
+            Ok(()) => format!("Pinned {} to your Elements shelf.", dir.display()),
+            Err(e) => format!("Pin failed: {e}"),
+        };
+        self.packs = None;
     }
 
     /// Show every open Browse window as a DEFERRED peer viewport (the
@@ -682,8 +711,14 @@ impl Composer {
     /// on the timeline. Any import refreshes the project caches.
     fn drain_media_feeds(&mut self, ctx: &egui::Context) {
         let mut incoming: Vec<PathBuf> = Vec::new();
+        let mut pins: Vec<PathBuf> = Vec::new();
         for b in &self.browsers {
-            incoming.append(&mut lock(b).picked);
+            let mut b = lock(b);
+            incoming.append(&mut b.picked);
+            pins.append(&mut b.pinned);
+        }
+        for dir in pins {
+            self.pin_pack(&dir);
         }
         incoming.extend(
             ctx.input(|i| i.raw.dropped_files.clone())
@@ -727,6 +762,12 @@ impl Composer {
             Ok(rec) if rec.kind == "element" => {
                 self.status = format!(
                     "{} filed into your elements — parsing lands with the .aep pass.",
+                    rec.name
+                );
+            }
+            Ok(rec) if rec.kind == "audio" => {
+                self.status = format!(
+                    "{} in your library — timeline audio lands with the Narrate pass.",
                     rec.name
                 );
             }
@@ -893,12 +934,9 @@ impl Composer {
                     .filter(|p| p.is_dir())
                     .or_else(|| std::env::var("USERPROFILE").ok().map(PathBuf::from))
                     .unwrap_or_else(|| PathBuf::from("C:\\"));
-                self.browsers.push(Arc::new(Mutex::new(browse::Browser::new(
-                    self.next_browser,
-                    start,
-                ))));
-                self.next_browser += 1;
+                self.open_browser(start);
             }
+            Some(Act::BrowseAt(dir)) => self.open_browser(dir),
             Some(Act::Keep(show, ep)) => self.keep_render(&show, &ep),
             None => {}
         }
@@ -1079,31 +1117,32 @@ impl Composer {
                 *act = Some(Act::Browse);
             }
         });
-        // The preview well: the highlighted footage row's thumbnail.
-        let w = ui.available_width();
-        let (well, _) = ui.allocate_exact_size(egui::vec2(w, w * 9.0 / 16.0), Sense::hover());
-        ui.painter()
-            .rect_filled(well, cl::RADIUS_SM, cl::surface::WELL);
+        // The preview well appears WITH a selection — an empty well is
+        // dead space the pack shelf needs more.
         let root = Self::content_root();
         let sel_rec = self
             .proj_sel
             .and_then(|i| self.palette.as_ref().and_then(|p| p.get(i)));
-        match sel_rec.and_then(|r| media_thumb_uri(r, &root)) {
-            Some(uri) => {
-                egui::Image::new(uri)
-                    .corner_radius(cl::RADIUS_SM)
-                    .paint_at(ui, well);
-            }
-            None => painter_label(ui, well, "Tap footage below to preview it"),
-        }
         if let Some(r) = sel_rec {
+            let w = ui.available_width();
+            let (well, _) = ui.allocate_exact_size(egui::vec2(w, w * 9.0 / 16.0), Sense::hover());
+            ui.painter()
+                .rect_filled(well, cl::RADIUS_SM, cl::surface::WELL);
+            match media_thumb_uri(r, &root) {
+                Some(uri) => {
+                    egui::Image::new(uri)
+                        .corner_radius(cl::RADIUS_SM)
+                        .paint_at(ui, well);
+                }
+                None => painter_label(ui, well, &r.kind),
+            }
             ui.label(
                 RichText::new(format!("{} · {} · {}", r.name, r.kind, fmt_secs(r.seconds)))
                     .small()
                     .color(cl::ink::SUBTLE),
             );
         }
-        ui.add_space(cl::space::S2);
+        ui.add_space(cl::space::S1);
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
@@ -1128,6 +1167,40 @@ impl Composer {
                     if resp.clicked() {
                         *act = Some(Act::OpenComp(dir.clone()));
                     }
+                }
+                section_header(ui, "ELEMENTS — your packs");
+                let shelf = self.packs.as_deref().unwrap_or(&[]);
+                if shelf.is_empty() {
+                    empty_line(
+                        ui,
+                        "none pinned — open Browse…, go to a pack folder, tap Pin pack",
+                    );
+                }
+                for p in shelf {
+                    let count = if p.files >= 1000 {
+                        "1000+".to_string()
+                    } else {
+                        format!("{}", p.files)
+                    };
+                    let resp = cl::tip(
+                        row_line(ui, "pak", &p.name, &count, ("pk", p.name.as_str())),
+                        "Open this pack in its own window — the files stay in place; \
+                         using one copies just that file",
+                    );
+                    ui.pilot_track(
+                        &resp,
+                        NodeMetadata::new(
+                            PilotId::new("composer.project.pack").child(&PilotKey::new(&p.name)),
+                            Role::Button,
+                            &p.name,
+                        ),
+                    );
+                    if resp.clicked() {
+                        *act = Some(Act::BrowseAt(p.path.clone()));
+                    }
+                }
+                if let Some(n) = self.elements.filter(|n| *n > 0) {
+                    empty_line(ui, &format!("{n} imported element file(s) in your library"));
                 }
                 section_header(ui, "FOOTAGE");
                 let footage = self.palette.as_deref().unwrap_or(&[]);
@@ -1156,14 +1229,6 @@ impl Composer {
                     if resp.clicked() {
                         *act = Some(Act::Add(i));
                     }
-                }
-                section_header(ui, "ELEMENTS");
-                match self.elements {
-                    Some(0) | None => empty_line(
-                        ui,
-                        "your AE elements appear here once the ingest pass lands",
-                    ),
-                    Some(n) => empty_line(ui, &format!("{n} element file(s) — ingest pass next")),
                 }
                 section_header(ui, "RENDERS");
                 let renders = self.renders.as_deref().unwrap_or(&[]);
@@ -2146,19 +2211,25 @@ fn row_line(
 ) -> egui::Response {
     let w = ui.available_width();
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, 22.0), Sense::click());
+    // Everything paints CLIPPED to the row — pack names run long.
+    let painter = ui.painter_at(rect);
     let hovered = resp.hovered();
     if hovered {
-        ui.painter()
-            .rect_filled(rect, cl::RADIUS_SM, cl::surface::OVERLAY);
+        painter.rect_filled(rect, cl::RADIUS_SM, cl::surface::OVERLAY);
     }
-    ui.painter().text(
+    painter.text(
         egui::pos2(rect.min.x + 4.0, rect.center().y),
         egui::Align2::LEFT_CENTER,
         glyph,
         egui::FontId::monospace(10.0),
         Tone::Cyan.color(),
     );
-    ui.painter().text(
+    let trail_w = if trail.is_empty() { 4.0 } else { 44.0 };
+    let name_clip = egui::Rect::from_min_max(
+        egui::pos2(rect.min.x + 32.0, rect.min.y),
+        egui::pos2(rect.max.x - trail_w, rect.max.y),
+    );
+    ui.painter_at(name_clip).text(
         egui::pos2(rect.min.x + 32.0, rect.center().y),
         egui::Align2::LEFT_CENTER,
         name,
@@ -2169,7 +2240,7 @@ fn row_line(
             cl::ink::BASE
         },
     );
-    ui.painter().text(
+    painter.text(
         egui::pos2(rect.max.x - 4.0, rect.center().y),
         egui::Align2::RIGHT_CENTER,
         trail,

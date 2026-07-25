@@ -17,6 +17,8 @@ pub struct Browser {
     pub entries: Option<Vec<Entry>>,
     /// Media files clicked since the composer last drained.
     pub picked: Vec<PathBuf>,
+    /// Folders "Pin pack"-ed since the composer last drained.
+    pub pinned: Vec<PathBuf>,
     pub open: bool,
 }
 
@@ -24,6 +26,7 @@ pub enum EntryKind {
     Dir,
     Image,
     Video,
+    Audio,
     Element,
 }
 
@@ -40,6 +43,7 @@ impl Browser {
             cwd,
             entries: None,
             picked: Vec::new(),
+            pinned: Vec::new(),
             open: true,
         }
     }
@@ -103,6 +107,7 @@ pub fn scan(dir: &Path) -> Vec<Entry> {
         } else if let Some(kind) = media_kind(&path) {
             let kind = match kind {
                 "video" => EntryKind::Video,
+                "audio" => EntryKind::Audio,
                 "element" => EntryKind::Element,
                 _ => EntryKind::Image,
             };
@@ -148,6 +153,22 @@ pub fn window_ui(ui: &mut egui::Ui, b: &mut Browser) {
             if resp.clicked() && !here {
                 go = Some(path);
             }
+        }
+        let pin = cl::tip(
+            bar_chip(ui, "Pin pack", ns, "pin-pack"),
+            "Add this folder to your Elements shelf — the files stay right \
+             here; using one copies just that file into your project",
+        );
+        ui.pilot_track(
+            &pin,
+            NodeMetadata::new(
+                PilotId::new("browse.pin").child(&PilotKey::new(format!("{ns}"))),
+                Role::Button,
+                "Pin this folder as a pack",
+            ),
+        );
+        if pin.clicked() {
+            b.pinned.push(b.cwd.clone());
         }
         ui.label(
             RichText::new(b.cwd.to_string_lossy())
@@ -214,6 +235,7 @@ fn card(ui: &mut egui::Ui, e: &Entry, w: f32, thumb_h: f32, ns: usize) -> bool {
             ("", Tone::Cyan)
         }
         EntryKind::Video => ("VIDEO", Tone::Cyan),
+        EntryKind::Audio => ("AUDIO", Tone::Coral),
         EntryKind::Element => ("ELEMENT", Tone::Lime),
         EntryKind::Dir => ("FOLDER", Tone::Magenta),
     };
@@ -271,8 +293,11 @@ fn card(ui: &mut egui::Ui, e: &Entry, w: f32, thumb_h: f32, ns: usize) -> bool {
             EntryKind::Dir => "Open this folder",
             EntryKind::Video => "Pull this clip into your project — it lands on the timeline",
             EntryKind::Image => "Pull this image into your library",
+            EntryKind::Audio => {
+                "Pull this track into your library (timeline audio lands with the Narrate pass)"
+            }
             EntryKind::Element => {
-                "File this AE element into your library (parsing lands with the .aep pass)"
+                "File this element into your library (parsing lands with the .aep pass)"
             }
         },
     );
