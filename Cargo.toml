@@ -77,6 +77,8 @@ egui_kittest = { version = "0.35", default-features = false }
 # The document layer (dpl-doc): slide.json is serde data, end to end.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# The mogrt reader (R2a.2, operator-ratified): .mogrt is a plain zip.
+zip = { version = "8", default-features = false, features = ["deflate"] }
 toml = "0.9"
 tokio = { version = "1", default-features = false, features = ["sync"] }
 # The agent seam (R1v): localhost HTTP over the fabric — axum is the

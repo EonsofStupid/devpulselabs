@@ -232,6 +232,9 @@ pub fn ingest_copy(
 
         let kind = media_kind(&dest).unwrap_or("element");
         let mut rec = dpl_index::record_for_capture(&dest, root, kind, "ingest");
+        if kind == "element" {
+            crate::import::enrich_element(&mut rec, &dest, root);
+        }
         if kind == "video" {
             let poster = dest.with_file_name(format!(
                 "{}-poster.jpg",

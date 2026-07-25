@@ -19,6 +19,7 @@
 
 mod browse;
 pub mod import;
+mod mogrt;
 mod packs;
 mod state;
 
@@ -1225,10 +1226,22 @@ impl Composer {
         match import::import_file(src) {
             Ok(rec) if rec.kind == "video" => self.add_clip(&rec),
             Ok(rec) if rec.kind == "element" => {
-                self.status = format!(
-                    "{} filed into your elements — parsing lands with the .aep pass.",
-                    rec.name
-                );
+                let mogrt = src
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .is_some_and(|e| e.eq_ignore_ascii_case("mogrt"));
+                self.status = if mogrt {
+                    // R2a.2: the template was actually READ, say so.
+                    format!(
+                        "{} on your elements shelf — preview and tags read from the template.",
+                        rec.name
+                    )
+                } else {
+                    format!(
+                        "{} filed into your elements — parsing lands with the .aep pass.",
+                        rec.name
+                    )
+                };
             }
             Ok(rec) if rec.kind == "audio" => {
                 self.status = format!(

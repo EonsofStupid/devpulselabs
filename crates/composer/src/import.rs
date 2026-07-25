@@ -77,6 +77,9 @@ pub fn import_file(src: &Path) -> Result<Record, String> {
     std::fs::copy(src, &dest).map_err(|e| format!("copy: {e}"))?;
 
     let mut rec = dpl_index::record_for_capture(&dest, &root, kind, "import");
+    if kind == "element" {
+        enrich_element(&mut rec, &dest, &root);
+    }
     if kind == "video" {
         let poster = dest.with_file_name(format!(
             "{}-poster.jpg",
@@ -95,6 +98,39 @@ pub fn import_file(src: &Path) -> Result<Record, String> {
     }
     dpl_index::Index::open_default()?.upsert(&rec)?;
     Ok(rec)
+}
+
+/// Enrich an element record from what the FILE ITSELF declares — today
+/// that is `.mogrt` (R2a.2): the capsule's real name, its tags, and the
+/// embedded `thumb.png` extracted beside the copy as the poster.
+/// Best-effort: any failure leaves the plain element record intact.
+pub(crate) fn enrich_element(rec: &mut Record, dest: &Path, root: &Path) {
+    let is_mogrt = dest
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("mogrt"));
+    if !is_mogrt {
+        return;
+    }
+    let Ok(m) = crate::mogrt::read(dest) else {
+        return;
+    };
+    if !m.name.trim().is_empty() {
+        rec.name = m.name;
+    }
+    rec.tags = m.tags;
+    if !m.thumb_png.is_empty() {
+        let poster = dest.with_file_name(format!(
+            "{}-poster.png",
+            dest.file_stem().and_then(|s| s.to_str()).unwrap_or("mogrt")
+        ));
+        if std::fs::write(&poster, &m.thumb_png).is_ok() {
+            rec.poster_rel_path = poster
+                .strip_prefix(root)
+                .ok()
+                .map(|p| p.to_string_lossy().replace('\\', "/"));
+        }
+    }
 }
 
 #[cfg(test)]
@@ -140,5 +176,43 @@ mod tests {
         assert_eq!(sanitize_name("  ep. one!  "), Some("ep-one".into()));
         assert_eq!(sanitize_name("---"), None);
         assert_eq!(sanitize_name(""), None);
+    }
+
+    #[test]
+    fn a_mogrt_element_record_gains_name_tags_and_poster() {
+        use std::io::Write;
+        let root = std::env::temp_dir()
+            .join("dpl-composer-tests")
+            .join(format!("enrich-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dest_dir = root.join("elements").join("imported");
+        std::fs::create_dir_all(&dest_dir).unwrap();
+        let dest = dest_dir.join("title-01.mogrt");
+        let file = std::fs::File::create(&dest).unwrap();
+        let mut z = zip::ZipWriter::new(file);
+        let opts = zip::write::SimpleFileOptions::default();
+        z.start_file("definition.json", opts).unwrap();
+        z.write_all(br#"{"capsuleName":"Neon Title","capsuleTags":["title","neon"]}"#)
+            .unwrap();
+        z.start_file("thumb.png", opts).unwrap();
+        z.write_all(b"png-bytes").unwrap();
+        z.finish().unwrap();
+
+        let mut rec = Record::default();
+        enrich_element(&mut rec, &dest, &root);
+        assert_eq!(rec.name, "Neon Title", "capsule name wins the card");
+        assert_eq!(rec.tags, vec!["title", "neon"]);
+        assert_eq!(
+            rec.poster_rel_path.as_deref(),
+            Some("elements/imported/title-01-poster.png")
+        );
+        assert!(dest_dir.join("title-01-poster.png").is_file());
+        // A cube (no zip) is untouched — best-effort, never a failure.
+        let cube = dest_dir.join("grade.cube");
+        std::fs::write(&cube, b"TITLE x").unwrap();
+        let mut plain = Record::default();
+        enrich_element(&mut plain, &cube, &root);
+        assert!(plain.name.is_empty() && plain.poster_rel_path.is_none());
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
