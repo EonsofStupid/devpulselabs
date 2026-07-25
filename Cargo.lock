@@ -1735,6 +1735,7 @@ dependencies = [
 name = "dpl-engine-browser"
 version = "0.1.0"
 dependencies = [
+ "dpl-engine-capture",
  "serde",
  "serde_json",
  "tungstenite",

@@ -13,9 +13,10 @@
 //! file opens cheaply; the old repo's exact pattern), so every public
 //! method here is plain sync.
 //!
-//! Lives at `content_root()/artifacts.db`. (The wider data-root law is
-//! Program P; this crate takes an explicit path everywhere and only
-//! `open_default` names the location.)
+//! Lives at `.userdata/index.db` (ADR-014 Ring 0); a legacy
+//! `content_root()/artifacts.db` is ADOPTED additively on first open —
+//! copy → verify → labeled rename, never deletion. This crate takes an
+//! explicit path everywhere and only `open_default` names the location.
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -100,9 +101,56 @@ impl Index {
         }
     }
 
-    /// The app's index: `content_root()/artifacts.db`.
+    /// The app's index: `.userdata/index.db` (ADR-014 Ring 0), adopting
+    /// a legacy `content/artifacts.db` if one is still in place.
     pub fn open_default() -> Result<Self, String> {
-        Self::open(&dpl_engine_capture::content_root().join("artifacts.db"))
+        let root = dpl_engine_capture::content_root();
+        Self::open_adopting(
+            &dpl_engine_capture::userdata_root().join("index.db"),
+            &root.join("artifacts.db"),
+        )
+    }
+
+    /// ADR-014 condition 6 — the ADDITIVE migration: when `path` doesn't
+    /// exist but `legacy` does, copy → verify the copy opens → retire the
+    /// legacy files under a `.migrated-to-userdata` label. Never deletion;
+    /// a failed copy or verify leaves the legacy files untouched.
+    ///
+    /// The copy carries EVERY sidecar (`-wal`, `-shm`): turso's local WAL
+    /// holds recent writes, and a main-file-only copy silently loses them
+    /// (caught live by the adoption unit test).
+    pub fn open_adopting(path: &Path, legacy: &Path) -> Result<Self, String> {
+        const SIDECARS: [&str; 3] = ["", "-wal", "-shm"];
+        if !path.exists() && legacy.is_file() {
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir).map_err(|e| format!("index dir: {e}"))?;
+            }
+            for suffix in SIDECARS {
+                let from = Self::append_suffix(legacy, suffix);
+                if from.is_file() {
+                    std::fs::copy(&from, Self::append_suffix(path, suffix))
+                        .map_err(|e| format!("index adopt copy{suffix}: {e}"))?;
+                }
+            }
+            let ix = Self::open(path)?;
+            for suffix in SIDECARS {
+                let from = Self::append_suffix(legacy, suffix);
+                if from.is_file() {
+                    let retired = Self::append_suffix(&from, ".migrated-to-userdata");
+                    let _ = std::fs::remove_file(&retired);
+                    std::fs::rename(&from, &retired)
+                        .map_err(|e| format!("index adopt retire{suffix}: {e}"))?;
+                }
+            }
+            return Ok(ix);
+        }
+        Self::open(path)
+    }
+
+    fn append_suffix(p: &Path, suffix: &str) -> PathBuf {
+        let mut os = p.as_os_str().to_os_string();
+        os.push(suffix);
+        PathBuf::from(os)
     }
 
     async fn connect(path: &Path) -> Result<turso::Connection, String> {
@@ -867,6 +915,37 @@ mod tests {
             modified_ms: Some(1_753_000_000_000),
             ..Record::default()
         }
+    }
+
+    #[test]
+    fn adoption_migrates_labels_and_never_reruns() {
+        let root = scratch("adopt");
+        let legacy = root.join("artifacts.db");
+        let new = root.join(".userdata").join("index.db");
+        {
+            let ix = Index::open(&legacy).unwrap();
+            ix.upsert(&rec("inbox/old.png", "image")).unwrap();
+        }
+        // Old-only → copied, verified, legacy retired under a label.
+        let ix = Index::open_adopting(&new, &legacy).unwrap();
+        assert_eq!(ix.recent(10, None).unwrap()[0].rel_path, "inbox/old.png");
+        assert!(new.is_file(), "new home exists");
+        assert!(!legacy.exists(), "legacy retired, not left to drift");
+        assert!(
+            root.join("artifacts.db.migrated-to-userdata").is_file(),
+            "labeled rename, never deletion"
+        );
+        // Second open: new-exists path, no legacy needed.
+        let ix = Index::open_adopting(&new, &legacy).unwrap();
+        assert_eq!(ix.recent(10, None).unwrap().len(), 1);
+        // Neither exists → a fresh index, no error.
+        let fresh_root = scratch("adopt-fresh");
+        let ix = Index::open_adopting(
+            &fresh_root.join(".userdata/index.db"),
+            &fresh_root.join("artifacts.db"),
+        )
+        .unwrap();
+        assert!(ix.recent(10, None).unwrap().is_empty());
     }
 
     #[test]

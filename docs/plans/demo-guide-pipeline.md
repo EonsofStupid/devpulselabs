@@ -125,7 +125,7 @@ The wiredfront-experience §5 pattern, applied here:
 
 | # | Scenario | Tier | Storyboard | Status |
 |---|----------|------|------------|--------|
-| 001 | Twilio keys for the admin-layer notification service | EXTERNAL (browser) | [demos/demo-001-twilio-notification-keys.md](demos/demo-001-twilio-notification-keys.md) | Storyboard authored; capture round 1 pending (needs demo Twilio account + operator's Chrome session) |
+| 001 | Twilio keys for the admin-layer notification service | EXTERNAL (browser) | [demos/demo-001-twilio-notification-keys.md](demos/demo-001-twilio-notification-keys.md) | Round 1 partial: 3 public stills auto-filed at `assets\captures\web\demo-001\round-1\` (ADR-014); console steps wait on the Clyffy sign-in ceremony (`browser_cli login clyffy`) |
 
 Note: the first example being EXTERNAL-tier is deliberate — it forces
 the redaction law (G-6) and exercises the browser lane early. Round 1

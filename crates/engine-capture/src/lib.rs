@@ -176,6 +176,93 @@ pub fn checked_roots() -> Vec<String> {
     out
 }
 
+// ── the three-ring root (ADR-014) ───────────────────────────────────────
+//
+// Ring 2 is `content_root()` above (CONFIRMED — the library universe).
+// Ring 1 `assets/` (WORKING — auto-filed captures and in-process
+// material) and Ring 0 `.userdata/` (STATE — index, cache, temp,
+// profiles) resolve as its SIBLINGS, so the portable unit is the app
+// folder: exe + content + assets + .userdata. Drill seams ASSETS_ROOT /
+// USERDATA_ROOT mirror the CONTENT_ROOT contract.
+
+/// Ring 1 — the WORKING boundary. Generation lands here automatically;
+/// promotion into `content/` is always an explicit gesture (ADR-014 §1).
+pub fn assets_root() -> PathBuf {
+    static ROOT: OnceLock<PathBuf> = OnceLock::new();
+    ROOT.get_or_init(|| resolve_ring("ASSETS_ROOT", "assets"))
+        .clone()
+}
+
+/// Ring 0 — app STATE: `index.db`, `cache/`, `temp/`, `profiles/`.
+/// `cache/` and `temp/` are 100% regenerable; the rest is precious.
+pub fn userdata_root() -> PathBuf {
+    static ROOT: OnceLock<PathBuf> = OnceLock::new();
+    ROOT.get_or_init(|| resolve_ring("USERDATA_ROOT", ".userdata"))
+        .clone()
+}
+
+fn resolve_ring(env: &str, name: &str) -> PathBuf {
+    if let Ok(explicit) = std::env::var(env) {
+        return normalize(&absolutize(Path::new(&explicit)));
+    }
+    ring_sibling(&content_root(), name)
+}
+
+/// The pure derivation: a ring is the content root's SIBLING; a rootless
+/// content root (drive root — degenerate) nests the ring inside itself.
+/// Public so root-parameterized tools (dpl-index-cli's `--root`) derive
+/// rings for ARBITRARY content roots the same way the app does.
+pub fn ring_sibling(content: &Path, name: &str) -> PathBuf {
+    content
+        .parent()
+        .map(|p| p.join(name))
+        .unwrap_or_else(|| content.join(name))
+}
+
+/// The auto-filing law: `assets/captures/<kind>/<job>/`, created.
+/// Shallow by design — context (kind/job) beats deep taxonomies.
+pub fn assets_capture_dir(kind: &str, job: &str) -> Result<PathBuf, String> {
+    let dir = assets_root().join("captures").join(kind).join(job);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("capture dir {}: {e}", dir.display()))?;
+    Ok(dir)
+}
+
+/// What `ensure_rings` established — boot logs it (the honesty law).
+#[derive(Debug)]
+pub struct Rings {
+    pub content: PathBuf,
+    pub assets: PathBuf,
+    pub userdata: PathBuf,
+}
+
+const USERDATA_README: &str = "DevPULSE Labs app state (.userdata) — ADR-014.\n\
+cache\\ and temp\\ are always safe to delete (fully regenerable).\n\
+index.db and profiles\\ are precious: deleting them loses the library\n\
+catalog and saved sign-in sessions.\n";
+
+/// Create the three rings (idempotent) and Ring 0's deletability README.
+pub fn ensure_rings() -> Result<Rings, String> {
+    let rings = Rings {
+        content: content_root(),
+        assets: assets_root(),
+        userdata: userdata_root(),
+    };
+    for dir in [
+        rings.content.clone(),
+        rings.assets.clone(),
+        rings.userdata.join("cache"),
+        rings.userdata.join("temp"),
+        rings.userdata.join("profiles"),
+    ] {
+        std::fs::create_dir_all(&dir).map_err(|e| format!("ring {}: {e}", dir.display()))?;
+    }
+    let readme = rings.userdata.join("README.txt");
+    if !readme.exists() {
+        std::fs::write(&readme, USERDATA_README).map_err(|e| format!("ring readme: {e}"))?;
+    }
+    Ok(rings)
+}
+
 fn absolutize(p: &Path) -> PathBuf {
     if p.is_absolute() {
         p.to_path_buf()
@@ -1395,6 +1482,42 @@ mod root_tests {
             .unwrap();
         assert_eq!(v[0], exe_dir.join("content"), "portable anchor first");
         assert!(v.iter().all(|p| p.ends_with("content")), "{v:?}");
+    }
+
+    #[test]
+    fn rings_are_content_siblings_with_a_degenerate_nest() {
+        let c = Path::new("C:/apps/devpulse/content");
+        assert_eq!(
+            ring_sibling(c, "assets"),
+            Path::new("C:/apps/devpulse/assets")
+        );
+        assert_eq!(
+            ring_sibling(c, ".userdata"),
+            Path::new("C:/apps/devpulse/.userdata")
+        );
+        // A rootless content root nests the ring inside itself.
+        let bare = Path::new("/");
+        let nested = ring_sibling(bare, "assets");
+        assert!(nested.ends_with("assets"), "{nested:?}");
+    }
+
+    #[test]
+    fn ensure_rings_is_idempotent_and_writes_the_deletability_readme() {
+        // Runs against the real (repo) rings — gitignored, and creating
+        // them is exactly what boot does; idempotency is the assertion.
+        let a = ensure_rings().unwrap();
+        let b = ensure_rings().unwrap();
+        assert_eq!(a.userdata, b.userdata);
+        assert!(a.userdata.join("temp").is_dir());
+        assert!(a.userdata.join("cache").is_dir());
+        assert!(a.userdata.join("profiles").is_dir());
+        let readme = std::fs::read_to_string(a.userdata.join("README.txt")).unwrap();
+        assert!(readme.contains("safe to delete"), "{readme}");
+        let cap = assets_capture_dir("web", "unit-smoke").unwrap();
+        assert!(
+            cap.ends_with("captures/web/unit-smoke") || cap.ends_with("captures\\web\\unit-smoke")
+        );
+        assert!(cap.starts_with(&a.assets));
     }
 
     #[test]

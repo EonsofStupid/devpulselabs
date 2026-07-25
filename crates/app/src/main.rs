@@ -39,6 +39,17 @@ fn main() -> eframe::Result {
                 "user-data root does not exist yet — created on first write; these locations were checked"
             );
         }
+        // The three-ring root (ADR-014): assets/ + .userdata/ stand up
+        // beside content/ at every boot, and the log NAMES all three.
+        match dpl_engine_capture::ensure_rings() {
+            Ok(r) => tracing::info!(
+                content = %r.content.display(),
+                assets = %r.assets.display(),
+                userdata = %r.userdata.display(),
+                "three-ring root ready"
+            ),
+            Err(e) => tracing::warn!(error = %e, "three-ring root could not be created"),
+        }
     }
     // Managed ffmpeg (the original's tools.rs law, ported): resolve ONE
     // absolute binary at boot and inject it into every engine seam, so a

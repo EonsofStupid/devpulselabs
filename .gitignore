@@ -1,8 +1,9 @@
-/target
+﻿/target
 *.png.tmp
 proof-*.png
-# Runtime content root (captures/inbox) — operator data, never committed.
+# Runtime content root (captures/inbox) â€” operator data, never committed.
 /content
 
-# Demo capture staging (raw round material; guides export from the app)
-demo-captures/
+# The three-ring root (ADR-014): working + state rings are operator data.
+/assets/
+/.userdata/
