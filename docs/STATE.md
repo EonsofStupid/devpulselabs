@@ -116,10 +116,30 @@ tests; real-exe SEQUENTIAL drill — run 1 imports 2 clips + saves
 `r1z-proof`, cold-boot runs 2+3 REOPEN it ("Reopened inbox/r1z-proof —
 your last comp.", both layers on the timeline); shots
 `docs/proof/r1z-reopen-{1280x800,1600x1000}.png`.
-**NEXT:** R2a deep-pack browsing/tagging + the .aep/.mogrt parse spike,
-R2b effects (the 860 .cube LUTs first — ffmpeg lut3d). Ratified:
-3D/camera/tracker/motion-blur are LATER; AI is ephemeral in-app + chat
-(one seam); WiredFRONT before Workbench.
+**R2a.1 landed** (`feat/r2a1-deep-pack-browse`,
+`docs/plans/r2a1-deep-pack-browse.md`): deep-pack browse, the
+D:-independent half of R2a — ground truth 2026-07-25: the
+`D:\webwork\themeforest` store is OFFLINE (drive absent; G: is Google
+Drive) and the real root has NO sources.json — the operator never
+pinned the real stores. Shipped: ① OFFLINE-PACK HONESTY — an
+unreadable pinned source lists as one `offline` shelf row (tooltip:
+plug it back in; ingested copies stay local) instead of silently
+vanishing (the old `continue` bug, exposed by the missing drive
+itself); ② Browse-window SEARCH — type-to-filter the open folder live
++ Enter runs a recursive name search under it OFF-thread (cap 500,
+said in the UI), results in the same click-to-import cards, nav/x
+clears; ③ census fix — `sources.json` no longer counts as an element
+(phantom "1 imported element" since W3). PROOF: 32 composer tests;
+pin→unplug→boot drill shots
+`docs/proof/r2a1-offline-pack-{1280x800,1600x1000}.png`.
+**NEXT — R2a.2, GATED on the pack store returning** (only the operator
+knows where the 80 GB moved): the `.aep`/`.mogrt` parse spike on real
+specimens (mogrt = zip w/ definition.json + thumbnail — a zip/deflate
+dep is an ASK-FIRST), element tagging (`Index::set_tags` seam exists,
+unused), the elements shelf + overlay lane. Then R2b effects (the 860
+.cube LUTs — ffmpeg lut3d; also on the offline drive). Ratified:
+3D/camera/tracker/motion-blur LATER; AI ephemeral in-app + chat (one
+seam); WiredFRONT before Workbench.
 Memory: `experience-first-gate`.
 KNOWN (pre-existing, observed by the W2 cross-process drill): opening
 `artifacts.db` with a WAL left by ANOTHER process trips the index's
