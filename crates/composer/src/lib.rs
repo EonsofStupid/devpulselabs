@@ -102,7 +102,58 @@ pub struct Composer {
     save_name: String,
     /// Keep targets: every CONTENT episode as (show, episode).
     episodes: Option<Vec<(String, String)>>,
+    /// GUIDE tab: the pickable step guides (index kind "guide").
+    guides: Option<Vec<Record>>,
+    /// GUIDE tab: the pickable session replays (index kind "session").
+    session_rows: Option<Vec<Record>>,
+    /// The session rel_path bundled into the export (optional).
+    sel_session: Option<String>,
+    /// The open W5 reviewer: one guide's steps under prune/caption edit.
+    review: Option<GuideReview>,
+    /// Export toggles (operator-ratified defaults: both ON).
+    embed_video: bool,
+    make_video: bool,
+    /// Two-tap arm for Apply edits — pruning deletes source frames, and a
+    /// destructive action never rides one stray tap.
+    apply_armed: bool,
+    /// The off-thread guide EXPORT's shared state.
+    export: Arc<Mutex<ExportState>>,
     status: String,
+}
+
+/// The W5 reviewer: the selected guide's steps, editable before export —
+/// prune (keep off), reorder (moves), caption (typed in place). Apply
+/// writes through `engine-steps::edit::update_guide`.
+struct GuideReview {
+    rel: String,
+    dir: PathBuf,
+    steps: Vec<ReviewStep>,
+}
+
+/// One reviewable step: the manifest step + the operator's working edits.
+struct ReviewStep {
+    keep: bool,
+    caption: String,
+    step: dpl_guide::Step,
+}
+
+/// The async guide-export job's state — the Guide tab polls it.
+enum ExportState {
+    Idle,
+    Running,
+    Done(PathBuf),
+    Failed(String),
+}
+
+/// One deferred Guide-tab action (collected during paint, applied after —
+/// the tab reads several caches while building its rows).
+enum GAct {
+    PickGuide(String),
+    PickSession(String),
+    Move(usize, isize),
+    Apply,
+    Export,
+    KeepTo(String, String),
 }
 
 /// One in-flight timeline drag.
@@ -119,7 +170,7 @@ enum Drag {
 
 impl Default for Composer {
     fn default() -> Self {
-        Self {
+        let mut c = Self {
             comp: Composition::default_1080p30(),
             dir: None,
             selected: None,
@@ -147,8 +198,22 @@ impl Default for Composer {
             next_browser: 0,
             save_name: String::new(),
             episodes: None,
+            guides: None,
+            session_rows: None,
+            sel_session: None,
+            review: None,
+            embed_video: true,
+            make_video: true,
+            apply_armed: false,
+            export: Arc::new(Mutex::new(ExportState::Idle)),
             status: "New composition — add footage from the Project panel.".into(),
+        };
+        // Proof/env override (the DPL_COMPOSER_TAB pattern): open the
+        // Guide reviewer on one guide for screenshots; inert in normal use.
+        if let Ok(rel) = std::env::var("DPL_GUIDE_PICK") {
+            c.load_review(&rel);
         }
+        c
     }
 }
 
@@ -647,6 +712,131 @@ impl Composer {
         if self.packs.is_none() {
             self.packs = Some(packs::list_packs(&Self::content_root()));
         }
+        if self.guides.is_none() {
+            self.guides = Some(
+                dpl_index::Index::open_default()
+                    .and_then(|ix| ix.list(Some("guide"), None))
+                    .unwrap_or_default(),
+            );
+        }
+        if self.session_rows.is_none() {
+            self.session_rows = Some(
+                dpl_index::Index::open_default()
+                    .and_then(|ix| ix.list(Some("session"), None))
+                    .unwrap_or_default(),
+            );
+        }
+    }
+
+    /// Open one guide in the reviewer — the Guide tab's pick path.
+    fn load_review(&mut self, rel: &str) {
+        let dir = Self::resolve(rel);
+        match dpl_guide::load_guide(&dir) {
+            Ok(m) => {
+                self.review = Some(GuideReview {
+                    rel: rel.to_string(),
+                    dir,
+                    steps: m
+                        .steps
+                        .into_iter()
+                        .map(|s| ReviewStep {
+                            keep: true,
+                            caption: s.caption.clone().unwrap_or_default(),
+                            step: s,
+                        })
+                        .collect(),
+                });
+                self.apply_armed = false;
+            }
+            Err(e) => self.status = format!("Open guide failed: {e}"),
+        }
+    }
+
+    /// Apply the reviewer's edits to the SOURCE guide through the ONE
+    /// edit engine (`engine-steps::edit::update_guide`): kept steps in
+    /// their new order, captions written, pruned frames deleted.
+    fn apply_review(&mut self) {
+        let Some(rev) = &self.review else {
+            return;
+        };
+        let kept: Vec<_> = rev
+            .steps
+            .iter()
+            .filter(|s| s.keep)
+            .map(review_edit)
+            .collect();
+        let rel = rev.rel.clone();
+        match dpl_engine_steps::edit::update_guide(&rev.dir, kept) {
+            Ok(n) => {
+                self.status = format!("Guide updated — {n} step(s) kept.");
+                self.guides = None;
+                self.load_review(&rel);
+            }
+            Err(e) => self.status = format!("Apply failed: {e}"),
+        }
+        self.apply_armed = false;
+    }
+
+    /// Kick off the guide EXPORT off the UI thread; the Guide tab polls
+    /// the shared `ExportState`.
+    fn start_export(&mut self) {
+        if matches!(
+            *self.export.lock().expect("export state"),
+            ExportState::Running
+        ) {
+            return;
+        }
+        let Some(rev) = &self.review else {
+            self.status = "Pick a step guide first — the export ships its steps.".into();
+            return;
+        };
+        let root = Self::content_root();
+        let guide_rel = rev.rel.clone();
+        let session_rel = self.sel_session.clone();
+        let name = import::sanitize_name(&self.save_name);
+        let opts = dpl_guide::ExportOpts {
+            embed_video: self.embed_video,
+            make_guide_video: self.make_video,
+            ..Default::default()
+        };
+        let state = Arc::clone(&self.export);
+        *state.lock().expect("export state") = ExportState::Running;
+        std::thread::Builder::new()
+            .name("dpl-guide-export".into())
+            .spawn(move || {
+                let result = run_export(
+                    &root,
+                    &guide_rel,
+                    session_rel.as_deref(),
+                    name.as_deref(),
+                    opts,
+                );
+                *state.lock().expect("export state") = match result {
+                    Ok(e) => ExportState::Done(e.dir),
+                    Err(e) => ExportState::Failed(e),
+                };
+            })
+            .expect("spawn export thread");
+    }
+
+    /// File a finished export into a show/episode — guide folders keep
+    /// wholesale (`Index::keep`).
+    fn keep_export(&mut self, show: &str, ep: &str) {
+        let dir = match &*self.export.lock().expect("export state") {
+            ExportState::Done(d) => d.clone(),
+            _ => return,
+        };
+        let root = Self::content_root();
+        let rel = Self::short(&dir);
+        self.status =
+            match dpl_index::Index::open_default().and_then(|ix| ix.keep(&root, &rel, show, ep)) {
+                Ok(new_rel) => {
+                    *self.export.lock().expect("export state") = ExportState::Idle;
+                    self.guides = None;
+                    format!("Filed into {show}/{ep} → {new_rel}")
+                }
+                Err(e) => format!("Keep failed: {e}"),
+            };
     }
 
     /// Open a Browse peer window rooted at `start`.
@@ -946,7 +1136,7 @@ impl Composer {
         match self.tab {
             Tab::Editor => self.ae_screen(ui, body, &mut act),
             Tab::Annotate => self.annotate_tab(&mut mk(body), &mut act),
-            Tab::Guide => self.guide_tab(&mut mk(body), &mut act),
+            Tab::Guide => self.guide_tab(&mut mk(body)),
             other => tab_stub(&mut mk(body), other),
         }
 
@@ -1973,25 +2163,33 @@ impl Composer {
         }
     }
 
-    /// GUIDE — the tailored export flow (operator spec: streamlined,
-    /// seeded suggestions, tooltips; the standalone double-click player
-    /// is its own ratified product pass, stated honestly).
-    fn guide_tab(&mut self, ui: &mut egui::Ui, act: &mut Option<Act>) {
-        let (rendering, pill) = {
-            let st = self.render.lock().expect("render state");
+    /// GUIDE — the real .guide flow (W5): pick a step guide (+ optional
+    /// session replay) · review & tune (prune/reorder/caption through
+    /// the ONE edit engine) · name it · export the standalone folder
+    /// (guide.html + light replay + guide-video.mp4) · file it.
+    fn guide_tab(&mut self, ui: &mut egui::Ui) {
+        let (exporting, pill, done_dir) = {
+            let st = self.export.lock().expect("export state");
             match &*st {
-                RenderState::Idle => (false, None),
-                RenderState::Running => (true, Some("Rendering...".to_string())),
-                RenderState::Done(p) => (false, Some(format!("Rendered: {}", Self::short(p)))),
-                RenderState::Failed(e) => (false, Some(format!("Render failed: {e}"))),
+                ExportState::Idle => (false, None, None),
+                ExportState::Running => (true, Some("Exporting…".to_string()), None),
+                ExportState::Done(d) => (
+                    false,
+                    Some(format!("Exported: {}/guide.html", Self::short(d))),
+                    Some(d.clone()),
+                ),
+                ExportState::Failed(e) => (false, Some(format!("Export failed: {e}")), None),
             }
         };
-        let done = pill.as_deref().is_some_and(|p| p.starts_with("Rendered"));
+        if exporting {
+            ui.ctx().request_repaint_after(Duration::from_millis(200));
+        }
+        let mut gact: Option<GAct> = None;
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.vertical_centered(|ui| {
-                    ui.set_max_width(560.0);
+                    ui.set_max_width(640.0);
                     ui.add_space(cl::space::S3);
                     ui.label(
                         RichText::new("Export a standalone guide")
@@ -2000,44 +2198,22 @@ impl Composer {
                     );
                     ui.label(
                         RichText::new(
-                            "A double-click file for your audience — easy to load on a phone \
-                             while you follow along on your computer.",
+                            "Your recorded steps + the session replay, in one double-click \
+                             file — works offline, easy to load on a phone.",
                         )
                         .small()
                         .color(cl::ink::SUBTLE),
                     );
                     ui.add_space(cl::space::S3);
 
-                    cl::clay().show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        ui.label(RichText::new("1 · WHAT SHIPS").small().strong());
-                        if self.layers().is_empty() {
-                            ui.label(
-                                RichText::new(
-                                    "Nothing yet — stitch clips together in the Editor first.",
-                                )
-                                .small()
-                                .color(cl::ink::SUBTLE),
-                            );
-                        } else {
-                            ui.label(
-                                RichText::new(format!(
-                                    "{} layer(s) · {:.1}s · {}×{} @{}fps",
-                                    self.layers().len(),
-                                    self.comp.duration(),
-                                    self.comp.w,
-                                    self.comp.h,
-                                    self.comp.fps
-                                ))
-                                .color(cl::ink::BASE),
-                            );
-                        }
-                    });
+                    self.guide_pick_section(ui, &mut gact);
+                    ui.add_space(cl::space::S2);
+                    self.guide_review_section(ui, &mut gact);
                     ui.add_space(cl::space::S2);
 
                     cl::clay().show(ui, |ui| {
                         ui.set_width(ui.available_width());
-                        ui.label(RichText::new("2 · NAME IT").small().strong());
+                        ui.label(RichText::new("3 · NAME IT").small().strong());
                         let field = egui::TextEdit::singleline(&mut self.save_name)
                             .hint_text("guide name")
                             .desired_width(f32::INFINITY);
@@ -2059,17 +2235,60 @@ impl Composer {
 
                     cl::clay().show(ui, |ui| {
                         ui.set_width(ui.available_width());
-                        ui.label(RichText::new("3 · RENDER THE VIDEO").small().strong());
+                        ui.label(RichText::new("4 · EXPORT").small().strong());
+                        ui.horizontal_wrapped(|ui| {
+                            let resp = cl::tip(
+                                small_btn(
+                                    ui,
+                                    if self.embed_video {
+                                        "Replay: inside the file"
+                                    } else {
+                                        "Replay: beside the file"
+                                    },
+                                    "gembed",
+                                ),
+                                "Inside = ONE guide.html carries everything (best for \
+                                 phones). Beside = a smaller page plus session.mp4 next \
+                                 to it.",
+                            );
+                            if resp.clicked() {
+                                self.embed_video = !self.embed_video;
+                            }
+                            let resp = cl::tip(
+                                small_btn(
+                                    ui,
+                                    if self.make_video {
+                                        "Guide video: ON"
+                                    } else {
+                                        "Guide video: OFF"
+                                    },
+                                    "gvideo",
+                                ),
+                                "Also render guide-video.mp4 — each still held 3 seconds, \
+                                 then the replay, as one standalone video",
+                            );
+                            if resp.clicked() {
+                                self.make_video = !self.make_video;
+                            }
+                        });
                         ui.horizontal(|ui| {
-                            if !self.layers().is_empty()
-                                && !rendering
-                                && cl::tip(
-                                    chip(ui, Tone::Magenta, "Render", "guide-render"),
-                                    "Stitch the layers into one video beside the comp",
-                                )
-                                .clicked()
-                            {
-                                *act = Some(Act::Render);
+                            if self.review.is_some() && !exporting {
+                                let resp = cl::tip(
+                                    chip(ui, Tone::Magenta, "Export guide", "guide-export"),
+                                    "Write the standalone guide folder into your inbox",
+                                );
+                                ui.pilot_track(
+                                    &resp,
+                                    NodeMetadata::new(
+                                        PilotId::new("composer.guide")
+                                            .child(&PilotKey::new("export")),
+                                        Role::Button,
+                                        "Export guide",
+                                    ),
+                                );
+                                if resp.clicked() {
+                                    gact = Some(GAct::Export);
+                                }
                             }
                             if let Some(text) = &pill {
                                 ui.label(RichText::new(text).small().color(cl::ink::BASE));
@@ -2080,12 +2299,33 @@ impl Composer {
 
                     cl::clay().show(ui, |ui| {
                         ui.set_width(ui.available_width());
-                        ui.label(RichText::new("4 · FILE IT INTO A SHOW").small().strong());
-                        if done {
-                            ui.horizontal_wrapped(|ui| self.keep_chips(ui, act));
+                        ui.label(RichText::new("5 · FILE IT INTO A SHOW").small().strong());
+                        if done_dir.is_some() {
+                            let episodes = self.episodes.clone().unwrap_or_default();
+                            if episodes.is_empty() {
+                                ui.label(
+                                    RichText::new(
+                                        "no shows yet — create one in Workbench to file this",
+                                    )
+                                    .small()
+                                    .color(cl::ink::SUBTLE),
+                                );
+                            }
+                            ui.horizontal_wrapped(|ui| {
+                                for (show, ep) in episodes.iter().take(4) {
+                                    let label = format!("→ {show}/{ep}");
+                                    let resp = cl::tip(
+                                        small_btn(ui, &label, ("gkeepto", label.as_str())),
+                                        "File the exported guide into this show",
+                                    );
+                                    if resp.clicked() {
+                                        gact = Some(GAct::KeepTo(show.clone(), ep.clone()));
+                                    }
+                                }
+                            });
                         } else {
                             ui.label(
-                                RichText::new("Render first — the show chips appear here.")
+                                RichText::new("Export first — the show chips appear here.")
                                     .small()
                                     .color(cl::ink::SUBTLE),
                             );
@@ -2094,15 +2334,241 @@ impl Composer {
                     ui.add_space(cl::space::S3);
                     ui.label(
                         RichText::new(
-                            "Honest note: the double-click .guide player app is its own \
-                             ratified pass — this flow prepares and files the video today; \
-                             the standalone wrapper rides that pass.",
+                            "Double-click guide.html to use it anywhere — it works offline. \
+                             Copy the folder to your phone (or just the file when the \
+                             replay rides inside it).",
                         )
                         .small()
                         .color(cl::ink::MUTED),
                     );
                 });
             });
+        match gact {
+            Some(GAct::PickGuide(rel)) => {
+                self.load_review(&rel);
+                if let Some(rev) = &self.review {
+                    self.status = format!("Reviewing {} — {} step(s).", rev.rel, rev.steps.len());
+                }
+            }
+            Some(GAct::PickSession(rel)) => {
+                self.sel_session =
+                    (self.sel_session.as_deref() != Some(rel.as_str())).then_some(rel);
+            }
+            Some(GAct::Move(i, d)) => {
+                if let Some(rev) = self.review.as_mut() {
+                    let j = i.saturating_add_signed(d);
+                    if j < rev.steps.len() && i != j {
+                        rev.steps.swap(i, j);
+                    }
+                }
+            }
+            Some(GAct::Apply) => {
+                if self.apply_armed {
+                    self.apply_review();
+                } else {
+                    self.apply_armed = true;
+                }
+            }
+            Some(GAct::Export) => self.start_export(),
+            Some(GAct::KeepTo(show, ep)) => self.keep_export(&show, &ep),
+            None => {}
+        }
+    }
+
+    /// Guide step 1 · PICK — the guides and sessions walls, tappable.
+    fn guide_pick_section(&mut self, ui: &mut egui::Ui, gact: &mut Option<GAct>) {
+        cl::clay().show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.label(RichText::new("1 · PICK WHAT SHIPS").small().strong());
+            ui.label(
+                RichText::new("STEP GUIDES")
+                    .small()
+                    .strong()
+                    .color(cl::ink::MUTED),
+            );
+            let picked_guide = self.review.as_ref().map(|r| r.rel.clone());
+            let guides = self.guides.as_deref().unwrap_or(&[]);
+            if guides.is_empty() {
+                ui.label(
+                    RichText::new(
+                        "no step guides yet — record one with ViziWiz Steps (Ctrl+Shift+9)",
+                    )
+                    .small()
+                    .color(cl::ink::SUBTLE),
+                );
+            }
+            for r in guides {
+                let on = picked_guide.as_deref() == Some(r.rel_path.as_str());
+                let resp = cl::tip(
+                    row_line(
+                        ui,
+                        "gde",
+                        &r.name,
+                        if on { "picked" } else { "" },
+                        ("gg", r.rel_path.as_str()),
+                    ),
+                    "Review and export this step guide",
+                );
+                ui.pilot_track(
+                    &resp,
+                    NodeMetadata::new(
+                        PilotId::new("composer.guide.pick").child(&PilotKey::new(&r.rel_path)),
+                        Role::Button,
+                        &r.name,
+                    )
+                    .value(if on { "picked" } else { "row" }),
+                );
+                if resp.clicked() {
+                    *gact = Some(GAct::PickGuide(r.rel_path.clone()));
+                }
+            }
+            ui.add_space(cl::space::S1);
+            ui.label(
+                RichText::new("SESSION REPLAY — optional")
+                    .small()
+                    .strong()
+                    .color(cl::ink::MUTED),
+            );
+            let sessions = self.session_rows.as_deref().unwrap_or(&[]);
+            if sessions.is_empty() {
+                ui.label(
+                    RichText::new("no sessions yet — record one from ViziWiz's Session tab")
+                        .small()
+                        .color(cl::ink::SUBTLE),
+                );
+            }
+            for r in sessions {
+                let on = self.sel_session.as_deref() == Some(r.rel_path.as_str());
+                let resp = cl::tip(
+                    row_line(
+                        ui,
+                        "ses",
+                        &r.name,
+                        if on { "picked" } else { "" },
+                        ("gs", r.rel_path.as_str()),
+                    ),
+                    "Bundle this session's replay video and its event chapters \
+                     — tap again to leave it out",
+                );
+                ui.pilot_track(
+                    &resp,
+                    NodeMetadata::new(
+                        PilotId::new("composer.guide.session").child(&PilotKey::new(&r.rel_path)),
+                        Role::Button,
+                        &r.name,
+                    )
+                    .value(if on { "picked" } else { "row" }),
+                );
+                if resp.clicked() {
+                    *gact = Some(GAct::PickSession(r.rel_path.clone()));
+                }
+            }
+        });
+    }
+
+    /// Guide step 2 · REVIEW & TUNE — the W5 reviewer rows: thumb, keep,
+    /// reorder, caption; Apply is two-tap (pruning deletes source frames).
+    fn guide_review_section(&mut self, ui: &mut egui::Ui, gact: &mut Option<GAct>) {
+        cl::clay().show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.label(RichText::new("2 · REVIEW & TUNE").small().strong());
+            let Some(rev) = self.review.as_mut() else {
+                ui.label(
+                    RichText::new("Pick a step guide above to prune and caption its steps.")
+                        .small()
+                        .color(cl::ink::SUBTLE),
+                );
+                return;
+            };
+            let dir = rev.dir.clone();
+            let total = rev.steps.len();
+            for (i, rs) in rev.steps.iter_mut().enumerate() {
+                ui.horizontal(|ui| {
+                    let (well, _) = ui.allocate_exact_size(egui::vec2(64.0, 36.0), Sense::hover());
+                    ui.painter()
+                        .rect_filled(well, cl::RADIUS_SM, cl::surface::WELL);
+                    let abs = dir.join(&rs.step.file);
+                    if abs.is_file() {
+                        // file:/// with THREE slashes — the media block's law.
+                        let uri = format!("file:///{}", abs.to_string_lossy().replace('\\', "/"));
+                        egui::Image::new(uri)
+                            .corner_radius(cl::RADIUS_SM)
+                            .paint_at(ui, well);
+                    }
+                    ui.label(
+                        RichText::new(format!("{}", i + 1))
+                            .monospace()
+                            .small()
+                            .color(cl::ink::MUTED),
+                    );
+                    let resp = cl::tip(
+                        small_btn(ui, if rs.keep { "Keep" } else { "Skip" }, ("gk", i)),
+                        if rs.keep {
+                            "This step ships — tap to skip it"
+                        } else {
+                            "Skipped — tap to keep it (Apply deletes skipped frames \
+                             from the guide)"
+                        },
+                    );
+                    if resp.clicked() {
+                        rs.keep = !rs.keep;
+                    }
+                    if i > 0
+                        && cl::tip(small_btn(ui, "^", ("gu", i)), "Move this step earlier")
+                            .clicked()
+                    {
+                        *gact = Some(GAct::Move(i, -1));
+                    }
+                    if i + 1 < total
+                        && cl::tip(small_btn(ui, "v", ("gd", i)), "Move this step later").clicked()
+                    {
+                        *gact = Some(GAct::Move(i, 1));
+                    }
+                    let field = egui::TextEdit::singleline(&mut rs.caption)
+                        .hint_text("caption — your words for this step")
+                        .desired_width(f32::INFINITY);
+                    cl::tip(
+                        ui.add(field),
+                        "Shown under this still in the exported guide",
+                    );
+                });
+            }
+            let kept = rev.steps.iter().filter(|s| s.keep).count();
+            ui.horizontal(|ui| {
+                let label = if self.apply_armed {
+                    "Really apply?"
+                } else {
+                    "Apply edits"
+                };
+                let resp = cl::tip(
+                    small_btn(ui, label, "gapply"),
+                    if self.apply_armed {
+                        "Tap again to write the edits — skipped steps and their \
+                         frames are removed from this guide"
+                    } else {
+                        "Write prune/reorder/captions into the guide — it takes \
+                         two taps, so a stray tap never deletes"
+                    },
+                );
+                ui.pilot_track(
+                    &resp,
+                    NodeMetadata::new(
+                        PilotId::new("composer.guide").child(&PilotKey::new("apply")),
+                        Role::Button,
+                        "Apply edits",
+                    )
+                    .value(if self.apply_armed { "armed" } else { "idle" }),
+                );
+                if resp.clicked() {
+                    *gact = Some(GAct::Apply);
+                }
+                ui.label(
+                    RichText::new(format!("{kept} of {total} step(s) ship"))
+                        .small()
+                        .color(cl::ink::SUBTLE),
+                );
+            });
+        });
     }
 
     /// ANNOTATE — its own tool set beside the scene canvas. Tool behaviour
@@ -2199,6 +2665,110 @@ fn index_render(out: &Path) {
     if let Ok(ix) = dpl_index::Index::open_default() {
         let _ = ix.upsert(&rec);
     }
+}
+
+/// One reviewer row → the edit engine's shape. Blank captions clear.
+fn review_edit(s: &ReviewStep) -> dpl_engine_steps::edit::GuideStepEdit {
+    let caption = s.caption.trim();
+    dpl_engine_steps::edit::GuideStepEdit {
+        order: s.step.order,
+        file: s.step.file.clone(),
+        result_file: s.step.result_file.clone(),
+        action: s.step.action.clone(),
+        click: s.step.click,
+        app: s.step.app.clone(),
+        title: s.step.title.clone(),
+        width: s.step.width,
+        height: s.step.height,
+        bytes: s.step.bytes,
+        caption: (!caption.is_empty()).then(|| caption.to_string()),
+    }
+}
+
+/// The ONE guide-export path — the Guide tab and the `--export-guide`
+/// harness seam both land here: jail + resolve the rels, mint the
+/// no-clobber `inbox/<name>/` folder, run `dpl_guide::export_guide`,
+/// write the artifact through the index (kind "guide", source "export").
+pub fn run_export(
+    root: &Path,
+    guide_rel: &str,
+    session_rel: Option<&str>,
+    out_name: Option<&str>,
+    opts: dpl_guide::ExportOpts,
+) -> Result<dpl_guide::Export, String> {
+    let source = jailed(root, guide_rel)?;
+    if !source.join("guide.json").is_file() {
+        return Err(format!("{guide_rel} is not a guide folder (no guide.json)"));
+    }
+    let session = match session_rel {
+        Some(rel) => {
+            let dir = jailed(root, rel)?;
+            if !dir.is_dir() {
+                return Err(format!("{rel} is not a session folder"));
+            }
+            Some(dir)
+        }
+        None => None,
+    };
+    let base = out_name.map(str::to_string).unwrap_or_else(|| {
+        let src = source
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "guide".into());
+        format!("{src}-share")
+    });
+    let out_dir = mint_export_dir(&root.join("inbox"), &base);
+    let export = dpl_guide::export_guide(&source, session.as_deref(), &out_dir, opts)?;
+    // Write-through: the export is an ordinary indexed artifact, so the
+    // Gallery, the Keep seam, and the agents all see it.
+    let folder = out_dir
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or(base);
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let rec = Record {
+        rel_path: format!("inbox/{folder}"),
+        location: "inbox".into(),
+        kind: "guide".into(),
+        name: folder,
+        source: "export".into(),
+        captured_at: dpl_index::iso_from_ms(ms),
+        modified_ms: Some(ms),
+        ..Record::default()
+    };
+    if let Ok(ix) = dpl_index::Index::open_default() {
+        let _ = ix.upsert(&rec);
+    }
+    Ok(export)
+}
+
+/// A forward-slash rel path joined under the root — absolute paths, drive
+/// letters, and `..` are refused BY NAME (the seam's jail law).
+fn jailed(root: &Path, rel: &str) -> Result<PathBuf, String> {
+    if rel.is_empty()
+        || rel.contains("..")
+        || rel.contains(':')
+        || rel.starts_with('/')
+        || rel.starts_with('\\')
+    {
+        return Err(format!("refusing a path outside the content root: {rel:?}"));
+    }
+    Ok(rel.split('/').fold(root.to_path_buf(), |a, s| a.join(s)))
+}
+
+/// The next free `<inbox>/<base>[-N]` folder — deterministic, no clobber.
+fn mint_export_dir(inbox: &Path, base: &str) -> PathBuf {
+    let first = inbox.join(base);
+    if !first.exists() {
+        return first;
+    }
+    (2..)
+        .map(|n| inbox.join(format!("{base}-{n}")))
+        .find(|p| !p.exists())
+        .unwrap()
 }
 
 /// Seeded name suggestions: the next free comp folder + a date-stamped
@@ -2589,5 +3159,68 @@ mod tests {
         assert_eq!(fmt_secs(Some(0)), "—");
         assert_eq!(fmt_secs(Some(6)), "6s");
         assert_eq!(fmt_secs(Some(64)), "1:04");
+    }
+
+    #[test]
+    fn review_rows_map_losslessly_and_blank_captions_clear() {
+        let step = dpl_guide::Step {
+            order: 3,
+            file: "step-003.webp".into(),
+            result_file: Some("step-003-done.webp".into()),
+            action: "click".into(),
+            click: Some([0.5, 0.25]),
+            caption: Some("old words".into()),
+            app: "Test".into(),
+            title: "Test - App".into(),
+            width: 100,
+            height: 80,
+            bytes: 12,
+        };
+        let typed = review_edit(&ReviewStep {
+            keep: true,
+            caption: "  new words  ".into(),
+            step: step.clone(),
+        });
+        assert_eq!(typed.caption.as_deref(), Some("new words"), "trimmed");
+        assert_eq!(typed.file, "step-003.webp");
+        assert_eq!(typed.result_file.as_deref(), Some("step-003-done.webp"));
+        assert_eq!(typed.click, Some([0.5, 0.25]));
+        assert_eq!(typed.app, "Test", "recorder facts survive the round trip");
+        let blank = review_edit(&ReviewStep {
+            keep: true,
+            caption: "   ".into(),
+            step,
+        });
+        assert!(blank.caption.is_none(), "blank caption clears");
+    }
+
+    #[test]
+    fn export_paths_are_jailed_and_minted_no_clobber() {
+        let root = std::env::temp_dir().join(format!("dpl-composer-jail-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("inbox").join("g-share")).unwrap();
+        assert!(jailed(&root, "inbox/g").is_ok());
+        assert!(jailed(&root, "../escape").is_err(), "dotdot refused");
+        assert!(jailed(&root, "C:/windows").is_err(), "drive letter refused");
+        assert!(jailed(&root, "/abs").is_err(), "absolute refused");
+        assert!(jailed(&root, "").is_err(), "empty refused");
+        let minted = mint_export_dir(&root.join("inbox"), "g-share");
+        assert!(
+            minted.ends_with("g-share-2"),
+            "existing folder never clobbered: {}",
+            minted.display()
+        );
+        // run_export refuses a non-guide folder by name.
+        std::fs::create_dir_all(root.join("inbox").join("not-a-guide")).unwrap();
+        let err = run_export(
+            &root,
+            "inbox/not-a-guide",
+            None,
+            None,
+            dpl_guide::ExportOpts::default(),
+        )
+        .unwrap_err();
+        assert!(err.contains("guide.json"), "{err}");
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

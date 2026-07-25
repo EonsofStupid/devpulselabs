@@ -201,6 +201,34 @@ fn main() -> eframe::Result {
         }
     }
 
+    // `--export-guide <guide-rel> [<session-rel>]` — the headless W5
+    // drill: run the EXACT Guide-tab export path (dpl_composer::run_export
+    // — jail, mint, dpl-guide, index write-through), print the html path,
+    // exit by verdict; no window boots.
+    if let Some(i) = args.iter().position(|a| a == "--export-guide") {
+        let Some(guide) = args.get(i + 1).filter(|a| !a.starts_with("--")) else {
+            eprintln!("usage: --export-guide <guide-rel> [<session-rel>]");
+            std::process::exit(2);
+        };
+        let session = args.get(i + 2).filter(|a| !a.starts_with("--")).cloned();
+        match dpl_composer::run_export(
+            &dpl_engine_capture::content_root(),
+            guide,
+            session.as_deref(),
+            None,
+            dpl_guide::ExportOpts::default(),
+        ) {
+            Ok(export) => {
+                println!("exported {}", export.html.display());
+                std::process::exit(0);
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
     let options = eframe::NativeOptions {
         // MAXIMIZED — a fixed logical size overflows small displays at
         // dpr > 1 and shoves the status bar under the taskbar (the v1 bug).
