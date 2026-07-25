@@ -153,13 +153,39 @@ text/font/size decls) documented, read when the controls UI pass
 consumes it. PROOF: 36 tests; real `Title 01.mogrt` through the exe →
 sqlite-verified enriched row + byte-identical extracted poster; shots
 `docs/proof/r2a2-mogrt-import-{1280x800,1600x1000}.png`.
-**NEXT:** R2b effects — the 860 `.cube` LUTs via ffmpeg lut3d (the
-registry v1 + inspector chips + render honors it; gate row 7), then
-R2c chat-edits-comp. The elements shelf/overlay lane rides the effects
-pass. `.aep` parsing = OPEN (operator researching). Ratified:
+**AEP ORCHESTRATOR — new pass, PAUSES R2b** (operator 2026-07-25:
+installing AE/Animate; "pull aerender.exe into ours and have wiredfront
+editor viziwiz actually be an orchestrator"). This RESOLVES the open
+`.aep` thread the house way — never parse RIFX, ORCHESTRATE Adobe's own
+headless `aerender.exe` as a subprocess (ADR-009, the ffmpeg pattern).
+Planned via the NEW `/deep-plan` skill (Fable architects; one Opus
+agent filled the AE-execution gap, spot-checked): full plan
+`docs/plans/aep-orchestrator.md`. GROUND TRUTH (verified): aerender
+26.3x87 is fully headless (~13s boot, parseable `PROGRESS:`/`INFO:`/
+`ERROR:` stdout); comp enumeration needs `AfterFX.exe -r` which is
+blocked by AE's Welcome/Home screen (`"Show Welcome Screen" = 01`, one
+pref toggle); default OM templates incl. `H.264 - Match Render Settings
+- {5,15,40} Mbps` (mp4) + Lossless; ffmpeg 8.1.2 has libwebp_anim/
+libaom-av1/svtav1/gif for the export selector. RATIFIED decisions: full
+comp picker in v1; app toggles the Welcome pref on the operator's tap;
+export selector (mp4/webp/avif/av1/gif); DYNAMIC perf tuning (16GB
+laptop is the operator's WEAKEST — 32/64/128GB rigs coming for content/
+streaming); dep `sysinfo` for the RAM probe.
+**Phase 1 LANDED** (`feat/aep-1-engine`): NEW crate `dpl-engine-ae`
+(the ADR-009 sibling of ffmpeg) — `locate` (AE 2026 found), `Caps`
+probe + `RenderTuning::for_caps` dynamic policy (MFR OFF/RAM-conservative
+@16GB, ON @128GB; Balanced/MaxThroughput/Gentle profiles), RIFX gate,
+aerender arg-VECTOR builder (spaced template names survive — the
+quoting gotcha), stdout grammar parser, safe Welcome-pref toggle
+(AE-closed guard + `.dpl-bak` backup, ending-preserving). 10 tests; a
+`--example probe` per-rig diagnostic. NEXT PHASES: 2 enumeration
+(first real-AE run, after the pref toggle) → 3 render+timeline ingest →
+4 ffmpeg export selector → 5 automation tap + tuning UI.
+**THEN R2b** (resumes after the orchestrator): the 860 `.cube` LUTs via
+ffmpeg lut3d (gate row 7), then R2c chat-edits-comp. Ratified:
 3D/camera/tracker/motion-blur LATER; AI ephemeral in-app + chat (one
 seam); WiredFRONT before Workbench.
-Memory: `experience-first-gate`.
+Memory: `experience-first-gate`, `wiredfront-orchestrates-adobe`.
 KNOWN (pre-existing, observed by the W2 cross-process drill): opening
 `artifacts.db` with a WAL left by ANOTHER process trips the index's
 quarantine (`.corrupt`); in-app (same-process) flows unaffected.
