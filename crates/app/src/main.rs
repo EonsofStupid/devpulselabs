@@ -918,14 +918,26 @@ fn init_ffmpeg() {
     }
     if cfg!(windows) {
         if let Some(local) = std::env::var_os("LOCALAPPDATA") {
-            candidates.push((
-                std::path::Path::new(&local)
-                    .join("Microsoft")
-                    .join("WinGet")
-                    .join("Links")
-                    .join(BIN),
-                "winget",
-            ));
+            let winget = std::path::Path::new(&local)
+                .join("Microsoft")
+                .join("WinGet");
+            candidates.push((winget.join("Links").join(BIN), "winget-links"));
+            // Some packages register PATH instead of a Links shim (seen
+            // live: Gyan.FFmpeg) — scan Packages/<pkg>/<build>/bin/.
+            if let Ok(pkgs) = std::fs::read_dir(winget.join("Packages")) {
+                for pkg in pkgs
+                    .flatten()
+                    .filter(|p| p.file_name().to_string_lossy().starts_with("Gyan.FFmpeg"))
+                {
+                    for build in std::fs::read_dir(pkg.path())
+                        .into_iter()
+                        .flatten()
+                        .flatten()
+                    {
+                        candidates.push((build.path().join("bin").join(BIN), "winget-package"));
+                    }
+                }
+            }
         }
     }
     match candidates.iter().find(|(p, _)| p.is_file()) {
