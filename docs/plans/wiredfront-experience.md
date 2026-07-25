@@ -137,6 +137,8 @@ shorten, never lengthen.
 | 10 | Renders/library correct | `wiredfront/library` still mounts the ColdLight wall | LAND R1x commit 2 |
 | 11 | Google Drive | No HTTP client in the workspace | R2d |
 | 12 | Background removal | Not started (ort mini-ADR owed) | R2e (= ratified R1e) |
+| 13 | Double-click Library → editor | ✅ W6: the Library is the real thumbnailed shelf; double-click sends video → timeline / image → FOOTAGE (honest) and navigates to the Editor | DONE (W6) |
+| 14 | ffmpeg found without PATH | ✅ W6: managed boot resolution (bin/ beside exe → PATH → winget links) injected into all three engine seams | DONE (W6) |
 
 ## 6. The ladder — passes named by the friction they kill
 

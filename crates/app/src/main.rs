@@ -40,6 +40,11 @@ fn main() -> eframe::Result {
             );
         }
     }
+    // Managed ffmpeg (the original's tools.rs law, ported): resolve ONE
+    // absolute binary at boot and inject it into every engine seam, so a
+    // double-clicked exe with a stale Explorer PATH still previews,
+    // probes, and renders. W6.
+    init_ffmpeg();
     let args: Vec<String> = std::env::args().collect();
     let shot: Option<std::path::PathBuf> = args
         .iter()
@@ -885,6 +890,67 @@ fn configure_pilot_adapter(mut options: eframe::NativeOptions) -> eframe::Native
         })
     }));
     options
+}
+
+/// Managed ffmpeg (W6, the original `tools.rs` law ported): resolve ONE
+/// absolute binary and inject it into every engine seam (capture, media,
+/// video) so child spawns never depend on the process PATH. Candidates,
+/// first that exists: ① `bin/ffmpeg[.exe]` beside the exe (the portable
+/// bundle) ② absolute resolution from THIS process's PATH ③ the WinGet
+/// links shim (rescues a double-clicked exe under a stale Explorer
+/// PATH). None found → a loud warn naming every location; the engines
+/// keep their bare-PATH dev fallback.
+fn init_ffmpeg() {
+    const BIN: &str = if cfg!(windows) {
+        "ffmpeg.exe"
+    } else {
+        "ffmpeg"
+    };
+    let mut candidates: Vec<(std::path::PathBuf, &'static str)> = Vec::new();
+    if let Some(dir) = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(std::path::Path::to_path_buf))
+    {
+        candidates.push((dir.join("bin").join(BIN), "bundled"));
+    }
+    if let Some(p) = find_on_path(BIN) {
+        candidates.push((p, "PATH"));
+    }
+    if cfg!(windows) {
+        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+            candidates.push((
+                std::path::Path::new(&local)
+                    .join("Microsoft")
+                    .join("WinGet")
+                    .join("Links")
+                    .join(BIN),
+                "winget",
+            ));
+        }
+    }
+    match candidates.iter().find(|(p, _)| p.is_file()) {
+        Some((path, source)) => {
+            tracing::info!(ffmpeg = %path.display(), source, "managed ffmpeg resolved");
+            dpl_engine_capture::set_ffmpeg_path(path.clone());
+            dpl_engine_media::set_ffmpeg_path(path.clone());
+            dpl_video::set_ffmpeg_path(path.clone());
+        }
+        None => {
+            tracing::warn!(
+                checked = ?candidates.iter().map(|(p, _)| p.display().to_string()).collect::<Vec<_>>(),
+                "no ffmpeg found — previews, probes, and renders will fail. Put ffmpeg in \
+                 bin/ beside the exe, or install it (winget install Gyan.FFmpeg)."
+            );
+        }
+    }
+}
+
+/// Resolve a binary to an ABSOLUTE path by walking this process's PATH.
+fn find_on_path(bin: &str) -> Option<std::path::PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|d| d.join(bin))
+        .find(|p| p.is_file())
 }
 
 /// The taskbar law, continuous (old repo's `lib.rs`, ported): whenever the
