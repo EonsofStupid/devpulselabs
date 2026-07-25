@@ -29,6 +29,7 @@ members = [
     "crates/engine-capture",
     "crates/engine-media",
     "crates/engine-steps",
+    "crates/engine-ae",
     "crates/slides",
     "crates/doc",
     "crates/comp",
@@ -79,6 +80,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # The mogrt reader (R2a.2, operator-ratified): .mogrt is a plain zip.
 zip = { version = "8", default-features = false, features = ["deflate"] }
+# The AEP orchestrator's capability probe (operator-ratified): read total
+# RAM cross-platform so the aerender tuning scales 16GB→128GB. "system"
+# feature only — no disk/network/component probing.
+sysinfo = { version = "0.33", default-features = false, features = ["system"] }
 toml = "0.9"
 tokio = { version = "1", default-features = false, features = ["sync"] }
 # The agent seam (R1v): localhost HTTP over the fabric — axum is the
@@ -121,6 +126,7 @@ dpl-backdrop = { path = "crates/backdrop" }
 dpl-engine-capture = { path = "crates/engine-capture" }
 dpl-engine-media = { path = "crates/engine-media" }
 dpl-engine-steps = { path = "crates/engine-steps" }
+dpl-engine-ae = { path = "crates/engine-ae" }
 dpl-slides = { path = "crates/slides" }
 dpl-doc = { path = "crates/doc" }
 dpl-comp = { path = "crates/comp" }
