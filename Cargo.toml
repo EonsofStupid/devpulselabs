@@ -32,6 +32,7 @@ members = [
     "crates/engine-media",
     "crates/engine-steps",
     "crates/engine-ae",
+    "crates/engine-browser",
     "crates/slides",
     "crates/doc",
     "crates/comp",
@@ -86,6 +87,9 @@ zip = { version = "8", default-features = false, features = ["deflate"] }
 # RAM cross-platform so the aerender tuning scales 16GB→128GB. "system"
 # feature only — no disk/network/component probing.
 sysinfo = { version = "0.33", default-features = false, features = ["system"] }
+# The browser driver's CDP socket (ADR-013): pure-Rust WebSocket framing
+# over OUR TcpStream, localhost only — no TLS features, ever.
+tungstenite = { version = "0.27", default-features = false, features = ["handshake"] }
 toml = "0.9"
 tokio = { version = "1", default-features = false, features = ["sync"] }
 # The agent seam (R1v): localhost HTTP over the fabric — axum is the
@@ -131,6 +135,7 @@ dpl-engine-capture = { path = "crates/engine-capture" }
 dpl-engine-media = { path = "crates/engine-media" }
 dpl-engine-steps = { path = "crates/engine-steps" }
 dpl-engine-ae = { path = "crates/engine-ae" }
+dpl-engine-browser = { path = "crates/engine-browser" }
 dpl-slides = { path = "crates/slides" }
 dpl-doc = { path = "crates/doc" }
 dpl-comp = { path = "crates/comp" }

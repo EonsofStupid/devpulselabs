@@ -3,3 +3,6 @@
 proof-*.png
 # Runtime content root (captures/inbox) — operator data, never committed.
 /content
+
+# Demo capture staging (raw round material; guides export from the app)
+demo-captures/
