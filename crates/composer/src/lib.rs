@@ -31,6 +31,7 @@ use egui_pilot_ai::{
 };
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -68,6 +69,10 @@ pub struct Composer {
     proj_sel: Option<usize>,
     /// The off-thread stitch render's shared state.
     render: Arc<Mutex<RenderState>>,
+    /// The off-thread pack INGEST's shared state (one at a time).
+    ingest: Arc<Mutex<IngestState>>,
+    /// Files processed by the running ingest (the progress pill).
+    ingest_done: Arc<AtomicUsize>,
     /// The active workflow tab (Editor leads; the rest are tailored).
     tab: Tab,
     /// The tool-strip selection (Selection edits today; the rest are
@@ -126,6 +131,8 @@ impl Default for Composer {
             packs: None,
             proj_sel: None,
             render: Arc::new(Mutex::new(RenderState::Idle)),
+            ingest: Arc::new(Mutex::new(IngestState::Idle)),
+            ingest_done: Arc::new(AtomicUsize::new(0)),
             tab: initial_tab(),
             etool: EditorTool::Select,
             atool: AnnotateTool::Select,
@@ -324,6 +331,14 @@ enum RenderState {
     Idle,
     Running,
     Done(PathBuf),
+    Failed(String),
+}
+
+/// The async pack-ingest job's state — the status line polls it.
+enum IngestState {
+    Idle,
+    Running { pack: String },
+    Done { pack: String, copied: usize },
     Failed(String),
 }
 
@@ -643,6 +658,39 @@ impl Composer {
         self.next_browser += 1;
     }
 
+    /// INGEST one pack OFF the UI thread: copy its media into
+    /// `content/elements/<pack>/`, indexed and postered — the operator's
+    /// "grab the ones I often use". One at a time; sources untouched.
+    fn start_ingest(&mut self, pack: &Path) {
+        {
+            let st = self.ingest.lock().expect("ingest state");
+            if matches!(*st, IngestState::Running { .. }) {
+                self.status = "One ingest at a time — the current one is still copying.".into();
+                return;
+            }
+        }
+        let name = pack
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "pack".into());
+        self.ingest_done.store(0, Ordering::Relaxed);
+        let state = Arc::clone(&self.ingest);
+        let done = Arc::clone(&self.ingest_done);
+        let pack = pack.to_path_buf();
+        *state.lock().expect("ingest state") = IngestState::Running { pack: name.clone() };
+        std::thread::Builder::new()
+            .name("dpl-pack-ingest".into())
+            .spawn(move || {
+                let root = Self::content_root();
+                let result = packs::ingest_copy(&root, &pack, &name, &done);
+                *state.lock().expect("ingest state") = match result {
+                    Ok(copied) => IngestState::Done { pack: name, copied },
+                    Err(e) => IngestState::Failed(e),
+                };
+            })
+            .expect("spawn ingest thread");
+    }
+
     /// Pin one folder as a pack source — the shelf lists it in place;
     /// nothing is copied. The Browse-window chip and the
     /// `--pin-pack <dir>` harness seam both land here.
@@ -712,13 +760,20 @@ impl Composer {
     fn drain_media_feeds(&mut self, ctx: &egui::Context) {
         let mut incoming: Vec<PathBuf> = Vec::new();
         let mut pins: Vec<PathBuf> = Vec::new();
+        let mut ingests: Vec<PathBuf> = Vec::new();
         for b in &self.browsers {
             let mut b = lock(b);
             incoming.append(&mut b.picked);
             pins.append(&mut b.pinned);
+            if let Some(dir) = b.ingest_req.take() {
+                ingests.push(dir);
+            }
         }
         for dir in pins {
             self.pin_pack(&dir);
+        }
+        for dir in ingests {
+            self.start_ingest(&dir);
         }
         incoming.extend(
             ctx.input(|i| i.raw.dropped_files.clone())
@@ -832,6 +887,37 @@ impl Composer {
         self.tick_playback(ui.ctx());
         self.show_browsers(ui.ctx());
         self.drain_media_feeds(ui.ctx());
+        // The ingest pill: progress while Running, cache reset on Done.
+        let finished = {
+            let mut st = self.ingest.lock().expect("ingest state");
+            match &*st {
+                IngestState::Running { pack } => {
+                    self.status = format!(
+                        "Ingesting {pack} — {} file(s) processed…",
+                        self.ingest_done.load(Ordering::Relaxed)
+                    );
+                    ui.ctx().request_repaint_after(Duration::from_millis(300));
+                    false
+                }
+                IngestState::Done { pack, copied } => {
+                    self.status =
+                        format!("Ingested {pack} — {copied} file(s) now local in your library.");
+                    *st = IngestState::Idle;
+                    true
+                }
+                IngestState::Failed(e) => {
+                    self.status = format!("Ingest failed: {e}");
+                    *st = IngestState::Idle;
+                    false
+                }
+                IngestState::Idle => false,
+            }
+        };
+        if finished {
+            self.palette = None;
+            self.elements = None;
+            self.packs = None;
+        }
         // A render in flight keeps the frame alive so its status pill updates.
         if matches!(
             *self.render.lock().expect("render state"),
@@ -1177,7 +1263,9 @@ impl Composer {
                     );
                 }
                 for p in shelf {
-                    let count = if p.files >= 1000 {
+                    let count = if p.ingested {
+                        "local".to_string()
+                    } else if p.files >= 1000 {
                         "1000+".to_string()
                     } else {
                         format!("{}", p.files)
