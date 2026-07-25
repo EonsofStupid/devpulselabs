@@ -19,4 +19,5 @@ dpl-engine-media.workspace = true
 dpl-engine-steps.workspace = true
 dpl-guide.workspace = true
 dpl-doc.workspace = true
+serde.workspace = true
 serde_json.workspace = true

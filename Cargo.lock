@@ -1636,6 +1636,7 @@ dependencies = [
  "dpl-video",
  "egui",
  "egui-pilot-ai",
+ "serde",
  "serde_json",
 ]
 

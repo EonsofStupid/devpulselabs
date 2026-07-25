@@ -125,14 +125,14 @@ shorten, never lengthen.
 
 | # | Walkthrough step | Today (ground-truthed 2026-07-24) | Killed by |
 |---|------------------|-----------------------------------|-----------|
-| 1 | Editor restores your comp | `Composer::default()` every boot — always blank | R1z |
+| 1 | Editor restores your comp | ✅ R1z: reopen-last via `composer-state.json` + debounced autosave + Drop flush | DONE (R1z) |
 | 2 | Media bin thumbnails | In the R1x working tree, uncommitted | LAND R1x |
 | 3 | Browse windows onto folders | Do not exist anywhere | R1y |
 | 4 | Drag-drop from Explorer | No `dropped_files` handling anywhere in the repo | R1y |
 | 5 | Real timeline (ruler/bars/trim/scrub/sequence preview) | In the R1x working tree, uncommitted | LAND R1x |
 | 6 | AE elements usable | `Source::Element` renders nothing; no ingest ran | R2a (= ratified R1c) |
 | 7 | Transitions/effects | None; render is bare concat | R2b (= ratified R1d) |
-| 8 | Undo/redo | None | R1z |
+| 8 | Undo/redo | ✅ R1z: snapshot undo/redo (cap 100, one step per drag) + Ctrl+Z/Ctrl+Shift+Z/Ctrl+Y + Space/Delete/arrows | DONE (R1z) |
 | 9 | Chat edits the open comp | Seam live (R1v/w) but no editor-side UI | R2c (= ratified R1f) |
 | 10 | Renders/library correct | `wiredfront/library` still mounts the ColdLight wall | LAND R1x commit 2 |
 | 11 | Google Drive | No HTTP client in the workspace | R2d |
@@ -146,7 +146,8 @@ shorten, never lengthen.
    drag-drop + import write-through. Rows 3, 4. Plan:
    `docs/plans/r1y-media-windows.md` (authored, awaiting approval).
 3. **R1z — never lose work**: comp autosave + reopen-last + undo/redo +
-   the keyboard map. Rows 1, 8.
+   the keyboard map. Rows 1, 8. ✅ LANDED
+   (`docs/plans/r1z-editor-safety.md`).
 4. **R2a — my AE elements live here** (ratified R1c): ingest the gigs into
    `content/elements/<pack>/`, index, elements shelf + overlay lane. Row 6.
 5. **R2b — cuts feel finished** (R1d slice): transition/effect registry v1

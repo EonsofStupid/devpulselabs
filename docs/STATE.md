@@ -94,10 +94,32 @@ run from target/release resolved the repo content root, no scatter.
 Operator-approved migration: the 9 scattered captures moved into the
 real inbox (2 renamed `-migrated-N`), stale tree removed. NOTE: one
 Gallery `rescan` tap reindexes them.
-**NEXT:** R1z (autosave/undo/reopen-last + keyboard map),
-R2a deep-pack browsing/tagging + the .aep/.mogrt parse spike, R2b
-effects (the 860 .cube LUTs first — ffmpeg lut3d). Ratified: 3D/camera/tracker/motion-blur are LATER;
-AI is ephemeral in-app + chat (one seam); WiredFRONT before Workbench.
+**R1z landed** (`feat/r1z-editor-safety`,
+`docs/plans/r1z-editor-safety.md`): NEVER LOSE WORK — friction rows 1+8
+closed. Snapshot UNDO/REDO (comp is pure `Clone+PartialEq` data; cap
+100, deduped, ONE step per completed drag; history per-comp) ·
+debounced AUTOSAVE (2s after the last edit on a SAVED comp, crash-safe
+`dpl_comp::save`, flush on New/Open + `Drop` at exit; facts line shows
+`· unsaved edits` honestly; unsaved comps still wait for the guided
+Save) · REOPEN-LAST (`composer-state.json` at the content root — the
+`sources.json` precedent — written by Save/Open, restored once-lazily
+only when the editor would open empty; drills/tests stay hermetic) ·
+the KEYBOARD MAP, one pure unit-proven `key_act` path guarded by
+Editor-tab + `egui_wants_keyboard_input`: Space play/pause · Del/
+Backspace remove-selected · Home/End · ←/→ step 1s · Ctrl+Z /
+Ctrl+Shift+Z / Ctrl+Y (operator ratified the arrows/Home/End extras).
+BUG FIXED en passant: New was `*self = default()` — it severed the
+in-flight render/ingest/export Arcs, closed Browse windows, and dumped
+every cache; it is now a comp-only reset (`new_comp`). New harness seam
+`--save-comp <name>` (Save-chip path headlessly). PROOF: 27 composer
+tests; real-exe SEQUENTIAL drill — run 1 imports 2 clips + saves
+`r1z-proof`, cold-boot runs 2+3 REOPEN it ("Reopened inbox/r1z-proof —
+your last comp.", both layers on the timeline); shots
+`docs/proof/r1z-reopen-{1280x800,1600x1000}.png`.
+**NEXT:** R2a deep-pack browsing/tagging + the .aep/.mogrt parse spike,
+R2b effects (the 860 .cube LUTs first — ffmpeg lut3d). Ratified:
+3D/camera/tracker/motion-blur are LATER; AI is ephemeral in-app + chat
+(one seam); WiredFRONT before Workbench.
 Memory: `experience-first-gate`.
 KNOWN (pre-existing, observed by the W2 cross-process drill): opening
 `artifacts.db` with a WAL left by ANOTHER process trips the index's

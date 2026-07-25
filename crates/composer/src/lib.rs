@@ -9,15 +9,18 @@
 //! Effects & Presets · the layer-OUTLINE timeline (one row per layer,
 //! twirl-down properties, per-layer lanes, CTI) · status row.
 //!
-//! W1 is the 2D slice. Ratified LATER phases (honest affordances only):
-//! 3D/camera/tracker/motion-blur, the effects registry, elements ingest,
-//! transform keyframes (comp schema pass), browse windows (R1y),
-//! autosave/undo (R1z), the ephemeral ✦ + chat seam pass. The comp stays
-//! plain validated `comp.json` — the document the agent seam edits.
+//! W1 is the 2D slice. R1z added the safety layer: snapshot undo/redo,
+//! debounced autosave, reopen-last (`state.rs`), and the editor keyboard
+//! map. Ratified LATER phases (honest affordances only): 3D/camera/
+//! tracker/motion-blur, the effects registry, elements ingest, transform
+//! keyframes (comp schema pass), the ephemeral ✦ + chat seam pass. The
+//! comp stays plain validated `comp.json` — the document the agent seam
+//! edits.
 
 mod browse;
 pub mod import;
 mod packs;
+mod state;
 
 use dpl_coldlight::{self as cl, Tone};
 use dpl_comp::{Composition, Layer, Source};
@@ -33,7 +36,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// The default trimmed length for a clip whose duration we cannot probe.
 const FALLBACK_CLIP_SECS: f32 = 6.0;
@@ -43,6 +46,11 @@ const PROP_H: f32 = 20.0;
 const RULER_H: f32 = 22.0;
 /// The layer OUTLINE column's width (timeline left half).
 const OUTLINE_W: f32 = 252.0;
+/// Undo depth — comp snapshots are refs-only JSON, so 100 stays tiny.
+const UNDO_CAP: usize = 100;
+/// The autosave debounce: a saved comp persists this long after the last
+/// edit settles (mid-drag edits wait for the release).
+const AUTOSAVE_SECS: f32 = 2.0;
 
 /// The editing session: the comp under edit, where it saves, selection +
 /// playback + the preview player, the project-panel caches, and an honest
@@ -88,6 +96,18 @@ pub struct Composer {
     px_per_sec: f32,
     /// A live timeline drag (trim/move/scrub), cleared on release.
     drag: Option<Drag>,
+    /// Undo history — comp snapshots pushed BEFORE each edit (one per
+    /// completed drag). Per-comp: cleared on New/Open.
+    undo_stack: Vec<Composition>,
+    /// Redo history — filled by undo, cleared by any fresh edit.
+    redo_stack: Vec<Composition>,
+    /// Edits not yet on disk (drives the autosave + the honest marker).
+    dirty: bool,
+    /// When the newest edit settled — the autosave debounce clock.
+    edited_at: Option<Instant>,
+    /// The one-shot reopen-last guard (runs on the first `ui` frame only,
+    /// so tests and drills that stage a comp first stay hermetic).
+    restored: bool,
     /// Layer ids with their property rows twirled open.
     expanded: BTreeSet<String>,
     /// The Info panel (mock: optional, default shown, closable).
@@ -192,6 +212,11 @@ impl Default for Composer {
             playing: false,
             px_per_sec: 60.0,
             drag: None,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+            dirty: false,
+            edited_at: None,
+            restored: false,
             expanded: BTreeSet::new(),
             info_open: true,
             fx_search: String::new(),
@@ -244,6 +269,10 @@ enum Act {
     Step(f32),
     ToggleInfo,
     Zoom(f32),
+    /// Step back through the undo history (Ctrl+Z).
+    Undo,
+    /// Step forward again (Ctrl+Shift+Z / Ctrl+Y).
+    Redo,
     /// Open a new Browse window (a native peer viewport onto a folder).
     Browse,
     /// Open a Browse window rooted at a specific folder (a shelf pack).
@@ -448,6 +477,7 @@ impl Composer {
 
     /// Append a footage record as a new layer, stitched onto the end.
     fn add_clip(&mut self, rec: &Record) {
+        self.checkpoint();
         let path = Self::resolve(&rec.rel_path);
         let out_pt = rec
             .seconds
@@ -476,6 +506,7 @@ impl Composer {
             self.comp.duration()
         );
         self.select(&id);
+        self.mark_edit();
     }
 
     /// Select a layer (outline + Info focus). The PREVIEW follows the
@@ -542,6 +573,7 @@ impl Composer {
     }
 
     fn remove(&mut self, id: &str) {
+        self.checkpoint();
         if let Some(track) = self.comp.tracks.first_mut() {
             track.layers.retain(|l| l.id != id);
         }
@@ -551,6 +583,170 @@ impl Composer {
             self.preview = None;
         }
         self.status = format!("Removed {id} — {} layer(s) left.", self.layers().len());
+        self.mark_edit();
+    }
+
+    /// Push the pre-edit comp onto the undo history (deduped — a no-op
+    /// "edit" never stacks twice) and invalidate redo. Every comp
+    /// mutation calls this FIRST; a drag calls it once, at grab.
+    fn checkpoint(&mut self) {
+        if self.undo_stack.last() != Some(&self.comp) {
+            self.undo_stack.push(self.comp.clone());
+            if self.undo_stack.len() > UNDO_CAP {
+                self.undo_stack.remove(0);
+            }
+        }
+        self.redo_stack.clear();
+    }
+
+    /// An edit settled: note it for the autosave debounce.
+    fn mark_edit(&mut self) {
+        self.dirty = true;
+        self.edited_at = Some(Instant::now());
+    }
+
+    /// Undo — swap the comp back one snapshot (skipping no-op entries),
+    /// current comp onto redo.
+    fn undo_now(&mut self) {
+        while let Some(prev) = self.undo_stack.pop() {
+            if prev != self.comp {
+                self.redo_stack
+                    .push(std::mem::replace(&mut self.comp, prev));
+                self.after_history_jump("Undone");
+                return;
+            }
+        }
+        self.status = "Nothing to undo.".into();
+    }
+
+    /// Redo — the inverse swap.
+    fn redo_now(&mut self) {
+        while let Some(next) = self.redo_stack.pop() {
+            if next != self.comp {
+                self.undo_stack
+                    .push(std::mem::replace(&mut self.comp, next));
+                self.after_history_jump("Redone");
+                return;
+            }
+        }
+        self.status = "Nothing to redo.".into();
+    }
+
+    /// After a history swap the derived state must match the restored
+    /// comp: clamp the playhead, drop dangling selection/twirls, and let
+    /// the autosave persist the jump.
+    fn after_history_jump(&mut self, verb: &str) {
+        let ids: BTreeSet<String> = self.layers().iter().map(|l| l.id.clone()).collect();
+        self.expanded.retain(|id| ids.contains(id));
+        if let Some(sel) = &self.selected {
+            if !ids.contains(sel) {
+                self.selected = None;
+            }
+        }
+        self.time = self.time.min(self.comp.duration());
+        self.status = format!(
+            "{verb} — {} layer(s), {:.1}s.",
+            self.layers().len(),
+            self.comp.duration()
+        );
+        self.mark_edit();
+    }
+
+    /// Reset to a fresh comp WITHOUT touching the rest of the session —
+    /// caches, Browse windows, and the in-flight render/ingest/export
+    /// jobs all stay alive (the old `*self = default()` severed them).
+    fn new_comp(&mut self) {
+        self.flush_save();
+        self.comp = Composition::default_1080p30();
+        self.dir = None;
+        self.selected = None;
+        self.preview = None;
+        self.proj_sel = None;
+        self.time = 0.0;
+        self.playing = false;
+        self.drag = None;
+        self.expanded.clear();
+        self.save_name.clear();
+        self.undo_stack.clear();
+        self.redo_stack.clear();
+        self.dirty = false;
+        self.edited_at = None;
+        self.status = "New composition — add footage from the Project panel.".into();
+    }
+
+    /// Reopen the last comp, ONCE, on the first frame — and only when the
+    /// editor would otherwise open empty-handed (a drill-staged or
+    /// restored comp is never stomped). Experience gate row 1.
+    fn maybe_restore(&mut self) {
+        if self.restored {
+            return;
+        }
+        self.restored = true;
+        if self.dir.is_some() || !self.layers().is_empty() {
+            return;
+        }
+        let Some(rel) = state::load(&Self::content_root()).last_comp else {
+            return;
+        };
+        let dir = Self::resolve(&rel);
+        if dir.join("comp.json").is_file() {
+            self.open_comp(dir);
+            if self.dir.is_some() {
+                self.status = format!("Reopened {rel} — your last comp.");
+            }
+        }
+    }
+
+    /// The debounced autosave: a SAVED comp persists 2s after the last
+    /// edit settles. Unsaved comps wait for the guided Save (the NEXT
+    /// hint names it) — autosave never mints folders behind your back.
+    fn maybe_autosave(&mut self, ctx: &egui::Context) {
+        if !self.dirty || self.dir.is_none() {
+            return;
+        }
+        let elapsed = self
+            .edited_at
+            .map(|t| t.elapsed().as_secs_f32())
+            .unwrap_or(f32::MAX);
+        if elapsed >= AUTOSAVE_SECS {
+            self.flush_save();
+        } else {
+            // No input arrives while idle — keep one frame queued so the
+            // debounce actually fires.
+            ctx.request_repaint_after(Duration::from_secs_f32((AUTOSAVE_SECS - elapsed).max(0.05)));
+        }
+    }
+
+    /// Write pending edits to the comp's folder NOW (autosave fire,
+    /// leaving the comp, app exit). Failures stay dirty and retry on the
+    /// next debounce instead of dying silently.
+    fn flush_save(&mut self) {
+        if !self.dirty {
+            return;
+        }
+        let Some(dir) = self.dir.clone() else {
+            return;
+        };
+        match dpl_comp::save(&dir, &self.comp) {
+            Ok(()) => {
+                self.dirty = false;
+                self.edited_at = None;
+            }
+            Err(e) => {
+                self.status = format!("Autosave failed: {e:?}");
+                self.edited_at = Some(Instant::now());
+            }
+        }
+    }
+
+    /// Remember this comp as the one to reopen next run.
+    fn remember_last(&self, dir: &Path) {
+        state::save(
+            &Self::content_root(),
+            &state::EditorState {
+                last_comp: Some(Self::short(dir)),
+            },
+        );
     }
 
     /// Persist `comp.json` to an inbox folder (inbox-born per R1 §1).
@@ -576,14 +772,22 @@ impl Composer {
         }
         let dir = self.dir.clone().unwrap();
         self.status = match dpl_comp::save(&dir, &self.comp) {
-            Ok(()) => format!("Saved to {}", dir.display()),
+            Ok(()) => {
+                self.dirty = false;
+                self.edited_at = None;
+                self.remember_last(&dir);
+                format!("Saved to {}", dir.display())
+            }
             Err(e) => format!("Save failed: {e:?}"),
         };
         self.comps = None;
     }
 
     /// Open an existing comp document folder — the COMPS section's tap.
+    /// Pending edits on the outgoing comp flush first; history is
+    /// per-comp, so it resets with the switch.
     fn open_comp(&mut self, dir: PathBuf) {
+        self.flush_save();
         match dpl_comp::load(&dir) {
             Ok(comp) => {
                 self.comp = comp;
@@ -593,6 +797,11 @@ impl Composer {
                 self.expanded.clear();
                 self.time = 0.0;
                 self.playing = false;
+                self.undo_stack.clear();
+                self.redo_stack.clear();
+                self.dirty = false;
+                self.edited_at = None;
+                self.remember_last(&dir);
                 self.status = format!("Opened {}", dir.display());
             }
             Err(e) => self.status = format!("Open failed: {e:?}"),
@@ -983,6 +1192,14 @@ impl Composer {
         self.elements = None;
     }
 
+    /// The harness seam (`--save-comp <name>`): save the booted comp
+    /// under `name` through the SAME path the Save chip takes — paired
+    /// with `--import-drill`, the reopen-last drill's first half.
+    pub fn save_comp(&mut self, name: &str) {
+        self.save_name = name.to_string();
+        self.save();
+    }
+
     /// The harness seam (`--import-drill <dir>`): import every media
     /// file in `dir` through the SAME path an Explorer drop takes —
     /// the real-exe proof of the import seam.
@@ -1076,6 +1293,7 @@ impl Composer {
 
     /// The Composer surface — what the WiredFRONT hub calls for its subroute.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        self.maybe_restore();
         self.ensure_project();
         self.tick_playback(ui.ctx());
         self.show_browsers(ui.ctx());
@@ -1120,6 +1338,33 @@ impl Composer {
         }
         let mut act: Option<Act> = None;
 
+        // The editor keyboard map — Editor tab only, and NEVER while a
+        // text field (name, search, caption) owns the keys.
+        if self.tab == Tab::Editor && !ui.ctx().egui_wants_keyboard_input() {
+            let mods = ui.input(|i| i.modifiers);
+            let pressed: Vec<egui::Key> = ui.input(|i| {
+                [
+                    egui::Key::Space,
+                    egui::Key::Delete,
+                    egui::Key::Backspace,
+                    egui::Key::Home,
+                    egui::Key::End,
+                    egui::Key::ArrowLeft,
+                    egui::Key::ArrowRight,
+                    egui::Key::Z,
+                    egui::Key::Y,
+                ]
+                .into_iter()
+                .filter(|k| i.key_pressed(*k))
+                .collect()
+            });
+            for k in pressed {
+                if let Some(a) = key_act(k, mods, self.selected.as_deref()) {
+                    act = Some(a);
+                }
+            }
+        }
+
         let full = ui.max_rect();
         let tabbar_h = 42.0_f32;
         let pad = cl::space::S2;
@@ -1144,7 +1389,7 @@ impl Composer {
         }
 
         match act {
-            Some(Act::New) => *self = Composer::default(),
+            Some(Act::New) => self.new_comp(),
             Some(Act::Save) => self.save(),
             Some(Act::Render) => self.start_render(),
             Some(Act::Tab(t)) => self.tab = t,
@@ -1206,6 +1451,8 @@ impl Composer {
             }
             Some(Act::ToggleInfo) => self.info_open = !self.info_open,
             Some(Act::Zoom(f)) => self.px_per_sec = (self.px_per_sec * f).clamp(20.0, 240.0),
+            Some(Act::Undo) => self.undo_now(),
+            Some(Act::Redo) => self.redo_now(),
             Some(Act::Browse) => {
                 let start = std::env::var("USERPROFILE")
                     .map(|p| Path::new(&p).join("Videos"))
@@ -1219,6 +1466,7 @@ impl Composer {
             Some(Act::Keep(show, ep)) => self.keep_render(&show, &ep),
             None => {}
         }
+        self.maybe_autosave(ui.ctx());
     }
 
     /// The workflow tabs — tailored siblings; active glows voltage.
@@ -1666,7 +1914,8 @@ impl Composer {
             ui.label(RichText::new("TIMELINE").small().strong());
             ui.label(
                 RichText::new(
-                    "tap + for properties · drag edges to trim · body to move · lane to scrub",
+                    "tap + for properties · drag to trim/move · Space plays · Del removes \
+                     · Ctrl+Z undoes",
                 )
                 .small()
                 .color(cl::ink::SUBTLE),
@@ -1939,10 +2188,15 @@ impl Composer {
         let pointer = resp.interact_pointer_pos();
         if resp.drag_started() {
             if let Some(p) = pointer {
-                self.drag = Some(Self::hit_test(&bars, p, pps));
-                if let Some(Drag::Move(id, _) | Drag::TrimIn(id) | Drag::TrimOut(id)) = &self.drag {
+                let hit = Self::hit_test(&bars, p, pps);
+                if !matches!(hit, Drag::Scrub) {
+                    // One undo step per drag: the pre-drag comp, at grab.
+                    self.checkpoint();
+                }
+                if let Drag::Move(id, _) | Drag::TrimIn(id) | Drag::TrimOut(id) = &hit {
                     self.selected = Some(id.clone());
                 }
+                self.drag = Some(hit);
             }
         } else if resp.clicked() {
             if let Some(p) = pointer {
@@ -1972,6 +2226,13 @@ impl Composer {
             }
         }
         if resp.drag_stopped() {
+            if matches!(
+                self.drag,
+                Some(Drag::TrimIn(_) | Drag::TrimOut(_) | Drag::Move(..))
+            ) {
+                // The edit settles on release — mid-drag never autosaves.
+                self.mark_edit();
+            }
             self.drag = None;
         }
     }
@@ -2116,7 +2377,7 @@ impl Composer {
                 }
                 ui.label(
                     RichText::new(format!(
-                        "{} layer(s) · {:.1}s · {}×{} @{}fps · {}",
+                        "{} layer(s) · {:.1}s · {}×{} @{}fps · {}{}",
                         self.layers().len(),
                         self.comp.duration(),
                         self.comp.w,
@@ -2126,6 +2387,12 @@ impl Composer {
                             .as_deref()
                             .map(Self::short)
                             .unwrap_or_else(|| "unsaved".into()),
+                        // Honest while the autosave debounce runs.
+                        if self.dirty && self.dir.is_some() {
+                            " · unsaved edits"
+                        } else {
+                            ""
+                        },
                     ))
                     .small()
                     .color(cl::ink::SUBTLE),
@@ -2653,6 +2920,37 @@ impl Composer {
     }
 }
 
+/// Pending edits never die with the process — the last flush rides the
+/// drop (app exit; New/Open flush explicitly on their own paths).
+impl Drop for Composer {
+    fn drop(&mut self) {
+        self.flush_save();
+    }
+}
+
+/// The editor keyboard map — ONE pure path (the deck's idiom), so the
+/// bindings are unit-provable. Ctrl chords first; bare keys only reach
+/// here when no text field wants them.
+fn key_act(key: egui::Key, mods: egui::Modifiers, selected: Option<&str>) -> Option<Act> {
+    if mods.command {
+        return match key {
+            egui::Key::Z if mods.shift => Some(Act::Redo),
+            egui::Key::Z => Some(Act::Undo),
+            egui::Key::Y => Some(Act::Redo),
+            _ => None,
+        };
+    }
+    match key {
+        egui::Key::Space => Some(Act::TogglePlay),
+        egui::Key::Delete | egui::Key::Backspace => selected.map(|id| Act::Remove(id.to_string())),
+        egui::Key::Home => Some(Act::ToStart),
+        egui::Key::End => Some(Act::ToEnd),
+        egui::Key::ArrowLeft => Some(Act::Step(-1.0)),
+        egui::Key::ArrowRight => Some(Act::Step(1.0)),
+        _ => None,
+    }
+}
+
 /// The tone cycle for layer rows/bars (Magenta is the selection voice).
 fn row_tone(i: usize) -> Tone {
     [Tone::Cyan, Tone::Lime, Tone::Coral][i % 3]
@@ -3169,6 +3467,147 @@ mod tests {
         assert!(c.next_hint(false, false).contains("Render"));
         assert!(c.next_hint(true, false).contains("Rendering"));
         assert!(c.next_hint(false, true).contains("file the render"));
+        // The dir is a dummy — never let the Drop flush write it.
+        c.dirty = false;
+    }
+
+    #[test]
+    fn undo_redo_round_trip_restores_spans() {
+        let mut c = Composer::default();
+        c.add_clip(&video_rec("A", "inbox/a.mp4", Some(4)));
+        let id = c.layers()[0].id.clone();
+        // A completed drag = one checkpoint at grab + the live edits.
+        c.checkpoint();
+        c.apply_drag(&Drag::TrimOut(id.clone()), 2.0);
+        assert!((c.layers()[0].span() - 2.0).abs() < 1e-6);
+        c.undo_now();
+        assert!((c.layers()[0].span() - 4.0).abs() < 1e-6, "trim undone");
+        c.undo_now();
+        assert!(c.layers().is_empty(), "add undone");
+        c.redo_now();
+        assert_eq!(c.layers().len(), 1, "add redone");
+        assert!((c.layers()[0].span() - 4.0).abs() < 1e-6);
+        c.redo_now();
+        assert!((c.layers()[0].span() - 2.0).abs() < 1e-6, "trim redone");
+        assert!(dpl_comp::validate(&c.comp).is_empty());
+    }
+
+    #[test]
+    fn checkpoint_dedups_noops_and_caps_depth() {
+        let mut c = Composer::default();
+        c.checkpoint();
+        c.checkpoint();
+        assert_eq!(c.undo_stack.len(), 1, "identical snapshots dedup");
+        for i in 0..(UNDO_CAP + 20) {
+            c.add_clip(&video_rec("X", &format!("inbox/x{i}.mp4"), Some(1)));
+        }
+        assert!(c.undo_stack.len() <= UNDO_CAP, "history stays bounded");
+    }
+
+    #[test]
+    fn undo_prunes_dangling_selection_and_clamps_time() {
+        let mut c = Composer::default();
+        c.add_clip(&video_rec("A", "inbox/a.mp4", Some(3)));
+        let id = c.layers()[0].id.clone();
+        c.expanded.insert(id.clone());
+        c.time = 3.0;
+        assert_eq!(c.selected.as_deref(), Some(id.as_str()));
+        c.undo_now(); // back to the empty comp
+        assert!(c.layers().is_empty());
+        assert!(c.selected.is_none(), "dangling selection dropped");
+        assert!(c.expanded.is_empty(), "dangling twirl dropped");
+        assert_eq!(c.time, 0.0, "playhead clamped to the restored comp");
+        assert!(c.dirty, "a history jump is an edit the autosave persists");
+    }
+
+    #[test]
+    fn a_fresh_edit_clears_redo() {
+        let mut c = Composer::default();
+        c.add_clip(&video_rec("A", "inbox/a.mp4", Some(3)));
+        c.undo_now();
+        assert!(!c.redo_stack.is_empty());
+        c.add_clip(&video_rec("B", "inbox/b.mp4", Some(2)));
+        assert!(c.redo_stack.is_empty(), "a new edit invalidates redo");
+    }
+
+    #[test]
+    fn new_comp_resets_the_edit_and_keeps_the_session() {
+        let mut c = Composer::default();
+        c.packs = Some(Vec::new());
+        c.palette = Some(Vec::new());
+        c.add_clip(&video_rec("A", "inbox/a.mp4", Some(3)));
+        c.save_name = "typed".into();
+        c.new_comp();
+        assert!(c.layers().is_empty());
+        assert!(c.dir.is_none());
+        assert!(c.undo_stack.is_empty() && c.redo_stack.is_empty());
+        assert!(!c.dirty);
+        assert!(c.save_name.is_empty());
+        assert!(
+            c.packs.is_some() && c.palette.is_some(),
+            "session caches survive New — only the comp resets"
+        );
+    }
+
+    #[test]
+    fn drop_flushes_pending_edits_to_disk() {
+        let dir =
+            std::env::temp_dir().join(format!("dpl-composer-r1z-flush-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        {
+            let mut c = Composer::default();
+            c.add_clip(&video_rec("A", "inbox/a.mp4", Some(3)));
+            c.dir = Some(dir.clone());
+        } // drop = app exit
+        let saved = dpl_comp::load(&dir).unwrap();
+        assert_eq!(
+            saved.tracks[0].layers.len(),
+            1,
+            "the drop flush wrote comp.json"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn key_act_maps_the_editor_keys() {
+        use egui::{Key, Modifiers};
+        let none = Modifiers::default();
+        let ctrl = Modifiers {
+            command: true,
+            ..Default::default()
+        };
+        let ctrl_shift = Modifiers {
+            command: true,
+            shift: true,
+            ..Default::default()
+        };
+        assert!(matches!(
+            key_act(Key::Space, none, None),
+            Some(Act::TogglePlay)
+        ));
+        assert!(
+            matches!(key_act(Key::Delete, none, Some("clip-1")), Some(Act::Remove(id)) if id == "clip-1")
+        );
+        assert!(
+            key_act(Key::Delete, none, None).is_none(),
+            "no selection, nothing removed"
+        );
+        assert!(matches!(
+            key_act(Key::Backspace, none, Some("x")),
+            Some(Act::Remove(_))
+        ));
+        assert!(matches!(key_act(Key::Z, ctrl, None), Some(Act::Undo)));
+        assert!(matches!(key_act(Key::Z, ctrl_shift, None), Some(Act::Redo)));
+        assert!(matches!(key_act(Key::Y, ctrl, None), Some(Act::Redo)));
+        assert!(key_act(Key::Z, none, None).is_none(), "bare Z is unbound");
+        assert!(matches!(key_act(Key::Home, none, None), Some(Act::ToStart)));
+        assert!(matches!(key_act(Key::End, none, None), Some(Act::ToEnd)));
+        assert!(matches!(key_act(Key::ArrowLeft, none, None), Some(Act::Step(d)) if d < 0.0));
+        assert!(matches!(key_act(Key::ArrowRight, none, None), Some(Act::Step(d)) if d > 0.0));
+        assert!(
+            key_act(Key::Space, ctrl, None).is_none(),
+            "ctrl+space is unbound"
+        );
     }
 
     #[test]
