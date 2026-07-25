@@ -7,7 +7,7 @@
 use dpl_chat_context::RouteContextState;
 use dpl_chat_core::{
     ActivationState, ChatDomain, ChatEventContent, ChatSessionId, ProviderAccent, ProviderId,
-    SessionState,
+    RecoveryActionKind, SessionState,
 };
 use dpl_chat_interactions::{
     InteractionContent, InteractionId, InteractionLifecycle, InteractionPlacement,
@@ -47,6 +47,8 @@ pub const COMPOSER_ID: PilotId = PilotId::new("chat.composer");
 pub const SEND_ID: PilotId = PilotId::new("chat.composer.send");
 pub const OVERLAY_ID: PilotId = PilotId::new("chat.overlay");
 pub const PROVIDER_OVERLAY_ID: PilotId = PilotId::new("chat.overlay.provider");
+pub const PROVIDER_LOGIN_ID: PilotId = PilotId::new("chat.provider.login");
+pub const PROVIDER_SETUP_ID: PilotId = PilotId::new("chat.provider.setup");
 pub const UTILITY_OPEN_ID: PilotId = PilotId::new("chat.utility.open");
 
 const FULL_RAIL_WIDTH: f32 = 840.0;
@@ -145,6 +147,8 @@ pub enum ChatWindowIntent {
         interaction_id: InteractionId,
         placement: InteractionPlacement,
     },
+    ActivateProvider(ProviderId),
+    OpenProviderSetup(ProviderId),
     NavigateTo(Route),
     ShowMain,
     QuitApplication,
@@ -156,6 +160,8 @@ pub enum HostIntent {
         interaction_id: InteractionId,
         placement: InteractionPlacement,
     },
+    ActivateProvider(ProviderId),
+    OpenProviderSetup(ProviderId),
     NavigateTo(Route),
     ShowMain,
     QuitApplication,
@@ -399,6 +405,12 @@ impl ChatWindow {
                 interaction_id,
                 placement,
             })),
+            ChatWindowIntent::ActivateProvider(provider) => {
+                Ok(Some(HostIntent::ActivateProvider(provider)))
+            }
+            ChatWindowIntent::OpenProviderSetup(provider) => {
+                Ok(Some(HostIntent::OpenProviderSetup(provider)))
+            }
             ChatWindowIntent::NavigateTo(route) => Ok(Some(HostIntent::NavigateTo(route))),
             ChatWindowIntent::ShowMain => Ok(Some(HostIntent::ShowMain)),
             ChatWindowIntent::QuitApplication => Ok(Some(HostIntent::QuitApplication)),
@@ -447,6 +459,15 @@ impl ChatWindow {
         self.compact_picker_overlay(ui, &mut intents);
         self.interaction_overlays(ui, &mut intents);
         intents
+    }
+
+    pub fn set_provider_activation(
+        &mut self,
+        provider: ProviderId,
+        activation: ActivationState,
+    ) -> Result<(), ChatWindowError> {
+        self.runtime.set_activation(provider, activation)?;
+        Ok(())
     }
 
     fn top_strip(&self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
@@ -712,8 +733,10 @@ impl ChatWindow {
         ui.pilot_track(&response, metadata);
         if response.clicked() {
             intents.push(ChatWindowIntent::SelectProvider(descriptor.id));
-        }
-        if response.hovered() {
+            intents.push(ChatWindowIntent::SetOverlay(Some(DomainOverlay::Provider(
+                descriptor.id,
+            ))));
+        } else if response.hovered() {
             intents.push(ChatWindowIntent::SetOverlay(Some(DomainOverlay::Provider(
                 descriptor.id,
             ))));
@@ -1174,7 +1197,7 @@ impl ChatWindow {
                             RichText::new("♜  Add to Council · not qualified")
                                 .color(cl::ink::SUBTLE),
                         );
-                        ui.label(RichText::new("◎  Account").color(cl::ink::BASE));
+                        self.provider_activation_action(ui, &provider, intents);
                         ui.label(RichText::new("⌁  Diagnostics").color(cl::ink::BASE));
                         if ui.button("Close").clicked() {
                             intents.push(ChatWindowIntent::SetOverlay(None));
@@ -1186,6 +1209,69 @@ impl ChatWindow {
                     NodeMetadata::new(PROVIDER_OVERLAY_ID, Role::Dialog, "Provider hover card"),
                 );
             });
+    }
+
+    fn provider_activation_action(
+        &self,
+        ui: &mut egui::Ui,
+        provider: &ProviderView,
+        intents: &mut Vec<ChatWindowIntent>,
+    ) {
+        let provider_id = provider.registration.manifest.descriptor.id;
+        let recovery = provider.registration.activation.recovery().first();
+        match recovery.map(|action| action.kind) {
+            Some(RecoveryActionKind::SignIn | RecoveryActionKind::Retry) => {
+                let label = recovery
+                    .map(|action| action.label.as_str())
+                    .unwrap_or("Log in");
+                let response = ui.button(label);
+                ui.pilot_track(
+                    &response,
+                    NodeMetadata::new(
+                        PROVIDER_LOGIN_ID.child(&PilotKey::new(provider_id.0)),
+                        Role::Button,
+                        label,
+                    ),
+                );
+                if response.clicked() {
+                    intents.push(ChatWindowIntent::ActivateProvider(provider_id));
+                }
+            }
+            Some(RecoveryActionKind::InstallInstructions | RecoveryActionKind::UpdateProvider) => {
+                let label = recovery
+                    .map(|action| action.label.as_str())
+                    .unwrap_or("Provider setup");
+                let response = ui.button(label);
+                ui.pilot_track(
+                    &response,
+                    NodeMetadata::new(
+                        PROVIDER_SETUP_ID.child(&PilotKey::new(provider_id.0)),
+                        Role::Button,
+                        label,
+                    ),
+                );
+                if response.clicked() {
+                    intents.push(ChatWindowIntent::OpenProviderSetup(provider_id));
+                }
+            }
+            _ if matches!(provider.registration.activation, ActivationState::SigningIn) => {
+                let response = ui.add_enabled(false, egui::Button::new("Waiting for browser…"));
+                ui.pilot_track(
+                    &response,
+                    NodeMetadata::new(
+                        PROVIDER_LOGIN_ID.child(&PilotKey::new(provider_id.0)),
+                        Role::Button,
+                        "Provider login in progress",
+                    ),
+                );
+            }
+            _ if matches!(provider.registration.activation, ActivationState::Ready) => {
+                ui.label(RichText::new("◎  Account verified").color(Tone::Lime.color()));
+            }
+            _ => {
+                ui.label(RichText::new("◎  Account unavailable").color(cl::ink::SUBTLE));
+            }
+        }
     }
 
     fn compact_picker_overlay(&self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
@@ -1865,6 +1951,29 @@ mod tests {
     fn production_social_and_send_are_truthfully_unavailable() {
         let window = window();
         assert!(!window.social().transport().can_send());
+        assert!(FOUNDATION_SEND_REASON.contains("not qualified"));
+    }
+
+    #[test]
+    fn provider_activation_is_a_typed_host_intent_and_never_enables_send() {
+        let mut window = window();
+        assert_eq!(
+            window
+                .apply(ChatWindowIntent::ActivateProvider(PROVIDER))
+                .expect("activation intent"),
+            Some(HostIntent::ActivateProvider(PROVIDER))
+        );
+        window
+            .set_provider_activation(PROVIDER, ActivationState::Ready)
+            .expect("activation state");
+        let provider = window.runtime.selected_provider().expect("provider");
+        assert!(matches!(
+            provider.registration.activation,
+            ActivationState::Ready
+        ));
+        assert!(!provider
+            .registration
+            .has_capability(Capability::StreamTurns));
         assert!(FOUNDATION_SEND_REASON.contains("not qualified"));
     }
 

@@ -168,3 +168,17 @@ Costs:
 
 Until every unchecked launch item is complete, live provider launch remains
 blocked.
+
+### Activation-only provider slices
+
+Provider-owned authentication may be qualified independently from a live
+conversation adapter when it still obeys the complete named-process,
+credential, containment, and lifecycle boundary above. Activation success
+qualifies only `SubscriptionAuth`/`DeviceCodeAuth`; it cannot silently enable
+sessions, turns, tools, approvals, or send.
+
+The first such slices are the bounded official browser-login paths for
+[ChatGPT / Codex](chat-codex-activation.md) and
+[Grok Build](chat-grok-activation.md). Codex app-server and Grok ACP
+conversation capabilities remain blocked on CHAT-4 and CHAT-7 respectively
+even after login succeeds.

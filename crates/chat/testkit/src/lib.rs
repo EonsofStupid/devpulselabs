@@ -3,7 +3,7 @@
 use dpl_chat_core::{
     ActivationState, Capability, ChatEvent, ChatEventContent, ChatEventId, ChatSessionId,
     ProviderAccent, ProviderDescriptor, ProviderId, ProviderManifest, ProviderProfileId,
-    SessionState, SessionSummary, TurnId,
+    RecoveryAction, RecoveryActionKind, SessionState, SessionSummary, TurnId,
 };
 use dpl_chat_runtime::ProviderRegistration;
 use dpl_chat_social::{
@@ -122,9 +122,12 @@ fn authored_providers() -> Vec<ProviderRegistration> {
             },
         ],
     );
-    codex.activation = ActivationState::Experimental {
-        reason: "Authored fixture replay; no live Codex transport.".into(),
-        recovery: Vec::new(),
+    codex.activation = ActivationState::SignedOut {
+        reason: "Authored transcript; ChatGPT activation is independently testable.".into(),
+        recovery: vec![RecoveryAction::new(
+            RecoveryActionKind::SignIn,
+            "Log in with ChatGPT",
+        )],
     };
     codex.sessions.push(SessionSummary {
         id: ChatSessionId(102),
@@ -179,8 +182,11 @@ fn authored_providers() -> Vec<ProviderRegistration> {
         Vec::new(),
     );
     grok.activation = ActivationState::SignedOut {
-        reason: "Grok subscription activation is not qualified.".into(),
-        recovery: Vec::new(),
+        reason: "Authored transcript; Grok activation is independently testable.".into(),
+        recovery: vec![RecoveryAction::new(
+            RecoveryActionKind::SignIn,
+            "Log in with Grok",
+        )],
     };
 
     vec![codex, claude, gemini, grok]
@@ -442,7 +448,7 @@ mod tests {
     #[test]
     fn fixture_is_ready_but_never_registered_by_production() {
         let fixture = ready_provider();
-        assert!(fixture.activation.can_send());
+        assert!(fixture.can_send());
         assert_eq!(fixture.sessions.len(), 1);
         assert_eq!(fixture.events.len(), 2);
     }
@@ -456,5 +462,21 @@ mod tests {
         assert_eq!(fixture.social.conversations().len(), 3);
         assert_eq!(fixture.interactions.visible().count(), 3);
         assert!(!fixture.social.transport().can_send());
+        for provider_id in [dpl_chat_codex::PROVIDER, dpl_chat_grok::PROVIDER] {
+            let provider = fixture
+                .providers
+                .iter()
+                .find(|provider| provider.manifest.descriptor.id == provider_id)
+                .expect("activation fixture");
+            assert!(matches!(
+                provider
+                    .activation
+                    .recovery()
+                    .first()
+                    .map(|action| action.kind),
+                Some(RecoveryActionKind::SignIn)
+            ));
+            assert!(!provider.has_capability(Capability::StreamTurns));
+        }
     }
 }

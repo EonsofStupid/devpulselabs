@@ -1,0 +1,788 @@
+use dpl_chat_core::{ActivationState, RecoveryAction, RecoveryActionKind};
+use std::ffi::OsStr;
+use std::fmt;
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, ExitStatus, Output, Stdio};
+
+pub const SETUP_URL: &str = "https://developers.openai.com/codex/";
+
+const MINIMUM_VERSION: CodexVersion = CodexVersion::new(0, 145, 0);
+const EXCLUSIVE_MAXIMUM_VERSION: CodexVersion = CodexVersion::new(0, 146, 0);
+const MAX_STATUS_BYTES: usize = 512;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct CodexVersion {
+    pub major: u64,
+    pub minor: u64,
+    pub patch: u64,
+}
+
+impl CodexVersion {
+    pub const fn new(major: u64, minor: u64, patch: u64) -> Self {
+        Self {
+            major,
+            minor,
+            patch,
+        }
+    }
+
+    pub fn parse(output: &str) -> Option<Self> {
+        output
+            .split(|character: char| !(character.is_ascii_digit() || character == '.'))
+            .filter(|candidate| !candidate.is_empty())
+            .find_map(|candidate| {
+                let mut parts = candidate.split('.');
+                let major = parts.next()?.parse().ok()?;
+                let minor = parts.next()?.parse().ok()?;
+                let patch = parts.next()?.parse().ok()?;
+                (parts.next().is_none()).then_some(Self::new(major, minor, patch))
+            })
+    }
+
+    pub const fn is_activation_supported(self) -> bool {
+        version_at_least(self, MINIMUM_VERSION) && version_before(self, EXCLUSIVE_MAXIMUM_VERSION)
+    }
+}
+
+const fn version_at_least(value: CodexVersion, minimum: CodexVersion) -> bool {
+    value.major > minimum.major
+        || (value.major == minimum.major
+            && (value.minor > minimum.minor
+                || (value.minor == minimum.minor && value.patch >= minimum.patch)))
+}
+
+const fn version_before(value: CodexVersion, maximum: CodexVersion) -> bool {
+    value.major < maximum.major
+        || (value.major == maximum.major
+            && (value.minor < maximum.minor
+                || (value.minor == maximum.minor && value.patch < maximum.patch)))
+}
+
+impl fmt::Display for CodexVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodexRuntimeProfile {
+    executable: PathBuf,
+    version: CodexVersion,
+    working_directory: PathBuf,
+}
+
+impl CodexRuntimeProfile {
+    pub fn discover(working_directory: impl AsRef<Path>) -> Result<Self, CodexDiscoveryError> {
+        let working_directory = canonical_directory(working_directory.as_ref())?;
+        let executable = discover_executable().ok_or(CodexDiscoveryError::NotInstalled)?;
+        let version = probe_version(&executable, &working_directory)?;
+        if !version.is_activation_supported() {
+            return Err(CodexDiscoveryError::VersionUnsupported(version));
+        }
+        Ok(Self {
+            executable,
+            version,
+            working_directory,
+        })
+    }
+
+    pub fn executable(&self) -> &Path {
+        &self.executable
+    }
+
+    pub const fn version(&self) -> CodexVersion {
+        self.version
+    }
+
+    pub fn working_directory(&self) -> &Path {
+        &self.working_directory
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CodexDiscoveryError {
+    NotInstalled,
+    WorkingDirectory(String),
+    VersionProbe(String),
+    VersionUnsupported(CodexVersion),
+}
+
+impl fmt::Display for CodexDiscoveryError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotInstalled => f.write_str("the official Codex client is not installed"),
+            Self::WorkingDirectory(reason) => {
+                write!(f, "the Codex working directory is invalid: {reason}")
+            }
+            Self::VersionProbe(reason) => {
+                write!(f, "the Codex version could not be verified: {reason}")
+            }
+            Self::VersionUnsupported(version) => write!(
+                f,
+                "Codex {version} is outside the activation-qualified range >= {MINIMUM_VERSION}, < {EXCLUSIVE_MAXIMUM_VERSION}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for CodexDiscoveryError {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CodexActivationError {
+    Unavailable(String),
+    AlreadyRunning,
+    LaunchFailed(String),
+    PollFailed(String),
+    StatusFailed(String),
+}
+
+impl fmt::Display for CodexActivationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unavailable(reason) => f.write_str(reason),
+            Self::AlreadyRunning => f.write_str("ChatGPT login is already running"),
+            Self::LaunchFailed(reason) => write!(f, "ChatGPT login could not start: {reason}"),
+            Self::PollFailed(reason) => write!(f, "ChatGPT login status failed: {reason}"),
+            Self::StatusFailed(reason) => {
+                write!(f, "Codex could not verify ChatGPT authentication: {reason}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for CodexActivationError {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CodexLoginStatus {
+    ChatGpt,
+    ApiKey,
+    SignedOut,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CodexLoginExit {
+    Success,
+    Failed(Option<i32>),
+}
+
+pub trait CodexLoginProcess: fmt::Debug + Send {
+    fn try_exit(&mut self) -> io::Result<Option<CodexLoginExit>>;
+    fn terminate_and_reap(&mut self);
+}
+
+pub trait CodexLoginLauncher: fmt::Debug + Send {
+    fn launch_login(&self, profile: &CodexRuntimeProfile)
+        -> io::Result<Box<dyn CodexLoginProcess>>;
+}
+
+#[derive(Debug, Default)]
+struct SystemCodexLoginLauncher;
+
+impl CodexLoginLauncher for SystemCodexLoginLauncher {
+    fn launch_login(
+        &self,
+        profile: &CodexRuntimeProfile,
+    ) -> io::Result<Box<dyn CodexLoginProcess>> {
+        let child = login_command(profile).spawn()?;
+        Ok(Box::new(OwnedChild { child: Some(child) }))
+    }
+}
+
+#[derive(Debug)]
+struct OwnedChild {
+    child: Option<Child>,
+}
+
+impl CodexLoginProcess for OwnedChild {
+    fn try_exit(&mut self) -> io::Result<Option<CodexLoginExit>> {
+        let Some(child) = self.child.as_mut() else {
+            return Ok(Some(CodexLoginExit::Failed(None)));
+        };
+        child.try_wait().map(|status| status.map(exit_from_status))
+    }
+
+    fn terminate_and_reap(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            if child.try_wait().ok().flatten().is_none() {
+                let _ = child.kill();
+            }
+            let _ = child.wait();
+        }
+    }
+}
+
+impl Drop for OwnedChild {
+    fn drop(&mut self) {
+        self.terminate_and_reap();
+    }
+}
+
+fn exit_from_status(status: ExitStatus) -> CodexLoginExit {
+    if status.success() {
+        CodexLoginExit::Success
+    } else {
+        CodexLoginExit::Failed(status.code())
+    }
+}
+
+#[derive(Debug)]
+pub struct CodexActivationCoordinator {
+    profile: Result<CodexRuntimeProfile, CodexDiscoveryError>,
+    state: ActivationState,
+    launcher: Box<dyn CodexLoginLauncher>,
+    child: Option<Box<dyn CodexLoginProcess>>,
+}
+
+impl CodexActivationCoordinator {
+    pub fn discover(working_directory: impl AsRef<Path>) -> Self {
+        let profile = CodexRuntimeProfile::discover(working_directory);
+        let state = activation_from_discovery(&profile);
+        Self {
+            profile,
+            state,
+            launcher: Box::<SystemCodexLoginLauncher>::default(),
+            child: None,
+        }
+    }
+
+    pub fn from_parts(
+        profile: Result<CodexRuntimeProfile, CodexDiscoveryError>,
+        state: ActivationState,
+        launcher: Box<dyn CodexLoginLauncher>,
+    ) -> Self {
+        Self {
+            profile,
+            state,
+            launcher,
+            child: None,
+        }
+    }
+
+    pub fn activation(&self) -> &ActivationState {
+        &self.state
+    }
+
+    pub fn activation_capability_qualified(&self) -> bool {
+        self.profile.is_ok()
+    }
+
+    pub fn is_login_running(&self) -> bool {
+        self.child.is_some()
+    }
+
+    pub fn start_login(&mut self) -> Result<(), CodexActivationError> {
+        if self.child.is_some() {
+            return Err(CodexActivationError::AlreadyRunning);
+        }
+        let profile = self
+            .profile
+            .as_ref()
+            .map_err(|error| CodexActivationError::Unavailable(error.to_string()))?;
+        let child = self
+            .launcher
+            .launch_login(profile)
+            .map_err(|error| CodexActivationError::LaunchFailed(public_io_reason(&error)))?;
+        self.child = Some(child);
+        self.state = ActivationState::SigningIn;
+        Ok(())
+    }
+
+    pub fn poll(&mut self) -> Result<bool, CodexActivationError> {
+        let Some(child) = self.child.as_mut() else {
+            return Ok(false);
+        };
+        let exit = child
+            .try_exit()
+            .map_err(|error| CodexActivationError::PollFailed(public_io_reason(&error)))?;
+        let Some(exit) = exit else {
+            return Ok(false);
+        };
+        self.child = None;
+        self.state = match exit {
+            CodexLoginExit::Success => {
+                let profile = self
+                    .profile
+                    .as_ref()
+                    .map_err(|error| CodexActivationError::StatusFailed(error.to_string()))?;
+                activation_from_status(
+                    probe_login_status(profile)
+                        .map_err(|error| CodexActivationError::StatusFailed(error.to_string()))?,
+                )
+            }
+            CodexLoginExit::Failed(code) => failed_state(code),
+        };
+        Ok(true)
+    }
+
+    pub fn fail(&mut self, error: CodexActivationError) {
+        if let Some(mut child) = self.child.take() {
+            child.terminate_and_reap();
+        }
+        self.state = ActivationState::Failed {
+            reason: error.to_string(),
+            recovery: retry_recovery(),
+        };
+    }
+}
+
+impl Drop for CodexActivationCoordinator {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            child.terminate_and_reap();
+        }
+    }
+}
+
+fn activation_from_discovery(
+    profile: &Result<CodexRuntimeProfile, CodexDiscoveryError>,
+) -> ActivationState {
+    match profile {
+        Ok(profile) => match probe_login_status(profile) {
+            Ok(status) => activation_from_status(status),
+            Err(error) => ActivationState::Blocked {
+                reason: error.to_string(),
+                recovery: vec![RecoveryAction::new(
+                    RecoveryActionKind::OpenDiagnostics,
+                    "Open Codex diagnostics",
+                )],
+            },
+        },
+        Err(CodexDiscoveryError::NotInstalled) => ActivationState::NotInstalled {
+            reason: "The official Codex client is required for ChatGPT subscription login."
+                .to_owned(),
+            recovery: vec![RecoveryAction::new(
+                RecoveryActionKind::InstallInstructions,
+                "Get Codex",
+            )],
+        },
+        Err(CodexDiscoveryError::VersionUnsupported(version)) => {
+            ActivationState::VersionUnsupported {
+                reason: format!("Codex {version} is not activation-qualified by DevPULSE."),
+                recovery: vec![RecoveryAction::new(
+                    RecoveryActionKind::UpdateProvider,
+                    "Update Codex",
+                )],
+            }
+        }
+        Err(error) => ActivationState::Blocked {
+            reason: error.to_string(),
+            recovery: vec![RecoveryAction::new(
+                RecoveryActionKind::OpenDiagnostics,
+                "Open Codex diagnostics",
+            )],
+        },
+    }
+}
+
+fn activation_from_status(status: CodexLoginStatus) -> ActivationState {
+    match status {
+        CodexLoginStatus::ChatGpt => ActivationState::Ready,
+        CodexLoginStatus::ApiKey => ActivationState::SignedOut {
+            reason: "Codex is using API-key billing. This tab requires ChatGPT subscription login."
+                .to_owned(),
+            recovery: vec![RecoveryAction::new(
+                RecoveryActionKind::SignIn,
+                "Log in with ChatGPT",
+            )],
+        },
+        CodexLoginStatus::SignedOut => ActivationState::SignedOut {
+            reason: "Log in with ChatGPT to activate subscription-backed Codex.".to_owned(),
+            recovery: vec![RecoveryAction::new(
+                RecoveryActionKind::SignIn,
+                "Log in with ChatGPT",
+            )],
+        },
+    }
+}
+
+fn failed_state(code: Option<i32>) -> ActivationState {
+    ActivationState::Failed {
+        reason: code.map_or_else(
+            || "Codex login exited without a success status.".to_owned(),
+            |code| format!("Codex login exited with status {code}."),
+        ),
+        recovery: retry_recovery(),
+    }
+}
+
+fn retry_recovery() -> Vec<RecoveryAction> {
+    vec![RecoveryAction::new(
+        RecoveryActionKind::Retry,
+        "Try ChatGPT login again",
+    )]
+}
+
+fn canonical_directory(path: &Path) -> Result<PathBuf, CodexDiscoveryError> {
+    let path = fs::canonicalize(path)
+        .map_err(|error| CodexDiscoveryError::WorkingDirectory(public_io_reason(&error)))?;
+    path.is_dir().then_some(path).ok_or_else(|| {
+        CodexDiscoveryError::WorkingDirectory("the selected path is not a directory".to_owned())
+    })
+}
+
+fn discover_executable() -> Option<PathBuf> {
+    let home = std::env::var_os(home_environment_key()).map(PathBuf::from);
+    let path = std::env::var_os("PATH");
+    #[cfg(windows)]
+    let desktop_root = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .map(|root| root.join("OpenAI").join("Codex").join("bin"));
+    #[cfg(not(windows))]
+    let desktop_root = None;
+    resolve_named_executable(home.as_deref(), desktop_root.as_deref(), path.as_deref())
+}
+
+fn resolve_named_executable(
+    home: Option<&Path>,
+    desktop_root: Option<&Path>,
+    path: Option<&OsStr>,
+) -> Option<PathBuf> {
+    let desktop = desktop_root.and_then(latest_desktop_executable);
+    let user = home.map(|root| root.join(".local").join("bin").join(executable_file_name()));
+    desktop
+        .into_iter()
+        .chain(user)
+        .chain(
+            path.into_iter()
+                .flat_map(std::env::split_paths)
+                .map(|directory| directory.join(executable_file_name())),
+        )
+        .find_map(canonical_file)
+}
+
+fn latest_desktop_executable(root: &Path) -> Option<PathBuf> {
+    fs::read_dir(root)
+        .ok()?
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let candidate = entry.path().join(executable_file_name());
+            let modified = candidate.metadata().ok()?.modified().ok()?;
+            candidate.is_file().then_some((modified, candidate))
+        })
+        .max_by_key(|(modified, _)| *modified)
+        .map(|(_, candidate)| candidate)
+}
+
+fn canonical_file(candidate: PathBuf) -> Option<PathBuf> {
+    candidate
+        .is_file()
+        .then(|| fs::canonicalize(candidate).ok())
+        .flatten()
+}
+
+#[cfg(windows)]
+const fn executable_file_name() -> &'static str {
+    "codex.exe"
+}
+
+#[cfg(not(windows))]
+const fn executable_file_name() -> &'static str {
+    "codex"
+}
+
+#[cfg(windows)]
+const fn home_environment_key() -> &'static str {
+    "USERPROFILE"
+}
+
+#[cfg(not(windows))]
+const fn home_environment_key() -> &'static str {
+    "HOME"
+}
+
+fn probe_version(
+    executable: &Path,
+    working_directory: &Path,
+) -> Result<CodexVersion, CodexDiscoveryError> {
+    let mut command = profiled_command(executable, working_directory);
+    command
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let output = command
+        .output()
+        .map_err(|error| CodexDiscoveryError::VersionProbe(public_io_reason(&error)))?;
+    if !output.status.success() {
+        return Err(CodexDiscoveryError::VersionProbe(format!(
+            "the version command exited with status {}",
+            output.status.code().unwrap_or(-1)
+        )));
+    }
+    CodexVersion::parse(&bounded_output(&output)).ok_or_else(|| {
+        CodexDiscoveryError::VersionProbe("the version output was not recognized".to_owned())
+    })
+}
+
+fn probe_login_status(profile: &CodexRuntimeProfile) -> Result<CodexLoginStatus, io::Error> {
+    let mut command = profiled_command(profile.executable(), profile.working_directory());
+    command
+        .args(["login", "status"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let output = command.output()?;
+    parse_login_status(&bounded_output(&output))
+        .ok_or_else(|| io::Error::other("the login status response was not recognized"))
+}
+
+fn parse_login_status(output: &str) -> Option<CodexLoginStatus> {
+    let normalized = output.to_ascii_lowercase();
+    if normalized.contains("logged in using chatgpt") {
+        Some(CodexLoginStatus::ChatGpt)
+    } else if normalized.contains("logged in using api key")
+        || normalized.contains("logged in with api key")
+    {
+        Some(CodexLoginStatus::ApiKey)
+    } else if normalized.contains("not logged in") || normalized.contains("signed out") {
+        Some(CodexLoginStatus::SignedOut)
+    } else {
+        None
+    }
+}
+
+fn bounded_output(output: &Output) -> String {
+    let mut bytes = Vec::with_capacity(
+        output
+            .stdout
+            .len()
+            .saturating_add(output.stderr.len())
+            .min(MAX_STATUS_BYTES),
+    );
+    bytes.extend_from_slice(&output.stdout[..output.stdout.len().min(MAX_STATUS_BYTES)]);
+    let remaining = MAX_STATUS_BYTES.saturating_sub(bytes.len());
+    bytes.extend_from_slice(&output.stderr[..output.stderr.len().min(remaining)]);
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+fn login_command(profile: &CodexRuntimeProfile) -> Command {
+    let mut command = profiled_command(profile.executable(), profile.working_directory());
+    command
+        .arg("login")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    hide_child_console(&mut command);
+    command
+}
+
+fn profiled_command(executable: &Path, working_directory: &Path) -> Command {
+    let mut command = Command::new(executable);
+    command.current_dir(working_directory).env_clear();
+    for key in allowed_environment_keys() {
+        if let Some(value) = std::env::var_os(key) {
+            command.env(key, value);
+        }
+    }
+    command
+}
+
+#[cfg(windows)]
+fn hide_child_console(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn hide_child_console(_command: &mut Command) {}
+
+fn allowed_environment_keys() -> &'static [&'static str] {
+    #[cfg(windows)]
+    {
+        &[
+            "APPDATA",
+            "CODEX_CA_CERTIFICATE",
+            "CODEX_HOME",
+            "LOCALAPPDATA",
+            "PATH",
+            "PATHEXT",
+            "SSL_CERT_FILE",
+            "SystemRoot",
+            "TEMP",
+            "TMP",
+            "USERPROFILE",
+            "WINDIR",
+        ]
+    }
+    #[cfg(not(windows))]
+    {
+        &[
+            "CODEX_CA_CERTIFICATE",
+            "CODEX_HOME",
+            "DBUS_SESSION_BUS_ADDRESS",
+            "DISPLAY",
+            "HOME",
+            "LANG",
+            "LC_ALL",
+            "PATH",
+            "SSL_CERT_DIR",
+            "SSL_CERT_FILE",
+            "WAYLAND_DISPLAY",
+            "XDG_CONFIG_HOME",
+            "XDG_RUNTIME_DIR",
+        ]
+    }
+}
+
+fn public_io_reason(error: &io::Error) -> String {
+    match error.kind() {
+        io::ErrorKind::NotFound => "required file was not found".to_owned(),
+        io::ErrorKind::PermissionDenied => "permission was denied".to_owned(),
+        io::ErrorKind::TimedOut => "the operation timed out".to_owned(),
+        kind => format!("{kind:?}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc,
+    };
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let directory =
+            std::env::temp_dir().join(format!("dpl-codex-{name}-{}", std::process::id()));
+        fs::create_dir_all(&directory).expect("temporary directory");
+        directory
+    }
+
+    fn fixture_profile() -> CodexRuntimeProfile {
+        let directory = temp_dir("profile");
+        let executable = directory.join(executable_file_name());
+        fs::write(&executable, b"fixture").expect("fixture executable");
+        CodexRuntimeProfile {
+            executable,
+            version: MINIMUM_VERSION,
+            working_directory: directory,
+        }
+    }
+
+    #[derive(Debug)]
+    struct FakeLauncher {
+        launches: Arc<AtomicUsize>,
+        process: FakeProcess,
+    }
+
+    impl CodexLoginLauncher for FakeLauncher {
+        fn launch_login(
+            &self,
+            _profile: &CodexRuntimeProfile,
+        ) -> io::Result<Box<dyn CodexLoginProcess>> {
+            self.launches.fetch_add(1, Ordering::SeqCst);
+            Ok(Box::new(self.process.clone()))
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct FakeProcess {
+        exit: Option<CodexLoginExit>,
+        terminated: Arc<AtomicBool>,
+    }
+
+    impl CodexLoginProcess for FakeProcess {
+        fn try_exit(&mut self) -> io::Result<Option<CodexLoginExit>> {
+            Ok(self.exit)
+        }
+
+        fn terminate_and_reap(&mut self) {
+            self.terminated.store(true, Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn versions_and_login_status_are_fail_closed() {
+        assert_eq!(
+            CodexVersion::parse("codex-cli 0.145.0-alpha.18"),
+            Some(MINIMUM_VERSION)
+        );
+        assert!(MINIMUM_VERSION.is_activation_supported());
+        assert!(!CodexVersion::new(0, 144, 9).is_activation_supported());
+        assert!(!CodexVersion::new(0, 146, 0).is_activation_supported());
+        assert_eq!(
+            parse_login_status("Logged in using ChatGPT"),
+            Some(CodexLoginStatus::ChatGpt)
+        );
+        assert_eq!(
+            parse_login_status("Logged in using API key"),
+            Some(CodexLoginStatus::ApiKey)
+        );
+        assert_eq!(
+            parse_login_status("Not logged in"),
+            Some(CodexLoginStatus::SignedOut)
+        );
+        assert_eq!(parse_login_status("future status"), None);
+    }
+
+    #[test]
+    fn desktop_install_precedes_user_and_path_candidates() {
+        let desktop = temp_dir("desktop");
+        let release = desktop.join("release");
+        fs::create_dir_all(&release).expect("release");
+        let desktop_executable = release.join(executable_file_name());
+        fs::write(&desktop_executable, b"desktop").expect("desktop executable");
+
+        let home = temp_dir("home");
+        let user = home.join(".local").join("bin");
+        fs::create_dir_all(&user).expect("user bin");
+        fs::write(user.join(executable_file_name()), b"user").expect("user executable");
+
+        assert_eq!(
+            resolve_named_executable(Some(&home), Some(&desktop), None),
+            Some(fs::canonicalize(desktop_executable).expect("canonical executable"))
+        );
+    }
+
+    #[test]
+    fn login_is_single_owner_and_drop_reaps_it() {
+        let launches = Arc::new(AtomicUsize::new(0));
+        let terminated = Arc::new(AtomicBool::new(false));
+        let launcher = FakeLauncher {
+            launches: Arc::clone(&launches),
+            process: FakeProcess {
+                exit: None,
+                terminated: Arc::clone(&terminated),
+            },
+        };
+        let mut coordinator = CodexActivationCoordinator::from_parts(
+            Ok(fixture_profile()),
+            activation_from_status(CodexLoginStatus::SignedOut),
+            Box::new(launcher),
+        );
+        coordinator.start_login().expect("start login");
+        assert_eq!(
+            coordinator.start_login(),
+            Err(CodexActivationError::AlreadyRunning)
+        );
+        drop(coordinator);
+        assert_eq!(launches.load(Ordering::SeqCst), 1);
+        assert!(terminated.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn fixed_login_command_uses_only_the_literal_login_argument() {
+        let profile = fixture_profile();
+        let command = login_command(&profile);
+        assert_eq!(command.get_program(), profile.executable());
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            vec![OsStr::new("login")]
+        );
+        assert_eq!(command.get_current_dir(), Some(profile.working_directory()));
+    }
+
+    #[test]
+    fn locally_installed_official_codex_can_be_discovered_when_present() {
+        let working_directory = std::env::current_dir().expect("cwd");
+        let profile = CodexRuntimeProfile::discover(working_directory);
+        if discover_executable().is_some() {
+            let profile = profile.expect("installed official Codex must qualify");
+            assert!(profile.version().is_activation_supported());
+            assert_eq!(crate::PROVIDER.0, "codex");
+        }
+    }
+}

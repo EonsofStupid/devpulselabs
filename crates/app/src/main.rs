@@ -503,29 +503,50 @@ impl App {
         // publish their asks through the one fabric.
         workbench.wire_fabric(&fabric);
         wiredfront.wire_fabric(&fabric);
+        let provider_working_directory = dpl_engine_capture::content_root();
+        let codex_activation =
+            dpl_chat_codex::CodexActivationCoordinator::discover(&provider_working_directory);
+        let grok_activation =
+            dpl_chat_grok::GrokActivationCoordinator::discover(&provider_working_directory);
         // Chat providers register as data. The peer-window UI never names one;
-        // every manifest remains visibly blocked until its real adapter
-        // qualifies. Chat is ONLY the status-bar peer window now — no rail hub.
+        // only independently qualified subscription activation is projected.
+        // Conversation transport remains visibly blocked.
         #[cfg(feature = "eguipilotai-devtools")]
         let authored_chat = chat_authored.then(dpl_chat_testkit::authored_chat);
         #[cfg(feature = "eguipilotai-devtools")]
         let chat_registrations = authored_chat.as_ref().map_or_else(
             || {
                 vec![
-                    dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_codex::MANIFEST),
+                    activation_registration(
+                        dpl_chat_codex::MANIFEST,
+                        codex_activation.activation().clone(),
+                        codex_activation.activation_capability_qualified(),
+                    ),
                     dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_claude::MANIFEST),
                     dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_gemini::MANIFEST),
-                    dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_grok::MANIFEST),
+                    activation_registration(
+                        dpl_chat_grok::MANIFEST,
+                        grok_activation.activation().clone(),
+                        grok_activation.activation_capability_qualified(),
+                    ),
                 ]
             },
             |fixture| fixture.providers.clone(),
         );
         #[cfg(not(feature = "eguipilotai-devtools"))]
         let chat_registrations = vec![
-            dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_codex::MANIFEST),
+            activation_registration(
+                dpl_chat_codex::MANIFEST,
+                codex_activation.activation().clone(),
+                codex_activation.activation_capability_qualified(),
+            ),
             dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_claude::MANIFEST),
             dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_gemini::MANIFEST),
-            dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_grok::MANIFEST),
+            activation_registration(
+                dpl_chat_grok::MANIFEST,
+                grok_activation.activation().clone(),
+                grok_activation.activation_capability_qualified(),
+            ),
         ];
         let chat_runtime =
             dpl_chat_runtime::ChatRuntime::try_from_registrations(chat_registrations)
@@ -633,6 +654,8 @@ impl App {
                         None
                     }
                 },
+                codex_activation,
+                grok_activation,
                 open_at_boot: chat_open,
                 #[cfg(feature = "eguipilotai-devtools")]
                 proof_mode: chat_proof,
@@ -765,6 +788,21 @@ impl App {
             std::process::exit(1);
         }
     }
+}
+
+fn activation_registration(
+    manifest: dpl_chat_core::ProviderManifest,
+    activation: dpl_chat_core::ActivationState,
+    subscription_auth_qualified: bool,
+) -> dpl_chat_runtime::ProviderRegistration {
+    let mut registration = dpl_chat_runtime::ProviderRegistration::planned(manifest);
+    registration.activation = activation;
+    if subscription_auth_qualified {
+        registration
+            .qualified_capabilities
+            .insert(dpl_chat_core::Capability::SubscriptionAuth);
+    }
+    registration
 }
 
 fn local_chat_history_catalog() -> dpl_chat_store::HistoryCatalog {

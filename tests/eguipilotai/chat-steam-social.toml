@@ -138,14 +138,10 @@ id = "chat.primary/chat.mode.ai"
 kind = "action"
 
 [steps.action]
-type = "hover"
+type = "click"
 
 [steps.action.target]
-role = "tab"
-name = "Codex"
-
-[steps.action.target.viewport]
-key = "chat.primary"
+id = "chat.primary/chat.sidebar.providers/codex"
 
 [[steps]]
 kind = "expect"
@@ -159,6 +155,51 @@ name = "Provider hover card"
 
 [steps.expectation.target.viewport]
 key = "chat.primary"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.provider.login/codex"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "disabled"
+
+[steps.expectation.target]
+id = "chat.primary/chat.composer.send"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.sidebar.providers/grok"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.provider.login/grok"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "disabled"
+
+[steps.expectation.target]
+id = "chat.primary/chat.composer.send"
 
 [[steps]]
 kind = "action"

@@ -205,7 +205,7 @@ impl ActivationState {
         }
     }
 
-    pub const fn can_send(&self) -> bool {
+    pub const fn is_activated(&self) -> bool {
         matches!(self, Self::Ready | Self::Experimental { .. })
     }
 
@@ -415,8 +415,8 @@ mod tests {
     }
 
     #[test]
-    fn only_ready_and_explicit_experimental_states_can_send() {
-        assert!(ActivationState::Ready.can_send());
+    fn only_ready_and_explicit_experimental_states_are_activated() {
+        assert!(ActivationState::Ready.is_activated());
         assert!(ActivationState::Experimental {
             reason: "fixture".into(),
             recovery: vec![RecoveryAction::new(
@@ -424,7 +424,7 @@ mod tests {
                 "Inspect",
             )],
         }
-        .can_send());
+        .is_activated());
         assert!(!ActivationState::Blocked {
             reason: "not qualified".into(),
             recovery: vec![RecoveryAction::new(
@@ -432,7 +432,7 @@ mod tests {
                 "Read the plan",
             )],
         }
-        .can_send());
+        .is_activated());
     }
 
     #[test]

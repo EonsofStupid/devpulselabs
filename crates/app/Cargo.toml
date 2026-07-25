@@ -10,7 +10,6 @@ eguipilotai-devtools = [
     "dep:egui-pilot-ai-runtime",
     "dep:egui-pilot-ai-transport",
     "dep:dpl-chat-testkit",
-    "dep:dpl-chat-core",
 ]
 
 [dependencies]
@@ -32,7 +31,7 @@ dpl-engine-capture.workspace = true
 dpl-engine-steps.workspace = true
 dpl-composer.workspace = true
 dpl-guide.workspace = true
-dpl-chat-core = { workspace = true, optional = true }
+dpl-chat-core.workspace = true
 dpl-chat-runtime.workspace = true
 dpl-chat-social.workspace = true
 dpl-chat-interactions.workspace = true

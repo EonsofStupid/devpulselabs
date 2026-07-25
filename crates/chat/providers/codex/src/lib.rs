@@ -3,6 +3,13 @@
 //! Live app-server integration is CH4. The runtime exception is ratified, but
 //! process launch stays fail-closed until every ADR launch gate passes.
 
+mod activation;
+
+pub use activation::{
+    CodexActivationCoordinator, CodexActivationError, CodexDiscoveryError, CodexLoginExit,
+    CodexLoginLauncher, CodexLoginProcess, CodexRuntimeProfile, CodexVersion, SETUP_URL,
+};
+
 use dpl_chat_core::{
     BoundedNativePayload, Capability, ChatEventContent, ProviderAccent, ProviderDescriptor,
     ProviderId, ProviderManifest, ProviderProfileId,
@@ -40,7 +47,7 @@ const TARGETS: &[Capability] = &[
 pub const MANIFEST: ProviderManifest = ProviderManifest {
     descriptor: ProviderDescriptor {
         id: PROVIDER,
-        label: "Codex",
+        label: "ChatGPT / Codex",
         short_label: "Codex",
         glyph: "C",
         accent: ProviderAccent::Cyan,

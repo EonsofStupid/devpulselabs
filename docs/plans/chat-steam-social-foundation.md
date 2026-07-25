@@ -269,7 +269,10 @@ Required proof states:
 - provider history/store binding beyond the deterministic vertical slice;
 - complete revisioned bidirectional route bridge and context export;
 - additional governed interaction and utility surface kinds;
-- live subscription-backed Codex, Claude, Gemini, and Grok activation;
+- Claude and Gemini subscription activation;
+- live conversation protocols for Codex, Claude, Gemini, and Grok (the
+  independently gated ChatGPT/Codex and Grok browser-login slices do not
+  qualify Send);
 - live Social P2P/team transport, media sharing, and relay fallback;
 - qualified Council orchestration;
 - external Social bridges.

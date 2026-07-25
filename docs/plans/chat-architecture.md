@@ -504,6 +504,12 @@ Rules:
 - the UI does not ask users to paste subscription tokens;
 - API-key profiles, if ever supported, are a separate explicit product policy.
 
+The first activation-only slices are independently governed by
+[`chat-codex-activation.md`](chat-codex-activation.md) and
+[`chat-grok-activation.md`](chat-grok-activation.md). They qualify
+provider-owned browser login only. `Ready` authentication does not qualify
+conversation Send, sessions, tools, or Council.
+
 ## 7. Session model
 
 `ChatSessionId` is the app identity. A `SessionBinding` records:

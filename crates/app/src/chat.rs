@@ -1,5 +1,6 @@
 #[cfg(feature = "eguipilotai-devtools")]
-use dpl_chat_core::{ChatDomain, ProviderId};
+use dpl_chat_core::ChatDomain;
+use dpl_chat_core::ProviderId;
 use dpl_chat_interactions::{
     InteractionContent, InteractionId, InteractionPlacement, InteractionRegistry,
 };
@@ -30,6 +31,7 @@ pub enum ChatProofMode {
     Ai,
     Social,
     ProviderHover,
+    GrokLogin,
     Compact,
     Snapped,
 }
@@ -42,6 +44,7 @@ impl ChatProofMode {
             "ai" => Some(Self::Ai),
             "social" => Some(Self::Social),
             "hover" => Some(Self::ProviderHover),
+            "grok" => Some(Self::GrokLogin),
             "compact" => Some(Self::Compact),
             "snapped" => Some(Self::Snapped),
             _ => None,
@@ -57,6 +60,8 @@ struct Shared {
     registry: ChatWindowRegistry,
     lifetime: PeerLifetime,
     window: ChatWindow,
+    codex_activation: dpl_chat_codex::CodexActivationCoordinator,
+    grok_activation: dpl_chat_grok::GrokActivationCoordinator,
     primary_monitor: Option<([u32; 2], f32)>,
     /// A fabric handle for PUBLISHING the peer window's own navigation asks.
     /// The coordinator publishes `ShellEvent::NavigateRequest`; the shell
@@ -77,6 +82,8 @@ pub struct ChatWindowConfig {
     pub catalog: HistoryCatalog,
     pub routes: Vec<(String, Route)>,
     pub authored_models: Option<(SocialModel, InteractionRegistry)>,
+    pub codex_activation: dpl_chat_codex::CodexActivationCoordinator,
+    pub grok_activation: dpl_chat_grok::GrokActivationCoordinator,
     pub open_at_boot: bool,
     #[cfg(feature = "eguipilotai-devtools")]
     pub proof_mode: Option<ChatProofMode>,
@@ -89,6 +96,8 @@ impl ChatWindowCoordinator {
             catalog,
             routes,
             authored_models,
+            codex_activation,
+            grok_activation,
             open_at_boot,
             #[cfg(feature = "eguipilotai-devtools")]
             proof_mode,
@@ -141,6 +150,18 @@ impl ChatWindowCoordinator {
                         )))
                         .expect("the authored Codex provider exists");
                 }
+                ChatProofMode::GrokLogin => {
+                    window
+                        .apply(dpl_chat_window::ChatWindowIntent::SelectProvider(
+                            dpl_chat_grok::PROVIDER,
+                        ))
+                        .expect("the authored Grok provider exists");
+                    window
+                        .apply(dpl_chat_window::ChatWindowIntent::SetOverlay(Some(
+                            dpl_chat_window::DomainOverlay::Provider(dpl_chat_grok::PROVIDER),
+                        )))
+                        .expect("the authored Grok provider overlay is valid");
+                }
                 ChatProofMode::Approval
                 | ChatProofMode::Ai
                 | ChatProofMode::Compact
@@ -166,6 +187,8 @@ impl ChatWindowCoordinator {
                 registry,
                 lifetime: PeerLifetime::default(),
                 window,
+                codex_activation,
+                grok_activation,
                 primary_monitor,
                 fabric: fabric.clone(),
                 #[cfg(feature = "eguipilotai-devtools")]
@@ -292,7 +315,7 @@ impl ChatWindowCoordinator {
                 let close_requested = viewport.close_requested();
                 let geometry = viewport_geometry(&viewport);
 
-                let intents = {
+                let (intents, activation_changed, login_running) = {
                     let mut state = lock(&shared);
                     if matches!(
                         state
@@ -314,14 +337,18 @@ impl ChatWindowCoordinator {
                             tracing::warn!(%error, "Chat viewport geometry was rejected");
                         }
                     }
-                    egui::CentralPanel::default()
+                    let activation_changed = poll_provider_activations(&mut state);
+                    let login_running = state.codex_activation.is_login_running()
+                        || state.grok_activation.is_login_running();
+                    let intents = egui::CentralPanel::default()
                         .frame(
                             egui::Frame::new()
                                 .fill(dpl_coldlight::surface::WELL)
                                 .inner_margin(egui::Margin::ZERO),
                         )
                         .show(ui, |ui| state.window.ui(ui))
-                        .inner
+                        .inner;
+                    (intents, activation_changed, login_running)
                 };
 
                 let mut host_intents = Vec::new();
@@ -344,8 +371,12 @@ impl ChatWindowCoordinator {
                 for intent in host_intents {
                     apply_host_intent(ui.ctx(), &shared, intent);
                 }
-                if window_changed {
+                if window_changed || activation_changed {
                     ui.ctx().request_repaint_of(chat_viewport_id);
+                }
+                if login_running {
+                    ui.ctx()
+                        .request_repaint_after(std::time::Duration::from_millis(100));
                 }
 
                 if close_requested {
@@ -428,6 +459,21 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
             interaction_id,
             placement,
         } => open_utility(ctx, shared, interaction_id, placement),
+        HostIntent::ActivateProvider(provider) => {
+            activate_provider(shared, provider);
+            ctx.request_repaint();
+        }
+        HostIntent::OpenProviderSetup(provider) => {
+            let url = match provider {
+                id if id == dpl_chat_codex::PROVIDER => dpl_chat_codex::SETUP_URL,
+                id if id == dpl_chat_grok::PROVIDER => dpl_chat_grok::SETUP_URL,
+                _ => {
+                    tracing::warn!(%provider, "provider setup action is not qualified");
+                    return;
+                }
+            };
+            ctx.open_url(egui::OpenUrl::new_tab(url));
+        }
         HostIntent::NavigateTo(route) => {
             // Route loading lives in the MAIN app: publish the ask and let the
             // shell drain it and navigate. Chat never renders the route itself.
@@ -454,6 +500,84 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
             ctx.send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::Close);
         }
     }
+}
+
+fn activate_provider(shared: &Arc<Mutex<Shared>>, provider: ProviderId) {
+    let mut state = lock(shared);
+    let activation = if provider == dpl_chat_codex::PROVIDER {
+        let result = state.codex_activation.start_login();
+        if let Err(error) = result {
+            tracing::warn!(%error, "ChatGPT / Codex activation was rejected");
+            if matches!(
+                &error,
+                dpl_chat_codex::CodexActivationError::LaunchFailed(_)
+                    | dpl_chat_codex::CodexActivationError::PollFailed(_)
+                    | dpl_chat_codex::CodexActivationError::StatusFailed(_)
+            ) {
+                state.codex_activation.fail(error);
+            }
+        }
+        state.codex_activation.activation().clone()
+    } else if provider == dpl_chat_grok::PROVIDER {
+        let result = state.grok_activation.start_login();
+        if let Err(error) = result {
+            tracing::warn!(%error, "Grok activation was rejected");
+            if matches!(
+                &error,
+                dpl_chat_grok::GrokActivationError::LaunchFailed(_)
+                    | dpl_chat_grok::GrokActivationError::PollFailed(_)
+            ) {
+                state.grok_activation.fail(error);
+            }
+        }
+        state.grok_activation.activation().clone()
+    } else {
+        tracing::warn!(%provider, "provider activation action is not qualified");
+        return;
+    };
+    if let Err(error) = state.window.set_provider_activation(provider, activation) {
+        tracing::warn!(%error, "provider activation state could not be projected");
+    }
+}
+
+fn poll_provider_activations(state: &mut Shared) -> bool {
+    let codex_changed = match state.codex_activation.poll() {
+        Ok(changed) => changed,
+        Err(error) => {
+            tracing::warn!(%error, "ChatGPT / Codex activation polling failed");
+            state.codex_activation.fail(error);
+            true
+        }
+    };
+    if codex_changed {
+        let activation = state.codex_activation.activation().clone();
+        if let Err(error) = state
+            .window
+            .set_provider_activation(dpl_chat_codex::PROVIDER, activation)
+        {
+            tracing::warn!(%error, "ChatGPT / Codex activation state could not be projected");
+        }
+    }
+
+    let grok_changed = match state.grok_activation.poll() {
+        Ok(changed) => changed,
+        Err(error) => {
+            tracing::warn!(%error, "Grok activation polling failed");
+            state.grok_activation.fail(error);
+            true
+        }
+    };
+    if grok_changed {
+        let activation = state.grok_activation.activation().clone();
+        if let Err(error) = state
+            .window
+            .set_provider_activation(dpl_chat_grok::PROVIDER, activation)
+        {
+            tracing::warn!(%error, "Grok activation state could not be projected");
+        }
+    }
+
+    codex_changed || grok_changed
 }
 
 fn request_utility_record(

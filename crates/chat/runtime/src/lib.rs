@@ -47,6 +47,13 @@ impl ProviderRegistration {
     pub fn has_capability(&self, capability: Capability) -> bool {
         self.qualified_capabilities.contains(&capability)
     }
+
+    pub fn can_send(&self) -> bool {
+        self.activation.is_activated()
+            && self.has_capability(Capability::StreamTurns)
+            && (self.has_capability(Capability::StartSession)
+                || self.has_capability(Capability::ResumeSession))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -254,6 +261,20 @@ impl ChatRuntime {
         Ok(())
     }
 
+    pub fn set_activation(
+        &mut self,
+        provider_id: ProviderId,
+        activation: ActivationState,
+    ) -> Result<(), RegistryError> {
+        let entry = self
+            .providers
+            .iter_mut()
+            .find(|entry| entry.registration.manifest.descriptor.id == provider_id)
+            .ok_or(RegistryError::UnknownProvider(provider_id))?;
+        entry.registration.activation = activation;
+        Ok(())
+    }
+
     pub fn set_draft(
         &mut self,
         provider_id: ProviderId,
@@ -378,6 +399,25 @@ mod tests {
                 capability: Capability::StreamTurns,
             })
         );
+    }
+
+    #[test]
+    fn activation_updates_do_not_replace_provider_local_state() {
+        let mut runtime =
+            ChatRuntime::try_from_registrations([ProviderRegistration::planned(MANIFEST)])
+                .expect("valid registry");
+        runtime.set_draft(ID, "kept draft".into()).expect("draft");
+        runtime
+            .set_activation(ID, ActivationState::Ready)
+            .expect("activation");
+
+        let provider = runtime.selected_provider().expect("selected provider");
+        assert!(matches!(
+            provider.registration.activation,
+            ActivationState::Ready
+        ));
+        assert_eq!(provider.draft, "kept draft");
+        assert!(!provider.registration.can_send());
     }
 
     #[test]
