@@ -259,7 +259,39 @@ slide.json` stays untouched and uncommitted.
    thumbs, Keep chips, edge-clamped reorder arrows, loaded caption,
    two-tap Apply, "3 of 3 step(s) ship"; fit guard shrank to 1522×778
    with the footer visible).
-5. DEVIATIONS from §4: (a) added the proof-only `DPL_GUIDE_PICK` env
+5. **W5.3 AMENDMENT (operator, mid-execution): "a full test by you …
+   creating stills and a truly highly optimized session replay that can
+   be easily exported as gif or whatever the latest trending web
+   friendly format is for like linkedin".** Landed as a third commit on
+   the same branch: (a) engine-media `gif_args`/`render_gif` — the
+   palettegen/paletteuse two-pass social GIF (12fps, ≤480px, bayer
+   dither) + arg test; the LinkedIn-native upload remains the bundled
+   light session.mp4; (b) `ExportOpts.make_gif` (default ON) →
+   `replay.gif` beside the bundle, manifest `replayGif`, Guide-tab
+   "Social GIF" toggle; (c) THE AI-DRIVEN FULL TEST seam:
+   `--steps-drill <n>` — starts the Steps recorder through the REAL
+   palette handler with a drill-only self-capture opt-in
+   (`StepsRecorder::set_allow_self`; pid-0 disables the exclusion —
+   engine-capture untouched), marks n REAL focused-window captures,
+   stops, and files through the REAL Save-card path (strict meta law
+   held; drill fills only what the operator would type).
+   **FULL-TEST EVIDENCE (all REAL artifacts, AI-driven end to end,
+   sequential exe runs, scratch content root):**
+   `--steps-drill 3` → "steps: recording" → "3 steps pending" →
+   "guide: 3 steps → <folder>" — 3 real focused-window captures saved +
+   indexed through the real path. `--session-drill 8` → a real 490 KB
+   screen recording + 2 genuinely observed route-changed events.
+   `--export-guide <guide> <session>` → exit 0; the bundle:
+   session.mp4 490 KB → **44 KB** (1280×720 @ 15fps, 6.6s — the light
+   law, 11×); **replay.gif 179 KB, 480×270, 79 frames** (palettegen
+   two-pass); guide-video.mp4 15.6s (3×3s stills + 6.6s replay);
+   guide.html with 3 embedded webp URIs + 1 embedded mp4 URI + 0 http
+   refs; manifest carries session.mp4 · 2 events · replay.gif ·
+   guide-video.mp4. FINDING FIXED in the same commit: seeded guide
+   names (from window titles) had no length cap — a path-length title
+   minted a folder that broke Win32 cwd limits; `seed_name` now clamps
+   to 48 chars (tested).
+6. DEVIATIONS from §4: (a) added the proof-only `DPL_GUIDE_PICK` env
    override (the `DPL_COMPOSER_TAB` pattern, inert in normal use) so the
    reviewer screenshots reproduce; (b) the in-browser interactive html
    proof was not run this session (Chrome extension not connected) —

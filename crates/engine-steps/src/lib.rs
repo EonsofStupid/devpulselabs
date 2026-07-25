@@ -239,6 +239,10 @@ fn track_modifier(key: rdev::Key, down: bool) -> bool {
 pub struct StepsRecorder {
     inner: Mutex<Option<Session>>,
     running: Arc<AtomicBool>,
+    /// DRILL-ONLY opt-in: capture THIS app's own focused window. Normal
+    /// recording keeps excluding it so the palette never self-captures;
+    /// the AI-driven `--steps-drill` demonstrates the app itself.
+    allow_self: AtomicBool,
     sink: EventSink,
 }
 
@@ -247,8 +251,14 @@ impl StepsRecorder {
         Arc::new(Self {
             inner: Mutex::new(None),
             running: Arc::new(AtomicBool::new(false)),
+            allow_self: AtomicBool::new(false),
             sink,
         })
+    }
+
+    /// DRILL-ONLY: let captures include this process's own windows.
+    pub fn set_allow_self(&self, on: bool) {
+        self.allow_self.store(on, Ordering::Relaxed);
     }
 
     fn emit_state(&self, recording: bool, count: u32) {
@@ -394,7 +404,12 @@ impl StepsRecorder {
     /// One step, on the worker thread (carried two-frame model; the session
     /// lock is released across the settle so status/stop never block).
     fn capture_step(&self, trigger: Trigger) {
-        let our_pid = std::process::id();
+        // pid 0 belongs to no window — passing it disables the exclusion.
+        let our_pid = if self.allow_self.load(Ordering::Relaxed) {
+            0
+        } else {
+            std::process::id()
+        };
         let (dir, order) = {
             let guard = match self.inner.lock() {
                 Ok(g) => g,

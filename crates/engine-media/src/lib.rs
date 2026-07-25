@@ -407,6 +407,45 @@ pub fn render_replay(src: &Path, out: &Path) -> Result<(), String> {
     run_ffmpeg(replay_args(src, out))
 }
 
+/// The SOCIAL clip (W5.3): the replay as a web-friendly animated GIF —
+/// drop-anywhere embeds (docs, chats, README). The palettegen/paletteuse
+/// two-pass is the GIF quality trick; 12fps ≤480px keeps it feed-light.
+/// (LinkedIn-native video upload wants the light session.mp4 we already
+/// ship beside it.)
+pub const GIF_FPS: u32 = 12;
+pub const GIF_MAX_WIDTH: u32 = 480;
+
+pub fn gif_args(src: &Path, out: &Path) -> Vec<String> {
+    vec![
+        "-y".into(),
+        "-v".into(),
+        "error".into(),
+        "-i".into(),
+        src.to_string_lossy().into_owned(),
+        "-vf".into(),
+        format!(
+            "fps={GIF_FPS},scale='min({GIF_MAX_WIDTH},iw)':-2:flags=lanczos,\
+             split[s0][s1];[s0]palettegen=stats_mode=diff[p];\
+             [s1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle"
+        ),
+        "-loop".into(),
+        "0".into(),
+        out.to_string_lossy().into_owned(),
+    ]
+}
+
+/// Render the social GIF from the (light) replay. Blocks — callers run
+/// it off the UI thread.
+pub fn render_gif(src: &Path, out: &Path) -> Result<(), String> {
+    if !src.is_file() {
+        return Err(format!("no video at {}", src.display()));
+    }
+    if let Some(dir) = out.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("gif dir: {e}"))?;
+    }
+    run_ffmpeg(gif_args(src, out))
+}
+
 /// The standalone guide VIDEO: every still held `secs_per_still`, then the
 /// replay footage, concatenated through the same scale+pad chain as the
 /// stitch (never cropped). Stills decode as RGBA — `format=yuv420p` keeps
@@ -533,6 +572,22 @@ mod guide_render_tests {
         assert!(
             a.contains("-map [out] -c:v libx264 -preset slow -crf 21"),
             "{a}"
+        );
+    }
+
+    #[test]
+    fn gif_args_ride_the_palette_two_pass() {
+        let a = gif_args(Path::new("session.mp4"), Path::new("replay.gif")).join(" ");
+        assert!(
+            a.contains("fps=12,scale='min(480,iw)':-2:flags=lanczos"),
+            "{a}"
+        );
+        assert!(a.contains("palettegen=stats_mode=diff"), "{a}");
+        assert!(a.contains("paletteuse=dither=bayer"), "{a}");
+        assert!(a.contains("-loop 0 replay.gif"), "{a}");
+        assert!(
+            render_gif(Path::new("definitely-missing.mp4"), Path::new("o.gif")).is_err(),
+            "missing source refused"
         );
     }
 

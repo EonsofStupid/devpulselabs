@@ -110,9 +110,10 @@ pub struct Composer {
     sel_session: Option<String>,
     /// The open W5 reviewer: one guide's steps under prune/caption edit.
     review: Option<GuideReview>,
-    /// Export toggles (operator-ratified defaults: both ON).
+    /// Export toggles (operator-ratified defaults: all ON).
     embed_video: bool,
     make_video: bool,
+    make_gif: bool,
     /// Two-tap arm for Apply edits — pruning deletes source frames, and a
     /// destructive action never rides one stray tap.
     apply_armed: bool,
@@ -204,6 +205,7 @@ impl Default for Composer {
             review: None,
             embed_video: true,
             make_video: true,
+            make_gif: true,
             apply_armed: false,
             export: Arc::new(Mutex::new(ExportState::Idle)),
             status: "New composition — add footage from the Project panel.".into(),
@@ -797,6 +799,7 @@ impl Composer {
         let opts = dpl_guide::ExportOpts {
             embed_video: self.embed_video,
             make_guide_video: self.make_video,
+            make_gif: self.make_gif,
             ..Default::default()
         };
         let state = Arc::clone(&self.export);
@@ -2269,6 +2272,21 @@ impl Composer {
                             );
                             if resp.clicked() {
                                 self.make_video = !self.make_video;
+                            }
+                            let resp = cl::tip(
+                                small_btn(
+                                    ui,
+                                    if self.make_gif {
+                                        "Social GIF: ON"
+                                    } else {
+                                        "Social GIF: OFF"
+                                    },
+                                    "ggif",
+                                ),
+                                "Also render replay.gif — the replay as a small                                  animated GIF you can drop anywhere; for LinkedIn                                  video posts, upload the bundled session.mp4",
+                            );
+                            if resp.clicked() {
+                                self.make_gif = !self.make_gif;
                             }
                         });
                         ui.horizontal(|ui| {

@@ -344,6 +344,49 @@ impl Viziwiz {
         }
     }
 
+    /// The `--steps-drill` seam (W5.3): start the Steps recorder through
+    /// the REAL handler (the palette button / Ctrl+Shift+9 path), with
+    /// self-capture allowed so the drill can demonstrate this very app.
+    pub fn steps_start_drill_now(&mut self) -> &str {
+        self.steps.set_allow_self(true);
+        self.start_steps();
+        self.status_text()
+    }
+
+    /// Drill: mark THIS moment through the real Mark path (always kept).
+    pub fn steps_mark_now(&mut self) {
+        self.mark_step();
+    }
+
+    /// Drill: captured step count, straight from the recorder.
+    pub fn steps_count(&self) -> u32 {
+        self.steps.status().count
+    }
+
+    /// Drill: stop through the real handler — the guide goes PENDING on
+    /// the Save card exactly like the operator's flow.
+    pub fn steps_stop_now(&mut self) -> &str {
+        self.stop_steps();
+        self.status_text()
+    }
+
+    /// Drill: file the pending guide through the REAL Save-card path
+    /// (seeded name + write-through index), like any capture. The strict
+    /// meta law still holds — the drill only fills what the operator
+    /// would have typed (a fallback name, a "drill" tag).
+    pub fn steps_save_now(&mut self) -> &str {
+        if let Some(p) = self.pending.as_mut() {
+            if p.name.trim().is_empty() {
+                p.name = "drill-guide".into();
+            }
+            if p.tags.trim().is_empty() {
+                p.tags = "drill".into();
+            }
+        }
+        self.save_pending();
+        self.status_text()
+    }
+
     fn start_steps(&mut self) {
         if self.pending.is_some() {
             // Starting would drop the unfiled session — the card decides.
@@ -1073,6 +1116,10 @@ fn seed_name(title: &str) -> String {
             out.push('-');
         }
     }
+    // Window titles can be paths hundreds of chars long — an unclamped
+    // seed mints folders that break Win32 cwd limits (seen live in the
+    // W5.3 drill). 48 chars keeps names readable and filesystem-safe.
+    out.truncate(48);
     out.trim_matches('-').to_string()
 }
 
@@ -1128,5 +1175,10 @@ mod tests {
         );
         assert_eq!(seed_name("Notepad"), "notepad");
         assert_eq!(seed_name(""), "", "empty seeds stay empty — the law asks");
+        let monster = format!("C:\\{} - Console", "very\\deep\\path\\".repeat(20));
+        assert!(
+            seed_name(&monster).len() <= 48,
+            "path-length titles clamp to filesystem-safe names"
+        );
     }
 }

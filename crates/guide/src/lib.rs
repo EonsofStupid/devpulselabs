@@ -84,6 +84,10 @@ pub struct Manifest {
     pub session: Option<SessionRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub guide_video: Option<String>,
+    /// The social clip beside the manifest (W5.3) — the replay as an
+    /// animated GIF for drop-anywhere embeds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replay_gif: Option<String>,
 }
 
 /// Export knobs — the operator-ratified defaults: replay EMBEDDED in the
@@ -92,6 +96,8 @@ pub struct Manifest {
 pub struct ExportOpts {
     pub embed_video: bool,
     pub make_guide_video: bool,
+    /// Also render the replay as a social GIF (`replay.gif`).
+    pub make_gif: bool,
     pub secs_per_still: f32,
 }
 
@@ -100,6 +106,7 @@ impl Default for ExportOpts {
         Self {
             embed_video: true,
             make_guide_video: true,
+            make_gif: true,
             secs_per_still: 3.0,
         }
     }
@@ -459,6 +466,13 @@ pub fn export_guide(
             sref.video = Some("session.mp4".into());
         }
         m.session = Some(sref);
+    }
+    if opts.make_gif {
+        if let Some(v) = m.session.as_ref().and_then(|s| s.video.as_deref()) {
+            // The social clip rides the LIGHT re-encode, never the original.
+            dpl_engine_media::render_gif(&out_dir.join(v), &out_dir.join("replay.gif"))?;
+            m.replay_gif = Some("replay.gif".into());
+        }
     }
 
     let mut video = None;
