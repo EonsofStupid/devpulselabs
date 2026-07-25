@@ -315,6 +315,13 @@ X", and the demonstration records itself.
 
 ## Program P — Portable/kiosk (census #9)
 
+- **P0 · RING-1 ✅ (2026-07-25, operator-ratified — ADR-014,
+  docs/plans/three-ring-root.md):** the three-ring data root —
+  `content\` (CONFIRMED) · `assets\` (WORKING, auto-filed captures) ·
+  `.userdata\` (STATE: Turso index, cache/temp/profiles). Additive index
+  migration; transactional promote (assets→content, explicit gesture
+  only). RING-2 follow-up: DuckDB analytics (own C-dep ADR) + the
+  stale-assets report. UI surfacing rides the experience gate.
 - **P1** data_root law + runtime_status self-report; **P2**
   package-portable + portable drill (as a pilot scenario suite run against
   the packaged folder); **P3** --kiosk + work-area clamp.

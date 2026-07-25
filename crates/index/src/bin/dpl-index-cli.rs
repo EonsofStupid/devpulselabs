@@ -22,7 +22,10 @@ fn run() -> i32 {
         _ => (dpl_engine_capture::content_root(), args),
     };
 
-    let index = match dpl_index::Index::open(&root.join("artifacts.db")) {
+    // The ring law (ADR-014): this root's index lives in its sibling
+    // `.userdata/`, adopting a legacy in-root `artifacts.db` on first use.
+    let db = dpl_engine_capture::ring_sibling(&root, ".userdata").join("index.db");
+    let index = match dpl_index::Index::open_adopting(&db, &root.join("artifacts.db")) {
         Ok(ix) => ix,
         Err(e) => {
             eprintln!("{e}");

@@ -208,9 +208,26 @@ pub fn parse_devtools_active_port(s: &str) -> Result<(u16, String), String> {
 
 static PROFILE_N: AtomicU64 = AtomicU64::new(0);
 
+/// Ephemeral profiles live in Ring 0's regenerable temp (ADR-014) —
+/// never the OS temp dir, never outside the app.
 fn fresh_profile_dir() -> PathBuf {
     let n = PROFILE_N.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("dpl-browser-{}-{n}", std::process::id()))
+    dpl_engine_capture::userdata_root()
+        .join("temp")
+        .join("browser")
+        .join(format!("profile-{}-{n}", std::process::id()))
+}
+
+/// A bare NAME (no separators) resolves to the app's profile shelf,
+/// `.userdata/profiles/<name>`; anything path-like is honored as given.
+pub fn profile_dir(name_or_path: &str) -> PathBuf {
+    if name_or_path.contains(['/', '\\', ':']) {
+        PathBuf::from(name_or_path)
+    } else {
+        dpl_engine_capture::userdata_root()
+            .join("profiles")
+            .join(name_or_path)
+    }
 }
 
 // ─────────────────────────── base64 (CDP payloads) ──────────────────────
@@ -645,6 +662,14 @@ mod tests {
             [0x89, b'P', b'N', b'G']
         );
         assert!(base64_decode("he!lo").is_err());
+    }
+
+    #[test]
+    fn profile_names_resolve_to_the_userdata_shelf_paths_pass_through() {
+        let named = profile_dir("clyffy");
+        assert!(named.ends_with("profiles/clyffy") || named.ends_with("profiles\\clyffy"));
+        assert_eq!(profile_dir("C:/x/y"), PathBuf::from("C:/x/y"));
+        assert_eq!(profile_dir("./rel/dir"), PathBuf::from("./rel/dir"));
     }
 
     #[test]

@@ -2,7 +2,23 @@
 
 Updated every pass. This file is the first read of every session.
 
-**Tip:** on `main` (2026-07-25). **DEMO-B landed**
+**Tip:** on `main` (2026-07-25). **RING-1 built** (`feat/three-ring-root`,
+`docs/plans/three-ring-root.md`, ADR-014 — operator-ratified after the
+capture-location failure, senior conditions 1–6 as acceptance): the
+THREE-RING data root — `content\` (CONFIRMED library, unchanged) ·
+`assets\` (WORKING: auto-filed `assets\captures\<kind>\<job>\`) ·
+`.userdata\` (STATE: `index.db` Turso, cache/temp/profiles + deletability
+README). Index moved ADDITIVELY (`content\artifacts.db` → copy → verify →
+labeled `.migrated-to-userdata`, `Index::open_adopting`); promotion =
+`composer::import::promote_asset` (transactional: import commits, then
+the assets original — and ONLY an assets original — is removed);
+browser captures auto-file (`browser_cli shot <url> --job <job>`),
+ephemeral profiles in `.userdata\temp\browser\`, named profiles on the
+`.userdata\profiles\` shelf; boot `ensure_rings()` logs all three.
+WiredFRONT = PREP house over assets; Workbench = BUILD house over
+content. DuckDB analytics = RING-2 (own C-dep ADR, never smuggled).
+UI surfacing (assets shelf, promote chips) = its own experience-gated
+pass. **DEMO-B landed**
 (`feat/demo-browser-driver`, `docs/plans/demo-browser-driver.md`,
 ADR-013): `dpl-engine-browser` — headless Chromium as a SUBPROCESS over
 CDP. Resolve-never-download (injected → `DPL_BROWSER` → bundled →

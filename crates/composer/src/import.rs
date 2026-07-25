@@ -100,6 +100,27 @@ pub fn import_file(src: &Path) -> Result<Record, String> {
     Ok(rec)
 }
 
+/// PROMOTION (ADR-014, Ring 1 → Ring 2, transactional): the file enters
+/// `content/` through the one import seam above — copy + poster + index
+/// all COMMIT first — then the working original is removed, but ONLY
+/// when it lives under `assets/`. External sources are undeletable by
+/// construction; the failure direction is a duplicate, never a loss.
+pub fn promote_asset(src: &Path) -> Result<Record, String> {
+    let rec = import_file(src)?;
+    if removable_after_promote(src, &dpl_engine_capture::assets_root()) {
+        std::fs::remove_file(src).map_err(|e| format!("promote cleanup {}: {e}", src.display()))?;
+    }
+    Ok(rec)
+}
+
+/// The promote guard, pure for unit proof: true only for files INSIDE
+/// the assets ring (canonicalized where the paths exist, so `..` and
+/// symlinks can't smuggle an external source into deletability).
+pub fn removable_after_promote(src: &Path, assets_root: &Path) -> bool {
+    let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    canon(src).starts_with(canon(assets_root))
+}
+
 /// Enrich an element record from what the FILE ITSELF declares — today
 /// that is `.mogrt` (R2a.2): the capsule's real name, its tags, and the
 /// embedded `thumb.png` extracted beside the copy as the poster.
@@ -136,6 +157,28 @@ pub(crate) fn enrich_element(rec: &mut Record, dest: &Path, root: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_promote_guard_only_ever_removes_inside_assets() {
+        let scratch =
+            std::env::temp_dir().join(format!("dpl-promote-guard-{}", std::process::id()));
+        let assets = scratch.join("assets");
+        std::fs::create_dir_all(assets.join("captures")).unwrap();
+        let inside = assets.join("captures").join("s.png");
+        std::fs::write(&inside, b"x").unwrap();
+        let outside = scratch.join("elsewhere.png");
+        std::fs::write(&outside, b"x").unwrap();
+        assert!(removable_after_promote(&inside, &assets));
+        assert!(!removable_after_promote(&outside, &assets));
+        // `..` cannot smuggle an external file into deletability.
+        let sneaky = assets
+            .join("captures")
+            .join("..")
+            .join("..")
+            .join("elsewhere.png");
+        assert!(!removable_after_promote(&sneaky, &assets));
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
 
     #[test]
     fn media_kind_matrix_covers_the_ratified_extensions() {
