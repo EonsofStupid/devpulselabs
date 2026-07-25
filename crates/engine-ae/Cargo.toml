@@ -1,0 +1,13 @@
+[package]
+name = "dpl-engine-ae"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Headless After Effects orchestration: locate aerender.exe, probe the machine and tune memory/MFR dynamically, gate .aep by RIFX, build the aerender argument vector, parse its stdout, and safely toggle AE's Welcome-screen pref. Adobe's renderer is a SUBPROCESS, never a crate dep (ADR-009 — the ffmpeg pattern)."
+
+[dependencies]
+# Cross-platform total-RAM probe for the dynamic render tuning (16GB→128GB).
+sysinfo.workspace = true
+
+[lints]
+workspace = true
