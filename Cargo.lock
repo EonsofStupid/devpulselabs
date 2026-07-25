@@ -1395,10 +1395,12 @@ dependencies = [
  "dpl-chat-window",
  "dpl-chat-windows",
  "dpl-coldlight",
+ "dpl-composer",
  "dpl-doc",
  "dpl-engine-capture",
  "dpl-engine-steps",
  "dpl-fabric",
+ "dpl-guide",
  "dpl-hub",
  "dpl-hub-home",
  "dpl-hub-present",
@@ -1628,6 +1630,8 @@ dependencies = [
  "dpl-doc",
  "dpl-engine-capture",
  "dpl-engine-media",
+ "dpl-engine-steps",
+ "dpl-guide",
  "dpl-index",
  "dpl-video",
  "egui",
@@ -1705,6 +1709,15 @@ version = "0.1.0"
 dependencies = [
  "dpl-hub",
  "tokio",
+]
+
+[[package]]
+name = "dpl-guide"
+version = "0.1.0"
+dependencies = [
+ "dpl-engine-media",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

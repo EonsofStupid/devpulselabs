@@ -32,6 +32,7 @@ members = [
     "crates/slides",
     "crates/doc",
     "crates/comp",
+    "crates/guide",
     "crates/composer",
     "crates/editor",
     "crates/deck",
@@ -121,6 +122,7 @@ dpl-engine-steps = { path = "crates/engine-steps" }
 dpl-slides = { path = "crates/slides" }
 dpl-doc = { path = "crates/doc" }
 dpl-comp = { path = "crates/comp" }
+dpl-guide = { path = "crates/guide" }
 dpl-composer = { path = "crates/composer" }
 dpl-editor = { path = "crates/editor" }
 dpl-deck = { path = "crates/deck" }

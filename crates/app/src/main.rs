@@ -25,6 +25,21 @@ fn main() -> eframe::Result {
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .init();
+    // The user-data root, resolved ONCE by the ported portable law
+    // (engine-capture) — logged with the full candidate list so "where
+    // did my files go" always has an answer (content_status honesty).
+    {
+        let root = dpl_engine_capture::content_root();
+        if root.exists() {
+            tracing::info!(root = %root.display(), "user-data root");
+        } else {
+            tracing::warn!(
+                root = %root.display(),
+                checked = ?dpl_engine_capture::checked_roots(),
+                "user-data root does not exist yet — created on first write; these locations were checked"
+            );
+        }
+    }
     let args: Vec<String> = std::env::args().collect();
     let shot: Option<std::path::PathBuf> = args
         .iter()
@@ -86,6 +101,15 @@ fn main() -> eframe::Result {
         .position(|a| a == "--video-format")
         .and_then(|i| args.get(i + 1))
         .cloned();
+    // `--steps-drill <n>` (W5.3) — the AI-driven Steps proof: start the
+    // recorder through the REAL handler (self-capture allowed), mark n
+    // real moments (each a real focused-window capture), stop, and SAVE
+    // through the real Save-card path. Exit by the recorder's verdict.
+    let steps_drill: Option<u32> = args
+        .iter()
+        .position(|a| a == "--steps-drill")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|n| n.parse().ok());
     // `--session-drill <secs>` — start a REAL session through the
     // palette's own handler, hop routes (observed fabric traffic), stop
     // after the window, exit on the recorder's own verdict (S1).
@@ -201,6 +225,34 @@ fn main() -> eframe::Result {
         }
     }
 
+    // `--export-guide <guide-rel> [<session-rel>]` — the headless W5
+    // drill: run the EXACT Guide-tab export path (dpl_composer::run_export
+    // — jail, mint, dpl-guide, index write-through), print the html path,
+    // exit by verdict; no window boots.
+    if let Some(i) = args.iter().position(|a| a == "--export-guide") {
+        let Some(guide) = args.get(i + 1).filter(|a| !a.starts_with("--")) else {
+            eprintln!("usage: --export-guide <guide-rel> [<session-rel>]");
+            std::process::exit(2);
+        };
+        let session = args.get(i + 2).filter(|a| !a.starts_with("--")).cloned();
+        match dpl_composer::run_export(
+            &dpl_engine_capture::content_root(),
+            guide,
+            session.as_deref(),
+            None,
+            dpl_guide::ExportOpts::default(),
+        ) {
+            Ok(export) => {
+                println!("exported {}", export.html.display());
+                std::process::exit(0);
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
     let options = eframe::NativeOptions {
         // MAXIMIZED — a fixed logical size overflows small displays at
         // dpr > 1 and shoves the status bar under the taskbar (the v1 bug).
@@ -253,6 +305,7 @@ fn main() -> eframe::Result {
                 viziwiz_snap,
                 chat_open,
                 steps_hotkey_drill,
+                steps_drill,
                 video_drill,
                 video_format,
                 mood,
@@ -289,6 +342,7 @@ struct Boot {
     viziwiz_snap: bool,
     chat_open: bool,
     steps_hotkey_drill: bool,
+    steps_drill: Option<u32>,
     video_drill: Option<u32>,
     video_format: Option<String>,
     mood: Option<usize>,
@@ -318,6 +372,10 @@ struct App {
     hotkey_frames: u32,
     hotkey_phase: u8,
     hotkey_mark: u32,
+    steps_drill: Option<u32>,
+    sd_frames: u32,
+    sd_phase: u8,
+    sd_marks: u32,
     video_drill: Option<u32>,
     video_format: Option<String>,
     video_frames: u32,
@@ -340,6 +398,7 @@ impl App {
             viziwiz_snap,
             chat_open,
             steps_hotkey_drill,
+            steps_drill,
             video_drill,
             video_format,
             mood,
@@ -513,6 +572,10 @@ impl App {
             hotkey_frames: 0,
             hotkey_phase: 0,
             hotkey_mark: 0,
+            steps_drill,
+            sd_frames: 0,
+            sd_phase: 0,
+            sd_marks: 0,
             video_drill,
             video_format,
             video_frames: 0,
@@ -832,6 +895,53 @@ impl eframe::App for App {
                 eprintln!(
                     "steps-hotkey-drill: TIMEOUT in phase {} · status: {}",
                     self.hotkey_phase,
+                    self.viziwiz.status_text()
+                );
+                std::process::exit(1);
+            }
+            ctx.request_repaint();
+        }
+
+        // `--steps-drill <n>` (W5.3): the AI-driven Steps proof — REAL
+        // recorder start through the palette handler (self-capture
+        // allowed), n real marked window captures, real stop, then the
+        // Save-card save path. Exit by the recorder's own verdict.
+        if let Some(n) = self.steps_drill {
+            self.sd_frames += 1;
+            match self.sd_phase {
+                0 if self.sd_frames >= 30 => {
+                    let msg = self.viziwiz.steps_start_drill_now().to_string();
+                    eprintln!("steps-drill: {msg}");
+                    if !msg.contains("recording") {
+                        std::process::exit(1);
+                    }
+                    self.sd_phase = 1;
+                }
+                1 if self.sd_frames.is_multiple_of(45) => {
+                    if self.sd_marks < n {
+                        self.viziwiz.steps_mark_now();
+                        self.sd_marks += 1;
+                    } else if self.viziwiz.steps_count() >= n {
+                        let msg = self.viziwiz.steps_stop_now().to_string();
+                        eprintln!("steps-drill: {msg}");
+                        self.sd_phase = 2;
+                    }
+                }
+                2 => {
+                    let msg = self.viziwiz.steps_save_now().to_string();
+                    eprintln!("steps-drill: {msg}");
+                    std::process::exit(if msg.starts_with("guide:") && msg.contains('→') {
+                        0
+                    } else {
+                        1
+                    });
+                }
+                _ => {}
+            }
+            if self.sd_frames > 1200 {
+                eprintln!(
+                    "steps-drill: TIMEOUT in phase {} · status: {}",
+                    self.sd_phase,
                     self.viziwiz.status_text()
                 );
                 std::process::exit(1);
