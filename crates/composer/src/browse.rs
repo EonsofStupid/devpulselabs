@@ -7,11 +7,15 @@ use crate::import::media_kind;
 use dpl_coldlight::{self as cl, Tone};
 use egui::{RichText, Sense};
 use egui_pilot_ai::{protocol::Role, NodeMetadata, PilotId, PilotKey, UiPilotExt};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 /// The deep-search result cap — SAID in the UI, never a silent cut.
 pub const SEARCH_CAP: usize = 500;
+/// Mogrt zip-reads per painted frame — a 300-card folder fills over a
+/// few frames instead of hitching the window once.
+const THUMBS_PER_FRAME: usize = 8;
 
 pub struct Browser {
     /// Distinguishes this window's viewport/pilot ids for its lifetime.
@@ -33,6 +37,9 @@ pub struct Browser {
     /// A deep search under `cwd`, running or finished, off the UI
     /// thread. None = the ordinary folder view.
     pub search: Option<Arc<Mutex<Search>>>,
+    /// Mogrt preview thumbs (R2a.2), lazily read from each file's
+    /// embedded `thumb.png`; None = tried, no thumb (badge card).
+    pub thumbs: HashMap<PathBuf, Option<Arc<[u8]>>>,
     pub open: bool,
 }
 
@@ -70,6 +77,7 @@ impl Browser {
             arm: None,
             query: String::new(),
             search: None,
+            thumbs: HashMap::new(),
             open: true,
         }
     }
@@ -375,6 +383,8 @@ pub fn window_ui(ui: &mut egui::Ui, b: &mut Browser) {
         .unwrap_or_else(|| b.cwd.to_string_lossy().into_owned());
     let entries = b.entries.as_deref().unwrap_or(&[]);
     let mut picked: Option<PathBuf> = None;
+    let thumbs = &mut b.thumbs;
+    let mut thumb_budget = THUMBS_PER_FRAME;
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| match &search_view {
@@ -400,7 +410,7 @@ pub fn window_ui(ui: &mut egui::Ui, b: &mut Browser) {
                 ui.label(RichText::new(line).small().color(cl::ink::SUBTLE));
                 ui.add_space(cl::space::S1);
                 let refs: Vec<&Entry> = hits.iter().collect();
-                if let Some(i) = entry_grid(ui, &refs, ns, "hits") {
+                if let Some(i) = entry_grid(ui, &refs, ns, "hits", thumbs, &mut thumb_budget) {
                     picked = Some(hits[i].path.clone());
                 }
             }
@@ -425,7 +435,7 @@ pub fn window_ui(ui: &mut egui::Ui, b: &mut Browser) {
                         .color(cl::ink::MUTED),
                     );
                 }
-                if let Some(i) = entry_grid(ui, &shown, ns, "folder") {
+                if let Some(i) = entry_grid(ui, &shown, ns, "folder", thumbs, &mut thumb_budget) {
                     match shown[i].kind {
                         EntryKind::Dir => go = Some(shown[i].path.clone()),
                         _ => picked = Some(shown[i].path.clone()),
@@ -433,6 +443,12 @@ pub fn window_ui(ui: &mut egui::Ui, b: &mut Browser) {
                 }
             }
         });
+    // Budget spent = thumbs still unread below the fold; the next frame
+    // continues filling.
+    if thumb_budget == 0 {
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(60));
+    }
     if let Some(p) = picked {
         b.picked.push(p);
     }
@@ -441,8 +457,48 @@ pub fn window_ui(ui: &mut egui::Ui, b: &mut Browser) {
     }
 }
 
+/// A mogrt entry's preview bytes: cached, or read NOW if the frame's
+/// budget allows (the miss stays a badge until a later frame fills it).
+fn mogrt_thumb(
+    e: &Entry,
+    cache: &mut HashMap<PathBuf, Option<Arc<[u8]>>>,
+    budget: &mut usize,
+) -> Option<Arc<[u8]>> {
+    if !matches!(e.kind, EntryKind::Element) {
+        return None;
+    }
+    let is_mogrt = e
+        .path
+        .extension()
+        .and_then(|x| x.to_str())
+        .is_some_and(|x| x.eq_ignore_ascii_case("mogrt"));
+    if !is_mogrt {
+        return None;
+    }
+    if let Some(cached) = cache.get(&e.path) {
+        return cached.clone();
+    }
+    if *budget == 0 {
+        return None;
+    }
+    *budget -= 1;
+    let loaded: Option<Arc<[u8]>> = crate::mogrt::read(&e.path)
+        .ok()
+        .filter(|m| !m.thumb_png.is_empty())
+        .map(|m| Arc::from(m.thumb_png.into_boxed_slice()));
+    cache.insert(e.path.clone(), loaded.clone());
+    loaded
+}
+
 /// The thumbnail grid over any entry list; returns the clicked index.
-fn entry_grid(ui: &mut egui::Ui, items: &[&Entry], ns: usize, tag: &str) -> Option<usize> {
+fn entry_grid(
+    ui: &mut egui::Ui,
+    items: &[&Entry],
+    ns: usize,
+    tag: &str,
+    thumbs: &mut HashMap<PathBuf, Option<Arc<[u8]>>>,
+    budget: &mut usize,
+) -> Option<usize> {
     let mut clicked = None;
     let avail = ui.available_width();
     let cols = ((avail / 180.0).floor() as usize).clamp(1, 6);
@@ -453,7 +509,8 @@ fn entry_grid(ui: &mut egui::Ui, items: &[&Entry], ns: usize, tag: &str) -> Opti
         .spacing([cl::space::S2, cl::space::S2])
         .show(ui, |ui| {
             for (n, e) in items.iter().enumerate() {
-                if card(ui, e, card_w, thumb_h, ns) {
+                let png = mogrt_thumb(e, thumbs, budget);
+                if card(ui, e, card_w, thumb_h, ns, png) {
                     clicked = Some(n);
                 }
                 if (n + 1) % cols == 0 {
@@ -465,9 +522,17 @@ fn entry_grid(ui: &mut egui::Ui, items: &[&Entry], ns: usize, tag: &str) -> Opti
 }
 
 /// One entry card: folder = named plate; image = the image itself;
-/// video/element = honest badge plates (posters are made at import,
-/// never by probing folders). The whole card is the hit target.
-fn card(ui: &mut egui::Ui, e: &Entry, w: f32, thumb_h: f32, ns: usize) -> bool {
+/// mogrt = its embedded thumb when read (R2a.2); video/other element =
+/// honest badge plates (video posters are made at import, never by
+/// probing folders). The whole card is the hit target.
+fn card(
+    ui: &mut egui::Ui,
+    e: &Entry,
+    w: f32,
+    thumb_h: f32,
+    ns: usize,
+    mogrt_png: Option<Arc<[u8]>>,
+) -> bool {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, thumb_h + 18.0), Sense::click());
     let thumb = egui::Rect::from_min_size(rect.min, egui::vec2(w, thumb_h));
     let painter = ui.painter();
@@ -482,7 +547,18 @@ fn card(ui: &mut egui::Ui, e: &Entry, w: f32, thumb_h: f32, ns: usize) -> bool {
         }
         EntryKind::Video => ("VIDEO", Tone::Cyan),
         EntryKind::Audio => ("AUDIO", Tone::Coral),
-        EntryKind::Element => ("ELEMENT", Tone::Lime),
+        EntryKind::Element => match &mogrt_png {
+            Some(png) => {
+                // bytes:// with a stable per-file uri — egui caches the
+                // decode; the Arc clone is refcount-cheap.
+                let uri = format!("bytes://mogrt-thumb/{}", e.path.to_string_lossy());
+                egui::Image::from_bytes(uri, egui::load::Bytes::Shared(Arc::clone(png)))
+                    .corner_radius(cl::RADIUS_SM)
+                    .paint_at(ui, thumb);
+                ("", Tone::Lime)
+            }
+            None => ("ELEMENT", Tone::Lime),
+        },
         EntryKind::Dir => ("FOLDER", Tone::Magenta),
     };
     if !center_text.is_empty() {

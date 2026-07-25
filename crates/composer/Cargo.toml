@@ -21,3 +21,4 @@ dpl-guide.workspace = true
 dpl-doc.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+zip.workspace = true

@@ -132,12 +132,31 @@ clears; ③ census fix — `sources.json` no longer counts as an element
 (phantom "1 imported element" since W3). PROOF: 32 composer tests;
 pin→unplug→boot drill shots
 `docs/proof/r2a1-offline-pack-{1280x800,1600x1000}.png`.
-**NEXT — R2a.2, GATED on the pack store returning** (only the operator
-knows where the 80 GB moved): the `.aep`/`.mogrt` parse spike on real
-specimens (mogrt = zip w/ definition.json + thumbnail — a zip/deflate
-dep is an ASK-FIRST), element tagging (`Index::set_tags` seam exists,
-unused), the elements shelf + overlay lane. Then R2b effects (the 860
-.cube LUTs — ffmpeg lut3d; also on the offline drive). Ratified:
+**R2a.2 landed** (`feat/r2a2-mogrt-reader`,
+`docs/plans/r2a2-mogrt-reader.md`): the drive RETURNED mid-session and
+the REAL stores are PINNED in the real root. SPIKE VERDICTS (real
+specimens, 2 unrelated packs): `.mogrt` = plain zip
+(definition.json + project.aegraphic + thumb.png; DEFLATE) — the
+metadata layer of the ratified preset-editing is READABLE without AE;
+`.aep` = RIFX `Egg!` opaque — **the parsing question stays OPEN by
+operator ruling ("we will keep it open as I research")**, files remain
+elements; `.cube` = trivial text (R2b confirmed cheap); the stores
+carry Mac `._*` AppleDouble twins (dot-skip already excludes).
+RATIFIED: dep = the FULL `zip` crate ("I will need it eventually") —
+workspace `zip = "8"`, deflate-only. SHIPPED: `composer/src/mogrt.rs`
+reader (capsuleName/capsuleTags/thumb.png, stem fallback, honest
+errors); import + ingest ENRICH mogrt element records (real name, tags,
+extracted `-poster.png`); Browse cards paint REAL mogrt previews via a
+budgeted lazy cache (≤8 zip reads/frame, `bytes://` egui uris); the
+import status says what was actually read. `clientControls` (editable
+text/font/size decls) documented, read when the controls UI pass
+consumes it. PROOF: 36 tests; real `Title 01.mogrt` through the exe →
+sqlite-verified enriched row + byte-identical extracted poster; shots
+`docs/proof/r2a2-mogrt-import-{1280x800,1600x1000}.png`.
+**NEXT:** R2b effects — the 860 `.cube` LUTs via ffmpeg lut3d (the
+registry v1 + inspector chips + render honors it; gate row 7), then
+R2c chat-edits-comp. The elements shelf/overlay lane rides the effects
+pass. `.aep` parsing = OPEN (operator researching). Ratified:
 3D/camera/tracker/motion-blur LATER; AI ephemeral in-app + chat (one
 seam); WiredFRONT before Workbench.
 Memory: `experience-first-gate`.
