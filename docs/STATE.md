@@ -24,9 +24,23 @@ imports** (personal-use tool) — they enter as ELEMENT artifacts
 (`content/elements/imported/`, indexed); PARSING into comp layers is
 its own spike, never faked. New harness seam: `--import-drill <dir>` +
 the ignored FS drill `composer/tests/import_drill.rs`.
-Exe rebuilt 2026-07-24. NEXT: R1z (autosave/undo/reopen-last +
-keyboard map), then R2a elements ingest (the gigs), R2b effects, the
-.aep parse spike. Ratified: 3D/camera/tracker/motion-blur are LATER;
+**W3 landed** (`feat/w3-pack-shelf`, `docs/plans/w3-pack-shelf.md`):
+the PACK SHELF — the operator's themeforest stores pinned IN PLACE
+(census: video = 70,018 files/79.6 GB incl. 9,021 .mogrt + 5,392 .aep
++ 860 .cube; audio = 250/2.6 GB; **C: had 14 GB free → the copy-all
+ratification is SUPERSEDED by arithmetic; pin-in-place + copy-on-use
+is law**). `elements/sources.json` (app-written registry) + ELEMENTS —
+your packs in the Project panel (real `videohive-*`/`audiojungle-*`
+rows, capped counts) → click opens a Browse window on the pack →
+click a file copies JUST IT through the import seam. Kind matrix grew:
+audio (wav/mp3/ogg/flac/m4a/aac → inbox) + mogrt/cube/ffx/prfpset
+elements. Pin pack chip in Browse windows; `--pin-pack <dir>` harness
+seam; D: trees are READ-ONLY (mtime-asserted). ALSO: the 51 GB
+`target\debug` tree was deleted mid-pass when C: ran out of disk.
+Exe rebuilt 2026-07-25. NEXT: R1z (autosave/undo/reopen-last +
+keyboard map), then R2a deep-pack browsing/tagging + the .aep/.mogrt
+parse spike, R2b effects (the 860 .cube LUTs are a natural first
+registry tier — ffmpeg lut3d). Ratified: 3D/camera/tracker/motion-blur are LATER;
 AI is ephemeral in-app + chat (one seam); WiredFRONT before Workbench.
 Memory: `experience-first-gate`.
 KNOWN (pre-existing, observed by the W2 cross-process drill): opening

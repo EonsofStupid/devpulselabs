@@ -139,6 +139,17 @@ fn main() -> eframe::Result {
         .position(|a| a == "--import-drill")
         .and_then(|i| args.get(i + 1))
         .cloned();
+    // `--pin-pack <dir>` (repeatable, W3) pins a folder as a pack source
+    // on the Elements shelf at boot — the SAME seam the Browse window's
+    // Pin pack chip takes. Nothing is copied; the folder is listed in
+    // place.
+    let pin_packs: Vec<String> = args
+        .iter()
+        .enumerate()
+        .filter(|(_, a)| *a == "--pin-pack")
+        .filter_map(|(i, _)| args.get(i + 1))
+        .cloned()
+        .collect();
     // `--open-rail <hub>` pins the accordion open on one house (L1a) —
     // proof shots of the unfolded rail reproduce. Unknown hub degrades to
     // a folded rail, never a panic.
@@ -253,6 +264,7 @@ fn main() -> eframe::Result {
                 open_rail,
                 open_episode,
                 import_drill,
+                pin_packs,
                 seam_port,
             });
             #[cfg(feature = "eguipilotai-devtools")]
@@ -288,6 +300,7 @@ struct Boot {
     open_rail: Option<String>,
     open_episode: Option<String>,
     import_drill: Option<String>,
+    pin_packs: Vec<String>,
     /// The agent seam's port; None = `--no-seam`.
     seam_port: Option<u16>,
 }
@@ -338,6 +351,7 @@ impl App {
             open_rail,
             open_episode,
             import_drill,
+            pin_packs,
             seam_port,
         } = boot;
         let mut workbench = dpl_hub_workbench::WorkbenchHub::default();
@@ -372,6 +386,10 @@ impl App {
         // Explorer drop takes, headlessly staged.
         if let Some(dir) = &import_drill {
             wiredfront.import_drill(std::path::Path::new(dir));
+        }
+        // The pack shelf's harness seam (W3): pin sources at boot.
+        for dir in &pin_packs {
+            wiredfront.pin_pack(std::path::Path::new(dir));
         }
         // The NAVIGATE seam: hubs that render tappable subroute cards
         // publish their asks through the one fabric.

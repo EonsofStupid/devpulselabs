@@ -821,6 +821,12 @@ impl WiredfrontHub {
         self.composer.import_dir(dir);
     }
 
+    /// The `--pin-pack <dir>` harness seam (W3): pin a folder as a pack
+    /// source on the Elements shelf — the Pin pack chip's exact path.
+    pub fn pin_pack(&mut self, dir: &std::path::Path) {
+        self.composer.pin_pack(dir);
+    }
+
     /// Open one session IN PLACE on the Gallery (doctrine §1.2) — the
     /// same path a session thumb tap takes (also `--open-replay`).
     pub fn open_replay(&mut self, rel: &str) {
