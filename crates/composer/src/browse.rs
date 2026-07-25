@@ -19,6 +19,10 @@ pub struct Browser {
     pub picked: Vec<PathBuf>,
     /// Folders "Pin pack"-ed since the composer last drained.
     pub pinned: Vec<PathBuf>,
+    /// A confirmed "Ingest pack" ask (this window's cwd), drained once.
+    pub ingest_req: Option<PathBuf>,
+    /// The armed ingest confirm — (files, bytes) shown before tap two.
+    pub arm: Option<(usize, u64)>,
     pub open: bool,
 }
 
@@ -44,6 +48,8 @@ impl Browser {
             entries: None,
             picked: Vec::new(),
             pinned: Vec::new(),
+            ingest_req: None,
+            arm: None,
             open: true,
         }
     }
@@ -60,6 +66,8 @@ impl Browser {
     fn go(&mut self, to: PathBuf) {
         self.cwd = to;
         self.entries = None;
+        // Navigation disarms a pending ingest confirm (the two-tap law).
+        self.arm = None;
     }
 }
 
@@ -169,6 +177,37 @@ pub fn window_ui(ui: &mut egui::Ui, b: &mut Browser) {
         );
         if pin.clicked() {
             b.pinned.push(b.cwd.clone());
+        }
+        let ingest_label = match &b.arm {
+            Some((files, bytes)) => {
+                format!("Ingest {files} files · {:.2} GB?", *bytes as f64 / 1e9)
+            }
+            None => "Ingest pack".to_string(),
+        };
+        let ing = cl::tip(
+            bar_chip(ui, &ingest_label, ns, "ingest"),
+            if b.arm.is_some() {
+                "Tap again to copy this whole folder into your library — \
+                 the originals here are never touched"
+            } else {
+                "Copy this folder into your library so it's local — two taps; \
+                 the size shows before anything moves"
+            },
+        );
+        ui.pilot_track(
+            &ing,
+            NodeMetadata::new(
+                PilotId::new("browse.ingest").child(&PilotKey::new(format!("{ns}"))),
+                Role::Button,
+                "Ingest this pack",
+            )
+            .value(if b.arm.is_some() { "armed" } else { "idle" }),
+        );
+        if ing.clicked() {
+            match b.arm.take() {
+                Some(_) => b.ingest_req = Some(b.cwd.clone()),
+                None => b.arm = Some(crate::packs::pack_size(&b.cwd)),
+            }
         }
         ui.label(
             RichText::new(b.cwd.to_string_lossy())

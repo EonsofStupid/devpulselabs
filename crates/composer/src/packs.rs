@@ -15,6 +15,9 @@ pub struct Pack {
     pub path: PathBuf,
     /// Media files inside (recursive, capped) — honest scale, not a lie.
     pub files: usize,
+    /// A local copy exists under `content/elements/<kebab name>/`
+    /// (the operator ingested this favorite).
+    pub ingested: bool,
 }
 
 /// Where the registry lives: `<content>/elements/sources.json`.
@@ -81,6 +84,12 @@ fn count_media(dir: &Path, cap: usize) -> usize {
     n
 }
 
+/// Where a pack's LOCAL copy lives once ingested.
+pub fn local_dir(root: &Path, pack_name: &str) -> PathBuf {
+    let kebab = crate::import::sanitize_name(pack_name).unwrap_or_else(|| "pack".into());
+    root.join("elements").join(kebab)
+}
+
 /// Every pack on the shelf: each pinned source's top-level folders
 /// (name-sorted), with a capped media count. A source that is itself
 /// flat (loose files, no subfolders) lists as ONE pack.
@@ -109,6 +118,7 @@ pub fn list_packs(root: &Path) -> Vec<Pack> {
                 .unwrap_or_else(|| source.to_string_lossy().into_owned());
             out.push(Pack {
                 files: count_media(&source, CAP),
+                ingested: local_dir(root, &name).is_dir(),
                 name,
                 path: source,
             });
@@ -121,12 +131,106 @@ pub fn list_packs(root: &Path) -> Vec<Pack> {
                 .unwrap_or_default();
             out.push(Pack {
                 files: count_media(&dir, CAP),
+                ingested: local_dir(root, &name).is_dir(),
                 name,
                 path: dir,
             });
         }
     }
     out
+}
+
+/// Every media file under a pack, recursive, dot-junk skipped,
+/// name-sorted — the ingest worklist (UNCAPPED; ingest is deliberate).
+pub fn media_files(pack: &Path) -> Vec<PathBuf> {
+    let mut stack = vec![pack.to_path_buf()];
+    let mut out = Vec::new();
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else {
+            continue;
+        };
+        for e in rd.flatten() {
+            let p = e.path();
+            if e.file_name().to_string_lossy().starts_with('.') {
+                continue;
+            }
+            if p.is_dir() {
+                stack.push(p);
+            } else if media_kind(&p).is_some() {
+                out.push(p);
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// The pack's full media weight — (files, bytes) — for the arm confirm.
+pub fn pack_size(pack: &Path) -> (usize, u64) {
+    let files = media_files(pack);
+    let bytes = files
+        .iter()
+        .filter_map(|p| std::fs::metadata(p).ok())
+        .map(|m| m.len())
+        .sum();
+    (files.len(), bytes)
+}
+
+/// INGEST one pack: copy every media file into
+/// `content/elements/<kebab name>/<relative subpath>` — SKIP-IF-EXISTS
+/// (resumable/idempotent), copy-to-`.part`-then-rename (never a torn
+/// file), poster+seconds for videos (best-effort), write-through into
+/// the ROOT's index. Returns the number COPIED this run. The source
+/// pack is never touched. `done` ticks per processed file (progress).
+pub fn ingest_copy(
+    root: &Path,
+    pack: &Path,
+    pack_name: &str,
+    done: &std::sync::atomic::AtomicUsize,
+) -> Result<usize, String> {
+    let dest_root = local_dir(root, pack_name);
+    let ix = dpl_index::Index::open(&root.join("artifacts.db"))?;
+    let mut copied = 0usize;
+    for src in media_files(pack) {
+        done.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let rel = src
+            .strip_prefix(pack)
+            .map_err(|_| format!("outside pack: {}", src.display()))?;
+        let dest = dest_root.join(rel);
+        if dest.exists() {
+            continue;
+        }
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("mkdir: {e}"))?;
+        }
+        let part = dest.with_extension("part");
+        std::fs::copy(&src, &part).map_err(|e| {
+            let _ = std::fs::remove_file(&part);
+            format!("copy {} after {copied} file(s): {e}", src.display())
+        })?;
+        std::fs::rename(&part, &dest).map_err(|e| format!("finish {}: {e}", dest.display()))?;
+        copied += 1;
+
+        let kind = media_kind(&dest).unwrap_or("element");
+        let mut rec = dpl_index::record_for_capture(&dest, root, kind, "ingest");
+        if kind == "video" {
+            let poster = dest.with_file_name(format!(
+                "{}-poster.jpg",
+                dest.file_stem().and_then(|s| s.to_str()).unwrap_or("frame")
+            ));
+            if dpl_engine_media::write_poster(&dest, &poster).is_ok() {
+                rec.poster_rel_path = poster
+                    .strip_prefix(root)
+                    .ok()
+                    .map(|p| p.to_string_lossy().replace('\\', "/"));
+            }
+            rec.seconds = dpl_video::clip::clip_duration(&dest)
+                .filter(|d| *d > 0.0)
+                .map(|d| d.round() as u32);
+        }
+        ix.upsert(&rec)?;
+    }
+    Ok(copied)
 }
 
 #[cfg(test)]
@@ -168,6 +272,36 @@ mod tests {
         assert_eq!(packs.len(), 1);
         assert_eq!(packs[0].name, "videohive-XY-things");
         assert_eq!(packs[0].files, 2, "mp4 + wav count; txt does not");
+    }
+
+    #[test]
+    fn ingest_copies_indexes_and_resumes() {
+        use std::sync::atomic::AtomicUsize;
+        let root = scratch("ingest");
+        let pack = root.join("d-store").join("videohive-ZZ-lower-thirds");
+        std::fs::create_dir_all(pack.join("Full HD")).unwrap();
+        std::fs::write(pack.join("Full HD").join("lt-01.mp4"), b"vid").unwrap();
+        std::fs::write(pack.join("song.wav"), b"aud").unwrap();
+        std::fs::write(pack.join("readme.txt"), b"no").unwrap();
+
+        let done = AtomicUsize::new(0);
+        let copied = ingest_copy(&root, &pack, "videohive-ZZ-lower-thirds", &done).unwrap();
+        assert_eq!(copied, 2, "both media files copied; txt skipped");
+        let local = local_dir(&root, "videohive-ZZ-lower-thirds");
+        assert!(local.join("Full HD").join("lt-01.mp4").is_file());
+        assert!(local.join("song.wav").is_file());
+        // The SOURCE is untouched and re-ingest copies nothing (resume).
+        assert!(pack.join("song.wav").is_file());
+        let again = ingest_copy(&root, &pack, "videohive-ZZ-lower-thirds", &done).unwrap();
+        assert_eq!(again, 0, "idempotent");
+        // Index rows exist in THIS root's db.
+        let rows = dpl_index::Index::open(&root.join("artifacts.db"))
+            .and_then(|ix| ix.recent(50, None))
+            .unwrap();
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().all(|r| r.source == "ingest"));
+        // The shelf marks it local.
+        assert!(local_dir(&root, "videohive-ZZ-lower-thirds").is_dir());
     }
 
     #[test]

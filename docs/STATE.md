@@ -37,6 +37,18 @@ audio (wav/mp3/ogg/flac/m4a/aac → inbox) + mogrt/cube/ffx/prfpset
 elements. Pin pack chip in Browse windows; `--pin-pack <dir>` harness
 seam; D: trees are READ-ONLY (mtime-asserted). ALSO: the 51 GB
 `target\debug` tree was deleted mid-pass when C: ran out of disk.
+**W4 landed** (`feat/w4-pack-ingest`, `docs/plans/w4-pack-ingest.md`):
+BOTH modes, as the operator asked — pins stay the in-place reference
+(the app-level symlink) AND a per-pack **Ingest** grabs favorites
+local: two-tap armed chip in the pack's Browse window (arm shows the
+real `N files · X.XX GB` before anything moves), one background ingest
+at a time with a live progress pill, copies land in
+`content/elements/<pack>/` (indexed + postered, `source="ingest"`),
+`.part`-then-rename (no torn files), SKIP-IF-EXISTS (resumable),
+disk-full aborts honestly; ingested packs read **local** on the shelf.
+Sources on D: stay read-only, always. Literal NTFS symlinks under
+/content were REJECTED (they'd drag 70k files into rescans and blur
+the artifact jail).
 Exe rebuilt 2026-07-25. NEXT: R1z (autosave/undo/reopen-last +
 keyboard map), then R2a deep-pack browsing/tagging + the .aep/.mogrt
 parse spike, R2b effects (the 860 .cube LUTs are a natural first
