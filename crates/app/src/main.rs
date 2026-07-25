@@ -83,6 +83,21 @@ fn main() -> eframe::Result {
     // `--chat-open` opens the independent primary Chat peer at boot. The
     // named EguiPilotAI fixture uses this path; ordinary launches stay quiet.
     let chat_open = args.iter().any(|a| a == "--chat-open");
+    // Authored Chat content is compile-time devtools-only. Production builds
+    // cannot register fixture providers, people, messages, or interactions.
+    #[cfg(feature = "eguipilotai-devtools")]
+    let chat_authored = args.iter().any(|a| a == "--chat-authored");
+    // Native proof presets are devtools-only and only arrange the deterministic
+    // authored fixture. They cannot activate a provider or Social transport.
+    #[cfg(feature = "eguipilotai-devtools")]
+    let chat_proof = chat_authored.then(|| {
+        args.iter()
+            .position(|a| a == "--chat-proof")
+            .and_then(|i| args.get(i + 1))
+            .and_then(|value| chat::ChatProofMode::parse(value))
+    });
+    #[cfg(feature = "eguipilotai-devtools")]
+    let chat_proof = chat_proof.flatten();
     // `--steps-hotkey-drill` — send a REAL Ctrl+Shift+9 through the OS
     // (rdev::simulate) and verify the global hook starts, then stops, the
     // Steps recorder (C2). Real input end-to-end; the pilot never fakes
@@ -312,6 +327,10 @@ fn main() -> eframe::Result {
                 viziwiz_open,
                 viziwiz_snap,
                 chat_open,
+                #[cfg(feature = "eguipilotai-devtools")]
+                chat_authored,
+                #[cfg(feature = "eguipilotai-devtools")]
+                chat_proof,
                 steps_hotkey_drill,
                 steps_drill,
                 video_drill,
@@ -350,6 +369,10 @@ struct Boot {
     viziwiz_open: bool,
     viziwiz_snap: bool,
     chat_open: bool,
+    #[cfg(feature = "eguipilotai-devtools")]
+    chat_authored: bool,
+    #[cfg(feature = "eguipilotai-devtools")]
+    chat_proof: Option<chat::ChatProofMode>,
     steps_hotkey_drill: bool,
     steps_drill: Option<u32>,
     video_drill: Option<u32>,
@@ -394,7 +417,13 @@ struct App {
     drill_frames: u32,
     drill_started: Option<std::time::Instant>,
     #[cfg(feature = "eguipilotai-devtools")]
-    pilot_runtime: Option<egui_pilot_ai_runtime::RuntimeGuard>,
+    pilot_runtime: Option<
+        std::sync::Arc<
+            std::sync::Mutex<
+                egui_pilot_ai_runtime::RuntimeGuard<egui_pilot_ai_transport::StdioTransport>,
+            >,
+        >,
+    >,
 }
 
 impl App {
@@ -407,6 +436,10 @@ impl App {
             viziwiz_open,
             viziwiz_snap,
             chat_open,
+            #[cfg(feature = "eguipilotai-devtools")]
+            chat_authored,
+            #[cfg(feature = "eguipilotai-devtools")]
+            chat_proof,
             steps_hotkey_drill,
             steps_drill,
             video_drill,
@@ -473,16 +506,33 @@ impl App {
         // Chat providers register as data. The peer-window UI never names one;
         // every manifest remains visibly blocked until its real adapter
         // qualifies. Chat is ONLY the status-bar peer window now — no rail hub.
-        let chat_runtime = dpl_chat_runtime::ChatRuntime::try_from_registrations([
+        #[cfg(feature = "eguipilotai-devtools")]
+        let authored_chat = chat_authored.then(dpl_chat_testkit::authored_chat);
+        #[cfg(feature = "eguipilotai-devtools")]
+        let chat_registrations = authored_chat.as_ref().map_or_else(
+            || {
+                vec![
+                    dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_codex::MANIFEST),
+                    dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_claude::MANIFEST),
+                    dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_gemini::MANIFEST),
+                    dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_grok::MANIFEST),
+                ]
+            },
+            |fixture| fixture.providers.clone(),
+        );
+        #[cfg(not(feature = "eguipilotai-devtools"))]
+        let chat_registrations = vec![
             dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_codex::MANIFEST),
             dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_claude::MANIFEST),
-            dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_grok::MANIFEST),
             dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_gemini::MANIFEST),
-        ])
-        .unwrap_or_else(|error| {
-            tracing::error!(%error, "chat provider registry rejected");
-            dpl_chat_runtime::ChatRuntime::default()
-        });
+            dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_grok::MANIFEST),
+        ];
+        let chat_runtime =
+            dpl_chat_runtime::ChatRuntime::try_from_registrations(chat_registrations)
+                .unwrap_or_else(|error| {
+                    tracing::error!(%error, "chat provider registry rejected");
+                    dpl_chat_runtime::ChatRuntime::default()
+                });
         // The registry — a new hub is ONE line here and nothing else.
         let hubs: Vec<Box<dyn Hub>> = vec![
             Box::new(dpl_hub_home::HomeHub),
@@ -569,10 +619,24 @@ impl App {
         let chat = chat::ChatWindowCoordinator::new(
             &fabric,
             chat_runtime,
-            shell.route(),
-            local_chat_history_catalog(),
-            chat_routes,
-            chat_open,
+            chat::ChatWindowConfig {
+                initial_route: shell.route(),
+                catalog: local_chat_history_catalog(),
+                routes: chat_routes,
+                authored_models: {
+                    #[cfg(feature = "eguipilotai-devtools")]
+                    {
+                        authored_chat.map(|fixture| (fixture.social, fixture.interactions))
+                    }
+                    #[cfg(not(feature = "eguipilotai-devtools"))]
+                    {
+                        None
+                    }
+                },
+                open_at_boot: chat_open,
+                #[cfg(feature = "eguipilotai-devtools")]
+                proof_mode: chat_proof,
+            },
         );
 
         Self {
@@ -643,11 +707,16 @@ impl App {
                 dithering: false,
             }
         });
-        self.pilot_runtime = Some(egui_pilot_ai_runtime::RuntimeGuard::attach(
-            &cc.egui_ctx,
-            egui_pilot_ai_transport::StdioTransport::stdio(64),
-            config,
+        let runtime = std::sync::Arc::new(std::sync::Mutex::new(
+            egui_pilot_ai_runtime::RuntimeGuard::attach(
+                &cc.egui_ctx,
+                egui_pilot_ai_transport::StdioTransport::stdio(64),
+                config,
+            ),
         ));
+        self.chat
+            .attach_pilot_runtime(std::sync::Arc::clone(&runtime));
+        self.pilot_runtime = Some(runtime);
         tracing::info!("EguiPilotAI private devtools runtime attached");
     }
 
@@ -1044,8 +1113,21 @@ impl eframe::App for App {
         self.screenshot_harness(&ctx);
 
         #[cfg(feature = "eguipilotai-devtools")]
-        if let Some(runtime) = &mut self.pilot_runtime {
+        if let Some(runtime) = &self.pilot_runtime {
+            let mut runtime = runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             runtime.pump();
+            let runtime_active = !runtime.is_stopped();
+            drop(runtime);
+            self.chat.consume_pilot_close_requests(&ctx);
+            if runtime_active {
+                // A private native automation session owns a root-frame
+                // heartbeat. Deferred child viewports can otherwise finish a
+                // one-tick action after eframe has coalesced the parent wake.
+                // This path cannot exist in production builds.
+                ctx.request_repaint_after(std::time::Duration::from_millis(1));
+            }
         }
     }
 }

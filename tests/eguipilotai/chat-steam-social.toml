@@ -1,0 +1,228 @@
+id = "chat-steam-social"
+fixture = "chat-authored"
+record = true
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "open"
+
+[steps.expectation.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "open"
+
+[steps.expectation.viewport]
+key = "chat.utility.1.1"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.mode.ai"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.mode.social"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+role = "dialog"
+name = "Open route in Main?"
+
+[steps.expectation.target.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+role = "button"
+name = "Keep in Chat"
+
+[steps.action.target.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "focused"
+
+[steps.expectation.target]
+id = "chat.primary/chat.utility.open/interaction-1001"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "press"
+key = "Tab"
+
+[steps.action.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "focused"
+
+[steps.expectation.target]
+id = "chat.primary/chat.utility.open/interaction-1002"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.mode.social"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+role = "tab"
+name = "Maya Chen"
+
+[steps.expectation.target.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "disabled"
+
+[steps.expectation.target]
+id = "chat.primary/chat.composer.send"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.mode.ai"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "hover"
+
+[steps.action.target]
+role = "tab"
+name = "Codex"
+
+[steps.action.target.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+role = "dialog"
+name = "Provider hover card"
+
+[steps.expectation.target.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.utility.1.1/chat.utility.detach"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "open"
+
+[steps.expectation.viewport]
+key = "chat.utility.1.2"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.utility.1.2/chat.utility.redock"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "open"
+
+[steps.expectation.viewport]
+key = "chat.utility.1.3"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "minimize-viewport"
+
+[steps.action.viewport]
+key = "root"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "restored"
+
+[steps.expectation.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "restored"
+
+[steps.expectation.viewport]
+key = "chat.utility.1.3"

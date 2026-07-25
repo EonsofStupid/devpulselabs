@@ -6,7 +6,13 @@ publish.workspace = true
 
 [dependencies]
 dpl-chat-core.workspace = true
+dpl-chat-interactions.workspace = true
 dpl-chat-runtime.workspace = true
+dpl-chat-social.workspace = true
+dpl-chat-codex.workspace = true
+dpl-chat-claude.workspace = true
+dpl-chat-gemini.workspace = true
+dpl-chat-grok.workspace = true
 
 [lints]
 workspace = true

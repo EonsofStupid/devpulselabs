@@ -7,7 +7,7 @@ use dpl_chat_core::{
     AccountSummary, ActivationState, Capability, ChatEvent, ChatSessionId, ProviderId,
     ProviderManifest, RecoveryAction, RecoveryActionKind, SessionSummary,
 };
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt;
 
 #[derive(Debug, Clone)]
@@ -53,7 +53,7 @@ impl ProviderRegistration {
 struct ProviderEntry {
     registration: ProviderRegistration,
     active_session: Option<ChatSessionId>,
-    draft: String,
+    drafts: BTreeMap<Option<ChatSessionId>, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -117,7 +117,7 @@ impl ChatRuntime {
             providers.push(ProviderEntry {
                 registration,
                 active_session,
-                draft: String::new(),
+                drafts: BTreeMap::new(),
             });
         }
 
@@ -136,7 +136,11 @@ impl ChatRuntime {
             .map(|entry| ProviderView {
                 registration: entry.registration.clone(),
                 active_session: entry.active_session,
-                draft: entry.draft.clone(),
+                draft: entry
+                    .drafts
+                    .get(&entry.active_session)
+                    .cloned()
+                    .unwrap_or_default(),
             })
             .collect()
     }
@@ -153,7 +157,11 @@ impl ChatRuntime {
             .map(|entry| ProviderView {
                 registration: entry.registration.clone(),
                 active_session: entry.active_session,
-                draft: entry.draft.clone(),
+                draft: entry
+                    .drafts
+                    .get(&entry.active_session)
+                    .cloned()
+                    .unwrap_or_default(),
             })
     }
 
@@ -256,7 +264,7 @@ impl ChatRuntime {
             .iter_mut()
             .find(|entry| entry.registration.manifest.descriptor.id == provider_id)
             .ok_or(RegistryError::UnknownProvider(provider_id))?;
-        entry.draft = draft;
+        entry.drafts.insert(entry.active_session, draft);
         Ok(())
     }
 }

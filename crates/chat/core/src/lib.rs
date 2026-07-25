@@ -7,6 +7,24 @@ use std::fmt;
 
 pub const MAX_NATIVE_PAYLOAD_BYTES: usize = 8 * 1024;
 
+/// Stable top-level Chat modes. Each domain owns independent selection,
+/// draft, scroll, unread, and overlay state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+pub enum ChatDomain {
+    #[default]
+    Ai,
+    Social,
+}
+
+impl ChatDomain {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Ai => "AI",
+            Self::Social => "Social",
+        }
+    }
+}
+
 macro_rules! static_id {
     ($name:ident) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -388,6 +406,12 @@ mod tests {
     #[test]
     fn typed_session_identity_has_a_stable_display_form() {
         assert_eq!(ChatSessionId(42).to_string(), "chat-42");
+    }
+
+    #[test]
+    fn ai_is_the_default_chat_domain() {
+        assert_eq!(ChatDomain::default(), ChatDomain::Ai);
+        assert_eq!(ChatDomain::Social.label(), "Social");
     }
 
     #[test]
