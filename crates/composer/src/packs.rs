@@ -18,6 +18,10 @@ pub struct Pack {
     /// A local copy exists under `content/elements/<kebab name>/`
     /// (the operator ingested this favorite).
     pub ingested: bool,
+    /// The pinned path is readable right now. False = the drive it
+    /// lives on is away — the pin STAYS on the shelf and says so,
+    /// never silently vanishing.
+    pub online: bool,
 }
 
 /// Where the registry lives: `<content>/elements/sources.json`.
@@ -98,6 +102,19 @@ pub fn list_packs(root: &Path) -> Vec<Pack> {
     let mut out = Vec::new();
     for source in load_sources(root) {
         let Ok(rd) = std::fs::read_dir(&source) else {
+            // The drive is away (or the folder moved): keep the pin,
+            // say so. One offline row per pinned source.
+            let name = source
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| source.to_string_lossy().into_owned());
+            out.push(Pack {
+                files: 0,
+                ingested: local_dir(root, &name).is_dir(),
+                online: false,
+                name,
+                path: source,
+            });
             continue;
         };
         let mut dirs: Vec<PathBuf> = rd
@@ -119,6 +136,7 @@ pub fn list_packs(root: &Path) -> Vec<Pack> {
             out.push(Pack {
                 files: count_media(&source, CAP),
                 ingested: local_dir(root, &name).is_dir(),
+                online: true,
                 name,
                 path: source,
             });
@@ -132,6 +150,7 @@ pub fn list_packs(root: &Path) -> Vec<Pack> {
             out.push(Pack {
                 files: count_media(&dir, CAP),
                 ingested: local_dir(root, &name).is_dir(),
+                online: true,
                 name,
                 path: dir,
             });
@@ -302,6 +321,21 @@ mod tests {
         assert!(rows.iter().all(|r| r.source == "ingest"));
         // The shelf marks it local.
         assert!(local_dir(&root, "videohive-ZZ-lower-thirds").is_dir());
+    }
+
+    #[test]
+    fn an_unplugged_source_lists_as_an_offline_pack_never_vanishing() {
+        let root = scratch("offline");
+        let src = root.join("usb-store");
+        std::fs::create_dir_all(&src).unwrap();
+        add_source(&root, &src).unwrap();
+        // The drive goes away.
+        std::fs::remove_dir_all(&src).unwrap();
+        let packs = list_packs(&root);
+        assert_eq!(packs.len(), 1, "the pin stays on the shelf");
+        assert_eq!(packs[0].name, "usb-store");
+        assert!(!packs[0].online, "and says it is offline");
+        assert_eq!(packs[0].files, 0);
     }
 
     #[test]

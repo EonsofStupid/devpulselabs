@@ -1704,7 +1704,9 @@ impl Composer {
                     );
                 }
                 for p in shelf {
-                    let count = if p.ingested {
+                    let count = if !p.online {
+                        "offline".to_string()
+                    } else if p.ingested {
                         "local".to_string()
                     } else if p.files >= 1000 {
                         "1000+".to_string()
@@ -1713,8 +1715,13 @@ impl Composer {
                     };
                     let resp = cl::tip(
                         row_line(ui, "pak", &p.name, &count, ("pk", p.name.as_str())),
-                        "Open this pack in its own window — the files stay in place; \
-                         using one copies just that file",
+                        if p.online {
+                            "Open this pack in its own window — the files stay in place; \
+                             using one copies just that file"
+                        } else {
+                            "This pack's drive isn't connected — plug it back in and the \
+                             pack returns; anything you ingested stays local"
+                        },
                     );
                     ui.pilot_track(
                         &resp,
@@ -1722,9 +1729,10 @@ impl Composer {
                             PilotId::new("composer.project.pack").child(&PilotKey::new(&p.name)),
                             Role::Button,
                             &p.name,
-                        ),
+                        )
+                        .value(if p.online { "online" } else { "offline" }),
                     );
-                    if resp.clicked() {
+                    if resp.clicked() && p.online {
                         *act = Some(Act::BrowseAt(p.path.clone()));
                     }
                 }
@@ -3311,6 +3319,8 @@ fn scan_inbox_for(root: &Path, marker: &str) -> Vec<(String, PathBuf)> {
 }
 
 /// Count files under a directory tree (the elements census). Absent → 0.
+/// The pack REGISTRY (`sources.json`, W3) lives in this tree but is not
+/// an element — counting it told a pinned-but-empty library it had one.
 fn count_files(dir: &Path) -> usize {
     let Ok(rd) = std::fs::read_dir(dir) else {
         return 0;
@@ -3320,6 +3330,8 @@ fn count_files(dir: &Path) -> usize {
             let p = e.path();
             if p.is_dir() {
                 count_files(&p)
+            } else if e.file_name() == "sources.json" {
+                0
             } else {
                 1
             }
@@ -3608,6 +3620,17 @@ mod tests {
             key_act(Key::Space, ctrl, None).is_none(),
             "ctrl+space is unbound"
         );
+    }
+
+    #[test]
+    fn the_elements_census_never_counts_the_registry() {
+        let dir = std::env::temp_dir().join(format!("dpl-composer-census-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("pack")).unwrap();
+        std::fs::write(dir.join("sources.json"), b"[]").unwrap();
+        std::fs::write(dir.join("pack").join("spark.mogrt"), b"x").unwrap();
+        assert_eq!(count_files(&dir), 1, "the registry is not an element");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
