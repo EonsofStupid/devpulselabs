@@ -126,6 +126,12 @@ localhost WebSocket. Sync/blocking like every engine crate.
   nothing consumes it yet); screencast/replay capture (next pass).
 - Out of scope: DG2 composition, pilot integration, Twilio capture
   itself.
+- **AMENDED same-day (operator: "properly all included portable"):**
+  DG-B.1 folded INTO this pass — `BrowserConfig` gains
+  `profile: Option<PathBuf>` (persistent, never deleted) +
+  `headless: bool`; `browser_cli login <dir>` is the visible sign-in
+  ceremony; `shot --profile <dir>` rides the saved session. ADR-013 §5
+  amended to match. No extension dependency anywhere in the flow.
 
 ## §6 Verification
 

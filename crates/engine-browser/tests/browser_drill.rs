@@ -13,7 +13,11 @@ fn headless_launch_navigate_evaluate_screenshot() {
     let (bin, source) = resolve().expect("no chromium-family browser installed");
     eprintln!("drill: resolved {} ({source})", bin.display());
 
-    let mut browser = Browser::launch(&BrowserConfig { window: (800, 600) }).unwrap();
+    let mut browser = Browser::launch(&BrowserConfig {
+        window: (800, 600),
+        ..Default::default()
+    })
+    .unwrap();
     {
         let mut page = browser.new_page().unwrap();
         page.set_viewport(800, 600).unwrap();

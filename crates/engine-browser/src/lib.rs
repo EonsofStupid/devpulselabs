@@ -146,25 +146,38 @@ pub fn resolve() -> Result<(PathBuf, &'static str), String> {
 // ─────────────────────────────── launch ─────────────────────────────────
 
 /// How to launch. Window size is the OS window AND the initial viewport.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BrowserConfig {
     pub window: (u32, u32),
+    /// `None` → a fresh ephemeral temp profile, removed on close.
+    /// `Some(dir)` → a persistent NAMED demo profile (DG-B.1): kept
+    /// across runs so an operator-performed sign-in survives — the whole
+    /// point. Never the operator's real browser profile (ADR-013 §5).
+    pub profile: Option<PathBuf>,
+    /// `true` → `--headless=new`. `false` → a real visible window: the
+    /// sign-in ceremony, and watch-it-drive demonstrations.
+    pub headless: bool,
 }
 
 impl Default for BrowserConfig {
     fn default() -> Self {
         Self {
             window: (1280, 800),
+            profile: None,
+            headless: true,
         }
     }
 }
 
 /// The launch argument VECTOR (never a shell string). Port 0 makes the
 /// browser pick a free port and write `DevToolsActivePort` in the profile
-/// dir; the fresh profile keeps us out of the operator's real browser.
-pub fn launch_args(profile: &Path, window: (u32, u32)) -> Vec<String> {
-    vec![
-        "--headless=new".into(),
+/// dir; the isolated profile keeps us out of the operator's real browser.
+pub fn launch_args(profile: &Path, window: (u32, u32), headless: bool) -> Vec<String> {
+    let mut args: Vec<String> = Vec::new();
+    if headless {
+        args.push("--headless=new".into());
+    }
+    args.extend([
         "--remote-debugging-port=0".into(),
         format!("--user-data-dir={}", profile.display()),
         "--no-first-run".into(),
@@ -173,7 +186,8 @@ pub fn launch_args(profile: &Path, window: (u32, u32)) -> Vec<String> {
         "--disable-extensions".into(),
         format!("--window-size={},{}", window.0, window.1),
         "about:blank".into(),
-    ]
+    ]);
+    args
 }
 
 /// Parse `DevToolsActivePort`: line 1 the port, line 2 the browser-target
@@ -241,6 +255,9 @@ pub fn base64_decode(s: &str) -> Result<Vec<u8>, String> {
 pub struct Browser {
     child: Child,
     profile: PathBuf,
+    /// Ephemeral profiles are removed on close/drop; persistent DG-B.1
+    /// profiles (operator sign-ins live there) are NEVER touched.
+    ephemeral: bool,
     binary: (PathBuf, &'static str),
     ws: WebSocket<TcpStream>,
     next_id: u64,
@@ -251,11 +268,15 @@ impl Browser {
     /// Resolve, launch, wait for `DevToolsActivePort`, connect.
     pub fn launch(cfg: &BrowserConfig) -> Result<Self, String> {
         let (bin, source) = resolve()?;
-        let profile = fresh_profile_dir();
+        let ephemeral = cfg.profile.is_none();
+        let profile = cfg.profile.clone().unwrap_or_else(fresh_profile_dir);
         std::fs::create_dir_all(&profile)
             .map_err(|e| format!("profile dir {}: {e}", profile.display()))?;
+        // A persistent profile carries last run's DevToolsActivePort;
+        // remove it so we only ever read the file THIS child writes.
+        let _ = std::fs::remove_file(profile.join("DevToolsActivePort"));
         let mut child = Command::new(&bin)
-            .args(launch_args(&profile, cfg.window))
+            .args(launch_args(&profile, cfg.window, cfg.headless))
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -270,13 +291,20 @@ impl Browser {
                 }
             }
             if let Ok(Some(status)) = child.try_wait() {
-                let _ = std::fs::remove_dir_all(&profile);
-                return Err(format!("browser exited during boot ({status})"));
+                if ephemeral {
+                    let _ = std::fs::remove_dir_all(&profile);
+                }
+                return Err(format!(
+                    "browser exited during boot ({status}) — if this is a \
+                     persistent profile, a browser may already be running on it"
+                ));
             }
             if Instant::now() > deadline {
                 let _ = child.kill();
                 let _ = child.wait();
-                let _ = std::fs::remove_dir_all(&profile);
+                if ephemeral {
+                    let _ = std::fs::remove_dir_all(&profile);
+                }
                 return Err(format!(
                     "browser never wrote {} within {BOOT_TIMEOUT:?}",
                     port_file.display()
@@ -299,11 +327,22 @@ impl Browser {
         Ok(Self {
             child,
             profile,
+            ephemeral,
             binary: (bin, source),
             ws,
             next_id: 0,
             events: VecDeque::new(),
         })
+    }
+
+    /// Hand the window to the operator and block until THEY close the
+    /// browser — the DG-B.1 sign-in ceremony. Whatever sessions they
+    /// signed into persist in the (named) profile for later captures.
+    pub fn wait_until_closed(mut self) -> Result<(), String> {
+        self.child
+            .wait()
+            .map(|_| ())
+            .map_err(|e| format!("waiting for browser close: {e}"))
     }
 
     /// Which binary is actually driving, and where it came from.
@@ -456,7 +495,9 @@ impl Drop for Browser {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
-        let _ = std::fs::remove_dir_all(&self.profile);
+        if self.ephemeral {
+            let _ = std::fs::remove_dir_all(&self.profile);
+        }
     }
 }
 
@@ -564,13 +605,21 @@ mod tests {
 
     #[test]
     fn launch_args_are_headless_portless_and_profiled() {
-        let a = launch_args(Path::new("C:/tmp/prof"), (1366, 768)).join(" ");
+        let a = launch_args(Path::new("C:/tmp/prof"), (1366, 768), true).join(" ");
         assert!(a.contains("--headless=new"), "{a}");
         assert!(a.contains("--remote-debugging-port=0"), "{a}");
         assert!(a.contains("--user-data-dir=C:/tmp/prof"), "{a}");
         assert!(a.contains("--no-first-run"), "{a}");
         assert!(a.contains("--window-size=1366,768"), "{a}");
         assert!(a.ends_with("about:blank"), "{a}");
+    }
+
+    #[test]
+    fn headful_launch_keeps_everything_but_the_headless_flag() {
+        let a = launch_args(Path::new("/p"), (1280, 900), false).join(" ");
+        assert!(!a.contains("--headless"), "{a}");
+        assert!(a.contains("--remote-debugging-port=0"), "{a}");
+        assert!(a.contains("--user-data-dir=/p"), "{a}");
     }
 
     #[test]

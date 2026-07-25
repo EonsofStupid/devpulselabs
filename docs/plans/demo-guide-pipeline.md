@@ -79,11 +79,13 @@ requirement, not a nicety.
   (`docs/plans/demo-browser-driver.md`, ADR-013): `dpl-engine-browser`
   drives an installed Chrome/Edge headless over CDP — the external
   tier's capture vehicle. Screencast-to-clip is additive on this seam.
-- **DG-B.1 — persistent demo profile (follow-up):** opt-in
-  `BrowserConfig` named profile dir (never the operator's real one) so
-  the operator signs a demo account (Clyffy, demo Twilio) in ONCE
-  interactively and headless captures ride the session. Credentials
-  stay operator-side always — the agent never enters passwords.
+- **DG-B.1 — persistent demo profile. ✅ LANDED same-day** (operator:
+  the flow must be self-contained/portable — no extension): opt-in
+  `BrowserConfig` named profile dir (never the operator's real one) +
+  headful mode; `browser_cli login <dir>` = the one-time sign-in
+  ceremony (Clyffy, demo Twilio), then captures ride the session.
+  Credentials stay operator-side always — the agent never enters
+  passwords.
 
 - **DG1 — mixed-media guide.** Schema extension (G-1) + segment cut
   (G-2) + export bundles N clips + player handles mixed steps (G-4).

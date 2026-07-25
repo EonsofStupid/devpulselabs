@@ -9,9 +9,16 @@ CDP. Resolve-never-download (injected → `DPL_BROWSER` → bundled →
 Chrome installs → Edge, the Windows zero-install fallback → PATH incl.
 the Linux names); `--headless=new` + ephemeral profile + port from
 `DevToolsActivePort`; navigate/evaluate/click/insert-text/screenshot;
-`browser_cli shot <url> <png> [--window WxH]`; live `#[ignore]` drill
-PROVEN on real Chrome (1.3 s end-to-end). New workspace dep ratified:
-tungstenite 0.27 (no TLS — localhost only). Paper trail filed: the
+`browser_cli shot <url> <png> [--window WxH] [--profile <dir>]`; live
+`#[ignore]` drill PROVEN on real Chrome (1.3 s end-to-end). New
+workspace dep ratified: tungstenite 0.27 (no TLS — localhost only).
+**DG-B.1 folded in same-day** (operator: self-contained/portable, NO
+extension): persistent named demo profiles (never deleted, never the
+operator's real profile) + headful mode + `browser_cli login <dir>` —
+the one-time visible sign-in ceremony; captures then ride the saved
+session headlessly. First capture round banked: 3 public Twilio stills
+(headless, 1366×768) + ordered manifest in the session scratchpad;
+learning: Twilio login is EMAIL-FIRST (two-beat sign-in step). Paper trail filed: the
 demo-pipeline charter (`docs/plans/demo-guide-pipeline.md`, DRAFT —
 DG1/DG2 ordering awaits ratification) + the first storyboard
 (`docs/plans/demos/demo-001-twilio-notification-keys.md`). Demo

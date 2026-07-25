@@ -29,11 +29,18 @@
    via `tungstenite` (pure Rust, `default-features = false` — no TLS:
    the socket never leaves localhost). JSON via serde_json. No tokio,
    no threads.
-5. **Ephemeral profiles only.** Every launch gets a fresh
-   `user-data-dir`; the driver never touches the operator's real
-   browser profile, cookies, or credential stores. Authenticated demo
-   captures happen in demo accounts (G-6 redaction law,
-   docs/plans/demo-guide-pipeline.md).
+5. **Ephemeral profiles by default; persistent DEMO profiles opt-in
+   (DG-B.1, amended same-day — operator: the flow must be "properly
+   all included, portable").** Default launches get a fresh temp
+   `user-data-dir`, removed on close. `BrowserConfig.profile:
+   Some(dir)` names a persistent profile the APP owns — the operator
+   signs demo accounts in ONCE through the visible-window ceremony
+   (`browser_cli login <dir>`), and captures ride the saved session.
+   Persistent profiles are NEVER deleted by the driver and are never
+   the operator's real browser profile, cookies, or credential
+   stores. Credentials are typed by the operator only — tooling never
+   retrieves or enters them. Authenticated demo captures happen in
+   demo accounts (G-6 redaction law, docs/plans/demo-guide-pipeline.md).
 
 ## Rejected
 
