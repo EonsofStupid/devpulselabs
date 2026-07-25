@@ -1201,6 +1201,25 @@ impl Composer {
         self.save();
     }
 
+    /// One indexed media record sent from an OUTSIDE surface — the
+    /// Library shelf's double-click (W6). A video joins the timeline
+    /// through the same path a FOOTAGE tap takes (checkpoint, undo,
+    /// autosave all ride); an image answers honestly until the
+    /// image-layers pass lands. The Nth feeding surface calls this
+    /// same one seam.
+    pub fn add_from_library(&mut self, rec: &Record) {
+        if rec.kind == "video" {
+            self.add_clip(rec);
+        } else {
+            self.palette = None;
+            self.status = format!(
+                "{} is in your FOOTAGE list — images join the timeline with the \
+                 image-layers pass.",
+                rec.name
+            );
+        }
+    }
+
     /// The harness seam (`--import-drill <dir>`): import every media
     /// file in `dir` through the SAME path an Explorer drop takes —
     /// the real-exe proof of the import seam.
@@ -3644,6 +3663,26 @@ mod tests {
         std::fs::write(dir.join("pack").join("spark.mogrt"), b"x").unwrap();
         assert_eq!(count_files(&dir), 1, "the registry is not an element");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn add_from_library_is_the_one_outside_seam() {
+        let mut c = Composer::default();
+        // A video rides the full add_clip path: layer + undo snapshot.
+        c.add_from_library(&video_rec("Clip", "inbox/clip.mp4", Some(4)));
+        assert_eq!(c.layers().len(), 1, "video joins the timeline");
+        assert!(!c.undo_stack.is_empty(), "checkpoint rode the add");
+        assert!(c.dirty, "autosave sees the edit");
+        // An image stays honest — no fake layer, the pass is named.
+        let img = Record {
+            rel_path: "inbox/pix.png".into(),
+            kind: "image".into(),
+            name: "Pix".into(),
+            ..Record::default()
+        };
+        c.add_from_library(&img);
+        assert_eq!(c.layers().len(), 1, "no fake image layer");
+        assert!(c.status.contains("image-layers pass"), "{}", c.status);
     }
 
     #[test]

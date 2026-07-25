@@ -122,6 +122,8 @@ pub struct WiredfrontHub {
     fabric: Option<dpl_fabric::Fabric>,
     gallery: Option<GalleryView>,
     sessions: Option<SessionsView>,
+    /// The LIBRARY media shelf (W6): rows loaded once per visit.
+    library: Option<LibraryView>,
     /// The Gallery's in-place session player (doctrine §1.2: "tapping a
     /// session card opens the player right there") + its status line.
     replay: Option<(SessionPlay, String)>,
@@ -563,103 +565,224 @@ fn artifact_card(
     (act, disarm)
 }
 
-/// The WiredFRONT LIBRARY — the MEDIA shelf (two-libraries law: raw
-/// media lives HERE; ColdLight ingredients live in Workbench). Today it
-/// holds the honest census: elements (awaiting the ingest pass) and the
-/// rendered comps on disk; the full thumbnailed shelf grows with the
-/// editor passes. The Gallery remains the capture wall.
-fn media_library(ui: &mut egui::Ui) {
-    // The shelf sits on its own recessed plate — the mood backdrop never
-    // fights the reading surface.
-    let full = ui.max_rect();
-    ui.painter().rect_filled(
-        full,
-        egui::CornerRadius::same(cl::RADIUS),
-        cl::surface::WELL,
-    );
-    let mut inner = ui.new_child(
-        egui::UiBuilder::new()
-            .max_rect(full.shrink(cl::space::S3))
-            .layout(egui::Layout::top_down(egui::Align::Min)),
-    );
-    let ui = &mut inner;
-    let root = dpl_engine_capture::content_root();
-    ui.label(
-        RichText::new("The media shelf")
-            .heading()
-            .color(cl::ink::STRONG),
-    );
-    ui.label(
-        RichText::new(
-            "Raw material for the editor — clips, images, your AE elements, finished renders. \
-             App ingredients (traits, presets, fonts, moods) live in the Workbench Library.",
-        )
-        .small()
-        .color(cl::ink::SUBTLE),
-    );
-    ui.add_space(cl::space::S3);
+/// The LIBRARY shelf's state (W6): every media row (clips, images —
+/// renders are ordinary kind-"video" rows), loaded once per visit.
+struct LibraryView {
+    rows: Vec<dpl_index::Record>,
+    status: String,
+}
 
-    ui.label(
-        RichText::new("ELEMENTS")
-            .small()
-            .strong()
-            .color(cl::ink::MUTED),
-    );
-    let elements_dir = root.join("elements");
-    let element_count = count_files(&elements_dir);
-    if element_count == 0 {
+impl LibraryView {
+    fn load() -> Self {
+        let (rows, status) =
+            match dpl_index::Index::open_default().and_then(|ix| ix.recent(500, None)) {
+                Ok(rows) => {
+                    let rows: Vec<dpl_index::Record> = rows
+                        .into_iter()
+                        .filter(|r| r.kind == "video" || r.kind == "image")
+                        .collect();
+                    let status = format!("{} media file(s)", rows.len());
+                    (rows, status)
+                }
+                Err(e) => (Vec::new(), e),
+            };
+        Self { rows, status }
+    }
+}
+
+impl WiredfrontHub {
+    /// The WiredFRONT LIBRARY — the real MEDIA shelf (W6; two-libraries
+    /// law: raw media lives HERE, ColdLight ingredients in Workbench).
+    /// A thumbnailed wall of every clip and image; DOUBLE-CLICK sends a
+    /// row to the Editor (video → timeline, image → FOOTAGE, honestly)
+    /// and navigates there — the frictionless law. The Gallery remains
+    /// the capture wall with Dump/Keep.
+    fn library_surface(&mut self, ui: &mut egui::Ui) {
+        // The shelf sits on its own recessed plate — the mood backdrop
+        // never fights the reading surface.
+        let full = ui.max_rect();
+        ui.painter().rect_filled(
+            full,
+            egui::CornerRadius::same(cl::RADIUS),
+            cl::surface::WELL,
+        );
+        let mut inner = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(full.shrink(cl::space::S3))
+                .layout(egui::Layout::top_down(egui::Align::Min)),
+        );
+        let ui = &mut inner;
+        let view = self.library.get_or_insert_with(LibraryView::load);
+        let mut refresh = false;
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new("The media shelf")
+                    .heading()
+                    .color(cl::ink::STRONG),
+            );
+            let resp = cl::tip(
+                filter_chip(ui, "refresh", false),
+                "Reload the shelf from your library",
+            );
+            ui.pilot_track(
+                &resp,
+                NodeMetadata::new(
+                    PilotId::new("library").child(&PilotKey::new("refresh")),
+                    egui_pilot_ai::protocol::Role::Button,
+                    "Refresh the shelf",
+                ),
+            );
+            if resp.clicked() {
+                refresh = true;
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(RichText::new(&view.status).small().color(cl::ink::SUBTLE));
+            });
+        });
         ui.label(
             RichText::new(
-                "none yet — your After Effects element packs land in content/elements/ with \
-                 the ingest pass",
+                "Raw material for the editor — DOUBLE-CLICK any clip or image to send it \
+                 to the Editor. App ingredients live in the Workbench Library.",
             )
             .small()
             .color(cl::ink::SUBTLE),
         );
-    } else {
-        ui.label(
-            RichText::new(format!(
-                "{element_count} element file(s) on disk — ingest pass next"
-            ))
-            .small()
-            .color(cl::ink::BASE),
-        );
-    }
-    ui.add_space(cl::space::S3);
+        ui.add_space(cl::space::S2);
 
-    ui.label(
-        RichText::new("RENDERS")
-            .small()
-            .strong()
-            .color(cl::ink::MUTED),
-    );
-    let inbox = root.join("inbox");
-    let mut renders: Vec<String> = std::fs::read_dir(&inbox)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.is_dir() && p.join("render.mp4").is_file())
-        .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
-        .collect();
-    renders.sort();
-    if renders.is_empty() {
+        let root = dpl_engine_capture::content_root();
+        let mut send: Option<dpl_index::Record> = None;
+        if view.rows.is_empty() {
+            ui.label(
+                RichText::new(
+                    "nothing here yet — capture with ViziWiz, drop files on the Editor, \
+                     or Browse… a folder; everything lands on this shelf",
+                )
+                .color(cl::ink::MUTED),
+            );
+        } else {
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    let avail = ui.available_width();
+                    let cols = ((avail / 240.0).floor() as usize).clamp(1, 7);
+                    let card_w = (avail - cl::space::S3 * (cols - 1) as f32) / cols as f32;
+                    let thumb_h = card_w * 9.0 / 16.0;
+                    egui::Grid::new("dpl_library_grid")
+                        .num_columns(cols)
+                        .spacing([cl::space::S3, cl::space::S3])
+                        .show(ui, |ui| {
+                            for (n, r) in view.rows.iter().enumerate() {
+                                if let Some(rec) = library_card(ui, r, &root, card_w, thumb_h) {
+                                    send = Some(rec);
+                                }
+                                if (n + 1) % cols == 0 {
+                                    ui.end_row();
+                                }
+                            }
+                        });
+                });
+        }
+        ui.add_space(cl::space::S2);
+        let element_count = count_files(&root.join("elements"));
         ui.label(
-            RichText::new(
-                "none yet — the Editor's Render button writes render.mp4 beside the comp",
-            )
+            RichText::new(if element_count == 0 {
+                "ELEMENTS: none yet — pin or ingest packs from the Editor's Project panel"
+                    .to_string()
+            } else {
+                format!(
+                    "ELEMENTS: {element_count} file(s) — browse them from the Editor's pack shelf"
+                )
+            })
             .small()
             .color(cl::ink::SUBTLE),
         );
+
+        if refresh {
+            self.library = Some(LibraryView::load());
+            return;
+        }
+        if let Some(rec) = send {
+            // The frictionless law: the double-click IS the import — the
+            // editor takes it and the app goes there.
+            self.composer.add_from_library(&rec);
+            if let Some(fabric) = &self.fabric {
+                fabric.publish_shell(dpl_fabric::ShellEvent::NavigateRequest {
+                    route: Route {
+                        hub: HUB,
+                        sub: EDITOR,
+                    },
+                });
+            }
+        }
     }
-    for name in renders {
-        ui.label(
-            RichText::new(format!("inbox/{name}/render.mp4"))
-                .monospace()
-                .small()
-                .color(cl::ink::BASE),
+}
+
+/// One shelf card: thumb (honest fallback) + name + facts. Returns the
+/// record when DOUBLE-CLICKED (the send-to-editor ask).
+fn library_card(
+    ui: &mut egui::Ui,
+    r: &dpl_index::Record,
+    root: &std::path::Path,
+    w: f32,
+    thumb_h: f32,
+) -> Option<dpl_index::Record> {
+    let mut send = None;
+    ui.vertical(|ui| {
+        ui.set_width(w);
+        let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, thumb_h), Sense::click());
+        ui.painter()
+            .rect_filled(rect, cl::RADIUS_SM, cl::surface::WELL);
+        match thumb_uri(r, root) {
+            Some(uri) => {
+                egui::Image::new(uri)
+                    .corner_radius(cl::RADIUS_SM)
+                    .paint_at(ui, rect);
+            }
+            None => {
+                ui.painter().text(
+                    rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    &r.kind,
+                    egui::FontId::monospace(13.0),
+                    cl::ink::SUBTLE,
+                );
+            }
+        }
+        // Hover names the gesture — the double-click must never be a
+        // secret handshake.
+        ui.painter().rect_stroke(
+            rect,
+            cl::RADIUS_SM,
+            egui::Stroke::new(
+                if resp.hovered() { 2.0 } else { 1.0 },
+                if resp.hovered() {
+                    cl::Tone::Magenta.color()
+                } else {
+                    cl::surface::HAIRLINE
+                },
+            ),
+            egui::StrokeKind::Inside,
         );
-    }
+        let resp = cl::tip(resp, "Double-click to send this to the Editor");
+        ui.pilot_track(
+            &resp,
+            NodeMetadata::new(
+                PilotId::new("library.card").child(&PilotKey::new(&r.rel_path)),
+                egui_pilot_ai::protocol::Role::Button,
+                "Send to the Editor (double-click)",
+            ),
+        );
+        if resp.double_clicked() {
+            send = Some(r.clone());
+        }
+        ui.label(RichText::new(&r.name).strong().color(cl::ink::STRONG));
+        let facts = match r.seconds {
+            Some(s) if s > 0 => format!("{} · {}:{:02}", r.kind, s / 60, s % 60),
+            _ => format!("{} · {}", r.kind, r.captured_at),
+        };
+        ui.label(RichText::new(facts).small().color(cl::ink::MUTED));
+    });
+    send
 }
 
 /// Count files under a directory tree (the elements census). Absent → 0.
@@ -1176,7 +1299,7 @@ impl Hub for WiredfrontHub {
             return;
         }
         if route.sub == LIBRARY {
-            media_library(ui);
+            self.library_surface(ui);
             return;
         }
         if let Some(go) = dpl_hub::placeholder::surface(

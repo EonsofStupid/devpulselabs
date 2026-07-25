@@ -153,6 +153,19 @@ text/font/size decls) documented, read when the controls UI pass
 consumes it. PROOF: 36 tests; real `Title 01.mogrt` through the exe →
 sqlite-verified enriched row + byte-identical extracted poster; shots
 `docs/proof/r2a2-mogrt-import-{1280x800,1600x1000}.png`.
+**W6 landed** (`feat/w6-frictionless-media-in`,
+`docs/plans/w6-frictionless-media-in.md`) — operator redlines killed:
+(a) the LIBRARY is the real thumbnailed MEDIA SHELF — double-click any
+clip/image and the Editor takes it (video → timeline via the one
+add_clip path, undo/autosave riding; image → FOOTAGE honestly until
+image layers) and the app navigates there; one outside seam
+`Composer::add_from_library`. (b) MANAGED FFMPEG at boot (the original
+tools.rs law): bin/ beside exe → process PATH → winget Links → the
+winget Packages scan (FINDING: Gyan.FFmpeg never gets a Links shim),
+injected into all three engine seams; none found warns naming every
+location. PROOF: PATH=System32-only export drill runs end to end; the
+drill also proves P1's `--content-root` arg live. Friction rows 13+14
+DONE. Shots docs/proof/w6-library-{1100x700,1600x1000}.png.
 **AEP ORCHESTRATOR — new pass, PAUSES R2b** (operator 2026-07-25:
 installing AE/Animate; "pull aerender.exe into ours and have wiredfront
 editor viziwiz actually be an orchestrator"). This RESOLVES the open
