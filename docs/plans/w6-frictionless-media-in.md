@@ -137,7 +137,7 @@ are one experience story), PR → squash-merge → exe rebuild → STATE.
    image-layers pass.
 2. MANAGED-FFMPEG DRILL (the operator's exact failure): with
    `PATH=C:\Windows\System32` ONLY, the exe resolved
-   `...WinGet\Packages\Gyan.FFmpeg...infmpeg.exe`
+   `...WinGet/Packages/Gyan.FFmpeg.../bin/ffmpeg.exe`
    (source "winget-package" — FINDING: winget never made a Links shim
    for ffmpeg on this machine; the Packages scan was added mid-pass and
    is the candidate that fires) and ran the FULL guide export end to
