@@ -43,6 +43,9 @@ pub(crate) struct RegionSelect {
 
 impl Viziwiz {
     pub(crate) fn begin_editor(&mut self, ctx: &egui::Context, mode: SnipMode) {
+        if self.capture_blocked() {
+            return;
+        }
         let result = (|| -> Result<RegionSelect, String> {
             let frozen = std::env::temp_dir().join("dpl-viziwiz-freeze.png");
             cap::freeze_primary_to(&frozen)?;
@@ -385,12 +388,7 @@ impl Viziwiz {
                         self.status = match result {
                             Ok(p) => {
                                 self.last = Some(LastSnip::Region(frac));
-                                format!(
-                                    "saved {}{}{}",
-                                    p.display(),
-                                    Self::index_capture(&self.fabric, &p, CaptureKind::Image),
-                                    Self::copy_to_clipboard(ctx, &p)
-                                )
+                                self.finish_still(ctx, p)
                             }
                             Err(e) => e,
                         };
@@ -411,12 +409,7 @@ impl Viziwiz {
                     self.status = match result {
                         Ok(p) => {
                             self.last = Some(LastSnip::Free(points));
-                            format!(
-                                "saved {}{}{}",
-                                p.display(),
-                                Self::index_capture(&self.fabric, &p, CaptureKind::Image),
-                                Self::copy_to_clipboard(ctx, &p)
-                            )
+                            self.finish_still(ctx, p)
                         }
                         Err(e) => e,
                     };
