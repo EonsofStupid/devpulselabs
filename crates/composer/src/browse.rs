@@ -220,21 +220,105 @@ pub fn search_files(root: &Path, query: &str, cap: usize) -> Vec<Entry> {
 /// every present drive. Pure std — no dialog crate, no new deps.
 pub fn roots() -> Vec<(String, PathBuf)> {
     let mut out = Vec::new();
-    if let Ok(profile) = std::env::var("USERPROFILE") {
-        for name in ["Videos", "Pictures", "Downloads", "Desktop"] {
-            let p = Path::new(&profile).join(name);
+    // The operator's OWN library folders come FIRST — their AE presets / image
+    // collections, added once and reachable from every Browse window.
+    for (name, path) in operator_libraries() {
+        if path.is_dir() {
+            out.push((name, path));
+        }
+    }
+    // Home standard folders — cross-platform (HOME on unix incl. macOS,
+    // USERPROFILE on Windows). "Movies" is the macOS "Videos".
+    if let Some(home) = home_dir() {
+        for name in ["Videos", "Movies", "Pictures", "Downloads", "Desktop"] {
+            let p = home.join(name);
             if p.is_dir() {
                 out.push((name.to_string(), p));
             }
         }
+        if home.is_dir() {
+            out.push(("Home".to_string(), home));
+        }
     }
+    // Windows drives.
+    #[cfg(windows)]
     for c in b'A'..=b'Z' {
         let p = PathBuf::from(format!("{}:\\", c as char));
         if p.is_dir() {
             out.push((format!("{}:", c as char), p));
         }
     }
+    // Unix mount points (Linux /mnt /media, macOS /Volumes) + root.
+    #[cfg(unix)]
+    for m in ["/Volumes", "/mnt", "/media", "/"] {
+        let p = PathBuf::from(m);
+        if p.is_dir() {
+            out.push((m.to_string(), p));
+        }
+    }
     out
+}
+
+/// The home directory, cross-platform (`HOME` on unix incl. macOS,
+/// `USERPROFILE` on Windows).
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+}
+
+fn libraries_file() -> PathBuf {
+    dpl_engine_capture::userdata_root().join("libraries.json")
+}
+
+/// The operator's added library folders (label, path), persisted in
+/// `.userdata/libraries.json`. Reachable from every Browse window — the "add
+/// your own folder as a library" QoL.
+pub fn operator_libraries() -> Vec<(String, PathBuf)> {
+    read_libraries()
+        .into_iter()
+        .map(|p| {
+            let label = p
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(str::to_string)
+                .unwrap_or_else(|| p.display().to_string());
+            (format!("★ {label}"), p)
+        })
+        .collect()
+}
+
+fn read_libraries() -> Vec<PathBuf> {
+    std::fs::read_to_string(libraries_file())
+        .ok()
+        .and_then(|s| serde_json::from_str::<Vec<PathBuf>>(&s).ok())
+        .unwrap_or_default()
+}
+
+/// Add a folder as a persistent library (idempotent). Returns whether it was
+/// newly added.
+pub fn add_library(path: PathBuf) -> bool {
+    let mut libs = read_libraries();
+    if libs.contains(&path) {
+        return false;
+    }
+    libs.push(path);
+    let file = libraries_file();
+    if let Some(dir) = file.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Ok(json) = serde_json::to_string_pretty(&libs) {
+        let _ = std::fs::write(&file, json);
+    }
+    true
+}
+
+/// Drop a library folder from the persistent list.
+pub fn remove_library(path: &Path) {
+    let libs: Vec<PathBuf> = read_libraries().into_iter().filter(|p| p != path).collect();
+    if let Ok(json) = serde_json::to_string_pretty(&libs) {
+        let _ = std::fs::write(libraries_file(), json);
+    }
 }
 
 /// One folder, honestly: dirs first, then media files, both name-sorted;
@@ -361,6 +445,26 @@ pub fn window_ui(ui: &mut egui::Ui, b: &mut Browser) {
         );
         if pin.clicked() {
             b.pinned.push(b.cwd.clone());
+        }
+        // Add THIS folder as a permanent operator library — it shows in the
+        // quick-jump bar of every Browse window from now on. QoL: your own AE
+        // presets / image folders are one tap away, nothing moved or copied.
+        let lib = cl::tip(
+            bar_chip(ui, "★ Add as library", ns, "add-library"),
+            "Add THIS folder as a permanent library — one tap away in every Browse \
+             window from now on. Your own presets / image folders, in place; nothing moved.",
+        );
+        ui.pilot_track(
+            &lib,
+            NodeMetadata::new(
+                PilotId::new("browse.add-library").child(&PilotKey::new(format!("{ns}"))),
+                Role::Button,
+                "Add this folder as a library",
+            ),
+        );
+        if lib.clicked() {
+            add_library(b.cwd.clone());
+            b.roots = roots();
         }
         let ingest_label = match &b.arm {
             Some((files, bytes)) => {
@@ -737,6 +841,18 @@ fn bar_chip(ui: &mut egui::Ui, text: &str, ns: usize, key: &str) -> egui::Respon
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn roots_are_populated_cross_platform() {
+        // The Windows-only bug: `roots()` returned EMPTY on Linux/macOS, so a
+        // Browse window had nowhere to go. Now it must always offer somewhere
+        // (unix "/" is always a dir; Windows has drive letters).
+        let r = roots();
+        assert!(
+            !r.is_empty(),
+            "browse has quick-jump destinations on this OS"
+        );
+    }
 
     fn scratch(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir()
