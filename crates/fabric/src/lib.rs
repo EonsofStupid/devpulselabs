@@ -9,6 +9,7 @@
 //! (capture, jobs, providers) land with their ports and follow this file's
 //! shape exactly.
 
+pub use dpl_chat_core::ProviderId;
 use dpl_hub::Route;
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -145,6 +146,178 @@ pub struct JobId(pub u64);
 /// A jobs-domain subscription.
 pub type JobReceiver = broadcast::Receiver<Stamped<JobEvent>>;
 
+/// Process-unique identity for one provider activation ceremony.
+///
+/// It shares the Fabric sequence space so an activation can be ordered
+/// against every other application fact without inventing another clock.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ActivationAttemptId(pub u64);
+
+impl fmt::Display for ActivationAttemptId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "activation-{}", self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ProviderActivationStage {
+    Launch,
+    DeviceCode,
+    Browser,
+    Authorization,
+    Runtime,
+}
+
+impl ProviderActivationStage {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Launch => "launch",
+            Self::DeviceCode => "device-code",
+            Self::Browser => "browser",
+            Self::Authorization => "authorization",
+            Self::Runtime => "runtime",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ProviderFailureClass {
+    UnsupportedVersion,
+    Launch,
+    InvalidPrompt,
+    Browser,
+    Authorization,
+    Runtime,
+    Protocol,
+    Timeout,
+    Disconnect,
+    Cancelled,
+}
+
+impl ProviderFailureClass {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::UnsupportedVersion => "unsupported-version",
+            Self::Launch => "launch",
+            Self::InvalidPrompt => "invalid-prompt",
+            Self::Browser => "browser",
+            Self::Authorization => "authorization",
+            Self::Runtime => "runtime",
+            Self::Protocol => "protocol",
+            Self::Timeout => "timeout",
+            Self::Disconnect => "disconnect",
+            Self::Cancelled => "cancelled",
+        }
+    }
+}
+
+/// Redacted provider lifecycle facts.
+///
+/// Codes, authorization URLs, tokens, cookies, raw provider output, and
+/// message content are deliberately impossible to place in this type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProviderEvent {
+    Selected {
+        provider: ProviderId,
+    },
+    ActivationRequested {
+        provider: ProviderId,
+        attempt: ActivationAttemptId,
+    },
+    ClientStarted {
+        provider: ProviderId,
+        attempt: ActivationAttemptId,
+        client_version: String,
+    },
+    DeviceCodeReceived {
+        provider: ProviderId,
+        attempt: ActivationAttemptId,
+        code_len: u16,
+    },
+    CodeCopied {
+        provider: ProviderId,
+        attempt: ActivationAttemptId,
+    },
+    BrowserOpened {
+        provider: ProviderId,
+        attempt: ActivationAttemptId,
+        browser: String,
+    },
+    BrowserClosed {
+        provider: ProviderId,
+        attempt: ActivationAttemptId,
+    },
+    AuthorizationCompleted {
+        provider: ProviderId,
+        attempt: ActivationAttemptId,
+    },
+    RuntimeStarted {
+        provider: ProviderId,
+        attempt: ActivationAttemptId,
+    },
+    Ready {
+        provider: ProviderId,
+        attempt: ActivationAttemptId,
+        client_version: String,
+        auth_method: &'static str,
+    },
+    Failed {
+        provider: ProviderId,
+        attempt: ActivationAttemptId,
+        stage: ProviderActivationStage,
+        class: ProviderFailureClass,
+        retryable: bool,
+    },
+    Cancelled {
+        provider: ProviderId,
+        attempt: ActivationAttemptId,
+    },
+    Expired {
+        provider: ProviderId,
+        attempt: ActivationAttemptId,
+    },
+}
+
+impl ProviderEvent {
+    pub const fn provider(&self) -> ProviderId {
+        match self {
+            Self::Selected { provider }
+            | Self::ActivationRequested { provider, .. }
+            | Self::ClientStarted { provider, .. }
+            | Self::DeviceCodeReceived { provider, .. }
+            | Self::CodeCopied { provider, .. }
+            | Self::BrowserOpened { provider, .. }
+            | Self::BrowserClosed { provider, .. }
+            | Self::AuthorizationCompleted { provider, .. }
+            | Self::RuntimeStarted { provider, .. }
+            | Self::Ready { provider, .. }
+            | Self::Failed { provider, .. }
+            | Self::Cancelled { provider, .. }
+            | Self::Expired { provider, .. } => *provider,
+        }
+    }
+
+    pub const fn attempt(&self) -> Option<ActivationAttemptId> {
+        match self {
+            Self::Selected { .. } => None,
+            Self::ActivationRequested { attempt, .. }
+            | Self::ClientStarted { attempt, .. }
+            | Self::DeviceCodeReceived { attempt, .. }
+            | Self::CodeCopied { attempt, .. }
+            | Self::BrowserOpened { attempt, .. }
+            | Self::BrowserClosed { attempt, .. }
+            | Self::AuthorizationCompleted { attempt, .. }
+            | Self::RuntimeStarted { attempt, .. }
+            | Self::Ready { attempt, .. }
+            | Self::Failed { attempt, .. }
+            | Self::Cancelled { attempt, .. }
+            | Self::Expired { attempt, .. } => Some(*attempt),
+        }
+    }
+}
+
+pub type ProviderReceiver = broadcast::Receiver<Stamped<ProviderEvent>>;
+
 /// The installed UI waker callback (doctrine law 6).
 pub type Waker = Arc<dyn Fn() + Send + Sync>;
 
@@ -170,6 +343,7 @@ pub struct Fabric {
     deck: broadcast::Sender<DeckEvent>,
     capture: broadcast::Sender<Stamped<CaptureEvent>>,
     jobs: broadcast::Sender<Stamped<JobEvent>>,
+    providers: broadcast::Sender<Stamped<ProviderEvent>>,
     /// The stamp state: one global sequence + the birth instant.
     seq: Arc<AtomicU64>,
     born: Instant,
@@ -191,11 +365,13 @@ impl Fabric {
         let (deck, _) = broadcast::channel(64);
         let (capture, _) = broadcast::channel(256);
         let (jobs, _) = broadcast::channel(64);
+        let (providers, _) = broadcast::channel(128);
         Self {
             shell,
             deck,
             capture,
             jobs,
+            providers,
             seq: Arc::new(AtomicU64::new(0)),
             born: Instant::now(),
             waker: Arc::new(std::sync::Mutex::new(None)),
@@ -235,6 +411,10 @@ impl Fabric {
         JobId(self.seq.fetch_add(1, Ordering::Relaxed))
     }
 
+    pub fn mint_provider_attempt(&self) -> ActivationAttemptId {
+        ActivationAttemptId(self.seq.fetch_add(1, Ordering::Relaxed))
+    }
+
     /// Publish a capture signal — stamped, waking the UI.
     pub fn publish_capture(&self, event: CaptureEvent) {
         let _ = self.capture.send(self.stamp(event));
@@ -253,6 +433,16 @@ impl Fabric {
 
     pub fn subscribe_jobs(&self) -> JobReceiver {
         self.jobs.subscribe()
+    }
+
+    /// Publish a redacted provider lifecycle fact.
+    pub fn publish_provider(&self, event: ProviderEvent) {
+        let _ = self.providers.send(self.stamp(event));
+        self.wake();
+    }
+
+    pub fn subscribe_providers(&self) -> ProviderReceiver {
+        self.providers.subscribe()
     }
 
     /// Publish, ignoring "no subscribers yet" — a signal with no listeners
@@ -415,6 +605,39 @@ mod tests {
             job.0 < q.seq,
             "the JobId is causally before its transitions"
         );
+    }
+
+    #[test]
+    fn provider_facts_share_one_attempt_without_secret_payload_fields() {
+        let fabric = Fabric::new();
+        let mut rx = fabric.subscribe_providers();
+        let attempt = fabric.mint_provider_attempt();
+        fabric.publish_provider(ProviderEvent::ActivationRequested {
+            provider: ProviderId("grok"),
+            attempt,
+        });
+        fabric.publish_provider(ProviderEvent::DeviceCodeReceived {
+            provider: ProviderId("grok"),
+            attempt,
+            code_len: 9,
+        });
+        let requested = rx.try_recv().unwrap();
+        let prompted = rx.try_recv().unwrap();
+        assert!(matches!(
+            requested.ev,
+            ProviderEvent::ActivationRequested { attempt: seen, .. } if seen == attempt
+        ));
+        assert!(matches!(
+            prompted.ev,
+            ProviderEvent::DeviceCodeReceived {
+                attempt: seen,
+                code_len: 9,
+                ..
+            } if seen == attempt
+        ));
+        assert!(prompted.seq > requested.seq);
+        assert_eq!(prompted.ev.provider(), ProviderId("grok"));
+        assert_eq!(prompted.ev.attempt(), Some(attempt));
     }
 
     #[test]

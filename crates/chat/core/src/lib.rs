@@ -41,6 +41,95 @@ macro_rules! static_id {
 static_id!(ProviderId);
 static_id!(ProviderProfileId);
 
+/// Where a guided value came from. The source is retained so authored UI can
+/// distinguish provider truth from operator input or an AI suggestion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum GuidedValueSource {
+    Provider,
+    Route,
+    Session,
+    Operator,
+    Ai,
+}
+
+/// How strongly a consumer may rely on a seeded value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum GuidedValueConfidence {
+    Authoritative,
+    Suggested(u8),
+}
+
+/// Whether a guided value may cross diagnostics or persistence boundaries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum GuidedValueSensitivity {
+    Public,
+    Private,
+    TransientSecret,
+}
+
+/// A pre-populated value with explicit provenance and operator policy.
+///
+/// This is the boring foundation for route-aware defaults and AI suggestions.
+/// Consumers never need to infer whether a value is editable, copyable, or
+/// safe to persist from its contents.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GuidedValue<T> {
+    pub value: T,
+    pub source: GuidedValueSource,
+    pub confidence: GuidedValueConfidence,
+    pub editable: bool,
+    pub copyable: bool,
+    pub sensitivity: GuidedValueSensitivity,
+    pub overridden: bool,
+}
+
+impl<T> GuidedValue<T> {
+    pub const fn new(
+        value: T,
+        source: GuidedValueSource,
+        confidence: GuidedValueConfidence,
+        editable: bool,
+        copyable: bool,
+        sensitivity: GuidedValueSensitivity,
+    ) -> Self {
+        Self {
+            value,
+            source,
+            confidence,
+            editable,
+            copyable,
+            sensitivity,
+            overridden: false,
+        }
+    }
+
+    pub const fn provider_authoritative(
+        value: T,
+        copyable: bool,
+        sensitivity: GuidedValueSensitivity,
+    ) -> Self {
+        Self::new(
+            value,
+            GuidedValueSource::Provider,
+            GuidedValueConfidence::Authoritative,
+            false,
+            copyable,
+            sensitivity,
+        )
+    }
+
+    pub fn replace_by_operator(&mut self, value: T) -> bool {
+        if !self.editable {
+            return false;
+        }
+        self.value = value;
+        self.source = GuidedValueSource::Operator;
+        self.confidence = GuidedValueConfidence::Authoritative;
+        self.overridden = true;
+        true
+    }
+}
+
 /// DevPULSE-owned identity for a session, independent of provider-native IDs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ChatSessionId(pub u64);
@@ -156,8 +245,8 @@ pub struct ProviderManifest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeviceAuthorizationPrompt {
     pub provider_id: ProviderId,
-    pub verification_url: String,
-    pub user_code: String,
+    pub verification_url: GuidedValue<String>,
+    pub user_code: GuidedValue<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -435,6 +524,33 @@ mod tests {
     fn ai_is_the_default_chat_domain() {
         assert_eq!(ChatDomain::default(), ChatDomain::Ai);
         assert_eq!(ChatDomain::Social.label(), "Social");
+    }
+
+    #[test]
+    fn guided_values_retain_provenance_and_enforce_edit_policy() {
+        let mut code = GuidedValue::provider_authoritative(
+            "EH38-T38A".to_owned(),
+            true,
+            GuidedValueSensitivity::TransientSecret,
+        );
+        assert_eq!(code.source, GuidedValueSource::Provider);
+        assert_eq!(code.confidence, GuidedValueConfidence::Authoritative);
+        assert!(code.copyable);
+        assert!(!code.editable);
+        assert!(!code.replace_by_operator("different".to_owned()));
+        assert_eq!(code.value, "EH38-T38A");
+
+        let mut suggestion = GuidedValue::new(
+            "DevPULSE".to_owned(),
+            GuidedValueSource::Ai,
+            GuidedValueConfidence::Suggested(82),
+            true,
+            true,
+            GuidedValueSensitivity::Private,
+        );
+        assert!(suggestion.replace_by_operator("DevPULSE Labs".to_owned()));
+        assert_eq!(suggestion.source, GuidedValueSource::Operator);
+        assert!(suggestion.overridden);
     }
 
     #[test]

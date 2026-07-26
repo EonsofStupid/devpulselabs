@@ -25,11 +25,13 @@ bounded activation path:
 
 ```text
 click Grok
-    -> select the provider and inspect its activation evidence
-    -> no qualified connection: show one Activate Grok action
+    -> select Grok and make activation the dominant conversation content
+    -> no qualified connection: show one Connect Grok action
     -> exact official `grok login --device-auth` child
     -> parse only the bounded xAI verification URL + short user code
-    -> render the code and progress inside the Grok provider surface
+    -> retain both as provider-authored guided values in bounded memory
+    -> render the exact code, one-click Copy, guidance, and terminal trace
+       inside the Grok conversation
     -> automatically open the URL in DevPULSE's app-owned Chromium window
     -> operator completes xAI-owned authentication
     -> login child reports completion
@@ -37,7 +39,8 @@ click Grok
     -> start the named Grok ACP runtime
     -> cached subscription authentication succeeds
     -> write non-secret activation evidence to the Chat Turso ledger
-    -> select or create the Grok conversation and enable normal chat
+    -> select or create the Grok conversation, focus the composer, and enable
+       normal chat
 ```
 
 The login child, authorization browser, ACP runtime, and Turso ledger have
@@ -155,7 +158,8 @@ conformance record.
 - `Signing in`: disable duplicate activation while the exact device child
   starts.
 - `Awaiting authorization`: keep the short code and progress visible in the
-  Grok provider surface; allow the owned authorization window to be reopened.
+  Grok conversation; automatically open the owned Chromium surface, expose
+  one-click Copy and Reopen, and retain a compact expandable activation trace.
 - `Verifying`: the login ceremony completed and the real ACP cached-token
   handshake is in progress. Send remains disabled.
 - `Ready`: means the named ACP child negotiated protocol v1, advertised
@@ -196,9 +200,11 @@ successful probe becomes `Ready`; an authentication rejection becomes
 - Turso tests prove ready/signed-out replacement, persistence across reopen,
   and the absence of token/code/URL columns.
 - Chat-window tests prove that a signed-out Grok card exposes one semantic
-  login button and produces only `ActivateProvider(grok)`.
+  login button in the conversation and produces only
+  `ActivateProvider(grok)`.
 - App coordinator tests prove provider actions are rejected for non-Grok
-  providers and forwarded only to the Grok coordinator.
+  providers and forwarded only to the Grok coordinator; provider facts share
+  one attempt identity and never contain a code or authorization URL.
 - EguiPilotAI proves provider selection, one activation action, visible
   device-code state, browser-reopen action, verifying state,
   ACP-qualified session actions, and the absence of a false Send capability
@@ -221,10 +227,14 @@ successful probe becomes `Ready`; an authentication rejection becomes
 - Forty focused tests passed across the dependency resolver, Grok
   activation/runtime, app-owned browser boundary, Turso evidence, and Chat
   window.
-- `chat-grok-device-authorization.toml` passed all eight steps against the
-  real independent Chat viewport, including visible code, enabled owned-browser
-  action, and disabled Send.
+- `chat-grok-device-authorization.toml` passed all fourteen steps against the
+  real independent Chat viewport, including visible and copyable code,
+  collapsed/expanded activation trace, enabled owned-browser action, and
+  disabled Send.
 - Two real native-window captures were byte-identical. The reviewed proof is
   `proof-chat-grok-authorization.png`.
+- The conversation-owned ceremony is captured independently in
+  `proof-chat-grok-conversation-activation.png`; the fixture does not force a
+  provider hover card over the ceremony.
 - No real account was authenticated by automation. The remaining operator
   gate is the explicit xAI ceremony and one real Grok turn.

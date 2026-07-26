@@ -44,7 +44,8 @@ doctrine completes it.
    `publish_X`/`subscribe_X` on `Fabric`. Domains today: `shell`,
    `deck`, `capture` (this pass). Next domains follow the same shape:
    `jobs` (AE orchestrator/render progress — mpsc where delivery must
-   be guaranteed, per the fabric's own note), `providers` (chat).
+   be guaranteed, per the fabric's own note), `providers` (Chat activation
+   and provider lifecycle facts).
    A flat global signal enum is FORBIDDEN.
    **Scale story: a new domain = one enum + one channel + two
    methods; a new signal = one enum variant; rustc enforces every
@@ -166,6 +167,10 @@ doctrine completes it.
 - Seam `/signals` SSE: forwards all kinds — agents see saves live
   (the original's AI-labeler integration point, honored; the labeler
   itself is a later, ask-first pass).
+- Chat provider activation: UI intents and provider commands remain direct or
+  guaranteed; successful lifecycle transitions publish redacted stamped
+  `ProviderEvent` facts. Full device codes, URLs, tokens, cookies, provider
+  output, and message content are forbidden from the Fabric envelope.
 - The status grid's signal counter: counts capture signals too — the
   operator SEES the fabric breathing.
 - THE ACTIVITY FEED (ratified, ships with the signal pass): a

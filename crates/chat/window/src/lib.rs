@@ -20,7 +20,7 @@ use dpl_chat_social::{
 };
 use dpl_chat_store::{HistoryCatalog, HistoryIndex};
 use dpl_coldlight::{self as cl, Tone};
-use dpl_fabric::AppWindowKey;
+use dpl_fabric::{AppWindowKey, ProviderEvent, Stamped};
 use dpl_hub::Route;
 use egui::{
     Align, Align2, Color32, CornerRadius, Layout, NumExt, Rect, RichText, Sense, Stroke, UiBuilder,
@@ -29,7 +29,7 @@ use egui_pilot_ai::{
     protocol::{PilotViewportKey, Role},
     NodeMetadata, PilotId, PilotKey, UiPilotExt,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fmt;
 
 pub const WINDOW_KEY: AppWindowKey = AppWindowKey("chat.primary");
@@ -60,7 +60,9 @@ pub const OVERLAY_ID: PilotId = PilotId::new("chat.overlay");
 pub const PROVIDER_OVERLAY_ID: PilotId = PilotId::new("chat.overlay.provider");
 pub const PROVIDER_LOGIN_ID: PilotId = PilotId::new("chat.provider.login");
 pub const PROVIDER_AUTH_CODE_ID: PilotId = PilotId::new("chat.provider.authorization-code");
+pub const PROVIDER_AUTH_COPY_ID: PilotId = PilotId::new("chat.provider.authorization-copy");
 pub const PROVIDER_AUTH_BROWSER_ID: PilotId = PilotId::new("chat.provider.authorization-browser");
+pub const PROVIDER_TRACE_ID: PilotId = PilotId::new("chat.provider.activation-trace");
 pub const PROVIDER_SETUP_ID: PilotId = PilotId::new("chat.provider.setup");
 pub const PROVIDER_REFRESH_ID: PilotId = PilotId::new("chat.provider.refresh");
 pub const UTILITY_OPEN_ID: PilotId = PilotId::new("chat.utility.open");
@@ -162,6 +164,11 @@ pub enum ChatWindowIntent {
     OpenProviderAuthorization(ProviderId),
     OpenProviderSetup(ProviderId),
     RefreshProvider(ProviderId),
+    CopyProviderAuthorizationCode(ProviderId),
+    SetProviderTraceExpanded {
+        provider: ProviderId,
+        expanded: bool,
+    },
     NewSession(ProviderId),
     SendTurn {
         provider: ProviderId,
@@ -193,6 +200,8 @@ pub enum HostIntent {
     OpenProviderAuthorization(ProviderId),
     OpenProviderSetup(ProviderId),
     RefreshProvider(ProviderId),
+    ProviderSelected(ProviderId),
+    CopyProviderAuthorizationCode(ProviderId),
     NewSession(ProviderId),
     SendTurn {
         provider: ProviderId,
@@ -286,6 +295,9 @@ pub struct ChatWindow {
     approval_focus_origin: Option<InteractionId>,
     pending_focus_return: Option<InteractionId>,
     provider_permissions: HashMap<InteractionId, ProviderPermissionBinding>,
+    provider_trace: VecDeque<Stamped<ProviderEvent>>,
+    provider_trace_expanded: HashMap<ProviderId, bool>,
+    composer_focus_requested: bool,
     domain: ChatDomain,
     domain_states: ChatDomainStates,
 }
@@ -367,6 +379,9 @@ impl ChatWindow {
             approval_focus_origin,
             pending_focus_return: None,
             provider_permissions: HashMap::new(),
+            provider_trace: VecDeque::new(),
+            provider_trace_expanded: HashMap::new(),
+            composer_focus_requested: false,
             domain: ChatDomain::Ai,
             domain_states,
         }
@@ -427,7 +442,7 @@ impl ChatWindow {
             }
             ChatWindowIntent::SelectProvider(provider) => {
                 self.runtime.select_provider(provider)?;
-                Ok(None)
+                Ok(Some(HostIntent::ProviderSelected(provider)))
             }
             ChatWindowIntent::SelectSession { provider, session } => {
                 self.runtime.select_session(provider, session)?;
@@ -488,6 +503,13 @@ impl ChatWindow {
             }
             ChatWindowIntent::RefreshProvider(provider) => {
                 Ok(Some(HostIntent::RefreshProvider(provider)))
+            }
+            ChatWindowIntent::CopyProviderAuthorizationCode(provider) => {
+                Ok(Some(HostIntent::CopyProviderAuthorizationCode(provider)))
+            }
+            ChatWindowIntent::SetProviderTraceExpanded { provider, expanded } => {
+                self.provider_trace_expanded.insert(provider, expanded);
+                Ok(None)
             }
             ChatWindowIntent::NewSession(provider) => Ok(Some(HostIntent::NewSession(provider))),
             ChatWindowIntent::SendTurn {
@@ -579,6 +601,18 @@ impl ChatWindow {
     ) -> Result<(), ChatWindowError> {
         self.runtime.set_activation(provider, activation)?;
         Ok(())
+    }
+
+    pub fn observe_provider_fact(&mut self, fact: Stamped<ProviderEvent>) {
+        const TRACE_CAPACITY: usize = 128;
+        if self.provider_trace.len() == TRACE_CAPACITY {
+            self.provider_trace.pop_front();
+        }
+        self.provider_trace.push_back(fact);
+    }
+
+    pub fn request_composer_focus(&mut self) {
+        self.composer_focus_requested = true;
     }
 
     pub fn qualify_provider_capabilities(
@@ -1372,6 +1406,11 @@ impl ChatWindow {
         }
         ui.separator();
 
+        if !provider.registration.activation.is_activated() {
+            self.provider_activation_ceremony(ui, &provider, intents);
+            return;
+        }
+
         let events = provider.registration.events.iter().filter(|event| {
             provider
                 .active_session
@@ -1517,7 +1556,7 @@ impl ChatWindow {
         }
     }
 
-    fn composer(&self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
+    fn composer(&mut self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
         egui::Frame::new()
             .fill(Color32::from_rgb(8, 18, 22))
             .stroke(Stroke::new(1.0, cl::surface::HAIRLINE))
@@ -1616,6 +1655,10 @@ impl ChatWindow {
                     metadata.editable = true;
                     metadata.value = (!draft.is_empty()).then(|| draft.clone());
                     ui.pilot_track(&editor, metadata);
+                    if self.composer_focus_requested && editor.enabled() {
+                        editor.request_focus();
+                        self.composer_focus_requested = false;
+                    }
                     if editor.changed() {
                         match self.domain {
                             ChatDomain::Ai => {
@@ -1841,7 +1884,13 @@ impl ChatWindow {
                             RichText::new("♜  Add to Council · not qualified")
                                 .color(cl::ink::SUBTLE),
                         );
-                        self.provider_activation_action(ui, &provider, intents);
+                        if !provider.registration.activation.is_activated() {
+                            let continue_setup = ui.button("Continue setup in conversation");
+                            if continue_setup.clicked() {
+                                intents.push(ChatWindowIntent::SelectProvider(*provider_id));
+                                intents.push(ChatWindowIntent::SetOverlay(None));
+                            }
+                        }
                         ui.label(RichText::new("♙  Account").color(cl::ink::BASE));
                         ui.label(RichText::new("⌁  Diagnostics").color(cl::ink::BASE));
                         if ui.button("Close").clicked() {
@@ -1853,6 +1902,132 @@ impl ChatWindow {
                     &response,
                     NodeMetadata::new(PROVIDER_OVERLAY_ID, Role::Dialog, "Provider hover card"),
                 );
+            });
+    }
+
+    fn provider_activation_ceremony(
+        &self,
+        ui: &mut egui::Ui,
+        provider: &ProviderView,
+        intents: &mut Vec<ChatWindowIntent>,
+    ) {
+        let descriptor = provider.registration.manifest.descriptor;
+        let (title, detail) = match &provider.registration.activation {
+            ActivationState::SigningIn => (
+                format!("Starting {}", descriptor.short_label),
+                "Launching the verified provider client and waiting for its device code.",
+            ),
+            ActivationState::AwaitingAuthorization(_) => (
+                "Complete xAI sign-in".to_owned(),
+                "DevPULSE opened its owned Chromium window. Keep Chat open while xAI and the official Grok client complete authorization.",
+            ),
+            ActivationState::Verifying => (
+                "Verifying your Grok subscription".to_owned(),
+                "Authorization completed. DevPULSE is starting Grok ACP and verifying its cached subscription session.",
+            ),
+            ActivationState::Failed { .. } | ActivationState::Degraded { .. } => (
+                format!("{} needs attention", descriptor.short_label),
+                "The bounded provider flow stopped safely. Review the status and retry from here.",
+            ),
+            ActivationState::SignedOut { .. } => (
+                format!("Connect {}", descriptor.short_label),
+                "Use your existing xAI subscription through the official Grok device-auth flow.",
+            ),
+            _ => (
+                format!("{} is unavailable", descriptor.short_label),
+                "This provider cannot start a qualified session yet.",
+            ),
+        };
+        egui::Frame::new()
+            .fill(Color32::from_rgb(8, 24, 28))
+            .stroke(Stroke::new(1.0, provider_tone(descriptor.accent).color()))
+            .corner_radius(CornerRadius::same(5))
+            .inner_margin(egui::Margin::same(18))
+            .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.label(
+                    RichText::new("PROVIDER CONNECTION")
+                        .monospace()
+                        .small()
+                        .color(provider_tone(descriptor.accent).color()),
+                );
+                ui.label(
+                    RichText::new(title)
+                        .strong()
+                        .size(22.0)
+                        .color(cl::ink::STRONG),
+                );
+                ui.label(RichText::new(detail).color(cl::ink::MUTED));
+                ui.add_space(10.0);
+                self.provider_activation_action(ui, provider, intents);
+                self.provider_activation_trace(ui, descriptor.id, intents);
+            });
+    }
+
+    fn provider_activation_trace(
+        &self,
+        ui: &mut egui::Ui,
+        provider: ProviderId,
+        intents: &mut Vec<ChatWindowIntent>,
+    ) {
+        let latest_attempt = self.provider_trace.iter().rev().find_map(|fact| {
+            (fact.ev.provider() == provider)
+                .then(|| fact.ev.attempt())
+                .flatten()
+        });
+        let Some(attempt) = latest_attempt else {
+            return;
+        };
+        let expanded = self
+            .provider_trace_expanded
+            .get(&provider)
+            .copied()
+            .unwrap_or(false);
+        ui.add_space(10.0);
+        let toggle = ui.small_button(if expanded {
+            "▾ Hide activation trace"
+        } else {
+            "▸ Show activation trace"
+        });
+        ui.pilot_track(
+            &toggle,
+            NodeMetadata::new(
+                PROVIDER_TRACE_ID.child(&PilotKey::new(provider.0)),
+                Role::Button,
+                "Toggle provider activation trace",
+            )
+            .value(if expanded { "expanded" } else { "collapsed" }),
+        );
+        if toggle.clicked() {
+            intents.push(ChatWindowIntent::SetProviderTraceExpanded {
+                provider,
+                expanded: !expanded,
+            });
+        }
+        if !expanded {
+            return;
+        }
+        egui::Frame::new()
+            .fill(Color32::from_rgb(3, 12, 14))
+            .stroke(Stroke::new(1.0, cl::surface::HAIRLINE))
+            .corner_radius(CornerRadius::same(3))
+            .inner_margin(egui::Margin::same(10))
+            .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                for fact in self.provider_trace.iter().filter(|fact| {
+                    fact.ev.provider() == provider && fact.ev.attempt() == Some(attempt)
+                }) {
+                    ui.label(
+                        RichText::new(format!(
+                            "{:>6}ms  {}",
+                            fact.ms,
+                            provider_event_line(&fact.ev)
+                        ))
+                        .monospace()
+                        .small()
+                        .color(cl::ink::MUTED),
+                    );
+                }
             });
     }
 
@@ -1869,11 +2044,14 @@ impl ChatWindow {
                     .color(Tone::Amber.color())
                     .strong(),
             );
-            let code = ui.label(
-                RichText::new(&prompt.user_code)
-                    .monospace()
-                    .size(18.0)
-                    .color(cl::ink::STRONG),
+            let code = ui.add(
+                egui::Label::new(
+                    RichText::new(&prompt.user_code.value)
+                        .monospace()
+                        .size(24.0)
+                        .color(cl::ink::STRONG),
+                )
+                .selectable(true),
             );
             ui.pilot_track(
                 &code,
@@ -1882,25 +2060,41 @@ impl ChatWindow {
                     Role::Status,
                     "Grok authorization code",
                 )
-                .value(prompt.user_code.clone()),
+                .value(prompt.user_code.value.clone()),
             );
             ui.label(
-                RichText::new("The official Grok client is waiting for xAI authorization.")
-                    .small()
-                    .color(cl::ink::MUTED),
+                RichText::new(
+                    "Copy this code. Paste it into xAI if the page does not fill it automatically.",
+                )
+                .small()
+                .color(cl::ink::MUTED),
             );
-            let reopen = ui.button("Open sign-in window");
-            ui.pilot_track(
-                &reopen,
-                NodeMetadata::new(
-                    PROVIDER_AUTH_BROWSER_ID.child(&PilotKey::new(provider_id.0)),
-                    Role::Button,
-                    "Open Grok sign-in window",
-                ),
-            );
-            if reopen.clicked() {
-                intents.push(ChatWindowIntent::OpenProviderAuthorization(provider_id));
-            }
+            ui.horizontal(|ui| {
+                let copy = ui.button("Copy code");
+                ui.pilot_track(
+                    &copy,
+                    NodeMetadata::new(
+                        PROVIDER_AUTH_COPY_ID.child(&PilotKey::new(provider_id.0)),
+                        Role::Button,
+                        "Copy Grok authorization code",
+                    ),
+                );
+                if copy.clicked() {
+                    intents.push(ChatWindowIntent::CopyProviderAuthorizationCode(provider_id));
+                }
+                let reopen = ui.button("Reopen xAI sign-in");
+                ui.pilot_track(
+                    &reopen,
+                    NodeMetadata::new(
+                        PROVIDER_AUTH_BROWSER_ID.child(&PilotKey::new(provider_id.0)),
+                        Role::Button,
+                        "Reopen Grok sign-in window",
+                    ),
+                );
+                if reopen.clicked() {
+                    intents.push(ChatWindowIntent::OpenProviderAuthorization(provider_id));
+                }
+            });
             return;
         }
         if matches!(provider.registration.activation, ActivationState::Verifying) {
@@ -2696,6 +2890,41 @@ fn initial(value: &str) -> &str {
     value.get(..1).unwrap_or("?")
 }
 
+fn provider_event_line(event: &ProviderEvent) -> String {
+    match event {
+        ProviderEvent::Selected { .. } => "provider selected".to_owned(),
+        ProviderEvent::ActivationRequested { .. } => "connect requested".to_owned(),
+        ProviderEvent::ClientStarted { client_version, .. } => {
+            format!("official client started · {client_version}")
+        }
+        ProviderEvent::DeviceCodeReceived { .. } => {
+            "device code received · value retained only in Chat".to_owned()
+        }
+        ProviderEvent::CodeCopied { .. } => "device code copied".to_owned(),
+        ProviderEvent::BrowserOpened { browser, .. } => {
+            format!("owned browser opened · {browser}")
+        }
+        ProviderEvent::BrowserClosed { .. } => "owned browser closed".to_owned(),
+        ProviderEvent::AuthorizationCompleted { .. } => {
+            "provider authorization completed".to_owned()
+        }
+        ProviderEvent::RuntimeStarted { .. } => "Grok ACP started".to_owned(),
+        ProviderEvent::Ready { .. } => "Grok ACP ready".to_owned(),
+        ProviderEvent::Failed {
+            stage,
+            class,
+            retryable,
+            ..
+        } => format!(
+            "failed · {} · {} · retryable={retryable}",
+            stage.label(),
+            class.label()
+        ),
+        ProviderEvent::Cancelled { .. } => "activation cancelled".to_owned(),
+        ProviderEvent::Expired { .. } => "activation expired".to_owned(),
+    }
+}
+
 fn provider_tone(accent: ProviderAccent) -> Tone {
     match accent {
         ProviderAccent::Amber => Tone::Amber,
@@ -3031,6 +3260,40 @@ mod tests {
                 .active_session,
             Some(ChatSessionId(20))
         );
+    }
+
+    #[test]
+    fn provider_selection_and_authorization_copy_cross_the_typed_host_boundary() {
+        let mut window = multi_provider_window();
+        assert_eq!(
+            window
+                .apply(ChatWindowIntent::SelectProvider(SECOND_PROVIDER))
+                .expect("select provider"),
+            Some(HostIntent::ProviderSelected(SECOND_PROVIDER))
+        );
+        assert_eq!(
+            window
+                .apply(ChatWindowIntent::CopyProviderAuthorizationCode(
+                    SECOND_PROVIDER
+                ))
+                .expect("copy authorization code"),
+            Some(HostIntent::CopyProviderAuthorizationCode(SECOND_PROVIDER))
+        );
+    }
+
+    #[test]
+    fn provider_trace_is_bounded_and_retains_the_latest_facts() {
+        let mut window = window();
+        for seq in 1..=130 {
+            window.observe_provider_fact(Stamped {
+                seq,
+                ms: seq,
+                ev: ProviderEvent::Selected { provider: PROVIDER },
+            });
+        }
+        assert_eq!(window.provider_trace.len(), 128);
+        assert_eq!(window.provider_trace.front().map(|fact| fact.seq), Some(3));
+        assert_eq!(window.provider_trace.back().map(|fact| fact.seq), Some(130));
     }
 
     #[test]

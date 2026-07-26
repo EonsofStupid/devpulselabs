@@ -10,8 +10,9 @@ mod terminal;
 pub use runtime::*;
 
 use dpl_chat_core::{
-    ActivationState, Capability, DeviceAuthorizationPrompt, ProviderAccent, ProviderDescriptor,
-    ProviderId, ProviderManifest, ProviderProfileId, RecoveryAction, RecoveryActionKind,
+    ActivationState, Capability, DeviceAuthorizationPrompt, GuidedValue, GuidedValueSensitivity,
+    ProviderAccent, ProviderDescriptor, ProviderId, ProviderManifest, ProviderProfileId,
+    RecoveryAction, RecoveryActionKind,
 };
 use std::fmt;
 use std::fs;
@@ -606,8 +607,16 @@ fn parse_device_authorization_line(line: &str) -> Option<DeviceAuthorizationProm
     }
     Some(DeviceAuthorizationPrompt {
         provider_id: PROVIDER,
-        verification_url: line.to_owned(),
-        user_code: url.to_owned(),
+        verification_url: GuidedValue::provider_authoritative(
+            line.to_owned(),
+            false,
+            GuidedValueSensitivity::TransientSecret,
+        ),
+        user_code: GuidedValue::provider_authoritative(
+            url.to_owned(),
+            true,
+            GuidedValueSensitivity::TransientSecret,
+        ),
     })
 }
 
@@ -894,7 +903,7 @@ mod tests {
         )
         .expect("prompt");
         assert_eq!(prompt.provider_id, PROVIDER);
-        assert_eq!(prompt.user_code, "H275-NM42");
+        assert_eq!(prompt.user_code.value, "H275-NM42");
         for rejected in [
             "https://accounts.x.ai.evil.test/oauth2/device?user_code=H275-NM42",
             "https://accounts.x.ai/oauth2/device?user_code=h275-nm42",
@@ -944,7 +953,8 @@ mod tests {
         assert_eq!(
             parse_device_authorization_line(valid)
                 .expect("prompt")
-                .user_code,
+                .user_code
+                .value,
             "H275-NM42"
         );
         assert_eq!(read_bounded_line(&mut input, 512).expect("eof"), None);
