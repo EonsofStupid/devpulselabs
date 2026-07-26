@@ -11,7 +11,7 @@ async-channel.workspace = true
 async-io.workspace = true
 async-process.workspace = true
 dpl-chat-core.workspace = true
-dpl-embedded-deps.workspace = true
+dpl-tools-deps.workspace = true
 futures-lite.workspace = true
 serde_json.workspace = true
 

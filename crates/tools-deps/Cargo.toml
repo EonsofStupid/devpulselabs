@@ -1,5 +1,5 @@
 [package]
-name = "dpl-embedded-deps"
+name = "dpl-tools-deps"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true

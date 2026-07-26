@@ -9,7 +9,7 @@ publish.workspace = true
 # the same engine the old repo proved, as a local embedded file. Its
 # async API wraps behind this crate's sync surface via a current-thread
 # tokio runtime; fresh connection per op (a local file opens cheaply).
-turso = "0.7"
+turso.workspace = true
 tokio = { workspace = true, features = ["rt"] }
 serde.workspace = true
 serde_json.workspace = true

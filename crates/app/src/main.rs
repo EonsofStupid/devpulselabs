@@ -924,7 +924,7 @@ fn configure_pilot_adapter(mut options: eframe::NativeOptions) -> eframe::Native
 /// absolute path into every engine seam. Production never searches PATH,
 /// package managers, user installs, or the working directory.
 fn init_ffmpeg() {
-    match dpl_embedded_deps::resolve_current(dpl_embedded_deps::FFMPEG) {
+    match dpl_tools_deps::resolve_current(dpl_tools_deps::FFMPEG) {
         Ok(dependency) => {
             let path = dependency.path().to_owned();
             tracing::info!(

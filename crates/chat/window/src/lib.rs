@@ -59,6 +59,8 @@ pub const PROVIDER_MODEL_ID: PilotId = PilotId::new("chat.composer.provider-mode
 pub const OVERLAY_ID: PilotId = PilotId::new("chat.overlay");
 pub const PROVIDER_OVERLAY_ID: PilotId = PilotId::new("chat.overlay.provider");
 pub const PROVIDER_LOGIN_ID: PilotId = PilotId::new("chat.provider.login");
+pub const PROVIDER_AUTH_CODE_ID: PilotId = PilotId::new("chat.provider.authorization-code");
+pub const PROVIDER_AUTH_BROWSER_ID: PilotId = PilotId::new("chat.provider.authorization-browser");
 pub const PROVIDER_SETUP_ID: PilotId = PilotId::new("chat.provider.setup");
 pub const PROVIDER_REFRESH_ID: PilotId = PilotId::new("chat.provider.refresh");
 pub const UTILITY_OPEN_ID: PilotId = PilotId::new("chat.utility.open");
@@ -157,6 +159,7 @@ pub enum ChatWindowIntent {
         placement: InteractionPlacement,
     },
     ActivateProvider(ProviderId),
+    OpenProviderAuthorization(ProviderId),
     OpenProviderSetup(ProviderId),
     RefreshProvider(ProviderId),
     NewSession(ProviderId),
@@ -187,6 +190,7 @@ pub enum HostIntent {
         placement: InteractionPlacement,
     },
     ActivateProvider(ProviderId),
+    OpenProviderAuthorization(ProviderId),
     OpenProviderSetup(ProviderId),
     RefreshProvider(ProviderId),
     NewSession(ProviderId),
@@ -475,6 +479,9 @@ impl ChatWindow {
             })),
             ChatWindowIntent::ActivateProvider(provider) => {
                 Ok(Some(HostIntent::ActivateProvider(provider)))
+            }
+            ChatWindowIntent::OpenProviderAuthorization(provider) => {
+                Ok(Some(HostIntent::OpenProviderAuthorization(provider)))
             }
             ChatWindowIntent::OpenProviderSetup(provider) => {
                 Ok(Some(HostIntent::OpenProviderSetup(provider)))
@@ -1856,6 +1863,58 @@ impl ChatWindow {
         intents: &mut Vec<ChatWindowIntent>,
     ) {
         let provider_id = provider.registration.manifest.descriptor.id;
+        if let ActivationState::AwaitingAuthorization(prompt) = &provider.registration.activation {
+            ui.label(
+                RichText::new("Authorize Grok in the DevPULSE browser")
+                    .color(Tone::Amber.color())
+                    .strong(),
+            );
+            let code = ui.label(
+                RichText::new(&prompt.user_code)
+                    .monospace()
+                    .size(18.0)
+                    .color(cl::ink::STRONG),
+            );
+            ui.pilot_track(
+                &code,
+                NodeMetadata::new(
+                    PROVIDER_AUTH_CODE_ID.child(&PilotKey::new(provider_id.0)),
+                    Role::Status,
+                    "Grok authorization code",
+                )
+                .value(prompt.user_code.clone()),
+            );
+            ui.label(
+                RichText::new("The official Grok client is waiting for xAI authorization.")
+                    .small()
+                    .color(cl::ink::MUTED),
+            );
+            let reopen = ui.button("Open sign-in window");
+            ui.pilot_track(
+                &reopen,
+                NodeMetadata::new(
+                    PROVIDER_AUTH_BROWSER_ID.child(&PilotKey::new(provider_id.0)),
+                    Role::Button,
+                    "Open Grok sign-in window",
+                ),
+            );
+            if reopen.clicked() {
+                intents.push(ChatWindowIntent::OpenProviderAuthorization(provider_id));
+            }
+            return;
+        }
+        if matches!(provider.registration.activation, ActivationState::Verifying) {
+            let response = ui.add_enabled(false, egui::Button::new("Verifying Grok connection…"));
+            ui.pilot_track(
+                &response,
+                NodeMetadata::new(
+                    PROVIDER_LOGIN_ID.child(&PilotKey::new(provider_id.0)),
+                    Role::Button,
+                    "Verifying Grok connection",
+                ),
+            );
+            return;
+        }
         let recovery = provider.registration.activation.recovery().first();
         match recovery.map(|action| action.kind) {
             Some(RecoveryActionKind::SignIn | RecoveryActionKind::Retry) => {
@@ -2650,7 +2709,9 @@ fn provider_tone(accent: ProviderAccent) -> Tone {
 fn activation_color(state: &ActivationState, provider_tone: Tone) -> Color32 {
     match state {
         ActivationState::Ready => Tone::Lime.color(),
-        ActivationState::SigningIn => Tone::Amber.color(),
+        ActivationState::SigningIn
+        | ActivationState::AwaitingAuthorization(_)
+        | ActivationState::Verifying => Tone::Amber.color(),
         ActivationState::Experimental { .. } => provider_tone.color(),
         ActivationState::Degraded { .. } | ActivationState::Blocked { .. } => Tone::Amber.color(),
         ActivationState::Failed { .. } | ActivationState::VersionUnsupported { .. } => {

@@ -9,6 +9,8 @@ members = [
     "crates/egui-pilot-ai-cli",
     "crates/egui-pilot-ai-lab",
     "crates/chat/core",
+    "crates/chat/accounts",
+    "crates/chat/browser-auth",
     "crates/chat/context",
     "crates/chat/extensions",
     "crates/chat/interactions",
@@ -23,7 +25,7 @@ members = [
     "crates/chat/providers/claude",
     "crates/chat/providers/gemini",
     "crates/chat/providers/grok",
-    "crates/embedded-deps",
+    "crates/tools-deps",
     "crates/hub",
     "crates/coldlight",
     "crates/vector",
@@ -105,6 +107,7 @@ thorvg-sys = "0.3"
 tungstenite = { version = "0.27", default-features = false, features = ["handshake"] }
 toml = "0.9"
 tokio = { version = "1", default-features = false, features = ["sync"] }
+turso = "0.7"
 # The agent seam (R1v): localhost HTTP over the fabric — axum is the
 # operator-ratified server; tokio-stream folds broadcast → SSE; tower is
 # dev-only endpoint testing (oneshot, no sockets).
@@ -124,6 +127,8 @@ egui-pilot-ai-runner = { path = "crates/egui-pilot-ai-runner" }
 egui-pilot-ai-lab = { path = "crates/egui-pilot-ai-lab" }
 
 dpl-chat-core = { path = "crates/chat/core" }
+dpl-chat-accounts = { path = "crates/chat/accounts" }
+dpl-chat-browser-auth = { path = "crates/chat/browser-auth" }
 dpl-chat-context = { path = "crates/chat/context" }
 dpl-chat-extensions = { path = "crates/chat/extensions" }
 dpl-chat-interactions = { path = "crates/chat/interactions" }
@@ -138,7 +143,7 @@ dpl-chat-codex = { path = "crates/chat/providers/codex" }
 dpl-chat-claude = { path = "crates/chat/providers/claude" }
 dpl-chat-gemini = { path = "crates/chat/providers/gemini" }
 dpl-chat-grok = { path = "crates/chat/providers/grok" }
-dpl-embedded-deps = { path = "crates/embedded-deps" }
+dpl-tools-deps = { path = "crates/tools-deps" }
 
 dpl-hub = { path = "crates/hub" }
 dpl-coldlight = { path = "crates/coldlight" }

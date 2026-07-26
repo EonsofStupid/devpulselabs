@@ -1,10 +1,12 @@
-#[cfg(feature = "eguipilotai-devtools")]
-use dpl_chat_core::ChatDomain;
+use dpl_chat_accounts::ActivationLedger;
+use dpl_chat_browser_auth::{BrowserAuthCoordinator, BrowserAuthEvent};
 use dpl_chat_core::{
     ActivationState, BoundedNativePayload, Capability, ChatEvent, ChatEventContent, ChatEventId,
     ChatSessionId, ProviderId, ProviderSessionId, RecoveryAction, RecoveryActionKind, SessionGroup,
     SessionState, SessionSummary, TurnId,
 };
+#[cfg(feature = "eguipilotai-devtools")]
+use dpl_chat_core::{ChatDomain, DeviceAuthorizationPrompt};
 use dpl_chat_interactions::{
     InteractionContent, InteractionId, InteractionPlacement, InteractionRegistry,
 };
@@ -41,6 +43,7 @@ pub enum ChatProofMode {
     Social,
     ProviderHover,
     GrokLogin,
+    GrokAuthorization,
     Compact,
     Snapped,
 }
@@ -54,6 +57,7 @@ impl ChatProofMode {
             "social" => Some(Self::Social),
             "hover" => Some(Self::ProviderHover),
             "grok" => Some(Self::GrokLogin),
+            "grok-auth" => Some(Self::GrokAuthorization),
             "compact" => Some(Self::Compact),
             "snapped" => Some(Self::Snapped),
             _ => None,
@@ -75,6 +79,9 @@ struct Shared {
     grok_sessions: BTreeMap<String, ChatSessionId>,
     grok_turns: BTreeMap<String, TurnId>,
     grok_permissions: BTreeMap<u64, PendingGrokPermission>,
+    provider_runtime_enabled: bool,
+    auth_browser: BrowserAuthCoordinator,
+    activation_ledger: Option<ActivationLedger>,
     next_chat_session_id: u64,
     next_chat_event_id: u64,
     next_turn_id: u64,
@@ -136,6 +143,7 @@ impl ChatWindowCoordinator {
             }
             transition_opening(&mut registry, id);
         }
+        let provider_runtime_enabled = authored_models.is_none();
         let window = match authored_models {
             Some((social, interactions)) => ChatWindow::with_models(
                 runtime,
@@ -185,6 +193,30 @@ impl ChatWindowCoordinator {
                         )))
                         .expect("the authored Grok provider overlay is valid");
                 }
+                ChatProofMode::GrokAuthorization => {
+                    window
+                        .apply(dpl_chat_window::ChatWindowIntent::SelectProvider(
+                            dpl_chat_grok::PROVIDER,
+                        ))
+                        .expect("the authored Grok provider exists");
+                    window
+                        .set_provider_activation(
+                            dpl_chat_grok::PROVIDER,
+                            ActivationState::AwaitingAuthorization(DeviceAuthorizationPrompt {
+                                provider_id: dpl_chat_grok::PROVIDER,
+                                verification_url:
+                                    "https://accounts.x.ai/oauth2/device?user_code=TEST-CODE"
+                                        .to_owned(),
+                                user_code: "TEST-CODE".to_owned(),
+                            }),
+                        )
+                        .expect("the authored Grok authorization is valid");
+                    window
+                        .apply(dpl_chat_window::ChatWindowIntent::SetOverlay(Some(
+                            dpl_chat_window::DomainOverlay::Provider(dpl_chat_grok::PROVIDER),
+                        )))
+                        .expect("the authored Grok provider overlay is valid");
+                }
                 ChatProofMode::Approval
                 | ChatProofMode::Ai
                 | ChatProofMode::Compact
@@ -205,7 +237,27 @@ impl ChatWindowCoordinator {
                     monitor.scale_factor.max(1.0),
                 )
             });
-        let probe_grok_cached_subscription = grok_activation.activation_capability_qualified();
+        let probe_grok_cached_subscription =
+            provider_runtime_enabled && grok_activation.activation_capability_qualified();
+        let activation_ledger = match ActivationLedger::open_default() {
+            Ok(ledger) => {
+                match ledger.get(dpl_chat_grok::PROVIDER) {
+                    Ok(Some(evidence)) => tracing::info!(
+                        state = ?evidence.state,
+                        version = %evidence.client_version,
+                        method = %evidence.auth_method,
+                        "loaded non-secret Grok activation evidence"
+                    ),
+                    Ok(None) => tracing::info!("no prior Grok activation evidence"),
+                    Err(error) => tracing::warn!(%error, "Grok activation evidence unreadable"),
+                }
+                Some(ledger)
+            }
+            Err(error) => {
+                tracing::warn!(%error, "Chat activation ledger is unavailable");
+                None
+            }
+        };
         let mut shared = Shared {
             registry,
             lifetime: PeerLifetime::default(),
@@ -216,6 +268,9 @@ impl ChatWindowCoordinator {
             grok_sessions: BTreeMap::new(),
             grok_turns: BTreeMap::new(),
             grok_permissions: BTreeMap::new(),
+            provider_runtime_enabled,
+            auth_browser: BrowserAuthCoordinator::new(),
+            activation_ledger,
             next_chat_session_id: 1_000_000,
             next_chat_event_id: 1_000_000,
             next_turn_id: 1,
@@ -513,6 +568,15 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
             activate_provider(shared, provider);
             ctx.request_repaint();
         }
+        HostIntent::OpenProviderAuthorization(provider) => {
+            let mut state = lock(shared);
+            if provider != dpl_chat_grok::PROVIDER {
+                tracing::warn!(%provider, "provider authorization browser is not qualified");
+            } else {
+                open_grok_authorization_browser(&mut state);
+            }
+            ctx.request_repaint();
+        }
         HostIntent::OpenProviderSetup(provider) => {
             let url = match provider {
                 id if id == dpl_chat_codex::PROVIDER => dpl_chat_codex::SETUP_URL,
@@ -646,6 +710,10 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
 
 fn activate_provider(shared: &Arc<Mutex<Shared>>, provider: ProviderId) {
     let mut state = lock(shared);
+    if !state.provider_runtime_enabled {
+        tracing::debug!(%provider, "provider activation is disabled in authored Chat fixtures");
+        return;
+    }
     let activation = if provider == dpl_chat_codex::PROVIDER {
         let result = state.codex_activation.start_login();
         if let Err(error) = result {
@@ -670,6 +738,7 @@ fn activate_provider(shared: &Arc<Mutex<Shared>>, provider: ProviderId) {
                     | dpl_chat_grok::GrokActivationError::PollFailed(_)
             ) {
                 state.grok_activation.fail(error);
+                record_grok_failed(&state, "device_code", "authorization_launch");
             }
         }
         state.grok_activation.activation().clone()
@@ -682,7 +751,61 @@ fn activate_provider(shared: &Arc<Mutex<Shared>>, provider: ProviderId) {
     }
 }
 
+fn open_grok_authorization_browser(state: &mut Shared) -> bool {
+    if !state.provider_runtime_enabled {
+        tracing::debug!("authorization browser is disabled in authored Chat fixtures");
+        return false;
+    }
+    let Some(prompt) = state.grok_activation.current_prompt().cloned() else {
+        tracing::warn!("Grok authorization browser requested without a device prompt");
+        return false;
+    };
+    match state.auth_browser.open(prompt) {
+        Ok(started) => started,
+        Err(error) => {
+            tracing::warn!(%error, "Grok authorization browser was rejected");
+            state
+                .grok_activation
+                .fail(dpl_chat_grok::GrokActivationError::LaunchFailed(
+                    error.to_string(),
+                ));
+            let activation = state.grok_activation.activation().clone();
+            if let Err(project_error) = state
+                .window
+                .set_provider_activation(dpl_chat_grok::PROVIDER, activation)
+            {
+                tracing::warn!(%project_error, "Grok browser failure could not be projected");
+            }
+            record_grok_failed(state, "device_code", "authorization_browser");
+            true
+        }
+    }
+}
+
+fn grok_client_version(state: &Shared) -> String {
+    state.grok_activation.runtime_profile().map_or_else(
+        || "unknown".to_owned(),
+        |profile| profile.version().to_string(),
+    )
+}
+
+fn record_grok_failed(state: &Shared, auth_method: &str, failure_class: &str) {
+    if let Some(ledger) = state.activation_ledger.as_ref() {
+        if let Err(error) = ledger.record_failed(
+            dpl_chat_grok::PROVIDER,
+            &grok_client_version(state),
+            auth_method,
+            failure_class,
+        ) {
+            tracing::warn!(%error, "Grok failure evidence could not be stored");
+        }
+    }
+}
+
 fn poll_provider_activations(state: &mut Shared) -> bool {
+    if !state.provider_runtime_enabled {
+        return false;
+    }
     let codex_changed = match state.codex_activation.poll() {
         Ok(changed) => changed,
         Err(error) => {
@@ -706,6 +829,7 @@ fn poll_provider_activations(state: &mut Shared) -> bool {
         Err(error) => {
             tracing::warn!(%error, "Grok activation polling failed");
             state.grok_activation.fail(error);
+            record_grok_failed(state, "device_code", "authorization_process");
             true
         }
     };
@@ -717,15 +841,43 @@ fn poll_provider_activations(state: &mut Shared) -> bool {
         {
             tracing::warn!(%error, "Grok activation state could not be projected");
         }
-        if matches!(
-            state.grok_activation.activation(),
-            dpl_chat_core::ActivationState::Ready
-        ) {
-            start_grok_runtime(state);
+    }
+
+    let mut browser_changed = false;
+    if state.grok_activation.current_prompt().is_some()
+        && !state.auth_browser.is_open_for(dpl_chat_grok::PROVIDER)
+    {
+        browser_changed |= open_grok_authorization_browser(state);
+    }
+    if state.grok_activation.take_login_completed() {
+        let _ = state.auth_browser.close(dpl_chat_grok::PROVIDER);
+        start_grok_runtime(state);
+        browser_changed = true;
+    }
+    while let Some(event) = state.auth_browser.try_event() {
+        browser_changed = true;
+        match event {
+            BrowserAuthEvent::Opened { provider, browser } => {
+                tracing::info!(%provider, %browser, "provider authorization browser opened");
+            }
+            BrowserAuthEvent::Closed { provider } => {
+                tracing::info!(%provider, "provider authorization browser closed");
+            }
+            BrowserAuthEvent::Failed { provider, reason } => {
+                tracing::warn!(%provider, %reason, "provider authorization browser failed");
+                state
+                    .grok_activation
+                    .fail(dpl_chat_grok::GrokActivationError::LaunchFailed(reason));
+                let activation = state.grok_activation.activation().clone();
+                if let Err(error) = state.window.set_provider_activation(provider, activation) {
+                    tracing::warn!(%error, "browser failure state could not be projected");
+                }
+                record_grok_failed(state, "device_code", "authorization_browser");
+            }
         }
     }
 
-    codex_changed || grok_changed
+    codex_changed || grok_changed || browser_changed
 }
 
 fn start_grok_runtime(state: &mut Shared) {
@@ -738,7 +890,7 @@ fn start_grok_runtime(state: &mut Shared) {
     };
     if let Err(error) = state
         .window
-        .set_provider_activation(dpl_chat_grok::PROVIDER, ActivationState::SigningIn)
+        .set_provider_activation(dpl_chat_grok::PROVIDER, ActivationState::Verifying)
     {
         tracing::warn!(%error, "Grok connecting state could not be projected");
     }
@@ -755,6 +907,7 @@ fn start_grok_runtime(state: &mut Shared) {
             {
                 tracing::warn!(%project_error, "Grok launch failure could not be projected");
             }
+            record_grok_failed(state, "cached_token", "acp_launch");
         }
     }
 }
@@ -778,11 +931,21 @@ fn poll_grok_runtime(state: &mut Shared) -> bool {
         changed = true;
         match event {
             dpl_chat_grok::GrokRuntimeEvent::Connected { capabilities } => {
+                state.grok_activation.mark_ready();
                 if let Err(error) = state
                     .window
                     .set_provider_activation(dpl_chat_grok::PROVIDER, ActivationState::Ready)
                 {
                     tracing::warn!(%error, "Grok authenticated state could not be projected");
+                }
+                if let Some(ledger) = state.activation_ledger.as_ref() {
+                    if let Err(error) = ledger.record_ready(
+                        dpl_chat_grok::PROVIDER,
+                        &grok_client_version(state),
+                        "cached_token",
+                    ) {
+                        tracing::warn!(%error, "Grok ready evidence could not be stored");
+                    }
                 }
                 let mut qualified = vec![
                     Capability::StartSession,
@@ -986,6 +1149,9 @@ fn poll_grok_runtime(state: &mut Shared) -> bool {
                     set_grok_session_idle(state, &provider_session_id);
                     state.grok_turns.remove(&provider_session_id);
                 } else if failure.kind == dpl_chat_grok::GrokRuntimeFailureKind::Authentication {
+                    state
+                        .grok_activation
+                        .mark_signed_out(failure.reason.clone());
                     let activation = ActivationState::SignedOut {
                         reason: failure.reason,
                         recovery: vec![RecoveryAction::new(
@@ -998,6 +1164,15 @@ fn poll_grok_runtime(state: &mut Shared) -> bool {
                         .set_provider_activation(dpl_chat_grok::PROVIDER, activation)
                     {
                         tracing::warn!(%error, "Grok sign-in requirement could not be projected");
+                    }
+                    if let Some(ledger) = state.activation_ledger.as_ref() {
+                        if let Err(error) = ledger.record_signed_out(
+                            dpl_chat_grok::PROVIDER,
+                            &grok_client_version(state),
+                            "cached_token",
+                        ) {
+                            tracing::warn!(%error, "Grok signed-out evidence could not be stored");
+                        }
                     }
                 } else if failure.kind == dpl_chat_grok::GrokRuntimeFailureKind::Disconnected
                     && state
@@ -1026,6 +1201,7 @@ fn poll_grok_runtime(state: &mut Shared) -> bool {
                     {
                         tracing::warn!(%error, "Grok runtime failure could not be projected");
                     }
+                    record_grok_failed(state, "cached_token", "acp_runtime");
                 }
             }
             dpl_chat_grok::GrokRuntimeEvent::Stopped => {

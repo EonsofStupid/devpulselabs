@@ -6,10 +6,13 @@ publish.workspace = true
 description = "Workspace automation (the cargo-xtask pattern): `cargo green` is THE gate."
 
 [dependencies]
-dpl-embedded-deps.workspace = true
+dpl-tools-deps.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+pelite = "0.10.0"
 
 [lints]
 workspace = true

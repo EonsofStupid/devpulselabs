@@ -211,26 +211,25 @@ struct DependencySources {
 #[serde(deny_unknown_fields)]
 struct DependencySource {
     id: String,
+    family: dpl_tools_deps::DependencyFamily,
     version: String,
     target: String,
     source: PathBuf,
+    entrypoint: Option<PathBuf>,
 }
 
-fn stage_embedded_dependencies(arguments: &[String]) -> Result<(), String> {
+fn stage_tool_dependencies(arguments: &[String]) -> Result<(), String> {
     let release_root = arguments.first().ok_or_else(|| {
-        "stage-embedded-deps requires a new release root; optional second argument is the source TOML"
+        "stage-tool-deps requires a new release root; optional second argument is the source TOML"
             .to_owned()
     })?;
     let release_root = Path::new(release_root);
     let sources_path = arguments
         .get(1)
-        .map_or_else(|| Path::new("embedded-deps/sources.local.toml"), Path::new);
-    if release_root
-        .join(dpl_embedded_deps::EMBEDDED_DIRECTORY)
-        .exists()
-    {
+        .map_or_else(|| Path::new("dptools-deps/sources.local.toml"), Path::new);
+    if release_root.join(dpl_tools_deps::TOOLS_DIRECTORY).exists() {
         return Err(format!(
-            "{} already contains embedded-deps; choose a new release root",
+            "{} already contains dptools-deps; choose a new release root",
             release_root.display()
         ));
     }
@@ -247,7 +246,7 @@ fn stage_embedded_dependencies(arguments: &[String]) -> Result<(), String> {
         ));
     }
 
-    let target = dpl_embedded_deps::current_target();
+    let target = dpl_tools_deps::current_target();
     let selected = sources
         .dependency
         .iter()
@@ -263,6 +262,17 @@ fn stage_embedded_dependencies(arguments: &[String]) -> Result<(), String> {
     for source in &selected {
         validate_source_segment("id", &source.id)?;
         validate_source_segment("version", &source.version)?;
+        let expected = dependency_id(&source.id)
+            .ok_or_else(|| format!("unsupported DevPULSE tool `{}`", source.id))?;
+        if source.family != expected.family() {
+            return Err(format!(
+                "{} registers `{}` as {:?}; expected {:?}",
+                sources_path.display(),
+                source.id,
+                source.family,
+                expected.family()
+            ));
+        }
         if !ids.insert(source.id.as_str()) {
             return Err(format!(
                 "{} registers `{}` more than once for {target}",
@@ -277,15 +287,41 @@ fn stage_embedded_dependencies(arguments: &[String]) -> Result<(), String> {
                 source.id
             ));
         }
-        if !source.source.is_file() {
-            return Err(format!(
-                "{} source for `{}` is not a file",
-                source.source.display(),
-                source.id
-            ));
+        match (
+            source.source.is_file(),
+            source.source.is_dir(),
+            source.entrypoint.as_deref(),
+        ) {
+            (true, false, None) => {}
+            (false, true, Some(entrypoint))
+                if source.family == dpl_tools_deps::DependencyFamily::Browser =>
+            {
+                validate_source_relative_path("entrypoint", entrypoint)?;
+                if !source.source.join(entrypoint).is_file() {
+                    return Err(format!(
+                        "{} entrypoint for `{}` is not a file",
+                        source.source.join(entrypoint).display(),
+                        source.id
+                    ));
+                }
+            }
+            (false, true, _) => {
+                return Err(format!(
+                    "{} directory source for `{}` requires a browser entrypoint",
+                    source.source.display(),
+                    source.id
+                ));
+            }
+            _ => {
+                return Err(format!(
+                    "{} source for `{}` is not a file or directory",
+                    source.source.display(),
+                    source.id
+                ));
+            }
         }
     }
-    for required in ["codex", "grok", "ffmpeg"] {
+    for required in ["codex", "grok", "chromium", "ffmpeg"] {
         if !ids.contains(required) {
             return Err(format!(
                 "{} is missing required `{required}` for {target}",
@@ -294,37 +330,66 @@ fn stage_embedded_dependencies(arguments: &[String]) -> Result<(), String> {
         }
     }
 
-    let embedded_root = release_root.join(dpl_embedded_deps::EMBEDDED_DIRECTORY);
-    fs::create_dir_all(&embedded_root)
-        .map_err(|error| format!("{}: {error}", embedded_root.display()))?;
+    let tools_root = release_root.join(dpl_tools_deps::TOOLS_DIRECTORY);
+    fs::create_dir_all(&tools_root)
+        .map_err(|error| format!("{}: {error}", tools_root.display()))?;
     let mut dependencies = Vec::with_capacity(selected.len());
     for source in selected {
-        let file_name = dependency_file_name(&source.id);
-        let relative = Path::new(&source.id).join(&source.version).join(file_name);
-        let destination = embedded_root.join(&relative);
-        let parent = destination
-            .parent()
-            .ok_or_else(|| format!("{} has no parent", destination.display()))?;
-        fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
-        fs::copy(&source.source, &destination).map_err(|error| {
-            format!(
-                "copy {} -> {}: {error}",
-                source.source.display(),
-                destination.display()
+        let family_root = Path::new(source.family.directory())
+            .join(&source.id)
+            .join(&source.version);
+        let (relative, destination, tree) = if source.source.is_dir() {
+            let tree_destination = tools_root.join(&family_root);
+            copy_tool_tree(&source.source, &tree_destination)?;
+            let entrypoint = source.entrypoint.as_deref().ok_or_else(|| {
+                format!(
+                    "{} directory source has no entrypoint",
+                    source.source.display()
+                )
+            })?;
+            let relative = family_root.join(entrypoint);
+            let destination = tools_root.join(&relative);
+            let (bytes, sha256) = dpl_tools_deps::sha256_tree(&tree_destination)
+                .map_err(|error| format!("{}: {error}", tree_destination.display()))?;
+            (
+                relative,
+                destination,
+                Some(dpl_tools_deps::ManifestTree {
+                    root: family_root.to_string_lossy().replace('\\', "/"),
+                    bytes,
+                    sha256,
+                }),
             )
-        })?;
+        } else {
+            let relative = family_root.join(dependency_file_name(&source.id));
+            let destination = tools_root.join(&relative);
+            let parent = destination
+                .parent()
+                .ok_or_else(|| format!("{} has no parent", destination.display()))?;
+            fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
+            fs::copy(&source.source, &destination).map_err(|error| {
+                format!(
+                    "copy {} -> {}: {error}",
+                    source.source.display(),
+                    destination.display()
+                )
+            })?;
+            (relative, destination, None)
+        };
         verify_staged_version(&source.id, &source.version, &destination)?;
         let metadata = destination
             .metadata()
             .map_err(|error| format!("{}: {error}", destination.display()))?;
-        let sha256 = dpl_embedded_deps::sha256_file(&destination)
+        let sha256 = dpl_tools_deps::sha256_file(&destination)
             .map_err(|error| format!("{}: {error}", destination.display()))?;
-        dependencies.push(dpl_embedded_deps::ManifestDependency {
+        dependencies.push(dpl_tools_deps::ManifestDependency {
             id: source.id.clone(),
+            family: source.family,
             version: source.version.clone(),
             path: relative.to_string_lossy().replace('\\', "/"),
             bytes: metadata.len(),
             sha256,
+            tree,
         });
         println!(
             "staged {} {} -> {}",
@@ -334,12 +399,12 @@ fn stage_embedded_dependencies(arguments: &[String]) -> Result<(), String> {
         );
     }
     dependencies.sort_by(|left, right| left.id.cmp(&right.id));
-    let manifest = dpl_embedded_deps::Manifest {
-        schema: dpl_embedded_deps::MANIFEST_SCHEMA,
+    let manifest = dpl_tools_deps::Manifest {
+        schema: dpl_tools_deps::MANIFEST_SCHEMA,
         target: target.to_owned(),
         dependencies,
     };
-    let manifest_path = embedded_root.join(dpl_embedded_deps::MANIFEST_FILE);
+    let manifest_path = tools_root.join(dpl_tools_deps::MANIFEST_FILE);
     fs::write(
         &manifest_path,
         serde_json::to_vec_pretty(&manifest)
@@ -347,20 +412,21 @@ fn stage_embedded_dependencies(arguments: &[String]) -> Result<(), String> {
     )
     .map_err(|error| format!("{}: {error}", manifest_path.display()))?;
 
-    let resolver = dpl_embedded_deps::Resolver::from_release_root(release_root)
+    let resolver = dpl_tools_deps::Resolver::from_release_root(release_root)
         .map_err(|error| format!("staged bundle rejected: {error}"))?;
     for id in [
-        dpl_embedded_deps::CODEX,
-        dpl_embedded_deps::GROK,
-        dpl_embedded_deps::FFMPEG,
+        dpl_tools_deps::CODEX,
+        dpl_tools_deps::GROK,
+        dpl_tools_deps::CHROMIUM,
+        dpl_tools_deps::FFMPEG,
     ] {
         resolver
             .resolve(id)
             .map_err(|error| format!("staged `{id}` rejected: {error}"))?;
     }
     println!(
-        "embedded dependencies ✔ target: {target} root: {}",
-        embedded_root.display()
+        "DevPULSE tool depot verified - target: {target} root: {}",
+        tools_root.display()
     );
     Ok(())
 }
@@ -376,8 +442,68 @@ fn validate_source_segment(field: &str, value: &str) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "embedded dependency {field} `{value}` is not a safe path segment"
+            "DevPULSE tool {field} `{value}` is not a safe path segment"
         ))
+    }
+}
+
+fn validate_source_relative_path(field: &str, value: &Path) -> Result<(), String> {
+    let valid = !value.as_os_str().is_empty()
+        && !value.is_absolute()
+        && value
+            .components()
+            .all(|component| matches!(component, std::path::Component::Normal(_)));
+    if valid {
+        Ok(())
+    } else {
+        Err(format!(
+            "DevPULSE tool {field} `{}` is not a safe relative path",
+            value.display()
+        ))
+    }
+}
+
+fn copy_tool_tree(source: &Path, destination: &Path) -> Result<(), String> {
+    fs::create_dir_all(destination)
+        .map_err(|error| format!("{}: {error}", destination.display()))?;
+    let mut entries = fs::read_dir(source)
+        .map_err(|error| format!("{}: {error}", source.display()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("{}: {error}", source.display()))?;
+    entries.sort_by_key(std::fs::DirEntry::file_name);
+    for entry in entries {
+        let file_type = entry
+            .file_type()
+            .map_err(|error| format!("{}: {error}", entry.path().display()))?;
+        if file_type.is_symlink() {
+            return Err(format!(
+                "{}: tool trees cannot contain symlinks",
+                entry.path().display()
+            ));
+        }
+        let target = destination.join(entry.file_name());
+        if file_type.is_dir() {
+            copy_tool_tree(&entry.path(), &target)?;
+        } else if file_type.is_file() {
+            fs::copy(entry.path(), &target).map_err(|error| {
+                format!(
+                    "copy {} -> {}: {error}",
+                    entry.path().display(),
+                    target.display()
+                )
+            })?;
+        }
+    }
+    Ok(())
+}
+
+fn dependency_id(id: &str) -> Option<dpl_tools_deps::DependencyId> {
+    match id {
+        "codex" => Some(dpl_tools_deps::CODEX),
+        "grok" => Some(dpl_tools_deps::GROK),
+        "ffmpeg" => Some(dpl_tools_deps::FFMPEG),
+        "chromium" => Some(dpl_tools_deps::CHROMIUM),
+        _ => None,
     }
 }
 
@@ -386,6 +512,17 @@ fn dependency_file_name(id: &str) -> String {
 }
 
 fn verify_staged_version(id: &str, expected: &str, executable: &Path) -> Result<(), String> {
+    #[cfg(windows)]
+    if id == "chromium" {
+        let actual = windows_file_version(executable)?;
+        return (actual == expected).then_some(()).ok_or_else(|| {
+            format!(
+                "{} reports file version {actual}; expected {expected}",
+                executable.display()
+            )
+        });
+    }
+
     let version_argument = if id == "ffmpeg" {
         "-version"
     } else {
@@ -464,6 +601,24 @@ fn spawn_audit() -> Result<(), String> {
     }
 }
 
+#[cfg(windows)]
+fn windows_file_version(executable: &Path) -> Result<String, String> {
+    let file = pelite::FileMap::open(executable)
+        .map_err(|error| format!("{} could not be mapped: {error}", executable.display()))?;
+    let image = pelite::PeFile::from_bytes(file.as_ref())
+        .map_err(|error| format!("{} is not a PE image: {error}", executable.display()))?;
+    let resources = image
+        .resources()
+        .map_err(|error| format!("{} has no resources: {error}", executable.display()))?;
+    let version = resources
+        .version_info()
+        .map_err(|error| format!("{} has no version info: {error}", executable.display()))?;
+    version
+        .fixed()
+        .map(|fixed| fixed.dwFileVersion.to_string())
+        .ok_or_else(|| format!("{} has no fixed Windows file version", executable.display()))
+}
+
 fn main() -> ExitCode {
     let mut arguments = std::env::args().skip(1);
     let task = arguments.next().unwrap_or_else(|| "green".into());
@@ -471,7 +626,7 @@ fn main() -> ExitCode {
     let result = match task.as_str() {
         "green" => green(),
         "docs-status" => docs_status(),
-        "stage-embedded-deps" => stage_embedded_dependencies(&arguments),
+        "stage-tool-deps" => stage_tool_dependencies(&arguments),
         "fix" => run("fmt", &["fmt", "--all"]).and_then(|()| {
             run(
                 "clippy --fix",
@@ -485,7 +640,7 @@ fn main() -> ExitCode {
             )
         }),
         other => Err(format!(
-            "unknown task \"{other}\" — tasks: green, docs-status, stage-embedded-deps, fix"
+            "unknown task \"{other}\" — tasks: green, docs-status, stage-tool-deps, fix"
         )),
     };
     match result {

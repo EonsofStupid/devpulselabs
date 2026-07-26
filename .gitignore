@@ -9,4 +9,4 @@ proof-*.png
 /.userdata/
 
 # Operator-private source binaries used only to stage portable releases.
-/embedded-deps/sources.local.toml
+/dptools-deps/sources.local.toml

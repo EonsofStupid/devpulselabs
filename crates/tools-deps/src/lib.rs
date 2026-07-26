@@ -1,4 +1,4 @@
-//! Verified, app-relative resolution for DevPULSE private subprocess tools.
+//! Verified, app-relative resolution for the DevPULSE tool depot.
 //!
 //! Production callers provide a typed [`DependencyId`] and receive an
 //! absolute path only after the target, containment, size, and SHA-256 gates
@@ -14,20 +14,56 @@ use std::io::{self, Read};
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
-pub const MANIFEST_SCHEMA: u32 = 1;
+pub const MANIFEST_SCHEMA: u32 = 2;
 pub const MANIFEST_FILE: &str = "manifest.json";
-pub const EMBEDDED_DIRECTORY: &str = "embedded-deps";
+pub const TOOLS_DIRECTORY: &str = "dptools-deps";
 
-pub const CODEX: DependencyId = DependencyId("codex");
-pub const GROK: DependencyId = DependencyId("grok");
-pub const FFMPEG: DependencyId = DependencyId("ffmpeg");
+pub const CODEX: DependencyId = DependencyId::new("codex", DependencyFamily::Provider);
+pub const GROK: DependencyId = DependencyId::new("grok", DependencyFamily::Provider);
+pub const FFMPEG: DependencyId = DependencyId::new("ffmpeg", DependencyFamily::Media);
+pub const CHROMIUM: DependencyId = DependencyId::new("chromium", DependencyFamily::Browser);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DependencyId(pub &'static str);
+pub struct DependencyId {
+    id: &'static str,
+    family: DependencyFamily,
+}
+
+impl DependencyId {
+    pub const fn new(id: &'static str, family: DependencyFamily) -> Self {
+        Self { id, family }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        self.id
+    }
+
+    pub const fn family(self) -> DependencyFamily {
+        self.family
+    }
+}
 
 impl fmt::Display for DependencyId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.0)
+        formatter.write_str(self.id)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DependencyFamily {
+    Provider,
+    Browser,
+    Media,
+}
+
+impl DependencyFamily {
+    pub const fn directory(self) -> &'static str {
+        match self {
+            Self::Provider => "providers",
+            Self::Browser => "browsers",
+            Self::Media => "media",
+        }
     }
 }
 
@@ -43,8 +79,19 @@ pub struct Manifest {
 #[serde(deny_unknown_fields)]
 pub struct ManifestDependency {
     pub id: String,
+    pub family: DependencyFamily,
     pub version: String,
     pub path: String,
+    pub bytes: u64,
+    pub sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tree: Option<ManifestTree>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ManifestTree {
+    pub root: String,
     pub bytes: u64,
     pub sha256: String,
 }
@@ -52,6 +99,7 @@ pub struct ManifestDependency {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedDependency {
     id: String,
+    family: DependencyFamily,
     version: String,
     path: PathBuf,
     bytes: u64,
@@ -65,6 +113,10 @@ impl ResolvedDependency {
 
     pub fn version(&self) -> &str {
         &self.version
+    }
+
+    pub const fn family(&self) -> DependencyFamily {
+        self.family
     }
 
     pub fn path(&self) -> &Path {
@@ -106,10 +158,10 @@ impl Resolver {
 
     /// Opens a staged release root. This is also the deterministic test seam.
     pub fn from_release_root(release_root: impl AsRef<Path>) -> Result<Self, ResolveError> {
-        Self::from_embedded_root(release_root.as_ref().join(EMBEDDED_DIRECTORY))
+        Self::from_tools_root(release_root.as_ref().join(TOOLS_DIRECTORY))
     }
 
-    pub fn from_embedded_root(root: impl AsRef<Path>) -> Result<Self, ResolveError> {
+    pub fn from_tools_root(root: impl AsRef<Path>) -> Result<Self, ResolveError> {
         let requested_root = root.as_ref();
         let root = fs::canonicalize(requested_root).map_err(|error| {
             ResolveError::ManifestUnavailable(format!(
@@ -151,15 +203,22 @@ impl Resolver {
     }
 
     pub fn resolve(&self, id: DependencyId) -> Result<ResolvedDependency, ResolveError> {
-        if let Some(resolved) = lock(&self.verified).get(id.0).cloned() {
+        if let Some(resolved) = lock(&self.verified).get(id.as_str()).cloned() {
             return Ok(resolved);
         }
         let entry = self
             .manifest
             .dependencies
             .iter()
-            .find(|entry| entry.id == id.0)
-            .ok_or_else(|| ResolveError::MissingDependency(id.0.to_owned()))?;
+            .find(|entry| entry.id == id.as_str())
+            .ok_or_else(|| ResolveError::MissingDependency(id.as_str().to_owned()))?;
+        if entry.family != id.family() {
+            return Err(ResolveError::FamilyMismatch {
+                id: entry.id.clone(),
+                expected: id.family(),
+                actual: entry.family,
+            });
+        }
         let relative = validate_relative_path(&entry.path)?;
         let candidate = self.root.join(relative);
         let path =
@@ -202,9 +261,49 @@ impl Resolver {
                 actual,
             });
         }
+        if let Some(tree) = &entry.tree {
+            let tree_relative = validate_relative_path(&tree.root)?;
+            let tree_path = fs::canonicalize(self.root.join(tree_relative)).map_err(|error| {
+                ResolveError::DependencyUnavailable {
+                    id: entry.id.clone(),
+                    reason: public_io_reason(&error),
+                }
+            })?;
+            if !tree_path.starts_with(&self.root) || !path.starts_with(&tree_path) {
+                return Err(ResolveError::EscapedRoot {
+                    id: entry.id.clone(),
+                });
+            }
+            if !tree_path.is_dir() {
+                return Err(ResolveError::DependencyUnavailable {
+                    id: entry.id.clone(),
+                    reason: "the manifest tree root is not a directory".to_owned(),
+                });
+            }
+            let (actual_bytes, actual_digest) =
+                sha256_tree(&tree_path).map_err(|error| ResolveError::DependencyUnavailable {
+                    id: entry.id.clone(),
+                    reason: public_io_reason(&error),
+                })?;
+            if actual_bytes != tree.bytes {
+                return Err(ResolveError::TreeLengthMismatch {
+                    id: entry.id.clone(),
+                    expected: tree.bytes,
+                    actual: actual_bytes,
+                });
+            }
+            if actual_digest != tree.sha256 {
+                return Err(ResolveError::TreeDigestMismatch {
+                    id: entry.id.clone(),
+                    expected: tree.sha256.clone(),
+                    actual: actual_digest,
+                });
+            }
+        }
         ensure_executable(&entry.id, &metadata)?;
         let resolved = ResolvedDependency {
             id: entry.id.clone(),
+            family: entry.family,
             version: entry.version.clone(),
             path,
             bytes: entry.bytes,
@@ -243,6 +342,11 @@ pub enum ResolveError {
     InvalidPath(String),
     DuplicateDependency(String),
     MissingDependency(String),
+    FamilyMismatch {
+        id: String,
+        expected: DependencyFamily,
+        actual: DependencyFamily,
+    },
     DependencyUnavailable {
         id: String,
         reason: String,
@@ -260,6 +364,16 @@ pub enum ResolveError {
         expected: String,
         actual: String,
     },
+    TreeLengthMismatch {
+        id: String,
+        expected: u64,
+        actual: u64,
+    },
+    TreeDigestMismatch {
+        id: String,
+        expected: String,
+        actual: String,
+    },
     NotExecutable(String),
 }
 
@@ -270,35 +384,45 @@ impl fmt::Display for ResolveError {
                 write!(formatter, "DevPULSE application root is unavailable: {reason}")
             }
             Self::ManifestUnavailable(reason) => {
-                write!(formatter, "embedded dependency manifest is unavailable: {reason}")
+                write!(formatter, "DevPULSE tool manifest is unavailable: {reason}")
             }
             Self::ManifestInvalid(reason) => {
-                write!(formatter, "embedded dependency manifest is invalid: {reason}")
+                write!(formatter, "DevPULSE tool manifest is invalid: {reason}")
             }
             Self::SchemaUnsupported(schema) => {
-                write!(formatter, "embedded dependency schema {schema} is unsupported")
+                write!(formatter, "DevPULSE tool schema {schema} is unsupported")
             }
             Self::TargetMismatch { expected, actual } => write!(
                 formatter,
-                "embedded dependency target is {actual}; this build requires {expected}"
+                "DevPULSE tool target is {actual}; this build requires {expected}"
             ),
             Self::InvalidIdentity { field, value } => {
-                write!(formatter, "embedded dependency {field} `{value}` is invalid")
+                write!(formatter, "DevPULSE tool {field} `{value}` is invalid")
             }
             Self::InvalidPath(path) => {
-                write!(formatter, "embedded dependency path `{path}` is invalid")
+                write!(formatter, "DevPULSE tool path `{path}` is invalid")
             }
             Self::DuplicateDependency(id) => {
-                write!(formatter, "embedded dependency `{id}` is registered more than once")
+                write!(formatter, "DevPULSE tool `{id}` is registered more than once")
             }
             Self::MissingDependency(id) => {
-                write!(formatter, "embedded dependency `{id}` is not in this release")
+                write!(formatter, "DevPULSE tool `{id}` is not in this release")
+            }
+            Self::FamilyMismatch {
+                id,
+                expected,
+                actual,
+            } => {
+                write!(
+                    formatter,
+                    "DevPULSE tool `{id}` is in {actual:?}; expected {expected:?}"
+                )
             }
             Self::DependencyUnavailable { id, reason } => {
-                write!(formatter, "embedded dependency `{id}` is unavailable: {reason}")
+                write!(formatter, "DevPULSE tool `{id}` is unavailable: {reason}")
             }
             Self::EscapedRoot { id } => {
-                write!(formatter, "embedded dependency `{id}` escapes the application bundle")
+                write!(formatter, "DevPULSE tool `{id}` escapes the application bundle")
             }
             Self::LengthMismatch {
                 id,
@@ -306,7 +430,7 @@ impl fmt::Display for ResolveError {
                 actual,
             } => write!(
                 formatter,
-                "embedded dependency `{id}` has {actual} bytes; expected {expected}"
+                "DevPULSE tool `{id}` has {actual} bytes; expected {expected}"
             ),
             Self::DigestMismatch {
                 id,
@@ -314,10 +438,26 @@ impl fmt::Display for ResolveError {
                 actual,
             } => write!(
                 formatter,
-                "embedded dependency `{id}` failed SHA-256 verification: expected {expected}, got {actual}"
+                "DevPULSE tool `{id}` failed SHA-256 verification: expected {expected}, got {actual}"
+            ),
+            Self::TreeLengthMismatch {
+                id,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "DevPULSE tool tree `{id}` has {actual} bytes; expected {expected}"
+            ),
+            Self::TreeDigestMismatch {
+                id,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "DevPULSE tool tree `{id}` failed SHA-256 verification: expected {expected}, got {actual}"
             ),
             Self::NotExecutable(id) => {
-                write!(formatter, "embedded dependency `{id}` is not executable")
+                write!(formatter, "DevPULSE tool `{id}` is not executable")
             }
         }
     }
@@ -371,6 +511,81 @@ pub fn sha256_file(path: impl AsRef<Path>) -> io::Result<String> {
         .collect())
 }
 
+/// Hashes a complete portable tool tree deterministically.
+///
+/// The digest covers each normalized relative path, byte length, and file
+/// payload in lexical path order. Symlinks are rejected so a staged browser
+/// cannot redirect resolution outside its verified root.
+pub fn sha256_tree(root: impl AsRef<Path>) -> io::Result<(u64, String)> {
+    let root = root.as_ref();
+    let mut files = Vec::new();
+    collect_tree_files(root, root, &mut files)?;
+    files.sort_by(|left, right| left.0.cmp(&right.0));
+    let mut total = 0_u64;
+    let mut digest = Sha256::new();
+    for (relative, path) in files {
+        let metadata = fs::symlink_metadata(&path)?;
+        if metadata.file_type().is_symlink() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "tool trees cannot contain symlinks",
+            ));
+        }
+        let bytes = metadata.len();
+        total = total.saturating_add(bytes);
+        digest.update(relative.as_bytes());
+        digest.update([0]);
+        digest.update(bytes.to_le_bytes());
+        let mut file = fs::File::open(path)?;
+        let mut buffer = [0_u8; 64 * 1024];
+        loop {
+            let read = file.read(&mut buffer)?;
+            if read == 0 {
+                break;
+            }
+            digest.update(&buffer[..read]);
+        }
+    }
+    Ok((
+        total,
+        digest
+            .finalize()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect(),
+    ))
+}
+
+fn collect_tree_files(
+    root: &Path,
+    directory: &Path,
+    files: &mut Vec<(String, PathBuf)>,
+) -> io::Result<()> {
+    let mut entries = fs::read_dir(directory)?.collect::<Result<Vec<_>, _>>()?;
+    entries.sort_by_key(std::fs::DirEntry::file_name);
+    for entry in entries {
+        let file_type = entry.file_type()?;
+        let path = entry.path();
+        if file_type.is_symlink() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "tool trees cannot contain symlinks",
+            ));
+        }
+        if file_type.is_dir() {
+            collect_tree_files(root, &path, files)?;
+        } else if file_type.is_file() {
+            let relative = path
+                .strip_prefix(root)
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "tree path escaped root"))?
+                .to_string_lossy()
+                .replace('\\', "/");
+            files.push((relative, path));
+        }
+    }
+    Ok(())
+}
+
 fn validate_manifest(manifest: &Manifest) -> Result<(), ResolveError> {
     if manifest.schema != MANIFEST_SCHEMA {
         return Err(ResolveError::SchemaUnsupported(manifest.schema));
@@ -386,8 +601,36 @@ fn validate_manifest(manifest: &Manifest) -> Result<(), ResolveError> {
     for entry in &manifest.dependencies {
         validate_segment("id", &entry.id)?;
         validate_segment("version", &entry.version)?;
-        validate_relative_path(&entry.path)?;
+        let path = validate_relative_path(&entry.path)?;
+        let expected_family = Path::new(entry.family.directory());
+        if path
+            .components()
+            .next()
+            .map(|component| component.as_os_str())
+            != expected_family
+                .components()
+                .next()
+                .map(|component| component.as_os_str())
+        {
+            return Err(ResolveError::InvalidPath(entry.path.clone()));
+        }
         validate_digest(&entry.sha256)?;
+        if let Some(tree) = &entry.tree {
+            let root = validate_relative_path(&tree.root)?;
+            if root
+                .components()
+                .next()
+                .map(|component| component.as_os_str())
+                != expected_family
+                    .components()
+                    .next()
+                    .map(|component| component.as_os_str())
+                || !path.starts_with(&root)
+            {
+                return Err(ResolveError::InvalidPath(tree.root.clone()));
+            }
+            validate_digest(&tree.sha256)?;
+        }
         if !identities.insert(entry.id.clone()) {
             return Err(ResolveError::DuplicateDependency(entry.id.clone()));
         }
@@ -480,16 +723,23 @@ mod tests {
     fn release_root(name: &str) -> PathBuf {
         let sequence = NEXT.fetch_add(1, Ordering::Relaxed);
         let root = std::env::temp_dir().join(format!(
-            "dpl-embedded-deps-{name}-{}-{sequence}",
+            "dpl-tools-deps-{name}-{}-{sequence}",
             std::process::id()
         ));
-        fs::create_dir_all(root.join(EMBEDDED_DIRECTORY)).expect("embedded root");
+        fs::create_dir_all(root.join(TOOLS_DIRECTORY)).expect("tools root");
         root
     }
 
-    fn write_bundle(root: &Path, id: &str, version: &str, relative: &str, payload: &[u8]) {
-        let embedded = root.join(EMBEDDED_DIRECTORY);
-        let path = embedded.join(relative);
+    fn write_bundle(
+        root: &Path,
+        id: &str,
+        family: DependencyFamily,
+        version: &str,
+        relative: &str,
+        payload: &[u8],
+    ) {
+        let tools = root.join(TOOLS_DIRECTORY);
+        let path = tools.join(relative);
         fs::create_dir_all(path.parent().expect("dependency parent")).expect("dependency parent");
         fs::write(&path, payload).expect("dependency");
         #[cfg(unix)]
@@ -503,14 +753,16 @@ mod tests {
             target: current_target().to_owned(),
             dependencies: vec![ManifestDependency {
                 id: id.to_owned(),
+                family,
                 version: version.to_owned(),
                 path: relative.to_owned(),
                 bytes: payload.len() as u64,
                 sha256: sha256_file(&path).expect("digest"),
+                tree: None,
             }],
         };
         fs::write(
-            embedded.join(MANIFEST_FILE),
+            tools.join(MANIFEST_FILE),
             serde_json::to_vec_pretty(&manifest).expect("manifest"),
         )
         .expect("manifest");
@@ -520,11 +772,18 @@ mod tests {
     fn resolves_only_verified_app_relative_files() {
         let root = release_root("resolve");
         let relative = if cfg!(windows) {
-            "grok/0.2.112/grok.exe"
+            "providers/grok/0.2.112/grok.exe"
         } else {
-            "grok/0.2.112/grok"
+            "providers/grok/0.2.112/grok"
         };
-        write_bundle(&root, "grok", "0.2.112", relative, b"private tool");
+        write_bundle(
+            &root,
+            "grok",
+            DependencyFamily::Provider,
+            "0.2.112",
+            relative,
+            b"private tool",
+        );
         let resolver = Resolver::from_release_root(&root).expect("resolver");
         let dependency = resolver.resolve(GROK).expect("grok");
         assert_eq!(dependency.version(), "0.2.112");
@@ -533,15 +792,78 @@ mod tests {
     }
 
     #[test]
+    fn resolves_and_verifies_complete_browser_trees() {
+        let root = release_root("browser-tree");
+        let tools = root.join(TOOLS_DIRECTORY);
+        let tree_relative = "browsers/chromium/136.0.0/chrome";
+        let tree = tools.join(tree_relative);
+        fs::create_dir_all(tree.join("locales")).expect("browser tree");
+        let executable_name = if cfg!(windows) {
+            "chrome.exe"
+        } else {
+            "chrome"
+        };
+        let executable = tree.join(executable_name);
+        fs::write(&executable, b"browser").expect("browser");
+        fs::write(tree.join("locales/en-US.pak"), b"locale").expect("locale");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&executable, fs::Permissions::from_mode(0o755))
+                .expect("executable permission");
+        }
+        let (tree_bytes, tree_digest) = sha256_tree(&tree).expect("tree digest");
+        let entrypoint_relative = format!("{tree_relative}/{executable_name}");
+        let manifest = Manifest {
+            schema: MANIFEST_SCHEMA,
+            target: current_target().to_owned(),
+            dependencies: vec![ManifestDependency {
+                id: "chromium".to_owned(),
+                family: DependencyFamily::Browser,
+                version: "136.0.0".to_owned(),
+                path: entrypoint_relative,
+                bytes: executable.metadata().expect("metadata").len(),
+                sha256: sha256_file(&executable).expect("entrypoint digest"),
+                tree: Some(ManifestTree {
+                    root: tree_relative.to_owned(),
+                    bytes: tree_bytes,
+                    sha256: tree_digest,
+                }),
+            }],
+        };
+        fs::write(
+            tools.join(MANIFEST_FILE),
+            serde_json::to_vec_pretty(&manifest).expect("manifest"),
+        )
+        .expect("manifest");
+
+        let resolver = Resolver::from_release_root(&root).expect("resolver");
+        assert_eq!(
+            resolver.resolve(CHROMIUM).expect("chromium").family(),
+            DependencyFamily::Browser
+        );
+
+        fs::write(tree.join("locales/en-US.pak"), b"tampered").expect("tamper");
+        let resolver = Resolver::from_release_root(&root).expect("resolver");
+        assert!(matches!(
+            resolver.resolve(CHROMIUM),
+            Err(ResolveError::TreeLengthMismatch { .. })
+                | Err(ResolveError::TreeDigestMismatch { .. })
+        ));
+    }
+
+    #[test]
     fn target_and_duplicate_ids_fail_closed() {
         let root = release_root("manifest");
-        let embedded = root.join(EMBEDDED_DIRECTORY);
+        let tools = root.join(TOOLS_DIRECTORY);
         let entry = ManifestDependency {
             id: "grok".to_owned(),
+            family: DependencyFamily::Provider,
             version: "0.2.112".to_owned(),
-            path: "grok/0.2.112/grok".to_owned(),
+            path: "providers/grok/0.2.112/grok".to_owned(),
             bytes: 0,
             sha256: "0".repeat(64),
+            tree: None,
         };
         let wrong_target = Manifest {
             schema: MANIFEST_SCHEMA,
@@ -549,7 +871,7 @@ mod tests {
             dependencies: vec![entry.clone()],
         };
         fs::write(
-            embedded.join(MANIFEST_FILE),
+            tools.join(MANIFEST_FILE),
             serde_json::to_vec(&wrong_target).expect("manifest"),
         )
         .expect("manifest");
@@ -564,7 +886,7 @@ mod tests {
             dependencies: vec![entry.clone(), entry],
         };
         fs::write(
-            embedded.join(MANIFEST_FILE),
+            tools.join(MANIFEST_FILE),
             serde_json::to_vec(&duplicate).expect("manifest"),
         )
         .expect("manifest");
@@ -577,20 +899,22 @@ mod tests {
     #[test]
     fn traversal_and_corruption_fail_closed() {
         let root = release_root("corruption");
-        let embedded = root.join(EMBEDDED_DIRECTORY);
+        let tools = root.join(TOOLS_DIRECTORY);
         let invalid = Manifest {
             schema: MANIFEST_SCHEMA,
             target: current_target().to_owned(),
             dependencies: vec![ManifestDependency {
                 id: "grok".to_owned(),
+                family: DependencyFamily::Provider,
                 version: "0.2.112".to_owned(),
                 path: "../grok".to_owned(),
                 bytes: 1,
                 sha256: "0".repeat(64),
+                tree: None,
             }],
         };
         fs::write(
-            embedded.join(MANIFEST_FILE),
+            tools.join(MANIFEST_FILE),
             serde_json::to_vec(&invalid).expect("manifest"),
         )
         .expect("manifest");
@@ -599,10 +923,18 @@ mod tests {
             Err(ResolveError::InvalidPath(_))
         ));
 
-        write_bundle(&root, "grok", "0.2.112", "grok/0.2.112/grok", b"expected");
+        write_bundle(
+            &root,
+            "grok",
+            DependencyFamily::Provider,
+            "0.2.112",
+            "providers/grok/0.2.112/grok",
+            b"expected",
+        );
         let resolver = Resolver::from_release_root(&root).expect("resolver");
         fs::write(
-            root.join(EMBEDDED_DIRECTORY).join("grok/0.2.112/grok"),
+            root.join(TOOLS_DIRECTORY)
+                .join("providers/grok/0.2.112/grok"),
             b"tampered",
         )
         .expect("tamper");
@@ -615,7 +947,14 @@ mod tests {
     #[test]
     fn missing_dependency_is_scoped() {
         let root = release_root("missing");
-        write_bundle(&root, "grok", "0.2.112", "grok/0.2.112/grok", b"grok");
+        write_bundle(
+            &root,
+            "grok",
+            DependencyFamily::Provider,
+            "0.2.112",
+            "providers/grok/0.2.112/grok",
+            b"grok",
+        );
         let resolver = Resolver::from_release_root(&root).expect("resolver");
         assert_eq!(
             resolver.resolve(CODEX),
