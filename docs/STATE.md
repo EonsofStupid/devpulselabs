@@ -2,30 +2,33 @@
 
 Updated every pass. This file is the first read of every session.
 
-**2026-07-26 — RESPONSIVE RENDERING (RR) — all-resolutions program.**
-**RR0** (#54): the `fit()` law in `dpl-composer` — no layout panic when a
-fixed floor exceeds a shrinking/proportional ceiling (`f32::clamp` panics on
-min>max). Fixed two live panics (AE `timeline_h`, `TrimIn`). **RR1**
-(`feat/rr1-resolution-sweep`, `docs/plans/rr1-resolution-sweep.md`): `cargo
-xtask sweep [dir]` — 6 routes × 7 sizes, ISOLATED subprocess per cell,
-software-GL, `sweep.md` + a PNG per cell, non-zero on any panic. THE DISPLAY
-LESSON: proofs are meaningless on a display that can't grow — this box was a
-headless mutter output @592×440 that pinned every window to the 640×480
-`min_inner_size` (`--window` a NO-OP); a real HDMI 1920×1080 display makes
-`--window` honored (dims vary 1024×640…1920×1080→1854×1011). All 42 cells
-no-panic at real sizes. CRAMP MAP: `wiredfront/editor` cramps <~1280px wide
-(center-column text overlap + tool-row overflow), clean ≥1280 → RR2's
-checklist. eguiPilot verify-path confirmed (`inspect devpulse-cloud viziwiz`
-returns semantic rects). **RR2** (`feat/rr2-editor-responsive`,
-`docs/plans/rr2-editor-responsive.md`): uncramped the AE editor below 1280px —
-fit-to-available `project_w`/`right_w`, `ScrollArea::horizontal` tool strip,
-`ScrollArea::vertical` `fx_pane`, and a truncating NEXT hint (facts
-right-align first). Proven at 1024×640 on the real display: every RR1-flagged
-overlap resolved, wide sizes unchanged. NEXT: RR1.1 = offscreen render
-(display-independent CI guard, flash-free) + an `editor` eguiPilot fixture
-for semantic no-overlap checks. **Runner note:** the
-`dpl-linux` ARM64 runner keeps dying on session teardown — needs `sudo
-./svc.sh install` (see operator checklist) to persist.
+**2026-07-26 — LEDGER RECONCILE (closeout hygiene).** Open GitHub PRs: none.
+Squash-merge leftovers on origin (merged heads without `--delete-branch`)
+are being pruned; `feat/estate-fjall-moka` kept for triage (not on main).
+Active unfinished local work: `feat/wf-external-assets` (reference-in-place
++ cross-platform Browse libraries) — closing next via PR → green-linux →
+squash-merge. Closeout rhythm (ratified): branch → PR → wait green-linux →
+`gh pr merge --squash --delete-branch` → sync main → tip this file → only
+then start the next branch.
+
+**2026-07-26 — W9a/W9b GUIDED LANDING (foundation + organized stills).**
+**W9a** (#57): shared `dpl-landing` crate — `CaptureKind`, `LandingMode`
+(Auto/Ask), pattern + policy JSON under `.userdata/`. **W9b** (#58): stills
+land as `content/inbox/<bucket>/<kind>/<name>` (not flat `pix.png`). Plans:
+`docs/plans/guided-landing-charter.md`, `w9-capture-landing.md`,
+`w10-slide-association.md`. REMAINING (W9c): Ask-mode `LandingCard`, route
+video/session/guide through one `land()` path, policy toggle UI.
+
+**2026-07-26 — RESPONSIVE RENDERING (RR) — RR0–RR2 LANDED.**
+**RR0** (#54): the `fit()` law — no layout panic when floor > ceiling.
+**RR1** (#55, `docs/plans/rr1-resolution-sweep.md`): `cargo xtask sweep`
+— 6 routes × 7 sizes, isolated subprocess, software-GL; all 42 cells
+no-panic on a real HDMI 1920×1080 (headless mutter @592×440 made `--window`
+a NO-OP — display lesson). **RR2** (#56, `docs/plans/rr2-editor-responsive.md`):
+editor uncramped below 1280px (fit panels, scroll tool strip / fx pane,
+truncating NEXT hint). Proven @1024×640. DEFERRED: RR1.1 = offscreen render
++ `editor` eguiPilot fixture. **Runner note:** `dpl-linux` needs
+`sudo ./svc.sh install` to persist across session teardown.
 
 **2026-07-26 — GROK SEAMLESS ACTIVATION LOCALLY QUALIFIED
 (`codex/grok-seamless-activation`):** the first real provider activation now
@@ -51,10 +54,10 @@ disabled, relocated release startup passed with provider-bearing `PATH`
 entries removed, and the complete local `cargo green` gate passed. Canonical
 contract and evidence: `docs/plans/private-tool-depot.md`.
 
-**Tip:** on `main` (2026-07-25). **DG1 built** (`feat/dg1-mixed-guide`,
-`docs/plans/dg1-mixed-media-guide.md` — operator: stills for
-where-to-click + session-replay clips when appropriate, ORDERED in one
-`.guide`): replay-segment steps land — `Step.kind:"replay"` +
+**Tip:** on `main` (2026-07-26) at W9b (#58). **DG1 LANDED** (#43,
+`feat/dg1-mixed-guide`, `docs/plans/dg1-mixed-media-guide.md` — operator:
+stills for where-to-click + session-replay clips when appropriate, ORDERED
+in one `.guide`): replay-segment steps land — `Step.kind:"replay"` +
 `clipIn/clipOut/clip` (recorder guides unchanged); export cuts segments
 from the ORIGINAL session via `engine-media::render_clip_cut`
 (replay-light law) into `step-00N.mp4` interleaved in place;
@@ -63,8 +66,7 @@ default; jailed sidecar mode); `guide_video_args` evolved to ordered
 `VideoLeg`s; the reviewer round-trip (engine-steps::edit +
 composer::review_edit) carries clip identity so caption edits never
 drop media. PROVEN live: real ffmpeg cut + REAL headless Chrome walking
-still → clip → still via dpl-engine-browser (DEMO-B dogfooding the G1
-browser-drill law). Awaiting operator squash-merge. **RING-1 built** (`feat/three-ring-root`,
+still → clip → still via dpl-engine-browser. **RING-1 LANDED** (#42, `feat/three-ring-root`,
 `docs/plans/three-ring-root.md`, ADR-014 — operator-ratified after the
 capture-location failure, senior conditions 1–6 as acceptance): the
 THREE-RING data root — `content\` (CONFIRMED library, unchanged) ·
@@ -537,40 +539,26 @@ is DELETED. Memory: `chat-is-a-peer-window`.
    invention with no reference to the original's look. AND the Workbench
    Library holds only 4 authored seed slides (all `static`) of ~27 catalog
    types — the renderers are ~90% ported but the slides aren't organized.
-   FIX (ratified 2026-07-24 "go", IN FLIGHT on PR #16 branch
-   `design/coldlight-traits`): `docs/plans/pass0-coldlight-treatments.md`.
-   LANDED: (1) doctrine rewritten to the composable trait system;
-   (2) `tokens/traits.json` (neubrutalist/claymorphic base + cyber/retro
-   stack) + build.rs generator (validated); (3) the pure compositor
-   `compose(tone, base, stack, state) -> ResolvedStyle` (additive
-   concatenate / override last-wins / state overlay; tests); (4) the
-   paint API `cl::treated`/`brutal`/`clay` — `brutal_frame`/`clay_frame`
-   RETIRED, all 9 callers migrated; the treatments RENDER (proof:
-   docs/proof/traits-chat-{1100x700,1600x1000}.png — selected Codex chip
-   is a bright neubrutalist button, lit-from-behind, dark text, over
-   claymorphic panels). REMAINING in this program: tints painting +
-   cyber/retro anim (needs motion.json + painter), the generated
-   manifest the Workbench editor reads, the experience-inventory doc,
-   then the `slide-catalog-pass` loop (port all ~27 slides, each an
-   organized seed under Workbench: category × stackable tags). Skills:
-   `coldlight-system` + `slide-catalog-pass`. Memory: `port-fidelity-standard`.
+   FIX (ratified 2026-07-24 "go"): `docs/plans/pass0-coldlight-treatments.md`.
+   Foundation LANDED on main (`compose` / `cl::treated` / neubrutalist+
+   claymorphic). PR #16 (`design/coldlight-traits`) was CLOSED without merge
+   after the stack landed via later PRs — remote branch kept for triage of
+   any leftover tip commits. REMAINING in this program: tints painting +
+   cyber/retro anim (needs motion.json + painter), the generated manifest
+   the Workbench editor reads, the experience-inventory doc, then the
+   `slide-catalog-pass` loop (~27 slides). Skills: `coldlight-system` +
+   `slide-catalog-pass`. Memory: `port-fidelity-standard`.
 
-## CI + process (live as of #11/#12)
+## CI + process (live as of #51/#52)
 
-- Self-hosted runner `dpl-win-laptop` runs the green gate on every
-  code PR (first run PASSED, 18m cold); pre-push hook enforces locally;
-  PR → squash-merge flow; docs-only changes skip CI (paths-ignore).
-- Staged: the Ubuntu/Wayland `dpl-linux` runner lane (commands in
-  CLAUDE.md) — BOTH deploy targets (this laptop + the Wayland mini-PC)
-  build on every PR once registered. Reboot-persistence for the Windows
-  runner needs one elevated schtasks command (CLAUDE.md).
-- Linux verification TODAY: WSL Ubuntu-26.04 has Rust 1.92 installed;
-  ONE operator sudo apt command (CLAUDE.md "INTERIM Linux lane")
-  unlocks `cargo check` inside Linux — cross-checking from Windows is
-  blocked at khronos-egl's build script, so the Linux gate must run in
-  Linux. The workspace's Linux code paths (pulse audio, Lavapipe
-  profiles) have NOT compiled since the port — first Linux check may
-  surface real findings.
+- Self-hosted `dpl-win-laptop` (Windows) + `dpl-linux` / `dpl-linux-clyffy-lab`
+  (ARM64 mini-PC) run the green gate. Branch protection is Pro-gated — CI
+  is advisory; enforcement = local pre-push hook (`core.hooksPath=.githooks`,
+  mode 100755) + discipline. NEVER squash-merge a code PR unless
+  `green-linux` is green (Windows pending alone is not a fail).
+- Docs-only PRs skip CI (paths-ignore) and may merge immediately.
+- Runner persistence: Windows → schtasks (CLAUDE.md); Linux →
+  `sudo ./svc.sh install` (session `./run.sh` dies on logout).
 3. **FIXED (P1, 2026-07-25)** — the portable user-data root law ported
    (docs/plans/p1-data-root.md): resolution is arg -> env -> exe-adjacent ->
    walk-up -> cwd; double-click finds the repo content root (proven);
@@ -579,9 +567,13 @@ is DELETED. Memory: `chat-is-a-peer-window`.
 
 ## Next
 
-1. Footer fix + multi-size proofs (in flight, branch + PR).
-2. Experience inventory doc (agent-authored from old app; operator ratifies).
-3. Then the roadmap order: T (#109), G1 (#116), W5 reviewer, A1, P, RS1.
+1. **Close `feat/wf-external-assets`** — PR → green-linux → squash-merge → tip.
+2. **W9c** — Ask-mode LandingCard + land() for video/session/guide + policy UI
+   (`docs/plans/w9-capture-landing.md` remainder).
+3. Triage: `feat/estate-fjall-moka` (keep/reopen/drop); prune CLOSED stacked
+   remotes after confirming no novel commits.
+4. Parallel backlog (not blocking W9c): RR1.1 offscreen sweep; experience
+   inventory; AEP orchestrator Phase 2; ColdLight remaining program.
 
 ## Process facts
 
