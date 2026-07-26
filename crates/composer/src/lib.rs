@@ -1747,8 +1747,12 @@ impl Composer {
         // The timeline grows with twirled rows, within honest bounds.
         let rows_h: f32 = self.rows().iter().map(Row::height).sum();
         let timeline_h = fit(RULER_H + rows_h + 40.0, 150.0, body.height() * 0.42);
-        let project_w = 250.0_f32;
-        let right_w = 232.0_f32;
+        // Fit-to-available (RR2): the side panels shrink on a narrow body but
+        // never below a usable min, so the center viewer keeps real width
+        // instead of being starved into text overlap. Preferred widths hold
+        // once the body is wide enough (~≥1280).
+        let project_w = fit(250.0, 160.0, body.width() * 0.26);
+        let right_w = fit(232.0, 150.0, body.width() * 0.24);
 
         let tools_rect = Rect::from_min_max(body.min, egui::pos2(body.max.x, body.min.y + tools_h));
         let status_rect =
@@ -1828,44 +1832,55 @@ impl Composer {
     /// The AE tool strip: the operator's set + the later-phase affordances,
     /// every one honestly blurbed.
     fn tool_strip(&self, ui: &mut egui::Ui, act: &mut Option<Act>) {
-        ui.horizontal(|ui| {
-            for t in EditorTool::ALL {
-                let active = self.etool == t;
-                let resp = cl::tip(tool_btn(ui, t.label(), active), t.blurb());
-                ui.pilot_track(
-                    &resp,
-                    NodeMetadata::new(
-                        PilotId::new("composer.tool").child(&PilotKey::new(t.label())),
-                        Role::Button,
-                        t.label(),
-                    )
-                    .value(if active { "active" } else { "available" }),
-                );
-                if resp.clicked() && !active {
-                    *act = Some(Act::ETool(t));
-                }
-            }
-            ui.add_space(cl::space::S3);
-            for (label, blurb) in [
-                (
-                    "null",
-                    "A parenting rig handle — lands with the keyframes pass.",
-                ),
-                (
-                    "pre-comp",
-                    "Nest layers as one — lands with the multi-comp pass.",
-                ),
-                ("track", "Motion tracking — a ratified later phase."),
-                ("m.blur", "Motion blur — a ratified later phase."),
-                ("3D", "3D layers and cameras — a ratified later phase."),
-            ] {
-                let resp = cl::tip(small_btn(ui, label, ("strip", label)), blurb);
-                if resp.clicked() {
-                    // Honest: name the phase instead of pretending.
-                    *act = Some(Act::ETool(self.etool));
-                }
-            }
-        });
+        // Scroll, don't overflow (RR2): the strip stays one 40px line and
+        // scrolls horizontally when the tools exceed a narrow width, instead
+        // of spilling under the inspector. Hides nothing.
+        egui::ScrollArea::horizontal()
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    for t in EditorTool::ALL {
+                        let active = self.etool == t;
+                        let resp = cl::tip(tool_btn(ui, t.label(), active), t.blurb());
+                        ui.pilot_track(
+                            &resp,
+                            NodeMetadata::new(
+                                PilotId::new("composer.tool").child(&PilotKey::new(t.label())),
+                                Role::Button,
+                                t.label(),
+                            )
+                            .value(if active {
+                                "active"
+                            } else {
+                                "available"
+                            }),
+                        );
+                        if resp.clicked() && !active {
+                            *act = Some(Act::ETool(t));
+                        }
+                    }
+                    ui.add_space(cl::space::S3);
+                    for (label, blurb) in [
+                        (
+                            "null",
+                            "A parenting rig handle — lands with the keyframes pass.",
+                        ),
+                        (
+                            "pre-comp",
+                            "Nest layers as one — lands with the multi-comp pass.",
+                        ),
+                        ("track", "Motion tracking — a ratified later phase."),
+                        ("m.blur", "Motion blur — a ratified later phase."),
+                        ("3D", "3D layers and cameras — a ratified later phase."),
+                    ] {
+                        let resp = cl::tip(small_btn(ui, label, ("strip", label)), blurb);
+                        if resp.clicked() {
+                            // Honest: name the phase instead of pretending.
+                            *act = Some(Act::ETool(self.etool));
+                        }
+                    }
+                });
+            });
     }
 
     /// The PROJECT panel: preview well + COMPS / FOOTAGE / ELEMENTS /
@@ -2146,25 +2161,34 @@ impl Composer {
     /// EFFECTS & PRESETS: search + honest stock (the registry and the
     /// elements ingest are their own ratified passes).
     fn fx_pane(&mut self, ui: &mut egui::Ui) {
-        ui.label(RichText::new("EFFECTS & PRESETS").small().strong());
-        let search = egui::TextEdit::singleline(&mut self.fx_search)
-            .hint_text("search effects…")
-            .desired_width(f32::INFINITY);
-        cl::tip(ui.add(search), "Filter effects and presets by name");
-        ui.add_space(cl::space::S1);
-        ui.label(
-            RichText::new("Transitions · Color · Keying land with the effects-registry pass.")
-                .small()
-                .color(cl::ink::SUBTLE),
-        );
-        ui.label(
-            RichText::new(
-                "Your element presets (color · font · text · ease editable) arrive with the \
-                 elements ingest.",
-            )
-            .small()
-            .color(cl::ink::SUBTLE),
-        );
+        // Scroll, don't overflow (RR2): at a narrow right column the copy
+        // wraps to many lines; clip-and-scroll it within the panel instead of
+        // spilling into the timeline below.
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.label(RichText::new("EFFECTS & PRESETS").small().strong());
+                let search = egui::TextEdit::singleline(&mut self.fx_search)
+                    .hint_text("search effects…")
+                    .desired_width(f32::INFINITY);
+                cl::tip(ui.add(search), "Filter effects and presets by name");
+                ui.add_space(cl::space::S1);
+                ui.label(
+                    RichText::new(
+                        "Transitions · Color · Keying land with the effects-registry pass.",
+                    )
+                    .small()
+                    .color(cl::ink::SUBTLE),
+                );
+                ui.label(
+                    RichText::new(
+                        "Your element presets (color · font · text · ease editable) arrive with \
+                         the elements ingest.",
+                    )
+                    .small()
+                    .color(cl::ink::SUBTLE),
+                );
+            });
     }
 
     /// The timeline: the layer OUTLINE (left) beside per-layer LANES with
@@ -2620,11 +2644,9 @@ impl Composer {
         // Line 2: the guided NEXT step left, the comp facts right —
         // never fighting line 1's actions for width.
         ui.horizontal(|ui| {
-            ui.label(
-                RichText::new(self.next_hint(rendering, done))
-                    .small()
-                    .color(Tone::Lime.color()),
-            );
+            // Right-align the comp facts FIRST so they reserve the right edge;
+            // the NEXT hint then TRUNCATES into whatever's left, never
+            // overrunning the facts at a narrow width (RR2).
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if !self.info_open {
                     let resp = cl::tip(
@@ -2657,6 +2679,16 @@ impl Composer {
                     .small()
                     .color(cl::ink::SUBTLE),
                 );
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(self.next_hint(rendering, done))
+                                .small()
+                                .color(Tone::Lime.color()),
+                        )
+                        .truncate(),
+                    );
+                });
             });
         });
     }

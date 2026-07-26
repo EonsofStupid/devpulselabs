@@ -16,8 +16,14 @@ headless mutter output @592×440 that pinned every window to the 640×480
 no-panic at real sizes. CRAMP MAP: `wiredfront/editor` cramps <~1280px wide
 (center-column text overlap + tool-row overflow), clean ≥1280 → RR2's
 checklist. eguiPilot verify-path confirmed (`inspect devpulse-cloud viziwiz`
-returns semantic rects). NEXT: RR1.1 = offscreen render (display-independent
-CI guard, flash-free); RR2 = uncramp the editor. **Runner note:** the
+returns semantic rects). **RR2** (`feat/rr2-editor-responsive`,
+`docs/plans/rr2-editor-responsive.md`): uncramped the AE editor below 1280px —
+fit-to-available `project_w`/`right_w`, `ScrollArea::horizontal` tool strip,
+`ScrollArea::vertical` `fx_pane`, and a truncating NEXT hint (facts
+right-align first). Proven at 1024×640 on the real display: every RR1-flagged
+overlap resolved, wide sizes unchanged. NEXT: RR1.1 = offscreen render
+(display-independent CI guard, flash-free) + an `editor` eguiPilot fixture
+for semantic no-overlap checks. **Runner note:** the
 `dpl-linux` ARM64 runner keeps dying on session teardown — needs `sudo
 ./svc.sh install` (see operator checklist) to persist.
 
