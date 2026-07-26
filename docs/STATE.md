@@ -2,22 +2,27 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-26 — W9c UNIFIED LANDING LANDED (#63).** Every PixVix vehicle
+routes through `PendingLanding` + `land()` behind Auto/Ask; video/session
+mint organized paths at start; LandingCard + policy strip (mode + bucket);
+policy/card tags on index rows. Plan `docs/plans/w9c-unified-landing.md` §8.
+Also merged same-day: **Grok signal-driven activation (#62)** (Codex).
+**Hygiene:** pruned CLOSED stacked remotes (`feat/r1*`, chat-consolidation,
+`design/coldlight-traits`). **Kept** `feat/estate-fjall-moka` (novel
+`dpl-estate`; rebase hit Cargo.lock — own pass, do not smuggle into W9).
+Open GitHub PRs: none. Closeout rhythm holding.
+
 **2026-07-26 — WF EXTERNAL ASSETS LANDED (#60).** Reference-in-place imports
 (`import_reference` single-file symlink + `⧉ copy` ⇄ `⌁ in place` toggle) and
 cross-platform Browse roots + operator libraries (`★ Add/Remove library` →
 `.userdata/libraries.json`). Plan `docs/plans/wf-external-assets.md` §8.
-Open GitHub PRs: none. Closeout rhythm holding: branch → PR → green-linux →
-squash-merge + delete-branch → tip this file → only then next branch.
-Triage remotes still kept: `feat/estate-fjall-moka`, `design/coldlight-traits`,
-stacked `feat/r1*` / `refactor/chat-consolidation` (CLOSED PR leftovers).
 
 **2026-07-26 — W9a/W9b GUIDED LANDING (foundation + organized stills).**
 **W9a** (#57): shared `dpl-landing` crate — `CaptureKind`, `LandingMode`
 (Auto/Ask), pattern + policy JSON under `.userdata/`. **W9b** (#58): stills
 land as `content/inbox/<bucket>/<kind>/<name>` (not flat `pix.png`). Plans:
 `docs/plans/guided-landing-charter.md`, `w9-capture-landing.md`,
-`w10-slide-association.md`. REMAINING (W9c): Ask-mode `LandingCard`, route
-video/session/guide through one `land()` path, policy toggle UI.
+`w10-slide-association.md`. **W9c completes the program (#63).**
 
 **2026-07-26 — RESPONSIVE RENDERING (RR) — RR0–RR2 LANDED.**
 **RR0** (#54): the `fit()` law — no layout panic when floor > ceiling.
@@ -54,7 +59,7 @@ disabled, relocated release startup passed with provider-bearing `PATH`
 entries removed, and the complete local `cargo green` gate passed. Canonical
 contract and evidence: `docs/plans/private-tool-depot.md`.
 
-**Tip:** on `main` (2026-07-26) at WF external-assets (#60). **DG1 LANDED** (#43,
+**Tip:** on `main` (2026-07-26) at W9c (#63) + Grok signals (#62). **DG1 LANDED** (#43,
 `feat/dg1-mixed-guide`, `docs/plans/dg1-mixed-media-guide.md` — operator:
 stills for where-to-click + session-replay clips when appropriate, ORDERED
 in one `.guide`): replay-segment steps land — `Step.kind:"replay"` +
@@ -567,15 +572,15 @@ is DELETED. Memory: `chat-is-a-peer-window`.
 
 ## Next
 
-1. **W9c** — Ask-mode LandingCard + `land()` for video/session/guide + policy UI
-   (`docs/plans/w9-capture-landing.md` remainder). Plan before code.
-2. Triage: `feat/estate-fjall-moka` (keep/reopen/drop); prune CLOSED stacked
-   remotes after confirming no novel commits.
-3. Parallel backlog (not blocking W9c): RR1.1 offscreen sweep; experience
-   inventory; AEP orchestrator Phase 2; ColdLight remaining program.
-4. Ops: `sudo ./svc.sh install` for `dpl-linux` persistence; unset Cursor's
-   injected `CARGO_TARGET_DIR` when running local `cargo green` (external
-   target dir breaks `locate_asset`'s 4-level walk — fix is a later pass).
+1. **Estate pass** — rebase/re-author `feat/estate-fjall-moka` onto main
+   (Cargo.lock conflict); PR when green. Seam already on main; estate joins it.
+2. **Workbench catalog fidelity** (Claude session ask) — categories, real
+   templates, overlays; gated by missing `experience-inventory.md`.
+3. **W10** slide association (`docs/plans/w10-slide-association.md`) — after
+   W9 complete.
+4. Parallel backlog: RR1.1; experience inventory; AEP Phase 2; ColdLight
+   remainder; mac-parity foundation. Ops: `dpl-linux` `svc.sh install`;
+   unset Cursor `CARGO_TARGET_DIR` for local green (or fix `locate_asset`).
 
 ## Process facts
 
