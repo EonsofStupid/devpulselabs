@@ -2,15 +2,20 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-26 — ESTATE LANDED (#65).** `dpl-estate` — Fjall LSM KV + Moka
+read cache; partitions Docs/State/Manifest/Agents; 3 unit tests (round-trip,
+json/keys, survive reopen). Re-authored onto main with fresh Cargo.lock
+(parked `feat/estate-fjall-moka` deleted). Design ADR
+`docs/design/estate-and-agent-seam.md`. Next for this track: wire estate into
+`dpl-seam`/editors. Open GitHub PRs: none. Remotes: `main` only.
+
 **2026-07-26 — W9c UNIFIED LANDING LANDED (#63).** Every PixVix vehicle
 routes through `PendingLanding` + `land()` behind Auto/Ask; video/session
 mint organized paths at start; LandingCard + policy strip (mode + bucket);
 policy/card tags on index rows. Plan `docs/plans/w9c-unified-landing.md` §8.
 Also merged same-day: **Grok signal-driven activation (#62)** (Codex).
 **Hygiene:** pruned CLOSED stacked remotes (`feat/r1*`, chat-consolidation,
-`design/coldlight-traits`). **Kept** `feat/estate-fjall-moka` (novel
-`dpl-estate`; rebase hit Cargo.lock — own pass, do not smuggle into W9).
-Open GitHub PRs: none. Closeout rhythm holding.
+`design/coldlight-traits`, old estate park).
 
 **2026-07-26 — WF EXTERNAL ASSETS LANDED (#60).** Reference-in-place imports
 (`import_reference` single-file symlink + `⧉ copy` ⇄ `⌁ in place` toggle) and
@@ -59,7 +64,7 @@ disabled, relocated release startup passed with provider-bearing `PATH`
 entries removed, and the complete local `cargo green` gate passed. Canonical
 contract and evidence: `docs/plans/private-tool-depot.md`.
 
-**Tip:** on `main` (2026-07-26) at W9c (#63) + Grok signals (#62). **DG1 LANDED** (#43,
+**Tip:** on `main` (2026-07-26) at estate (#65) after W9c (#63) + Grok (#62). **DG1 LANDED** (#43,
 `feat/dg1-mixed-guide`, `docs/plans/dg1-mixed-media-guide.md` — operator:
 stills for where-to-click + session-replay clips when appropriate, ORDERED
 in one `.guide`): replay-segment steps land — `Step.kind:"replay"` +
@@ -572,12 +577,11 @@ is DELETED. Memory: `chat-is-a-peer-window`.
 
 ## Next
 
-1. **Estate pass** — rebase/re-author `feat/estate-fjall-moka` onto main
-   (Cargo.lock conflict); PR when green. Seam already on main; estate joins it.
+1. **Estate → seam/editors** — open estate at project root; persist agent +
+   editor state through `dpl-seam` (design ADR §2 wiring). Plan before code.
 2. **Workbench catalog fidelity** (Claude session ask) — categories, real
    templates, overlays; gated by missing `experience-inventory.md`.
-3. **W10** slide association (`docs/plans/w10-slide-association.md`) — after
-   W9 complete.
+3. **W10** slide association (`docs/plans/w10-slide-association.md`).
 4. Parallel backlog: RR1.1; experience inventory; AEP Phase 2; ColdLight
    remainder; mac-parity foundation. Ops: `dpl-linux` `svc.sh install`;
    unset Cursor `CARGO_TARGET_DIR` for local green (or fix `locate_asset`).
