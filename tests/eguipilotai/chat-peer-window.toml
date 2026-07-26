@@ -39,7 +39,7 @@ type = "visible"
 
 [steps.expectation.target]
 role = "tab"
-name = "Codex"
+name = "ChatGPT / Codex"
 
 [steps.expectation.target.viewport]
 key = "chat.primary"

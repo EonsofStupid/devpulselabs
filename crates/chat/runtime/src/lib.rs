@@ -4,8 +4,9 @@
 //! the Chat provider-runtime ADR.
 
 use dpl_chat_core::{
-    AccountSummary, ActivationState, Capability, ChatEvent, ChatSessionId, ProviderId,
-    ProviderManifest, RecoveryAction, RecoveryActionKind, SessionSummary,
+    AccountSummary, ActivationState, Capability, ChatEvent, ChatEventContent, ChatEventId,
+    ChatSessionId, ProviderId, ProviderManifest, RecoveryAction, RecoveryActionKind, SessionGroup,
+    SessionState, SessionSummary, TurnId,
 };
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt;
@@ -82,6 +83,10 @@ pub enum RegistryError {
         provider: ProviderId,
         capability: Capability,
     },
+    SessionProviderMismatch {
+        expected: ProviderId,
+        actual: ProviderId,
+    },
 }
 
 impl fmt::Display for RegistryError {
@@ -96,6 +101,9 @@ impl fmt::Display for RegistryError {
                 provider,
                 capability,
             } => write!(f, "{provider} did not declare capability {capability:?}"),
+            Self::SessionProviderMismatch { expected, actual } => {
+                write!(f, "session belongs to {actual}, not {expected}")
+            }
         }
     }
 }
@@ -152,6 +160,13 @@ impl ChatRuntime {
             .collect()
     }
 
+    pub fn provider_view(&self, provider_id: ProviderId) -> Option<ProviderView> {
+        self.providers
+            .iter()
+            .find(|entry| entry.registration.manifest.descriptor.id == provider_id)
+            .map(Self::view)
+    }
+
     pub const fn selected_provider_id(&self) -> Option<ProviderId> {
         self.selected_provider
     }
@@ -161,15 +176,7 @@ impl ChatRuntime {
         self.providers
             .iter()
             .find(|entry| entry.registration.manifest.descriptor.id == selected)
-            .map(|entry| ProviderView {
-                registration: entry.registration.clone(),
-                active_session: entry.active_session,
-                draft: entry
-                    .drafts
-                    .get(&entry.active_session)
-                    .cloned()
-                    .unwrap_or_default(),
-            })
+            .map(Self::view)
     }
 
     pub fn select_provider(&mut self, provider_id: ProviderId) -> Result<(), RegistryError> {
@@ -195,6 +202,107 @@ impl ChatRuntime {
             .iter_mut()
             .find(|entry| entry.registration.manifest.descriptor.id == provider_id)
             .ok_or(RegistryError::UnknownProvider(provider_id))?;
+        let session = entry
+            .registration
+            .sessions
+            .iter_mut()
+            .find(|session| session.id == session_id)
+            .ok_or(RegistryError::UnknownSession {
+                provider: provider_id,
+                session: session_id,
+            })?;
+        if session.group != SessionGroup::Pinned {
+            session.group = SessionGroup::Active;
+        }
+        entry.active_session = Some(session_id);
+        self.selected_provider = Some(provider_id);
+        Ok(())
+    }
+
+    pub fn upsert_session(
+        &mut self,
+        provider_id: ProviderId,
+        session: SessionSummary,
+    ) -> Result<(), RegistryError> {
+        if session.provider_id != provider_id {
+            return Err(RegistryError::SessionProviderMismatch {
+                expected: provider_id,
+                actual: session.provider_id,
+            });
+        }
+        let entry = self.entry_mut(provider_id)?;
+        if let Some(existing) = entry
+            .registration
+            .sessions
+            .iter_mut()
+            .find(|existing| existing.id == session.id)
+        {
+            *existing = session;
+        } else {
+            entry.registration.sessions.push(session);
+        }
+        if entry.active_session.is_none() {
+            entry.active_session = entry.registration.sessions.first().map(|item| item.id);
+        }
+        Ok(())
+    }
+
+    pub fn set_session_state(
+        &mut self,
+        provider_id: ProviderId,
+        session_id: ChatSessionId,
+        state: SessionState,
+    ) -> Result<(), RegistryError> {
+        let entry = self.entry_mut(provider_id)?;
+        let session = entry
+            .registration
+            .sessions
+            .iter_mut()
+            .find(|session| session.id == session_id)
+            .ok_or(RegistryError::UnknownSession {
+                provider: provider_id,
+                session: session_id,
+            })?;
+        session.state = state;
+        Ok(())
+    }
+
+    pub fn append_event(
+        &mut self,
+        provider_id: ProviderId,
+        event: ChatEvent,
+    ) -> Result<(), RegistryError> {
+        if event.provider_id != provider_id {
+            return Err(RegistryError::SessionProviderMismatch {
+                expected: provider_id,
+                actual: event.provider_id,
+            });
+        }
+        let entry = self.entry_mut(provider_id)?;
+        if !entry
+            .registration
+            .sessions
+            .iter()
+            .any(|session| session.id == event.session_id)
+        {
+            return Err(RegistryError::UnknownSession {
+                provider: provider_id,
+                session: event.session_id,
+            });
+        }
+        entry.registration.events.push(event);
+        Ok(())
+    }
+
+    pub fn append_assistant_chunk(
+        &mut self,
+        provider_id: ProviderId,
+        session_id: ChatSessionId,
+        turn_id: TurnId,
+        event_id: ChatEventId,
+        chunk: &str,
+    ) -> Result<(), RegistryError> {
+        let entry = self.entry_mut(provider_id)?;
         if !entry
             .registration
             .sessions
@@ -206,7 +314,21 @@ impl ChatRuntime {
                 session: session_id,
             });
         }
-        entry.active_session = Some(session_id);
+        if let Some(last) = entry.registration.events.last_mut() {
+            if last.session_id == session_id && last.turn_id.as_ref() == Some(&turn_id) {
+                if let ChatEventContent::AssistantMessage(body) = &mut last.content {
+                    body.push_str(chunk);
+                    return Ok(());
+                }
+            }
+        }
+        entry.registration.events.push(ChatEvent {
+            id: event_id,
+            provider_id,
+            session_id,
+            turn_id: Some(turn_id),
+            content: ChatEventContent::AssistantMessage(chunk.to_owned()),
+        });
         Ok(())
     }
 
@@ -288,12 +410,37 @@ impl ChatRuntime {
         entry.drafts.insert(entry.active_session, draft);
         Ok(())
     }
+
+    pub fn clear_draft(&mut self, provider_id: ProviderId) -> Result<(), RegistryError> {
+        self.set_draft(provider_id, String::new())
+    }
+
+    fn entry_mut(&mut self, provider_id: ProviderId) -> Result<&mut ProviderEntry, RegistryError> {
+        self.providers
+            .iter_mut()
+            .find(|entry| entry.registration.manifest.descriptor.id == provider_id)
+            .ok_or(RegistryError::UnknownProvider(provider_id))
+    }
+
+    fn view(entry: &ProviderEntry) -> ProviderView {
+        ProviderView {
+            registration: entry.registration.clone(),
+            active_session: entry.active_session,
+            draft: entry
+                .drafts
+                .get(&entry.active_session)
+                .cloned()
+                .unwrap_or_default(),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dpl_chat_core::{Capability, ProviderAccent, ProviderDescriptor, ProviderProfileId};
+    use dpl_chat_core::{
+        Capability, ProviderAccent, ProviderDescriptor, ProviderProfileId, ProviderSessionId,
+    };
 
     const ID: ProviderId = ProviderId("test");
     const OTHER: ProviderId = ProviderId("other");
@@ -432,5 +579,101 @@ mod tests {
                 session: ChatSessionId(99),
             })
         );
+    }
+
+    #[test]
+    fn selecting_a_shared_rail_session_also_selects_its_provider() {
+        let other = ProviderManifest {
+            descriptor: ProviderDescriptor {
+                id: OTHER,
+                label: "Other",
+                short_label: "O",
+                glyph: "O",
+                accent: ProviderAccent::Amber,
+                summary: "other provider",
+            },
+            ..MANIFEST
+        };
+        let mut other_registration = ProviderRegistration::planned(other);
+        other_registration
+            .sessions
+            .push(session(OTHER, 7, "Other session"));
+        let mut runtime = ChatRuntime::try_from_registrations([
+            ProviderRegistration::planned(MANIFEST),
+            other_registration,
+        ])
+        .expect("valid registry");
+
+        runtime
+            .select_session(OTHER, ChatSessionId(7))
+            .expect("shared-rail session");
+
+        assert_eq!(runtime.selected_provider_id(), Some(OTHER));
+        assert_eq!(
+            runtime
+                .selected_provider()
+                .expect("selected")
+                .active_session,
+            Some(ChatSessionId(7))
+        );
+        assert_eq!(
+            runtime
+                .selected_provider()
+                .expect("selected")
+                .registration
+                .sessions[0]
+                .group,
+            SessionGroup::Active
+        );
+    }
+
+    #[test]
+    fn streamed_assistant_chunks_coalesce_into_one_message() {
+        let mut registration = ProviderRegistration::planned(MANIFEST);
+        registration.sessions.push(session(ID, 1, "Live"));
+        let mut runtime =
+            ChatRuntime::try_from_registrations([registration]).expect("valid registry");
+
+        runtime
+            .append_assistant_chunk(
+                ID,
+                ChatSessionId(1),
+                TurnId("turn-1".into()),
+                ChatEventId(1),
+                "hello",
+            )
+            .expect("first chunk");
+        runtime
+            .append_assistant_chunk(
+                ID,
+                ChatSessionId(1),
+                TurnId("turn-1".into()),
+                ChatEventId(2),
+                " world",
+            )
+            .expect("second chunk");
+
+        let events = runtime
+            .selected_provider()
+            .expect("provider")
+            .registration
+            .events;
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0].content,
+            ChatEventContent::AssistantMessage("hello world".into())
+        );
+    }
+
+    fn session(provider_id: ProviderId, id: u64, title: &str) -> SessionSummary {
+        SessionSummary {
+            id: ChatSessionId(id),
+            provider_id,
+            provider_session_id: Some(ProviderSessionId(format!("provider-{id}"))),
+            title: title.into(),
+            workspace: "C:\\workspace".into(),
+            group: dpl_chat_core::SessionGroup::Recent,
+            state: SessionState::Idle,
+        }
     }
 }

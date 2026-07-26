@@ -1,13 +1,19 @@
 #[cfg(feature = "eguipilotai-devtools")]
 use dpl_chat_core::ChatDomain;
-use dpl_chat_core::ProviderId;
+use dpl_chat_core::{
+    ActivationState, BoundedNativePayload, Capability, ChatEvent, ChatEventContent, ChatEventId,
+    ChatSessionId, ProviderId, ProviderSessionId, RecoveryAction, RecoveryActionKind, SessionGroup,
+    SessionState, SessionSummary, TurnId,
+};
 use dpl_chat_interactions::{
     InteractionContent, InteractionId, InteractionPlacement, InteractionRegistry,
 };
 use dpl_chat_runtime::ChatRuntime;
 use dpl_chat_social::SocialModel;
 use dpl_chat_store::HistoryCatalog;
-use dpl_chat_window::{ChatWindow, HostIntent};
+use dpl_chat_window::{
+    ChatWindow, HostIntent, ProviderPermissionChoice, ProviderPermissionChoiceKind,
+};
 use dpl_chat_windows::{
     ChatCloseDecision, ChatWindowId, ChatWindowRecord, ChatWindowRegistry, PeerLifetime,
     RootCloseDecision, SnapEdge, ViewportGeneration, WindowAttachment, WindowBinding,
@@ -19,7 +25,10 @@ use egui_pilot_ai::{
     protocol::{PilotViewportKey, Role},
     ContextPilotExt, NodeMetadata, PilotId, UiPilotExt,
 };
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::{Arc, Mutex, MutexGuard},
+};
 
 #[cfg(feature = "eguipilotai-devtools")]
 type PilotRuntime = egui_pilot_ai_runtime::RuntimeGuard<egui_pilot_ai_transport::StdioTransport>;
@@ -62,6 +71,14 @@ struct Shared {
     window: ChatWindow,
     codex_activation: dpl_chat_codex::CodexActivationCoordinator,
     grok_activation: dpl_chat_grok::GrokActivationCoordinator,
+    grok_runtime: Option<dpl_chat_grok::GrokAcpRuntime>,
+    grok_sessions: BTreeMap<String, ChatSessionId>,
+    grok_turns: BTreeMap<String, TurnId>,
+    grok_permissions: BTreeMap<u64, PendingGrokPermission>,
+    next_chat_session_id: u64,
+    next_chat_event_id: u64,
+    next_turn_id: u64,
+    next_interaction_id: u64,
     primary_monitor: Option<([u32; 2], f32)>,
     /// A fabric handle for PUBLISHING the peer window's own navigation asks.
     /// The coordinator publishes `ShellEvent::NavigateRequest`; the shell
@@ -69,6 +86,12 @@ struct Shared {
     fabric: Fabric,
     #[cfg(feature = "eguipilotai-devtools")]
     pilot_runtime: Option<Arc<Mutex<PilotRuntime>>>,
+}
+
+struct PendingGrokPermission {
+    interaction: InteractionId,
+    provider_session_id: String,
+    allow_options: BTreeSet<String>,
 }
 
 /// The sole owner of primary Chat viewport creation and peer lifetime policy.
@@ -182,18 +205,31 @@ impl ChatWindowCoordinator {
                     monitor.scale_factor.max(1.0),
                 )
             });
+        let probe_grok_cached_subscription = grok_activation.activation_capability_qualified();
+        let mut shared = Shared {
+            registry,
+            lifetime: PeerLifetime::default(),
+            window,
+            codex_activation,
+            grok_activation,
+            grok_runtime: None,
+            grok_sessions: BTreeMap::new(),
+            grok_turns: BTreeMap::new(),
+            grok_permissions: BTreeMap::new(),
+            next_chat_session_id: 1_000_000,
+            next_chat_event_id: 1_000_000,
+            next_turn_id: 1,
+            next_interaction_id: 2_000_000_000,
+            primary_monitor,
+            fabric: fabric.clone(),
+            #[cfg(feature = "eguipilotai-devtools")]
+            pilot_runtime: None,
+        };
+        if probe_grok_cached_subscription {
+            start_grok_runtime(&mut shared);
+        }
         Self {
-            shared: Arc::new(Mutex::new(Shared {
-                registry,
-                lifetime: PeerLifetime::default(),
-                window,
-                codex_activation,
-                grok_activation,
-                primary_monitor,
-                fabric: fabric.clone(),
-                #[cfg(feature = "eguipilotai-devtools")]
-                pilot_runtime: None,
-            })),
+            shared: Arc::new(Mutex::new(shared)),
             events: fabric.subscribe_shell(),
         }
     }
@@ -278,7 +314,7 @@ impl ChatWindowCoordinator {
                 dpl_chat_windows::WindowGeometry::MINIMUM[1] as f32,
             ])
             .with_resizable(true)
-            .with_decorations(true)
+            .with_decorations(false)
             .with_taskbar(true);
         if let Some(position) = geometry.outer_position {
             builder = builder.with_position([position[0] as f32, position[1] as f32]);
@@ -315,7 +351,13 @@ impl ChatWindowCoordinator {
                 let close_requested = viewport.close_requested();
                 let geometry = viewport_geometry(&viewport);
 
-                let (intents, activation_changed, login_running) = {
+                let (
+                    intents,
+                    activation_changed,
+                    runtime_changed,
+                    provider_runtime_live,
+                    login_running,
+                ) = {
                     let mut state = lock(&shared);
                     if matches!(
                         state
@@ -338,6 +380,8 @@ impl ChatWindowCoordinator {
                         }
                     }
                     let activation_changed = poll_provider_activations(&mut state);
+                    let runtime_changed = poll_grok_runtime(&mut state);
+                    let provider_runtime_live = state.grok_runtime.is_some();
                     let login_running = state.codex_activation.is_login_running()
                         || state.grok_activation.is_login_running();
                     let intents = egui::CentralPanel::default()
@@ -348,7 +392,13 @@ impl ChatWindowCoordinator {
                         )
                         .show(ui, |ui| state.window.ui(ui))
                         .inner;
-                    (intents, activation_changed, login_running)
+                    (
+                        intents,
+                        activation_changed,
+                        runtime_changed,
+                        provider_runtime_live,
+                        login_running,
+                    )
                 };
 
                 let mut host_intents = Vec::new();
@@ -371,10 +421,10 @@ impl ChatWindowCoordinator {
                 for intent in host_intents {
                     apply_host_intent(ui.ctx(), &shared, intent);
                 }
-                if window_changed || activation_changed {
+                if window_changed || activation_changed || runtime_changed {
                     ui.ctx().request_repaint_of(chat_viewport_id);
                 }
-                if login_running {
+                if login_running || provider_runtime_live {
                     ui.ctx()
                         .request_repaint_after(std::time::Duration::from_millis(100));
                 }
@@ -473,6 +523,98 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
                 }
             };
             ctx.open_url(egui::OpenUrl::new_tab(url));
+        }
+        HostIntent::RefreshProvider(provider) => {
+            if provider != dpl_chat_grok::PROVIDER {
+                tracing::warn!(%provider, "provider rediscovery is not qualified");
+                return;
+            }
+            let mut state = lock(shared);
+            match state.grok_activation.refresh_discovery() {
+                Ok(_) => {
+                    let activation = state.grok_activation.activation().clone();
+                    if let Err(error) = state.window.set_provider_activation(provider, activation) {
+                        tracing::warn!(%error, "Grok rediscovery state could not be projected");
+                    }
+                    if state.grok_activation.activation_capability_qualified() {
+                        start_grok_runtime(&mut state);
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "Grok rediscovery was rejected");
+                }
+            }
+            ctx.request_repaint();
+        }
+        HostIntent::NewSession(provider) => {
+            if provider != dpl_chat_grok::PROVIDER {
+                tracing::warn!(%provider, "new-session runtime is not qualified");
+                return;
+            }
+            let state = lock(shared);
+            send_grok_command(&state, dpl_chat_grok::GrokRuntimeCommand::NewSession);
+            ctx.request_repaint();
+        }
+        HostIntent::SendTurn {
+            provider,
+            session,
+            text,
+        } => {
+            if provider != dpl_chat_grok::PROVIDER {
+                tracing::warn!(%provider, "live turn runtime is not qualified");
+                return;
+            }
+            let mut state = lock(shared);
+            send_grok_turn(&mut state, session, text);
+            ctx.request_repaint();
+        }
+        HostIntent::CancelTurn { provider, session } => {
+            if provider != dpl_chat_grok::PROVIDER {
+                tracing::warn!(%provider, "turn cancellation runtime is not qualified");
+                return;
+            }
+            let mut state = lock(shared);
+            let Some(provider_session_id) = provider_session_id(&state, session) else {
+                tracing::warn!(%session, "Grok session binding is missing");
+                return;
+            };
+            cancel_grok_permissions(&mut state, Some(&provider_session_id), true);
+            send_grok_command(
+                &state,
+                dpl_chat_grok::GrokRuntimeCommand::Cancel {
+                    provider_session_id,
+                },
+            );
+            ctx.request_repaint();
+        }
+        HostIntent::ResolveProviderPermission {
+            provider,
+            request_id,
+            option_id,
+        } => {
+            if provider != dpl_chat_grok::PROVIDER {
+                tracing::warn!(%provider, "provider permission runtime is not qualified");
+                return;
+            }
+            let mut state = lock(shared);
+            if let Some(pending) = state.grok_permissions.remove(&request_id) {
+                let accepted = option_id
+                    .as_ref()
+                    .is_some_and(|option| pending.allow_options.contains(option));
+                append_grok_event(
+                    &mut state,
+                    &pending.provider_session_id,
+                    ChatEventContent::ApprovalResolved { accepted },
+                );
+            }
+            send_grok_command(
+                &state,
+                dpl_chat_grok::GrokRuntimeCommand::ResolvePermission {
+                    request_id,
+                    option_id,
+                },
+            );
+            ctx.request_repaint();
         }
         HostIntent::NavigateTo(route) => {
             // Route loading lives in the MAIN app: publish the ask and let the
@@ -575,9 +717,609 @@ fn poll_provider_activations(state: &mut Shared) -> bool {
         {
             tracing::warn!(%error, "Grok activation state could not be projected");
         }
+        if matches!(
+            state.grok_activation.activation(),
+            dpl_chat_core::ActivationState::Ready
+        ) {
+            start_grok_runtime(state);
+        }
     }
 
     codex_changed || grok_changed
+}
+
+fn start_grok_runtime(state: &mut Shared) {
+    if state.grok_runtime.is_some() {
+        return;
+    }
+    let Some(profile) = state.grok_activation.runtime_profile() else {
+        tracing::warn!("Grok runtime profile is unavailable after activation");
+        return;
+    };
+    if let Err(error) = state
+        .window
+        .set_provider_activation(dpl_chat_grok::PROVIDER, ActivationState::SigningIn)
+    {
+        tracing::warn!(%error, "Grok connecting state could not be projected");
+    }
+    match dpl_chat_grok::GrokAcpRuntime::start(profile) {
+        Ok(runtime) => state.grok_runtime = Some(runtime),
+        Err(error) => {
+            let activation = dpl_chat_core::ActivationState::Failed {
+                reason: format!("Grok ACP could not start: {error}"),
+                recovery: vec![RecoveryAction::new(RecoveryActionKind::Retry, "Retry Grok")],
+            };
+            if let Err(project_error) = state
+                .window
+                .set_provider_activation(dpl_chat_grok::PROVIDER, activation)
+            {
+                tracing::warn!(%project_error, "Grok launch failure could not be projected");
+            }
+        }
+    }
+}
+
+fn poll_grok_runtime(state: &mut Shared) -> bool {
+    let mut changed = false;
+    loop {
+        let next = match state.grok_runtime.as_ref() {
+            Some(runtime) => runtime.try_event(),
+            None => return changed,
+        };
+        let event = match next {
+            Ok(Some(event)) => event,
+            Ok(None) => return changed,
+            Err(error) => {
+                tracing::warn!(%error, "Grok ACP event channel closed");
+                state.grok_runtime = None;
+                return true;
+            }
+        };
+        changed = true;
+        match event {
+            dpl_chat_grok::GrokRuntimeEvent::Connected { capabilities } => {
+                if let Err(error) = state
+                    .window
+                    .set_provider_activation(dpl_chat_grok::PROVIDER, ActivationState::Ready)
+                {
+                    tracing::warn!(%error, "Grok authenticated state could not be projected");
+                }
+                let mut qualified = vec![
+                    Capability::StartSession,
+                    Capability::StreamTurns,
+                    Capability::InterruptTurn,
+                    Capability::Approvals,
+                    Capability::Tools,
+                    Capability::Diffs,
+                    Capability::Plans,
+                    Capability::Headless,
+                ];
+                if capabilities.list_sessions {
+                    qualified.push(Capability::ReadSessions);
+                }
+                if capabilities.load_session {
+                    qualified.push(Capability::ResumeSession);
+                }
+                if let Err(error) = state
+                    .window
+                    .qualify_provider_capabilities(dpl_chat_grok::PROVIDER, qualified)
+                {
+                    tracing::warn!(%error, "Grok capabilities could not be projected");
+                }
+                if capabilities.list_sessions {
+                    send_grok_command(
+                        state,
+                        dpl_chat_grok::GrokRuntimeCommand::ListSessions { cursor: None },
+                    );
+                }
+            }
+            dpl_chat_grok::GrokRuntimeEvent::SessionsPage {
+                sessions,
+                next_cursor,
+                replace,
+            } => {
+                project_grok_sessions(state, sessions, replace);
+                if let Some(cursor) = next_cursor {
+                    send_grok_command(
+                        state,
+                        dpl_chat_grok::GrokRuntimeCommand::ListSessions {
+                            cursor: Some(cursor),
+                        },
+                    );
+                }
+            }
+            dpl_chat_grok::GrokRuntimeEvent::SessionReady {
+                provider_session_id,
+                is_new,
+            } => {
+                let session = grok_session_summary(
+                    state,
+                    provider_session_id,
+                    is_new.then_some("New Grok chat"),
+                    None,
+                    SessionGroup::Active,
+                );
+                let session_id = session.id;
+                if let Err(error) = state
+                    .window
+                    .upsert_provider_session(dpl_chat_grok::PROVIDER, session)
+                    .and_then(|()| {
+                        state
+                            .window
+                            .select_provider_session(dpl_chat_grok::PROVIDER, session_id)
+                    })
+                {
+                    tracing::warn!(%error, "Grok session could not be selected");
+                }
+            }
+            dpl_chat_grok::GrokRuntimeEvent::TurnStarted {
+                provider_session_id,
+            } => {
+                if let Some(session) = state.grok_sessions.get(&provider_session_id).copied() {
+                    if !state.grok_turns.contains_key(&provider_session_id) {
+                        let turn = next_turn_id(state);
+                        state.grok_turns.insert(provider_session_id, turn);
+                    }
+                    if let Err(error) = state.window.set_provider_session_state(
+                        dpl_chat_grok::PROVIDER,
+                        session,
+                        SessionState::Running,
+                    ) {
+                        tracing::warn!(%error, "Grok running state could not be projected");
+                    }
+                }
+            }
+            dpl_chat_grok::GrokRuntimeEvent::SessionUpdate {
+                provider_session_id,
+                update,
+            } => project_grok_update(state, &provider_session_id, update),
+            dpl_chat_grok::GrokRuntimeEvent::PermissionRequested {
+                request_id,
+                provider_session_id,
+                summary,
+                options,
+            } => {
+                let Some(session) = state.grok_sessions.get(&provider_session_id).copied() else {
+                    send_grok_command(
+                        state,
+                        dpl_chat_grok::GrokRuntimeCommand::ResolvePermission {
+                            request_id,
+                            option_id: None,
+                        },
+                    );
+                    continue;
+                };
+                let interaction = InteractionId(state.next_interaction_id);
+                state.next_interaction_id = state.next_interaction_id.saturating_add(1);
+                let choices = options
+                    .iter()
+                    .cloned()
+                    .map(|option| ProviderPermissionChoice {
+                        option_id: option.option_id,
+                        label: option.label,
+                        kind: match option.kind {
+                            dpl_chat_grok::GrokPermissionOptionKind::AllowOnce => {
+                                ProviderPermissionChoiceKind::AllowOnce
+                            }
+                            dpl_chat_grok::GrokPermissionOptionKind::AllowAlways => {
+                                ProviderPermissionChoiceKind::AllowAlways
+                            }
+                            dpl_chat_grok::GrokPermissionOptionKind::RejectOnce => {
+                                ProviderPermissionChoiceKind::RejectOnce
+                            }
+                            dpl_chat_grok::GrokPermissionOptionKind::RejectAlways => {
+                                ProviderPermissionChoiceKind::RejectAlways
+                            }
+                        },
+                    })
+                    .collect::<Vec<_>>();
+                let allow_options = options
+                    .iter()
+                    .filter(|option| {
+                        matches!(
+                            option.kind,
+                            dpl_chat_grok::GrokPermissionOptionKind::AllowOnce
+                                | dpl_chat_grok::GrokPermissionOptionKind::AllowAlways
+                        )
+                    })
+                    .map(|option| option.option_id.clone())
+                    .collect::<BTreeSet<_>>();
+                if let Err(error) = state.window.register_provider_permission(
+                    interaction,
+                    dpl_chat_grok::PROVIDER,
+                    session,
+                    request_id,
+                    summary.clone(),
+                    choices,
+                ) {
+                    tracing::warn!(%error, "Grok permission overlay could not be registered");
+                    send_grok_command(
+                        state,
+                        dpl_chat_grok::GrokRuntimeCommand::ResolvePermission {
+                            request_id,
+                            option_id: None,
+                        },
+                    );
+                } else {
+                    state.grok_permissions.insert(
+                        request_id,
+                        PendingGrokPermission {
+                            interaction,
+                            provider_session_id: provider_session_id.clone(),
+                            allow_options,
+                        },
+                    );
+                    append_grok_event(
+                        state,
+                        &provider_session_id,
+                        ChatEventContent::ApprovalRequested { summary },
+                    );
+                }
+            }
+            dpl_chat_grok::GrokRuntimeEvent::TurnFinished {
+                provider_session_id,
+                stop_reason,
+            } => {
+                append_grok_event(
+                    state,
+                    &provider_session_id,
+                    ChatEventContent::StatusUpdated(stop_reason),
+                );
+                append_grok_event(state, &provider_session_id, ChatEventContent::TurnCompleted);
+                set_grok_session_idle(state, &provider_session_id);
+                state.grok_turns.remove(&provider_session_id);
+            }
+            dpl_chat_grok::GrokRuntimeEvent::Failure(failure) => {
+                tracing::warn!(
+                    kind = ?failure.kind,
+                    reason = %failure.reason,
+                    "Grok ACP failure"
+                );
+                if let Some(provider_session_id) = failure.provider_session_id {
+                    append_grok_event(
+                        state,
+                        &provider_session_id,
+                        ChatEventContent::TurnFailed {
+                            message: failure.reason,
+                        },
+                    );
+                    set_grok_session_idle(state, &provider_session_id);
+                    state.grok_turns.remove(&provider_session_id);
+                } else if failure.kind == dpl_chat_grok::GrokRuntimeFailureKind::Authentication {
+                    let activation = ActivationState::SignedOut {
+                        reason: failure.reason,
+                        recovery: vec![RecoveryAction::new(
+                            RecoveryActionKind::SignIn,
+                            "Log in with Grok",
+                        )],
+                    };
+                    if let Err(error) = state
+                        .window
+                        .set_provider_activation(dpl_chat_grok::PROVIDER, activation)
+                    {
+                        tracing::warn!(%error, "Grok sign-in requirement could not be projected");
+                    }
+                } else if failure.kind == dpl_chat_grok::GrokRuntimeFailureKind::Disconnected
+                    && state
+                        .window
+                        .provider_view(dpl_chat_grok::PROVIDER)
+                        .is_some_and(|provider| {
+                            matches!(
+                                provider.registration.activation,
+                                ActivationState::SignedOut { .. }
+                            )
+                        })
+                {
+                    // Authentication emits its precise failure before the ACP
+                    // transport closes. Preserve the actionable sign-in state.
+                } else {
+                    let activation = ActivationState::Failed {
+                        reason: failure.reason,
+                        recovery: vec![RecoveryAction::new(
+                            RecoveryActionKind::Retry,
+                            "Retry Grok",
+                        )],
+                    };
+                    if let Err(error) = state
+                        .window
+                        .set_provider_activation(dpl_chat_grok::PROVIDER, activation)
+                    {
+                        tracing::warn!(%error, "Grok runtime failure could not be projected");
+                    }
+                }
+            }
+            dpl_chat_grok::GrokRuntimeEvent::Stopped => {
+                cancel_grok_permissions(state, None, false);
+                state.grok_runtime = None;
+                return true;
+            }
+        }
+    }
+}
+
+fn project_grok_sessions(
+    state: &mut Shared,
+    sessions: Vec<dpl_chat_grok::GrokSessionSummary>,
+    replace: bool,
+) {
+    let mut projected = if replace {
+        Vec::new()
+    } else {
+        state
+            .window
+            .provider_view(dpl_chat_grok::PROVIDER)
+            .map_or_else(Vec::new, |provider| provider.registration.sessions)
+    };
+    for session in sessions {
+        let projected_session = grok_session_summary(
+            state,
+            session.provider_session_id,
+            session.title.as_deref(),
+            Some(session.working_directory),
+            SessionGroup::Recent,
+        );
+        if let Some(existing) = projected
+            .iter_mut()
+            .find(|existing| existing.id == projected_session.id)
+        {
+            *existing = projected_session;
+        } else {
+            projected.push(projected_session);
+        }
+    }
+    if let Err(error) = state
+        .window
+        .replace_provider_sessions(dpl_chat_grok::PROVIDER, projected)
+    {
+        tracing::warn!(%error, "Grok session page could not be projected");
+    }
+}
+
+fn grok_session_summary(
+    state: &mut Shared,
+    provider_session_id: String,
+    title: Option<&str>,
+    working_directory: Option<std::path::PathBuf>,
+    group: SessionGroup,
+) -> SessionSummary {
+    let id = grok_chat_session_id(state, &provider_session_id);
+    SessionSummary {
+        id,
+        provider_id: dpl_chat_grok::PROVIDER,
+        provider_session_id: Some(ProviderSessionId(provider_session_id)),
+        title: title.unwrap_or("Grok chat").to_owned(),
+        workspace: working_directory
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "DevPULSE".to_owned()),
+        group,
+        state: SessionState::Idle,
+    }
+}
+
+fn grok_chat_session_id(state: &mut Shared, provider_session_id: &str) -> ChatSessionId {
+    if let Some(id) = state.grok_sessions.get(provider_session_id) {
+        return *id;
+    }
+    let id = ChatSessionId(state.next_chat_session_id);
+    state.next_chat_session_id = state.next_chat_session_id.saturating_add(1);
+    state
+        .grok_sessions
+        .insert(provider_session_id.to_owned(), id);
+    id
+}
+
+fn provider_session_id(state: &Shared, session: ChatSessionId) -> Option<String> {
+    state
+        .window
+        .provider_view(dpl_chat_grok::PROVIDER)?
+        .registration
+        .sessions
+        .into_iter()
+        .find(|candidate| candidate.id == session)?
+        .provider_session_id
+        .map(|id| id.0)
+}
+
+fn send_grok_turn(state: &mut Shared, session: ChatSessionId, text: String) {
+    let Some(provider_session_id) = provider_session_id(state, session) else {
+        tracing::warn!(%session, "Grok session binding is missing");
+        return;
+    };
+    let turn = next_turn_id(state);
+    let event_id = next_event_id(state);
+    let event = ChatEvent {
+        id: event_id,
+        provider_id: dpl_chat_grok::PROVIDER,
+        session_id: session,
+        turn_id: Some(turn.clone()),
+        content: ChatEventContent::UserMessage(text.clone()),
+    };
+    let command = dpl_chat_grok::GrokRuntimeCommand::Prompt {
+        provider_session_id: provider_session_id.clone(),
+        text,
+    };
+    if !send_grok_command(state, command) {
+        return;
+    }
+    state.grok_turns.insert(provider_session_id, turn);
+    if let Err(error) = state
+        .window
+        .append_provider_event(dpl_chat_grok::PROVIDER, event)
+        .and_then(|()| state.window.clear_provider_draft(dpl_chat_grok::PROVIDER))
+    {
+        tracing::warn!(%error, "Grok user message could not be projected");
+    }
+}
+
+fn project_grok_update(
+    state: &mut Shared,
+    provider_session_id: &str,
+    update: dpl_chat_grok::GrokSessionUpdate,
+) {
+    match update {
+        dpl_chat_grok::GrokSessionUpdate::UserText(_) => {
+            // The submitted message is projected before the provider call so
+            // the composer clears atomically with a successful enqueue.
+        }
+        dpl_chat_grok::GrokSessionUpdate::AssistantText(chunk) => {
+            let Some(session) = state.grok_sessions.get(provider_session_id).copied() else {
+                return;
+            };
+            let turn = state
+                .grok_turns
+                .get(provider_session_id)
+                .cloned()
+                .unwrap_or_else(|| next_turn_id(state));
+            let event = next_event_id(state);
+            if let Err(error) = state.window.append_provider_assistant_chunk(
+                dpl_chat_grok::PROVIDER,
+                session,
+                turn,
+                event,
+                &chunk,
+            ) {
+                tracing::warn!(%error, "Grok assistant chunk could not be projected");
+            }
+        }
+        dpl_chat_grok::GrokSessionUpdate::ThoughtText(text) => append_grok_event(
+            state,
+            provider_session_id,
+            ChatEventContent::StatusUpdated(text),
+        ),
+        dpl_chat_grok::GrokSessionUpdate::Tool(label) => append_grok_event(
+            state,
+            provider_session_id,
+            ChatEventContent::ToolStarted { label },
+        ),
+        dpl_chat_grok::GrokSessionUpdate::Plan(plan) => append_grok_event(
+            state,
+            provider_session_id,
+            ChatEventContent::PlanUpdated(plan),
+        ),
+        dpl_chat_grok::GrokSessionUpdate::SessionInfo(info) => append_grok_event(
+            state,
+            provider_session_id,
+            ChatEventContent::StatusUpdated(info),
+        ),
+        dpl_chat_grok::GrokSessionUpdate::Usage { used, size } => append_grok_event(
+            state,
+            provider_session_id,
+            ChatEventContent::UsageUpdated {
+                summary: format!("{used} of {size} context tokens"),
+            },
+        ),
+        dpl_chat_grok::GrokSessionUpdate::Other(summary) => append_grok_event(
+            state,
+            provider_session_id,
+            ChatEventContent::Unknown(BoundedNativePayload::redacted(
+                "grok.acp.session-update",
+                summary,
+            )),
+        ),
+    }
+}
+
+fn append_grok_event(state: &mut Shared, provider_session_id: &str, content: ChatEventContent) {
+    let Some(session) = state.grok_sessions.get(provider_session_id).copied() else {
+        return;
+    };
+    let event = ChatEvent {
+        id: next_event_id(state),
+        provider_id: dpl_chat_grok::PROVIDER,
+        session_id: session,
+        turn_id: state.grok_turns.get(provider_session_id).cloned(),
+        content,
+    };
+    if let Err(error) = state
+        .window
+        .append_provider_event(dpl_chat_grok::PROVIDER, event)
+    {
+        tracing::warn!(%error, "Grok event could not be projected");
+    }
+}
+
+fn set_grok_session_idle(state: &mut Shared, provider_session_id: &str) {
+    let Some(session) = state.grok_sessions.get(provider_session_id).copied() else {
+        return;
+    };
+    if let Err(error) = state.window.set_provider_session_state(
+        dpl_chat_grok::PROVIDER,
+        session,
+        SessionState::Idle,
+    ) {
+        tracing::warn!(%error, "Grok idle state could not be projected");
+    }
+}
+
+fn cancel_grok_permissions(
+    state: &mut Shared,
+    provider_session_id: Option<&str>,
+    notify_runtime: bool,
+) {
+    let pending = state
+        .grok_permissions
+        .iter()
+        .filter_map(|(request_id, pending)| {
+            provider_session_id
+                .is_none_or(|session| pending.provider_session_id == session)
+                .then_some((
+                    *request_id,
+                    pending.interaction,
+                    pending.provider_session_id.clone(),
+                ))
+        })
+        .collect::<Vec<_>>();
+    for (request_id, interaction, provider_session_id) in pending {
+        let _ = state.window.apply(
+            dpl_chat_window::ChatWindowIntent::ResolveProviderPermission {
+                interaction,
+                provider: dpl_chat_grok::PROVIDER,
+                request_id,
+                option_id: None,
+            },
+        );
+        state.grok_permissions.remove(&request_id);
+        append_grok_event(
+            state,
+            &provider_session_id,
+            ChatEventContent::ApprovalResolved { accepted: false },
+        );
+        if notify_runtime {
+            send_grok_command(
+                state,
+                dpl_chat_grok::GrokRuntimeCommand::ResolvePermission {
+                    request_id,
+                    option_id: None,
+                },
+            );
+        }
+    }
+}
+
+fn next_event_id(state: &mut Shared) -> ChatEventId {
+    let id = ChatEventId(state.next_chat_event_id);
+    state.next_chat_event_id = state.next_chat_event_id.saturating_add(1);
+    id
+}
+
+fn next_turn_id(state: &mut Shared) -> TurnId {
+    let id = TurnId(format!("grok-turn-{}", state.next_turn_id));
+    state.next_turn_id = state.next_turn_id.saturating_add(1);
+    id
+}
+
+fn send_grok_command(state: &Shared, command: dpl_chat_grok::GrokRuntimeCommand) -> bool {
+    let Some(runtime) = state.grok_runtime.as_ref() else {
+        tracing::warn!("Grok ACP runtime is not connected");
+        return false;
+    };
+    match runtime.try_send(command) {
+        Ok(()) => true,
+        Err(error) => {
+            tracing::warn!(%error, "Grok ACP command was rejected");
+            false
+        }
+    }
 }
 
 fn request_utility_record(

@@ -20,6 +20,7 @@ const TARGETS: &[Capability] = &[
     Capability::Tools,
     Capability::Attachments,
     Capability::Images,
+    Capability::Video,
     Capability::Models,
     Capability::Modes,
     Capability::SubscriptionAuth,

@@ -519,7 +519,11 @@ impl App {
         // publish their asks through the one fabric.
         workbench.wire_fabric(&fabric);
         wiredfront.wire_fabric(&fabric);
-        let provider_working_directory = dpl_engine_capture::content_root();
+        // Chat coding providers work inside the canonical launch workspace,
+        // not DevPULSE's media/content store. The launcher (and later the
+        // named-project registry) owns this root; provider or conversation
+        // input can never replace it.
+        let provider_working_directory = std::env::current_dir().unwrap_or_default();
         let codex_activation =
             dpl_chat_codex::CodexActivationCoordinator::discover(&provider_working_directory);
         let grok_activation =

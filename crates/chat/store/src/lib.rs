@@ -440,6 +440,7 @@ impl HistorySource for JsonlHistorySource {
                     provider_session_id: Some(metadata.native_id),
                     title: metadata.title,
                     workspace: metadata.workspace,
+                    group: dpl_chat_core::SessionGroup::Recent,
                     state: SessionState::ReadOnly,
                 },
                 started_at: metadata.started_at,

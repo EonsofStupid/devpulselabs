@@ -5,7 +5,13 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+agent-client-protocol.workspace = true
+async-channel.workspace = true
+async-io.workspace = true
+async-process.workspace = true
 dpl-chat-core.workspace = true
+futures-lite.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

@@ -185,7 +185,12 @@ provider logos.
 
 AI mode contains:
 
-- registry-driven ChatGPT/Codex, Claude, Gemini, and Grok presence;
+- registry-driven ChatGPT/Codex, Claude, Gemini, Grok, and future provider
+  launcher rows that remain visible regardless of current implementation order;
+- a compact governed provider popover with subscription/runtime status,
+  session count, `New chat`, Council, and Account actions;
+- provider sessions that populate dynamically after connection and retain
+  provider identity inside the shared `Pinned`, `Active`, and `Recent` groups;
 - truthful signed-out, unavailable, experimental, degraded, running, and
   attention states;
 - nested sessions grouped as `Pinned`, `Active`, and `Recent`;
@@ -596,14 +601,21 @@ or automatic navigation.
 
 Exit: AI can propose useful native UI without arbitrary layout or privilege.
 
-### CHAT-5 — live Codex
+### CHAT-5 — Grok and ChatGPT/Codex live qualification
 
+- follow [`chat-provider-workspaces.md`](chat-provider-workspaces.md);
 - satisfy every runtime ADR gate;
-- integrate app-server account, threads, turns, plans, diffs, tools,
-  approvals, usage, and interrupt;
-- qualify pinned real executables and teardown.
+- implement and prove Grok Build first through official ACP, provider-owned
+  cached authentication, sessions, streaming, and cancellation;
+- stop for local and operator proof;
+- then integrate Codex app-server account, threads, turns, plans, diffs,
+  tools, approvals, usage, and interrupt;
+- preserve the complete provider launcher rail while sessions populate
+  dynamically from each connected provider;
+- qualify pinned real executables and teardown for both providers.
 
-Exit: one subscription-backed provider works alone end to end.
+Exit: Grok and ChatGPT/Codex each work alone end to end and the operator has
+tested both before another provider is exposed for activation.
 
 ### CHAT-6 — live Claude
 
@@ -613,13 +625,14 @@ Exit: one subscription-backed provider works alone end to end.
 
 Exit: Claude works alone using the same window and interaction contracts.
 
-### CHAT-7 — Gemini and Grok qualification
+### CHAT-7 — Gemini qualification
 
 - install only by explicit operator action;
 - qualify ACP boundaries independently;
 - keep unsupported or experimental behavior visible.
 
-Exit: each provider is truthfully qualified, experimental, or unavailable.
+Exit: Gemini is truthfully qualified, experimental, or unavailable only
+after the Grok and ChatGPT/Codex checkpoint.
 
 ### CHAT-8 — advanced surfaces
 

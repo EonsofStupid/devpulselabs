@@ -6,12 +6,13 @@
 
 use dpl_chat_context::RouteContextState;
 use dpl_chat_core::{
-    ActivationState, ChatDomain, ChatEventContent, ChatSessionId, ProviderAccent, ProviderId,
-    RecoveryActionKind, SessionState,
+    ActivationState, Capability, ChatDomain, ChatEvent, ChatEventContent, ChatEventId,
+    ChatSessionId, ProviderAccent, ProviderId, RecoveryActionKind, SessionGroup, SessionState,
+    SessionSummary, TurnId,
 };
 use dpl_chat_interactions::{
     InteractionContent, InteractionId, InteractionLifecycle, InteractionPlacement,
-    InteractionRegistry, InteractionSpec, OverlayCoordinator, OverlayEntry,
+    InteractionProvenance, InteractionRegistry, InteractionSpec, OverlayCoordinator, OverlayEntry,
 };
 use dpl_chat_runtime::{ChatRuntime, ProviderView, RegistryError};
 use dpl_chat_social::{
@@ -38,6 +39,9 @@ pub const SOCIAL_MODE_ID: PilotId = PilotId::new("chat.mode.social");
 pub const ROUTE_ID: PilotId = PilotId::new("chat.context.route");
 pub const SHOW_MAIN_ID: PilotId = PilotId::new("chat.window.show-main");
 pub const QUIT_ID: PilotId = PilotId::new("chat.window.quit");
+pub const MINIMIZE_ID: PilotId = PilotId::new("chat.window.minimize");
+pub const MAXIMIZE_ID: PilotId = PilotId::new("chat.window.maximize");
+pub const CLOSE_ID: PilotId = PilotId::new("chat.window.close");
 pub const SIDEBAR_ID: PilotId = PilotId::new("chat.sidebar");
 pub const PROVIDERS_ID: PilotId = PilotId::new("chat.sidebar.providers");
 pub const SESSIONS_ID: PilotId = PilotId::new("chat.sidebar.sessions");
@@ -45,18 +49,23 @@ pub const SOCIAL_THREADS_ID: PilotId = PilotId::new("chat.sidebar.social");
 pub const CONVERSATION_ID: PilotId = PilotId::new("chat.conversation");
 pub const COMPOSER_ID: PilotId = PilotId::new("chat.composer");
 pub const SEND_ID: PilotId = PilotId::new("chat.composer.send");
+pub const STOP_ID: PilotId = PilotId::new("chat.composer.stop");
+pub const NEW_CHAT_ID: PilotId = PilotId::new("chat.provider.new-chat");
+pub const ATTACHMENT_ID: PilotId = PilotId::new("chat.composer.attachment");
+pub const MEDIA_ID: PilotId = PilotId::new("chat.composer.media");
+pub const INTERACTION_COMPONENT_ID: PilotId = PilotId::new("chat.composer.interaction-component");
+pub const VOICE_ID: PilotId = PilotId::new("chat.composer.voice");
+pub const PROVIDER_MODEL_ID: PilotId = PilotId::new("chat.composer.provider-model");
 pub const OVERLAY_ID: PilotId = PilotId::new("chat.overlay");
 pub const PROVIDER_OVERLAY_ID: PilotId = PilotId::new("chat.overlay.provider");
 pub const PROVIDER_LOGIN_ID: PilotId = PilotId::new("chat.provider.login");
 pub const PROVIDER_SETUP_ID: PilotId = PilotId::new("chat.provider.setup");
+pub const PROVIDER_REFRESH_ID: PilotId = PilotId::new("chat.provider.refresh");
 pub const UTILITY_OPEN_ID: PilotId = PilotId::new("chat.utility.open");
 
 const FULL_RAIL_WIDTH: f32 = 840.0;
 const SIDEBAR_WIDTH: f32 = 252.0;
 const PRESENCE_RAIL_WIDTH: f32 = 76.0;
-const FOUNDATION_SEND_REASON: &str =
-    "Live provider turn transport is not qualified in this foundation";
-
 pub fn viewport_key() -> PilotViewportKey {
     PilotViewportKey::new(WINDOW_KEY.0)
 }
@@ -149,6 +158,23 @@ pub enum ChatWindowIntent {
     },
     ActivateProvider(ProviderId),
     OpenProviderSetup(ProviderId),
+    RefreshProvider(ProviderId),
+    NewSession(ProviderId),
+    SendTurn {
+        provider: ProviderId,
+        session: ChatSessionId,
+        text: String,
+    },
+    CancelTurn {
+        provider: ProviderId,
+        session: ChatSessionId,
+    },
+    ResolveProviderPermission {
+        interaction: InteractionId,
+        provider: ProviderId,
+        request_id: u64,
+        option_id: Option<String>,
+    },
     NavigateTo(Route),
     ShowMain,
     QuitApplication,
@@ -162,6 +188,22 @@ pub enum HostIntent {
     },
     ActivateProvider(ProviderId),
     OpenProviderSetup(ProviderId),
+    RefreshProvider(ProviderId),
+    NewSession(ProviderId),
+    SendTurn {
+        provider: ProviderId,
+        session: ChatSessionId,
+        text: String,
+    },
+    CancelTurn {
+        provider: ProviderId,
+        session: ChatSessionId,
+    },
+    ResolveProviderPermission {
+        provider: ProviderId,
+        request_id: u64,
+        option_id: Option<String>,
+    },
     NavigateTo(Route),
     ShowMain,
     QuitApplication,
@@ -204,6 +246,30 @@ struct ProviderHistory {
     error: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderPermissionChoiceKind {
+    AllowOnce,
+    AllowAlways,
+    RejectOnce,
+    RejectAlways,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderPermissionChoice {
+    pub option_id: String,
+    pub label: String,
+    pub kind: ProviderPermissionChoiceKind,
+}
+
+#[derive(Debug, Clone)]
+struct ProviderPermissionBinding {
+    provider: ProviderId,
+    request_id: u64,
+    allow_once: String,
+    allow_always: Option<String>,
+    reject: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct ChatWindow {
     runtime: ChatRuntime,
@@ -215,6 +281,7 @@ pub struct ChatWindow {
     overlay_coordinator: OverlayCoordinator,
     approval_focus_origin: Option<InteractionId>,
     pending_focus_return: Option<InteractionId>,
+    provider_permissions: HashMap<InteractionId, ProviderPermissionBinding>,
     domain: ChatDomain,
     domain_states: ChatDomainStates,
 }
@@ -295,6 +362,7 @@ impl ChatWindow {
             overlay_coordinator,
             approval_focus_origin,
             pending_focus_return: None,
+            provider_permissions: HashMap::new(),
             domain: ChatDomain::Ai,
             domain_states,
         }
@@ -411,6 +479,41 @@ impl ChatWindow {
             ChatWindowIntent::OpenProviderSetup(provider) => {
                 Ok(Some(HostIntent::OpenProviderSetup(provider)))
             }
+            ChatWindowIntent::RefreshProvider(provider) => {
+                Ok(Some(HostIntent::RefreshProvider(provider)))
+            }
+            ChatWindowIntent::NewSession(provider) => Ok(Some(HostIntent::NewSession(provider))),
+            ChatWindowIntent::SendTurn {
+                provider,
+                session,
+                text,
+            } => Ok(Some(HostIntent::SendTurn {
+                provider,
+                session,
+                text,
+            })),
+            ChatWindowIntent::CancelTurn { provider, session } => {
+                Ok(Some(HostIntent::CancelTurn { provider, session }))
+            }
+            ChatWindowIntent::ResolveProviderPermission {
+                interaction,
+                provider,
+                request_id,
+                option_id,
+            } => {
+                self.interactions
+                    .transition(interaction, InteractionLifecycle::Completed)
+                    .map_err(|error| ChatWindowError::Interaction(error.to_string()))?;
+                if self.overlay_coordinator.dismiss(interaction).is_some() {
+                    self.pending_focus_return = self.approval_focus_origin;
+                }
+                self.provider_permissions.remove(&interaction);
+                Ok(Some(HostIntent::ResolveProviderPermission {
+                    provider,
+                    request_id,
+                    option_id,
+                }))
+            }
             ChatWindowIntent::NavigateTo(route) => Ok(Some(HostIntent::NavigateTo(route))),
             ChatWindowIntent::ShowMain => Ok(Some(HostIntent::ShowMain)),
             ChatWindowIntent::QuitApplication => Ok(Some(HostIntent::QuitApplication)),
@@ -458,6 +561,7 @@ impl ChatWindow {
         self.provider_hover_overlay(ui, &mut intents);
         self.compact_picker_overlay(ui, &mut intents);
         self.interaction_overlays(ui, &mut intents);
+        borderless_resize(ui);
         intents
     }
 
@@ -467,6 +571,162 @@ impl ChatWindow {
         activation: ActivationState,
     ) -> Result<(), ChatWindowError> {
         self.runtime.set_activation(provider, activation)?;
+        Ok(())
+    }
+
+    pub fn qualify_provider_capabilities(
+        &mut self,
+        provider: ProviderId,
+        capabilities: impl IntoIterator<Item = Capability>,
+    ) -> Result<(), ChatWindowError> {
+        self.runtime.qualify_capabilities(provider, capabilities)?;
+        Ok(())
+    }
+
+    pub fn replace_provider_sessions(
+        &mut self,
+        provider: ProviderId,
+        sessions: Vec<SessionSummary>,
+    ) -> Result<(), ChatWindowError> {
+        self.runtime.replace_sessions(provider, sessions)?;
+        Ok(())
+    }
+
+    pub fn upsert_provider_session(
+        &mut self,
+        provider: ProviderId,
+        session: SessionSummary,
+    ) -> Result<(), ChatWindowError> {
+        self.runtime.upsert_session(provider, session)?;
+        Ok(())
+    }
+
+    pub fn set_provider_session_state(
+        &mut self,
+        provider: ProviderId,
+        session: ChatSessionId,
+        state: SessionState,
+    ) -> Result<(), ChatWindowError> {
+        self.runtime.set_session_state(provider, session, state)?;
+        Ok(())
+    }
+
+    pub fn append_provider_event(
+        &mut self,
+        provider: ProviderId,
+        event: ChatEvent,
+    ) -> Result<(), ChatWindowError> {
+        self.runtime.append_event(provider, event)?;
+        Ok(())
+    }
+
+    pub fn append_provider_assistant_chunk(
+        &mut self,
+        provider: ProviderId,
+        session: ChatSessionId,
+        turn: TurnId,
+        event: ChatEventId,
+        chunk: &str,
+    ) -> Result<(), ChatWindowError> {
+        self.runtime
+            .append_assistant_chunk(provider, session, turn, event, chunk)?;
+        Ok(())
+    }
+
+    pub fn select_provider_session(
+        &mut self,
+        provider: ProviderId,
+        session: ChatSessionId,
+    ) -> Result<(), ChatWindowError> {
+        self.runtime.select_session(provider, session)?;
+        Ok(())
+    }
+
+    pub fn clear_provider_draft(&mut self, provider: ProviderId) -> Result<(), ChatWindowError> {
+        self.runtime.clear_draft(provider)?;
+        Ok(())
+    }
+
+    pub fn provider_view(&self, provider: ProviderId) -> Option<ProviderView> {
+        self.runtime.provider_view(provider)
+    }
+
+    pub fn register_provider_permission(
+        &mut self,
+        interaction: InteractionId,
+        provider: ProviderId,
+        session: ChatSessionId,
+        request_id: u64,
+        summary: String,
+        choices: Vec<ProviderPermissionChoice>,
+    ) -> Result<(), ChatWindowError> {
+        let allow_once = choices
+            .iter()
+            .find(|choice| choice.kind == ProviderPermissionChoiceKind::AllowOnce)
+            .or_else(|| {
+                choices.iter().find(|choice| {
+                    matches!(
+                        choice.kind,
+                        ProviderPermissionChoiceKind::AllowOnce
+                            | ProviderPermissionChoiceKind::AllowAlways
+                    )
+                })
+            })
+            .ok_or_else(|| {
+                ChatWindowError::Interaction(
+                    "provider permission did not include an allow option".into(),
+                )
+            })?;
+        let allow_always = choices
+            .iter()
+            .find(|choice| choice.kind == ProviderPermissionChoiceKind::AllowAlways);
+        let reject = choices.iter().find(|choice| {
+            matches!(
+                choice.kind,
+                ProviderPermissionChoiceKind::RejectOnce
+                    | ProviderPermissionChoiceKind::RejectAlways
+            )
+        });
+        let spec = InteractionSpec {
+            id: interaction,
+            provenance: InteractionProvenance::Provider {
+                provider_id: provider,
+                session_id: session,
+                event_id: None,
+            },
+            required_capability: Some(Capability::Approvals),
+            lifecycle: InteractionLifecycle::Visible,
+            placement: InteractionPlacement::Overlay,
+            content: InteractionContent::Approval {
+                title: "Allow coding-agent action?".into(),
+                summary,
+                approve_label: allow_once.label.clone(),
+                always_approve_label: allow_always.map(|choice| choice.label.clone()),
+                reject_label: reject
+                    .map_or_else(|| "Deny".to_owned(), |choice| choice.label.clone()),
+            },
+        };
+        self.interactions
+            .register(spec)
+            .map_err(|error| ChatWindowError::Interaction(error.to_string()))?;
+        self.overlay_coordinator
+            .open(OverlayEntry {
+                interaction_id: interaction,
+                origin_semantic_id: COMPOSER_ID.as_str(),
+                priority: 1_000,
+                blocks_focus: true,
+            })
+            .map_err(|error| ChatWindowError::Interaction(error.to_string()))?;
+        self.provider_permissions.insert(
+            interaction,
+            ProviderPermissionBinding {
+                provider,
+                request_id,
+                allow_once: allow_once.option_id.clone(),
+                allow_always: allow_always.map(|choice| choice.option_id.clone()),
+                reject: reject.map(|choice| choice.option_id.clone()),
+            },
+        );
         Ok(())
     }
 
@@ -483,49 +743,39 @@ impl ChatWindow {
             })
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    brand_mark(ui);
-                    ui.label(
-                        RichText::new("DevPULSE Chat")
-                            .strong()
-                            .size(17.0)
-                            .color(cl::ink::STRONG),
-                    );
-                    ui.add_space(10.0);
-                    let mut search_value = String::new();
-                    let search = ui.add_sized(
-                        [ui.available_width().min(280.0), 27.0],
-                        egui::TextEdit::singleline(&mut search_value)
-                            .hint_text("Search people, sessions, messages"),
-                    );
-                    ui.pilot_track(
-                        &search,
-                        NodeMetadata::new(
-                            PilotId::new("chat.search"),
-                            Role::TextInput,
-                            "Search Chat",
-                        ),
-                    );
-                    ui.add_space(6.0);
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if quiet_button(ui, QUIT_ID, "×", "Quit DevPULSE").clicked() {
-                            intents.push(ChatWindowIntent::QuitApplication);
-                        }
-                        if quiet_button(ui, SHOW_MAIN_ID, "↗", "Show Main").clicked() {
-                            intents.push(ChatWindowIntent::ShowMain);
-                        }
-                        ui.label(RichText::new("available").small().color(Tone::Lime.color()));
-                        status_dot(ui, Tone::Lime.color());
-                        ui.add_space(3.0);
-                        status_dot(ui, Tone::Amber.color());
-                    });
-                });
-                ui.add_space(5.0);
-                ui.horizontal(|ui| {
+                    let compact = ui.available_width() < 820.0;
+                    let title = ui
+                        .allocate_ui_with_layout(
+                            egui::vec2(166.0, 35.0),
+                            Layout::left_to_right(Align::Center),
+                            |ui| {
+                                brand_mark(ui);
+                                ui.label(
+                                    RichText::new("DevPULSE Chat")
+                                        .strong()
+                                        .size(17.0)
+                                        .color(cl::ink::STRONG),
+                                );
+                            },
+                        )
+                        .response
+                        .interact(Sense::click_and_drag());
+                    if title.drag_started() {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                    }
+                    if title.double_clicked() {
+                        let maximized = ui
+                            .ctx()
+                            .input(|input| input.viewport().maximized.unwrap_or(false));
+                        ui.ctx()
+                            .send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+                    }
+                    ui.add_space(if compact { 4.0 } else { 20.0 });
                     if mode_button(ui, AI_MODE_ID, "AI", self.domain == ChatDomain::Ai).clicked() {
                         intents.push(ChatWindowIntent::SelectDomain(ChatDomain::Ai));
                     }
                     let social_label = if self.domain_states.social.unread > 0 {
-                        format!("Social  ·  {}", self.domain_states.social.unread)
+                        format!("Social  {}", self.domain_states.social.unread)
                     } else {
                         "Social".to_owned()
                     };
@@ -539,6 +789,57 @@ impl ChatWindow {
                     {
                         intents.push(ChatWindowIntent::SelectDomain(ChatDomain::Social));
                     }
+                    if !compact {
+                        ui.add_space(10.0);
+                        let mut search_value = String::new();
+                        let search = ui.add_sized(
+                            [ui.available_width().min(260.0), 27.0],
+                            egui::TextEdit::singleline(&mut search_value)
+                                .hint_text("Search DevPULSE"),
+                        );
+                        ui.pilot_track(
+                            &search,
+                            NodeMetadata::new(
+                                PilotId::new("chat.search"),
+                                Role::TextInput,
+                                "Search Chat",
+                            ),
+                        );
+                    }
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if quiet_button(ui, CLOSE_ID, "×", "Close Chat").clicked() {
+                            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                        let maximized = ui
+                            .ctx()
+                            .input(|input| input.viewport().maximized.unwrap_or(false));
+                        if quiet_button(
+                            ui,
+                            MAXIMIZE_ID,
+                            if maximized { "❐" } else { "□" },
+                            if maximized {
+                                "Restore Chat"
+                            } else {
+                                "Maximize Chat"
+                            },
+                        )
+                        .clicked()
+                        {
+                            ui.ctx()
+                                .send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+                        }
+                        if quiet_button(ui, MINIMIZE_ID, "—", "Minimize Chat").clicked() {
+                            ui.ctx()
+                                .send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                        }
+                        if quiet_button(ui, SHOW_MAIN_ID, "↗", "Show Main").clicked() {
+                            intents.push(ChatWindowIntent::ShowMain);
+                        }
+                        ui.label(RichText::new("available").small().color(Tone::Lime.color()));
+                        status_dot(ui, Tone::Lime.color());
+                        ui.add_space(3.0);
+                        status_dot(ui, Tone::Amber.color());
+                    });
                 });
             });
     }
@@ -556,6 +857,10 @@ impl ChatWindow {
             .inner_margin(egui::Margin::symmetric(8, 9))
             .show(ui, |ui| {
                 ui.set_min_height(ui.available_height());
+                if composition == Composition::FullRail {
+                    sidebar_operator_header(ui);
+                    ui.add_space(9.0);
+                }
                 match (self.domain, composition) {
                     (ChatDomain::Ai, Composition::FullRail) => self.ai_sidebar(ui, intents),
                     (ChatDomain::Social, Composition::FullRail) => self.social_sidebar(ui, intents),
@@ -570,20 +875,84 @@ impl ChatWindow {
     }
 
     fn ai_sidebar(&self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
-        micro_heading(ui, "AI PROVIDERS");
-        for provider in self.runtime.provider_views() {
-            self.provider_row(ui, &provider, true, intents);
-        }
-        ui.add_space(10.0);
-        micro_heading(ui, "SESSIONS");
-        if let Some(provider) = self.runtime.selected_provider() {
-            self.session_groups(ui, &provider, intents);
-        }
-        ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
-            sidebar_destination(ui, "⚙  Settings", false);
-            sidebar_destination(ui, "⊞  Interaction Library", false);
-            sidebar_destination(ui, "♜  Councils · not qualified", true);
-        });
+        let providers = self.runtime.provider_views();
+        let available = ui.available_rect_before_wrap();
+        let footer_height = 152.0_f32.min((available.height() * 0.40).max(128.0));
+        let gap = 7.0;
+        let navigation_rect = egui::Rect::from_min_max(
+            available.min,
+            egui::pos2(available.max.x, available.max.y - footer_height - gap),
+        );
+        let footer_rect = egui::Rect::from_min_max(
+            egui::pos2(available.min.x, navigation_rect.max.y + gap),
+            available.max,
+        );
+
+        ui.scope_builder(
+            UiBuilder::new()
+                .max_rect(navigation_rect)
+                .layout(Layout::top_down(Align::Min)),
+            |ui| {
+                ui.set_clip_rect(navigation_rect);
+                egui::ScrollArea::vertical()
+                    .id_salt("chat.ai.sidebar.navigation")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.spacing_mut().item_spacing.y = 2.0;
+                        micro_heading(ui, "AI PROVIDERS");
+                        for provider in &providers {
+                            self.provider_row(ui, provider, true, intents);
+                        }
+                        ui.add_space(9.0);
+                        self.session_groups(ui, &providers, intents);
+                    });
+            },
+        );
+
+        ui.scope_builder(
+            UiBuilder::new()
+                .max_rect(footer_rect)
+                .layout(Layout::bottom_up(Align::Min)),
+            |ui| {
+                ui.set_clip_rect(footer_rect);
+                sidebar_destination(ui, "⚙  Settings", false);
+                sidebar_destination(ui, "⊞  Interaction Library", false);
+                sidebar_destination(ui, "♙  People", false);
+                sidebar_destination(ui, "♜  Councils · not qualified", true);
+                let selected = self.runtime.selected_provider();
+                let target = selected.as_ref().map(|provider| {
+                    (
+                        provider.registration.manifest.descriptor.id,
+                        provider.registration.manifest.descriptor.label,
+                        provider.registration.activation.is_activated()
+                            && provider
+                                .registration
+                                .has_capability(Capability::StartSession),
+                    )
+                });
+                let can_start = target.is_some_and(|(_, _, can_start)| can_start);
+                let new_chat = sidebar_destination_button(ui, "＋  New chat", can_start);
+                let mut metadata = NodeMetadata::new(
+                    NEW_CHAT_ID.child(&PilotKey::new("sidebar")),
+                    Role::Button,
+                    "New chat",
+                );
+                metadata.description = Some(match target {
+                    Some((_, label, true)) => format!("Start a new {label} session."),
+                    Some((_, label, false)) => {
+                        format!("Connect and qualify {label} before starting a session.")
+                    }
+                    None => "Choose an AI provider before starting a session.".into(),
+                });
+                ui.pilot_track(&new_chat, metadata);
+                if new_chat.clicked() {
+                    if let Some((provider, _, true)) = target {
+                        intents.push(ChatWindowIntent::NewSession(provider));
+                    }
+                }
+            },
+        );
+        ui.advance_cursor_after_rect(available);
     }
 
     fn social_sidebar(&self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
@@ -712,17 +1081,68 @@ impl ChatWindow {
     ) {
         let descriptor = provider.registration.manifest.descriptor;
         let selected = self.runtime.selected_provider_id() == Some(descriptor.id);
-        let label = if expanded {
-            format!(
-                "{}  {}\n   {}",
-                descriptor.glyph,
-                descriptor.label,
-                provider.registration.activation.label()
-            )
+        let response = if expanded {
+            egui::Frame::new()
+                .fill(if selected {
+                    Color32::from_rgb(11, 48, 52)
+                } else {
+                    Color32::TRANSPARENT
+                })
+                .stroke(Stroke::new(
+                    1.0,
+                    if selected {
+                        Color32::from_rgb(20, 105, 108)
+                    } else {
+                        Color32::TRANSPARENT
+                    },
+                ))
+                .corner_radius(CornerRadius::same(3))
+                .inner_margin(egui::Margin::symmetric(7, 5))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                        provider_mark(ui, descriptor.accent);
+                        ui.vertical(|ui| {
+                            ui.spacing_mut().item_spacing.y = 0.0;
+                            ui.label(
+                                RichText::new(descriptor.label)
+                                    .small()
+                                    .strong()
+                                    .color(cl::ink::STRONG),
+                            );
+                            ui.horizontal(|ui| {
+                                status_dot(
+                                    ui,
+                                    activation_color(
+                                        &provider.registration.activation,
+                                        provider_tone(descriptor.accent),
+                                    ),
+                                );
+                                ui.label(
+                                    RichText::new(provider.registration.activation.label())
+                                        .small()
+                                        .color(cl::ink::MUTED),
+                                );
+                            });
+                        });
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            ui.label(RichText::new("›").color(cl::ink::MUTED));
+                            if !provider.registration.sessions.is_empty() {
+                                ui.label(
+                                    RichText::new(provider.registration.sessions.len().to_string())
+                                        .monospace()
+                                        .small()
+                                        .color(Tone::Cyan.color()),
+                                );
+                            }
+                        });
+                    });
+                })
+                .response
+                .interact(Sense::click())
         } else {
-            descriptor.short_label.to_owned()
+            sidebar_row(ui, descriptor.short_label, selected)
         };
-        let response = sidebar_row(ui, &label, selected);
         let mut metadata = NodeMetadata::new(
             PROVIDERS_ID.child(&PilotKey::new(descriptor.id.0)),
             Role::Tab,
@@ -746,61 +1166,93 @@ impl ChatWindow {
     fn session_groups(
         &self,
         ui: &mut egui::Ui,
-        provider: &ProviderView,
+        providers: &[ProviderView],
         intents: &mut Vec<ChatWindowIntent>,
     ) {
-        let sessions = &provider.registration.sessions;
-        if sessions.is_empty() {
-            if let Some(history) = self
+        if providers
+            .iter()
+            .all(|provider| provider.registration.sessions.is_empty())
+        {
+            micro_heading(ui, "SESSIONS");
+            let local_count = self
                 .histories
-                .get(&provider.registration.manifest.descriptor.id)
+                .values()
+                .filter_map(|history| history.index.as_ref())
+                .map(|index| index.sessions.len())
+                .sum::<usize>();
+            if let Some(error) = self
+                .histories
+                .values()
+                .find_map(|history| history.error.as_deref())
             {
-                if let Some(index) = &history.index {
-                    ui.label(
-                        RichText::new(format!("{} local histories", index.sessions.len()))
-                            .small()
-                            .color(cl::ink::MUTED),
-                    );
-                } else if let Some(error) = &history.error {
-                    ui.label(RichText::new(error).small().color(Tone::Coral.color()));
-                }
+                ui.label(RichText::new(error).small().color(Tone::Coral.color()));
+            } else if local_count > 0 {
+                ui.label(
+                    RichText::new(format!(
+                        "{local_count} local histor{} available",
+                        if local_count == 1 { "y" } else { "ies" }
+                    ))
+                    .small()
+                    .color(cl::ink::MUTED),
+                );
             } else {
                 ui.label(
-                    RichText::new("No sessions yet")
+                    RichText::new("Connect a provider or choose New chat")
                         .small()
                         .color(cl::ink::SUBTLE),
                 );
             }
-            return;
         }
         for (heading, predicate) in [
-            ("PINNED", SessionPredicate::First),
+            ("PINNED", SessionPredicate::Pinned),
             ("ACTIVE", SessionPredicate::Active),
             ("RECENT", SessionPredicate::Recent),
         ] {
-            let matching = sessions
+            let matching = providers
                 .iter()
-                .enumerate()
-                .filter(|(index, session)| predicate.matches(*index, session))
+                .flat_map(|provider| {
+                    provider
+                        .registration
+                        .sessions
+                        .iter()
+                        .filter(move |session| predicate.matches(session))
+                        .map(move |session| (provider, session))
+                })
                 .collect::<Vec<_>>();
             if matching.is_empty() {
                 continue;
             }
             micro_heading(ui, heading);
-            for (_, session) in matching {
-                let selected = provider.active_session == Some(session.id);
-                let response = sidebar_row(ui, &session.title, selected);
+            for (provider, session) in matching {
+                let descriptor = provider.registration.manifest.descriptor;
+                let selected = self.runtime.selected_provider_id() == Some(descriptor.id)
+                    && provider.active_session == Some(session.id);
+                let state = match session.state {
+                    SessionState::Running => "working",
+                    SessionState::Attention => "needs attention",
+                    SessionState::Failed => "failed",
+                    SessionState::Expired => "expired",
+                    SessionState::ReadOnly => "read only",
+                    SessionState::Idle => "ready",
+                };
+                let label = format!(
+                    "{}  {}\n   {} · {}",
+                    descriptor.glyph, session.title, descriptor.label, state
+                );
+                let response = sidebar_row(ui, &label, selected);
                 let mut metadata = NodeMetadata::new(
-                    SESSIONS_ID.child(&PilotKey::new(session.id.to_string())),
+                    SESSIONS_ID
+                        .child(&PilotKey::new(descriptor.id.0))
+                        .child(&PilotKey::new(session.id.to_string())),
                     Role::Tab,
                     session.title.clone(),
                 );
                 metadata.selected = Some(selected);
-                metadata.value = Some(format!("{:?}", session.state));
+                metadata.value = Some(format!("{} · {state}", descriptor.label));
                 ui.pilot_track(&response, metadata);
                 if response.clicked() {
                     intents.push(ChatWindowIntent::SelectSession {
-                        provider: provider.registration.manifest.descriptor.id,
+                        provider: descriptor.id,
                         session: session.id,
                     });
                 }
@@ -813,19 +1265,37 @@ impl ChatWindow {
         ui: &mut egui::Ui,
         intents: &mut Vec<ChatWindowIntent>,
     ) {
-        let composer_height = 104.0;
-        let conversation_height = (ui.available_height() - composer_height - 8.0).max(280.0);
-        ui.allocate_ui_with_layout(
-            egui::vec2(ui.available_width(), conversation_height),
-            Layout::top_down(Align::Min),
-            |ui| self.conversation(ui, intents),
+        let available = ui.available_rect_before_wrap();
+        let gap = 8.0;
+        let composer_height = 118.0_f32.min((available.height() * 0.26).max(104.0));
+        let conversation_rect = egui::Rect::from_min_max(
+            available.min,
+            egui::pos2(available.max.x, available.max.y - composer_height - gap),
         );
-        ui.add_space(8.0);
-        ui.allocate_ui_with_layout(
-            egui::vec2(ui.available_width(), composer_height),
-            Layout::top_down(Align::Min),
-            |ui| self.composer(ui, intents),
+        let composer_rect = egui::Rect::from_min_max(
+            egui::pos2(available.min.x, conversation_rect.max.y + gap),
+            available.max,
         );
+
+        ui.scope_builder(
+            UiBuilder::new()
+                .max_rect(conversation_rect)
+                .layout(Layout::top_down(Align::Min)),
+            |ui| {
+                ui.set_clip_rect(conversation_rect);
+                self.conversation(ui, intents);
+            },
+        );
+        ui.scope_builder(
+            UiBuilder::new()
+                .max_rect(composer_rect)
+                .layout(Layout::top_down(Align::Min)),
+            |ui| {
+                ui.set_clip_rect(composer_rect);
+                self.composer(ui, intents);
+            },
+        );
+        ui.advance_cursor_after_rect(available);
     }
 
     fn conversation(&mut self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
@@ -835,7 +1305,10 @@ impl ChatWindow {
             .corner_radius(CornerRadius::same(4))
             .inner_margin(egui::Margin::symmetric(18, 14))
             .show(ui, |ui| {
-                ui.set_min_height((ui.available_height() - 28.0).max(250.0));
+                ui.set_min_size(egui::vec2(
+                    ui.available_width(),
+                    (ui.available_height() - 28.0).max(220.0),
+                ));
                 match self.domain {
                     ChatDomain::Ai => self.ai_conversation(ui, intents),
                     ChatDomain::Social => self.social_conversation(ui),
@@ -1044,7 +1517,7 @@ impl ChatWindow {
             .corner_radius(CornerRadius::same(4))
             .inner_margin(egui::Margin::symmetric(12, 8))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     let route = self.route_context.offered();
                     let route_hub = route.map_or_else(
                         || "unavailable".to_owned(),
@@ -1066,9 +1539,57 @@ impl ChatWindow {
                     route_metadata.value = Some(route_hub);
                     route_metadata.description = Some(route_label);
                     ui.pilot_track(&route_response, route_metadata);
-                    ui.label(RichText::new("＋ attach").small().color(cl::ink::MUTED));
-                    ui.label(RichText::new("⊞ components").small().color(cl::ink::MUTED));
-                    ui.label(RichText::new("◉ voice").small().color(cl::ink::MUTED));
+                    let selected = self.runtime.selected_provider();
+                    let supports = |capability| {
+                        selected.as_ref().is_some_and(|provider| {
+                            provider.registration.has_capability(capability)
+                        })
+                    };
+                    composer_capability_button(
+                        ui,
+                        ATTACHMENT_ID,
+                        "＋ Attach",
+                        supports(Capability::Attachments),
+                        "This provider has not qualified attachment input yet.",
+                    );
+                    composer_capability_button(
+                        ui,
+                        MEDIA_ID,
+                        "▧ Image / video",
+                        supports(Capability::Images) || supports(Capability::Video),
+                        "This provider has not qualified image or video input yet.",
+                    );
+                    composer_capability_button(
+                        ui,
+                        INTERACTION_COMPONENT_ID,
+                        "⊞ Component",
+                        false,
+                        "The governed Interaction Library picker is not connected in this slice.",
+                    );
+                    composer_capability_button(
+                        ui,
+                        VOICE_ID,
+                        "◉ Voice",
+                        false,
+                        "Voice input is visible but is not qualified for this provider.",
+                    );
+                    if let Some(provider) = selected {
+                        let descriptor = provider.registration.manifest.descriptor;
+                        let selector_label = format!("{} · provider default", descriptor.label);
+                        let selector = ui.small_button(&selector_label);
+                        let mut metadata = NodeMetadata::new(
+                            PROVIDER_MODEL_ID,
+                            Role::Button,
+                            "Provider and model",
+                        );
+                        metadata.value = Some(selector_label);
+                        ui.pilot_track(&selector, metadata);
+                        if selector.clicked() {
+                            intents.push(ChatWindowIntent::SetOverlay(Some(
+                                DomainOverlay::Provider(descriptor.id),
+                            )));
+                        }
+                    }
                     ui.label(
                         RichText::new(format!("{} routes", self.routes.len()))
                             .small()
@@ -1094,7 +1615,7 @@ impl ChatWindow {
                                 if let Some(provider) = self.runtime.selected_provider_id() {
                                     intents.push(ChatWindowIntent::UpdateAiDraft {
                                         provider,
-                                        value: draft,
+                                        value: draft.clone(),
                                     });
                                 }
                             }
@@ -1102,24 +1623,104 @@ impl ChatWindow {
                                 if let Some(thread) = self.social.selected() {
                                     intents.push(ChatWindowIntent::UpdateSocialDraft {
                                         conversation: thread.id.clone(),
-                                        value: draft,
+                                        value: draft.clone(),
                                     });
                                 }
                             }
                         }
                     }
-                    let send = ui.add_enabled(
-                        false,
-                        egui::Button::new("Send").min_size(egui::vec2(86.0, 42.0)),
-                    );
-                    let reason = match self.domain {
-                        ChatDomain::Ai => FOUNDATION_SEND_REASON,
-                        ChatDomain::Social => self.social.transport().reason(),
-                    };
-                    let send = cl::tip(send, reason);
-                    let mut metadata = NodeMetadata::new(SEND_ID, Role::Button, "Send message");
-                    metadata.description = Some(reason.to_owned());
-                    ui.pilot_track(&send, metadata);
+                    match self.domain {
+                        ChatDomain::Ai => {
+                            let selected = self.runtime.selected_provider();
+                            let running = selected.as_ref().and_then(|provider| {
+                                provider.active_session.and_then(|active| {
+                                    provider
+                                        .registration
+                                        .sessions
+                                        .iter()
+                                        .find(|session| session.id == active)
+                                        .filter(|session| session.state == SessionState::Running)
+                                        .map(|session| {
+                                            (
+                                                provider.registration.manifest.descriptor.id,
+                                                session.id,
+                                                provider
+                                                    .registration
+                                                    .has_capability(Capability::InterruptTurn),
+                                            )
+                                        })
+                                })
+                            });
+                            if let Some((provider, session, can_stop)) = running {
+                                let stop = ui.add_enabled(
+                                    can_stop,
+                                    egui::Button::new("Stop").min_size(egui::vec2(86.0, 42.0)),
+                                );
+                                let mut metadata =
+                                    NodeMetadata::new(STOP_ID, Role::Button, "Stop response");
+                                if !can_stop {
+                                    metadata.description =
+                                        Some("This provider cannot interrupt a turn.".into());
+                                }
+                                ui.pilot_track(&stop, metadata);
+                                if stop.clicked() {
+                                    intents
+                                        .push(ChatWindowIntent::CancelTurn { provider, session });
+                                }
+                            } else {
+                                let send_target = selected.and_then(|provider| {
+                                    provider.active_session.map(|session| {
+                                        (
+                                            provider.registration.manifest.descriptor.id,
+                                            session,
+                                            provider.registration.can_send(),
+                                        )
+                                    })
+                                });
+                                let enabled = send_target.is_some_and(|(_, _, can_send)| can_send)
+                                    && !draft.trim().is_empty();
+                                let reason = if draft.trim().is_empty() {
+                                    "Type a message first."
+                                } else if send_target.is_none() {
+                                    "Choose or create a provider session first."
+                                } else if send_target.is_some_and(|(_, _, can_send)| !can_send) {
+                                    "This provider's live turn transport is not qualified."
+                                } else {
+                                    "Send this message."
+                                };
+                                let send = ui.add_enabled(
+                                    enabled,
+                                    egui::Button::new("Send").min_size(egui::vec2(86.0, 42.0)),
+                                );
+                                let send = cl::tip(send, reason);
+                                let mut metadata =
+                                    NodeMetadata::new(SEND_ID, Role::Button, "Send message");
+                                metadata.description = Some(reason.to_owned());
+                                ui.pilot_track(&send, metadata);
+                                if send.clicked() {
+                                    if let Some((provider, session, _)) = send_target {
+                                        intents.push(ChatWindowIntent::SendTurn {
+                                            provider,
+                                            session,
+                                            text: draft,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                        ChatDomain::Social => {
+                            let reason = self.social.transport().reason();
+                            let send = ui.add_enabled(
+                                false,
+                                egui::Button::new("Send").min_size(egui::vec2(86.0, 42.0)),
+                            );
+                            let send = cl::tip(send, reason);
+                            let mut metadata =
+                                NodeMetadata::new(SEND_ID, Role::Button, "Send social message");
+                            metadata.description = Some(reason.to_owned());
+                            ui.pilot_track(&send, metadata);
+                        }
+                    }
                 });
             });
     }
@@ -1186,18 +1787,55 @@ impl ChatWindow {
                                     provider_tone(descriptor.accent),
                                 )),
                         );
+                        if let Some(reason) = provider.registration.activation.reason() {
+                            ui.label(RichText::new(reason).small().color(cl::ink::MUTED));
+                        }
+                        ui.label(
+                            RichText::new(format!(
+                                "{} session{}",
+                                provider.registration.sessions.len(),
+                                if provider.registration.sessions.len() == 1 {
+                                    ""
+                                } else {
+                                    "s"
+                                }
+                            ))
+                            .small()
+                            .color(cl::ink::MUTED),
+                        );
                         ui.label(
                             RichText::new(descriptor.summary)
                                 .small()
                                 .color(cl::ink::MUTED),
                         );
                         ui.separator();
-                        ui.label(RichText::new("＋  New session").color(cl::ink::BASE));
+                        let can_start = provider.registration.activation.is_activated()
+                            && provider
+                                .registration
+                                .has_capability(Capability::StartSession);
+                        let new_chat = ui.add_enabled(can_start, egui::Button::new("＋  New chat"));
+                        let mut metadata = NodeMetadata::new(
+                            NEW_CHAT_ID
+                                .child(&PilotKey::new("provider-card"))
+                                .child(&PilotKey::new(descriptor.id.0)),
+                            Role::Button,
+                            format!("New {} chat", descriptor.label),
+                        );
+                        if !can_start {
+                            metadata.description =
+                                Some("Connect and qualify this provider first.".into());
+                        }
+                        ui.pilot_track(&new_chat, metadata);
+                        if new_chat.clicked() {
+                            intents.push(ChatWindowIntent::NewSession(descriptor.id));
+                            intents.push(ChatWindowIntent::SetOverlay(None));
+                        }
                         ui.label(
                             RichText::new("♜  Add to Council · not qualified")
                                 .color(cl::ink::SUBTLE),
                         );
                         self.provider_activation_action(ui, &provider, intents);
+                        ui.label(RichText::new("♙  Account").color(cl::ink::BASE));
                         ui.label(RichText::new("⌁  Diagnostics").color(cl::ink::BASE));
                         if ui.button("Close").clicked() {
                             intents.push(ChatWindowIntent::SetOverlay(None));
@@ -1253,9 +1891,21 @@ impl ChatWindow {
                 if response.clicked() {
                     intents.push(ChatWindowIntent::OpenProviderSetup(provider_id));
                 }
+                let refresh = ui.button("Check installation");
+                ui.pilot_track(
+                    &refresh,
+                    NodeMetadata::new(
+                        PROVIDER_REFRESH_ID.child(&PilotKey::new(provider_id.0)),
+                        Role::Button,
+                        "Check provider installation",
+                    ),
+                );
+                if refresh.clicked() {
+                    intents.push(ChatWindowIntent::RefreshProvider(provider_id));
+                }
             }
             _ if matches!(provider.registration.activation, ActivationState::SigningIn) => {
-                let response = ui.add_enabled(false, egui::Button::new("Waiting for browser…"));
+                let response = ui.add_enabled(false, egui::Button::new("Connecting to provider…"));
                 ui.pilot_track(
                     &response,
                     NodeMetadata::new(
@@ -1310,6 +1960,7 @@ impl ChatWindow {
                 title,
                 summary,
                 approve_label,
+                always_approve_label,
                 reject_label,
             } = &spec.content
             else {
@@ -1344,20 +1995,6 @@ impl ChatWindow {
                             ui.add_space(8.0);
                             ui.horizontal(|ui| {
                                 let interaction = PilotKey::new(spec.id.to_string());
-                                let reject = ui.button(reject_label);
-                                ui.pilot_track(
-                                    &reject,
-                                    NodeMetadata::new(
-                                        OVERLAY_ID
-                                            .child(&interaction)
-                                            .child(&PilotKey::new("reject")),
-                                        Role::Button,
-                                        reject_label.clone(),
-                                    ),
-                                );
-                                if reject.clicked() {
-                                    intents.push(ChatWindowIntent::DismissInteraction(spec.id));
-                                }
                                 let approve = ui.button(approve_label);
                                 ui.pilot_track(
                                     &approve,
@@ -1370,7 +2007,67 @@ impl ChatWindow {
                                     ),
                                 );
                                 if approve.clicked() {
-                                    intents.push(ChatWindowIntent::CompleteInteraction(spec.id));
+                                    if let Some(binding) = self.provider_permissions.get(&spec.id) {
+                                        intents.push(ChatWindowIntent::ResolveProviderPermission {
+                                            interaction: spec.id,
+                                            provider: binding.provider,
+                                            request_id: binding.request_id,
+                                            option_id: Some(binding.allow_once.clone()),
+                                        });
+                                    } else {
+                                        intents
+                                            .push(ChatWindowIntent::CompleteInteraction(spec.id));
+                                    }
+                                }
+                                if let Some(always_label) = always_approve_label {
+                                    let always = ui.button(always_label);
+                                    ui.pilot_track(
+                                        &always,
+                                        NodeMetadata::new(
+                                            OVERLAY_ID
+                                                .child(&interaction)
+                                                .child(&PilotKey::new("always")),
+                                            Role::Button,
+                                            always_label.clone(),
+                                        ),
+                                    );
+                                    if always.clicked() {
+                                        if let Some(binding) =
+                                            self.provider_permissions.get(&spec.id)
+                                        {
+                                            intents.push(
+                                                ChatWindowIntent::ResolveProviderPermission {
+                                                    interaction: spec.id,
+                                                    provider: binding.provider,
+                                                    request_id: binding.request_id,
+                                                    option_id: binding.allow_always.clone(),
+                                                },
+                                            );
+                                        }
+                                    }
+                                }
+                                let reject = ui.button(reject_label);
+                                ui.pilot_track(
+                                    &reject,
+                                    NodeMetadata::new(
+                                        OVERLAY_ID
+                                            .child(&interaction)
+                                            .child(&PilotKey::new("reject")),
+                                        Role::Button,
+                                        reject_label.clone(),
+                                    ),
+                                );
+                                if reject.clicked() {
+                                    if let Some(binding) = self.provider_permissions.get(&spec.id) {
+                                        intents.push(ChatWindowIntent::ResolveProviderPermission {
+                                            interaction: spec.id,
+                                            provider: binding.provider,
+                                            request_id: binding.request_id,
+                                            option_id: binding.reject.clone(),
+                                        });
+                                    } else {
+                                        intents.push(ChatWindowIntent::DismissInteraction(spec.id));
+                                    }
                                 }
                             });
                         })
@@ -1389,35 +2086,24 @@ impl ChatWindow {
 
 #[derive(Debug, Clone, Copy)]
 enum SessionPredicate {
-    First,
+    Pinned,
     Active,
     Recent,
 }
 
 impl SessionPredicate {
-    fn matches(self, index: usize, session: &dpl_chat_core::SessionSummary) -> bool {
-        match self {
-            Self::First => index == 0,
-            Self::Active => {
-                index != 0
-                    && matches!(
-                        session.state,
-                        SessionState::Running | SessionState::Attention
-                    )
-            }
-            Self::Recent => {
-                index != 0
-                    && !matches!(
-                        session.state,
-                        SessionState::Running | SessionState::Attention
-                    )
-            }
-        }
+    fn matches(self, session: &dpl_chat_core::SessionSummary) -> bool {
+        matches!(
+            (self, session.group),
+            (Self::Pinned, SessionGroup::Pinned)
+                | (Self::Active, SessionGroup::Active)
+                | (Self::Recent, SessionGroup::Recent)
+        )
     }
 }
 
 fn mode_button(ui: &mut egui::Ui, id: PilotId, label: &str, selected: bool) -> egui::Response {
-    const TAB_SIZE: egui::Vec2 = egui::vec2(156.0, 35.0);
+    const TAB_SIZE: egui::Vec2 = egui::vec2(112.0, 35.0);
     let (rect, response) = ui.allocate_exact_size(TAB_SIZE, Sense::click());
     let fill = if selected {
         Color32::from_rgb(8, 31, 36)
@@ -1494,6 +2180,163 @@ fn brand_mark(ui: &mut egui::Ui) {
         .circle_filled(rect.center(), 2.5, Tone::Amber.color());
 }
 
+fn borderless_resize(ui: &egui::Ui) {
+    let maximized = ui
+        .ctx()
+        .input(|input| input.viewport().maximized.unwrap_or(false));
+    if maximized {
+        return;
+    }
+    let Some(pointer) = ui.ctx().pointer_hover_pos() else {
+        return;
+    };
+    let rect = ui.max_rect();
+    let margin = 6.0;
+    let west = pointer.x <= rect.left() + margin;
+    let east = pointer.x >= rect.right() - margin;
+    let north = pointer.y <= rect.top() + margin;
+    let south = pointer.y >= rect.bottom() - margin;
+    let direction = match (west, east, north, south) {
+        (true, _, true, _) => Some(egui::ResizeDirection::NorthWest),
+        (_, true, true, _) => Some(egui::ResizeDirection::NorthEast),
+        (true, _, _, true) => Some(egui::ResizeDirection::SouthWest),
+        (_, true, _, true) => Some(egui::ResizeDirection::SouthEast),
+        (true, _, _, _) => Some(egui::ResizeDirection::West),
+        (_, true, _, _) => Some(egui::ResizeDirection::East),
+        (_, _, true, _) => Some(egui::ResizeDirection::North),
+        (_, _, _, true) => Some(egui::ResizeDirection::South),
+        _ => None,
+    };
+    let Some(direction) = direction else {
+        return;
+    };
+    ui.ctx().set_cursor_icon(match direction {
+        egui::ResizeDirection::North | egui::ResizeDirection::South => {
+            egui::CursorIcon::ResizeVertical
+        }
+        egui::ResizeDirection::East | egui::ResizeDirection::West => {
+            egui::CursorIcon::ResizeHorizontal
+        }
+        egui::ResizeDirection::NorthEast | egui::ResizeDirection::SouthWest => {
+            egui::CursorIcon::ResizeNeSw
+        }
+        egui::ResizeDirection::NorthWest | egui::ResizeDirection::SouthEast => {
+            egui::CursorIcon::ResizeNwSe
+        }
+    });
+    if ui.ctx().input(|input| input.pointer.primary_pressed()) {
+        ui.ctx()
+            .send_viewport_cmd(egui::ViewportCommand::BeginResize(direction));
+    }
+}
+
+fn provider_mark(ui: &mut egui::Ui, accent: ProviderAccent) {
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(30.0, 30.0), Sense::hover());
+    let tone = provider_tone(accent).color();
+    let center = rect.center();
+    ui.painter()
+        .circle_filled(center, 14.0, Color32::from_rgb(6, 22, 27));
+    ui.painter()
+        .circle_stroke(center, 14.0, Stroke::new(1.0, teal_hairline()));
+    match accent {
+        ProviderAccent::Cyan => {
+            ui.painter().text(
+                center,
+                Align2::CENTER_CENTER,
+                "</>",
+                egui::FontId::monospace(9.0),
+                tone,
+            );
+        }
+        ProviderAccent::Amber => {
+            for index in 0..8 {
+                let angle = index as f32 * std::f32::consts::TAU / 8.0;
+                let direction = egui::vec2(angle.cos(), angle.sin());
+                ui.painter().line_segment(
+                    [center + direction * 4.0, center + direction * 10.0],
+                    Stroke::new(2.0, tone),
+                );
+            }
+            ui.painter().circle_filled(center, 3.0, tone);
+        }
+        ProviderAccent::Violet => {
+            ui.painter().add(egui::Shape::convex_polygon(
+                vec![
+                    center + egui::vec2(0.0, -10.0),
+                    center + egui::vec2(7.0, 0.0),
+                    center + egui::vec2(0.0, 10.0),
+                    center + egui::vec2(-7.0, 0.0),
+                ],
+                tone,
+                Stroke::NONE,
+            ));
+        }
+        ProviderAccent::Magenta => {
+            ui.painter()
+                .circle_stroke(center, 9.0, Stroke::new(1.8, tone));
+            ui.painter().line_segment(
+                [
+                    center + egui::vec2(-7.0, 7.0),
+                    center + egui::vec2(7.0, -7.0),
+                ],
+                Stroke::new(2.2, tone),
+            );
+            ui.painter().circle_filled(center, 2.5, tone);
+        }
+        ProviderAccent::Lime => {
+            ui.painter()
+                .circle_stroke(center, 9.0, Stroke::new(2.0, tone));
+            ui.painter().circle_filled(center, 3.0, tone);
+        }
+    }
+}
+
+fn sidebar_operator_header(ui: &mut egui::Ui) {
+    let response = egui::Frame::new()
+        .fill(Color32::from_rgb(8, 22, 26))
+        .stroke(Stroke::new(1.0, teal_hairline()))
+        .corner_radius(CornerRadius::same(4))
+        .inner_margin(egui::Margin::symmetric(9, 7))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                let (avatar, _) = ui.allocate_exact_size(egui::vec2(34.0, 34.0), Sense::hover());
+                ui.painter()
+                    .circle_filled(avatar.center(), 16.0, Color32::from_rgb(12, 38, 43));
+                ui.painter().circle_stroke(
+                    avatar.center(),
+                    16.0,
+                    Stroke::new(1.0, Tone::Amber.color()),
+                );
+                ui.painter().text(
+                    avatar.center(),
+                    Align2::CENTER_CENTER,
+                    "OP",
+                    egui::FontId::proportional(12.0),
+                    Tone::Amber.color(),
+                );
+                ui.vertical(|ui| {
+                    ui.label(RichText::new("Operator").strong().color(cl::ink::STRONG));
+                    ui.horizontal(|ui| {
+                        status_dot(ui, Tone::Lime.color());
+                        ui.label(RichText::new("Online").small().color(cl::ink::MUTED));
+                    });
+                });
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.label(RichText::new("●").color(Tone::Amber.color()));
+                });
+            });
+        })
+        .response;
+    ui.pilot_track(
+        &response,
+        NodeMetadata::new(
+            PilotId::new("chat.operator.presence"),
+            Role::Status,
+            "Operator online",
+        ),
+    );
+}
+
 fn status_dot(ui: &mut egui::Ui, color: Color32) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 18.0), Sense::hover());
     ui.painter().circle_filled(rect.center(), 3.0, color);
@@ -1546,6 +2389,44 @@ fn sidebar_destination(ui: &mut egui::Ui, label: &str, muted: bool) {
     }));
 }
 
+fn sidebar_destination_button(ui: &mut egui::Ui, label: &str, enabled: bool) -> egui::Response {
+    ui.add_space(3.0);
+    let response = ui.add_enabled(
+        enabled,
+        egui::Button::new(RichText::new(label).small())
+            .frame(false)
+            .min_size(egui::vec2(ui.available_width(), 23.0)),
+    );
+    if !enabled {
+        response.on_disabled_hover_text("Connect and qualify the selected provider first.")
+    } else {
+        response
+    }
+}
+
+fn composer_capability_button(
+    ui: &mut egui::Ui,
+    id: PilotId,
+    label: &str,
+    enabled: bool,
+    unavailable_reason: &str,
+) -> egui::Response {
+    let response = ui.add_enabled(enabled, egui::Button::new(RichText::new(label).small()));
+    let response = if enabled {
+        response
+    } else {
+        response.on_disabled_hover_text(unavailable_reason)
+    };
+    let mut metadata = NodeMetadata::new(id, Role::Button, label);
+    metadata.description = Some(if enabled {
+        format!("{label} is available for the selected provider.")
+    } else {
+        unavailable_reason.to_owned()
+    });
+    ui.pilot_track(&response, metadata);
+    response
+}
+
 fn micro_heading(ui: &mut egui::Ui, text: &str) {
     ui.label(
         RichText::new(text)
@@ -1557,6 +2438,17 @@ fn micro_heading(ui: &mut egui::Ui, text: &str) {
 }
 
 fn event_row(ui: &mut egui::Ui, content: &ChatEventContent) {
+    match content {
+        ChatEventContent::UserMessage(body) => {
+            conversation_message(ui, "OP", "Operator", body, Tone::Cyan);
+            return;
+        }
+        ChatEventContent::AssistantMessage(body) => {
+            conversation_message(ui, "AI", "Assistant", body, Tone::Amber);
+            return;
+        }
+        _ => {}
+    }
     let (role, body, tone) = match content {
         ChatEventContent::UserMessage(body) => ("YOU", body.as_str(), Tone::Cyan),
         ChatEventContent::AssistantMessage(body) => ("ASSISTANT", body.as_str(), Tone::Amber),
@@ -1601,6 +2493,29 @@ fn event_row(ui: &mut egui::Ui, content: &ChatEventContent) {
             ui.label(RichText::new(body).color(cl::ink::BASE));
         });
     ui.add_space(7.0);
+}
+
+fn conversation_message(ui: &mut egui::Ui, initials: &str, role: &str, body: &str, tone: Tone) {
+    ui.horizontal_top(|ui| {
+        let (avatar, _) = ui.allocate_exact_size(egui::vec2(28.0, 28.0), Sense::hover());
+        ui.painter()
+            .circle_filled(avatar.center(), 13.0, Color32::from_rgb(8, 28, 32));
+        ui.painter()
+            .circle_stroke(avatar.center(), 13.0, Stroke::new(1.0, tone.color()));
+        ui.painter().text(
+            avatar.center(),
+            Align2::CENTER_CENTER,
+            initials,
+            egui::FontId::monospace(10.0),
+            tone.color(),
+        );
+        ui.add_space(4.0);
+        ui.vertical(|ui| {
+            ui.label(RichText::new(role).strong().small().color(cl::ink::STRONG));
+            ui.label(RichText::new(body).color(cl::ink::BASE));
+        });
+    });
+    ui.add_space(10.0);
 }
 
 fn social_message_row(ui: &mut egui::Ui, message: &dpl_chat_social::SocialMessage) {
@@ -1805,7 +2720,14 @@ mod tests {
     use egui_kittest::Harness;
 
     const PROVIDER: ProviderId = ProviderId("fixture");
-    const CAPABILITIES: &[Capability] = &[Capability::ReadSessions];
+    const SECOND_PROVIDER: ProviderId = ProviderId("second");
+    const CAPABILITIES: &[Capability] = &[
+        Capability::ReadSessions,
+        Capability::StartSession,
+        Capability::StreamTurns,
+        Capability::InterruptTurn,
+        Capability::Approvals,
+    ];
     const MANIFEST: ProviderManifest = ProviderManifest {
         descriptor: ProviderDescriptor {
             id: PROVIDER,
@@ -1825,6 +2747,21 @@ mod tests {
         sub: SubId("templates"),
     };
 
+    const SECOND_MANIFEST: ProviderManifest = ProviderManifest {
+        descriptor: ProviderDescriptor {
+            id: SECOND_PROVIDER,
+            label: "Second AI",
+            short_label: "S2",
+            glyph: "S",
+            accent: ProviderAccent::Amber,
+            summary: "second deterministic fixture",
+        },
+        profile: ProviderProfileId("second"),
+        target_capabilities: CAPABILITIES,
+        delivery_slice: "test",
+        evidence: "fixture",
+    };
+
     fn window() -> ChatWindow {
         let mut registration = ProviderRegistration::planned(MANIFEST);
         registration.sessions = vec![
@@ -1834,6 +2771,7 @@ mod tests {
                 provider_session_id: None,
                 title: "Pinned design review".into(),
                 workspace: "DevPULSE".into(),
+                group: SessionGroup::Pinned,
                 state: SessionState::Idle,
             },
             SessionSummary {
@@ -1842,11 +2780,50 @@ mod tests {
                 provider_session_id: None,
                 title: "Active route audit".into(),
                 workspace: "DevPULSE".into(),
+                group: SessionGroup::Active,
                 state: SessionState::Running,
             },
         ];
         ChatWindow::new(
             ChatRuntime::try_from_registrations([registration]).expect("runtime"),
+            ROUTE,
+            HistoryCatalog::default(),
+            vec![("Library".into(), ROUTE)],
+        )
+    }
+
+    fn multi_provider_window() -> ChatWindow {
+        let mut first = ProviderRegistration::planned(MANIFEST);
+        first.activation = ActivationState::Ready;
+        first.sessions = vec![SessionSummary {
+            id: ChatSessionId(1),
+            provider_id: PROVIDER,
+            provider_session_id: None,
+            title: "Fixture session".into(),
+            workspace: "DevPULSE".into(),
+            group: SessionGroup::Active,
+            state: SessionState::Idle,
+        }];
+        let mut second = ProviderRegistration::planned(SECOND_MANIFEST);
+        second.activation = ActivationState::Ready;
+        second.sessions = vec![SessionSummary {
+            id: ChatSessionId(20),
+            provider_id: SECOND_PROVIDER,
+            provider_session_id: None,
+            title: "Second provider session".into(),
+            workspace: "DevPULSE".into(),
+            group: SessionGroup::Active,
+            state: SessionState::Running,
+        }];
+        let mut runtime = ChatRuntime::try_from_registrations([first, second]).expect("runtime");
+        runtime
+            .qualify_capabilities(PROVIDER, CAPABILITIES.iter().copied())
+            .expect("first capabilities");
+        runtime
+            .qualify_capabilities(SECOND_PROVIDER, CAPABILITIES.iter().copied())
+            .expect("second capabilities");
+        ChatWindow::new(
+            runtime,
             ROUTE,
             HistoryCatalog::default(),
             vec![("Library".into(), ROUTE)],
@@ -1922,14 +2899,14 @@ mod tests {
     fn authored_session_groups_are_disjoint() {
         let window = window();
         let provider = window.runtime.selected_provider().expect("provider");
-        for (index, session) in provider.registration.sessions.iter().enumerate() {
+        for session in &provider.registration.sessions {
             let matches = [
-                SessionPredicate::First,
+                SessionPredicate::Pinned,
                 SessionPredicate::Active,
                 SessionPredicate::Recent,
             ]
             .into_iter()
-            .filter(|predicate| predicate.matches(index, session))
+            .filter(|predicate| predicate.matches(session))
             .count();
             assert_eq!(matches, 1, "{} must render exactly once", session.title);
         }
@@ -1948,10 +2925,9 @@ mod tests {
     }
 
     #[test]
-    fn production_social_and_send_are_truthfully_unavailable() {
+    fn production_social_transport_is_truthfully_unavailable() {
         let window = window();
         assert!(!window.social().transport().can_send());
-        assert!(FOUNDATION_SEND_REASON.contains("not qualified"));
     }
 
     #[test]
@@ -1974,7 +2950,89 @@ mod tests {
         assert!(!provider
             .registration
             .has_capability(Capability::StreamTurns));
-        assert!(FOUNDATION_SEND_REASON.contains("not qualified"));
+    }
+
+    #[test]
+    fn shared_session_navigation_retains_provider_identity() {
+        let mut window = multi_provider_window();
+        window
+            .apply(ChatWindowIntent::SelectSession {
+                provider: SECOND_PROVIDER,
+                session: ChatSessionId(20),
+            })
+            .expect("select second provider session");
+        assert_eq!(window.selected_provider_id(), Some(SECOND_PROVIDER));
+        assert_eq!(
+            window
+                .runtime
+                .selected_provider()
+                .expect("selected provider")
+                .active_session,
+            Some(ChatSessionId(20))
+        );
+    }
+
+    #[test]
+    fn qualified_bottom_new_chat_maps_to_the_selected_provider() {
+        let mut window = multi_provider_window();
+        window
+            .apply(ChatWindowIntent::SelectProvider(SECOND_PROVIDER))
+            .expect("select second provider");
+        assert_eq!(
+            window
+                .apply(ChatWindowIntent::NewSession(SECOND_PROVIDER))
+                .expect("new session"),
+            Some(HostIntent::NewSession(SECOND_PROVIDER))
+        );
+    }
+
+    #[test]
+    fn provider_permission_preserves_allow_once_always_and_deny_choices() {
+        let mut window = multi_provider_window();
+        let interaction = InteractionId(9_001);
+        window
+            .register_provider_permission(
+                interaction,
+                SECOND_PROVIDER,
+                ChatSessionId(20),
+                77,
+                "Run the focused test suite".into(),
+                vec![
+                    ProviderPermissionChoice {
+                        option_id: "once".into(),
+                        label: "Allow once".into(),
+                        kind: ProviderPermissionChoiceKind::AllowOnce,
+                    },
+                    ProviderPermissionChoice {
+                        option_id: "always".into(),
+                        label: "Always allow".into(),
+                        kind: ProviderPermissionChoiceKind::AllowAlways,
+                    },
+                    ProviderPermissionChoice {
+                        option_id: "deny".into(),
+                        label: "Deny".into(),
+                        kind: ProviderPermissionChoiceKind::RejectOnce,
+                    },
+                ],
+            )
+            .expect("register permission");
+        assert_eq!(window.overlay_coordinator.ordered().len(), 1);
+        assert_eq!(
+            window
+                .apply(ChatWindowIntent::ResolveProviderPermission {
+                    interaction,
+                    provider: SECOND_PROVIDER,
+                    request_id: 77,
+                    option_id: Some("always".into()),
+                })
+                .expect("resolve permission"),
+            Some(HostIntent::ResolveProviderPermission {
+                provider: SECOND_PROVIDER,
+                request_id: 77,
+                option_id: Some("always".into()),
+            })
+        );
+        assert_eq!(window.overlay_coordinator.ordered().len(), 0);
     }
 
     #[test]

@@ -104,6 +104,7 @@ pub enum Capability {
     Plans,
     Attachments,
     Images,
+    Video,
     Models,
     Modes,
     RateLimits,
@@ -130,6 +131,7 @@ impl Capability {
             Self::Plans => "plans",
             Self::Attachments => "attachments",
             Self::Images => "images",
+            Self::Video => "video",
             Self::Models => "models",
             Self::Modes => "modes",
             Self::RateLimits => "rate limits",
@@ -278,6 +280,13 @@ pub enum SessionState {
     Expired,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum SessionGroup {
+    Pinned,
+    Active,
+    Recent,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionSummary {
     pub id: ChatSessionId,
@@ -285,6 +294,7 @@ pub struct SessionSummary {
     pub provider_session_id: Option<ProviderSessionId>,
     pub title: String,
     pub workspace: String,
+    pub group: SessionGroup,
     pub state: SessionState,
 }
 
