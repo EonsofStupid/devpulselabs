@@ -220,6 +220,19 @@ injected into all three engine seams; none found warns naming every
 location. PROOF: PATH=System32-only export drill runs end to end; the
 drill also proves P1's `--content-root` arg live. Friction rows 13+14
 DONE. Shots docs/proof/w6-library-{1100x700,1600x1000}.png.
+**W7 landed** (`feat/w7-image-layers`,
+`docs/plans/w7-image-layers.md`; operator: images are "kind of
+essential for all of this to matter"): IMAGES ARE FIRST-CLASS TIMELINE
+LAYERS. No schema change (a still is `in_pt=0, out_pt=5.0`, trimmable);
+`StitchClip.still` + loop/hold ffmpeg legs (+ `format=yuv420p` on every
+leg — mixed concat law); every add path appends (FOOTAGE tap, Library
+double-click, Explorer drop, import drill); the preview well shows the
+held frame (no ffmpeg pipe for stills); the seam maps stills so agents
+get image layers over HTTP free. PROOF: real-exe import of png+mp4 ->
+both on the timeline, preview shows the still; seam render =
+8.000000s exactly (5s still + 3s video) at 1920x1080. Friction row 15
+DONE; the "image-layers pass" copy is GONE repo-wide. Shots
+docs/proof/w7-image-timeline-{1100x700,1600x1000}.png.
 **AEP ORCHESTRATOR — new pass, PAUSES R2b** (operator 2026-07-25:
 installing AE/Animate; "pull aerender.exe into ours and have wiredfront
 editor viziwiz actually be an orchestrator"). This RESOLVES the open

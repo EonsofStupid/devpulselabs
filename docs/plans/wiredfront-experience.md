@@ -91,8 +91,8 @@ shorten, never lengthen.
   edge-trim (8px zones, 0.25s min span), body-move (0.1s snap),
   click-to-seek, zoom 20–240 px/s. (R1x working tree — land it.)
 - **Media bin** — thumbnail cards (poster/image + name + duration badge),
-  click = append to timeline; header gains **Browse…**. Videos feed the
-  timeline; images land in the library until image layers exist.
+  click = append to timeline; header gains **Browse…**. Videos AND
+  images feed the timeline (W7: stills held 5s, trimmable).
 - **Browse window** (NEW, the operator's named requirement) — a native
   peer window per open folder. Top bar: Up · root chips · current path.
   Grid: folder cards descend; image cards show the image; video cards are
@@ -139,6 +139,7 @@ shorten, never lengthen.
 | 12 | Background removal | Not started (ort mini-ADR owed) | R2e (= ratified R1e) |
 | 13 | Double-click Library → editor | ✅ W6: the Library is the real thumbnailed shelf; double-click sends video → timeline / image → FOOTAGE (honest) and navigates to the Editor | DONE (W6) |
 | 14 | ffmpeg found without PATH | ✅ W6: managed boot resolution (bin/ beside exe → PATH → winget links) injected into all three engine seams | DONE (W6) |
+| 15 | Images are timeline layers | ✅ W7: stills held 5s (trimmable), preview shows the frame, render loops it — every add path (FOOTAGE, Library, drop, Browse) appends | DONE (W7) |
 
 ## 6. The ladder — passes named by the friction they kill
 
