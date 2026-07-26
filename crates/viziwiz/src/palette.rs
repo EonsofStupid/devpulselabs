@@ -1,15 +1,15 @@
-//! The palette's paint layer — tabs, chips, the REC pill, and the C2
-//! forced-metadata Save card. Immediate viewports PAINT; every mutation
-//! rides `PaletteActions` back to the owner in `lib.rs` (the Save card's
-//! text fields are the one exception: they edit the `PendingGuide` the
-//! owner lends for the frame).
+//! The palette's paint layer — tabs, chips, the REC pill, and the W9c
+//! LandingCard. Immediate viewports PAINT; every mutation rides
+//! `PaletteActions` back to the owner in `lib.rs` (the card's text fields
+//! edit the `PendingLanding` the owner lends for the frame).
 
 use dpl_coldlight::{self as cl, Tone};
+use dpl_landing::{CaptureKind, LandingMode};
 use egui::{Align2, Color32, CornerRadius, FontId, RichText, Sense, StrokeKind};
 use egui_pilot_ai::protocol::Role as PilotRole;
 use egui_pilot_ai::{NodeMetadata, PilotId, UiPilotExt};
 
-use crate::{PendingGuide, TONE};
+use crate::{PendingLanding, TONE};
 
 const PALETTE_TITLE: PilotId = PilotId::new("viziwiz.title");
 const PALETTE_CLOSE: PilotId = PilotId::new("viziwiz.close");
@@ -35,11 +35,13 @@ const STEPS_MARK: PilotId = PilotId::new("viziwiz.steps.mark");
 const STEPS_STOP: PilotId = PilotId::new("viziwiz.steps.stop");
 const DELAY_CYCLE: PilotId = PilotId::new("viziwiz.delay");
 const RESNIP: PilotId = PilotId::new("viziwiz.resnip");
-const GUIDE_NAME: PilotId = PilotId::new("viziwiz.guide.name");
-const GUIDE_TAGS: PilotId = PilotId::new("viziwiz.guide.tags");
-const GUIDE_DEST: PilotId = PilotId::new("viziwiz.guide.dest");
-const GUIDE_SAVE: PilotId = PilotId::new("viziwiz.guide.save");
-const GUIDE_DISCARD: PilotId = PilotId::new("viziwiz.guide.discard");
+const LANDING_MODE: PilotId = PilotId::new("viziwiz.landing.mode");
+const LANDING_BUCKET: PilotId = PilotId::new("viziwiz.landing.bucket");
+const LANDING_NAME: PilotId = PilotId::new("viziwiz.landing.name");
+const LANDING_TAGS: PilotId = PilotId::new("viziwiz.landing.tags");
+const LANDING_DEST: PilotId = PilotId::new("viziwiz.landing.dest");
+const LANDING_SAVE: PilotId = PilotId::new("viziwiz.landing.save");
+const LANDING_DISCARD: PilotId = PilotId::new("viziwiz.landing.discard");
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Tab {
@@ -105,8 +107,10 @@ pub(crate) struct PaletteActions {
     pub(crate) steps_start: bool,
     pub(crate) steps_mark: bool,
     pub(crate) steps_stop: bool,
-    pub(crate) guide_save: bool,
-    pub(crate) guide_discard: bool,
+    pub(crate) landing_save: bool,
+    pub(crate) landing_discard: bool,
+    pub(crate) cycle_landing_mode: bool,
+    pub(crate) cycle_bucket: bool,
 }
 
 /// Everything the palette closure READS this frame — bundled so the
@@ -128,12 +132,14 @@ pub(crate) struct PaletteView<'a> {
     pub(crate) session_state: Option<(u64, usize)>,
     pub(crate) steps_note: &'a str,
     pub(crate) delay: u8,
+    pub(crate) landing_mode: LandingMode,
+    pub(crate) landing_bucket: &'a str,
 }
 
 pub(crate) fn palette(
     ui: &mut egui::Ui,
     view: &PaletteView<'_>,
-    pending: Option<&mut PendingGuide>,
+    pending: Option<&mut PendingLanding>,
     actions: &mut PaletteActions,
 ) {
     let PaletteView {
@@ -152,6 +158,8 @@ pub(crate) fn palette(
         session_state,
         steps_note,
         delay,
+        landing_mode,
+        landing_bucket,
     } = *view;
     // Title row: identity + close.
     ui.horizontal(|ui| {
@@ -201,286 +209,285 @@ pub(crate) fn palette(
             }
         }
     });
+    policy_strip(ui, landing_mode, landing_bucket, actions);
     ui.separator();
 
-    match tab {
-        Tab::Img => {
-            ui.horizontal(|ui| {
-                if pilot_chip(
-                    ui,
-                    REGION_OPEN,
-                    cl::icon::REGION,
-                    "Region",
-                    TONE,
-                    "Draw a box around the part of the screen you want",
-                ) {
-                    actions.begin_region = true;
-                }
-                if pilot_chip(
-                    ui,
-                    SNAP_FULL,
-                    cl::icon::FULL,
-                    "Full",
-                    TONE,
-                    "Snap the whole screen",
-                ) {
-                    actions.snap_full = true;
-                }
-                if pilot_chip(
-                    ui,
-                    FREEFORM,
-                    cl::icon::FREE,
-                    "Free",
-                    TONE,
-                    "Draw any shape around what you want",
-                ) {
-                    actions.begin_free = true;
-                }
-                // The delay chip cycles 0 → 3 → 5 → 10 seconds (C1).
-                let delay_label = if delay == 0 {
-                    "0s".to_string()
-                } else {
-                    format!("{delay}s")
-                };
-                if pilot_chip(
-                    ui,
-                    DELAY_CYCLE,
-                    "",
-                    &delay_label,
-                    TONE,
-                    "Wait before snapping — taps cycle 0s, 3s, 5s, 10s",
-                ) {
-                    actions.cycle_delay = true;
-                }
-                if pilot_chip(
-                    ui,
-                    RESNIP,
-                    "",
-                    "Re-snip",
-                    TONE,
-                    "Snap the same area again, no re-drawing",
-                ) {
-                    actions.resnip = true;
-                }
-            });
-            ui.add_space(cl::space::S2);
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(cl::icon::WINDOW).color(cl::ink::MUTED));
-                let current = windows
-                    .get(picked)
-                    .cloned()
-                    .unwrap_or_else(|| "no windows scanned".into());
-                egui::ComboBox::from_id_salt("viziwiz-window")
-                    .width(220.0)
-                    .selected_text(RichText::new(truncate(&current, 30)).small())
-                    .show_ui(ui, |ui| {
-                        for (i, w) in windows.iter().enumerate() {
-                            if ui.selectable_label(i == picked, truncate(w, 44)).clicked() {
-                                actions.pick_window = Some(i);
+    if let Some(p) = pending {
+        landing_card(ui, p, actions);
+    } else {
+        match tab {
+            Tab::Img => {
+                ui.horizontal(|ui| {
+                    if pilot_chip(
+                        ui,
+                        REGION_OPEN,
+                        cl::icon::REGION,
+                        "Region",
+                        TONE,
+                        "Draw a box around the part of the screen you want",
+                    ) {
+                        actions.begin_region = true;
+                    }
+                    if pilot_chip(
+                        ui,
+                        SNAP_FULL,
+                        cl::icon::FULL,
+                        "Full",
+                        TONE,
+                        "Snap the whole screen",
+                    ) {
+                        actions.snap_full = true;
+                    }
+                    if pilot_chip(
+                        ui,
+                        FREEFORM,
+                        cl::icon::FREE,
+                        "Free",
+                        TONE,
+                        "Draw any shape around what you want",
+                    ) {
+                        actions.begin_free = true;
+                    }
+                    // The delay chip cycles 0 → 3 → 5 → 10 seconds (C1).
+                    let delay_label = if delay == 0 {
+                        "0s".to_string()
+                    } else {
+                        format!("{delay}s")
+                    };
+                    if pilot_chip(
+                        ui,
+                        DELAY_CYCLE,
+                        "",
+                        &delay_label,
+                        TONE,
+                        "Wait before snapping — taps cycle 0s, 3s, 5s, 10s",
+                    ) {
+                        actions.cycle_delay = true;
+                    }
+                    if pilot_chip(
+                        ui,
+                        RESNIP,
+                        "",
+                        "Re-snip",
+                        TONE,
+                        "Snap the same area again, no re-drawing",
+                    ) {
+                        actions.resnip = true;
+                    }
+                });
+                ui.add_space(cl::space::S2);
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(cl::icon::WINDOW).color(cl::ink::MUTED));
+                    let current = windows
+                        .get(picked)
+                        .cloned()
+                        .unwrap_or_else(|| "no windows scanned".into());
+                    egui::ComboBox::from_id_salt("viziwiz-window")
+                        .width(220.0)
+                        .selected_text(RichText::new(truncate(&current, 30)).small())
+                        .show_ui(ui, |ui| {
+                            for (i, w) in windows.iter().enumerate() {
+                                if ui.selectable_label(i == picked, truncate(w, 44)).clicked() {
+                                    actions.pick_window = Some(i);
+                                }
                             }
-                        }
-                    });
-                if pilot_chip(
-                    ui,
-                    SNAP_WINDOW,
-                    cl::icon::SNIP,
-                    "Snap",
-                    TONE,
-                    "Snap just the chosen window",
-                ) {
-                    actions.snap_window = true;
-                }
-                if cl::tip(
-                    ui.pilot_button(REFRESH_WINDOWS, "↻"),
-                    "Look for windows again",
-                )
-                .clicked()
-                {
-                    actions.refresh_windows = true;
-                }
-            });
-            ui.label(
+                        });
+                    if pilot_chip(
+                        ui,
+                        SNAP_WINDOW,
+                        cl::icon::SNIP,
+                        "Snap",
+                        TONE,
+                        "Snap just the chosen window",
+                    ) {
+                        actions.snap_window = true;
+                    }
+                    if cl::tip(
+                        ui.pilot_button(REFRESH_WINDOWS, "↻"),
+                        "Look for windows again",
+                    )
+                    .clicked()
+                    {
+                        actions.refresh_windows = true;
+                    }
+                });
+                ui.label(
                 RichText::new(
                     "Region arms · arrows nudge · Enter captures. Free: click a polygon closed.",
                 )
                 .small()
                 .color(cl::ink::SUBTLE),
             );
-        }
-        Tab::Video => match video_elapsed {
-            Some(secs) => {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(cl::icon::REC)
-                            .color(Tone::Coral.color())
-                            .size(15.0),
-                    );
-                    ui.label(
-                        RichText::new(format!("REC {:02}:{:02}", secs / 60, secs % 60))
-                            .monospace()
-                            .color(Tone::Coral.color()),
-                    );
-                    if pilot_chip(
-                        ui,
-                        VIDEO_STOP,
-                        cl::icon::STOP,
-                        "Stop",
-                        TONE,
-                        "Stop and save the recording",
-                    ) {
-                        actions.video_stop = true;
-                    }
-                });
             }
-            None => {
-                // The C3 matrix: cycling chips (touch law) + the device
-                // list when a mode records audio.
-                ui.horizontal(|ui| {
-                    let target = if video_window { "Window" } else { "Screen" };
-                    if pilot_chip(
-                        ui,
-                        VIDEO_TARGET,
-                        "",
-                        target,
-                        TONE,
-                        "Record the whole screen, or just one window",
-                    ) {
-                        actions.toggle_video_target = true;
-                    }
-                    if pilot_chip(
-                        ui,
-                        VIDEO_FORMAT,
-                        "",
-                        format_label,
-                        TONE,
-                        "Video format — MP4 plays everywhere",
-                    ) {
-                        actions.cycle_format = true;
-                    }
-                    if pilot_chip(
-                        ui,
-                        VIDEO_AUDIO,
-                        "",
-                        audio_label,
-                        TONE,
-                        "Record silent, computer sound, or your mic",
-                    ) {
-                        actions.cycle_audio = true;
-                    }
-                    if pilot_chip(
-                        ui,
-                        VIDEO_CAP,
-                        "",
-                        cap_label,
-                        TONE,
-                        "Stop the recording automatically after this long",
-                    ) {
-                        actions.cycle_cap = true;
-                    }
-                });
-                if !audio_silent {
+            Tab::Video => match video_elapsed {
+                Some(secs) => {
                     ui.horizontal(|ui| {
-                        let current = audio_devices
-                            .get(picked_audio)
-                            .cloned()
-                            .unwrap_or_else(|| "no audio devices found".into());
-                        egui::ComboBox::from_id_salt("viziwiz-audio-device")
-                            .width(220.0)
-                            .selected_text(RichText::new(truncate(&current, 30)).small())
-                            .show_ui(ui, |ui| {
-                                for (i, d) in audio_devices.iter().enumerate() {
-                                    if ui
-                                        .selectable_label(i == picked_audio, truncate(d, 44))
-                                        .clicked()
-                                    {
-                                        actions.pick_audio = Some(i);
-                                    }
-                                }
-                            });
-                        if cl::tip(ui.button("↻"), "Look for audio devices again").clicked() {
-                            actions.refresh_audio = true;
+                        ui.label(
+                            RichText::new(cl::icon::REC)
+                                .color(Tone::Coral.color())
+                                .size(15.0),
+                        );
+                        ui.label(
+                            RichText::new(format!("REC {:02}:{:02}", secs / 60, secs % 60))
+                                .monospace()
+                                .color(Tone::Coral.color()),
+                        );
+                        if pilot_chip(
+                            ui,
+                            VIDEO_STOP,
+                            cl::icon::STOP,
+                            "Stop",
+                            TONE,
+                            "Stop and save the recording",
+                        ) {
+                            actions.video_stop = true;
                         }
                     });
                 }
-                ui.horizontal(|ui| {
-                    if pilot_chip(
-                        ui,
-                        VIDEO_START,
-                        cl::icon::REC,
-                        "Record",
-                        TONE,
-                        "Start recording with the settings above",
-                    ) {
-                        actions.video_start = true;
+                None => {
+                    // The C3 matrix: cycling chips (touch law) + the device
+                    // list when a mode records audio.
+                    ui.horizontal(|ui| {
+                        let target = if video_window { "Window" } else { "Screen" };
+                        if pilot_chip(
+                            ui,
+                            VIDEO_TARGET,
+                            "",
+                            target,
+                            TONE,
+                            "Record the whole screen, or just one window",
+                        ) {
+                            actions.toggle_video_target = true;
+                        }
+                        if pilot_chip(
+                            ui,
+                            VIDEO_FORMAT,
+                            "",
+                            format_label,
+                            TONE,
+                            "Video format — MP4 plays everywhere",
+                        ) {
+                            actions.cycle_format = true;
+                        }
+                        if pilot_chip(
+                            ui,
+                            VIDEO_AUDIO,
+                            "",
+                            audio_label,
+                            TONE,
+                            "Record silent, computer sound, or your mic",
+                        ) {
+                            actions.cycle_audio = true;
+                        }
+                        if pilot_chip(
+                            ui,
+                            VIDEO_CAP,
+                            "",
+                            cap_label,
+                            TONE,
+                            "Stop the recording automatically after this long",
+                        ) {
+                            actions.cycle_cap = true;
+                        }
+                    });
+                    if !audio_silent {
+                        ui.horizontal(|ui| {
+                            let current = audio_devices
+                                .get(picked_audio)
+                                .cloned()
+                                .unwrap_or_else(|| "no audio devices found".into());
+                            egui::ComboBox::from_id_salt("viziwiz-audio-device")
+                                .width(220.0)
+                                .selected_text(RichText::new(truncate(&current, 30)).small())
+                                .show_ui(ui, |ui| {
+                                    for (i, d) in audio_devices.iter().enumerate() {
+                                        if ui
+                                            .selectable_label(i == picked_audio, truncate(d, 44))
+                                            .clicked()
+                                        {
+                                            actions.pick_audio = Some(i);
+                                        }
+                                    }
+                                });
+                            if cl::tip(ui.button("↻"), "Look for audio devices again").clicked() {
+                                actions.refresh_audio = true;
+                            }
+                        });
                     }
-                });
-                ui.label(
+                    ui.horizontal(|ui| {
+                        if pilot_chip(
+                            ui,
+                            VIDEO_START,
+                            cl::icon::REC,
+                            "Record",
+                            TONE,
+                            "Start recording with the settings above",
+                        ) {
+                            actions.video_start = true;
+                        }
+                    });
+                    ui.label(
                     RichText::new(
                         "720p · Stop when done (or the cap stops it) · System audio needs a loopback device.",
                     )
                     .small()
                     .color(cl::ink::SUBTLE),
                 );
-            }
-        },
-        Tab::Session => match session_state {
-            Some((secs, events)) => {
-                ui.horizontal(|ui| {
+                }
+            },
+            Tab::Session => match session_state {
+                Some((secs, events)) => {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(cl::icon::REC)
+                                .color(Tone::Coral.color())
+                                .size(15.0),
+                        );
+                        ui.label(
+                            RichText::new(format!("REC {:02}:{:02}", secs / 60, secs % 60))
+                                .monospace()
+                                .color(Tone::Coral.color()),
+                        );
+                        ui.label(
+                            RichText::new(format!("{events} events"))
+                                .small()
+                                .color(cl::ink::SUBTLE),
+                        );
+                        if pilot_chip(
+                            ui,
+                            SESSION_STOP,
+                            cl::icon::STOP,
+                            "Stop",
+                            TONE,
+                            "Stop and save the session",
+                        ) {
+                            actions.session_stop = true;
+                        }
+                    });
+                }
+                None => {
+                    ui.horizontal(|ui| {
+                        if pilot_chip(
+                            ui,
+                            SESSION_START,
+                            cl::icon::REC,
+                            "Record session",
+                            TONE,
+                            "Record the screen AND what the app does, together",
+                        ) {
+                            actions.session_start = true;
+                        }
+                    });
                     ui.label(
-                        RichText::new(cl::icon::REC)
-                            .color(Tone::Coral.color())
-                            .size(15.0),
-                    );
-                    ui.label(
-                        RichText::new(format!("REC {:02}:{:02}", secs / 60, secs % 60))
-                            .monospace()
-                            .color(Tone::Coral.color()),
-                    );
-                    ui.label(
-                        RichText::new(format!("{events} events"))
-                            .small()
-                            .color(cl::ink::SUBTLE),
-                    );
-                    if pilot_chip(
-                        ui,
-                        SESSION_STOP,
-                        cl::icon::STOP,
-                        "Stop",
-                        TONE,
-                        "Stop and save the session",
-                    ) {
-                        actions.session_stop = true;
-                    }
-                });
-            }
-            None => {
-                ui.horizontal(|ui| {
-                    if pilot_chip(
-                        ui,
-                        SESSION_START,
-                        cl::icon::REC,
-                        "Record session",
-                        TONE,
-                        "Record the screen AND what the app does, together",
-                    ) {
-                        actions.session_start = true;
-                    }
-                });
-                ui.label(
                     RichText::new(
                         "Screen video + a typed event track (routes, beats) — one session artifact.",
                     )
                     .small()
                     .color(cl::ink::SUBTLE),
                 );
-            }
-        },
-        Tab::Steps => match pending {
-            // A stopped guide is PENDING — the forced-metadata Save card
-            // (C2). Starting a new recording would drop it, so the card
-            // replaces the Start chip until Save or Discard decides.
-            Some(p) => save_card(ui, p, actions),
-            None => {
+                }
+            },
+            Tab::Steps => {
                 ui.horizontal(|ui| {
                     if pilot_chip(
                         ui,
@@ -494,10 +501,10 @@ pub(crate) fn palette(
                     }
                 });
                 ui.label(
-                    RichText::new("Every click/Enter auto-snaps a step; Ctrl+Shift+9 toggles, Ctrl+Shift+X marks — from any app.")
-                        .small()
-                        .color(cl::ink::SUBTLE),
-                );
+                RichText::new("Every click/Enter auto-snaps a step; Ctrl+Shift+9 toggles, Ctrl+Shift+X marks — from any app.")
+                    .small()
+                    .color(cl::ink::SUBTLE),
+            );
                 if !steps_note.is_empty() {
                     ui.label(
                         RichText::new(steps_note)
@@ -507,7 +514,7 @@ pub(crate) fn palette(
                     );
                 }
             }
-        },
+        }
     }
 
     ui.add_space(cl::space::S2);
@@ -521,27 +528,70 @@ pub(crate) fn palette(
     }
 }
 
-/// The forced-metadata Save card (C2): kebab name (auto `_v1` on save),
-/// ≥1 tag, an episode/General destination — the engine's `normalize_meta`
-/// refuses anything less and the refusal lands in the status line while
-/// the pending guide waits.
-fn save_card(ui: &mut egui::Ui, p: &mut PendingGuide, actions: &mut PaletteActions) {
+/// Auto/Ask toggle + working-set bucket cycle (W9c policy strip).
+fn policy_strip(ui: &mut egui::Ui, mode: LandingMode, bucket: &str, actions: &mut PaletteActions) {
+    ui.horizontal(|ui| {
+        let mode_label = match mode {
+            LandingMode::Auto => "Auto",
+            LandingMode::Ask => "Ask",
+        };
+        if pilot_chip(
+            ui,
+            LANDING_MODE,
+            "",
+            mode_label,
+            TONE,
+            "Auto files by pattern · Ask shows the Save card on every capture",
+        ) {
+            actions.cycle_landing_mode = true;
+        }
+        if pilot_chip(
+            ui,
+            LANDING_BUCKET,
+            "",
+            bucket,
+            TONE,
+            "Working-set bucket — taps cycle suggested folders",
+        ) {
+            actions.cycle_bucket = true;
+        }
+    });
+}
+
+fn landing_card_title(kind: CaptureKind, count: u32) -> String {
+    match kind {
+        CaptureKind::Guide => format!("Save your guide — {count} steps"),
+        CaptureKind::Image => "Name your still".into(),
+        CaptureKind::Video => "Name your video".into(),
+        CaptureKind::Session => "Name your session".into(),
+    }
+}
+
+/// The W9c LandingCard — guide keeps strict metadata; other kinds are
+/// name + tags only.
+fn landing_card(ui: &mut egui::Ui, p: &mut PendingLanding, actions: &mut PaletteActions) {
     ui.label(
-        RichText::new(format!("Save your guide — {} steps", p.count))
+        RichText::new(landing_card_title(p.kind, p.count))
             .strong()
             .color(cl::ink::STRONG),
     );
     ui.add_space(cl::space::S1);
     ui.horizontal(|ui| {
         ui.label(RichText::new("name").small().color(cl::ink::MUTED));
+        let hint = if p.kind == CaptureKind::Guide {
+            "kebab-case"
+        } else {
+            "display name"
+        };
         let name = ui.add(
             egui::TextEdit::singleline(&mut p.name)
-                .hint_text("kebab-case")
+                .hint_text(hint)
                 .desired_width(200.0),
         );
         ui.pilot_track(
             &name,
-            NodeMetadata::new(GUIDE_NAME, PilotRole::TextInput, "guide name").value(p.name.clone()),
+            NodeMetadata::new(LANDING_NAME, PilotRole::TextInput, "landing name")
+                .value(p.name.clone()),
         );
     });
     ui.horizontal(|ui| {
@@ -553,59 +603,59 @@ fn save_card(ui: &mut egui::Ui, p: &mut PendingGuide, actions: &mut PaletteActio
         );
         ui.pilot_track(
             &tags,
-            NodeMetadata::new(GUIDE_TAGS, PilotRole::TextInput, "guide tags").value(p.tags.clone()),
+            NodeMetadata::new(LANDING_TAGS, PilotRole::TextInput, "landing tags")
+                .value(p.tags.clone()),
         );
     });
-    ui.horizontal(|ui| {
-        if ui.selectable_label(p.library, "General").clicked() {
-            p.library = true;
-        }
-        let episode = ui.selectable_label(!p.library, "Episode");
-        ui.pilot_track(
-            &episode,
-            NodeMetadata::new(GUIDE_DEST, PilotRole::Button, "destination").value(if p.library {
-                "general"
-            } else {
-                "episode"
-            }),
-        );
-        if episode.clicked() {
-            p.library = false;
-        }
-        if !p.library {
-            ui.add(
-                egui::TextEdit::singleline(&mut p.show)
-                    .hint_text("show")
-                    .desired_width(80.0),
+    if p.kind == CaptureKind::Guide {
+        ui.horizontal(|ui| {
+            if ui.selectable_label(p.library, "General").clicked() {
+                p.library = true;
+            }
+            let episode = ui.selectable_label(!p.library, "Episode");
+            ui.pilot_track(
+                &episode,
+                NodeMetadata::new(LANDING_DEST, PilotRole::Button, "destination")
+                    .value(if p.library { "general" } else { "episode" }),
             );
-            ui.add(
-                egui::TextEdit::singleline(&mut p.episode)
-                    .hint_text("episode")
-                    .desired_width(80.0),
-            );
-        }
-    });
+            if episode.clicked() {
+                p.library = false;
+            }
+            if !p.library {
+                ui.add(
+                    egui::TextEdit::singleline(&mut p.show)
+                        .hint_text("show")
+                        .desired_width(80.0),
+                );
+                ui.add(
+                    egui::TextEdit::singleline(&mut p.episode)
+                        .hint_text("episode")
+                        .desired_width(80.0),
+                );
+            }
+        });
+    }
     ui.add_space(cl::space::S1);
     ui.horizontal(|ui| {
         if pilot_chip(
             ui,
-            GUIDE_SAVE,
+            LANDING_SAVE,
             "",
             "Save",
             TONE,
-            "File the guide with this name and tags",
+            "File this capture with the name and tags above",
         ) {
-            actions.guide_save = true;
+            actions.landing_save = true;
         }
         if pilot_chip(
             ui,
-            GUIDE_DISCARD,
+            LANDING_DISCARD,
             "",
             "Discard",
             TONE,
-            "Throw this recording away — the steps are deleted",
+            "Throw this capture away — deletes the file or folder",
         ) {
-            actions.guide_discard = true;
+            actions.landing_discard = true;
         }
     });
 }

@@ -16,7 +16,9 @@ use dpl_coldlight::Tone;
 use dpl_engine_capture as cap;
 use dpl_engine_steps::{normalize_meta_auto, CaptureMeta, Hotkey, StepsRecorder};
 use dpl_fabric::{Fabric, ShellEvent};
-use dpl_landing::{CaptureKind, LandingPolicy, NameContext};
+use dpl_landing::{
+    CaptureKind, Destination, LandingMode, LandingPolicy, NameContext, BUCKET_SEEDS,
+};
 use egui::{ViewportBuilder, ViewportId};
 use egui_pilot_ai::protocol::PilotViewportKey;
 use egui_pilot_ai::ContextPilotExt;
@@ -79,17 +81,26 @@ pub(crate) const CAPS: [(Option<u32>, &str); 4] = [
     (Some(900), "15m"),
 ];
 
-/// A stopped-but-unfiled guide waiting on the Save card (C2). The
-/// engine keeps the session PENDING until `save` or `discard` decides.
-pub(crate) struct PendingGuide {
+/// A capture waiting on the LandingCard (W9c) — any vehicle, one shape.
+/// `path` is a file (still/video) or folder (session); guides use an empty
+/// path until the engine files on Save.
+pub(crate) struct PendingLanding {
+    pub(crate) kind: CaptureKind,
+    pub(crate) path: PathBuf,
     pub(crate) count: u32,
     pub(crate) name: String,
     /// Space/comma-separated entry; split on save.
     pub(crate) tags: String,
-    /// General library ⇄ episode destination (the forced-metadata law).
+    /// General library ⇄ episode destination (guide strict-meta law).
     pub(crate) library: bool,
     pub(crate) show: String,
     pub(crate) episode: String,
+}
+
+/// Whether `land()` filed immediately or held for the card.
+enum LandOutcome {
+    Filed(String),
+    Pending,
 }
 
 pub struct Viziwiz {
@@ -105,8 +116,8 @@ pub struct Viziwiz {
     /// OS-global chords, queued on the hook thread, drained each frame.
     hotkeys: Arc<Mutex<Vec<Hotkey>>>,
     hook_wired: bool,
-    /// The Save card's state — Some between Stop and Save/Discard.
-    pending: Option<PendingGuide>,
+    /// The LandingCard's state — Some between capture-complete and Save/Discard.
+    pending: Option<PendingLanding>,
     region: Option<RegionSelect>,
     video: Option<VideoRec>,
     /// The running session recording (S1), if any.
@@ -228,9 +239,15 @@ impl Viziwiz {
 
     /// X1 write-through for a fresh capture — builds the row, then the
     /// one seam above indexes + signals.
-    fn index_capture(fabric: &dpl_fabric::Fabric, path: &Path, kind: CaptureKind) -> String {
+    fn index_capture(
+        fabric: &dpl_fabric::Fabric,
+        path: &Path,
+        kind: CaptureKind,
+        tags: &[String],
+    ) -> String {
         let root = cap::content_root();
-        let record = dpl_index::record_for_capture(path, &root, kind.as_str(), "viziwiz");
+        let mut record = dpl_index::record_for_capture(path, &root, kind.as_str(), "viziwiz");
+        record.tags = tags.to_vec();
         Self::index_and_signal(fabric, path, record)
     }
 
@@ -239,7 +256,8 @@ impl Viziwiz {
     /// like the old `index_saved`. Same degrade law as `index_capture`.
     fn index_guide(fabric: &dpl_fabric::Fabric, path: &Path, meta: &CaptureMeta) -> String {
         let root = cap::content_root();
-        let mut record = dpl_index::record_for_capture(path, &root, "guide", "viziwiz");
+        let mut record =
+            dpl_index::record_for_capture(path, &root, CaptureKind::Guide.as_str(), "viziwiz");
         record.tags = meta.tags.clone();
         if !meta.library {
             record.show_id = Some(meta.show.clone());
@@ -250,9 +268,15 @@ impl Viziwiz {
 
     /// X1 write-through for a finished VIDEO — the row carries the
     /// convention poster when it exists (C3; same degrade law).
-    fn index_video(fabric: &dpl_fabric::Fabric, out: &Path) -> String {
+    fn index_video(
+        fabric: &dpl_fabric::Fabric,
+        out: &Path,
+        kind: CaptureKind,
+        tags: &[String],
+    ) -> String {
         let root = cap::content_root();
-        let mut record = dpl_index::record_for_capture(out, &root, "video", "viziwiz");
+        let mut record = dpl_index::record_for_capture(out, &root, kind.as_str(), "viziwiz");
+        record.tags = tags.to_vec();
         let poster = Self::poster_path(out);
         if poster.is_file() {
             if let Some(name) = poster.file_name() {
@@ -273,15 +297,101 @@ impl Viziwiz {
     }
 
     /// Never-clobber: `stem.ext`, then `stem-2.ext`, `stem-3.ext`…
-    fn unique_path(dir: &Path, stem: &str, ext: &str) -> PathBuf {
-        let first = dir.join(format!("{stem}.{ext}"));
-        if !first.exists() {
-            return first;
+    /// When `reserve_poster` is set (video), the companion `-poster.jpg`
+    /// must also be free — stems must not collide across containers.
+    fn unique_path(dir: &Path, stem: &str, ext: &str, reserve_poster: bool) -> PathBuf {
+        let free = |s: &str| {
+            let p = dir.join(format!("{s}.{ext}"));
+            !p.exists() && (!reserve_poster || !Self::poster_path(&p).exists())
+        };
+        if free(stem) {
+            return dir.join(format!("{stem}.{ext}"));
         }
         (2..)
-            .map(|n| dir.join(format!("{stem}-{n}.{ext}")))
-            .find(|p| !p.exists())
+            .map(|n| format!("{stem}-{n}"))
+            .find(|s| free(s))
+            .map(|s| dir.join(format!("{s}.{ext}")))
             .expect("unbounded range")
+    }
+
+    /// W9: `{date}` token from `compact_timestamp()` when YYYYMMDD-like.
+    fn landing_date() -> String {
+        let ts = dpl_engine_steps::compact_timestamp();
+        if ts.len() >= 8 && ts[..8].chars().all(|c| c.is_ascii_digit()) {
+            ts[..8].to_string()
+        } else {
+            String::new()
+        }
+    }
+
+    /// Policy tags + card tags, deduped in order.
+    fn merged_tags(landing: &LandingPolicy, p: &PendingLanding) -> Vec<String> {
+        let mut tags = landing.pattern.tags.clone();
+        for t in p.tags.split([' ', ',']).filter(|t| !t.is_empty()) {
+            let t = t.to_string();
+            if !tags.contains(&t) {
+                tags.push(t);
+            }
+        }
+        tags
+    }
+
+    /// Pre-fill a pending row from an on-disk artifact + policy defaults.
+    fn seed_pending(
+        &self,
+        kind: CaptureKind,
+        path: PathBuf,
+        title: Option<&str>,
+        count: u32,
+    ) -> PendingLanding {
+        let policy = self.landing.for_kind(kind);
+        let name = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| {
+                policy.pattern.expand_name(&NameContext {
+                    app: title,
+                    title,
+                    kind: kind.as_str(),
+                    seq: self.land_seq,
+                    date: "",
+                })
+            });
+        PendingLanding {
+            kind,
+            path,
+            count,
+            name,
+            tags: policy.pattern.tags.join(" "),
+            library: true,
+            show: String::new(),
+            episode: String::new(),
+        }
+    }
+
+    /// Index one pending artifact (Auto path and Save on the card).
+    fn index_landing(&self, p: &PendingLanding) -> String {
+        let tags = Self::merged_tags(&self.landing, p);
+        match p.kind {
+            CaptureKind::Image => Self::index_capture(&self.fabric, &p.path, p.kind, &tags),
+            CaptureKind::Video => Self::index_video(&self.fabric, &p.path, p.kind, &tags),
+            CaptureKind::Session => Self::index_session(&self.fabric, &p.path, p.kind, &tags),
+            CaptureKind::Guide => String::new(),
+        }
+    }
+
+    /// W9c: ONE landing path — Auto files + signals; Ask (and Guide always)
+    /// holds the card. Guide strict-meta stays on Save.
+    fn land(&mut self, pending: PendingLanding) -> LandOutcome {
+        let guide = pending.kind == CaptureKind::Guide;
+        if !guide && self.landing.mode == LandingMode::Auto {
+            LandOutcome::Filed(self.index_landing(&pending))
+        } else {
+            self.pending = Some(pending);
+            self.set_open(true);
+            LandOutcome::Pending
+        }
     }
 
     /// W9: the ORGANIZED landing target — `inbox/<bucket>/<kind>/<name>.<ext>`
@@ -298,6 +408,7 @@ impl Viziwiz {
         let inbox = Self::inbox()?;
         self.land_seq += 1;
         let seq = self.land_seq;
+        let date = Self::landing_date();
         let policy = self.landing.for_kind(kind);
         let dir = match policy.inbox_subdir(kind) {
             Some(sub) => {
@@ -312,9 +423,63 @@ impl Viziwiz {
             title,
             kind: kind.as_str(),
             seq,
-            date: "",
+            date: &date,
         });
-        Ok(Self::unique_path(&dir, &stem, ext))
+        let reserve_poster = kind == CaptureKind::Video;
+        Ok(Self::unique_path(&dir, &stem, ext, reserve_poster))
+    }
+
+    /// W9c: organized session folder — `inbox/<bucket>/session/<name>/`.
+    fn land_dir(&mut self, kind: CaptureKind, title: Option<&str>) -> Result<PathBuf, String> {
+        let inbox = Self::inbox()?;
+        self.land_seq += 1;
+        let seq = self.land_seq;
+        let date = Self::landing_date();
+        let policy = self.landing.for_kind(kind);
+        let parent = match policy.inbox_subdir(kind) {
+            Some(sub) => {
+                let d = inbox.join(sub);
+                std::fs::create_dir_all(&d).map_err(|e| format!("land dir: {e}"))?;
+                d
+            }
+            None => inbox,
+        };
+        let stem = policy.pattern.expand_name(&NameContext {
+            app: title,
+            title,
+            kind: kind.as_str(),
+            seq,
+            date: &date,
+        });
+        Ok(session::session_dir_in(&parent, &stem))
+    }
+
+    /// Still capture finished on disk — route through `land()`.
+    fn finish_still(&mut self, ctx: &egui::Context, path: PathBuf) -> String {
+        let pending = self.seed_pending(CaptureKind::Image, path.clone(), None, 0);
+        match self.land(pending) {
+            LandOutcome::Filed(warn) => format!(
+                "saved {}{}{}",
+                path.display(),
+                warn,
+                Self::copy_to_clipboard(ctx, &path)
+            ),
+            LandOutcome::Pending => format!(
+                "saved {} — review on the Save card{}",
+                path.display(),
+                Self::copy_to_clipboard(ctx, &path)
+            ),
+        }
+    }
+
+    fn capture_blocked(&mut self) -> bool {
+        if self.pending.is_some() {
+            self.status = "a capture is waiting on the Save card — Save or Discard first".into();
+            self.set_open(true);
+            true
+        } else {
+            false
+        }
     }
 
     /// The repo's poster convention: `x.mp4` → `x-poster.jpg`.
@@ -324,25 +489,6 @@ impl Viziwiz {
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_else(|| "vix".into());
         video.with_file_name(format!("{stem}-poster.jpg"))
-    }
-
-    /// Video stems must be unique across CONTAINERS too — `vix.mp4` and
-    /// `vix.webm` would otherwise share one `vix-poster.jpg` and the
-    /// later recording's poster clobbers the earlier's (caught live by
-    /// the C3 matrix drill).
-    fn unique_video_path(dir: &Path, ext: &str) -> PathBuf {
-        let free = |stem: &str| {
-            let vid = dir.join(format!("{stem}.{ext}"));
-            !vid.exists() && !Self::poster_path(&vid).exists()
-        };
-        if free("vix") {
-            return dir.join(format!("vix.{ext}"));
-        }
-        (2..)
-            .map(|n| format!("vix-{n}"))
-            .find(|s| free(s))
-            .map(|s| dir.join(format!("{s}.{ext}")))
-            .expect("unbounded range")
     }
 
     /// THE one palette-visibility write (W8): every open/close funnels
@@ -468,16 +614,13 @@ impl Viziwiz {
                 p.tags = "drill".into();
             }
         }
-        self.save_pending();
+        self.save_landing();
         self.status_text()
     }
 
     fn start_steps(&mut self) {
-        if self.pending.is_some() {
-            // Starting would drop the unfiled session — the card decides.
-            self.status = "a guide is waiting on the Save card — Save or Discard first".into();
+        if self.capture_blocked() {
             self.tab = Tab::Steps;
-            self.set_open(true);
             return;
         }
         match Self::inbox().and_then(|inbox| {
@@ -501,10 +644,13 @@ impl Viziwiz {
     fn stop_steps(&mut self) {
         match self.steps.stop() {
             Ok(stop) => {
-                self.pending = Some(PendingGuide {
+                let policy = self.landing.for_kind(CaptureKind::Guide);
+                self.pending = Some(PendingLanding {
+                    kind: CaptureKind::Guide,
+                    path: PathBuf::new(),
                     count: stop.count,
                     name: seed_name(&stop.seed_title),
-                    tags: String::new(),
+                    tags: policy.pattern.tags.join(" "),
                     library: true,
                     show: String::new(),
                     episode: String::new(),
@@ -517,20 +663,42 @@ impl Viziwiz {
         }
     }
 
-    /// The Save card's Save: STRICT metadata (kebab name + auto `_v1`,
-    /// ≥1 tag, episode/General) — a refusal keeps the pending guide and
-    /// lands in the status line. Filing happens exactly once, in the
-    /// engine.
-    fn save_pending(&mut self) {
+    /// The LandingCard's Save — guides keep strict metadata; other kinds
+    /// index the on-disk artifact with merged tags.
+    fn save_landing(&mut self) {
         let Some(p) = self.pending.as_ref() else {
             return;
         };
-        let tags: Vec<String> = p
-            .tags
-            .split([' ', ','])
-            .filter(|t| !t.is_empty())
-            .map(str::to_string)
-            .collect();
+        if p.kind == CaptureKind::Guide {
+            self.save_guide_landing();
+        } else {
+            self.save_file_landing();
+        }
+    }
+
+    fn save_file_landing(&mut self) {
+        let Some(p) = self.pending.take() else {
+            return;
+        };
+        let warn = self.index_landing(&p);
+        self.status = format!("saved {}{}", p.path.display(), warn);
+    }
+
+    fn save_guide_landing(&mut self) {
+        let Some(p) = self.pending.as_ref() else {
+            return;
+        };
+        let pending_tags = PendingLanding {
+            kind: CaptureKind::Guide,
+            path: PathBuf::new(),
+            count: p.count,
+            name: p.name.clone(),
+            tags: p.tags.clone(),
+            library: p.library,
+            show: p.show.clone(),
+            episode: p.episode.clone(),
+        };
+        let tags = Self::merged_tags(&self.landing, &pending_tags);
         let meta = CaptureMeta {
             library: p.library,
             show: p.show.trim().to_string(),
@@ -551,10 +719,26 @@ impl Viziwiz {
         }
     }
 
-    fn discard_pending(&mut self) {
-        self.steps.discard();
-        self.pending = None;
-        self.status = "guide discarded".into();
+    fn discard_landing(&mut self) {
+        if let Some(p) = self.pending.take() {
+            match p.kind {
+                CaptureKind::Guide => self.steps.discard(),
+                CaptureKind::Session => {
+                    let _ = std::fs::remove_dir_all(&p.path);
+                }
+                CaptureKind::Video => {
+                    let _ = std::fs::remove_file(&p.path);
+                    let poster = Self::poster_path(&p.path);
+                    if poster.is_file() {
+                        let _ = std::fs::remove_file(&poster);
+                    }
+                }
+                CaptureKind::Image => {
+                    let _ = std::fs::remove_file(&p.path);
+                }
+            }
+        }
+        self.status = "capture discarded".into();
     }
 
     /// C1: land the written still on the OS clipboard too — egui's own
@@ -576,6 +760,9 @@ impl Viziwiz {
     }
 
     fn snap_full(&mut self, ctx: &egui::Context) {
+        if self.capture_blocked() {
+            return;
+        }
         let target = self.land_target(CaptureKind::Image, "png", None);
         let result = target.and_then(|out| {
             let primary = cap::list_targets()
@@ -589,12 +776,7 @@ impl Viziwiz {
         self.status = match result {
             Ok(p) => {
                 self.last = Some(LastSnip::Full);
-                format!(
-                    "saved {}{}{}",
-                    p.display(),
-                    Self::index_capture(&self.fabric, &p, CaptureKind::Image),
-                    Self::copy_to_clipboard(ctx, &p)
-                )
+                self.finish_still(ctx, p)
             }
             Err(e) => e,
         };
@@ -610,6 +792,9 @@ impl Viziwiz {
     }
 
     fn snap_window_id(&mut self, ctx: &egui::Context, id: u32, title: &str) {
+        if self.capture_blocked() {
+            return;
+        }
         let target = self.land_target(CaptureKind::Image, "png", Some(title));
         let result = target.and_then(|out| {
             cap::still_window_to(&out, id)?;
@@ -618,12 +803,7 @@ impl Viziwiz {
         self.status = match result {
             Ok(p) => {
                 self.last = Some(LastSnip::Window(id));
-                format!(
-                    "saved {} ({title}){}{}",
-                    p.display(),
-                    Self::index_capture(&self.fabric, &p, CaptureKind::Image),
-                    Self::copy_to_clipboard(ctx, &p)
-                )
+                format!("{} ({title})", self.finish_still(ctx, p))
             }
             Err(e) => e,
         };
@@ -641,34 +821,30 @@ impl Viziwiz {
             LastSnip::Full => self.snap_full(ctx),
             LastSnip::Window(id) => self.snap_window_id(ctx, id, "re-snip"),
             LastSnip::Region(frac) => {
+                if self.capture_blocked() {
+                    return;
+                }
                 let target = self.land_target(CaptureKind::Image, "png", None);
                 let result = target.and_then(|out| {
                     cap::still_region_to(&out, frac)?;
                     Ok(out)
                 });
                 self.status = match result {
-                    Ok(p) => format!(
-                        "saved {}{}{}",
-                        p.display(),
-                        Self::index_capture(&self.fabric, &p, CaptureKind::Image),
-                        Self::copy_to_clipboard(ctx, &p)
-                    ),
+                    Ok(p) => self.finish_still(ctx, p),
                     Err(e) => e,
                 };
             }
             LastSnip::Free(points) => {
+                if self.capture_blocked() {
+                    return;
+                }
                 let target = self.land_target(CaptureKind::Image, "png", None);
                 let result = target.and_then(|out| {
                     cap::still_freeform_to(&out, &points)?;
                     Ok(out)
                 });
                 self.status = match result {
-                    Ok(p) => format!(
-                        "saved {}{}{}",
-                        p.display(),
-                        Self::index_capture(&self.fabric, &p, CaptureKind::Image),
-                        Self::copy_to_clipboard(ctx, &p)
-                    ),
+                    Ok(p) => self.finish_still(ctx, p),
                     Err(e) => e,
                 };
             }
@@ -687,6 +863,9 @@ impl Viziwiz {
     }
 
     fn fire(&mut self, pending: PendingSnip, ctx: &egui::Context) {
+        if self.capture_blocked() {
+            return;
+        }
         match pending {
             PendingSnip::Full => self.snap_full(ctx),
             PendingSnip::Window => self.snap_window(ctx),
@@ -699,6 +878,9 @@ impl Viziwiz {
     /// window, 720p (the old default; the engine downscales), format +
     /// audio + cap from the chips. The engine owns every refusal.
     fn start_video(&mut self) {
+        if self.capture_blocked() {
+            return;
+        }
         let (format_id, format_label) = FORMATS[self.video_format];
         let (audio_id, audio_label) = AUDIO[self.video_audio];
         let (cap_secs, _) = CAPS[self.video_cap];
@@ -730,36 +912,38 @@ impl Viziwiz {
                 .or_else(|| self.audio_devices.first())
                 .cloned()
         };
-        let result = Self::inbox().and_then(|inbox| {
-            let out = Self::unique_video_path(&inbox, cap::ext_for_format(format_id));
-            let stop = Arc::new(AtomicBool::new(false));
-            let done = Arc::new(Mutex::new(None));
-            let (t_stop, t_done, t_out) = (Arc::clone(&stop), Arc::clone(&done), out.clone());
-            let opts = cap::VideoOpts {
-                height: 720,
-                format: format_id.into(),
-                audio: audio_id.into(),
-                audio_device: device,
-                max_seconds: cap_secs,
-            };
-            std::thread::Builder::new()
-                .name("viziwiz-video".into())
-                .spawn(move || {
-                    let r = cap::record_ctl_to(&t_out.to_string_lossy(), target, &opts, &t_stop);
-                    if r.is_ok() {
-                        let poster = Self::poster_path(&t_out);
-                        cap::poster_for(&t_out.to_string_lossy(), &poster.to_string_lossy());
-                    }
-                    *t_done.lock().expect("video done lock") = Some(r);
+        let result = self
+            .land_target(CaptureKind::Video, cap::ext_for_format(format_id), None)
+            .and_then(|out| {
+                let stop = Arc::new(AtomicBool::new(false));
+                let done = Arc::new(Mutex::new(None));
+                let (t_stop, t_done, t_out) = (Arc::clone(&stop), Arc::clone(&done), out.clone());
+                let opts = cap::VideoOpts {
+                    height: 720,
+                    format: format_id.into(),
+                    audio: audio_id.into(),
+                    audio_device: device,
+                    max_seconds: cap_secs,
+                };
+                std::thread::Builder::new()
+                    .name("viziwiz-video".into())
+                    .spawn(move || {
+                        let r =
+                            cap::record_ctl_to(&t_out.to_string_lossy(), target, &opts, &t_stop);
+                        if r.is_ok() {
+                            let poster = Self::poster_path(&t_out);
+                            cap::poster_for(&t_out.to_string_lossy(), &poster.to_string_lossy());
+                        }
+                        *t_done.lock().expect("video done lock") = Some(r);
+                    })
+                    .map_err(|e| format!("spawn: {e}"))?;
+                Ok(VideoRec {
+                    stop,
+                    started: Instant::now(),
+                    out,
+                    done,
                 })
-                .map_err(|e| format!("spawn: {e}"))?;
-            Ok(VideoRec {
-                stop,
-                started: Instant::now(),
-                out,
-                done,
-            })
-        });
+            });
         match result {
             Ok(v) => {
                 self.fabric
@@ -816,10 +1000,12 @@ impl Viziwiz {
         if self.session.is_some() {
             return;
         }
+        if self.capture_blocked() {
+            return;
+        }
         let rx = self.fabric.subscribe_shell();
         let rx_capture = self.fabric.subscribe_capture();
-        let result = Self::inbox().and_then(|inbox| {
-            let dir = session::session_dir(&inbox);
+        let result = self.land_dir(CaptureKind::Session, None).and_then(|dir| {
             std::fs::create_dir_all(&dir).map_err(|e| format!("session: {e}"))?;
             let events = session::EventLog::create(&dir.join("events.jsonl"))?;
             let stop = Arc::new(AtomicBool::new(false));
@@ -859,9 +1045,15 @@ impl Viziwiz {
     /// X1 write-through for a finished (or partial) session FOLDER —
     /// kind "session", poster when the video leg produced one. Same
     /// status-line degrade law as `index_capture`.
-    fn index_session(fabric: &dpl_fabric::Fabric, dir: &Path) -> String {
+    fn index_session(
+        fabric: &dpl_fabric::Fabric,
+        dir: &Path,
+        kind: CaptureKind,
+        tags: &[String],
+    ) -> String {
         let root = cap::content_root();
-        let mut record = dpl_index::record_for_capture(dir, &root, "session", "viziwiz");
+        let mut record = dpl_index::record_for_capture(dir, &root, kind.as_str(), "viziwiz");
+        record.tags = tags.to_vec();
         if dir.join("session.jpg").is_file() {
             record.poster_rel_path = Some(format!("{}/session.jpg", record.rel_path));
         }
@@ -919,11 +1111,18 @@ impl Viziwiz {
             if let Some(result) = done {
                 let out = v.out.clone();
                 self.status = match result {
-                    Ok(frames) => format!(
-                        "saved {} ({frames} frames){}",
-                        out.display(),
-                        Self::index_video(&self.fabric, &out)
-                    ),
+                    Ok(frames) => {
+                        let pending = self.seed_pending(CaptureKind::Video, out.clone(), None, 0);
+                        match self.land(pending) {
+                            LandOutcome::Filed(warn) => {
+                                format!("saved {} ({frames} frames){warn}", out.display())
+                            }
+                            LandOutcome::Pending => format!(
+                                "saved {} ({frames} frames) — review on the Save card",
+                                out.display()
+                            ),
+                        }
+                    }
                     Err(e) => format!("video: {e}"),
                 };
                 self.video = None;
@@ -940,16 +1139,17 @@ impl Viziwiz {
             if let Some(result) = done {
                 let dir = s.dir.clone();
                 let n = s.events.count();
+                let pending = self.seed_pending(CaptureKind::Session, dir.clone(), None, 0);
+                let suffix = match self.land(pending) {
+                    LandOutcome::Filed(warn) => warn,
+                    LandOutcome::Pending => " — review on the Save card".into(),
+                };
                 self.status = match result {
                     Ok(frames) => format!(
-                        "session saved {} ({frames} frames · {n} events){}",
-                        dir.display(),
-                        Self::index_session(&self.fabric, &dir)
+                        "session saved {} ({frames} frames · {n} events){suffix}",
+                        dir.display()
                     ),
-                    Err(e) => format!(
-                        "session video: {e} · partial kept ({n} events){}",
-                        Self::index_session(&self.fabric, &dir)
-                    ),
+                    Err(e) => format!("session video: {e} · partial kept ({n} events){suffix}",),
                 };
                 self.session = None;
             }
@@ -983,10 +1183,10 @@ impl Viziwiz {
         let size = if recording_steps {
             egui::vec2(248.0, 76.0)
         } else if self.pending.is_some() {
-            // The Save card needs the extra rows.
-            egui::vec2(396.0, 330.0)
+            // The LandingCard needs the extra rows.
+            egui::vec2(396.0, 360.0)
         } else {
-            egui::vec2(396.0, 260.0)
+            egui::vec2(396.0, 290.0)
         };
         let builder = ViewportBuilder::default()
             .with_title("ViziWiz")
@@ -1027,6 +1227,14 @@ impl Viziwiz {
             .lock()
             .map(|n| n.clone())
             .unwrap_or_default();
+        let landing_mode = self.landing.mode;
+        let landing_bucket = self
+            .landing
+            .pattern
+            .destination
+            .bucket()
+            .unwrap_or("scratch")
+            .to_string();
 
         let mut close_requested = false;
         ctx.pilot_show_viewport_immediate(
@@ -1072,6 +1280,8 @@ impl Viziwiz {
                                             session_state,
                                             steps_note: &note,
                                             delay,
+                                            landing_mode,
+                                            landing_bucket: &landing_bucket,
                                         },
                                         pending.as_mut(),
                                         &mut actions,
@@ -1188,12 +1398,49 @@ impl Viziwiz {
         if actions.steps_stop {
             self.stop_steps();
         }
-        if actions.guide_save {
-            self.save_pending();
+        if actions.landing_save {
+            self.save_landing();
         }
-        if actions.guide_discard {
-            self.discard_pending();
+        if actions.landing_discard {
+            self.discard_landing();
         }
+        if actions.cycle_landing_mode {
+            self.landing.mode = match self.landing.mode {
+                LandingMode::Auto => LandingMode::Ask,
+                LandingMode::Ask => LandingMode::Auto,
+            };
+            let _ = self.landing.save(&cap::userdata_root());
+            self.status = format!(
+                "landing: {}",
+                match self.landing.mode {
+                    LandingMode::Auto => "auto",
+                    LandingMode::Ask => "ask",
+                }
+            );
+        }
+        if actions.cycle_bucket {
+            Self::cycle_bucket(&mut self.landing);
+            let _ = self.landing.save(&cap::userdata_root());
+            if let Some(b) = self.landing.pattern.destination.bucket() {
+                self.status = format!("bucket: {b}");
+            }
+        }
+    }
+
+    fn cycle_bucket(landing: &mut LandingPolicy) {
+        let current = landing
+            .pattern
+            .destination
+            .bucket()
+            .unwrap_or("scratch")
+            .to_string();
+        let mut options: Vec<String> = BUCKET_SEEDS.iter().map(|s| (*s).to_string()).collect();
+        if !options.iter().any(|s| s == &current) {
+            options.push(current.clone());
+        }
+        let idx = options.iter().position(|s| s == &current).unwrap_or(0);
+        let next = options[(idx + 1) % options.len()].clone();
+        landing.pattern.destination = Destination::LibraryBucket { bucket: next };
     }
 }
 
@@ -1231,13 +1478,13 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("dpl-viziwiz-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let first = Viziwiz::unique_path(&dir, "pix", "png");
+        let first = Viziwiz::unique_path(&dir, "pix", "png", false);
         assert!(first.ends_with("pix.png"));
         std::fs::write(&first, b"x").unwrap();
-        let second = Viziwiz::unique_path(&dir, "pix", "png");
+        let second = Viziwiz::unique_path(&dir, "pix", "png", false);
         assert!(second.ends_with("pix-2.png"), "{second:?}");
         std::fs::write(&second, b"x").unwrap();
-        assert!(Viziwiz::unique_path(&dir, "pix", "png").ends_with("pix-3.png"));
+        assert!(Viziwiz::unique_path(&dir, "pix", "png", false).ends_with("pix-3.png"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1246,16 +1493,16 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("dpl-vix-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let first = Viziwiz::unique_video_path(&dir, "mp4");
-        assert!(first.ends_with("vix.mp4"));
+        let first = Viziwiz::unique_path(&dir, "clip", "mp4", true);
+        assert!(first.ends_with("clip.mp4"));
         std::fs::write(&first, b"x").unwrap();
         std::fs::write(Viziwiz::poster_path(&first), b"x").unwrap();
-        let second = Viziwiz::unique_video_path(&dir, "webm");
+        let second = Viziwiz::unique_path(&dir, "clip", "webm", true);
         assert!(
-            second.ends_with("vix-2.webm"),
+            second.ends_with("clip-2.webm"),
             "a webm must not reuse the mp4's stem (poster collision): {second:?}"
         );
-        assert!(Viziwiz::poster_path(&second).ends_with("vix-2-poster.jpg"));
+        assert!(Viziwiz::poster_path(&second).ends_with("clip-2-poster.jpg"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

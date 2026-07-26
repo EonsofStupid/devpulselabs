@@ -172,14 +172,20 @@ impl SessionRec {
 }
 
 /// The session folder: `session-<stamp>`, never-clobber suffixed.
+/// Legacy flat inbox mint — prefer `session_dir_in` under an organized parent.
 pub fn session_dir(inbox: &Path) -> PathBuf {
     let stamp = dpl_engine_steps::compact_timestamp();
-    let first = inbox.join(format!("session-{stamp}"));
+    session_dir_in(inbox, &format!("session-{stamp}"))
+}
+
+/// Never-clobber folder name under an organized parent (`inbox/<bucket>/session/<name>/`).
+pub fn session_dir_in(parent: &Path, stem: &str) -> PathBuf {
+    let first = parent.join(stem);
     if !first.exists() {
         return first;
     }
     (2..)
-        .map(|n| inbox.join(format!("session-{stamp}-{n}")))
+        .map(|n| parent.join(format!("{stem}-{n}")))
         .find(|p| !p.exists())
         .expect("unbounded suffix search")
 }
