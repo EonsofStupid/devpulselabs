@@ -14,8 +14,8 @@ use serde::Deserialize;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
-use std::time::SystemTime;
+use std::process::{Command, ExitCode, Stdio};
+use std::time::{Duration, Instant, SystemTime};
 
 fn run(name: &str, args: &[&str]) -> Result<(), String> {
     let mut command = Command::new("cargo");
@@ -619,12 +619,128 @@ fn windows_file_version(executable: &Path) -> Result<String, String> {
         .ok_or_else(|| format!("{} has no fixed Windows file version", executable.display()))
 }
 
+/// RR1 — the resolution sweep. Renders every route at every size in ISOLATED
+/// subprocesses (one panicking cell fails only itself, never the sweep),
+/// writes the cramp-map table + a PNG per cell, and exits non-zero if any cell
+/// panics or times out. `cargo xtask sweep [outdir]` (default `target/sweep`).
+fn sweep(args: &[String]) -> Result<(), String> {
+    const SIZES: &[&str] = &[
+        "1024x640",
+        "1280x720",
+        "1280x800",
+        "1366x768",
+        "1600x900",
+        "1920x1080",
+        "860x1200",
+    ];
+    const ROUTES: &[&str] = &[
+        "home/shows",
+        "wiredfront/editor",
+        "wiredfront/library",
+        "workbench/library",
+        "workbench/episodes",
+        "workbench/test-lab",
+    ];
+    const CELL_TIMEOUT: Duration = Duration::from_secs(120);
+
+    let outdir = args
+        .first()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("target/sweep"));
+    fs::create_dir_all(&outdir).map_err(|e| format!("create {}: {e}", outdir.display()))?;
+
+    let exe_name = format!("devpulselabs{}", std::env::consts::EXE_SUFFIX);
+    let exe = Path::new("target/release").join(&exe_name);
+    if !exe.exists() {
+        return Err(format!(
+            "release exe missing: {} — run `cargo build --release -p devpulselabs` first",
+            exe.display()
+        ));
+    }
+
+    println!(
+        "── resolution sweep · {} routes × {} sizes ──",
+        ROUTES.len(),
+        SIZES.len()
+    );
+    let mut table = String::from("| route | size | verdict |\n|---|---|---|\n");
+    let (mut panics, mut timeouts, mut fails) = (0usize, 0usize, 0usize);
+    for route in ROUTES {
+        for size in SIZES {
+            let cell = format!("{}__{}", route.replace('/', "-"), size);
+            let png = outdir.join(format!("{cell}.png"));
+            let log = outdir.join(format!("{cell}.log"));
+            let logfile = fs::File::create(&log).map_err(|e| format!("log {cell}: {e}"))?;
+            let started = Instant::now();
+            let mut child = Command::new(&exe)
+                .args([
+                    "--screenshot",
+                    png.to_str().ok_or("non-utf8 output path")?,
+                    "--window",
+                    size,
+                    "--route",
+                    route,
+                ])
+                // software rendering: the sweep needs no real GPU (the ARM
+                // driver is incompatible; lavapipe carries it).
+                .env("LIBGL_ALWAYS_SOFTWARE", "1")
+                .stdout(Stdio::null())
+                .stderr(logfile)
+                .spawn()
+                .map_err(|e| format!("spawn {cell}: {e}"))?;
+            let status = loop {
+                match child.try_wait().map_err(|e| format!("wait {cell}: {e}"))? {
+                    Some(s) => break Some(s),
+                    None if started.elapsed() > CELL_TIMEOUT => {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        break None;
+                    }
+                    None => std::thread::sleep(Duration::from_millis(150)),
+                }
+            };
+            let panicked = fs::read_to_string(&log)
+                .map(|s| s.contains("panicked"))
+                .unwrap_or(false);
+            let verdict = match status {
+                None => {
+                    timeouts += 1;
+                    "TIMEOUT"
+                }
+                Some(_) if panicked => {
+                    panics += 1;
+                    "PANIC"
+                }
+                Some(s) if s.success() && png.exists() => "ok",
+                Some(_) => {
+                    fails += 1;
+                    "fail"
+                }
+            };
+            println!("  {verdict:>7}  {route} @ {size}");
+            table.push_str(&format!("| {route} | {size} | {verdict} |\n"));
+        }
+    }
+    let report = outdir.join("sweep.md");
+    fs::write(&report, &table).map_err(|e| format!("write {}: {e}", report.display()))?;
+    println!("── report: {} ──", report.display());
+    if panics + timeouts + fails > 0 {
+        Err(format!(
+            "{panics} PANIC · {timeouts} TIMEOUT · {fails} fail — see {}",
+            report.display()
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 fn main() -> ExitCode {
     let mut arguments = std::env::args().skip(1);
     let task = arguments.next().unwrap_or_else(|| "green".into());
     let arguments = arguments.collect::<Vec<_>>();
     let result = match task.as_str() {
         "green" => green(),
+        "sweep" => sweep(&arguments),
         "docs-status" => docs_status(),
         "stage-tool-deps" => stage_tool_dependencies(&arguments),
         "fix" => run("fmt", &["fmt", "--all"]).and_then(|()| {
@@ -640,7 +756,7 @@ fn main() -> ExitCode {
             )
         }),
         other => Err(format!(
-            "unknown task \"{other}\" — tasks: green, docs-status, stage-tool-deps, fix"
+            "unknown task \"{other}\" — tasks: green, sweep, docs-status, stage-tool-deps, fix"
         )),
     };
     match result {

@@ -2,6 +2,25 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-26 — RESPONSIVE RENDERING (RR) — all-resolutions program.**
+**RR0** (#54): the `fit()` law in `dpl-composer` — no layout panic when a
+fixed floor exceeds a shrinking/proportional ceiling (`f32::clamp` panics on
+min>max). Fixed two live panics (AE `timeline_h`, `TrimIn`). **RR1**
+(`feat/rr1-resolution-sweep`, `docs/plans/rr1-resolution-sweep.md`): `cargo
+xtask sweep [dir]` — 6 routes × 7 sizes, ISOLATED subprocess per cell,
+software-GL, `sweep.md` + a PNG per cell, non-zero on any panic. THE DISPLAY
+LESSON: proofs are meaningless on a display that can't grow — this box was a
+headless mutter output @592×440 that pinned every window to the 640×480
+`min_inner_size` (`--window` a NO-OP); a real HDMI 1920×1080 display makes
+`--window` honored (dims vary 1024×640…1920×1080→1854×1011). All 42 cells
+no-panic at real sizes. CRAMP MAP: `wiredfront/editor` cramps <~1280px wide
+(center-column text overlap + tool-row overflow), clean ≥1280 → RR2's
+checklist. eguiPilot verify-path confirmed (`inspect devpulse-cloud viziwiz`
+returns semantic rects). NEXT: RR1.1 = offscreen render (display-independent
+CI guard, flash-free); RR2 = uncramp the editor. **Runner note:** the
+`dpl-linux` ARM64 runner keeps dying on session teardown — needs `sudo
+./svc.sh install` (see operator checklist) to persist.
+
 **2026-07-26 — GROK SEAMLESS ACTIVATION LOCALLY QUALIFIED
 (`codex/grok-seamless-activation`):** the first real provider activation now
 uses the exact bundled `grok login --device-auth` ceremony, a strict
