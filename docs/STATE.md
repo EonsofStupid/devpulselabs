@@ -2,7 +2,20 @@
 
 Updated every pass. This file is the first read of every session.
 
-**Tip:** on `main` (2026-07-25). **RING-1 built** (`feat/three-ring-root`,
+**Tip:** on `main` (2026-07-25). **DG1 built** (`feat/dg1-mixed-guide`,
+`docs/plans/dg1-mixed-media-guide.md` — operator: stills for
+where-to-click + session-replay clips when appropriate, ORDERED in one
+`.guide`): replay-segment steps land — `Step.kind:"replay"` +
+`clipIn/clipOut/clip` (recorder guides unchanged); export cuts segments
+from the ORIGINAL session via `engine-media::render_clip_cut`
+(replay-light law) into `step-00N.mp4` interleaved in place;
+`guide.html`'s stage swaps still↔clip in one ordered sequence (embed
+default; jailed sidecar mode); `guide_video_args` evolved to ordered
+`VideoLeg`s; the reviewer round-trip (engine-steps::edit +
+composer::review_edit) carries clip identity so caption edits never
+drop media. PROVEN live: real ffmpeg cut + REAL headless Chrome walking
+still → clip → still via dpl-engine-browser (DEMO-B dogfooding the G1
+browser-drill law). Awaiting operator squash-merge. **RING-1 built** (`feat/three-ring-root`,
 `docs/plans/three-ring-root.md`, ADR-014 — operator-ratified after the
 capture-location failure, senior conditions 1–6 as acceptance): the
 THREE-RING data root — `content\` (CONFIRMED library, unchanged) ·

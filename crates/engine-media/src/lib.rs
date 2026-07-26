@@ -395,6 +395,56 @@ pub fn replay_args(src: &Path, out: &Path) -> Vec<String> {
     ]
 }
 
+/// Cut `[in_s, in_s+dur_s)` from a session recording into a clip-step
+/// file (DG1 mixed guides): `-ss` before `-i` for the fast seek, `-t`
+/// for duration, then the replay-light chain verbatim.
+pub fn clip_cut_args(src: &Path, in_s: f32, dur_s: f32, out: &Path) -> Vec<String> {
+    vec![
+        "-y".into(),
+        "-v".into(),
+        "error".into(),
+        "-ss".into(),
+        format!("{in_s:.3}"),
+        "-i".into(),
+        src.to_string_lossy().into_owned(),
+        "-t".into(),
+        format!("{dur_s:.3}"),
+        "-vf".into(),
+        format!("scale=-2:'min({REPLAY_MAX_HEIGHT},ih)',fps={REPLAY_FPS}"),
+        "-c:v".into(),
+        "libx264".into(),
+        "-preset".into(),
+        "veryfast".into(),
+        "-crf".into(),
+        REPLAY_CRF.to_string(),
+        "-movflags".into(),
+        "+faststart".into(),
+        "-an".into(),
+        out.to_string_lossy().into_owned(),
+    ]
+}
+
+/// Render one replay-segment clip (NEW file, source untouched). Honest
+/// refusals: missing source, empty/backwards range. Blocks — callers run
+/// it off the UI thread.
+pub fn render_clip_cut(src: &Path, in_s: f32, out_s: f32, out: &Path) -> Result<(), String> {
+    if !src.is_file() {
+        return Err(format!("no session video at {}", src.display()));
+    }
+    if out_s <= in_s {
+        return Err(format!("empty clip range: {in_s:.3}..{out_s:.3}"));
+    }
+    if let Some(dir) = out.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("clip dir: {e}"))?;
+    }
+    run_ffmpeg(clip_cut_args(
+        src,
+        in_s.max(0.0),
+        out_s - in_s.max(0.0),
+        out,
+    ))
+}
+
 /// Re-encode a session recording into its light bundle copy (NEW file,
 /// source untouched). Blocks — callers run it off the UI thread.
 pub fn render_replay(src: &Path, out: &Path) -> Result<(), String> {
@@ -446,35 +496,38 @@ pub fn render_gif(src: &Path, out: &Path) -> Result<(), String> {
     run_ffmpeg(gif_args(src, out))
 }
 
-/// The standalone guide VIDEO: every still held `secs_per_still`, then the
-/// replay footage, concatenated through the same scale+pad chain as the
-/// stitch (never cropped). Stills decode as RGBA — `format=yuv420p` keeps
-/// every leg encodable.
-pub fn guide_video_args(
-    stills: &[PathBuf],
-    secs_per_still: f32,
-    session: Option<&Path>,
-    w: u32,
-    h: u32,
-    fps: u32,
-    out: &Path,
-) -> Vec<String> {
+/// One leg of the standalone guide video, in STEP ORDER (DG1: stills and
+/// replay clips interleave in one ordered sequence).
+#[derive(Debug, Clone, PartialEq)]
+pub enum VideoLeg {
+    /// A still held on screen for `secs`.
+    Still { path: PathBuf, secs: f32 },
+    /// A pre-cut replay clip (or the whole-session tail), played through.
+    Clip { path: PathBuf },
+}
+
+/// The standalone guide VIDEO: the legs concatenated in order through the
+/// same scale+pad chain as the stitch (never cropped). Stills decode as
+/// RGBA — `format=yuv420p` keeps every leg encodable.
+pub fn guide_video_args(legs: &[VideoLeg], w: u32, h: u32, fps: u32, out: &Path) -> Vec<String> {
     let mut args: Vec<String> = vec!["-y".into(), "-v".into(), "error".into()];
-    for s in stills {
-        args.extend([
-            "-loop".into(),
-            "1".into(),
-            "-t".into(),
-            format!("{secs_per_still:.3}"),
-            "-i".into(),
-            s.to_string_lossy().into_owned(),
-        ]);
+    for leg in legs {
+        match leg {
+            VideoLeg::Still { path, secs } => args.extend([
+                "-loop".into(),
+                "1".into(),
+                "-t".into(),
+                format!("{secs:.3}"),
+                "-i".into(),
+                path.to_string_lossy().into_owned(),
+            ]),
+            VideoLeg::Clip { path } => {
+                args.push("-i".into());
+                args.push(path.to_string_lossy().into_owned());
+            }
+        }
     }
-    if let Some(v) = session {
-        args.push("-i".into());
-        args.push(v.to_string_lossy().into_owned());
-    }
-    let n = stills.len() + usize::from(session.is_some());
+    let n = legs.len();
     let mut graph = String::new();
     for i in 0..n {
         graph.push_str(&format!(
@@ -504,32 +557,22 @@ pub fn guide_video_args(
     args
 }
 
-/// Render the standalone guide video. Honest errors: no stills, or ffmpeg
+/// Render the standalone guide video. Honest errors: no legs, or ffmpeg
 /// failure. Blocks — callers run it off the UI thread.
 pub fn render_guide_video(
-    stills: &[PathBuf],
-    secs_per_still: f32,
-    session: Option<&Path>,
+    legs: &[VideoLeg],
     w: u32,
     h: u32,
     fps: u32,
     out: &Path,
 ) -> Result<(), String> {
-    if stills.is_empty() {
-        return Err("nothing to render — the guide has no stills".into());
+    if legs.is_empty() {
+        return Err("nothing to render — the guide has no steps".into());
     }
     if let Some(dir) = out.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("render dir: {e}"))?;
     }
-    run_ffmpeg(guide_video_args(
-        stills,
-        secs_per_still,
-        session,
-        w,
-        h,
-        fps,
-        out,
-    ))
+    run_ffmpeg(guide_video_args(legs, w, h, fps, out))
 }
 
 #[cfg(test)]
@@ -544,22 +587,26 @@ mod guide_render_tests {
         assert!(a.contains("-movflags +faststart -an out.mp4"), "{a}");
     }
 
+    fn still(p: &str, secs: f32) -> VideoLeg {
+        VideoLeg::Still {
+            path: PathBuf::from(p),
+            secs,
+        }
+    }
+    fn clip(p: &str) -> VideoLeg {
+        VideoLeg::Clip {
+            path: PathBuf::from(p),
+        }
+    }
+
     #[test]
     fn guide_video_args_hold_stills_then_append_the_replay() {
-        let stills = vec![
-            PathBuf::from("step-001.webp"),
-            PathBuf::from("step-002.webp"),
+        let legs = vec![
+            still("step-001.webp", 3.0),
+            still("step-002.webp", 3.0),
+            clip("session.mp4"),
         ];
-        let a = guide_video_args(
-            &stills,
-            3.0,
-            Some(Path::new("session.mp4")),
-            1280,
-            720,
-            30,
-            Path::new("guide-video.mp4"),
-        )
-        .join(" ");
+        let a = guide_video_args(&legs, 1280, 720, 30, Path::new("guide-video.mp4")).join(" ");
         assert!(a.contains("-loop 1 -t 3.000 -i step-001.webp"), "{a}");
         assert!(a.contains("-loop 1 -t 3.000 -i step-002.webp"), "{a}");
         assert!(a.contains("-i session.mp4"), "{a}");
@@ -572,6 +619,42 @@ mod guide_render_tests {
         assert!(
             a.contains("-map [out] -c:v libx264 -preset slow -crf 21"),
             "{a}"
+        );
+    }
+
+    #[test]
+    fn mixed_legs_interleave_in_step_order() {
+        let legs = vec![
+            still("step-001.webp", 2.0),
+            clip("step-002.mp4"),
+            still("step-003.webp", 2.0),
+        ];
+        let a = guide_video_args(&legs, 1280, 720, 30, Path::new("o.mp4")).join(" ");
+        // Input order IS step order; clips never get -loop/-t.
+        let i1 = a.find("step-001.webp").unwrap();
+        let i2 = a.find("step-002.mp4").unwrap();
+        let i3 = a.find("step-003.webp").unwrap();
+        assert!(i1 < i2 && i2 < i3, "{a}");
+        assert!(!a.contains("-loop 1 -t 2.000 -i step-002.mp4"), "{a}");
+        assert!(a.contains("concat=n=3:v=1:a=0[out]"), "{a}");
+    }
+
+    #[test]
+    fn clip_cut_args_fast_seek_then_the_light_chain() {
+        let a = clip_cut_args(
+            Path::new("session.mp4"),
+            1.0,
+            1.5,
+            Path::new("step-002.mp4"),
+        )
+        .join(" ");
+        assert!(a.contains("-ss 1.000 -i session.mp4 -t 1.500"), "{a}");
+        assert!(a.contains("scale=-2:'min(720,ih)',fps=15"), "{a}");
+        assert!(a.contains("-c:v libx264 -preset veryfast -crf 30"), "{a}");
+        assert!(a.contains("-movflags +faststart -an step-002.mp4"), "{a}");
+        assert!(
+            render_clip_cut(Path::new("missing.mp4"), 1.0, 2.0, Path::new("o.mp4")).is_err(),
+            "missing source refused"
         );
     }
 
@@ -593,17 +676,21 @@ mod guide_render_tests {
 
     #[test]
     fn guide_video_without_a_session_still_concats() {
-        let stills = vec![PathBuf::from("s1.webp")];
-        let a = guide_video_args(&stills, 2.5, None, 1280, 720, 30, Path::new("o.mp4")).join(" ");
+        let legs = vec![still("s1.webp", 2.5)];
+        let a = guide_video_args(&legs, 1280, 720, 30, Path::new("o.mp4")).join(" ");
         assert!(a.contains("-t 2.500"), "{a}");
         assert!(a.contains("concat=n=1:v=1:a=0[out]"), "{a}");
         assert!(!a.contains("session"), "{a}");
     }
 
     #[test]
-    fn guide_render_refuses_no_stills_and_replay_refuses_a_missing_source() {
-        assert!(render_guide_video(&[], 3.0, None, 1280, 720, 30, Path::new("x.mp4")).is_err());
+    fn guide_render_refuses_no_legs_and_replay_refuses_a_missing_source() {
+        assert!(render_guide_video(&[], 1280, 720, 30, Path::new("x.mp4")).is_err());
         assert!(render_replay(Path::new("definitely-missing.mp4"), Path::new("o.mp4")).is_err());
+        assert!(
+            render_clip_cut(Path::new("s.mp4"), 2.0, 2.0, Path::new("o.mp4")).is_err(),
+            "empty range refused"
+        );
     }
 }
 

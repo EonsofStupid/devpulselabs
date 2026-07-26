@@ -3038,6 +3038,12 @@ fn review_edit(s: &ReviewStep) -> dpl_engine_steps::edit::GuideStepEdit {
         height: s.step.height,
         bytes: s.step.bytes,
         caption: (!caption.is_empty()).then(|| caption.to_string()),
+        // DG1: the clip identity rides the review round-trip untouched —
+        // a caption edit can never drop a replay step's media.
+        kind: s.step.kind.clone(),
+        clip: s.step.clip.clone(),
+        clip_in: s.step.clip_in,
+        clip_out: s.step.clip_out,
     }
 }
 
@@ -3707,6 +3713,10 @@ mod tests {
             width: 100,
             height: 80,
             bytes: 12,
+            kind: String::new(),
+            clip: None,
+            clip_in: None,
+            clip_out: None,
         };
         let typed = review_edit(&ReviewStep {
             keep: true,

@@ -39,6 +39,17 @@ pub struct GuideStepEdit {
     pub bytes: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub caption: Option<String>,
+    /// DG1 mixed media (dpl-guide's Step law): `"replay"` marks a clip
+    /// step; the fields ride the round-trip so a caption edit can never
+    /// silently drop a clip.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clip: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clip_in: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clip_out: Option<f32>,
 }
 
 /// A bare filename that exists inside `dir` — rejects separators and `..`.
@@ -57,9 +68,11 @@ fn referenced(manifest: &serde_json::Value) -> HashSet<String> {
     let mut out = HashSet::new();
     if let Some(steps) = manifest.get("steps").and_then(|s| s.as_array()) {
         for s in steps {
-            for key in ["file", "resultFile"] {
+            for key in ["file", "resultFile", "clip"] {
                 if let Some(f) = s.get(key).and_then(|f| f.as_str()) {
-                    out.insert(f.to_string());
+                    if !f.is_empty() {
+                        out.insert(f.to_string());
+                    }
                 }
             }
         }
@@ -87,8 +100,17 @@ pub fn update_guide(dir: &Path, steps: Vec<GuideStepEdit>) -> Result<u32, String
     )
     .map_err(|e| format!("parse guide.json: {e}"))?;
 
-    // Validate every incoming frame BEFORE writing anything.
+    // Validate every incoming frame BEFORE writing anything. A replay
+    // step (DG1) carries a clip instead of a still: its clip name is
+    // jailed when present (a SOURCE replay step has none yet — only a
+    // clipIn/clipOut range) and its empty `file` is legal.
     for s in &steps {
+        if s.kind == "replay" {
+            if let Some(c) = &s.clip {
+                frame_ok(dir, c)?;
+            }
+            continue;
+        }
         frame_ok(dir, &s.file)?;
         if let Some(rf) = &s.result_file {
             frame_ok(dir, rf)?;
@@ -103,7 +125,12 @@ pub fn update_guide(dir: &Path, steps: Vec<GuideStepEdit>) -> Result<u32, String
 
     let keep_files: HashSet<String> = kept
         .iter()
-        .flat_map(|s| std::iter::once(s.file.clone()).chain(s.result_file.clone()))
+        .flat_map(|s| {
+            std::iter::once(s.file.clone())
+                .chain(s.result_file.clone())
+                .chain(s.clip.clone())
+        })
+        .filter(|f| !f.is_empty())
         .collect();
     let total: usize = kept.iter().map(|s| s.bytes).sum();
     let fallback = dir
@@ -188,7 +215,49 @@ mod tests {
             height: 10,
             bytes: 1,
             caption: caption.map(str::to_string),
+            kind: String::new(),
+            clip: None,
+            clip_in: None,
+            clip_out: None,
         }
+    }
+
+    #[test]
+    fn a_caption_edit_never_drops_a_replay_step_or_its_clip() {
+        let dir = fixture_guide("clip-roundtrip");
+        std::fs::write(dir.join("step-002.mp4"), b"clip").unwrap();
+        // The reviewer sends back: still · replay clip (caption edited).
+        let mut replay = edit(2, "", None, Some("watch the drag"));
+        replay.kind = "replay".into();
+        replay.clip = Some("step-002.mp4".into());
+        replay.clip_in = Some(1.0);
+        replay.clip_out = Some(2.5);
+        let n = update_guide(
+            &dir,
+            vec![
+                edit(1, "step-001.webp", Some("step-001-done.webp"), None),
+                replay,
+            ],
+        )
+        .unwrap();
+        assert_eq!(n, 2);
+        let m: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(dir.join("guide.json")).unwrap()).unwrap();
+        assert_eq!(m["steps"][1]["kind"], "replay");
+        assert_eq!(m["steps"][1]["clip"], "step-002.mp4");
+        assert_eq!(m["steps"][1]["clipIn"], 1.0);
+        assert_eq!(m["steps"][1]["clipOut"], 2.5);
+        assert_eq!(m["steps"][1]["caption"], "watch the drag");
+        assert!(
+            dir.join("step-002.mp4").is_file(),
+            "the kept clip survives the orphan prune"
+        );
+        // A jailed clip name is refused before anything is written.
+        let mut bad = edit(1, "", None, None);
+        bad.kind = "replay".into();
+        bad.clip = Some("../escape.mp4".into());
+        assert!(update_guide(&dir, vec![bad]).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
