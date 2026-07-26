@@ -70,6 +70,26 @@ const AUTOSAVE_SECS: f32 = 2.0;
 /// The editing session: the comp under edit, where it saves, selection +
 /// playback + the preview player, the project-panel caches, and an honest
 /// status line.
+/// The reference-in-place preference, a sentinel file in Ring 0 `.userdata`
+/// (presence = on). No serde needed — one boolean choice that sticks.
+fn reference_pref_path() -> PathBuf {
+    dpl_engine_capture::userdata_root().join("prefer-reference")
+}
+fn reference_pref_load() -> bool {
+    reference_pref_path().exists()
+}
+fn reference_pref_save(on: bool) {
+    let path = reference_pref_path();
+    if on {
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(&path, b"1");
+    } else {
+        let _ = std::fs::remove_file(&path);
+    }
+}
+
 pub struct Composer {
     comp: Composition,
     /// Where `Save` writes (`inbox/<comp-id>/`); None until first save.
@@ -140,6 +160,10 @@ pub struct Composer {
     scan_cache: browse::ScanCache,
     /// One-shot warm guard.
     warmed: bool,
+    /// REFERENCE-in-place mode: imports symlink the source instead of copying
+    /// (the operator's paid AE presets / image folders used where they live).
+    /// Persisted in `.userdata` so the choice sticks across launches.
+    prefer_reference: bool,
     /// The next Browse window's slot id.
     next_browser: usize,
     /// The seeded comp/guide name the guided Save/Export flows use.
@@ -256,6 +280,7 @@ impl Default for Composer {
             browsers: Vec::new(),
             scan_cache: browse::ScanCache::default(),
             warmed: false,
+            prefer_reference: reference_pref_load(),
             next_browser: 0,
             save_name: String::new(),
             episodes: None,
@@ -286,6 +311,8 @@ enum Act {
     New,
     Save,
     Render,
+    /// Flip reference-in-place mode (symlink imports instead of copy).
+    ToggleReference,
     Tab(Tab),
     ETool(EditorTool),
     ATool(AnnotateTool),
@@ -1453,7 +1480,14 @@ impl Composer {
     /// Route one imported file: videos AND images join the timeline
     /// (W7), elements file into the elements shelf — honestly.
     fn handle_import(&mut self, src: &Path) {
-        let outcome = import::import_file(src);
+        // REFERENCE in-place (symlink) when the operator has that mode on —
+        // their paid AE presets / image folders are used where they live, not
+        // copied into the app. Copy stays the default (safe, self-contained).
+        let outcome = if self.prefer_reference {
+            import::import_reference(src)
+        } else {
+            import::import_file(src)
+        };
         match &outcome {
             Ok(rec) => Self::signal_saved(&self.fabric, rec),
             Err(e) => self.signal(dpl_fabric::CaptureEvent::Failed { error: e.clone() }),
@@ -1696,6 +1730,15 @@ impl Composer {
                 self.playing = false;
             }
             Some(Act::ToggleInfo) => self.info_open = !self.info_open,
+            Some(Act::ToggleReference) => {
+                self.prefer_reference = !self.prefer_reference;
+                reference_pref_save(self.prefer_reference);
+                self.status = if self.prefer_reference {
+                    "reference mode ON — pulled files are symlinked in place, not copied".into()
+                } else {
+                    "reference mode off — pulled files are copied into the app".into()
+                };
+            }
             Some(Act::Zoom(f)) => self.px_per_sec = (self.px_per_sec * f).clamp(20.0, 240.0),
             Some(Act::Undo) => self.undo_now(),
             Some(Act::Redo) => self.redo_now(),
@@ -1903,6 +1946,23 @@ impl Composer {
             );
             if resp.clicked() {
                 *act = Some(Act::Browse);
+            }
+            let (rlabel, rtip) = if self.prefer_reference {
+                (
+                    "⌁ in place",
+                    "Reference mode ON — pulled files are SYMLINKED where they live, so your \
+                     paid AE presets / image folders are used without copying them into the app. \
+                     Tap to switch back to copy.",
+                )
+            } else {
+                (
+                    "⧉ copy",
+                    "Copy mode — pulled files are copied in. Tap to REFERENCE in place (symlink) \
+                     instead: use your AE presets / folders directly, no duplication.",
+                )
+            };
+            if cl::tip(small_btn(ui, rlabel, "ref-toggle"), rtip).clicked() {
+                *act = Some(Act::ToggleReference);
             }
         });
         // The preview well appears WITH a selection — an empty well is
