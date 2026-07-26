@@ -88,7 +88,8 @@ pub fn import_file(src: &Path) -> Result<Record, String> {
 pub fn import_reference(src: &Path) -> Result<Record, String> {
     let kind = media_kind(src).ok_or_else(|| format!("not a media file: {}", src.display()))?;
     // Resolve to an absolute target so the symlink survives the app's cwd.
-    let target = std::fs::canonicalize(src).map_err(|e| format!("resolve {}: {e}", src.display()))?;
+    let target =
+        std::fs::canonicalize(src).map_err(|e| format!("resolve {}: {e}", src.display()))?;
     let stem = target
         .file_stem()
         .and_then(|s| s.to_str())
@@ -231,7 +232,10 @@ mod tests {
         let dest = dir.join("linked.png");
         symlink_file(&std::fs::canonicalize(&src).unwrap(), &dest).unwrap();
         assert!(
-            std::fs::symlink_metadata(&dest).unwrap().file_type().is_symlink(),
+            std::fs::symlink_metadata(&dest)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
             "dest is a symlink, not a copy"
         );
         assert_eq!(
