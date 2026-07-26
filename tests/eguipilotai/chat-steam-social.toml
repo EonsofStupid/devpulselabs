@@ -48,7 +48,7 @@ type = "visible"
 
 [steps.expectation.target]
 role = "dialog"
-name = "Open route in Main?"
+name = "Open popup in DevPULSE?"
 
 [steps.expectation.target.viewport]
 key = "chat.primary"
@@ -61,7 +61,7 @@ type = "click"
 
 [steps.action.target]
 role = "button"
-name = "Keep in Chat"
+name = "Deny"
 
 [steps.action.target.viewport]
 key = "chat.primary"
@@ -163,7 +163,7 @@ kind = "expect"
 type = "visible"
 
 [steps.expectation.target]
-id = "chat.primary/chat.provider.login/codex"
+id = "chat.primary/chat.provider.new-chat/provider-card/codex"
 
 [[steps]]
 kind = "expect"

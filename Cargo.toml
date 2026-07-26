@@ -83,6 +83,11 @@ egui_kittest = { version = "0.35", default-features = false }
 # The document layer (dpl-doc): slide.json is serde data, end to end.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+agent-client-protocol = "=2.0.0"
+async-channel = "2"
+async-io = "2"
+async-process = "2"
+futures-lite = "2"
 # The mogrt reader (R2a.2, operator-ratified): .mogrt is a plain zip.
 zip = { version = "8", default-features = false, features = ["deflate"] }
 # The AEP orchestrator's capability probe (operator-ratified): read total
@@ -160,6 +165,13 @@ dpl-hub-shows = { path = "crates/hubs/shows" }
 dpl-hub-present = { path = "crates/hubs/present" }
 dpl-hub-workbench = { path = "crates/hubs/workbench" }
 dpl-hub-wiredfront = { path = "crates/hubs/wiredfront" }
+
+# The Windows MSVC linker otherwise exhausts its PDB record limit while
+# linking the workspace test graph (notably the ACP-backed provider tests).
+# Tests still compile and run in full; only their debug-symbol payload is
+# omitted so `cargo green` remains a reliable local gate.
+[profile.test]
+debug = 0
 
 [profile.release]
 lto = "thin"

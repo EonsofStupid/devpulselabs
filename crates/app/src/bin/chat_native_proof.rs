@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 
 const DEFAULT_TITLE: &str = "DevPULSE Chat";
 const WINDOW_TIMEOUT: Duration = Duration::from_secs(20);
+const RENDER_TIMEOUT: Duration = Duration::from_secs(8);
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 const STABLE_POLLS: u8 = 6;
 
@@ -145,8 +146,7 @@ fn run() -> Result<(), String> {
         let window = windows
             .first()
             .ok_or_else(|| format!("{title:?} disappeared before capture"))?;
-        dpl_engine_capture::still_window_to(&output, window.id)
-            .map_err(|error| format!("could not capture {title:?}: {error}"))?;
+        capture_painted_window(&output, window.id, &title)?;
     }
     child.stop();
     if snapped {
@@ -166,6 +166,51 @@ fn run() -> Result<(), String> {
         );
     }
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn capture_painted_window(
+    output: &std::path::Path,
+    window_id: u32,
+    title: &str,
+) -> Result<(), String> {
+    let started = Instant::now();
+    loop {
+        let last_error = match dpl_engine_capture::still_window_to(output, window_id) {
+            Ok(()) => match image::open(output) {
+                Ok(image) if is_painted_surface(&image.to_rgba8()) => return Ok(()),
+                Ok(_) => "the native surface was still blank".to_owned(),
+                Err(error) => format!("the captured image could not be decoded: {error}"),
+            },
+            Err(error) => error.to_string(),
+        };
+        if started.elapsed() >= RENDER_TIMEOUT {
+            return Err(format!(
+                "could not capture a painted {title:?} surface within {} seconds: {}",
+                RENDER_TIMEOUT.as_secs(),
+                last_error
+            ));
+        }
+        std::thread::sleep(POLL_INTERVAL);
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn is_painted_surface(image: &image::RgbaImage) -> bool {
+    let total = u64::from(image.width()) * u64::from(image.height());
+    if total == 0 {
+        return false;
+    }
+    let painted = image
+        .pixels()
+        .filter(|pixel| {
+            let [red, green, blue, alpha] = pixel.0;
+            alpha > 0
+                && !(red >= 245 && green >= 245 && blue >= 245)
+                && (red > 4 || green > 4 || blue > 4)
+        })
+        .count() as u64;
+    painted.saturating_mul(2) >= total
 }
 
 #[cfg(target_os = "windows")]

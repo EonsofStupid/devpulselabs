@@ -64,6 +64,7 @@ pub enum InteractionContent {
         title: String,
         summary: String,
         approve_label: String,
+        always_approve_label: Option<String>,
         reject_label: String,
     },
     RouteResult {
@@ -124,8 +125,15 @@ impl InteractionSpec {
                 title,
                 summary,
                 approve_label,
+                always_approve_label,
                 reject_label,
-            } => vec![title, summary, approve_label, reject_label],
+            } => {
+                let mut fields: Vec<&str> = vec![title, summary, approve_label, reject_label];
+                if let Some(always) = always_approve_label {
+                    fields.push(always);
+                }
+                fields
+            }
             InteractionContent::RouteResult {
                 route_label,
                 detail,
@@ -326,6 +334,7 @@ mod tests {
                 title: "Open route?".into(),
                 summary: "Restore Main and open Library / Templates.".into(),
                 approve_label: "Open in Main".into(),
+                always_approve_label: None,
                 reject_label: "Keep here".into(),
             },
         }

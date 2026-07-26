@@ -11,9 +11,10 @@
 The DevPULSE operator explicitly approved execution of this narrow exception
 on 2026-07-23. Ratification authorizes implementation of the named adapter
 boundary; it does not waive the launch gates below. The first live adapter is
-Codex app-server over local stdio. Live launch remains fail-closed until its
-supported version range, workspace jail, redaction, process reaping, and
-containment checks are implemented and green.
+Grok Build over its documented ACP stdio surface; ChatGPT/Codex follows only
+after Grok's local qualification checkpoint. Live launch remains fail-closed
+until the selected adapter's supported version range, workspace jail,
+redaction, process reaping, and containment checks are implemented and green.
 
 ## Decision
 
@@ -60,15 +61,22 @@ Only dedicated Chat provider adapters and the Chat lifecycle coordinator may:
 - invoke provider-owned login/logout flows;
 - receive typed account summaries, sessions, events, approvals, usage, and
   errors;
+- service documented coding-agent filesystem and terminal requests inside the
+  selected workspace after the corresponding provider permission is resolved
+  through the governed Interaction Library;
 - terminate and reap the exact child/process tree owned by that adapter;
 - enable the runtime only through explicit feature and project configuration.
 
 ## Forbidden
 
-- executable paths or commands supplied by model output, documents,
-  transcripts, UI text, MCP arguments, or route context;
-- arbitrary shell commands, concatenation, interpolation, or a generic
-  "run anything" adapter;
+- provider executable paths, adapter arguments, or direct host commands
+  supplied by model output, documents, transcripts, UI text, MCP arguments, or
+  route context;
+- arbitrary shell concatenation/interpolation or a generic "run anything"
+  adapter. The sole command exception is a typed terminal request received
+  from a named provider's documented coding-agent protocol after its governed
+  permission decision, confined to an approved workspace and owned/reaped by
+  that provider runtime;
 - reading, parsing, copying, logging, or persisting provider credentials;
 - reusing a provider CLI's OAuth identity to call provider backends directly;
 - silently changing provider, account, model, workspace, permission mode,
@@ -158,9 +166,10 @@ Costs:
 
 - [x] Operator explicitly approves the narrow Chat provider-runtime exception.
 - [x] Allowed and forbidden behavior is accepted.
-- [ ] The first live adapter and supported version range are chosen. Codex is
-  selected; its supported version range remains to be pinned from generated
-  schemas and conformance evidence.
+- [x] The first live adapter is chosen: Grok Build ACP, followed by
+  ChatGPT/Codex app-server.
+- [ ] Grok Build's supported version range is pinned from protocol and
+  real-executable conformance evidence.
 - [ ] Workspace jail and provider profiles are defined.
 - [ ] Secret-redaction and process-reaping tests exist.
 - [ ] Production dependency inspection proves containment.
@@ -179,6 +188,8 @@ sessions, turns, tools, approvals, or send.
 
 The first such slices are the bounded official browser-login paths for
 [ChatGPT / Codex](chat-codex-activation.md) and
-[Grok Build](chat-grok-activation.md). Codex app-server and Grok ACP
-conversation capabilities remain blocked on CHAT-4 and CHAT-7 respectively
-even after login succeeds.
+[Grok Build](chat-grok-activation.md). Grok's activation entry is now extended
+by the named ACP implementation in
+[`chat-provider-workspaces.md`](chat-provider-workspaces.md): browser-login
+success restarts ACP but cannot set `Ready` by itself. Codex app-server remains
+blocked until its separate implementation and qualification pass.

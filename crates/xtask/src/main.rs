@@ -10,14 +10,19 @@
 //!
 //! `cargo xtask fix` = fmt + clippy --fix (the tidy loop).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::time::SystemTime;
 
 fn run(name: &str, args: &[&str]) -> Result<(), String> {
+    let mut command = Command::new("cargo");
+    command.args(args);
+    run_command(name, &mut command)
+}
+
+fn run_command(name: &str, command: &mut Command) -> Result<(), String> {
     println!("── {name} ─────────────────────────────────");
-    let status = Command::new("cargo")
-        .args(args)
+    let status = command
         .status()
         .map_err(|e| format!("{name}: spawn failed: {e}"))?;
     if status.success() {
@@ -25,6 +30,74 @@ fn run(name: &str, args: &[&str]) -> Result<(), String> {
     } else {
         Err(format!("{name} FAILED ({status})"))
     }
+}
+
+fn windows_test_linker() -> Result<Option<(String, PathBuf)>, String> {
+    if !cfg!(windows) {
+        return Ok(None);
+    }
+
+    let version = Command::new("rustc")
+        .arg("-vV")
+        .output()
+        .map_err(|error| format!("test: could not inspect rustc host: {error}"))?;
+    if !version.status.success() {
+        return Err(format!("test: rustc -vV failed ({})", version.status));
+    }
+    let version = String::from_utf8(version.stdout)
+        .map_err(|error| format!("test: rustc host output was not UTF-8: {error}"))?;
+    let host = version
+        .lines()
+        .find_map(|line| line.strip_prefix("host: "))
+        .ok_or_else(|| "test: rustc host triple was not reported".to_owned())?;
+
+    let sysroot = Command::new("rustc")
+        .args(["--print", "sysroot"])
+        .output()
+        .map_err(|error| format!("test: could not inspect rustc sysroot: {error}"))?;
+    if !sysroot.status.success() {
+        return Err(format!(
+            "test: rustc --print sysroot failed ({})",
+            sysroot.status
+        ));
+    }
+    let sysroot = String::from_utf8(sysroot.stdout)
+        .map_err(|error| format!("test: rustc sysroot output was not UTF-8: {error}"))?;
+    let linker = Path::new(sysroot.trim())
+        .join("lib")
+        .join("rustlib")
+        .join(host)
+        .join("bin")
+        .join("rust-lld.exe");
+    if !linker.is_file() {
+        return Err(format!(
+            "test: bundled Windows linker is missing: {}",
+            linker.display()
+        ));
+    }
+
+    let environment = format!(
+        "CARGO_TARGET_{}_LINKER",
+        host.to_ascii_uppercase().replace('-', "_")
+    );
+    Ok(Some((environment, linker)))
+}
+
+fn run_workspace_tests() -> Result<(), String> {
+    let mut command = Command::new("cargo");
+    command.args(["test", "--workspace"]);
+    command.env("CARGO_PROFILE_TEST_DEBUG", "0");
+
+    if let Some((environment, linker)) = windows_test_linker()? {
+        println!(
+            "test linker: {}={} (avoids MSVC PDB record exhaustion)",
+            environment,
+            linker.display()
+        );
+        command.env(environment, linker);
+    }
+
+    run_command("test", &mut command)
 }
 
 fn exe_mtime(path: &Path) -> Option<SystemTime> {
@@ -45,7 +118,7 @@ fn green() -> Result<(), String> {
             "warnings",
         ],
     )?;
-    run("test", &["test", "--workspace"])?;
+    run_workspace_tests()?;
 
     let exe_name = format!("devpulselabs{}", std::env::consts::EXE_SUFFIX);
     let exe = Path::new("target/release").join(exe_name);

@@ -272,10 +272,11 @@ Each crate:
 - owns conformance fixtures;
 - never depends on egui, shell, or another provider.
 
-Codex is the intended first live adapter after ADR ratification because its
-app-server is the most complete official rich-client protocol. Claude follows
-through its documented structured stream. Gemini and Grok require explicit
-installation and qualification.
+The current live-adapter order is Grok Build first through its official ACP
+surface, followed by ChatGPT/Codex through app-server. The operator tests both
+before another provider is exposed. The detailed contract is
+[`chat-provider-workspaces.md`](chat-provider-workspaces.md). Claude and
+Gemini remain later independent qualifications.
 
 Local/Clyffy support may become another registered adapter later. It must not
 remain a hardcoded fifth exception in the UI.
@@ -474,8 +475,12 @@ fixtures.
 
 ## 6. Authentication and activation
 
-Provider tabs are always discoverable through the registry, even if their
-runtime is unavailable.
+All registered provider launchers remain visible in the persistent rail with
+truthful runtime/account state. Selecting or hovering one opens a governed
+provider popover. Provider-owned sessions populate the shared `Pinned`,
+`Active`, and `Recent` groups only after connection or discovery establishes
+them. Implementation order never removes provider choices or other Chat
+destinations.
 
 Activation states:
 
@@ -523,9 +528,9 @@ conversation Send, sessions, tools, or Council.
 - parent/handoff provenance;
 - read-only/live/expired state.
 
-### Provider tab isolation
+### Provider workspace isolation
 
-Each provider tab retains:
+Each provider workspace retains:
 
 - active session;
 - selected model/mode/permission;
@@ -536,8 +541,11 @@ Each provider tab retains:
 - live turn status;
 - open overlays and attached-window links.
 
-Switching tabs must not destroy, merge, or silently pause another provider's
-state.
+Switching workspaces must not destroy, merge, or silently pause another
+provider's state. Every launcher renders provider identity and truthful
+runtime/account status. The provider popover owns `New chat`, Council, and
+Account actions; established sessions populate the shared grouped session
+rail and carry provider identity.
 
 ### Unified discovery
 
@@ -994,18 +1002,23 @@ Chat can explicitly open a valid route in Main.
 Exit: AI can propose useful native surfaces without arbitrary UI or shell
 privilege.
 
-### CHAT-5 — Codex live adapter
+### CHAT-5 — Grok and ChatGPT/Codex live qualification
 
 Implementation is authorized only after every runtime ADR launch gate is
 green.
 
-- Codex app-server lifecycle and handshake;
-- ChatGPT-owned authentication status/login/logout;
-- threads, turns, streaming, plans, diffs, tools, approvals, usage, interrupt;
-- real version-pinned conformance and child teardown.
+- follow [`chat-provider-workspaces.md`](chat-provider-workspaces.md);
+- Grok Build first: ACP v1 lifecycle, cached provider-owned authentication,
+  session list/new/load, streaming prompt, cancellation, and teardown;
+- local and operator checkpoint before starting ChatGPT/Codex;
+- Codex app-server lifecycle, ChatGPT-owned authentication, threads, turns,
+  streaming, plans, diffs, tools, approvals, usage, and interrupt;
+- persistent provider launcher popovers and dynamic provider-session
+  navigation;
+- real version-pinned conformance and child teardown for both providers.
 
-Exit: one complete subscription-backed provider works alone and leaves no
-orphan process.
+Exit: both subscription-backed providers work independently, leave no orphan
+process, and have been tested before any additional provider is exposed.
 
 ### CHAT-6 — Claude live adapter
 
@@ -1017,14 +1030,15 @@ orphan process.
 
 Exit: Claude works alone without provider-specific primary-layout branches.
 
-### CHAT-7 — Gemini and Grok qualification
+### CHAT-7 — Gemini qualification
 
 - explicit operator installation;
 - ACP boundaries and provider-owned authentication;
 - session/prompt/cancel/mode/model conformance;
 - experimental qualification and version-drift handling.
 
-Exit: each provider is qualified, experimental with a reason, or unavailable.
+Exit: Gemini is qualified, experimental with a reason, or unavailable after
+the two-provider checkpoint.
 
 ### CHAT-8 — advanced surfaces
 

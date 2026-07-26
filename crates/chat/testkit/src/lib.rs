@@ -3,7 +3,7 @@
 use dpl_chat_core::{
     ActivationState, Capability, ChatEvent, ChatEventContent, ChatEventId, ChatSessionId,
     ProviderAccent, ProviderDescriptor, ProviderId, ProviderManifest, ProviderProfileId,
-    RecoveryAction, RecoveryActionKind, SessionState, SessionSummary, TurnId,
+    RecoveryAction, RecoveryActionKind, SessionGroup, SessionState, SessionSummary, TurnId,
 };
 use dpl_chat_runtime::ProviderRegistration;
 use dpl_chat_social::{
@@ -29,6 +29,10 @@ const CAPABILITIES: &[Capability] = &[
     Capability::Tools,
     Capability::Diffs,
     Capability::Plans,
+    Capability::Attachments,
+    Capability::Images,
+    Capability::Video,
+    Capability::Models,
 ];
 
 pub const FIXTURE_MANIFEST: ProviderManifest = ProviderManifest {
@@ -59,6 +63,7 @@ pub fn ready_provider() -> ProviderRegistration {
             provider_session_id: None,
             title: "A deterministic conversation".into(),
             workspace: "C:/fixture/workspace".into(),
+            group: SessionGroup::Active,
             state: SessionState::Idle,
         }],
         events: vec![
@@ -107,45 +112,51 @@ fn authored_providers() -> Vec<ProviderRegistration> {
     let mut codex = authored_provider(
         dpl_chat_codex::MANIFEST,
         ChatSessionId(101),
-        "Steam-chat AI/Social foundation",
-        SessionState::Running,
+        "Choice poll redesign",
+        SessionState::Idle,
         vec![
             ChatEventContent::UserMessage(
-                "Keep Chat compact, route-aware, and independent from Main.".into(),
+                "Can we rethink the Choice poll popup? It needs clearer hierarchy and a preview."
+                    .into(),
             ),
             ChatEventContent::AssistantMessage(
-                "The primary viewport now has two persistent columns. Approvals float; sustained previews snap out as native utilities.".into(),
+                "I’ll review the route, propose the updated interaction, and keep the preview snapped beside Chat.".into(),
             ),
             ChatEventContent::ToolCompleted {
-                label: "Validated AI/Social state isolation".into(),
+                label: "Prepared Choice poll preview".into(),
                 succeeded: true,
             },
+            ChatEventContent::UserMessage(
+                "Nice start. Tighten the result spacing and make the mobile actions easier to hit."
+                    .into(),
+            ),
+            ChatEventContent::AssistantMessage(
+                "I’ll refine the spacing, strengthen the mobile actions, and keep the interaction contract intact."
+                    .into(),
+            ),
         ],
     );
-    codex.activation = ActivationState::SignedOut {
-        reason: "Authored transcript; ChatGPT activation is independently testable.".into(),
-        recovery: vec![RecoveryAction::new(
-            RecoveryActionKind::SignIn,
-            "Log in with ChatGPT",
-        )],
-    };
+    codex.activation = ActivationState::Ready;
+    codex.qualified_capabilities = CAPABILITIES.iter().copied().collect();
+    codex.sessions[0].group = SessionGroup::Active;
+    codex.sessions.push(SessionSummary {
+        id: ChatSessionId(100),
+        provider_id: dpl_chat_codex::MANIFEST.descriptor.id,
+        provider_session_id: None,
+        title: "Council: UI review".into(),
+        workspace: "C:/fixture/devpulse".into(),
+        group: SessionGroup::Pinned,
+        state: SessionState::Idle,
+    });
     codex.sessions.push(SessionSummary {
         id: ChatSessionId(102),
         provider_id: dpl_chat_codex::MANIFEST.descriptor.id,
         provider_session_id: None,
         title: "Route bridge review".into(),
         workspace: "C:/fixture/devpulse".into(),
+        group: SessionGroup::Active,
         state: SessionState::Attention,
     });
-    codex.sessions.push(SessionSummary {
-        id: ChatSessionId(103),
-        provider_id: dpl_chat_codex::MANIFEST.descriptor.id,
-        provider_session_id: None,
-        title: "Library visual polish".into(),
-        workspace: "C:/fixture/devpulse".into(),
-        state: SessionState::Idle,
-    });
-
     let mut claude = authored_provider(
         dpl_chat_claude::MANIFEST,
         ChatSessionId(201),
@@ -159,6 +170,8 @@ fn authored_providers() -> Vec<ProviderRegistration> {
         reason: "Claude subscription adapter is not qualified.".into(),
         recovery: Vec::new(),
     };
+    claude.sessions.clear();
+    claude.events.clear();
 
     let mut gemini = authored_provider(
         dpl_chat_gemini::MANIFEST,
@@ -182,7 +195,7 @@ fn authored_providers() -> Vec<ProviderRegistration> {
         Vec::new(),
     );
     grok.activation = ActivationState::SignedOut {
-        reason: "Authored transcript; Grok activation is independently testable.".into(),
+        reason: "Use Grok's browser login; DevPULSE never receives your subscription token.".into(),
         recovery: vec![RecoveryAction::new(
             RecoveryActionKind::SignIn,
             "Log in with Grok",
@@ -216,6 +229,7 @@ fn authored_provider(
             provider_session_id: None,
             title: title.into(),
             workspace: "C:/fixture/devpulse".into(),
+            group: SessionGroup::Recent,
             state,
         }],
         events: content
@@ -427,12 +441,12 @@ fn authored_interactions() -> dpl_chat_interactions::InteractionRegistry {
             lifecycle: InteractionLifecycle::Visible,
             placement: InteractionPlacement::Overlay,
             content: InteractionContent::Approval {
-                title: "Open route in Main?".into(),
-                summary:
-                    "Restore Main and open Library / Slide templates. No context will be sent."
-                        .into(),
-                approve_label: "Restore and open".into(),
-                reject_label: "Keep in Chat".into(),
+                title: "Open popup in DevPULSE?".into(),
+                summary: "Codex wants to open an interaction popup for Library / Choice poll."
+                    .into(),
+                approve_label: "Allow once".into(),
+                always_approve_label: Some("Always allow".into()),
+                reject_label: "Deny".into(),
             },
         },
     ] {
@@ -462,21 +476,23 @@ mod tests {
         assert_eq!(fixture.social.conversations().len(), 3);
         assert_eq!(fixture.interactions.visible().count(), 3);
         assert!(!fixture.social.transport().can_send());
-        for provider_id in [dpl_chat_codex::PROVIDER, dpl_chat_grok::PROVIDER] {
-            let provider = fixture
-                .providers
-                .iter()
-                .find(|provider| provider.manifest.descriptor.id == provider_id)
-                .expect("activation fixture");
-            assert!(matches!(
-                provider
-                    .activation
-                    .recovery()
-                    .first()
-                    .map(|action| action.kind),
-                Some(RecoveryActionKind::SignIn)
-            ));
-            assert!(!provider.has_capability(Capability::StreamTurns));
-        }
+        let codex = fixture
+            .providers
+            .iter()
+            .find(|provider| provider.manifest.descriptor.id == dpl_chat_codex::PROVIDER)
+            .expect("Codex activation fixture");
+        assert_eq!(codex.activation, ActivationState::Ready);
+        assert!(codex.has_capability(Capability::StreamTurns));
+
+        let grok = fixture
+            .providers
+            .iter()
+            .find(|provider| provider.manifest.descriptor.id == dpl_chat_grok::PROVIDER)
+            .expect("Grok activation fixture");
+        assert!(matches!(
+            grok.activation.recovery().first().map(|action| action.kind),
+            Some(RecoveryActionKind::SignIn)
+        ));
+        assert!(!grok.has_capability(Capability::StreamTurns));
     }
 }

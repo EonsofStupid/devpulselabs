@@ -1,9 +1,10 @@
 # Grok activation slice
 
-**Status:** RATIFIED FOR IMPLEMENTATION
+**Status:** IMPLEMENTED AS THE ACTIVATION ENTRY TO THE GROK ACP WORKSPACE
 **Date:** 2026-07-25
 **Governing ADR:** [`chat-provider-runtime-adr.md`](chat-provider-runtime-adr.md)
 **Product authority:** [`chat-architecture.md`](chat-architecture.md)
+**Extended by:** [`chat-provider-workspaces.md`](chat-provider-workspaces.md)
 
 ## Outcome
 
@@ -11,17 +12,21 @@ The Grok provider card in the independent DevPULSE Chat window owns one
 bounded activation path:
 
 ```text
-Grok provider card
+Grok provider launcher
     -> typed ActivateProvider(grok) intent
     -> app-owned Grok activation coordinator
     -> exact official `grok login` child
     -> xAI-owned browser authentication
-    -> Ready only after a successful child exit
+    -> restart the named Grok ACP runtime
+    -> cached subscription authentication succeeds
+    -> Ready only after the ACP connection is qualified
 ```
 
-This slice qualifies subscription activation only. It does not claim that
-Grok conversations, sessions, tools, approvals, or Council participation are
-live. Those capabilities remain disabled until the ACP adapter passes CHAT-7.
+The activation child remains a narrow provider-owned browser boundary. A
+successful login child exit is not itself `Ready`; it causes a fresh ACP
+connection attempt. Sessions, turns, tools, approvals, and cancellation are
+owned by the separately tested `GrokAcpRuntime` defined in the extension plan.
+Council participation remains unavailable.
 
 ## Provider-owned browser contract
 
@@ -63,16 +68,19 @@ conformance record.
   downloads or executes an installer.
 - `Signed out`: offer **Log in with Grok**.
 - `Signing in`: disable duplicate activation and keep the Chat window
-  responsive while the provider-owned browser flow is active.
-- `Ready`: means only that the current activation command completed
-  successfully. Send remains disabled until ACP capabilities are qualified.
+  responsive while either cached authentication or the provider-owned browser
+  flow is active.
+- `Ready`: means the named ACP child negotiated protocol v1, advertised
+  `cached_token`, completed cached subscription authentication, and projected
+  its qualified capabilities. A login-process exit cannot set this state.
 - `Failed`: show a bounded, non-secret failure reason and offer **Try again**.
 - `Version unsupported`: show the detected version and offer the official
   update documentation.
 
-The runtime does not infer a signed-in account from files. A fresh process
-starts in a truthful "not verified by this DevPULSE session" signed-out state
-until the operator runs the explicit login action.
+The runtime never reads an auth file or token. When Grok Build is installed, a
+fresh DevPULSE process performs one bounded ACP cached-authentication probe. A
+successful probe becomes `Ready`; an authentication rejection becomes
+`Signed out` and exposes the explicit login action.
 
 ## Process containment
 
@@ -97,7 +105,8 @@ until the operator runs the explicit login action.
 - App coordinator tests prove provider actions are rejected for non-Grok
   providers and forwarded only to the Grok coordinator.
 - EguiPilotAI proves provider selection, hover-card login action, visible
-  signing-in state, and the absence of a false send capability.
+  connecting state, ACP-qualified session actions, and the absence of a false
+  send capability before a session transport is ready.
 - The full local repository gate passes before any branch push.
 - A real-account browser login is an explicit operator test because CI and
   deterministic fixtures must never authenticate a personal subscription.

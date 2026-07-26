@@ -36,6 +36,7 @@ const TARGETS: &[Capability] = &[
     Capability::Plans,
     Capability::Attachments,
     Capability::Images,
+    Capability::Video,
     Capability::Models,
     Capability::Modes,
     Capability::RateLimits,

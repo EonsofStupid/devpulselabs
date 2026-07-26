@@ -1,8 +1,13 @@
-//! Grok provider descriptor and bounded subscription activation.
+//! Grok provider descriptor, subscription activation, and bounded ACP runtime.
 //!
 //! The only production child this crate can start is the discovered official
-//! Grok Build executable with the literal `login` argument. Conversation ACP
-//! remains separate CHAT-7 work.
+//! Grok Build executable. Login uses the literal `login` argument; conversation
+//! uses the fixed `--no-auto-update agent stdio` ACP command.
+
+mod runtime;
+mod terminal;
+
+pub use runtime::*;
 
 use dpl_chat_core::{
     ActivationState, Capability, ProviderAccent, ProviderDescriptor, ProviderId, ProviderManifest,
@@ -19,7 +24,8 @@ pub const PROVIDER: ProviderId = ProviderId("grok");
 pub const DEFAULT_PROFILE: ProviderProfileId = ProviderProfileId("grok-default");
 pub const SETUP_URL: &str = "https://docs.x.ai/build/overview";
 
-const MINIMUM_VERSION: GrokVersion = GrokVersion::new(0, 2, 112);
+pub const QUALIFIED_VERSION: GrokVersion = GrokVersion::new(0, 2, 112);
+const MINIMUM_VERSION: GrokVersion = QUALIFIED_VERSION;
 const EXCLUSIVE_MAXIMUM_VERSION: GrokVersion = GrokVersion::new(0, 3, 0);
 
 const TARGETS: &[Capability] = &[
@@ -32,6 +38,9 @@ const TARGETS: &[Capability] = &[
     Capability::Tools,
     Capability::Diffs,
     Capability::Plans,
+    Capability::Attachments,
+    Capability::Images,
+    Capability::Video,
     Capability::Models,
     Capability::Modes,
     Capability::SubscriptionAuth,
@@ -255,6 +264,7 @@ fn exit_from_status(status: ExitStatus) -> LoginExit {
 
 #[derive(Debug)]
 pub struct GrokActivationCoordinator {
+    discovery_root: Option<PathBuf>,
     profile: Result<GrokRuntimeProfile, GrokDiscoveryError>,
     state: ActivationState,
     launcher: Box<dyn LoginLauncher>,
@@ -263,10 +273,13 @@ pub struct GrokActivationCoordinator {
 
 impl GrokActivationCoordinator {
     pub fn discover(working_directory: impl AsRef<Path>) -> Self {
-        Self::from_parts(
-            GrokRuntimeProfile::discover(working_directory),
+        let working_directory = working_directory.as_ref().to_owned();
+        let mut coordinator = Self::from_parts(
+            GrokRuntimeProfile::discover(&working_directory),
             Box::<SystemLoginLauncher>::default(),
-        )
+        );
+        coordinator.discovery_root = Some(working_directory);
+        coordinator
     }
 
     pub fn from_parts(
@@ -275,6 +288,7 @@ impl GrokActivationCoordinator {
     ) -> Self {
         let state = activation_from_discovery(&profile);
         Self {
+            discovery_root: None,
             profile,
             state,
             launcher,
@@ -288,6 +302,29 @@ impl GrokActivationCoordinator {
 
     pub fn activation_capability_qualified(&self) -> bool {
         self.profile.is_ok()
+    }
+
+    pub fn runtime_profile(&self) -> Option<GrokRuntimeProfile> {
+        self.profile.as_ref().ok().cloned()
+    }
+
+    /// Re-runs fixed-path discovery after the operator completes provider-owned
+    /// installation or update steps.
+    pub fn refresh_discovery(&mut self) -> Result<bool, GrokActivationError> {
+        if self.child.is_some() {
+            return Err(GrokActivationError::AlreadyRunning);
+        }
+        let root = self.discovery_root.as_ref().ok_or_else(|| {
+            GrokActivationError::Unavailable(
+                "Grok discovery refresh is unavailable for this injected profile.".into(),
+            )
+        })?;
+        let profile = GrokRuntimeProfile::discover(root);
+        let state = activation_from_discovery(&profile);
+        let changed = self.profile != profile || self.state != state;
+        self.profile = profile;
+        self.state = state;
+        Ok(changed)
     }
 
     pub fn is_login_running(&self) -> bool {
