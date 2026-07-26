@@ -119,6 +119,17 @@ impl EventLog {
                 l["visible"] = serde_json::json!(visible);
                 l
             }
+            CaptureEvent::Recording { on, count } => {
+                let mut l = base("recording");
+                l["on"] = serde_json::json!(on);
+                l["count"] = serde_json::json!(count);
+                l
+            }
+            CaptureEvent::Skipped { reason } => {
+                let mut l = base("skipped");
+                l["reason"] = serde_json::json!(reason);
+                l
+            }
         };
         // Stable, deterministic serialization for the recorder.
         if line["seq"].is_null() {

@@ -136,6 +136,12 @@ pub fn capture_json(st: &Stamped<CaptureEvent>) -> Value {
         CaptureEvent::PaletteVisibility { visible } => {
             json!({"type": "paletteVisibility", "visible": visible})
         }
+        CaptureEvent::Recording { on, count } => {
+            json!({"type": "recording", "on": on, "count": count})
+        }
+        CaptureEvent::Skipped { reason } => {
+            json!({"type": "skipped", "reason": reason})
+        }
     };
     v["domain"] = json!("capture");
     v["seq"] = json!(st.seq);
@@ -650,6 +656,30 @@ mod envelope_tests {
             capture_json(&st)["type"],
             json!("paletteVisibility"),
             "camelCase kinds — the envelope law"
+        );
+        // The recorder FACTS (steps/session state + skip) ride the same
+        // envelope so agents watching `/signals` see a recording live.
+        let st = Stamped {
+            seq: 10,
+            ms: 1500,
+            ev: CaptureEvent::Recording { on: true, count: 3 },
+        };
+        assert_eq!(
+            capture_json(&st),
+            json!({"domain": "capture", "seq": 10, "ms": 1500,
+                   "type": "recording", "on": true, "count": 3})
+        );
+        let st = Stamped {
+            seq: 11,
+            ms: 1600,
+            ev: CaptureEvent::Skipped {
+                reason: "nothing changed".into(),
+            },
+        };
+        assert_eq!(
+            capture_json(&st),
+            json!({"domain": "capture", "seq": 11, "ms": 1600,
+                   "type": "skipped", "reason": "nothing changed"})
         );
     }
 
