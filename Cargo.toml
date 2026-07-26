@@ -49,6 +49,7 @@ members = [
     "crates/index",
     "crates/viziwiz",
     "crates/fabric",
+    "crates/landing",
     "crates/seam",
     "crates/shell",
     "crates/hubs/home",
@@ -168,6 +169,7 @@ dpl-deck = { path = "crates/deck" }
 dpl-index = { path = "crates/index" }
 dpl-viziwiz = { path = "crates/viziwiz" }
 dpl-fabric = { path = "crates/fabric" }
+dpl-landing = { path = "crates/landing" }
 dpl-seam = { path = "crates/seam" }
 dpl-shell = { path = "crates/shell" }
 dpl-hub-home = { path = "crates/hubs/home" }

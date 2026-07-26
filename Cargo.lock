@@ -2043,6 +2043,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "dpl-landing"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "dpl-lottie"
 version = "0.1.0"
 dependencies = [
