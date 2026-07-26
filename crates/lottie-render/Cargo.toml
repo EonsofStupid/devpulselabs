@@ -1,0 +1,26 @@
+[package]
+name = "dpl-lottie-render"
+version.workspace = true
+edition.workspace = true
+publish = false
+description = "The ThorVG subprocess render helper (ADR-009) — the ONE FFI leaf. The app SPAWNS this binary (like ffmpeg/aerender), never links it, so all C++ FFI and `unsafe` stay quarantined here. Renders Lottie/Bodymovin frames to RGBA: `frame` (one-shot PNG), `export` (PNG sequence for ffmpeg), `serve` (persistent stdin-time → stdout-RGBA scrub stream)."
+
+[[bin]]
+name = "dpl-lottie-render"
+path = "src/main.rs"
+
+[dependencies]
+# ThorVG (C++) is compiled from vendored source — the mature Lottie engine
+# behind dotLottie/Samsung. This is the ONLY crate that links it.
+thorvg-sys.workspace = true
+image.workspace = true
+
+# This crate opts OUT of the workspace `unsafe_code = deny`: it is the
+# operator-ratified FFI boundary (subprocess helper), and the C API
+# demands `unsafe`. Every OTHER crate stays unsafe-free. Clippy rigor kept.
+[lints.rust]
+unsafe_code = "allow"
+unused_must_use = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
