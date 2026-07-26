@@ -1,0 +1,14 @@
+[package]
+name = "dpl-estate"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+fjall.workspace = true
+moka.workspace = true
+serde.workspace = true
+serde_json.workspace = true
