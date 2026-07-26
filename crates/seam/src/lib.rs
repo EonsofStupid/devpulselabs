@@ -242,6 +242,7 @@ fn start_render(s: &Shared, body: &Value) -> Result<(StatusCode, Value), Vec<Str
         if let dpl_comp::Source::Artifact { rel: clip_rel } = &layer.source {
             let path = jail(&s.root, clip_rel).map_err(|e| vec![e])?;
             clips.push(dpl_engine_media::StitchClip {
+                still: dpl_engine_media::is_still(&path),
                 path,
                 in_pt: layer.in_pt,
                 out_pt: layer.out_pt,

@@ -296,12 +296,24 @@ fn run_ffmpeg(args: Vec<String>) -> Result<(), String> {
 // encode engine never learns the document schema. The Composer maps its
 // Composition → these clips.
 
-/// One trimmed source clip in a stitch render.
+/// One trimmed source clip in a stitch render. A STILL (W7: images are
+/// first-class layers) is looped and held for its span instead of
+/// trimmed — the guide-video leg, generalized.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StitchClip {
     pub path: PathBuf,
     pub in_pt: f32,
     pub out_pt: f32,
+    pub still: bool,
+}
+
+/// Is this path a held-frame source (the image kinds the pipeline
+/// already speaks)? The stitch and its callers share ONE answer.
+pub fn is_still(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .is_some_and(|e| IMAGE_EXTS.contains(&e.as_str()))
 }
 
 /// The concat filtergraph args to stitch `clips` end-to-end into one H.264
@@ -312,16 +324,31 @@ pub struct StitchClip {
 pub fn stitch_args(clips: &[StitchClip], w: u32, h: u32, fps: u32, out: &Path) -> Vec<String> {
     let mut args: Vec<String> = vec!["-y".into(), "-v".into(), "error".into()];
     for c in clips {
+        if c.still {
+            // A held frame: loop the image for exactly its span.
+            args.push("-loop".into());
+            args.push("1".into());
+            args.push("-t".into());
+            args.push(format!("{:.3}", (c.out_pt - c.in_pt).max(0.05)));
+        }
         args.push("-i".into());
         args.push(c.path.to_string_lossy().into_owned());
     }
     let mut graph = String::new();
     for (i, c) in clips.iter().enumerate() {
-        let s = c.in_pt.max(0.0);
-        let e = c.out_pt.max(s);
-        graph.push_str(&format!(
-            "[{i}:v]trim=start={s:.3}:end={e:.3},setpts=PTS-STARTPTS,fps={fps},scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1[v{i}];"
-        ));
+        // format=yuv420p on EVERY leg — stills decode RGBA and a mixed
+        // concat must never fight pixel formats.
+        if c.still {
+            graph.push_str(&format!(
+                "[{i}:v]fps={fps},scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[v{i}];"
+            ));
+        } else {
+            let s = c.in_pt.max(0.0);
+            let e = c.out_pt.max(s);
+            graph.push_str(&format!(
+                "[{i}:v]trim=start={s:.3}:end={e:.3},setpts=PTS-STARTPTS,fps={fps},scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[v{i}];"
+            ));
+        }
     }
     for i in 0..clips.len() {
         graph.push_str(&format!("[v{i}]"));
@@ -705,11 +732,13 @@ mod stitch_tests {
                 path: "a.mp4".into(),
                 in_pt: 0.0,
                 out_pt: 6.0,
+                still: false,
             },
             StitchClip {
                 path: "b.mp4".into(),
                 in_pt: 1.0,
                 out_pt: 9.0,
+                still: false,
             },
         ];
         let a = stitch_args(&clips, 1920, 1080, 30, Path::new("out.mp4")).join(" ");
@@ -736,10 +765,48 @@ mod stitch_tests {
             path: "solo.mp4".into(),
             in_pt: 2.0,
             out_pt: 5.0,
+            still: false,
         }];
         let a = stitch_args(&clips, 1280, 720, 24, Path::new("o.mp4")).join(" ");
         assert!(a.contains("concat=n=1:v=1:a=0[out]"), "{a}");
         assert!(a.contains("[v0]"), "{a}");
+    }
+
+    #[test]
+    fn a_still_leg_loops_and_holds_without_trimming() {
+        let clips = vec![
+            StitchClip {
+                path: "hero.png".into(),
+                in_pt: 0.0,
+                out_pt: 5.0,
+                still: true,
+            },
+            StitchClip {
+                path: "b.mp4".into(),
+                in_pt: 1.0,
+                out_pt: 4.0,
+                still: false,
+            },
+        ];
+        let a = stitch_args(&clips, 1920, 1080, 30, Path::new("out.mp4")).join(" ");
+        assert!(a.contains("-loop 1 -t 5.000 -i hero.png"), "{a}");
+        assert!(
+            a.contains("[0:v]fps=30,scale=1920:1080"),
+            "still leg has no trim: {a}"
+        );
+        assert!(!a.contains("trim=start=0.000:end=5.000"), "{a}");
+        assert!(
+            a.contains("trim=start=1.000:end=4.000"),
+            "video leg trims: {a}"
+        );
+        assert_eq!(
+            a.matches("format=yuv420p").count(),
+            2,
+            "every leg format-normalized: {a}"
+        );
+        assert!(a.contains("concat=n=2:v=1:a=0[out]"), "{a}");
+        assert!(is_still(Path::new("x/y/hero.PNG")));
+        assert!(!is_still(Path::new("x/y/clip.mp4")));
     }
 
     #[test]

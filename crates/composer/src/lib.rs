@@ -41,6 +41,8 @@ use std::time::{Duration, Instant};
 
 /// The default trimmed length for a clip whose duration we cannot probe.
 const FALLBACK_CLIP_SECS: f32 = 6.0;
+/// How long an IMAGE layer holds by default (W7) — trim to taste.
+const DEFAULT_IMAGE_SECS: f32 = 5.0;
 /// Timeline row heights: a layer's lane, a twirled property row, the ruler.
 const LANE_H: f32 = 26.0;
 const PROP_H: f32 = 20.0;
@@ -64,6 +66,9 @@ pub struct Composer {
     selected: Option<String>,
     /// The preview player, keyed by the layer id it was opened for.
     preview: Option<(String, ClipPlayer)>,
+    /// The STILL preview lane (W7): (layer id, file:/// uri) when the
+    /// active layer is an image — no ffmpeg pipe for a held frame.
+    preview_still: Option<(String, String)>,
     /// FOOTAGE — video + image artifacts from the index.
     palette: Option<Vec<Record>>,
     /// COMPS — every `inbox/*/comp.json`, as (name, dir).
@@ -197,6 +202,7 @@ impl Default for Composer {
             dir: None,
             selected: None,
             preview: None,
+            preview_still: None,
             palette: None,
             comps: None,
             renders: None,
@@ -253,8 +259,8 @@ enum Act {
     Tab(Tab),
     ETool(EditorTool),
     ATool(AnnotateTool),
-    /// Add a FOOTAGE row (videos join the timeline; images preview only,
-    /// honestly, until the image-layers pass) — either way the row lands
+    /// Add a FOOTAGE row to the timeline — videos at their probed
+    /// length, images held DEFAULT_IMAGE_SECS (W7); the row also lands
     /// in the preview well.
     Add(usize),
     /// Append a RENDER (name, rel_path) as a new layer.
@@ -477,15 +483,20 @@ impl Composer {
     }
 
     /// Append a footage record as a new layer, stitched onto the end.
+    /// IMAGES are layers too (W7): a still holds DEFAULT_IMAGE_SECS,
+    /// trimmable like any bar — no probe, no special schema.
     fn add_clip(&mut self, rec: &Record) {
         self.checkpoint();
         let path = Self::resolve(&rec.rel_path);
-        let out_pt = rec
-            .seconds
-            .filter(|s| *s > 0)
-            .map(|s| s as f32)
-            .or_else(|| dpl_video::clip::clip_duration(&path).filter(|d| *d > 0.0))
-            .unwrap_or(FALLBACK_CLIP_SECS);
+        let out_pt = if rec.kind == "image" {
+            DEFAULT_IMAGE_SECS
+        } else {
+            rec.seconds
+                .filter(|s| *s > 0)
+                .map(|s| s as f32)
+                .or_else(|| dpl_video::clip::clip_duration(&path).filter(|d| *d > 0.0))
+                .unwrap_or(FALLBACK_CLIP_SECS)
+        };
         let start = self.comp.duration();
         let id = self.next_layer_id();
         // default_1080p30 guarantees a "main" track exists.
@@ -555,8 +566,23 @@ impl Composer {
             Source::Element { .. } => return,
         };
         let want = layer.in_pt + (self.time - layer.start);
+        let path = Self::resolve(&rel);
+        if dpl_engine_media::is_still(&path) {
+            // A held frame previews as itself — no ffmpeg pipe.
+            if self.preview_still.as_ref().map(|(k, _)| k.as_str()) != Some(id.as_str()) {
+                let uri = format!("file:///{}", path.to_string_lossy().replace('\\', "/"));
+                self.preview_still = Some((id, uri));
+            }
+            if let Some((_, player)) = self.preview.as_mut() {
+                if player.playing() {
+                    player.toggle();
+                }
+            }
+            return;
+        }
+        self.preview_still = None;
         if self.preview.as_ref().map(|(k, _)| k.as_str()) != Some(id.as_str()) {
-            let mut player = ClipPlayer::open(Self::resolve(&rel));
+            let mut player = ClipPlayer::open(path);
             player.seek(want);
             self.preview = Some((id, player));
         }
@@ -582,6 +608,7 @@ impl Composer {
         if self.selected.as_deref() == Some(id) {
             self.selected = None;
             self.preview = None;
+            self.preview_still = None;
         }
         self.status = format!("Removed {id} — {} layer(s) left.", self.layers().len());
         self.mark_edit();
@@ -662,6 +689,7 @@ impl Composer {
         self.dir = None;
         self.selected = None;
         self.preview = None;
+        self.preview_still = None;
         self.proj_sel = None;
         self.time = 0.0;
         self.playing = false;
@@ -795,6 +823,7 @@ impl Composer {
                 self.dir = Some(dir.clone());
                 self.selected = None;
                 self.preview = None;
+                self.preview_still = None;
                 self.expanded.clear();
                 self.time = 0.0;
                 self.playing = false;
@@ -824,11 +853,15 @@ impl Composer {
         self.layers()
             .iter()
             .filter_map(|l| match &l.source {
-                Source::Artifact { rel } => Some(StitchClip {
-                    path: Self::resolve(rel),
-                    in_pt: l.in_pt,
-                    out_pt: l.out_pt,
-                }),
+                Source::Artifact { rel } => {
+                    let path = Self::resolve(rel);
+                    Some(StitchClip {
+                        still: dpl_engine_media::is_still(&path),
+                        path,
+                        in_pt: l.in_pt,
+                        out_pt: l.out_pt,
+                    })
+                }
                 Source::Element { .. } => None,
             })
             .collect()
@@ -1202,22 +1235,12 @@ impl Composer {
     }
 
     /// One indexed media record sent from an OUTSIDE surface — the
-    /// Library shelf's double-click (W6). A video joins the timeline
-    /// through the same path a FOOTAGE tap takes (checkpoint, undo,
-    /// autosave all ride); an image answers honestly until the
-    /// image-layers pass lands. The Nth feeding surface calls this
-    /// same one seam.
+    /// Library shelf's double-click (W6). Videos AND images (W7) join
+    /// the timeline through the same path a FOOTAGE tap takes —
+    /// checkpoint, undo, autosave all ride. The Nth feeding surface
+    /// calls this same one seam.
     pub fn add_from_library(&mut self, rec: &Record) {
-        if rec.kind == "video" {
-            self.add_clip(rec);
-        } else {
-            self.palette = None;
-            self.status = format!(
-                "{} is in your FOOTAGE list — images join the timeline with the \
-                 image-layers pass.",
-                rec.name
-            );
-        }
+        self.add_clip(rec);
     }
 
     /// The harness seam (`--import-drill <dir>`): import every media
@@ -1239,11 +1262,11 @@ impl Composer {
         self.elements = None;
     }
 
-    /// Route one imported file: videos join the timeline, images join
-    /// the library, elements file into the elements shelf — honestly.
+    /// Route one imported file: videos AND images join the timeline
+    /// (W7), elements file into the elements shelf — honestly.
     fn handle_import(&mut self, src: &Path) {
         match import::import_file(src) {
-            Ok(rec) if rec.kind == "video" => self.add_clip(&rec),
+            Ok(rec) if rec.kind == "video" || rec.kind == "image" => self.add_clip(&rec),
             Ok(rec) if rec.kind == "element" => {
                 let mogrt = src
                     .extension()
@@ -1434,14 +1457,7 @@ impl Composer {
             Some(Act::ATool(t)) => self.atool = t,
             Some(Act::Add(i)) => {
                 if let Some(rec) = self.palette.as_ref().and_then(|p| p.get(i)).cloned() {
-                    if rec.kind == "video" {
-                        self.add_clip(&rec);
-                    } else {
-                        self.status = format!(
-                            "{} — images join the timeline with the image-layers pass.",
-                            rec.name
-                        );
-                    }
+                    self.add_clip(&rec);
                     self.proj_sel = Some(i);
                 }
             }
@@ -1783,7 +1799,7 @@ impl Composer {
                         if rec.kind == "video" {
                             "Add this clip to the timeline"
                         } else {
-                            "Preview this image (image layers land in a later pass)"
+                            "Add this image to the timeline (held 5s, trim to taste)"
                         },
                     );
                     ui.pilot_track(
@@ -1827,19 +1843,25 @@ impl Composer {
         let frame = fit_aspect(stage_rect.shrink(cl::space::S1), 16.0 / 9.0);
         ui.painter()
             .rect_filled(frame, CornerRadius::same(cl::RADIUS_SM), cl::surface::WELL);
-        match &self.preview {
-            Some((_, player)) => match player.texture(ui.ctx()) {
-                Some(tex) => {
-                    let uv = dpl_video::cover_uv(
-                        DECODE_W as f32 / DECODE_H as f32,
-                        frame.aspect_ratio(),
-                    );
-                    ui.painter().image(tex, frame, uv, Color32::WHITE);
-                    ui.ctx().request_repaint_after(Duration::from_millis(16));
-                }
-                None => painter_label(ui, frame, "Loading the frame… (needs ffmpeg on PATH)"),
-            },
-            None => painter_label(ui, frame, "Add footage, then press play"),
+        if let Some((_, uri)) = &self.preview_still {
+            egui::Image::new(uri.as_str())
+                .corner_radius(cl::RADIUS_SM)
+                .paint_at(ui, frame);
+        } else {
+            match &self.preview {
+                Some((_, player)) => match player.texture(ui.ctx()) {
+                    Some(tex) => {
+                        let uv = dpl_video::cover_uv(
+                            DECODE_W as f32 / DECODE_H as f32,
+                            frame.aspect_ratio(),
+                        );
+                        ui.painter().image(tex, frame, uv, Color32::WHITE);
+                        ui.ctx().request_repaint_after(Duration::from_millis(16));
+                    }
+                    None => painter_label(ui, frame, "Loading the frame… (needs ffmpeg on PATH)"),
+                },
+                None => painter_label(ui, frame, "Add footage, then press play"),
+            }
         }
         let bar = Rect::from_min_max(egui::pos2(rect.min.x, stage_rect.max.y), rect.max);
         let mut c = ui.new_child(UiBuilder::new().max_rect(bar));
@@ -2938,6 +2960,13 @@ impl Composer {
         }
         ui.painter()
             .rect_filled(canvas, CornerRadius::same(cl::RADIUS), cl::surface::WELL);
+        if let Some((_, uri)) = &self.preview_still {
+            let frame = fit_aspect(canvas.shrink(cl::space::S3), 16.0 / 9.0);
+            egui::Image::new(uri.as_str())
+                .corner_radius(cl::RADIUS_SM)
+                .paint_at(ui, frame);
+            return;
+        }
         match &self.preview {
             Some((_, player)) => match player.texture(ui.ctx()) {
                 Some(tex) => {
@@ -3679,7 +3708,7 @@ mod tests {
         assert_eq!(c.layers().len(), 1, "video joins the timeline");
         assert!(!c.undo_stack.is_empty(), "checkpoint rode the add");
         assert!(c.dirty, "autosave sees the edit");
-        // An image stays honest — no fake layer, the pass is named.
+        // W7: an image is a first-class layer — held 5s, valid comp.
         let img = Record {
             rel_path: "inbox/pix.png".into(),
             kind: "image".into(),
@@ -3687,8 +3716,14 @@ mod tests {
             ..Record::default()
         };
         c.add_from_library(&img);
-        assert_eq!(c.layers().len(), 1, "no fake image layer");
-        assert!(c.status.contains("image-layers pass"), "{}", c.status);
+        assert_eq!(c.layers().len(), 2, "the image joined the timeline");
+        let l = &c.layers()[1];
+        assert!((l.span() - 5.0).abs() < 1e-6, "held DEFAULT_IMAGE_SECS");
+        assert!((l.start - 4.0).abs() < 1e-6, "appended after the video");
+        assert!(dpl_comp::validate(&c.comp).is_empty());
+        // The stitch maps it as a STILL.
+        let clips = c.stitch_clips();
+        assert!(!clips[0].still && clips[1].still, "still flags mapped");
     }
 
     #[test]
