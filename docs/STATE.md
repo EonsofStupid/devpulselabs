@@ -2,14 +2,14 @@
 
 Updated every pass. This file is the first read of every session.
 
-**2026-07-26 — LEDGER RECONCILE (closeout hygiene).** Open GitHub PRs: none.
-Squash-merge leftovers on origin (merged heads without `--delete-branch`)
-are being pruned; `feat/estate-fjall-moka` kept for triage (not on main).
-Active unfinished local work: `feat/wf-external-assets` (reference-in-place
-+ cross-platform Browse libraries) — closing next via PR → green-linux →
-squash-merge. Closeout rhythm (ratified): branch → PR → wait green-linux →
-`gh pr merge --squash --delete-branch` → sync main → tip this file → only
-then start the next branch.
+**2026-07-26 — WF EXTERNAL ASSETS LANDED (#60).** Reference-in-place imports
+(`import_reference` single-file symlink + `⧉ copy` ⇄ `⌁ in place` toggle) and
+cross-platform Browse roots + operator libraries (`★ Add/Remove library` →
+`.userdata/libraries.json`). Plan `docs/plans/wf-external-assets.md` §8.
+Open GitHub PRs: none. Closeout rhythm holding: branch → PR → green-linux →
+squash-merge + delete-branch → tip this file → only then next branch.
+Triage remotes still kept: `feat/estate-fjall-moka`, `design/coldlight-traits`,
+stacked `feat/r1*` / `refactor/chat-consolidation` (CLOSED PR leftovers).
 
 **2026-07-26 — W9a/W9b GUIDED LANDING (foundation + organized stills).**
 **W9a** (#57): shared `dpl-landing` crate — `CaptureKind`, `LandingMode`
@@ -54,7 +54,7 @@ disabled, relocated release startup passed with provider-bearing `PATH`
 entries removed, and the complete local `cargo green` gate passed. Canonical
 contract and evidence: `docs/plans/private-tool-depot.md`.
 
-**Tip:** on `main` (2026-07-26) at W9b (#58). **DG1 LANDED** (#43,
+**Tip:** on `main` (2026-07-26) at WF external-assets (#60). **DG1 LANDED** (#43,
 `feat/dg1-mixed-guide`, `docs/plans/dg1-mixed-media-guide.md` — operator:
 stills for where-to-click + session-replay clips when appropriate, ORDERED
 in one `.guide`): replay-segment steps land — `Step.kind:"replay"` +
@@ -567,13 +567,15 @@ is DELETED. Memory: `chat-is-a-peer-window`.
 
 ## Next
 
-1. **Close `feat/wf-external-assets`** — PR → green-linux → squash-merge → tip.
-2. **W9c** — Ask-mode LandingCard + land() for video/session/guide + policy UI
-   (`docs/plans/w9-capture-landing.md` remainder).
-3. Triage: `feat/estate-fjall-moka` (keep/reopen/drop); prune CLOSED stacked
+1. **W9c** — Ask-mode LandingCard + `land()` for video/session/guide + policy UI
+   (`docs/plans/w9-capture-landing.md` remainder). Plan before code.
+2. Triage: `feat/estate-fjall-moka` (keep/reopen/drop); prune CLOSED stacked
    remotes after confirming no novel commits.
-4. Parallel backlog (not blocking W9c): RR1.1 offscreen sweep; experience
+3. Parallel backlog (not blocking W9c): RR1.1 offscreen sweep; experience
    inventory; AEP orchestrator Phase 2; ColdLight remaining program.
+4. Ops: `sudo ./svc.sh install` for `dpl-linux` persistence; unset Cursor's
+   injected `CARGO_TARGET_DIR` when running local `cargo green` (external
+   target dir breaks `locate_asset`'s 4-level walk — fix is a later pass).
 
 ## Process facts
 
