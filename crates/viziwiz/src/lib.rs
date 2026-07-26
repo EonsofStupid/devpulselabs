@@ -16,6 +16,7 @@ use dpl_coldlight::Tone;
 use dpl_engine_capture as cap;
 use dpl_engine_steps::{normalize_meta_auto, CaptureMeta, Hotkey, StepsRecorder};
 use dpl_fabric::{Fabric, ShellEvent};
+use dpl_landing::{CaptureKind, LandingPolicy, NameContext};
 use egui::{ViewportBuilder, ViewportId};
 use egui_pilot_ai::protocol::PilotViewportKey;
 use egui_pilot_ai::ContextPilotExt;
@@ -127,6 +128,11 @@ pub struct Viziwiz {
     delay_armed: Option<(Instant, PendingSnip)>,
     /// The last successful still's shape — Re-snip's memory.
     last: Option<LastSnip>,
+    /// W9: the operator's landing policy (mode + pattern), loaded from
+    /// `.userdata`. Captures file ORGANIZED by it — never a flat dump.
+    landing: LandingPolicy,
+    /// A never-clobber sequence for the landing name template.
+    land_seq: u32,
 }
 
 impl Viziwiz {
@@ -185,6 +191,8 @@ impl Viziwiz {
             delay: 0,
             delay_armed: None,
             last: None,
+            landing: LandingPolicy::load(&cap::userdata_root()),
+            land_seq: 0,
         }
     }
 
@@ -220,9 +228,9 @@ impl Viziwiz {
 
     /// X1 write-through for a fresh capture — builds the row, then the
     /// one seam above indexes + signals.
-    fn index_capture(fabric: &dpl_fabric::Fabric, path: &Path, kind: &str) -> String {
+    fn index_capture(fabric: &dpl_fabric::Fabric, path: &Path, kind: CaptureKind) -> String {
         let root = cap::content_root();
-        let record = dpl_index::record_for_capture(path, &root, kind, "viziwiz");
+        let record = dpl_index::record_for_capture(path, &root, kind.as_str(), "viziwiz");
         Self::index_and_signal(fabric, path, record)
     }
 
@@ -274,6 +282,39 @@ impl Viziwiz {
             .map(|n| dir.join(format!("{stem}-{n}.{ext}")))
             .find(|p| !p.exists())
             .expect("unbounded range")
+    }
+
+    /// W9: the ORGANIZED landing target — `inbox/<bucket>/<kind>/<name>.<ext>`
+    /// per the operator's policy (dir created), with a never-clobber,
+    /// policy-expanded name (never a bare `pix`). Falls back to a flat inbox
+    /// only when the policy has no bucket. This is the anti-dumping-ground seam
+    /// every vehicle mints its path through.
+    fn land_target(
+        &mut self,
+        kind: CaptureKind,
+        ext: &str,
+        title: Option<&str>,
+    ) -> Result<PathBuf, String> {
+        let inbox = Self::inbox()?;
+        self.land_seq += 1;
+        let seq = self.land_seq;
+        let policy = self.landing.for_kind(kind);
+        let dir = match policy.inbox_subdir(kind) {
+            Some(sub) => {
+                let d = inbox.join(sub);
+                std::fs::create_dir_all(&d).map_err(|e| format!("land dir: {e}"))?;
+                d
+            }
+            None => inbox,
+        };
+        let stem = policy.pattern.expand_name(&NameContext {
+            app: title,
+            title,
+            kind: kind.as_str(),
+            seq,
+            date: "",
+        });
+        Ok(Self::unique_path(&dir, &stem, ext))
     }
 
     /// The repo's poster convention: `x.mp4` → `x-poster.jpg`.
@@ -535,13 +576,13 @@ impl Viziwiz {
     }
 
     fn snap_full(&mut self, ctx: &egui::Context) {
-        let result = Self::inbox().and_then(|inbox| {
+        let target = self.land_target(CaptureKind::Image, "png", None);
+        let result = target.and_then(|out| {
             let primary = cap::list_targets()
                 .0
                 .into_iter()
                 .find(|m| m.is_primary)
                 .ok_or("no primary monitor")?;
-            let out = Self::unique_path(&inbox, "pix", "png");
             cap::still_monitor_to(&out, primary.id)?;
             Ok(out)
         });
@@ -551,7 +592,7 @@ impl Viziwiz {
                 format!(
                     "saved {}{}{}",
                     p.display(),
-                    Self::index_capture(&self.fabric, &p, "image"),
+                    Self::index_capture(&self.fabric, &p, CaptureKind::Image),
                     Self::copy_to_clipboard(ctx, &p)
                 )
             }
@@ -569,8 +610,8 @@ impl Viziwiz {
     }
 
     fn snap_window_id(&mut self, ctx: &egui::Context, id: u32, title: &str) {
-        let result = Self::inbox().and_then(|inbox| {
-            let out = Self::unique_path(&inbox, "pix", "png");
+        let target = self.land_target(CaptureKind::Image, "png", Some(title));
+        let result = target.and_then(|out| {
             cap::still_window_to(&out, id)?;
             Ok(out)
         });
@@ -580,7 +621,7 @@ impl Viziwiz {
                 format!(
                     "saved {} ({title}){}{}",
                     p.display(),
-                    Self::index_capture(&self.fabric, &p, "image"),
+                    Self::index_capture(&self.fabric, &p, CaptureKind::Image),
                     Self::copy_to_clipboard(ctx, &p)
                 )
             }
@@ -600,8 +641,8 @@ impl Viziwiz {
             LastSnip::Full => self.snap_full(ctx),
             LastSnip::Window(id) => self.snap_window_id(ctx, id, "re-snip"),
             LastSnip::Region(frac) => {
-                let result = Self::inbox().and_then(|inbox| {
-                    let out = Self::unique_path(&inbox, "pix", "png");
+                let target = self.land_target(CaptureKind::Image, "png", None);
+                let result = target.and_then(|out| {
                     cap::still_region_to(&out, frac)?;
                     Ok(out)
                 });
@@ -609,15 +650,15 @@ impl Viziwiz {
                     Ok(p) => format!(
                         "saved {}{}{}",
                         p.display(),
-                        Self::index_capture(&self.fabric, &p, "image"),
+                        Self::index_capture(&self.fabric, &p, CaptureKind::Image),
                         Self::copy_to_clipboard(ctx, &p)
                     ),
                     Err(e) => e,
                 };
             }
             LastSnip::Free(points) => {
-                let result = Self::inbox().and_then(|inbox| {
-                    let out = Self::unique_path(&inbox, "pix", "png");
+                let target = self.land_target(CaptureKind::Image, "png", None);
+                let result = target.and_then(|out| {
                     cap::still_freeform_to(&out, &points)?;
                     Ok(out)
                 });
@@ -625,7 +666,7 @@ impl Viziwiz {
                     Ok(p) => format!(
                         "saved {}{}{}",
                         p.display(),
-                        Self::index_capture(&self.fabric, &p, "image"),
+                        Self::index_capture(&self.fabric, &p, CaptureKind::Image),
                         Self::copy_to_clipboard(ctx, &p)
                     ),
                     Err(e) => e,
