@@ -57,7 +57,15 @@ doctrine completes it.
    webview consumer binds nothing. The KINDS carry over faithfully:
    `CaptureEvent { Started{mode,target} · Saved{rel_path,kind,name,
    location,source} · Failed{error} · InboxChanged ·
-   PaletteVisibility{visible} }` — Saved's fields align with
+   PaletteVisibility{visible} · Recording{on,count} · Skipped{reason} }`
+   — the last two are the ADDITIVE recorder-facts extension (2026-07-26):
+   PORT ran the steps/session recorder over cross-window signals
+   (`dpl:steps-state`/`-skip`/`-cmd`, `dpl:session-state`/`-cmd`); the
+   faithful single-process translation keeps the toggle COMMAND a direct
+   call (`Viziwiz::toggle_steps`) — stronger than a broadcast — and puts
+   only the FACTS on the fabric, so the activity feed, status counter and
+   `/signals` see a recording live and `skipped · <reason>` never reads as
+   a frozen counter. Saved's fields align with
    `dpl_index::Record` (rel_path/kind/name/location/source), because
    OUR index is the truth signals report on. Extensions are ADDITIVE
    variants; never renames, never kind-reuse.

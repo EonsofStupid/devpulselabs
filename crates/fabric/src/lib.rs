@@ -110,6 +110,19 @@ pub enum CaptureEvent {
     InboxChanged,
     /// The ViziWiz palette showed/hid.
     PaletteVisibility { visible: bool },
+    /// The steps/session recorder changed state — `on` = recording,
+    /// `count` = steps captured so far. A FACT (latest-wins), stamped
+    /// like every capture fact so the activity feed, status counter and
+    /// the seam's `/signals` see a recording live. The COMMAND that
+    /// toggles recording stays a DIRECT CALL (single process — a
+    /// broadcast would be weaker than the call itself), the faithful
+    /// egui translation of PORT's cross-window `dpl:steps-state` /
+    /// `dpl:session-state`.
+    Recording { on: bool, count: u32 },
+    /// A click/action did NOT become a step, and why — so the pill reads
+    /// `skipped · nothing changed`, never a silently frozen counter.
+    /// Honesty is a first-class fact (PORT parity: `dpl:steps-skip`).
+    Skipped { reason: String },
 }
 
 /// A capture-domain subscription.
@@ -350,6 +363,35 @@ mod tests {
         let mut shell_rx = fabric.subscribe_shell();
         fabric.publish_capture(CaptureEvent::InboxChanged);
         assert!(shell_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn recorder_facts_round_trip_on_the_capture_domain() {
+        // The steps/session recorder's FACTS (state + skip) are capture
+        // signals — the COMMAND that toggles recording stays a direct call.
+        let fabric = Fabric::new();
+        let mut rx = fabric.subscribe_capture();
+        fabric.publish_capture(CaptureEvent::Recording { on: true, count: 0 });
+        fabric.publish_capture(CaptureEvent::Skipped {
+            reason: "nothing changed".into(),
+        });
+        fabric.publish_capture(CaptureEvent::Recording {
+            on: false,
+            count: 2,
+        });
+        let a = rx.try_recv().unwrap();
+        let b = rx.try_recv().unwrap();
+        let c = rx.try_recv().unwrap();
+        assert_eq!(a.ev, CaptureEvent::Recording { on: true, count: 0 });
+        assert!(matches!(b.ev, CaptureEvent::Skipped { .. }));
+        assert_eq!(
+            c.ev,
+            CaptureEvent::Recording {
+                on: false,
+                count: 2
+            }
+        );
+        assert!(c.seq > a.seq, "stamped in total order");
     }
 
     #[test]

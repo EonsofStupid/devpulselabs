@@ -66,6 +66,14 @@ fn activity_capture_line(ev: &dpl_fabric::CaptureEvent) -> String {
                 "palette hidden".into()
             }
         }
+        E::Recording { on, count } => {
+            if *on {
+                format!("recording · {count} steps")
+            } else {
+                format!("recording stopped · {count} steps")
+            }
+        }
+        E::Skipped { reason } => format!("skipped · {reason}"),
     }
 }
 

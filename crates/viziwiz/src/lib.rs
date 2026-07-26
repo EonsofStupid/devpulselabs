@@ -133,11 +133,31 @@ impl Viziwiz {
     pub fn new(fabric: &Fabric) -> Self {
         let steps_note = Arc::new(Mutex::new(String::new()));
         let note = Arc::clone(&steps_note);
-        // Real recorder events only — the sink mirrors them into the status
-        // line (the fabric bridge widens this in the wiring pass).
+        let sink_fabric = fabric.clone();
+        // The FABRIC BRIDGE (the wiring pass): the recorder's FACTS reach
+        // the fabric so the activity feed, status counter and the seam's
+        // `/signals` see a recording live — State→Recording, Skip→Skipped,
+        // stamped like every capture fact. The COMMAND that toggles
+        // recording stays a direct call (`toggle_steps`), the faithful
+        // single-process translation of PORT's cross-window `dpl:steps-cmd`.
+        // Saved stays the index write-through's job (not double-emitted here).
         let sink: dpl_engine_steps::EventSink = Arc::new(move |ev| {
             if let Ok(mut n) = note.lock() {
                 *n = format!("{ev:?}");
+            }
+            match &ev {
+                dpl_engine_steps::StepsEvent::State { recording, count } => {
+                    sink_fabric.publish_capture(dpl_fabric::CaptureEvent::Recording {
+                        on: *recording,
+                        count: *count,
+                    });
+                }
+                dpl_engine_steps::StepsEvent::Skip(reason) => {
+                    sink_fabric.publish_capture(dpl_fabric::CaptureEvent::Skipped {
+                        reason: reason.clone(),
+                    });
+                }
+                dpl_engine_steps::StepsEvent::Saved { .. } => {}
             }
         });
         Self {
