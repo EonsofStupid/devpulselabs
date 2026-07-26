@@ -1478,6 +1478,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c286de4e81ea2590afc24d754e0f83810c566f50a1388fa75ebd57928c0d9745"
 
 [[package]]
+name = "dataview"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "daba87f72c730b508641c9fb6411fc9bba73939eed2cab611c399500511880d0"
+dependencies = [
+ "derive_pod",
+]
+
+[[package]]
 name = "deranged"
 version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1510,9 +1519,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive_pod"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2ea6706d74fca54e15f1d40b5cf7fe7f764aaec61352a9fcec58fe27e042fc8"
+
+[[package]]
 name = "devpulselabs"
 version = "0.1.0"
 dependencies = [
+ "dpl-chat-accounts",
+ "dpl-chat-browser-auth",
  "dpl-chat-claude",
  "dpl-chat-codex",
  "dpl-chat-core",
@@ -1528,7 +1545,6 @@ dependencies = [
  "dpl-coldlight",
  "dpl-composer",
  "dpl-doc",
- "dpl-embedded-deps",
  "dpl-engine-capture",
  "dpl-engine-media",
  "dpl-engine-steps",
@@ -1542,6 +1558,7 @@ dependencies = [
  "dpl-hub-workbench",
  "dpl-seam",
  "dpl-shell",
+ "dpl-tools-deps",
  "dpl-video",
  "dpl-viziwiz",
  "eframe",
@@ -1642,6 +1659,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "dpl-chat-accounts"
+version = "0.1.0"
+dependencies = [
+ "dpl-chat-core",
+ "dpl-engine-capture",
+ "tokio",
+ "turso",
+]
+
+[[package]]
+name = "dpl-chat-browser-auth"
+version = "0.1.0"
+dependencies = [
+ "dpl-chat-core",
+ "dpl-engine-browser",
+ "dpl-tools-deps",
+]
+
+[[package]]
 name = "dpl-chat-claude"
 version = "0.1.0"
 dependencies = [
@@ -1656,8 +1692,8 @@ version = "0.1.0"
 dependencies = [
  "dpl-chat-core",
  "dpl-chat-store",
- "dpl-embedded-deps",
  "dpl-proc",
+ "dpl-tools-deps",
  "serde_json",
 ]
 
@@ -1697,8 +1733,8 @@ dependencies = [
  "async-io",
  "async-process",
  "dpl-chat-core",
- "dpl-embedded-deps",
  "dpl-proc",
+ "dpl-tools-deps",
  "futures-lite",
  "serde_json",
 ]
@@ -1846,15 +1882,6 @@ dependencies = [
  "dpl-doc",
  "dpl-slides",
  "egui",
-]
-
-[[package]]
-name = "dpl-embedded-deps"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "sha2",
 ]
 
 [[package]]
@@ -2077,6 +2104,15 @@ dependencies = [
  "dpl-video",
  "egui",
  "egui_extras",
+]
+
+[[package]]
+name = "dpl-tools-deps"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -4249,6 +4285,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
+name = "no-std-compat"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b93853da6d84c2e3c7d730d6473e8817692dd89be387eb01b94d7f108ecb5b8c"
+
+[[package]]
 name = "nohash-hasher"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5004,6 +5046,25 @@ name = "pastey"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ee67f1008b1ba2321834326597b8e186293b049a023cdef258527550b9935b4"
+
+[[package]]
+name = "pelite"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "88dccf4bd32294364aeb7bd55d749604450e9db54605887551f21baea7617685"
+dependencies = [
+ "dataview",
+ "libc",
+ "no-std-compat",
+ "pelite-macros",
+ "winapi",
+]
+
+[[package]]
+name = "pelite-macros"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7a7cf3f8ecebb0f4895f4892a8be0a0dc81b498f9d56735cb769dc31bf00815b"
 
 [[package]]
 name = "peniko"
@@ -8566,7 +8627,8 @@ checksum = "3ae8337f8a065cfc972643663ea4279e04e7256de865aa66fe25cec5fb912d3f"
 name = "xtask"
 version = "0.1.0"
 dependencies = [
- "dpl-embedded-deps",
+ "dpl-tools-deps",
+ "pelite",
  "serde",
  "serde_json",
  "toml 0.9.12+spec-1.1.0",

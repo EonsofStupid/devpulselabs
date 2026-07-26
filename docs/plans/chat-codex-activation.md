@@ -47,7 +47,7 @@ An API-key login remains visibly unavailable for the subscription-backed tab.
 
 The activation coordinator receives the verified Codex executable from the
 target-specific private portable bundle defined by
-[`private-embedded-dependencies.md`](private-embedded-dependencies.md).
+[`private-tool-depot.md`](private-tool-depot.md).
 Production does not search the Codex desktop installation, a user bin
 directory, or `PATH`. Shell wrappers, executable paths from configuration,
 and all model/UI/route/document/MCP-supplied values are rejected.

@@ -154,6 +154,13 @@ pub struct ProviderManifest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeviceAuthorizationPrompt {
+    pub provider_id: ProviderId,
+    pub verification_url: String,
+    pub user_code: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActivationState {
     NotInstalled {
         reason: String,
@@ -168,6 +175,8 @@ pub enum ActivationState {
         recovery: Vec<RecoveryAction>,
     },
     SigningIn,
+    AwaitingAuthorization(DeviceAuthorizationPrompt),
+    Verifying,
     Ready,
     Degraded {
         reason: String,
@@ -198,6 +207,8 @@ impl ActivationState {
             Self::VersionUnsupported { .. } => "Version unsupported",
             Self::SignedOut { .. } => "Signed out",
             Self::SigningIn => "Signing in",
+            Self::AwaitingAuthorization(_) => "Authorize in browser",
+            Self::Verifying => "Verifying",
             Self::Ready => "Ready",
             Self::Degraded { .. } => "Degraded",
             Self::Experimental { .. } => "Experimental",
@@ -221,7 +232,9 @@ impl ActivationState {
             | Self::Blocked { reason, .. }
             | Self::Failed { reason, .. }
             | Self::Disabled { reason, .. } => Some(reason),
-            Self::SigningIn | Self::Ready => None,
+            Self::SigningIn | Self::AwaitingAuthorization(_) | Self::Verifying | Self::Ready => {
+                None
+            }
         }
     }
 
@@ -235,7 +248,7 @@ impl ActivationState {
             | Self::Blocked { recovery, .. }
             | Self::Failed { recovery, .. }
             | Self::Disabled { recovery, .. } => recovery,
-            Self::SigningIn | Self::Ready => &[],
+            Self::SigningIn | Self::AwaitingAuthorization(_) | Self::Verifying | Self::Ready => &[],
         }
     }
 }

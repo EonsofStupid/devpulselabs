@@ -10,14 +10,16 @@ mod terminal;
 pub use runtime::*;
 
 use dpl_chat_core::{
-    ActivationState, Capability, ProviderAccent, ProviderDescriptor, ProviderId, ProviderManifest,
-    ProviderProfileId, RecoveryAction, RecoveryActionKind,
+    ActivationState, Capability, DeviceAuthorizationPrompt, ProviderAccent, ProviderDescriptor,
+    ProviderId, ProviderManifest, ProviderProfileId, RecoveryAction, RecoveryActionKind,
 };
 use std::fmt;
 use std::fs;
-use std::io;
+use std::io::{self, BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::mpsc::{self, Receiver, TryRecvError, TrySendError};
+use std::thread::{self, JoinHandle};
 
 pub const PROVIDER: ProviderId = ProviderId("grok");
 pub const DEFAULT_PROFILE: ProviderProfileId = ProviderProfileId("grok-default");
@@ -209,6 +211,7 @@ pub enum LoginExit {
 }
 
 pub trait LoginProcess: fmt::Debug + Send {
+    fn try_prompt(&mut self) -> io::Result<Option<DeviceAuthorizationPrompt>>;
     fn try_exit(&mut self) -> io::Result<Option<LoginExit>>;
     fn terminate_and_reap(&mut self);
 }
@@ -223,17 +226,61 @@ struct SystemLoginLauncher;
 impl LoginLauncher for SystemLoginLauncher {
     fn launch_login(&self, profile: &GrokRuntimeProfile) -> io::Result<Box<dyn LoginProcess>> {
         let mut command = login_command(profile);
-        let child = command.spawn()?;
-        Ok(Box::new(OwnedChild { child: Some(child) }))
+        let mut child = command.spawn()?;
+        let stderr = child.stderr.take().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "Grok device authorization output is unavailable",
+            )
+        })?;
+        let (prompt_tx, prompt_rx) = mpsc::sync_channel(2);
+        let reader = thread::Builder::new()
+            .name("devpulse-grok-device-auth".to_owned())
+            .spawn(move || {
+                let mut stderr = BufReader::new(stderr);
+                while let Ok(Some(line)) = read_bounded_line(&mut stderr, 512) {
+                    let Ok(line) = std::str::from_utf8(&line) else {
+                        continue;
+                    };
+                    if let Some(prompt) = parse_device_authorization_line(line) {
+                        match prompt_tx.try_send(prompt) {
+                            Ok(()) | Err(TrySendError::Full(_)) => {}
+                            Err(TrySendError::Disconnected(_)) => break,
+                        }
+                    }
+                }
+            })?;
+        Ok(Box::new(OwnedChild {
+            child: Some(child),
+            prompt_rx,
+            reader: Some(reader),
+        }))
     }
 }
 
-#[derive(Debug)]
 struct OwnedChild {
     child: Option<Child>,
+    prompt_rx: Receiver<DeviceAuthorizationPrompt>,
+    reader: Option<JoinHandle<()>>,
+}
+
+impl fmt::Debug for OwnedChild {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OwnedChild")
+            .field("child", &self.child.as_ref().map(Child::id))
+            .finish_non_exhaustive()
+    }
 }
 
 impl LoginProcess for OwnedChild {
+    fn try_prompt(&mut self) -> io::Result<Option<DeviceAuthorizationPrompt>> {
+        match self.prompt_rx.try_recv() {
+            Ok(prompt) => Ok(Some(prompt)),
+            Err(TryRecvError::Empty | TryRecvError::Disconnected) => Ok(None),
+        }
+    }
+
     fn try_exit(&mut self) -> io::Result<Option<LoginExit>> {
         let Some(child) = self.child.as_mut() else {
             return Ok(Some(LoginExit::Failed(None)));
@@ -247,6 +294,9 @@ impl LoginProcess for OwnedChild {
                 let _ = child.kill();
             }
             let _ = child.wait();
+        }
+        if let Some(reader) = self.reader.take() {
+            let _ = reader.join();
         }
     }
 }
@@ -272,6 +322,7 @@ pub struct GrokActivationCoordinator {
     state: ActivationState,
     launcher: Box<dyn LoginLauncher>,
     child: Option<Box<dyn LoginProcess>>,
+    login_completed: bool,
 }
 
 impl GrokActivationCoordinator {
@@ -296,6 +347,7 @@ impl GrokActivationCoordinator {
             state,
             launcher,
             child: None,
+            login_completed: false,
         }
     }
 
@@ -334,6 +386,37 @@ impl GrokActivationCoordinator {
         self.child.is_some()
     }
 
+    pub fn current_prompt(&self) -> Option<&DeviceAuthorizationPrompt> {
+        match &self.state {
+            ActivationState::AwaitingAuthorization(prompt) => Some(prompt),
+            _ => None,
+        }
+    }
+
+    pub fn take_login_completed(&mut self) -> bool {
+        std::mem::take(&mut self.login_completed)
+    }
+
+    pub fn mark_ready(&mut self) {
+        if self.child.is_none() {
+            self.state = ActivationState::Ready;
+            self.login_completed = false;
+        }
+    }
+
+    pub fn mark_signed_out(&mut self, reason: String) {
+        if self.child.is_none() {
+            self.state = ActivationState::SignedOut {
+                reason,
+                recovery: vec![RecoveryAction::new(
+                    RecoveryActionKind::SignIn,
+                    "Activate Grok",
+                )],
+            };
+            self.login_completed = false;
+        }
+    }
+
     pub fn start_login(&mut self) -> Result<(), GrokActivationError> {
         if self.child.is_some() {
             return Err(GrokActivationError::AlreadyRunning);
@@ -347,6 +430,7 @@ impl GrokActivationCoordinator {
             .launch_login(profile)
             .map_err(|error| GrokActivationError::LaunchFailed(public_io_reason(&error)))?;
         self.child = Some(child);
+        self.login_completed = false;
         self.state = ActivationState::SigningIn;
         Ok(())
     }
@@ -358,15 +442,27 @@ impl GrokActivationCoordinator {
         let Some(child) = self.child.as_mut() else {
             return Ok(false);
         };
+        let mut changed = false;
+        if let Some(prompt) = child
+            .try_prompt()
+            .map_err(|error| GrokActivationError::PollFailed(public_io_reason(&error)))?
+        {
+            let next = ActivationState::AwaitingAuthorization(prompt);
+            changed = self.state != next;
+            self.state = next;
+        }
         let exit = child
             .try_exit()
             .map_err(|error| GrokActivationError::PollFailed(public_io_reason(&error)))?;
         let Some(exit) = exit else {
-            return Ok(false);
+            return Ok(changed);
         };
         self.child = None;
         self.state = match exit {
-            LoginExit::Success => ActivationState::Ready,
+            LoginExit::Success => {
+                self.login_completed = true;
+                ActivationState::Verifying
+            }
             LoginExit::Failed(code) => ActivationState::Failed {
                 reason: code.map_or_else(
                     || "Grok Build login exited without a success status.".to_owned(),
@@ -385,6 +481,7 @@ impl GrokActivationCoordinator {
         if let Some(mut child) = self.child.take() {
             child.terminate_and_reap();
         }
+        self.login_completed = false;
         self.state = ActivationState::Failed {
             reason: error.to_string(),
             recovery: vec![RecoveryAction::new(
@@ -414,7 +511,7 @@ fn activation_from_discovery(
             ),
             recovery: vec![RecoveryAction::new(
                 RecoveryActionKind::SignIn,
-                "Log in with Grok",
+                "Activate Grok",
             )],
         },
         Err(GrokDiscoveryError::NotInstalled) => ActivationState::NotInstalled {
@@ -452,7 +549,7 @@ fn canonical_directory(path: &Path) -> Result<PathBuf, GrokDiscoveryError> {
 }
 
 fn discover_executable() -> Result<PathBuf, GrokDiscoveryError> {
-    dpl_embedded_deps::resolve_current(dpl_embedded_deps::GROK)
+    dpl_tools_deps::resolve_current(dpl_tools_deps::GROK)
         .map(|dependency| dependency.path().to_owned())
         .map_err(|error| GrokDiscoveryError::EmbeddedDependency(error.to_string()))
 }
@@ -490,10 +587,71 @@ fn login_command(profile: &GrokRuntimeProfile) -> Command {
     let mut command = profiled_command(profile.executable(), profile.working_directory());
     command
         .arg("login")
+        .arg("--device-auth")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(Stdio::piped());
     command
+}
+
+fn parse_device_authorization_line(line: &str) -> Option<DeviceAuthorizationPrompt> {
+    const PREFIX: &str = "https://accounts.x.ai/oauth2/device?user_code=";
+    let line = line.trim();
+    if line.len() > 512 {
+        return None;
+    }
+    let url = line.strip_prefix(PREFIX)?;
+    if !valid_device_code(url) {
+        return None;
+    }
+    Some(DeviceAuthorizationPrompt {
+        provider_id: PROVIDER,
+        verification_url: line.to_owned(),
+        user_code: url.to_owned(),
+    })
+}
+
+fn read_bounded_line(reader: &mut impl BufRead, limit: usize) -> io::Result<Option<Vec<u8>>> {
+    let mut line = Vec::with_capacity(limit.min(128));
+    let mut overflow = false;
+    let mut read_any = false;
+    loop {
+        let available = reader.fill_buf()?;
+        if available.is_empty() {
+            return if read_any {
+                Ok(Some(if overflow { Vec::new() } else { line }))
+            } else {
+                Ok(None)
+            };
+        }
+        read_any = true;
+        let newline = available.iter().position(|byte| *byte == b'\n');
+        let payload_end = newline.unwrap_or(available.len());
+        if !overflow {
+            let payload = &available[..payload_end];
+            if line.len().saturating_add(payload.len()) <= limit {
+                line.extend_from_slice(payload);
+            } else {
+                overflow = true;
+                line.clear();
+            }
+        }
+        let consumed = newline.map_or(available.len(), |index| index + 1);
+        reader.consume(consumed);
+        if newline.is_some() {
+            if line.last() == Some(&b'\r') {
+                line.pop();
+            }
+            return Ok(Some(if overflow { Vec::new() } else { line }));
+        }
+    }
+}
+
+fn valid_device_code(code: &str) -> bool {
+    (6..=32).contains(&code.len())
+        && code
+            .bytes()
+            .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'-')
 }
 
 fn profiled_command(executable: &Path, working_directory: &Path) -> Command {
@@ -594,11 +752,16 @@ mod tests {
 
     #[derive(Debug, Clone)]
     struct FakeProcess {
+        prompt: Option<DeviceAuthorizationPrompt>,
         exit: Option<LoginExit>,
         terminated: Arc<AtomicBool>,
     }
 
     impl LoginProcess for FakeProcess {
+        fn try_prompt(&mut self) -> io::Result<Option<DeviceAuthorizationPrompt>> {
+            Ok(self.prompt.take())
+        }
+
         fn try_exit(&mut self) -> io::Result<Option<LoginExit>> {
             Ok(self.exit)
         }
@@ -628,7 +791,7 @@ mod tests {
             assert!(path.is_absolute());
             assert!(path
                 .components()
-                .any(|component| component.as_os_str() == "embedded-deps"));
+                .any(|component| component.as_os_str() == "dptools-deps"));
         }
     }
 
@@ -639,6 +802,7 @@ mod tests {
         let launcher = FakeLauncher {
             launches: Arc::clone(&launches),
             process: FakeProcess {
+                prompt: None,
                 exit: Some(LoginExit::Success),
                 terminated,
             },
@@ -656,7 +820,12 @@ mod tests {
             Err(GrokActivationError::AlreadyRunning)
         );
         assert!(coordinator.poll().expect("poll"));
-        assert!(matches!(coordinator.activation(), ActivationState::Ready));
+        assert!(matches!(
+            coordinator.activation(),
+            ActivationState::Verifying
+        ));
+        assert!(coordinator.take_login_completed());
+        assert!(!coordinator.take_login_completed());
         assert_eq!(launches.load(Ordering::SeqCst), 1);
     }
 
@@ -665,6 +834,7 @@ mod tests {
         let launcher = FakeLauncher {
             launches: Arc::new(AtomicUsize::new(0)),
             process: FakeProcess {
+                prompt: None,
                 exit: Some(LoginExit::Failed(Some(7))),
                 terminated: Arc::new(AtomicBool::new(false)),
             },
@@ -686,6 +856,7 @@ mod tests {
         let launcher = FakeLauncher {
             launches: Arc::new(AtomicUsize::new(0)),
             process: FakeProcess {
+                prompt: None,
                 exit: None,
                 terminated: Arc::clone(&terminated),
             },
@@ -704,7 +875,7 @@ mod tests {
         assert_eq!(command.get_program(), profile.executable());
         assert_eq!(
             command.get_args().collect::<Vec<_>>(),
-            vec![OsStr::new("login")]
+            vec![OsStr::new("login"), OsStr::new("--device-auth")]
         );
         assert_eq!(command.get_current_dir(), Some(profile.working_directory()));
         let keys = command
@@ -714,5 +885,68 @@ mod tests {
         assert!(keys
             .iter()
             .all(|key| allowed_environment_keys().contains(&key.to_string_lossy().as_ref())));
+    }
+
+    #[test]
+    fn device_authorization_output_is_strict_and_becomes_visible_state() {
+        let prompt = parse_device_authorization_line(
+            "  https://accounts.x.ai/oauth2/device?user_code=H275-NM42  ",
+        )
+        .expect("prompt");
+        assert_eq!(prompt.provider_id, PROVIDER);
+        assert_eq!(prompt.user_code, "H275-NM42");
+        for rejected in [
+            "https://accounts.x.ai.evil.test/oauth2/device?user_code=H275-NM42",
+            "https://accounts.x.ai/oauth2/device?user_code=h275-nm42",
+            "https://accounts.x.ai/oauth2/device?user_code=H275-NM42&next=evil",
+            "Waiting for authorization...",
+        ] {
+            assert!(
+                parse_device_authorization_line(rejected).is_none(),
+                "{rejected}"
+            );
+        }
+
+        let launcher = FakeLauncher {
+            launches: Arc::new(AtomicUsize::new(0)),
+            process: FakeProcess {
+                prompt: Some(prompt.clone()),
+                exit: None,
+                terminated: Arc::new(AtomicBool::new(false)),
+            },
+        };
+        let mut coordinator =
+            GrokActivationCoordinator::from_parts(Ok(fixture_profile()), Box::new(launcher));
+        coordinator.start_login().expect("start");
+        assert!(coordinator.poll().expect("prompt transition"));
+        assert_eq!(coordinator.current_prompt(), Some(&prompt));
+        assert!(matches!(
+            coordinator.activation(),
+            ActivationState::AwaitingAuthorization(_)
+        ));
+    }
+
+    #[test]
+    fn authorization_reader_discards_overlong_lines_without_losing_framing() {
+        let input = format!(
+            "{}\nhttps://accounts.x.ai/oauth2/device?user_code=H275-NM42\n",
+            "x".repeat(4_096)
+        );
+        let mut input = BufReader::new(input.as_bytes());
+        assert_eq!(
+            read_bounded_line(&mut input, 512).expect("overlong line"),
+            Some(Vec::new())
+        );
+        let valid = read_bounded_line(&mut input, 512)
+            .expect("valid line")
+            .expect("line");
+        let valid = std::str::from_utf8(&valid).expect("utf-8");
+        assert_eq!(
+            parse_device_authorization_line(valid)
+                .expect("prompt")
+                .user_code,
+            "H275-NM42"
+        );
+        assert_eq!(read_bounded_line(&mut input, 512).expect("eof"), None);
     }
 }

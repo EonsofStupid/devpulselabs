@@ -2,17 +2,29 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-26 — GROK SEAMLESS ACTIVATION LOCALLY QUALIFIED
+(`codex/grok-seamless-activation`):** the first real provider activation now
+uses the exact bundled `grok login --device-auth` ceremony, a strict
+`accounts.x.ai` URL/code parser, DevPULSE-owned visible Chromium, ACP
+verification before Ready, and a non-secret local Turso evidence ledger.
+The portable tool authority is consolidated under `dptools-deps/` with typed
+`providers/`, `browsers/`, and `media/` families; Chromium is verified as a
+complete tree. The authored eight-step EguiPilotAI flow and two byte-identical
+real native-window captures pass. Personal xAI account completion remains the
+explicit operator gate. Canonical contract:
+`docs/plans/chat-grok-activation.md`.
+
 **2026-07-25 — PRIVATE PORTABLE DEPENDENCIES LOCALLY QUALIFIED
-(`codex/private-embedded-deps`):** `dpl-embedded-deps` is now the sole
+(`codex/private-embedded-deps`):** `dpl-tools-deps` is now the sole
 production authority for app-relative, manifest-declared, byte-length and
 SHA-256 verified private tools. Codex, Grok, and ffmpeg no longer search
 machine installs or `PATH`; Windows and Linux payloads stage through
-`cargo xtask stage-embedded-deps`. Real Windows and WSL Linux bundles passed
+`cargo xtask stage-tool-deps`. Real Windows and WSL Linux bundles passed
 version probes and resolver verification. The real Chat peer passed, the
 signed-out Grok surface exposes enabled provider-owned Login while Send stays
 disabled, relocated release startup passed with provider-bearing `PATH`
 entries removed, and the complete local `cargo green` gate passed. Canonical
-contract and evidence: `docs/plans/private-embedded-dependencies.md`.
+contract and evidence: `docs/plans/private-tool-depot.md`.
 
 **Tip:** on `main` (2026-07-25). **DG1 built** (`feat/dg1-mixed-guide`,
 `docs/plans/dg1-mixed-media-guide.md` — operator: stills for

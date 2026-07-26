@@ -59,7 +59,7 @@ fn err(m: impl Into<String>) -> CaptureResult {
 }
 
 /// The managed ffmpeg binary. Injected exactly once by the embedding shell
-/// (app: verified `embedded-deps`; capture-cli: explicit exe-adjacent input).
+/// (app: verified `dptools-deps`; capture-cli: explicit exe-adjacent input).
 /// An uninjected engine fails honestly and never searches PATH.
 static FFMPEG: OnceLock<PathBuf> = OnceLock::new();
 const MISSING_FFMPEG: &str = "__devpulse_embedded_ffmpeg_not_configured__";

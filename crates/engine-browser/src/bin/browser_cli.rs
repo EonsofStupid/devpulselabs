@@ -98,6 +98,7 @@ fn run(args: &[String]) -> Result<(), String> {
             };
             let mut browser = Browser::launch(&BrowserConfig {
                 window,
+                executable: None,
                 profile,
                 headless: true,
             })?;
@@ -121,6 +122,7 @@ fn run(args: &[String]) -> Result<(), String> {
                 .unwrap_or("https://accounts.google.com");
             let mut browser = Browser::launch(&BrowserConfig {
                 window: (1280, 900),
+                executable: None,
                 profile: Some(profile.clone()),
                 headless: false,
             })?;

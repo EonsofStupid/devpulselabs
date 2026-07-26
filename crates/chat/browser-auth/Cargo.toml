@@ -1,0 +1,13 @@
+[package]
+name = "dpl-chat-browser-auth"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+dpl-chat-core.workspace = true
+dpl-engine-browser.workspace = true
+dpl-tools-deps.workspace = true
+
+[lints]
+workspace = true

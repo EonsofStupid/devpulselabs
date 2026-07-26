@@ -1,4 +1,4 @@
-# Private embedded dependencies
+# Private DevPULSE tool depot
 
 **Status:** IMPLEMENTED AND LOCALLY QUALIFIED
 **Date:** 2026-07-25
@@ -9,16 +9,17 @@
 
 DevPULSE is a portable application. A shipped build is a relocatable,
 target-specific application directory whose private subprocess tools live
-under one `embedded-deps/` root:
+under one `dptools-deps/` root:
 
 ```text
 DevPULSE/
   devpulselabs.exe
-  embedded-deps/
+  dptools-deps/
     manifest.json
-    codex/0.145.0/codex.exe
-    grok/0.2.112/grok.exe
-    ffmpeg/8.1.2/ffmpeg.exe
+    providers/codex/0.145.0/codex.exe
+    providers/grok/0.2.112/grok.exe
+    browsers/chromium/<version>/...
+    media/ffmpeg/8.1.2/ffmpeg.exe
 ```
 
 The Linux package uses the same relative layout and extensionless executable
@@ -31,10 +32,10 @@ containment, and real local proof.
 
 ## Authorities
 
-`dpl-embedded-deps` is the only production binary resolver. It:
+`dpl-tools-deps` is the only production tool resolver. It:
 
 - anchors resolution at the running DevPULSE executable;
-- reads `embedded-deps/manifest.json`;
+- reads `dptools-deps/manifest.json`;
 - accepts only the current compile target;
 - rejects absolute paths, parent traversal, duplicate IDs, unsupported schema,
   missing files, non-files, and paths escaping the embedded root;
@@ -56,16 +57,16 @@ the release manifest from the copied bytes.
 Committed source:
 
 ```text
-embedded-deps/
+dptools-deps/
   README.md
   sources.example.toml
-crates/embedded-deps/
+crates/tools-deps/
 ```
 
 Private local source selection:
 
 ```text
-embedded-deps/sources.local.toml
+dptools-deps/sources.local.toml
 ```
 
 `sources.local.toml` is ignored. It contains packaging-machine paths only and
@@ -74,27 +75,34 @@ is never read by DevPULSE.
 Generated release state:
 
 ```text
-<release-root>/embedded-deps/manifest.json
-<release-root>/embedded-deps/<id>/<version>/<binary>
+<release-root>/dptools-deps/manifest.json
+<release-root>/dptools-deps/<family>/<id>/<version>/<binary>
 ```
 
 The generated manifest is ordinary release output and is not edited by hand.
 Existing staged files are replaced only inside an explicitly selected release
 root. Operator data, content, and credentials are never touched.
 
-## Manifest v1
+Single-file tools are copied as files. Chromium is copied as a complete
+versioned directory payload with an explicit entrypoint. Its tree digest
+covers every normalized relative path, file length, and file payload;
+copying only `chrome.exe` is forbidden because that is not a portable browser.
+
+## Manifest v2
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "target": "x86_64-pc-windows-msvc",
   "dependencies": [
     {
       "id": "grok",
+      "family": "provider",
       "version": "0.2.112",
-      "path": "grok/0.2.112/grok.exe",
+      "path": "providers/grok/0.2.112/grok.exe",
       "bytes": 123,
-      "sha256": "lowercase hex"
+      "sha256": "lowercase hex",
+      "tree": null
     }
   ]
 }
@@ -105,13 +113,14 @@ are lowercase SHA-256. IDs and versions are single safe path segments.
 
 ## Packaging command
 
-`cargo xtask stage-embedded-deps <release-root>` reads the private source
+`cargo xtask stage-tool-deps <release-root>` reads the private source
 selection, copies only the current target's dependencies, verifies that every
 source is a file, writes the manifest last, and then reopens the generated
-bundle through `dpl-embedded-deps`.
+bundle through `dpl-tools-deps`.
 
-The initial source entries are Codex, Grok, and ffmpeg. App-owned helpers can
-join the same registry once their build/staging order is formalized.
+The required source entries are Codex, Grok, Chromium, and ffmpeg. Browser
+sources are directories and declare a safe relative `entrypoint`; the other
+sources are single executable files.
 
 Provider update is whole-bundle replacement. DevPULSE never self-updates one
 embedded provider executable while running.
@@ -143,7 +152,11 @@ the account.
   files, length mismatch, digest mismatch, and successful resolution.
 - Codex and Grok unit tests prove their profiles accept an injected absolute
   executable and never search `PATH` or provider install directories.
-- App startup obtains both provider paths through `dpl-embedded-deps`.
+- The Grok authorization browser accepts only the verified Chromium
+  entrypoint returned by `dpl-tools-deps`; installed-browser fallback is not a
+  production authorization path.
+- App startup obtains provider, browser, and media paths through
+  `dpl-tools-deps`.
 - A generated Windows bundle resolves a real Codex binary and a real Grok
   binary with `PATH` scrubbed.
 - Linux resolver and packaging behavior is covered by target-gated tests and a
@@ -179,6 +192,13 @@ The first full gate also exposed a Windows self-lock when the running release
 `xtask` from its nested workspace release build; `xtask` has already been
 compiled by `cargo green`, while every shipped crate and binary remains inside
 the final release gate.
+
+The 2026-07-26 Grok activation follow-up removed the duplicate
+`embedded-deps` naming and made `dptools-deps` the single committed,
+packaging, and release-root authority. It added the typed `browser` family,
+staged Chromium `150.0.7871.129` as a complete 309-file tree, verified its
+439,360,895 bytes with a deterministic tree digest, and read the Windows PE
+file version without launching Chromium.
 
 ## Deliberate boundaries
 

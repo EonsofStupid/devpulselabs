@@ -149,6 +149,10 @@ pub fn resolve() -> Result<(PathBuf, &'static str), String> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BrowserConfig {
     pub window: (u32, u32),
+    /// Exact executable selected by the embedding application. Provider
+    /// authorization uses a path verified by `dpl-tools-deps`; `None` keeps
+    /// the broader developer/demo resolver for non-production drills.
+    pub executable: Option<PathBuf>,
     /// `None` → a fresh ephemeral temp profile, removed on close.
     /// `Some(dir)` → a persistent NAMED demo profile (DG-B.1): kept
     /// across runs so an operator-performed sign-in survives — the whole
@@ -163,6 +167,7 @@ impl Default for BrowserConfig {
     fn default() -> Self {
         Self {
             window: (1280, 800),
+            executable: None,
             profile: None,
             headless: true,
         }
@@ -284,7 +289,17 @@ pub struct Browser {
 impl Browser {
     /// Resolve, launch, wait for `DevToolsActivePort`, connect.
     pub fn launch(cfg: &BrowserConfig) -> Result<Self, String> {
-        let (bin, source) = resolve()?;
+        let (bin, source) = if let Some(executable) = cfg.executable.as_ref() {
+            if !executable.is_file() {
+                return Err(format!(
+                    "configured browser is not a file: {}",
+                    executable.display()
+                ));
+            }
+            (executable.clone(), "configured")
+        } else {
+            resolve()?
+        };
         let ephemeral = cfg.profile.is_none();
         let profile = cfg.profile.clone().unwrap_or_else(fresh_profile_dir);
         std::fs::create_dir_all(&profile)
@@ -366,6 +381,17 @@ impl Browser {
     /// Which binary is actually driving, and where it came from.
     pub fn binary(&self) -> (&Path, &'static str) {
         (&self.binary.0, self.binary.1)
+    }
+
+    /// Nonblocking child-lifecycle probe for app-owned browser coordinators.
+    ///
+    /// The browser remains owned by this value. `true` means its native
+    /// process has exited and the coordinator can retire the session.
+    pub fn try_closed(&mut self) -> Result<bool, String> {
+        self.child
+            .try_wait()
+            .map(|status| status.is_some())
+            .map_err(|error| format!("browser status: {error}"))
     }
 
     /// Read one CDP JSON message; `None` once `deadline` passes.
