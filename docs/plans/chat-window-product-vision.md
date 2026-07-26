@@ -474,7 +474,6 @@ utilities, and closing a utility never closes its session.
 Overlays are reserved for short-lived decisions or launch affordances:
 
 - approval;
-- sign-in progress;
 - command palette;
 - context peek;
 - warning/recovery;
@@ -486,6 +485,18 @@ One deterministic coordinator orders overlays. A blocking approval traps
 focus; dismissing or completing it restores focus to the originating semantic
 control. An overlay is never the primary Chat experience and cannot open a
 utility window without an explicit typed action.
+
+Provider activation is explicitly not an overlay-owned experience. Selecting
+a disconnected provider replaces the empty transcript with a compact
+conversation-owned ceremony: connect, provider-issued seeded code, one-click
+copy, automatic app-owned browser handoff, waiting, verification, failure
+recovery, and automatic transition into a normal session. The provider
+popover retains only launch, account, status, and diagnostics affordances.
+
+The ceremony may expose a compact expandable terminal trace below its primary
+action. It is fed by the same typed provider facts as the shell activity feed
+and agent seam, contains no secrets, and never creates a permanent inspector
+column.
 
 ## 11. Boring implementation boundaries
 

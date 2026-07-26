@@ -25,7 +25,7 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use dpl_comp::Composition;
-use dpl_fabric::{CaptureEvent, Fabric, JobEvent, ShellEvent, Stamped};
+use dpl_fabric::{CaptureEvent, Fabric, JobEvent, ProviderEvent, ShellEvent, Stamped};
 use dpl_hub::{HubSpec, Route};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -161,6 +161,83 @@ pub fn job_json(st: &Stamped<JobEvent>) -> Value {
         }
     };
     v["domain"] = json!("jobs");
+    v["seq"] = json!(st.seq);
+    v["ms"] = json!(st.ms);
+    v
+}
+
+/// One redacted provider lifecycle fact in the envelope.
+pub fn provider_json(st: &Stamped<ProviderEvent>) -> Value {
+    let mut v = match &st.ev {
+        ProviderEvent::Selected { provider } => {
+            json!({"type": "selected", "provider": provider.0})
+        }
+        ProviderEvent::ActivationRequested { provider, attempt } => json!({
+            "type": "activationRequested", "provider": provider.0, "attempt": attempt.0
+        }),
+        ProviderEvent::ClientStarted {
+            provider,
+            attempt,
+            client_version,
+        } => json!({
+            "type": "clientStarted", "provider": provider.0, "attempt": attempt.0,
+            "clientVersion": client_version
+        }),
+        ProviderEvent::DeviceCodeReceived {
+            provider,
+            attempt,
+            code_len,
+        } => json!({
+            "type": "deviceCodeReceived", "provider": provider.0,
+            "attempt": attempt.0, "codeLength": code_len
+        }),
+        ProviderEvent::CodeCopied { provider, attempt } => json!({
+            "type": "codeCopied", "provider": provider.0, "attempt": attempt.0
+        }),
+        ProviderEvent::BrowserOpened {
+            provider,
+            attempt,
+            browser,
+        } => json!({
+            "type": "browserOpened", "provider": provider.0, "attempt": attempt.0,
+            "browser": browser
+        }),
+        ProviderEvent::BrowserClosed { provider, attempt } => json!({
+            "type": "browserClosed", "provider": provider.0, "attempt": attempt.0
+        }),
+        ProviderEvent::AuthorizationCompleted { provider, attempt } => json!({
+            "type": "authorizationCompleted", "provider": provider.0, "attempt": attempt.0
+        }),
+        ProviderEvent::RuntimeStarted { provider, attempt } => json!({
+            "type": "runtimeStarted", "provider": provider.0, "attempt": attempt.0
+        }),
+        ProviderEvent::Ready {
+            provider,
+            attempt,
+            client_version,
+            auth_method,
+        } => json!({
+            "type": "ready", "provider": provider.0, "attempt": attempt.0,
+            "clientVersion": client_version, "authMethod": auth_method
+        }),
+        ProviderEvent::Failed {
+            provider,
+            attempt,
+            stage,
+            class,
+            retryable,
+        } => json!({
+            "type": "failed", "provider": provider.0, "attempt": attempt.0,
+            "stage": stage.label(), "class": class.label(), "retryable": retryable
+        }),
+        ProviderEvent::Cancelled { provider, attempt } => json!({
+            "type": "cancelled", "provider": provider.0, "attempt": attempt.0
+        }),
+        ProviderEvent::Expired { provider, attempt } => json!({
+            "type": "expired", "provider": provider.0, "attempt": attempt.0
+        }),
+    };
+    v["domain"] = json!("providers");
     v["seq"] = json!(st.seq);
     v["ms"] = json!(st.ms);
     v
@@ -545,7 +622,7 @@ async fn get_signals(
     State(s): State<Shared>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     // ALL domains, one envelope stream (signal-doctrine law 4): shell +
-    // capture + jobs merged — agents watch the whole nervous system.
+    // capture + jobs + providers merged — agents watch the whole nervous system.
     let shell = BroadcastStream::new(s.fabric.subscribe_shell()).filter_map(|ev| {
         // Lagged receivers skip (signals are lossy by design); closed ends.
         ev.ok()
@@ -559,7 +636,11 @@ async fn get_signals(
         ev.ok()
             .map(|st| Ok(Event::default().data(job_json(&st).to_string())))
     });
-    let stream = shell.merge(capture.merge(jobs));
+    let providers = BroadcastStream::new(s.fabric.subscribe_providers()).filter_map(|ev| {
+        ev.ok()
+            .map(|st| Ok(Event::default().data(provider_json(&st).to_string())))
+    });
+    let stream = shell.merge(capture.merge(jobs.merge(providers)));
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
@@ -700,6 +781,32 @@ mod envelope_tests {
                 "type": "queued", "job": 2, "label": "render",
             })
         );
+    }
+
+    #[test]
+    fn provider_envelopes_are_redacted_and_pinned() {
+        let st = Stamped {
+            seq: 14,
+            ms: 2200,
+            ev: ProviderEvent::DeviceCodeReceived {
+                provider: dpl_fabric::ProviderId("grok"),
+                attempt: dpl_fabric::ActivationAttemptId(12),
+                code_len: 9,
+            },
+        };
+        let value = provider_json(&st);
+        assert_eq!(
+            value,
+            json!({
+                "domain": "providers", "seq": 14, "ms": 2200,
+                "type": "deviceCodeReceived", "provider": "grok",
+                "attempt": 12, "codeLength": 9,
+            })
+        );
+        let encoded = value.to_string();
+        assert!(!encoded.contains("userCode"));
+        assert!(!encoded.contains("verificationUrl"));
+        assert!(!encoded.contains("token"));
     }
 
     #[test]

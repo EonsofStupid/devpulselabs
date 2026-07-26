@@ -40,6 +40,7 @@ impl EvidenceState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActivationEvidence {
     pub provider_id: String,
+    pub attempt_id: Option<u64>,
     pub state: EvidenceState,
     pub client_version: String,
     pub auth_method: String,
@@ -55,6 +56,7 @@ pub struct ActivationLedger {
 
 struct EvidenceWrite<'a> {
     provider: ProviderId,
+    attempt_id: Option<u64>,
     state: EvidenceState,
     client_version: &'a str,
     auth_method: &'a str,
@@ -93,7 +95,7 @@ impl ActivationLedger {
             let connection = Self::connect(&self.path).await?;
             let mut rows = connection
                 .query(
-                    "SELECT provider_id, state, client_version, auth_method,
+                    "SELECT provider_id, attempt_id, state, client_version, auth_method,
                             validated_at_ms, failure_class, updated_at_ms
                      FROM chat_provider_activation WHERE provider_id = ?1",
                     turso::params![provider.0.to_owned()],
@@ -103,17 +105,18 @@ impl ActivationLedger {
             let Some(row) = rows.next().await.map_err(|error| error.to_string())? else {
                 return Ok(None);
             };
-            let state_text = text(&row, 1).unwrap_or_default();
+            let state_text = text(&row, 2).unwrap_or_default();
             let state = EvidenceState::parse(&state_text)
                 .ok_or_else(|| format!("unknown activation evidence state `{state_text}`"))?;
             Ok(Some(ActivationEvidence {
                 provider_id: text(&row, 0).unwrap_or_default(),
+                attempt_id: integer(&row, 1).map(|value| value as u64),
                 state,
-                client_version: text(&row, 2).unwrap_or_default(),
-                auth_method: text(&row, 3).unwrap_or_default(),
-                validated_at_ms: integer(&row, 4).map(|value| value as u64),
-                failure_class: text(&row, 5),
-                updated_at_ms: integer(&row, 6).unwrap_or_default() as u64,
+                client_version: text(&row, 3).unwrap_or_default(),
+                auth_method: text(&row, 4).unwrap_or_default(),
+                validated_at_ms: integer(&row, 5).map(|value| value as u64),
+                failure_class: text(&row, 6),
+                updated_at_ms: integer(&row, 7).unwrap_or_default() as u64,
             }))
         })
     }
@@ -124,9 +127,20 @@ impl ActivationLedger {
         client_version: &str,
         auth_method: &str,
     ) -> Result<(), String> {
+        self.record_ready_for_attempt(provider, None, client_version, auth_method)
+    }
+
+    pub fn record_ready_for_attempt(
+        &self,
+        provider: ProviderId,
+        attempt_id: Option<u64>,
+        client_version: &str,
+        auth_method: &str,
+    ) -> Result<(), String> {
         let now = unix_time_ms();
         self.upsert(EvidenceWrite {
             provider,
+            attempt_id,
             state: EvidenceState::Ready,
             client_version,
             auth_method,
@@ -142,8 +156,19 @@ impl ActivationLedger {
         client_version: &str,
         auth_method: &str,
     ) -> Result<(), String> {
+        self.record_signed_out_for_attempt(provider, None, client_version, auth_method)
+    }
+
+    pub fn record_signed_out_for_attempt(
+        &self,
+        provider: ProviderId,
+        attempt_id: Option<u64>,
+        client_version: &str,
+        auth_method: &str,
+    ) -> Result<(), String> {
         self.upsert(EvidenceWrite {
             provider,
+            attempt_id,
             state: EvidenceState::SignedOut,
             client_version,
             auth_method,
@@ -160,8 +185,20 @@ impl ActivationLedger {
         auth_method: &str,
         failure_class: &str,
     ) -> Result<(), String> {
+        self.record_failed_for_attempt(provider, None, client_version, auth_method, failure_class)
+    }
+
+    pub fn record_failed_for_attempt(
+        &self,
+        provider: ProviderId,
+        attempt_id: Option<u64>,
+        client_version: &str,
+        auth_method: &str,
+        failure_class: &str,
+    ) -> Result<(), String> {
         self.upsert(EvidenceWrite {
             provider,
+            attempt_id,
             state: EvidenceState::Failed,
             client_version,
             auth_method,
@@ -177,18 +214,20 @@ impl ActivationLedger {
             connection
                 .execute(
                     "INSERT INTO chat_provider_activation (
-                         provider_id, state, client_version, auth_method,
+                         provider_id, attempt_id, state, client_version, auth_method,
                          validated_at_ms, failure_class, updated_at_ms
-                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
                      ON CONFLICT(provider_id) DO UPDATE SET
-                         state = ?2,
-                         client_version = ?3,
-                         auth_method = ?4,
-                         validated_at_ms = ?5,
-                         failure_class = ?6,
-                         updated_at_ms = ?7",
+                         attempt_id = ?2,
+                         state = ?3,
+                         client_version = ?4,
+                         auth_method = ?5,
+                         validated_at_ms = ?6,
+                         failure_class = ?7,
+                         updated_at_ms = ?8",
                     turso::params![
                         write.provider.0.to_owned(),
+                        write.attempt_id.map(|value| value as i64),
                         write.state.as_str().to_owned(),
                         write.client_version.to_owned(),
                         write.auth_method.to_owned(),
@@ -210,6 +249,7 @@ impl ActivationLedger {
                 .execute(
                     "CREATE TABLE IF NOT EXISTS chat_provider_activation (
                          provider_id TEXT PRIMARY KEY NOT NULL,
+                         attempt_id INTEGER,
                          state TEXT NOT NULL,
                          client_version TEXT NOT NULL,
                          auth_method TEXT NOT NULL,
@@ -221,6 +261,26 @@ impl ActivationLedger {
                 )
                 .await
                 .map_err(|error| error.to_string())?;
+            let mut rows = connection
+                .query("PRAGMA table_info(chat_provider_activation)", ())
+                .await
+                .map_err(|error| error.to_string())?;
+            let mut has_attempt_id = false;
+            while let Some(row) = rows.next().await.map_err(|error| error.to_string())? {
+                if text(&row, 1).as_deref() == Some("attempt_id") {
+                    has_attempt_id = true;
+                    break;
+                }
+            }
+            if !has_attempt_id {
+                connection
+                    .execute(
+                        "ALTER TABLE chat_provider_activation ADD COLUMN attempt_id INTEGER",
+                        (),
+                    )
+                    .await
+                    .map_err(|error| error.to_string())?;
+            }
             Ok(())
         })
     }
@@ -288,12 +348,13 @@ mod tests {
             EvidenceState::SignedOut
         );
         ledger
-            .record_ready(GROK, "0.2.112", "cached_token")
+            .record_ready_for_attempt(GROK, Some(38), "0.2.112", "cached_token")
             .expect("ready");
         drop(ledger);
         let reopened = ActivationLedger::open(&path).expect("reopen");
         let evidence = reopened.get(GROK).expect("get").expect("record");
         assert_eq!(evidence.state, EvidenceState::Ready);
+        assert_eq!(evidence.attempt_id, Some(38));
         assert!(evidence.validated_at_ms.is_some());
         assert_eq!(evidence.failure_class, None);
     }

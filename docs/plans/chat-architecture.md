@@ -501,6 +501,16 @@ such as `InstallInstructions`, `SignIn`, `Retry`, `UpdateProvider`, or
 Rules:
 
 - provider sign-in UI invokes official provider behavior;
+- provider activation is a conversation-owned ceremony, not a provider-popover
+  workflow: selecting a disconnected provider makes its activation state the
+  dominant conversation content;
+- provider popovers may expose activation entry, account state, and
+  diagnostics, but they never retain the device code, browser handoff,
+  progress, recovery, or completion experience;
+- provider-issued authorization values are typed guided values with explicit
+  provenance, confidence, edit/copy policy, sensitivity, and override state;
+- device codes and authorization URLs remain in bounded in-process activation
+  state and never enter Fabric, SSE, logs, Turso, or analytics envelopes;
 - account summaries contain no credentials;
 - switching provider tabs never logs another provider out;
 - account changes invalidate only the affected profile/session state;
@@ -514,6 +524,28 @@ The first activation-only slices are independently governed by
 [`chat-grok-activation.md`](chat-grok-activation.md). They qualify
 provider-owned browser login only. `Ready` authentication does not qualify
 conversation Send, sessions, tools, or Council.
+
+### Provider activation signal contract
+
+Activation commands remain guaranteed typed coordinator calls. Truthful
+lifecycle facts publish only after their corresponding state transition
+succeeds on the dedicated stamped `providers` Fabric domain. Every activation
+attempt has one process-unique `ActivationAttemptId`; the same identity joins
+the Chat ceremony, terminal trace, shell activity feed, `/signals`, Turso
+terminal evidence, and future DuckDB analytics.
+
+The provider fact vocabulary covers selection, activation request, client
+start, bounded device-code receipt, code copy, authorization-browser open,
+authorization completion, runtime start, readiness, cancellation, expiry, and
+classified failure. Facts may carry safe metadata such as provider identity,
+attempt, stage, client version, code length, or retryability. They never carry
+the code, authorization URL, tokens, cookies, provider output, message
+content, or credentials.
+
+The conversation renders current activation state plus the bounded facts for
+its active attempt as one compact, expandable terminal trace. The trace is an
+operator/debugging surface, not a second source of truth and not a permanent
+layout column.
 
 ## 7. Session model
 
@@ -684,9 +716,10 @@ collapses to a 76-point presence rail and selection opens through the overlay
 host. Responsive compositions retain active identity, conversation, composer,
 route context, and running state without uncontrolled nested scrolling.
 
-Approvals, sign-in progress, recovery, command palette, and passive context
-peeks use the overlay layer. The main-shell launcher is not part of this
-window composition.
+Approvals, command palette, passive context peeks, and short-lived launch
+affordances use the overlay layer. Provider sign-in progress and recovery live
+inside the selected provider conversation. The main-shell launcher is not
+part of this window composition.
 
 ## 10. Extension contract
 

@@ -1941,6 +1941,7 @@ dependencies = [
 name = "dpl-fabric"
 version = "0.1.0"
 dependencies = [
+ "dpl-chat-core",
  "dpl-hub",
  "tokio",
 ]

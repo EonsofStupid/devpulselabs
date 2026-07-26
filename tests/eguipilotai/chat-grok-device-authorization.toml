@@ -47,6 +47,62 @@ kind = "expect"
 type = "visible"
 
 [steps.expectation.target]
+id = "chat.primary/chat.provider.authorization-copy/grok"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "enabled"
+
+[steps.expectation.target]
+id = "chat.primary/chat.provider.authorization-copy/grok"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.provider.authorization-copy/grok"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "collapsed"
+
+[steps.expectation.target]
+id = "chat.primary/chat.provider.activation-trace/grok"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.provider.activation-trace/grok"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "expanded"
+
+[steps.expectation.target]
+id = "chat.primary/chat.provider.activation-trace/grok"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
 id = "chat.primary/chat.provider.authorization-browser/grok"
 
 [[steps]]

@@ -493,6 +493,7 @@ impl App {
         // drills below publish real signals; ears opened later miss them.
         let shell_capture_rx = fabric.subscribe_capture();
         let shell_jobs_rx = fabric.subscribe_jobs();
+        let shell_providers_rx = fabric.subscribe_providers();
         let mut present_hub = dpl_hub_present::PresentHub::new(fabric.clone());
         if let Some(id) = &present {
             present_hub.open_show(id);
@@ -621,7 +622,13 @@ impl App {
         if viziwiz_open {
             viziwiz.open_now();
         }
-        let mut shell = Shell::with_ears(hubs, fabric.clone(), shell_capture_rx, shell_jobs_rx);
+        let mut shell = Shell::with_ears(
+            hubs,
+            fabric.clone(),
+            shell_capture_rx,
+            shell_jobs_rx,
+            shell_providers_rx,
+        );
         shell
             .register_window_accessory(dpl_shell::status::WindowAccessory {
                 key: dpl_chat_window::WINDOW_KEY,

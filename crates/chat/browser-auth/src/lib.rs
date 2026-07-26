@@ -5,6 +5,8 @@
 //! browser worker starts.
 
 use dpl_chat_core::{DeviceAuthorizationPrompt, ProviderId};
+#[cfg(test)]
+use dpl_chat_core::{GuidedValue, GuidedValueSensitivity};
 use dpl_engine_browser::{Browser, BrowserConfig};
 use std::fmt;
 use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError};
@@ -211,7 +213,7 @@ fn browser_worker(
     };
     let navigation = browser
         .new_page()
-        .and_then(|mut page| page.navigate(&prompt.verification_url));
+        .and_then(|mut page| page.navigate(&prompt.verification_url.value));
     if let Err(reason) = navigation {
         let _ = browser.close();
         let _ = events.try_send(BrowserAuthEvent::Failed {
@@ -261,13 +263,17 @@ fn browser_worker(
 }
 
 fn validate_prompt(prompt: &DeviceAuthorizationPrompt) -> Result<(), BrowserAuthError> {
-    if prompt.provider_id.0 != "grok" || !valid_user_code(&prompt.user_code) {
+    if prompt.provider_id.0 != "grok" || !valid_user_code(&prompt.user_code.value) {
         return Err(BrowserAuthError::InvalidPrompt);
     }
-    let Some(code) = prompt.verification_url.strip_prefix(GROK_DEVICE_PREFIX) else {
+    let Some(code) = prompt
+        .verification_url
+        .value
+        .strip_prefix(GROK_DEVICE_PREFIX)
+    else {
         return Err(BrowserAuthError::InvalidPrompt);
     };
-    if code != prompt.user_code {
+    if code != prompt.user_code.value {
         return Err(BrowserAuthError::InvalidPrompt);
     }
     Ok(())
@@ -293,8 +299,16 @@ mod tests {
     fn prompt(url: &str, code: &str) -> DeviceAuthorizationPrompt {
         DeviceAuthorizationPrompt {
             provider_id: GROK,
-            verification_url: url.to_owned(),
-            user_code: code.to_owned(),
+            verification_url: GuidedValue::provider_authoritative(
+                url.to_owned(),
+                false,
+                GuidedValueSensitivity::TransientSecret,
+            ),
+            user_code: GuidedValue::provider_authoritative(
+                code.to_owned(),
+                true,
+                GuidedValueSensitivity::TransientSecret,
+            ),
         }
     }
 

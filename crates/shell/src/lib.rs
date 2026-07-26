@@ -87,6 +87,42 @@ fn activity_job_line(ev: &dpl_fabric::JobEvent) -> String {
     }
 }
 
+fn activity_provider_line(ev: &dpl_fabric::ProviderEvent) -> String {
+    use dpl_fabric::ProviderEvent as E;
+    match ev {
+        E::Selected { provider } => format!("{provider} selected"),
+        E::ActivationRequested {
+            provider, attempt, ..
+        } => format!("{provider} connect requested · {attempt}"),
+        E::ClientStarted {
+            provider,
+            client_version,
+            ..
+        } => format!("{provider} client started · {client_version}"),
+        E::DeviceCodeReceived { provider, .. } => {
+            format!("{provider} sign-in code received")
+        }
+        E::CodeCopied { provider, .. } => format!("{provider} sign-in code copied"),
+        E::BrowserOpened {
+            provider, browser, ..
+        } => format!("{provider} sign-in opened · {browser}"),
+        E::BrowserClosed { provider, .. } => format!("{provider} sign-in window closed"),
+        E::AuthorizationCompleted { provider, .. } => {
+            format!("{provider} authorization completed")
+        }
+        E::RuntimeStarted { provider, .. } => format!("{provider} runtime started"),
+        E::Ready { provider, .. } => format!("{provider} ready"),
+        E::Failed {
+            provider,
+            stage,
+            class,
+            ..
+        } => format!("{provider} failed · {} · {}", stage.label(), class.label()),
+        E::Cancelled { provider, .. } => format!("{provider} activation cancelled"),
+        E::Expired { provider, .. } => format!("{provider} activation expired"),
+    }
+}
+
 pub struct Shell {
     hubs: Vec<Box<dyn Hub>>,
     route: Route,
@@ -102,11 +138,12 @@ pub struct Shell {
     /// Every fabric publish this session (nav + summon) — the footer/inspector
     /// proof counter.
     signal_count: u64,
-    /// THE ACTIVITY FEED (W8, signal-doctrine.md): capture + jobs ears
+    /// THE ACTIVITY FEED (W8, signal-doctrine.md): capture + jobs + providers ears
     /// and a ring of the last N stamped lines — the operator SEES the
     /// nervous system firing, and it doubles as the debug surface.
     capture_rx: dpl_fabric::CaptureReceiver,
     jobs_rx: dpl_fabric::JobReceiver,
+    providers_rx: dpl_fabric::ProviderReceiver,
     activity: std::collections::VecDeque<String>,
     /// Full-bleed: all chrome hidden, content owns the viewport (old `\` /
     /// Maximize2 behavior). Esc or the floating exit chip leaves.
@@ -135,7 +172,8 @@ impl Shell {
     pub fn new(hubs: Vec<Box<dyn Hub>>, fabric: Fabric) -> Self {
         let capture_rx = fabric.subscribe_capture();
         let jobs_rx = fabric.subscribe_jobs();
-        Self::with_ears(hubs, fabric, capture_rx, jobs_rx)
+        let providers_rx = fabric.subscribe_providers();
+        Self::with_ears(hubs, fabric, capture_rx, jobs_rx, providers_rx)
     }
 
     /// Construct with PRE-OPENED signal ears (W8): the app subscribes at
@@ -147,6 +185,7 @@ impl Shell {
         fabric: Fabric,
         capture_rx: dpl_fabric::CaptureReceiver,
         jobs_rx: dpl_fabric::JobReceiver,
+        providers_rx: dpl_fabric::ProviderReceiver,
     ) -> Self {
         let route = hubs
             .first()
@@ -163,6 +202,7 @@ impl Shell {
             events,
             capture_rx,
             jobs_rx,
+            providers_rx,
             activity: std::collections::VecDeque::new(),
             backdrop: dpl_backdrop::Backdrop::default(),
             nav_count: 0,
@@ -320,7 +360,7 @@ impl Shell {
         if let Some(route) = nav_request {
             self.navigate(route);
         }
-        // THE ACTIVITY FEED drain (W8): capture + jobs signals become
+        // THE ACTIVITY FEED drain (W8): capture + jobs + providers signals become
         // human lines in the ring (cap 256); the inspector renders the
         // tail. Lossy is fine — this is a window, not a ledger.
         while let Ok(st) = self.capture_rx.try_recv() {
@@ -330,6 +370,10 @@ impl Shell {
         while let Ok(st) = self.jobs_rx.try_recv() {
             self.signal_count += 1;
             self.push_activity(st.ms, activity_job_line(&st.ev));
+        }
+        while let Ok(st) = self.providers_rx.try_recv() {
+            self.signal_count += 1;
+            self.push_activity(st.ms, activity_provider_line(&st.ev));
         }
 
         // Esc leaves full-bleed (the old shell's escape hatch).
