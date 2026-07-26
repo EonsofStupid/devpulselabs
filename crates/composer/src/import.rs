@@ -75,24 +75,84 @@ pub fn import_file(src: &Path) -> Result<Record, String> {
     std::fs::create_dir_all(&dest_dir).map_err(|e| format!("dest dir: {e}"))?;
     let dest = no_clobber(&dest_dir, &stem, &ext);
     std::fs::copy(src, &dest).map_err(|e| format!("copy: {e}"))?;
+    finalize_import(&dest, kind, "import", &root, &stem)
+}
 
-    let mut rec = dpl_index::record_for_capture(&dest, &root, kind, "import");
+/// REFERENCE an external file IN-PLACE instead of copying it — the operator's
+/// paid AE presets / image folders stay where they live; a single-FILE symlink
+/// lands in `content/` and is indexed like any artifact. QoL: no duplication of
+/// a themeforest/AE library into the app. Single-FILE symlinks (never folders)
+/// keep rescans cheap — the folder-symlink rescan blow-up the pack shelf
+/// rejected does not apply here. Falls back to a copy where the OS denies
+/// symlinks (e.g. Windows without the privilege), so an import never fails.
+pub fn import_reference(src: &Path) -> Result<Record, String> {
+    let kind = media_kind(src).ok_or_else(|| format!("not a media file: {}", src.display()))?;
+    // Resolve to an absolute target so the symlink survives the app's cwd.
+    let target = std::fs::canonicalize(src).map_err(|e| format!("resolve {}: {e}", src.display()))?;
+    let stem = target
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("ref")
+        .to_string();
+    let ext = target
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let root = dpl_engine_capture::content_root();
+    let dest_dir = if kind == "element" {
+        root.join("elements").join("referenced")
+    } else {
+        root.join("inbox")
+    };
+    std::fs::create_dir_all(&dest_dir).map_err(|e| format!("dest dir: {e}"))?;
+    let dest = no_clobber(&dest_dir, &stem, &ext);
+    if symlink_file(&target, &dest).is_err() {
+        // Symlinks denied (Windows w/o privilege) — a copy still works.
+        std::fs::copy(&target, &dest).map_err(|e| format!("reference fallback copy: {e}"))?;
+    }
+    finalize_import(&dest, kind, "reference", &root, &stem)
+}
+
+/// Create a single-FILE symlink `dest -> target`, cross-platform. `unix`
+/// covers Linux AND macOS; Windows has its own call (needs the create-symlink
+/// privilege or Developer Mode — the caller falls back to a copy on failure).
+#[cfg(unix)]
+fn symlink_file(target: &Path, dest: &Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(target, dest)
+}
+#[cfg(windows)]
+fn symlink_file(target: &Path, dest: &Path) -> std::io::Result<()> {
+    std::os::windows::fs::symlink_file(target, dest)
+}
+
+/// Index a placed file (copied OR referenced) as an artifact: poster + seconds
+/// for video, capsule enrich for an element, then write-through. Shared by
+/// `import_file` and `import_reference` so copy and reference land identically.
+fn finalize_import(
+    dest: &Path,
+    kind: &str,
+    source: &str,
+    root: &Path,
+    stem: &str,
+) -> Result<Record, String> {
+    let mut rec = dpl_index::record_for_capture(dest, root, kind, source);
     if kind == "element" {
-        enrich_element(&mut rec, &dest, &root);
+        enrich_element(&mut rec, dest, root);
     }
     if kind == "video" {
         let poster = dest.with_file_name(format!(
             "{}-poster.jpg",
-            dest.file_stem().and_then(|s| s.to_str()).unwrap_or(&stem)
+            dest.file_stem().and_then(|s| s.to_str()).unwrap_or(stem)
         ));
         // A missing poster degrades the card, never the import.
-        if dpl_engine_media::write_poster(&dest, &poster).is_ok() {
+        if dpl_engine_media::write_poster(dest, &poster).is_ok() {
             rec.poster_rel_path = poster
-                .strip_prefix(&root)
+                .strip_prefix(root)
                 .ok()
                 .map(|p| p.to_string_lossy().replace('\\', "/"));
         }
-        rec.seconds = dpl_video::clip::clip_duration(&dest)
+        rec.seconds = dpl_video::clip::clip_duration(dest)
             .filter(|d| *d > 0.0)
             .map(|d| d.round() as u32);
     }
@@ -157,6 +217,30 @@ pub(crate) fn enrich_element(rec: &mut Record, dest: &Path, root: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The reference mechanism: a single-file symlink resolves to the source
+    // content IN PLACE (unix covers Linux + macOS; Windows uses its own call).
+    #[cfg(unix)]
+    #[test]
+    fn reference_symlinks_the_source_in_place() {
+        let dir = std::env::temp_dir().join(format!("dpl-ref-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let src = dir.join("preset.png");
+        std::fs::write(&src, b"PRESET-BYTES").unwrap();
+        let dest = dir.join("linked.png");
+        symlink_file(&std::fs::canonicalize(&src).unwrap(), &dest).unwrap();
+        assert!(
+            std::fs::symlink_metadata(&dest).unwrap().file_type().is_symlink(),
+            "dest is a symlink, not a copy"
+        );
+        assert_eq!(
+            std::fs::read(&dest).unwrap(),
+            b"PRESET-BYTES",
+            "the symlink resolves to the source in place"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn the_promote_guard_only_ever_removes_inside_assets() {
