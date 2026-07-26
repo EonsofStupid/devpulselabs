@@ -94,3 +94,14 @@ Foundation (traits data + generator + compositor) lands first (Pass 0 §4). Then
 `slide-catalog-pass` loop ports the catalog through the trait system. Every UI/slide
 pass after this doc MUST invoke `coldlight-system` and leave touched surfaces
 doctrine-clean.
+
+
+## §perf — the proactive-buffer law (W8)
+
+No UI surface ever runs filesystem scans, drive probes, or blocking
+subprocess calls on the paint thread. Listings load through background
+workers into warm caches seeded proactively (boot / first visit); a
+cache hit paints instantly and revalidates behind; a cold path shows
+an honest "opening…" state. See docs/design/signal-doctrine.md for the
+sibling signal laws; the quiet-spawn law (dpl-proc + the cargo-green
+audit) covers every subprocess.
