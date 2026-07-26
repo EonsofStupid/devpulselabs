@@ -1,3 +1,4 @@
+// spawn-audit: exempt(build script — compile-time git stamp, no GUI)
 //! Stamp the build so the RUNNING APP proves which code it is — the footer
 //! shows `<short-hash> · <utc time>`. Kills the "am I looking at a stale
 //! exe" failure mode for good.

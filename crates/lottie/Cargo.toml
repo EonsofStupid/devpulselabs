@@ -6,6 +6,7 @@ publish = false
 description = "The app-facing native Lottie façade: spawns the `dpl-lottie-render` subprocess helper (ADR-009) and never links ThorVG, so this crate — and everything that depends on it — stays pure-Rust and unsafe-free. `Player` streams a frame at time t for the timeline; `export_sequence` batches frames for ffmpeg."
 
 [dependencies]
+dpl-proc.workspace = true
 # Deliberately NONE — the façade only spawns the helper binary. No ThorVG,
 # no FFI, no unsafe. That is the whole point of the split.
 

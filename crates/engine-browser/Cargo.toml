@@ -6,6 +6,7 @@ publish.workspace = true
 description = "Headless Chromium orchestration for Program DEMO's external tier: resolve an installed Chrome/Edge/Chromium (never download), launch it headless as a SUBPROCESS (ADR-013 — the ffmpeg/aerender pattern), and drive it over CDP on a localhost WebSocket: navigate, evaluate, click, type, screenshot."
 
 [dependencies]
+dpl-proc.workspace = true
 # The three-ring root owner (ADR-014): ephemeral profiles live in
 # .userdata/temp, named profiles in .userdata/profiles, captures
 # auto-file into assets/captures.

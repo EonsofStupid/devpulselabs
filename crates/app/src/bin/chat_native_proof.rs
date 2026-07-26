@@ -1,3 +1,4 @@
+// spawn-audit: exempt(proof tool CLI; the HighDpi self re-exec must inherit its console)
 //! Windows-only proof harness for the real DevPULSE Chat peer viewports.
 //!
 //! The capture engine intentionally excludes windows owned by its own process

@@ -1,3 +1,4 @@
+// spawn-audit: exempt(CLI harness — console output is the product)
 use egui_pilot_ai_protocol::{Flow, RunOutcome, SnapshotRequest};
 use egui_pilot_ai_runner::{
     load_flow, save_flow, EguiPilotConfig, ProcessSession, RunnerError, CONFIG_FILE,

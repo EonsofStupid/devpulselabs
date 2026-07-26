@@ -1,3 +1,4 @@
+// spawn-audit: exempt(ignored FS drill run from a console)
 //! The MIXED-EXPORT drill (DG1) — real ffmpeg cuts a real session into a
 //! clip step, and the exported player is walked in REAL headless Chrome
 //! via dpl-engine-browser (the G1 browser-drill law, dogfooding DEMO-B).

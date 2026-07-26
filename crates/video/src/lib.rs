@@ -154,12 +154,12 @@ impl Drop for Player {
 /// a cooldown; reap on stop.
 fn reader_loop(shared: &Shared, path: &Path) {
     while !shared.stop.load(Ordering::Acquire) {
-        let child = Command::new(ffmpeg_program())
-            .args(pipe_args(path))
+        let mut cmd = Command::new(ffmpeg_program());
+        cmd.args(pipe_args(path))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn();
+            .stderr(Stdio::null());
+        let child = dpl_proc::quiet(&mut cmd).spawn();
         let mut child: Child = match child {
             Ok(c) => c,
             Err(_) => {

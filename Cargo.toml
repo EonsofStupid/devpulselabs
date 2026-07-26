@@ -38,6 +38,7 @@ members = [
     "crates/lottie-render",
     "crates/slides",
     "crates/doc",
+    "crates/proc",
     "crates/comp",
     "crates/guide",
     "crates/composer",
@@ -153,6 +154,7 @@ dpl-lottie = { path = "crates/lottie" }
 dpl-lottie-render = { path = "crates/lottie-render" }
 dpl-slides = { path = "crates/slides" }
 dpl-doc = { path = "crates/doc" }
+dpl-proc = { path = "crates/proc" }
 dpl-comp = { path = "crates/comp" }
 dpl-guide = { path = "crates/guide" }
 dpl-composer = { path = "crates/composer" }

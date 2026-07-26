@@ -55,14 +55,13 @@ fn parse_duration(stderr: &str) -> Option<f32> {
 /// banner still prints). None when ffmpeg is absent or the banner
 /// doesn't parse; callers degrade honestly.
 pub fn clip_duration(path: &Path) -> Option<f32> {
-    let out = Command::new(ffmpeg_program())
-        .args(["-hide_banner", "-i"])
+    let mut cmd = Command::new(ffmpeg_program());
+    cmd.args(["-hide_banner", "-i"])
         .arg(path)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .output()
-        .ok()?;
+        .stderr(Stdio::piped());
+    let out = dpl_proc::quiet(&mut cmd).output().ok()?;
     parse_duration(&String::from_utf8_lossy(&out.stderr))
 }
 
@@ -215,12 +214,12 @@ impl Drop for ClipPlayer {
 /// One pipe, one life: read frames until EOF or stop. EOF marks
 /// `ended` — NO respawn.
 fn read_clip(shared: &ClipShared, path: &Path, start: f32) {
-    let child = Command::new(ffmpeg_program())
-        .args(clip_pipe_args(path, start))
+    let mut cmd = Command::new(ffmpeg_program());
+    cmd.args(clip_pipe_args(path, start))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn();
+        .stderr(Stdio::null());
+    let child = dpl_proc::quiet(&mut cmd).spawn();
     let Ok(mut child) = child else {
         shared.ended.store(true, Ordering::Release);
         return;
