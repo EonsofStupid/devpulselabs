@@ -1,4 +1,4 @@
-use super::{allowed_environment_keys, hide_child_console, GrokRuntimeProfile};
+use super::{allowed_environment_keys, GrokRuntimeProfile};
 use crate::terminal::AcpTerminalStore;
 use agent_client_protocol::{
     schema::{
@@ -90,7 +90,7 @@ impl GrokLaunchSpec {
         for (key, value) in &self.environment {
             command.env(key, value);
         }
-        hide_child_console(&mut command);
+        dpl_proc::quiet(&mut command);
         let mut command = async_process::Command::from(command);
         command.kill_on_drop(true);
         command

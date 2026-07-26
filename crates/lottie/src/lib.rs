@@ -67,7 +67,9 @@ impl Player {
     /// Open `lottie` at a fixed render size, spawning the helper and
     /// reading its `READY <w> <h> <fps> <total>` header.
     pub fn open(lottie: &Path, w: u32, h: u32) -> Result<Self, String> {
-        let mut child = Command::new(helper_path())
+        let mut cmd = Command::new(helper_path());
+        dpl_proc::quiet(&mut cmd);
+        let mut child = cmd
             .arg("serve")
             .arg(lottie)
             .arg(w.to_string())
@@ -135,7 +137,9 @@ pub fn export_sequence(
     fps: f32,
     out_dir: &Path,
 ) -> Result<String, String> {
-    let out = Command::new(helper_path())
+    let mut cmd = Command::new(helper_path());
+    dpl_proc::quiet(&mut cmd);
+    let out = cmd
         .arg("export")
         .arg(lottie)
         .arg(w.to_string())

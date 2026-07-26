@@ -71,12 +71,15 @@ pub fn set_ffmpeg_path(p: PathBuf) {
 
 /// The one Command factory every ffmpeg spawn in this crate goes through.
 fn ffmpeg_cmd() -> Command {
-    Command::new(
+    let mut cmd = Command::new(
         FFMPEG
             .get()
             .map(PathBuf::as_path)
             .unwrap_or_else(|| Path::new(MISSING_FFMPEG)),
-    )
+    );
+    // The quiet-spawn law (W8): no ffmpeg child ever pops a console.
+    dpl_proc::quiet(&mut cmd);
+    cmd
 }
 
 /// For error messages: where ffmpeg was expected.

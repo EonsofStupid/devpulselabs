@@ -1657,6 +1657,7 @@ dependencies = [
  "dpl-chat-core",
  "dpl-chat-store",
  "dpl-embedded-deps",
+ "dpl-proc",
  "serde_json",
 ]
 
@@ -1697,6 +1698,7 @@ dependencies = [
  "async-process",
  "dpl-chat-core",
  "dpl-embedded-deps",
+ "dpl-proc",
  "futures-lite",
  "serde_json",
 ]
@@ -1804,6 +1806,7 @@ dependencies = [
  "dpl-engine-capture",
  "dpl-engine-media",
  "dpl-engine-steps",
+ "dpl-fabric",
  "dpl-guide",
  "dpl-index",
  "dpl-video",
@@ -1866,6 +1869,7 @@ name = "dpl-engine-browser"
 version = "0.1.0"
 dependencies = [
  "dpl-engine-capture",
+ "dpl-proc",
  "serde",
  "serde_json",
  "tungstenite",
@@ -1875,6 +1879,7 @@ dependencies = [
 name = "dpl-engine-capture"
 version = "0.1.0"
 dependencies = [
+ "dpl-proc",
  "image",
  "serde",
  "serde_json",
@@ -1886,6 +1891,7 @@ dependencies = [
 name = "dpl-engine-media"
 version = "0.1.0"
 dependencies = [
+ "dpl-proc",
  "image",
  "kamadak-exif",
  "ravif",
@@ -2012,6 +2018,9 @@ dependencies = [
 [[package]]
 name = "dpl-lottie"
 version = "0.1.0"
+dependencies = [
+ "dpl-proc",
+]
 
 [[package]]
 name = "dpl-lottie-render"
@@ -2020,6 +2029,10 @@ dependencies = [
  "image",
  "thorvg-sys",
 ]
+
+[[package]]
+name = "dpl-proc"
+version = "0.1.0"
 
 [[package]]
 name = "dpl-seam"
@@ -2031,6 +2044,7 @@ dependencies = [
  "dpl-engine-media",
  "dpl-fabric",
  "dpl-hub",
+ "dpl-index",
  "serde",
  "serde_json",
  "tokio",
@@ -2076,6 +2090,7 @@ dependencies = [
 name = "dpl-video"
 version = "0.1.0"
 dependencies = [
+ "dpl-proc",
  "egui",
 ]
 

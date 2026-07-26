@@ -11,6 +11,9 @@
 
 use dpl_hub::Route;
 use std::fmt;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::broadcast;
 
 /// Stable identity for an application-owned native window.
@@ -82,6 +85,67 @@ pub enum DeckEvent {
 /// A deck-domain subscription.
 pub type DeckReceiver = broadcast::Receiver<DeckEvent>;
 
+/// Capture-domain signals (the signal doctrine, docs/design/
+/// signal-doctrine.md) — the original app's taxonomy, our index's
+/// field vocabulary. Clone (not Copy — Saved carries owned strings);
+/// signals are still VALUES.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CaptureEvent {
+    /// A capture vehicle began (mode: "full"|"window"|"region"|"free"|
+    /// "steps"|"session"|"video"|"render"|"export"|"import"|"ingest").
+    Started { mode: String, target: String },
+    /// An artifact LANDED and is indexed — fields mirror
+    /// `dpl_index::Record`. Fires AFTER the write succeeds.
+    Saved {
+        rel_path: String,
+        kind: String,
+        name: String,
+        location: String,
+        source: String,
+    },
+    /// A mutation failed where it failed.
+    Failed { error: String },
+    /// The inbox changed shape (dump, keep, rescan, batch end) —
+    /// consumers reload lazily.
+    InboxChanged,
+    /// The ViziWiz palette showed/hid.
+    PaletteVisibility { visible: bool },
+}
+
+/// A capture-domain subscription.
+pub type CaptureReceiver = broadcast::Receiver<Stamped<CaptureEvent>>;
+
+/// Job lifecycle signals (doctrine law 7: PROGRESS stays in shared
+/// polled state; these fire at TRANSITIONS only). Job COMMANDS are a
+/// reserved mpsc contract (R2c) — status may be lossy, commands never.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum JobEvent {
+    Queued { job: JobId, label: String },
+    Done { job: JobId, out: String },
+    Failed { job: JobId, error: String },
+}
+
+/// A process-unique job identity (minted from the fabric's sequence).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct JobId(pub u64);
+
+/// A jobs-domain subscription.
+pub type JobReceiver = broadcast::Receiver<Stamped<JobEvent>>;
+
+/// The installed UI waker callback (doctrine law 6).
+pub type Waker = Arc<dyn Fn() + Send + Sync>;
+
+/// STAMP AT PUBLISH (doctrine law 5): every capture/job signal carries
+/// `seq` from ONE global counter (total causal order ACROSS domains)
+/// and `ms` monotonic from the fabric's birth — the flight-recorder
+/// truth session replay and analytics reconstruct from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stamped<T> {
+    pub seq: u64,
+    pub ms: u64,
+    pub ev: T,
+}
+
 /// The fabric hands out senders and subscriptions; it never processes.
 /// Broadcast is deliberately lossy under pressure (oldest dropped, receiver
 /// told how many) — correct for signals, wrong for jobs. Job queues get
@@ -91,6 +155,15 @@ pub type DeckReceiver = broadcast::Receiver<DeckEvent>;
 pub struct Fabric {
     shell: broadcast::Sender<ShellEvent>,
     deck: broadcast::Sender<DeckEvent>,
+    capture: broadcast::Sender<Stamped<CaptureEvent>>,
+    jobs: broadcast::Sender<Stamped<JobEvent>>,
+    /// The stamp state: one global sequence + the birth instant.
+    seq: Arc<AtomicU64>,
+    born: Instant,
+    /// The WAKER (doctrine law 6): installed by the app as a
+    /// `request_repaint` closure so background publishes surface the
+    /// same frame. The fabric stays UI-free — this is just a callback.
+    waker: Arc<std::sync::Mutex<Option<Waker>>>,
 }
 
 impl Default for Fabric {
@@ -103,7 +176,70 @@ impl Fabric {
     pub fn new() -> Self {
         let (shell, _) = broadcast::channel(64);
         let (deck, _) = broadcast::channel(64);
-        Self { shell, deck }
+        let (capture, _) = broadcast::channel(256);
+        let (jobs, _) = broadcast::channel(64);
+        Self {
+            shell,
+            deck,
+            capture,
+            jobs,
+            seq: Arc::new(AtomicU64::new(0)),
+            born: Instant::now(),
+            waker: Arc::new(std::sync::Mutex::new(None)),
+        }
+    }
+
+    /// Install the UI waker (once, at boot). Every publish invokes it.
+    pub fn attach_waker(&self, wake: Waker) {
+        *self
+            .waker
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(wake);
+    }
+
+    fn wake(&self) {
+        if let Some(w) = self
+            .waker
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+        {
+            w();
+        }
+    }
+
+    fn stamp<T>(&self, ev: T) -> Stamped<T> {
+        Stamped {
+            seq: self.seq.fetch_add(1, Ordering::Relaxed),
+            ms: self.born.elapsed().as_millis() as u64,
+            ev,
+        }
+    }
+
+    /// Mint a process-unique job id (same sequence space as stamps —
+    /// a JobId is causally ordered against every signal).
+    pub fn mint_job(&self) -> JobId {
+        JobId(self.seq.fetch_add(1, Ordering::Relaxed))
+    }
+
+    /// Publish a capture signal — stamped, waking the UI.
+    pub fn publish_capture(&self, event: CaptureEvent) {
+        let _ = self.capture.send(self.stamp(event));
+        self.wake();
+    }
+
+    pub fn subscribe_capture(&self) -> CaptureReceiver {
+        self.capture.subscribe()
+    }
+
+    /// Publish a job transition — stamped, waking the UI.
+    pub fn publish_job(&self, event: JobEvent) {
+        let _ = self.jobs.send(self.stamp(event));
+        self.wake();
+    }
+
+    pub fn subscribe_jobs(&self) -> JobReceiver {
+        self.jobs.subscribe()
     }
 
     /// Publish, ignoring "no subscribers yet" — a signal with no listeners
@@ -185,6 +321,79 @@ mod tests {
         };
         fabric.publish_shell(event);
         assert_eq!(rx.try_recv().unwrap(), event);
+    }
+
+    #[test]
+    fn capture_signals_stamp_in_total_order_and_round_trip() {
+        let fabric = Fabric::new();
+        let mut rx = fabric.subscribe_capture();
+        fabric.publish_capture(CaptureEvent::InboxChanged);
+        fabric.publish_capture(CaptureEvent::Saved {
+            rel_path: "inbox/pix.png".into(),
+            kind: "image".into(),
+            name: "pix.png".into(),
+            location: "inbox".into(),
+            source: "viziwiz".into(),
+        });
+        let a = rx.try_recv().unwrap();
+        let b = rx.try_recv().unwrap();
+        assert_eq!(a.ev, CaptureEvent::InboxChanged);
+        assert!(matches!(&b.ev, CaptureEvent::Saved { kind, .. } if kind == "image"));
+        assert!(
+            b.seq > a.seq,
+            "one global sequence orders signals: {} > {}",
+            b.seq,
+            a.seq
+        );
+        assert!(b.ms >= a.ms, "monotonic ms");
+        // Domains stay separate: capture noise never wakes shell ears.
+        let mut shell_rx = fabric.subscribe_shell();
+        fabric.publish_capture(CaptureEvent::InboxChanged);
+        assert!(shell_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn jobs_transitions_stamp_and_job_ids_share_the_sequence() {
+        let fabric = Fabric::new();
+        let mut rx = fabric.subscribe_jobs();
+        let job = fabric.mint_job();
+        fabric.publish_job(JobEvent::Queued {
+            job,
+            label: "render".into(),
+        });
+        fabric.publish_job(JobEvent::Done {
+            job,
+            out: "inbox/comp-1/render.mp4".into(),
+        });
+        let q = rx.try_recv().unwrap();
+        let d = rx.try_recv().unwrap();
+        assert!(matches!(q.ev, JobEvent::Queued { job: j, .. } if j == job));
+        assert!(matches!(d.ev, JobEvent::Done { job: j, .. } if j == job));
+        assert!(
+            job.0 < q.seq,
+            "the JobId is causally before its transitions"
+        );
+    }
+
+    #[test]
+    fn the_waker_fires_on_every_publish() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let fabric = Fabric::new();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let h = Arc::clone(&hits);
+        fabric.attach_waker(Arc::new(move || {
+            h.fetch_add(1, Ordering::Relaxed);
+        }));
+        fabric.publish_capture(CaptureEvent::InboxChanged);
+        fabric.publish_job(JobEvent::Queued {
+            job: fabric.mint_job(),
+            label: "x".into(),
+        });
+        assert_eq!(
+            hits.load(Ordering::Relaxed),
+            2,
+            "background publishes wake the UI"
+        );
     }
 
     #[test]

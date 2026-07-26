@@ -278,8 +278,12 @@ pub fn write_poster(src: &Path, out: &Path) -> Result<(), String> {
 }
 
 fn run_ffmpeg(args: Vec<String>) -> Result<(), String> {
-    let status = Command::new(ffmpeg_program())
-        .args(&args)
+    let mut cmd = Command::new(ffmpeg_program());
+    cmd.args(&args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    let status = dpl_proc::quiet(&mut cmd)
         .status()
         .map_err(|e| format!("ffmpeg spawn: {e}"))?;
     if status.success() {

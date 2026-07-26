@@ -11,6 +11,35 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+/// The WARM SCAN CACHE (W8, the proactive-buffer law): folder listings
+/// shared across every Browse window, seeded at boot for the profile
+/// roots + pinned packs. A cache hit paints INSTANTLY; a revalidating
+/// scan runs behind it and refreshes the entry. No UI surface ever
+/// walks a directory on the paint thread.
+pub type ScanCache = Arc<Mutex<HashMap<PathBuf, Vec<Entry>>>>;
+
+/// Warm the cache OFF-THREAD: the quick-jump roots (probed in the
+/// worker — drive-letter probes can block on sleeping media and must
+/// never touch the UI thread, not even once) plus `extra` dirs
+/// (pinned packs). Top-level scans only — exactly what a window
+/// paints first.
+pub fn warm_cache(cache: &ScanCache, extra: Vec<PathBuf>) {
+    let cache = Arc::clone(cache);
+    let _ = std::thread::Builder::new()
+        .name("dpl-browse-warm".into())
+        .spawn(move || {
+            let mut dirs: Vec<PathBuf> = roots().into_iter().map(|(_, p)| p).collect();
+            dirs.extend(extra);
+            for dir in dirs {
+                let entries = scan(&dir);
+                cache
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .insert(dir, entries);
+            }
+        });
+}
+
 /// The deep-search result cap — SAID in the UI, never a silent cut.
 pub const SEARCH_CAP: usize = 500;
 /// Mogrt zip-reads per painted frame — a 300-card folder fills over a
@@ -21,8 +50,17 @@ pub struct Browser {
     /// Distinguishes this window's viewport/pilot ids for its lifetime.
     pub slot: usize,
     pub cwd: PathBuf,
-    /// None = rescan on next frame (set by navigation).
+    /// The painted listing. None = not yet available (a scan is running
+    /// or about to start) — the window says "opening…" honestly.
     pub entries: Option<Vec<Entry>>,
+    /// The in-flight off-thread scan of `cwd` (the proactive-buffer
+    /// law: read_dir NEVER runs on the paint thread).
+    scanning: Option<Arc<Mutex<Option<Vec<Entry>>>>>,
+    /// The shared warm cache — hits paint instantly, scans write back.
+    cache: ScanCache,
+    /// The quick-jump roots, probed ONCE per window (drive-letter
+    /// probes can block seconds on sleeping media — never per frame).
+    roots: Vec<(String, PathBuf)>,
     /// Media files clicked since the composer last drained.
     pub picked: Vec<PathBuf>,
     /// Folders "Pin pack"-ed since the composer last drained.
@@ -66,11 +104,14 @@ pub struct Entry {
 }
 
 impl Browser {
-    pub fn new(slot: usize, cwd: PathBuf) -> Self {
+    pub fn new(slot: usize, cwd: PathBuf, cache: ScanCache) -> Self {
         Self {
             slot,
             cwd,
             entries: None,
+            scanning: None,
+            cache,
+            roots: roots(),
             picked: Vec::new(),
             pinned: Vec::new(),
             ingest_req: None,
@@ -94,6 +135,7 @@ impl Browser {
     fn go(&mut self, to: PathBuf) {
         self.cwd = to;
         self.entries = None;
+        self.scanning = None;
         // Navigation disarms a pending ingest confirm (the two-tap law)
         // and leaves any search behind — new folder, fresh view.
         self.arm = None;
@@ -232,8 +274,49 @@ pub fn scan(dir: &Path) -> Vec<Entry> {
 /// The window BODY (the deferred viewport calls this). Ordinary egui —
 /// scan lazily, paint the bar + grid, record picks.
 pub fn window_ui(ui: &mut egui::Ui, b: &mut Browser) {
-    if b.entries.is_none() {
-        b.entries = Some(scan(&b.cwd));
+    // The proactive-buffer law: paint from the warm cache instantly and
+    // revalidate behind; a cold folder scans OFF-THREAD with an honest
+    // "opening…" state. The paint thread never touches the disk.
+    if b.entries.is_none() && b.scanning.is_none() {
+        if let Some(cached) = b
+            .cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&b.cwd)
+            .cloned()
+        {
+            b.entries = Some(cached);
+        }
+        let slot = Arc::new(Mutex::new(None));
+        b.scanning = Some(Arc::clone(&slot));
+        let dir = b.cwd.clone();
+        let cache = Arc::clone(&b.cache);
+        let _ = std::thread::Builder::new()
+            .name("dpl-browse-scan".into())
+            .spawn(move || {
+                let entries = scan(&dir);
+                cache
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .insert(dir, entries.clone());
+                *slot
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(entries);
+            });
+    }
+    if let Some(sc) = &b.scanning {
+        let fresh = sc
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+        if let Some(entries) = fresh {
+            b.entries = Some(entries);
+            b.scanning = None;
+        } else {
+            // Keep a frame queued while the worker fills the listing.
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(60));
+        }
     }
     let ns = b.slot;
     let mut go: Option<PathBuf> = None;
@@ -253,7 +336,7 @@ pub fn window_ui(ui: &mut egui::Ui, b: &mut Browser) {
                 go = Some(parent.to_path_buf());
             }
         }
-        for (label, path) in roots() {
+        for (label, path) in b.roots.clone() {
             let here = b.cwd == path;
             let resp = cl::tip(
                 bar_chip(ui, &label, ns, &label),
@@ -413,6 +496,9 @@ pub fn window_ui(ui: &mut egui::Ui, b: &mut Browser) {
                 if let Some(i) = entry_grid(ui, &refs, ns, "hits", thumbs, &mut thumb_budget) {
                     picked = Some(hits[i].path.clone());
                 }
+            }
+            None if b.entries.is_none() => {
+                ui.label(RichText::new("opening this folder…").color(cl::ink::MUTED));
             }
             None => {
                 let q = b.query.to_lowercase();
@@ -699,7 +785,7 @@ mod tests {
     fn navigation_clears_the_search_view() {
         let root = scratch("nav");
         std::fs::create_dir_all(root.join("sub")).unwrap();
-        let mut b = Browser::new(0, root.clone());
+        let mut b = Browser::new(0, root.clone(), ScanCache::default());
         b.query = "x".into();
         b.search = Some(Arc::new(Mutex::new(Search {
             hits: Vec::new(),

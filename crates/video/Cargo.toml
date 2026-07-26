@@ -6,6 +6,7 @@ publish.workspace = true
 description = "Looping video → egui texture via an ffmpeg SUBPROCESS (ADR-009). No codec crates."
 
 [dependencies]
+dpl-proc.workspace = true
 egui.workspace = true
 
 [lints]

@@ -1,3 +1,4 @@
+// spawn-audit: exempt(test harness — a visible target app console aids debugging)
 //! Process-isolated scenario, artifact, trace, and visual runner.
 //!
 //! Only profiles and fixtures declared in `.eguipilotai.toml` may be launched.

@@ -280,6 +280,7 @@ fn main() -> eframe::Result {
             session.as_deref(),
             None,
             dpl_guide::ExportOpts::default(),
+            None,
         ) {
             Ok(export) => {
                 println!("exported {}", export.html.display());
@@ -410,6 +411,10 @@ struct Boot {
 
 struct App {
     shell: Shell,
+    /// The one fabric — kept for the first-frame waker install (the
+    /// egui Context exists only inside frames; doctrine law 6).
+    fabric: Fabric,
+    waker_installed: bool,
     viziwiz: dpl_viziwiz::Viziwiz,
     chat: chat::ChatWindowCoordinator,
     shot: Option<std::path::PathBuf>,
@@ -484,6 +489,10 @@ impl App {
         // ONE fabric, shared: the shell publishes AND (since D2) listens;
         // the Present hub requests full-bleed over it.
         let fabric = Fabric::new();
+        // Open the shell's signal ears AT FABRIC BIRTH (W8): the boot
+        // drills below publish real signals; ears opened later miss them.
+        let shell_capture_rx = fabric.subscribe_capture();
+        let shell_jobs_rx = fabric.subscribe_jobs();
         let mut present_hub = dpl_hub_present::PresentHub::new(fabric.clone());
         if let Some(id) = &present {
             present_hub.open_show(id);
@@ -494,6 +503,12 @@ impl App {
         }
         // The harness path into the SESSIONS player (S2).
         let mut wiredfront = dpl_hub_wiredfront::WiredfrontHub::default();
+        // WIRE THE FABRIC BEFORE THE DRILLS (W8 fix): harness mutations
+        // must signal exactly like real actions — the old ordering ran
+        // import/pin/save drills against an unwired hub, silently
+        // emitting nothing.
+        workbench.wire_fabric(&fabric);
+        wiredfront.wire_fabric(&fabric);
         if let Some(rel) = &open_session {
             wiredfront.open_session(rel);
         }
@@ -515,10 +530,6 @@ impl App {
         if let Some(name) = &save_comp {
             wiredfront.save_comp(name);
         }
-        // The NAVIGATE seam: hubs that render tappable subroute cards
-        // publish their asks through the one fabric.
-        workbench.wire_fabric(&fabric);
-        wiredfront.wire_fabric(&fabric);
         // Chat coding providers work inside the canonical launch workspace,
         // not DevPULSE's media/content store. The launcher (and later the
         // named-project registry) owns this root; provider or conversation
@@ -610,7 +621,7 @@ impl App {
         if viziwiz_open {
             viziwiz.open_now();
         }
-        let mut shell = Shell::new(hubs, fabric.clone());
+        let mut shell = Shell::with_ears(hubs, fabric.clone(), shell_capture_rx, shell_jobs_rx);
         shell
             .register_window_accessory(dpl_shell::status::WindowAccessory {
                 key: dpl_chat_window::WINDOW_KEY,
@@ -684,6 +695,8 @@ impl App {
 
         Self {
             shell,
+            fabric,
+            waker_installed: false,
             viziwiz,
             chat,
             shot,
@@ -980,6 +993,14 @@ fn fit_window(ctx: &egui::Context) {
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // The WAKER (signal doctrine law 6), installed once: background
+        // publishes repaint the UI the same frame — no polling burn.
+        if !self.waker_installed {
+            self.waker_installed = true;
+            let ctx = ui.ctx().clone();
+            self.fabric
+                .attach_waker(std::sync::Arc::new(move || ctx.request_repaint()));
+        }
         self.chat.root_close_requested(ui.ctx());
         fit_window(ui.ctx());
         self.shell.ui(ui);

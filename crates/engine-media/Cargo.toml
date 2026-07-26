@@ -6,6 +6,7 @@ publish.workspace = true
 description = "The content media-optimization pipeline (old optimize-media.mjs, pure Rust): every image becomes AVIF q60 + WebP q80 + JPEG q82; cutouts keep alpha; anim/video ride the ffmpeg subprocess (ADR-009)."
 
 [dependencies]
+dpl-proc.workspace = true
 # Decode (png/jpeg/webp inputs) + resize + JPEG encode.
 image.workspace = true
 # Lossy WebP encode — same crate the capture engine ships.

@@ -25,7 +25,7 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use dpl_comp::Composition;
-use dpl_fabric::{Fabric, ShellEvent};
+use dpl_fabric::{CaptureEvent, Fabric, JobEvent, ShellEvent, Stamped};
 use dpl_hub::{HubSpec, Route};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -92,22 +92,72 @@ fn route_str(r: &Route) -> String {
     format!("{}/{}", r.hub.0, r.sub.0)
 }
 
-/// One shell event as wire JSON. Every variant is covered — a new fabric
+/// One shell event as wire JSON — the ENVELOPE (signal-doctrine law 4:
+/// `domain` + `type` + payload; shell events are unstamped, the stamped
+/// domains add `seq`/`ms`). Every variant is covered — a new fabric
 /// variant fails compilation here instead of silently vanishing from SSE.
 pub fn event_json(ev: &ShellEvent) -> Value {
     match ev {
         ShellEvent::RouteChanged { route } => {
-            json!({"type": "route-changed", "route": route_str(route)})
+            json!({"domain": "shell", "type": "route-changed", "route": route_str(route)})
         }
-        ShellEvent::ViziwizSummon => json!({"type": "viziwiz-summon"}),
-        ShellEvent::FullBleedRequest(on) => json!({"type": "full-bleed", "on": on}),
+        ShellEvent::ViziwizSummon => json!({"domain": "shell", "type": "viziwiz-summon"}),
+        ShellEvent::FullBleedRequest(on) => {
+            json!({"domain": "shell", "type": "full-bleed", "on": on})
+        }
         ShellEvent::NavigateRequest { route } => {
-            json!({"type": "navigate-request", "route": route_str(route)})
+            json!({"domain": "shell", "type": "navigate-request", "route": route_str(route)})
         }
         ShellEvent::WindowRequest { target, .. } => {
-            json!({"type": "window-request", "target": target.0})
+            json!({"domain": "shell", "type": "window-request", "target": target.0})
         }
     }
+}
+
+/// One stamped capture signal in the envelope. camelCase payload —
+/// exhaustive match: a new kind fails compilation here.
+pub fn capture_json(st: &Stamped<CaptureEvent>) -> Value {
+    let mut v = match &st.ev {
+        CaptureEvent::Started { mode, target } => {
+            json!({"type": "started", "mode": mode, "target": target})
+        }
+        CaptureEvent::Saved {
+            rel_path,
+            kind,
+            name,
+            location,
+            source,
+        } => json!({
+            "type": "saved", "relPath": rel_path, "kind": kind,
+            "name": name, "location": location, "source": source,
+        }),
+        CaptureEvent::Failed { error } => json!({"type": "failed", "error": error}),
+        CaptureEvent::InboxChanged => json!({"type": "inboxChanged"}),
+        CaptureEvent::PaletteVisibility { visible } => {
+            json!({"type": "paletteVisibility", "visible": visible})
+        }
+    };
+    v["domain"] = json!("capture");
+    v["seq"] = json!(st.seq);
+    v["ms"] = json!(st.ms);
+    v
+}
+
+/// One stamped job transition in the envelope.
+pub fn job_json(st: &Stamped<JobEvent>) -> Value {
+    let mut v = match &st.ev {
+        JobEvent::Queued { job, label } => {
+            json!({"type": "queued", "job": job.0, "label": label})
+        }
+        JobEvent::Done { job, out } => json!({"type": "done", "job": job.0, "out": out}),
+        JobEvent::Failed { job, error } => {
+            json!({"type": "failed", "job": job.0, "error": error})
+        }
+    };
+    v["domain"] = json!("jobs");
+    v["seq"] = json!(st.seq);
+    v["ms"] = json!(st.ms);
+    v
 }
 
 /// One render job's polled status (mirrors the editor's `RenderState`).
@@ -263,10 +313,46 @@ fn start_render(s: &Shared, body: &Value) -> Result<(StatusCode, Value), Vec<Str
     let (w, h, fps) = (comp.w, comp.h, comp.fps);
     let state = Arc::clone(s);
     let key = rel.to_string();
+    // Agent-driven renders signal like operator ones (signal-doctrine
+    // law 3: EVERY mutation) — jobs transitions + Saved via SSE.
+    let job = state.fabric.mint_job();
+    state.fabric.publish_job(dpl_fabric::JobEvent::Queued {
+        job,
+        label: format!("render {key}"),
+    });
     std::thread::Builder::new()
         .name("dpl-seam-render".into())
         .spawn(move || {
             let result = dpl_engine_media::render_stitch(&clips, w, h, fps, &out);
+            match &result {
+                Ok(()) => {
+                    state.fabric.publish_job(dpl_fabric::JobEvent::Done {
+                        job,
+                        out: out.display().to_string(),
+                    });
+                    let root = state.root.clone();
+                    let rec = dpl_index::record_for_capture(&out, &root, "video", "render");
+                    if let Ok(ix) = dpl_index::Index::open_default() {
+                        if ix.upsert(&rec).is_ok() {
+                            state
+                                .fabric
+                                .publish_capture(dpl_fabric::CaptureEvent::Saved {
+                                    rel_path: rec.rel_path.clone(),
+                                    kind: rec.kind.clone(),
+                                    name: rec.name.clone(),
+                                    location: rec.location.clone(),
+                                    source: rec.source.clone(),
+                                });
+                        }
+                    }
+                }
+                Err(e) => {
+                    state.fabric.publish_job(dpl_fabric::JobEvent::Failed {
+                        job,
+                        error: e.clone(),
+                    });
+                }
+            }
             let status = match result {
                 Ok(()) => RenderStatus::Done,
                 Err(e) => RenderStatus::Failed(e),
@@ -452,12 +538,22 @@ async fn get_render(
 async fn get_signals(
     State(s): State<Shared>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let rx = s.fabric.subscribe_shell();
-    let stream = BroadcastStream::new(rx).filter_map(|ev| {
+    // ALL domains, one envelope stream (signal-doctrine law 4): shell +
+    // capture + jobs merged — agents watch the whole nervous system.
+    let shell = BroadcastStream::new(s.fabric.subscribe_shell()).filter_map(|ev| {
         // Lagged receivers skip (signals are lossy by design); closed ends.
         ev.ok()
             .map(|ev| Ok(Event::default().data(event_json(&ev).to_string())))
     });
+    let capture = BroadcastStream::new(s.fabric.subscribe_capture()).filter_map(|ev| {
+        ev.ok()
+            .map(|st| Ok(Event::default().data(capture_json(&st).to_string())))
+    });
+    let jobs = BroadcastStream::new(s.fabric.subscribe_jobs()).filter_map(|ev| {
+        ev.ok()
+            .map(|st| Ok(Event::default().data(job_json(&st).to_string())))
+    });
+    let stream = shell.merge(capture.merge(jobs));
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
@@ -509,6 +605,80 @@ pub fn spawn(
             });
         })
         .expect("spawn seam thread")
+}
+
+#[cfg(test)]
+mod envelope_tests {
+    use super::*;
+
+    #[test]
+    fn the_capture_envelope_is_pinned_per_kind() {
+        let st = Stamped {
+            seq: 7,
+            ms: 1234,
+            ev: CaptureEvent::Saved {
+                rel_path: "inbox/pix.png".into(),
+                kind: "image".into(),
+                name: "pix.png".into(),
+                location: "inbox".into(),
+                source: "viziwiz".into(),
+            },
+        };
+        assert_eq!(
+            capture_json(&st),
+            json!({
+                "domain": "capture", "seq": 7, "ms": 1234, "type": "saved",
+                "relPath": "inbox/pix.png", "kind": "image", "name": "pix.png",
+                "location": "inbox", "source": "viziwiz",
+            })
+        );
+        let st = Stamped {
+            seq: 8,
+            ms: 1300,
+            ev: CaptureEvent::InboxChanged,
+        };
+        assert_eq!(
+            capture_json(&st),
+            json!({"domain": "capture", "seq": 8, "ms": 1300, "type": "inboxChanged"})
+        );
+        let st = Stamped {
+            seq: 9,
+            ms: 1400,
+            ev: CaptureEvent::PaletteVisibility { visible: true },
+        };
+        assert_eq!(
+            capture_json(&st)["type"],
+            json!("paletteVisibility"),
+            "camelCase kinds — the envelope law"
+        );
+    }
+
+    #[test]
+    fn the_job_envelope_is_pinned() {
+        let st = Stamped {
+            seq: 3,
+            ms: 900,
+            ev: JobEvent::Queued {
+                job: dpl_fabric::JobId(2),
+                label: "render".into(),
+            },
+        };
+        assert_eq!(
+            job_json(&st),
+            json!({
+                "domain": "jobs", "seq": 3, "ms": 900,
+                "type": "queued", "job": 2, "label": "render",
+            })
+        );
+    }
+
+    #[test]
+    fn shell_events_carry_the_domain_now() {
+        assert_eq!(
+            event_json(&ShellEvent::ViziwizSummon)["domain"],
+            json!("shell")
+        );
+    }
 }
 
 #[cfg(test)]
@@ -796,26 +966,26 @@ mod tests {
         };
         assert_eq!(
             event_json(&ShellEvent::RouteChanged { route }),
-            json!({"type": "route-changed", "route": "wiredfront/editor"})
+            json!({"domain": "shell", "type": "route-changed", "route": "wiredfront/editor"})
         );
         assert_eq!(
             event_json(&ShellEvent::NavigateRequest { route }),
-            json!({"type": "navigate-request", "route": "wiredfront/editor"})
+            json!({"domain": "shell", "type": "navigate-request", "route": "wiredfront/editor"})
         );
         assert_eq!(
             event_json(&ShellEvent::ViziwizSummon),
-            json!({"type": "viziwiz-summon"})
+            json!({"domain": "shell", "type": "viziwiz-summon"})
         );
         assert_eq!(
             event_json(&ShellEvent::FullBleedRequest(true)),
-            json!({"type": "full-bleed", "on": true})
+            json!({"domain": "shell", "type": "full-bleed", "on": true})
         );
         assert_eq!(
             event_json(&ShellEvent::WindowRequest {
                 target: dpl_fabric::AppWindowKey("chat.primary"),
                 action: dpl_fabric::AppWindowAction::OpenOrFocus,
             }),
-            json!({"type": "window-request", "target": "chat.primary"})
+            json!({"domain": "shell", "type": "window-request", "target": "chat.primary"})
         );
     }
 }

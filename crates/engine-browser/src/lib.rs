@@ -292,10 +292,11 @@ impl Browser {
         // A persistent profile carries last run's DevToolsActivePort;
         // remove it so we only ever read the file THIS child writes.
         let _ = std::fs::remove_file(profile.join("DevToolsActivePort"));
-        let mut child = Command::new(&bin)
-            .args(launch_args(&profile, cfg.window, cfg.headless))
+        let mut cmd = Command::new(&bin);
+        cmd.args(launch_args(&profile, cfg.window, cfg.headless))
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(Stdio::null());
+        let mut child = dpl_proc::quiet(&mut cmd)
             .spawn()
             .map_err(|e| format!("spawn {}: {e}", bin.display()))?;
 

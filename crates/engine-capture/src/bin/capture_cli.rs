@@ -1,3 +1,4 @@
+// spawn-audit: exempt(CLI tool)
 //! Headless capture — the same pipeline as the GUI, minus the window, so the
 //! capture→encode→content path (and the Stage 2 crop math) is verifiable
 //! without a display server attached to the preview tools. Usage:

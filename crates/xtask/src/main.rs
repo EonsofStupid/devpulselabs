@@ -110,6 +110,7 @@ fn exe_mtime(path: &Path) -> Option<SystemTime> {
 fn green() -> Result<(), String> {
     run("fmt", &["fmt", "--all", "--", "--check"])?;
     docs_status()?;
+    spawn_audit()?;
     run(
         "clippy",
         &[
@@ -412,6 +413,55 @@ fn verify_staged_version(id: &str, expected: &str, executable: &Path) -> Result<
         ));
     }
     Ok(())
+}
+
+/// The QUIET-SPAWN audit (W8, docs/design/signal-doctrine.md sibling
+/// law): any source file under crates/ that constructs a Command must
+/// either import `dpl_proc::quiet` or carry an explicit
+/// `// spawn-audit: exempt(<reason>)` marker — an unflagged subprocess
+/// can pop a console window over the GUI app and CANNOT land silently.
+fn spawn_audit() -> Result<(), String> {
+    println!("── spawn audit ───────────────────────────────");
+    let mut offenders = Vec::new();
+    let mut stack = vec![PathBuf::from("crates")];
+    while let Some(dir) = stack.pop() {
+        let Ok(rd) = fs::read_dir(&dir) else { continue };
+        for e in rd.flatten() {
+            let path = e.path();
+            let name = e.file_name().to_string_lossy().into_owned();
+            if path.is_dir() {
+                if name != "target" {
+                    stack.push(path);
+                }
+                continue;
+            }
+            if path.extension().and_then(|x| x.to_str()) != Some("rs") {
+                continue;
+            }
+            let Ok(src) = fs::read_to_string(&path) else {
+                continue;
+            };
+            if !src.contains("Command::new") {
+                continue;
+            }
+            let quiet = src.contains("dpl_proc::quiet") || src.contains("pub fn quiet");
+            let exempt = src.contains("spawn-audit: exempt");
+            if !quiet && !exempt {
+                offenders.push(path.display().to_string());
+            }
+        }
+    }
+    if offenders.is_empty() {
+        println!("spawn audit: every Command::new file is quiet or exempt");
+        Ok(())
+    } else {
+        Err(format!(
+            "spawn audit FAILED — files spawning without dpl_proc::quiet or an              explicit `// spawn-audit: exempt(<reason>)` marker:
+  {}",
+            offenders.join("
+  ")
+        ))
+    }
 }
 
 fn main() -> ExitCode {

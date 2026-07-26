@@ -493,12 +493,14 @@ fn login_command(profile: &GrokRuntimeProfile) -> Command {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    hide_child_console(&mut command);
     command
 }
 
 fn profiled_command(executable: &Path, working_directory: &Path) -> Command {
     let mut command = Command::new(executable);
+    // The quiet-spawn law (W8): every grok child (probes included) is
+    // console-free; the CLI's output is piped and surfaced in-app.
+    dpl_proc::quiet(&mut command);
     command.current_dir(working_directory).env_clear();
     for key in allowed_environment_keys() {
         if let Some(value) = std::env::var_os(key) {
@@ -507,16 +509,6 @@ fn profiled_command(executable: &Path, working_directory: &Path) -> Command {
     }
     command
 }
-
-#[cfg(windows)]
-fn hide_child_console(command: &mut Command) {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    command.creation_flags(CREATE_NO_WINDOW);
-}
-
-#[cfg(not(windows))]
-fn hide_child_console(_command: &mut Command) {}
 
 fn allowed_environment_keys() -> &'static [&'static str] {
     #[cfg(windows)]

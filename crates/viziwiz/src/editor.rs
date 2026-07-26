@@ -387,7 +387,7 @@ impl Viziwiz {
                                 format!(
                                     "saved {}{}{}",
                                     p.display(),
-                                    Self::index_capture(&p, "image"),
+                                    Self::index_capture(&self.fabric, &p, "image"),
                                     Self::copy_to_clipboard(ctx, &p)
                                 )
                             }
@@ -413,7 +413,7 @@ impl Viziwiz {
                             format!(
                                 "saved {}{}{}",
                                 p.display(),
-                                Self::index_capture(&p, "image"),
+                                Self::index_capture(&self.fabric, &p, "image"),
                                 Self::copy_to_clipboard(ctx, &p)
                             )
                         }

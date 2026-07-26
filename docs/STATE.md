@@ -245,6 +245,31 @@ both on the timeline, preview shows the still; seam render =
 8.000000s exactly (5s still + 3s video) at 1920x1080. Friction row 15
 DONE; the "image-layers pass" copy is GONE repo-wide. Shots
 docs/proof/w7-image-timeline-{1100x700,1600x1000}.png.
+**W8 landed** (`feat/w8-faithfulness`,
+`docs/plans/w8-faithfulness.md` + THE LOCKED
+`docs/design/signal-doctrine.md`; operator: "stop rushing … establish
+clean patterns … my signalkind"): THREE HOUSE LAWS. (1) QUIET-SPAWN —
+`dpl-proc::quiet` at every GUI-reachable subprocess (video pipes,
+engine factories, chat providers' collapsed duplicates, browser,
+lottie) + a cargo-green AUDIT: an unflagged `Command::new` fails the
+gate. (2) PROACTIVE-BUFFER (doctrine.md §perf) — Browse scans
+off-thread, warm cache seeded at first visit, roots probed once off
+the paint thread; the 20s freeze's both causes structurally gone.
+(3) THE SIGNAL DOCTRINE (ratified: stamp-at-publish w/ ONE global seq
+across domains, activity feed in W8, commands contract-only until
+R2c) — fabric grows CAPTURE + JOBS domains + the WAKER; every
+mutation signals through index+signal seams (viziwiz's one seam, the
+composer, hubs, THE AGENT SEAM's render — a missed site caught live
+by the silent SSE proof); views invalidate on signal (refresh chips
+no longer load-bearing); session events.jsonl + seam `/signals` speak
+ONE ENVELOPE `{domain,seq,ms,type,…}` pinned by test; the ACTIVITY
+FEED lives in the inspector (proof shot: the import drill's "saved
+image" line — TWO boot-ordering bugs fixed: wire-before-drills +
+ears-at-fabric-birth). Proofs in plan §8 (SSE capture of a live
+agent-render's stamped queued/failed; green ✔ incl. the audit).
+KNOWN (parallel lane): embedded-deps staging unauthored on this
+machine → renders fail app-wide until `sources.local.toml` is staged
+(ffmpeg-only draft written, gitignored; stager wants codex+grok too).
 **AEP ORCHESTRATOR — new pass, PAUSES R2b** (operator 2026-07-25:
 installing AE/Animate; "pull aerender.exe into ours and have wiredfront
 editor viziwiz actually be an orchestrator"). This RESOLVES the open

@@ -1,4 +1,4 @@
-use super::{allowed_environment_keys, hide_child_console};
+use super::allowed_environment_keys;
 use agent_client_protocol::schema::v1::{
     CreateTerminalRequest, CreateTerminalResponse, KillTerminalRequest, KillTerminalResponse,
     ReleaseTerminalRequest, ReleaseTerminalResponse, TerminalExitStatus, TerminalOutputRequest,
@@ -87,7 +87,7 @@ impl AcpTerminalStore {
         for variable in request.env {
             command.env(variable.name, variable.value);
         }
-        hide_child_console(&mut command);
+        dpl_proc::quiet(&mut command);
         let mut child = command.spawn().map_err(|error| public_io_reason(&error))?;
         let stdout = child
             .stdout

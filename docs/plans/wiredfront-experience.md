@@ -140,6 +140,9 @@ shorten, never lengthen.
 | 13 | Double-click Library → editor | ✅ W6: the Library is the real thumbnailed shelf; double-click sends video → timeline / image → FOOTAGE (honest) and navigates to the Editor | DONE (W6) |
 | 14 | ffmpeg found without PATH | ✅ W6: managed boot resolution (bin/ beside exe → PATH → winget links) injected into all three engine seams | DONE (W6) |
 | 15 | Images are timeline layers | ✅ W7: stills held 5s (trimmable), preview shows the frame, render loops it — every add path (FOOTAGE, Library, drop, Browse) appends | DONE (W7) |
+| 16 | No console windows over the app | ✅ W8: the quiet-spawn law (dpl-proc) at every GUI-reachable subprocess + a cargo-green audit that fails unflagged spawns | DONE (W8) |
+| 17 | Browse windows open instantly | ✅ W8: the proactive-buffer law — warm cache seeded at boot, off-thread scans, roots probed once off the paint thread | DONE (W8) |
+| 18 | Signals live, views never stale | ✅ W8: the signal doctrine — capture + jobs domains, stamp-at-publish, emit-with-mutation everywhere, views invalidate on signal, activity feed + SSE envelope | DONE (W8) |
 
 ## 6. The ladder — passes named by the friction they kill
 
