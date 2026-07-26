@@ -44,3 +44,18 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: tests
         run: cargo test --workspace
+
+  # macOS lane — STAGED, ready to flip (docs/plans/mac-parity.md). Uncomment
+  # once a Mac runner labeled dpl-mac is registered (a job on a missing label
+  # queues forever). The macOS implementation happens on the operator's Mac.
+  # green-mac:
+  #   runs-on: [self-hosted, dpl-mac]
+  #   timeout-minutes: 30
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: fmt
+  #       run: cargo fmt --all --check
+  #     - name: clippy (deny warnings)
+  #       run: cargo clippy --workspace --all-targets -- -D warnings
+  #     - name: tests
+  #       run: cargo test --workspace

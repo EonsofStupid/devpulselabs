@@ -35,6 +35,13 @@ timeout_ms = 30000
 [profiles.devpulse-hardware.environment]
 EGUIPILOTAI_ADAPTER_POLICY = "hardware-required"
 
+# macOS lane — STAGED (docs/plans/mac-parity.md). Uncomment on the operator's
+# Mac once the app builds there; the Mac Claude Code instance owns this.
+# [profiles.devpulse-mac]
+# executable = "target/release/devpulselabs"
+# platforms = ["macos"]
+# arguments = []
+
 [fixtures.test-lab]
 arguments = ["--route", "workbench/test-lab", "--mood", "0"]
 

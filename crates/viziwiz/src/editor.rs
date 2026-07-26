@@ -5,6 +5,7 @@
 
 use dpl_coldlight::{self as cl};
 use dpl_engine_capture as cap;
+use dpl_landing::CaptureKind;
 use egui::{Align2, Color32, CornerRadius, FontId, Rect, Sense, ViewportBuilder, ViewportId};
 use egui_pilot_ai::protocol::{ActionKind as PilotActionKind, PilotViewportKey, Role as PilotRole};
 use egui_pilot_ai::{ContextPilotExt, NodeMetadata, PilotId, UiPilotExt};
@@ -376,8 +377,8 @@ impl Viziwiz {
                             w: (r.width() / screen.x) as f64,
                             h: (r.height() / screen.y) as f64,
                         };
-                        let result = Self::inbox().and_then(|inbox| {
-                            let out = Self::unique_path(&inbox, "pix", "png");
+                        let target = self.land_target(CaptureKind::Image, "png", None);
+                        let result = target.and_then(|out| {
                             cap::still_region_from_png(&state.frozen, &out, frac)?;
                             Ok(out)
                         });
@@ -387,7 +388,7 @@ impl Viziwiz {
                                 format!(
                                     "saved {}{}{}",
                                     p.display(),
-                                    Self::index_capture(&self.fabric, &p, "image"),
+                                    Self::index_capture(&self.fabric, &p, CaptureKind::Image),
                                     Self::copy_to_clipboard(ctx, &p)
                                 )
                             }
@@ -402,8 +403,8 @@ impl Viziwiz {
                         .iter()
                         .map(|p| [(p.x / screen.x) as f64, (p.y / screen.y) as f64])
                         .collect();
-                    let result = Self::inbox().and_then(|inbox| {
-                        let out = Self::unique_path(&inbox, "pix", "png");
+                    let target = self.land_target(CaptureKind::Image, "png", None);
+                    let result = target.and_then(|out| {
                         cap::still_freeform_from_png(&state.frozen, &out, &points)?;
                         Ok(out)
                     });
@@ -413,7 +414,7 @@ impl Viziwiz {
                             format!(
                                 "saved {}{}{}",
                                 p.display(),
-                                Self::index_capture(&self.fabric, &p, "image"),
+                                Self::index_capture(&self.fabric, &p, CaptureKind::Image),
                                 Self::copy_to_clipboard(ctx, &p)
                             )
                         }
