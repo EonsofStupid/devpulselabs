@@ -33,6 +33,8 @@ members = [
     "crates/engine-steps",
     "crates/engine-ae",
     "crates/engine-browser",
+    "crates/lottie",
+    "crates/lottie-render",
     "crates/slides",
     "crates/doc",
     "crates/comp",
@@ -87,6 +89,9 @@ zip = { version = "8", default-features = false, features = ["deflate"] }
 # RAM cross-platform so the aerender tuning scales 16GB→128GB. "system"
 # feature only — no disk/network/component probing.
 sysinfo = { version = "0.33", default-features = false, features = ["system"] }
+# ThorVG (C++, vendored) — the native Lottie engine, linked ONLY by the
+# dpl-lottie-render subprocess helper (ADR-009 FFI leaf), never by the app.
+thorvg-sys = "0.3"
 # The browser driver's CDP socket (ADR-013): pure-Rust WebSocket framing
 # over OUR TcpStream, localhost only — no TLS features, ever.
 tungstenite = { version = "0.27", default-features = false, features = ["handshake"] }
@@ -136,6 +141,8 @@ dpl-engine-media = { path = "crates/engine-media" }
 dpl-engine-steps = { path = "crates/engine-steps" }
 dpl-engine-ae = { path = "crates/engine-ae" }
 dpl-engine-browser = { path = "crates/engine-browser" }
+dpl-lottie = { path = "crates/lottie" }
+dpl-lottie-render = { path = "crates/lottie-render" }
 dpl-slides = { path = "crates/slides" }
 dpl-doc = { path = "crates/doc" }
 dpl-comp = { path = "crates/comp" }
