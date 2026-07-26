@@ -49,6 +49,18 @@ const PROP_H: f32 = 20.0;
 const RULER_H: f32 = 22.0;
 /// The layer OUTLINE column's width (timeline left half).
 const OUTLINE_W: f32 = 252.0;
+
+/// Responsive clamp — the ALL-RESOLUTIONS law. `f32::clamp` PANICS when
+/// `min > max`, which is exactly what happens on a small window: a fixed
+/// floor (e.g. 150px) can exceed a proportional ceiling (`height * 0.42`),
+/// or a degenerate clip can push a ceiling below its floor. `fit` caps the
+/// floor to the ceiling (and the ceiling to ≥0), so layout COLLAPSES to the
+/// available space instead of crashing. Every bounded size goes through this,
+/// never a bare `.clamp()` with a computed bound.
+fn fit(value: f32, floor: f32, ceil: f32) -> f32 {
+    let ceil = ceil.max(0.0);
+    value.clamp(floor.min(ceil), ceil)
+}
 /// Undo depth — comp snapshots are refs-only JSON, so 100 stays tiny.
 const UNDO_CAP: usize = 100;
 /// The autosave debounce: a saved comp persists this long after the last
@@ -1734,7 +1746,7 @@ impl Composer {
         let status_h = 58.0_f32;
         // The timeline grows with twirled rows, within honest bounds.
         let rows_h: f32 = self.rows().iter().map(Row::height).sum();
-        let timeline_h = (RULER_H + rows_h + 40.0).clamp(150.0, body.height() * 0.42);
+        let timeline_h = fit(RULER_H + rows_h + 40.0, 150.0, body.height() * 0.42);
         let project_w = 250.0_f32;
         let right_w = 232.0_f32;
 
@@ -2518,7 +2530,7 @@ impl Composer {
             Drag::TrimIn(id) => {
                 if let Some(l) = track.layers.iter_mut().find(|l| &l.id == id) {
                     let delta = pt - l.start;
-                    let new_in = (l.in_pt + delta).clamp(0.0, l.out_pt - 0.25);
+                    let new_in = fit(l.in_pt + delta, 0.0, l.out_pt - 0.25);
                     l.start = (l.start + (new_in - l.in_pt)).max(0.0);
                     l.in_pt = new_in;
                 }
