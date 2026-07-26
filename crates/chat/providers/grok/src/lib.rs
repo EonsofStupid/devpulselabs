@@ -13,7 +13,6 @@ use dpl_chat_core::{
     ActivationState, Capability, ProviderAccent, ProviderDescriptor, ProviderId, ProviderManifest,
     ProviderProfileId, RecoveryAction, RecoveryActionKind,
 };
-use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
 use std::io;
@@ -127,7 +126,7 @@ pub struct GrokRuntimeProfile {
 impl GrokRuntimeProfile {
     pub fn discover(working_directory: impl AsRef<Path>) -> Result<Self, GrokDiscoveryError> {
         let working_directory = canonical_directory(working_directory.as_ref())?;
-        let executable = discover_executable().ok_or(GrokDiscoveryError::NotInstalled)?;
+        let executable = discover_executable()?;
         let version = probe_version(&executable, &working_directory)?;
         if !version.is_activation_supported() {
             return Err(GrokDiscoveryError::VersionUnsupported(version));
@@ -155,6 +154,7 @@ impl GrokRuntimeProfile {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GrokDiscoveryError {
     NotInstalled,
+    EmbeddedDependency(String),
     WorkingDirectory(String),
     VersionProbe(String),
     VersionUnsupported(GrokVersion),
@@ -164,6 +164,9 @@ impl fmt::Display for GrokDiscoveryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NotInstalled => f.write_str("Grok Build is not installed"),
+            Self::EmbeddedDependency(reason) => {
+                write!(f, "the private Grok payload is unavailable: {reason}")
+            }
             Self::WorkingDirectory(reason) => {
                 write!(f, "the Grok working directory is invalid: {reason}")
             }
@@ -448,48 +451,10 @@ fn canonical_directory(path: &Path) -> Result<PathBuf, GrokDiscoveryError> {
     })
 }
 
-fn discover_executable() -> Option<PathBuf> {
-    let home = std::env::var_os(home_environment_key()).map(PathBuf::from);
-    let path = std::env::var_os("PATH");
-    resolve_named_executable(home.as_deref(), path.as_deref())
-}
-
-fn resolve_named_executable(home: Option<&Path>, path: Option<&OsStr>) -> Option<PathBuf> {
-    let file_name = executable_file_name();
-    let official = home.map(|root| root.join(".grok").join("bin").join(file_name));
-    official
-        .into_iter()
-        .chain(
-            path.into_iter()
-                .flat_map(std::env::split_paths)
-                .map(|directory| directory.join(file_name)),
-        )
-        .find_map(|candidate| {
-            candidate
-                .is_file()
-                .then(|| fs::canonicalize(candidate).ok())
-                .flatten()
-        })
-}
-
-#[cfg(windows)]
-const fn executable_file_name() -> &'static str {
-    "grok.exe"
-}
-
-#[cfg(not(windows))]
-const fn executable_file_name() -> &'static str {
-    "grok"
-}
-
-#[cfg(windows)]
-const fn home_environment_key() -> &'static str {
-    "USERPROFILE"
-}
-
-#[cfg(not(windows))]
-const fn home_environment_key() -> &'static str {
-    "HOME"
+fn discover_executable() -> Result<PathBuf, GrokDiscoveryError> {
+    dpl_embedded_deps::resolve_current(dpl_embedded_deps::GROK)
+        .map(|dependency| dependency.path().to_owned())
+        .map_err(|error| GrokDiscoveryError::EmbeddedDependency(error.to_string()))
 }
 
 fn probe_version(
@@ -598,6 +563,7 @@ fn public_io_reason(error: &io::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsStr;
     use std::sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc,
@@ -612,7 +578,7 @@ mod tests {
 
     fn fixture_profile() -> GrokRuntimeProfile {
         let directory = temp_dir("profile");
-        let executable = directory.join(executable_file_name());
+        let executable = directory.join(format!("grok{}", std::env::consts::EXE_SUFFIX));
         fs::write(&executable, b"fixture").expect("fixture executable");
         GrokRuntimeProfile {
             executable,
@@ -664,21 +630,14 @@ mod tests {
     }
 
     #[test]
-    fn official_install_precedes_path_and_names_are_fixed() {
-        let home = temp_dir("home");
-        let official = home.join(".grok").join("bin");
-        fs::create_dir_all(&official).expect("official directory");
-        let official_executable = official.join(executable_file_name());
-        fs::write(&official_executable, b"official").expect("official executable");
-
-        let path_directory = temp_dir("path");
-        fs::write(path_directory.join(executable_file_name()), b"path").expect("path executable");
-        let path = std::env::join_paths([path_directory]).expect("PATH");
-
-        assert_eq!(
-            resolve_named_executable(Some(&home), Some(&path)),
-            Some(fs::canonicalize(official_executable).expect("canonical executable"))
-        );
+    fn production_discovery_is_owned_by_the_embedded_resolver() {
+        let discovery = discover_executable();
+        if let Ok(path) = discovery {
+            assert!(path.is_absolute());
+            assert!(path
+                .components()
+                .any(|component| component.as_os_str() == "embedded-deps"));
+        }
     }
 
     #[test]

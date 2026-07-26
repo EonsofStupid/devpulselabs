@@ -10,6 +10,9 @@
 //!
 //! `cargo xtask fix` = fmt + clippy --fix (the tidy loop).
 
+use serde::Deserialize;
+use std::collections::HashSet;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::time::SystemTime;
@@ -123,7 +126,14 @@ fn green() -> Result<(), String> {
     let exe_name = format!("devpulselabs{}", std::env::consts::EXE_SUFFIX);
     let exe = Path::new("target/release").join(exe_name);
     let before = exe_mtime(&exe);
-    run("release build", &["build", "--release"])?;
+    // `cargo green` itself is the release-mode `xtask.exe` on Windows. A
+    // workspace release build must not try to replace that running file.
+    // xtask was already compiled successfully by `cargo green`; the final
+    // artifact gate covers every shipped crate and binary.
+    run(
+        "release build",
+        &["build", "--workspace", "--release", "--exclude", "xtask"],
+    )?;
     let after = exe_mtime(&exe);
     match (before, after) {
         (_, None) => Err("release exe missing after build".into()),
@@ -189,11 +199,229 @@ fn docs_status() -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DependencySources {
+    schema: u32,
+    dependency: Vec<DependencySource>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DependencySource {
+    id: String,
+    version: String,
+    target: String,
+    source: PathBuf,
+}
+
+fn stage_embedded_dependencies(arguments: &[String]) -> Result<(), String> {
+    let release_root = arguments.first().ok_or_else(|| {
+        "stage-embedded-deps requires a new release root; optional second argument is the source TOML"
+            .to_owned()
+    })?;
+    let release_root = Path::new(release_root);
+    let sources_path = arguments
+        .get(1)
+        .map_or_else(|| Path::new("embedded-deps/sources.local.toml"), Path::new);
+    if release_root
+        .join(dpl_embedded_deps::EMBEDDED_DIRECTORY)
+        .exists()
+    {
+        return Err(format!(
+            "{} already contains embedded-deps; choose a new release root",
+            release_root.display()
+        ));
+    }
+
+    let sources_text = fs::read_to_string(sources_path)
+        .map_err(|error| format!("{}: {error}", sources_path.display()))?;
+    let sources: DependencySources = toml::from_str(&sources_text)
+        .map_err(|error| format!("{}: {error}", sources_path.display()))?;
+    if sources.schema != 1 {
+        return Err(format!(
+            "{}: source schema {} is unsupported",
+            sources_path.display(),
+            sources.schema
+        ));
+    }
+
+    let target = dpl_embedded_deps::current_target();
+    let selected = sources
+        .dependency
+        .iter()
+        .filter(|dependency| dependency.target == target)
+        .collect::<Vec<_>>();
+    if selected.is_empty() {
+        return Err(format!(
+            "{} has no dependencies for {target}",
+            sources_path.display()
+        ));
+    }
+    let mut ids = HashSet::with_capacity(selected.len());
+    for source in &selected {
+        validate_source_segment("id", &source.id)?;
+        validate_source_segment("version", &source.version)?;
+        if !ids.insert(source.id.as_str()) {
+            return Err(format!(
+                "{} registers `{}` more than once for {target}",
+                sources_path.display(),
+                source.id
+            ));
+        }
+        if !source.source.is_absolute() {
+            return Err(format!(
+                "{} source for `{}` must be absolute",
+                sources_path.display(),
+                source.id
+            ));
+        }
+        if !source.source.is_file() {
+            return Err(format!(
+                "{} source for `{}` is not a file",
+                source.source.display(),
+                source.id
+            ));
+        }
+    }
+    for required in ["codex", "grok", "ffmpeg"] {
+        if !ids.contains(required) {
+            return Err(format!(
+                "{} is missing required `{required}` for {target}",
+                sources_path.display()
+            ));
+        }
+    }
+
+    let embedded_root = release_root.join(dpl_embedded_deps::EMBEDDED_DIRECTORY);
+    fs::create_dir_all(&embedded_root)
+        .map_err(|error| format!("{}: {error}", embedded_root.display()))?;
+    let mut dependencies = Vec::with_capacity(selected.len());
+    for source in selected {
+        let file_name = dependency_file_name(&source.id);
+        let relative = Path::new(&source.id).join(&source.version).join(file_name);
+        let destination = embedded_root.join(&relative);
+        let parent = destination
+            .parent()
+            .ok_or_else(|| format!("{} has no parent", destination.display()))?;
+        fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
+        fs::copy(&source.source, &destination).map_err(|error| {
+            format!(
+                "copy {} -> {}: {error}",
+                source.source.display(),
+                destination.display()
+            )
+        })?;
+        verify_staged_version(&source.id, &source.version, &destination)?;
+        let metadata = destination
+            .metadata()
+            .map_err(|error| format!("{}: {error}", destination.display()))?;
+        let sha256 = dpl_embedded_deps::sha256_file(&destination)
+            .map_err(|error| format!("{}: {error}", destination.display()))?;
+        dependencies.push(dpl_embedded_deps::ManifestDependency {
+            id: source.id.clone(),
+            version: source.version.clone(),
+            path: relative.to_string_lossy().replace('\\', "/"),
+            bytes: metadata.len(),
+            sha256,
+        });
+        println!(
+            "staged {} {} -> {}",
+            source.id,
+            source.version,
+            destination.display()
+        );
+    }
+    dependencies.sort_by(|left, right| left.id.cmp(&right.id));
+    let manifest = dpl_embedded_deps::Manifest {
+        schema: dpl_embedded_deps::MANIFEST_SCHEMA,
+        target: target.to_owned(),
+        dependencies,
+    };
+    let manifest_path = embedded_root.join(dpl_embedded_deps::MANIFEST_FILE);
+    fs::write(
+        &manifest_path,
+        serde_json::to_vec_pretty(&manifest)
+            .map_err(|error| format!("serialize manifest: {error}"))?,
+    )
+    .map_err(|error| format!("{}: {error}", manifest_path.display()))?;
+
+    let resolver = dpl_embedded_deps::Resolver::from_release_root(release_root)
+        .map_err(|error| format!("staged bundle rejected: {error}"))?;
+    for id in [
+        dpl_embedded_deps::CODEX,
+        dpl_embedded_deps::GROK,
+        dpl_embedded_deps::FFMPEG,
+    ] {
+        resolver
+            .resolve(id)
+            .map_err(|error| format!("staged `{id}` rejected: {error}"))?;
+    }
+    println!(
+        "embedded dependencies ✔ target: {target} root: {}",
+        embedded_root.display()
+    );
+    Ok(())
+}
+
+fn validate_source_segment(field: &str, value: &str) -> Result<(), String> {
+    let valid = !value.is_empty()
+        && value != "."
+        && value != ".."
+        && value
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || "-._+".contains(character));
+    if valid {
+        Ok(())
+    } else {
+        Err(format!(
+            "embedded dependency {field} `{value}` is not a safe path segment"
+        ))
+    }
+}
+
+fn dependency_file_name(id: &str) -> String {
+    format!("{id}{}", std::env::consts::EXE_SUFFIX)
+}
+
+fn verify_staged_version(id: &str, expected: &str, executable: &Path) -> Result<(), String> {
+    let version_argument = if id == "ffmpeg" {
+        "-version"
+    } else {
+        "--version"
+    };
+    let output = Command::new(executable)
+        .arg(version_argument)
+        .output()
+        .map_err(|error| format!("{} version probe failed: {error}", executable.display()))?;
+    if !output.status.success() {
+        return Err(format!(
+            "{} version probe failed ({})",
+            executable.display(),
+            output.status
+        ));
+    }
+    let mut bounded = output.stdout;
+    bounded.extend(output.stderr);
+    bounded.truncate(4 * 1024);
+    let bounded = String::from_utf8_lossy(&bounded);
+    if !bounded.contains(expected) {
+        return Err(format!(
+            "{} did not report expected version {expected}",
+            executable.display()
+        ));
+    }
+    Ok(())
+}
+
 fn main() -> ExitCode {
-    let task = std::env::args().nth(1).unwrap_or_else(|| "green".into());
+    let mut arguments = std::env::args().skip(1);
+    let task = arguments.next().unwrap_or_else(|| "green".into());
+    let arguments = arguments.collect::<Vec<_>>();
     let result = match task.as_str() {
         "green" => green(),
         "docs-status" => docs_status(),
+        "stage-embedded-deps" => stage_embedded_dependencies(&arguments),
         "fix" => run("fmt", &["fmt", "--all"]).and_then(|()| {
             run(
                 "clippy --fix",
@@ -207,7 +435,7 @@ fn main() -> ExitCode {
             )
         }),
         other => Err(format!(
-            "unknown task \"{other}\" — tasks: green, docs-status, fix"
+            "unknown task \"{other}\" — tasks: green, docs-status, stage-embedded-deps, fix"
         )),
     };
     match result {

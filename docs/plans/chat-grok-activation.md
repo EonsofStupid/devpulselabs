@@ -44,16 +44,14 @@ a callback, read an auth file, inspect a token, or call xAI services with
 provider credentials. The system browser and all credential/session handling
 remain owned by Grok Build and xAI.
 
-## Discovery and version boundary
+## Embedded dependency and version boundary
 
-The activation coordinator resolves only:
-
-1. the official user install location, `%USERPROFILE%\.grok\bin\grok.exe` on
-   Windows or `$HOME/.grok/bin/grok` on Unix; then
-2. a file named `grok.exe`/`grok` from the process `PATH`.
-
-The UI, model output, route context, documents, configuration files, and MCP
-arguments cannot supply an executable path or arguments.
+The activation coordinator receives the verified Grok executable from the
+target-specific private portable bundle defined by
+[`private-embedded-dependencies.md`](private-embedded-dependencies.md).
+Production does not search the provider home or `PATH`. The UI, model output,
+route context, documents, application configuration, and MCP arguments cannot
+supply an executable path or arguments.
 
 The first activation-qualified compatibility band is
 `>= 0.2.112, < 0.3.0`. `0.2.112` was the xAI stable channel version recorded
@@ -63,9 +61,8 @@ conformance record.
 
 ## State and recovery
 
-- `Not installed`: explain that Grok Build is required and offer
-  **Get Grok Build**, which opens the official documentation. DevPULSE never
-  downloads or executes an installer.
+- `Not installed`: explain that the DevPULSE Grok payload is missing from the
+  private release bundle and expose packaging diagnostics.
 - `Signed out`: offer **Log in with Grok**.
 - `Signing in`: disable duplicate activation and keep the Chat window
   responsive while either cached authentication or the provider-owned browser

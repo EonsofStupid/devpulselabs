@@ -44,6 +44,7 @@ dpl-chat-codex.workspace = true
 dpl-chat-claude.workspace = true
 dpl-chat-gemini.workspace = true
 dpl-chat-grok.workspace = true
+dpl-embedded-deps.workspace = true
 dpl-hub-home.workspace = true
 dpl-hub-shows.workspace = true
 dpl-hub-present.workspace = true

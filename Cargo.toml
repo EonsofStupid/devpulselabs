@@ -23,6 +23,7 @@ members = [
     "crates/chat/providers/claude",
     "crates/chat/providers/gemini",
     "crates/chat/providers/grok",
+    "crates/embedded-deps",
     "crates/hub",
     "crates/coldlight",
     "crates/vector",
@@ -83,6 +84,7 @@ egui_kittest = { version = "0.35", default-features = false }
 # The document layer (dpl-doc): slide.json is serde data, end to end.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 agent-client-protocol = "=2.0.0"
 async-channel = "2"
 async-io = "2"
@@ -135,6 +137,7 @@ dpl-chat-codex = { path = "crates/chat/providers/codex" }
 dpl-chat-claude = { path = "crates/chat/providers/claude" }
 dpl-chat-gemini = { path = "crates/chat/providers/gemini" }
 dpl-chat-grok = { path = "crates/chat/providers/grok" }
+dpl-embedded-deps = { path = "crates/embedded-deps" }
 
 dpl-hub = { path = "crates/hub" }
 dpl-coldlight = { path = "crates/coldlight" }

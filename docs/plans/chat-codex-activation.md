@@ -43,17 +43,14 @@ token, accept an API key, or call OpenAI services with Codex credentials.
 `Ready` specifically means the status command reports ChatGPT authentication.
 An API-key login remains visibly unavailable for the subscription-backed tab.
 
-## Discovery and version boundary
+## Embedded dependency and version boundary
 
-The activation coordinator resolves only:
-
-1. the signed Codex desktop installation beneath the fixed
-   `%LOCALAPPDATA%\OpenAI\Codex\bin\<release>\codex.exe` root on Windows;
-2. `$HOME/.local/bin/codex` on Unix; then
-3. an exact `codex.exe`/`codex` file from `PATH`.
-
-Shell wrappers such as `codex.cmd`, executable paths from configuration, and
-all model/UI/route/document/MCP-supplied values are rejected.
+The activation coordinator receives the verified Codex executable from the
+target-specific private portable bundle defined by
+[`private-embedded-dependencies.md`](private-embedded-dependencies.md).
+Production does not search the Codex desktop installation, a user bin
+directory, or `PATH`. Shell wrappers, executable paths from configuration,
+and all model/UI/route/document/MCP-supplied values are rejected.
 
 The first activation-qualified compatibility band is
 `>= 0.145.0, < 0.146.0`, established against the locally installed official

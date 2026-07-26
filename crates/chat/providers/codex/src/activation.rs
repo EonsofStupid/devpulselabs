@@ -1,5 +1,4 @@
 use dpl_chat_core::{ActivationState, RecoveryAction, RecoveryActionKind};
-use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
 use std::io;
@@ -76,7 +75,7 @@ pub struct CodexRuntimeProfile {
 impl CodexRuntimeProfile {
     pub fn discover(working_directory: impl AsRef<Path>) -> Result<Self, CodexDiscoveryError> {
         let working_directory = canonical_directory(working_directory.as_ref())?;
-        let executable = discover_executable().ok_or(CodexDiscoveryError::NotInstalled)?;
+        let executable = discover_executable()?;
         let version = probe_version(&executable, &working_directory)?;
         if !version.is_activation_supported() {
             return Err(CodexDiscoveryError::VersionUnsupported(version));
@@ -104,6 +103,7 @@ impl CodexRuntimeProfile {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CodexDiscoveryError {
     NotInstalled,
+    EmbeddedDependency(String),
     WorkingDirectory(String),
     VersionProbe(String),
     VersionUnsupported(CodexVersion),
@@ -113,6 +113,9 @@ impl fmt::Display for CodexDiscoveryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NotInstalled => f.write_str("the official Codex client is not installed"),
+            Self::EmbeddedDependency(reason) => {
+                write!(f, "the private Codex payload is unavailable: {reason}")
+            }
             Self::WorkingDirectory(reason) => {
                 write!(f, "the Codex working directory is invalid: {reason}")
             }
@@ -422,74 +425,10 @@ fn canonical_directory(path: &Path) -> Result<PathBuf, CodexDiscoveryError> {
     })
 }
 
-fn discover_executable() -> Option<PathBuf> {
-    let home = std::env::var_os(home_environment_key()).map(PathBuf::from);
-    let path = std::env::var_os("PATH");
-    #[cfg(windows)]
-    let desktop_root = std::env::var_os("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .map(|root| root.join("OpenAI").join("Codex").join("bin"));
-    #[cfg(not(windows))]
-    let desktop_root = None;
-    resolve_named_executable(home.as_deref(), desktop_root.as_deref(), path.as_deref())
-}
-
-fn resolve_named_executable(
-    home: Option<&Path>,
-    desktop_root: Option<&Path>,
-    path: Option<&OsStr>,
-) -> Option<PathBuf> {
-    let desktop = desktop_root.and_then(latest_desktop_executable);
-    let user = home.map(|root| root.join(".local").join("bin").join(executable_file_name()));
-    desktop
-        .into_iter()
-        .chain(user)
-        .chain(
-            path.into_iter()
-                .flat_map(std::env::split_paths)
-                .map(|directory| directory.join(executable_file_name())),
-        )
-        .find_map(canonical_file)
-}
-
-fn latest_desktop_executable(root: &Path) -> Option<PathBuf> {
-    fs::read_dir(root)
-        .ok()?
-        .filter_map(Result::ok)
-        .filter_map(|entry| {
-            let candidate = entry.path().join(executable_file_name());
-            let modified = candidate.metadata().ok()?.modified().ok()?;
-            candidate.is_file().then_some((modified, candidate))
-        })
-        .max_by_key(|(modified, _)| *modified)
-        .map(|(_, candidate)| candidate)
-}
-
-fn canonical_file(candidate: PathBuf) -> Option<PathBuf> {
-    candidate
-        .is_file()
-        .then(|| fs::canonicalize(candidate).ok())
-        .flatten()
-}
-
-#[cfg(windows)]
-const fn executable_file_name() -> &'static str {
-    "codex.exe"
-}
-
-#[cfg(not(windows))]
-const fn executable_file_name() -> &'static str {
-    "codex"
-}
-
-#[cfg(windows)]
-const fn home_environment_key() -> &'static str {
-    "USERPROFILE"
-}
-
-#[cfg(not(windows))]
-const fn home_environment_key() -> &'static str {
-    "HOME"
+fn discover_executable() -> Result<PathBuf, CodexDiscoveryError> {
+    dpl_embedded_deps::resolve_current(dpl_embedded_deps::CODEX)
+        .map(|dependency| dependency.path().to_owned())
+        .map_err(|error| CodexDiscoveryError::EmbeddedDependency(error.to_string()))
 }
 
 fn probe_version(
@@ -639,6 +578,7 @@ fn public_io_reason(error: &io::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsStr;
     use std::sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc,
@@ -653,7 +593,7 @@ mod tests {
 
     fn fixture_profile() -> CodexRuntimeProfile {
         let directory = temp_dir("profile");
-        let executable = directory.join(executable_file_name());
+        let executable = directory.join(format!("codex{}", std::env::consts::EXE_SUFFIX));
         fs::write(&executable, b"fixture").expect("fixture executable");
         CodexRuntimeProfile {
             executable,
@@ -719,22 +659,14 @@ mod tests {
     }
 
     #[test]
-    fn desktop_install_precedes_user_and_path_candidates() {
-        let desktop = temp_dir("desktop");
-        let release = desktop.join("release");
-        fs::create_dir_all(&release).expect("release");
-        let desktop_executable = release.join(executable_file_name());
-        fs::write(&desktop_executable, b"desktop").expect("desktop executable");
-
-        let home = temp_dir("home");
-        let user = home.join(".local").join("bin");
-        fs::create_dir_all(&user).expect("user bin");
-        fs::write(user.join(executable_file_name()), b"user").expect("user executable");
-
-        assert_eq!(
-            resolve_named_executable(Some(&home), Some(&desktop), None),
-            Some(fs::canonicalize(desktop_executable).expect("canonical executable"))
-        );
+    fn production_discovery_is_owned_by_the_embedded_resolver() {
+        let discovery = discover_executable();
+        if let Ok(path) = discovery {
+            assert!(path.is_absolute());
+            assert!(path
+                .components()
+                .any(|component| component.as_os_str() == "embedded-deps"));
+        }
     }
 
     #[test]
@@ -776,10 +708,10 @@ mod tests {
     }
 
     #[test]
-    fn locally_installed_official_codex_can_be_discovered_when_present() {
+    fn staged_official_codex_can_be_discovered_when_present() {
         let working_directory = std::env::current_dir().expect("cwd");
         let profile = CodexRuntimeProfile::discover(working_directory);
-        if discover_executable().is_some() {
+        if discover_executable().is_ok() {
             let profile = profile.expect("installed official Codex must qualify");
             assert!(profile.version().is_activation_supported());
             assert_eq!(crate::PROVIDER.0, "codex");
