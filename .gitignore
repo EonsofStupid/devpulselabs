@@ -7,3 +7,6 @@ proof-*.png
 # The three-ring root (ADR-014): working + state rings are operator data.
 /assets/
 /.userdata/
+
+# Operator-private source binaries used only to stage portable releases.
+/embedded-deps/sources.local.toml

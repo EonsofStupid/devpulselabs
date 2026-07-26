@@ -28,8 +28,8 @@ pub const ANIM_QUALITY: u32 = 70;
 
 static FFMPEG: OnceLock<PathBuf> = OnceLock::new();
 
-/// Managed ffmpeg injection — same contract as the other engines. Before
-/// injection, `ffmpeg` from PATH (the dev fallback).
+/// Managed ffmpeg injection — same contract as the other engines. An
+/// uninjected engine fails honestly and never searches PATH.
 pub fn set_ffmpeg_path(p: PathBuf) {
     let _ = FFMPEG.set(p);
 }
@@ -38,7 +38,7 @@ fn ffmpeg_program() -> PathBuf {
     FFMPEG
         .get()
         .cloned()
-        .unwrap_or_else(|| PathBuf::from("ffmpeg"))
+        .unwrap_or_else(|| PathBuf::from("__devpulse_embedded_ffmpeg_not_configured__"))
 }
 
 /// Freshness law: skip when the output exists and is at least as new as the

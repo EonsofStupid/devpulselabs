@@ -907,77 +907,30 @@ fn configure_pilot_adapter(mut options: eframe::NativeOptions) -> eframe::Native
     options
 }
 
-/// Managed ffmpeg (W6, the original `tools.rs` law ported): resolve ONE
-/// absolute binary and inject it into every engine seam (capture, media,
-/// video) so child spawns never depend on the process PATH. Candidates,
-/// first that exists: ① `bin/ffmpeg[.exe]` beside the exe (the portable
-/// bundle) ② absolute resolution from THIS process's PATH ③ the WinGet
-/// links shim (rescues a double-clicked exe under a stale Explorer
-/// PATH). None found → a loud warn naming every location; the engines
-/// keep their bare-PATH dev fallback.
+/// Resolve the verified app-relative ffmpeg payload and inject that one
+/// absolute path into every engine seam. Production never searches PATH,
+/// package managers, user installs, or the working directory.
 fn init_ffmpeg() {
-    const BIN: &str = if cfg!(windows) {
-        "ffmpeg.exe"
-    } else {
-        "ffmpeg"
-    };
-    let mut candidates: Vec<(std::path::PathBuf, &'static str)> = Vec::new();
-    if let Some(dir) = std::env::current_exe()
-        .ok()
-        .and_then(|e| e.parent().map(std::path::Path::to_path_buf))
-    {
-        candidates.push((dir.join("bin").join(BIN), "bundled"));
-    }
-    if let Some(p) = find_on_path(BIN) {
-        candidates.push((p, "PATH"));
-    }
-    if cfg!(windows) {
-        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
-            let winget = std::path::Path::new(&local)
-                .join("Microsoft")
-                .join("WinGet");
-            candidates.push((winget.join("Links").join(BIN), "winget-links"));
-            // Some packages register PATH instead of a Links shim (seen
-            // live: Gyan.FFmpeg) — scan Packages/<pkg>/<build>/bin/.
-            if let Ok(pkgs) = std::fs::read_dir(winget.join("Packages")) {
-                for pkg in pkgs
-                    .flatten()
-                    .filter(|p| p.file_name().to_string_lossy().starts_with("Gyan.FFmpeg"))
-                {
-                    for build in std::fs::read_dir(pkg.path())
-                        .into_iter()
-                        .flatten()
-                        .flatten()
-                    {
-                        candidates.push((build.path().join("bin").join(BIN), "winget-package"));
-                    }
-                }
-            }
-        }
-    }
-    match candidates.iter().find(|(p, _)| p.is_file()) {
-        Some((path, source)) => {
-            tracing::info!(ffmpeg = %path.display(), source, "managed ffmpeg resolved");
+    match dpl_embedded_deps::resolve_current(dpl_embedded_deps::FFMPEG) {
+        Ok(dependency) => {
+            let path = dependency.path().to_owned();
+            tracing::info!(
+                ffmpeg = %path.display(),
+                version = dependency.version(),
+                sha256 = dependency.sha256(),
+                "verified embedded ffmpeg resolved"
+            );
             dpl_engine_capture::set_ffmpeg_path(path.clone());
             dpl_engine_media::set_ffmpeg_path(path.clone());
-            dpl_video::set_ffmpeg_path(path.clone());
+            dpl_video::set_ffmpeg_path(path);
         }
-        None => {
+        Err(error) => {
             tracing::warn!(
-                checked = ?candidates.iter().map(|(p, _)| p.display().to_string()).collect::<Vec<_>>(),
-                "no ffmpeg found — previews, probes, and renders will fail. Put ffmpeg in \
-                 bin/ beside the exe, or install it (winget install Gyan.FFmpeg)."
+                %error,
+                "verified embedded ffmpeg is unavailable; previews, probes, and renders will fail"
             );
         }
     }
-}
-
-/// Resolve a binary to an ABSOLUTE path by walking this process's PATH.
-fn find_on_path(bin: &str) -> Option<std::path::PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .map(|d| d.join(bin))
-        .find(|p| p.is_file())
 }
 
 /// The taskbar law, continuous (old repo's `lib.rs`, ported): whenever the

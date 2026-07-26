@@ -30,8 +30,7 @@ const RETRY_COOLDOWN: Duration = Duration::from_secs(10);
 static FFMPEG: OnceLock<PathBuf> = OnceLock::new();
 
 /// The managed ffmpeg binary (same injection contract as the capture
-/// engine). Before injection, spawns fall back to bare `ffmpeg` from PATH —
-/// the dev workflow.
+/// engine). An uninjected player fails honestly and never searches PATH.
 pub fn set_ffmpeg_path(p: PathBuf) {
     let _ = FFMPEG.set(p);
 }
@@ -40,7 +39,7 @@ pub(crate) fn ffmpeg_program() -> PathBuf {
     FFMPEG
         .get()
         .cloned()
-        .unwrap_or_else(|| PathBuf::from("ffmpeg"))
+        .unwrap_or_else(|| PathBuf::from("__devpulse_embedded_ffmpeg_not_configured__"))
 }
 
 /// The args for a realtime, endless, cover-cropped rawvideo pipe.

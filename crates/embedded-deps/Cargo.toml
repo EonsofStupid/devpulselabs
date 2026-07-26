@@ -1,0 +1,14 @@
+[package]
+name = "dpl-embedded-deps"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "The sole production resolver for DevPULSE target-specific private subprocess payloads."
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+
+[lints]
+workspace = true

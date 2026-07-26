@@ -1,0 +1,80 @@
+# Operator-state proof: run while the official Grok client is signed out.
+# This scenario never clicks Login, so provider-owned browser authentication
+# remains an explicit operator action.
+id = "chat-grok-signed-out-readiness"
+fixture = "chat-peer"
+record = true
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "open"
+
+[steps.expectation.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "focus-viewport"
+
+[steps.action.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "wiredfront"
+
+[steps.expectation.target]
+id = "chat.primary/chat.context.route"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.sidebar.providers/grok"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.provider.login/grok"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "enabled"
+
+[steps.expectation.target]
+id = "chat.primary/chat.provider.login/grok"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "disabled"
+
+[steps.expectation.target]
+id = "chat.primary/chat.composer.send"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "close-viewport"
+
+[steps.action.viewport]
+key = "chat.primary"

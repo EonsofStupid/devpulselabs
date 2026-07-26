@@ -8,8 +8,8 @@
 //!
 //! Portable by construction: episode resolution goes through `CONTENT_ROOT`
 //! (default `./content`), ffmpeg is a MANAGED binary injected once via
-//! `set_ffmpeg_path` (the app shell resolves the bundled `bin/ffmpeg`; bare
-//! PATH lookup is only the dev fallback before injection), all output paths
+//! `set_ffmpeg_path` (the app shell resolves the verified private payload),
+//! all output paths
 //! use forward slashes. Linux X11 is expected-good; Wayland is the known gap
 //! (docs/screen-capture.md, open item #18).
 use serde::Serialize;
@@ -59,10 +59,10 @@ fn err(m: impl Into<String>) -> CaptureResult {
 }
 
 /// The managed ffmpeg binary. Injected exactly once by the embedding shell
-/// (app: bundled `bin/ffmpeg` next to the exe/resources; capture-cli:
-/// exe-adjacent). Before injection, spawns fall back to bare `ffmpeg` from
-/// PATH — a dev-only convenience, never the shipped behavior.
+/// (app: verified `embedded-deps`; capture-cli: explicit exe-adjacent input).
+/// An uninjected engine fails honestly and never searches PATH.
 static FFMPEG: OnceLock<PathBuf> = OnceLock::new();
+const MISSING_FFMPEG: &str = "__devpulse_embedded_ffmpeg_not_configured__";
 
 /// Idempotent: the first caller wins; later calls are ignored.
 pub fn set_ffmpeg_path(p: PathBuf) {
@@ -75,14 +75,14 @@ fn ffmpeg_cmd() -> Command {
         FFMPEG
             .get()
             .map(PathBuf::as_path)
-            .unwrap_or_else(|| Path::new("ffmpeg")),
+            .unwrap_or_else(|| Path::new(MISSING_FFMPEG)),
     )
 }
 
 /// For error messages: where ffmpeg was expected.
 fn ffmpeg_display() -> String {
     FFMPEG.get().map_or_else(
-        || "ffmpeg (PATH, dev fallback)".into(),
+        || "verified embedded ffmpeg (not configured)".into(),
         |p| p.display().to_string(),
     )
 }

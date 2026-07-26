@@ -91,7 +91,9 @@ Only dedicated Chat provider adapters and the Chat lifecycle coordinator may:
 Every provider profile declares:
 
 - typed provider/profile identities;
-- executable resolution policy and supported version range;
+- an executable identity resolved exclusively by the private portable bundle
+  contract in [`private-embedded-dependencies.md`](private-embedded-dependencies.md),
+  plus a supported version range;
 - protocol and schema range;
 - allowed workspace roots;
 - an environment-key allowlist;
@@ -105,6 +107,12 @@ Every provider profile declares:
 Resolution produces a visible runtime identity before launch. Any mismatch
 fails closed. The UI shows provider, account, model, workspace, and permission
 mode before a turn begins.
+
+The production process never searches `PATH`, provider home directories, OS
+install roots, or the working directory. Packaging tools may use an
+operator-owned local source only to construct a verified target-specific
+`embedded-deps` release. Provider adapters receive the resolver's absolute
+path and perform their own version/protocol probe as a second gate.
 
 One runtime owner controls process lifetime. Closing a tab, changing route, or
 detaching a window cannot orphan a provider. Stop, cancellation, app shutdown,

@@ -340,6 +340,7 @@ async fn production_worker(
     let stdin = child.stdin.take();
     let stdout = child.stdout.take();
     let terminal_failure_emitted = Arc::new(AtomicBool::new(false));
+    let authenticated = Arc::new(AtomicBool::new(false));
     let result = match (stdin, stdout) {
         (Some(stdin), Some(stdout)) => {
             run_connection(
@@ -348,6 +349,7 @@ async fn production_worker(
                 commands,
                 events.clone(),
                 Arc::clone(&terminal_failure_emitted),
+                Arc::clone(&authenticated),
             )
             .await
         }
@@ -357,10 +359,13 @@ async fn production_worker(
     terminate_and_reap(&mut child).await;
     if let Err(error) = result {
         if !terminal_failure_emitted.load(Ordering::SeqCst) {
+            let (kind, reason) = unclassified_connection_failure(
+                authenticated.load(Ordering::SeqCst),
+                &error.to_string(),
+            );
             let _ = events
                 .send(GrokRuntimeEvent::Failure(GrokRuntimeFailure::new(
-                    GrokRuntimeFailureKind::Disconnected,
-                    format!("Grok ACP disconnected: {error}"),
+                    kind, reason,
                 )))
                 .await;
         }
@@ -382,6 +387,7 @@ async fn run_connection(
     commands: Receiver<GrokRuntimeCommand>,
     events: Sender<GrokRuntimeEvent>,
     terminal_failure_emitted: Arc<AtomicBool>,
+    authenticated: Arc<AtomicBool>,
 ) -> Result<(), Error> {
     let notification_events = events.clone();
     let permission_events = events.clone();
@@ -637,6 +643,7 @@ async fn run_connection(
                     return Err(Error::internal_error());
                 }
             }
+            authenticated.store(true, Ordering::SeqCst);
 
             let capabilities = GrokAcpCapabilities {
                 load_session: initialized.agent_capabilities.load_session,
@@ -661,6 +668,24 @@ async fn run_connection(
         .await;
     terminals.shutdown();
     result
+}
+
+fn unclassified_connection_failure(
+    authenticated: bool,
+    protocol_reason: &str,
+) -> (GrokRuntimeFailureKind, String) {
+    if authenticated {
+        (
+            GrokRuntimeFailureKind::Disconnected,
+            format!("Grok ACP disconnected: {protocol_reason}"),
+        )
+    } else {
+        (
+            GrokRuntimeFailureKind::Authentication,
+            "Grok could not establish a cached subscription session. Log in to Grok and retry."
+                .to_owned(),
+        )
+    }
 }
 
 async fn command_loop(
@@ -1217,6 +1242,17 @@ mod tests {
     }
 
     #[test]
+    fn startup_disconnect_is_recoverable_subscription_authentication() {
+        let (kind, reason) = unclassified_connection_failure(false, "Internal error");
+        assert_eq!(kind, GrokRuntimeFailureKind::Authentication);
+        assert!(reason.contains("Log in to Grok"));
+
+        let (kind, reason) = unclassified_connection_failure(true, "transport closed");
+        assert_eq!(kind, GrokRuntimeFailureKind::Disconnected);
+        assert!(reason.contains("transport closed"));
+    }
+
+    #[test]
     fn protocol_peer_proves_list_new_stream_and_cancel() {
         async_io::block_on(async {
             let cancelled = Arc::new(AtomicBool::new(false));
@@ -1461,6 +1497,7 @@ mod tests {
                 std::env::current_dir().expect("current directory"),
                 commands_rx,
                 events_tx,
+                Arc::new(AtomicBool::new(false)),
                 Arc::new(AtomicBool::new(false)),
             );
             let (result, ()) = futures_lite::future::zip(runtime, driver).await;
