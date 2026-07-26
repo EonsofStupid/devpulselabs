@@ -1786,6 +1786,7 @@ dependencies = [
 name = "dpl-guide"
 version = "0.1.0"
 dependencies = [
+ "dpl-engine-browser",
  "dpl-engine-media",
  "serde",
  "serde_json",

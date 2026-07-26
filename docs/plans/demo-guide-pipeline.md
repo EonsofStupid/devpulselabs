@@ -87,10 +87,16 @@ requirement, not a nicety.
   Credentials stay operator-side always — the agent never enters
   passwords.
 
-- **DG1 — mixed-media guide.** Schema extension (G-1) + segment cut
-  (G-2) + export bundles N clips + player handles mixed steps (G-4).
-  Pilot: fixture guide (2 stills + 1 clip) → engine-unit asserts the
-  bundle is CLOSED; headless-browser drill steps it end-to-end.
+- **DG1 — mixed-media guide. ✅ LANDED 2026-07-25**
+  (`docs/plans/dg1-mixed-media-guide.md`): `Step.kind:"replay"` +
+  `clipIn`/`clipOut`/`clip` (recorder guides parse unchanged); export
+  cuts each segment from the ORIGINAL session (`render_clip_cut`,
+  replay-light) into `step-00N.mp4` ordered in place; the player's
+  stage swaps still↔clip in ONE sequence (embed default, jailed
+  sidecar mode); guide-video legs interleave; the reviewer round-trip
+  carries clips (engine + composer mapping). Proven: 70 unit tests +
+  the live drill — real ffmpeg cut, real headless Chrome walked
+  still → clip → still (DEMO-B dogfooded as the G1 browser drill).
 - **DG2 — `--demo-drill <scenario>`.** One flag: pilot scenario drives
   the exe while Steps + S1 record; the run assembles a draft
   mixed-media guide and files it through the inbox (sources never

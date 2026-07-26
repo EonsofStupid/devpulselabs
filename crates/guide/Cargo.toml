@@ -11,3 +11,8 @@ workspace = true
 serde.workspace = true
 serde_json.workspace = true
 dpl-engine-media.workspace = true
+
+[dev-dependencies]
+# The mixed-export drill walks the exported player in REAL headless
+# Chrome — DEMO-B dogfooding the G1 browser-drill law.
+dpl-engine-browser.workspace = true

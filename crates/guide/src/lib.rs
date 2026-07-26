@@ -49,6 +49,25 @@ pub struct Step {
     pub height: u32,
     #[serde(default)]
     pub bytes: usize,
+    /// DG1 mixed media: `"replay"` marks a clip step (`""` = still).
+    /// Recorder guides carry no kind and parse unchanged.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub kind: String,
+    /// The bundled clip filename — set by export for replay steps.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clip: Option<String>,
+    /// The cut range in the SOURCE session, seconds (`clipIn`/`clipOut`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clip_in: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clip_out: Option<f32>,
+}
+
+impl Step {
+    /// Does this step play a replay clip instead of showing a still?
+    pub fn is_replay(&self) -> bool {
+        self.kind == "replay"
+    }
 }
 
 /// One replay chapter tick — a recorded fabric event at `ms`.
@@ -250,6 +269,28 @@ pub fn write_html(manifest: &Manifest, dir: &Path, opts: ExportOpts) -> Result<P
     }
     let mut steps_js = Vec::with_capacity(manifest.steps.len());
     for s in &manifest.steps {
+        if s.is_replay() {
+            // DG1: a clip step — embedded data URI by default, jailed
+            // sidecar name otherwise. Same law as the whole-session replay.
+            let name = s
+                .clip
+                .as_deref()
+                .ok_or_else(|| format!("replay step {} has no clip file", s.order))?;
+            let p = frame_ok(dir, name)?;
+            let vid = if opts.embed_video {
+                data_uri(&p, "video/mp4")?
+            } else {
+                name.to_string()
+            };
+            steps_js.push(serde_json::json!({
+                "img": null,
+                "done": null,
+                "vid": vid,
+                "cap": s.caption.clone().unwrap_or_default(),
+                "click": null,
+            }));
+            continue;
+        }
         let img = data_uri(&frame_ok(dir, &s.file)?, "image/webp")?;
         let done = match &s.result_file {
             Some(rf) => Some(data_uri(&frame_ok(dir, rf)?, "image/webp")?),
@@ -258,6 +299,7 @@ pub fn write_html(manifest: &Manifest, dir: &Path, opts: ExportOpts) -> Result<P
         steps_js.push(serde_json::json!({
             "img": img,
             "done": done,
+            "vid": null,
             "cap": s.caption.clone().unwrap_or_default(),
             "click": s.click,
         }));
@@ -325,6 +367,7 @@ h1{{font-size:1.25rem}} h2{{font-size:1rem;margin:20px 0 8px;color:var(--muted)}
 .count{{color:var(--muted);font-variant-numeric:tabular-nums}}
 #stage{{position:relative;background:var(--panel);border:2px solid var(--edge);border-radius:10px;overflow:hidden}}
 #shot{{display:block;width:100%;height:auto}}
+#stepv{{display:none;width:100%;height:auto;background:#000;border:0;border-radius:0}}
 #dot{{position:absolute;width:26px;height:26px;border-radius:50%;border:3px solid var(--tone);
 box-shadow:0 0 0 3px #0008;transform:translate(-50%,-50%);pointer-events:none;display:none}}
 #caption{{min-height:1.5em;margin:10px 2px;color:var(--ink)}}
@@ -340,7 +383,7 @@ video{{width:100%;border:2px solid var(--edge);border-radius:10px;background:#00
 .note{{color:var(--muted)}}
 </style></head><body>
 <header><h1>{title}</h1><p class="count"><span id="n">1</span> / {count}</p></header>
-<div id="stage"><img id="shot" alt="step"><div id="dot"></div></div>
+<div id="stage"><img id="shot" alt="step"><video id="stepv" controls playsinline preload="metadata"></video><div id="dot"></div></div>
 <p id="caption"></p>
 <nav><button id="prev">&#8249; Back</button><button id="toggle">After</button><button id="next">Next &#8250;</button></nav>
 {replay_html}
@@ -350,12 +393,20 @@ const STEPS={steps_json};
 let i=0,after=false;
 const shot=document.getElementById("shot"),dot=document.getElementById("dot"),
 cap=document.getElementById("caption"),n=document.getElementById("n"),
-tog=document.getElementById("toggle");
+tog=document.getElementById("toggle"),stepv=document.getElementById("stepv");
 function show(){{
   const s=STEPS[i];
-  shot.src=(after&&s.done)?s.done:s.img;
   n.textContent=i+1;
   cap.textContent=s.cap;
+  stepv.pause();
+  if(s.vid){{
+    stepv.src=s.vid;stepv.style.display="block";
+    shot.style.display="none";dot.style.display="none";tog.style.display="none";
+    return;
+  }}
+  stepv.removeAttribute("src");stepv.style.display="none";
+  shot.style.display="block";
+  shot.src=(after&&s.done)?s.done:s.img;
   tog.style.display=s.done?"block":"none";
   tog.textContent=after?"Before":"After";
   if(s.click&&!after){{dot.style.display="block";
@@ -435,17 +486,43 @@ pub fn export_guide(
         .map(|f| f.to_string_lossy().into_owned())
         .unwrap_or(m.name);
 
-    let mut stills = Vec::with_capacity(m.steps.len());
+    let mut legs = Vec::with_capacity(m.steps.len());
     for (i, s) in m.steps.iter_mut().enumerate() {
         let order = (i + 1) as u32;
-        let file = format!("step-{order:03}.webp");
-        copy_frame(source, &s.file, out_dir, &file)?;
-        stills.push(out_dir.join(&file));
-        s.file = file;
-        if let Some(rf) = s.result_file.take() {
-            let done = format!("step-{order:03}-done.webp");
-            copy_frame(source, &rf, out_dir, &done)?;
-            s.result_file = Some(done);
+        if s.is_replay() {
+            // DG1: cut the segment from the ORIGINAL session recording
+            // into a light clip step, interleaved in place.
+            let (Some(cin), Some(cout)) = (s.clip_in, s.clip_out) else {
+                return Err(format!("replay step {order} has no clipIn/clipOut range"));
+            };
+            let sdir = session
+                .ok_or_else(|| format!("replay step {order} needs a session folder to cut from"))?;
+            let clip = format!("step-{order:03}.mp4");
+            dpl_engine_media::render_clip_cut(
+                &sdir.join("session.mp4"),
+                cin,
+                cout,
+                &out_dir.join(&clip),
+            )?;
+            legs.push(dpl_engine_media::VideoLeg::Clip {
+                path: out_dir.join(&clip),
+            });
+            s.clip = Some(clip);
+            s.file = String::new();
+            s.result_file = None;
+        } else {
+            let file = format!("step-{order:03}.webp");
+            copy_frame(source, &s.file, out_dir, &file)?;
+            legs.push(dpl_engine_media::VideoLeg::Still {
+                path: out_dir.join(&file),
+                secs: opts.secs_per_still,
+            });
+            s.file = file;
+            if let Some(rf) = s.result_file.take() {
+                let done = format!("step-{order:03}-done.webp");
+                copy_frame(source, &rf, out_dir, &done)?;
+                s.result_file = Some(done);
+            }
         }
         s.order = order;
     }
@@ -477,21 +554,16 @@ pub fn export_guide(
 
     let mut video = None;
     if opts.make_guide_video {
-        let session_file = m
-            .session
-            .as_ref()
-            .and_then(|s| s.video.as_deref())
-            .map(|v| out_dir.join(v));
+        // The legs already interleave in step order; the whole-session
+        // replay (when attached) stays the closing leg, as before.
+        let mut all = legs.clone();
+        if let Some(v) = m.session.as_ref().and_then(|s| s.video.as_deref()) {
+            all.push(dpl_engine_media::VideoLeg::Clip {
+                path: out_dir.join(v),
+            });
+        }
         let out = out_dir.join("guide-video.mp4");
-        dpl_engine_media::render_guide_video(
-            &stills,
-            opts.secs_per_still,
-            session_file.as_deref(),
-            1280,
-            720,
-            30,
-            &out,
-        )?;
+        dpl_engine_media::render_guide_video(&all, 1280, 720, 30, &out)?;
         m.guide_video = Some("guide-video.mp4".into());
         video = Some(out);
     }
@@ -722,6 +794,123 @@ mod tests {
         assert!(export_guide(&dir, None, &dir, ExportOpts::default()).is_err());
         // A non-guide folder is refused.
         assert!(load_guide(&root.join("nope")).is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// An export-shaped MIXED guide folder: still · clip · still, with a
+    /// pre-cut stand-in clip (the ffmpeg cut is the drill's concern).
+    fn fixture_mixed_export(root: &Path) -> PathBuf {
+        let dir = root.join("mixed");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("step-001.webp"), b"webp-1").unwrap();
+        std::fs::write(dir.join("step-002.mp4"), b"clip-bytes").unwrap();
+        std::fs::write(dir.join("step-003.webp"), b"webp-3").unwrap();
+        let manifest = serde_json::json!({
+            "kind": "guide", "name": "mixed", "stepCount": 3,
+            "steps": [
+                { "order": 1, "file": "step-001.webp", "action": "click",
+                  "caption": "click here" },
+                { "order": 2, "file": "", "kind": "replay",
+                  "clip": "step-002.mp4", "clipIn": 1.0, "clipOut": 2.5,
+                  "action": "", "caption": "watch the drag" },
+                { "order": 3, "file": "step-003.webp", "action": "marked" },
+            ],
+        });
+        std::fs::write(
+            dir.join("guide.json"),
+            serde_json::to_vec_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        dir
+    }
+
+    #[test]
+    fn replay_steps_round_trip_and_are_ordered_in_place() {
+        let root = scratch("mixed-load");
+        let dir = fixture_mixed_export(&root);
+        let m = load_guide(&dir).unwrap();
+        assert!(m.steps[1].is_replay());
+        assert_eq!(m.steps[1].clip.as_deref(), Some("step-002.mp4"));
+        assert_eq!(m.steps[1].clip_in, Some(1.0));
+        assert_eq!(m.steps[1].clip_out, Some(2.5));
+        assert!(!m.steps[0].is_replay() && !m.steps[2].is_replay());
+        // Serialization keeps camelCase clip keys and omits them on stills.
+        let v = serde_json::to_value(&m).unwrap();
+        assert_eq!(v["steps"][1]["clipIn"], 1.0);
+        assert!(v["steps"][0].get("clip").is_none());
+        assert!(v["steps"][0].get("kind").is_none());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn mixed_html_plays_the_clip_between_the_stills() {
+        let root = scratch("mixed-html");
+        let dir = fixture_mixed_export(&root);
+        let m = load_guide(&dir).unwrap();
+        let html_path = write_html(&m, &dir, ExportOpts::default()).unwrap();
+        let html = std::fs::read_to_string(&html_path).unwrap();
+        assert_eq!(
+            html.matches("data:video/mp4;base64,").count(),
+            1,
+            "the clip step embeds"
+        );
+        assert_eq!(
+            html.matches("data:image/webp;base64,").count(),
+            2,
+            "both stills embed"
+        );
+        assert!(html.contains("id=\"stepv\""), "the stage owns a video");
+        assert!(html.contains("\"vid\":null"), "stills carry a null vid");
+        assert!(!html.contains("http"), "closed bundle, always");
+        // Sidecar mode references the clip by its jailed name.
+        let sidecar = write_html(
+            &m,
+            &dir,
+            ExportOpts {
+                embed_video: false,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let html = std::fs::read_to_string(&sidecar).unwrap();
+        assert!(html.contains("\"vid\":\"step-002.mp4\""), "{html:.500}");
+        assert!(!html.contains("data:video/mp4"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn mixed_refusals_are_honest() {
+        let root = scratch("mixed-refuse");
+        let dir = fixture_mixed_export(&root);
+        // A clip name outside the folder is jailed.
+        let mut m = load_guide(&dir).unwrap();
+        m.steps[1].clip = Some("../escape.mp4".into());
+        assert!(write_html(&m, &dir, ExportOpts::default()).is_err());
+        // A replay step with no clip file is refused by the player.
+        let mut m = load_guide(&dir).unwrap();
+        m.steps[1].clip = None;
+        assert!(write_html(&m, &dir, ExportOpts::default()).is_err());
+        // Exporting a SOURCE replay step without a session folder is
+        // refused honestly (nothing to cut from).
+        let src = root.join("src-guide");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("step-001.webp"), b"w").unwrap();
+        std::fs::write(
+            src.join("guide.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "kind": "guide", "name": "src", "stepCount": 2,
+                "steps": [
+                    { "order": 1, "file": "step-001.webp", "action": "click" },
+                    { "order": 2, "file": "", "kind": "replay",
+                      "clipIn": 0.5, "clipOut": 2.0, "action": "" },
+                ],
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let err = export_guide(&src, None, &root.join("out"), ExportOpts::default())
+            .expect_err("no session to cut from");
+        assert!(err.contains("session"), "{err}");
         let _ = std::fs::remove_dir_all(&root);
     }
 }
