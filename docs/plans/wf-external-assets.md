@@ -35,8 +35,9 @@ bin / organize — effortless pull of the operator's own libraries.
 3. **Cross-platform `roots()`** — home standard folders (`HOME` /
    `USERPROFILE`; `Movies` = macOS Videos), Windows drives, unix mounts
    (`/Volumes` `/mnt` `/media` `/`).
-4. **Operator libraries** — `★ Add as library` in Browse; persisted
-   `.userdata/libraries.json`; shown FIRST in every Browse quick-jump bar.
+4. **Operator libraries** — `★ Add as library` / `★ Remove library` toggle
+   in Browse; persisted `.userdata/libraries.json`; shown FIRST in every
+   Browse quick-jump bar.
 
 ## 4. Changes (executed)
 

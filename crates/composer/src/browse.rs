@@ -446,24 +446,44 @@ pub fn window_ui(ui: &mut egui::Ui, b: &mut Browser) {
         if pin.clicked() {
             b.pinned.push(b.cwd.clone());
         }
-        // Add THIS folder as a permanent operator library — it shows in the
-        // quick-jump bar of every Browse window from now on. QoL: your own AE
-        // presets / image folders are one tap away, nothing moved or copied.
-        let lib = cl::tip(
-            bar_chip(ui, "★ Add as library", ns, "add-library"),
-            "Add THIS folder as a permanent library — one tap away in every Browse \
-             window from now on. Your own presets / image folders, in place; nothing moved.",
-        );
+        // Toggle THIS folder as a permanent operator library — it shows in the
+        // quick-jump bar of every Browse window. QoL: your own AE presets /
+        // image folders are one tap away, nothing moved or copied.
+        let already = read_libraries().iter().any(|p| p == &b.cwd);
+        let (llabel, ltip, lkey) = if already {
+            (
+                "★ Remove library",
+                "Drop THIS folder from your permanent libraries — the files stay \
+                 where they are; only the quick-jump entry goes away.",
+                "remove-library",
+            )
+        } else {
+            (
+                "★ Add as library",
+                "Add THIS folder as a permanent library — one tap away in every Browse \
+                 window from now on. Your own presets / image folders, in place; nothing moved.",
+                "add-library",
+            )
+        };
+        let lib = cl::tip(bar_chip(ui, llabel, ns, lkey), ltip);
         ui.pilot_track(
             &lib,
             NodeMetadata::new(
                 PilotId::new("browse.add-library").child(&PilotKey::new(format!("{ns}"))),
                 Role::Button,
-                "Add this folder as a library",
+                if already {
+                    "Remove this folder as a library"
+                } else {
+                    "Add this folder as a library"
+                },
             ),
         );
         if lib.clicked() {
-            add_library(b.cwd.clone());
+            if already {
+                remove_library(&b.cwd);
+            } else {
+                add_library(b.cwd.clone());
+            }
             b.roots = roots();
         }
         let ingest_label = match &b.arm {
