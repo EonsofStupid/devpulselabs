@@ -120,6 +120,10 @@ enum CardAct {
 pub struct WiredfrontHub {
     /// The NAVIGATE seam: tapped placeholder cards publish through here.
     fabric: Option<dpl_fabric::Fabric>,
+    /// Capture-domain ears (W8): any Saved/InboxChanged invalidates the
+    /// gallery/sessions/library views — refresh chips stop being
+    /// load-bearing.
+    capture_rx: Option<dpl_fabric::CaptureReceiver>,
     gallery: Option<GalleryView>,
     sessions: Option<SessionsView>,
     /// The LIBRARY media shelf (W6): rows loaded once per visit.
@@ -277,7 +281,11 @@ impl WiredfrontHub {
             let status = match dpl_index::Index::open_default()
                 .and_then(|ix| ix.reindex(&dpl_engine_capture::content_root()))
             {
-                Ok(r) => format!("rescan: indexed {} · soft-cleared {}", r.indexed, r.cleared),
+                Ok(r) => {
+                    // Batching law: a rescan is ONE InboxChanged.
+                    Self::signal_via(&self.fabric, dpl_fabric::CaptureEvent::InboxChanged);
+                    format!("rescan: indexed {} · soft-cleared {}", r.indexed, r.cleared)
+                }
                 Err(e) => e,
             };
             let filter = view.filter;
@@ -355,8 +363,17 @@ impl WiredfrontHub {
             Some((rel, CardAct::Dump)) => {
                 let status =
                     match dpl_index::Index::open_default().and_then(|ix| ix.dump(&root, &rel)) {
-                        Ok(()) => format!("dumped {rel}"),
-                        Err(e) => e,
+                        Ok(()) => {
+                            Self::signal_via(&self.fabric, dpl_fabric::CaptureEvent::InboxChanged);
+                            format!("dumped {rel}")
+                        }
+                        Err(e) => {
+                            Self::signal_via(
+                                &self.fabric,
+                                dpl_fabric::CaptureEvent::Failed { error: e.clone() },
+                            );
+                            e
+                        }
                     };
                 let filter = view.filter;
                 let mut fresh = GalleryView::load(filter);
@@ -374,8 +391,17 @@ impl WiredfrontHub {
                 let status = match dpl_index::Index::open_default()
                     .and_then(|ix| ix.keep(&root, &rel, &show, &ep))
                 {
-                    Ok(new_rel) => format!("kept → {new_rel}"),
-                    Err(e) => e,
+                    Ok(new_rel) => {
+                        Self::signal_via(&self.fabric, dpl_fabric::CaptureEvent::InboxChanged);
+                        format!("kept → {new_rel}")
+                    }
+                    Err(e) => {
+                        Self::signal_via(
+                            &self.fabric,
+                            dpl_fabric::CaptureEvent::Failed { error: e.clone() },
+                        );
+                        e
+                    }
                 };
                 let filter = view.filter;
                 let mut fresh = GalleryView::load(filter);
@@ -920,7 +946,42 @@ fn build_session_play(root: &std::path::Path, rel: &str, name: String) -> (Sessi
 
 impl WiredfrontHub {
     pub fn wire_fabric(&mut self, fabric: &dpl_fabric::Fabric) {
+        self.capture_rx = Some(fabric.subscribe_capture());
+        self.composer.wire_fabric(fabric);
         self.fabric = Some(fabric.clone());
+    }
+
+    /// Publish a capture signal when wired (drills without a fabric
+    /// stay silent, never panic). Free-standing over the FIELD so a
+    /// mutably-borrowed view elsewhere on self never conflicts.
+    fn signal_via(fabric: &Option<dpl_fabric::Fabric>, ev: dpl_fabric::CaptureEvent) {
+        if let Some(f) = fabric {
+            f.publish_capture(ev);
+        }
+    }
+
+    /// Drain capture signals (W8): artifact changes from ANY surface
+    /// invalidate this hub's cached views (lazy reload on next paint).
+    fn drain_signals(&mut self) {
+        let mut dirty = false;
+        if let Some(rx) = self.capture_rx.as_mut() {
+            while let Ok(stamped) = rx.try_recv() {
+                dirty |= matches!(
+                    stamped.ev,
+                    dpl_fabric::CaptureEvent::Saved { .. } | dpl_fabric::CaptureEvent::InboxChanged
+                );
+            }
+        }
+        if dirty {
+            // Keep any OPEN player/replay alive; only the lists reload.
+            if self.replay.is_none() {
+                self.gallery = None;
+            }
+            if self.sessions.as_ref().is_none_or(|s| s.open.is_none()) {
+                self.sessions = None;
+            }
+            self.library = None;
+        }
     }
 
     /// Open one session on the SESSIONS surface — the same path a list
@@ -1286,6 +1347,7 @@ impl Hub for WiredfrontHub {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, route: Route) {
+        self.drain_signals();
         if route.sub == GALLERY {
             self.gallery_surface(ui);
             return;

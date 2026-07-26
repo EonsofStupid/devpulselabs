@@ -18,7 +18,7 @@
 //! prefix, and a partial session still indexes (files are the truth).
 
 use dpl_engine_capture as cap;
-use dpl_fabric::{ShellEvent, ShellReceiver};
+use dpl_fabric::{CaptureEvent, CaptureReceiver, ShellEvent, ShellReceiver, Stamped};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
@@ -44,31 +44,86 @@ impl EventLog {
     }
 
     /// Serialize one OBSERVED event. Typed enum → hand-mapped JSON —
-    /// the wire shape is authored here, never screen-scraped.
+    /// the wire shape is authored here, never screen-scraped. Every
+    /// line speaks the ENVELOPE (signal-doctrine law 4): domain + ms +
+    /// type; existing consumers read ms/type and are unaffected.
     pub fn log(&mut self, ev: &ShellEvent) {
         let ms = self.started.elapsed().as_millis() as u64;
         let line = match ev {
             ShellEvent::RouteChanged { route } => serde_json::json!({
-                "ms": ms, "type": "route-changed",
+                "domain": "shell", "ms": ms, "type": "route-changed",
                 "hub": route.hub.0, "sub": route.sub.0,
             }),
             ShellEvent::ViziwizSummon => serde_json::json!({
-                "ms": ms, "type": "viziwiz-summon",
+                "domain": "shell", "ms": ms, "type": "viziwiz-summon",
             }),
             ShellEvent::FullBleedRequest(on) => serde_json::json!({
-                "ms": ms, "type": "full-bleed", "on": on,
+                "domain": "shell", "ms": ms, "type": "full-bleed", "on": on,
             }),
             ShellEvent::NavigateRequest { route } => serde_json::json!({
-                "ms": ms, "type": "navigate-request",
+                "domain": "shell", "ms": ms, "type": "navigate-request",
                 "hub": route.hub.0, "sub": route.sub.0,
             }),
             ShellEvent::WindowRequest { target, action } => serde_json::json!({
-                "ms": ms, "type": "window-request",
+                "domain": "shell", "ms": ms, "type": "window-request",
                 "target": target.0, "action": format!("{action:?}"),
             }),
         };
         // Best-effort per line: a failed write must never take the
         // recording down with it.
+        if writeln!(self.file, "{line}").is_ok() {
+            let _ = self.file.flush();
+            self.count += 1;
+        }
+    }
+
+    /// One observed CAPTURE signal, in the envelope — the session log
+    /// is the flight recorder (stamped seq carries total order).
+    pub fn log_capture(&mut self, st: &Stamped<CaptureEvent>) {
+        let ms = self.started.elapsed().as_millis() as u64;
+        let base = |t: &str| {
+            serde_json::json!({
+                "domain": "capture", "ms": ms, "seq": st.seq, "type": t,
+            })
+        };
+        let mut line = match &st.ev {
+            CaptureEvent::Started { mode, target } => {
+                let mut l = base("started");
+                l["mode"] = serde_json::json!(mode);
+                l["target"] = serde_json::json!(target);
+                l
+            }
+            CaptureEvent::Saved {
+                rel_path,
+                kind,
+                name,
+                location,
+                source,
+            } => {
+                let mut l = base("saved");
+                l["relPath"] = serde_json::json!(rel_path);
+                l["kind"] = serde_json::json!(kind);
+                l["name"] = serde_json::json!(name);
+                l["location"] = serde_json::json!(location);
+                l["source"] = serde_json::json!(source);
+                l
+            }
+            CaptureEvent::Failed { error } => {
+                let mut l = base("failed");
+                l["error"] = serde_json::json!(error);
+                l
+            }
+            CaptureEvent::InboxChanged => base("inboxChanged"),
+            CaptureEvent::PaletteVisibility { visible } => {
+                let mut l = base("paletteVisibility");
+                l["visible"] = serde_json::json!(visible);
+                l
+            }
+        };
+        // Stable, deterministic serialization for the recorder.
+        if line["seq"].is_null() {
+            line["seq"] = serde_json::json!(st.seq);
+        }
         if writeln!(self.file, "{line}").is_ok() {
             let _ = self.file.flush();
             self.count += 1;
@@ -87,6 +142,8 @@ pub struct SessionRec {
     pub started: Instant,
     pub done: Arc<Mutex<Option<Result<u32, String>>>>,
     pub rx: ShellReceiver,
+    /// Capture-domain ears — saves/failures land in the flight recorder.
+    pub rx_capture: CaptureReceiver,
     pub events: EventLog,
 }
 
@@ -96,6 +153,9 @@ impl SessionRec {
     pub fn drain(&mut self) {
         while let Ok(ev) = self.rx.try_recv() {
             self.events.log(&ev);
+        }
+        while let Ok(st) = self.rx_capture.try_recv() {
+            self.events.log_capture(&st);
         }
     }
 }

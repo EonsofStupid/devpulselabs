@@ -8,6 +8,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+dpl-index.workspace = true
 axum.workspace = true
 # The seam owns its runtime on a background thread — the egui thread is
 # never touched. Features are additive over the workspace's sync-only base.

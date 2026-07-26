@@ -168,24 +168,48 @@ impl Viziwiz {
         }
     }
 
-    /// X1 write-through: sidecar + index upsert for a fresh capture.
-    /// Capture NEVER fails because indexing did — a problem comes back as
-    /// a status-line suffix instead.
-    fn index_capture(path: &Path, kind: &str) -> String {
-        let root = cap::content_root();
-        let record = dpl_index::record_for_capture(path, &root, kind, "viziwiz");
-        let result = dpl_index::sidecar::write(path, &record)
+    /// THE one write-through seam (signal-doctrine law 3): sidecar +
+    /// index upsert + the `Saved` signal, identically for every vehicle.
+    /// Capture NEVER fails because indexing did — a problem comes back
+    /// as a status-line suffix (and a `Failed` signal); `Saved` fires
+    /// ONLY after the write succeeded (signals report truth).
+    fn index_and_signal(
+        fabric: &dpl_fabric::Fabric,
+        target: &Path,
+        record: dpl_index::Record,
+    ) -> String {
+        let result = dpl_index::sidecar::write(target, &record)
             .and_then(|()| dpl_index::Index::open_default()?.upsert(&record));
         match result {
-            Ok(()) => String::new(),
-            Err(e) => format!(" · index: {e}"),
+            Ok(()) => {
+                fabric.publish_capture(dpl_fabric::CaptureEvent::Saved {
+                    rel_path: record.rel_path,
+                    kind: record.kind,
+                    name: record.name,
+                    location: record.location,
+                    source: record.source,
+                });
+                String::new()
+            }
+            Err(e) => {
+                fabric.publish_capture(dpl_fabric::CaptureEvent::Failed { error: e.clone() });
+                format!(" · index: {e}")
+            }
         }
+    }
+
+    /// X1 write-through for a fresh capture — builds the row, then the
+    /// one seam above indexes + signals.
+    fn index_capture(fabric: &dpl_fabric::Fabric, path: &Path, kind: &str) -> String {
+        let root = cap::content_root();
+        let record = dpl_index::record_for_capture(path, &root, kind, "viziwiz");
+        Self::index_and_signal(fabric, path, record)
     }
 
     /// The Save card's write-through (C2): the guide row carries the
     /// card's tags and — for an episode destination — the association,
     /// like the old `index_saved`. Same degrade law as `index_capture`.
-    fn index_guide(path: &Path, meta: &CaptureMeta) -> String {
+    fn index_guide(fabric: &dpl_fabric::Fabric, path: &Path, meta: &CaptureMeta) -> String {
         let root = cap::content_root();
         let mut record = dpl_index::record_for_capture(path, &root, "guide", "viziwiz");
         record.tags = meta.tags.clone();
@@ -193,17 +217,12 @@ impl Viziwiz {
             record.show_id = Some(meta.show.clone());
             record.episode_folder = Some(meta.episode.clone());
         }
-        let result = dpl_index::sidecar::write(path, &record)
-            .and_then(|()| dpl_index::Index::open_default()?.upsert(&record));
-        match result {
-            Ok(()) => String::new(),
-            Err(e) => format!(" · index: {e}"),
-        }
+        Self::index_and_signal(fabric, path, record)
     }
 
     /// X1 write-through for a finished VIDEO — the row carries the
     /// convention poster when it exists (C3; same degrade law).
-    fn index_video(out: &Path) -> String {
+    fn index_video(fabric: &dpl_fabric::Fabric, out: &Path) -> String {
         let root = cap::content_root();
         let mut record = dpl_index::record_for_capture(out, &root, "video", "viziwiz");
         let poster = Self::poster_path(out);
@@ -216,12 +235,7 @@ impl Viziwiz {
                 });
             }
         }
-        let result = dpl_index::sidecar::write(out, &record)
-            .and_then(|()| dpl_index::Index::open_default()?.upsert(&record));
-        match result {
-            Ok(()) => String::new(),
-            Err(e) => format!(" · index: {e}"),
-        }
+        Self::index_and_signal(fabric, out, record)
     }
 
     fn inbox() -> Result<PathBuf, String> {
@@ -270,13 +284,23 @@ impl Viziwiz {
             .expect("unbounded range")
     }
 
+    /// THE one palette-visibility write (W8): every open/close funnels
+    /// here so `PaletteVisibility` fires exactly once per real change.
+    fn set_open(&mut self, open: bool) {
+        if self.open != open {
+            self.open = open;
+            self.fabric
+                .publish_capture(dpl_fabric::CaptureEvent::PaletteVisibility { visible: open });
+        }
+    }
+
     pub fn toggle(&mut self) {
-        self.open = !self.open;
+        self.set_open(!self.open);
     }
 
     /// Harness: open the palette at boot (`--viziwiz`).
     pub fn open_now(&mut self) {
-        self.open = true;
+        self.set_open(true);
     }
 
     /// Harness: fire the Img/Full action through the real handler and
@@ -392,14 +416,21 @@ impl Viziwiz {
             // Starting would drop the unfiled session — the card decides.
             self.status = "a guide is waiting on the Save card — Save or Discard first".into();
             self.tab = Tab::Steps;
-            self.open = true;
+            self.set_open(true);
             return;
         }
         match Self::inbox().and_then(|inbox| {
             let meta = normalize_meta_auto(Self::blank_meta(), "guide")?;
             self.steps.start(&inbox, meta)
         }) {
-            Ok(()) => self.status = "steps: recording".into(),
+            Ok(()) => {
+                self.status = "steps: recording".into();
+                self.fabric
+                    .publish_capture(dpl_fabric::CaptureEvent::Started {
+                        mode: "steps".into(),
+                        target: String::new(),
+                    });
+            }
             Err(e) => self.status = format!("steps: {e}"),
         }
     }
@@ -418,7 +449,7 @@ impl Viziwiz {
                     episode: String::new(),
                 });
                 self.tab = Tab::Steps;
-                self.open = true;
+                self.set_open(true);
                 self.status = format!("{} steps pending — name your guide to file it", stop.count);
             }
             Err(e) => self.status = format!("steps: {e}"),
@@ -451,7 +482,7 @@ impl Viziwiz {
             Ok(folder) => {
                 let count = self.pending.take().map(|p| p.count).unwrap_or(0);
                 let warn = Self::inbox()
-                    .map(|inbox| Self::index_guide(&inbox.join(&folder), &meta))
+                    .map(|inbox| Self::index_guide(&self.fabric, &inbox.join(&folder), &meta))
                     .unwrap_or_default();
                 self.status = format!("guide: {count} steps → {folder}{warn}");
             }
@@ -500,7 +531,7 @@ impl Viziwiz {
                 format!(
                     "saved {}{}{}",
                     p.display(),
-                    Self::index_capture(&p, "image"),
+                    Self::index_capture(&self.fabric, &p, "image"),
                     Self::copy_to_clipboard(ctx, &p)
                 )
             }
@@ -529,7 +560,7 @@ impl Viziwiz {
                 format!(
                     "saved {} ({title}){}{}",
                     p.display(),
-                    Self::index_capture(&p, "image"),
+                    Self::index_capture(&self.fabric, &p, "image"),
                     Self::copy_to_clipboard(ctx, &p)
                 )
             }
@@ -558,7 +589,7 @@ impl Viziwiz {
                     Ok(p) => format!(
                         "saved {}{}{}",
                         p.display(),
-                        Self::index_capture(&p, "image"),
+                        Self::index_capture(&self.fabric, &p, "image"),
                         Self::copy_to_clipboard(ctx, &p)
                     ),
                     Err(e) => e,
@@ -574,7 +605,7 @@ impl Viziwiz {
                     Ok(p) => format!(
                         "saved {}{}{}",
                         p.display(),
-                        Self::index_capture(&p, "image"),
+                        Self::index_capture(&self.fabric, &p, "image"),
                         Self::copy_to_clipboard(ctx, &p)
                     ),
                     Err(e) => e,
@@ -670,6 +701,11 @@ impl Viziwiz {
         });
         match result {
             Ok(v) => {
+                self.fabric
+                    .publish_capture(dpl_fabric::CaptureEvent::Started {
+                        mode: "video".into(),
+                        target: v.out.display().to_string(),
+                    });
                 self.status = format!(
                     "recording {} · {format_label} · {audio_label}",
                     v.out.display()
@@ -720,6 +756,7 @@ impl Viziwiz {
             return;
         }
         let rx = self.fabric.subscribe_shell();
+        let rx_capture = self.fabric.subscribe_capture();
         let result = Self::inbox().and_then(|inbox| {
             let dir = session::session_dir(&inbox);
             std::fs::create_dir_all(&dir).map_err(|e| format!("session: {e}"))?;
@@ -733,11 +770,17 @@ impl Viziwiz {
                 started: Instant::now(),
                 done,
                 rx,
+                rx_capture,
                 events,
             })
         });
         match result {
             Ok(s) => {
+                self.fabric
+                    .publish_capture(dpl_fabric::CaptureEvent::Started {
+                        mode: "session".into(),
+                        target: s.dir.display().to_string(),
+                    });
                 self.status = format!("session recording {}", s.dir.display());
                 self.session = Some(s);
             }
@@ -755,18 +798,13 @@ impl Viziwiz {
     /// X1 write-through for a finished (or partial) session FOLDER —
     /// kind "session", poster when the video leg produced one. Same
     /// status-line degrade law as `index_capture`.
-    fn index_session(dir: &Path) -> String {
+    fn index_session(fabric: &dpl_fabric::Fabric, dir: &Path) -> String {
         let root = cap::content_root();
         let mut record = dpl_index::record_for_capture(dir, &root, "session", "viziwiz");
         if dir.join("session.jpg").is_file() {
             record.poster_rel_path = Some(format!("{}/session.jpg", record.rel_path));
         }
-        let result = dpl_index::sidecar::write(dir, &record)
-            .and_then(|()| dpl_index::Index::open_default()?.upsert(&record));
-        match result {
-            Ok(()) => String::new(),
-            Err(e) => format!(" · index: {e}"),
-        }
+        Self::index_and_signal(fabric, dir, record)
     }
 
     /// Install the OS-global hook ONCE (first frame): chords queue on the
@@ -793,7 +831,7 @@ impl Viziwiz {
         self.wire_hotkeys(ctx);
         while let Ok(ev) = self.rx.try_recv() {
             if ev == ShellEvent::ViziwizSummon {
-                self.open = true;
+                self.set_open(true);
             }
         }
         let fired: Vec<Hotkey> = self
@@ -803,7 +841,7 @@ impl Viziwiz {
             .unwrap_or_default();
         for hotkey in fired {
             match hotkey {
-                Hotkey::Palette => self.open = !self.open,
+                Hotkey::Palette => self.toggle(),
                 Hotkey::ToggleSteps => self.toggle_steps(),
                 // No error spam when idle — the old hotkey semantics.
                 Hotkey::MarkStep => {
@@ -823,7 +861,7 @@ impl Viziwiz {
                     Ok(frames) => format!(
                         "saved {} ({frames} frames){}",
                         out.display(),
-                        Self::index_video(&out)
+                        Self::index_video(&self.fabric, &out)
                     ),
                     Err(e) => format!("video: {e}"),
                 };
@@ -845,11 +883,11 @@ impl Viziwiz {
                     Ok(frames) => format!(
                         "session saved {} ({frames} frames · {n} events){}",
                         dir.display(),
-                        Self::index_session(&dir)
+                        Self::index_session(&self.fabric, &dir)
                     ),
                     Err(e) => format!(
                         "session video: {e} · partial kept ({n} events){}",
-                        Self::index_session(&dir)
+                        Self::index_session(&self.fabric, &dir)
                     ),
                 };
                 self.session = None;
@@ -999,7 +1037,7 @@ impl Viziwiz {
             self.picked_window = idx;
         }
         if actions.close {
-            self.open = false;
+            self.set_open(false);
         }
         if actions.cycle_delay {
             self.delay = match self.delay {

@@ -122,6 +122,12 @@ pub struct Composer {
     fx_search: String,
     /// Open Browse windows (peer viewports); slots never reuse.
     browsers: Vec<Arc<Mutex<browse::Browser>>>,
+    /// The shared warm scan cache (W8 proactive-buffer law) — seeded at
+    /// first visit for profile roots + pinned packs; every Browse
+    /// window paints from it instantly.
+    scan_cache: browse::ScanCache,
+    /// One-shot warm guard.
+    warmed: bool,
     /// The next Browse window's slot id.
     next_browser: usize,
     /// The seeded comp/guide name the guided Save/Export flows use.
@@ -145,6 +151,14 @@ pub struct Composer {
     apply_armed: bool,
     /// The off-thread guide EXPORT's shared state.
     export: Arc<Mutex<ExportState>>,
+    /// The signal fabric (W8, signal-doctrine.md): every mutation this
+    /// editor performs signals; None only in tests/drills that never
+    /// wired one (emissions degrade to silence, never panic).
+    fabric: Option<dpl_fabric::Fabric>,
+    /// Capture-domain subscription — drained each frame; any Saved/
+    /// InboxChanged invalidates the project caches (refresh chips stop
+    /// being load-bearing).
+    capture_rx: Option<dpl_fabric::CaptureReceiver>,
     status: String,
 }
 
@@ -228,6 +242,8 @@ impl Default for Composer {
             info_open: true,
             fx_search: String::new(),
             browsers: Vec::new(),
+            scan_cache: browse::ScanCache::default(),
+            warmed: false,
             next_browser: 0,
             save_name: String::new(),
             episodes: None,
@@ -240,6 +256,8 @@ impl Default for Composer {
             make_gif: true,
             apply_armed: false,
             export: Arc::new(Mutex::new(ExportState::Idle)),
+            fabric: None,
+            capture_rx: None,
             status: "New composition — add footage from the Project panel.".into(),
         };
         // Proof/env override (the DPL_COMPOSER_TAB pattern): open the
@@ -884,6 +902,16 @@ impl Composer {
         let (w, h, fps) = (self.comp.w, self.comp.h, self.comp.fps);
         let state = Arc::clone(&self.render);
         *state.lock().expect("render state") = RenderState::Running;
+        // Jobs domain (doctrine law 8): transitions signal; the polled
+        // RenderState stays the progress truth.
+        let fabric = self.fabric.clone();
+        let job = fabric.as_ref().map(|f| f.mint_job());
+        if let (Some(f), Some(j)) = (&fabric, job) {
+            f.publish_job(dpl_fabric::JobEvent::Queued {
+                job: j,
+                label: "render".into(),
+            });
+        }
         std::thread::Builder::new()
             .name("dpl-composer-render".into())
             .spawn(move || {
@@ -892,10 +920,24 @@ impl Composer {
                     Ok(()) => {
                         // Write-through: the render becomes an ordinary
                         // indexed artifact so Gallery/Keep/agents see it.
-                        index_render(&out);
+                        index_render(&out, fabric.as_ref());
+                        if let (Some(f), Some(j)) = (&fabric, job) {
+                            f.publish_job(dpl_fabric::JobEvent::Done {
+                                job: j,
+                                out: out.display().to_string(),
+                            });
+                        }
                         RenderState::Done(out)
                     }
-                    Err(e) => RenderState::Failed(e),
+                    Err(e) => {
+                        if let (Some(f), Some(j)) = (&fabric, job) {
+                            f.publish_job(dpl_fabric::JobEvent::Failed {
+                                job: j,
+                                error: e.clone(),
+                            });
+                        }
+                        RenderState::Failed(e)
+                    }
                 };
             })
             .expect("spawn render thread");
@@ -957,6 +999,19 @@ impl Composer {
         if self.packs.is_none() {
             self.packs = Some(packs::list_packs(&Self::content_root()));
         }
+        if !self.warmed {
+            self.warmed = true;
+            // Proactive buffering: the folders a Browse window opens on
+            // first are already listed before the first click. Roots are
+            // probed INSIDE the worker — never here on the paint thread.
+            let pinned: Vec<PathBuf> = self
+                .packs
+                .iter()
+                .flatten()
+                .map(|p| p.path.clone())
+                .collect();
+            browse::warm_cache(&self.scan_cache, pinned);
+        }
         if self.guides.is_none() {
             self.guides = Some(
                 dpl_index::Index::open_default()
@@ -1013,11 +1068,23 @@ impl Composer {
         let rel = rev.rel.clone();
         match dpl_engine_steps::edit::update_guide(&rev.dir, kept) {
             Ok(n) => {
+                // W8 gap-fix: the edit is a MUTATION — index + signal it
+                // (the sweep found update_guide wrote no index row).
+                let root = Self::content_root();
+                let rec = dpl_index::record_for_capture(&rev.dir.clone(), &root, "guide", "edit");
+                if let Ok(ix) = dpl_index::Index::open_default() {
+                    if ix.upsert(&rec).is_ok() {
+                        Self::signal_saved(&self.fabric, &rec);
+                    }
+                }
                 self.status = format!("Guide updated — {n} step(s) kept.");
                 self.guides = None;
                 self.load_review(&rel);
             }
-            Err(e) => self.status = format!("Apply failed: {e}"),
+            Err(e) => {
+                self.signal(dpl_fabric::CaptureEvent::Failed { error: e.clone() });
+                self.status = format!("Apply failed: {e}");
+            }
         }
         self.apply_armed = false;
     }
@@ -1047,6 +1114,14 @@ impl Composer {
         };
         let state = Arc::clone(&self.export);
         *state.lock().expect("export state") = ExportState::Running;
+        let fabric = self.fabric.clone();
+        let job = fabric.as_ref().map(|f| f.mint_job());
+        if let (Some(f), Some(j)) = (&fabric, job) {
+            f.publish_job(dpl_fabric::JobEvent::Queued {
+                job: j,
+                label: "guide export".into(),
+            });
+        }
         std::thread::Builder::new()
             .name("dpl-guide-export".into())
             .spawn(move || {
@@ -1056,10 +1131,27 @@ impl Composer {
                     session_rel.as_deref(),
                     name.as_deref(),
                     opts,
+                    fabric.as_ref(),
                 );
                 *state.lock().expect("export state") = match result {
-                    Ok(e) => ExportState::Done(e.dir),
-                    Err(e) => ExportState::Failed(e),
+                    Ok(e) => {
+                        if let (Some(f), Some(j)) = (&fabric, job) {
+                            f.publish_job(dpl_fabric::JobEvent::Done {
+                                job: j,
+                                out: e.dir.display().to_string(),
+                            });
+                        }
+                        ExportState::Done(e.dir)
+                    }
+                    Err(e) => {
+                        if let (Some(f), Some(j)) = (&fabric, job) {
+                            f.publish_job(dpl_fabric::JobEvent::Failed {
+                                job: j,
+                                error: e.clone(),
+                            });
+                        }
+                        ExportState::Failed(e)
+                    }
                 };
             })
             .expect("spawn export thread");
@@ -1079,9 +1171,13 @@ impl Composer {
                 Ok(new_rel) => {
                     *self.export.lock().expect("export state") = ExportState::Idle;
                     self.guides = None;
+                    self.signal(dpl_fabric::CaptureEvent::InboxChanged);
                     format!("Filed into {show}/{ep} → {new_rel}")
                 }
-                Err(e) => format!("Keep failed: {e}"),
+                Err(e) => {
+                    self.signal(dpl_fabric::CaptureEvent::Failed { error: e.clone() });
+                    format!("Keep failed: {e}")
+                }
             };
     }
 
@@ -1090,6 +1186,7 @@ impl Composer {
         self.browsers.push(Arc::new(Mutex::new(browse::Browser::new(
             self.next_browser,
             start,
+            Arc::clone(&self.scan_cache),
         ))));
         self.next_browser += 1;
     }
@@ -1114,14 +1211,41 @@ impl Composer {
         let done = Arc::clone(&self.ingest_done);
         let pack = pack.to_path_buf();
         *state.lock().expect("ingest state") = IngestState::Running { pack: name.clone() };
+        // The BATCHING law (doctrine law 8): a 9k-file ingest speaks the
+        // jobs domain + ONE InboxChanged at the end — never a Saved storm.
+        let fabric = self.fabric.clone();
+        let job = fabric.as_ref().map(|f| f.mint_job());
+        if let (Some(f), Some(j)) = (&fabric, job) {
+            f.publish_job(dpl_fabric::JobEvent::Queued {
+                job: j,
+                label: format!("ingest {name}"),
+            });
+        }
         std::thread::Builder::new()
             .name("dpl-pack-ingest".into())
             .spawn(move || {
                 let root = Self::content_root();
                 let result = packs::ingest_copy(&root, &pack, &name, &done);
                 *state.lock().expect("ingest state") = match result {
-                    Ok(copied) => IngestState::Done { pack: name, copied },
-                    Err(e) => IngestState::Failed(e),
+                    Ok(copied) => {
+                        if let (Some(f), Some(j)) = (&fabric, job) {
+                            f.publish_job(dpl_fabric::JobEvent::Done {
+                                job: j,
+                                out: format!("{copied} file(s)"),
+                            });
+                            f.publish_capture(dpl_fabric::CaptureEvent::InboxChanged);
+                        }
+                        IngestState::Done { pack: name, copied }
+                    }
+                    Err(e) => {
+                        if let (Some(f), Some(j)) = (&fabric, job) {
+                            f.publish_job(dpl_fabric::JobEvent::Failed {
+                                job: j,
+                                error: e.clone(),
+                            });
+                        }
+                        IngestState::Failed(e)
+                    }
                 };
             })
             .expect("spawn ingest thread");
@@ -1243,6 +1367,58 @@ impl Composer {
         self.add_clip(rec);
     }
 
+    /// Wire the signal fabric (called by the hub's own wire_fabric —
+    /// ONE fabric end to end). Also opens this editor's capture ears.
+    pub fn wire_fabric(&mut self, fabric: &dpl_fabric::Fabric) {
+        self.capture_rx = Some(fabric.subscribe_capture());
+        self.fabric = Some(fabric.clone());
+    }
+
+    /// Publish a capture signal when a fabric is wired (drills without
+    /// one stay silent — never a panic).
+    fn signal(&self, ev: dpl_fabric::CaptureEvent) {
+        if let Some(f) = &self.fabric {
+            f.publish_capture(ev);
+        }
+    }
+
+    /// Saved for an indexed record — the emit half of
+    /// "index + signal identically".
+    fn signal_saved(fabric: &Option<dpl_fabric::Fabric>, rec: &Record) {
+        if let Some(f) = fabric {
+            f.publish_capture(dpl_fabric::CaptureEvent::Saved {
+                rel_path: rec.rel_path.clone(),
+                kind: rec.kind.clone(),
+                name: rec.name.clone(),
+                location: rec.location.clone(),
+                source: rec.source.clone(),
+            });
+        }
+    }
+
+    /// Drain capture signals (W8): any artifact change — ours or another
+    /// surface's — invalidates the project caches so FOOTAGE/renders/
+    /// pickers reload lazily. Cheap: caches refill on next need.
+    fn drain_signals(&mut self) {
+        let mut dirty = false;
+        if let Some(rx) = self.capture_rx.as_mut() {
+            while let Ok(stamped) = rx.try_recv() {
+                dirty |= matches!(
+                    stamped.ev,
+                    dpl_fabric::CaptureEvent::Saved { .. } | dpl_fabric::CaptureEvent::InboxChanged
+                );
+            }
+        }
+        if dirty {
+            self.palette = None;
+            self.renders = None;
+            self.comps = None;
+            self.elements = None;
+            self.guides = None;
+            self.session_rows = None;
+        }
+    }
+
     /// The harness seam (`--import-drill <dir>`): import every media
     /// file in `dir` through the SAME path an Explorer drop takes —
     /// the real-exe proof of the import seam.
@@ -1265,7 +1441,12 @@ impl Composer {
     /// Route one imported file: videos AND images join the timeline
     /// (W7), elements file into the elements shelf — honestly.
     fn handle_import(&mut self, src: &Path) {
-        match import::import_file(src) {
+        let outcome = import::import_file(src);
+        match &outcome {
+            Ok(rec) => Self::signal_saved(&self.fabric, rec),
+            Err(e) => self.signal(dpl_fabric::CaptureEvent::Failed { error: e.clone() }),
+        }
+        match outcome {
             Ok(rec) if rec.kind == "video" || rec.kind == "image" => self.add_clip(&rec),
             Ok(rec) if rec.kind == "element" => {
                 let mogrt = src
@@ -1325,9 +1506,13 @@ impl Composer {
                 Ok(new_rel) => {
                     *self.render.lock().expect("render state") = RenderState::Idle;
                     self.renders = None;
+                    self.signal(dpl_fabric::CaptureEvent::InboxChanged);
                     format!("Filed into {show}/{ep} → {new_rel}")
                 }
-                Err(e) => format!("Keep failed: {e}"),
+                Err(e) => {
+                    self.signal(dpl_fabric::CaptureEvent::Failed { error: e.clone() });
+                    format!("Keep failed: {e}")
+                }
             };
     }
 
@@ -1348,6 +1533,7 @@ impl Composer {
 
     /// The Composer surface — what the WiredFRONT hub calls for its subroute.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        self.drain_signals();
         self.maybe_restore();
         self.ensure_project();
         self.tick_playback(ui.ctx());
@@ -3034,7 +3220,7 @@ fn lock(b: &Mutex<browse::Browser>) -> std::sync::MutexGuard<'_, browse::Browser
 /// (kind video, source "render") — so the Gallery, the Keep seam, and
 /// the agents all see it. Runs on the render thread; failures degrade
 /// the card, never the render.
-fn index_render(out: &Path) {
+fn index_render(out: &Path, fabric: Option<&dpl_fabric::Fabric>) {
     let root = dpl_engine_capture::content_root();
     let mut rec = dpl_index::record_for_capture(out, &root, "video", "render");
     let poster = out.with_file_name("render-poster.jpg");
@@ -3048,7 +3234,17 @@ fn index_render(out: &Path) {
         .filter(|d| *d > 0.0)
         .map(|d| d.round() as u32);
     if let Ok(ix) = dpl_index::Index::open_default() {
-        let _ = ix.upsert(&rec);
+        if ix.upsert(&rec).is_ok() {
+            if let Some(f) = fabric {
+                f.publish_capture(dpl_fabric::CaptureEvent::Saved {
+                    rel_path: rec.rel_path.clone(),
+                    kind: rec.kind.clone(),
+                    name: rec.name.clone(),
+                    location: rec.location.clone(),
+                    source: rec.source.clone(),
+                });
+            }
+        }
     }
 }
 
@@ -3086,6 +3282,7 @@ pub fn run_export(
     session_rel: Option<&str>,
     out_name: Option<&str>,
     opts: dpl_guide::ExportOpts,
+    fabric: Option<&dpl_fabric::Fabric>,
 ) -> Result<dpl_guide::Export, String> {
     let source = jailed(root, guide_rel)?;
     if !source.join("guide.json").is_file() {
@@ -3131,7 +3328,17 @@ pub fn run_export(
         ..Record::default()
     };
     if let Ok(ix) = dpl_index::Index::open_default() {
-        let _ = ix.upsert(&rec);
+        if ix.upsert(&rec).is_ok() {
+            if let Some(f) = fabric {
+                f.publish_capture(dpl_fabric::CaptureEvent::Saved {
+                    rel_path: rec.rel_path.clone(),
+                    kind: rec.kind.clone(),
+                    name: rec.name.clone(),
+                    location: rec.location.clone(),
+                    source: rec.source.clone(),
+                });
+            }
+        }
     }
     Ok(export)
 }
@@ -3795,6 +4002,7 @@ mod tests {
             None,
             None,
             dpl_guide::ExportOpts::default(),
+            None,
         )
         .unwrap_err();
         assert!(err.contains("guide.json"), "{err}");

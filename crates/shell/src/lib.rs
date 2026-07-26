@@ -51,6 +51,34 @@ impl Default for Zones {
     }
 }
 
+/// One capture signal as a feed line — plain words, layman-first.
+fn activity_capture_line(ev: &dpl_fabric::CaptureEvent) -> String {
+    use dpl_fabric::CaptureEvent as E;
+    match ev {
+        E::Started { mode, .. } => format!("{mode} started"),
+        E::Saved { kind, name, .. } => format!("saved {kind} · {name}"),
+        E::Failed { error } => format!("failed · {error}"),
+        E::InboxChanged => "inbox changed".into(),
+        E::PaletteVisibility { visible } => {
+            if *visible {
+                "palette shown".into()
+            } else {
+                "palette hidden".into()
+            }
+        }
+    }
+}
+
+/// One job transition as a feed line.
+fn activity_job_line(ev: &dpl_fabric::JobEvent) -> String {
+    use dpl_fabric::JobEvent as E;
+    match ev {
+        E::Queued { label, .. } => format!("job queued · {label}"),
+        E::Done { out, .. } => format!("job done · {out}"),
+        E::Failed { error, .. } => format!("job failed · {error}"),
+    }
+}
+
 pub struct Shell {
     hubs: Vec<Box<dyn Hub>>,
     route: Route,
@@ -66,6 +94,12 @@ pub struct Shell {
     /// Every fabric publish this session (nav + summon) — the footer/inspector
     /// proof counter.
     signal_count: u64,
+    /// THE ACTIVITY FEED (W8, signal-doctrine.md): capture + jobs ears
+    /// and a ring of the last N stamped lines — the operator SEES the
+    /// nervous system firing, and it doubles as the debug surface.
+    capture_rx: dpl_fabric::CaptureReceiver,
+    jobs_rx: dpl_fabric::JobReceiver,
+    activity: std::collections::VecDeque<String>,
     /// Full-bleed: all chrome hidden, content owns the viewport (old `\` /
     /// Maximize2 behavior). Esc or the floating exit chip leaves.
     full_bleed: bool,
@@ -91,6 +125,21 @@ impl Shell {
     /// registry degrades to a sentinel route the dispatcher renders as an
     /// honest "no hubs registered" — never a panic.
     pub fn new(hubs: Vec<Box<dyn Hub>>, fabric: Fabric) -> Self {
+        let capture_rx = fabric.subscribe_capture();
+        let jobs_rx = fabric.subscribe_jobs();
+        Self::with_ears(hubs, fabric, capture_rx, jobs_rx)
+    }
+
+    /// Construct with PRE-OPENED signal ears (W8): the app subscribes at
+    /// fabric birth — BEFORE the boot drills publish — so harness
+    /// mutations land in the activity feed exactly like real ones
+    /// (broadcast receivers only hear post-subscription traffic).
+    pub fn with_ears(
+        hubs: Vec<Box<dyn Hub>>,
+        fabric: Fabric,
+        capture_rx: dpl_fabric::CaptureReceiver,
+        jobs_rx: dpl_fabric::JobReceiver,
+    ) -> Self {
         let route = hubs
             .first()
             .map(|h| h.spec().default_route())
@@ -104,6 +153,9 @@ impl Shell {
             route,
             fabric,
             events,
+            capture_rx,
+            jobs_rx,
+            activity: std::collections::VecDeque::new(),
             backdrop: dpl_backdrop::Backdrop::default(),
             nav_count: 0,
             signal_count: 0,
@@ -259,6 +311,17 @@ impl Shell {
         }
         if let Some(route) = nav_request {
             self.navigate(route);
+        }
+        // THE ACTIVITY FEED drain (W8): capture + jobs signals become
+        // human lines in the ring (cap 256); the inspector renders the
+        // tail. Lossy is fine — this is a window, not a ledger.
+        while let Ok(st) = self.capture_rx.try_recv() {
+            self.signal_count += 1;
+            self.push_activity(st.ms, activity_capture_line(&st.ev));
+        }
+        while let Ok(st) = self.jobs_rx.try_recv() {
+            self.signal_count += 1;
+            self.push_activity(st.ms, activity_job_line(&st.ev));
         }
 
         // Esc leaves full-bleed (the old shell's escape hatch).
@@ -563,6 +626,17 @@ impl Shell {
         (resp.response.rect, clicked)
     }
 
+    /// Ring-push one activity line (cap 256 — the flight-recorder WINDOW;
+    /// the full truth lives in session logs and the seam stream).
+    fn push_activity(&mut self, ms: u64, line: String) {
+        let secs = ms / 1000;
+        self.activity
+            .push_back(format!("{:02}:{:02} {line}", secs / 60, secs % 60));
+        while self.activity.len() > 256 {
+            self.activity.pop_front();
+        }
+    }
+
     // ── PANEL: the inspector ────────────────────────────────────────────
     fn inspector(&self, ui: &mut egui::Ui, fl: &cl::Fluid) -> Rect {
         let (hub_label, sub_label, tone) = self.breadcrumb();
@@ -618,6 +692,24 @@ impl Shell {
                             );
                         });
                     });
+                    // THE ACTIVITY FEED (W8): the nervous system, live —
+                    // newest first, plain words, mm:ss since boot.
+                    if self.activity.is_empty() {
+                        ui.label(
+                            RichText::new("quiet — saves, imports, and jobs appear here live")
+                                .small()
+                                .color(cl::ink::SUBTLE),
+                        );
+                    } else {
+                        for line in self.activity.iter().rev().take(9) {
+                            ui.label(
+                                RichText::new(line.as_str())
+                                    .monospace()
+                                    .small()
+                                    .color(cl::ink::BASE),
+                            );
+                        }
+                    }
                 });
 
                 ui.add_space(cl::space::S3);
