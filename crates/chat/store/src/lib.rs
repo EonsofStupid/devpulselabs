@@ -378,13 +378,20 @@ impl JsonlHistorySource {
         let relative = path
             .strip_prefix(&self.jail.canonical_root)
             .map_err(|_| StoreError::EscapedRoot(path.to_path_buf()))?;
-        let mut normalized = relative
+        let normalized = relative
             .components()
             .map(|component| component.as_os_str().to_string_lossy())
             .collect::<Vec<_>>()
             .join("/");
+        // Windows paths are case-insensitive; lowercase only there. Shadow
+        // with a mutable local so the base binding stays immutable (no
+        // unused-mut on non-Windows, no #[allow] — ADR: the gate is -D warnings).
         #[cfg(windows)]
-        normalized.make_ascii_lowercase();
+        let normalized = {
+            let mut normalized = normalized;
+            normalized.make_ascii_lowercase();
+            normalized
+        };
         Ok(HistoryLocator(stable_hash(&[
             self.provider_id().0.as_bytes(),
             b"\0history\0",

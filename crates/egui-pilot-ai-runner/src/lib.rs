@@ -676,7 +676,17 @@ fn unique_id(prefix: &str) -> String {
 }
 
 fn validate_relative_root(path: &Path) -> Result<(), RunnerError> {
-    if path.is_absolute()
+    // A Windows drive prefix ("C:\") or UNC ("\\server\") is absolute on
+    // Windows but parses as a plain component on Unix — so `is_absolute()`
+    // and `Component::Prefix` miss it off-Windows. Reject it on EVERY
+    // platform: this is a cross-platform tool, and a root authored for one OS
+    // must not escape the jail when validated on another.
+    let text = path.to_string_lossy();
+    let bytes = text.as_bytes();
+    let windows_absolute = text.starts_with("\\\\")
+        || (bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':');
+    if windows_absolute
+        || path.is_absolute()
         || path.components().any(|component| {
             matches!(
                 component,
