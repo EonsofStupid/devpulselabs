@@ -133,6 +133,9 @@ pub struct WiredfrontHub {
     replay: Option<(SessionPlay, String)>,
     /// The R1a Composer surface — the WiredFRONT video editor.
     composer: dpl_composer::Composer,
+    /// A transient confirmation for the "Make slide" gesture (W11) — the last
+    /// slide minted from the shelf, shown beneath the library.
+    slide_note: Option<String>,
 }
 
 /// One parsed events.jsonl line — exactly what S1 recorded, no
@@ -676,7 +679,7 @@ impl WiredfrontHub {
         ui.add_space(cl::space::S2);
 
         let root = dpl_engine_capture::content_root();
-        let mut send: Option<dpl_index::Record> = None;
+        let mut action: Option<LibAction> = None;
         if view.rows.is_empty() {
             ui.label(
                 RichText::new(
@@ -698,8 +701,8 @@ impl WiredfrontHub {
                         .spacing([cl::space::S3, cl::space::S3])
                         .show(ui, |ui| {
                             for (n, r) in view.rows.iter().enumerate() {
-                                if let Some(rec) = library_card(ui, r, &root, card_w, thumb_h) {
-                                    send = Some(rec);
+                                if let Some(a) = library_card(ui, r, &root, card_w, thumb_h) {
+                                    action = Some(a);
                                 }
                                 if (n + 1) % cols == 0 {
                                     ui.end_row();
@@ -727,31 +730,58 @@ impl WiredfrontHub {
             self.library = Some(LibraryView::load());
             return;
         }
-        if let Some(rec) = send {
+        if let Some(note) = &self.slide_note {
+            ui.add_space(cl::space::S2);
+            ui.label(RichText::new(note).small().color(cl::Tone::Lime.color()));
+        }
+
+        match action {
             // The frictionless law: the double-click IS the import — the
             // editor takes it and the app goes there.
-            self.composer.add_from_library(&rec);
-            if let Some(fabric) = &self.fabric {
-                fabric.publish_shell(dpl_fabric::ShellEvent::NavigateRequest {
-                    route: Route {
-                        hub: HUB,
-                        sub: EDITOR,
-                    },
+            Some(LibAction::Send(rec)) => {
+                self.composer.add_from_library(&rec);
+                if let Some(fabric) = &self.fabric {
+                    fabric.publish_shell(dpl_fabric::ShellEvent::NavigateRequest {
+                        route: Route {
+                            hub: HUB,
+                            sub: EDITOR,
+                        },
+                    });
+                }
+            }
+            // W11: mint a standalone media slide from this artifact — it
+            // becomes available to any episode/stream (W10 associates it).
+            Some(LibAction::MakeSlide(rec)) => {
+                self.slide_note = Some(match self.composer.make_slide_from_library(&rec) {
+                    Ok(_) => format!(
+                        "Made a slide from “{}” — pick it when you build an episode.",
+                        rec.name
+                    ),
+                    Err(e) => format!("Couldn't make a slide: {e}"),
                 });
             }
+            None => {}
         }
     }
 }
 
-/// One shelf card: thumb (honest fallback) + name + facts. Returns the
-/// record when DOUBLE-CLICKED (the send-to-editor ask).
+/// What a shelf card asks for (W11): SEND feeds the timeline editor;
+/// MAKE-SLIDE mints a standalone media slide from the artifact.
+enum LibAction {
+    Send(dpl_index::Record),
+    MakeSlide(dpl_index::Record),
+}
+
+/// One shelf card: thumb (honest fallback) + name + facts + a "Make slide"
+/// chip. Returns a [`LibAction`]: SEND on double-click (to the editor),
+/// MAKE-SLIDE on the chip (a standalone media slide).
 fn library_card(
     ui: &mut egui::Ui,
     r: &dpl_index::Record,
     root: &std::path::Path,
     w: f32,
     thumb_h: f32,
-) -> Option<dpl_index::Record> {
+) -> Option<LibAction> {
     let mut send = None;
     ui.vertical(|ui| {
         ui.set_width(w);
@@ -799,7 +829,7 @@ fn library_card(
             ),
         );
         if resp.double_clicked() {
-            send = Some(r.clone());
+            send = Some(LibAction::Send(r.clone()));
         }
         ui.label(RichText::new(&r.name).strong().color(cl::ink::STRONG));
         let facts = match r.seconds {
@@ -807,6 +837,16 @@ fn library_card(
             _ => format!("{} · {}", r.kind, r.captured_at),
         };
         ui.label(RichText::new(facts).small().color(cl::ink::MUTED));
+        // W11: images and videos can become a slide right here (a still, a
+        // clip, or a session replay — replays are videos). Other kinds
+        // (audio, packs) aren't slide media, so no chip.
+        if matches!(r.kind.as_str(), "image" | "video") {
+            let b = ui.add(egui::Button::new(RichText::new("Make slide").small()));
+            let b = cl::tip(b, "Turn this into a slide for an episode or stream");
+            if b.clicked() {
+                send = Some(LibAction::MakeSlide(r.clone()));
+            }
+        }
     });
     send
 }
@@ -1026,6 +1066,28 @@ impl WiredfrontHub {
     /// add it to the timeline — the native-Lottie drill.
     pub fn import_lottie(&mut self, path: &std::path::Path) {
         self.composer.import_lottie(path);
+    }
+
+    /// The `--make-slide <asset-rel>` harness seam (W11): mint a media slide
+    /// from a content-relative artifact (image/video → one slide; `.pdf` →
+    /// page slides) through the shelf's exact "Make slide" path. Prints the
+    /// outcome for the headless drill.
+    pub fn make_slide(&mut self, rel: &str) {
+        match self.composer.make_slide_from_rel(rel) {
+            Ok(dirs) => {
+                let list = dirs
+                    .iter()
+                    .map(|d| d.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                self.slide_note = Some(format!("Made {} slide(s): {list}", dirs.len()));
+                println!("make-slide: {} slide(s) minted: {list}", dirs.len());
+            }
+            Err(e) => {
+                self.slide_note = Some(format!("Make slide failed: {e}"));
+                eprintln!("make-slide failed: {e}");
+            }
+        }
     }
 
     /// Open one session IN PLACE on the Gallery (doctrine §1.2) — the

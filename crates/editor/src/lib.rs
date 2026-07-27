@@ -434,7 +434,10 @@ impl Editor {
                 font,
                 size,
                 ink,
-            } = b;
+            } = b
+            else {
+                return None;
+            };
             (bid == id).then(|| TextFields {
                 text: text.clone(),
                 font: font.clone().unwrap_or_else(|| self.look.font.clone()),
@@ -451,7 +454,9 @@ impl Editor {
         let id = id.to_string();
         self.mutate(move |s| {
             for b in &mut s.blocks {
-                let dpl_doc::Block::Text { id: bid, font, .. } = b;
+                let dpl_doc::Block::Text { id: bid, font, .. } = b else {
+                    continue;
+                };
                 if *bid == id {
                     *font = None;
                 }
@@ -464,7 +469,9 @@ impl Editor {
         let id = id.to_string();
         self.mutate(move |s| {
             for b in &mut s.blocks {
-                let dpl_doc::Block::Text { id: bid, ink, .. } = b;
+                let dpl_doc::Block::Text { id: bid, ink, .. } = b else {
+                    continue;
+                };
                 if *bid == id {
                     *ink = None;
                 }
@@ -539,7 +546,9 @@ fn apply_look(s: &mut dpl_doc::Slide, p: &cl::LookPreset) {
         ambience: p.ambience.map(str::to_string),
     });
     for b in &mut s.blocks {
-        let dpl_doc::Block::Text { font, .. } = b;
+        let dpl_doc::Block::Text { font, .. } = b else {
+            continue;
+        };
         *font = Some(p.font.to_string());
     }
 }
@@ -559,7 +568,10 @@ fn set_text(
             font,
             size,
             ink,
-        } = b;
+        } = b
+        else {
+            continue;
+        };
         if bid == id {
             let before = (
                 text.clone(),
@@ -789,7 +801,10 @@ mod tests {
             size,
             ink,
             ..
-        } = &on_disk.blocks[0];
+        } = &on_disk.blocks[0]
+        else {
+            panic!("block 0 is text");
+        };
         assert_eq!(font.as_deref(), Some("orbitron"), "font ref swapped");
         // Nothing else moved.
         assert_eq!(text, "Hello");
@@ -819,7 +834,9 @@ mod tests {
         let p = cl::LOOK_PRESETS[0];
         ed.mutate(|s| apply_look(s, &p));
         let on_disk = dpl_doc::load(&dir).unwrap();
-        let dpl_doc::Block::Text { font, .. } = &on_disk.blocks[0];
+        let dpl_doc::Block::Text { font, .. } = &on_disk.blocks[0] else {
+            panic!("block 0 is text");
+        };
         assert_eq!(font.as_deref(), Some(p.font));
         if let Some(dpl_doc::Background::MoodBlend { moods, .. }) = &on_disk.background {
             assert_eq!(moods, &vec![p.moods.0.to_string(), p.moods.1.to_string()]);

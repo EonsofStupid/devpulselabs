@@ -3,11 +3,15 @@
 //! extraction in the prior app — it arrives pre-promoted).
 
 pub mod badge;
+pub mod bar;
+pub mod divider;
 pub mod eyebrow;
 pub mod media;
 pub mod stat;
 
 pub use badge::badge;
+pub use bar::bar;
+pub use divider::rule;
 pub use eyebrow::{eyebrow, tracked};
-pub use media::{ambient_backdrop, media_backdrop, Ambient, Media};
+pub use media::{ambient_backdrop, media_backdrop, media_block_backdrop, Ambient, Media};
 pub use stat::stat;

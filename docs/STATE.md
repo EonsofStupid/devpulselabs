@@ -2,6 +2,74 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-27 — CATALOG: A DIVERSE LIBRARY (branch
+`feat/catalog-diverse-library`, PR):** the slide catalog grew from 19 to **28**
+registered designs (20 templates + 8 infographics) — `docs/plans/
+catalog-diverse-library.md`. NEW blocks: `divider::rule`, `bar::bar` (both meet
+the ≥2-template promotion rule). NEW templates across all four classes:
+`quote`·`section_divider`·`agenda` (static), `compare_vs`·`feature_grid`
+(split), `timeline` (animation), `checklist` (interactive). NEW infographics:
+`gauge_dial`, `radial_progress` (vector-engine dials). All follow doctrine
+(presenter law = pure clock functions resting once; Fluid sizing; tone through
+the pool; tofu-safe glyphs). NEW gallery gate WITH TEETH:
+`registry::every_demo_renders_at_start_and_at_rest` paints all 28 demos
+headless at animation-start + rest without panicking (catches arc math / NaN /
+galley bugs construction never exercises). Gate: `cargo green ✔`. Live spot-
+check: the Library wall reports "28 templates registered"; `timeline` +
+`compare_vs` render clean. CLOSE-OUT (Windows): rebuild the exe + screenshot
+the wall at real sizes.
+
+
+**2026-07-27 — W11 MEDIA → SLIDE (branch `feat/w11-media-to-slide`, PR):**
+the gap "no template lets me add an image/pdf/video/session-replay and have
+it become a slide" is closed. `docs/plans/w11-media-to-slide.md`. THREE
+additive pieces: (1) `dpl_doc::Block::Media {id, as, src, fit, poster}` —
+refs-not-values, `src` content-jailed at validate, `SCHEMA_V 1→2` (a v2
+media slide fails LOUD on a v1 build); (2) the `media_frame` template (one
+`registry::demos` line) rendering media FULL-BLEED via the reused
+`media_backdrop` painter + the `document.rs` media pre-pass (backdrop under
+text, reveal-honoring); (3) the shelf "Make slide" chip +
+`Composer::make_slide_from_library` / `make_slides_from_pdf` /
+`make_slide_from_rel`. PDF EXPLODES to per-page image slides via `pdftoppm`
+(subprocess, ADR-009 — `import::rasterize_pdf`, quiet-spawn); a REPLAY is a
+video artifact → video media slide on the session light `.mp4` (no special
+case). W11 mints the slide; **W10a associates it** (upstream/downstream
+split). `dpl_video::locate_asset` now probes `content/` (bridges the
+content-relative artifact path space). Harness seam `--make-slide <rel>`.
+PROVEN on the real exe (headless, scratch `--content-root`): image →
+`inbox/poster/slide.json` (v2 media), a 2-page PDF → `inbox/report-{1,2}/`
+page slides with pages imported. Gate: fmt + clippy clean (no `#[allow]`),
+`cargo check --workspace` clean; doc/slides/composer/editor/video tests
+green; the `#[ignore]` pdftoppm drill passes. Ported from the
+`devpulse_labs` divergent snapshot onto live main (W10a/estate/coach
+preserved — no file clobber; four diverged files hand-merged). KNOWN
+follow-ups: `fit:"contain"` letterbox (data carried, renders cover today);
+the shelf→W10a association hop. CLOSE-OUT (Windows checkout): rebuild
+`target\release\devpulselabs.exe` + mtime, screenshot the "Make slide" chip
+on a real indexed card at real sizes.
+**2026-07-27 — CHAT IMAGINE DRAFTS LANDED (ADR-011 pending ratification).**
+In-chat image generation: the composer's ▧ Image/video button opens the
+Create-with-AI panel (image live, video truthfully staged); prompt = the
+composer draft; one bounded worker POSTs the compiled-in xAI Imagine
+endpoint (`grok-imagine-image-quality`, `b64_json`); results land in the
+Ring-0 draft cache (`.userdata/cache/imagine/`) with preview + Save to
+library (`import_generated` → `content/inbox`, source `generated`) or
+Ignore; 30-day flush behind an Approval consent ("yes / never ask again /
+not today", `imagine-policy.json`). New crate `dpl-chat-imagine` (the ONE
+outbound HTTPS client, `ureq`); key = `XAI_API_KEY` read at call time,
+never stored/logged — feature inert without it, and the fixture gate
+refuses spend in authored mode. Grounding: Grok Build has NO generation
+surface; Imagine is API-key-only → narrow exception drafted as
+`docs/design/adr-011-imagine-generation.md` (operator tick pending; first
+live generation = ratification-in-practice). Proofs: `chat-imagine-panel`
+EguiPilot + `proof-chat-imagine-panel.png`; 7+17+41 crate tests; all six
+prior chat scenarios green. Program map
+`docs/plans/chat-creation-and-workflows-vision.md` (route-aware chat
+actions + WiredFRONT Workflows are the next tiers). Plan
+`docs/plans/chat-imagine-drafts.md` §8. **Next: operator provisions
+XAI_API_KEY + first live generation; then video slice or storyboarding
+workflow.**
+
 **2026-07-27 — CHATGPT/CODEX ACTIVATION QUALIFIED.** Codex post-login
 verification moved off the UI thread behind a `CodexStatusProbe` seam with a
 visible `Verifying` state; activation evidence now mirrors Grok (attempt

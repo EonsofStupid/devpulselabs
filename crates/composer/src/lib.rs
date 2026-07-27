@@ -1517,6 +1517,122 @@ impl Composer {
         self.add_clip(rec);
     }
 
+    /// Turn a library artifact into a standalone MEDIA SLIDE (W11) — the
+    /// SIBLING of `add_from_library` (that feeds the timeline; this makes a
+    /// slide). Mints an `inbox/<name>/` folder holding a `slide.json` whose
+    /// media block refs the artifact IN PLACE (the asset already lives in
+    /// content — never a copy). A session replay is just a video artifact, so
+    /// it rides this same path. Returns the new slide dir and signals the
+    /// inbox changed so pickers refresh.
+    pub fn make_slide_from_library(&self, rec: &Record) -> Result<PathBuf, String> {
+        let dir = Self::mint_media_slide(rec)?;
+        self.signal(dpl_fabric::CaptureEvent::InboxChanged);
+        Ok(dir)
+    }
+
+    /// The pure mint (no signal) — the harness seam and tests call this.
+    /// Validates the document BEFORE it touches disk (invalid → Err, nothing
+    /// written), then crash-safe writes `slide.json`.
+    pub fn mint_media_slide(rec: &Record) -> Result<PathBuf, String> {
+        let slide = Self::media_slide_for(rec);
+        if let Some(i) = dpl_doc::validate(&slide).first() {
+            return Err(format!("media slide invalid at {}: {}", i.path, i.message));
+        }
+        let dir = Self::fresh_slide_dir(&rec.name);
+        dpl_doc::save(&dir, &slide).map_err(|e| format!("save slide: {e}"))?;
+        Ok(dir)
+    }
+
+    /// The media-slide document for an artifact record: `template:"media"`,
+    /// bare background, one full-bleed media block refing `rec.rel_path`. A
+    /// video carries its poster for the degradation ladder.
+    fn media_slide_for(rec: &Record) -> dpl_doc::Slide {
+        let show = if rec.kind == "video" {
+            "video"
+        } else {
+            "image"
+        };
+        dpl_doc::Slide {
+            v: dpl_doc::SCHEMA_V,
+            template: "media".into(),
+            background: Some(dpl_doc::Background::None),
+            blocks: vec![dpl_doc::Block::Media {
+                id: "media".into(),
+                show: show.into(),
+                src: rec.rel_path.clone(),
+                fit: Some("cover".into()),
+                poster: rec.poster_rel_path.clone(),
+            }],
+            enter: None,
+            reveals: Vec::new(),
+        }
+    }
+
+    /// The next free `inbox/<name>/` slide folder — the artifact's name
+    /// kebab'd (fallback "media-slide"), no-clobber with a `-N` suffix.
+    fn fresh_slide_dir(name_hint: &str) -> PathBuf {
+        let inbox = Self::content_root().join("inbox");
+        let base = crate::import::sanitize_name(name_hint).unwrap_or_else(|| "media-slide".into());
+        let first = inbox.join(&base);
+        if !first.exists() {
+            return first;
+        }
+        (2..)
+            .map(|n| inbox.join(format!("{base}-{n}")))
+            .find(|p| !p.exists())
+            .unwrap()
+    }
+
+    /// Explode a PDF into per-page media slides (W11 "explode + reuse"): each
+    /// page rasterizes to a PNG via a SUBPROCESS (ADR-009 — never a crate PDF
+    /// parser), imports as an ordinary image artifact, and mints its own
+    /// media slide. One tap → a deck-ready run of page slides, in order.
+    pub fn make_slides_from_pdf(&self, pdf: &Path) -> Result<Vec<PathBuf>, String> {
+        let stem =
+            crate::import::sanitize_name(pdf.file_stem().and_then(|s| s.to_str()).unwrap_or("pdf"))
+                .unwrap_or_else(|| "pdf".into());
+        // Rasterize into a hidden staging dir; import copies each page into
+        // the inbox proper, so the stage is disposable.
+        let stage = Self::content_root()
+            .join("inbox")
+            .join(format!(".pdf-stage-{stem}"));
+        let pages = crate::import::rasterize_pdf(pdf, &stage, &stem)?;
+        let mut dirs = Vec::with_capacity(pages.len());
+        for page in &pages {
+            let rec = crate::import::import_file(page).map_err(|e| format!("import page: {e}"))?;
+            dirs.push(Self::mint_media_slide(&rec)?);
+        }
+        let _ = std::fs::remove_dir_all(&stage);
+        self.signal(dpl_fabric::CaptureEvent::InboxChanged);
+        Ok(dirs)
+    }
+
+    /// ONE entry for the harness `--make-slide <rel>` seam and any caller
+    /// holding just a content-relative path: a `.pdf` explodes to page
+    /// slides; an image/video mints a single media slide; anything else is an
+    /// honest error. Returns every slide dir minted (page order for a PDF).
+    pub fn make_slide_from_rel(&self, rel: &str) -> Result<Vec<PathBuf>, String> {
+        let path = Path::new(rel);
+        if rel.to_ascii_lowercase().ends_with(".pdf") {
+            return self.make_slides_from_pdf(&Self::resolve(rel));
+        }
+        let kind = crate::import::media_kind(path)
+            .filter(|k| *k == "image" || *k == "video")
+            .ok_or_else(|| format!("not an image, video, or pdf: {rel}"))?;
+        let name = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("media")
+            .to_string();
+        let rec = Record {
+            rel_path: rel.to_string(),
+            kind: kind.to_string(),
+            name,
+            ..Record::default()
+        };
+        Ok(vec![self.make_slide_from_library(&rec)?])
+    }
+
     /// Wire the signal fabric (called by the hub's own wire_fabric —
     /// ONE fabric end to end). Also opens this editor's capture ears.
     pub fn wire_fabric(&mut self, fabric: &dpl_fabric::Fabric) {
@@ -4251,6 +4367,54 @@ mod tests {
         std::fs::write(dir.join("pack").join("spark.mogrt"), b"x").unwrap();
         assert_eq!(count_files(&dir), 1, "the registry is not an element");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// W11: the media-slide mapping — a video record becomes a `video` media
+    /// block carrying its poster; an image record an `image` block. Both are
+    /// valid `template:"media"` documents. Pure (no disk): mint/PDF that write
+    /// the content root are proven by the harness seam, not a unit test.
+    #[test]
+    fn media_slide_for_maps_records_to_valid_media_slides() {
+        let mut vid = video_rec("Screen Clip", "inbox/clip.mp4", Some(4));
+        vid.poster_rel_path = Some("inbox/clip-poster.jpg".into());
+        let s = Composer::media_slide_for(&vid);
+        assert_eq!(s.template, "media");
+        assert_eq!(s.background, Some(dpl_doc::Background::None));
+        assert!(
+            dpl_doc::validate(&s).is_empty(),
+            "video media slide is valid"
+        );
+        let dpl_doc::Block::Media {
+            show, src, poster, ..
+        } = &s.blocks[0]
+        else {
+            panic!("a media block");
+        };
+        assert_eq!(show, "video");
+        assert_eq!(src, "inbox/clip.mp4");
+        assert_eq!(poster.as_deref(), Some("inbox/clip-poster.jpg"));
+
+        let img = Record {
+            rel_path: "inbox/pix.png".into(),
+            kind: "image".into(),
+            name: "Pix".into(),
+            ..Record::default()
+        };
+        let s2 = Composer::media_slide_for(&img);
+        let dpl_doc::Block::Media { show, .. } = &s2.blocks[0] else {
+            panic!("a media block");
+        };
+        assert_eq!(show, "image");
+        assert!(
+            dpl_doc::validate(&s2).is_empty(),
+            "image media slide is valid"
+        );
+        let replay = video_rec("Session replay", "inbox/sess/light.mp4", Some(8));
+        assert_eq!(
+            Composer::media_slide_for(&replay).template,
+            "media",
+            "replay rides the video path"
+        );
     }
 
     #[test]

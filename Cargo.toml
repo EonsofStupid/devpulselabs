@@ -13,6 +13,7 @@ members = [
     "crates/chat/browser-auth",
     "crates/chat/context",
     "crates/chat/extensions",
+    "crates/chat/imagine",
     "crates/chat/interactions",
     "crates/chat/profiles",
     "crates/chat/renderers",
@@ -90,6 +91,10 @@ egui_kittest = { version = "0.35", default-features = false }
 # The document layer (dpl-doc): slide.json is serde data, end to end.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# ADR-011: the ONE outbound HTTPS client, used only by dpl-chat-imagine's
+# bounded worker against the compiled-in xAI Imagine endpoint.
+ureq = "2"
+data-encoding = "2"
 # The per-project estate: Fjall = embedded LSM KV (persistence), Moka =
 # concurrent in-process cache (the hot-read layer). Pure Rust, no server.
 fjall = "2"
@@ -141,6 +146,7 @@ dpl-chat-accounts = { path = "crates/chat/accounts" }
 dpl-chat-browser-auth = { path = "crates/chat/browser-auth" }
 dpl-chat-context = { path = "crates/chat/context" }
 dpl-chat-extensions = { path = "crates/chat/extensions" }
+dpl-chat-imagine = { path = "crates/chat/imagine" }
 dpl-chat-interactions = { path = "crates/chat/interactions" }
 dpl-chat-profiles = { path = "crates/chat/profiles" }
 dpl-chat-renderers = { path = "crates/chat/renderers" }

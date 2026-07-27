@@ -1,4 +1,4 @@
-[package]
+﻿[package]
 name = "devpulselabs"
 version.workspace = true
 edition.workspace = true
@@ -13,7 +13,7 @@ eguipilotai-devtools = [
 ]
 
 [dependencies]
-# Structured logging Ã¢â‚¬â€ RUST_LOG drives verbosity (tracing is the modern std).
+# Structured logging ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â RUST_LOG drives verbosity (tracing is the modern std).
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 egui.workspace = true
@@ -47,6 +47,7 @@ dpl-chat-codex.workspace = true
 dpl-chat-claude.workspace = true
 dpl-chat-gemini.workspace = true
 dpl-chat-grok.workspace = true
+dpl-chat-imagine.workspace = true
 dpl-tools-deps.workspace = true
 dpl-hub-home.workspace = true
 dpl-hub-shows.workspace = true
