@@ -502,6 +502,16 @@ impl App {
                 present_hub.presenter_drill(n);
             }
         }
+        // Ring-0 estate (Fjall+Moka): durable shell route + WiredFRONT
+        // lastComp for the agent seam. Open failure never kills the app.
+        let estate: Option<std::sync::Arc<dpl_estate::Estate>> =
+            match dpl_estate::Estate::open(&dpl_engine_capture::userdata_root().join("estate")) {
+                Ok(e) => Some(std::sync::Arc::new(e)),
+                Err(e) => {
+                    tracing::warn!(%e, "estate open failed — durable seam state disabled");
+                    None
+                }
+            };
         // The harness path into the SESSIONS player (S2).
         let mut wiredfront = dpl_hub_wiredfront::WiredfrontHub::default();
         // WIRE THE FABRIC BEFORE THE DRILLS (W8 fix): harness mutations
@@ -510,6 +520,9 @@ impl App {
         // emitting nothing.
         workbench.wire_fabric(&fabric);
         wiredfront.wire_fabric(&fabric);
+        if let Some(est) = &estate {
+            wiredfront.wire_estate(std::sync::Arc::clone(est));
+        }
         if let Some(rel) = &open_session {
             wiredfront.open_session(rel);
         }
@@ -606,17 +619,8 @@ impl App {
                 (spec.label.to_owned(), spec.default_route())
             })
             .collect();
-        // The AGENT SEAM (R1v): the same registered specs become the HTTP
-        // route registry — the seam can never name a surface the app lacks.
-        if let Some(port) = seam_port {
-            let registry = dpl_seam::Registry::new(hubs.iter().map(|h| h.spec()).collect());
-            dpl_seam::spawn(
-                fabric.clone(),
-                registry,
-                dpl_engine_capture::content_root(),
-                port,
-            );
-        }
+        // Registry for estate hydrate + the agent seam (same specs the shell has).
+        let seam_registry = dpl_seam::Registry::new(hubs.iter().map(|h| h.spec()).collect());
 
         let mut viziwiz = dpl_viziwiz::Viziwiz::new(&fabric);
         if viziwiz_open {
@@ -655,11 +659,29 @@ impl App {
                 };
                 shell.navigate(route);
             }
-            // Default boot: wiredFRONT, the prep house (rail boots folded).
-            None => shell.navigate(Route {
-                hub: dpl_hub_wiredfront::HUB,
-                sub: dpl_hub_wiredfront::VIZIWIZ,
-            }),
+            // Estate restore when present + registry-valid; else the prep house.
+            None => {
+                if let Some(route) = dpl_seam::hydrated_route(estate.as_deref(), &seam_registry) {
+                    shell.navigate(route);
+                } else {
+                    shell.navigate(Route {
+                        hub: dpl_hub_wiredfront::HUB,
+                        sub: dpl_hub_wiredfront::VIZIWIZ,
+                    });
+                }
+            }
+        }
+        // Spawn the seam AFTER the boot navigate so we can seed last_route
+        // (broadcast subscribers miss events published before they subscribe).
+        if let Some(port) = seam_port {
+            dpl_seam::spawn(
+                fabric.clone(),
+                seam_registry,
+                dpl_engine_capture::content_root(),
+                estate.clone(),
+                Some(shell.route()),
+                port,
+            );
         }
         // `--open-rail <hub>` — the accordion pinned open (L1a proofs).
         // The CLI string is leaked once, like the boot route's.

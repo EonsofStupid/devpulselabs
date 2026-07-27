@@ -951,6 +951,11 @@ impl WiredfrontHub {
         self.fabric = Some(fabric.clone());
     }
 
+    /// Share the Ring-0 estate into the editor (last-comp dual-write).
+    pub fn wire_estate(&mut self, estate: std::sync::Arc<dpl_estate::Estate>) {
+        self.composer.wire_estate(estate);
+    }
+
     /// Publish a capture signal when wired (drills without a fabric
     /// stay silent, never panic). Free-standing over the FIELD so a
     /// mutably-borrowed view elsewhere on self never conflicts.
