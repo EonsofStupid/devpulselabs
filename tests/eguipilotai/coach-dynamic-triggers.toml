@@ -1,0 +1,129 @@
+id = "coach-dynamic-triggers"
+fixture = "library"
+record = true
+
+# C1.5a: a touchpoint can be set before its target exists, and it can wait on
+# something the application does rather than on a press.
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/shell.rail/workbench"
+
+# The rail's sub items only render while their house is open, so this target
+# does not exist yet. The touchpoint arms instead of refusing.
+[[steps]]
+kind = "coach"
+
+[steps.coach]
+type = "mount"
+
+[steps.coach.touchpoint]
+coach_id = "coach-sub-appears"
+visual = "spotlight"
+on = "node-appeared"
+message = "Pick Episodes to leave the Library"
+once = false
+
+[steps.coach.touchpoint.target]
+id = "root/shell.rail.sub/workbench/episodes"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "coach"
+coach_id = "coach-sub-appears"
+state = "armed"
+
+# A second touchpoint waits on a fact the app publishes on its own fabric.
+# Its own target is on screen, so it spotlights the rail while it waits.
+[[steps]]
+kind = "coach"
+
+[steps.coach]
+type = "mount"
+
+[steps.coach.touchpoint]
+coach_id = "coach-episodes-route"
+visual = "spotlight"
+message = "Waiting for the Episodes route"
+once = true
+
+[steps.coach.touchpoint.target]
+id = "root/shell.rail/workbench"
+
+[steps.coach.touchpoint.on.fabric-event]
+signal = "shell.route/workbench/episodes"
+
+# Open the house: the sub items render for the first time.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/shell.rail/workbench"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "coach"
+coach_id = "coach-sub-appears"
+state = "mounted"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "coach"
+coach_id = "coach-sub-appears"
+state = "triggered"
+
+# The Library slide art carries its own ambient motion, so a capture taken
+# the instant the rail opens catches it mid-animation and is not reproducible.
+[[steps]]
+kind = "wait"
+milliseconds = 2500
+
+[[steps]]
+kind = "capture"
+name = "coach-armed-sub-episodes"
+
+# Navigating publishes the route signal, which fires the waiting touchpoint.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/shell.rail.sub/workbench/episodes"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "coach"
+coach_id = "coach-episodes-route"
+state = "triggered"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "coach"
+coach_id = "coach-episodes-route"
+state = "unmounted"
+
+[[steps]]
+kind = "coach"
+
+[steps.coach]
+type = "unmount-all"

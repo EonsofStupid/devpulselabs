@@ -409,6 +409,47 @@ struct Boot {
     seam_port: Option<u16>,
 }
 
+/// The app's coachable signal catalog: the only fabric facts an agent may ask
+/// a touchpoint to wait for. Adding a domain here is a deliberate act, and it
+/// is the only direction signals travel — the toolkit cannot read the fabric.
+#[cfg(feature = "eguipilotai-devtools")]
+struct CoachSignals {
+    shell: dpl_fabric::ShellReceiver,
+    build: dpl_fabric::BuildReceiver,
+}
+
+#[cfg(feature = "eguipilotai-devtools")]
+impl CoachSignals {
+    fn subscribe(fabric: &Fabric) -> Self {
+        Self {
+            shell: fabric.subscribe_shell(),
+            build: fabric.subscribe_build(),
+        }
+    }
+
+    /// Lagged is fine, as everywhere else on this fabric: a coach signal is a
+    /// signal, and the next one arrives on the next frame.
+    fn drain(&mut self) -> Vec<egui_pilot_ai::protocol::SignalId> {
+        use egui_pilot_ai::protocol::SignalId;
+        let mut signals = Vec::new();
+        while let Ok(event) = self.shell.try_recv() {
+            if let dpl_fabric::ShellEvent::RouteChanged { route } = event {
+                signals.push(SignalId::new(format!(
+                    "shell.route/{}/{}",
+                    route.hub.0, route.sub.0
+                )));
+            }
+        }
+        while let Ok(stamped) = self.build.try_recv() {
+            signals.push(SignalId::new(match stamped.ev {
+                dpl_fabric::BuildEvent::SlidePlaced { .. } => "build.slide-placed",
+                dpl_fabric::BuildEvent::EpisodeChanged { .. } => "build.episode-changed",
+            }));
+        }
+        signals
+    }
+}
+
 struct App {
     shell: Shell,
     /// The one fabric — kept for the first-frame waker install (the
@@ -445,6 +486,8 @@ struct App {
             >,
         >,
     >,
+    #[cfg(feature = "eguipilotai-devtools")]
+    coach_signals: Option<CoachSignals>,
 }
 
 impl App {
@@ -750,6 +793,8 @@ impl App {
             drill_started: None,
             #[cfg(feature = "eguipilotai-devtools")]
             pilot_runtime: None,
+            #[cfg(feature = "eguipilotai-devtools")]
+            coach_signals: None,
         }
     }
 
@@ -802,7 +847,31 @@ impl App {
         self.chat
             .attach_pilot_runtime(std::sync::Arc::clone(&runtime));
         self.pilot_runtime = Some(runtime);
+        self.coach_signals = Some(CoachSignals::subscribe(&self.fabric));
         tracing::info!("EguiPilotAI private devtools runtime attached");
+    }
+
+    /// Forward this frame's app signals to the coach so a touchpoint can wait
+    /// on "the build finished" or "they landed on Workbench".
+    ///
+    /// One way, and the app decides what is publishable: the toolkit never
+    /// subscribes to the fabric, so an agent can only wait for what is listed
+    /// in `CoachSignals`.
+    #[cfg(feature = "eguipilotai-devtools")]
+    fn publish_coach_signals(&mut self) {
+        let (Some(signals), Some(runtime)) = (&mut self.coach_signals, &self.pilot_runtime) else {
+            return;
+        };
+        let drained = signals.drain();
+        if drained.is_empty() {
+            return;
+        }
+        let runtime = runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        for signal in drained {
+            runtime.pilot().note_coach_signal(signal);
+        }
     }
 
     /// A coached control wears the ColdLight paint vocabulary: a crisp cyan
@@ -1264,6 +1333,9 @@ impl eframe::App for App {
         }
 
         self.screenshot_harness(&ctx);
+
+        #[cfg(feature = "eguipilotai-devtools")]
+        self.publish_coach_signals();
 
         #[cfg(feature = "eguipilotai-devtools")]
         if let Some(runtime) = &self.pilot_runtime {

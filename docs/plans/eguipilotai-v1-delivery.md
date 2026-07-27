@@ -395,9 +395,13 @@ landed, and what it means for the rest of Slice 8:
   loop is owned by the runner/CLI (`eguipilotai coach <profile> <node-id>`),
   which holds a live session; Test Lab remains a passive viewer. A Test Lab
   coach tab is deliberately *not* faked ahead of this slice's live session.
-- Capabilities added: `coach.touchpoint` (supported), plus
-  `coach.visual.extended`, `coach.stream-triggers`, and
+- Capabilities added: `coach.touchpoint` and `coach.trigger.dynamic`
+  (supported), plus `coach.visual.extended`, `coach.semantic-ticker`, and
   `coach.desktop-overlay` (unsupported, each pointing at its future slice).
+- **C1.5a** then shipped the rest of the trigger vocabulary — hover, node
+  appearance, value change, and app-published fabric signals — plus
+  `CoachEvent::Armed` for a touchpoint set before its target exists. Agents
+  still poll snapshots; the live semantic stream is C1.5b and is deferred.
 
 ## Slice 9 — CI, performance, security, and publication
 

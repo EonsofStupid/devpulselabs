@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 2, minor: 3 };
+pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 2, minor: 4 };
 pub const DEFAULT_AGENT_NODES: usize = 200;
 pub const DEFAULT_AGENT_BYTES: usize = 12 * 1024;
 pub const MAX_AGENT_NODES: usize = 1_000;
@@ -50,6 +50,7 @@ string_id!(AttachmentId);
 string_id!(CapabilityId);
 string_id!(EventId);
 string_id!(CoachId);
+string_id!(SignalId);
 
 impl EventId {
     pub fn from_sequence(sequence: u64) -> Self {
@@ -860,24 +861,39 @@ pub enum CoachStyle {
     None,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// Every trigger is an **edge**, never a level: a touchpoint fires on the
+/// transition, so a `once: false` touchpoint over a hovered node does not
+/// re-fire every frame the pointer sits there.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum TriggerKind {
-    /// A pointer press inside the target rect. The only C1 trigger.
+    /// A pointer press inside the target rect.
     #[default]
     Press,
+    /// The pointer entered the target rect.
     Hover,
+    /// The target resolved after not being on screen. The only trigger that
+    /// may be mounted against a target that does not exist yet.
     NodeAppeared,
+    /// The target's reported value differs from the one it had at mount.
     ValueChanged,
+    /// The application published this signal on its own fabric. The app
+    /// chooses what to publish; the toolkit never reads fabric itself.
+    FabricEvent { signal: SignalId },
 }
 
-/// Who activated the touchpoint: the human being coached, or the agent
-/// demonstrating. Coach mode and demo mode are one system, split here.
+/// Who activated the touchpoint: the human being coached, the agent
+/// demonstrating, or neither. Coach mode and demo mode are one system,
+/// split here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum CoachActor {
     Operator,
     Agent,
+    /// The application state moved with no input to explain it — an appeared
+    /// node, a published signal. Calling that an operator press would be a
+    /// lie the agent would then reason from.
+    App,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -930,6 +946,12 @@ pub enum CoachCommand {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum CoachEvent {
+    /// Accepted, but its target is not on screen yet. Only an edge trigger
+    /// that can wait (`NodeAppeared`) mounts this way; `Mounted` follows if
+    /// the target resolves.
+    Armed {
+        coach_id: CoachId,
+    },
     Mounted {
         coach_id: CoachId,
         rect: Rect,
@@ -954,7 +976,8 @@ pub enum CoachEvent {
 impl CoachEvent {
     pub fn coach_id(&self) -> &CoachId {
         match self {
-            Self::Mounted { coach_id, .. }
+            Self::Armed { coach_id }
+            | Self::Mounted { coach_id, .. }
             | Self::Triggered { coach_id, .. }
             | Self::Unmounted { coach_id, .. }
             | Self::Refused { coach_id, .. } => coach_id,
@@ -963,6 +986,7 @@ impl CoachEvent {
 
     pub fn state(&self) -> CoachExpectationState {
         match self {
+            Self::Armed { .. } => CoachExpectationState::Armed,
             Self::Mounted { .. } => CoachExpectationState::Mounted,
             Self::Triggered { .. } => CoachExpectationState::Triggered,
             Self::Unmounted { .. } => CoachExpectationState::Unmounted,
@@ -979,6 +1003,7 @@ impl CoachEvent {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum CoachExpectationState {
+    Armed,
     Mounted,
     Triggered,
     Unmounted,
@@ -1195,7 +1220,8 @@ pub mod capability {
     pub const RUNNER_RETRIES: &str = "runner.retries";
     pub const COACH_TOUCHPOINT: &str = "coach.touchpoint";
     pub const COACH_VISUAL_EXTENDED: &str = "coach.visual.extended";
-    pub const COACH_STREAM_TRIGGERS: &str = "coach.stream-triggers";
+    pub const COACH_TRIGGER_DYNAMIC: &str = "coach.trigger.dynamic";
+    pub const COACH_SEMANTIC_TICKER: &str = "coach.semantic-ticker";
     pub const COACH_DESKTOP_OVERLAY: &str = "coach.desktop-overlay";
     pub const CODEGEN_RECORDER: &str = "codegen.recorder";
     pub const TRACE_REPLAY: &str = "trace.replay";
@@ -1420,10 +1446,15 @@ pub fn capability_catalog() -> Vec<CapabilityDescriptor> {
             "outline, arrow, dim-around, and invisible touchpoint visuals are not painted yet",
             "coach-c1",
         ),
+        supported(
+            id::COACH_TRIGGER_DYNAMIC,
+            "hover, node-appeared, value-changed, and app-published fabric signals fire touchpoints from in-app state",
+            "runtime::an_armed_touchpoint_mounts_when_its_target_appears",
+        ),
         unsupported(
-            id::COACH_STREAM_TRIGGERS,
-            "hover, node-appeared, and value-changed triggers need the live semantic delta stream",
-            "coach-c1.5",
+            id::COACH_SEMANTIC_TICKER,
+            "agents still poll snapshots; the semantic revision ticker is not published yet",
+            "coach-c1.5b",
         ),
         unsupported(
             id::COACH_DESKTOP_OVERLAY,
@@ -1491,7 +1522,7 @@ pub fn required_capabilities(flow: &Flow) -> Vec<CapabilityId> {
                         push(&mut required, id::COACH_VISUAL_EXTENDED);
                     }
                     if touchpoint.on != TriggerKind::Press {
-                        push(&mut required, id::COACH_STREAM_TRIGGERS);
+                        push(&mut required, id::COACH_TRIGGER_DYNAMIC);
                     }
                 }
                 id::COACH_TOUCHPOINT
@@ -2041,7 +2072,7 @@ mod tests {
     }
 
     #[test]
-    fn unshipped_visuals_and_triggers_are_rejected_before_a_run_starts() {
+    fn unshipped_visuals_are_rejected_before_a_run_starts() {
         let outline = coach_flow(mount("coach-2", CoachStyle::Outline, TriggerKind::Press));
         let refusals: Vec<_> = unsupported_capabilities(&outline)
             .into_iter()
@@ -2051,20 +2082,32 @@ mod tests {
             refusals,
             vec![CapabilityId::new(capability::COACH_VISUAL_EXTENDED)]
         );
+    }
 
-        let appeared = coach_flow(mount(
-            "coach-3",
-            CoachStyle::Spotlight,
+    #[test]
+    fn every_dynamic_trigger_declares_the_one_shipped_trigger_capability() {
+        for trigger in [
+            TriggerKind::Hover,
             TriggerKind::NodeAppeared,
-        ));
-        let refusals: Vec<_> = unsupported_capabilities(&appeared)
-            .into_iter()
-            .map(|entry| entry.id)
-            .collect();
-        assert_eq!(
-            refusals,
-            vec![CapabilityId::new(capability::COACH_STREAM_TRIGGERS)]
-        );
+            TriggerKind::ValueChanged,
+            TriggerKind::FabricEvent {
+                signal: SignalId::new("build.slide-placed"),
+            },
+        ] {
+            let flow = coach_flow(mount("coach-3", CoachStyle::Spotlight, trigger.clone()));
+            assert_eq!(
+                required_capabilities(&flow),
+                vec![
+                    CapabilityId::new(capability::COACH_TRIGGER_DYNAMIC),
+                    CapabilityId::new(capability::COACH_TOUCHPOINT),
+                ],
+                "{trigger:?}"
+            );
+            assert!(
+                unsupported_capabilities(&flow).is_empty(),
+                "{trigger:?} must not refuse"
+            );
+        }
     }
 
     #[test]
@@ -2137,6 +2180,38 @@ mod tests {
             serde_json::from_str::<RuntimeEvent>(&encoded).expect("decode coach event"),
             event
         );
+    }
+
+    #[test]
+    fn a_fabric_trigger_carries_its_signal_and_keeps_unit_triggers_as_plain_strings() {
+        let fabric = TriggerKind::FabricEvent {
+            signal: SignalId::new("build.slide-placed"),
+        };
+        let encoded = serde_json::to_string(&fabric).expect("encode fabric trigger");
+        assert_eq!(
+            encoded,
+            r#"{"fabric-event":{"signal":"build.slide-placed"}}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<TriggerKind>(&encoded).expect("decode fabric trigger"),
+            fabric
+        );
+        // Scenario TOML already writes `on = "press"`; adding a data-carrying
+        // variant must not turn the unit triggers into maps.
+        assert_eq!(
+            serde_json::to_string(&TriggerKind::NodeAppeared).expect("encode unit trigger"),
+            r#""node-appeared""#
+        );
+    }
+
+    #[test]
+    fn arming_is_a_distinct_non_terminal_state_from_being_mounted() {
+        let armed = CoachEvent::Armed {
+            coach_id: CoachId::new("coach-6"),
+        };
+        assert!(!armed.is_terminal());
+        assert_eq!(armed.state(), CoachExpectationState::Armed);
+        assert_ne!(armed.state(), CoachExpectationState::Mounted);
     }
 
     #[test]
