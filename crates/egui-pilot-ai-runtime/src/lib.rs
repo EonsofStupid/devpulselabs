@@ -122,6 +122,7 @@ struct Stability {
 /// a press that already happened while an earlier step was running.
 #[derive(Default, Clone, Copy)]
 struct CoachSeen {
+    armed: bool,
     mounted: bool,
     triggered: bool,
     unmounted: bool,
@@ -131,6 +132,7 @@ struct CoachSeen {
 impl CoachSeen {
     fn record(&mut self, event: &CoachEvent) {
         match event {
+            CoachEvent::Armed { .. } => self.armed = true,
             CoachEvent::Mounted { .. } => self.mounted = true,
             CoachEvent::Triggered { .. } => self.triggered = true,
             CoachEvent::Unmounted { .. } => self.unmounted = true,
@@ -140,6 +142,7 @@ impl CoachSeen {
 
     fn matches(self, state: CoachExpectationState) -> bool {
         match state {
+            CoachExpectationState::Armed => self.armed,
             CoachExpectationState::Mounted => self.mounted,
             CoachExpectationState::Triggered => self.triggered,
             CoachExpectationState::Unmounted => self.unmounted,
@@ -424,6 +427,7 @@ impl<T: Transport> RuntimeGuard<T> {
                         .as_ref()
                         .map(|renderer| renderer.device_type.clone()),
                     active_run: self.active_flow.as_ref().map(|flow| flow.run_id.clone()),
+                    coach_signals: self.pilot.coach_signals(),
                 },
             },
         );
@@ -472,8 +476,13 @@ impl<T: Transport> RuntimeGuard<T> {
         }
     }
 
-    /// Resolve a touchpoint against the live frame. Unshipped visuals and
-    /// triggers refuse here rather than mounting a lie.
+    /// Resolve a touchpoint against the live frame. Unshipped visuals refuse
+    /// here rather than mounting a lie.
+    ///
+    /// A `NodeAppeared` touchpoint always mounts **armed**, even over a target
+    /// that happens to be on screen: "tell me when this is there" should
+    /// answer immediately when it already is, and waiting for a second
+    /// appearance would be a trap.
     fn mount_coach(&mut self, touchpoint: &Touchpoint) -> Result<(), (CoachRefusal, String)> {
         if touchpoint.visual != CoachStyle::Spotlight {
             return Err((
@@ -484,15 +493,65 @@ impl<T: Transport> RuntimeGuard<T> {
                 ),
             ));
         }
-        if touchpoint.on != TriggerKind::Press {
-            return Err((
-                CoachRefusal::UnsupportedTrigger,
-                format!(
-                    "{:?} needs the live semantic stream; only press is observed",
-                    touchpoint.on
-                ),
-            ));
-        }
+        let resolved = self.resolve_touchpoint(touchpoint);
+        // An appearance always waits. A signal trigger waits only if its
+        // target is not there — with a target it can spotlight while it waits.
+        let arm = touchpoint.on == TriggerKind::NodeAppeared
+            || (matches!(touchpoint.on, TriggerKind::FabricEvent { .. }) && resolved.is_err());
+        let mount = if arm {
+            // A touchpoint that may outlive its target's absence needs a node
+            // id to watch for; a name or role locator cannot match a node that
+            // does not exist yet.
+            let node = touchpoint.target.id.clone().ok_or_else(|| {
+                (
+                    CoachRefusal::TargetNotFound,
+                    format!(
+                        "{:?} can wait for a target that does not exist yet, so it needs a node id rather than a name or role locator",
+                        touchpoint.on
+                    ),
+                )
+            })?;
+            CoachMount {
+                coach_id: touchpoint.coach_id.clone(),
+                node,
+                viewport: None,
+                rect: None,
+                on: touchpoint.on.clone(),
+                message: touchpoint.message.clone(),
+                ttl_ms: touchpoint.ttl_ms,
+                once: touchpoint.once,
+            }
+        } else {
+            let (node, viewport) = resolved?;
+            CoachMount {
+                coach_id: touchpoint.coach_id.clone(),
+                node: node.id.clone(),
+                viewport: Some(viewport),
+                rect: Some(node.rect),
+                on: touchpoint.on.clone(),
+                message: touchpoint.message.clone(),
+                ttl_ms: touchpoint.ttl_ms,
+                once: touchpoint.once,
+            }
+        };
+        let viewport = mount.viewport;
+        self.pilot.mount_coach(mount).map_err(|reason| {
+            (
+                reason,
+                format!("touchpoint `{}` is already mounted", touchpoint.coach_id),
+            )
+        })?;
+        // An armed touchpoint needs the root ticking to notice its target
+        // arrive; a bound one only needs its own viewport.
+        self.ctx
+            .request_repaint_of(viewport.unwrap_or(egui::ViewportId::ROOT));
+        Ok(())
+    }
+
+    fn resolve_touchpoint(
+        &self,
+        touchpoint: &Touchpoint,
+    ) -> Result<(SemanticNode, egui::ViewportId), (CoachRefusal, String)> {
         let frame = self.pilot.latest_frame();
         let node = resolve_locator(&frame, &touchpoint.target).map_err(|error| {
             let reason = if error.code == "locator-ambiguous" {
@@ -514,24 +573,7 @@ impl<T: Transport> RuntimeGuard<T> {
                 format!("viewport `{}` is no longer live", node.viewport),
             )
         })?;
-        self.pilot
-            .mount_coach(CoachMount {
-                coach_id: touchpoint.coach_id.clone(),
-                node: node.id.clone(),
-                viewport,
-                rect: node.rect,
-                message: touchpoint.message.clone(),
-                ttl_ms: touchpoint.ttl_ms,
-                once: touchpoint.once,
-            })
-            .map_err(|reason| {
-                (
-                    reason,
-                    format!("touchpoint `{}` is already mounted", touchpoint.coach_id),
-                )
-            })?;
-        self.ctx.request_repaint_of(viewport);
-        Ok(())
+        Ok((node.clone(), viewport))
     }
 
     fn forward_coach_events(&mut self) {
@@ -2925,6 +2967,89 @@ mod tests {
     }
 
     #[test]
+    fn an_armed_touchpoint_mounts_when_its_target_appears() {
+        let (ctx, client, mut runtime) = test_runtime(32);
+        authenticate(&client, &mut runtime);
+        // Deliberately no coach frame yet: the target does not exist.
+        let _ = ctx.run_ui(Default::default(), |_ui| {});
+
+        let mut waiting = touchpoint(
+            "coach-appear",
+            Locator {
+                id: Some(NodeId::new("root/coach.save")),
+                ..Locator::default()
+            },
+        );
+        waiting.on = TriggerKind::NodeAppeared;
+        send_mount(&client, "mount-appear", waiting);
+        runtime.pump();
+
+        assert!(
+            drain_coach_events(&client).contains(&CoachEvent::Armed {
+                coach_id: CoachId::new("coach-appear"),
+            }),
+            "a touchpoint waiting for a target arms rather than refusing"
+        );
+        assert_eq!(runtime.pilot().mounted_coach_count(), 1);
+
+        coach_frame(&ctx, Default::default());
+        runtime.pump();
+
+        let events = drain_coach_events(&client);
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, CoachEvent::Mounted { coach_id, .. }
+                    if coach_id == &CoachId::new("coach-appear"))),
+            "{events:?}"
+        );
+        assert!(
+            events.contains(&CoachEvent::Triggered {
+                coach_id: CoachId::new("coach-appear"),
+                kind: TriggerKind::NodeAppeared,
+                actor: protocol::CoachActor::App,
+            }),
+            "{events:?}"
+        );
+    }
+
+    #[test]
+    fn a_touchpoint_that_waits_cannot_be_aimed_with_a_name_locator() {
+        let (ctx, client, mut runtime) = test_runtime(32);
+        authenticate(&client, &mut runtime);
+        coach_frame(&ctx, Default::default());
+
+        // The node is right there, but a name cannot be matched against a
+        // node that has not rendered yet, which is exactly what this
+        // touchpoint is for.
+        let mut by_name = touchpoint(
+            "coach-by-name",
+            Locator {
+                name: Some("Save".into()),
+                ..Locator::default()
+            },
+        );
+        by_name.on = TriggerKind::NodeAppeared;
+        send_mount(&client, "mount-by-name", by_name);
+        runtime.pump();
+
+        let refusals: Vec<_> = drain_coach_events(&client)
+            .into_iter()
+            .filter_map(|event| match event {
+                CoachEvent::Refused {
+                    coach_id, reason, ..
+                } => Some((coach_id, reason)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            refusals,
+            vec![(CoachId::new("coach-by-name"), CoachRefusal::TargetNotFound)]
+        );
+        assert_eq!(runtime.pilot().mounted_coach_count(), 0);
+    }
+
+    #[test]
     fn a_touchpoint_the_target_cannot_honour_is_refused_not_mounted() {
         let (ctx, client, mut runtime) = test_runtime(32);
         authenticate(&client, &mut runtime);
@@ -3140,6 +3265,77 @@ mod tests {
                         }
             )
         ));
+    }
+
+    /// An agent cannot read the host's fabric, so the only way it learns which
+    /// `signal:<id>` triggers are real is by the host declaring them and status
+    /// carrying the list.
+    #[test]
+    fn status_reports_the_signal_catalog_the_host_declared() {
+        let (_ctx, client, mut runtime) = test_runtime(16);
+        authenticate(&client, &mut runtime);
+        runtime.pilot.declare_coach_signals(vec![
+            protocol::SignalId::new("build.slide-placed"),
+            protocol::SignalId::new("shell.route-changed/workbench/library"),
+        ]);
+        client
+            .try_send(CommandEnvelope {
+                request_id: RequestId::new("status"),
+                session: SessionId::new("session"),
+                command: ClientCommand::Status,
+            })
+            .unwrap();
+        runtime.pump();
+        let ServerMessage::Response {
+            envelope:
+                ResponseEnvelope {
+                    outcome: ResponseOutcome::Success { result },
+                    ..
+                },
+        } = client.try_receive().unwrap().unwrap()
+        else {
+            panic!("status must succeed");
+        };
+        let CommandResult::Status { status } = *result else {
+            panic!("expected a status result");
+        };
+        assert_eq!(
+            status.coach_signals,
+            vec![
+                protocol::SignalId::new("build.slide-placed"),
+                protocol::SignalId::new("shell.route-changed/workbench/library"),
+            ]
+        );
+    }
+
+    /// A host that declares nothing reports nothing, rather than the field
+    /// vanishing into a default an agent could read as "anything goes".
+    #[test]
+    fn an_undeclared_host_reports_an_empty_catalog_not_a_missing_one() {
+        let (_ctx, client, mut runtime) = test_runtime(16);
+        authenticate(&client, &mut runtime);
+        client
+            .try_send(CommandEnvelope {
+                request_id: RequestId::new("status"),
+                session: SessionId::new("session"),
+                command: ClientCommand::Status,
+            })
+            .unwrap();
+        runtime.pump();
+        let ServerMessage::Response {
+            envelope:
+                ResponseEnvelope {
+                    outcome: ResponseOutcome::Success { result },
+                    ..
+                },
+        } = client.try_receive().unwrap().unwrap()
+        else {
+            panic!("status must succeed");
+        };
+        let CommandResult::Status { status } = *result else {
+            panic!("expected a status result");
+        };
+        assert!(status.coach_signals.is_empty());
     }
 
     #[test]

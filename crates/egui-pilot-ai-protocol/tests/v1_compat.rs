@@ -229,6 +229,7 @@ fn current_v2_types_do_not_accidentally_match_v1_shapes() {
         renderer_key: None,
         renderer_device_type: None,
         active_run: None,
+        coach_signals: Vec::new(),
     })
     .unwrap()
     .get("active_run")
@@ -258,6 +259,6 @@ fn current_v2_types_do_not_accidentally_match_v1_shapes() {
     .is_some());
     assert_eq!(
         json!(egui_pilot_ai_protocol::PROTOCOL_VERSION),
-        json!({"major": 2, "minor": 3})
+        json!({"major": 2, "minor": 4})
     );
 }

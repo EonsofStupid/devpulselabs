@@ -2,6 +2,37 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-27 — COACH C1.5c LANDED: the whole nervous system is coachable, and
+discoverable.** All six fabric domains map to coach signals — 31 facts across
+`shell`/`deck`/`capture`/`jobs`/`providers`/`build`, up from 3 — named exactly
+as the agent seam names them (`<domain>.<type>`, kebab-cased), so a fact has
+one name on both surfaces. `shell.route/…` renamed to `shell.route-changed/…`
+for that rule. Each fact gets a coarse id plus a specific one where the key is
+enumerable (routes from the registry, providers from the registrations,
+booleans); free-form runtime strings get no specific id on purpose.
+`SessionStatus.coach_signals` closes discovery: the real exe declares **121
+ids** including the shows discovered at boot, readable from `pilot_status` and
+printed by `eguipilotai inspect`. Held closed by tests, not prose — published
+⊆ declared, declared ⊆ publishable, every domain genuinely subscribed, and
+exhaustive matches so a new fabric variant fails compilation (it already
+caught #91's `VerificationRetryScheduled` on rebase). Mapping is
+`crates/app/src/coach_signals.rs`. Evidence:
+`docs/plans/operator-coach-a2ui.md` §11.
+
+**2026-07-27 — COACH C1.5a LANDED: touchpoints wait for things now.**
+Protocol 2.4. Every trigger fires — `press`, `hover`, `appeared`,
+`value-changed`, `signal:<id>` — all as edges. A touchpoint aimed at a node
+that does not exist yet mounts **armed** (`CoachEvent::Armed`) and mounts for
+real when its target appears. The app publishes its own coachable signals one
+way behind the devtools gate (`shell.route/<hub>/<sub>`, `build.slide-placed`,
+`build.episode-changed`); the toolkit still cannot read the fabric. New
+`CoachActor::App` for triggers no press explains. Multi-touchpoint dimming
+fixed: one scatter layer with a hole per target instead of one dim each.
+Proof `tests/eguipilotai/coach-dynamic-triggers.toml` +
+`docs/proof/coach-armed-sub-episodes.png`. Evidence:
+`docs/plans/operator-coach-a2ui.md` §10. **Next: C1.5b semantic revision
+ticker** (deferred until polling measurably hurts) or C2a overlay ADR.
+
 **2026-07-27 — COACH C1 LANDED: the agent can point at the screen.**
 Protocol 2.3 adds the touchpoint router — `eguipilotai coach <profile>
 <node-id> --message "..."` spotlights a live control (ColdLight ring +

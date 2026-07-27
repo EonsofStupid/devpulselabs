@@ -11,7 +11,7 @@ pub use egui_pilot_ai_protocol as protocol;
 use protocol::{
     ActionKind, CoachActor, CoachEvent, CoachId, CoachRefusal, CoachUnmountReason,
     FrameDiagnostics, MotionId as WireMotionId, NodeId, NodeState, Rect, Role, SemanticFrame,
-    SemanticNode, SnapshotError, SnapshotRequest, SourceLocation,
+    SemanticNode, SignalId, SnapshotError, SnapshotRequest, SourceLocation,
     ViewportClass as WireViewportClass, ViewportDescriptor, ViewportId, ViewportLifecycle,
     ViewportLifecycleEvent, ViewportSelector,
 };
@@ -305,10 +305,10 @@ struct SharedState {
     viewport_semantic_revisions: HashMap<egui::ViewportId, u64>,
     motion_policy: MotionPolicy,
     coach: CoachStore,
-    /// Viewports whose current pass received automation-injected pointer
-    /// presses. A coach trigger in the same pass is the agent demonstrating,
-    /// not the operator answering.
-    synthetic_press: HashSet<egui::ViewportId>,
+    /// Viewports whose current pass received automation-injected input. A
+    /// coach trigger in the same pass is the agent demonstrating, not the
+    /// operator answering.
+    synthetic_input: HashSet<egui::ViewportId>,
 }
 
 #[derive(Clone)]
@@ -599,6 +599,28 @@ impl PilotHandle {
 
     pub fn mounted_coach_count(&self) -> usize {
         lock(&self.shared).coach.len()
+    }
+
+    /// Publish an application signal a touchpoint may be waiting on.
+    ///
+    /// One-way and app-chosen: the toolkit never reads the application's
+    /// signal fabric, so an agent can only wait for what the app decided to
+    /// expose here.
+    pub fn note_coach_signal(&self, signal: SignalId) {
+        lock(&self.shared).coach.note_signal(signal);
+    }
+
+    /// Declare every signal this host can publish, so an agent can discover
+    /// what a `FabricEvent` touchpoint may wait for instead of being told.
+    ///
+    /// The toolkit cannot derive this list and does not police it: a host that
+    /// declares nothing simply reports nothing waitable.
+    pub fn declare_coach_signals(&self, signals: Vec<SignalId>) {
+        lock(&self.shared).coach.declare_signals(signals);
+    }
+
+    pub fn coach_signals(&self) -> Vec<SignalId> {
+        lock(&self.shared).coach.declared_signals()
     }
 
     pub fn set_clock_mode(&self, mode: ClockMode) {
@@ -979,8 +1001,8 @@ impl egui::Plugin for EguiPilotPlugin {
             if let Some(viewport) = input.viewports.get_mut(&input.viewport_id) {
                 viewport.focused = Some(true);
             }
-            if injected_primary_press(&queued.events) {
-                shared.synthetic_press.insert(input.viewport_id);
+            if !queued.events.is_empty() {
+                shared.synthetic_input.insert(input.viewport_id);
             }
             input.events.extend(queued.events);
             if let Some(time) = queued.time {
@@ -1027,15 +1049,11 @@ impl egui::Plugin for EguiPilotPlugin {
 /// press the operator is coached to make still lands on the real widget; the
 /// trigger is read out of the same frame's pointer events.
 fn coach_pass(shared: &mut SharedState, ui: &egui::Ui, viewport: egui::ViewportId) {
-    let actor = if shared.synthetic_press.remove(&viewport) {
-        CoachActor::Agent
-    } else {
-        CoachActor::Operator
-    };
+    let synthetic = shared.synthetic_input.remove(&viewport);
     if !shared.coach.targets_viewport(viewport) {
         return;
     }
-    let (now, presses) = ui.input(|input| {
+    let (now, presses, pointer, had_input) = ui.input(|input| {
         (
             input.time,
             input
@@ -1051,15 +1069,23 @@ fn coach_pass(shared: &mut SharedState, ui: &egui::Ui, viewport: egui::ViewportI
                     _ => None,
                 })
                 .collect::<Vec<_>>(),
+            input.pointer.latest_pos(),
+            !input.events.is_empty(),
         )
     });
-    let rects: HashMap<NodeId, egui::Rect> = shared
+    // Attribution is derived from what moved this frame: injected input is the
+    // agent demonstrating, real input is the operator, and a frame with no
+    // input at all cannot honestly be credited to either.
+    let input_actor = match (synthetic, had_input) {
+        (true, _) => Some(CoachActor::Agent),
+        (false, true) => Some(CoachActor::Operator),
+        (false, false) => None,
+    };
+    let nodes = shared
         .committed
         .get(&viewport)
-        .into_iter()
-        .flatten()
-        .map(|node| (node.id.clone(), egui_rect(node.rect)))
-        .collect();
+        .map(Vec::as_slice)
+        .unwrap_or_default();
     let painter = ui.ctx().layer_painter(egui::LayerId::new(
         egui::Order::Foreground,
         egui::Id::new("eguipilotai.coach"),
@@ -1068,24 +1094,12 @@ fn coach_pass(shared: &mut SharedState, ui: &egui::Ui, viewport: egui::ViewportI
         viewport,
         screen: ui.ctx().viewport_rect(),
         now,
-        rects: &rects,
+        nodes,
         presses: &presses,
-        actor,
+        pointer,
+        input_actor,
     };
     coach::run_pass(&mut shared.coach, &painter, &frame);
-}
-
-fn injected_primary_press(events: &[egui::Event]) -> bool {
-    events.iter().any(|event| {
-        matches!(
-            event,
-            egui::Event::PointerButton {
-                button: egui::PointerButton::Primary,
-                pressed: true,
-                ..
-            }
-        )
-    })
 }
 
 fn sync_viewports(shared: &mut SharedState, input: &egui::RawInput) {
@@ -1297,7 +1311,7 @@ fn close_viewport(shared: &mut SharedState, egui_id: egui::ViewportId) {
         .viewport_commands
         .retain(|(viewport, _)| *viewport != egui_id);
     shared.viewport_close_requests.remove(&egui_id);
-    shared.synthetic_press.remove(&egui_id);
+    shared.synthetic_input.remove(&egui_id);
     // A closed viewport never paints again, so its touchpoints can no longer
     // notice their own target leaving. End their lifetimes here instead.
     shared.coach.unmount_viewport(egui_id);
@@ -1670,24 +1684,40 @@ mod tests {
     }
 
     fn mount_save_touchpoint(pilot: &PilotHandle, once: bool) -> Rect {
+        mount_on_save(pilot, "coach-save", protocol::TriggerKind::Press, once)
+            .expect("the save node is on screen")
+    }
+
+    /// Mount a touchpoint on the save button, arming it when the trigger can
+    /// wait and the node is not rendered yet.
+    fn mount_on_save(
+        pilot: &PilotHandle,
+        coach_id: &str,
+        on: protocol::TriggerKind,
+        once: bool,
+    ) -> Option<Rect> {
         let frame = pilot.latest_frame();
         let node = frame
             .nodes
             .iter()
-            .find(|node| node.id == NodeId::new("root/settings.save"))
-            .expect("save node");
+            .find(|node| node.id == NodeId::new("root/settings.save"));
+        // An appearance trigger always arms, even over a node that happens to
+        // be on screen already — the runtime applies the same rule.
+        let arm = node.is_none() || on == protocol::TriggerKind::NodeAppeared;
+        let rect = node.map(|node| node.rect);
         pilot
             .mount_coach(CoachMount {
-                coach_id: CoachId::new("coach-save"),
-                node: node.id.clone(),
-                viewport: egui::ViewportId::ROOT,
-                rect: node.rect,
+                coach_id: CoachId::new(coach_id),
+                node: NodeId::new("root/settings.save"),
+                viewport: (!arm).then_some(egui::ViewportId::ROOT),
+                rect: (!arm).then_some(()).and(rect),
+                on,
                 message: Some("Press Save".into()),
                 ttl_ms: None,
                 once,
             })
             .expect("mount");
-        node.rect
+        rect
     }
 
     fn press_at(center: egui::Pos2) -> egui::RawInput {
@@ -1814,8 +1844,9 @@ mod tests {
             .mount_coach(CoachMount {
                 coach_id: CoachId::new("coach-ttl"),
                 node: node.id.clone(),
-                viewport: egui::ViewportId::ROOT,
-                rect: node.rect,
+                viewport: Some(egui::ViewportId::ROOT),
+                rect: Some(node.rect),
+                on: protocol::TriggerKind::Press,
                 message: None,
                 ttl_ms: Some(500),
                 once: false,
@@ -1836,6 +1867,182 @@ mod tests {
                 reason: CoachUnmountReason::Ttl,
             }]
         );
+    }
+
+    #[test]
+    fn an_armed_touchpoint_mounts_and_fires_when_its_target_appears() {
+        let ctx = egui::Context::default();
+        let pilot = install(&ctx);
+        let _ = ctx.run_ui(Default::default(), |_ui| {});
+        assert_eq!(
+            mount_on_save(
+                &pilot,
+                "coach-appear",
+                protocol::TriggerKind::NodeAppeared,
+                true
+            ),
+            None,
+            "the save button is not rendered yet"
+        );
+        assert_eq!(
+            pilot.take_coach_events(),
+            vec![CoachEvent::Armed {
+                coach_id: CoachId::new("coach-appear"),
+            }]
+        );
+
+        // Nothing to see: the target is still absent, and an armed touchpoint
+        // must not mistake that for a lost target.
+        let _ = ctx.run_ui(Default::default(), |_ui| {});
+        assert!(pilot.take_coach_events().is_empty());
+        assert_eq!(pilot.mounted_coach_count(), 1);
+
+        save_button_frame(&ctx, Default::default());
+
+        let events = pilot.take_coach_events();
+        assert!(
+            matches!(events.first(), Some(CoachEvent::Mounted { coach_id, .. })
+                if coach_id == &CoachId::new("coach-appear")),
+            "{events:?}"
+        );
+        assert_eq!(
+            &events[1..],
+            [
+                CoachEvent::Triggered {
+                    coach_id: CoachId::new("coach-appear"),
+                    kind: protocol::TriggerKind::NodeAppeared,
+                    // Nobody pressed anything; the app rendered it.
+                    actor: CoachActor::App,
+                },
+                CoachEvent::Unmounted {
+                    coach_id: CoachId::new("coach-appear"),
+                    reason: CoachUnmountReason::Once,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn hover_fires_on_entering_the_target_and_not_again_while_the_pointer_rests() {
+        let ctx = egui::Context::default();
+        let pilot = install(&ctx);
+        save_button_frame(&ctx, Default::default());
+        let rect = mount_on_save(&pilot, "coach-hover", protocol::TriggerKind::Hover, false)
+            .expect("save node");
+        let _ = pilot.take_coach_events();
+        let center = egui_rect(rect).center();
+
+        let moved = |pos| egui::RawInput {
+            events: vec![egui::Event::PointerMoved(pos)],
+            ..Default::default()
+        };
+        save_button_frame(&ctx, moved(center));
+        assert_eq!(
+            pilot.take_coach_events(),
+            vec![CoachEvent::Triggered {
+                coach_id: CoachId::new("coach-hover"),
+                kind: protocol::TriggerKind::Hover,
+                actor: CoachActor::Operator,
+            }]
+        );
+
+        // Still inside: a level, not an edge. Silence.
+        save_button_frame(&ctx, moved(center + egui::vec2(1.0, 0.0)));
+        assert!(pilot.take_coach_events().is_empty());
+
+        save_button_frame(
+            &ctx,
+            moved(egui::pos2(rect.max_x + 80.0, rect.max_y + 80.0)),
+        );
+        save_button_frame(&ctx, moved(center));
+        assert_eq!(
+            pilot.take_coach_events(),
+            vec![CoachEvent::Triggered {
+                coach_id: CoachId::new("coach-hover"),
+                kind: protocol::TriggerKind::Hover,
+                actor: CoachActor::Operator,
+            }]
+        );
+    }
+
+    #[test]
+    fn a_published_app_signal_fires_a_waiting_touchpoint_exactly_once() {
+        let ctx = egui::Context::default();
+        let pilot = install(&ctx);
+        save_button_frame(&ctx, Default::default());
+        let signal = SignalId::new("build.slide-placed");
+        mount_on_save(
+            &pilot,
+            "coach-build",
+            protocol::TriggerKind::FabricEvent {
+                signal: signal.clone(),
+            },
+            false,
+        );
+        let _ = pilot.take_coach_events();
+
+        // An unrelated signal is not this touchpoint's signal.
+        pilot.note_coach_signal(SignalId::new("build.episode-changed"));
+        save_button_frame(&ctx, Default::default());
+        assert!(pilot.take_coach_events().is_empty());
+
+        pilot.note_coach_signal(signal.clone());
+        save_button_frame(&ctx, Default::default());
+        assert_eq!(
+            pilot.take_coach_events(),
+            vec![CoachEvent::Triggered {
+                coach_id: CoachId::new("coach-build"),
+                kind: protocol::TriggerKind::FabricEvent { signal },
+                actor: CoachActor::App,
+            }]
+        );
+
+        // The signal is history now; it must not re-fire every frame.
+        save_button_frame(&ctx, Default::default());
+        assert!(pilot.take_coach_events().is_empty());
+    }
+
+    #[test]
+    fn a_value_change_fires_once_per_change_not_once_per_frame() {
+        let ctx = egui::Context::default();
+        let pilot = install(&ctx);
+        let frame = |value: &str| {
+            let value = value.to_string();
+            let _ = ctx.run_ui(Default::default(), |ui| {
+                let (_, rect) = ui.allocate_space(egui::vec2(80.0, 24.0));
+                let response = ui.interact(rect, egui::Id::new("status"), egui::Sense::click());
+                ui.pilot_track(
+                    &response,
+                    NodeMetadata::new(SAVE, Role::Status, "Status").value(value.clone()),
+                );
+            });
+        };
+        let mut value = String::from("draft");
+        frame(&value);
+        mount_on_save(
+            &pilot,
+            "coach-value",
+            protocol::TriggerKind::ValueChanged,
+            false,
+        );
+        let _ = pilot.take_coach_events();
+
+        frame(&value);
+        assert!(pilot.take_coach_events().is_empty());
+
+        value = String::from("published");
+        frame(&value);
+        assert_eq!(
+            pilot.take_coach_events(),
+            vec![CoachEvent::Triggered {
+                coach_id: CoachId::new("coach-value"),
+                kind: protocol::TriggerKind::ValueChanged,
+                actor: CoachActor::App,
+            }]
+        );
+
+        frame(&value);
+        assert!(pilot.take_coach_events().is_empty());
     }
 
     #[test]

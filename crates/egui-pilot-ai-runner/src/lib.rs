@@ -552,8 +552,15 @@ impl ProcessSession {
         let deadline = Instant::now() + wait;
         loop {
             if let Some(index) = self.events.iter().position(|envelope| {
+                // Arming and mounting are progress, not activation: a
+                // touchpoint waiting for its target keeps the wait alive.
                 matches!(&envelope.event, RuntimeEvent::Coach { event }
-                    if event.coach_id() == coach_id && event.state() != protocol::CoachExpectationState::Mounted)
+                if event.coach_id() == coach_id
+                    && !matches!(
+                        event.state(),
+                        protocol::CoachExpectationState::Armed
+                            | protocol::CoachExpectationState::Mounted
+                    ))
             }) {
                 let envelope = self.events.remove(index).expect("matched coach event");
                 let RuntimeEvent::Coach { event } = envelope.event else {
@@ -1183,6 +1190,44 @@ mod tests {
             protocol::Step::Expect {
                 expectation: protocol::Expectation::Coach {
                     state: protocol::CoachExpectationState::Triggered,
+                    ..
+                }
+            }
+        )));
+        assert!(protocol::unsupported_capabilities(&flow).is_empty());
+    }
+
+    #[test]
+    fn coach_dynamic_trigger_scenario_is_durable_toml() {
+        let flow: Flow = toml::from_str(include_str!(
+            "../../../tests/eguipilotai/coach-dynamic-triggers.toml"
+        ))
+        .expect("coach dynamic trigger scenario");
+        assert_eq!(flow.id, protocol::ScenarioId::new("coach-dynamic-triggers"));
+        let triggers: Vec<protocol::TriggerKind> = flow
+            .steps
+            .iter()
+            .filter_map(|step| match step {
+                protocol::Step::Coach {
+                    coach: protocol::CoachCommand::Mount { touchpoint },
+                } => Some(touchpoint.on.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            triggers,
+            vec![
+                protocol::TriggerKind::NodeAppeared,
+                protocol::TriggerKind::FabricEvent {
+                    signal: protocol::SignalId::new("shell.route-changed/workbench/episodes"),
+                },
+            ]
+        );
+        assert!(flow.steps.iter().any(|step| matches!(
+            step,
+            protocol::Step::Expect {
+                expectation: protocol::Expectation::Coach {
+                    state: protocol::CoachExpectationState::Armed,
                     ..
                 }
             }
