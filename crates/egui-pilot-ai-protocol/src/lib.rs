@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 2, minor: 2 };
+pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 2, minor: 3 };
 pub const DEFAULT_AGENT_NODES: usize = 200;
 pub const DEFAULT_AGENT_BYTES: usize = 12 * 1024;
 pub const MAX_AGENT_NODES: usize = 1_000;
@@ -49,6 +49,7 @@ string_id!(StepId);
 string_id!(AttachmentId);
 string_id!(CapabilityId);
 string_id!(EventId);
+string_id!(CoachId);
 
 impl EventId {
     pub fn from_sequence(sequence: u64) -> Self {
@@ -838,6 +839,152 @@ pub enum Action {
     },
 }
 
+// ── the coach touchpoint router ────────────────────────────────────────
+//
+// A touchpoint is a mounted matcher + visual + trigger contract, in the
+// axum sense: the agent mounts it, the target fires typed events when it
+// activates, and the agent (or a `once` trigger) unmounts it. A spotlight
+// highlight the operator presses is one mounted touchpoint; an invisible
+// tripwire is the same primitive with a different visual and trigger.
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CoachStyle {
+    /// Dim the surroundings, tint and ring the target. The only C1 visual.
+    #[default]
+    Spotlight,
+    Outline,
+    Arrow,
+    DimAround,
+    /// An invisible sensor — a tripwire that paints nothing.
+    None,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TriggerKind {
+    /// A pointer press inside the target rect. The only C1 trigger.
+    #[default]
+    Press,
+    Hover,
+    NodeAppeared,
+    ValueChanged,
+}
+
+/// Who activated the touchpoint: the human being coached, or the agent
+/// demonstrating. Coach mode and demo mode are one system, split here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CoachActor {
+    Operator,
+    Agent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CoachUnmountReason {
+    Ttl,
+    Operator,
+    Agent,
+    Once,
+    TargetLost,
+    SessionEnded,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CoachRefusal {
+    TargetNotFound,
+    TargetAmbiguous,
+    TargetNotVisible,
+    DuplicateId,
+    UnknownTouchpoint,
+    UnsupportedStyle,
+    UnsupportedTrigger,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Touchpoint {
+    pub coach_id: CoachId,
+    pub target: Locator,
+    #[serde(default)]
+    pub visual: CoachStyle,
+    #[serde(default)]
+    pub on: TriggerKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ttl_ms: Option<u64>,
+    #[serde(default)]
+    pub once: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum CoachCommand {
+    Mount { touchpoint: Box<Touchpoint> },
+    Unmount { coach_id: CoachId },
+    UnmountAll,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum CoachEvent {
+    Mounted {
+        coach_id: CoachId,
+        rect: Rect,
+    },
+    Triggered {
+        coach_id: CoachId,
+        kind: TriggerKind,
+        actor: CoachActor,
+    },
+    Unmounted {
+        coach_id: CoachId,
+        reason: CoachUnmountReason,
+    },
+    Refused {
+        coach_id: CoachId,
+        reason: CoachRefusal,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        detail: String,
+    },
+}
+
+impl CoachEvent {
+    pub fn coach_id(&self) -> &CoachId {
+        match self {
+            Self::Mounted { coach_id, .. }
+            | Self::Triggered { coach_id, .. }
+            | Self::Unmounted { coach_id, .. }
+            | Self::Refused { coach_id, .. } => coach_id,
+        }
+    }
+
+    pub fn state(&self) -> CoachExpectationState {
+        match self {
+            Self::Mounted { .. } => CoachExpectationState::Mounted,
+            Self::Triggered { .. } => CoachExpectationState::Triggered,
+            Self::Unmounted { .. } => CoachExpectationState::Unmounted,
+            Self::Refused { .. } => CoachExpectationState::Refused,
+        }
+    }
+
+    /// A mounted touchpoint's lifetime ends on exactly one of these.
+    pub fn is_terminal(&self) -> bool {
+        matches!(self, Self::Unmounted { .. } | Self::Refused { .. })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CoachExpectationState {
+    Mounted,
+    Triggered,
+    Unmounted,
+    Refused,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum Expectation {
@@ -872,6 +1019,10 @@ pub enum Expectation {
         viewport: ViewportSelector,
         state: ViewportExpectationState,
     },
+    Coach {
+        coach_id: CoachId,
+        state: CoachExpectationState,
+    },
     NoDiagnostics,
     Screenshot {
         name: String,
@@ -883,6 +1034,9 @@ pub enum Expectation {
 pub enum Step {
     Action {
         action: Action,
+    },
+    Coach {
+        coach: CoachCommand,
     },
     Expect {
         expectation: Expectation,
@@ -1039,6 +1193,10 @@ pub mod capability {
     pub const VIEWPORT_NATIVE: &str = "viewport.native";
     pub const RUNNER_WORKERS: &str = "runner.workers";
     pub const RUNNER_RETRIES: &str = "runner.retries";
+    pub const COACH_TOUCHPOINT: &str = "coach.touchpoint";
+    pub const COACH_VISUAL_EXTENDED: &str = "coach.visual.extended";
+    pub const COACH_STREAM_TRIGGERS: &str = "coach.stream-triggers";
+    pub const COACH_DESKTOP_OVERLAY: &str = "coach.desktop-overlay";
     pub const CODEGEN_RECORDER: &str = "codegen.recorder";
     pub const TRACE_REPLAY: &str = "trace.replay";
     pub const VISUAL_APPROVAL: &str = "visual.approval";
@@ -1252,6 +1410,26 @@ pub fn capability_catalog() -> Vec<CapabilityDescriptor> {
             "isolated retry attempts are not implemented",
             "slice-4",
         ),
+        supported(
+            id::COACH_TOUCHPOINT,
+            "mount a spotlight touchpoint on an instrumented node and observe an operator or agent press",
+            "runtime::coach_press_triggers_once_and_unmounts",
+        ),
+        unsupported(
+            id::COACH_VISUAL_EXTENDED,
+            "outline, arrow, dim-around, and invisible touchpoint visuals are not painted yet",
+            "coach-c1",
+        ),
+        unsupported(
+            id::COACH_STREAM_TRIGGERS,
+            "hover, node-appeared, and value-changed triggers need the live semantic delta stream",
+            "coach-c1.5",
+        ),
+        unsupported(
+            id::COACH_DESKTOP_OVERLAY,
+            "painting touchpoints outside the app window needs the coach-overlay daemon and its ADR",
+            "coach-c2",
+        ),
         unsupported(
             id::CODEGEN_RECORDER,
             "codegen only normalizes an existing scenario",
@@ -1281,6 +1459,12 @@ pub fn supported_capabilities() -> Vec<CapabilityId> {
 
 pub fn required_capabilities(flow: &Flow) -> Vec<CapabilityId> {
     use capability as id;
+    fn push(required: &mut Vec<CapabilityId>, value: &str) {
+        let capability = CapabilityId::new(value);
+        if !required.contains(&capability) {
+            required.push(capability);
+        }
+    }
     let mut required = Vec::new();
     for step in &flow.steps {
         let value = match step {
@@ -1301,28 +1485,36 @@ pub fn required_capabilities(flow: &Flow) -> Vec<CapabilityId> {
                 Action::ScrollIntoView { .. } => id::ACTION_SCROLL_INTO_VIEW,
                 Action::SetValue { .. } => id::ACTION_SET_VALUE,
             },
+            Step::Coach { coach } => {
+                if let CoachCommand::Mount { touchpoint } = coach {
+                    if touchpoint.visual != CoachStyle::Spotlight {
+                        push(&mut required, id::COACH_VISUAL_EXTENDED);
+                    }
+                    if touchpoint.on != TriggerKind::Press {
+                        push(&mut required, id::COACH_STREAM_TRIGGERS);
+                    }
+                }
+                id::COACH_TOUCHPOINT
+            }
             Step::Expect {
                 expectation: Expectation::Screenshot { .. },
             } => id::EXPECT_SCREENSHOT,
             Step::Expect {
                 expectation: Expectation::Viewport { .. },
             } => id::VIEWPORT_LIFECYCLE,
+            Step::Expect {
+                expectation: Expectation::Coach { .. },
+            } => id::COACH_TOUCHPOINT,
             Step::Expect { .. } => id::EXPECT_SEMANTIC,
             Step::Capture { viewport, .. } => {
                 if viewport.is_some() {
-                    let targeted = CapabilityId::new(id::VIEWPORT_TARGETED_CAPTURE);
-                    if !required.contains(&targeted) {
-                        required.push(targeted);
-                    }
+                    push(&mut required, id::VIEWPORT_TARGETED_CAPTURE);
                 }
                 id::CAPTURE_DETERMINISTIC
             }
             Step::Wait { .. } => continue,
         };
-        let capability = CapabilityId::new(value);
-        if !required.contains(&capability) {
-            required.push(capability);
-        }
+        push(&mut required, value);
     }
     required
 }
@@ -1427,6 +1619,9 @@ pub enum ClientCommand {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         viewport: Option<ViewportSelector>,
     },
+    Coach {
+        coach: CoachCommand,
+    },
     Status,
     Cancel {
         run_id: RunId,
@@ -1456,6 +1651,7 @@ pub enum CommandResult {
     Run { result: RunResult },
     Status { status: SessionStatus },
     Capture { capture: CaptureResult },
+    Coach { events: Vec<CoachEvent> },
     Cancel { cancellation: CancellationResult },
     Stopped,
 }
@@ -1493,6 +1689,7 @@ pub enum RuntimeEvent {
     Telemetry { channel: String, revision: u64 },
     InputCleanup,
     ViewportLifecycle { event: ViewportLifecycleEvent },
+    Coach { event: CoachEvent },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1803,6 +2000,143 @@ mod tests {
         assert_eq!(capability.state, CapabilityState::Unsupported);
         assert!(capability.detail.contains("eframe 0.35"));
         assert!(capability.evidence.contains("render_immediate_viewport"));
+    }
+
+    fn mount(coach_id: &str, visual: CoachStyle, on: TriggerKind) -> Step {
+        Step::Coach {
+            coach: CoachCommand::Mount {
+                touchpoint: Box::new(Touchpoint {
+                    coach_id: CoachId::new(coach_id),
+                    target: Locator {
+                        id: Some(NodeId::new("root/settings.save")),
+                        ..Locator::default()
+                    },
+                    visual,
+                    on,
+                    message: Some("Press Save".into()),
+                    ttl_ms: None,
+                    once: true,
+                }),
+            },
+        }
+    }
+
+    fn coach_flow(step: Step) -> Flow {
+        Flow {
+            id: ScenarioId::new("coach"),
+            fixture: None,
+            steps: vec![step],
+            record: false,
+        }
+    }
+
+    #[test]
+    fn a_spotlight_press_touchpoint_needs_only_the_supported_coach_capability() {
+        let flow = coach_flow(mount("coach-1", CoachStyle::Spotlight, TriggerKind::Press));
+        assert_eq!(
+            required_capabilities(&flow),
+            vec![CapabilityId::new(capability::COACH_TOUCHPOINT)]
+        );
+        assert!(unsupported_capabilities(&flow).is_empty());
+    }
+
+    #[test]
+    fn unshipped_visuals_and_triggers_are_rejected_before_a_run_starts() {
+        let outline = coach_flow(mount("coach-2", CoachStyle::Outline, TriggerKind::Press));
+        let refusals: Vec<_> = unsupported_capabilities(&outline)
+            .into_iter()
+            .map(|entry| entry.id)
+            .collect();
+        assert_eq!(
+            refusals,
+            vec![CapabilityId::new(capability::COACH_VISUAL_EXTENDED)]
+        );
+
+        let appeared = coach_flow(mount(
+            "coach-3",
+            CoachStyle::Spotlight,
+            TriggerKind::NodeAppeared,
+        ));
+        let refusals: Vec<_> = unsupported_capabilities(&appeared)
+            .into_iter()
+            .map(|entry| entry.id)
+            .collect();
+        assert_eq!(
+            refusals,
+            vec![CapabilityId::new(capability::COACH_STREAM_TRIGGERS)]
+        );
+    }
+
+    #[test]
+    fn exactly_one_coach_event_kind_is_terminal_per_lifetime() {
+        let coach_id = CoachId::new("coach-4");
+        let lifetime = [
+            CoachEvent::Mounted {
+                coach_id: coach_id.clone(),
+                rect: Rect::default(),
+            },
+            CoachEvent::Triggered {
+                coach_id: coach_id.clone(),
+                kind: TriggerKind::Press,
+                actor: CoachActor::Operator,
+            },
+            CoachEvent::Unmounted {
+                coach_id: coach_id.clone(),
+                reason: CoachUnmountReason::Once,
+            },
+        ];
+        assert_eq!(
+            lifetime.iter().filter(|event| event.is_terminal()).count(),
+            1
+        );
+        assert!(lifetime.iter().all(|event| event.coach_id() == &coach_id));
+
+        let refusal = CoachEvent::Refused {
+            coach_id,
+            reason: CoachRefusal::TargetNotFound,
+            detail: "locator did not match".into(),
+        };
+        assert!(refusal.is_terminal());
+        assert_eq!(refusal.state(), CoachExpectationState::Refused);
+    }
+
+    #[test]
+    fn coach_commands_survive_a_wire_roundtrip() {
+        let command = ClientCommand::Coach {
+            coach: CoachCommand::Mount {
+                touchpoint: Box::new(Touchpoint {
+                    coach_id: CoachId::new("coach-5"),
+                    target: Locator {
+                        id: Some(NodeId::new("root/settings.save")),
+                        ..Locator::default()
+                    },
+                    visual: CoachStyle::Spotlight,
+                    on: TriggerKind::Press,
+                    message: Some("Press Save".into()),
+                    ttl_ms: Some(15_000),
+                    once: true,
+                }),
+            },
+        };
+        let encoded = serde_json::to_string(&command).expect("encode coach command");
+        assert_eq!(
+            serde_json::from_str::<ClientCommand>(&encoded).expect("decode coach command"),
+            command
+        );
+
+        let event = RuntimeEvent::Coach {
+            event: CoachEvent::Triggered {
+                coach_id: CoachId::new("coach-5"),
+                kind: TriggerKind::Press,
+                actor: CoachActor::Agent,
+            },
+        };
+        let encoded = serde_json::to_string(&event).expect("encode coach event");
+        assert!(encoded.contains("\"actor\":\"agent\""));
+        assert_eq!(
+            serde_json::from_str::<RuntimeEvent>(&encoded).expect("decode coach event"),
+            event
+        );
     }
 
     #[test]

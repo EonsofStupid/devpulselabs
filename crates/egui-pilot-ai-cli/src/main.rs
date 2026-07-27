@@ -1,12 +1,17 @@
 // spawn-audit: exempt(CLI harness — console output is the product)
-use egui_pilot_ai_protocol::{Flow, RunOutcome, SnapshotRequest};
+use egui_pilot_ai_protocol as protocol;
 use egui_pilot_ai_runner::{
     load_flow, save_flow, EguiPilotConfig, ProcessSession, RunnerError, CONFIG_FILE,
+};
+use protocol::{
+    CoachCommand, CoachId, CoachStyle, Flow, Locator, NodeId, RunOutcome, SnapshotRequest,
+    Touchpoint, TriggerKind,
 };
 use serde_json::{json, Value};
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 fn main() {
     if let Err(error) = run() {
@@ -33,6 +38,11 @@ fn run() -> Result<(), CliError> {
             let fixture = arguments.next();
             inspect(&workspace, &profile, fixture.as_deref())
         }
+        "coach" => {
+            let profile = required(&mut arguments, "profile")?;
+            let node = required(&mut arguments, "node id")?;
+            coach(&workspace, &profile, &node, CoachOptions::parse(arguments)?)
+        }
         "fixtures" => fixtures(&workspace),
         "codegen" => {
             let input = PathBuf::from(required(&mut arguments, "input")?);
@@ -54,7 +64,7 @@ fn run() -> Result<(), CliError> {
         },
         "help" | "--help" | "-h" => {
             println!(
-                "EguiPilotAI\n\n  doctor\n  mcp\n  test <profile> <scenario.toml> [fixture]\n  inspect <profile> [fixture]\n  fixtures\n  codegen <input.toml> <output.toml>  [EXPERIMENTAL normalizer; NOT a recorder]\n  open <run-directory>\n  agent install codex|cursor|claude\n\nUnsupported in this build: set-value, scroll-into-view, screenshot expectations, parallel workers, retries, recorder codegen, replay, visual approval, and Test Lab live control."
+                "EguiPilotAI\n\n  doctor\n  mcp\n  test <profile> <scenario.toml> [fixture]\n  inspect <profile> [fixture]\n  coach <profile> <node-id> [--fixture <name>] [--message <text>] [--wait-ms <n>] [--ttl-ms <n>]\n  fixtures\n  codegen <input.toml> <output.toml>  [EXPERIMENTAL normalizer; NOT a recorder]\n  open <run-directory>\n  agent install codex|cursor|claude\n\nCoaching paints a spotlight the operator presses; only the spotlight visual and the press trigger exist today.\n\nUnsupported in this build: set-value, scroll-into-view, screenshot expectations, parallel workers, retries, recorder codegen, replay, visual approval, Test Lab live control, coach stream triggers, and the desktop coach overlay."
             );
             Ok(())
         }
@@ -150,6 +160,103 @@ fn inspect(workspace: &Path, profile: &str, fixture: Option<&str>) -> Result<(),
     println!("{}", serde_json::to_string_pretty(&snapshot)?);
     session.stop()?;
     Ok(())
+}
+
+struct CoachOptions {
+    fixture: Option<String>,
+    message: Option<String>,
+    wait: Duration,
+    ttl_ms: Option<u64>,
+}
+
+impl CoachOptions {
+    fn parse(mut arguments: impl Iterator<Item = String>) -> Result<Self, CliError> {
+        let mut options = Self {
+            fixture: None,
+            message: None,
+            // A coached human is slower than any automation timeout.
+            wait: Duration::from_secs(180),
+            ttl_ms: None,
+        };
+        while let Some(flag) = arguments.next() {
+            match flag.as_str() {
+                "--fixture" => options.fixture = Some(required(&mut arguments, "fixture name")?),
+                "--message" => options.message = Some(required(&mut arguments, "message text")?),
+                "--wait-ms" => {
+                    options.wait = Duration::from_millis(parse_ms(&mut arguments, "--wait-ms")?);
+                }
+                "--ttl-ms" => options.ttl_ms = Some(parse_ms(&mut arguments, "--ttl-ms")?),
+                other => return Err(CliError::Usage(format!("unknown coach flag `{other}`"))),
+            }
+        }
+        Ok(options)
+    }
+}
+
+fn parse_ms(arguments: &mut impl Iterator<Item = String>, flag: &str) -> Result<u64, CliError> {
+    required(arguments, flag)?
+        .parse()
+        .map_err(|_| CliError::Usage(format!("{flag} expects whole milliseconds")))
+}
+
+/// Paint a spotlight on one instrumented control and wait for it to be
+/// pressed. This is the operator-coaching loop: the highlight never
+/// intercepts the press, so the real control still does its real work.
+fn coach(
+    workspace: &Path,
+    profile: &str,
+    node: &str,
+    options: CoachOptions,
+) -> Result<(), CliError> {
+    let config = EguiPilotConfig::load(workspace)?;
+    let coach_id = CoachId::new("coach-cli");
+    let mut session =
+        ProcessSession::launch(workspace, &config, profile, options.fixture.as_deref())?;
+    let mounted = session.coach(CoachCommand::Mount {
+        touchpoint: Box::new(Touchpoint {
+            coach_id: coach_id.clone(),
+            target: Locator {
+                id: Some(NodeId::new(node)),
+                ..Locator::default()
+            },
+            visual: CoachStyle::Spotlight,
+            on: TriggerKind::Press,
+            message: options.message,
+            ttl_ms: options.ttl_ms,
+            once: true,
+        }),
+    });
+    let outcome = match mounted {
+        Ok(events) if events.iter().all(|event| !event.is_terminal()) => {
+            println!("{}", serde_json::to_string(&json!({"mounted": events}))?);
+            session.await_coach(&coach_id, options.wait).map(Some)
+        }
+        Ok(events) => {
+            println!("{}", serde_json::to_string(&json!({"refused": events}))?);
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    };
+    let run_dir = session.run_dir.clone();
+    session.stop()?;
+    let event = outcome?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "coach_id": coach_id,
+            "event": event,
+            "run_directory": run_dir,
+        }))?
+    );
+    match event {
+        Some(protocol::CoachEvent::Triggered { .. }) => Ok(()),
+        Some(event) => Err(CliError::ScenarioFailed(format!(
+            "touchpoint `{coach_id}` ended without a press: {event:?}"
+        ))),
+        None => Err(CliError::ScenarioFailed(format!(
+            "touchpoint `{coach_id}` was refused"
+        ))),
+    }
 }
 
 fn fixtures(workspace: &Path) -> Result<(), CliError> {
@@ -383,6 +490,22 @@ fn mcp_tools() -> Vec<Value> {
             }),
         ),
         tool(
+            "pilot_coach",
+            "Mount a spotlight touchpoint on one instrumented node and optionally wait for the press. The highlight never intercepts input, so the operator's press still reaches the real control. Only the spotlight visual and the press trigger exist; everything else is refused.",
+            json!({
+                "type": "object", "required": ["action"], "additionalProperties": false,
+                "properties": {
+                    "action": {"type": "string", "enum": ["mount", "unmount", "unmount-all"]},
+                    "coach_id": {"type": "string", "maxLength": 120},
+                    "node": {"type": "string", "maxLength": 512},
+                    "message": {"type": "string", "maxLength": 240},
+                    "ttl_ms": {"type": "integer", "minimum": 100, "maximum": 600000},
+                    "wait_ms": {"type": "integer", "minimum": 0, "maximum": 600000}
+                },
+                "x-eguipilotai-unsupported": ["coach.visual.extended", "coach.stream-triggers", "coach.desktop-overlay"]
+            }),
+        ),
+        tool(
             "pilot_stop",
             "Stop the separate target process",
             empty_schema(),
@@ -444,6 +567,53 @@ fn call_tool(state: &mut McpState, name: &str, arguments: Value) -> Result<Value
             Ok(serde_json::to_value(
                 active(state)?.capture_viewport(name, viewport)?,
             )?)
+        }
+        "pilot_coach" => {
+            let action = string_field(&arguments, "action")?.to_string();
+            let coach_id = CoachId::new(
+                arguments
+                    .get("coach_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("coach-agent"),
+            );
+            let command = match action.as_str() {
+                "mount" => CoachCommand::Mount {
+                    touchpoint: Box::new(Touchpoint {
+                        coach_id: coach_id.clone(),
+                        target: Locator {
+                            id: Some(NodeId::new(string_field(&arguments, "node")?)),
+                            ..Locator::default()
+                        },
+                        visual: CoachStyle::Spotlight,
+                        on: TriggerKind::Press,
+                        message: arguments
+                            .get("message")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                        ttl_ms: arguments.get("ttl_ms").and_then(Value::as_u64),
+                        once: true,
+                    }),
+                },
+                "unmount" => CoachCommand::Unmount {
+                    coach_id: coach_id.clone(),
+                },
+                "unmount-all" => CoachCommand::UnmountAll,
+                other => {
+                    return Err(CliError::Usage(format!(
+                        "coach action must be mount, unmount, or unmount-all; got `{other}`"
+                    )))
+                }
+            };
+            let wait = arguments.get("wait_ms").and_then(Value::as_u64);
+            let session = active(state)?;
+            let events = session.coach(command)?;
+            let activated = match wait.filter(|_| action == "mount") {
+                Some(wait) if events.iter().all(|event| !event.is_terminal()) => {
+                    Some(session.await_coach(&coach_id, Duration::from_millis(wait))?)
+                }
+                _ => None,
+            };
+            Ok(json!({"events": events, "activated": activated}))
         }
         "pilot_stop" => {
             let mut session = state
@@ -516,9 +686,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mcp_exposes_only_the_six_bounded_tools() {
+    fn mcp_exposes_only_the_seven_bounded_tools() {
         let tools = mcp_tools();
-        assert_eq!(tools.len(), 6);
+        let names: Vec<_> = tools
+            .iter()
+            .map(|tool| tool["name"].as_str().unwrap_or_default())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "pilot_start",
+                "pilot_status",
+                "pilot_snapshot",
+                "pilot_run",
+                "pilot_capture",
+                "pilot_coach",
+                "pilot_stop",
+            ]
+        );
         assert!(tools
             .iter()
             .all(|tool| tool["inputSchema"]["additionalProperties"] == false));

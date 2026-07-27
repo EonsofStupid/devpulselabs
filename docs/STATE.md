@@ -2,6 +2,21 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-27 — COACH C1 LANDED: the agent can point at the screen.**
+Protocol 2.3 adds the touchpoint router — `eguipilotai coach <profile>
+<node-id> --message "..."` spotlights a live control (ColdLight ring +
+gradient tint + black scatter dim + caption plate) and blocks until it is
+pressed, reporting `actor: operator` vs `agent`. The overlay **observes but
+never intercepts**: the press still reaches the real control, so coaching
+works on real workflows. Scenario `tests/eguipilotai/coach-touchpoint.toml`
+proves the whole lifecycle on the real exe; baseline
+`docs/proof/coach-spotlight-rail-workbench.png`. Seventh MCP tool
+`pilot_coach`. Only `spotlight`/`press` exist — every other visual/trigger is
+capability-refused before a run starts. Evidence:
+`docs/plans/operator-coach-a2ui.md` §9. **Next: C1.5 live semantic
+snapshot/delta stream** (unlocks `NodeAppeared`/`ValueChanged` triggers and
+demo-mode pacing).
+
 **2026-07-27 — OPERATOR COACH PROGRAM PLAN LANDED (#88).** New program map
 `docs/plans/operator-coach-a2ui.md` — touchpoint router
 (`Mount`/`Unmount`/`Triggered` on the devtools pipe; spotlight = first
