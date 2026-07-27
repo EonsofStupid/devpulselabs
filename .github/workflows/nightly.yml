@@ -1,0 +1,187 @@
+name: nightly
+
+# Rolling self-hosted nightlies → GitHub Release tag `nightly`.
+# Exe-only zip (no /content, no invented dptools-deps). Operator stages
+# private tools separately via `cargo xtask stage-tool-deps`.
+# Soft lane: a missing Windows/Linux runner still publishes whatever built.
+
+on:
+  schedule:
+    # 07:15 UTC daily — after the usual overnight quiet window.
+    - cron: "15 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  nightly-windows:
+    runs-on: [self-hosted, dpl-win]
+    timeout-minutes: 45
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: release build
+        shell: pwsh
+        run: cargo build --release -p devpulselabs
+      - name: stage + zip
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $sha = "${{ github.sha }}"
+          $date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
+          $stage = "dist/nightly-windows"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item "target/release/devpulselabs.exe" "$stage/devpulselabs.exe"
+          @"
+          # DevPULSE Labs nightly (Windows x64)
+
+          - Commit: $sha
+          - Built: ${date}Z
+          - Runner: self-hosted dpl-win
+
+          Exe only — stage private tools with ``cargo xtask stage-tool-deps <release-root>``.
+          Pull: ``.\scripts\pull-nightly.ps1``
+          "@ | Set-Content -Encoding utf8 "$stage/NIGHTLY.md"
+          if (Test-Path "devpulselabs-windows-x64.zip") { Remove-Item "devpulselabs-windows-x64.zip" }
+          Compress-Archive -Path "$stage/*" -DestinationPath "devpulselabs-windows-x64.zip"
+      - name: upload artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-windows
+          path: devpulselabs-windows-x64.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  nightly-linux:
+    runs-on: [self-hosted, dpl-linux]
+    timeout-minutes: 45
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: release build
+        run: cargo build --release -p devpulselabs
+      - name: stage + zip
+        run: |
+          set -euo pipefail
+          SHA="${{ github.sha }}"
+          DATE="$(date -u +%Y-%m-%d)"
+          STAGE=dist/nightly-linux
+          mkdir -p "$STAGE"
+          cp target/release/devpulselabs "$STAGE/devpulselabs"
+          chmod +x "$STAGE/devpulselabs"
+          cat > "$STAGE/NIGHTLY.md" <<EOF
+          # DevPULSE Labs nightly (Linux aarch64)
+
+          - Commit: ${SHA}
+          - Built: ${DATE}Z
+          - Runner: self-hosted dpl-linux
+
+          Exe only — stage private tools with \`cargo xtask stage-tool-deps <release-root>\`.
+          Pull: \`./scripts/pull-nightly.sh\`
+          EOF
+          rm -f "$GITHUB_WORKSPACE/devpulselabs-linux-aarch64.zip"
+          # Flat zip root (matches Windows Compress-Archive of stage/*).
+          (cd "$STAGE" && zip -r "$GITHUB_WORKSPACE/devpulselabs-linux-aarch64.zip" .)
+      - name: upload artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-linux
+          path: devpulselabs-linux-aarch64.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [nightly-windows, nightly-linux]
+    # Publish whenever at least one lane produced an artifact. Soft-fail
+    # build jobs still "succeed" the needs edge when continue-on-error.
+    if: always()
+    runs-on: [self-hosted, dpl-linux]
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: download windows artifact (optional)
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: nightly-windows
+          path: artifacts
+      - name: download linux artifact (optional)
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: nightly-linux
+          path: artifacts
+      - name: publish Release tag nightly
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          DATE="$(date -u +%Y-%m-%d)"
+          SHA="${{ github.sha }}"
+          SHORT="${SHA:0:7}"
+          mkdir -p artifacts
+          shopt -s nullglob
+          ASSETS=(artifacts/*.zip)
+          if [ ${#ASSETS[@]} -eq 0 ]; then
+            echo "::error::no nightly zips — both runners offline or builds failed"
+            exit 1
+          fi
+          NOTES="$(mktemp)"
+          {
+            echo "## Nightly ${DATE}"
+            echo
+            echo "- Commit: \`${SHA}\` (\`${SHORT}\`)"
+            echo "- Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo
+            echo "### Assets present"
+            for a in "${ASSETS[@]}"; do echo "- \`$(basename "$a")\`"; done
+            echo
+            echo "Missing lanes (if any) mean that self-hosted runner was offline."
+            echo "Exe-only zip — private tools are staged separately (\`cargo xtask stage-tool-deps\`)."
+            echo
+            echo "### Pull"
+            echo '```bash'
+            echo './scripts/pull-nightly.sh'
+            echo '```'
+          } > "$NOTES"
+
+          if gh release view nightly >/dev/null 2>&1; then
+            gh release edit nightly \
+              --title "Nightly ${DATE}" \
+              --notes-file "$NOTES" \
+              --latest=false
+            # Replace assets that exist this run.
+            for a in "${ASSETS[@]}"; do
+              base="$(basename "$a")"
+              gh release delete-asset nightly "$base" --yes 2>/dev/null || true
+              gh release upload nightly "$a" --clobber
+            done
+          else
+            gh release create nightly \
+              "${ASSETS[@]}" \
+              --title "Nightly ${DATE}" \
+              --notes-file "$NOTES" \
+              --latest=false
+          fi
+
+          {
+            echo "### Nightly publish"
+            echo "- tag: \`nightly\`"
+            echo "- date: ${DATE}"
+            echo "- sha: \`${SHORT}\`"
+            for a in "${ASSETS[@]}"; do echo "- uploaded: \`$(basename "$a")\`"; done
+            if [ ! -f artifacts/devpulselabs-windows-x64.zip ]; then
+              echo "- **missing:** windows-x64 (dpl-win offline or failed)"
+            fi
+            if [ ! -f artifacts/devpulselabs-linux-aarch64.zip ]; then
+              echo "- **missing:** linux-aarch64 (dpl-linux offline or failed)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

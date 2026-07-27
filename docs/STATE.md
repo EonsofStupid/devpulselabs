@@ -594,13 +594,20 @@ is DELETED. Memory: `chat-is-a-peer-window`.
    `slide-catalog-pass` loop (~27 slides). Skills: `coldlight-system` +
    `slide-catalog-pass`. Memory: `port-fidelity-standard`.
 
-## CI + process (live as of #51/#52)
+## CI + process (live as of github-repo-hardening)
 
 - Self-hosted `dpl-win-laptop` (Windows) + `dpl-linux` / `dpl-linux-clyffy-lab`
   (ARM64 mini-PC) run the green gate. Branch protection is Pro-gated — CI
   is advisory; enforcement = local pre-push hook (`core.hooksPath=.githooks`,
   mode 100755) + discipline. NEVER squash-merge a code PR unless
   `green-linux` is green (Windows pending alone is not a fail).
+- **Dependency graph + Dependabot:** vulnerability alerts + automated
+  security fixes enabled; `.github/dependabot.yml` weekly Cargo + Actions
+  version PRs. GraphQL proves Cargo manifests on the graph.
+- **Nightly Releases:** `.github/workflows/nightly.yml` → rolling tag
+  `nightly` (exe-only zips). Pull: `./scripts/pull-nightly.sh` /
+  `.\scripts\pull-nightly.ps1`. Plan: `docs/plans/github-repo-hardening.md`.
+- `delete_branch_on_merge=true` on the repo.
 - Docs-only PRs skip CI (paths-ignore) and may merge immediately.
 - Runner persistence: Windows → schtasks (CLAUDE.md); Linux →
   `sudo ./svc.sh install` (session `./run.sh` dies on logout).
