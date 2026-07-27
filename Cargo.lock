@@ -1716,8 +1716,7 @@ name = "dpl-chat-browser-auth"
 version = "0.1.0"
 dependencies = [
  "dpl-chat-core",
- "dpl-engine-browser",
- "dpl-tools-deps",
+ "webbrowser",
 ]
 
 [[package]]

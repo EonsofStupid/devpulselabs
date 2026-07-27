@@ -195,16 +195,9 @@ pub fn provider_json(st: &Stamped<ProviderEvent>) -> Value {
         ProviderEvent::CodeCopied { provider, attempt } => json!({
             "type": "codeCopied", "provider": provider.0, "attempt": attempt.0
         }),
-        ProviderEvent::BrowserOpened {
-            provider,
-            attempt,
-            browser,
-        } => json!({
-            "type": "browserOpened", "provider": provider.0, "attempt": attempt.0,
-            "browser": browser
-        }),
-        ProviderEvent::BrowserClosed { provider, attempt } => json!({
-            "type": "browserClosed", "provider": provider.0, "attempt": attempt.0
+        ProviderEvent::SystemBrowserDispatched { provider, attempt } => json!({
+            "type": "systemBrowserDispatched", "provider": provider.0,
+            "attempt": attempt.0
         }),
         ProviderEvent::AuthorizationCompleted { provider, attempt } => json!({
             "type": "authorizationCompleted", "provider": provider.0, "attempt": attempt.0

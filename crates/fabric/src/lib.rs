@@ -238,12 +238,7 @@ pub enum ProviderEvent {
         provider: ProviderId,
         attempt: ActivationAttemptId,
     },
-    BrowserOpened {
-        provider: ProviderId,
-        attempt: ActivationAttemptId,
-        browser: String,
-    },
-    BrowserClosed {
+    SystemBrowserDispatched {
         provider: ProviderId,
         attempt: ActivationAttemptId,
     },
@@ -286,8 +281,7 @@ impl ProviderEvent {
             | Self::ClientStarted { provider, .. }
             | Self::DeviceCodeReceived { provider, .. }
             | Self::CodeCopied { provider, .. }
-            | Self::BrowserOpened { provider, .. }
-            | Self::BrowserClosed { provider, .. }
+            | Self::SystemBrowserDispatched { provider, .. }
             | Self::AuthorizationCompleted { provider, .. }
             | Self::RuntimeStarted { provider, .. }
             | Self::Ready { provider, .. }
@@ -304,8 +298,7 @@ impl ProviderEvent {
             | Self::ClientStarted { attempt, .. }
             | Self::DeviceCodeReceived { attempt, .. }
             | Self::CodeCopied { attempt, .. }
-            | Self::BrowserOpened { attempt, .. }
-            | Self::BrowserClosed { attempt, .. }
+            | Self::SystemBrowserDispatched { attempt, .. }
             | Self::AuthorizationCompleted { attempt, .. }
             | Self::RuntimeStarted { attempt, .. }
             | Self::Ready { attempt, .. }

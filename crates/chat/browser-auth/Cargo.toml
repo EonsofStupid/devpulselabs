@@ -6,8 +6,7 @@ publish.workspace = true
 
 [dependencies]
 dpl-chat-core.workspace = true
-dpl-engine-browser.workspace = true
-dpl-tools-deps.workspace = true
+webbrowser.workspace = true
 
 [lints]
 workspace = true

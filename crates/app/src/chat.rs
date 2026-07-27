@@ -1,5 +1,5 @@
 use dpl_chat_accounts::ActivationLedger;
-use dpl_chat_browser_auth::{BrowserAuthCoordinator, BrowserAuthEvent};
+use dpl_chat_browser_auth::{BrowserAuthCoordinator, BrowserAuthError, BrowserAuthEvent};
 use dpl_chat_core::{
     ActivationState, BoundedNativePayload, Capability, ChatEvent, ChatEventContent, ChatEventId,
     ChatSessionId, ProviderId, ProviderSessionId, RecoveryAction, RecoveryActionKind, SessionGroup,
@@ -308,10 +308,9 @@ impl ChatWindowCoordinator {
                 });
             shared
                 .fabric
-                .publish_provider(ProviderEvent::BrowserOpened {
+                .publish_provider(ProviderEvent::SystemBrowserDispatched {
                     provider: dpl_chat_grok::PROVIDER,
                     attempt,
-                    browser: "DevPULSE Chromium".to_owned(),
                 });
             drain_provider_facts(&mut shared);
         }
@@ -619,7 +618,7 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
             if provider != dpl_chat_grok::PROVIDER {
                 tracing::warn!(%provider, "provider authorization browser is not qualified");
             } else {
-                open_grok_authorization_browser(&mut state);
+                open_grok_authorization_browser(&mut state, true);
             }
             ctx.request_repaint();
         }
@@ -851,7 +850,7 @@ fn copy_provider_authorization_code(
     }
 }
 
-fn open_grok_authorization_browser(state: &mut Shared) -> bool {
+fn open_grok_authorization_browser(state: &mut Shared, explicit_reopen: bool) -> bool {
     if !state.provider_runtime_enabled {
         tracing::debug!("authorization browser is disabled in authored Chat fixtures");
         return false;
@@ -860,8 +859,14 @@ fn open_grok_authorization_browser(state: &mut Shared) -> bool {
         tracing::warn!("Grok authorization browser requested without a device prompt");
         return false;
     };
-    match state.auth_browser.open(prompt) {
+    let dispatch = if explicit_reopen {
+        state.auth_browser.reopen(prompt)
+    } else {
+        state.auth_browser.open_once(prompt)
+    };
+    match dispatch {
         Ok(started) => started,
+        Err(BrowserAuthError::DispatchInProgress(_)) => false,
         Err(error) => {
             tracing::warn!(%error, "Grok authorization browser was rejected");
             state
@@ -1005,10 +1010,8 @@ fn poll_provider_activations(state: &mut Shared) -> bool {
     }
 
     let mut browser_changed = false;
-    if state.grok_activation.current_prompt().is_some()
-        && !state.auth_browser.is_open_for(dpl_chat_grok::PROVIDER)
-    {
-        browser_changed |= open_grok_authorization_browser(state);
+    if state.grok_activation.current_prompt().is_some() {
+        browser_changed |= open_grok_authorization_browser(state, false);
     }
     if state.grok_activation.take_login_completed() {
         if let Some(attempt) = state.grok_attempt {
@@ -1019,29 +1022,22 @@ fn poll_provider_activations(state: &mut Shared) -> bool {
                     attempt,
                 });
         }
-        let _ = state.auth_browser.close(dpl_chat_grok::PROVIDER);
+        state.auth_browser.reset(dpl_chat_grok::PROVIDER);
         start_grok_runtime(state);
         browser_changed = true;
     }
     while let Some(event) = state.auth_browser.try_event() {
         browser_changed = true;
         match event {
-            BrowserAuthEvent::Opened { provider, browser } => {
-                tracing::info!(%provider, %browser, "provider authorization browser opened");
-                if let Some(attempt) = state.grok_attempt {
-                    state.fabric.publish_provider(ProviderEvent::BrowserOpened {
-                        provider,
-                        attempt,
-                        browser,
-                    });
-                }
-            }
-            BrowserAuthEvent::Closed { provider } => {
-                tracing::info!(%provider, "provider authorization browser closed");
+            BrowserAuthEvent::Dispatched { provider } => {
+                tracing::info!(%provider, "provider authorization sent to system browser");
                 if let Some(attempt) = state.grok_attempt {
                     state
                         .fabric
-                        .publish_provider(ProviderEvent::BrowserClosed { provider, attempt });
+                        .publish_provider(ProviderEvent::SystemBrowserDispatched {
+                            provider,
+                            attempt,
+                        });
                 }
             }
             BrowserAuthEvent::Failed { provider, reason } => {
