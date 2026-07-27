@@ -195,6 +195,9 @@ pub struct Composer {
     /// InboxChanged invalidates the project caches (refresh chips stop
     /// being load-bearing).
     capture_rx: Option<dpl_fabric::CaptureReceiver>,
+    /// Ring-0 estate — dual-writes last-comp beside composer-state.json.
+    /// None in tests/drills that never wired one.
+    estate: Option<std::sync::Arc<dpl_estate::Estate>>,
     status: String,
 }
 
@@ -295,6 +298,7 @@ impl Default for Composer {
             export: Arc::new(Mutex::new(ExportState::Idle)),
             fabric: None,
             capture_rx: None,
+            estate: None,
             status: "New composition — add footage from the Project panel.".into(),
         };
         // Proof/env override (the DPL_COMPOSER_TAB pattern): open the
@@ -827,12 +831,28 @@ impl Composer {
 
     /// Remember this comp as the one to reopen next run.
     fn remember_last(&self, dir: &Path) {
+        let rel = Self::short(dir);
         state::save(
             &Self::content_root(),
             &state::EditorState {
-                last_comp: Some(Self::short(dir)),
+                last_comp: Some(rel.clone()),
             },
         );
+        // Dual-write into the estate (seam GET /state lastComp). Best-effort —
+        // composer-state.json remains the reopen path this pass.
+        if let Some(est) = &self.estate {
+            let _ = est.put_json(
+                dpl_estate::Tree::State,
+                dpl_estate::KEY_WIREDFRONT_LAST_COMP,
+                &rel,
+            );
+            let _ = est.persist();
+        }
+    }
+
+    /// Share the Ring-0 estate so Save dual-writes last-comp.
+    pub fn wire_estate(&mut self, estate: std::sync::Arc<dpl_estate::Estate>) {
+        self.estate = Some(estate);
     }
 
     /// Persist `comp.json` to an inbox folder (inbox-born per R1 §1).
@@ -4111,5 +4131,25 @@ mod tests {
         .unwrap_err();
         assert!(err.contains("guide.json"), "{err}");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn remember_last_dual_writes_into_the_estate() {
+        let edir = std::env::temp_dir().join(format!("dpl-composer-estate-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&edir);
+        let est = std::sync::Arc::new(dpl_estate::Estate::open(&edir).unwrap());
+        let mut c = Composer::default();
+        c.wire_estate(std::sync::Arc::clone(&est));
+        let comp = Composer::content_root().join("inbox").join("estate-comp");
+        let _ = std::fs::create_dir_all(&comp);
+        c.remember_last(&comp);
+        let got: Option<String> = est
+            .get_json(
+                dpl_estate::Tree::State,
+                dpl_estate::KEY_WIREDFRONT_LAST_COMP,
+            )
+            .unwrap();
+        assert_eq!(got.as_deref(), Some("inbox/estate-comp"));
+        let _ = std::fs::remove_dir_all(&edir);
     }
 }

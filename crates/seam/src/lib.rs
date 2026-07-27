@@ -25,6 +25,7 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use dpl_comp::Composition;
+use dpl_estate::{Estate, Tree, KEY_SHELL_ROUTE, KEY_WIREDFRONT_LAST_COMP};
 use dpl_fabric::{CaptureEvent, Fabric, JobEvent, ProviderEvent, ShellEvent, Stamped};
 use dpl_hub::{HubSpec, Route};
 use serde_json::{json, Value};
@@ -252,12 +253,15 @@ enum RenderStatus {
 
 /// The seam's shared state: the one fabric, the registry, the last route
 /// the seam HEARD arrive (RouteChanged is the truth of arrival), the
-/// content root every rel dir is JAILED inside, and the render jobs.
+/// content root every rel dir is JAILED inside, the optional estate
+/// (durable route + lastComp), and the render jobs.
 pub struct SeamState {
     fabric: Fabric,
     registry: Registry,
     last_route: Mutex<Option<Route>>,
     root: PathBuf,
+    /// Ring-0 estate — None when open failed; never invents durability.
+    estate: Option<Arc<Estate>>,
     renders: Mutex<HashMap<String, RenderStatus>>,
 }
 
@@ -305,14 +309,50 @@ pub fn router(state: Shared) -> Router {
 
 /// Build the shared state (public so tests and the app share one path).
 /// `root` is the content root every rel dir is jailed inside.
-pub fn seam_state(fabric: Fabric, registry: Registry, root: PathBuf) -> Shared {
+/// `estate` is the Ring-0 durable store (None = open failed / drills).
+/// `seed` is the shell's current route at spawn (preferred over hydrate)
+/// so a RouteChanged published before the fold task subscribed is not lost.
+pub fn seam_state(
+    fabric: Fabric,
+    registry: Registry,
+    root: PathBuf,
+    estate: Option<Arc<Estate>>,
+    seed: Option<Route>,
+) -> Shared {
+    let last = seed.or_else(|| hydrated_route(estate.as_deref(), &registry));
+    if let (Some(est), Some(route)) = (estate.as_ref(), last.as_ref()) {
+        persist_shell_route(est, route);
+    }
     Arc::new(SeamState {
         fabric,
         registry,
-        last_route: Mutex::new(None),
+        last_route: Mutex::new(last),
         root,
+        estate,
         renders: Mutex::new(HashMap::new()),
     })
+}
+
+/// Read `shell/route` from the estate and resolve it through the registry.
+/// Unknown or corrupt values are discarded — never invented.
+pub fn hydrated_route(estate: Option<&Estate>, registry: &Registry) -> Option<Route> {
+    let estate = estate?;
+    let path: String = estate
+        .get_json(Tree::State, KEY_SHELL_ROUTE)
+        .ok()
+        .flatten()?;
+    registry.resolve(&path).ok()
+}
+
+fn persist_shell_route(estate: &Estate, route: &Route) {
+    let path = route_str(route);
+    if let Err(e) = estate.put_json(Tree::State, KEY_SHELL_ROUTE, &path) {
+        tracing::warn!(%e, "estate put shell/route failed");
+        return;
+    }
+    if let Err(e) = estate.persist() {
+        tracing::warn!(%e, "estate persist shell/route failed");
+    }
 }
 
 async fn get_state(State(s): State<Shared>) -> Json<Value> {
@@ -322,9 +362,16 @@ async fn get_state(State(s): State<Shared>) -> Json<Value> {
         .expect("seam route")
         .as_ref()
         .map(route_str);
+    let last_comp = s.estate.as_ref().and_then(|e| {
+        e.get_json::<String>(Tree::State, KEY_WIREDFRONT_LAST_COMP)
+            .ok()
+            .flatten()
+    });
     Json(json!({
         "version": env!("CARGO_PKG_VERSION"),
         "route": route,
+        "estate": s.estate.is_some(),
+        "lastComp": last_comp,
         "hubs": s.registry.hubs_json(),
     }))
 }
@@ -650,6 +697,8 @@ pub fn spawn(
     fabric: Fabric,
     registry: Registry,
     root: PathBuf,
+    estate: Option<Arc<Estate>>,
+    seed: Option<Route>,
     port: u16,
 ) -> std::thread::JoinHandle<()> {
     std::thread::Builder::new()
@@ -661,7 +710,7 @@ pub fn spawn(
                 .build()
                 .expect("seam runtime");
             rt.block_on(async move {
-                let state = seam_state(fabric, registry, root);
+                let state = seam_state(fabric, registry, root, estate, seed);
                 // Fold arrivals into last_route so GET /state answers
                 // "where is the operator" without asking the UI thread.
                 let fold = Arc::clone(&state);
@@ -670,6 +719,9 @@ pub fn spawn(
                     loop {
                         match rx.recv().await {
                             Ok(ShellEvent::RouteChanged { route }) => {
+                                if let Some(est) = fold.estate.as_ref() {
+                                    persist_shell_route(est, &route);
+                                }
                                 *fold.last_route.lock().expect("seam route") = Some(route);
                             }
                             Ok(_) => {}
@@ -855,8 +907,15 @@ mod tests {
 
     fn test_state_at(root: PathBuf) -> (Fabric, Shared) {
         let fabric = Fabric::new();
-        let state = seam_state(fabric.clone(), Registry::new(vec![&SPEC]), root);
+        let state = seam_state(fabric.clone(), Registry::new(vec![&SPEC]), root, None, None);
         (fabric, state)
+    }
+
+    fn estate_at(tag: &str) -> Arc<Estate> {
+        let dir =
+            std::env::temp_dir().join(format!("dpl-seam-estate-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        Arc::new(Estate::open(&dir).expect("estate open"))
     }
 
     /// For tests that never touch disk — the root is stored, not used.
@@ -945,6 +1004,8 @@ mod tests {
             .expect("response");
         let body = body_json(resp).await;
         assert_eq!(body["route"], Value::Null);
+        assert_eq!(body["estate"], json!(false));
+        assert_eq!(body["lastComp"], Value::Null);
         assert_eq!(body["hubs"][0]["id"], json!("wiredfront"));
         assert_eq!(body["hubs"][0]["subs"][1]["id"], json!("library"));
         // Hearing an arrival fills it (the fold the spawn task performs).
@@ -961,6 +1022,97 @@ mod tests {
             .await
             .expect("response");
         assert_eq!(body_json(resp).await["route"], json!("wiredfront/editor"));
+    }
+
+    #[test]
+    fn hydrate_accepts_registry_routes_and_refuses_invented_ones() {
+        let est = estate_at("hydrate");
+        let reg = Registry::new(vec![&SPEC]);
+        est.put_json(
+            Tree::State,
+            KEY_SHELL_ROUTE,
+            &"wiredfront/editor".to_string(),
+        )
+        .unwrap();
+        est.persist().unwrap();
+        let route = hydrated_route(Some(est.as_ref()), &reg).expect("known");
+        assert_eq!(route.sub.0, "editor");
+        est.put_json(Tree::State, KEY_SHELL_ROUTE, &"nope/nowhere".to_string())
+            .unwrap();
+        assert!(
+            hydrated_route(Some(est.as_ref()), &reg).is_none(),
+            "unknown routes must never hydrate"
+        );
+        est.put_json(
+            Tree::State,
+            KEY_SHELL_ROUTE,
+            &"not-json-was-string-ok".to_string(),
+        )
+        .unwrap();
+        // Valid JSON string but unknown path — still refuse.
+        est.put_json(
+            Tree::State,
+            KEY_SHELL_ROUTE,
+            &"wiredfront/ghost".to_string(),
+        )
+        .unwrap();
+        assert!(hydrated_route(Some(est.as_ref()), &reg).is_none());
+        assert!(hydrated_route(None, &reg).is_none());
+    }
+
+    #[tokio::test]
+    async fn state_reads_last_comp_and_hydrated_route_from_estate() {
+        let est = estate_at("state-fields");
+        est.put_json(
+            Tree::State,
+            KEY_SHELL_ROUTE,
+            &"wiredfront/library".to_string(),
+        )
+        .unwrap();
+        est.put_json(
+            Tree::State,
+            KEY_WIREDFRONT_LAST_COMP,
+            &"inbox/comp-9".to_string(),
+        )
+        .unwrap();
+        est.persist().unwrap();
+        let fabric = Fabric::new();
+        let state = seam_state(
+            fabric,
+            Registry::new(vec![&SPEC]),
+            std::env::temp_dir(),
+            Some(est),
+            None,
+        );
+        let resp = router(state)
+            .oneshot(
+                Request::builder()
+                    .uri("/state")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        let body = body_json(resp).await;
+        assert_eq!(body["estate"], json!(true));
+        assert_eq!(body["route"], json!("wiredfront/library"));
+        assert_eq!(body["lastComp"], json!("inbox/comp-9"));
+    }
+
+    #[test]
+    fn persist_shell_route_survives_reopen() {
+        let dir =
+            std::env::temp_dir().join(format!("dpl-seam-estate-reopen-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let reg = Registry::new(vec![&SPEC]);
+        {
+            let est = Estate::open(&dir).unwrap();
+            let route = reg.resolve("wiredfront/editor").unwrap();
+            persist_shell_route(&est, &route);
+        }
+        let est2 = Estate::open(&dir).unwrap();
+        let route = hydrated_route(Some(&est2), &reg).expect("survived");
+        assert_eq!(route_str(&route), "wiredfront/editor");
     }
 
     #[test]

@@ -9,6 +9,7 @@ workspace = true
 
 [dependencies]
 dpl-fabric.workspace = true
+dpl-estate.workspace = true
 egui.workspace = true
 egui-pilot-ai.workspace = true
 dpl-comp.workspace = true

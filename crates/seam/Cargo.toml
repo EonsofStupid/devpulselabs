@@ -20,6 +20,7 @@ tracing = "0.1"
 
 dpl-fabric.workspace = true
 dpl-hub.workspace = true
+dpl-estate.workspace = true
 # The comp-document surface (R1w): the doctor gates every write; the
 # stitch render is the same ffmpeg engine the editor's Render chip uses.
 dpl-comp.workspace = true

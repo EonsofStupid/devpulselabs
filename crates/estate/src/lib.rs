@@ -19,6 +19,11 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::path::Path;
 use std::sync::Arc;
 
+/// `Tree::State` key — last shell route as `"hub/sub"` (registry-validated).
+pub const KEY_SHELL_ROUTE: &str = "shell/route";
+/// `Tree::State` key — WiredFRONT last-opened comp (content-root rel path).
+pub const KEY_WIREDFRONT_LAST_COMP: &str = "wiredfront/last-comp";
+
 /// The named partitions of the estate — one keyspace, several trees, so a
 /// doc read never scans agent sessions. Additive: new concerns claim a new
 /// partition, they never squat an existing one.

@@ -1,0 +1,16 @@
+id = "estate-seam-wire"
+fixture = "wiredfront-editor"
+record = true
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/shell.rail/wiredfront"
+
+[[steps]]
+kind = "capture"
+name = "estate-wiredfront-editor"

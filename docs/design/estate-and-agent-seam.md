@@ -1,11 +1,10 @@
 # ADR — the project ESTATE + the agent seam (Fjall · Moka · axum)
 
-Status: ESTATE LANDED on `main` (2026-07-26 re-author of parked
-`feat/estate-fjall-moka` — fresh Cargo.lock; Fjall 2.x + Moka 0.12). Operator
-directive 2026-07-24: "extend Claude's infra ability, and persistence… add
-Fjall, Moka as a local per-project estate… axum signals getting properly to
-http endpoints". The axum seam (§2) already exists as `dpl-seam` (R1v); next
-is wiring estate into seam/editors for durable agent + editor state.
+Status: ESTATE LANDED (#65). Seam wire (estate-seam-wire): Ring-0 open at
+`userdata_root()/estate`, durable `shell/route` + WiredFRONT `lastComp` on
+`GET /state`, dual-write `remember_last`. Operator directive 2026-07-24.
+Full §2 vision (selection/manifest/agent blobs) remains NEXT after this thin
+honest slice.
 
 ## Why
 
@@ -30,25 +29,22 @@ keys · persist`. Proven: round-trip through cache+disk, tree isolation, and
 KV blobs + cache for editor/agent/manifest state. Different jobs; both wrapped
 by Moka on the read path where it helps.
 
-## §2 — The agent seam (axum) — NEXT
+## §2 — The agent seam (axum) — PARTIAL
 
-A localhost **axum** HTTP server, started by the app, bridges the typed
-`Fabric` (tokio broadcast) ↔ HTTP so chat providers generate into and drive
-the editors:
+The localhost **axum** seam (`dpl-seam`, R1v/R1w) bridges typed `Fabric` ↔
+HTTP. **Estate-backed today** (`docs/plans/estate-seam-wire.md`):
 
-- `GET /state` — the current editor state (active comp/scene, selection,
-  library manifest) read from the estate.
-- `POST /command` — a typed, VALIDATED command (add clip, place annotation,
-  add container, enqueue generation). Validation reuses the doc doctors — an
-  agent can never write an invalid comp/slide.
-- `GET /signals` (SSE) — fabric `ShellEvent`/`DeckEvent` streamed out, so an
-  agent sees where the operator is and what changed.
-- Generation jobs are an engine queue (mpsc, not broadcast — the fabric law);
-  outputs land as REAL files in the inbox and index write-through.
+- `GET /state` — `{ version, route, hubs, estate, lastComp }` where `route`
+  hydrates from / dual-writes `Tree::State` key `shell/route`, and
+  `lastComp` reads `wiredfront/last-comp` (WiredFRONT reopen pointer).
+- `POST /command` — navigate / viziwiz-summon / render (validated).
+- `GET /signals` (SSE) — fabric events.
+- Comp docs remain on disk via `/comp*` (doctors); not mirrored into
+  `Tree::Docs` this pass.
 
-The seam is how "chat can generate and work with this" (operator) becomes
-real: the same commands the editor UI issues, an agent issues over HTTP,
-against the same estate + doctors.
+**Still NEXT:** selection / undo cursor / library manifest in `/state`;
+`Tree::Agents` session blobs; Workbench session; generation job queue
+beyond the existing render command.
 
 ## §3 — The ingredient-library law (spans everything)
 
@@ -65,8 +61,9 @@ product, per the coldlight-system gate.
 ## Build order
 
 1. `dpl-estate` (Fjall + Moka) — DONE.
-2. axum agent seam over the fabric + estate (§2).
-3. Editors read/write the estate (WiredFRONT tab/comp/selection persistence;
+2. axum agent seam over the fabric + estate (§2 thin slice: route +
+   lastComp) — DONE (estate-seam-wire).
+3. Editors read/write the estate (WiredFRONT selection/undo;
    Workbench doc state) + surface the generated manifest.
 4. WiredFRONT editor fidelity to the reference (bottom toolbar, left tool
    rail, canvas, inspector) — every control a generated ingredient.

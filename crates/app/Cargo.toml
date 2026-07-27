@@ -57,6 +57,7 @@ egui-pilot-ai-runtime = { workspace = true, optional = true }
 egui-pilot-ai-transport = { workspace = true, optional = true }
 dpl-chat-testkit = { workspace = true, optional = true }
 dpl-seam.workspace = true
+dpl-estate.workspace = true
 
 [[bin]]
 name = "devpulselabs"
