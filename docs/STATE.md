@@ -2,13 +2,18 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-27 — GROK SYSTEM-BROWSER AUTH LANDED (#67).** Device URL opens in
+the OS default browser (not CDP/bundled Chromium); Cloudflare automation
+reject fixed. Proof `proof-chat-grok-system-browser-auth.png`. Real-account
+retest remains the operator gate. Contract: `docs/plans/chat-grok-activation.md`.
+Open product PRs: none.
+
 **2026-07-27 — W10a SLIDE ASSOCIATION LANDED (#72).** `dpl_doc::place_slide`
 (copy into existing episode chapter; never-clobber; transactional rollback);
 `BuildEvent` fabric domain + seam `build_json`; thin Workbench Studio place
 form. EguiPilot `workbench-studio` +
 `docs/proof/workbench-studio-place.png`. Plan
-`docs/plans/w10-slide-association.md` §8a/§8. Open product PRs: none (draft
-Codex #67 separate).
+`docs/plans/w10-slide-association.md` §8a/§8.
 
 **2026-07-26 — WORKBENCH CATALOG FIDELITY LANDED (#70).** Experience
 inventory authored; Library gains Blocks chip (live eyebrow/badge/stat/
@@ -94,7 +99,7 @@ disabled, relocated release startup passed with provider-bearing `PATH`
 entries removed, and the complete local `cargo green` gate passed. Canonical
 contract and evidence: `docs/plans/private-tool-depot.md`.
 
-**Tip:** on `main` (2026-07-27) at W10a slide association (#72). **DG1 LANDED** (#43,
+**Tip:** on `main` (2026-07-27) at Grok system-browser auth (#67). **DG1 LANDED** (#43,
 `feat/dg1-mixed-guide`, `docs/plans/dg1-mixed-media-guide.md` — operator:
 stills for where-to-click + session-replay clips when appropriate, ORDERED
 in one `.guide`): replay-segment steps land — `Step.kind:"replay"` +
@@ -613,7 +618,8 @@ is DELETED. Memory: `chat-is-a-peer-window`.
 3. Seed empty classes / animation templates (catalog follow-ons).
 4. Parallel backlog: RR1.1; AEP Phase 2; ColdLight remainder; mac-parity.
    Ops: `dpl-linux` `svc.sh install`; unset Cursor `CARGO_TARGET_DIR` for
-   local green (or fix `locate_asset`). Triage draft Codex #67.
+   local green (or fix `locate_asset`). Operator: real xAI account retest
+   for Grok system-browser auth (#67).
 
 ## Process facts
 
