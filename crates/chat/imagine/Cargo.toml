@@ -1,0 +1,16 @@
+[package]
+name = "dpl-chat-imagine"
+version = "0.1.0"
+edition = "2021"
+
+# ADR-011: the named Imagine generation adapter. The ONLY crate in the
+# workspace allowed an outbound HTTPS client, aimed at the compiled-in
+# xAI Imagine endpoint, keyed by an operator-owned XAI_API_KEY that is
+# read at call time and never stored or logged.
+
+[dependencies]
+dpl-engine-capture.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+ureq.workspace = true
+data-encoding.workspace = true

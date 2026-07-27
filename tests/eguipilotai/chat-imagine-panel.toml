@@ -1,0 +1,114 @@
+# The Imagine generation panel (ADR-011), proven on the authored fixture:
+# the composer's media button opens the panel; image mode is selected and
+# video mode is truthfully staged; the generate action enables only once a
+# prompt exists. Authored mode never spends — the host refuses generation
+# in fixtures the same way provider activation is refused.
+id = "chat-imagine-panel"
+fixture = "chat-authored"
+record = true
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "open"
+
+[steps.expectation.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "wait"
+milliseconds = 750
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "focus-viewport"
+
+[steps.action.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.overlay/interaction-1003/reject"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.composer.media"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.generation.panel"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "selected"
+
+[steps.expectation.target]
+id = "chat.primary/chat.generation.mode.image"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "disabled"
+
+[steps.expectation.target]
+id = "chat.primary/chat.generation.mode.video"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "disabled"
+
+[steps.expectation.target]
+id = "chat.primary/chat.generation.generate"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "fill"
+text = "a neon lighthouse over a data sea"
+
+[steps.action.target]
+id = "chat.primary/chat.composer"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "enabled"
+
+[steps.expectation.target]
+id = "chat.primary/chat.generation.generate"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "close-viewport"
+
+[steps.action.viewport]
+key = "chat.primary"

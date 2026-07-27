@@ -7,6 +7,7 @@ use dpl_chat_core::{
 };
 #[cfg(feature = "eguipilotai-devtools")]
 use dpl_chat_core::{ChatDomain, DeviceAuthorizationPrompt, GuidedValue, GuidedValueSensitivity};
+use dpl_chat_imagine::{ImagineCache, ImagineClient, ImaginePolicy, SystemImagineClient};
 use dpl_chat_interactions::{
     InteractionContent, InteractionId, InteractionPlacement, InteractionRegistry,
 };
@@ -15,7 +16,8 @@ use dpl_chat_runtime::ChatRuntime;
 use dpl_chat_social::SocialModel;
 use dpl_chat_store::HistoryCatalog;
 use dpl_chat_window::{
-    ChatWindow, HostIntent, ProviderPermissionChoice, ProviderPermissionChoiceKind,
+    ChatWindow, GenerationDraftView, GenerationStatus, HostIntent, ImagineFlushDecision,
+    ProviderPermissionChoice, ProviderPermissionChoiceKind,
 };
 use dpl_chat_windows::{
     ChatCloseDecision, ChatWindowId, ChatWindowRecord, ChatWindowRegistry, PeerLifetime,
@@ -23,8 +25,9 @@ use dpl_chat_windows::{
     WindowGeometry, WindowKind, WindowLifecycle,
 };
 use dpl_fabric::{
-    ActivationAttemptId, AppWindowAction, Fabric, ProviderActivationStage, ProviderEvent,
-    ProviderFailureClass, ProviderReceiver, ShellEvent, ShellReceiver,
+    ActivationAttemptId, AppWindowAction, CaptureEvent, Fabric, JobEvent, JobId,
+    ProviderActivationStage, ProviderEvent, ProviderFailureClass, ProviderReceiver, ShellEvent,
+    ShellReceiver,
 };
 use dpl_hub::Route;
 use egui_pilot_ai::{
@@ -49,6 +52,7 @@ pub enum ChatProofMode {
     ProviderCatalog,
     ProviderHover,
     CodexLogin,
+    Generation,
     GrokLogin,
     GrokAuthorization,
     Compact,
@@ -65,6 +69,7 @@ impl ChatProofMode {
             "providers" => Some(Self::ProviderCatalog),
             "hover" => Some(Self::ProviderHover),
             "codex" => Some(Self::CodexLogin),
+            "generation" => Some(Self::Generation),
             "grok" => Some(Self::GrokLogin),
             "grok-auth" => Some(Self::GrokAuthorization),
             "compact" => Some(Self::Compact),
@@ -93,6 +98,7 @@ struct Shared {
     grok_permissions: BTreeMap<u64, PendingGrokPermission>,
     grok_attempt: Option<ActivationAttemptId>,
     codex_attempt: Option<ActivationAttemptId>,
+    imagine: ImagineState,
     provider_events: ProviderReceiver,
     provider_runtime_enabled: bool,
     auth_browser: BrowserAuthCoordinator,
@@ -115,6 +121,31 @@ struct PendingGrokPermission {
     interaction: InteractionId,
     provider_session_id: String,
     allow_options: BTreeSet<String>,
+}
+
+/// Chat Imagine generation state (ADR-011). `None` cache in authored
+/// fixtures — deterministic proofs never touch the real Ring-0 cache.
+struct ImagineState {
+    cache: Option<ImagineCache>,
+    policy: ImaginePolicy,
+    /// One in-flight generation at a time; the worker reports through this.
+    worker: Option<std::sync::mpsc::Receiver<Result<Vec<u8>, String>>>,
+    pending_prompt: Option<String>,
+    job: Option<JobId>,
+    last_error: Option<String>,
+}
+
+impl ImagineState {
+    fn in_flight(&self) -> bool {
+        self.worker.is_some()
+    }
+}
+
+fn now_unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or_default()
 }
 
 /// The sole owner of primary Chat viewport creation and peer lifetime policy.
@@ -222,6 +253,19 @@ impl ChatWindowCoordinator {
                             dpl_chat_window::DomainOverlay::ProviderCatalog,
                         )))
                         .expect("the provider catalog overlay is valid");
+                }
+                ChatProofMode::Generation => {
+                    window
+                        .apply(dpl_chat_window::ChatWindowIntent::UpdateAiDraft {
+                            provider: dpl_chat_codex::PROVIDER,
+                            value: "a neon lighthouse over a data sea".to_owned(),
+                        })
+                        .expect("the authored generation prompt is valid");
+                    window
+                        .apply(dpl_chat_window::ChatWindowIntent::SetOverlay(Some(
+                            dpl_chat_window::DomainOverlay::Generation,
+                        )))
+                        .expect("the generation overlay is valid");
                 }
                 ChatProofMode::CodexLogin => {
                     window
@@ -356,6 +400,38 @@ impl ChatWindowCoordinator {
                 }
             }
         }
+        let imagine = if provider_runtime_enabled {
+            ImagineState {
+                cache: Some(ImagineCache::open_default()),
+                policy: ImaginePolicy::load(&dpl_engine_capture::userdata_root()),
+                worker: None,
+                pending_prompt: None,
+                job: None,
+                last_error: None,
+            }
+        } else {
+            ImagineState {
+                cache: None,
+                policy: ImaginePolicy::default(),
+                worker: None,
+                pending_prompt: None,
+                job: None,
+                last_error: None,
+            }
+        };
+        if provider_runtime_enabled {
+            window.set_generation_status(generation_status_for(&imagine));
+            window.replace_generation_drafts(imagine_draft_views(&imagine));
+        } else {
+            // Authored fixtures get a deterministic, enabled panel; the
+            // host still refuses to spend (activation-style fixture gate).
+            window.set_generation_status(GenerationStatus {
+                image_available: true,
+                unavailable_reason: String::new(),
+                in_flight: false,
+                last_error: None,
+            });
+        }
         let mut shared = Shared {
             registry,
             lifetime: PeerLifetime::default(),
@@ -371,6 +447,7 @@ impl ChatWindowCoordinator {
             grok_permissions: BTreeMap::new(),
             grok_attempt: None,
             codex_attempt: None,
+            imagine,
             provider_events: fabric.subscribe_providers(),
             provider_runtime_enabled,
             auth_browser: BrowserAuthCoordinator::new(),
@@ -416,6 +493,44 @@ impl ChatWindowCoordinator {
                 dpl_chat_grok::GrokVerificationOrigin::Startup,
             );
             drive_grok_runtime(&mut shared, Instant::now());
+        }
+        if provider_runtime_enabled {
+            let now = now_unix_ms();
+            let due = shared
+                .imagine
+                .cache
+                .as_ref()
+                .is_some_and(|cache| cache.retention_due(now));
+            if due {
+                if shared.imagine.policy.auto_flush {
+                    if let Some(cache) = shared.imagine.cache.as_mut() {
+                        let flushed = cache.flush_expired(now);
+                        tracing::info!(flushed, "expired Imagine drafts were auto-flushed");
+                    }
+                    project_imagine(&mut shared);
+                } else {
+                    let expired = shared
+                        .imagine
+                        .cache
+                        .as_ref()
+                        .map(|cache| {
+                            cache
+                                .drafts()
+                                .iter()
+                                .filter(|draft| draft.expired(now))
+                                .count()
+                        })
+                        .unwrap_or_default();
+                    let interaction = InteractionId(shared.next_interaction_id);
+                    shared.next_interaction_id = shared.next_interaction_id.saturating_add(1);
+                    if let Err(error) = shared
+                        .window
+                        .register_imagine_flush_prompt(interaction, expired)
+                    {
+                        tracing::warn!(%error, "Imagine flush prompt could not be raised");
+                    }
+                }
+            }
         }
         Self {
             shared: Arc::new(Mutex::new(shared)),
@@ -571,11 +686,13 @@ impl ChatWindowCoordinator {
                     }
                     let activation_changed = poll_provider_activations(&mut state);
                     let runtime_changed = poll_grok_runtime(&mut state)
-                        | drive_grok_runtime(&mut state, Instant::now());
+                        | drive_grok_runtime(&mut state, Instant::now())
+                        | poll_imagine(&mut state);
                     let provider_runtime_live =
                         state.grok_runtime.is_some() || state.grok_runtime_retry_at.is_some();
                     let login_running = state.codex_activation.is_login_running()
-                        || state.grok_activation.is_login_running();
+                        || state.grok_activation.is_login_running()
+                        || state.imagine.in_flight();
                     let intents = egui::CentralPanel::default()
                         .frame(
                             egui::Frame::new()
@@ -850,6 +967,31 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
                     option_id,
                 },
             );
+            ctx.request_repaint();
+        }
+        HostIntent::RequestImageGeneration { prompt } => {
+            let mut state = lock(shared);
+            request_image_generation(&mut state, prompt);
+            ctx.request_repaint();
+        }
+        HostIntent::SaveGenerationDraft { id } => {
+            let mut state = lock(shared);
+            save_generation_draft(&mut state, &id);
+            ctx.request_repaint();
+        }
+        HostIntent::DiscardGenerationDraft { id } => {
+            let mut state = lock(shared);
+            if let Some(cache) = state.imagine.cache.as_mut() {
+                if let Err(error) = cache.remove(&id) {
+                    tracing::warn!(%error, "generation draft could not be discarded");
+                }
+            }
+            project_imagine(&mut state);
+            ctx.request_repaint();
+        }
+        HostIntent::ResolveImagineFlush { decision } => {
+            let mut state = lock(shared);
+            resolve_imagine_flush(&mut state, decision);
             ctx.request_repaint();
         }
         HostIntent::NavigateTo(route) => {
@@ -1159,6 +1301,203 @@ fn ensure_grok_attempt(state: &mut Shared) -> ActivationAttemptId {
 fn drain_provider_facts(state: &mut Shared) {
     while let Ok(fact) = state.provider_events.try_recv() {
         state.window.observe_provider_fact(fact);
+    }
+}
+
+fn generation_status_for(imagine: &ImagineState) -> GenerationStatus {
+    let provisioned = dpl_chat_imagine::resolve_api_key().is_some();
+    GenerationStatus {
+        image_available: provisioned,
+        unavailable_reason: if provisioned {
+            String::new()
+        } else {
+            "Set XAI_API_KEY in your environment to enable image generation (ADR-011).".to_owned()
+        },
+        in_flight: imagine.in_flight(),
+        last_error: imagine.last_error.clone(),
+    }
+}
+
+fn imagine_draft_views(imagine: &ImagineState) -> Vec<GenerationDraftView> {
+    let Some(cache) = imagine.cache.as_ref() else {
+        return Vec::new();
+    };
+    cache
+        .drafts()
+        .iter()
+        .map(|draft| GenerationDraftView {
+            id: draft.id.clone(),
+            prompt: draft.prompt.clone(),
+            created_ms: draft.created_ms,
+            thumb: std::fs::read(cache.artifact_path(draft))
+                .ok()
+                .and_then(|bytes| decode_generation_thumb(&bytes)),
+        })
+        .collect()
+}
+
+fn decode_generation_thumb(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
+    let decoded = image::load_from_memory(bytes).ok()?;
+    let thumb = decoded.thumbnail(256, 256).to_rgba8();
+    Some((thumb.width(), thumb.height(), thumb.into_raw()))
+}
+
+fn project_imagine(state: &mut Shared) {
+    let status = generation_status_for(&state.imagine);
+    state.window.set_generation_status(status);
+    let views = imagine_draft_views(&state.imagine);
+    state.window.replace_generation_drafts(views);
+}
+
+fn request_image_generation(state: &mut Shared, prompt: String) {
+    if !state.provider_runtime_enabled {
+        tracing::debug!("image generation is disabled in authored Chat fixtures");
+        return;
+    }
+    if state.imagine.in_flight() {
+        tracing::warn!("an image generation is already in flight");
+        return;
+    }
+    if prompt.trim().is_empty() {
+        return;
+    }
+    let Some(key) = dpl_chat_imagine::resolve_api_key() else {
+        state.imagine.last_error =
+            Some("XAI_API_KEY is not provisioned in this session.".to_owned());
+        project_imagine(state);
+        return;
+    };
+    let job = state.fabric.mint_job();
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    let worker_prompt = prompt.clone();
+    let spawned = std::thread::Builder::new()
+        .name("devpulse-imagine".to_owned())
+        .spawn(move || {
+            let result = SystemImagineClient.generate_image(&key, &worker_prompt);
+            let _ = sender.send(result);
+        });
+    if let Err(error) = spawned {
+        state.imagine.last_error = Some(format!("the generation worker could not start: {error}"));
+        project_imagine(state);
+        return;
+    }
+    state.imagine.worker = Some(receiver);
+    state.imagine.pending_prompt = Some(prompt);
+    state.imagine.job = Some(job);
+    state.imagine.last_error = None;
+    state.fabric.publish_job(JobEvent::Queued {
+        job,
+        label: "imagine image".to_owned(),
+    });
+    project_imagine(state);
+}
+
+fn poll_imagine(state: &mut Shared) -> bool {
+    let Some(receiver) = state.imagine.worker.as_ref() else {
+        return false;
+    };
+    let result = match receiver.try_recv() {
+        Ok(result) => result,
+        Err(std::sync::mpsc::TryRecvError::Empty) => return false,
+        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+            Err("the generation worker stopped".to_owned())
+        }
+    };
+    state.imagine.worker = None;
+    let prompt = state.imagine.pending_prompt.take().unwrap_or_default();
+    let job = state.imagine.job.take();
+    match result {
+        Ok(bytes) => {
+            let outcome = state.imagine.cache.as_mut().map(|cache| {
+                cache.add(
+                    &prompt,
+                    dpl_chat_imagine::IMAGE_MODEL,
+                    &bytes,
+                    now_unix_ms(),
+                )
+            });
+            match outcome {
+                Some(Ok(draft)) => {
+                    if let Some(job) = job {
+                        state.fabric.publish_job(JobEvent::Done {
+                            job,
+                            out: draft.file.clone(),
+                        });
+                    }
+                }
+                Some(Err(error)) => {
+                    state.imagine.last_error = Some(error.clone());
+                    if let Some(job) = job {
+                        state.fabric.publish_job(JobEvent::Failed { job, error });
+                    }
+                }
+                None => {}
+            }
+        }
+        Err(error) => {
+            state.imagine.last_error = Some(error.clone());
+            if let Some(job) = job {
+                state.fabric.publish_job(JobEvent::Failed { job, error });
+            }
+        }
+    }
+    project_imagine(state);
+    true
+}
+
+fn save_generation_draft(state: &mut Shared, id: &str) {
+    if !state.provider_runtime_enabled {
+        tracing::debug!("draft promotion is disabled in authored Chat fixtures");
+        return;
+    }
+    let Some(path) = state
+        .imagine
+        .cache
+        .as_ref()
+        .and_then(|cache| cache.get(id).map(|draft| cache.artifact_path(draft)))
+    else {
+        tracing::warn!(%id, "unknown generation draft");
+        return;
+    };
+    match dpl_composer::import::import_generated(&path) {
+        Ok(_record) => {
+            tracing::info!(%id, "generated draft promoted into the library inbox");
+            if let Some(cache) = state.imagine.cache.as_mut() {
+                if let Err(error) = cache.remove(id) {
+                    tracing::warn!(%error, "promoted draft could not leave the cache");
+                }
+            }
+            state.fabric.publish_capture(CaptureEvent::InboxChanged);
+        }
+        Err(error) => {
+            state.imagine.last_error = Some(format!("Save failed: {error}"));
+        }
+    }
+    project_imagine(state);
+}
+
+fn resolve_imagine_flush(state: &mut Shared, decision: ImagineFlushDecision) {
+    match decision {
+        ImagineFlushDecision::Defer => {
+            tracing::info!("Imagine draft flush deferred by the operator");
+        }
+        ImagineFlushDecision::FlushNow | ImagineFlushDecision::FlushAlways => {
+            if let Some(cache) = state.imagine.cache.as_mut() {
+                let flushed = cache.flush_expired(now_unix_ms());
+                tracing::info!(flushed, "expired Imagine drafts were flushed");
+            }
+            if decision == ImagineFlushDecision::FlushAlways {
+                state.imagine.policy.auto_flush = true;
+                if let Err(error) = state
+                    .imagine
+                    .policy
+                    .save(&dpl_engine_capture::userdata_root())
+                {
+                    tracing::warn!(%error, "Imagine flush policy could not be persisted");
+                }
+            }
+            project_imagine(state);
+        }
     }
 }
 

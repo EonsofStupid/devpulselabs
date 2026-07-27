@@ -77,6 +77,11 @@ pub const PROVIDER_AUTH_BROWSER_ID: PilotId = PilotId::new("chat.provider.author
 pub const PROVIDER_TRACE_ID: PilotId = PilotId::new("chat.provider.activation-trace");
 pub const PROVIDER_SETUP_ID: PilotId = PilotId::new("chat.provider.setup");
 pub const PROVIDER_REFRESH_ID: PilotId = PilotId::new("chat.provider.refresh");
+pub const GENERATION_PANEL_ID: PilotId = PilotId::new("chat.generation.panel");
+pub const GENERATION_MODE_IMAGE_ID: PilotId = PilotId::new("chat.generation.mode.image");
+pub const GENERATION_MODE_VIDEO_ID: PilotId = PilotId::new("chat.generation.mode.video");
+pub const GENERATION_GENERATE_ID: PilotId = PilotId::new("chat.generation.generate");
+pub const GENERATION_DRAFT_ID: PilotId = PilotId::new("chat.generation.draft");
 pub const UTILITY_OPEN_ID: PilotId = PilotId::new("chat.utility.open");
 
 const FULL_RAIL_WIDTH: f32 = 840.0;
@@ -109,6 +114,62 @@ pub enum DomainOverlay {
     ProviderConfiguration(ProviderConfigurationKind),
     Provider(ProviderId),
     SocialConversation(SocialConversationId),
+    /// The Imagine generation panel (ADR-011): mode toggle, generate
+    /// action, and the governed draft strip.
+    Generation,
+}
+
+/// What the host has qualified for in-chat generation. Truthful by
+/// construction: the window renders exactly this, never an assumption.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GenerationStatus {
+    pub image_available: bool,
+    pub unavailable_reason: String,
+    pub in_flight: bool,
+    pub last_error: Option<String>,
+}
+
+impl Default for GenerationStatus {
+    fn default() -> Self {
+        Self {
+            image_available: false,
+            unavailable_reason: "Image generation is not provisioned.".to_owned(),
+            in_flight: false,
+            last_error: None,
+        }
+    }
+}
+
+/// A cached generation draft as the window shows it. `thumb` is a
+/// pre-decoded RGBA image (width, height, pixels) prepared by the host.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GenerationDraftView {
+    pub id: String,
+    pub prompt: String,
+    pub created_ms: u64,
+    pub thumb: Option<(u32, u32, Vec<u8>)>,
+}
+
+/// The operator's answer to the draft-cache flush prompt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImagineFlushDecision {
+    /// Flush now; ask again next cycle.
+    FlushNow,
+    /// Flush now and never ask again.
+    FlushAlways,
+    /// Keep everything for now; the prompt returns next boot.
+    Defer,
+}
+
+/// Lazy thumbnail textures. Lives outside the derives because
+/// `egui::TextureHandle` has no `Debug`.
+#[derive(Clone, Default)]
+struct GenerationTextures(HashMap<String, egui::TextureHandle>);
+
+impl std::fmt::Debug for GenerationTextures {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "GenerationTextures({})", self.0.len())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -201,6 +262,19 @@ pub enum ChatWindowIntent {
         request_id: u64,
         option_id: Option<String>,
     },
+    RequestImageGeneration {
+        prompt: String,
+    },
+    SaveGenerationDraft {
+        id: String,
+    },
+    DiscardGenerationDraft {
+        id: String,
+    },
+    ResolveImagineFlush {
+        interaction: InteractionId,
+        decision: ImagineFlushDecision,
+    },
     NavigateTo(Route),
     ShowMain,
     QuitApplication,
@@ -233,6 +307,18 @@ pub enum HostIntent {
         provider: ProviderId,
         request_id: u64,
         option_id: Option<String>,
+    },
+    RequestImageGeneration {
+        prompt: String,
+    },
+    SaveGenerationDraft {
+        id: String,
+    },
+    DiscardGenerationDraft {
+        id: String,
+    },
+    ResolveImagineFlush {
+        decision: ImagineFlushDecision,
     },
     NavigateTo(Route),
     ShowMain,
@@ -319,6 +405,10 @@ pub struct ChatWindow {
     domain_states: ChatDomainStates,
     provider_profiles: Vec<ProviderProfile>,
     provider_profile_draft: ProviderProfileDraft,
+    generation_status: GenerationStatus,
+    generation_drafts: Vec<GenerationDraftView>,
+    generation_textures: GenerationTextures,
+    imagine_flush_consent: Option<InteractionId>,
 }
 
 impl ChatWindow {
@@ -407,7 +497,63 @@ impl ChatWindow {
             provider_profile_draft: ProviderProfileDraft::for_kind(
                 ProviderConfigurationKind::Local,
             ),
+            generation_status: GenerationStatus::default(),
+            generation_drafts: Vec::new(),
+            generation_textures: GenerationTextures::default(),
+            imagine_flush_consent: None,
         }
+    }
+
+    pub fn set_generation_status(&mut self, status: GenerationStatus) {
+        self.generation_status = status;
+    }
+
+    pub fn replace_generation_drafts(&mut self, drafts: Vec<GenerationDraftView>) {
+        self.generation_textures
+            .0
+            .retain(|id, _| drafts.iter().any(|draft| &draft.id == id));
+        self.generation_drafts = drafts;
+    }
+
+    /// Raise the flush-day consent prompt (ADR-011): a governed Approval
+    /// overlay whose buttons resolve as `HostIntent::ResolveImagineFlush`.
+    /// Fails (harmlessly — retry next boot) when another blocking overlay
+    /// is already up.
+    pub fn register_imagine_flush_prompt(
+        &mut self,
+        interaction: InteractionId,
+        expired: usize,
+    ) -> Result<(), ChatWindowError> {
+        let spec = InteractionSpec {
+            id: interaction,
+            provenance: InteractionProvenance::Host,
+            required_capability: None,
+            lifecycle: InteractionLifecycle::Visible,
+            placement: InteractionPlacement::Overlay,
+            content: InteractionContent::Approval {
+                title: "Clear expired generation drafts?".to_owned(),
+                summary: format!(
+                    "Today we are dumping {expired} unsaved AI draft(s) older than 30 days. \
+                     Anything saved to the library is never touched."
+                ),
+                approve_label: "Yes, clear them".to_owned(),
+                always_approve_label: Some("Yes — never ask again".to_owned()),
+                reject_label: "Not today".to_owned(),
+            },
+        };
+        self.interactions
+            .register(spec)
+            .map_err(|error| ChatWindowError::Interaction(error.to_string()))?;
+        self.overlay_coordinator
+            .open(OverlayEntry {
+                interaction_id: interaction,
+                origin_semantic_id: COMPOSER_ID.as_str(),
+                priority: 1_000,
+                blocks_focus: true,
+            })
+            .map_err(|error| ChatWindowError::Interaction(error.to_string()))?;
+        self.imagine_flush_consent = Some(interaction);
+        Ok(())
     }
 
     pub const fn domain(&self) -> ChatDomain {
@@ -592,6 +738,28 @@ impl ChatWindow {
                     option_id,
                 }))
             }
+            ChatWindowIntent::RequestImageGeneration { prompt } => {
+                Ok(Some(HostIntent::RequestImageGeneration { prompt }))
+            }
+            ChatWindowIntent::SaveGenerationDraft { id } => {
+                Ok(Some(HostIntent::SaveGenerationDraft { id }))
+            }
+            ChatWindowIntent::DiscardGenerationDraft { id } => {
+                Ok(Some(HostIntent::DiscardGenerationDraft { id }))
+            }
+            ChatWindowIntent::ResolveImagineFlush {
+                interaction,
+                decision,
+            } => {
+                self.interactions
+                    .transition(interaction, InteractionLifecycle::Completed)
+                    .map_err(|error| ChatWindowError::Interaction(error.to_string()))?;
+                if self.overlay_coordinator.dismiss(interaction).is_some() {
+                    self.pending_focus_return = self.approval_focus_origin;
+                }
+                self.imagine_flush_consent = None;
+                Ok(Some(HostIntent::ResolveImagineFlush { decision }))
+            }
             ChatWindowIntent::NavigateTo(route) => Ok(Some(HostIntent::NavigateTo(route))),
             ChatWindowIntent::ShowMain => Ok(Some(HostIntent::ShowMain)),
             ChatWindowIntent::QuitApplication => Ok(Some(HostIntent::QuitApplication)),
@@ -639,6 +807,7 @@ impl ChatWindow {
         self.provider_hover_overlay(ui, &mut intents);
         self.provider_catalog_overlay(ui, &mut intents);
         self.provider_configuration_overlay(ui, &mut intents);
+        self.generation_overlay(ui, &mut intents);
         self.compact_picker_overlay(ui, &mut intents);
         self.interaction_overlays(ui, &mut intents);
         borderless_resize(ui);
@@ -1742,13 +1911,20 @@ impl ChatWindow {
                         supports(Capability::Attachments),
                         "This provider has not qualified attachment input yet.",
                     );
-                    composer_capability_button(
+                    let media = composer_capability_button(
                         ui,
                         MEDIA_ID,
                         "▧ Image / video",
-                        supports(Capability::Images) || supports(Capability::Video),
-                        "This provider has not qualified image or video input yet.",
+                        self.generation_status.image_available
+                            || supports(Capability::Images)
+                            || supports(Capability::Video),
+                        "Image generation is not provisioned and this provider has not qualified media.",
                     );
+                    if media.clicked() {
+                        intents.push(ChatWindowIntent::SetOverlay(Some(
+                            DomainOverlay::Generation,
+                        )));
+                    }
                     composer_capability_button(
                         ui,
                         INTERACTION_COMPONENT_ID,
@@ -2637,6 +2813,229 @@ impl ChatWindow {
         }
     }
 
+    /// The Imagine generation panel (ADR-011). The prompt is the composer
+    /// draft; the generate action is the operator's explicit spend
+    /// authorization; drafts stay in the governed cache until saved or
+    /// discarded.
+    fn generation_overlay(&mut self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
+        if self.domain_states.ai.overlay != Some(DomainOverlay::Generation) {
+            return;
+        }
+        let status = self.generation_status.clone();
+        let prompt = self.current_draft();
+        let drafts = self.generation_drafts.clone();
+        egui::Window::new("Create with AI")
+            .id(egui::Id::new("chat.generation.panel"))
+            .anchor(Align2::LEFT_TOP, [270.0, 92.0])
+            .default_width(460.0)
+            .collapsible(false)
+            .resizable(false)
+            .frame(
+                egui::Frame::new()
+                    .fill(Color32::from_rgb(7, 22, 26))
+                    .stroke(Stroke::new(1.0, Tone::Cyan.color()))
+                    .corner_radius(CornerRadius::same(5))
+                    .inner_margin(egui::Margin::same(14)),
+            )
+            .show(ui.ctx(), |ui| {
+                ui.set_width(430.0);
+                let panel = ui
+                    .vertical(|ui| {
+                        ui.label(
+                            RichText::new("GENERATION DRAFTS · CACHED 30 DAYS UNTIL SAVED")
+                                .monospace()
+                                .small()
+                                .color(Tone::Cyan.color()),
+                        );
+                        ui.horizontal(|ui| {
+                            let image_mode =
+                                ui.add_enabled(true, egui::Button::new("▧ Image").selected(true));
+                            ui.pilot_track(
+                                &image_mode,
+                                NodeMetadata::new(
+                                    GENERATION_MODE_IMAGE_ID,
+                                    Role::Tab,
+                                    "Image generation mode",
+                                )
+                                .value("selected"),
+                            );
+                            let video_mode = ui
+                                .add_enabled(false, egui::Button::new("▶ Video"))
+                                .on_disabled_hover_text(
+                                    "Video generation (grok-imagine-video-1.5) is staged for the next pass.",
+                                );
+                            ui.pilot_track(
+                                &video_mode,
+                                NodeMetadata::new(
+                                    GENERATION_MODE_VIDEO_ID,
+                                    Role::Tab,
+                                    "Video generation mode",
+                                )
+                                .value("staged"),
+                            );
+                        });
+                        ui.label(
+                            RichText::new(if prompt.trim().is_empty() {
+                                "Type the prompt in the message composer, then generate."
+                                    .to_owned()
+                            } else {
+                                format!("Prompt: {}", prompt.trim())
+                            })
+                            .small()
+                            .color(cl::ink::MUTED),
+                        );
+                        let can_generate = status.image_available
+                            && !status.in_flight
+                            && !prompt.trim().is_empty();
+                        let generate_label = if status.in_flight {
+                            "Generating…"
+                        } else {
+                            "Generate image · grok-imagine-image-quality · usage-billed"
+                        };
+                        let generate =
+                            ui.add_enabled(can_generate, egui::Button::new(generate_label));
+                        let generate = if status.image_available {
+                            generate
+                        } else {
+                            generate.on_disabled_hover_text(status.unavailable_reason.clone())
+                        };
+                        let mut generate_metadata = NodeMetadata::new(
+                            GENERATION_GENERATE_ID,
+                            Role::Button,
+                            "Generate image",
+                        );
+                        generate_metadata.description = Some(if status.image_available {
+                            "Sends the composer prompt to the xAI Imagine API. Usage-billed."
+                                .to_owned()
+                        } else {
+                            status.unavailable_reason.clone()
+                        });
+                        ui.pilot_track(&generate, generate_metadata);
+                        if generate.clicked() {
+                            intents.push(ChatWindowIntent::RequestImageGeneration {
+                                prompt: prompt.trim().to_owned(),
+                            });
+                        }
+                        if let Some(error) = &status.last_error {
+                            ui.label(
+                                RichText::new(error).small().color(Tone::Coral.color()),
+                            );
+                        }
+                        ui.add_space(8.0);
+                        if drafts.is_empty() {
+                            ui.label(
+                                RichText::new("No drafts yet. Generated results preview here.")
+                                    .small()
+                                    .color(cl::ink::SUBTLE),
+                            );
+                        }
+                        for draft in &drafts {
+                            let row = egui::Frame::new()
+                                .fill(Color32::from_rgb(8, 25, 29))
+                                .stroke(Stroke::new(1.0, cl::surface::HAIRLINE))
+                                .corner_radius(CornerRadius::same(3))
+                                .inner_margin(egui::Margin::same(8))
+                                .show(ui, |ui| {
+                                    ui.set_width(ui.available_width());
+                                    ui.horizontal(|ui| {
+                                        if let Some((width, height, pixels)) = &draft.thumb {
+                                            let handle = self
+                                                .generation_textures
+                                                .0
+                                                .entry(draft.id.clone())
+                                                .or_insert_with(|| {
+                                                    ui.ctx().load_texture(
+                                                        format!("imagine-thumb-{}", draft.id),
+                                                        egui::ColorImage::from_rgba_unmultiplied(
+                                                            [*width as usize, *height as usize],
+                                                            pixels,
+                                                        ),
+                                                        egui::TextureOptions::LINEAR,
+                                                    )
+                                                });
+                                            let scale = 96.0 / (*height).max(1) as f32;
+                                            ui.image((
+                                                handle.id(),
+                                                egui::vec2(
+                                                    (*width as f32 * scale).min(160.0),
+                                                    96.0,
+                                                ),
+                                            ));
+                                        }
+                                        ui.vertical(|ui| {
+                                            ui.label(
+                                                RichText::new(&draft.prompt)
+                                                    .small()
+                                                    .color(cl::ink::BASE),
+                                            );
+                                            ui.horizontal(|ui| {
+                                                let save =
+                                                    ui.small_button("Save to library");
+                                                ui.pilot_track(
+                                                    &save,
+                                                    NodeMetadata::new(
+                                                        GENERATION_DRAFT_ID
+                                                            .child(&PilotKey::new(&draft.id))
+                                                            .child(&PilotKey::new("save")),
+                                                        Role::Button,
+                                                        "Save draft to library",
+                                                    ),
+                                                );
+                                                if save.clicked() {
+                                                    intents.push(
+                                                        ChatWindowIntent::SaveGenerationDraft {
+                                                            id: draft.id.clone(),
+                                                        },
+                                                    );
+                                                }
+                                                let discard = ui.small_button("Ignore");
+                                                ui.pilot_track(
+                                                    &discard,
+                                                    NodeMetadata::new(
+                                                        GENERATION_DRAFT_ID
+                                                            .child(&PilotKey::new(&draft.id))
+                                                            .child(&PilotKey::new("discard")),
+                                                        Role::Button,
+                                                        "Discard draft",
+                                                    ),
+                                                );
+                                                if discard.clicked() {
+                                                    intents.push(
+                                                        ChatWindowIntent::DiscardGenerationDraft {
+                                                            id: draft.id.clone(),
+                                                        },
+                                                    );
+                                                }
+                                            });
+                                        });
+                                    });
+                                })
+                                .response;
+                            let mut row_metadata = NodeMetadata::new(
+                                GENERATION_DRAFT_ID.child(&PilotKey::new(&draft.id)),
+                                Role::Status,
+                                "Generation draft",
+                            );
+                            row_metadata.value = Some(draft.prompt.clone());
+                            ui.pilot_track(&row, row_metadata);
+                        }
+                        ui.add_space(6.0);
+                        if ui.button("Close").clicked() {
+                            intents.push(ChatWindowIntent::SetOverlay(None));
+                        }
+                    })
+                    .response;
+                let mut metadata = NodeMetadata::new(
+                    GENERATION_PANEL_ID,
+                    Role::Dialog,
+                    "Create with AI",
+                );
+                metadata.description =
+                    Some("Imagine generation drafts. Unsaved drafts expire after 30 days.".to_owned());
+                ui.pilot_track(&panel, metadata);
+            });
+    }
+
     fn compact_picker_overlay(&self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
         if self.domain_states.get(self.domain).overlay != Some(DomainOverlay::Picker) {
             return;
@@ -2727,6 +3126,11 @@ impl ChatWindow {
                                             request_id: binding.request_id,
                                             option_id: Some(binding.allow_once.clone()),
                                         });
+                                    } else if self.imagine_flush_consent == Some(spec.id) {
+                                        intents.push(ChatWindowIntent::ResolveImagineFlush {
+                                            interaction: spec.id,
+                                            decision: ImagineFlushDecision::FlushNow,
+                                        });
                                     } else {
                                         intents
                                             .push(ChatWindowIntent::CompleteInteraction(spec.id));
@@ -2756,6 +3160,11 @@ impl ChatWindow {
                                                     option_id: binding.allow_always.clone(),
                                                 },
                                             );
+                                        } else if self.imagine_flush_consent == Some(spec.id) {
+                                            intents.push(ChatWindowIntent::ResolveImagineFlush {
+                                                interaction: spec.id,
+                                                decision: ImagineFlushDecision::FlushAlways,
+                                            });
                                         }
                                     }
                                 }
@@ -2777,6 +3186,11 @@ impl ChatWindow {
                                             provider: binding.provider,
                                             request_id: binding.request_id,
                                             option_id: binding.reject.clone(),
+                                        });
+                                    } else if self.imagine_flush_consent == Some(spec.id) {
+                                        intents.push(ChatWindowIntent::ResolveImagineFlush {
+                                            interaction: spec.id,
+                                            decision: ImagineFlushDecision::Defer,
                                         });
                                     } else {
                                         intents.push(ChatWindowIntent::DismissInteraction(spec.id));
