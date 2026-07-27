@@ -1,0 +1,35 @@
+# Dependabot — Cargo crate graph + Actions pin freshness.
+# Alerts/security updates are enabled on the repo; this file drives version PRs.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: America/New_York
+    open-pull-requests-limit: 8
+    target-branch: main
+    labels:
+      - dependencies
+      - cargo
+    groups:
+      cargo-patch-minor:
+        applies-to: version-updates
+        update-types:
+          - patch
+          - minor
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:15"
+      timezone: America/New_York
+    open-pull-requests-limit: 4
+    target-branch: main
+    labels:
+      - dependencies
+      - github-actions
