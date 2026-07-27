@@ -250,6 +250,13 @@ pub enum ProviderEvent {
         provider: ProviderId,
         attempt: ActivationAttemptId,
     },
+    VerificationRetryScheduled {
+        provider: ProviderId,
+        attempt: ActivationAttemptId,
+        retry_index: u8,
+        max_retries: u8,
+        delay_ms: u16,
+    },
     Ready {
         provider: ProviderId,
         attempt: ActivationAttemptId,
@@ -284,6 +291,7 @@ impl ProviderEvent {
             | Self::SystemBrowserDispatched { provider, .. }
             | Self::AuthorizationCompleted { provider, .. }
             | Self::RuntimeStarted { provider, .. }
+            | Self::VerificationRetryScheduled { provider, .. }
             | Self::Ready { provider, .. }
             | Self::Failed { provider, .. }
             | Self::Cancelled { provider, .. }
@@ -301,6 +309,7 @@ impl ProviderEvent {
             | Self::SystemBrowserDispatched { attempt, .. }
             | Self::AuthorizationCompleted { attempt, .. }
             | Self::RuntimeStarted { attempt, .. }
+            | Self::VerificationRetryScheduled { attempt, .. }
             | Self::Ready { attempt, .. }
             | Self::Failed { attempt, .. }
             | Self::Cancelled { attempt, .. }

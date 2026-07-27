@@ -34,6 +34,11 @@ because a running instance masks a failed link — mtime is truth.
 
 - `[profile.dev.package."*"] opt-level = 2` — deps (rav1e, wgpu, image)
   run at speed in dev; our crates keep O0 fast iteration.
+- Windows MSVC targets use the Rust-toolchain-shipped `rust-lld.exe` linker.
+  The workspace test graph exceeded `link.exe`'s PDB record ceiling even with
+  test debuginfo disabled (`LNK1318 LIMIT`). `rust-lld` consumes the same MSVC
+  ABI, libraries, and object format without weakening crate features or
+  skipping test executables.
 - `tracing` + `RUST_LOG` in the app (`RUST_LOG=debug`); **F12** toggles
   egui's native inspection overlay in the running app.
 - Harness flags: `--screenshot <png> --route <hub>/<sub> --shot-frame <n>
