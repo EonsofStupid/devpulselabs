@@ -271,7 +271,16 @@ pub fn locate_asset(rel: &str) -> Option<PathBuf> {
     if let Ok(cwd) = std::env::current_dir() {
         roots.push(cwd);
     }
-    roots.into_iter().map(|r| r.join(rel)).find(|p| p.is_file())
+    // Two path spaces resolve here: repo/install-relative refs ("assets/…",
+    // tried FIRST so nothing regresses) and CONTENT-root-relative artifact
+    // rel_paths ("inbox/clip.mp4", W11 media slides). The content root is
+    // exe-adjacent / walk-up per P1, so probing a `content/` subdir of each
+    // root bridges the second space without a heavy engine-capture dep. An
+    // absolute `rel` passes through unchanged (join with an absolute wins).
+    roots
+        .into_iter()
+        .flat_map(|r| [r.join(rel), r.join("content").join(rel)])
+        .find(|p| p.is_file())
 }
 
 /// The poster convention from the old repo: `x.mp4` → `x-poster.jpg`.

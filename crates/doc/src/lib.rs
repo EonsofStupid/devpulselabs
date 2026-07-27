@@ -12,7 +12,11 @@ use std::path::{Path, PathBuf};
 
 /// Current schema version. Bump on breaking shape changes; `load` refuses
 /// newer versions honestly instead of misreading them.
-pub const SCHEMA_V: u32 = 1;
+///
+/// v2 (W11): the `media` block joined [`Block`]. A v2 slide carrying a media
+/// block on an old (v1) build fails LOUD as [`DocError::Version`], not a
+/// silent misparse — the whole point of the bump.
+pub const SCHEMA_V: u32 = 2;
 
 /// One slide document — the editable truth of `<slide-dir>/slide.json`.
 ///
@@ -69,7 +73,7 @@ pub enum Background {
 }
 
 /// One content block. Additive by design — new kinds join as W-passes
-/// need them (media lands with the first media seed, W2).
+/// need them (the `media` block landed in W11).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum Block {
@@ -88,6 +92,41 @@ pub enum Block {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         ink: Option<String>,
     },
+    /// An image / video slide surface (W11). Media is DATA, not new paint
+    /// code: the template renders it through the slides media painter, which
+    /// degrades a missing file to a labeled plate (never a crash).
+    ///
+    /// A multi-page PDF never reaches here AS a PDF — it is exploded to
+    /// page-images at import (each an `Image` src). A session replay is a
+    /// `Video` `src` pointed at the session's light `.mp4`.
+    Media {
+        id: String,
+        /// "image" | "video" — structural, AUTHORED not guessed from the
+        /// extension, so the doctor can name a mismatch.
+        #[serde(rename = "as")]
+        show: String,
+        /// Content-relative asset ref (e.g. "inbox/report/page-01.png").
+        /// JAILED at [`validate`]: never absolute, a drive letter, or `..`.
+        src: String,
+        /// "cover" (default, fills the stage) | "contain" (letterboxed).
+        /// None inherits cover.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fit: Option<String>,
+        /// Content-relative poster still — the video degradation ladder's
+        /// second rung (frames → poster → labeled plate).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        poster: Option<String>,
+    },
+}
+
+impl Block {
+    /// Every block carries an id — the reveal grammar (D2) and the editor
+    /// reference blocks by it. One accessor so callers never match the variant.
+    pub fn id(&self) -> &str {
+        match self {
+            Block::Text { id, .. } | Block::Media { id, .. } => id,
+        }
+    }
 }
 
 /// A validation finding: the path names WHERE, the message WHAT. Findings
@@ -169,6 +208,27 @@ const BLEND_MOTIONS: &[&str] = &["blend-drift"];
 /// "none" is the explicit static override — a slide opting OUT of the
 /// show look's entrance (absent would mean inherit, not static).
 const ENTERS: &[&str] = &["rise", "none"];
+/// The media block's `as` discriminator (W11) — image or looping video.
+const MEDIA_SHOWS: &[&str] = &["image", "video"];
+/// The media stage fit — fill (cover) or letterbox (contain).
+const MEDIA_FITS: &[&str] = &["cover", "contain"];
+
+/// The content-jail predicate (R1w law): a media `src`/`poster` must stay
+/// inside the content root — RELATIVE, no `..` component, no absolute or
+/// drive-letter root. The doctor NAMES a violation; the renderer never
+/// follows a ref off the reservation.
+fn rel_ok(p: &str) -> bool {
+    if p.is_empty() || p.starts_with('\\') || p.contains(':') {
+        return false;
+    }
+    let path = Path::new(p);
+    if path.is_absolute() {
+        return false;
+    }
+    !path
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+}
 
 fn font_ok(id: &str) -> bool {
     dpl_coldlight::FONTS.iter().any(|f| f.id == id)
@@ -263,6 +323,39 @@ pub fn validate(slide: &Slide) -> Vec<Issue> {
                     }
                 }
             }
+            Block::Media {
+                id,
+                show,
+                src,
+                fit,
+                poster,
+            } => {
+                let at = format!("blocks.{id}");
+                let mut push = |message: String| {
+                    issues.push(Issue {
+                        path: at.clone(),
+                        message,
+                    })
+                };
+                if !MEDIA_SHOWS.contains(&show.as_str()) {
+                    push(format!("unknown media kind {show:?} (image | video)"));
+                }
+                if !rel_ok(src) {
+                    push(format!(
+                        "src {src:?} escapes the content root (must be relative, no `..`)"
+                    ));
+                }
+                if let Some(fit) = fit {
+                    if !MEDIA_FITS.contains(&fit.as_str()) {
+                        push(format!("unknown fit {fit:?} (cover | contain)"));
+                    }
+                }
+                if let Some(poster) = poster {
+                    if !rel_ok(poster) {
+                        push(format!("poster {poster:?} escapes the content root"));
+                    }
+                }
+            }
         }
     }
 
@@ -278,10 +371,7 @@ pub fn validate(slide: &Slide) -> Vec<Issue> {
     // Reveals (D2): every entry names an existing block, exactly once.
     let mut seen_reveal = std::collections::BTreeSet::new();
     for r in &slide.reveals {
-        let exists = slide.blocks.iter().any(|b| {
-            let Block::Text { id, .. } = b;
-            id == r
-        });
+        let exists = slide.blocks.iter().any(|b| b.id() == r);
         if !exists {
             issues.push(Issue {
                 path: "reveals".into(),
@@ -632,12 +722,14 @@ pub fn resolve(slide: &Slide, look: &Look) -> Slide {
         out.enter = look.enter.clone();
     }
     for b in &mut out.blocks {
-        let Block::Text { font, ink, .. } = b;
-        if font.is_none() {
-            *font = Some(look.font.clone());
-        }
-        if ink.is_none() {
-            *ink = Some(look.ink.clone());
+        // Only text blocks cascade font/ink; media carries neither.
+        if let Block::Text { font, ink, .. } = b {
+            if font.is_none() {
+                *font = Some(look.font.clone());
+            }
+            if ink.is_none() {
+                *ink = Some(look.ink.clone());
+            }
         }
     }
     out
@@ -1150,6 +1242,100 @@ mod tests {
         }
     }
 
+    /// W11: a media slide round-trips, validates clean, and its `src`/`as`
+    /// survive verbatim (refs, never guessed).
+    #[test]
+    fn a_media_slide_round_trips_and_validates_clean() {
+        let dir = scratch("media");
+        let slide = Slide {
+            v: SCHEMA_V,
+            template: "media".into(),
+            background: Some(Background::None),
+            blocks: vec![
+                Block::Media {
+                    id: "page-01".into(),
+                    show: "image".into(),
+                    src: "inbox/report/page-01.png".into(),
+                    fit: Some("contain".into()),
+                    poster: None,
+                },
+                Block::Media {
+                    id: "clip".into(),
+                    show: "video".into(),
+                    src: "inbox/demo/render.mp4".into(),
+                    fit: None,
+                    poster: Some("inbox/demo/render-poster.png".into()),
+                },
+            ],
+            enter: Some("none".into()),
+            reveals: Vec::new(),
+        };
+        save(&dir, &slide).unwrap();
+        assert_eq!(load(&dir).unwrap(), slide);
+        assert_eq!(validate(&slide), Vec::new());
+        let raw = std::fs::read_to_string(dir.join("slide.json")).unwrap();
+        assert!(raw.contains("\"kind\": \"media\""));
+        assert!(raw.contains("\"as\": \"image\""));
+        assert!(raw.contains("\"src\": \"inbox/report/page-01.png\""));
+        let mut revealed = slide.clone();
+        revealed.reveals = vec!["clip".into()];
+        assert_eq!(validate(&revealed), Vec::new());
+    }
+
+    /// W11: the content-jail law — an escaping src/poster, an unknown media
+    /// kind, and an unknown fit are all NAMED, never followed.
+    #[test]
+    fn media_jail_and_ref_violations_are_named() {
+        let escaping = |src: &str| Slide {
+            v: SCHEMA_V,
+            template: "media".into(),
+            background: Some(Background::None),
+            blocks: vec![Block::Media {
+                id: "m".into(),
+                show: "hologram".into(),
+                src: src.into(),
+                fit: Some("stretch".into()),
+                poster: Some("../secret.png".into()),
+            }],
+            enter: None,
+            reveals: Vec::new(),
+        };
+        for bad_src in ["/etc/passwd", "C:\\Users\\x.png", "../../escape.png"] {
+            let issues = escaping(bad_src);
+            let all = validate(&issues)
+                .iter()
+                .map(|i| i.message.as_str())
+                .collect::<Vec<_>>()
+                .join(" | ");
+            assert!(all.contains("escapes the content root"), "{bad_src}: {all}");
+            assert!(all.contains("hologram"), "unknown kind named: {all}");
+            assert!(all.contains("stretch"), "unknown fit named: {all}");
+            assert!(all.contains("poster"), "escaping poster named: {all}");
+        }
+    }
+
+    #[test]
+    fn a_media_v2_slide_is_refused_by_a_v1_build() {
+        let dir = scratch("mediaver");
+        let mut slide = Slide {
+            v: SCHEMA_V,
+            template: "media".into(),
+            background: Some(Background::None),
+            blocks: vec![Block::Media {
+                id: "m".into(),
+                show: "image".into(),
+                src: "inbox/x.png".into(),
+                fit: None,
+                poster: None,
+            }],
+            enter: None,
+            reveals: Vec::new(),
+        };
+        slide.v = SCHEMA_V + 1;
+        save(&dir, &slide).unwrap();
+        assert!(matches!(load(&dir), Err(DocError::Version(v)) if v == SCHEMA_V + 1));
+    }
+
     #[test]
     fn every_seed_loads_and_validates_clean() {
         let seeds = list_seeds();
@@ -1439,10 +1625,14 @@ mod tests {
         let r = resolve(&sparse, &look);
         assert_eq!(r.background, Some(look.background.clone()));
         assert_eq!(r.enter, look.enter);
-        let Block::Text { font, ink, .. } = &r.blocks[0];
+        let Block::Text { font, ink, .. } = &r.blocks[0] else {
+            panic!("block 0 is text");
+        };
         assert_eq!(font.as_deref(), Some("orbitron"), "the override wins");
         assert_eq!(ink.as_deref(), Some(look.ink.as_str()));
-        let Block::Text { font, .. } = &r.blocks[1];
+        let Block::Text { font, .. } = &r.blocks[1] else {
+            panic!("block 1 is text");
+        };
         assert_eq!(font.as_deref(), Some(look.font.as_str()), "inherited");
         // A fully-specified slide is a fixed point.
         assert_eq!(resolve(&sample(), &look), sample());
@@ -1494,7 +1684,9 @@ mod tests {
         )
         .unwrap();
         let slide = load(&dir).unwrap();
-        let Block::Text { font, ink, .. } = &slide.blocks[0];
+        let Block::Text { font, ink, .. } = &slide.blocks[0] else {
+            panic!("block 0 is text");
+        };
         assert_eq!(font.as_deref(), Some("orbitron"));
         assert_eq!(ink.as_deref(), Some("strong"));
         assert!(slide.background.is_some());

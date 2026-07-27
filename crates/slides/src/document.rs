@@ -7,7 +7,7 @@
 //! the default face, unknown sizes to body, unknown inks to base, unknown
 //! moods to an honest labeled plate.
 
-use crate::blocks::{ambient_backdrop, Ambient};
+use crate::blocks::{ambient_backdrop, media_block_backdrop, Ambient};
 use crate::motion::Clock;
 use dpl_coldlight::{self as cl};
 use egui::{Color32, Rect, Ui};
@@ -245,18 +245,50 @@ fn render_inner(
     let step = step.map(|s| s.min(slide.step_count() - 1));
     let accent = background(ui, rect, slide.background.as_ref(), now, t0);
 
+    // Where each block sits in the reveal order (None = always visible).
+    let reveal_pos = |id: &str| slide.reveals.iter().position(|r| r == id);
+    let visible_at = |id: &str| match (step, reveal_pos(id)) {
+        (Some(s), Some(p)) => p < s,
+        _ => true, // wall mode, or a block outside the reveal order
+    };
+
+    // Media pre-pass (W11): media blocks paint FULL-BLEED — under any text,
+    // over the mood. A media-only slide (the media_frame template) fills the
+    // stage; media behind text is a backdrop. Reveals honored like text.
+    for block in &slide.blocks {
+        if let dpl_doc::Block::Media {
+            id,
+            show,
+            src,
+            fit,
+            poster,
+        } = block
+        {
+            if visible_at(id) {
+                media_block_backdrop(ui, rect, show, src, fit.as_deref(), poster.as_deref());
+            }
+        }
+    }
+
     let fluid = cl::Fluid::of(rect);
     let painter = ui.painter_at(rect);
     let pad = fluid.sp_7();
     let wrap = (rect.width() - pad * 2.0).max(40.0);
 
     // Pass 1 — measure (galley layout is cached by egui, this is cheap).
-    // ALL blocks measure, revealed or not — steps never reflow the stack.
+    // ALL TEXT blocks measure, revealed or not — steps never reflow the
+    // stack. Media blocks are backdrops (painted above): 0 height, so they
+    // never enter the vertical text flow. `heights` stays index-parallel to
+    // `blocks` so the paint loop can index it directly.
     let mut heights = Vec::with_capacity(slide.blocks.len());
     for block in &slide.blocks {
         let dpl_doc::Block::Text {
             text, font, size, ..
-        } = block;
+        } = block
+        else {
+            heights.push(0.0);
+            continue;
+        };
         let px = size_of(&fluid, size).unwrap_or_else(|| fluid.fs_body());
         let galley = painter.layout(
             text.clone(),
@@ -267,7 +299,12 @@ fn render_inner(
         heights.push(galley.size().y);
     }
     let gap = fluid.sp_4();
-    let total: f32 = heights.iter().sum::<f32>() + gap * heights.len().saturating_sub(1) as f32;
+    let text_count = slide
+        .blocks
+        .iter()
+        .filter(|b| matches!(b, dpl_doc::Block::Text { .. }))
+        .count();
+    let total: f32 = heights.iter().sum::<f32>() + gap * text_count.saturating_sub(1) as f32;
 
     // Pass 2 — the entrance (rise, staggered) and the real paint.
     let rising = slide.enter.as_deref() == Some("rise");
@@ -275,8 +312,6 @@ fn render_inner(
     if fx.in_flight(now, t0, slide.blocks.len()) && (rising || step.is_some_and(|s| s > 0)) {
         ui.ctx().request_repaint();
     }
-    // Where each block sits in the reveal order (None = always visible).
-    let reveal_pos = |id: &str| slide.reveals.iter().position(|r| r == id);
     let mut map = RenderMap {
         background: rect,
         blocks: Vec::with_capacity(slide.blocks.len()),
@@ -289,16 +324,20 @@ fn render_inner(
             font,
             size,
             ink,
-        } = block;
+        } = block
+        else {
+            // Media blocks painted in the pre-pass. They own the whole stage
+            // for hit-testing; they take no slot in the text flow (no y
+            // advance), so text layout is identical with or without media.
+            map.blocks.push((block.id().to_string(), rect));
+            continue;
+        };
         // The stable rect (rest position) — hit-testing ignores the
         // one-time entrance lift so a tap lands where the text settles.
         let block_rect =
             Rect::from_min_size(egui::pos2(rect.min.x + pad, y), egui::vec2(0.0, heights[i]));
         let rp = reveal_pos(id);
-        let visible = match (step, rp) {
-            (Some(s), Some(p)) => p < s,
-            _ => true, // wall mode, or a block outside the reveal order
-        };
+        let visible = visible_at(id);
         // Animation policy: wall mode / step 0 = the slide entrance
         // staggering all VISIBLE blocks; later steps animate only the
         // block that just revealed.
@@ -507,6 +546,53 @@ mod tests {
         let rects = |m: &RenderMap| m.blocks.clone();
         assert_eq!(rects(&maps[0]), rects(&maps[1]), "steps must not reflow");
         assert_eq!(maps[0].blocks.len(), 2, "hidden blocks still hit-test");
+    }
+
+    /// W11: a media slide renders through the ONE path — a full-bleed media
+    /// backdrop with a text caption on top — without panicking even when the
+    /// asset is missing (degrade to the labeled plate). The media block owns
+    /// the whole stage for hit-testing; the caption still stacks as text.
+    #[test]
+    fn a_media_slide_renders_full_bleed_and_hit_tests_the_stage() {
+        let slide = dpl_doc::Slide {
+            v: dpl_doc::SCHEMA_V,
+            template: "media".into(),
+            background: Some(dpl_doc::Background::None),
+            blocks: vec![
+                dpl_doc::Block::Media {
+                    id: "shot".into(),
+                    show: "image".into(),
+                    src: "does/not/exist.png".into(), // degrades to the plate
+                    fit: Some("cover".into()),
+                    poster: None,
+                },
+                dpl_doc::Block::Text {
+                    id: "cap".into(),
+                    text: "caption over media".into(),
+                    font: None,
+                    size: "h3".into(),
+                    ink: None,
+                },
+            ],
+            enter: None,
+            reveals: Vec::new(),
+        };
+        let ctx = egui::Context::default();
+        cl::apply_theme(&ctx);
+        let mut map = RenderMap::default();
+        let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let rect = ui.max_rect();
+                map = render_traced(ui, rect, &slide, &dpl_doc::Look::fallback(), 2.0, 0.0);
+                let media_rect = map
+                    .blocks
+                    .iter()
+                    .find(|(id, _)| id == "shot")
+                    .map(|(_, r)| *r);
+                assert_eq!(media_rect, Some(rect), "media hit-tests the full stage");
+            });
+        });
+        assert_eq!(map.blocks.len(), 2, "media + caption both present");
     }
 
     /// Every SEED renders through the real pipeline (registries + theme).

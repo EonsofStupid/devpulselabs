@@ -44,7 +44,8 @@ other worktree. The operator double-clicks `target\release\devpulselabs.exe`
   --video-drill <s> [--video-format <f>] --ink-drill <rel> --open-rail
   --open-episode --open-session --open-replay --clone-seed
   --import-drill <dir> --pin-pack <dir> --save-comp <name>
-  --export-guide <guide-rel> [<session-rel>] --steps-drill <n>`
+  --export-guide <guide-rel> [<session-rel>] --steps-drill <n>
+  --make-slide <asset-rel>`
 - EguiPilotAI: `cargo build --release -p egui-pilot-ai-cli` + devtools exe
   `cargo build -p devpulselabs --features eguipilotai-devtools`; then
   `target\release\eguipilotai.exe doctor | inspect devpulse-windows pixvix`.

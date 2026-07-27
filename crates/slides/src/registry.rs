@@ -68,6 +68,7 @@ pub trait SlideTemplate {
 pub fn demos() -> Vec<Box<dyn SlideTemplate>> {
     vec![
         Box::new(templates::title_card::TitleCard::demo()),
+        Box::new(templates::media_frame::MediaFrame::demo()),
         Box::new(templates::big_number::BigNumber::demo()),
         Box::new(templates::callout_card::CalloutCard::demo()),
         Box::new(templates::split_panel::SplitPanel::demo()),
@@ -118,8 +119,8 @@ mod tests {
         let all = demos();
         assert_eq!(
             all.len(),
-            18,
-            "12 templates + 6 infographics — the S2 tranche complete"
+            19,
+            "13 templates (media_frame joined in W11) + 6 infographics"
         );
         let ids: HashSet<&str> = all.iter().map(|t| t.spec().id.0).collect();
         assert_eq!(ids.len(), all.len(), "template ids must be unique");

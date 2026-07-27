@@ -2,6 +2,34 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-27 — W11 MEDIA → SLIDE (branch `feat/w11-media-to-slide`, PR):**
+the gap "no template lets me add an image/pdf/video/session-replay and have
+it become a slide" is closed. `docs/plans/w11-media-to-slide.md`. THREE
+additive pieces: (1) `dpl_doc::Block::Media {id, as, src, fit, poster}` —
+refs-not-values, `src` content-jailed at validate, `SCHEMA_V 1→2` (a v2
+media slide fails LOUD on a v1 build); (2) the `media_frame` template (one
+`registry::demos` line) rendering media FULL-BLEED via the reused
+`media_backdrop` painter + the `document.rs` media pre-pass (backdrop under
+text, reveal-honoring); (3) the shelf "Make slide" chip +
+`Composer::make_slide_from_library` / `make_slides_from_pdf` /
+`make_slide_from_rel`. PDF EXPLODES to per-page image slides via `pdftoppm`
+(subprocess, ADR-009 — `import::rasterize_pdf`, quiet-spawn); a REPLAY is a
+video artifact → video media slide on the session light `.mp4` (no special
+case). W11 mints the slide; **W10a associates it** (upstream/downstream
+split). `dpl_video::locate_asset` now probes `content/` (bridges the
+content-relative artifact path space). Harness seam `--make-slide <rel>`.
+PROVEN on the real exe (headless, scratch `--content-root`): image →
+`inbox/poster/slide.json` (v2 media), a 2-page PDF → `inbox/report-{1,2}/`
+page slides with pages imported. Gate: fmt + clippy clean (no `#[allow]`),
+`cargo check --workspace` clean; doc/slides/composer/editor/video tests
+green; the `#[ignore]` pdftoppm drill passes. Ported from the
+`devpulse_labs` divergent snapshot onto live main (W10a/estate/coach
+preserved — no file clobber; four diverged files hand-merged). KNOWN
+follow-ups: `fit:"contain"` letterbox (data carried, renders cover today);
+the shelf→W10a association hop. CLOSE-OUT (Windows checkout): rebuild
+`target\release\devpulselabs.exe` + mtime, screenshot the "Make slide" chip
+on a real indexed card at real sizes.
+
 **2026-07-27 — CHATGPT/CODEX ACTIVATION QUALIFIED.** Codex post-login
 verification moved off the UI thread behind a `CodexStatusProbe` seam with a
 visible `Verifying` state; activation evidence now mirrors Grok (attempt
