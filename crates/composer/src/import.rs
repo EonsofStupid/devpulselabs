@@ -127,6 +127,30 @@ pub fn import_file(src: &Path) -> Result<Record, String> {
     finalize_import(&dest, kind, "import", &root, &stem)
 }
 
+/// Import an artifact the app GENERATED (Chat Imagine drafts being promoted
+/// into the library). Identical landing to `import_file` — copy into
+/// `content/inbox/`, write-through index — but the record's source says
+/// `generated` so the gallery can tell operator captures from AI output.
+pub fn import_generated(src: &Path) -> Result<Record, String> {
+    let kind = media_kind(src).ok_or_else(|| format!("not a media file: {}", src.display()))?;
+    let stem = src
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("generated")
+        .to_string();
+    let ext = src
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let root = dpl_engine_capture::content_root();
+    let dest_dir = root.join("inbox");
+    std::fs::create_dir_all(&dest_dir).map_err(|e| format!("dest dir: {e}"))?;
+    let dest = no_clobber(&dest_dir, &stem, &ext);
+    std::fs::copy(src, &dest).map_err(|e| format!("copy: {e}"))?;
+    finalize_import(&dest, kind, "generated", &root, &stem)
+}
+
 /// REFERENCE an external file IN-PLACE instead of copying it — the operator's
 /// paid AE presets / image folders stay where they live; a single-FILE symlink
 /// lands in `content/` and is indexed like any artifact. QoL: no duplication of

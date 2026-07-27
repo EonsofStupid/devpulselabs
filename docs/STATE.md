@@ -29,6 +29,28 @@ follow-ups: `fit:"contain"` letterbox (data carried, renders cover today);
 the shelf→W10a association hop. CLOSE-OUT (Windows checkout): rebuild
 `target\release\devpulselabs.exe` + mtime, screenshot the "Make slide" chip
 on a real indexed card at real sizes.
+**2026-07-27 — CHAT IMAGINE DRAFTS LANDED (ADR-011 pending ratification).**
+In-chat image generation: the composer's ▧ Image/video button opens the
+Create-with-AI panel (image live, video truthfully staged); prompt = the
+composer draft; one bounded worker POSTs the compiled-in xAI Imagine
+endpoint (`grok-imagine-image-quality`, `b64_json`); results land in the
+Ring-0 draft cache (`.userdata/cache/imagine/`) with preview + Save to
+library (`import_generated` → `content/inbox`, source `generated`) or
+Ignore; 30-day flush behind an Approval consent ("yes / never ask again /
+not today", `imagine-policy.json`). New crate `dpl-chat-imagine` (the ONE
+outbound HTTPS client, `ureq`); key = `XAI_API_KEY` read at call time,
+never stored/logged — feature inert without it, and the fixture gate
+refuses spend in authored mode. Grounding: Grok Build has NO generation
+surface; Imagine is API-key-only → narrow exception drafted as
+`docs/design/adr-011-imagine-generation.md` (operator tick pending; first
+live generation = ratification-in-practice). Proofs: `chat-imagine-panel`
+EguiPilot + `proof-chat-imagine-panel.png`; 7+17+41 crate tests; all six
+prior chat scenarios green. Program map
+`docs/plans/chat-creation-and-workflows-vision.md` (route-aware chat
+actions + WiredFRONT Workflows are the next tiers). Plan
+`docs/plans/chat-imagine-drafts.md` §8. **Next: operator provisions
+XAI_API_KEY + first live generation; then video slice or storyboarding
+workflow.**
 
 **2026-07-27 — CHATGPT/CODEX ACTIVATION QUALIFIED.** Codex post-login
 verification moved off the UI thread behind a `CodexStatusProbe` seam with a

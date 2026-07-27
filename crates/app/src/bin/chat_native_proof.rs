@@ -53,6 +53,7 @@ fn run() -> Result<(), String> {
             | "providers"
             | "hover"
             | "codex"
+            | "generation"
             | "grok"
             | "grok-auth"
             | "compact"
