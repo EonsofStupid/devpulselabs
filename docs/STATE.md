@@ -2,6 +2,18 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-27 — OPERATOR COACH PROGRAM PLAN LANDED (#88).** New program map
+`docs/plans/operator-coach-a2ui.md` — touchpoint router
+(`Mount`/`Unmount`/`Triggered` on the devtools pipe; spotlight = first
+visual; coach vs demo = `Triggered.actor`), C1.5 live semantic
+snapshot/delta stream (screenshots demoted to proof artifacts), C2 desktop
+overlay daemon (ADR required first; X11 XShape → Win32 → layer-shell), C3
+ColdLight A2UI catalog, C4 AT-SPI desktop control. Grounded against A2UI
+v1.0-candidate / AG-UI / 2026 computer-use SOTA; verdict: stay pure Rust.
+**Next: C1 pass** (in-app spotlight + press-to-trigger), amends delivery-doc
+Slice 8. Operator box confirmed GNOME/X11; AT-SPI toolkit flag still off
+(only needed at C4).
+
 **2026-07-27 — GITHUB REPO HARDENING LANDED (#75/#79).** Dependency graph +
 vulnerability alerts + automated security fixes; `delete_branch_on_merge`;
 Dependabot weekly Cargo/Actions (live PRs #77–#86 — triage majors);
