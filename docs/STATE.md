@@ -2,6 +2,37 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-27 — L2: NATIVE LOTTIE ON THE TIMELINE (PR #99, merged to `main`
+`deffec4`):** the second rung of the AE-independence ladder — Bodymovin
+`.json`/`.lottie` imports become first-class timeline layers rendered
+natively, no After Effects. `docs/plans/l2-lottie-timeline.md`. Pieces:
+(1) `dpl_comp::Source::Lottie { rel }` (serde `kind:"lottie"`, validate +
+round-trip test); (2) `dpl-lottie` — a pure-Rust, `unsafe`-free façade
+(`Meta`/`lottie_meta` reads w·h·fps·in·out from raw JSON or `.lottie` zip;
+`is_bodymovin_json` import sniff; `Player::open`/`frame_at`/`export_sequence`)
+that only SPAWNS the helper; (3) `dpl-lottie-render` — the ONE FFI leaf
+(ADR-009), a ThorVG subprocess with `frame`/`export`/`serve` modes,
+`ABGR8888S` straight alpha for correct egui/PNG compositing, `tvg_paint_ref`
+ownership; (4) `dpl-composer` `LottiePlayer` live preview (cached texture,
+aspect-fit at both viewer + annotate paint sites), `add_lottie`,
+tick_playback Lottie arm; (5) `import.rs` `.json`/`.lottie` → `"lottie"`
+kind (Bodymovin-sniffed); (6) `--lottie-import <file>` harness flag +
+`wiredfront.import_lottie` delegate. Gate: `cargo green ✔` on **server1**
+(the 128GB/88-core Debian Linux build box, `ssh.clyffy.ai` — the 16GB laptop
+OOMs the full gate; server1 is now the standing Linux gate box), run on the
+branch AND on the merge commit with current `main`. `dpl-comp` (9) +
+`dpl-lottie` (4) unit tests pass. Merge into `main` (post-#98): 3 additive
+"keep both" conflicts resolved (`--lottie-import` alongside W11's
+`--make-slide`; Cargo.lock reconciled). CLOSE-OUT: `target\release\
+devpulselabs.exe` rebuilt HERE on the laptop (mtime 2026-07-27 15:56,
+ThorVG-free — the helper is spawned, never linked, so the main exe builds
+in 16GB). **KNOWN GAP:** `dpl-lottie-render.exe` (the ThorVG helper) is NOT
+yet built on Windows — first-time ThorVG C++ build — so Lottie import/preview
+won't RENDER until the helper sits beside the exe (or on PATH /
+`DPL_LOTTIE_RENDER`). Build it before the Lottie drill. NEXT: L3 (Lottie
+export via helper→ffmpeg; slot recolor/retext).
+
+
 **2026-07-27 — CATALOG: A DIVERSE LIBRARY (branch
 `feat/catalog-diverse-library`, PR):** the slide catalog grew from 19 to **28**
 registered designs (20 templates + 8 infographics) — `docs/plans/
