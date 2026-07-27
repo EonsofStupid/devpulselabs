@@ -1774,6 +1774,13 @@ pub struct SessionStatus {
     pub renderer_device_type: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_run: Option<RunId>,
+    /// Every signal a `FabricEvent` touchpoint may wait for in this build.
+    ///
+    /// The host declares it; the toolkit cannot discover it, because the
+    /// toolkit cannot read the host's signal fabric. An empty list means the
+    /// host publishes nothing, not that anything is waitable.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub coach_signals: Vec<SignalId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

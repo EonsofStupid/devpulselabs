@@ -108,11 +108,22 @@ pub(crate) struct CoachStore {
     /// drained, so ordering between viewport passes cannot lose one.
     signals: VecDeque<(u64, SignalId)>,
     signal_head: u64,
+    /// What the host says it can publish. The toolkit cannot verify this — it
+    /// cannot see the host's fabric — so it is carried, not trusted.
+    declared: Vec<SignalId>,
 }
 
 impl CoachStore {
     pub(crate) fn set_palette(&mut self, palette: CoachPalette) {
         self.palette = palette;
+    }
+
+    pub(crate) fn declare_signals(&mut self, signals: Vec<SignalId>) {
+        self.declared = signals;
+    }
+
+    pub(crate) fn declared_signals(&self) -> Vec<SignalId> {
+        self.declared.clone()
     }
 
     /// Record a signal the application chose to publish to the coach.

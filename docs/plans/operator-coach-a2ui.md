@@ -436,9 +436,8 @@ hovered. `CoachEvent::Armed` and `CoachActor::App` are new. The CLI takes
 the same string.
 
 The app publishes its coachable catalog through `PilotHandle::note_coach_signal`
-behind the devtools gate: `shell.route/<hub>/<sub>` on arrival, and
-`build.slide-placed` / `build.episode-changed`. The toolkit still cannot read
-the fabric, so an agent can only wait for what `CoachSignals` lists.
+behind the devtools gate. The toolkit still cannot read the fabric, so an agent
+can only wait for what the app chose to expose. The catalog itself is §11.
 
 Four findings from building it:
 
@@ -483,6 +482,72 @@ asserts `Armed` → `Mounted` → `Triggered { node-appeared, actor: app }`; a
 second touchpoint waits on the app's own route signal and fires when the
 navigation lands.
 
-Deferred to C1.5b, unchanged: the semantic revision ticker. Also deferred:
-signal **discovery** — an agent must be told which signal ids the app
-publishes, because nothing enumerates `CoachSignals` over the wire yet.
+Deferred to C1.5b, unchanged: the semantic revision ticker. Signal discovery
+was deferred here and is closed in §11.
+
+## 11. C1.5c evidence — the whole nervous system, and a way to find it
+
+C1.5a shipped the trigger but only three facts to aim it at, chosen ad hoc, and
+no way to learn even those. The fabric has **six domains and thirty-one
+distinct facts**; the coach now maps every one of them.
+
+**Named once, not twice.** The agent seam already names these facts for its
+`/signals` SSE stream (`dpl_seam::event_json` and friends, `domain` + `type`).
+The coach reuses that vocabulary kebab-cased, so a fact has one name on both
+surfaces: `shell.route-changed`, `capture.inbox-changed`, `providers.ready`.
+The one id shipped in C1.5a that predated this rule, `shell.route/<hub>/<sub>`,
+was renamed to `shell.route-changed/<hub>/<sub>`.
+
+**Coarse and specific.** Every fact publishes a coarse `<domain>.<type>` id, so
+an agent can wait for "any route change" or "any capture saved". A fact also
+publishes `<domain>.<type>/<key>` when the key comes from a set the app can
+enumerate at boot — routes from the hub registry, providers from the chat
+registrations, and the booleans (`shell.full-bleed/on`,
+`capture.recording/off`, `capture.palette-visibility/shown`). Keys that are
+free-form runtime strings deliberately get **no** specific id: a capture mode,
+a job id, a deck beat index, an operator's episode name. An agent could not be
+told about those in advance, so it waits on the coarse fact and reads the
+detail from the UI.
+
+**Discovery.** `SessionStatus` grew `coach_signals`: every id this build can
+publish. The app declares it at attach from the live registry, so adding a hub
+or a provider widens what is coachable with no edit here (Law 4). It is
+readable from MCP `pilot_status` and printed by `eguipilotai inspect` beside
+the semantic inventory, because the two answer the same question — what can a
+touchpoint be aimed at, and what can it wait for. A host that declares nothing
+reports an empty list, which reads as "nothing is waitable", not "anything is".
+
+**The catalog is enforced, not documented.** Three tests hold it closed:
+every id the mapping can publish is declared, every declared id is actually
+publishable, and every domain is genuinely subscribed and drained through a
+real `Fabric`. Each mapping is an exhaustive match for the same reason the
+seam's is — a new fabric variant must fail compilation rather than silently
+become uncoachable.
+
+Findings worth keeping:
+
+1. **The provider redaction boundary survives id-building.** Provider ids are
+   registered identities and safe to name; codes, urls, tokens, versions, and
+   the code length never reach an id. A test asserts runtime payloads do not
+   appear in ids at all.
+2. **Operator content is kept out of the id space, with one honest
+   exception.** Build ids carry the fact, never the show or episode name. But
+   Shows subroutes *are* discovered from `/content`, so the declared catalog
+   contains `shell.route-changed/shows/<show>`. That is the same registry the
+   agent seam already publishes at `/state` and the same names the rail
+   renders, so it exposes nothing new — but it is worth naming rather than
+   claiming a purity the catalog does not have.
+3. **The registry derivation is load-bearing, and visible.** The real exe
+   declares 121 ids, including the three shows discovered at boot. A hand list
+   would have silently omitted them.
+4. **The exhaustiveness gate fired on its first real encounter.** Rebasing
+   this work onto a `main` that had gained `ProviderEvent::
+   VerificationRetryScheduled` (#91) failed to compile, exactly as intended —
+   the new fact could not slip through as uncoachable. Closing it was three
+   lines and a fixture, and the id followed the seam's name for free:
+   `providers.verification-retry-scheduled`. That is the whole argument for
+   the exhaustive match over a wildcard.
+
+Proof: `eguipilotai inspect devpulse-cloud library` lists the 121 ids from the
+running exe; `tests/eguipilotai/coach-dynamic-triggers.toml` still passes with
+the renamed route signal.
