@@ -85,7 +85,11 @@ impl ImagineCache {
     }
 
     pub fn open_default() -> Self {
-        Self::open(dpl_engine_capture::userdata_root().join("cache").join("imagine"))
+        Self::open(
+            dpl_engine_capture::userdata_root()
+                .join("cache")
+                .join("imagine"),
+        )
     }
 
     pub fn drafts(&self) -> &[GenerationDraft] {
@@ -247,9 +251,7 @@ pub fn parse_image_response(body: &str) -> Result<Vec<u8>, String> {
 
 impl ImagineClient for SystemImagineClient {
     fn generate_image(&self, api_key: &str, prompt: &str) -> Result<Vec<u8>, String> {
-        let agent = ureq::AgentBuilder::new()
-            .timeout(REQUEST_TIMEOUT)
-            .build();
+        let agent = ureq::AgentBuilder::new().timeout(REQUEST_TIMEOUT).build();
         let response = agent
             .post(IMAGES_ENDPOINT)
             .set("Authorization", &format!("Bearer {api_key}"))
@@ -339,7 +341,10 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("dpl-imagine-policy-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let _ = std::fs::remove_file(dir.join(POLICY_FILE));
-        assert_eq!(ImaginePolicy::load(&dir), ImaginePolicy { auto_flush: false });
+        assert_eq!(
+            ImaginePolicy::load(&dir),
+            ImaginePolicy { auto_flush: false }
+        );
         let policy = ImaginePolicy { auto_flush: true };
         policy.save(&dir).expect("save policy");
         assert_eq!(ImaginePolicy::load(&dir), policy);

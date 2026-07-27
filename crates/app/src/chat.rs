@@ -7,6 +7,7 @@ use dpl_chat_core::{
 };
 #[cfg(feature = "eguipilotai-devtools")]
 use dpl_chat_core::{ChatDomain, DeviceAuthorizationPrompt, GuidedValue, GuidedValueSensitivity};
+use dpl_chat_imagine::{ImagineCache, ImagineClient, ImaginePolicy, SystemImagineClient};
 use dpl_chat_interactions::{
     InteractionContent, InteractionId, InteractionPlacement, InteractionRegistry,
 };
@@ -14,7 +15,6 @@ use dpl_chat_profiles::{ProfileStore, ProviderProfileDraft};
 use dpl_chat_runtime::ChatRuntime;
 use dpl_chat_social::SocialModel;
 use dpl_chat_store::HistoryCatalog;
-use dpl_chat_imagine::{ImagineCache, ImagineClient, ImaginePolicy, SystemImagineClient};
 use dpl_chat_window::{
     ChatWindow, GenerationDraftView, GenerationStatus, HostIntent, ImagineFlushDecision,
     ProviderPermissionChoice, ProviderPermissionChoiceKind,
@@ -1311,8 +1311,7 @@ fn generation_status_for(imagine: &ImagineState) -> GenerationStatus {
         unavailable_reason: if provisioned {
             String::new()
         } else {
-            "Set XAI_API_KEY in your environment to enable image generation (ADR-011)."
-                .to_owned()
+            "Set XAI_API_KEY in your environment to enable image generation (ADR-011).".to_owned()
         },
         in_flight: imagine.in_flight(),
         last_error: imagine.last_error.clone(),
@@ -1410,7 +1409,12 @@ fn poll_imagine(state: &mut Shared) -> bool {
     match result {
         Ok(bytes) => {
             let outcome = state.imagine.cache.as_mut().map(|cache| {
-                cache.add(&prompt, dpl_chat_imagine::IMAGE_MODEL, &bytes, now_unix_ms())
+                cache.add(
+                    &prompt,
+                    dpl_chat_imagine::IMAGE_MODEL,
+                    &bytes,
+                    now_unix_ms(),
+                )
             });
             match outcome {
                 Some(Ok(draft)) => {
