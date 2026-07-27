@@ -50,7 +50,10 @@ mod engine {
                         w,
                         w,
                         h,
-                        tvg::Tvg_Colorspace::TVG_COLORSPACE_ABGR8888,
+                        // STRAIGHT alpha (not premultiplied) — correct for
+                        // egui `from_rgba_unmultiplied` and PNG export when
+                        // the Lottie has transparency.
+                        tvg::Tvg_Colorspace::TVG_COLORSPACE_ABGR8888S,
                     ),
                     "set_target",
                 )?;

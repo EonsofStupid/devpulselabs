@@ -157,6 +157,88 @@ pub fn export_sequence(
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+/// A Lottie's own metadata, read from its Bodymovin JSON WITHOUT rendering
+/// (no ThorVG, no subprocess) — the composer uses this to size the preview
+/// at the animation's native aspect and to time the timeline layer.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Meta {
+    pub width: u32,
+    pub height: u32,
+    pub fps: f32,
+    /// Bodymovin `ip`/`op` — in/out points in FRAMES.
+    pub in_point: f32,
+    pub out_point: f32,
+}
+
+impl Meta {
+    /// Playable length in seconds.
+    pub fn duration_seconds(&self) -> f32 {
+        ((self.out_point - self.in_point) / self.fps.max(1.0)).max(0.0)
+    }
+}
+
+/// Read `w`/`h`/`fr`/`ip`/`op` from a `.json` (raw Bodymovin) or `.lottie`
+/// (dotLottie zip). None if the file isn't a readable Bodymovin doc.
+pub fn lottie_meta(path: &Path) -> Option<Meta> {
+    let bytes = read_bodymovin_json(path)?;
+    let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    let o = v.as_object()?;
+    Some(Meta {
+        width: o.get("w")?.as_u64()? as u32,
+        height: o.get("h")?.as_u64()? as u32,
+        fps: o.get("fr")?.as_f64()? as f32,
+        in_point: o.get("ip").and_then(|x| x.as_f64()).unwrap_or(0.0) as f32,
+        out_point: o.get("op")?.as_f64()? as f32,
+    })
+}
+
+/// Is this JSON a Bodymovin/Lottie doc? The import sniff for ambiguous
+/// `.json` files — a Bodymovin top level has BOTH `fr` (frame rate) and a
+/// `layers` array. Guards against importing comp.json/guide.json/slide.json.
+pub fn is_bodymovin_json(bytes: &[u8]) -> bool {
+    serde_json::from_slice::<serde_json::Value>(bytes)
+        .ok()
+        .and_then(|v| {
+            let o = v.as_object()?;
+            Some(
+                o.get("fr").is_some_and(|f| f.is_number())
+                    && o.get("layers").is_some_and(|l| l.is_array()),
+            )
+        })
+        .unwrap_or(false)
+}
+
+/// The raw Bodymovin JSON bytes: a `.json` file directly, or the first
+/// animation JSON inside a `.lottie` (dotLottie) zip.
+fn read_bodymovin_json(path: &Path) -> Option<Vec<u8>> {
+    let dotlottie = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("lottie"));
+    if !dotlottie {
+        return std::fs::read(path).ok();
+    }
+    let file = std::fs::File::open(path).ok()?;
+    let mut zip = zip::ZipArchive::new(file).ok()?;
+    // dotLottie layout: manifest.json + animations/<id>.json. Pick the
+    // first animation JSON (or any non-manifest .json).
+    let names: Vec<String> = (0..zip.len())
+        .filter_map(|i| zip.by_index(i).ok().map(|e| e.name().to_string()))
+        .collect();
+    let pick = names
+        .iter()
+        .find(|n| n.starts_with("animations/") && n.ends_with(".json"))
+        .or_else(|| {
+            names
+                .iter()
+                .find(|n| n.ends_with(".json") && !n.ends_with("manifest.json"))
+        })?;
+    let mut entry = zip.by_name(pick).ok()?;
+    let mut buf = Vec::new();
+    entry.read_to_end(&mut buf).ok()?;
+    Some(buf)
+}
+
 /// `READY <w> <h> <fps> <total_frames>` → the four numbers.
 fn parse_ready(line: &str) -> Option<(u32, u32, f32, f32)> {
     let mut it = line.split_whitespace();
@@ -190,5 +272,37 @@ mod tests {
         let n = helper_name();
         assert!(n.starts_with("dpl-lottie-render"));
         assert_eq!(n.ends_with(".exe"), cfg!(windows));
+    }
+
+    #[test]
+    fn lottie_meta_reads_size_and_duration_from_json() {
+        let dir = std::env::temp_dir().join(format!("dpl-lottie-meta-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("title.json");
+        // 512x512 @ 30fps, frames 0..90 = 3.0s.
+        std::fs::write(
+            &p,
+            br#"{"v":"5.7.0","fr":30,"ip":0,"op":90,"w":512,"h":512,"layers":[]}"#,
+        )
+        .unwrap();
+        let m = lottie_meta(&p).unwrap();
+        assert_eq!((m.width, m.height), (512, 512));
+        assert!((m.fps - 30.0).abs() < 1e-6);
+        assert!((m.duration_seconds() - 3.0).abs() < 1e-6);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn bodymovin_sniff_accepts_lottie_and_rejects_other_json() {
+        assert!(is_bodymovin_json(
+            br#"{"fr":30,"op":90,"layers":[{"ty":4}]}"#
+        ));
+        // A comp.json-like doc: no fr/layers → rejected (protects app JSON).
+        assert!(!is_bodymovin_json(br#"{"v":1,"tracks":[]}"#));
+        assert!(!is_bodymovin_json(br#"{}"#));
+        assert!(!is_bodymovin_json(b"not json at all"));
+        // fr present but no layers array → not bodymovin.
+        assert!(!is_bodymovin_json(br#"{"fr":30}"#));
     }
 }

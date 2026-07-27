@@ -1900,6 +1900,7 @@ dependencies = [
  "dpl-fabric",
  "dpl-guide",
  "dpl-index",
+ "dpl-lottie",
  "dpl-video",
  "egui",
  "egui-pilot-ai",
@@ -2122,6 +2123,8 @@ name = "dpl-lottie"
 version = "0.1.0"
 dependencies = [
  "dpl-proc",
+ "serde_json",
+ "zip",
 ]
 
 [[package]]

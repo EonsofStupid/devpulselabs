@@ -215,6 +215,13 @@ fn main() -> eframe::Result {
         .position(|a| a == "--save-comp")
         .and_then(|i| args.get(i + 1))
         .cloned();
+    // `--lottie-import <file>` (L2) imports a native Lottie and adds it to
+    // the timeline — the native-Lottie drill.
+    let lottie_import: Option<String> = args
+        .iter()
+        .position(|a| a == "--lottie-import")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
     // `--open-rail <hub>` pins the accordion open on one house (L1a) —
     // proof shots of the unfolded rail reproduce. Unknown hub degrades to
     // a folded rail, never a panic.
@@ -365,6 +372,7 @@ fn main() -> eframe::Result {
                 import_drill,
                 pin_packs,
                 save_comp,
+                lottie_import,
                 seam_port,
             });
             #[cfg(feature = "eguipilotai-devtools")]
@@ -407,6 +415,7 @@ struct Boot {
     import_drill: Option<String>,
     pin_packs: Vec<String>,
     save_comp: Option<String>,
+    lottie_import: Option<String>,
     /// The agent seam's port; None = `--no-seam`.
     seam_port: Option<u16>,
 }
@@ -484,6 +493,7 @@ impl App {
             import_drill,
             pin_packs,
             save_comp,
+            lottie_import,
             seam_port,
         } = boot;
         let mut workbench = dpl_hub_workbench::WorkbenchHub::default();
@@ -551,6 +561,10 @@ impl App {
         // last-comp state) through the Save chip's exact path.
         if let Some(name) = &save_comp {
             wiredfront.save_comp(name);
+        }
+        // L2: import a native Lottie onto the timeline (the drill seam).
+        if let Some(file) = &lottie_import {
+            wiredfront.import_lottie(std::path::Path::new(file));
         }
         // Chat coding providers work inside the canonical launch workspace,
         // not DevPULSE's media/content store. The launcher (and later the

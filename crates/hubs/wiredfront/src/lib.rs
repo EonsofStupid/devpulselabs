@@ -1022,6 +1022,12 @@ impl WiredfrontHub {
         self.composer.save_comp(name);
     }
 
+    /// The `--lottie-import <file>` harness seam (L2): import a Lottie and
+    /// add it to the timeline — the native-Lottie drill.
+    pub fn import_lottie(&mut self, path: &std::path::Path) {
+        self.composer.import_lottie(path);
+    }
+
     /// Open one session IN PLACE on the Gallery (doctrine §1.2) — the
     /// same path a session thumb tap takes (also `--open-replay`).
     pub fn open_replay(&mut self, rel: &str) {
