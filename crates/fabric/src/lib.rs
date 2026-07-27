@@ -318,6 +318,23 @@ impl ProviderEvent {
 
 pub type ProviderReceiver = broadcast::Receiver<Stamped<ProviderEvent>>;
 
+/// BUILD-domain signals (W10) — finished slides landing in episodes.
+/// Clone (owned strings); stamped like capture/jobs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BuildEvent {
+    /// A finished slide folder was placed into a chapter (after commit).
+    SlidePlaced {
+        show: String,
+        episode: String,
+        chapter: String,
+        slide: String,
+    },
+    /// An episode document changed shape (chapters/slides).
+    EpisodeChanged { show: String, episode: String },
+}
+
+pub type BuildReceiver = broadcast::Receiver<Stamped<BuildEvent>>;
+
 /// The installed UI waker callback (doctrine law 6).
 pub type Waker = Arc<dyn Fn() + Send + Sync>;
 
@@ -344,6 +361,7 @@ pub struct Fabric {
     capture: broadcast::Sender<Stamped<CaptureEvent>>,
     jobs: broadcast::Sender<Stamped<JobEvent>>,
     providers: broadcast::Sender<Stamped<ProviderEvent>>,
+    build: broadcast::Sender<Stamped<BuildEvent>>,
     /// The stamp state: one global sequence + the birth instant.
     seq: Arc<AtomicU64>,
     born: Instant,
@@ -366,12 +384,14 @@ impl Fabric {
         let (capture, _) = broadcast::channel(256);
         let (jobs, _) = broadcast::channel(64);
         let (providers, _) = broadcast::channel(128);
+        let (build, _) = broadcast::channel(64);
         Self {
             shell,
             deck,
             capture,
             jobs,
             providers,
+            build,
             seq: Arc::new(AtomicU64::new(0)),
             born: Instant::now(),
             waker: Arc::new(std::sync::Mutex::new(None)),
@@ -443,6 +463,16 @@ impl Fabric {
 
     pub fn subscribe_providers(&self) -> ProviderReceiver {
         self.providers.subscribe()
+    }
+
+    /// Publish a BUILD-domain fact (slide placed / episode changed).
+    pub fn publish_build(&self, event: BuildEvent) {
+        let _ = self.build.send(self.stamp(event));
+        self.wake();
+    }
+
+    pub fn subscribe_build(&self) -> BuildReceiver {
+        self.build.subscribe()
     }
 
     /// Publish, ignoring "no subscribers yet" — a signal with no listeners
@@ -605,6 +635,34 @@ mod tests {
             job.0 < q.seq,
             "the JobId is causally before its transitions"
         );
+    }
+
+    #[test]
+    fn build_events_stamp_and_round_trip() {
+        let fabric = Fabric::new();
+        let mut rx = fabric.subscribe_build();
+        fabric.publish_build(BuildEvent::SlidePlaced {
+            show: "devpulse-news".into(),
+            episode: "ep1".into(),
+            chapter: "intro".into(),
+            slide: "title-neon".into(),
+        });
+        fabric.publish_build(BuildEvent::EpisodeChanged {
+            show: "devpulse-news".into(),
+            episode: "ep1".into(),
+        });
+        let a = rx.try_recv().unwrap();
+        let b = rx.try_recv().unwrap();
+        assert!(matches!(
+            a.ev,
+            BuildEvent::SlidePlaced {
+                ref show,
+                ref slide,
+                ..
+            } if show == "devpulse-news" && slide == "title-neon"
+        ));
+        assert!(matches!(b.ev, BuildEvent::EpisodeChanged { .. }));
+        assert!(b.seq > a.seq);
     }
 
     #[test]

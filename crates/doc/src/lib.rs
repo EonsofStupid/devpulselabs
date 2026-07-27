@@ -909,6 +909,121 @@ pub fn clone_episode(
     Ok(dest)
 }
 
+/// Result of placing one finished slide into an existing content episode.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlacedSlide {
+    pub show: String,
+    pub episode: String,
+    pub chapter: String,
+    /// The slide subfolder name used under the episode (may be numbered
+    /// for never-clobber).
+    pub slide: String,
+    pub dir: PathBuf,
+}
+
+/// Place ONE finished slide folder into an EXISTING content episode
+/// chapter (W10). COPY never move; seeds/sources stay pristine; refuses
+/// to create shows/episodes (the X3 associate law). Transactional: on
+/// `validate_episode` failure after write, the new folder is removed and
+/// `episode.json` is restored — no orphan left behind.
+pub fn place_slide(
+    content_root: &Path,
+    slide_dir: &Path,
+    show: &str,
+    episode: &str,
+    chapter_id: &str,
+    slot: Option<usize>,
+) -> Result<PlacedSlide, String> {
+    if !kebab_ok(show) || !kebab_ok(episode) {
+        return Err("show and episode names are kebab-case (a-z, 0-9, -, _)".into());
+    }
+    if !slide_dir.join(FILE).is_file() {
+        return Err(format!("not a slide folder: {}", slide_dir.display()));
+    }
+    let slide = load(slide_dir).map_err(|e| format!("slide does not load: {e}"))?;
+    let slide_issues = validate(&slide);
+    if !slide_issues.is_empty() {
+        return Err(format!(
+            "slide is not finished (validate issues): {}",
+            slide_issues
+                .iter()
+                .map(|i| format!("{} — {}", i.path, i.message))
+                .collect::<Vec<_>>()
+                .join("; ")
+        ));
+    }
+
+    let ep_dir = content_root.join(show).join(episode);
+    if !ep_dir.join(EPISODE_FILE).is_file() {
+        return Err(format!(
+            "{show}/{episode} does not exist — place never creates episodes"
+        ));
+    }
+    let mut ep = load_episode(&ep_dir).map_err(|e| format!("episode load: {e}"))?;
+    let chapter_ix = ep
+        .chapters
+        .iter()
+        .position(|c| c.id == chapter_id)
+        .ok_or_else(|| format!("chapter {chapter_id:?} not in episode"))?;
+
+    let base_name = slide_dir
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .filter(|n| kebab_ok(n))
+        .unwrap_or_else(|| "slide".into());
+    let name = mint_slide_name(&ep_dir, &base_name);
+    let dest = ep_dir.join(&name);
+
+    let prior_raw = std::fs::read_to_string(ep_dir.join(EPISODE_FILE))
+        .map_err(|e| format!("snapshot episode.json: {e}"))?;
+
+    copy_dir(slide_dir, &dest)?;
+
+    let slides = &mut ep.chapters[chapter_ix].slides;
+    match slot {
+        Some(i) if i <= slides.len() => slides.insert(i, name.clone()),
+        _ => slides.push(name.clone()),
+    }
+    if let Err(e) = save_episode(&ep_dir, &ep) {
+        let _ = std::fs::remove_dir_all(&dest);
+        return Err(format!("save episode: {e}"));
+    }
+
+    let issues = validate_episode(&ep_dir, &ep);
+    if !issues.is_empty() {
+        let _ = std::fs::remove_dir_all(&dest);
+        let _ = std::fs::write(ep_dir.join(EPISODE_FILE), prior_raw);
+        return Err(format!(
+            "place rolled back — episode invalid: {}",
+            issues
+                .iter()
+                .map(|i| format!("{} — {}", i.path, i.message))
+                .collect::<Vec<_>>()
+                .join("; ")
+        ));
+    }
+
+    Ok(PlacedSlide {
+        show: show.into(),
+        episode: episode.into(),
+        chapter: chapter_id.into(),
+        slide: name,
+        dir: dest,
+    })
+}
+
+/// Never-clobber slide folder name under an episode dir.
+fn mint_slide_name(ep_dir: &Path, base: &str) -> String {
+    let first = ep_dir.join(base);
+    if !first.exists() {
+        return base.to_string();
+    }
+    (2..)
+        .map(|n| format!("{base}-{n}"))
+        .find(|cand| !ep_dir.join(cand).exists())
+        .expect("unbounded")
+}
+
 fn copy_dir(from: &Path, to: &Path) -> Result<(), String> {
     std::fs::create_dir_all(to).map_err(|e| format!("copy {}: {e}", to.display()))?;
     let entries = std::fs::read_dir(from).map_err(|e| format!("copy {}: {e}", from.display()))?;
@@ -1568,6 +1683,77 @@ mod tests {
         assert!(
             all.iter().take(content_count).all(|e| e.show.is_some()),
             "no template sorts above content: {all:?}"
+        );
+    }
+
+    #[test]
+    fn place_slide_copies_into_chapter_never_moves_seed_and_never_clobbers() {
+        let (seed, content) = content_scratch("place");
+        let ep_dir = clone_episode(&seed, &content, "devpulse-news", "ep1").unwrap();
+        let src = seed.join("a");
+        let placed = place_slide(&content, &src, "devpulse-news", "ep1", "intro", None).unwrap();
+        // "a" already exists in the episode → never-clobber mint.
+        assert_eq!(placed.slide, "a-2");
+        assert!(placed.dir.join(FILE).is_file());
+        assert!(src.join(FILE).is_file(), "seed slide is never moved");
+        let ep = load_episode(&ep_dir).unwrap();
+        assert!(
+            ep.chapters[0].slides.contains(&"a-2".into()),
+            "chapter gained the slide: {:?}",
+            ep.chapters[0].slides
+        );
+        assert_eq!(validate_episode(&ep_dir, &ep), Vec::new());
+        // Missing episode / chapter / unfinished slide are refused.
+        assert!(
+            place_slide(&content, &src, "devpulse-news", "nope", "intro", None)
+                .unwrap_err()
+                .contains("does not exist")
+        );
+        assert!(
+            place_slide(&content, &src, "devpulse-news", "ep1", "ghost", None)
+                .unwrap_err()
+                .contains("chapter")
+        );
+        // validate() does not gate on template id — unfinished = ref issues.
+        let bad = ep_scratch("unfinished-slide");
+        std::fs::create_dir_all(&bad).unwrap();
+        std::fs::write(
+            bad.join(FILE),
+            r#"{ "v": 1, "template": "title",
+                 "blocks": [ { "kind": "text", "id": "t", "text": "x",
+                   "size": "not-a-size" } ] }"#,
+        )
+        .unwrap();
+        assert!(
+            place_slide(&content, &bad, "devpulse-news", "ep1", "intro", None)
+                .unwrap_err()
+                .contains("not finished")
+        );
+        let _ = std::fs::remove_dir_all(&bad);
+    }
+
+    #[test]
+    fn place_slide_rolls_back_when_episode_stays_invalid() {
+        let (seed, content) = content_scratch("place-rb");
+        let ep_dir = clone_episode(&seed, &content, "devpulse-news", "ep1").unwrap();
+        // Pre-existing orphan → validate_episode fails after the write.
+        write_ok_slide(&ep_dir.join("orphan-slide"));
+        let prior = std::fs::read_to_string(ep_dir.join(EPISODE_FILE)).unwrap();
+        let err = place_slide(
+            &content,
+            &seed.join("a"),
+            "devpulse-news",
+            "ep1",
+            "intro",
+            None,
+        )
+        .unwrap_err();
+        assert!(err.contains("rolled back"), "{err}");
+        assert!(!ep_dir.join("a-2").exists(), "new folder removed");
+        assert_eq!(
+            std::fs::read_to_string(ep_dir.join(EPISODE_FILE)).unwrap(),
+            prior,
+            "episode.json restored"
         );
     }
 }
