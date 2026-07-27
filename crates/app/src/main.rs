@@ -792,17 +792,36 @@ impl App {
                 dithering: false,
             }
         });
-        let runtime = std::sync::Arc::new(std::sync::Mutex::new(
-            egui_pilot_ai_runtime::RuntimeGuard::attach(
-                &cc.egui_ctx,
-                egui_pilot_ai_transport::StdioTransport::stdio(64),
-                config,
-            ),
-        ));
+        let guard = egui_pilot_ai_runtime::RuntimeGuard::attach(
+            &cc.egui_ctx,
+            egui_pilot_ai_transport::StdioTransport::stdio(64),
+            config,
+        );
+        guard.pilot().set_coach_palette(Self::coach_palette());
+        let runtime = std::sync::Arc::new(std::sync::Mutex::new(guard));
         self.chat
             .attach_pilot_runtime(std::sync::Arc::clone(&runtime));
         self.pilot_runtime = Some(runtime);
         tracing::info!("EguiPilotAI private devtools runtime attached");
+    }
+
+    /// A coached control wears the ColdLight paint vocabulary: a crisp cyan
+    /// edge, a gradient tint head, and black diffusion scatter dimming the
+    /// rest of the screen — never a backdrop blur.
+    #[cfg(feature = "eguipilotai-devtools")]
+    fn coach_palette() -> egui_pilot_ai::CoachPalette {
+        let accent = dpl_coldlight::Tone::Cyan;
+        egui_pilot_ai::CoachPalette {
+            ring: accent.color(),
+            ring_width: 2.0,
+            tint: accent.tint(),
+            scatter: egui::Color32::from_rgba_unmultiplied(0, 0, 0, 150),
+            caption_plate: dpl_coldlight::surface::RAISED,
+            caption_edge: dpl_coldlight::surface::HAIRLINE,
+            caption_ink: dpl_coldlight::ink::STRONG,
+            caption_font: egui::FontId::proportional(13.0),
+            corner_radius: dpl_coldlight::RADIUS_SM,
+        }
     }
 
     /// The harness: request a screenshot on `shot_frame` (default 6 — theme +

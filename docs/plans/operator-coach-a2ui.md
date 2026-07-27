@@ -124,12 +124,20 @@ channel, coalesce on lag, `STATE_SNAPSHOT`-style resync on overflow).
 
 ### 3.3 In-app rendering (C1)
 
-Runtime resolves `at` against `latest_frame()`, then paints an
-`egui::Area` at `Order::Foreground` with `Sense::click` over the node rect.
-ColdLight vocabulary only: crisp edge ring, gradient tint, black diffusion
-scatter dimming outside the rect — never backdrop blur. Click inside →
-`Triggered`; Esc or agent `Unmount` → `Unmounted`; missing/clipped target →
-`Refused`.
+Runtime resolves `at` against `latest_frame()`, then paints over the node
+rect on a foreground layer. ColdLight vocabulary only: crisp edge ring,
+gradient tint, black diffusion scatter dimming outside the rect — never
+backdrop blur. Press inside → `Triggered`; agent `Unmount`, TTL, or a target
+that stops rendering → `Unmounted`; unresolvable target → `Refused`.
+
+**Amended in the C1 pass (2026-07-27): the overlay observes, it never
+intercepts.** The draft said `egui::Area` + `Sense::click`. A sensing
+foreground area would swallow the press, so the operator told to "click Save"
+would highlight Save and never actually save — the coaching would be theatre.
+The shipped renderer is a bare `layer_painter` on `Order::Foreground` with no
+interaction area at all; the trigger is read out of the same frame's pointer
+events. The real control still does its real work, and the agent still learns
+the press happened.
 
 ### 3.4 Desktop overlay daemon (C2) — `dpl-coach-overlay`
 
@@ -182,6 +190,7 @@ internalize what we actually use.
 ## 4. Changes (execution order)
 
 1. **C1 — operator-coach vertical (in-app spotlight + press-to-trigger).**
+   **LANDED 2026-07-27 — see §9.**
    Router-shaped protocol arms from day one (`Mount`/`Unmount`/`Triggered`
    + roundtrip tests) but only `visual: Spotlight`, `on: Press` implemented
    → runtime handling + resolver → egui Foreground renderer (ColdLight) →
@@ -291,3 +300,56 @@ protocols — serde enums, no runtime to import. The single genuine non-Rust
 corner is a GNOME-Shell extension (JavaScript) if GNOME-Wayland overlays were
 ever required; the ruling here is: don't — X11 today, wlroots if Wayland
 later. No expansion from Rust is warranted.
+
+## 9. C1 evidence (2026-07-27)
+
+Protocol 2.2 → **2.3**. New capability `coach.touchpoint` is *supported*;
+`coach.visual.extended`, `coach.stream-triggers`, `coach.desktop-overlay`
+are declared *unsupported* and each names the slice that ships it, so a
+scenario asking for an unbuilt visual or trigger fails before the app boots
+instead of half-running.
+
+What shipped, crate by crate:
+
+- `egui-pilot-ai-protocol` — `CoachId`, `Touchpoint`, `CoachStyle`,
+  `TriggerKind`, `CoachActor`, `CoachUnmountReason`, `CoachRefusal`,
+  `CoachCommand`, `CoachEvent`; `ClientCommand::Coach { coach }`,
+  `CommandResult::Coach`, `RuntimeEvent::Coach`, `Step::Coach`,
+  `Expectation::Coach`.
+- `egui-pilot-ai` — `coach` module: `CoachPalette` (ColdLight ink),
+  `CoachStore` (mount ledger, TTL, viewport cleanup), and the pass that
+  paints and observes. Painted per target viewport, clipped to the
+  viewport rect, unmounted automatically when its viewport closes.
+- `egui-pilot-ai-runtime` — locator resolution against `latest_frame()`,
+  the capability refusal gate, the `coach_ledger` that backs
+  `Expectation::Coach`, event forwarding, and unmount-all on both `cancel`
+  (`reason: agent`) and `stop` (`reason: session-ended`) so no touchpoint
+  outlives its session.
+- `egui-pilot-ai-runner` / `-cli` — `ProcessSession::coach` / `await_coach`,
+  the `eguipilotai coach` verb, and a seventh MCP tool `pilot_coach`.
+- `crates/app` — the ColdLight coach palette bound to the devtools runtime.
+
+Three findings the implementation forced back into the design:
+
+1. **Non-interception** (§3.3 amendment) — the overlay must not sense.
+2. **Actor attribution needs a synthetic-input marker.** `Triggered.actor`
+   is the whole coach-vs-demo distinction, and a press looks identical in
+   `egui::RawInput` whichever side produced it. The plugin now records
+   which viewports received injected presses in the frame it injects them,
+   so demo-mode presses report `agent` and operator presses report
+   `operator`. Without this the two modes are indistinguishable on the wire.
+3. **`ClientCommand::Coach` had to become a struct variant.** Externally
+   tagged `ClientCommand` plus internally tagged `CoachCommand` both emit
+   `type`, and serde produced a duplicate-field error on the roundtrip test.
+   Nesting under `coach` keeps both tags legible on the wire.
+
+Proof: `tests/eguipilotai/coach-touchpoint.toml` runs the full lifecycle on
+the real exe — mount → `expect coach mounted` → capture → agent click →
+`expect coach triggered` → unmount → `expect coach unmounted`. Baseline
+`docs/proof/coach-spotlight-rail-workbench.png` shows the Workbench rail
+button lit inside the dim with its caption plate. The trace records
+`actor: agent` for the injected press, proving attribution.
+
+Not built, deliberately: the Test Lab coach tab (Test Lab holds no live
+session — that is Slice 8's `test-lab.live-control`), `Screen`-anchored
+touchpoints (no use before C2), and every trigger except `Press`.

@@ -1,0 +1,76 @@
+id = "coach-touchpoint"
+fixture = "library"
+record = true
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/shell.rail/workbench"
+
+# Mount the spotlight. `once` is false so the highlight survives the capture
+# below; the run unmounts it explicitly at the end.
+[[steps]]
+kind = "coach"
+
+[steps.coach]
+type = "mount"
+
+[steps.coach.touchpoint]
+coach_id = "coach-rail-workbench"
+visual = "spotlight"
+on = "press"
+message = "Press Workbench to open the hub"
+once = false
+
+[steps.coach.touchpoint.target]
+id = "root/shell.rail/workbench"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "coach"
+coach_id = "coach-rail-workbench"
+state = "mounted"
+
+[[steps]]
+kind = "capture"
+name = "coach-spotlight-rail-workbench"
+
+# The agent presses the touchpoint itself: demo mode is coach mode with a
+# different actor, over the same rails.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/shell.rail/workbench"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "coach"
+coach_id = "coach-rail-workbench"
+state = "triggered"
+
+[[steps]]
+kind = "coach"
+
+[steps.coach]
+type = "unmount"
+coach_id = "coach-rail-workbench"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "coach"
+coach_id = "coach-rail-workbench"
+state = "unmounted"
