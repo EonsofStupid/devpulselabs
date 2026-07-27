@@ -46,7 +46,7 @@ EGUIPILOTAI_ADAPTER_POLICY = "hardware-required"
 arguments = ["--route", "workbench/test-lab", "--mood", "0"]
 
 [fixtures.library]
-arguments = ["--route", "library/templates", "--mood", "0"]
+arguments = ["--route", "workbench/library", "--focus", "title", "--mood", "0"]
 
 [fixtures.viziwiz]
 arguments = ["--route", "wiredfront/viziwiz", "--viziwiz", "--mood", "0"]
