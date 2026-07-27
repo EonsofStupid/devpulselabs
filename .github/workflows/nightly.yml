@@ -109,13 +109,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: download windows artifact (optional)
         continue-on-error: true
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: nightly-windows
           path: artifacts
       - name: download linux artifact (optional)
         continue-on-error: true
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: nightly-linux
           path: artifacts
