@@ -37,7 +37,7 @@ const TARGETS: &[Capability] = &[
 pub const MANIFEST: ProviderManifest = ProviderManifest {
     descriptor: ProviderDescriptor {
         id: PROVIDER,
-        label: "Claude",
+        label: "Claude Code",
         short_label: "Claude",
         glyph: "A",
         accent: ProviderAccent::Amber,

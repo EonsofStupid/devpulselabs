@@ -332,6 +332,56 @@ impl ChatRuntime {
         Ok(())
     }
 
+    pub fn append_status_chunk(
+        &mut self,
+        provider_id: ProviderId,
+        session_id: ChatSessionId,
+        turn_id: TurnId,
+        event_id: ChatEventId,
+        chunk: &str,
+    ) -> Result<(), RegistryError> {
+        const MAX_ACTIVITY_BYTES: usize = 16 * 1_024;
+        let entry = self.entry_mut(provider_id)?;
+        if !entry
+            .registration
+            .sessions
+            .iter()
+            .any(|session| session.id == session_id)
+        {
+            return Err(RegistryError::UnknownSession {
+                provider: provider_id,
+                session: session_id,
+            });
+        }
+        if let Some(last) = entry.registration.events.last_mut() {
+            if last.session_id == session_id && last.turn_id.as_ref() == Some(&turn_id) {
+                if let ChatEventContent::StatusUpdated(body) = &mut last.content {
+                    let remaining = MAX_ACTIVITY_BYTES.saturating_sub(body.len());
+                    if remaining > 0 {
+                        let mut boundary = chunk.len().min(remaining);
+                        while !chunk.is_char_boundary(boundary) {
+                            boundary -= 1;
+                        }
+                        body.push_str(&chunk[..boundary]);
+                    }
+                    return Ok(());
+                }
+            }
+        }
+        let mut boundary = chunk.len().min(MAX_ACTIVITY_BYTES);
+        while !chunk.is_char_boundary(boundary) {
+            boundary -= 1;
+        }
+        entry.registration.events.push(ChatEvent {
+            id: event_id,
+            provider_id,
+            session_id,
+            turn_id: Some(turn_id),
+            content: ChatEventContent::StatusUpdated(chunk[..boundary].to_owned()),
+        });
+        Ok(())
+    }
+
     pub fn replace_sessions(
         &mut self,
         provider_id: ProviderId,
@@ -662,6 +712,44 @@ mod tests {
         assert_eq!(
             events[0].content,
             ChatEventContent::AssistantMessage("hello world".into())
+        );
+    }
+
+    #[test]
+    fn streamed_reasoning_chunks_coalesce_into_one_bounded_activity_event() {
+        let mut registration = ProviderRegistration::planned(MANIFEST);
+        registration.sessions.push(session(ID, 1, "Live"));
+        let mut runtime =
+            ChatRuntime::try_from_registrations([registration]).expect("valid registry");
+
+        runtime
+            .append_status_chunk(
+                ID,
+                ChatSessionId(1),
+                TurnId("turn-1".into()),
+                ChatEventId(1),
+                "The ",
+            )
+            .expect("first chunk");
+        runtime
+            .append_status_chunk(
+                ID,
+                ChatSessionId(1),
+                TurnId("turn-1".into()),
+                ChatEventId(2),
+                "user is asking",
+            )
+            .expect("second chunk");
+
+        let events = runtime
+            .selected_provider()
+            .expect("provider")
+            .registration
+            .events;
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0].content,
+            ChatEventContent::StatusUpdated("The user is asking".into())
         );
     }
 

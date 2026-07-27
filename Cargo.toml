@@ -14,6 +14,7 @@ members = [
     "crates/chat/context",
     "crates/chat/extensions",
     "crates/chat/interactions",
+    "crates/chat/profiles",
     "crates/chat/renderers",
     "crates/chat/runtime",
     "crates/chat/social",
@@ -141,6 +142,7 @@ dpl-chat-browser-auth = { path = "crates/chat/browser-auth" }
 dpl-chat-context = { path = "crates/chat/context" }
 dpl-chat-extensions = { path = "crates/chat/extensions" }
 dpl-chat-interactions = { path = "crates/chat/interactions" }
+dpl-chat-profiles = { path = "crates/chat/profiles" }
 dpl-chat-renderers = { path = "crates/chat/renderers" }
 dpl-chat-runtime = { path = "crates/chat/runtime" }
 dpl-chat-social = { path = "crates/chat/social" }

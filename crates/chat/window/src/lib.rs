@@ -7,12 +7,16 @@
 use dpl_chat_context::RouteContextState;
 use dpl_chat_core::{
     ActivationState, Capability, ChatDomain, ChatEvent, ChatEventContent, ChatEventId,
-    ChatSessionId, ProviderAccent, ProviderId, RecoveryActionKind, SessionGroup, SessionState,
-    SessionSummary, TurnId,
+    ChatSessionId, EventPresentation, ProviderAccent, ProviderId, RecoveryActionKind, SessionGroup,
+    SessionState, SessionSummary, TurnId,
 };
 use dpl_chat_interactions::{
     InteractionContent, InteractionId, InteractionLifecycle, InteractionPlacement,
     InteractionProvenance, InteractionRegistry, InteractionSpec, OverlayCoordinator, OverlayEntry,
+};
+use dpl_chat_profiles::{
+    CatalogSupplement, CatalogSupplementAction, ProviderConfigurationKind, ProviderProfile,
+    ProviderProfileDraft, SUPPLEMENTS,
 };
 use dpl_chat_runtime::{ChatRuntime, ProviderView, RegistryError};
 use dpl_chat_social::{
@@ -44,6 +48,14 @@ pub const MAXIMIZE_ID: PilotId = PilotId::new("chat.window.maximize");
 pub const CLOSE_ID: PilotId = PilotId::new("chat.window.close");
 pub const SIDEBAR_ID: PilotId = PilotId::new("chat.sidebar");
 pub const PROVIDERS_ID: PilotId = PilotId::new("chat.sidebar.providers");
+pub const PROVIDER_CATALOG_ID: PilotId = PilotId::new("chat.provider.catalog");
+pub const PROVIDER_CONFIG_ID: PilotId = PilotId::new("chat.provider.configuration");
+pub const PROVIDER_CONFIG_NAME_ID: PilotId =
+    PilotId::new("chat.provider.configuration.display-name");
+pub const PROVIDER_CONFIG_ENDPOINT_ID: PilotId =
+    PilotId::new("chat.provider.configuration.endpoint");
+pub const PROVIDER_CONFIG_MODEL_ID: PilotId = PilotId::new("chat.provider.configuration.model");
+pub const PROVIDER_CONFIG_SAVE_ID: PilotId = PilotId::new("chat.provider.configuration.save");
 pub const SESSIONS_ID: PilotId = PilotId::new("chat.sidebar.sessions");
 pub const SOCIAL_THREADS_ID: PilotId = PilotId::new("chat.sidebar.social");
 pub const CONVERSATION_ID: PilotId = PilotId::new("chat.conversation");
@@ -93,6 +105,8 @@ impl Composition {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DomainOverlay {
     Picker,
+    ProviderCatalog,
+    ProviderConfiguration(ProviderConfigurationKind),
     Provider(ProviderId),
     SocialConversation(SocialConversationId),
 }
@@ -153,6 +167,8 @@ pub enum ChatWindowIntent {
         conversation: SocialConversationId,
         value: String,
     },
+    UpdateProviderProfileDraft(ProviderProfileDraft),
+    SaveProviderProfile(ProviderProfileDraft),
     SetOverlay(Option<DomainOverlay>),
     CompleteInteraction(InteractionId),
     DismissInteraction(InteractionId),
@@ -201,6 +217,7 @@ pub enum HostIntent {
     OpenProviderSetup(ProviderId),
     RefreshProvider(ProviderId),
     ProviderSelected(ProviderId),
+    SaveProviderProfile(ProviderProfileDraft),
     CopyProviderAuthorizationCode(ProviderId),
     NewSession(ProviderId),
     SendTurn {
@@ -300,6 +317,8 @@ pub struct ChatWindow {
     composer_focus_requested: bool,
     domain: ChatDomain,
     domain_states: ChatDomainStates,
+    provider_profiles: Vec<ProviderProfile>,
+    provider_profile_draft: ProviderProfileDraft,
 }
 
 impl ChatWindow {
@@ -384,6 +403,10 @@ impl ChatWindow {
             composer_focus_requested: false,
             domain: ChatDomain::Ai,
             domain_states,
+            provider_profiles: Vec::new(),
+            provider_profile_draft: ProviderProfileDraft::for_kind(
+                ProviderConfigurationKind::Local,
+            ),
         }
     }
 
@@ -431,6 +454,25 @@ impl ChatWindow {
         self.runtime.selected_provider_id()
     }
 
+    pub fn replace_provider_profiles(&mut self, profiles: Vec<ProviderProfile>) {
+        self.provider_profiles = profiles;
+    }
+
+    pub fn upsert_provider_profile(&mut self, profile: ProviderProfile) {
+        if let Some(existing) = self
+            .provider_profiles
+            .iter_mut()
+            .find(|existing| existing.key == profile.key)
+        {
+            *existing = profile;
+        } else {
+            self.provider_profiles.push(profile);
+        }
+        self.provider_profiles
+            .sort_by(|left, right| left.display_name.cmp(&right.display_name));
+        self.domain_states.ai.overlay = Some(DomainOverlay::ProviderCatalog);
+    }
+
     pub fn apply(
         &mut self,
         intent: ChatWindowIntent,
@@ -462,6 +504,13 @@ impl ChatWindow {
             } => {
                 self.social.set_draft(&conversation, value)?;
                 Ok(None)
+            }
+            ChatWindowIntent::UpdateProviderProfileDraft(draft) => {
+                self.provider_profile_draft = draft;
+                Ok(None)
+            }
+            ChatWindowIntent::SaveProviderProfile(draft) => {
+                Ok(Some(HostIntent::SaveProviderProfile(draft)))
             }
             ChatWindowIntent::SetOverlay(overlay) => {
                 self.domain_states.get_mut(self.domain).overlay = overlay;
@@ -588,6 +637,8 @@ impl ChatWindow {
         );
 
         self.provider_hover_overlay(ui, &mut intents);
+        self.provider_catalog_overlay(ui, &mut intents);
+        self.provider_configuration_overlay(ui, &mut intents);
         self.compact_picker_overlay(ui, &mut intents);
         self.interaction_overlays(ui, &mut intents);
         borderless_resize(ui);
@@ -671,6 +722,19 @@ impl ChatWindow {
     ) -> Result<(), ChatWindowError> {
         self.runtime
             .append_assistant_chunk(provider, session, turn, event, chunk)?;
+        Ok(())
+    }
+
+    pub fn append_provider_status_chunk(
+        &mut self,
+        provider: ProviderId,
+        session: ChatSessionId,
+        turn: TurnId,
+        event: ChatEventId,
+        chunk: &str,
+    ) -> Result<(), ChatWindowError> {
+        self.runtime
+            .append_status_chunk(provider, session, turn, event, chunk)?;
         Ok(())
     }
 
@@ -940,10 +1004,7 @@ impl ChatWindow {
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         ui.spacing_mut().item_spacing.y = 2.0;
-                        micro_heading(ui, "AI PROVIDERS");
-                        for provider in &providers {
-                            self.provider_row(ui, provider, true, intents);
-                        }
+                        self.provider_selector(ui, &providers, intents);
                         ui.add_space(9.0);
                         self.session_groups(ui, &providers, intents);
                     });
@@ -1084,8 +1145,26 @@ impl ChatWindow {
             micro_heading(ui, domain.label());
             match domain {
                 ChatDomain::Ai => {
-                    for provider in self.runtime.provider_views() {
-                        self.provider_row(ui, &provider, false, intents);
+                    if let Some(provider) = self.runtime.selected_provider() {
+                        let descriptor = provider.registration.manifest.descriptor;
+                        let response = sidebar_row(ui, descriptor.short_label, true);
+                        let active = active_session_count(&self.runtime.provider_views());
+                        let mut metadata = NodeMetadata::new(
+                            PROVIDERS_ID.child(&PilotKey::new("compact")),
+                            Role::Button,
+                            "Open AI Providers",
+                        );
+                        metadata.value = Some(format!(
+                            "{} · {active} active session{}",
+                            descriptor.label,
+                            if active == 1 { "" } else { "s" }
+                        ));
+                        ui.pilot_track(&response, metadata);
+                        if response.clicked() {
+                            intents.push(ChatWindowIntent::SetOverlay(Some(
+                                DomainOverlay::ProviderCatalog,
+                            )));
+                        }
                     }
                 }
                 ChatDomain::Social => {
@@ -1111,6 +1190,77 @@ impl ChatWindow {
                 intents.push(ChatWindowIntent::SetOverlay(Some(DomainOverlay::Picker)));
             }
         });
+    }
+
+    fn provider_selector(
+        &self,
+        ui: &mut egui::Ui,
+        providers: &[ProviderView],
+        intents: &mut Vec<ChatWindowIntent>,
+    ) {
+        micro_heading(ui, "AI PROVIDERS");
+        let selected = self.runtime.selected_provider();
+        let active = active_session_count(providers);
+        let response = egui::Frame::new()
+            .fill(Color32::from_rgb(10, 36, 40))
+            .stroke(Stroke::new(1.0, Color32::from_rgb(18, 91, 96)))
+            .corner_radius(CornerRadius::same(4))
+            .inner_margin(egui::Margin::symmetric(8, 7))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    if let Some(provider) = &selected {
+                        provider_mark(ui, provider.registration.manifest.descriptor.accent);
+                    } else {
+                        provider_mark(ui, ProviderAccent::Cyan);
+                    }
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 0.0;
+                        ui.label(
+                            RichText::new(
+                                selected
+                                    .as_ref()
+                                    .map_or("Choose an AI provider", |provider| {
+                                        provider.registration.manifest.descriptor.label
+                                    }),
+                            )
+                            .small()
+                            .strong()
+                            .color(cl::ink::STRONG),
+                        );
+                        ui.label(
+                            RichText::new(format!(
+                                "{active} active session{}",
+                                if active == 1 { "" } else { "s" }
+                            ))
+                            .small()
+                            .color(cl::ink::MUTED),
+                        );
+                    });
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.label(RichText::new("⌄").color(Tone::Cyan.color()));
+                    });
+                });
+            })
+            .response
+            .interact(Sense::click());
+        let mut metadata = NodeMetadata::new(PROVIDERS_ID, Role::Button, "Open AI Providers");
+        metadata.description = Some(
+            "Shows active sessions, all built-in providers, and Local or Custom setup.".to_owned(),
+        );
+        metadata.value = selected.map(|provider| {
+            format!(
+                "{} · {active} active session{}",
+                provider.registration.manifest.descriptor.label,
+                if active == 1 { "" } else { "s" }
+            )
+        });
+        ui.pilot_track(&response, metadata);
+        if response.clicked() {
+            intents.push(ChatWindowIntent::SetOverlay(Some(
+                DomainOverlay::ProviderCatalog,
+            )));
+        }
     }
 
     fn provider_row(
@@ -1194,13 +1344,7 @@ impl ChatWindow {
         ui.pilot_track(&response, metadata);
         if response.clicked() {
             intents.push(ChatWindowIntent::SelectProvider(descriptor.id));
-            intents.push(ChatWindowIntent::SetOverlay(Some(DomainOverlay::Provider(
-                descriptor.id,
-            ))));
-        } else if response.hovered() {
-            intents.push(ChatWindowIntent::SetOverlay(Some(DomainOverlay::Provider(
-                descriptor.id,
-            ))));
+            intents.push(ChatWindowIntent::SetOverlay(None));
         }
     }
 
@@ -1411,11 +1555,11 @@ impl ChatWindow {
             return;
         }
 
-        let events = provider.registration.events.iter().filter(|event| {
-            provider
-                .active_session
-                .is_none_or(|session| event.session_id == session)
-        });
+        let events = provider
+            .registration
+            .events
+            .iter()
+            .filter(|event| is_conversation_event(event, provider.active_session));
         let mut rendered = 0_usize;
         egui::ScrollArea::vertical()
             .id_salt(("chat.ai.transcript", descriptor.id, provider.active_session))
@@ -1905,6 +2049,318 @@ impl ChatWindow {
             });
     }
 
+    fn provider_catalog_overlay(&self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
+        if self.domain_states.ai.overlay != Some(DomainOverlay::ProviderCatalog) {
+            return;
+        }
+        let providers = self.runtime.provider_views();
+        egui::Window::new("AI Providers")
+            .id(egui::Id::new("chat.provider.catalog"))
+            .anchor(Align2::LEFT_TOP, [270.0, 70.0])
+            .default_width(360.0)
+            .collapsible(false)
+            .resizable(false)
+            .frame(
+                egui::Frame::new()
+                    .fill(Color32::from_rgb(7, 22, 26))
+                    .stroke(Stroke::new(1.0, Tone::Cyan.color()))
+                    .corner_radius(CornerRadius::same(5))
+                    .inner_margin(egui::Margin::same(12)),
+            )
+            .show(ui.ctx(), |ui| {
+                ui.set_width(336.0);
+                let panel = ui
+                    .vertical(|ui| {
+                        egui::ScrollArea::vertical()
+                            .id_salt("chat.provider.catalog.scroll")
+                            .max_height(350.0)
+                            .auto_shrink([false, true])
+                            .show(ui, |ui| {
+                                ui.vertical(|ui| {
+                                    ui.label(
+                                        RichText::new("CURRENT ACTIVE SESSION(S)")
+                                            .monospace()
+                                            .small()
+                                            .color(Tone::Cyan.color()),
+                                    );
+                                    let active = providers
+                                        .iter()
+                                        .filter(|provider| {
+                                            provider.registration.sessions.iter().any(|session| {
+                                                session.group == SessionGroup::Active
+                                                    || session.state == SessionState::Running
+                                            })
+                                        })
+                                        .collect::<Vec<_>>();
+                                    if active.is_empty() {
+                                        ui.label(
+                                            RichText::new("No active provider sessions")
+                                                .small()
+                                                .color(cl::ink::SUBTLE),
+                                        );
+                                    } else {
+                                        for provider in active {
+                                            let descriptor =
+                                                provider.registration.manifest.descriptor;
+                                            ui.label(
+                                                RichText::new(format!(
+                                                    "{}  {} · {} session{}",
+                                                    descriptor.glyph,
+                                                    descriptor.label,
+                                                    provider.registration.sessions.len(),
+                                                    if provider.registration.sessions.len() == 1 {
+                                                        ""
+                                                    } else {
+                                                        "s"
+                                                    }
+                                                ))
+                                                .small()
+                                                .color(cl::ink::BASE),
+                                            );
+                                        }
+                                    }
+                                    ui.add_space(8.0);
+                                    micro_heading(ui, "AVAILABLE PROVIDERS");
+                                    for provider in &providers {
+                                        self.provider_row(ui, provider, true, intents);
+                                    }
+                                    for supplement in SUPPLEMENTS.iter().filter(|supplement| {
+                                        supplement.action == CatalogSupplementAction::FutureAdapter
+                                    }) {
+                                        let response =
+                                            catalog_supplement_row(ui, supplement, false);
+                                        let mut metadata = NodeMetadata::new(
+                                            PROVIDER_CATALOG_ID
+                                                .child(&PilotKey::new(supplement.provider_id.0)),
+                                            Role::Status,
+                                            supplement.label,
+                                        );
+                                        metadata.description = Some(supplement.summary.to_owned());
+                                        metadata.value = Some("Adapter not qualified".to_owned());
+                                        ui.pilot_track(&response, metadata);
+                                    }
+                                    ui.add_space(8.0);
+                                    micro_heading(ui, "CONFIGURED PROFILES");
+                                    if self.provider_profiles.is_empty() {
+                                        ui.label(
+                                            RichText::new("No Local or Custom profiles yet")
+                                                .small()
+                                                .color(cl::ink::SUBTLE),
+                                        );
+                                    } else {
+                                        for profile in &self.provider_profiles {
+                                            egui::Frame::new()
+                                                .fill(Color32::from_rgb(9, 28, 31))
+                                                .stroke(Stroke::new(1.0, cl::surface::HAIRLINE))
+                                                .corner_radius(CornerRadius::same(3))
+                                                .inner_margin(egui::Margin::symmetric(8, 6))
+                                                .show(ui, |ui| {
+                                                    ui.set_width(ui.available_width());
+                                                    ui.label(
+                                                        RichText::new(&profile.display_name)
+                                                            .small()
+                                                            .strong()
+                                                            .color(cl::ink::STRONG),
+                                                    );
+                                                    ui.label(
+                                                        RichText::new(format!(
+                                                            "{} · {}",
+                                                            profile.kind.label(),
+                                                            profile.activation_reason()
+                                                        ))
+                                                        .small()
+                                                        .color(Tone::Amber.color()),
+                                                    );
+                                                });
+                                        }
+                                    }
+                                });
+                            });
+                        ui.separator();
+                        micro_heading(ui, "ADD A PROVIDER");
+                        for supplement in SUPPLEMENTS.iter().filter(|supplement| {
+                            matches!(supplement.action, CatalogSupplementAction::Configure(_))
+                        }) {
+                            let response = catalog_supplement_row(ui, supplement, true);
+                            let mut metadata = NodeMetadata::new(
+                                PROVIDER_CATALOG_ID.child(&PilotKey::new(supplement.provider_id.0)),
+                                Role::Button,
+                                supplement.label,
+                            );
+                            metadata.description = Some(supplement.summary.to_owned());
+                            ui.pilot_track(&response, metadata);
+                            if response.clicked() {
+                                if let CatalogSupplementAction::Configure(kind) = supplement.action
+                                {
+                                    intents.push(ChatWindowIntent::UpdateProviderProfileDraft(
+                                        ProviderProfileDraft::for_kind(kind),
+                                    ));
+                                    intents.push(ChatWindowIntent::SetOverlay(Some(
+                                        DomainOverlay::ProviderConfiguration(kind),
+                                    )));
+                                }
+                            }
+                        }
+                        ui.add_space(6.0);
+                        if ui.button("Close").clicked() {
+                            intents.push(ChatWindowIntent::SetOverlay(None));
+                        }
+                    })
+                    .response;
+                ui.pilot_track(
+                    &panel,
+                    NodeMetadata::new(PROVIDER_CATALOG_ID, Role::Dialog, "AI provider catalog"),
+                );
+            });
+    }
+
+    fn provider_configuration_overlay(
+        &self,
+        ui: &mut egui::Ui,
+        intents: &mut Vec<ChatWindowIntent>,
+    ) {
+        let Some(DomainOverlay::ProviderConfiguration(kind)) =
+            self.domain_states.ai.overlay.as_ref()
+        else {
+            return;
+        };
+        let kind = *kind;
+        let mut draft = if self.provider_profile_draft.kind == kind {
+            self.provider_profile_draft.clone()
+        } else {
+            ProviderProfileDraft::for_kind(kind)
+        };
+        egui::Window::new(format!("Configure {}", kind.label()))
+            .id(egui::Id::new("chat.provider.configuration"))
+            .anchor(Align2::LEFT_TOP, [270.0, 92.0])
+            .default_width(420.0)
+            .collapsible(false)
+            .resizable(false)
+            .frame(
+                egui::Frame::new()
+                    .fill(Color32::from_rgb(7, 22, 26))
+                    .stroke(Stroke::new(1.0, Tone::Amber.color()))
+                    .corner_radius(CornerRadius::same(5))
+                    .inner_margin(egui::Margin::same(14)),
+            )
+            .show(ui.ctx(), |ui| {
+                ui.set_width(390.0);
+                let panel = ui
+                    .vertical(|ui| {
+                        ui.label(
+                            RichText::new("NON-SECRET TYPED CONFIGURATION")
+                                .monospace()
+                                .small()
+                                .color(Tone::Amber.color()),
+                        );
+                        ui.label(
+                            RichText::new(match kind {
+                                ProviderConfigurationKind::Local => {
+                                    "Local endpoints are restricted to this computer."
+                                }
+                                ProviderConfigurationKind::Custom => {
+                                    "Custom endpoints must use HTTPS. Credentials are never entered here."
+                                }
+                            })
+                            .small()
+                            .color(cl::ink::MUTED),
+                        );
+                        ui.add_space(8.0);
+                        ui.label(RichText::new("Display name").small());
+                        let name = ui.text_edit_singleline(&mut draft.display_name);
+                        let mut name_metadata = NodeMetadata::new(
+                            PROVIDER_CONFIG_NAME_ID,
+                            Role::TextInput,
+                            "Provider display name",
+                        );
+                        name_metadata.value = Some(draft.display_name.clone());
+                        ui.pilot_track(&name, name_metadata);
+                        ui.label(RichText::new("Endpoint").small());
+                        let endpoint = ui.text_edit_singleline(&mut draft.endpoint);
+                        let mut endpoint_metadata = NodeMetadata::new(
+                            PROVIDER_CONFIG_ENDPOINT_ID,
+                            Role::TextInput,
+                            "Provider endpoint",
+                        );
+                        endpoint_metadata.description = Some(match kind {
+                            ProviderConfigurationKind::Local => {
+                                "Loopback HTTP or HTTPS endpoint only.".to_owned()
+                            }
+                            ProviderConfigurationKind::Custom => {
+                                "HTTPS endpoint without inline credentials.".to_owned()
+                            }
+                        });
+                        endpoint_metadata.value = Some(draft.endpoint.clone());
+                        ui.pilot_track(&endpoint, endpoint_metadata);
+                        ui.label(RichText::new("Model (optional)").small());
+                        let model = ui.text_edit_singleline(&mut draft.model);
+                        let mut model_metadata = NodeMetadata::new(
+                            PROVIDER_CONFIG_MODEL_ID,
+                            Role::TextInput,
+                            "Provider model",
+                        );
+                        model_metadata.value = Some(draft.model.clone());
+                        ui.pilot_track(&model, model_metadata);
+                        if name.changed() || endpoint.changed() || model.changed() {
+                            intents.push(ChatWindowIntent::UpdateProviderProfileDraft(
+                                draft.clone(),
+                            ));
+                        }
+                        ui.add_space(8.0);
+                        let validation = draft.validate();
+                        if let Err(error) = &validation {
+                            ui.label(
+                                RichText::new(error.to_string())
+                                    .small()
+                                    .color(Tone::Coral.color()),
+                            );
+                        } else {
+                            ui.label(
+                                RichText::new(
+                                    "Profile will be saved. Live transport remains unavailable until its adapter qualifies.",
+                                )
+                                .small()
+                                .color(Tone::Amber.color()),
+                            );
+                        }
+                        ui.horizontal(|ui| {
+                            let save = ui.add_enabled(
+                                validation.is_ok(),
+                                egui::Button::new("Save profile"),
+                            );
+                            ui.pilot_track(
+                                &save,
+                                NodeMetadata::new(
+                                    PROVIDER_CONFIG_SAVE_ID,
+                                    Role::Button,
+                                    "Save provider profile",
+                                ),
+                            );
+                            if save.clicked() {
+                                intents.push(ChatWindowIntent::SaveProviderProfile(draft.clone()));
+                            }
+                            if ui.button("Back").clicked() {
+                                intents.push(ChatWindowIntent::SetOverlay(Some(
+                                    DomainOverlay::ProviderCatalog,
+                                )));
+                            }
+                            if ui.button("Cancel").clicked() {
+                                intents.push(ChatWindowIntent::SetOverlay(None));
+                            }
+                        });
+                    })
+                    .response;
+                ui.pilot_track(
+                    &panel,
+                    NodeMetadata::new(
+                        PROVIDER_CONFIG_ID,
+                        Role::Dialog,
+                        format!("Configure {}", kind.label()),
+                    ),
+                );
+            });
+    }
+
     fn provider_activation_ceremony(
         &self,
         ui: &mut egui::Ui,
@@ -1922,8 +2378,8 @@ impl ChatWindow {
                 "DevPULSE sent the secure device page to your computer's default browser. Keep Chat open while xAI and the official Grok client complete authorization.",
             ),
             ActivationState::Verifying => (
-                "Verifying your Grok subscription".to_owned(),
-                "Authorization completed. DevPULSE is starting Grok ACP and verifying its cached subscription session.",
+                format!("Verifying your {} subscription", descriptor.short_label),
+                "Authorization completed. DevPULSE is verifying the provider's subscription session.",
             ),
             ActivationState::Failed { .. } | ActivationState::Degraded { .. } => (
                 format!("{} needs attention", descriptor.short_label),
@@ -1931,7 +2387,7 @@ impl ChatWindow {
             ),
             ActivationState::SignedOut { .. } => (
                 format!("Connect {}", descriptor.short_label),
-                "Use your existing xAI subscription through the official Grok device-auth flow.",
+                "Sign in through the official provider client. Your subscription and credentials stay provider-owned.",
             ),
             _ => (
                 format!("{} is unavailable", descriptor.short_label),
@@ -2098,13 +2554,17 @@ impl ChatWindow {
             return;
         }
         if matches!(provider.registration.activation, ActivationState::Verifying) {
-            let response = ui.add_enabled(false, egui::Button::new("Verifying Grok connection…"));
+            let label = format!(
+                "Verifying {} connection…",
+                provider.registration.manifest.descriptor.short_label
+            );
+            let response = ui.add_enabled(false, egui::Button::new(&label));
             ui.pilot_track(
                 &response,
                 NodeMetadata::new(
                     PROVIDER_LOGIN_ID.child(&PilotKey::new(provider_id.0)),
                     Role::Button,
-                    "Verifying Grok connection",
+                    "Verifying provider connection",
                 ),
             );
             return;
@@ -2337,11 +2797,63 @@ impl ChatWindow {
     }
 }
 
+fn catalog_supplement_row(
+    ui: &mut egui::Ui,
+    supplement: &CatalogSupplement,
+    clickable: bool,
+) -> egui::Response {
+    let response = egui::Frame::new()
+        .fill(Color32::from_rgb(8, 25, 29))
+        .stroke(Stroke::new(1.0, cl::surface::HAIRLINE))
+        .corner_radius(CornerRadius::same(3))
+        .inner_margin(egui::Margin::symmetric(8, 6))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                provider_mark(ui, supplement.accent);
+                ui.vertical(|ui| {
+                    ui.label(
+                        RichText::new(supplement.label)
+                            .small()
+                            .strong()
+                            .color(cl::ink::STRONG),
+                    );
+                    ui.label(
+                        RichText::new(supplement.summary)
+                            .small()
+                            .color(cl::ink::MUTED),
+                    );
+                });
+            });
+        })
+        .response;
+    if clickable {
+        response.interact(Sense::click())
+    } else {
+        response.on_hover_text("This adapter is declared but not qualified yet.")
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 enum SessionPredicate {
     Pinned,
     Active,
     Recent,
+}
+
+fn active_session_count(providers: &[ProviderView]) -> usize {
+    providers
+        .iter()
+        .flat_map(|provider| &provider.registration.sessions)
+        .filter(|session| {
+            session.group == SessionGroup::Active || session.state == SessionState::Running
+        })
+        .count()
+}
+
+fn is_conversation_event(event: &ChatEvent, active_session: Option<ChatSessionId>) -> bool {
+    active_session.is_none_or(|session| event.session_id == session)
+        && event.content.presentation() == EventPresentation::Conversation
 }
 
 impl SessionPredicate {
@@ -2893,6 +3405,9 @@ fn initial(value: &str) -> &str {
 fn provider_event_line(event: &ProviderEvent) -> String {
     match event {
         ProviderEvent::Selected { .. } => "provider selected".to_owned(),
+        ProviderEvent::ProfileConfigured { profile_key, .. } => {
+            format!("provider profile configured · {profile_key}")
+        }
         ProviderEvent::ActivationRequested { .. } => "connect requested".to_owned(),
         ProviderEvent::ClientStarted { client_version, .. } => {
             format!("official client started · {client_version}")
@@ -3265,6 +3780,66 @@ mod tests {
                 .active_session,
             Some(ChatSessionId(20))
         );
+    }
+
+    #[test]
+    fn provider_selector_summarizes_all_active_sessions() {
+        let window = multi_provider_window();
+        assert_eq!(active_session_count(&window.runtime.provider_views()), 2);
+        assert_eq!(window.runtime.provider_views().len(), 2);
+    }
+
+    #[test]
+    fn provider_profile_save_crosses_the_typed_host_boundary() {
+        let mut window = window();
+        let draft = ProviderProfileDraft::for_kind(ProviderConfigurationKind::Local);
+        assert_eq!(
+            window
+                .apply(ChatWindowIntent::SaveProviderProfile(draft.clone()))
+                .expect("profile intent"),
+            Some(HostIntent::SaveProviderProfile(draft))
+        );
+    }
+
+    #[test]
+    fn protocol_activity_and_unknowns_are_preserved_but_not_conversation_rows() {
+        let session = ChatSessionId(2);
+        let events = [
+            ChatEvent {
+                id: ChatEventId(1),
+                provider_id: PROVIDER,
+                session_id: session,
+                turn_id: None,
+                content: ChatEventContent::StatusUpdated("The".into()),
+            },
+            ChatEvent {
+                id: ChatEventId(2),
+                provider_id: PROVIDER,
+                session_id: session,
+                turn_id: None,
+                content: ChatEventContent::Unknown(dpl_chat_core::BoundedNativePayload::redacted(
+                    "acp.available-commands",
+                    "AvailableCommandsUpdate(...)",
+                )),
+            },
+            ChatEvent {
+                id: ChatEventId(3),
+                provider_id: PROVIDER,
+                session_id: session,
+                turn_id: None,
+                content: ChatEventContent::AssistantMessage("Yes — I’m here and working.".into()),
+            },
+        ];
+        let visible = events
+            .iter()
+            .filter(|event| is_conversation_event(event, Some(session)))
+            .collect::<Vec<_>>();
+        assert_eq!(events.len(), 3, "diagnostic facts remain preserved");
+        assert_eq!(visible.len(), 1);
+        assert!(matches!(
+            visible[0].content,
+            ChatEventContent::AssistantMessage(_)
+        ));
     }
 
     #[test]

@@ -281,6 +281,13 @@ Gemini remain later independent qualifications.
 Local/Clyffy support may become another registered adapter later. It must not
 remain a hardcoded fifth exception in the UI.
 
+Provider discovery and configuration are presented through the registry-backed
+catalog defined in
+[`chat-provider-catalog.md`](chat-provider-catalog.md). The rail does not
+enumerate fixed provider rows. Built-in adapters and operator-configured
+Local/Custom profiles share one typed catalog, while runtime activation
+remains available only for independently qualified adapters.
+
 ### `dpl-chat-context`
 
 Bidirectional route-aware context without hidden data transfer:

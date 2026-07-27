@@ -158,6 +158,7 @@ pub enum GrokSessionUpdate {
     Tool(String),
     Plan(String),
     SessionInfo(String),
+    AvailableCommands { count: usize },
     Usage { used: u64, size: u64 },
     Other(String),
 }
@@ -1240,6 +1241,9 @@ fn map_notification(notification: SessionNotification) -> GrokRuntimeEvent {
             &format!("{value:?}"),
             MAX_SESSION_UPDATE_BYTES,
         )),
+        SessionUpdate::AvailableCommandsUpdate(value) => GrokSessionUpdate::AvailableCommands {
+            count: value.available_commands.len(),
+        },
         SessionUpdate::SessionInfoUpdate(value) => GrokSessionUpdate::SessionInfo(bounded_text(
             &format!("{value:?}"),
             MAX_SESSION_UPDATE_BYTES,

@@ -173,6 +173,13 @@ pub fn provider_json(st: &Stamped<ProviderEvent>) -> Value {
         ProviderEvent::Selected { provider } => {
             json!({"type": "selected", "provider": provider.0})
         }
+        ProviderEvent::ProfileConfigured {
+            provider,
+            profile_key,
+        } => json!({
+            "type": "profileConfigured", "provider": provider.0,
+            "profileKey": profile_key
+        }),
         ProviderEvent::ActivationRequested { provider, attempt } => json!({
             "type": "activationRequested", "provider": provider.0, "attempt": attempt.0
         }),
