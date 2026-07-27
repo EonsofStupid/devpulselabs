@@ -30,7 +30,7 @@ use std::{
     path::PathBuf,
     process::Stdio,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering},
         Arc, Mutex,
     },
     thread::{self, JoinHandle},
@@ -50,6 +50,38 @@ const ACTION_TIMEOUT: Duration = Duration::from_secs(30);
 const PROMPT_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const CACHED_TOKEN_AUTH: &str = "cached_token";
 const CLIENT_NAME: &str = "devpulse-chat";
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GrokStartupStage {
+    Launching = 0,
+    TransportReady = 1,
+    Initialized = 2,
+    Authenticating = 3,
+    Authenticated = 4,
+}
+
+impl GrokStartupStage {
+    fn load(value: &AtomicU8) -> Self {
+        match value.load(Ordering::SeqCst) {
+            1 => Self::TransportReady,
+            2 => Self::Initialized,
+            3 => Self::Authenticating,
+            4 => Self::Authenticated,
+            _ => Self::Launching,
+        }
+    }
+
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Launching => "launching",
+            Self::TransportReady => "transport-ready",
+            Self::Initialized => "initialized",
+            Self::Authenticating => "authenticating",
+            Self::Authenticated => "authenticated",
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GrokLaunchSpec {
@@ -92,6 +124,13 @@ impl GrokLaunchSpec {
         }
         dpl_proc::quiet(&mut command);
         let mut command = async_process::Command::from(command);
+        // `async_process::Command::from(std::process::Command)` intentionally
+        // resets its internal stdio-configured flags. Reassert the ACP pipes
+        // after conversion or `spawn` replaces them with inherited handles.
+        command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
         command.kill_on_drop(true);
         command
     }
@@ -183,6 +222,7 @@ struct PendingPermission {
 pub enum GrokRuntimeFailureKind {
     Launch,
     Protocol,
+    CredentialUnavailable,
     Authentication,
     Unsupported,
     InvalidCommand,
@@ -263,6 +303,7 @@ impl std::error::Error for GrokRuntimeSendError {}
 #[derive(Debug)]
 pub struct GrokAcpRuntime {
     commands: Sender<GrokRuntimeCommand>,
+    shutdown: Sender<()>,
     events: Receiver<GrokRuntimeEvent>,
     worker: Option<JoinHandle<()>>,
 }
@@ -272,22 +313,28 @@ impl GrokAcpRuntime {
         let launch = GrokLaunchSpec::from_profile(&profile);
         let working_directory = profile.working_directory().to_owned();
         let (command_tx, command_rx) = async_channel::bounded(COMMAND_CAPACITY);
+        let (shutdown_tx, shutdown_rx) = async_channel::bounded(1);
         let (event_tx, event_rx) = async_channel::bounded(EVENT_CAPACITY);
         let worker = thread::Builder::new()
             .name("devpulse-grok-acp".to_owned())
             .spawn(move || {
                 async_io::block_on(async move {
-                    production_worker(launch, working_directory, command_rx, event_tx).await;
+                    production_worker(launch, working_directory, command_rx, shutdown_rx, event_tx)
+                        .await;
                 });
             })?;
         Ok(Self {
             commands: command_tx,
+            shutdown: shutdown_tx,
             events: event_rx,
             worker: Some(worker),
         })
     }
 
     pub fn try_send(&self, command: GrokRuntimeCommand) -> Result<(), GrokRuntimeSendError> {
+        if command == GrokRuntimeCommand::Shutdown {
+            let _ = self.shutdown.try_send(());
+        }
         self.commands
             .try_send(command)
             .map_err(|error| match error {
@@ -307,6 +354,8 @@ impl GrokAcpRuntime {
 
 impl Drop for GrokAcpRuntime {
     fn drop(&mut self) {
+        let _ = self.shutdown.try_send(());
+        self.shutdown.close();
         let _ = self.commands.try_send(GrokRuntimeCommand::Shutdown);
         self.commands.close();
         if let Some(worker) = self.worker.take() {
@@ -319,6 +368,7 @@ async fn production_worker(
     launch: GrokLaunchSpec,
     working_directory: PathBuf,
     commands: Receiver<GrokRuntimeCommand>,
+    shutdown: Receiver<()>,
     events: Sender<GrokRuntimeEvent>,
 ) {
     let mut command = launch.command();
@@ -340,16 +390,18 @@ async fn production_worker(
     let stdin = child.stdin.take();
     let stdout = child.stdout.take();
     let terminal_failure_emitted = Arc::new(AtomicBool::new(false));
-    let authenticated = Arc::new(AtomicBool::new(false));
+    let startup_stage = Arc::new(AtomicU8::new(GrokStartupStage::Launching as u8));
     let result = match (stdin, stdout) {
         (Some(stdin), Some(stdout)) => {
+            startup_stage.store(GrokStartupStage::TransportReady as u8, Ordering::SeqCst);
             run_connection(
                 ByteStreams::new(stdin, stdout),
                 working_directory,
                 commands,
+                shutdown,
                 events.clone(),
                 Arc::clone(&terminal_failure_emitted),
-                Arc::clone(&authenticated),
+                Arc::clone(&startup_stage),
             )
             .await
         }
@@ -359,10 +411,8 @@ async fn production_worker(
     terminate_and_reap(&mut child).await;
     if let Err(error) = result {
         if !terminal_failure_emitted.load(Ordering::SeqCst) {
-            let (kind, reason) = unclassified_connection_failure(
-                authenticated.load(Ordering::SeqCst),
-                &error.to_string(),
-            );
+            let (kind, reason) =
+                unclassified_connection_failure(GrokStartupStage::load(&startup_stage), &error);
             let _ = events
                 .send(GrokRuntimeEvent::Failure(GrokRuntimeFailure::new(
                     kind, reason,
@@ -385,9 +435,10 @@ async fn run_connection(
     transport: impl ConnectTo<Client> + 'static,
     working_directory: PathBuf,
     commands: Receiver<GrokRuntimeCommand>,
+    shutdown: Receiver<()>,
     events: Sender<GrokRuntimeEvent>,
     terminal_failure_emitted: Arc<AtomicBool>,
-    authenticated: Arc<AtomicBool>,
+    startup_stage: Arc<AtomicU8>,
 ) -> Result<(), Error> {
     let notification_events = events.clone();
     let permission_events = events.clone();
@@ -550,25 +601,29 @@ async fn run_connection(
                         .title("DevPULSE Chat"),
                 )
                 .meta(headless_meta());
-            let initialized = match request_with_timeout(
+            let initialized = match startup_request_with_timeout(
                 connection.send_request(initialize).block_task(),
                 STARTUP_TIMEOUT,
+                &shutdown,
             )
             .await
             {
                 Ok(initialized) => initialized,
-                Err(TimedRequestError::Protocol(error)) => {
+                Err(StartupRequestError::Protocol(error)) => {
                     terminal_failure_emitted.store(true, Ordering::SeqCst);
                     emit(
                         &events,
                         GrokRuntimeEvent::Failure(GrokRuntimeFailure::new(
                             GrokRuntimeFailureKind::Protocol,
-                            format!("Grok ACP initialization failed: {error}"),
+                            format!(
+                                "Grok ACP initialization failed: {}",
+                                public_protocol_reason(&error)
+                            ),
                         )),
                     )?;
                     return Err(error);
                 }
-                Err(TimedRequestError::Timeout) => {
+                Err(StartupRequestError::Timeout) => {
                     terminal_failure_emitted.store(true, Ordering::SeqCst);
                     emit(
                         &events,
@@ -578,6 +633,10 @@ async fn run_connection(
                         )),
                     )?;
                     return Err(Error::internal_error());
+                }
+                Err(StartupRequestError::Shutdown) => {
+                    terminal_failure_emitted.store(true, Ordering::SeqCst);
+                    return Ok(());
                 }
             };
             if initialized.protocol_version != ProtocolVersion::V1 {
@@ -594,6 +653,7 @@ async fn run_connection(
                 )?;
                 return Err(Error::invalid_request());
             }
+            startup_stage.store(GrokStartupStage::Initialized as u8, Ordering::SeqCst);
 
             let cached_method = initialized
                 .auth_methods
@@ -605,33 +665,38 @@ async fn run_connection(
                 emit(
                     &events,
                     GrokRuntimeEvent::Failure(GrokRuntimeFailure::new(
-                        GrokRuntimeFailureKind::Authentication,
+                        GrokRuntimeFailureKind::CredentialUnavailable,
                         "Grok did not advertise cached subscription authentication.",
                     )),
                 )?;
                 return Err(Error::invalid_request());
             };
-            match request_with_timeout(
+            startup_stage.store(GrokStartupStage::Authenticating as u8, Ordering::SeqCst);
+            match startup_request_with_timeout(
                 connection
                     .send_request(AuthenticateRequest::new(cached_method).meta(headless_meta()))
                     .block_task(),
                 STARTUP_TIMEOUT,
+                &shutdown,
             )
             .await
             {
                 Ok(_) => {}
-                Err(TimedRequestError::Protocol(error)) => {
+                Err(StartupRequestError::Protocol(error)) => {
                     terminal_failure_emitted.store(true, Ordering::SeqCst);
                     emit(
                         &events,
                         GrokRuntimeEvent::Failure(GrokRuntimeFailure::new(
                             GrokRuntimeFailureKind::Authentication,
-                            format!("Grok cached subscription authentication failed: {error}"),
+                            format!(
+                                "Grok cached subscription authentication failed: {}",
+                                public_protocol_reason(&error)
+                            ),
                         )),
                     )?;
                     return Err(error);
                 }
-                Err(TimedRequestError::Timeout) => {
+                Err(StartupRequestError::Timeout) => {
                     terminal_failure_emitted.store(true, Ordering::SeqCst);
                     emit(
                         &events,
@@ -642,8 +707,12 @@ async fn run_connection(
                     )?;
                     return Err(Error::internal_error());
                 }
+                Err(StartupRequestError::Shutdown) => {
+                    terminal_failure_emitted.store(true, Ordering::SeqCst);
+                    return Ok(());
+                }
             }
-            authenticated.store(true, Ordering::SeqCst);
+            startup_stage.store(GrokStartupStage::Authenticated as u8, Ordering::SeqCst);
 
             let capabilities = GrokAcpCapabilities {
                 load_session: initialized.agent_capabilities.load_session,
@@ -660,6 +729,7 @@ async fn run_connection(
                 working_directory,
                 capabilities,
                 commands,
+                shutdown,
                 events,
                 command_permissions,
             )
@@ -671,10 +741,11 @@ async fn run_connection(
 }
 
 fn unclassified_connection_failure(
-    authenticated: bool,
-    protocol_reason: &str,
+    startup_stage: GrokStartupStage,
+    error: &Error,
 ) -> (GrokRuntimeFailureKind, String) {
-    if authenticated {
+    let protocol_reason = public_protocol_reason(error);
+    if startup_stage == GrokStartupStage::Authenticated {
         (
             GrokRuntimeFailureKind::Disconnected,
             format!("Grok ACP disconnected: {protocol_reason}"),
@@ -682,10 +753,64 @@ fn unclassified_connection_failure(
     } else {
         (
             GrokRuntimeFailureKind::Authentication,
-            "Grok could not establish a cached subscription session. Log in to Grok and retry."
-                .to_owned(),
+            format!(
+                "Grok could not establish a cached subscription session. \
+                 Log in to Grok and retry. Diagnostic: stage={} {protocol_reason}.",
+                startup_stage.label()
+            ),
         )
     }
+}
+
+fn public_protocol_reason(error: &Error) -> String {
+    let code = i32::from(error.code);
+    let message = redact_protocol_text(&error.message);
+    let detail = error
+        .data
+        .as_ref()
+        .and_then(serde_json::Value::as_str)
+        .map(redact_protocol_text)
+        .filter(|value| !value.is_empty());
+    match detail {
+        Some(detail) => bounded_text(
+            &format!("ACP error {code}: {message} ({detail})"),
+            MAX_PERMISSION_SUMMARY_BYTES,
+        ),
+        None => bounded_text(
+            &format!("ACP error {code}: {message}"),
+            MAX_PERMISSION_SUMMARY_BYTES,
+        ),
+    }
+}
+
+fn redact_protocol_text(value: &str) -> String {
+    let mut redacted = String::with_capacity(value.len().min(512));
+    let mut quote = None;
+    let mut escaped = false;
+    for character in value.chars().take(512) {
+        if let Some(active_quote) = quote {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == active_quote {
+                quote = None;
+                redacted.push_str("<value>");
+            }
+            continue;
+        }
+        if matches!(character, '"' | '\'') {
+            quote = Some(character);
+        } else if character.is_control() {
+            redacted.push(' ');
+        } else {
+            redacted.push(character);
+        }
+    }
+    if quote.is_some() {
+        redacted.push_str("<value>");
+    }
+    redacted
 }
 
 async fn command_loop(
@@ -693,11 +818,28 @@ async fn command_loop(
     working_directory: PathBuf,
     capabilities: GrokAcpCapabilities,
     commands: Receiver<GrokRuntimeCommand>,
+    shutdown: Receiver<()>,
     events: Sender<GrokRuntimeEvent>,
     pending_permissions: Arc<Mutex<BTreeMap<u64, PendingPermission>>>,
 ) -> Result<(), Error> {
     let active_turns = Arc::new(Mutex::new(BTreeSet::<String>::new()));
-    while let Ok(command) = commands.recv().await {
+    loop {
+        enum RuntimeWake {
+            Command(Result<GrokRuntimeCommand, async_channel::RecvError>),
+            Shutdown,
+        }
+        let wake = future::race(
+            async { RuntimeWake::Command(commands.recv().await) },
+            async {
+                let _ = shutdown.recv().await;
+                RuntimeWake::Shutdown
+            },
+        )
+        .await;
+        let command = match wake {
+            RuntimeWake::Command(Ok(command)) => command,
+            RuntimeWake::Command(Err(_)) | RuntimeWake::Shutdown => break,
+        };
         match command {
             GrokRuntimeCommand::ListSessions { cursor } => {
                 if !capabilities.list_sessions {
@@ -1150,6 +1292,12 @@ enum TimedRequestError {
     Timeout,
 }
 
+enum StartupRequestError {
+    Protocol(Error),
+    Timeout,
+    Shutdown,
+}
+
 async fn request_with_timeout<T, F>(request: F, timeout: Duration) -> Result<T, TimedRequestError>
 where
     F: Future<Output = Result<T, Error>>,
@@ -1159,6 +1307,31 @@ where
         async move {
             async_io::Timer::after(timeout).await;
             Err(TimedRequestError::Timeout)
+        },
+    )
+    .await
+}
+
+async fn startup_request_with_timeout<T, F>(
+    request: F,
+    timeout: Duration,
+    shutdown: &Receiver<()>,
+) -> Result<T, StartupRequestError>
+where
+    F: Future<Output = Result<T, Error>>,
+{
+    future::race(
+        async move {
+            request_with_timeout(request, timeout)
+                .await
+                .map_err(|error| match error {
+                    TimedRequestError::Protocol(error) => StartupRequestError::Protocol(error),
+                    TimedRequestError::Timeout => StartupRequestError::Timeout,
+                })
+        },
+        async move {
+            let _ = shutdown.recv().await;
+            Err(StartupRequestError::Shutdown)
         },
     )
     .await
@@ -1241,15 +1414,81 @@ mod tests {
         }));
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn async_command_conversion_preserves_required_acp_pipes() {
+        async_io::block_on(async {
+            let launch = GrokLaunchSpec {
+                executable: std::env::var_os("COMSPEC")
+                    .map(PathBuf::from)
+                    .expect("Windows command processor"),
+                arguments: [
+                    OsString::from("/D"),
+                    OsString::from("/C"),
+                    OsString::from("more"),
+                ],
+                working_directory: std::env::current_dir().expect("current directory"),
+                environment: allowed_environment_keys()
+                    .iter()
+                    .filter_map(|key| {
+                        std::env::var_os(key).map(|value| (OsString::from(key), value))
+                    })
+                    .collect(),
+            };
+            let mut child = launch.command().spawn().expect("piped child");
+            assert!(child.stdin.take().is_some(), "ACP stdin must be piped");
+            assert!(child.stdout.take().is_some(), "ACP stdout must be piped");
+            child.kill().expect("terminate fixture child");
+            child.status().await.expect("reap fixture child");
+        });
+    }
+
     #[test]
     fn startup_disconnect_is_recoverable_subscription_authentication() {
-        let (kind, reason) = unclassified_connection_failure(false, "Internal error");
+        let (kind, reason) = unclassified_connection_failure(
+            GrokStartupStage::Authenticating,
+            &Error::internal_error(),
+        );
         assert_eq!(kind, GrokRuntimeFailureKind::Authentication);
         assert!(reason.contains("Log in to Grok"));
 
-        let (kind, reason) = unclassified_connection_failure(true, "transport closed");
+        let transport_closed = Error::internal_error().data("transport closed");
+        let (kind, reason) =
+            unclassified_connection_failure(GrokStartupStage::Authenticated, &transport_closed);
         assert_eq!(kind, GrokRuntimeFailureKind::Disconnected);
         assert!(reason.contains("transport closed"));
+    }
+
+    #[test]
+    fn protocol_diagnostics_are_bounded_and_redact_quoted_values() {
+        let error = Error::invalid_params()
+            .data("invalid value \"operator@example.com\" at line 1 column 24");
+        let reason = public_protocol_reason(&error);
+        assert!(reason.contains("ACP error -32602"));
+        assert!(reason.contains("<value>"));
+        assert!(!reason.contains("operator@example.com"));
+        assert!(reason.len() <= MAX_PERMISSION_SUMMARY_BYTES);
+    }
+
+    #[test]
+    fn shutdown_interrupts_a_pending_startup_handshake() {
+        async_io::block_on(async {
+            let (shutdown_tx, shutdown_rx) = async_channel::bounded(1);
+            shutdown_tx.send(()).await.unwrap();
+            let pending_request = async {
+                async_io::Timer::after(Duration::from_secs(30)).await;
+                Ok::<_, Error>(())
+            };
+            assert!(matches!(
+                startup_request_with_timeout(
+                    pending_request,
+                    Duration::from_secs(30),
+                    &shutdown_rx
+                )
+                .await,
+                Err(StartupRequestError::Shutdown)
+            ));
+        });
     }
 
     #[test]
@@ -1382,6 +1621,7 @@ mod tests {
                     agent_client_protocol::on_receive_notification!(),
                 );
             let (commands_tx, commands_rx) = async_channel::bounded(COMMAND_CAPACITY);
+            let (_shutdown_tx, shutdown_rx) = async_channel::bounded(1);
             let (events_tx, events_rx) = async_channel::bounded(EVENT_CAPACITY);
             let driver = async move {
                 commands_tx
@@ -1496,9 +1736,10 @@ mod tests {
                 agent,
                 std::env::current_dir().expect("current directory"),
                 commands_rx,
+                shutdown_rx,
                 events_tx,
                 Arc::new(AtomicBool::new(false)),
-                Arc::new(AtomicBool::new(false)),
+                Arc::new(AtomicU8::new(GrokStartupStage::Launching as u8)),
             );
             let (result, ()) = futures_lite::future::zip(runtime, driver).await;
             result.expect("protocol runtime");
@@ -1567,9 +1808,11 @@ mod tests {
     #[test]
     fn command_backpressure_is_explicit_and_bounded() {
         let (commands, _receiver) = async_channel::bounded(COMMAND_CAPACITY);
+        let (shutdown, _shutdown_receiver) = async_channel::bounded(1);
         let (_events, event_receiver) = async_channel::bounded(EVENT_CAPACITY);
         let runtime = GrokAcpRuntime {
             commands,
+            shutdown,
             events: event_receiver,
             worker: None,
         };

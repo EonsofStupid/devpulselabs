@@ -205,6 +205,17 @@ pub fn provider_json(st: &Stamped<ProviderEvent>) -> Value {
         ProviderEvent::RuntimeStarted { provider, attempt } => json!({
             "type": "runtimeStarted", "provider": provider.0, "attempt": attempt.0
         }),
+        ProviderEvent::VerificationRetryScheduled {
+            provider,
+            attempt,
+            retry_index,
+            max_retries,
+            delay_ms,
+        } => json!({
+            "type": "verificationRetryScheduled", "provider": provider.0,
+            "attempt": attempt.0, "retryIndex": retry_index,
+            "maxRetries": max_retries, "delayMs": delay_ms
+        }),
         ProviderEvent::Ready {
             provider,
             attempt,

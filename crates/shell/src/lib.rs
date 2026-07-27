@@ -110,6 +110,12 @@ fn activity_provider_line(ev: &dpl_fabric::ProviderEvent) -> String {
             format!("{provider} authorization completed")
         }
         E::RuntimeStarted { provider, .. } => format!("{provider} runtime started"),
+        E::VerificationRetryScheduled {
+            provider,
+            retry_index,
+            max_retries,
+            ..
+        } => format!("{provider} verification retry {retry_index}/{max_retries}"),
         E::Ready { provider, .. } => format!("{provider} ready"),
         E::Failed {
             provider,

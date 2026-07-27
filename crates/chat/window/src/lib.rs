@@ -2908,6 +2908,12 @@ fn provider_event_line(event: &ProviderEvent) -> String {
             "provider authorization completed".to_owned()
         }
         ProviderEvent::RuntimeStarted { .. } => "Grok ACP started".to_owned(),
+        ProviderEvent::VerificationRetryScheduled {
+            retry_index,
+            max_retries,
+            delay_ms,
+            ..
+        } => format!("subscription verification retry {retry_index}/{max_retries} · {delay_ms}ms"),
         ProviderEvent::Ready { .. } => "Grok ACP ready".to_owned(),
         ProviderEvent::Failed {
             stage,

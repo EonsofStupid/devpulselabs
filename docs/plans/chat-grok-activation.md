@@ -1,6 +1,6 @@
 # Grok activation slice
 
-**Status:** SYSTEM-BROWSER CORRECTION LOCALLY QUALIFIED — OPERATOR ACCOUNT RETEST PENDING
+**Status:** REAL AUTHORIZATION PERSISTED — POST-LOGIN VERIFICATION SUPERVISOR IN PROGRESS
 **Date:** 2026-07-26
 **Governing ADR:** [`chat-provider-runtime-adr.md`](chat-provider-runtime-adr.md)
 **Product authority:** [`chat-architecture.md`](chat-architecture.md)
@@ -195,6 +195,80 @@ fresh DevPULSE process performs one bounded ACP cached-authentication probe. A
 successful probe becomes `Ready`; an authentication rejection becomes
 `Signed out` and exposes the explicit login action.
 
+## Durable subscription ownership and verification supervision
+
+The 2026-07-26 operator test completed xAI authorization, then exposed a
+DevPULSE lifecycle race:
+
+```text
+official login child exits success
+    -> DevPULSE starts or reuses an ACP child immediately
+    -> first ACP authentication reports a retryable authorization failure
+    -> DevPULSE prematurely projects SignedOut
+```
+
+Independent probes against the exact bundled `0.2.112` executable proved that
+the provider credential was already durable:
+
+- `grok --no-auto-update models` reported an active grok.com login;
+- the exact ACP protocol-v1 `initialize -> cached_token -> authenticate`
+  exchange succeeded under the same compiled environment allowlist;
+- no credential file was opened, copied, parsed, or logged by DevPULSE.
+
+The open-source `0.2.112` Grok Build implementation confirms the intended
+boundary. Device authorization calls `AuthManager::update`, which writes
+`auth.json` before the login function returns. The write is owner-only,
+flushes and syncs before publication, and uses an atomic temporary-file
+replacement when storage permits. Grok Build also owns token refresh and
+multi-process credential reconciliation. The reviewed source revision is
+[`b41c75a`](https://github.com/xai-org/grok-build/commit/b41c75a578f98bddbd326ab02cd53618451d97ee).
+
+Therefore:
+
+- DevPULSE must never copy Grok credentials into Turso, `.userdata`,
+  `dptools-deps`, a release directory, a project, or an application-owned
+  "portable auth" file.
+- The application and bundled executables are portable. Authentication remains
+  private to the operating-system user profile by default. Moving DevPULSE on
+  the same machine retains login; moving it to another user or machine
+  intentionally requires authorization again.
+- DevPULSE passes only the compiled provider environment allowlist. It includes
+  the official `GROK_HOME` override plus the platform home variables, but never
+  invents or retargets `GROK_HOME`.
+- Turso remains a non-secret evidence ledger. It may remember that an ACP
+  handshake succeeded, but startup always revalidates the current provider
+  credential.
+
+One runtime generation may exist at a time. Beginning interactive login first
+requests a bounded, nonblocking shutdown of any startup-probe ACP generation.
+The runtime handshake must observe that shutdown even while `initialize` or
+`authenticate` is pending; the UI thread never waits for a provider process.
+
+After the official login child succeeds, DevPULSE creates a new post-login
+verification generation. Retryable launch, transport, timeout, and
+authentication failures remain visibly `Verifying` and use the bounded
+backoff sequence `100 ms, 250 ms, 500 ms, 1 s, 2 s`. Each retry is a typed,
+redacted provider fact with its ordinal and delay. No retry writes `failed` or
+`signed_out` evidence.
+
+The failure boundary is:
+
+- a startup probe that does not advertise `cached_token` is definitively
+  `SignedOut`;
+- a post-login or recovery probe that momentarily lacks `cached_token` retries
+  before becoming `SignedOut`;
+- a cached-token authentication rejection retries before becoming
+  `SignedOut`;
+- launch, timeout, and disconnect failures retry before becoming `Failed`;
+- protocol mismatch, unsupported behavior, invalid commands, and backpressure
+  fail immediately because repetition cannot repair an incompatible contract.
+
+Once `Ready`, the ACP child stays alive and Grok Build performs its own token
+refresh. A later top-level disconnect begins the same bounded recovery
+supervision and reloads provider sessions after reconnect. Login is requested
+again only after the provider can no longer establish cached subscription
+authentication within the bounded recovery policy.
+
 ## Process containment
 
 - The child is started without a shell.
@@ -271,3 +345,22 @@ successful probe becomes `Ready`; an authentication rejection becomes
   `chat-grok-device-authorization.toml`. The reviewed native-window proof is
   `proof-chat-grok-system-browser-auth.png` and visibly identifies the
   computer's default browser as the authorization surface.
+- A real provider-owned cached credential was independently qualified with
+  the exact embedded Grok executable: its `models` command and ACP
+  `initialize` plus `cached_token` authentication succeeded under the same
+  compiled environment allowlist used by DevPULSE.
+- The remaining application failure was isolated to the process boundary:
+  converting a configured `std::process::Command` into
+  `async_process::Command` resets the latter's internal stdio-configuration
+  flags, so spawn replaced the intended ACP pipes with inherited handles.
+  DevPULSE now reasserts piped stdin/stdout and null stderr after conversion;
+  a Windows regression test launches a real child and proves both ACP handles
+  remain owned by the runtime.
+- The real independent Chat viewport now reaches Grok `Ready` after a fresh
+  DevPULSE process, selects Grok, and exposes an enabled `New Grok chat`
+  action without another authorization ceremony. The durable
+  `chat-grok-persisted-ready.toml` scenario preserves that positive
+  ready-state contract. Absence of a login node is not encoded as a `hidden`
+  expectation because the current EguiPilotAI `hidden` matcher requires a
+  live semantic node; the ready state and enabled session action are the
+  supported, user-visible proof.

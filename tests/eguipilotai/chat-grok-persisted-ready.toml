@@ -1,0 +1,62 @@
+# Operator-state proof: the official Grok client has already completed device
+# authorization. DevPULSE must reuse that provider-owned credential after a
+# fresh process launch and must not show another login ceremony.
+id = "chat-grok-persisted-ready"
+fixture = "chat-peer"
+record = true
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "open"
+
+[steps.expectation.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "focus-viewport"
+
+[steps.action.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "Ready"
+
+[steps.expectation.target]
+id = "chat.primary/chat.sidebar.providers/grok"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.sidebar.providers/grok"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "enabled"
+
+[steps.expectation.target]
+id = "chat.primary/chat.provider.new-chat/provider-card/grok"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "close-viewport"
+
+[steps.action.viewport]
+key = "chat.primary"

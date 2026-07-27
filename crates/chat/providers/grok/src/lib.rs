@@ -4,9 +4,11 @@
 //! Grok Build executable. Login uses the literal `login` argument; conversation
 //! uses the fixed `--no-auto-update agent stdio` ACP command.
 
+mod retry;
 mod runtime;
 mod terminal;
 
+pub use retry::*;
 pub use runtime::*;
 
 use dpl_chat_core::{
@@ -682,6 +684,10 @@ fn allowed_environment_keys() -> &'static [&'static str] {
     {
         &[
             "APPDATA",
+            "GROK_HOME",
+            "HOME",
+            "HOMEDRIVE",
+            "HOMEPATH",
             "LOCALAPPDATA",
             "PATH",
             "PATHEXT",
@@ -697,6 +703,7 @@ fn allowed_environment_keys() -> &'static [&'static str] {
         &[
             "DBUS_SESSION_BUS_ADDRESS",
             "DISPLAY",
+            "GROK_HOME",
             "HOME",
             "LANG",
             "LC_ALL",
@@ -743,6 +750,18 @@ mod tests {
             executable,
             version: MINIMUM_VERSION,
             working_directory: directory,
+        }
+    }
+
+    #[test]
+    fn provider_environment_preserves_the_official_grok_home_boundary() {
+        assert!(allowed_environment_keys().contains(&"GROK_HOME"));
+        assert!(allowed_environment_keys().contains(&"HOME"));
+        #[cfg(windows)]
+        {
+            assert!(allowed_environment_keys().contains(&"USERPROFILE"));
+            assert!(allowed_environment_keys().contains(&"HOMEDRIVE"));
+            assert!(allowed_environment_keys().contains(&"HOMEPATH"));
         }
     }
 

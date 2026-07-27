@@ -5,3 +5,6 @@ xtask = "run -p xtask --"
 green = "run -p xtask --release --"
 gate = "clippy --workspace --all-targets -- -D warnings"
 test-all = "test --workspace"
+
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld.exe"
