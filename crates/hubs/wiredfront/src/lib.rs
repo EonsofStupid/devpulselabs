@@ -1062,6 +1062,12 @@ impl WiredfrontHub {
         self.composer.save_comp(name);
     }
 
+    /// The `--lottie-import <file>` harness seam (L2): import a Lottie and
+    /// add it to the timeline — the native-Lottie drill.
+    pub fn import_lottie(&mut self, path: &std::path::Path) {
+        self.composer.import_lottie(path);
+    }
+
     /// The `--make-slide <asset-rel>` harness seam (W11): mint a media slide
     /// from a content-relative artifact (image/video → one slide; `.pdf` →
     /// page slides) through the shelf's exact "Make slide" path. Prints the

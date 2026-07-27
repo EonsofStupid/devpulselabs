@@ -21,7 +21,11 @@ pub fn media_kind(path: &Path) -> Option<&'static str> {
         "mp4" | "mov" | "mkv" | "webm" | "avi" | "m4v" => Some("video"),
         "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" => Some("image"),
         "wav" | "mp3" | "ogg" | "flac" | "m4a" | "aac" => Some("audio"),
-        "aep" | "lottie" | "mogrt" | "cube" | "ffx" | "prfpset" => Some("element"),
+        // Native Lottie (L2): rendered in-app. `.json` is ambiguous —
+        // `import_file` content-sniffs it (Bodymovin only) so app JSON
+        // (comp/guide/slide) is never imported as media.
+        "lottie" | "json" => Some("lottie"),
+        "aep" | "mogrt" | "cube" | "ffx" | "prfpset" => Some("element"),
         _ => None,
     }
 }
@@ -115,6 +119,17 @@ pub fn import_file(src: &Path) -> Result<Record, String> {
         .and_then(|e| e.to_str())
         .unwrap_or_default()
         .to_ascii_lowercase();
+    // A `.json` only imports as Lottie when it's actually Bodymovin —
+    // this refuses comp.json/guide.json/slide.json and other data JSON.
+    if kind == "lottie" && ext == "json" {
+        let bytes = std::fs::read(src).map_err(|e| format!("read {}: {e}", src.display()))?;
+        if !dpl_lottie::is_bodymovin_json(&bytes) {
+            return Err(format!(
+                "{} is not a Lottie (Bodymovin) JSON",
+                src.display()
+            ));
+        }
+    }
     let root = dpl_engine_capture::content_root();
     let dest_dir = if kind == "element" {
         root.join("elements").join("imported")
@@ -410,7 +425,8 @@ mod tests {
         assert_eq!(media_kind(Path::new("song.WAV")), Some("audio"));
         assert_eq!(media_kind(Path::new("song.mp3")), Some("audio"));
         assert_eq!(media_kind(Path::new("gig.aep")), Some("element"));
-        assert_eq!(media_kind(Path::new("gig.lottie")), Some("element"));
+        assert_eq!(media_kind(Path::new("title.lottie")), Some("lottie"));
+        assert_eq!(media_kind(Path::new("title.JSON")), Some("lottie"));
         assert_eq!(media_kind(Path::new("title.MOGRT")), Some("element"));
         assert_eq!(media_kind(Path::new("grade.cube")), Some("element"));
         assert_eq!(media_kind(Path::new("preset.ffx")), Some("element"));

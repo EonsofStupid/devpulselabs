@@ -31,7 +31,8 @@ other worktree. The operator double-clicks `target\release\devpulselabs.exe`
 
 ## Commands
 
-- Gate: `cargo green` · exe: `cargo build --release -p devpulselabs`
+- Gate: `cargo green` · exe: `cargo build --release -p devpulselabs -p dpl-lottie-render`
+  (the Lottie render helper ships BESIDE the exe — the façade spawns it, ADR-009)
 - The gate is WIRED as a pre-push hook (`.githooks/pre-push`; fresh
   clones run `git config core.hooksPath .githooks` once). Never bypass
   with --no-verify. NOTE: GitHub branch protection / required checks are

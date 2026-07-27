@@ -66,6 +66,8 @@ const UNDO_CAP: usize = 100;
 /// The autosave debounce: a saved comp persists this long after the last
 /// edit settles (mid-drag edits wait for the release).
 const AUTOSAVE_SECS: f32 = 2.0;
+/// The whole-texture UV rect for painting a Lottie frame straight (no crop).
+const FULL_UV: Rect = Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
 
 /// The editing session: the comp under edit, where it saves, selection +
 /// playback + the preview player, the project-panel caches, and an honest
@@ -101,6 +103,9 @@ pub struct Composer {
     /// The STILL preview lane (W7): (layer id, file:/// uri) when the
     /// active layer is an image — no ffmpeg pipe for a held frame.
     preview_still: Option<(String, String)>,
+    /// The LOTTIE preview lane (L2): (layer id, player) when the active
+    /// layer is a native Lottie — rendered by the ThorVG subprocess helper.
+    preview_lottie: Option<(String, LottiePlayer)>,
     /// FOOTAGE — video + image artifacts from the index.
     palette: Option<Vec<Record>>,
     /// COMPS — every `inbox/*/comp.json`, as (name, dir).
@@ -256,6 +261,7 @@ impl Default for Composer {
             selected: None,
             preview: None,
             preview_still: None,
+            preview_lottie: None,
             palette: None,
             comps: None,
             renders: None,
@@ -582,6 +588,33 @@ impl Composer {
         self.mark_edit();
     }
 
+    /// Append a native Lottie artifact as a `Source::Lottie` layer, timed by
+    /// its OWN Bodymovin duration (`op`/`fr`), stitched onto the end.
+    fn add_lottie(&mut self, rec: &Record) {
+        self.checkpoint();
+        let path = Self::resolve(&rec.rel_path);
+        let out_pt = dpl_lottie::lottie_meta(&path)
+            .map(|m| m.duration_seconds())
+            .filter(|d| *d > 0.0)
+            .unwrap_or(FALLBACK_CLIP_SECS);
+        let start = self.comp.duration();
+        let id = self.next_layer_id();
+        if let Some(track) = self.comp.tracks.first_mut() {
+            track.layers.push(Layer {
+                id: id.clone(),
+                source: Source::Lottie {
+                    rel: rec.rel_path.clone(),
+                },
+                start,
+                in_pt: 0.0,
+                out_pt,
+            });
+        }
+        self.status = format!("Added {} — native Lottie, {out_pt:.1}s.", rec.name);
+        self.select(&id);
+        self.mark_edit();
+    }
+
     /// Select a layer (outline + Info focus). The PREVIEW follows the
     /// playhead, not the selection — like any real editor.
     fn select(&mut self, id: &str) {
@@ -621,12 +654,40 @@ impl Composer {
             return;
         };
         let layer = &self.layers()[i];
-        let (id, rel) = match &layer.source {
-            Source::Artifact { rel } => (layer.id.clone(), rel.clone()),
+        let lid = layer.id.clone();
+        let want = layer.in_pt + (self.time - layer.start);
+        let source = layer.source.clone(); // owned — releases the layer borrow
+
+        // L2: a native Lottie layer previews on its OWN lane (the ThorVG
+        // helper), rendered here so the immutable viewer just reads the tex.
+        if let Source::Lottie { rel } = &source {
+            let path = Self::resolve(rel);
+            if self.preview_lottie.as_ref().map(|(k, _)| k.as_str()) != Some(lid.as_str()) {
+                self.preview_lottie = LottiePlayer::open(&path).map(|p| (lid.clone(), p));
+            }
+            if let Some((_, lp)) = self.preview_lottie.as_mut() {
+                lp.render(ctx, want.max(0.0));
+            }
+            self.preview_still = None;
+            if let Some((_, player)) = self.preview.as_mut() {
+                if player.playing() {
+                    player.toggle();
+                }
+            }
+            if self.playing {
+                ctx.request_repaint_after(Duration::from_millis(16));
+            }
+            return;
+        }
+        // Not a Lottie — drop that lane.
+        self.preview_lottie = None;
+
+        let (id, rel) = match &source {
+            Source::Artifact { rel } => (lid, rel.clone()),
             // Elements have no captured file yet (the ingest pass).
             Source::Element { .. } => return,
+            Source::Lottie { .. } => return, // handled above
         };
-        let want = layer.in_pt + (self.time - layer.start);
         let path = Self::resolve(&rel);
         if dpl_engine_media::is_still(&path) {
             // A held frame previews as itself — no ffmpeg pipe.
@@ -670,6 +731,7 @@ impl Composer {
             self.selected = None;
             self.preview = None;
             self.preview_still = None;
+            self.preview_lottie = None;
         }
         self.status = format!("Removed {id} — {} layer(s) left.", self.layers().len());
         self.mark_edit();
@@ -751,6 +813,7 @@ impl Composer {
         self.selected = None;
         self.preview = None;
         self.preview_still = None;
+        self.preview_lottie = None;
         self.proj_sel = None;
         self.time = 0.0;
         self.playing = false;
@@ -901,6 +964,7 @@ impl Composer {
                 self.selected = None;
                 self.preview = None;
                 self.preview_still = None;
+                self.preview_lottie = None;
                 self.expanded.clear();
                 self.time = 0.0;
                 self.playing = false;
@@ -940,6 +1004,10 @@ impl Composer {
                     })
                 }
                 Source::Element { .. } => None,
+                // L2: Lottie previews live but is NOT in the stitch yet —
+                // export (helper frame-seq → ffmpeg) lands in L3. The Render
+                // action names the skipped Lottie layer(s) honestly.
+                Source::Lottie { .. } => None,
             })
             .collect()
     }
@@ -949,6 +1017,21 @@ impl Composer {
     /// `<comp-dir>/render.mp4` (the comp folder is minted if unsaved).
     fn start_render(&mut self) {
         let clips = self.stitch_clips();
+        // L2: Lottie layers preview live but aren't in the stitch yet
+        // (export = L3) — say so honestly so the render is never silently
+        // missing them.
+        let lottie_n = self
+            .layers()
+            .iter()
+            .filter(|l| matches!(l.source, Source::Lottie { .. }))
+            .count();
+        if lottie_n > 0 {
+            self.status = format!(
+                "Rendering the {} clip layer(s) — {lottie_n} Lottie layer(s) preview live; \
+                 timeline export lands next.",
+                clips.len()
+            );
+        }
         if clips.is_empty() {
             *self.render.lock().expect("render state") =
                 RenderState::Failed("no playable clips to render yet".into());
@@ -1417,6 +1500,14 @@ impl Composer {
         self.save();
     }
 
+    /// The `--lottie-import <file>` harness seam (L2): import ONE Lottie
+    /// (`.json`/`.lottie`) through the SAME path a drop takes — copy +
+    /// index + add a native `Source::Lottie` layer to the timeline.
+    pub fn import_lottie(&mut self, path: &Path) {
+        self.handle_import(path);
+        self.palette = None;
+    }
+
     /// One indexed media record sent from an OUTSIDE surface — the
     /// Library shelf's double-click (W6). Videos AND images (W7) join
     /// the timeline through the same path a FOOTAGE tap takes —
@@ -1630,6 +1721,7 @@ impl Composer {
         }
         match outcome {
             Ok(rec) if rec.kind == "video" || rec.kind == "image" => self.add_clip(&rec),
+            Ok(rec) if rec.kind == "lottie" => self.add_lottie(&rec),
             Ok(rec) if rec.kind == "element" => {
                 let mogrt = src
                     .extension()
@@ -2252,7 +2344,20 @@ impl Composer {
         let frame = fit_aspect(stage_rect.shrink(cl::space::S1), 16.0 / 9.0);
         ui.painter()
             .rect_filled(frame, CornerRadius::same(cl::RADIUS_SM), cl::surface::WELL);
-        if let Some((_, uri)) = &self.preview_still {
+        if let Some((_, lp)) = &self.preview_lottie {
+            match lp.id() {
+                Some(tex) => {
+                    // Native Lottie: fit its own aspect (letterbox), full UV
+                    // (straight alpha composites over the WELL).
+                    let lr = fit_aspect(frame, lp.aspect());
+                    ui.painter().image(tex, lr, FULL_UV, Color32::WHITE);
+                    if self.playing {
+                        ui.ctx().request_repaint_after(Duration::from_millis(16));
+                    }
+                }
+                None => painter_label(ui, frame, "Rendering the Lottie…"),
+            }
+        } else if let Some((_, uri)) = &self.preview_still {
             egui::Image::new(uri.as_str())
                 .corner_radius(cl::RADIUS_SM)
                 .paint_at(ui, frame);
@@ -3386,6 +3491,18 @@ impl Composer {
         }
         ui.painter()
             .rect_filled(canvas, CornerRadius::same(cl::RADIUS), cl::surface::WELL);
+        if let Some((_, lp)) = &self.preview_lottie {
+            if let Some(tex) = lp.id() {
+                let lr = fit_aspect(canvas.shrink(cl::space::S3), lp.aspect());
+                ui.painter().image(tex, lr, FULL_UV, Color32::WHITE);
+                if self.playing {
+                    ui.ctx().request_repaint_after(Duration::from_millis(16));
+                }
+            } else {
+                painter_label(ui, canvas, "Rendering the Lottie…");
+            }
+            return;
+        }
         if let Some((_, uri)) = &self.preview_still {
             let frame = fit_aspect(canvas.shrink(cl::space::S3), 16.0 / 9.0);
             egui::Image::new(uri.as_str())
@@ -3765,6 +3882,88 @@ fn tab_stub(ui: &mut egui::Ui, tab: Tab) {
     plate(ui, tab.label(), tab.blurb());
 }
 
+/// A native Lottie layer's live preview — the `ClipPlayer` analog, backed
+/// by the `dpl-lottie` subprocess helper (ThorVG). The FRAME render +
+/// texture upload happen in `tick_playback` (`&mut`); the viewer only
+/// reads the cached texture id + aspect (`&self`), mirroring how the video
+/// player's interior mutability keeps the paint path immutable.
+struct LottiePlayer {
+    player: dpl_lottie::Player,
+    handle: Option<egui::TextureHandle>,
+    /// The last rendered time — re-render (a subprocess round-trip) only
+    /// when the playhead actually moved.
+    last_t: f32,
+    render_w: u32,
+    render_h: u32,
+}
+
+impl LottiePlayer {
+    /// Open at a preview size derived from the Lottie's NATIVE aspect,
+    /// capped so a scrub frame stays a cheap pipe read. None if the file
+    /// isn't a readable Lottie or the helper won't start.
+    fn open(path: &Path) -> Option<Self> {
+        let meta = dpl_lottie::lottie_meta(path)?;
+        let (render_w, render_h) = preview_size(meta.width, meta.height);
+        let player = dpl_lottie::Player::open(path, render_w, render_h).ok()?;
+        Some(Self {
+            player,
+            handle: None,
+            last_t: f32::NAN,
+            render_w,
+            render_h,
+        })
+    }
+
+    /// Ensure the frame at `t` is rendered and uploaded (a no-op when `t`
+    /// is unchanged). Called from `tick_playback`.
+    fn render(&mut self, ctx: &egui::Context, t: f32) {
+        if self.handle.is_some() && (t - self.last_t).abs() < 1e-4 {
+            return;
+        }
+        if let Ok(frame) = self.player.frame_at(t) {
+            let img = egui::ColorImage::from_rgba_unmultiplied(
+                [frame.width as usize, frame.height as usize],
+                &frame.rgba,
+            );
+            match &mut self.handle {
+                Some(h) => h.set(img, egui::TextureOptions::LINEAR),
+                None => {
+                    self.handle = Some(ctx.load_texture(
+                        "dpl-lottie-preview",
+                        img,
+                        egui::TextureOptions::LINEAR,
+                    ))
+                }
+            }
+            self.last_t = t;
+        }
+    }
+
+    fn id(&self) -> Option<egui::TextureId> {
+        self.handle.as_ref().map(|h| h.id())
+    }
+
+    fn aspect(&self) -> f32 {
+        self.render_w as f32 / self.render_h.max(1) as f32
+    }
+}
+
+/// A preview render size at the Lottie's native aspect, longest edge capped
+/// (a scrub frame is w*h*4 bytes over a pipe — keep it modest).
+fn preview_size(w: u32, h: u32) -> (u32, u32) {
+    const MAX: u32 = 720;
+    let (w, h) = (w.max(1), h.max(1));
+    let long = w.max(h);
+    if long <= MAX {
+        return (w, h);
+    }
+    let s = MAX as f32 / long as f32;
+    (
+        ((w as f32 * s).round() as u32).max(1),
+        ((h as f32 * s).round() as u32).max(1),
+    )
+}
+
 /// The largest rect of the given aspect ratio, centered inside `r`.
 fn fit_aspect(r: Rect, aspect: f32) -> Rect {
     let (w, h) = (r.width().max(1.0), r.height().max(1.0));
@@ -3900,6 +4099,29 @@ mod tests {
         assert!(dpl_comp::validate(&c.comp).is_empty());
         // Layer ids are unique.
         assert_ne!(c.layers()[0].id, c.layers()[1].id);
+    }
+
+    #[test]
+    fn add_lottie_appends_a_native_lottie_layer_and_validates() {
+        let mut c = Composer::default();
+        c.add_clip(&video_rec("Intro", "inbox/intro.mp4", Some(3)));
+        let rec = Record {
+            rel_path: "inbox/title.json".into(),
+            kind: "lottie".into(),
+            name: "Title".into(),
+            ..Default::default()
+        };
+        c.add_lottie(&rec);
+        assert_eq!(c.layers().len(), 2);
+        assert!(
+            matches!(c.layers()[1].source, Source::Lottie { .. }),
+            "the second layer is a native Lottie source"
+        );
+        // Stitched onto the end (the first clip runs 0..3).
+        assert!((c.layers()[1].start - 3.0).abs() < 1e-6);
+        // Missing file → duration falls back, never zero (comp stays valid).
+        assert!(c.layers()[1].out_pt > 0.0);
+        assert!(dpl_comp::validate(&c.comp).is_empty());
     }
 
     #[test]

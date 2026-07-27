@@ -215,6 +215,13 @@ fn main() -> eframe::Result {
         .position(|a| a == "--save-comp")
         .and_then(|i| args.get(i + 1))
         .cloned();
+    // `--lottie-import <file>` (L2) imports a native Lottie and adds it to
+    // the timeline — the native-Lottie drill.
+    let lottie_import: Option<String> = args
+        .iter()
+        .position(|a| a == "--lottie-import")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
     // `--make-slide <asset-rel>` (W11) mints a media slide from a
     // content-relative artifact through the shelf's "Make slide" path —
     // image/video → one slide, `.pdf` → page slides.
@@ -373,6 +380,7 @@ fn main() -> eframe::Result {
                 import_drill,
                 pin_packs,
                 save_comp,
+                lottie_import,
                 make_slide,
                 seam_port,
             });
@@ -416,6 +424,7 @@ struct Boot {
     import_drill: Option<String>,
     pin_packs: Vec<String>,
     save_comp: Option<String>,
+    lottie_import: Option<String>,
     make_slide: Option<String>,
     /// The agent seam's port; None = `--no-seam`.
     seam_port: Option<u16>,
@@ -494,6 +503,7 @@ impl App {
             import_drill,
             pin_packs,
             save_comp,
+            lottie_import,
             make_slide,
             seam_port,
         } = boot;
@@ -562,6 +572,10 @@ impl App {
         // last-comp state) through the Save chip's exact path.
         if let Some(name) = &save_comp {
             wiredfront.save_comp(name);
+        }
+        // L2: import a native Lottie onto the timeline (the drill seam).
+        if let Some(file) = &lottie_import {
+            wiredfront.import_lottie(std::path::Path::new(file));
         }
         // W11's harness seam: mint a media slide from an artifact through the
         // shelf's exact "Make slide" path (image/video → one, pdf → pages).

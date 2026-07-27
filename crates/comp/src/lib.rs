@@ -76,6 +76,9 @@ pub enum Source {
     /// A library element id (the operator's transparent elements; R1c
     /// ingests + indexes them).
     Element { id: String },
+    /// A native Lottie/Bodymovin artifact `rel_path` under the content
+    /// root — rendered in-app by the ThorVG helper (L2), no Adobe.
+    Lottie { rel: String },
 }
 
 impl Source {
@@ -84,6 +87,7 @@ impl Source {
         match self {
             Source::Artifact { rel } => rel,
             Source::Element { id } => id,
+            Source::Lottie { rel } => rel,
         }
     }
 }
@@ -396,6 +400,34 @@ mod tests {
     fn the_sample_and_defaults_validate_clean() {
         assert_eq!(validate(&sample()), Vec::new());
         assert_eq!(validate(&Composition::default_1080p30()), Vec::new());
+    }
+
+    #[test]
+    fn a_lottie_source_round_trips_and_validates() {
+        let dir = scratch("lottie");
+        let comp = Composition {
+            v: SCHEMA_V,
+            fps: 30,
+            w: 1920,
+            h: 1080,
+            tracks: vec![Track {
+                id: "main".into(),
+                layers: vec![Layer {
+                    id: "lot-1".into(),
+                    source: Source::Lottie {
+                        rel: "inbox/title.json".into(),
+                    },
+                    start: 0.0,
+                    in_pt: 0.0,
+                    out_pt: 3.0,
+                }],
+            }],
+        };
+        assert!(validate(&comp).is_empty(), "a Lottie layer validates");
+        save(&dir, &comp).unwrap();
+        let raw = std::fs::read_to_string(dir.join(FILE)).unwrap();
+        assert!(raw.contains("\"kind\": \"lottie\""), "kebab-cased tag");
+        assert_eq!(load(&dir).unwrap(), comp, "round-trips identically");
     }
 
     #[test]
