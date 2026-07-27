@@ -2,13 +2,20 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-26 — WORKBENCH CATALOG FIDELITY LANDED (#70).** Experience
+inventory authored; Library gains Blocks chip (live eyebrow/badge/stat/
+ambient); Templates + Seeds sectioned by class with honest empties;
+EguiPilot fixture fixed to `workbench/library`. Plan
+`docs/plans/workbench-catalog-fidelity.md` §8 +
+`docs/plans/experience-inventory.md`. Open product PRs: none (draft Codex
+#67 separate).
+
 **2026-07-26 — ESTATE→SEAM WIRE LANDED (#68).** Ring-0 estate at
 `userdata_root()/estate`; seam seeds/persists `shell/route`; WiredFRONT
 dual-writes `lastComp`; `GET /state` exposes `estate` + `lastComp`; cold boot
 restores hydrated route when no `--route`. Plan
 `docs/plans/estate-seam-wire.md` §8 — EguiPilot + restart drill PASS.
-Preceded by **estate crate (#65)**. Open product PRs: none (draft Codex
-#67 Grok system-browser auth exists separately).
+Preceded by **estate crate (#65)**.
 
 **2026-07-26 — ESTATE CRATE LANDED (#65).** `dpl-estate` — Fjall LSM KV +
 Moka read cache; partitions Docs/State/Manifest/Agents. Design ADR
@@ -69,7 +76,7 @@ disabled, relocated release startup passed with provider-bearing `PATH`
 entries removed, and the complete local `cargo green` gate passed. Canonical
 contract and evidence: `docs/plans/private-tool-depot.md`.
 
-**Tip:** on `main` (2026-07-26) at estate→seam wire (#68). **DG1 LANDED** (#43,
+**Tip:** on `main` (2026-07-26) at Workbench catalog fidelity (#70). **DG1 LANDED** (#43,
 `feat/dg1-mixed-guide`, `docs/plans/dg1-mixed-media-guide.md` — operator:
 stills for where-to-click + session-replay clips when appropriate, ORDERED
 in one `.guide`): replay-segment steps land — `Step.kind:"replay"` +
@@ -582,11 +589,10 @@ is DELETED. Memory: `chat-is-a-peer-window`.
 
 ## Next
 
-1. **Workbench catalog fidelity** — categories, real templates, overlays;
-   gated by authoring `docs/plans/experience-inventory.md` first (Cycle 2).
-2. **W10** slide association (`docs/plans/w10-slide-association.md`).
-3. Estate deeper wire (selection/undo, Workbench session, Agents tree) —
-   after catalog/W10 as capacity allows.
+1. **W10** slide association (`docs/plans/w10-slide-association.md`) —
+   Cycle 3; plan before code + EguiPilot proof.
+2. Estate deeper wire (selection/undo, Workbench session, Agents tree).
+3. Seed empty classes / animation templates (catalog follow-ons).
 4. Parallel backlog: RR1.1; AEP Phase 2; ColdLight remainder; mac-parity.
    Ops: `dpl-linux` `svc.sh install`; unset Cursor `CARGO_TARGET_DIR` for
    local green (or fix `locate_asset`). Triage draft Codex #67.
