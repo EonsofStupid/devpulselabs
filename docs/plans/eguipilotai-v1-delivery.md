@@ -363,7 +363,7 @@ Deliverables:
   stable locators, and exports reviewable TOML/Rust diff;
 - `codegen` validates/normalizes/exports but never silently overwrites durable
   tests;
-- Codex/Cursor/Claude conformance sessions through the same six MCP tools.
+- Codex/Cursor/Claude conformance sessions through the same MCP tools.
 
 Tests:
 
@@ -374,6 +374,34 @@ Tests:
 
 Exit gate: Test Lab contains no private runner logic and codegen is truthfully
 a recorder/exporter.
+
+### Amendment — highlight/press landed early as the coach touchpoint router (C1)
+
+The "search/highlight" and "bounded live control" half of this slice shipped
+ahead of the rest as the coach vertical in
+`docs/plans/operator-coach-a2ui.md`, because the operator needs guided
+instruction now and the same primitive carries the C2–C4 program. What
+landed, and what it means for the rest of Slice 8:
+
+- **Highlighting is a mounted touchpoint, not a Test Lab view.** The wire has
+  `ClientCommand::Coach` / `RuntimeEvent::Coach`, a `Step::Coach` scenario
+  step, and an `Expectation::Coach` assertion. The MCP surface is now
+  **seven** bounded tools: `pilot_coach` joined the six.
+- **The overlay observes; it never intercepts.** A spotlight paints on a bare
+  foreground layer with no interaction area, so the press the operator is
+  being coached to make still reaches the real control. This is the opposite
+  of a hit-testing overlay and is what makes coaching real workflows possible.
+- **`test-lab.live-control` is still unsupported and still honest.** The coach
+  loop is owned by the runner/CLI (`eguipilotai coach <profile> <node-id>`),
+  which holds a live session; Test Lab remains a passive viewer. A Test Lab
+  coach tab is deliberately *not* faked ahead of this slice's live session.
+- Capabilities added: `coach.touchpoint` and `coach.trigger.dynamic`
+  (supported), plus `coach.visual.extended`, `coach.semantic-ticker`, and
+  `coach.desktop-overlay` (unsupported, each pointing at its future slice).
+- **C1.5a** then shipped the rest of the trigger vocabulary — hover, node
+  appearance, value change, and app-published fabric signals — plus
+  `CoachEvent::Armed` for a touchpoint set before its target exists. Agents
+  still poll snapshots; the live semantic stream is C1.5b and is deferred.
 
 ## Slice 9 — CI, performance, security, and publication
 

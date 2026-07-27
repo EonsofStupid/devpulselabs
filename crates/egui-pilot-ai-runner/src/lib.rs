@@ -8,9 +8,10 @@
 use egui_pilot_ai_protocol as protocol;
 use egui_pilot_ai_transport::{read_frame, write_frame, TransportError};
 use protocol::{
-    AdapterPolicy, CaptureResult, ClientCommand, CommandEnvelope, CommandResult, Flow, Handshake,
-    HandshakeRequest, PilotError, Project, RendererIdentity, RequestId, ResponseOutcome, RunId,
-    RunResult, RuntimeEventEnvelope, ServerMessage, SessionId, SnapshotRequest, ViewportSelector,
+    AdapterPolicy, CaptureResult, ClientCommand, CoachCommand, CoachEvent, CoachId,
+    CommandEnvelope, CommandResult, Flow, Handshake, HandshakeRequest, PilotError, Project,
+    RendererIdentity, RequestId, ResponseOutcome, RunId, RunResult, RuntimeEvent,
+    RuntimeEventEnvelope, ServerMessage, SessionId, SnapshotRequest, ViewportSelector,
     PROTOCOL_VERSION,
 };
 use serde::{Deserialize, Serialize};
@@ -528,6 +529,66 @@ impl ProcessSession {
         match self.request(ClientCommand::Capture { name, viewport })? {
             CommandResult::Capture { capture } => Ok(capture),
             result => Err(unexpected("capture", result)),
+        }
+    }
+
+    /// Mount, unmount, or clear coach touchpoints on the live target.
+    pub fn coach(&mut self, command: CoachCommand) -> Result<Vec<CoachEvent>, RunnerError> {
+        match self.request(ClientCommand::Coach { coach: command })? {
+            CommandResult::Coach { events } => Ok(events),
+            result => Err(unexpected("coach", result)),
+        }
+    }
+
+    /// Block until this touchpoint is activated or its lifetime ends.
+    ///
+    /// The wait is deliberately independent of the profile's request timeout:
+    /// a coached operator takes as long as a person takes.
+    pub fn await_coach(
+        &mut self,
+        coach_id: &CoachId,
+        wait: Duration,
+    ) -> Result<CoachEvent, RunnerError> {
+        let deadline = Instant::now() + wait;
+        loop {
+            if let Some(index) = self.events.iter().position(|envelope| {
+                // Arming and mounting are progress, not activation: a
+                // touchpoint waiting for its target keeps the wait alive.
+                matches!(&envelope.event, RuntimeEvent::Coach { event }
+                if event.coach_id() == coach_id
+                    && !matches!(
+                        event.state(),
+                        protocol::CoachExpectationState::Armed
+                            | protocol::CoachExpectationState::Mounted
+                    ))
+            }) {
+                let envelope = self.events.remove(index).expect("matched coach event");
+                let RuntimeEvent::Coach { event } = envelope.event else {
+                    unreachable!("matched a coach event");
+                };
+                return Ok(event);
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                return Err(RunnerError::Timeout(format!(
+                    "touchpoint `{coach_id}` was not activated"
+                )));
+            }
+            match self.inbound.recv_timeout(deadline - now) {
+                Ok(TargetMessage::Message(message)) => self.route_message(*message)?,
+                Ok(TargetMessage::Error(error)) => return Err(error),
+                Ok(TargetMessage::Eof) => {
+                    return Err(RunnerError::Protocol("target disconnected".into()))
+                }
+                Err(RecvTimeoutError::Timeout) => {
+                    return Err(RunnerError::Timeout(format!(
+                        "touchpoint `{coach_id}` was not activated"
+                    )))
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    return Err(RunnerError::Protocol("target reader disconnected".into()))
+                }
+            }
         }
     }
 
@@ -1099,6 +1160,76 @@ mod tests {
             step,
             protocol::Step::Action {
                 action: protocol::Action::CloseViewport { .. }
+            }
+        )));
+        assert!(protocol::unsupported_capabilities(&flow).is_empty());
+    }
+
+    #[test]
+    fn coach_touchpoint_scenario_is_durable_toml() {
+        let flow: Flow = toml::from_str(include_str!(
+            "../../../tests/eguipilotai/coach-touchpoint.toml"
+        ))
+        .expect("coach touchpoint scenario");
+        assert_eq!(flow.id, protocol::ScenarioId::new("coach-touchpoint"));
+        let mounts = flow
+            .steps
+            .iter()
+            .filter(|step| {
+                matches!(
+                    step,
+                    protocol::Step::Coach {
+                        coach: protocol::CoachCommand::Mount { .. }
+                    }
+                )
+            })
+            .count();
+        assert_eq!(mounts, 1);
+        assert!(flow.steps.iter().any(|step| matches!(
+            step,
+            protocol::Step::Expect {
+                expectation: protocol::Expectation::Coach {
+                    state: protocol::CoachExpectationState::Triggered,
+                    ..
+                }
+            }
+        )));
+        assert!(protocol::unsupported_capabilities(&flow).is_empty());
+    }
+
+    #[test]
+    fn coach_dynamic_trigger_scenario_is_durable_toml() {
+        let flow: Flow = toml::from_str(include_str!(
+            "../../../tests/eguipilotai/coach-dynamic-triggers.toml"
+        ))
+        .expect("coach dynamic trigger scenario");
+        assert_eq!(flow.id, protocol::ScenarioId::new("coach-dynamic-triggers"));
+        let triggers: Vec<protocol::TriggerKind> = flow
+            .steps
+            .iter()
+            .filter_map(|step| match step {
+                protocol::Step::Coach {
+                    coach: protocol::CoachCommand::Mount { touchpoint },
+                } => Some(touchpoint.on.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            triggers,
+            vec![
+                protocol::TriggerKind::NodeAppeared,
+                protocol::TriggerKind::FabricEvent {
+                    signal: protocol::SignalId::new("shell.route-changed/workbench/episodes"),
+                },
+            ]
+        );
+        assert!(flow.steps.iter().any(|step| matches!(
+            step,
+            protocol::Step::Expect {
+                expectation: protocol::Expectation::Coach {
+                    state: protocol::CoachExpectationState::Armed,
+                    ..
+                }
             }
         )));
         assert!(protocol::unsupported_capabilities(&flow).is_empty());

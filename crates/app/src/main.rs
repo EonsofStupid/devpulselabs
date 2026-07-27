@@ -8,6 +8,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod chat;
+#[cfg(feature = "eguipilotai-devtools")]
+mod coach_signals;
 
 use dpl_fabric::Fabric;
 use dpl_hub::{Hub, Route};
@@ -445,6 +447,12 @@ struct App {
             >,
         >,
     >,
+    #[cfg(feature = "eguipilotai-devtools")]
+    coach_signals: Option<coach_signals::CoachSignals>,
+    /// Every signal id a touchpoint may wait for in this build, resolved from
+    /// the hub registry and the provider registrations at boot.
+    #[cfg(feature = "eguipilotai-devtools")]
+    coach_catalog: Vec<egui_pilot_ai::protocol::SignalId>,
 }
 
 impl App {
@@ -593,6 +601,14 @@ impl App {
                 grok_activation.activation_capability_qualified(),
             ),
         ];
+        // Read the registered providers before the registrations are moved —
+        // the coach catalog names them so an agent can wait for one provider's
+        // activation rather than any provider's.
+        #[cfg(feature = "eguipilotai-devtools")]
+        let coach_providers: Vec<dpl_chat_core::ProviderId> = chat_registrations
+            .iter()
+            .map(|registration| registration.manifest.descriptor.id)
+            .collect();
         let chat_runtime =
             dpl_chat_runtime::ChatRuntime::try_from_registrations(chat_registrations)
                 .unwrap_or_else(|error| {
@@ -621,6 +637,8 @@ impl App {
             .collect();
         // Registry for estate hydrate + the agent seam (same specs the shell has).
         let seam_registry = dpl_seam::Registry::new(hubs.iter().map(|h| h.spec()).collect());
+        #[cfg(feature = "eguipilotai-devtools")]
+        let coach_catalog = coach_signals::declare(hubs.iter().map(|h| h.spec()), coach_providers);
 
         let mut viziwiz = dpl_viziwiz::Viziwiz::new(&fabric);
         if viziwiz_open {
@@ -750,6 +768,10 @@ impl App {
             drill_started: None,
             #[cfg(feature = "eguipilotai-devtools")]
             pilot_runtime: None,
+            #[cfg(feature = "eguipilotai-devtools")]
+            coach_signals: None,
+            #[cfg(feature = "eguipilotai-devtools")]
+            coach_catalog,
         }
     }
 
@@ -792,17 +814,63 @@ impl App {
                 dithering: false,
             }
         });
-        let runtime = std::sync::Arc::new(std::sync::Mutex::new(
-            egui_pilot_ai_runtime::RuntimeGuard::attach(
-                &cc.egui_ctx,
-                egui_pilot_ai_transport::StdioTransport::stdio(64),
-                config,
-            ),
-        ));
+        let guard = egui_pilot_ai_runtime::RuntimeGuard::attach(
+            &cc.egui_ctx,
+            egui_pilot_ai_transport::StdioTransport::stdio(64),
+            config,
+        );
+        guard.pilot().set_coach_palette(Self::coach_palette());
+        guard
+            .pilot()
+            .declare_coach_signals(self.coach_catalog.clone());
+        let runtime = std::sync::Arc::new(std::sync::Mutex::new(guard));
         self.chat
             .attach_pilot_runtime(std::sync::Arc::clone(&runtime));
         self.pilot_runtime = Some(runtime);
+        self.coach_signals = Some(coach_signals::CoachSignals::subscribe(&self.fabric));
         tracing::info!("EguiPilotAI private devtools runtime attached");
+    }
+
+    /// Forward this frame's app signals to the coach so a touchpoint can wait
+    /// on "the build finished" or "they landed on Workbench".
+    ///
+    /// One way, and the app decides what is publishable: the toolkit never
+    /// subscribes to the fabric, so an agent can only wait for what the
+    /// `coach_signals` catalog declares.
+    #[cfg(feature = "eguipilotai-devtools")]
+    fn publish_coach_signals(&mut self) {
+        let (Some(signals), Some(runtime)) = (&mut self.coach_signals, &self.pilot_runtime) else {
+            return;
+        };
+        let drained = signals.drain();
+        if drained.is_empty() {
+            return;
+        }
+        let runtime = runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        for signal in drained {
+            runtime.pilot().note_coach_signal(signal);
+        }
+    }
+
+    /// A coached control wears the ColdLight paint vocabulary: a crisp cyan
+    /// edge, a gradient tint head, and black diffusion scatter dimming the
+    /// rest of the screen — never a backdrop blur.
+    #[cfg(feature = "eguipilotai-devtools")]
+    fn coach_palette() -> egui_pilot_ai::CoachPalette {
+        let accent = dpl_coldlight::Tone::Cyan;
+        egui_pilot_ai::CoachPalette {
+            ring: accent.color(),
+            ring_width: 2.0,
+            tint: accent.tint(),
+            scatter: egui::Color32::from_rgba_unmultiplied(0, 0, 0, 150),
+            caption_plate: dpl_coldlight::surface::RAISED,
+            caption_edge: dpl_coldlight::surface::HAIRLINE,
+            caption_ink: dpl_coldlight::ink::STRONG,
+            caption_font: egui::FontId::proportional(13.0),
+            corner_radius: dpl_coldlight::RADIUS_SM,
+        }
     }
 
     /// The harness: request a screenshot on `shot_frame` (default 6 — theme +
@@ -1245,6 +1313,9 @@ impl eframe::App for App {
         }
 
         self.screenshot_harness(&ctx);
+
+        #[cfg(feature = "eguipilotai-devtools")]
+        self.publish_coach_signals();
 
         #[cfg(feature = "eguipilotai-devtools")]
         if let Some(runtime) = &self.pilot_runtime {

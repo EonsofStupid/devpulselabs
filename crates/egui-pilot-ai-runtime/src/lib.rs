@@ -4,17 +4,19 @@
 //! clone and transport workers end with the application. The egui plugin
 //! itself never retains a context.
 
-use egui_pilot_ai::{install, MotionPolicy, PilotHandle, QueuedInput};
+use egui_pilot_ai::{install, CoachMount, MotionPolicy, PilotHandle, QueuedInput};
 pub use egui_pilot_ai_protocol as protocol;
 use egui_pilot_ai_transport::{Transport, TransportError};
 use protocol::{
     Action, ActionKind, AgentSnapshot, CancellationResult, CancellationState, CaptureResult,
-    ClientCommand, CommandEnvelope, CommandResult, EventId, EventScope, Expectation, Flow,
-    Handshake, HandshakeRequest, Locator, NodeId, PilotError, PointerButton, RequestId,
-    ResponseEnvelope, ResponseOutcome, RunId, RunOutcome, RunResult, RuntimeEvent,
+    ClientCommand, CoachCommand, CoachEvent, CoachExpectationState, CoachId, CoachRefusal,
+    CoachStyle, CoachUnmountReason, CommandEnvelope, CommandResult, EventId, EventScope,
+    Expectation, Flow, Handshake, HandshakeRequest, Locator, NodeId, PilotError, PointerButton,
+    RequestId, ResponseEnvelope, ResponseOutcome, RunId, RunOutcome, RunResult, RuntimeEvent,
     RuntimeEventEnvelope, SemanticFrame, SemanticNode, ServerMessage, SessionId, SessionStatus,
-    SnapshotRequest, Step, StepId, StepOutcome, ViewportDescriptor, ViewportEventKind,
-    ViewportExpectationState, ViewportLifecycle, ViewportSelector, PROTOCOL_VERSION,
+    SnapshotRequest, Step, StepId, StepOutcome, Touchpoint, TriggerKind, ViewportDescriptor,
+    ViewportEventKind, ViewportExpectationState, ViewportLifecycle, ViewportSelector,
+    PROTOCOL_VERSION,
 };
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -116,6 +118,39 @@ struct Stability {
     frames: u8,
 }
 
+/// What a touchpoint has done in this session, so an `expect` step can assert
+/// a press that already happened while an earlier step was running.
+#[derive(Default, Clone, Copy)]
+struct CoachSeen {
+    armed: bool,
+    mounted: bool,
+    triggered: bool,
+    unmounted: bool,
+    refused: bool,
+}
+
+impl CoachSeen {
+    fn record(&mut self, event: &CoachEvent) {
+        match event {
+            CoachEvent::Armed { .. } => self.armed = true,
+            CoachEvent::Mounted { .. } => self.mounted = true,
+            CoachEvent::Triggered { .. } => self.triggered = true,
+            CoachEvent::Unmounted { .. } => self.unmounted = true,
+            CoachEvent::Refused { .. } => self.refused = true,
+        }
+    }
+
+    fn matches(self, state: CoachExpectationState) -> bool {
+        match state {
+            CoachExpectationState::Armed => self.armed,
+            CoachExpectationState::Mounted => self.mounted,
+            CoachExpectationState::Triggered => self.triggered,
+            CoachExpectationState::Unmounted => self.unmounted,
+            CoachExpectationState::Refused => self.refused,
+        }
+    }
+}
+
 struct PendingCapture {
     request_id: RequestId,
     run_id: Option<RunId>,
@@ -145,6 +180,7 @@ pub struct RuntimeGuard<T: Transport> {
     active_flow: Option<ActiveFlow>,
     action: Option<ActionExecution>,
     stability: HashMap<NodeId, Stability>,
+    coach_ledger: HashMap<CoachId, CoachSeen>,
     pending_capture: Option<PendingCapture>,
     capture_job: Option<Receiver<Result<CaptureResult, PilotError>>>,
     terminal_runs: VecDeque<RunResult>,
@@ -187,6 +223,7 @@ impl<T: Transport> RuntimeGuard<T> {
             active_flow: None,
             action: None,
             stability: HashMap::new(),
+            coach_ledger: HashMap::new(),
             pending_capture: None,
             capture_job: None,
             terminal_runs: VecDeque::new(),
@@ -219,6 +256,7 @@ impl<T: Transport> RuntimeGuard<T> {
         self.flush_outbound();
         if self.stopping {
             self.forward_viewport_events();
+            self.forward_coach_events();
             self.advance_stop();
             self.flush_outbound();
             self.finish_stop_if_flushed();
@@ -231,6 +269,7 @@ impl<T: Transport> RuntimeGuard<T> {
         }
         self.poll_capture_job();
         self.forward_viewport_events();
+        self.forward_coach_events();
         self.accept_captured_image();
         self.advance_action();
         self.advance_flow();
@@ -301,6 +340,7 @@ impl<T: Transport> RuntimeGuard<T> {
             ClientCommand::Capture { name, viewport } => {
                 self.start_capture(envelope.request_id, name, viewport, None, None, None)
             }
+            ClientCommand::Coach { coach } => self.coach(envelope.request_id, coach),
             ClientCommand::Status => self.status(envelope.request_id),
             ClientCommand::Cancel { run_id } => self.cancel(envelope.request_id, run_id),
             ClientCommand::Stop => self.stop(envelope.request_id),
@@ -387,9 +427,167 @@ impl<T: Transport> RuntimeGuard<T> {
                         .as_ref()
                         .map(|renderer| renderer.device_type.clone()),
                     active_run: self.active_flow.as_ref().map(|flow| flow.run_id.clone()),
+                    coach_signals: self.pilot.coach_signals(),
                 },
             },
         );
+    }
+
+    /// Answer one coach command, then report its immediate outcome both as
+    /// the response and as events, so a `Mount` that lands and a `Mount` that
+    /// is refused are equally visible to a streaming agent.
+    fn coach(&mut self, request_id: RequestId, command: CoachCommand) {
+        self.forward_coach_events();
+        let events = self.apply_coach(command);
+        for event in &events {
+            self.publish_coach(event.clone());
+        }
+        self.queue_success(request_id, CommandResult::Coach { events });
+    }
+
+    fn apply_coach(&mut self, command: CoachCommand) -> Vec<CoachEvent> {
+        match command {
+            CoachCommand::Mount { touchpoint } => match self.mount_coach(&touchpoint) {
+                Ok(()) => self.pilot.take_coach_events(),
+                Err((reason, detail)) => vec![CoachEvent::Refused {
+                    coach_id: touchpoint.coach_id.clone(),
+                    reason,
+                    detail,
+                }],
+            },
+            CoachCommand::Unmount { coach_id } => {
+                if self
+                    .pilot
+                    .unmount_coach(&coach_id, CoachUnmountReason::Agent)
+                {
+                    self.pilot.take_coach_events()
+                } else {
+                    vec![CoachEvent::Refused {
+                        coach_id,
+                        reason: CoachRefusal::UnknownTouchpoint,
+                        detail: "no touchpoint with that id is mounted".into(),
+                    }]
+                }
+            }
+            CoachCommand::UnmountAll => {
+                self.pilot.unmount_all_coach(CoachUnmountReason::Agent);
+                self.pilot.take_coach_events()
+            }
+        }
+    }
+
+    /// Resolve a touchpoint against the live frame. Unshipped visuals refuse
+    /// here rather than mounting a lie.
+    ///
+    /// A `NodeAppeared` touchpoint always mounts **armed**, even over a target
+    /// that happens to be on screen: "tell me when this is there" should
+    /// answer immediately when it already is, and waiting for a second
+    /// appearance would be a trap.
+    fn mount_coach(&mut self, touchpoint: &Touchpoint) -> Result<(), (CoachRefusal, String)> {
+        if touchpoint.visual != CoachStyle::Spotlight {
+            return Err((
+                CoachRefusal::UnsupportedStyle,
+                format!(
+                    "{:?} is not painted yet; only spotlight is",
+                    touchpoint.visual
+                ),
+            ));
+        }
+        let resolved = self.resolve_touchpoint(touchpoint);
+        // An appearance always waits. A signal trigger waits only if its
+        // target is not there — with a target it can spotlight while it waits.
+        let arm = touchpoint.on == TriggerKind::NodeAppeared
+            || (matches!(touchpoint.on, TriggerKind::FabricEvent { .. }) && resolved.is_err());
+        let mount = if arm {
+            // A touchpoint that may outlive its target's absence needs a node
+            // id to watch for; a name or role locator cannot match a node that
+            // does not exist yet.
+            let node = touchpoint.target.id.clone().ok_or_else(|| {
+                (
+                    CoachRefusal::TargetNotFound,
+                    format!(
+                        "{:?} can wait for a target that does not exist yet, so it needs a node id rather than a name or role locator",
+                        touchpoint.on
+                    ),
+                )
+            })?;
+            CoachMount {
+                coach_id: touchpoint.coach_id.clone(),
+                node,
+                viewport: None,
+                rect: None,
+                on: touchpoint.on.clone(),
+                message: touchpoint.message.clone(),
+                ttl_ms: touchpoint.ttl_ms,
+                once: touchpoint.once,
+            }
+        } else {
+            let (node, viewport) = resolved?;
+            CoachMount {
+                coach_id: touchpoint.coach_id.clone(),
+                node: node.id.clone(),
+                viewport: Some(viewport),
+                rect: Some(node.rect),
+                on: touchpoint.on.clone(),
+                message: touchpoint.message.clone(),
+                ttl_ms: touchpoint.ttl_ms,
+                once: touchpoint.once,
+            }
+        };
+        let viewport = mount.viewport;
+        self.pilot.mount_coach(mount).map_err(|reason| {
+            (
+                reason,
+                format!("touchpoint `{}` is already mounted", touchpoint.coach_id),
+            )
+        })?;
+        // An armed touchpoint needs the root ticking to notice its target
+        // arrive; a bound one only needs its own viewport.
+        self.ctx
+            .request_repaint_of(viewport.unwrap_or(egui::ViewportId::ROOT));
+        Ok(())
+    }
+
+    fn resolve_touchpoint(
+        &self,
+        touchpoint: &Touchpoint,
+    ) -> Result<(SemanticNode, egui::ViewportId), (CoachRefusal, String)> {
+        let frame = self.pilot.latest_frame();
+        let node = resolve_locator(&frame, &touchpoint.target).map_err(|error| {
+            let reason = if error.code == "locator-ambiguous" {
+                CoachRefusal::TargetAmbiguous
+            } else {
+                CoachRefusal::TargetNotFound
+            };
+            (reason, error.message)
+        })?;
+        if !node.visible() {
+            return Err((
+                CoachRefusal::TargetNotVisible,
+                format!("node `{}` is not visible", node.id),
+            ));
+        }
+        let viewport = self.pilot.egui_viewport(&node.viewport).ok_or_else(|| {
+            (
+                CoachRefusal::TargetNotFound,
+                format!("viewport `{}` is no longer live", node.viewport),
+            )
+        })?;
+        Ok((node.clone(), viewport))
+    }
+
+    fn forward_coach_events(&mut self) {
+        for event in self.pilot.take_coach_events() {
+            self.publish_coach(event);
+        }
+    }
+
+    fn publish_coach(&mut self, event: CoachEvent) {
+        self.coach_ledger
+            .entry(event.coach_id().clone())
+            .or_default()
+            .record(&event);
+        self.queue_event(EventScope::default(), RuntimeEvent::Coach { event });
     }
 
     fn forward_viewport_events(&mut self) {
@@ -546,6 +744,42 @@ impl<T: Transport> RuntimeGuard<T> {
                         self.ctx.request_repaint();
                     }
                     Err(error) => self.fail_flow(active, error),
+                }
+            }
+            Step::Coach { coach } => {
+                let started = Instant::now();
+                self.forward_coach_events();
+                let events = self.apply_coach(coach);
+                let refusal = events.iter().find_map(|event| match event {
+                    CoachEvent::Refused {
+                        coach_id,
+                        reason,
+                        detail,
+                    } => Some(PilotError {
+                        code: "coach-refused".into(),
+                        message: format!("touchpoint `{coach_id}` refused: {reason:?} — {detail}"),
+                        context: None,
+                    }),
+                    _ => None,
+                });
+                for event in events {
+                    self.publish_coach(event);
+                }
+                match refusal {
+                    Some(error) => self.fail_flow(active, error),
+                    None => {
+                        let outcome = StepOutcome {
+                            id: step_id,
+                            index: active.index,
+                            passed: true,
+                            elapsed_ms: started.elapsed().as_millis() as u64,
+                            message: None,
+                            context: None,
+                        };
+                        self.complete_step(&mut active, outcome);
+                        self.active_flow = Some(active);
+                        self.ctx.request_repaint();
+                    }
                 }
             }
             Step::Expect { expectation } => {
@@ -1313,6 +1547,8 @@ impl<T: Transport> RuntimeGuard<T> {
                 run_id: Some(run_id.clone()),
                 ..Default::default()
             }));
+            self.pilot.unmount_all_coach(CoachUnmountReason::Agent);
+            self.forward_coach_events();
             self.finish_run(active, RunOutcome::Cancelled, None);
             CancellationState::Requested
         } else if self.terminal_runs.iter().any(|run| run.run_id == run_id) {
@@ -1395,6 +1631,18 @@ impl<T: Transport> RuntimeGuard<T> {
     }
 
     fn evaluate_expectation(&self, expectation: &Expectation) -> Result<(), PilotError> {
+        if let Expectation::Coach { coach_id, state } = expectation {
+            return self
+                .coach_ledger
+                .get(coach_id)
+                .is_some_and(|seen| seen.matches(*state))
+                .then_some(())
+                .ok_or_else(|| PilotError {
+                    code: "coach-expectation-failed".into(),
+                    message: format!("touchpoint `{coach_id}` has not been {state:?}"),
+                    context: None,
+                });
+        }
         if let Expectation::Viewport { viewport, state } = expectation {
             return self
                 .viewport_state_matches(viewport, *state)
@@ -1422,6 +1670,10 @@ impl<T: Transport> RuntimeGuard<T> {
         } else {
             self.cleanup_input(None);
         }
+        // A coached spotlight must never outlive the session that mounted it.
+        self.pilot
+            .unmount_all_coach(CoachUnmountReason::SessionEnded);
+        self.forward_coach_events();
         self.stopping = true;
         self.stop_request = Some(request_id);
         self.stop_started = Some(Instant::now());
@@ -2195,6 +2447,9 @@ fn evaluate_expectation(
         Expectation::Screenshot { .. } => Err(fail(
             "screenshot expectations are capture steps, not semantic assertions".into(),
         )),
+        Expectation::Coach { .. } => Err(fail(
+            "coach expectations read the session ledger, not one semantic frame".into(),
+        )),
         Expectation::Count { target, value } => {
             let count = matching_nodes(frame, target).len();
             (count == *value)
@@ -2592,6 +2847,286 @@ mod tests {
         ));
     }
 
+    const COACH_SAVE: egui_pilot_ai::PilotId = egui_pilot_ai::PilotId::new("coach.save");
+
+    fn coach_frame(ctx: &egui::Context, input: egui::RawInput) {
+        use egui_pilot_ai::UiPilotExt;
+        let _ = ctx.run_ui(input, |ui| {
+            ui.pilot_button(COACH_SAVE, "Save");
+        });
+    }
+
+    fn drain_coach_events(client: &egui_pilot_ai_transport::InMemoryClient) -> Vec<CoachEvent> {
+        let mut events = Vec::new();
+        while let Ok(Some(message)) = client.try_receive() {
+            if let ServerMessage::Event { envelope } = message {
+                if let RuntimeEvent::Coach { event } = envelope.event {
+                    events.push(event);
+                }
+            }
+        }
+        events
+    }
+
+    fn touchpoint(coach_id: &str, target: Locator) -> Touchpoint {
+        Touchpoint {
+            coach_id: CoachId::new(coach_id),
+            target,
+            visual: CoachStyle::Spotlight,
+            on: TriggerKind::Press,
+            message: Some("Press Save".into()),
+            ttl_ms: None,
+            once: true,
+        }
+    }
+
+    fn send_mount(
+        client: &egui_pilot_ai_transport::InMemoryClient,
+        request_id: &str,
+        touchpoint: Touchpoint,
+    ) {
+        client
+            .try_send(CommandEnvelope {
+                request_id: RequestId::new(request_id),
+                session: SessionId::new("session"),
+                command: ClientCommand::Coach {
+                    coach: CoachCommand::Mount {
+                        touchpoint: Box::new(touchpoint),
+                    },
+                },
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn coach_press_triggers_once_and_unmounts() {
+        let (ctx, client, mut runtime) = test_runtime(32);
+        authenticate(&client, &mut runtime);
+        coach_frame(&ctx, Default::default());
+
+        let target = Locator {
+            id: Some(NodeId::new("root/coach.save")),
+            ..Locator::default()
+        };
+        send_mount(&client, "mount", touchpoint("coach-save", target));
+        runtime.pump();
+        let mut mounted_rect = None;
+        while let Ok(Some(message)) = client.try_receive() {
+            if let ServerMessage::Response { envelope } = message {
+                let ResponseOutcome::Success { result } = envelope.outcome else {
+                    panic!("mount must succeed on a live node");
+                };
+                let CommandResult::Coach { events } = *result else {
+                    panic!("mount must answer with coach events");
+                };
+                match events.as_slice() {
+                    [CoachEvent::Mounted { rect, .. }] => mounted_rect = Some(*rect),
+                    other => panic!("unexpected mount outcome: {other:?}"),
+                }
+            }
+        }
+        let rect = mounted_rect.expect("mount response");
+        assert_eq!(runtime.pilot().mounted_coach_count(), 1);
+
+        let center = egui::pos2(
+            (rect.min_x + rect.max_x) / 2.0,
+            (rect.min_y + rect.max_y) / 2.0,
+        );
+        coach_frame(
+            &ctx,
+            egui::RawInput {
+                events: vec![
+                    egui::Event::PointerMoved(center),
+                    egui::Event::PointerButton {
+                        pos: center,
+                        button: egui::PointerButton::Primary,
+                        pressed: true,
+                        modifiers: egui::Modifiers::default(),
+                    },
+                ],
+                ..Default::default()
+            },
+        );
+        runtime.pump();
+
+        assert_eq!(
+            drain_coach_events(&client),
+            vec![
+                CoachEvent::Triggered {
+                    coach_id: CoachId::new("coach-save"),
+                    kind: TriggerKind::Press,
+                    actor: protocol::CoachActor::Operator,
+                },
+                CoachEvent::Unmounted {
+                    coach_id: CoachId::new("coach-save"),
+                    reason: CoachUnmountReason::Once,
+                },
+            ]
+        );
+        assert_eq!(runtime.pilot().mounted_coach_count(), 0);
+    }
+
+    #[test]
+    fn an_armed_touchpoint_mounts_when_its_target_appears() {
+        let (ctx, client, mut runtime) = test_runtime(32);
+        authenticate(&client, &mut runtime);
+        // Deliberately no coach frame yet: the target does not exist.
+        let _ = ctx.run_ui(Default::default(), |_ui| {});
+
+        let mut waiting = touchpoint(
+            "coach-appear",
+            Locator {
+                id: Some(NodeId::new("root/coach.save")),
+                ..Locator::default()
+            },
+        );
+        waiting.on = TriggerKind::NodeAppeared;
+        send_mount(&client, "mount-appear", waiting);
+        runtime.pump();
+
+        assert!(
+            drain_coach_events(&client).contains(&CoachEvent::Armed {
+                coach_id: CoachId::new("coach-appear"),
+            }),
+            "a touchpoint waiting for a target arms rather than refusing"
+        );
+        assert_eq!(runtime.pilot().mounted_coach_count(), 1);
+
+        coach_frame(&ctx, Default::default());
+        runtime.pump();
+
+        let events = drain_coach_events(&client);
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, CoachEvent::Mounted { coach_id, .. }
+                    if coach_id == &CoachId::new("coach-appear"))),
+            "{events:?}"
+        );
+        assert!(
+            events.contains(&CoachEvent::Triggered {
+                coach_id: CoachId::new("coach-appear"),
+                kind: TriggerKind::NodeAppeared,
+                actor: protocol::CoachActor::App,
+            }),
+            "{events:?}"
+        );
+    }
+
+    #[test]
+    fn a_touchpoint_that_waits_cannot_be_aimed_with_a_name_locator() {
+        let (ctx, client, mut runtime) = test_runtime(32);
+        authenticate(&client, &mut runtime);
+        coach_frame(&ctx, Default::default());
+
+        // The node is right there, but a name cannot be matched against a
+        // node that has not rendered yet, which is exactly what this
+        // touchpoint is for.
+        let mut by_name = touchpoint(
+            "coach-by-name",
+            Locator {
+                name: Some("Save".into()),
+                ..Locator::default()
+            },
+        );
+        by_name.on = TriggerKind::NodeAppeared;
+        send_mount(&client, "mount-by-name", by_name);
+        runtime.pump();
+
+        let refusals: Vec<_> = drain_coach_events(&client)
+            .into_iter()
+            .filter_map(|event| match event {
+                CoachEvent::Refused {
+                    coach_id, reason, ..
+                } => Some((coach_id, reason)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            refusals,
+            vec![(CoachId::new("coach-by-name"), CoachRefusal::TargetNotFound)]
+        );
+        assert_eq!(runtime.pilot().mounted_coach_count(), 0);
+    }
+
+    #[test]
+    fn a_touchpoint_the_target_cannot_honour_is_refused_not_mounted() {
+        let (ctx, client, mut runtime) = test_runtime(32);
+        authenticate(&client, &mut runtime);
+        coach_frame(&ctx, Default::default());
+
+        let missing = Locator {
+            id: Some(NodeId::new("root/does.not.exist")),
+            ..Locator::default()
+        };
+        send_mount(
+            &client,
+            "mount-missing",
+            touchpoint("coach-missing", missing),
+        );
+        let live = Locator {
+            id: Some(NodeId::new("root/coach.save")),
+            ..Locator::default()
+        };
+        let mut outline = touchpoint("coach-outline", live);
+        outline.visual = CoachStyle::Outline;
+        send_mount(&client, "mount-outline", outline);
+        runtime.pump();
+
+        let refusals: Vec<_> = drain_coach_events(&client)
+            .into_iter()
+            .filter_map(|event| match event {
+                CoachEvent::Refused {
+                    coach_id, reason, ..
+                } => Some((coach_id, reason)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            refusals,
+            vec![
+                (CoachId::new("coach-missing"), CoachRefusal::TargetNotFound),
+                (
+                    CoachId::new("coach-outline"),
+                    CoachRefusal::UnsupportedStyle
+                ),
+            ]
+        );
+        assert_eq!(runtime.pilot().mounted_coach_count(), 0);
+    }
+
+    #[test]
+    fn stopping_the_session_unmounts_every_touchpoint() {
+        let (ctx, client, mut runtime) = test_runtime(32);
+        authenticate(&client, &mut runtime);
+        coach_frame(&ctx, Default::default());
+        let target = Locator {
+            id: Some(NodeId::new("root/coach.save")),
+            ..Locator::default()
+        };
+        send_mount(&client, "mount", touchpoint("coach-save", target));
+        runtime.pump();
+        let _ = drain_coach_events(&client);
+        assert_eq!(runtime.pilot().mounted_coach_count(), 1);
+
+        client
+            .try_send(CommandEnvelope {
+                request_id: RequestId::new("stop"),
+                session: SessionId::new("session"),
+                command: ClientCommand::Stop,
+            })
+            .unwrap();
+        runtime.pump();
+
+        assert!(
+            drain_coach_events(&client).contains(&CoachEvent::Unmounted {
+                coach_id: CoachId::new("coach-save"),
+                reason: CoachUnmountReason::SessionEnded,
+            })
+        );
+        assert_eq!(runtime.pilot().mounted_coach_count(), 0);
+    }
+
     #[test]
     fn run_progress_is_event_only_and_run_has_one_terminal_response() {
         let (_ctx, client, mut runtime) = test_runtime(16);
@@ -2730,6 +3265,77 @@ mod tests {
                         }
             )
         ));
+    }
+
+    /// An agent cannot read the host's fabric, so the only way it learns which
+    /// `signal:<id>` triggers are real is by the host declaring them and status
+    /// carrying the list.
+    #[test]
+    fn status_reports_the_signal_catalog_the_host_declared() {
+        let (_ctx, client, mut runtime) = test_runtime(16);
+        authenticate(&client, &mut runtime);
+        runtime.pilot.declare_coach_signals(vec![
+            protocol::SignalId::new("build.slide-placed"),
+            protocol::SignalId::new("shell.route-changed/workbench/library"),
+        ]);
+        client
+            .try_send(CommandEnvelope {
+                request_id: RequestId::new("status"),
+                session: SessionId::new("session"),
+                command: ClientCommand::Status,
+            })
+            .unwrap();
+        runtime.pump();
+        let ServerMessage::Response {
+            envelope:
+                ResponseEnvelope {
+                    outcome: ResponseOutcome::Success { result },
+                    ..
+                },
+        } = client.try_receive().unwrap().unwrap()
+        else {
+            panic!("status must succeed");
+        };
+        let CommandResult::Status { status } = *result else {
+            panic!("expected a status result");
+        };
+        assert_eq!(
+            status.coach_signals,
+            vec![
+                protocol::SignalId::new("build.slide-placed"),
+                protocol::SignalId::new("shell.route-changed/workbench/library"),
+            ]
+        );
+    }
+
+    /// A host that declares nothing reports nothing, rather than the field
+    /// vanishing into a default an agent could read as "anything goes".
+    #[test]
+    fn an_undeclared_host_reports_an_empty_catalog_not_a_missing_one() {
+        let (_ctx, client, mut runtime) = test_runtime(16);
+        authenticate(&client, &mut runtime);
+        client
+            .try_send(CommandEnvelope {
+                request_id: RequestId::new("status"),
+                session: SessionId::new("session"),
+                command: ClientCommand::Status,
+            })
+            .unwrap();
+        runtime.pump();
+        let ServerMessage::Response {
+            envelope:
+                ResponseEnvelope {
+                    outcome: ResponseOutcome::Success { result },
+                    ..
+                },
+        } = client.try_receive().unwrap().unwrap()
+        else {
+            panic!("status must succeed");
+        };
+        let CommandResult::Status { status } = *result else {
+            panic!("expected a status result");
+        };
+        assert!(status.coach_signals.is_empty());
     }
 
     #[test]
