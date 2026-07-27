@@ -64,6 +64,21 @@ Release the operator can grab with one script.
 Branch `feat/github-repo-hardening`. One commit for workflows/scripts/plan;
 PR → gate → merge → tip STATE.
 
-## 8. Evidence
+## 8. Evidence (2026-07-27)
 
-_(filled at close)_
+- API: vulnerability alerts + automated security fixes → 204; GraphQL
+  `dependencyGraphManifests.totalCount=61`,
+  `hasVulnerabilityAlertsEnabled=true`.
+- Repo: `delete_branch_on_merge=true`.
+- Landed: #75 (Dependabot + nightly workflow + pull scripts);
+  #79 (lanes publish independently — offline `dpl-win` must not block).
+- Dependabot live: opened Cargo + Actions version PRs (#77–#86) within
+  minutes of merge (majors separate; patch/minor grouped — triage before
+  merge).
+- Nightly: `workflow_dispatch` run
+  `https://github.com/EonsofStupid/devpulselabs/actions/runs/30233361937`
+  → Release `nightly` with `devpulselabs-linux-aarch64.zip`
+  (`https://github.com/EonsofStupid/devpulselabs/releases/tag/nightly`).
+- Grab: `./scripts/pull-nightly.sh` →
+  `~/Downloads/devpulse-nightly/2026-07-27/devpulselabs` (ARM64 ELF).
+- Windows asset deferred until `dpl-win-laptop` is online (soft lane).
