@@ -66,6 +66,9 @@ arguments = ["--chat-open", "--chat-authored", "--chat-proof", "grok-auth", "--m
 [fixtures.wiredfront-editor]
 arguments = ["--route", "wiredfront/editor", "--mood", "0"]
 
+[fixtures.workbench-studio]
+arguments = ["--route", "workbench/studio", "--mood", "0"]
+
 [[projects]]
 id = "devpulse-cloud"
 profile = "devpulse-cloud"

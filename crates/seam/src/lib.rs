@@ -26,7 +26,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use dpl_comp::Composition;
 use dpl_estate::{Estate, Tree, KEY_SHELL_ROUTE, KEY_WIREDFRONT_LAST_COMP};
-use dpl_fabric::{CaptureEvent, Fabric, JobEvent, ProviderEvent, ShellEvent, Stamped};
+use dpl_fabric::{BuildEvent, CaptureEvent, Fabric, JobEvent, ProviderEvent, ShellEvent, Stamped};
 use dpl_hub::{HubSpec, Route};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -239,6 +239,33 @@ pub fn provider_json(st: &Stamped<ProviderEvent>) -> Value {
         }),
     };
     v["domain"] = json!("providers");
+    v["seq"] = json!(st.seq);
+    v["ms"] = json!(st.ms);
+    v
+}
+
+/// One BUILD-domain fact in the envelope (W10 — slide placement).
+pub fn build_json(st: &Stamped<BuildEvent>) -> Value {
+    let mut v = match &st.ev {
+        BuildEvent::SlidePlaced {
+            show,
+            episode,
+            chapter,
+            slide,
+        } => json!({
+            "type": "slidePlaced",
+            "show": show,
+            "episode": episode,
+            "chapter": chapter,
+            "slide": slide,
+        }),
+        BuildEvent::EpisodeChanged { show, episode } => json!({
+            "type": "episodeChanged",
+            "show": show,
+            "episode": episode,
+        }),
+    };
+    v["domain"] = json!("build");
     v["seq"] = json!(st.seq);
     v["ms"] = json!(st.ms);
     v
@@ -669,7 +696,7 @@ async fn get_signals(
     State(s): State<Shared>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     // ALL domains, one envelope stream (signal-doctrine law 4): shell +
-    // capture + jobs + providers merged — agents watch the whole nervous system.
+    // capture + jobs + providers + build merged — the whole nervous system.
     let shell = BroadcastStream::new(s.fabric.subscribe_shell()).filter_map(|ev| {
         // Lagged receivers skip (signals are lossy by design); closed ends.
         ev.ok()
@@ -687,7 +714,11 @@ async fn get_signals(
         ev.ok()
             .map(|st| Ok(Event::default().data(provider_json(&st).to_string())))
     });
-    let stream = shell.merge(capture.merge(jobs.merge(providers)));
+    let build = BroadcastStream::new(s.fabric.subscribe_build()).filter_map(|ev| {
+        ev.ok()
+            .map(|st| Ok(Event::default().data(build_json(&st).to_string())))
+    });
+    let stream = shell.merge(capture.merge(jobs.merge(providers.merge(build))));
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
@@ -831,6 +862,29 @@ mod envelope_tests {
             json!({
                 "domain": "jobs", "seq": 3, "ms": 900,
                 "type": "queued", "job": 2, "label": "render",
+            })
+        );
+    }
+
+    #[test]
+    fn the_build_envelope_is_pinned() {
+        let st = Stamped {
+            seq: 5,
+            ms: 1500,
+            ev: BuildEvent::SlidePlaced {
+                show: "devpulse-news".into(),
+                episode: "ep1".into(),
+                chapter: "intro".into(),
+                slide: "title-neon".into(),
+            },
+        };
+        assert_eq!(
+            build_json(&st),
+            json!({
+                "domain": "build", "seq": 5, "ms": 1500,
+                "type": "slidePlaced",
+                "show": "devpulse-news", "episode": "ep1",
+                "chapter": "intro", "slide": "title-neon",
             })
         );
     }

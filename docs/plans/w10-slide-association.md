@@ -186,8 +186,32 @@ Branch `feat/w10-slide-association`. Commits: (1) shared landing model +
 LandingCard + budget strip; (5) activity-feed line. PR → gate → merge →
 exe rebuild → STATE.
 
-## 8. Evidence
+## 8a. W10a slice (this pass — 2026-07-26)
 
-_(Filled at execution on the Windows checkout `C:\localdev\devpulselabs`.
-`cargo green`, sequential exe drills, and real-window-size proof-shots run
-there; STATE.md updated on land.)_
+`Destination::Episode` already lives in `dpl-landing` (W9a) — plan §4.1 is
+a no-op. This pass ships the smallest operator-valuable slice:
+
+1. `dpl_doc::place_slide` + unit tests (place / refuse / rollback / copy /
+   never-clobber).
+2. `dpl-fabric` `BuildEvent` + `publish_build` / `subscribe_build`.
+3. Seam `build_json` on `/signals`.
+4. Thin Workbench Studio form (pick seed slide + content episode/chapter →
+   place → emit BuildEvent) — not the full LandingCard/budget wall.
+5. EguiPilot scenario `workbench/studio` + `cargo green`.
+
+**Deferred to W10b:** Episode LandingCard polish, live budget strip,
+activity-feed line, full chapters×slots compose wall, Present-deck walk
+drill, interactive budget helpers in `dpl_doc`.
+
+## 8. Evidence (W10a — 2026-07-26)
+
+- Unit: `place_slide` place / refuse / rollback / never-clobber / unfinished
+  (`dpl-doc`); `BuildEvent` stamp+round-trip (`dpl-fabric`); seam
+  `build_json` pinned (`dpl-seam`).
+- Studio: `workbench/studio` thin place form (seed → content chapter →
+  `place_slide` → `BuildEvent::{SlidePlaced,EpisodeChanged}`).
+- EguiPilot: `eguipilotai test devpulse-cloud
+  tests/eguipilotai/workbench-studio.toml workbench-studio` →
+  `run-1021672-18c602e3be1cf084` passed; proof
+  `docs/proof/workbench-studio-place.png` (1440×900).
+- Gate: `env -u CARGO_TARGET_DIR cargo xtask green` before PR.

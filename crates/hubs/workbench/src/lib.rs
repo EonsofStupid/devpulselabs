@@ -7,6 +7,7 @@
 //! moods). The editor (W4) opens exactly these documents.
 
 mod library;
+mod studio;
 
 use dpl_coldlight::{self as cl, Tone};
 use dpl_hub::{Hub, HubId, HubSpec, Route, SubId, SubRoute};
@@ -15,6 +16,7 @@ use dpl_slides::SlideTemplate;
 use egui::RichText;
 use library::LibSection;
 use std::path::PathBuf;
+use studio::StudioState;
 
 pub const HUB: HubId = HubId("workbench");
 pub const LIBRARY: SubId = SubId("library");
@@ -92,6 +94,8 @@ pub struct WorkbenchHub {
     episode_view: Option<EpisodeView>,
     /// The "copy to my shows" form (X3) — open on the episodes picker.
     clone_form: Option<CloneForm>,
+    /// W10a Studio — place a finished slide into a content episode.
+    studio: StudioState,
     test_lab: egui_pilot_ai_lab::TestLab,
 }
 
@@ -318,6 +322,8 @@ impl Hub for WorkbenchHub {
             self.editor_surface(ui);
         } else if route.sub == EPISODES {
             self.episodes_surface(ui);
+        } else if route.sub == STUDIO {
+            self.studio.ui(ui, &self.fabric);
         } else if route.sub == TEST_LAB {
             self.test_lab.ui(ui);
         } else if let Some(go) = dpl_hub::placeholder::surface(
