@@ -1,15 +1,15 @@
 //! The Workbench LIBRARY — ALL the raw ingredients on one surface
 //! (doctrine §1.1): seed slides by class, every registered template LIVE,
-//! and the vocabulary walls (color pool · presets · fonts · moods).
+//! reusable blocks, and the vocabulary walls (color pool · presets ·
+//! fonts · moods).
 //!
 //! The anti-recurrence law rode in with the walls: this surface renders
 //! **everything that exists** — a template or token that never shows here
-//! cannot exist. Blocks/elements sections join later; the chip row leaves
-//! room.
+//! cannot exist. Elements sections join later; the chip row leaves room.
 
 use super::SPEC;
 use dpl_coldlight::{self as cl, Tone};
-use dpl_slides::SlideTemplate;
+use dpl_slides::{SlideTemplate, TemplateClass};
 use egui::RichText;
 
 /// The Library's sections — the chip row's vocabulary. SEEDS leads (the
@@ -19,6 +19,7 @@ pub(crate) enum LibSection {
     #[default]
     Seeds,
     Templates,
+    Blocks,
     Traits,
     Colors,
     Presets,
@@ -27,9 +28,10 @@ pub(crate) enum LibSection {
 }
 
 impl LibSection {
-    pub(crate) const ALL: [LibSection; 7] = [
+    pub(crate) const ALL: [LibSection; 8] = [
         LibSection::Seeds,
         LibSection::Templates,
+        LibSection::Blocks,
         LibSection::Traits,
         LibSection::Colors,
         LibSection::Presets,
@@ -41,6 +43,7 @@ impl LibSection {
         match self {
             LibSection::Seeds => "seeds",
             LibSection::Templates => "templates",
+            LibSection::Blocks => "blocks",
             LibSection::Traits => "traits",
             LibSection::Colors => "colors",
             LibSection::Presets => "presets",
@@ -54,6 +57,7 @@ impl LibSection {
         match self {
             LibSection::Seeds => "Ready-made starter slides you can copy into a show",
             LibSection::Templates => "Every slide design, running live — tap one to see it big",
+            LibSection::Blocks => "Small reusable pieces templates are built from — shown live",
             LibSection::Traits => "The composable treatments every surface is dressed in",
             LibSection::Colors => "The whole color pool the app draws from",
             LibSection::Presets => "Saved style bundles — one tap applies a whole look",
@@ -62,6 +66,14 @@ impl LibSection {
         }
     }
 }
+
+/// Template class order for gallery section headers (matches seed taxonomy).
+const TEMPLATE_CLASSES: [TemplateClass; 4] = [
+    TemplateClass::Static,
+    TemplateClass::Split,
+    TemplateClass::Animation,
+    TemplateClass::Interactive,
+];
 
 /// The traits wall — every generated trait rendered LIVE through the
 /// compositor (moved here from the WiredFRONT composer under the
@@ -227,7 +239,7 @@ pub(crate) fn templates_gallery(
 
     ui.label(
         RichText::new(format!(
-            "{} templates registered — every one rendered live below. \
+            "{} templates registered — sectioned by class. \
              A template that exists but doesn't show here cannot exist.",
             demos.len(),
         ))
@@ -241,60 +253,174 @@ pub(crate) fn templates_gallery(
         let avail_w = ui.available_width();
         let stage_w = avail_w - cl::space::S4 * 2.0;
         let stage_h = stage_w * 9.0 / 16.0;
-        for demo in demos.iter_mut() {
-            let spec = demo.spec();
-            ui.horizontal(|ui| {
-                let title = cl::tip(
-                    ui.label(
-                        RichText::new(spec.label)
-                            .size(fluid.fs_h4())
-                            .strong()
-                            .color(cl::ink::STRONG),
-                    )
-                    .interact(egui::Sense::click()),
-                    "Tap to see this one big",
-                );
-                if title.clicked() {
-                    focus_request = Some(spec.id.0.to_string());
-                    demo.restart();
-                }
-                ui.label(
-                    RichText::new(spec.class.label())
-                        .monospace()
-                        .small()
-                        .color(SPEC.tone.color()),
-                );
-                ui.label(
-                    RichText::new(spec.id.0)
-                        .monospace()
-                        .small()
-                        .color(cl::ink::SUBTLE),
-                );
-            });
-            ui.label(RichText::new(spec.blurb).small().color(cl::ink::MUTED));
-            ui.add_space(cl::space::S1);
-
-            // The stage: a recessed 16:9 WELL plate the slide renders on —
-            // the same surface contract the deck runtime provides.
-            let (stage, _) =
-                ui.allocate_exact_size(egui::vec2(stage_w, stage_h), egui::Sense::hover());
-            ui.painter()
-                .rect_filled(stage, cl::RADIUS, cl::surface::WELL);
-            ui.painter().rect_stroke(
-                stage,
-                cl::RADIUS,
-                egui::Stroke::new(1.0, cl::surface::HAIRLINE),
-                egui::StrokeKind::Inside,
+        // Index demos once so each class section can borrow mutably in turn.
+        let mut by_class: [Vec<usize>; 4] = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+        for (i, demo) in demos.iter().enumerate() {
+            let idx = match demo.spec().class {
+                TemplateClass::Static => 0,
+                TemplateClass::Split => 1,
+                TemplateClass::Animation => 2,
+                TemplateClass::Interactive => 3,
+            };
+            by_class[idx].push(i);
+        }
+        for (class, indices) in TEMPLATE_CLASSES.into_iter().zip(by_class.iter()) {
+            ui.add_space(cl::space::S2);
+            ui.label(
+                RichText::new(format!("{} —", class.label().to_uppercase()))
+                    .small()
+                    .strong()
+                    .color(SPEC.tone.color()),
             );
-            ui.scope_builder(egui::UiBuilder::new().max_rect(stage.shrink(2.0)), |ui| {
-                demo.ui(ui);
-            });
-            ui.add_space(cl::space::S5);
+            ui.add_space(cl::space::S2);
+            if indices.is_empty() {
+                ui.label(
+                    RichText::new(format!(
+                        "no {} templates registered yet — the class stays honest and empty",
+                        class.label()
+                    ))
+                    .small()
+                    .color(cl::ink::MUTED),
+                );
+                continue;
+            }
+            for &i in indices {
+                let demo = &mut demos[i];
+                let spec = demo.spec();
+                ui.horizontal(|ui| {
+                    let title = cl::tip(
+                        ui.label(
+                            RichText::new(spec.label)
+                                .size(fluid.fs_h4())
+                                .strong()
+                                .color(cl::ink::STRONG),
+                        )
+                        .interact(egui::Sense::click()),
+                        "Tap to see this one big",
+                    );
+                    if title.clicked() {
+                        focus_request = Some(spec.id.0.to_string());
+                        demo.restart();
+                    }
+                    ui.label(
+                        RichText::new(spec.id.0)
+                            .monospace()
+                            .small()
+                            .color(cl::ink::SUBTLE),
+                    );
+                });
+                ui.label(RichText::new(spec.blurb).small().color(cl::ink::MUTED));
+                ui.add_space(cl::space::S1);
+
+                let (stage, _) =
+                    ui.allocate_exact_size(egui::vec2(stage_w, stage_h), egui::Sense::hover());
+                ui.painter()
+                    .rect_filled(stage, cl::RADIUS, cl::surface::WELL);
+                ui.painter().rect_stroke(
+                    stage,
+                    cl::RADIUS,
+                    egui::Stroke::new(1.0, cl::surface::HAIRLINE),
+                    egui::StrokeKind::Inside,
+                );
+                ui.scope_builder(egui::UiBuilder::new().max_rect(stage.shrink(2.0)), |ui| {
+                    demo.ui(ui);
+                });
+                ui.add_space(cl::space::S5);
+            }
         }
     });
     if focus_request.is_some() {
         *focus = focus_request;
     }
+}
+
+/// The BLOCKS wall — every paint primitive in `dpl_slides::blocks` live on
+/// a plate. A block that exists but never shows here cannot exist.
+pub(crate) fn blocks_wall(ui: &mut egui::Ui) {
+    ui.label(
+        RichText::new(
+            "BLOCKS — reusable pieces templates are built from. \
+             Eyebrow · badge · stat · ambient backdrop — painted live, never a screenshot.",
+        )
+        .small()
+        .color(cl::ink::MUTED),
+    );
+    ui.add_space(cl::space::S2);
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            block_plate(ui, "eyebrow", "Mono uppercase micro-label", |ui, fluid| {
+                dpl_slides::blocks::eyebrow(ui, fluid, "coldlight", Some(SPEC.tone.color()));
+            });
+            block_plate(
+                ui,
+                "badge",
+                "Emphasis chip — neutral and live",
+                |ui, fluid| {
+                    ui.horizontal(|ui| {
+                        dpl_slides::blocks::badge(ui, fluid, "draft", None);
+                        ui.add_space(cl::space::S2);
+                        dpl_slides::blocks::badge(ui, fluid, "live", Some(Tone::Cyan));
+                    });
+                },
+            );
+            block_plate(ui, "stat", "Value + label pair", |ui, fluid| {
+                dpl_slides::blocks::stat(ui, fluid, "128", "tokens", SPEC.tone.color());
+            });
+            block_plate(
+                ui,
+                "ambient",
+                "Vector backdrop ambience (rings)",
+                |ui, _fluid| {
+                    let (rect, _) =
+                        ui.allocate_exact_size(egui::vec2(280.0, 120.0), egui::Sense::hover());
+                    ui.painter()
+                        .rect_filled(rect, cl::RADIUS, cl::surface::WELL);
+                    let now = ui.input(|i| i.time);
+                    dpl_slides::blocks::ambient_backdrop(
+                        ui,
+                        rect,
+                        dpl_slides::blocks::Ambient::Rings,
+                        Tone::Cyan.color(),
+                        now,
+                        0.0,
+                    );
+                },
+            );
+        });
+}
+
+fn block_plate(
+    ui: &mut egui::Ui,
+    id: &str,
+    blurb: &str,
+    paint: impl FnOnce(&mut egui::Ui, &cl::Fluid),
+) {
+    let fluid = cl::Fluid::of(ui.max_rect());
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(id).strong().color(cl::ink::STRONG));
+        ui.label(RichText::new(blurb).small().color(cl::ink::MUTED));
+    });
+    ui.add_space(cl::space::S1);
+    let (plate, _) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width().min(480.0), 140.0),
+        egui::Sense::hover(),
+    );
+    ui.painter()
+        .rect_filled(plate, cl::RADIUS, cl::surface::RAISED);
+    ui.painter().rect_stroke(
+        plate,
+        cl::RADIUS,
+        egui::Stroke::new(1.0, cl::surface::HAIRLINE),
+        egui::StrokeKind::Inside,
+    );
+    ui.scope_builder(
+        egui::UiBuilder::new()
+            .max_rect(plate.shrink(cl::space::S3))
+            .layout(egui::Layout::top_down(egui::Align::Min)),
+        |ui| paint(ui, &fluid),
+    );
+    ui.add_space(cl::space::S4);
 }
 
 /// The color pool wall: every generated hue × step, all rendered.

@@ -1,0 +1,16 @@
+id = "workbench-library"
+fixture = "library"
+record = true
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/shell.rail/workbench"
+
+[[steps]]
+kind = "capture"
+name = "workbench-library-templates"

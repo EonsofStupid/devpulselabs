@@ -153,6 +153,7 @@ impl WorkbenchHub {
                 let demos = self.demos.get_or_insert_with(dpl_slides::demos);
                 library::templates_gallery(ui, demos, &mut self.focus);
             }
+            LibSection::Blocks => library::blocks_wall(ui),
             LibSection::Traits => library::traits_wall(ui),
             LibSection::Colors => library::pool_wall(ui),
             LibSection::Presets => library::presets_wall(ui),
@@ -231,60 +232,71 @@ impl WorkbenchHub {
                 let avail_w = ui.available_width();
                 let stage_w = avail_w - cl::space::S4 * 2.0;
                 let stage_h = stage_w * 9.0 / 16.0;
-                // The wall sections ARE the class folders (doctrine §1.3);
-                // list_seeds delivers class-ordered, so one header per run.
-                let mut last_class: Option<&str> = None;
-                for entry in seeds.iter_mut() {
-                    if last_class != Some(entry.class) {
-                        last_class = Some(entry.class);
-                        ui.add_space(cl::space::S2);
-                        ui.label(
-                            RichText::new(format!("{} —", entry.class.to_uppercase()))
-                                .small()
-                                .strong()
-                                .color(SPEC.tone.color()),
-                        );
-                        ui.add_space(cl::space::S2);
-                    }
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(&entry.id).strong().color(cl::ink::STRONG));
-                        ui.label(
-                            RichText::new(entry.dir.join("slide.json").to_string_lossy())
-                                .monospace()
-                                .small()
-                                .color(cl::ink::SUBTLE),
-                        );
-                    });
-                    for issue in &entry.issues {
-                        ui.label(
-                            RichText::new(format!("⚠ {} — {}", issue.path, issue.message))
-                                .small()
-                                .color(SPEC.tone.color()),
-                        );
-                    }
-                    let (stage, _) =
-                        ui.allocate_exact_size(egui::vec2(stage_w, stage_h), egui::Sense::hover());
-                    ui.painter()
-                        .rect_filled(stage, cl::RADIUS, cl::surface::WELL);
-                    match &mut entry.doc {
-                        Ok(doc) => doc.ui(ui, stage.shrink(2.0)),
-                        Err(e) => {
-                            ui.painter().text(
-                                stage.center(),
-                                egui::Align2::CENTER_CENTER,
-                                format!("failed to load: {e}"),
-                                egui::FontId::monospace(12.0),
-                                cl::ink::SUBTLE,
+                // Always emit every seed class header (doctrine §1.3) — empty
+                // classes stay honest instead of vanishing from the wall.
+                for class in dpl_doc::SEED_CLASSES {
+                    ui.add_space(cl::space::S2);
+                    ui.label(
+                        RichText::new(format!("{} —", class.to_uppercase()))
+                            .small()
+                            .strong()
+                            .color(SPEC.tone.color()),
+                    );
+                    ui.add_space(cl::space::S2);
+                    let mut any = false;
+                    for entry in seeds.iter_mut().filter(|e| e.class == class) {
+                        any = true;
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(&entry.id).strong().color(cl::ink::STRONG));
+                            ui.label(
+                                RichText::new(entry.dir.join("slide.json").to_string_lossy())
+                                    .monospace()
+                                    .small()
+                                    .color(cl::ink::SUBTLE),
+                            );
+                        });
+                        for issue in &entry.issues {
+                            ui.label(
+                                RichText::new(format!("⚠ {} — {}", issue.path, issue.message))
+                                    .small()
+                                    .color(SPEC.tone.color()),
                             );
                         }
+                        let (stage, _) = ui.allocate_exact_size(
+                            egui::vec2(stage_w, stage_h),
+                            egui::Sense::hover(),
+                        );
+                        ui.painter()
+                            .rect_filled(stage, cl::RADIUS, cl::surface::WELL);
+                        match &mut entry.doc {
+                            Ok(doc) => doc.ui(ui, stage.shrink(2.0)),
+                            Err(e) => {
+                                ui.painter().text(
+                                    stage.center(),
+                                    egui::Align2::CENTER_CENTER,
+                                    format!("failed to load: {e}"),
+                                    egui::FontId::monospace(12.0),
+                                    cl::ink::SUBTLE,
+                                );
+                            }
+                        }
+                        ui.painter().rect_stroke(
+                            stage,
+                            cl::RADIUS,
+                            egui::Stroke::new(1.0, cl::surface::HAIRLINE),
+                            egui::StrokeKind::Inside,
+                        );
+                        ui.add_space(cl::space::S5);
                     }
-                    ui.painter().rect_stroke(
-                        stage,
-                        cl::RADIUS,
-                        egui::Stroke::new(1.0, cl::surface::HAIRLINE),
-                        egui::StrokeKind::Inside,
-                    );
-                    ui.add_space(cl::space::S5);
+                    if !any {
+                        ui.label(
+                            RichText::new(format!(
+                                "no {class} seeds yet — folder stays ready for slide.json"
+                            ))
+                            .small()
+                            .color(cl::ink::MUTED),
+                        );
+                    }
                 }
             });
 
