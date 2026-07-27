@@ -1,7 +1,9 @@
 # ADR-011 — Chat Imagine generation exception
 
-**Status:** DRAFT — awaiting operator ratification; implementation may land
-fail-closed (inert without an operator-provisioned key)
+**Status:** RATIFIED — operator statement 2026-07-27: the xAI subscription
+tier includes API access, so the operator-owned key IS the subscription
+powering generation. First live generation (key provisioned + one click)
+remains the final checklist tick.
 **Date:** 2026-07-27
 **Owner:** DevPULSE operator
 **Sits under:** [`../plans/chat-creation-and-workflows-vision.md`](../plans/chat-creation-and-workflows-vision.md)
@@ -78,8 +80,9 @@ next to the action; the operator's click is the spend authorization.
 
 ## Ratification checklist
 
-- [ ] Operator approves the narrow Imagine API exception and key custody
-      (env-var read-at-use, keychain later).
+- [x] Operator approves the narrow Imagine API exception and key custody
+      (2026-07-27, in-session: the subscription includes API access — "this
+      is fine"). Env-var read-at-use now, keychain later.
 - [x] Endpoints, schemas, and auth grounded against docs.x.ai (2026-07-27).
 - [x] Draft-cache custody and flush-consent model defined (vision doc §2).
 - [ ] First live image generation performed by the operator with their key.
