@@ -2,11 +2,17 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-27 — GITHUB REPO HARDENING LANDED (#75/#79).** Dependency graph +
+vulnerability alerts + automated security fixes; `delete_branch_on_merge`;
+Dependabot weekly Cargo/Actions (live PRs #77–#86 — triage majors);
+rolling Release tag `nightly` (exe-only; linux aarch64 proven); pull via
+`./scripts/pull-nightly.sh`. Plan `docs/plans/github-repo-hardening.md` §8.
+Open product PRs: Dependabot triage only.
+
 **2026-07-27 — GROK SYSTEM-BROWSER AUTH LANDED (#67).** Device URL opens in
 the OS default browser (not CDP/bundled Chromium); Cloudflare automation
 reject fixed. Proof `proof-chat-grok-system-browser-auth.png`. Real-account
 retest remains the operator gate. Contract: `docs/plans/chat-grok-activation.md`.
-Open product PRs: none.
 
 **2026-07-27 — W10a SLIDE ASSOCIATION LANDED (#72).** `dpl_doc::place_slide`
 (copy into existing episode chapter; never-clobber; transactional rollback);
@@ -99,7 +105,7 @@ disabled, relocated release startup passed with provider-bearing `PATH`
 entries removed, and the complete local `cargo green` gate passed. Canonical
 contract and evidence: `docs/plans/private-tool-depot.md`.
 
-**Tip:** on `main` (2026-07-27) at Grok system-browser auth (#67). **DG1 LANDED** (#43,
+**Tip:** on `main` (2026-07-27) at GitHub repo hardening (#75/#79). **DG1 LANDED** (#43,
 `feat/dg1-mixed-guide`, `docs/plans/dg1-mixed-media-guide.md` — operator:
 stills for where-to-click + session-replay clips when appropriate, ORDERED
 in one `.guide`): replay-segment steps land — `Step.kind:"replay"` +
@@ -624,9 +630,10 @@ is DELETED. Memory: `chat-is-a-peer-window`.
 2. Estate deeper wire (selection/undo, Workbench session, Agents tree).
 3. Seed empty classes / animation templates (catalog follow-ons).
 4. Parallel backlog: RR1.1; AEP Phase 2; ColdLight remainder; mac-parity.
-   Ops: `dpl-linux` `svc.sh install`; unset Cursor `CARGO_TARGET_DIR` for
-   local green (or fix `locate_asset`). Operator: real xAI account retest
-   for Grok system-browser auth (#67).
+   Ops: triage Dependabot PRs (#77–#86, don't blind-merge majors); bring
+   `dpl-win` online for Windows nightly asset; `dpl-linux` `svc.sh install`;
+   unset Cursor `CARGO_TARGET_DIR` for local green. Operator: real xAI
+   account retest for Grok system-browser auth (#67).
 
 ## Process facts
 
