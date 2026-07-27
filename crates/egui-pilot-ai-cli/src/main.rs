@@ -64,7 +64,7 @@ fn run() -> Result<(), CliError> {
         },
         "help" | "--help" | "-h" => {
             println!(
-                "EguiPilotAI\n\n  doctor\n  mcp\n  test <profile> <scenario.toml> [fixture]\n  inspect <profile> [fixture]\n  coach <profile> <node-id> [--fixture <name>] [--message <text>] [--on <trigger>] [--wait-ms <n>] [--ttl-ms <n>]\n  fixtures\n  codegen <input.toml> <output.toml>  [EXPERIMENTAL normalizer; NOT a recorder]\n  open <run-directory>\n  agent install codex|cursor|claude\n\nCoaching paints a spotlight and reports what fires it.\n  --on press (default) | hover | appeared | value-changed | signal:<id>\nA touchpoint waiting on `appeared` or a signal mounts armed, so it can be set before its target exists.\n\nUnsupported in this build: set-value, scroll-into-view, screenshot expectations, parallel workers, retries, recorder codegen, replay, visual approval, Test Lab live control, the semantic revision ticker, and the desktop coach overlay."
+                "EguiPilotAI\n\n  doctor\n  mcp\n  test <profile> <scenario.toml> [fixture]\n  inspect <profile> [fixture]\n  coach <profile> <node-id> [--fixture <name>] [--message <text>] [--on <trigger>] [--wait-ms <n>] [--ttl-ms <n>]\n  fixtures\n  codegen <input.toml> <output.toml>  [EXPERIMENTAL normalizer; NOT a recorder]\n  open <run-directory>\n  agent install codex|cursor|claude\n\nCoaching paints a spotlight and reports what fires it.\n  --on press (default) | hover | appeared | value-changed | signal:<id>\nA touchpoint waiting on `appeared` or a signal mounts armed, so it can be set before its target exists.\n`inspect` and MCP `pilot_status` list every signal id this build can publish; nothing outside that list fires.\n\nUnsupported in this build: set-value, scroll-into-view, screenshot expectations, parallel workers, retries, recorder codegen, replay, visual approval, Test Lab live control, the semantic revision ticker, and the desktop coach overlay."
             );
             Ok(())
         }
@@ -157,7 +157,17 @@ fn inspect(workspace: &Path, profile: &str, fixture: Option<&str>) -> Result<(),
     let config = EguiPilotConfig::load(workspace)?;
     let mut session = ProcessSession::launch(workspace, &config, profile, fixture)?;
     let snapshot = session.snapshot(SnapshotRequest::default())?;
-    println!("{}", serde_json::to_string_pretty(&snapshot)?);
+    // The signal catalog rides with the semantic inventory because the two
+    // answer the same question: what can a touchpoint be aimed at, and what
+    // can it wait for. Neither is discoverable any other way.
+    let coach_signals = session.status()?.coach_signals;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "snapshot": snapshot,
+            "coach_signals": coach_signals,
+        }))?
+    );
     session.stop()?;
     Ok(())
 }
@@ -445,7 +455,11 @@ fn mcp_tools() -> Vec<Value> {
                 "properties": {"profile": {"type": "string"}, "fixture": {"type": "string"}}
             }),
         ),
-        tool("pilot_status", "Read compact target status", empty_schema()),
+        tool(
+            "pilot_status",
+            "Read compact target status, including `coach_signals`: every signal a `signal:<id>` touchpoint can wait for in this build. The list is declared by the application; a signal that is not in it will never fire.",
+            empty_schema(),
+        ),
         tool(
             "pilot_snapshot",
             "Read a pruned, changed, or explicitly full semantic projection",

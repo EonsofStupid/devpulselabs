@@ -1219,7 +1219,7 @@ mod tests {
             vec![
                 protocol::TriggerKind::NodeAppeared,
                 protocol::TriggerKind::FabricEvent {
-                    signal: protocol::SignalId::new("shell.route/workbench/episodes"),
+                    signal: protocol::SignalId::new("shell.route-changed/workbench/episodes"),
                 },
             ]
         );

@@ -20,12 +20,18 @@ that node in the live app and blocks until it fires, reporting whether the
 operator, the agent, or the app itself caused it.
 
 `--on` chooses what fires it: `press` (default), `hover`, `appeared`,
-`value-changed`, or `signal:<id>` for a fact the app publishes
-(`shell.route/<hub>/<sub>`, `build.slide-placed`, `build.episode-changed` —
-the catalog is `CoachSignals` in `crates/app/src/main.rs`; nothing enumerates
-it over the wire). A touchpoint waiting on `appeared` or a signal mounts
-**armed**, so it can be set before its target exists, and it needs a node id
-rather than a name locator.
+`value-changed`, or `signal:<id>` for a fact the app publishes. A touchpoint
+waiting on `appeared` or a signal mounts **armed**, so it can be set before its
+target exists, and it needs a node id rather than a name locator.
+
+Every fabric domain is coachable: `shell.*`, `deck.*`, `capture.*`, `jobs.*`,
+`providers.*`, `build.*`, named exactly as the agent seam names them. Each fact
+has a coarse id (`capture.saved`) and, where the key is enumerable, a specific
+one (`shell.route-changed/workbench/library`, `providers.ready/grok`,
+`capture.recording/on`). **Never guess an id** — `eguipilotai inspect` and MCP
+`pilot_status` list every one this build publishes (`coach_signals`), and a
+signal outside that list will never fire. The mapping is
+`crates/app/src/coach_signals.rs`.
 
 In scenarios use `kind = "coach"` steps with `type = "coach"` expectations
 (`armed`, `mounted`, `triggered`, `unmounted`, `refused`). The program map is

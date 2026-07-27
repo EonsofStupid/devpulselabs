@@ -58,7 +58,7 @@ once = true
 id = "root/shell.rail/workbench"
 
 [steps.coach.touchpoint.on.fabric-event]
-signal = "shell.route/workbench/episodes"
+signal = "shell.route-changed/workbench/episodes"
 
 # Open the house: the sub items render for the first time.
 [[steps]]

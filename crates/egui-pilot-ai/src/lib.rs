@@ -610,6 +610,19 @@ impl PilotHandle {
         lock(&self.shared).coach.note_signal(signal);
     }
 
+    /// Declare every signal this host can publish, so an agent can discover
+    /// what a `FabricEvent` touchpoint may wait for instead of being told.
+    ///
+    /// The toolkit cannot derive this list and does not police it: a host that
+    /// declares nothing simply reports nothing waitable.
+    pub fn declare_coach_signals(&self, signals: Vec<SignalId>) {
+        lock(&self.shared).coach.declare_signals(signals);
+    }
+
+    pub fn coach_signals(&self) -> Vec<SignalId> {
+        lock(&self.shared).coach.declared_signals()
+    }
+
     pub fn set_clock_mode(&self, mode: ClockMode) {
         lock(&self.shared).clock.set_mode(mode);
     }

@@ -427,6 +427,7 @@ impl<T: Transport> RuntimeGuard<T> {
                         .as_ref()
                         .map(|renderer| renderer.device_type.clone()),
                     active_run: self.active_flow.as_ref().map(|flow| flow.run_id.clone()),
+                    coach_signals: self.pilot.coach_signals(),
                 },
             },
         );
@@ -3264,6 +3265,77 @@ mod tests {
                         }
             )
         ));
+    }
+
+    /// An agent cannot read the host's fabric, so the only way it learns which
+    /// `signal:<id>` triggers are real is by the host declaring them and status
+    /// carrying the list.
+    #[test]
+    fn status_reports_the_signal_catalog_the_host_declared() {
+        let (_ctx, client, mut runtime) = test_runtime(16);
+        authenticate(&client, &mut runtime);
+        runtime.pilot.declare_coach_signals(vec![
+            protocol::SignalId::new("build.slide-placed"),
+            protocol::SignalId::new("shell.route-changed/workbench/library"),
+        ]);
+        client
+            .try_send(CommandEnvelope {
+                request_id: RequestId::new("status"),
+                session: SessionId::new("session"),
+                command: ClientCommand::Status,
+            })
+            .unwrap();
+        runtime.pump();
+        let ServerMessage::Response {
+            envelope:
+                ResponseEnvelope {
+                    outcome: ResponseOutcome::Success { result },
+                    ..
+                },
+        } = client.try_receive().unwrap().unwrap()
+        else {
+            panic!("status must succeed");
+        };
+        let CommandResult::Status { status } = *result else {
+            panic!("expected a status result");
+        };
+        assert_eq!(
+            status.coach_signals,
+            vec![
+                protocol::SignalId::new("build.slide-placed"),
+                protocol::SignalId::new("shell.route-changed/workbench/library"),
+            ]
+        );
+    }
+
+    /// A host that declares nothing reports nothing, rather than the field
+    /// vanishing into a default an agent could read as "anything goes".
+    #[test]
+    fn an_undeclared_host_reports_an_empty_catalog_not_a_missing_one() {
+        let (_ctx, client, mut runtime) = test_runtime(16);
+        authenticate(&client, &mut runtime);
+        client
+            .try_send(CommandEnvelope {
+                request_id: RequestId::new("status"),
+                session: SessionId::new("session"),
+                command: ClientCommand::Status,
+            })
+            .unwrap();
+        runtime.pump();
+        let ServerMessage::Response {
+            envelope:
+                ResponseEnvelope {
+                    outcome: ResponseOutcome::Success { result },
+                    ..
+                },
+        } = client.try_receive().unwrap().unwrap()
+        else {
+            panic!("status must succeed");
+        };
+        let CommandResult::Status { status } = *result else {
+            panic!("expected a status result");
+        };
+        assert!(status.coach_signals.is_empty());
     }
 
     #[test]

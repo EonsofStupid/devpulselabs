@@ -229,6 +229,7 @@ fn current_v2_types_do_not_accidentally_match_v1_shapes() {
         renderer_key: None,
         renderer_device_type: None,
         active_run: None,
+        coach_signals: Vec::new(),
     })
     .unwrap()
     .get("active_run")
