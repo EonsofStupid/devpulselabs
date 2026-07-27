@@ -1,7 +1,8 @@
 # ChatGPT / Codex activation slice
 
-**Status:** RATIFIED FOR IMPLEMENTATION
-**Date:** 2026-07-25
+**Status:** IMPLEMENTED — real-account login ceremony remains the operator gate
+**Date:** 2026-07-25 (ratified) · 2026-07-27 (implementation landed)
+**Execution plan:** [`chat-codex-activation-pass.md`](chat-codex-activation-pass.md)
 **Governing ADR:** [`chat-provider-runtime-adr.md`](chat-provider-runtime-adr.md)
 **Product authority:** [`chat-architecture.md`](chat-architecture.md)
 
@@ -75,3 +76,46 @@ Additional acceptance:
   alone is insufficient;
 - EguiPilotAI proves ChatGPT / Codex and Grok expose independent activation
   states and neither falsely enables Send.
+
+## 2026-07-27 local evidence
+
+- The post-login `codex login status` verification moved off the UI thread:
+  a `CodexStatusProbe`/`CodexStatusRequest` seam runs the official non-secret
+  command on the bounded `devpulse-codex-login-status` worker while the
+  coordinator projects a visible `Verifying` state. The UI thread never waits
+  on a provider process.
+- Fifteen `dpl-chat-codex` tests pass, including the previously untestable
+  transitions: SigningIn → Verifying → Ready for "Logged in using ChatGPT";
+  API-key status refuses Ready and lands SignedOut with one SignIn action;
+  a status-probe failure fails closed with one Retry action; a failed login
+  exit never starts verification; duplicate login and rediscovery are
+  rejected while a login child or verification is live.
+- Activation evidence now mirrors Grok: attempts are minted per activation,
+  `ActivationRequested`/`ClientStarted`/`AuthorizationCompleted`/`Ready`/
+  `Failed` provider facts feed the activation trace, and the Turso ledger
+  records ready/signed-out/failed rows (`auth_method: chatgpt`; failure
+  classes `authorization_launch`, `authorization_process`,
+  `status_verification`). The boot probe outcome is recorded at startup; a
+  fresh process logs `loaded non-secret Codex activation evidence
+  state=Ready version=0.145.0 method=chatgpt`.
+- `RefreshProvider` now rediscovers Codex; the window's `Verifying` control
+  and the `Verifying`/`SignedOut` ceremony copy are provider-generic.
+- EguiPilotAI `chat-codex-persisted-ready.toml` passed against the real
+  Windows exe: the catalog shows Codex `Ready` and Grok `Ready` as
+  independent real states, and with Codex selected both `New chat` and
+  `Send` stay disabled — Ready qualifies `SubscriptionAuth` only, exactly
+  as the ADR's activation-only clause requires. The five existing chat
+  scenarios stayed green.
+- Native proof `proof-chat-codex-activation.png` (real peer viewport,
+  `--state codex`): the "Connect Codex" ceremony with the single
+  "Log in with ChatGPT" action and disabled Send.
+- Merge repair recorded: PR #94 (`ProviderEvent::ProfileConfigured`) and
+  PR #93 (exhaustive coach-signal matches) merged independently green but
+  broke the devtools build together; the coach catalog now names
+  `providers.profile-configured` and all seven coach-signal contract tests
+  pass.
+- The remaining operator gate is the explicit real-account ceremony: sign
+  the official Codex client out, click "Log in with ChatGPT", complete
+  OpenAI browser authentication, and watch SigningIn → Verifying → Ready
+  with the activation trace populated. Deterministic fixtures never
+  authenticate a personal subscription.

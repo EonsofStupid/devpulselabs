@@ -157,8 +157,10 @@ impl fmt::Display for CodexActivationError {
 
 impl std::error::Error for CodexActivationError {}
 
+/// Non-secret classification of `codex login status` output. Only ChatGPT
+/// subscription authentication qualifies as `Ready`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CodexLoginStatus {
+pub enum CodexLoginStatus {
     ChatGpt,
     ApiKey,
     SignedOut,
@@ -230,23 +232,79 @@ fn exit_from_status(status: ExitStatus) -> CodexLoginExit {
     }
 }
 
+pub trait CodexStatusRequest: fmt::Debug + Send {
+    /// Nonblocking. `None` while the probe is still running.
+    fn try_status(&mut self) -> Option<Result<CodexLoginStatus, String>>;
+}
+
+pub trait CodexStatusProbe: fmt::Debug + Send {
+    fn begin(&self, profile: &CodexRuntimeProfile) -> io::Result<Box<dyn CodexStatusRequest>>;
+}
+
+/// Runs the official non-secret `codex login status` verification on a
+/// bounded worker so the UI thread never waits on a provider process.
+#[derive(Debug, Default)]
+struct SystemCodexStatusProbe;
+
+impl CodexStatusProbe for SystemCodexStatusProbe {
+    fn begin(&self, profile: &CodexRuntimeProfile) -> io::Result<Box<dyn CodexStatusRequest>> {
+        let profile = profile.clone();
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        std::thread::Builder::new()
+            .name("devpulse-codex-login-status".to_owned())
+            .spawn(move || {
+                let result = probe_login_status(&profile).map_err(|error| error.to_string());
+                let _ = sender.send(result);
+            })?;
+        Ok(Box::new(PendingStatus { receiver }))
+    }
+}
+
+#[derive(Debug)]
+struct PendingStatus {
+    receiver: std::sync::mpsc::Receiver<Result<CodexLoginStatus, String>>,
+}
+
+impl CodexStatusRequest for PendingStatus {
+    fn try_status(&mut self) -> Option<Result<CodexLoginStatus, String>> {
+        match self.receiver.try_recv() {
+            Ok(result) => Some(result),
+            Err(std::sync::mpsc::TryRecvError::Empty) => None,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                Some(Err("the login status worker stopped".to_owned()))
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct CodexActivationCoordinator {
+    discovery_root: Option<PathBuf>,
     profile: Result<CodexRuntimeProfile, CodexDiscoveryError>,
     state: ActivationState,
     launcher: Box<dyn CodexLoginLauncher>,
+    status_probe: Box<dyn CodexStatusProbe>,
     child: Option<Box<dyn CodexLoginProcess>>,
+    verification: Option<Box<dyn CodexStatusRequest>>,
+    login_completed: bool,
+    verified_status: Option<CodexLoginStatus>,
 }
 
 impl CodexActivationCoordinator {
     pub fn discover(working_directory: impl AsRef<Path>) -> Self {
-        let profile = CodexRuntimeProfile::discover(working_directory);
+        let discovery_root = working_directory.as_ref().to_path_buf();
+        let profile = CodexRuntimeProfile::discover(&discovery_root);
         let state = activation_from_discovery(&profile);
         Self {
+            discovery_root: Some(discovery_root),
             profile,
             state,
             launcher: Box::<SystemCodexLoginLauncher>::default(),
+            status_probe: Box::<SystemCodexStatusProbe>::default(),
             child: None,
+            verification: None,
+            login_completed: false,
+            verified_status: None,
         }
     }
 
@@ -254,12 +312,18 @@ impl CodexActivationCoordinator {
         profile: Result<CodexRuntimeProfile, CodexDiscoveryError>,
         state: ActivationState,
         launcher: Box<dyn CodexLoginLauncher>,
+        status_probe: Box<dyn CodexStatusProbe>,
     ) -> Self {
         Self {
+            discovery_root: None,
             profile,
             state,
             launcher,
+            status_probe,
             child: None,
+            verification: None,
+            login_completed: false,
+            verified_status: None,
         }
     }
 
@@ -271,12 +335,43 @@ impl CodexActivationCoordinator {
         self.profile.is_ok()
     }
 
+    pub fn runtime_profile(&self) -> Option<CodexRuntimeProfile> {
+        self.profile.as_ref().ok().cloned()
+    }
+
     pub fn is_login_running(&self) -> bool {
-        self.child.is_some()
+        self.child.is_some() || self.verification.is_some()
+    }
+
+    /// One-shot edge: the official login child exited successfully.
+    pub fn take_login_completed(&mut self) -> bool {
+        std::mem::take(&mut self.login_completed)
+    }
+
+    /// One-shot edge: post-login `codex login status` verification concluded.
+    pub fn take_verified_status(&mut self) -> Option<CodexLoginStatus> {
+        self.verified_status.take()
+    }
+
+    pub fn refresh_discovery(&mut self) -> Result<bool, CodexActivationError> {
+        if self.child.is_some() || self.verification.is_some() {
+            return Err(CodexActivationError::AlreadyRunning);
+        }
+        let Some(discovery_root) = self.discovery_root.clone() else {
+            return Err(CodexActivationError::Unavailable(
+                "the Codex coordinator has no discovery root".to_owned(),
+            ));
+        };
+        let profile = CodexRuntimeProfile::discover(discovery_root);
+        let state = activation_from_discovery(&profile);
+        let changed = state != self.state;
+        self.profile = profile;
+        self.state = state;
+        Ok(changed)
     }
 
     pub fn start_login(&mut self) -> Result<(), CodexActivationError> {
-        if self.child.is_some() {
+        if self.child.is_some() || self.verification.is_some() {
             return Err(CodexActivationError::AlreadyRunning);
         }
         let profile = self
@@ -288,41 +383,56 @@ impl CodexActivationCoordinator {
             .launch_login(profile)
             .map_err(|error| CodexActivationError::LaunchFailed(public_io_reason(&error)))?;
         self.child = Some(child);
+        self.login_completed = false;
+        self.verified_status = None;
         self.state = ActivationState::SigningIn;
         Ok(())
     }
 
     pub fn poll(&mut self) -> Result<bool, CodexActivationError> {
-        let Some(child) = self.child.as_mut() else {
-            return Ok(false);
-        };
-        let exit = child
-            .try_exit()
-            .map_err(|error| CodexActivationError::PollFailed(public_io_reason(&error)))?;
-        let Some(exit) = exit else {
-            return Ok(false);
-        };
-        self.child = None;
-        self.state = match exit {
-            CodexLoginExit::Success => {
-                let profile = self
-                    .profile
-                    .as_ref()
-                    .map_err(|error| CodexActivationError::StatusFailed(error.to_string()))?;
-                activation_from_status(
-                    probe_login_status(profile)
-                        .map_err(|error| CodexActivationError::StatusFailed(error.to_string()))?,
-                )
+        if let Some(child) = self.child.as_mut() {
+            let exit = child
+                .try_exit()
+                .map_err(|error| CodexActivationError::PollFailed(public_io_reason(&error)))?;
+            let Some(exit) = exit else {
+                return Ok(false);
+            };
+            self.child = None;
+            match exit {
+                CodexLoginExit::Success => {
+                    self.login_completed = true;
+                    let profile = self
+                        .profile
+                        .as_ref()
+                        .map_err(|error| CodexActivationError::StatusFailed(error.to_string()))?;
+                    let request = self.status_probe.begin(profile).map_err(|error| {
+                        CodexActivationError::StatusFailed(public_io_reason(&error))
+                    })?;
+                    self.verification = Some(request);
+                    self.state = ActivationState::Verifying;
+                }
+                CodexLoginExit::Failed(code) => self.state = failed_state(code),
             }
-            CodexLoginExit::Failed(code) => failed_state(code),
-        };
-        Ok(true)
+            return Ok(true);
+        }
+        if let Some(request) = self.verification.as_mut() {
+            let Some(result) = request.try_status() else {
+                return Ok(false);
+            };
+            self.verification = None;
+            let status = result.map_err(CodexActivationError::StatusFailed)?;
+            self.verified_status = Some(status);
+            self.state = activation_from_status(status);
+            return Ok(true);
+        }
+        Ok(false)
     }
 
     pub fn fail(&mut self, error: CodexActivationError) {
         if let Some(mut child) = self.child.take() {
             child.terminate_and_reap();
         }
+        self.verification = None;
         self.state = ActivationState::Failed {
             reason: error.to_string(),
             recovery: retry_recovery(),
@@ -625,6 +735,61 @@ mod tests {
         }
     }
 
+    /// Each `try_status` call pops the next planned response.
+    #[derive(Debug, Clone, Default)]
+    struct FakeStatusProbe {
+        plan: Vec<Option<Result<CodexLoginStatus, String>>>,
+        begins: Arc<AtomicUsize>,
+    }
+
+    impl CodexStatusProbe for FakeStatusProbe {
+        fn begin(
+            &self,
+            _profile: &CodexRuntimeProfile,
+        ) -> io::Result<Box<dyn CodexStatusRequest>> {
+            self.begins.fetch_add(1, Ordering::SeqCst);
+            Ok(Box::new(FakeStatusRequest {
+                plan: self.plan.clone(),
+            }))
+        }
+    }
+
+    #[derive(Debug)]
+    struct FakeStatusRequest {
+        plan: Vec<Option<Result<CodexLoginStatus, String>>>,
+    }
+
+    impl CodexStatusRequest for FakeStatusRequest {
+        fn try_status(&mut self) -> Option<Result<CodexLoginStatus, String>> {
+            if self.plan.is_empty() {
+                return None;
+            }
+            self.plan.remove(0)
+        }
+    }
+
+    fn coordinator_with(
+        exit: Option<CodexLoginExit>,
+        plan: Vec<Option<Result<CodexLoginStatus, String>>>,
+    ) -> CodexActivationCoordinator {
+        let launcher = FakeLauncher {
+            launches: Arc::new(AtomicUsize::new(0)),
+            process: FakeProcess {
+                exit,
+                terminated: Arc::new(AtomicBool::new(false)),
+            },
+        };
+        CodexActivationCoordinator::from_parts(
+            Ok(fixture_profile()),
+            activation_from_status(CodexLoginStatus::SignedOut),
+            Box::new(launcher),
+            Box::new(FakeStatusProbe {
+                plan,
+                begins: Arc::new(AtomicUsize::new(0)),
+            }),
+        )
+    }
+
     #[test]
     fn versions_and_login_status_are_fail_closed() {
         assert_eq!(
@@ -675,6 +840,7 @@ mod tests {
             Ok(fixture_profile()),
             activation_from_status(CodexLoginStatus::SignedOut),
             Box::new(launcher),
+            Box::new(FakeStatusProbe::default()),
         );
         coordinator.start_login().expect("start login");
         assert_eq!(
@@ -684,6 +850,104 @@ mod tests {
         drop(coordinator);
         assert_eq!(launches.load(Ordering::SeqCst), 1);
         assert!(terminated.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn login_success_verifies_status_before_ready() {
+        let mut coordinator = coordinator_with(
+            Some(CodexLoginExit::Success),
+            vec![None, Some(Ok(CodexLoginStatus::ChatGpt))],
+        );
+        coordinator.start_login().expect("start login");
+        assert_eq!(coordinator.activation(), &ActivationState::SigningIn);
+        assert!(coordinator.poll().expect("poll exit"));
+        assert_eq!(coordinator.activation(), &ActivationState::Verifying);
+        assert!(coordinator.take_login_completed());
+        assert!(!coordinator.take_login_completed());
+        assert!(coordinator.is_login_running());
+        assert!(!coordinator.poll().expect("poll pending"));
+        assert_eq!(coordinator.activation(), &ActivationState::Verifying);
+        assert!(coordinator.poll().expect("poll verified"));
+        assert_eq!(coordinator.activation(), &ActivationState::Ready);
+        assert_eq!(
+            coordinator.take_verified_status(),
+            Some(CodexLoginStatus::ChatGpt)
+        );
+        assert_eq!(coordinator.take_verified_status(), None);
+        assert!(!coordinator.is_login_running());
+    }
+
+    #[test]
+    fn api_key_status_is_not_ready() {
+        let mut coordinator = coordinator_with(
+            Some(CodexLoginExit::Success),
+            vec![Some(Ok(CodexLoginStatus::ApiKey))],
+        );
+        coordinator.start_login().expect("start login");
+        assert!(coordinator.poll().expect("poll exit"));
+        assert!(coordinator.poll().expect("poll verified"));
+        let ActivationState::SignedOut { recovery, .. } = coordinator.activation() else {
+            panic!("API-key login must not be Ready: {:?}", coordinator.activation());
+        };
+        assert_eq!(recovery[0].kind, RecoveryActionKind::SignIn);
+        assert_eq!(
+            coordinator.take_verified_status(),
+            Some(CodexLoginStatus::ApiKey)
+        );
+    }
+
+    #[test]
+    fn status_probe_failure_is_retryable() {
+        let mut coordinator = coordinator_with(
+            Some(CodexLoginExit::Success),
+            vec![Some(Err("boom".to_owned()))],
+        );
+        coordinator.start_login().expect("start login");
+        assert!(coordinator.poll().expect("poll exit"));
+        let error = coordinator.poll().expect_err("status failure surfaces");
+        assert!(matches!(error, CodexActivationError::StatusFailed(_)));
+        coordinator.fail(error);
+        let ActivationState::Failed { recovery, .. } = coordinator.activation() else {
+            panic!("status failure must fail closed: {:?}", coordinator.activation());
+        };
+        assert_eq!(recovery[0].kind, RecoveryActionKind::Retry);
+        assert!(!coordinator.is_login_running());
+    }
+
+    #[test]
+    fn login_failure_skips_verification() {
+        let mut coordinator = coordinator_with(Some(CodexLoginExit::Failed(Some(3))), Vec::new());
+        coordinator.start_login().expect("start login");
+        assert!(coordinator.poll().expect("poll exit"));
+        assert!(matches!(
+            coordinator.activation(),
+            ActivationState::Failed { .. }
+        ));
+        assert!(!coordinator.take_login_completed());
+        assert_eq!(coordinator.take_verified_status(), None);
+        assert!(!coordinator.is_login_running());
+    }
+
+    #[test]
+    fn verification_blocks_duplicate_login() {
+        let mut coordinator = coordinator_with(Some(CodexLoginExit::Success), vec![None]);
+        coordinator.start_login().expect("start login");
+        assert!(coordinator.poll().expect("poll exit"));
+        assert_eq!(coordinator.activation(), &ActivationState::Verifying);
+        assert_eq!(
+            coordinator.start_login(),
+            Err(CodexActivationError::AlreadyRunning)
+        );
+    }
+
+    #[test]
+    fn refresh_is_rejected_while_login_runs() {
+        let mut coordinator = coordinator_with(None, Vec::new());
+        coordinator.start_login().expect("start login");
+        assert_eq!(
+            coordinator.refresh_discovery(),
+            Err(CodexActivationError::AlreadyRunning)
+        );
     }
 
     #[test]

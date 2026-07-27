@@ -2,6 +2,22 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-27 — CHATGPT/CODEX ACTIVATION QUALIFIED.** Codex post-login
+verification moved off the UI thread behind a `CodexStatusProbe` seam with a
+visible `Verifying` state; activation evidence now mirrors Grok (attempt
+ids, fabric facts feeding the activation trace, Turso ledger rows with
+`method=chatgpt`); `RefreshProvider` rediscovers Codex; window ceremony copy
+is provider-generic. Ready still qualifies `SubscriptionAuth` only —
+conversations stay CH4-gated, proven by `chat-codex-persisted-ready.toml`
+(Codex Ready + New chat/Send disabled; Grok independent). Native proof
+`proof-chat-codex-activation.png`. Merge repair: #93×#94 semantic conflict
+(`providers.profile-configured` missing from coach catalog) — the devtools
+build is NOT covered by `cargo green`; consider adding it to the gate.
+Contract `docs/plans/chat-codex-activation.md` + execution plan
+`chat-codex-activation-pass.md` §8. **Operator gate: real ChatGPT sign-out →
+login ceremony. Next: CH4 Codex app-server adapter (conversations) or
+Claude/Gemini activation slices.**
+
 **2026-07-27 — CHAT PROVIDER CATALOG LANDED.** The AI rail no longer lists
 every provider: one AI Providers selector (current provider + active-session
 count) opens the full catalog — ChatGPT/Codex, Claude Code, Gemini, Grok,
