@@ -2,6 +2,31 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-27 — DESIGN-SYSTEM ARCHITECTURE RATIFIED (`docs/design/
+design-system.md`):** the composable pivot. THE MODEL: *a template is a layout
+of ELEMENTS; each element wears a TREATMENT (semantic | composite); any
+interaction is a RECIPE; all of it paints through one 2D pipeline under a
+FIDELITY budget.* Nothing hand-painted that could be composed. Layers map 1:1
+to industry practice (design tokens → primitives/atoms → components → variant
+recipes → progressive-enhancement graphics tiers). Treatment MECHANICS stay in
+`doctrine.md` (compose→ResolvedStyle→paint, additive/override axes, the
+no-blur/hard-shadow+back-glow law = the cheap-2D anchor); the spec adds the
+layers around it: an organized ELEMENT library (today's `blocks/`, elevated);
+SEMANTIC treatments (intent aliases `primary/danger/…` bound to composites —
+the Material core→semantic split) vs COMPOSITE (explicit base+stack); RECIPES
+(interaction as reusable pure state machines — `advance/toggle/flip/match/poll`
+lifted out of the templates, wired to the C-series touchpoint triggers); and a
+FIDELITY budget where **Tier 0 = old i5 is the DEFAULT (not degraded)** and
+better hardware ONLY ADDS layers (2D forever, no 3D; each treatment/recipe
+declares a cost tier + authored cheap fallback; one boot `Caps→Tier` probe
+extends the sysinfo/engine-ae precedent). RATIFIED DECISIONS: element = UI
+primitive (composer pack `ELEMENTS → pack assets`, copy-only later); treatments
+in `tokens/treatments.json` + a `dpl-slides` recipe registry; **BIG-BANG**
+catalog re-author once the system stands. BUILD ORDER (§7): spec ✅ → element
+library → treatments → recipes → fidelity probe → composed renderer + big-bang
+migration. The W-series hand-painted templates (incl. the 2026-07-27 diverse
+catalog, #97) are the stopgap that step §7.6 flips over.
+
 **2026-07-27 — L2: NATIVE LOTTIE ON THE TIMELINE (PR #99, merged to `main`
 `deffec4`):** the second rung of the AE-independence ladder — Bodymovin
 `.json`/`.lottie` imports become first-class timeline layers rendered
