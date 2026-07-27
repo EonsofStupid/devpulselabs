@@ -220,6 +220,10 @@ pub enum ProviderEvent {
     Selected {
         provider: ProviderId,
     },
+    ProfileConfigured {
+        provider: ProviderId,
+        profile_key: String,
+    },
     ActivationRequested {
         provider: ProviderId,
         attempt: ActivationAttemptId,
@@ -284,6 +288,7 @@ impl ProviderEvent {
     pub const fn provider(&self) -> ProviderId {
         match self {
             Self::Selected { provider }
+            | Self::ProfileConfigured { provider, .. }
             | Self::ActivationRequested { provider, .. }
             | Self::ClientStarted { provider, .. }
             | Self::DeviceCodeReceived { provider, .. }
@@ -301,7 +306,7 @@ impl ProviderEvent {
 
     pub const fn attempt(&self) -> Option<ActivationAttemptId> {
         match self {
-            Self::Selected { .. } => None,
+            Self::Selected { .. } | Self::ProfileConfigured { .. } => None,
             Self::ActivationRequested { attempt, .. }
             | Self::ClientStarted { attempt, .. }
             | Self::DeviceCodeReceived { attempt, .. }

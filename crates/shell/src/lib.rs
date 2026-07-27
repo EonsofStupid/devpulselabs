@@ -91,6 +91,10 @@ fn activity_provider_line(ev: &dpl_fabric::ProviderEvent) -> String {
     use dpl_fabric::ProviderEvent as E;
     match ev {
         E::Selected { provider } => format!("{provider} selected"),
+        E::ProfileConfigured {
+            provider,
+            profile_key,
+        } => format!("{provider} profile configured · {profile_key}"),
         E::ActivationRequested {
             provider, attempt, ..
         } => format!("{provider} connect requested · {attempt}"),

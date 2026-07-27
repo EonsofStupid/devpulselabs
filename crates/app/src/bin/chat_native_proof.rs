@@ -41,13 +41,21 @@ fn run() -> Result<(), String> {
     let output = argument_value(&arguments, "--out")
         .map(PathBuf::from)
         .ok_or_else(|| {
-            "usage: chat-native-proof --out <png> [--state approval|ai|social|hover|grok|grok-auth|compact|snapped] [--title <exact title>] [--app <exe>]".to_owned()
+            "usage: chat-native-proof --out <png> [--state approval|ai|social|providers|hover|grok|grok-auth|compact|snapped] [--title <exact title>] [--app <exe>]".to_owned()
         })?;
     let title = argument_value(&arguments, "--title").unwrap_or_else(|| DEFAULT_TITLE.to_owned());
     let state = argument_value(&arguments, "--state").unwrap_or_else(|| "approval".to_owned());
     if !matches!(
         state.as_str(),
-        "approval" | "ai" | "social" | "hover" | "grok" | "grok-auth" | "compact" | "snapped"
+        "approval"
+            | "ai"
+            | "social"
+            | "providers"
+            | "hover"
+            | "grok"
+            | "grok-auth"
+            | "compact"
+            | "snapped"
     ) {
         return Err(format!("unknown native Chat proof state {state:?}"));
     }

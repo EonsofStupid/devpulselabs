@@ -10,6 +10,7 @@ use dpl_chat_core::{ChatDomain, DeviceAuthorizationPrompt, GuidedValue, GuidedVa
 use dpl_chat_interactions::{
     InteractionContent, InteractionId, InteractionPlacement, InteractionRegistry,
 };
+use dpl_chat_profiles::{ProfileStore, ProviderProfileDraft};
 use dpl_chat_runtime::ChatRuntime;
 use dpl_chat_social::SocialModel;
 use dpl_chat_store::HistoryCatalog;
@@ -45,6 +46,7 @@ pub enum ChatProofMode {
     Approval,
     Ai,
     Social,
+    ProviderCatalog,
     ProviderHover,
     GrokLogin,
     GrokAuthorization,
@@ -59,6 +61,7 @@ impl ChatProofMode {
             "approval" => Some(Self::Approval),
             "ai" => Some(Self::Ai),
             "social" => Some(Self::Social),
+            "providers" => Some(Self::ProviderCatalog),
             "hover" => Some(Self::ProviderHover),
             "grok" => Some(Self::GrokLogin),
             "grok-auth" => Some(Self::GrokAuthorization),
@@ -91,6 +94,7 @@ struct Shared {
     provider_runtime_enabled: bool,
     auth_browser: BrowserAuthCoordinator,
     activation_ledger: Option<ActivationLedger>,
+    profile_store: Option<ProfileStore>,
     next_chat_session_id: u64,
     next_chat_event_id: u64,
     next_turn_id: u64,
@@ -153,7 +157,27 @@ impl ChatWindowCoordinator {
             transition_opening(&mut registry, id);
         }
         let provider_runtime_enabled = authored_models.is_none();
-        let window = match authored_models {
+        let (profile_store, provider_profiles) = if provider_runtime_enabled {
+            match ProfileStore::open_default() {
+                Ok(store) => {
+                    let profiles = match store.list() {
+                        Ok(profiles) => profiles,
+                        Err(error) => {
+                            tracing::warn!(%error, "Chat provider profiles are unreadable");
+                            Vec::new()
+                        }
+                    };
+                    (Some(store), profiles)
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "Chat provider profile store is unavailable");
+                    (None, Vec::new())
+                }
+            }
+        } else {
+            (None, Vec::new())
+        };
+        let mut window = match authored_models {
             Some((social, interactions)) => ChatWindow::with_models(
                 runtime,
                 initial_route,
@@ -164,8 +188,7 @@ impl ChatWindowCoordinator {
             ),
             None => ChatWindow::new(runtime, initial_route, catalog, routes),
         };
-        #[cfg(feature = "eguipilotai-devtools")]
-        let mut window = window;
+        window.replace_provider_profiles(provider_profiles);
         #[cfg(feature = "eguipilotai-devtools")]
         if let Some(mode) = proof_mode {
             if mode != ChatProofMode::Approval {
@@ -189,6 +212,13 @@ impl ChatWindowCoordinator {
                             dpl_chat_window::DomainOverlay::Provider(ProviderId("codex")),
                         )))
                         .expect("the authored Codex provider exists");
+                }
+                ChatProofMode::ProviderCatalog => {
+                    window
+                        .apply(dpl_chat_window::ChatWindowIntent::SetOverlay(Some(
+                            dpl_chat_window::DomainOverlay::ProviderCatalog,
+                        )))
+                        .expect("the provider catalog overlay is valid");
                 }
                 ChatProofMode::GrokLogin => {
                     window
@@ -287,6 +317,7 @@ impl ChatWindowCoordinator {
             provider_runtime_enabled,
             auth_browser: BrowserAuthCoordinator::new(),
             activation_ledger,
+            profile_store,
             next_chat_session_id: 1_000_000,
             next_chat_event_id: 1_000_000,
             next_turn_id: 1,
@@ -622,6 +653,10 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
                 .publish_provider(ProviderEvent::Selected { provider });
             ctx.request_repaint();
         }
+        HostIntent::SaveProviderProfile(draft) => {
+            save_provider_profile(shared, draft);
+            ctx.request_repaint();
+        }
         HostIntent::CopyProviderAuthorizationCode(provider) => {
             copy_provider_authorization_code(ctx, shared, provider);
             ctx.request_repaint();
@@ -768,6 +803,28 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
             ctx.send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::Close);
         }
     }
+}
+
+fn save_provider_profile(shared: &Arc<Mutex<Shared>>, draft: ProviderProfileDraft) {
+    let mut state = lock(shared);
+    let Some(store) = state.profile_store.as_ref() else {
+        tracing::warn!("provider profile save requested without an available profile store");
+        return;
+    };
+    let profile = match store.create(draft) {
+        Ok(profile) => profile,
+        Err(error) => {
+            tracing::warn!(%error, "provider profile was rejected");
+            return;
+        }
+    };
+    state
+        .fabric
+        .publish_provider(ProviderEvent::ProfileConfigured {
+            provider: profile.kind.provider_id(),
+            profile_key: profile.key.as_str().to_owned(),
+        });
+    state.window.upsert_provider_profile(profile);
 }
 
 fn activate_provider(shared: &Arc<Mutex<Shared>>, provider: ProviderId) {
@@ -1501,13 +1558,8 @@ fn poll_grok_runtime(state: &mut Shared) -> bool {
             }
             dpl_chat_grok::GrokRuntimeEvent::TurnFinished {
                 provider_session_id,
-                stop_reason,
+                stop_reason: _,
             } => {
-                append_grok_event(
-                    state,
-                    &provider_session_id,
-                    ChatEventContent::StatusUpdated(stop_reason),
-                );
                 append_grok_event(state, &provider_session_id, ChatEventContent::TurnCompleted);
                 set_grok_session_idle(state, &provider_session_id);
                 state.grok_turns.remove(&provider_session_id);
@@ -1698,11 +1750,26 @@ fn project_grok_update(
                 tracing::warn!(%error, "Grok assistant chunk could not be projected");
             }
         }
-        dpl_chat_grok::GrokSessionUpdate::ThoughtText(text) => append_grok_event(
-            state,
-            provider_session_id,
-            ChatEventContent::StatusUpdated(text),
-        ),
+        dpl_chat_grok::GrokSessionUpdate::ThoughtText(text) => {
+            let Some(session) = state.grok_sessions.get(provider_session_id).copied() else {
+                return;
+            };
+            let turn = state
+                .grok_turns
+                .get(provider_session_id)
+                .cloned()
+                .unwrap_or_else(|| next_turn_id(state));
+            let event = next_event_id(state);
+            if let Err(error) = state.window.append_provider_status_chunk(
+                dpl_chat_grok::PROVIDER,
+                session,
+                turn,
+                event,
+                &text,
+            ) {
+                tracing::warn!(%error, "Grok reasoning activity could not be projected");
+            }
+        }
         dpl_chat_grok::GrokSessionUpdate::Tool(label) => append_grok_event(
             state,
             provider_session_id,
@@ -1717,6 +1784,11 @@ fn project_grok_update(
             state,
             provider_session_id,
             ChatEventContent::StatusUpdated(info),
+        ),
+        dpl_chat_grok::GrokSessionUpdate::AvailableCommands { count } => append_grok_event(
+            state,
+            provider_session_id,
+            ChatEventContent::StatusUpdated(format!("{count} provider commands available")),
         ),
         dpl_chat_grok::GrokSessionUpdate::Usage { used, size } => append_grok_event(
             state,

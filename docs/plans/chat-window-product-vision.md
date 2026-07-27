@@ -183,10 +183,17 @@ The 252-point sidebar is the Steam Friends & Chat-inspired primary navigation.
 It is dense, status-rich, keyboard traversable, and never merely a row of
 provider logos.
 
+The AI provider-navigation authority is
+[`chat-provider-catalog.md`](chat-provider-catalog.md): one stable
+`AI Providers` selector summarizes the selected provider and active sessions,
+then opens a governed catalog containing every built-in, Local, and Custom
+entry. Fixed permanent provider rows are no longer the approved composition.
+`Pinned / Active / Recent` remains the durable session navigator.
+
 AI mode contains:
 
-- registry-driven ChatGPT/Codex, Claude, Gemini, Grok, and future provider
-  launcher rows that remain visible regardless of current implementation order;
+- a registry-driven catalog for ChatGPT/Codex, Claude Code, Gemini, Grok,
+  Clyffy, Local, Custom, and future provider adapters;
 - a compact governed provider popover with subscription/runtime status,
   session count, `New chat`, Council, and Account actions;
 - provider sessions that populate dynamically after connection and retain

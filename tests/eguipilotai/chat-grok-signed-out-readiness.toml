@@ -16,6 +16,10 @@ state = "open"
 key = "chat.primary"
 
 [[steps]]
+kind = "wait"
+milliseconds = 750
+
+[[steps]]
 kind = "action"
 
 [steps.action]
@@ -33,6 +37,24 @@ value = "wiredfront"
 
 [steps.expectation.target]
 id = "chat.primary/chat.context.route"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.sidebar.providers"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.provider.catalog"
 
 [[steps]]
 kind = "action"
