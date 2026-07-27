@@ -2,6 +2,21 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-27 — CHAT PROVIDER CATALOG LANDED.** The AI rail no longer lists
+every provider: one AI Providers selector (current provider + active-session
+count) opens the full catalog — ChatGPT/Codex, Claude Code, Gemini, Grok,
+Clyffy, Add local (loopback-only), Add custom (HTTPS-only) — all visible
+without scrolling. New `dpl-chat-profiles` crate owns typed provider
+profiles; protocol events are laned Conversation/Activity/Diagnostics so raw
+status/EndTurn/unknown ACP events never render as transcript cards. Contract
+`docs/plans/chat-provider-catalog.md` §8; proof
+`proof-chat-provider-catalog.png`. EguiPilot: `chat-provider-catalog` (new),
+`chat-steam-social`, `chat-peer-window` (rewritten to catalog flow),
+`chat-grok-persisted-ready`, `chat-grok-device-authorization` all green;
+`chat-grok-signed-out-readiness` is the paired operator-state proof and
+needs a signed-out Grok client to run. **Next: ChatGPT/Codex provider
+activation pass.**
+
 **2026-07-27 — COACH C1.5c LANDED: the whole nervous system is coachable, and
 discoverable.** All six fabric domains map to coach signals — 31 facts across
 `shell`/`deck`/`capture`/`jobs`/`providers`/`build`, up from 3 — named exactly

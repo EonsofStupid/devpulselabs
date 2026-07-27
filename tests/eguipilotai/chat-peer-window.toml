@@ -13,6 +13,10 @@ state = "open"
 key = "chat.primary"
 
 [[steps]]
+kind = "wait"
+milliseconds = 750
+
+[[steps]]
 kind = "action"
 
 [steps.action]
@@ -32,17 +36,13 @@ value = "wiredfront"
 id = "chat.primary/chat.context.route"
 
 [[steps]]
-kind = "expect"
+kind = "action"
 
-[steps.expectation]
-type = "visible"
+[steps.action]
+type = "click"
 
-[steps.expectation.target]
-role = "tab"
-name = "ChatGPT / Codex"
-
-[steps.expectation.target.viewport]
-key = "chat.primary"
+[steps.action.target]
+id = "chat.primary/chat.sidebar.providers"
 
 [[steps]]
 kind = "expect"
@@ -51,11 +51,7 @@ kind = "expect"
 type = "visible"
 
 [steps.expectation.target]
-role = "tab"
-name = "Claude"
-
-[steps.expectation.target.viewport]
-key = "chat.primary"
+id = "chat.primary/chat.provider.catalog"
 
 [[steps]]
 kind = "expect"
@@ -64,11 +60,7 @@ kind = "expect"
 type = "visible"
 
 [steps.expectation.target]
-role = "tab"
-name = "Grok"
-
-[steps.expectation.target.viewport]
-key = "chat.primary"
+id = "chat.primary/chat.sidebar.providers/codex"
 
 [[steps]]
 kind = "expect"
@@ -77,11 +69,52 @@ kind = "expect"
 type = "visible"
 
 [steps.expectation.target]
-role = "tab"
-name = "Gemini"
+id = "chat.primary/chat.sidebar.providers/claude"
 
-[steps.expectation.target.viewport]
-key = "chat.primary"
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.sidebar.providers/grok"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.sidebar.providers/gemini"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.sidebar.providers/claude"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.composer"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "disabled"
+
+[steps.expectation.target]
+id = "chat.primary/chat.composer.send"
 
 [[steps]]
 kind = "action"
@@ -156,37 +189,6 @@ kind = "action"
 type = "click"
 
 [steps.action.target]
-role = "tab"
-name = "Claude"
-
-[steps.action.target.viewport]
-key = "chat.primary"
-
-[[steps]]
-kind = "expect"
-
-[steps.expectation]
-type = "visible"
-
-[steps.expectation.target]
-id = "chat.primary/chat.composer"
-
-[[steps]]
-kind = "expect"
-
-[steps.expectation]
-type = "disabled"
-
-[steps.expectation.target]
-id = "chat.primary/chat.composer.send"
-
-[[steps]]
-kind = "action"
-
-[steps.action]
-type = "click"
-
-[steps.action.target]
 id = "chat.primary/chat.window.show-main"
 
 [[steps]]
@@ -238,14 +240,23 @@ state = "open"
 key = "chat.primary"
 
 [[steps]]
+kind = "wait"
+milliseconds = 750
+
+[[steps]]
 kind = "expect"
 
 [steps.expectation]
 type = "visible"
 
 [steps.expectation.target]
-role = "tab"
-name = "Claude"
+id = "chat.primary/chat.sidebar.providers"
 
-[steps.expectation.target.viewport]
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "close-viewport"
+
+[steps.action.viewport]
 key = "chat.primary"

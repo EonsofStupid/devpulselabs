@@ -479,6 +479,17 @@ pub enum ChatEventKind {
     Unknown,
 }
 
+/// Where a normalized provider event is allowed to appear.
+///
+/// Every event remains in history. This classification prevents protocol
+/// activity and bounded native diagnostics from masquerading as messages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventPresentation {
+    Conversation,
+    Activity,
+    Diagnostics,
+}
+
 impl ChatEventContent {
     pub const fn kind(&self) -> ChatEventKind {
         match self {
@@ -498,6 +509,27 @@ impl ChatEventContent {
             Self::TurnFailed { .. } => ChatEventKind::TurnFailed,
             Self::ProviderWarning(_) => ChatEventKind::ProviderWarning,
             Self::Unknown(_) => ChatEventKind::Unknown,
+        }
+    }
+
+    pub const fn presentation(&self) -> EventPresentation {
+        match self {
+            Self::SessionStarted
+            | Self::StatusUpdated(_)
+            | Self::TurnCompleted
+            | Self::TurnInterrupted => EventPresentation::Activity,
+            Self::Unknown(_) => EventPresentation::Diagnostics,
+            Self::UserMessage(_)
+            | Self::AssistantMessage(_)
+            | Self::PlanUpdated(_)
+            | Self::ToolStarted { .. }
+            | Self::ToolCompleted { .. }
+            | Self::DiffUpdated(_)
+            | Self::ApprovalRequested { .. }
+            | Self::ApprovalResolved { .. }
+            | Self::UsageUpdated { .. }
+            | Self::TurnFailed { .. }
+            | Self::ProviderWarning(_) => EventPresentation::Conversation,
         }
     }
 }
@@ -581,6 +613,23 @@ mod tests {
             "new provider item",
         ));
         assert!(matches!(content, ChatEventContent::Unknown(_)));
+        assert_eq!(content.presentation(), EventPresentation::Diagnostics);
+    }
+
+    #[test]
+    fn protocol_activity_never_becomes_conversation_content() {
+        assert_eq!(
+            ChatEventContent::StatusUpdated("thinking".into()).presentation(),
+            EventPresentation::Activity
+        );
+        assert_eq!(
+            ChatEventContent::TurnCompleted.presentation(),
+            EventPresentation::Activity
+        );
+        assert_eq!(
+            ChatEventContent::AssistantMessage("answer".into()).presentation(),
+            EventPresentation::Conversation
+        );
     }
 
     #[test]

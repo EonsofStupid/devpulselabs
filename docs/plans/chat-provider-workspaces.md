@@ -8,6 +8,13 @@ local proof for Grok followed by ChatGPT/Codex
 This plan corrects the activation-only provider presentation without changing
 the independent native Chat-window architecture.
 
+> **2026-07-27 presentation amendment:** provider adapters remain visible and
+> truthful, but they now live in the governed provider catalog rather than as
+> permanent launcher rows. The rail's stable control summarizes the selected
+> provider and active sessions; provider-owned sessions remain in
+> `Pinned / Active / Recent`. The canonical replacement contract is
+> [`chat-provider-catalog.md`](chat-provider-catalog.md).
+
 ## 1. Locked delivery order
 
 This qualification pass changes implementation order, not product scope:
@@ -22,10 +29,11 @@ provider actions carry truthful availability state. They are not removed,
 hidden, or replaced merely because Grok and ChatGPT/Codex are the first two
 adapters being made live.
 
-## 2. Correct navigation ownership
+## 2. Correct navigation ownership (superseded presentation)
 
-The screenshot supplied by the operator on 2026-07-25 is the visual and
-behavioral authority for the provider rail.
+The screenshot supplied by the operator on 2026-07-25 remains authority for
+session identity, popovers, activation, and density. Its fixed provider-row
+presentation is superseded by the 2026-07-27 provider-catalog amendment.
 
 - The strong left rail always includes the AI provider launcher rows:
   ChatGPT/Codex, Claude, Gemini, Grok, and later registered providers.

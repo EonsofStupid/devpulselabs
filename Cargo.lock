@@ -1572,6 +1572,7 @@ dependencies = [
  "dpl-chat-gemini",
  "dpl-chat-grok",
  "dpl-chat-interactions",
+ "dpl-chat-profiles",
  "dpl-chat-runtime",
  "dpl-chat-social",
  "dpl-chat-store",
@@ -1789,6 +1790,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "dpl-chat-profiles"
+version = "0.1.0"
+dependencies = [
+ "dpl-chat-core",
+ "dpl-engine-capture",
+ "tokio",
+ "turso",
+]
+
+[[package]]
 name = "dpl-chat-renderers"
 version = "0.1.0"
 dependencies = [
@@ -1836,6 +1847,7 @@ dependencies = [
  "dpl-chat-context",
  "dpl-chat-core",
  "dpl-chat-interactions",
+ "dpl-chat-profiles",
  "dpl-chat-runtime",
  "dpl-chat-social",
  "dpl-chat-store",

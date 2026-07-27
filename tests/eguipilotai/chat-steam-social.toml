@@ -141,6 +141,24 @@ kind = "action"
 type = "click"
 
 [steps.action.target]
+id = "chat.primary/chat.sidebar.providers"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.provider.catalog"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
 id = "chat.primary/chat.sidebar.providers/codex"
 
 [[steps]]
@@ -150,20 +168,7 @@ kind = "expect"
 type = "visible"
 
 [steps.expectation.target]
-role = "dialog"
-name = "Provider hover card"
-
-[steps.expectation.target.viewport]
-key = "chat.primary"
-
-[[steps]]
-kind = "expect"
-
-[steps.expectation]
-type = "visible"
-
-[steps.expectation.target]
-id = "chat.primary/chat.provider.new-chat/provider-card/codex"
+id = "chat.primary/chat.provider.new-chat/sidebar"
 
 [[steps]]
 kind = "expect"
@@ -173,6 +178,15 @@ type = "disabled"
 
 [steps.expectation.target]
 id = "chat.primary/chat.composer.send"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.sidebar.providers"
 
 [[steps]]
 kind = "action"
