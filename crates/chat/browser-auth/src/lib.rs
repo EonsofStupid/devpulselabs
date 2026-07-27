@@ -1,27 +1,23 @@
-//! App-owned visible Chromium sessions for named provider authorization.
+//! System-browser handoff for named provider authorization.
 //!
-//! This is intentionally not a general URL launcher. Every accepted endpoint
-//! is compiled against one named provider and validated again before the
-//! browser worker starts.
+//! Human authentication must never reuse DevPULSE's CDP browser driver. This
+//! crate validates the provider-authored device prompt and dispatches its
+//! exact HTTPS URL through the operating system's default-browser service on
+//! a bounded worker. It cannot inspect, automate, or close the browser.
 
 use dpl_chat_core::{DeviceAuthorizationPrompt, ProviderId};
 #[cfg(test)]
 use dpl_chat_core::{GuidedValue, GuidedValueSensitivity};
-use dpl_engine_browser::{Browser, BrowserConfig};
 use std::fmt;
 use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError};
+use std::sync::Arc;
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
 
 const GROK_DEVICE_PREFIX: &str = "https://accounts.x.ai/oauth2/device?user_code=";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BrowserAuthEvent {
-    Opened {
-        provider: ProviderId,
-        browser: String,
-    },
-    Closed {
+    Dispatched {
         provider: ProviderId,
     },
     Failed {
@@ -33,7 +29,7 @@ pub enum BrowserAuthEvent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BrowserAuthError {
     InvalidPrompt,
-    AlreadyOpen(ProviderId),
+    DispatchInProgress(ProviderId),
     Worker(String),
 }
 
@@ -43,16 +39,16 @@ impl fmt::Display for BrowserAuthError {
             Self::InvalidPrompt => {
                 formatter.write_str("the provider authorization target was rejected")
             }
-            Self::AlreadyOpen(provider) => {
+            Self::DispatchInProgress(provider) => {
                 write!(
                     formatter,
-                    "an authorization window is already open for {provider}"
+                    "a system-browser handoff is already running for {provider}"
                 )
             }
             Self::Worker(reason) => {
                 write!(
                     formatter,
-                    "the authorization browser could not start: {reason}"
+                    "the system browser could not be requested: {reason}"
                 )
             }
         }
@@ -61,100 +57,125 @@ impl fmt::Display for BrowserAuthError {
 
 impl std::error::Error for BrowserAuthError {}
 
-#[derive(Debug, Clone, Copy)]
-enum BrowserCommand {
-    Close,
+trait SystemBrowserOpener: fmt::Debug + Send + Sync {
+    fn open(&self, url: &str) -> Result<(), String>;
 }
 
-struct ActiveBrowser {
+#[derive(Debug, Default)]
+struct DefaultSystemBrowserOpener;
+
+impl SystemBrowserOpener for DefaultSystemBrowserOpener {
+    fn open(&self, url: &str) -> Result<(), String> {
+        webbrowser::open(url).map_err(|error| error.to_string())
+    }
+}
+
+struct ActiveDispatch {
     provider: ProviderId,
-    prompt: DeviceAuthorizationPrompt,
-    commands: SyncSender<BrowserCommand>,
     events: Receiver<BrowserAuthEvent>,
-    worker: Option<JoinHandle<()>>,
+    worker: JoinHandle<()>,
 }
 
 pub struct BrowserAuthCoordinator {
-    active: Option<ActiveBrowser>,
+    automatic_prompt: Option<DeviceAuthorizationPrompt>,
+    active: Option<ActiveDispatch>,
+    opener: Arc<dyn SystemBrowserOpener>,
 }
 
 impl BrowserAuthCoordinator {
-    pub const fn new() -> Self {
-        Self { active: None }
+    pub fn new() -> Self {
+        Self {
+            automatic_prompt: None,
+            active: None,
+            opener: Arc::<DefaultSystemBrowserOpener>::default(),
+        }
     }
 
-    pub fn is_open_for(&self, provider: ProviderId) -> bool {
-        self.active
-            .as_ref()
-            .is_some_and(|active| active.provider == provider)
-    }
-
-    /// Starts a visible app-owned Chromium worker without blocking egui.
+    /// Dispatches a newly received prompt once.
     ///
-    /// `Ok(false)` means the exact prompt is already open.
-    pub fn open(&mut self, prompt: DeviceAuthorizationPrompt) -> Result<bool, BrowserAuthError> {
+    /// `Ok(false)` means this exact prompt has already been handed to the
+    /// system browser. The explicit Reopen action uses [`Self::reopen`].
+    pub fn open_once(
+        &mut self,
+        prompt: DeviceAuthorizationPrompt,
+    ) -> Result<bool, BrowserAuthError> {
         validate_prompt(&prompt)?;
-        if let Some(active) = self.active.as_ref() {
-            if active.provider == prompt.provider_id && active.prompt == prompt {
-                return Ok(false);
-            }
-            return Err(BrowserAuthError::AlreadyOpen(active.provider));
+        if self.automatic_prompt.as_ref() == Some(&prompt) {
+            return Ok(false);
         }
-
-        let (command_tx, command_rx) = mpsc::sync_channel(2);
-        let (event_tx, event_rx) = mpsc::sync_channel(8);
-        let worker_prompt = prompt.clone();
-        let worker = thread::Builder::new()
-            .name(format!("devpulse-auth-browser-{}", prompt.provider_id.0))
-            .spawn(move || browser_worker(worker_prompt, command_rx, event_tx))
-            .map_err(|error| BrowserAuthError::Worker(error.to_string()))?;
-        self.active = Some(ActiveBrowser {
-            provider: prompt.provider_id,
-            prompt,
-            commands: command_tx,
-            events: event_rx,
-            worker: Some(worker),
-        });
+        self.start_dispatch(&prompt)?;
+        self.automatic_prompt = Some(prompt);
         Ok(true)
     }
 
-    pub fn close(&mut self, provider: ProviderId) -> Result<bool, BrowserAuthError> {
-        let Some(active) = self.active.as_ref() else {
-            return Ok(false);
-        };
-        if active.provider != provider {
-            return Err(BrowserAuthError::AlreadyOpen(active.provider));
-        }
-        active
-            .commands
-            .try_send(BrowserCommand::Close)
-            .map_err(|error| BrowserAuthError::Worker(error.to_string()))?;
+    /// Explicitly dispatches the current prompt again.
+    pub fn reopen(&mut self, prompt: DeviceAuthorizationPrompt) -> Result<bool, BrowserAuthError> {
+        validate_prompt(&prompt)?;
+        self.start_dispatch(&prompt)?;
         Ok(true)
+    }
+
+    /// Clears automatic-dispatch deduplication after the provider ceremony
+    /// finishes. The external browser remains entirely operator-owned.
+    pub fn reset(&mut self, provider: ProviderId) {
+        if self
+            .automatic_prompt
+            .as_ref()
+            .is_some_and(|prompt| prompt.provider_id == provider)
+        {
+            self.automatic_prompt = None;
+        }
     }
 
     pub fn try_event(&mut self) -> Option<BrowserAuthEvent> {
-        let event = match self.active.as_ref()?.events.try_recv() {
+        let active = self.active.as_ref()?;
+        let event = match active.events.try_recv() {
             Ok(event) => event,
             Err(TryRecvError::Empty) => return None,
             Err(TryRecvError::Disconnected) => BrowserAuthEvent::Failed {
-                provider: self.active.as_ref()?.provider,
-                reason: "the authorization browser worker disconnected".to_owned(),
+                provider: active.provider,
+                reason: "the system-browser handoff worker disconnected".to_owned(),
             },
         };
-        if matches!(
-            event,
-            BrowserAuthEvent::Closed { .. } | BrowserAuthEvent::Failed { .. }
-        ) {
-            self.finish_active();
-        }
+        self.finish_active();
         Some(event)
     }
 
+    fn start_dispatch(
+        &mut self,
+        prompt: &DeviceAuthorizationPrompt,
+    ) -> Result<(), BrowserAuthError> {
+        if let Some(active) = self.active.as_ref() {
+            return Err(BrowserAuthError::DispatchInProgress(active.provider));
+        }
+        let provider = prompt.provider_id;
+        let url = prompt.verification_url.value.clone();
+        let opener = Arc::clone(&self.opener);
+        let (event_tx, event_rx) = mpsc::sync_channel(1);
+        let worker = thread::Builder::new()
+            .name(format!("devpulse-system-browser-{}", provider.0))
+            .spawn(move || dispatch_worker(provider, &url, opener.as_ref(), &event_tx))
+            .map_err(|error| BrowserAuthError::Worker(error.to_string()))?;
+        self.active = Some(ActiveDispatch {
+            provider,
+            events: event_rx,
+            worker,
+        });
+        Ok(())
+    }
+
     fn finish_active(&mut self) {
-        if let Some(mut active) = self.active.take() {
-            if let Some(worker) = active.worker.take() {
-                let _ = worker.join();
-            }
+        if let Some(active) = self.active.take() {
+            let _ = active.worker.join();
+        }
+    }
+
+    #[cfg(test)]
+    fn with_opener(opener: Arc<dyn SystemBrowserOpener>) -> Self {
+        Self {
+            automatic_prompt: None,
+            active: None,
+            opener,
         }
     }
 }
@@ -167,99 +188,30 @@ impl Default for BrowserAuthCoordinator {
 
 impl Drop for BrowserAuthCoordinator {
     fn drop(&mut self) {
-        if let Some(active) = self.active.as_ref() {
-            let _ = active.commands.try_send(BrowserCommand::Close);
+        if self
+            .active
+            .as_ref()
+            .is_some_and(|active| active.worker.is_finished())
+        {
+            self.finish_active();
         }
-        self.finish_active();
     }
 }
 
-fn browser_worker(
-    prompt: DeviceAuthorizationPrompt,
-    commands: Receiver<BrowserCommand>,
-    events: SyncSender<BrowserAuthEvent>,
+fn dispatch_worker(
+    provider: ProviderId,
+    url: &str,
+    opener: &dyn SystemBrowserOpener,
+    events: &SyncSender<BrowserAuthEvent>,
 ) {
-    let chromium = match dpl_tools_deps::resolve_current(dpl_tools_deps::CHROMIUM) {
-        Ok(chromium) => chromium,
-        Err(reason) => {
-            let _ = events.try_send(BrowserAuthEvent::Failed {
-                provider: prompt.provider_id,
-                reason: public_reason(&reason.to_string()),
-            });
-            return;
-        }
-    };
-    let profile =
-        dpl_engine_browser::profile_dir(&format!("provider-auth-{}", prompt.provider_id.0));
-    let config = BrowserConfig {
-        window: (960, 720),
-        executable: Some(chromium.path().to_owned()),
-        profile: Some(profile),
-        headless: false,
-    };
-    let mut browser = match Browser::launch(&config) {
-        Ok(browser) => browser,
-        Err(reason) => {
-            let _ = events.try_send(BrowserAuthEvent::Failed {
-                provider: prompt.provider_id,
-                reason: public_reason(&reason),
-            });
-            return;
-        }
-    };
-    let browser_identity = {
-        let (path, source) = browser.binary();
-        format!("{} ({source})", path.display())
-    };
-    let navigation = browser
-        .new_page()
-        .and_then(|mut page| page.navigate(&prompt.verification_url.value));
-    if let Err(reason) = navigation {
-        let _ = browser.close();
-        let _ = events.try_send(BrowserAuthEvent::Failed {
-            provider: prompt.provider_id,
+    let event = match opener.open(url) {
+        Ok(()) => BrowserAuthEvent::Dispatched { provider },
+        Err(reason) => BrowserAuthEvent::Failed {
+            provider,
             reason: public_reason(&reason),
-        });
-        return;
-    }
-    let _ = events.try_send(BrowserAuthEvent::Opened {
-        provider: prompt.provider_id,
-        browser: browser_identity,
-    });
-
-    loop {
-        match commands.try_recv() {
-            Ok(BrowserCommand::Close) => {
-                let _ = browser.close();
-                let _ = events.try_send(BrowserAuthEvent::Closed {
-                    provider: prompt.provider_id,
-                });
-                return;
-            }
-            Err(TryRecvError::Disconnected) => {
-                let _ = browser.close();
-                return;
-            }
-            Err(TryRecvError::Empty) => {}
-        }
-        match browser.try_closed() {
-            Ok(true) => {
-                let _ = events.try_send(BrowserAuthEvent::Closed {
-                    provider: prompt.provider_id,
-                });
-                return;
-            }
-            Ok(false) => {}
-            Err(reason) => {
-                let _ = events.try_send(BrowserAuthEvent::Failed {
-                    provider: prompt.provider_id,
-                    reason: public_reason(&reason),
-                });
-                return;
-            }
-        }
-        thread::sleep(Duration::from_millis(50));
-    }
+        },
+    };
+    let _ = events.try_send(event);
 }
 
 fn validate_prompt(prompt: &DeviceAuthorizationPrompt) -> Result<(), BrowserAuthError> {
@@ -293,6 +245,8 @@ fn public_reason(reason: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
 
     const GROK: ProviderId = ProviderId("grok");
 
@@ -309,6 +263,38 @@ mod tests {
                 true,
                 GuidedValueSensitivity::TransientSecret,
             ),
+        }
+    }
+
+    #[derive(Debug)]
+    struct RecordingOpener {
+        calls: Arc<Mutex<Vec<String>>>,
+        failure: Option<String>,
+    }
+
+    impl SystemBrowserOpener for RecordingOpener {
+        fn open(&self, url: &str) -> Result<(), String> {
+            self.calls
+                .lock()
+                .expect("record calls")
+                .push(url.to_owned());
+            self.failure
+                .as_ref()
+                .map_or(Ok(()), |reason| Err(reason.clone()))
+        }
+    }
+
+    fn next_event(coordinator: &mut BrowserAuthCoordinator) -> BrowserAuthEvent {
+        let deadline = Instant::now() + Duration::from_secs(1);
+        loop {
+            if let Some(event) = coordinator.try_event() {
+                return event;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "system-browser worker did not answer"
+            );
+            thread::yield_now();
         }
     }
 
@@ -338,5 +324,64 @@ mod tests {
             assert!(!valid_user_code(rejected), "{rejected:?}");
         }
         assert!(valid_user_code("H275-NM42"));
+    }
+
+    #[test]
+    fn automatic_dispatch_is_deduplicated_but_reopen_is_explicit() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let opener = Arc::new(RecordingOpener {
+            calls: Arc::clone(&calls),
+            failure: None,
+        });
+        let mut coordinator = BrowserAuthCoordinator::with_opener(opener);
+        let device_prompt = prompt(
+            "https://accounts.x.ai/oauth2/device?user_code=AB12-CD34",
+            "AB12-CD34",
+        );
+
+        assert!(coordinator
+            .open_once(device_prompt.clone())
+            .expect("first dispatch"));
+        assert_eq!(
+            next_event(&mut coordinator),
+            BrowserAuthEvent::Dispatched { provider: GROK }
+        );
+        assert!(!coordinator
+            .open_once(device_prompt.clone())
+            .expect("deduplicated dispatch"));
+        assert!(coordinator.reopen(device_prompt).expect("explicit reopen"));
+        assert_eq!(
+            next_event(&mut coordinator),
+            BrowserAuthEvent::Dispatched { provider: GROK }
+        );
+        assert_eq!(calls.lock().expect("calls").len(), 2);
+    }
+
+    #[test]
+    fn system_dispatch_failures_are_bounded_and_retryable() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let opener = Arc::new(RecordingOpener {
+            calls,
+            failure: Some("x".repeat(300)),
+        });
+        let mut coordinator = BrowserAuthCoordinator::with_opener(opener);
+        let device_prompt = prompt(
+            "https://accounts.x.ai/oauth2/device?user_code=AB12-CD34",
+            "AB12-CD34",
+        );
+
+        coordinator
+            .open_once(device_prompt.clone())
+            .expect("start failed dispatch");
+        let BrowserAuthEvent::Failed { provider, reason } = next_event(&mut coordinator) else {
+            panic!("expected failed system-browser handoff");
+        };
+        assert_eq!(provider, GROK);
+        assert_eq!(reason.len(), 240);
+        coordinator.reopen(device_prompt).expect("retry dispatch");
+        assert!(matches!(
+            next_event(&mut coordinator),
+            BrowserAuthEvent::Failed { .. }
+        ));
     }
 }

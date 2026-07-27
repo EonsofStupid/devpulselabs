@@ -59,6 +59,17 @@ truncating NEXT hint). Proven @1024×640. DEFERRED: RR1.1 = offscreen render
 + `editor` eguiPilot fixture. **Runner note:** `dpl-linux` needs
 `sudo ./svc.sh install` to persist across session teardown.
 
+**2026-07-26 — GROK SYSTEM-BROWSER AUTH CORRECTION LOCALLY QUALIFIED:** the first
+real-account attempt proved that visible bundled Chromium was still
+automation-controlled through CDP and was rejected by xAI's Cloudflare
+boundary. The corrected contract sends only the strict validated device URL
+to the computer's default browser; bundled Chromium remains EguiPilotAI and
+capture infrastructure. Four browser-boundary tests, 61 dependent
+signal/UI tests, the full app check, all fourteen EguiPilotAI ceremony steps,
+and native proof `proof-chat-grok-system-browser-auth.png` pass. The
+real-account retest remains the operator gate. Canonical contract:
+`docs/plans/chat-grok-activation.md`.
+
 **2026-07-26 — GROK SEAMLESS ACTIVATION LOCALLY QUALIFIED
 (`codex/grok-seamless-activation`):** the first real provider activation now
 uses the exact bundled `grok login --device-auth` ceremony, a strict

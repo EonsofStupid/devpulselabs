@@ -124,6 +124,9 @@ tower = "0.5"
 # DISPLAYS what the media pipeline emits (B3). AVIF decode is deliberately
 # absent Ã¢â‚¬â€ the pipeline always writes a webp sibling for display.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+# Human provider authentication opens only through the OS default-browser
+# service. `hardened` rejects every non-HTTP(S) target before platform launch.
+webbrowser = { version = "1.2", default-features = false, features = ["hardened"] }
 
 egui-pilot-ai-protocol = { path = "crates/egui-pilot-ai-protocol" }
 egui-pilot-ai-transport = { path = "crates/egui-pilot-ai-transport" }

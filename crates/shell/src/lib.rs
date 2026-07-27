@@ -103,10 +103,9 @@ fn activity_provider_line(ev: &dpl_fabric::ProviderEvent) -> String {
             format!("{provider} sign-in code received")
         }
         E::CodeCopied { provider, .. } => format!("{provider} sign-in code copied"),
-        E::BrowserOpened {
-            provider, browser, ..
-        } => format!("{provider} sign-in opened · {browser}"),
-        E::BrowserClosed { provider, .. } => format!("{provider} sign-in window closed"),
+        E::SystemBrowserDispatched { provider, .. } => {
+            format!("{provider} sign-in sent to system browser")
+        }
         E::AuthorizationCompleted { provider, .. } => {
             format!("{provider} authorization completed")
         }

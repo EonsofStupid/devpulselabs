@@ -535,12 +535,15 @@ the Chat ceremony, terminal trace, shell activity feed, `/signals`, Turso
 terminal evidence, and future DuckDB analytics.
 
 The provider fact vocabulary covers selection, activation request, client
-start, bounded device-code receipt, code copy, authorization-browser open,
+start, bounded device-code receipt, code copy, system-browser dispatch,
 authorization completion, runtime start, readiness, cancellation, expiry, and
 classified failure. Facts may carry safe metadata such as provider identity,
 attempt, stage, client version, code length, or retryability. They never carry
 the code, authorization URL, tokens, cookies, provider output, message
-content, or credentials.
+content, or credentials. Provider authentication may not reuse
+`dpl-engine-browser`, CDP, EguiPilotAI, or another automation-controlled
+surface; it dispatches only a provider-validated URL to the operator's system
+default browser.
 
 The conversation renders current activation state plus the bounded facts for
 its active attempt as one compact, expandable terminal trace. The trace is an

@@ -1919,7 +1919,7 @@ impl ChatWindow {
             ),
             ActivationState::AwaitingAuthorization(_) => (
                 "Complete xAI sign-in".to_owned(),
-                "DevPULSE opened its owned Chromium window. Keep Chat open while xAI and the official Grok client complete authorization.",
+                "DevPULSE sent the secure device page to your computer's default browser. Keep Chat open while xAI and the official Grok client complete authorization.",
             ),
             ActivationState::Verifying => (
                 "Verifying your Grok subscription".to_owned(),
@@ -2040,7 +2040,7 @@ impl ChatWindow {
         let provider_id = provider.registration.manifest.descriptor.id;
         if let ActivationState::AwaitingAuthorization(prompt) = &provider.registration.activation {
             ui.label(
-                RichText::new("Authorize Grok in the DevPULSE browser")
+                RichText::new("Authorize Grok in your default browser")
                     .color(Tone::Amber.color())
                     .strong(),
             );
@@ -2082,13 +2082,13 @@ impl ChatWindow {
                 if copy.clicked() {
                     intents.push(ChatWindowIntent::CopyProviderAuthorizationCode(provider_id));
                 }
-                let reopen = ui.button("Reopen xAI sign-in");
+                let reopen = ui.button("Reopen in default browser");
                 ui.pilot_track(
                     &reopen,
                     NodeMetadata::new(
                         PROVIDER_AUTH_BROWSER_ID.child(&PilotKey::new(provider_id.0)),
                         Role::Button,
-                        "Reopen Grok sign-in window",
+                        "Reopen Grok sign-in in system default browser",
                     ),
                 );
                 if reopen.clicked() {
@@ -2901,10 +2901,9 @@ fn provider_event_line(event: &ProviderEvent) -> String {
             "device code received · value retained only in Chat".to_owned()
         }
         ProviderEvent::CodeCopied { .. } => "device code copied".to_owned(),
-        ProviderEvent::BrowserOpened { browser, .. } => {
-            format!("owned browser opened · {browser}")
+        ProviderEvent::SystemBrowserDispatched { .. } => {
+            "sign-in sent to system default browser".to_owned()
         }
-        ProviderEvent::BrowserClosed { .. } => "owned browser closed".to_owned(),
         ProviderEvent::AuthorizationCompleted { .. } => {
             "provider authorization completed".to_owned()
         }

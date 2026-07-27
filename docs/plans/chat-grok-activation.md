@@ -1,6 +1,6 @@
 # Grok activation slice
 
-**Status:** IMPLEMENTED AND LOCALLY QUALIFIED — OPERATOR ACCOUNT TEST PENDING
+**Status:** SYSTEM-BROWSER CORRECTION LOCALLY QUALIFIED — OPERATOR ACCOUNT RETEST PENDING
 **Date:** 2026-07-26
 **Governing ADR:** [`chat-provider-runtime-adr.md`](chat-provider-runtime-adr.md)
 **Product authority:** [`chat-architecture.md`](chat-architecture.md)
@@ -8,11 +8,32 @@
 
 ## Operator correction
 
+The 2026-07-26 operator account test exposed a second boundary error: the
+visible authorization window was launched by `dpl-engine-browser`, which
+always enables a Chrome DevTools Protocol remote-debugging port and performs
+navigation through CDP. A visible window does not make an automation-driven
+browser a human browser. xAI's Cloudflare boundary rejected that session.
+
+This contract now makes the browser split explicit:
+
+- `dpl-engine-browser` and the bundled Chromium payload are automation
+  infrastructure for EguiPilotAI, capture, and authored browser drills;
+- provider authentication opens the validated xAI device URL in the
+  operator's operating-system default browser;
+- DevPULSE never attaches CDP, injects input, reads browser state, manages
+  cookies, or claims ownership of the resulting human authentication window.
+
+The previous app-owned Chromium implementation and its deterministic proof
+remain useful evidence for the Chat ceremony and browser-action semantics,
+but they are superseded as real-account authentication evidence.
+
 The 2026-07-25 slice proved executable resolution and the Grok ACP workspace,
 but it did **not** implement the commissioned activation experience. It
 launched opaque `grok login`, discarded the provider's authorization prompt,
-and delegated navigation to the system browser. That implementation is
-superseded by this contract.
+and delegated navigation without retaining the device ceremony in Chat. The
+new system-browser handoff does not restore that incomplete presentation:
+Chat still owns the code, Copy/Reopen actions, trace, readiness transition,
+and session focus.
 
 Grok is the first complete provider activation. ChatGPT/Codex follows after
 this exact experience is manually accepted. Claude and Gemini do not become
@@ -32,10 +53,9 @@ click Grok
     -> retain both as provider-authored guided values in bounded memory
     -> render the exact code, one-click Copy, guidance, and terminal trace
        inside the Grok conversation
-    -> automatically open the URL in DevPULSE's app-owned Chromium window
+    -> automatically open the URL in the computer's default browser
     -> operator completes xAI-owned authentication
     -> login child reports completion
-    -> close the DevPULSE authorization browser
     -> start the named Grok ACP runtime
     -> cached subscription authentication succeeds
     -> write non-secret activation evidence to the Chat Turso ledger
@@ -43,7 +63,7 @@ click Grok
        normal chat
 ```
 
-The login child, authorization browser, ACP runtime, and Turso ledger have
+The login child, system-browser handoff, ACP runtime, and Turso ledger have
 separate owners. A successful login-child exit is **never** `Ready`; it moves
 to verification and causes a fresh ACP connection attempt. Only the ACP
 `cached_token` authentication response can establish `Ready`.
@@ -75,20 +95,21 @@ an OAuth request, receive a callback, read an auth file, inspect a token, or
 call xAI services with provider credentials. Grok Build owns device polling,
 credential persistence, and refresh. xAI owns the authorization page.
 
-The accepted URL is opened through `dpl-engine-browser` in a visible,
-app-owned, persistent provider-auth profile. It is not sent through
-`egui::OpenUrl`, the operating-system default browser, or an operator's normal
-browser profile. Browser launch and navigation run off the egui thread.
-Closing the browser does not manufacture success; successful ACP verification
-closes the owned browser automatically.
+The accepted URL is handed to the operating system's default-browser service
+on a bounded worker, never to `dpl-engine-browser`, CDP, a webview, or an
+embedded Chromium surface. The worker accepts only the exact validated Grok
+device endpoint already represented by `DeviceAuthorizationPrompt`.
+Successful dispatch publishes a redacted `SystemBrowserDispatched` fact;
+dispatch failure moves the attempt to a retryable browser failure.
 
-The browser executable comes only from the complete, verified Chromium tree
-under the release-local `dptools-deps/browsers/` family. Provider
-authorization does not silently switch to an installed or `PATH` browser.
+DevPULSE cannot observe whether the operator closes the system browser and
+does not publish a browser-closed fact. Closing or abandoning the page cannot
+manufacture success. The official `grok login --device-auth` child continues
+polling xAI and remains the sole authority for authorization completion.
 
-This is an attached authentication surface controlled by Chat. It is not a
-general webview and cannot navigate to model-, document-, transcript-, or
-route-supplied URLs.
+This narrow default-browser handoff is not a general URL launcher. Model
+output, documents, transcripts, route state, application configuration, MCP
+arguments, and external signal payloads cannot supply its URL.
 
 ## Activation state machine
 
@@ -99,7 +120,7 @@ SignedOut
 SigningIn (device child starting)
   | validated accounts.x.ai URL + code
   v
-AwaitingAuthorization (code visible; app Chromium open)
+AwaitingAuthorization (code visible; system browser requested)
   | official login child exits success
   v
 Verifying (ACP process starting; cached_token not yet accepted)
@@ -158,7 +179,7 @@ conformance record.
 - `Signing in`: disable duplicate activation while the exact device child
   starts.
 - `Awaiting authorization`: keep the short code and progress visible in the
-  Grok conversation; automatically open the owned Chromium surface, expose
+  Grok conversation; automatically open the computer's default browser, expose
   one-click Copy and Reopen, and retain a compact expandable activation trace.
 - `Verifying`: the login ceremony completed and the real ACP cached-token
   handshake is in progress. Send remains disabled.
@@ -194,9 +215,9 @@ successful probe becomes `Ready`; an authentication rejection becomes
   executable resolution, the exact device-auth argument vector, strict xAI URL
   and code parsing, output bounds, duplicate launch rejection, success/failure
   mapping, and owned-child cleanup.
-- Browser-auth tests prove only named provider endpoints can open, browser
-  work never runs on the UI thread, duplicate windows are rejected, and
-  close/reopen lifecycle is bounded.
+- Browser-auth tests prove only named provider endpoints can open, system
+  dispatch never runs on the UI thread, automatic dispatch is deduplicated,
+  explicit Reopen is allowed, and no CDP/browser-automation dependency exists.
 - Turso tests prove ready/signed-out replacement, persistence across reopen,
   and the absence of token/code/URL columns.
 - Chat-window tests prove that a signed-out Grok card exposes one semantic
@@ -210,7 +231,7 @@ successful probe becomes `Ready`; an authentication rejection becomes
   ACP-qualified session actions, and the absence of a false Send capability
   before the session transport is ready.
 - A real-account native proof requires the operator to click Grok, complete
-  xAI authentication in the DevPULSE-owned Chromium window, return
+  xAI authentication in the computer's default browser, return
   automatically to Chat, create a session, and exchange one real turn.
 - The full local repository gate passes before any branch push.
 - A real-account browser login is an explicit operator test because CI and
@@ -225,12 +246,12 @@ successful probe becomes `Ready`; an authentication rejection becomes
 - Chromium's manifest covers its complete 309-file, 439,360,895-byte tree;
   its fixed PE version is checked without launching the browser.
 - Forty focused tests passed across the dependency resolver, Grok
-  activation/runtime, app-owned browser boundary, Turso evidence, and Chat
-  window.
+  activation/runtime, the now-superseded app-owned browser boundary, Turso
+  evidence, and Chat window.
 - `chat-grok-device-authorization.toml` passed all fourteen steps against the
   real independent Chat viewport, including visible and copyable code,
-  collapsed/expanded activation trace, enabled owned-browser action, and
-  disabled Send.
+  collapsed/expanded activation trace, enabled browser-handoff action, and
+  disabled Send. This proves UI semantics rather than real-account transport.
 - Two real native-window captures were byte-identical. The reviewed proof is
   `proof-chat-grok-authorization.png`.
 - The conversation-owned ceremony is captured independently in
@@ -238,3 +259,15 @@ successful probe becomes `Ready`; an authentication rejection becomes
   provider hover card over the ceremony.
 - No real account was authenticated by automation. The remaining operator
   gate is the explicit xAI ceremony and one real Grok turn.
+- The subsequent operator test reached xAI's Cloudflare block page because
+  the visible Chromium proof still carried CDP remote-debugging and automated
+  navigation. That result invalidated app-owned Chromium as an authentication
+  transport and triggered the system-browser correction above.
+- The corrected `dpl-chat-browser-auth` crate has no dependency on
+  `dpl-engine-browser` or `dpl-tools-deps`; four focused tests prove strict
+  endpoint validation, asynchronous system dispatch, automatic deduplication,
+  explicit Reopen, and bounded failure projection.
+- The corrected real independent Chat viewport passed all fourteen steps in
+  `chat-grok-device-authorization.toml`. The reviewed native-window proof is
+  `proof-chat-grok-system-browser-auth.png` and visibly identifies the
+  computer's default browser as the authorization surface.

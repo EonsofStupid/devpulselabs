@@ -152,9 +152,10 @@ the account.
   files, length mismatch, digest mismatch, and successful resolution.
 - Codex and Grok unit tests prove their profiles accept an injected absolute
   executable and never search `PATH` or provider install directories.
-- The Grok authorization browser accepts only the verified Chromium
-  entrypoint returned by `dpl-tools-deps`; installed-browser fallback is not a
-  production authorization path.
+- Grok authorization never uses the verified Chromium entrypoint:
+  authentication is dispatched to the operator's system default browser.
+  The staged Chromium tree remains automation infrastructure for EguiPilotAI,
+  capture, and authored browser drills.
 - App startup obtains provider, browser, and media paths through
   `dpl-tools-deps`.
 - A generated Windows bundle resolves a real Codex binary and a real Grok
@@ -198,7 +199,9 @@ The 2026-07-26 Grok activation follow-up removed the duplicate
 packaging, and release-root authority. It added the typed `browser` family,
 staged Chromium `150.0.7871.129` as a complete 309-file tree, verified its
 439,360,895 bytes with a deterministic tree digest, and read the Windows PE
-file version without launching Chromium.
+file version without launching Chromium. A later real-account test proved
+that the CDP browser boundary must not be reused for human authentication;
+the payload remains valid for its automation purpose.
 
 ## Deliberate boundaries
 
