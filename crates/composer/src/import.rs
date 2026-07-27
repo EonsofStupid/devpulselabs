@@ -61,7 +61,7 @@ pub fn sanitize_name(raw: &str) -> Option<String> {
 /// quiet-spawn law. Pages land in `out_dir` as `<stem>-<n>.png` (pdftoppm
 /// zero-pads within a document, so a lexical sort is page order). Returns
 /// the page paths in order. The tool is resolved off PATH today; its absence
-/// is an HONEST error naming the fix (embedded-deps staging is the portable
+/// is an HONEST error naming the fix (dptools-deps staging is the portable
 /// follow-up, exactly like managed ffmpeg).
 pub fn rasterize_pdf(pdf: &Path, out_dir: &Path, stem: &str) -> Result<Vec<PathBuf>, String> {
     let is_pdf = pdf
@@ -81,7 +81,7 @@ pub fn rasterize_pdf(pdf: &Path, out_dir: &Path, stem: &str) -> Result<Vec<PathB
     let mut cmd = std::process::Command::new("pdftoppm");
     cmd.arg("-png").arg("-r").arg("150").arg(pdf).arg(&prefix);
     let status = dpl_proc::quiet(&mut cmd).status().map_err(|e| {
-        format!("pdftoppm unavailable ({e}) — install poppler-utils or stage it in embedded-deps")
+        format!("pdftoppm unavailable ({e}) — install poppler-utils or stage it in dptools-deps")
     })?;
     if !status.success() {
         return Err(format!("pdftoppm failed on {}", pdf.display()));

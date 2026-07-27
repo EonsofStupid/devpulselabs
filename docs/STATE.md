@@ -545,9 +545,16 @@ FEED lives in the inspector (proof shot: the import drill's "saved
 image" line — TWO boot-ordering bugs fixed: wire-before-drills +
 ears-at-fabric-birth). Proofs in plan §8 (SSE capture of a live
 agent-render's stamped queued/failed; green ✔ incl. the audit).
-KNOWN (parallel lane): embedded-deps staging unauthored on this
-machine → renders fail app-wide until `sources.local.toml` is staged
-(ffmpeg-only draft written, gitignored; stager wants codex+grok too).
+RESOLVED (2026-07-27, operator: "it is in dptools-deps — consolidate
+properly"): the tool supply is CONSOLIDATED on the Central Supply
+Depot. `C:/localdev/dptools-deps/artifacts/windows-x86_64/` now holds
+all four tools (codex 0.145.0-alpha.18 pulled from the OpenAI hashed
+install, ffmpeg 8.1.2 from winget, chromium extracted, grok);
+`dptools-deps/sources.local.toml` (gitignored) points EVERY entry at
+the depot; the staged release bundle verifies and a real seam render
+ran through the verified ffmpeg (23.0s, exact). The repo's stray
+`embedded-deps/` husk is deleted and the last two in-code
+"embedded-deps" strings renamed — grep is clean.
 **AEP ORCHESTRATOR — new pass, PAUSES R2b** (operator 2026-07-25:
 installing AE/Animate; "pull aerender.exe into ours and have wiredfront
 editor viziwiz actually be an orchestrator"). This RESOLVES the open
