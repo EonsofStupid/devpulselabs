@@ -7,8 +7,8 @@ mod activation;
 
 pub use activation::{
     CodexActivationCoordinator, CodexActivationError, CodexDiscoveryError, CodexLoginExit,
-    CodexLoginLauncher, CodexLoginProcess, CodexLoginStatus, CodexRuntimeProfile,
-    CodexStatusProbe, CodexStatusRequest, CodexVersion, SETUP_URL,
+    CodexLoginLauncher, CodexLoginProcess, CodexLoginStatus, CodexRuntimeProfile, CodexStatusProbe,
+    CodexStatusRequest, CodexVersion, SETUP_URL,
 };
 
 use dpl_chat_core::{

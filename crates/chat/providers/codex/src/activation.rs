@@ -743,10 +743,7 @@ mod tests {
     }
 
     impl CodexStatusProbe for FakeStatusProbe {
-        fn begin(
-            &self,
-            _profile: &CodexRuntimeProfile,
-        ) -> io::Result<Box<dyn CodexStatusRequest>> {
+        fn begin(&self, _profile: &CodexRuntimeProfile) -> io::Result<Box<dyn CodexStatusRequest>> {
             self.begins.fetch_add(1, Ordering::SeqCst);
             Ok(Box::new(FakeStatusRequest {
                 plan: self.plan.clone(),
@@ -887,7 +884,10 @@ mod tests {
         assert!(coordinator.poll().expect("poll exit"));
         assert!(coordinator.poll().expect("poll verified"));
         let ActivationState::SignedOut { recovery, .. } = coordinator.activation() else {
-            panic!("API-key login must not be Ready: {:?}", coordinator.activation());
+            panic!(
+                "API-key login must not be Ready: {:?}",
+                coordinator.activation()
+            );
         };
         assert_eq!(recovery[0].kind, RecoveryActionKind::SignIn);
         assert_eq!(
@@ -908,7 +908,10 @@ mod tests {
         assert!(matches!(error, CodexActivationError::StatusFailed(_)));
         coordinator.fail(error);
         let ActivationState::Failed { recovery, .. } = coordinator.activation() else {
-            panic!("status failure must fail closed: {:?}", coordinator.activation());
+            panic!(
+                "status failure must fail closed: {:?}",
+                coordinator.activation()
+            );
         };
         assert_eq!(recovery[0].kind, RecoveryActionKind::Retry);
         assert!(!coordinator.is_login_running());
