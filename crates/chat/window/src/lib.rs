@@ -2378,8 +2378,8 @@ impl ChatWindow {
                 "DevPULSE sent the secure device page to your computer's default browser. Keep Chat open while xAI and the official Grok client complete authorization.",
             ),
             ActivationState::Verifying => (
-                "Verifying your Grok subscription".to_owned(),
-                "Authorization completed. DevPULSE is starting Grok ACP and verifying its cached subscription session.",
+                format!("Verifying your {} subscription", descriptor.short_label),
+                "Authorization completed. DevPULSE is verifying the provider's subscription session.",
             ),
             ActivationState::Failed { .. } | ActivationState::Degraded { .. } => (
                 format!("{} needs attention", descriptor.short_label),
@@ -2387,7 +2387,7 @@ impl ChatWindow {
             ),
             ActivationState::SignedOut { .. } => (
                 format!("Connect {}", descriptor.short_label),
-                "Use your existing xAI subscription through the official Grok device-auth flow.",
+                "Sign in through the official provider client. Your subscription and credentials stay provider-owned.",
             ),
             _ => (
                 format!("{} is unavailable", descriptor.short_label),
@@ -2554,13 +2554,17 @@ impl ChatWindow {
             return;
         }
         if matches!(provider.registration.activation, ActivationState::Verifying) {
-            let response = ui.add_enabled(false, egui::Button::new("Verifying Grok connection…"));
+            let label = format!(
+                "Verifying {} connection…",
+                provider.registration.manifest.descriptor.short_label
+            );
+            let response = ui.add_enabled(false, egui::Button::new(&label));
             ui.pilot_track(
                 &response,
                 NodeMetadata::new(
                     PROVIDER_LOGIN_ID.child(&PilotKey::new(provider_id.0)),
                     Role::Button,
-                    "Verifying Grok connection",
+                    "Verifying provider connection",
                 ),
             );
             return;

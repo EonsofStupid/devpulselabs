@@ -48,6 +48,7 @@ pub enum ChatProofMode {
     Social,
     ProviderCatalog,
     ProviderHover,
+    CodexLogin,
     GrokLogin,
     GrokAuthorization,
     Compact,
@@ -63,6 +64,7 @@ impl ChatProofMode {
             "social" => Some(Self::Social),
             "providers" => Some(Self::ProviderCatalog),
             "hover" => Some(Self::ProviderHover),
+            "codex" => Some(Self::CodexLogin),
             "grok" => Some(Self::GrokLogin),
             "grok-auth" => Some(Self::GrokAuthorization),
             "compact" => Some(Self::Compact),
@@ -90,6 +92,7 @@ struct Shared {
     grok_turns: BTreeMap<String, TurnId>,
     grok_permissions: BTreeMap<u64, PendingGrokPermission>,
     grok_attempt: Option<ActivationAttemptId>,
+    codex_attempt: Option<ActivationAttemptId>,
     provider_events: ProviderReceiver,
     provider_runtime_enabled: bool,
     auth_browser: BrowserAuthCoordinator,
@@ -220,6 +223,27 @@ impl ChatWindowCoordinator {
                         )))
                         .expect("the provider catalog overlay is valid");
                 }
+                ChatProofMode::CodexLogin => {
+                    window
+                        .apply(dpl_chat_window::ChatWindowIntent::SelectProvider(
+                            dpl_chat_codex::PROVIDER,
+                        ))
+                        .expect("the authored Codex provider exists");
+                    window
+                        .set_provider_activation(
+                            dpl_chat_codex::PROVIDER,
+                            ActivationState::SignedOut {
+                                reason:
+                                    "Log in with ChatGPT to activate subscription-backed Codex."
+                                        .to_owned(),
+                                recovery: vec![RecoveryAction::new(
+                                    RecoveryActionKind::SignIn,
+                                    "Log in with ChatGPT",
+                                )],
+                            },
+                        )
+                        .expect("the authored Codex sign-in ceremony is valid");
+                }
                 ChatProofMode::GrokLogin => {
                     window
                         .apply(dpl_chat_window::ChatWindowIntent::SelectProvider(
@@ -292,6 +316,16 @@ impl ChatWindowCoordinator {
                     Ok(None) => tracing::info!("no prior Grok activation evidence"),
                     Err(error) => tracing::warn!(%error, "Grok activation evidence unreadable"),
                 }
+                match ledger.get(dpl_chat_codex::PROVIDER) {
+                    Ok(Some(evidence)) => tracing::info!(
+                        state = ?evidence.state,
+                        version = %evidence.client_version,
+                        method = %evidence.auth_method,
+                        "loaded non-secret Codex activation evidence"
+                    ),
+                    Ok(None) => tracing::info!("no prior Codex activation evidence"),
+                    Err(error) => tracing::warn!(%error, "Codex activation evidence unreadable"),
+                }
                 Some(ledger)
             }
             Err(error) => {
@@ -299,6 +333,29 @@ impl ChatWindowCoordinator {
                 None
             }
         };
+        // The boot discovery already ran the official non-secret status probe;
+        // persist its truthful outcome so restarts and recovery stay
+        // intelligible. Ready remains advisory evidence, never an oracle.
+        if provider_runtime_enabled {
+            if let Some(ledger) = activation_ledger.as_ref() {
+                let version = codex_activation.runtime_profile().map_or_else(
+                    || "unknown".to_owned(),
+                    |profile| profile.version().to_string(),
+                );
+                let recorded = match codex_activation.activation() {
+                    ActivationState::Ready => {
+                        ledger.record_ready(dpl_chat_codex::PROVIDER, &version, "chatgpt")
+                    }
+                    ActivationState::SignedOut { .. } => {
+                        ledger.record_signed_out(dpl_chat_codex::PROVIDER, &version, "chatgpt")
+                    }
+                    _ => Ok(()),
+                };
+                if let Err(error) = recorded {
+                    tracing::warn!(%error, "Codex boot evidence could not be stored");
+                }
+            }
+        }
         let mut shared = Shared {
             registry,
             lifetime: PeerLifetime::default(),
@@ -313,6 +370,7 @@ impl ChatWindowCoordinator {
             grok_turns: BTreeMap::new(),
             grok_permissions: BTreeMap::new(),
             grok_attempt: None,
+            codex_attempt: None,
             provider_events: fabric.subscribe_providers(),
             provider_runtime_enabled,
             auth_browser: BrowserAuthCoordinator::new(),
@@ -682,28 +740,45 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
             ctx.open_url(egui::OpenUrl::new_tab(url));
         }
         HostIntent::RefreshProvider(provider) => {
-            if provider != dpl_chat_grok::PROVIDER {
+            let mut state = lock(shared);
+            if provider == dpl_chat_codex::PROVIDER {
+                match state.codex_activation.refresh_discovery() {
+                    Ok(_) => {
+                        let activation = state.codex_activation.activation().clone();
+                        if let Err(error) =
+                            state.window.set_provider_activation(provider, activation)
+                        {
+                            tracing::warn!(%error, "Codex rediscovery state could not be projected");
+                        }
+                    }
+                    Err(error) => {
+                        tracing::warn!(%error, "Codex rediscovery was rejected");
+                    }
+                }
+            } else if provider == dpl_chat_grok::PROVIDER {
+                match state.grok_activation.refresh_discovery() {
+                    Ok(_) => {
+                        let activation = state.grok_activation.activation().clone();
+                        if let Err(error) =
+                            state.window.set_provider_activation(provider, activation)
+                        {
+                            tracing::warn!(%error, "Grok rediscovery state could not be projected");
+                        }
+                        if state.grok_activation.activation_capability_qualified() {
+                            request_grok_runtime_shutdown(&mut state);
+                            begin_grok_runtime_verification(
+                                &mut state,
+                                dpl_chat_grok::GrokVerificationOrigin::Recovery,
+                            );
+                        }
+                    }
+                    Err(error) => {
+                        tracing::warn!(%error, "Grok rediscovery was rejected");
+                    }
+                }
+            } else {
                 tracing::warn!(%provider, "provider rediscovery is not qualified");
                 return;
-            }
-            let mut state = lock(shared);
-            match state.grok_activation.refresh_discovery() {
-                Ok(_) => {
-                    let activation = state.grok_activation.activation().clone();
-                    if let Err(error) = state.window.set_provider_activation(provider, activation) {
-                        tracing::warn!(%error, "Grok rediscovery state could not be projected");
-                    }
-                    if state.grok_activation.activation_capability_qualified() {
-                        request_grok_runtime_shutdown(&mut state);
-                        begin_grok_runtime_verification(
-                            &mut state,
-                            dpl_chat_grok::GrokVerificationOrigin::Recovery,
-                        );
-                    }
-                }
-                Err(error) => {
-                    tracing::warn!(%error, "Grok rediscovery was rejected");
-                }
             }
             ctx.request_repaint();
         }
@@ -834,16 +909,39 @@ fn activate_provider(shared: &Arc<Mutex<Shared>>, provider: ProviderId) {
         return;
     }
     let activation = if provider == dpl_chat_codex::PROVIDER {
-        let result = state.codex_activation.start_login();
-        if let Err(error) = result {
-            tracing::warn!(%error, "ChatGPT / Codex activation was rejected");
-            if matches!(
-                &error,
-                dpl_chat_codex::CodexActivationError::LaunchFailed(_)
-                    | dpl_chat_codex::CodexActivationError::PollFailed(_)
-                    | dpl_chat_codex::CodexActivationError::StatusFailed(_)
-            ) {
-                state.codex_activation.fail(error);
+        let attempt = state.fabric.mint_provider_attempt();
+        match state.codex_activation.start_login() {
+            Ok(()) => {
+                state.codex_attempt = Some(attempt);
+                state
+                    .fabric
+                    .publish_provider(ProviderEvent::ActivationRequested { provider, attempt });
+                state.fabric.publish_provider(ProviderEvent::ClientStarted {
+                    provider,
+                    attempt,
+                    client_version: codex_client_version(&state),
+                });
+            }
+            Err(error) => {
+                tracing::warn!(%error, "ChatGPT / Codex activation was rejected");
+                if !matches!(&error, dpl_chat_codex::CodexActivationError::AlreadyRunning) {
+                    state.codex_attempt = Some(attempt);
+                    if matches!(
+                        &error,
+                        dpl_chat_codex::CodexActivationError::LaunchFailed(_)
+                            | dpl_chat_codex::CodexActivationError::PollFailed(_)
+                            | dpl_chat_codex::CodexActivationError::StatusFailed(_)
+                    ) {
+                        state.codex_activation.fail(error);
+                        record_codex_failed(&state, "authorization_launch");
+                    }
+                    publish_codex_failure(
+                        &state,
+                        ProviderActivationStage::Launch,
+                        ProviderFailureClass::Launch,
+                        true,
+                    );
+                }
             }
         }
         state.codex_activation.activation().clone()
@@ -1010,6 +1108,45 @@ fn publish_grok_failure(
     });
 }
 
+fn codex_client_version(state: &Shared) -> String {
+    state.codex_activation.runtime_profile().map_or_else(
+        || "unknown".to_owned(),
+        |profile| profile.version().to_string(),
+    )
+}
+
+fn record_codex_failed(state: &Shared, failure_class: &str) {
+    if let Some(ledger) = state.activation_ledger.as_ref() {
+        if let Err(error) = ledger.record_failed_for_attempt(
+            dpl_chat_codex::PROVIDER,
+            state.codex_attempt.map(|attempt| attempt.0),
+            &codex_client_version(state),
+            "chatgpt",
+            failure_class,
+        ) {
+            tracing::warn!(%error, "Codex failure evidence could not be stored");
+        }
+    }
+}
+
+fn publish_codex_failure(
+    state: &Shared,
+    stage: ProviderActivationStage,
+    class: ProviderFailureClass,
+    retryable: bool,
+) {
+    let Some(attempt) = state.codex_attempt else {
+        return;
+    };
+    state.fabric.publish_provider(ProviderEvent::Failed {
+        provider: dpl_chat_codex::PROVIDER,
+        attempt,
+        stage,
+        class,
+        retryable,
+    });
+}
+
 fn ensure_grok_attempt(state: &mut Shared) -> ActivationAttemptId {
     if let Some(attempt) = state.grok_attempt {
         return attempt;
@@ -1033,7 +1170,22 @@ fn poll_provider_activations(state: &mut Shared) -> bool {
         Ok(changed) => changed,
         Err(error) => {
             tracing::warn!(%error, "ChatGPT / Codex activation polling failed");
+            let failure_class = if matches!(
+                &error,
+                dpl_chat_codex::CodexActivationError::StatusFailed(_)
+            ) {
+                "status_verification"
+            } else {
+                "authorization_process"
+            };
             state.codex_activation.fail(error);
+            record_codex_failed(state, failure_class);
+            publish_codex_failure(
+                state,
+                ProviderActivationStage::Authorization,
+                ProviderFailureClass::Authorization,
+                true,
+            );
             true
         }
     };
@@ -1044,6 +1196,60 @@ fn poll_provider_activations(state: &mut Shared) -> bool {
             .set_provider_activation(dpl_chat_codex::PROVIDER, activation)
         {
             tracing::warn!(%error, "ChatGPT / Codex activation state could not be projected");
+        }
+    }
+    if state.codex_activation.take_login_completed() {
+        if let Some(attempt) = state.codex_attempt {
+            state
+                .fabric
+                .publish_provider(ProviderEvent::AuthorizationCompleted {
+                    provider: dpl_chat_codex::PROVIDER,
+                    attempt,
+                });
+        }
+    }
+    if let Some(status) = state.codex_activation.take_verified_status() {
+        let version = codex_client_version(state);
+        match status {
+            dpl_chat_codex::CodexLoginStatus::ChatGpt => {
+                if let Some(ledger) = state.activation_ledger.as_ref() {
+                    if let Err(error) = ledger.record_ready_for_attempt(
+                        dpl_chat_codex::PROVIDER,
+                        state.codex_attempt.map(|attempt| attempt.0),
+                        &version,
+                        "chatgpt",
+                    ) {
+                        tracing::warn!(%error, "Codex ready evidence could not be stored");
+                    }
+                }
+                if let Some(attempt) = state.codex_attempt {
+                    state.fabric.publish_provider(ProviderEvent::Ready {
+                        provider: dpl_chat_codex::PROVIDER,
+                        attempt,
+                        client_version: version,
+                        auth_method: "chatgpt",
+                    });
+                }
+            }
+            dpl_chat_codex::CodexLoginStatus::ApiKey
+            | dpl_chat_codex::CodexLoginStatus::SignedOut => {
+                if let Some(ledger) = state.activation_ledger.as_ref() {
+                    if let Err(error) = ledger.record_signed_out_for_attempt(
+                        dpl_chat_codex::PROVIDER,
+                        state.codex_attempt.map(|attempt| attempt.0),
+                        &version,
+                        "chatgpt",
+                    ) {
+                        tracing::warn!(%error, "Codex signed-out evidence could not be stored");
+                    }
+                }
+                publish_codex_failure(
+                    state,
+                    ProviderActivationStage::Authorization,
+                    ProviderFailureClass::Authorization,
+                    false,
+                );
+            }
         }
     }
 

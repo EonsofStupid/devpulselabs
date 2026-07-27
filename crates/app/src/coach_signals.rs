@@ -147,6 +147,7 @@ fn jobs(event: &JobEvent) -> Vec<SignalId> {
 fn providers(event: &ProviderEvent) -> Vec<SignalId> {
     let kind = match event {
         ProviderEvent::Selected { .. } => PROVIDERS_SELECTED,
+        ProviderEvent::ProfileConfigured { .. } => PROVIDERS_PROFILE_CONFIGURED,
         ProviderEvent::ActivationRequested { .. } => PROVIDERS_ACTIVATION_REQUESTED,
         ProviderEvent::ClientStarted { .. } => PROVIDERS_CLIENT_STARTED,
         ProviderEvent::DeviceCodeReceived { .. } => PROVIDERS_DEVICE_CODE_RECEIVED,
@@ -200,6 +201,7 @@ pub const JOBS_QUEUED: &str = "jobs.queued";
 pub const JOBS_DONE: &str = "jobs.done";
 pub const JOBS_FAILED: &str = "jobs.failed";
 pub const PROVIDERS_SELECTED: &str = "providers.selected";
+pub const PROVIDERS_PROFILE_CONFIGURED: &str = "providers.profile-configured";
 pub const PROVIDERS_ACTIVATION_REQUESTED: &str = "providers.activation-requested";
 pub const PROVIDERS_CLIENT_STARTED: &str = "providers.client-started";
 pub const PROVIDERS_DEVICE_CODE_RECEIVED: &str = "providers.device-code-received";
@@ -234,6 +236,7 @@ const COARSE: &[&str] = &[
     JOBS_DONE,
     JOBS_FAILED,
     PROVIDERS_SELECTED,
+    PROVIDERS_PROFILE_CONFIGURED,
     PROVIDERS_ACTIVATION_REQUESTED,
     PROVIDERS_CLIENT_STARTED,
     PROVIDERS_DEVICE_CODE_RECEIVED,
@@ -392,6 +395,10 @@ mod tests {
         }
         for event in [
             ProviderEvent::Selected { provider: PROVIDER },
+            ProviderEvent::ProfileConfigured {
+                provider: PROVIDER,
+                profile_key: "grok-default".into(),
+            },
             ProviderEvent::ActivationRequested {
                 provider: PROVIDER,
                 attempt,
