@@ -64,7 +64,7 @@ fn run() -> Result<(), CliError> {
         },
         "help" | "--help" | "-h" => {
             println!(
-                "EguiPilotAI\n\n  doctor\n  mcp\n  test <profile> <scenario.toml> [fixture]\n  inspect <profile> [fixture]\n  coach <profile> <node-id> [--fixture <name>] [--message <text>] [--wait-ms <n>] [--ttl-ms <n>]\n  fixtures\n  codegen <input.toml> <output.toml>  [EXPERIMENTAL normalizer; NOT a recorder]\n  open <run-directory>\n  agent install codex|cursor|claude\n\nCoaching paints a spotlight the operator presses; only the spotlight visual and the press trigger exist today.\n\nUnsupported in this build: set-value, scroll-into-view, screenshot expectations, parallel workers, retries, recorder codegen, replay, visual approval, Test Lab live control, coach stream triggers, and the desktop coach overlay."
+                "EguiPilotAI\n\n  doctor\n  mcp\n  test <profile> <scenario.toml> [fixture]\n  inspect <profile> [fixture]\n  coach <profile> <node-id> [--fixture <name>] [--message <text>] [--on <trigger>] [--wait-ms <n>] [--ttl-ms <n>]\n  fixtures\n  codegen <input.toml> <output.toml>  [EXPERIMENTAL normalizer; NOT a recorder]\n  open <run-directory>\n  agent install codex|cursor|claude\n\nCoaching paints a spotlight and reports what fires it.\n  --on press (default) | hover | appeared | value-changed | signal:<id>\nA touchpoint waiting on `appeared` or a signal mounts armed, so it can be set before its target exists.\n\nUnsupported in this build: set-value, scroll-into-view, screenshot expectations, parallel workers, retries, recorder codegen, replay, visual approval, Test Lab live control, the semantic revision ticker, and the desktop coach overlay."
             );
             Ok(())
         }
@@ -167,6 +167,7 @@ struct CoachOptions {
     message: Option<String>,
     wait: Duration,
     ttl_ms: Option<u64>,
+    on: TriggerKind,
 }
 
 impl CoachOptions {
@@ -177,6 +178,7 @@ impl CoachOptions {
             // A coached human is slower than any automation timeout.
             wait: Duration::from_secs(180),
             ttl_ms: None,
+            on: TriggerKind::Press,
         };
         while let Some(flag) = arguments.next() {
             match flag.as_str() {
@@ -186,10 +188,32 @@ impl CoachOptions {
                     options.wait = Duration::from_millis(parse_ms(&mut arguments, "--wait-ms")?);
                 }
                 "--ttl-ms" => options.ttl_ms = Some(parse_ms(&mut arguments, "--ttl-ms")?),
+                "--on" => options.on = parse_trigger(&required(&mut arguments, "trigger")?)?,
                 other => return Err(CliError::Usage(format!("unknown coach flag `{other}`"))),
             }
         }
         Ok(options)
+    }
+}
+
+/// `press | hover | appeared | value-changed | signal:<id>`
+fn parse_trigger(value: &str) -> Result<TriggerKind, CliError> {
+    match value {
+        "press" => Ok(TriggerKind::Press),
+        "hover" => Ok(TriggerKind::Hover),
+        "appeared" => Ok(TriggerKind::NodeAppeared),
+        "value-changed" => Ok(TriggerKind::ValueChanged),
+        other => other
+            .strip_prefix("signal:")
+            .filter(|signal| !signal.is_empty())
+            .map(|signal| TriggerKind::FabricEvent {
+                signal: protocol::SignalId::new(signal),
+            })
+            .ok_or_else(|| {
+                CliError::Usage(format!(
+                    "unknown trigger `{other}`; expected press, hover, appeared, value-changed, or signal:<id>"
+                ))
+            }),
     }
 }
 
@@ -220,7 +244,7 @@ fn coach(
                 ..Locator::default()
             },
             visual: CoachStyle::Spotlight,
-            on: TriggerKind::Press,
+            on: options.on,
             message: options.message,
             ttl_ms: options.ttl_ms,
             once: true,
@@ -491,7 +515,7 @@ fn mcp_tools() -> Vec<Value> {
         ),
         tool(
             "pilot_coach",
-            "Mount a spotlight touchpoint on one instrumented node and optionally wait for the press. The highlight never intercepts input, so the operator's press still reaches the real control. Only the spotlight visual and the press trigger exist; everything else is refused.",
+            "Mount a spotlight touchpoint on one instrumented node and optionally wait for it to fire. The highlight never intercepts input, so the operator's press still reaches the real control. A touchpoint waiting on `appeared` or `signal:<id>` mounts armed and may outlive its target's absence. Only the spotlight visual exists; other visuals are refused.",
             json!({
                 "type": "object", "required": ["action"], "additionalProperties": false,
                 "properties": {
@@ -499,10 +523,15 @@ fn mcp_tools() -> Vec<Value> {
                     "coach_id": {"type": "string", "maxLength": 120},
                     "node": {"type": "string", "maxLength": 512},
                     "message": {"type": "string", "maxLength": 240},
+                    "on": {
+                        "type": "string",
+                        "description": "press (default), hover, appeared, value-changed, or signal:<id> for a signal the application publishes",
+                        "default": "press"
+                    },
                     "ttl_ms": {"type": "integer", "minimum": 100, "maximum": 600000},
                     "wait_ms": {"type": "integer", "minimum": 0, "maximum": 600000}
                 },
-                "x-eguipilotai-unsupported": ["coach.visual.extended", "coach.stream-triggers", "coach.desktop-overlay"]
+                "x-eguipilotai-unsupported": ["coach.visual.extended", "coach.semantic-ticker", "coach.desktop-overlay"]
             }),
         ),
         tool(
@@ -585,7 +614,10 @@ fn call_tool(state: &mut McpState, name: &str, arguments: Value) -> Result<Value
                             ..Locator::default()
                         },
                         visual: CoachStyle::Spotlight,
-                        on: TriggerKind::Press,
+                        on: arguments
+                            .get("on")
+                            .and_then(Value::as_str)
+                            .map_or(Ok(TriggerKind::Press), parse_trigger)?,
                         message: arguments
                             .get("message")
                             .and_then(Value::as_str)
