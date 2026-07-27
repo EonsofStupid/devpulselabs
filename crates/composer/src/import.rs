@@ -52,6 +52,55 @@ pub fn sanitize_name(raw: &str) -> Option<String> {
     (!cleaned.is_empty()).then_some(cleaned)
 }
 
+/// Rasterize each page of a PDF to a PNG via `pdftoppm` — a SUBPROCESS
+/// (ADR-009, the ffmpeg pattern: NEVER a crate PDF parser) wrapped in the
+/// quiet-spawn law. Pages land in `out_dir` as `<stem>-<n>.png` (pdftoppm
+/// zero-pads within a document, so a lexical sort is page order). Returns
+/// the page paths in order. The tool is resolved off PATH today; its absence
+/// is an HONEST error naming the fix (embedded-deps staging is the portable
+/// follow-up, exactly like managed ffmpeg).
+pub fn rasterize_pdf(pdf: &Path, out_dir: &Path, stem: &str) -> Result<Vec<PathBuf>, String> {
+    let is_pdf = pdf
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case("pdf"))
+        .unwrap_or(false);
+    if !is_pdf {
+        return Err(format!("not a pdf: {}", pdf.display()));
+    }
+    if !pdf.is_file() {
+        return Err(format!("pdf not found: {}", pdf.display()));
+    }
+    std::fs::create_dir_all(out_dir).map_err(|e| format!("stage dir: {e}"))?;
+    let prefix = out_dir.join(stem);
+
+    let mut cmd = std::process::Command::new("pdftoppm");
+    cmd.arg("-png").arg("-r").arg("150").arg(pdf).arg(&prefix);
+    let status = dpl_proc::quiet(&mut cmd).status().map_err(|e| {
+        format!("pdftoppm unavailable ({e}) — install poppler-utils or stage it in embedded-deps")
+    })?;
+    if !status.success() {
+        return Err(format!("pdftoppm failed on {}", pdf.display()));
+    }
+
+    let mut pages: Vec<PathBuf> = std::fs::read_dir(out_dir)
+        .map_err(|e| format!("read pages: {e}"))?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.extension().and_then(|x| x.to_str()) == Some("png")
+                && p.file_stem()
+                    .and_then(|s| s.to_str())
+                    .is_some_and(|s| s.starts_with(stem))
+        })
+        .collect();
+    pages.sort();
+    if pages.is_empty() {
+        return Err(format!("pdftoppm produced no pages for {}", pdf.display()));
+    }
+    Ok(pages)
+}
+
 /// Copy `src` into the content tree and index it. Returns the indexed
 /// record. The SOURCE file is never touched (copy, never move).
 pub fn import_file(src: &Path) -> Result<Record, String> {
@@ -218,6 +267,66 @@ pub(crate) fn enrich_element(rec: &mut Record, dest: &Path, root: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A minimal, well-formed 2-page PDF (correct xref, blank pages) — the
+    /// rasterize drill's fixture, no external file needed.
+    fn two_page_pdf() -> Vec<u8> {
+        let objs: [&[u8]; 4] = [
+            b"<< /Type /Catalog /Pages 2 0 R >>",
+            b"<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+        ];
+        let mut pdf = b"%PDF-1.4\n".to_vec();
+        let mut offsets = Vec::new();
+        for (i, o) in objs.iter().enumerate() {
+            offsets.push(pdf.len());
+            pdf.extend_from_slice(format!("{} 0 obj\n", i + 1).as_bytes());
+            pdf.extend_from_slice(o);
+            pdf.extend_from_slice(b"\nendobj\n");
+        }
+        let xref = pdf.len();
+        pdf.extend_from_slice(format!("xref\n0 {}\n", objs.len() + 1).as_bytes());
+        pdf.extend_from_slice(b"0000000000 65535 f \n");
+        for off in &offsets {
+            pdf.extend_from_slice(format!("{off:010} 00000 n \n").as_bytes());
+        }
+        pdf.extend_from_slice(
+            format!(
+                "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{}\n%%EOF\n",
+                objs.len() + 1,
+                xref
+            )
+            .as_bytes(),
+        );
+        pdf
+    }
+
+    /// A real-`pdftoppm` drill (ADR-009): a 2-page PDF explodes to 2 ORDERED
+    /// page PNGs. `#[ignore]` — poppler-utils must be installed; it runs where
+    /// the tool exists, exactly like the ffmpeg drills.
+    #[test]
+    #[ignore = "needs pdftoppm (poppler-utils) installed"]
+    fn rasterize_pdf_explodes_ordered_pages() {
+        let base = std::env::temp_dir().join(format!("dpl-pdf-drill-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let pdf = base.join("report.pdf");
+        std::fs::write(&pdf, two_page_pdf()).unwrap();
+
+        let pages = rasterize_pdf(&pdf, &base.join("stage"), "report").unwrap();
+        assert_eq!(pages.len(), 2, "two pages: {pages:?}");
+        assert!(pages.iter().all(|p| p.is_file()), "pages exist: {pages:?}");
+        let names: Vec<String> = pages
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert!(names[0] < names[1], "page order preserved: {names:?}");
+
+        std::fs::write(base.join("nope.txt"), b"x").unwrap();
+        assert!(rasterize_pdf(&base.join("nope.txt"), &base.join("stage"), "x").is_err());
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     // The reference mechanism: a single-file symlink resolves to the source
     // content IN PLACE (unix covers Linux + macOS; Windows uses its own call).

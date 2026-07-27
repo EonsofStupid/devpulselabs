@@ -34,77 +34,95 @@ pub enum Media {
 /// content). `now`/`t0` come from the slide's clock so replay restarts
 /// ambience too.
 pub fn media_backdrop(ui: &mut Ui, rect: Rect, media: Media, tone: Tone, now: f64, t0: f64) {
-    let painter = ui.painter();
     match media {
-        Media::Image(path) => {
-            // Repo-relative paths resolve from the exe/CWD; absolutes pass
-            // through. Missing file → labeled plate (honest, never a crash).
-            match dpl_video::locate_asset(path) {
-                Some(file) => {
-                    // file:/// with THREE slashes — two reads as a UNC host
-                    // on Windows and the load errors.
-                    let uri = file.to_string_lossy().replace('\\', "/");
-                    egui::Image::new(format!("file:///{uri}"))
-                        .corner_radius(cl::RADIUS)
-                        .paint_at(ui, rect);
-                    // Legibility: the dark diffusion the vocabulary demands.
-                    painter.rect_filled(rect, cl::RADIUS, egui::Color32::from_black_alpha(120));
-                }
-                None => {
-                    painter.rect_filled(rect, cl::RADIUS, cl::surface::RAISED);
-                    painter.text(
-                        rect.center(),
-                        Align2::CENTER_CENTER,
-                        format!("image · {path} · file not found"),
-                        egui::FontId::monospace(12.0),
-                        cl::ink::SUBTLE,
-                    );
-                }
-            }
-        }
-        Media::Video(path) => {
-            // Real playback (B1): ffmpeg-subprocess loop → texture. Honest
-            // degradation ladder: frames → poster still → labeled plate.
-            match dpl_video::locate_asset(path) {
-                Some(file) => {
-                    if !dpl_video::loop_backdrop(ui, rect, &file) {
-                        let poster = dpl_video::poster_of(&file);
-                        if poster.is_file() {
-                            let uri = poster.to_string_lossy().replace('\\', "/");
-                            egui::Image::new(format!("file:///{uri}"))
-                                .corner_radius(cl::RADIUS)
-                                .paint_at(ui, rect);
-                        } else {
-                            painter.rect_filled(rect, cl::RADIUS, cl::surface::RAISED);
-                            painter.text(
-                                rect.center(),
-                                Align2::CENTER_CENTER,
-                                format!("video · {path} · waiting for ffmpeg"),
-                                egui::FontId::monospace(12.0),
-                                cl::ink::SUBTLE,
-                            );
-                        }
-                    }
-                    // Legibility diffusion, same as the image slot.
-                    ui.painter().rect_filled(
-                        rect,
-                        cl::RADIUS,
-                        egui::Color32::from_black_alpha(120),
-                    );
-                }
-                None => {
-                    painter.rect_filled(rect, cl::RADIUS, cl::surface::RAISED);
-                    painter.text(
-                        rect.center(),
-                        Align2::CENTER_CENTER,
-                        format!("video · {path} · file not found"),
-                        egui::FontId::monospace(12.0),
-                        cl::ink::SUBTLE,
-                    );
-                }
-            }
-        }
+        Media::Image(path) => paint_image(ui, rect, path),
+        Media::Video(path) => paint_video(ui, rect, path, None),
         Media::Anim(amb) => ambient_backdrop(ui, rect, amb, tone.color(), now, t0),
+    }
+}
+
+/// Paint a media BLOCK straight from a document's owned refs (W11) — the
+/// `&'static Media` enum above is the template/demo path; `dpl_doc::Block::
+/// Media` carries owned Strings. `show` is "image" | "video" (validated at
+/// the doc layer; an unknown value falls through to a labeled plate). `fit`
+/// is carried for a later precise-letterbox pass — today both modes fill the
+/// stage. Ambience is the template's affordance, not a document's.
+pub fn media_block_backdrop(
+    ui: &mut Ui,
+    rect: Rect,
+    show: &str,
+    src: &str,
+    _fit: Option<&str>,
+    poster: Option<&str>,
+) {
+    match show {
+        "video" => paint_video(ui, rect, src, poster),
+        // "image" and any unrecognized value degrade to the image ladder
+        // (locate → paint → labeled plate), never a crash.
+        _ => paint_image(ui, rect, src),
+    }
+}
+
+/// A labeled fallback plate — the honest bottom rung of every ladder.
+fn missing_plate(ui: &Ui, rect: Rect, label: &str) {
+    let painter = ui.painter();
+    painter.rect_filled(rect, cl::RADIUS, cl::surface::RAISED);
+    painter.text(
+        rect.center(),
+        Align2::CENTER_CENTER,
+        label,
+        egui::FontId::monospace(12.0),
+        cl::ink::SUBTLE,
+    );
+}
+
+/// The image ladder: locate → paint (+ legibility diffusion) → labeled plate.
+fn paint_image(ui: &mut Ui, rect: Rect, path: &str) {
+    match dpl_video::locate_asset(path) {
+        Some(file) => {
+            // file:/// with THREE slashes — two reads as a UNC host on
+            // Windows and the load errors.
+            let uri = file.to_string_lossy().replace('\\', "/");
+            egui::Image::new(format!("file:///{uri}"))
+                .corner_radius(cl::RADIUS)
+                .paint_at(ui, rect);
+            // Legibility: the dark diffusion the vocabulary demands.
+            ui.painter()
+                .rect_filled(rect, cl::RADIUS, egui::Color32::from_black_alpha(120));
+        }
+        None => missing_plate(ui, rect, &format!("image · {path} · file not found")),
+    }
+}
+
+/// The video ladder (B1): ffmpeg-subprocess loop → poster still → labeled
+/// plate. `poster` is an optional explicit ref (W11 documents); absent, the
+/// derived `poster_of` still applies.
+fn paint_video(ui: &mut Ui, rect: Rect, path: &str, poster: Option<&str>) {
+    match dpl_video::locate_asset(path) {
+        Some(file) => {
+            if !dpl_video::loop_backdrop(ui, rect, &file) {
+                // Prefer an explicit poster ref, else the derived sidecar.
+                let still = poster
+                    .and_then(dpl_video::locate_asset)
+                    .filter(|p| p.is_file())
+                    .or_else(|| Some(dpl_video::poster_of(&file)).filter(|p| p.is_file()));
+                match still {
+                    Some(p) => {
+                        let uri = p.to_string_lossy().replace('\\', "/");
+                        egui::Image::new(format!("file:///{uri}"))
+                            .corner_radius(cl::RADIUS)
+                            .paint_at(ui, rect);
+                    }
+                    None => {
+                        missing_plate(ui, rect, &format!("video · {path} · waiting for ffmpeg"))
+                    }
+                }
+            }
+            // Legibility diffusion, same as the image slot.
+            ui.painter()
+                .rect_filled(rect, cl::RADIUS, egui::Color32::from_black_alpha(120));
+        }
+        None => missing_plate(ui, rect, &format!("video · {path} · file not found")),
     }
 }
 

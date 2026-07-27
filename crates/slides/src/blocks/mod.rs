@@ -9,5 +9,5 @@ pub mod stat;
 
 pub use badge::badge;
 pub use eyebrow::{eyebrow, tracked};
-pub use media::{ambient_backdrop, media_backdrop, Ambient, Media};
+pub use media::{ambient_backdrop, media_backdrop, media_block_backdrop, Ambient, Media};
 pub use stat::stat;

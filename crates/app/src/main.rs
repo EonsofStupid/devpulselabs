@@ -215,6 +215,14 @@ fn main() -> eframe::Result {
         .position(|a| a == "--save-comp")
         .and_then(|i| args.get(i + 1))
         .cloned();
+    // `--make-slide <asset-rel>` (W11) mints a media slide from a
+    // content-relative artifact through the shelf's "Make slide" path —
+    // image/video → one slide, `.pdf` → page slides.
+    let make_slide: Option<String> = args
+        .iter()
+        .position(|a| a == "--make-slide")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
     // `--open-rail <hub>` pins the accordion open on one house (L1a) —
     // proof shots of the unfolded rail reproduce. Unknown hub degrades to
     // a folded rail, never a panic.
@@ -365,6 +373,7 @@ fn main() -> eframe::Result {
                 import_drill,
                 pin_packs,
                 save_comp,
+                make_slide,
                 seam_port,
             });
             #[cfg(feature = "eguipilotai-devtools")]
@@ -407,6 +416,7 @@ struct Boot {
     import_drill: Option<String>,
     pin_packs: Vec<String>,
     save_comp: Option<String>,
+    make_slide: Option<String>,
     /// The agent seam's port; None = `--no-seam`.
     seam_port: Option<u16>,
 }
@@ -484,6 +494,7 @@ impl App {
             import_drill,
             pin_packs,
             save_comp,
+            make_slide,
             seam_port,
         } = boot;
         let mut workbench = dpl_hub_workbench::WorkbenchHub::default();
@@ -551,6 +562,11 @@ impl App {
         // last-comp state) through the Save chip's exact path.
         if let Some(name) = &save_comp {
             wiredfront.save_comp(name);
+        }
+        // W11's harness seam: mint a media slide from an artifact through the
+        // shelf's exact "Make slide" path (image/video → one, pdf → pages).
+        if let Some(rel) = &make_slide {
+            wiredfront.make_slide(rel);
         }
         // Chat coding providers work inside the canonical launch workspace,
         // not DevPULSE's media/content store. The launcher (and later the

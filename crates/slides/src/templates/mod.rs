@@ -8,6 +8,7 @@ pub mod choice_poll;
 pub mod code_block;
 pub mod cost_meter;
 pub mod drag_match;
+pub mod media_frame;
 pub mod predict_rank;
 pub mod quiz_panel;
 pub mod reveal_list;
