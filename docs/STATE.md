@@ -2,6 +2,24 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-27 — CATALOG: A DIVERSE LIBRARY (branch
+`feat/catalog-diverse-library`, PR):** the slide catalog grew from 19 to **28**
+registered designs (20 templates + 8 infographics) — `docs/plans/
+catalog-diverse-library.md`. NEW blocks: `divider::rule`, `bar::bar` (both meet
+the ≥2-template promotion rule). NEW templates across all four classes:
+`quote`·`section_divider`·`agenda` (static), `compare_vs`·`feature_grid`
+(split), `timeline` (animation), `checklist` (interactive). NEW infographics:
+`gauge_dial`, `radial_progress` (vector-engine dials). All follow doctrine
+(presenter law = pure clock functions resting once; Fluid sizing; tone through
+the pool; tofu-safe glyphs). NEW gallery gate WITH TEETH:
+`registry::every_demo_renders_at_start_and_at_rest` paints all 28 demos
+headless at animation-start + rest without panicking (catches arc math / NaN /
+galley bugs construction never exercises). Gate: `cargo green ✔`. Live spot-
+check: the Library wall reports "28 templates registered"; `timeline` +
+`compare_vs` render clean. CLOSE-OUT (Windows): rebuild the exe + screenshot
+the wall at real sizes.
+
+
 **2026-07-27 — W11 MEDIA → SLIDE (branch `feat/w11-media-to-slide`, PR):**
 the gap "no template lets me add an image/pdf/video/session-replay and have
 it become a slide" is closed. `docs/plans/w11-media-to-slide.md`. THREE

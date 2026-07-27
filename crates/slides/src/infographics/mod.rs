@@ -10,8 +10,10 @@
 pub mod bar_compare;
 pub mod cost_meter_face;
 pub mod donut_share;
+pub mod gauge_dial;
 pub mod line_trend;
 pub mod probability_bars;
+pub mod radial_progress;
 pub mod stack_layers;
 pub mod stage;
 pub mod tone_cycle;

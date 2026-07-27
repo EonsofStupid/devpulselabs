@@ -69,9 +69,16 @@ pub fn demos() -> Vec<Box<dyn SlideTemplate>> {
     vec![
         Box::new(templates::title_card::TitleCard::demo()),
         Box::new(templates::media_frame::MediaFrame::demo()),
+        Box::new(templates::quote::Quote::demo()),
+        Box::new(templates::section_divider::SectionDivider::demo()),
+        Box::new(templates::agenda::Agenda::demo()),
         Box::new(templates::big_number::BigNumber::demo()),
         Box::new(templates::callout_card::CalloutCard::demo()),
         Box::new(templates::split_panel::SplitPanel::demo()),
+        Box::new(templates::compare_vs::CompareVs::demo()),
+        Box::new(templates::feature_grid::FeatureGrid::demo()),
+        Box::new(templates::timeline::Timeline::demo()),
+        Box::new(templates::checklist::Checklist::demo()),
         Box::new(templates::reveal_list::RevealList::demo()),
         Box::new(templates::choice_poll::ChoicePoll::demo()),
         Box::new(templates::quiz_panel::QuizPanel::demo()),
@@ -81,6 +88,8 @@ pub fn demos() -> Vec<Box<dyn SlideTemplate>> {
         Box::new(templates::predict_rank::PredictRank::demo()),
         Box::new(templates::drag_match::DragMatch::demo()),
         Box::new(infographics::donut_share::DonutShare::demo()),
+        Box::new(infographics::gauge_dial::GaugeDial::demo()),
+        Box::new(infographics::radial_progress::RadialProgress::demo()),
         Box::new(infographics::bar_compare::BarCompare::demo()),
         Box::new(infographics::line_trend::LineTrend::demo()),
         Box::new(infographics::probability_bars::ProbabilityBars::demo()),
@@ -119,14 +128,42 @@ mod tests {
         let all = demos();
         assert_eq!(
             all.len(),
-            19,
-            "13 templates (media_frame joined in W11) + 6 infographics"
+            28,
+            "20 templates + 8 infographics (diverse-library pass added 7 templates + 2 infographics)"
         );
         let ids: HashSet<&str> = all.iter().map(|t| t.spec().id.0).collect();
         assert_eq!(ids.len(), all.len(), "template ids must be unique");
         for t in &all {
             assert!(!t.spec().label.is_empty());
             assert!(!t.spec().blurb.is_empty());
+        }
+    }
+
+    /// The GALLERY GATE, teeth: every registered template must actually
+    /// PAINT — at the start of its animation (alpha 0, fresh clock) and at
+    /// rest (settled) — without panicking. Catches bad arc math, NaN rects,
+    /// and galley layout errors that construction alone never exercises.
+    #[test]
+    fn every_demo_renders_at_start_and_at_rest() {
+        let ctx = egui::Context::default();
+        dpl_coldlight::apply_theme(&ctx);
+        for mut demo in demos() {
+            for time in [0.05_f64, 3.0_f64] {
+                demo.restart();
+                let mut input = egui::RawInput {
+                    time: Some(time),
+                    ..Default::default()
+                };
+                input.screen_rect = Some(egui::Rect::from_min_size(
+                    egui::pos2(0.0, 0.0),
+                    egui::vec2(1280.0, 720.0),
+                ));
+                let _ = ctx.run_ui(input, |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        demo.ui(ui);
+                    });
+                });
+            }
         }
     }
 }
