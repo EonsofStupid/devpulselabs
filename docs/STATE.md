@@ -2,6 +2,14 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-28 — SIGNAL LEDGER PHASE 2 (`docs/plans/signal-ledger-phase2.md`):**
+`dpl-ledger` writes hive-partitioned Parquet under `.userdata/analytics/`
+(pure-Rust `parquet` + `snap`, ADR-009 clean). Off by default; `--ledger`
+or `DPL_LEDGER=1` starts the bounded writer thread. Schema v1 columns:
+`seq · ms · wall_ms · domain · type · body · class · dropped`. Stamped
+domains only (capture/jobs/providers/build/coach/intent). Files are the
+truth; DuckDB stays Phase 3.
+
 **2026-07-28 — DETERMINISM MODES BEHIND THE INTENT GATE
 (`docs/plans/determinism-intent-gate.md`):** `dpl-intent`'s first consumer.
 `DeterminismGate` owns `Behavioral | Strict` with `escalate(OperatorIntent)`,

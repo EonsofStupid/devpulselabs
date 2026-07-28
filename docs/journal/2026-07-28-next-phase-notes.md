@@ -103,5 +103,7 @@ Shape pinned and implemented:
 - **p4** — rail accordion degrades instead of clipping to nothing.
 - **p5** — C2s foreign-target spike: AT-SPI on a Tier A app
   (`docs/plans/coach-c2s-foreign-target-spike.md`), findings feed the C2a ADR.
-- **Phase 2** — `dpl-ledger` (Parquet from the start, §3.2 amended), whose
-  coach rows now have a live domain to record.
+- **Phase 2** — `dpl-ledger` — **LANDED** (`docs/plans/signal-ledger-phase2.md`).
+  Proof: `--ledger --screenshot` left `intent-000001.parquet` with the
+  evidence determinism row.
+- **Phase 3** — DuckDB C-dep ADR (after Phase 2 produces real data).
