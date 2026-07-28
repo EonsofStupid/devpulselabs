@@ -2117,6 +2117,7 @@ dependencies = [
  "dpl-hub",
  "dpl-slides",
  "egui",
+ "egui-pilot-ai",
  "egui-pilot-ai-lab",
 ]
 

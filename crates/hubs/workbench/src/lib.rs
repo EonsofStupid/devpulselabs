@@ -14,6 +14,7 @@ use dpl_hub::{Hub, HubId, HubSpec, Route, SubId, SubRoute};
 use dpl_slides::document::DocSlide;
 use dpl_slides::SlideTemplate;
 use egui::RichText;
+use egui_pilot_ai::{NodeMetadata, PilotId, PilotKey, UiPilotExt};
 use library::LibSection;
 use std::path::PathBuf;
 use studio::StudioState;
@@ -210,6 +211,14 @@ impl WorkbenchHub {
             let chip = ui
                 .label(RichText::new("reload").monospace().small().color(SPEC.tone.color()))
                 .interact(egui::Sense::click());
+            ui.pilot_track(
+                &chip,
+                NodeMetadata::new(
+                    PilotId::new("workbench.library.seeds").child(&PilotKey::new("reload")),
+                    egui_pilot_ai::protocol::Role::Button,
+                    "reload",
+                ),
+            );
             if chip.clicked() {
                 reload = true;
             }
@@ -405,6 +414,14 @@ impl WorkbenchHub {
                     let b = ui
                         .label(RichText::new("‹ all shows").color(SPEC.tone.color()))
                         .interact(egui::Sense::click());
+                    ui.pilot_track(
+                        &b,
+                        NodeMetadata::new(
+                            PilotId::new("workbench.episodes").child(&PilotKey::new("back")),
+                            egui_pilot_ai::protocol::Role::Button,
+                            "all shows",
+                        ),
+                    );
                     ui.label(RichText::new(&view.title).strong().color(cl::ink::STRONG));
                     ui.label(
                         RichText::new(&view.id)
@@ -533,6 +550,15 @@ impl WorkbenchHub {
                                                     .color(cl::Tone::Amber.color()),
                                             )
                                             .interact(egui::Sense::click());
+                                        ui.pilot_track(
+                                            &chip,
+                                            NodeMetadata::new(
+                                                PilotId::new("workbench.episodes.copy")
+                                                    .child(&PilotKey::new(&entry.id)),
+                                                egui_pilot_ai::protocol::Role::Button,
+                                                "copy to my shows",
+                                            ),
+                                        );
                                         if chip.clicked() {
                                             copy_clicked = true;
                                         }
@@ -541,9 +567,24 @@ impl WorkbenchHub {
                             );
                         });
                     });
+                    let card = resp.response.interact(egui::Sense::click());
+                    ui.pilot_track(
+                        &card,
+                        NodeMetadata::new(
+                            PilotId::new("workbench.episodes.open")
+                                .child(&PilotKey::new(&entry.id)),
+                            egui_pilot_ai::protocol::Role::Button,
+                            title.clone(),
+                        )
+                        .value(if is_template {
+                            "template"
+                        } else {
+                            "show"
+                        }),
+                    );
                     if copy_clicked {
                         clone_from = Some((entry.id.clone(), entry.dir.clone()));
-                    } else if resp.response.interact(egui::Sense::click()).clicked() {
+                    } else if card.clicked() {
                         open = Some((entry.id.clone(), entry.dir.clone()));
                     }
                     ui.add_space(cl::space::S2);

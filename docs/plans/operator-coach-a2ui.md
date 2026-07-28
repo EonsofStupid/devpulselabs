@@ -762,3 +762,66 @@ silently disarms every coach proof, and the only symptom is
 `cargo build -p devpulselabs` from any other session is enough to cause it. The
 error should name the likely cause rather than leaving the next session to
 rediscover it.
+
+## 14. C1.5f — the coach had nothing to point at (2026-07-27)
+
+C1.5e gave a step the ability to complete on observed state. Asked to walk a
+real lesson, the coach then had almost nothing to observe.
+
+### Measured, before
+
+A live `inspect devpulse-cloud library` returned **6 nodes**: five rail tiles
+and the chat window button. The Workbench hub — the target of the first
+lesson — contributed **zero**. Across the workspace, 99 instrumentation sites
+existed, concentrated in chat/window (50), composer (21), wiredfront (11),
+viziwiz (7), deck (4) and shell (3). `hubs/workbench`, `hubs/present` and
+`hubs/shows` had none. The crate did not even depend on `egui-pilot-ai`.
+
+### Two facts in one string
+
+The rail reported `active+open`, `active`, `open`, `inactive` — the cartesian
+product of two independent booleans flattened into a value. No condition could
+ask a question of it. `NodeValue` is an exact match by design, so an author
+who asked for `active` got silence whenever the accordion happened to be open,
+which is a bug that only appears sometimes: the worst kind.
+
+The fields to fix it already existed. `NodeState` has carried `expanded`,
+`selected` and `checked` all along, and `pilot_track` already copies them from
+`NodeMetadata` into the node. What was missing was the three builder methods to
+*set* them — so every caller in the codebase reached for `.value()` instead and
+encoded state as prose. The convention was an accident of a missing setter.
+
+### Ruling
+
+`NodeMetadata::expanded/selected/checked` land as builders. The rail's tile
+reports `value = active|inactive` **and** `expanded`, as two facts. Sub-rows
+keep their `selected`/`available` value — a single fact in a string is merely
+unfortunate, not broken, and a committed fixture depends on it — and gain the
+typed `selected` alongside it, additively.
+
+Splitting the value would have made fold state unaskable, so the condition
+vocabulary grows to match: `CoachCondition::NodeFlag { node, flag, on }` over
+`NodeFlagKind` (expanded · selected · checked · focused · disabled). Wire
+change: `PROTOCOL_VERSION` 2.5 → 2.6.
+
+**An unreported flag is neither true nor false.** `NodeFlagKind::read` returns
+`Option<bool>`, and a node that does not report the flag satisfies neither
+`on: true` nor `on: false`. A condition that treated silence as `false` would
+advance a lesson on a fact nobody stated. Unit test:
+`an_unreported_flag_is_neither_true_nor_false`.
+
+### Evidence
+
+`inspect devpulse-cloud library` on the real exe: **6 nodes → 14**. Eight
+`workbench.library.section/*` tabs where there were none, each reporting
+`value` and typed `selected`. `root/shell.rail/workbench` now reads
+`value=active`, `expanded=false` — the compound string is gone from the tree.
+
+### Still open
+
+Template titles (`workbench.library.template/*`) and the Episodes surfaces are
+instrumented but do **not** appear in the `library` fixture snapshot: they sit
+below the fold. This build lists `scroll-into-view` as unsupported, so a
+touchpoint cannot reach them yet regardless of instrumentation. Coverage and
+reachability are separate problems, and the second one is now the binding
+constraint on a long lesson.

@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 2, minor: 5 };
+pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 2, minor: 6 };
 pub const DEFAULT_AGENT_NODES: usize = 200;
 pub const DEFAULT_AGENT_BYTES: usize = 12 * 1024;
 pub const MAX_AGENT_NODES: usize = 1_000;
@@ -940,6 +940,39 @@ pub enum CoachCondition {
     /// The node is not on screen. The state a step reaches by closing
     /// something.
     NodeGone { node: NodeId },
+    /// A typed state flag, which a value string cannot be trusted to carry.
+    /// Unset is not `false`: a widget that does not report the flag at all
+    /// answers neither `true` nor `false`, and this condition stays unmet
+    /// rather than guessing.
+    NodeFlag {
+        node: NodeId,
+        flag: NodeFlagKind,
+        on: bool,
+    },
+}
+
+/// The flags on [`NodeState`] a condition may ask about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NodeFlagKind {
+    Expanded,
+    Selected,
+    Checked,
+    Focused,
+    Disabled,
+}
+
+impl NodeFlagKind {
+    /// `None` when the node does not report this flag at all.
+    pub fn read(self, state: &NodeState) -> Option<bool> {
+        match self {
+            Self::Expanded => state.expanded,
+            Self::Selected => state.selected,
+            Self::Checked => state.checked,
+            Self::Focused => Some(state.focused),
+            Self::Disabled => Some(state.disabled),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

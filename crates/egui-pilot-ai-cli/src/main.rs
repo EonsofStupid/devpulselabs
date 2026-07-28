@@ -565,9 +565,15 @@ fn mcp_tools() -> Vec<Value> {
                         "description": "The postcondition that completes the step, read every frame and satisfied at once when already true — unlike `on`, which needs a transition. Use it whenever the goal may already be met.",
                         "required": ["type", "node"], "additionalProperties": false,
                         "properties": {
-                            "type": {"type": "string", "enum": ["node-value", "node-visible", "node-gone"]},
+                            "type": {"type": "string", "enum": ["node-value", "node-visible", "node-gone", "node-flag"]},
                             "node": {"type": "string", "maxLength": 512},
-                            "value": {"type": "string", "maxLength": 240}
+                            "value": {"type": "string", "maxLength": 240},
+                            "flag": {
+                                "type": "string",
+                                "description": "For node-flag: the typed state to read, which a value string cannot be trusted to carry. Unset on the node is not false.",
+                                "enum": ["expanded", "selected", "checked", "focused", "disabled"]
+                            },
+                            "on": {"type": "boolean"}
                         }
                     },
                     "ttl_ms": {"type": "integer", "minimum": 100, "maximum": 600000},

@@ -222,6 +222,27 @@ impl NodeMetadata {
         self
     }
 
+    /// Whether this node is unfolded.
+    ///
+    /// These three exist so a caller never has to pack two facts into one
+    /// value string. `"active+open"` cannot be asked a question — neither
+    /// "is it active" nor "is it open" is answerable without string surgery,
+    /// and an author who writes `"active"` gets silence.
+    pub fn expanded(mut self, expanded: bool) -> Self {
+        self.expanded = Some(expanded);
+        self
+    }
+
+    pub fn selected(mut self, selected: bool) -> Self {
+        self.selected = Some(selected);
+        self
+    }
+
+    pub fn checked(mut self, checked: bool) -> Self {
+        self.checked = Some(checked);
+        self
+    }
+
     pub fn decorative(mut self) -> Self {
         self.decorative = true;
         self

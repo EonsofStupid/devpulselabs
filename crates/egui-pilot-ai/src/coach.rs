@@ -431,6 +431,9 @@ fn condition_holds(nodes: &[SemanticNode], until: &CoachCondition, bound_here: b
             .is_some_and(|found| found.value.as_deref() == Some(value.as_str())),
         CoachCondition::NodeVisible { node } => find_node(nodes, node).is_some(),
         CoachCondition::NodeGone { node } => bound_here && find_node(nodes, node).is_none(),
+        CoachCondition::NodeFlag { node, flag, on } => {
+            find_node(nodes, node).and_then(|found| flag.read(&found.state)) == Some(*on)
+        }
     }
 }
 
@@ -659,6 +662,47 @@ mod tests {
             },
             true
         ));
+    }
+
+    /// The reason the rail stopped saying `active+open`: a flag that the node
+    /// does not report is not the same as a flag that is off, and a condition
+    /// that guessed either way would advance a lesson on a fact nobody stated.
+    #[test]
+    fn an_unreported_flag_is_neither_true_nor_false() {
+        let node = |state| {
+            [SemanticNode {
+                id: NodeId::new("root/shell.rail/workbench"),
+                viewport: crate::protocol::ViewportId::new("root"),
+                parent: None,
+                role: crate::protocol::Role::Button,
+                name: "Workbench".into(),
+                description: None,
+                value: Some("active".into()),
+                rect: WireRect::default(),
+                clip_rect: WireRect::default(),
+                state,
+                actions: Vec::new(),
+                layer: 0,
+                changed_at: 0,
+                source: None,
+            }]
+        };
+        let asking = |on| CoachCondition::NodeFlag {
+            node: NodeId::new("root/shell.rail/workbench"),
+            flag: crate::protocol::NodeFlagKind::Expanded,
+            on,
+        };
+
+        let silent = node(crate::protocol::NodeState::default());
+        assert!(!condition_holds(&silent, &asking(true), true));
+        assert!(!condition_holds(&silent, &asking(false), true));
+
+        let open = node(crate::protocol::NodeState {
+            expanded: Some(true),
+            ..Default::default()
+        });
+        assert!(condition_holds(&open, &asking(true), true));
+        assert!(!condition_holds(&open, &asking(false), true));
     }
 
     #[test]

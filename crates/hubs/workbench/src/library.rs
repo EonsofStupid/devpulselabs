@@ -11,6 +11,7 @@ use super::SPEC;
 use dpl_coldlight::{self as cl, Tone};
 use dpl_slides::{SlideTemplate, TemplateClass};
 use egui::RichText;
+use egui_pilot_ai::{NodeMetadata, PilotId, PilotKey, UiPilotExt};
 
 /// The Library's sections — the chip row's vocabulary. SEEDS leads (the
 /// ingredient the editor tailors first).
@@ -155,6 +156,17 @@ pub(crate) fn chip_row(ui: &mut egui::Ui, current: &mut LibSection) {
                 .interact(egui::Sense::click()),
                 section.tip(),
             );
+            ui.pilot_track(
+                &chip,
+                NodeMetadata::new(
+                    PilotId::new("workbench.library.section")
+                        .child(&PilotKey::new(section.label())),
+                    egui_pilot_ai::protocol::Role::Tab,
+                    section.label(),
+                )
+                .value(if active { "active" } else { "available" })
+                .selected(active),
+            );
             if chip.clicked() {
                 *current = section;
             }
@@ -297,6 +309,15 @@ pub(crate) fn templates_gallery(
                         )
                         .interact(egui::Sense::click()),
                         "Tap to see this one big",
+                    );
+                    ui.pilot_track(
+                        &title,
+                        NodeMetadata::new(
+                            PilotId::new("workbench.library.template")
+                                .child(&PilotKey::new(spec.id.0)),
+                            egui_pilot_ai::protocol::Role::Button,
+                            spec.label,
+                        ),
                     );
                     if title.clicked() {
                         focus_request = Some(spec.id.0.to_string());

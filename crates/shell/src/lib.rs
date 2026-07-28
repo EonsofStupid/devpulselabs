@@ -608,12 +608,11 @@ impl Shell {
                             egui_pilot_ai::protocol::Role::Button,
                             spec.label,
                         )
-                        .value(match (active, open) {
-                            (true, true) => "active+open",
-                            (true, false) => "active",
-                            (false, true) => "open",
-                            (false, false) => "inactive",
-                        }),
+                        // Two independent facts, reported as two. They used to
+                        // be one string (`active+open`), which no condition
+                        // could ask a question of.
+                        .value(if active { "active" } else { "inactive" })
+                        .expanded(open),
                     );
                     if r.clicked() {
                         toggled = Some(spec.id);
@@ -664,11 +663,8 @@ impl Shell {
                                     egui_pilot_ai::protocol::Role::MenuItem,
                                     sub.label,
                                 )
-                                .value(if selected {
-                                    "selected"
-                                } else {
-                                    "available"
-                                }),
+                                .value(if selected { "selected" } else { "available" })
+                                .selected(selected),
                             );
                             if response.clicked() {
                                 clicked = Some(Route {
