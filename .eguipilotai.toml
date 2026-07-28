@@ -48,6 +48,11 @@ arguments = ["--route", "workbench/test-lab", "--mood", "0"]
 [fixtures.library]
 arguments = ["--route", "workbench/library", "--focus", "title", "--mood", "0"]
 
+# The gallery WALL, not a soloed template — the long surface where
+# reachability (scrolling to a node) is a real question.
+[fixtures.library-wall]
+arguments = ["--route", "workbench/library", "--mood", "0"]
+
 [fixtures.viziwiz]
 arguments = ["--route", "wiredfront/viziwiz", "--viziwiz", "--mood", "0"]
 

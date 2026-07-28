@@ -2,6 +2,78 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-27 — C1.5f: THE COACH HAD NOTHING TO POINT AT
+(`docs/plans/operator-coach-a2ui.md` §14, PROTOCOL_VERSION 2.5 → **2.6**):**
+a live snapshot of `workbench/library` returned **6 nodes** — five rail tiles
+and the chat button. `hubs/workbench` had ZERO instrumentation and did not even
+depend on `egui-pilot-ai`. Now **14 nodes**, eight of them Library section tabs.
+(1) **Two facts stopped sharing one string** — the rail reported `active+open`,
+which no exact-match condition could question; it now reports `value=active`
+plus typed `expanded`. The fields always existed on `NodeState`; the three
+BUILDERS (`expanded`/`selected`/`checked`) did not, which is the whole reason
+the codebase encodes state as prose in `.value()`. (2) **`CoachCondition::
+NodeFlag`** over `NodeFlagKind` makes typed state askable, so splitting the
+value did not make fold state unreachable. **An unreported flag is neither true
+nor false** — `read` returns `Option<bool>`, and silence satisfies neither
+`on:true` nor `on:false`. (3) Sub-rows keep their value string (a committed
+fixture depends on it) and gain typed `selected` additively. **A first reading
+blamed scroll — measurement refuted it**: the `library` fixture passes
+`--focus title` (solo mode, no wall) and the new `library-wall` fixture lands on
+the default **seeds** section, because the Library renders exactly ONE section
+wall at a time by design. Both report ZERO clipped and ZERO hidden nodes, so
+there is no measured case of a node the coach cannot reach; `ScrollIntoView`
+stays unimplemented but unneeded so far. STILL OPEN: no harness flag selects a
+Library section without also soloing a template, which is what actually blocks
+witnessing the templates wall and Episodes. Also: the backdrop asset test no
+longer fails under a shared `CARGO_TARGET_DIR` (it anchored to the exe, not the
+source tree).
+
+**2026-07-27 — ANALYTICS FOUNDATION RATIFIED WITHOUT THE DEPENDENCY
+(`docs/plans/signal-ledger-and-lesson-foundation.md`):** ADR-014 already names
+`.userdata\analytics.duckdb`, fenced everywhere as "own C-dep ADR, never
+smuggled" — and ADR-009's `deny.toml` BANS ffmpeg crates on the rule that C
+libraries are subprocesses here. Reconciled: **DuckDB reads Parquet and JSONL in
+place**, with predicate/projection pushdown and no ingest, so the substrate is a
+FILE FORMAT AND A SCHEMA, not a database. The Signal Ledger writes the stamped
+fabric stream (doctrine law 5 calls it a flight recorder; today it is thrown
+away) to date/domain-partitioned segments. Operator ratified **Parquet from the
+start** — verified pure Rust: `parquet` with `--no-default-features --features
+snap` resolves 31 crates and ZERO `-sys`/cc/cmake deps. The DuckDB C-dep ADR is
+deferred to Phase 3 so it argues from measured volume. Phase order: 1 (coverage)
+→ 2 (ledger) → 3 (ADR).
+
+**2026-07-27 — C1.5d/C1.5e: A COACH STEP COMPLETES ON STATE, NOT ON INPUT
+(`docs/plans/operator-coach-a2ui.md` §12–13, PROTOCOL_VERSION 2.4 → **2.5**):**
+two gaps found by walking a real three-step lesson, both fixed and proven on the
+real exe. (1) **A mount is a subscription, not a resolution** — any node-id
+target that has not appeared now ARMS whatever its trigger, because "click the
+thing the last step revealed" is the shape of every lesson; only a name/role
+locator is refused. (2) **Completion is a level, not an edge** — measured: a
+touchpoint waiting on `shell.route-changed/workbench/library` while already on
+that route NEVER fires (edge triggers are documented as edges), so every step
+whose goal is already met hangs forever, which kills resumed lessons and the
+"from any starting point" premise. New `Touchpoint.until` carries a narrow
+`CoachCondition` (`node-value`/`node-visible`/`node-gone`) read EVERY pass, and
+`CoachEvent::Satisfied` is distinct from `Triggered`: the step is done because
+the app REACHED THE STATE. It lives in `egui-pilot-ai` (not the devtools-gated
+runtime) so shipped lessons need no pilot pipe. Corollary discovered while
+proving it: **a trigger must not end a step that has a postcondition** — the
+press fired on the click that merely OPENED the rail accordion and `once` tore
+the step down before navigation; `push_fired` now skips auto-unmount when
+`until` is set (the press is still reported — a hint, not the truth). Also:
+`pilot_start` takes `window: "<w>x<h>"`, and a handshake timeout now NAMES the
+usual cause (a target built without `--features eguipilotai-devtools` is
+healthy and completely mute). **Two blockers for the first real lesson, both
+open:** a full snapshot on `workbench/library` returns **SIX nodes** (five hub
+tiles + chat window — Library content carries no pilot ids, accordion sub-rows
+do not exist until their tile is clicked), and rail values pack route + fold
+state into one string (`active+open`), so node state is not cleanly queryable —
+openness belongs in `NodeState`. Instrumentation coverage, not coach
+capability, is now the binding constraint. Spikes filed:
+`docs/plans/lesson-overlay-spike.md` (X11 + wgpu transparency PROVEN by probe;
+`mouse_passthrough` still unproven) and
+`docs/plans/coach-c2s-foreign-target-spike.md`.
+
 **2026-07-27 — WF1: THE WORKFLOW ENGINE + SLOTTED STORYBOARD (PR #105):**
 the first pass of the ratified Workflows program (`docs/plans/
 wiredfront-workflows-program.md`; plan `wf1-workflow-engine.md` §3a = the

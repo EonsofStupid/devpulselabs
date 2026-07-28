@@ -277,10 +277,18 @@ mod tests {
 
     #[test]
     fn assets_referenced_by_the_catalog_exist_in_the_repo() {
+        // Anchored to the source tree, not to wherever the test binary landed.
+        // `locate_asset` walks up from the executable, so it only reaches the
+        // repo when the target directory sits inside it — and a shared
+        // CARGO_TARGET_DIR is ordinary, not exotic.
+        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .expect("crates/<name> sits two levels below the repo root");
         for which in Loop::ALL {
             for rel in [which.video_rel(), which.poster_rel()] {
                 assert!(
-                    dpl_video::locate_asset(rel).is_some(),
+                    repo.join(rel).is_file(),
                     "catalog references a missing asset: {rel}"
                 );
             }

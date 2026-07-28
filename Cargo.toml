@@ -62,6 +62,7 @@ members = [
     "crates/hubs/workbench",
     "crates/hubs/wiredfront",
     "crates/app",
+    "crates/desktop-spike",
     "crates/xtask",
 ]
 

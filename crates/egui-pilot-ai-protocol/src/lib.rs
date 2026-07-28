@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 2, minor: 4 };
+pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 2, minor: 6 };
 pub const DEFAULT_AGENT_NODES: usize = 200;
 pub const DEFAULT_AGENT_BYTES: usize = 12 * 1024;
 pub const MAX_AGENT_NODES: usize = 1_000;
@@ -919,6 +919,62 @@ pub enum CoachRefusal {
     UnsupportedTrigger,
 }
 
+/// A **level**, not an edge — the deliberate counterpart to [`TriggerKind`].
+///
+/// A trigger reports that something *happened*; a condition reports that the
+/// application *is* in a state. A lesson step needs the second: "you are on
+/// the Episodes route" must be true for someone who navigated there a moment
+/// ago and equally for someone who was already there, or every step a learner
+/// has already satisfied hangs waiting for a transition that will not repeat.
+///
+/// The vocabulary is deliberately narrow because the semantic tree already
+/// carries what a lesson asks about — an active rail subroute reports
+/// `selected` while its siblings report `available`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum CoachCondition {
+    /// The node is on screen and reports this value.
+    NodeValue { node: NodeId, value: String },
+    /// The node is on screen.
+    NodeVisible { node: NodeId },
+    /// The node is not on screen. The state a step reaches by closing
+    /// something.
+    NodeGone { node: NodeId },
+    /// A typed state flag, which a value string cannot be trusted to carry.
+    /// Unset is not `false`: a widget that does not report the flag at all
+    /// answers neither `true` nor `false`, and this condition stays unmet
+    /// rather than guessing.
+    NodeFlag {
+        node: NodeId,
+        flag: NodeFlagKind,
+        on: bool,
+    },
+}
+
+/// The flags on [`NodeState`] a condition may ask about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NodeFlagKind {
+    Expanded,
+    Selected,
+    Checked,
+    Focused,
+    Disabled,
+}
+
+impl NodeFlagKind {
+    /// `None` when the node does not report this flag at all.
+    pub fn read(self, state: &NodeState) -> Option<bool> {
+        match self {
+            Self::Expanded => state.expanded,
+            Self::Selected => state.selected,
+            Self::Checked => state.checked,
+            Self::Focused => Some(state.focused),
+            Self::Disabled => Some(state.disabled),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Touchpoint {
     pub coach_id: CoachId,
@@ -927,6 +983,12 @@ pub struct Touchpoint {
     pub visual: CoachStyle,
     #[serde(default)]
     pub on: TriggerKind,
+    /// The postcondition that actually completes the step, read every pass and
+    /// satisfied at once when already true. Separate from `on`, which only
+    /// says what input to expect: a press is a hint, the state is the truth.
+    /// `None` keeps the pre-2.5 behavior of completing on the trigger alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until: Option<CoachCondition>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -946,9 +1008,10 @@ pub enum CoachCommand {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum CoachEvent {
-    /// Accepted, but its target is not on screen yet. Only an edge trigger
-    /// that can wait (`NodeAppeared`) mounts this way; `Mounted` follows if
-    /// the target resolves.
+    /// Accepted, but its target is not on screen yet. Any trigger aimed by
+    /// node id mounts this way when its target has not appeared — a mount is
+    /// a subscription, not a resolution — and `Mounted` follows once the
+    /// target resolves. A name or role locator cannot be waited for.
     Armed {
         coach_id: CoachId,
     },
@@ -960,6 +1023,13 @@ pub enum CoachEvent {
         coach_id: CoachId,
         kind: TriggerKind,
         actor: CoachActor,
+    },
+    /// The touchpoint's postcondition holds. Distinct from `Triggered`, which
+    /// reports an input edge: the step is complete because the application
+    /// reached the state, not because a button was pressed. Emitted on the
+    /// first pass the condition is true, which may be the mounting pass.
+    Satisfied {
+        coach_id: CoachId,
     },
     Unmounted {
         coach_id: CoachId,
@@ -979,6 +1049,7 @@ impl CoachEvent {
             Self::Armed { coach_id }
             | Self::Mounted { coach_id, .. }
             | Self::Triggered { coach_id, .. }
+            | Self::Satisfied { coach_id }
             | Self::Unmounted { coach_id, .. }
             | Self::Refused { coach_id, .. } => coach_id,
         }
@@ -989,6 +1060,7 @@ impl CoachEvent {
             Self::Armed { .. } => CoachExpectationState::Armed,
             Self::Mounted { .. } => CoachExpectationState::Mounted,
             Self::Triggered { .. } => CoachExpectationState::Triggered,
+            Self::Satisfied { .. } => CoachExpectationState::Satisfied,
             Self::Unmounted { .. } => CoachExpectationState::Unmounted,
             Self::Refused { .. } => CoachExpectationState::Refused,
         }
@@ -1006,6 +1078,7 @@ pub enum CoachExpectationState {
     Armed,
     Mounted,
     Triggered,
+    Satisfied,
     Unmounted,
     Refused,
 }
@@ -2051,6 +2124,7 @@ mod tests {
                     },
                     visual,
                     on,
+                    until: None,
                     message: Some("Press Save".into()),
                     ttl_ms: None,
                     once: true,
@@ -2162,6 +2236,7 @@ mod tests {
                     },
                     visual: CoachStyle::Spotlight,
                     on: TriggerKind::Press,
+                    until: None,
                     message: Some("Press Save".into()),
                     ttl_ms: Some(15_000),
                     once: true,
