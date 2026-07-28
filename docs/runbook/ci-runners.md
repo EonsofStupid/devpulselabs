@@ -7,17 +7,20 @@ requires archaeology, this runbook has failed — fix it in the same PR.
 
 ## Topology (since 2026-07-28, PR #122)
 
-| Runner | Guest | Labels | Bootstrapped by |
-|---|---|---|---|
-| `devpulse-runner-win-01` | Proxmox VM 119 (win x64) | `dpl-win` | `win-runner-bootstrap.ps1` |
-| `devpulse-runner-lnx-01` | Proxmox LXC 121 (x64) | `dpl-linux`, `rust` | `linux-runner-bootstrap.sh` |
-| `dpl-linux-clyffy-lab` | ARM64 guest | `dpl-linux` | `linux-runner-bootstrap.sh` |
+| Runner | Guest | Labels | Install root | Bootstrapped by |
+|---|---|---|---|---|
+| `devpulse-runner-win-01` | Proxmox VM 119 (win x64) | `dpl-win` | `C:\actions\runner-devpulselabs` | `win-runner-bootstrap.ps1` |
+| `devpulse-runner-lnx-01` | Proxmox LXC 121 (x64) | `dpl-linux`, `rust` | systemd unit is the truth | `linux-runner-bootstrap.sh` |
+| `dpl-linux-clyffy-lab` | ARM64 guest | `dpl-linux` | systemd unit is the truth | `linux-runner-bootstrap.sh` |
 
 Host: the dedicated server (server1 / `ssh.clyffy.ai`, Proxmox; `qm` /
-`pct` as root). The dev laptop is NOT a runner — never restart
-`C:\actions-runner` there. VM 119 also hosts another repo's runner
-(`platform_devpulse`) in its own directory + service: separate
-lifecycles, never touch each other's.
+`pct` as root). The dev laptop is NOT a runner. Guests hosting more
+than one repo's runner use PER-REPO roots — `C:\actions\runner-<repo>`
+on VM 119 (the `platform_devpulse` neighbor lives beside it; separate
+directory + service, separate lifecycles, never touch each other's).
+Two runner installs must NEVER share or hand off a directory — a
+half-moved install left a service pointing at a hollow directory once
+(2026-07-28), and the lane only failed when the VM next restarted.
 
 ## Rebuild from blank
 
