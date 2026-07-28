@@ -3439,7 +3439,8 @@ impl Composer {
                     ),
                 ] {
                     let active = blend == b;
-                    let resp = cl::tip(tag_chip(ui, label, active, label), tip_text);
+                    let key = format!("blend-{label}");
+                    let resp = cl::tip(tag_chip(ui, label, active, &key), tip_text);
                     if resp.clicked() && !active {
                         blend = b;
                         changed = true;
