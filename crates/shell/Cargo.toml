@@ -10,6 +10,7 @@ dpl-hub.workspace = true
 dpl-coldlight.workspace = true
 dpl-fabric.workspace = true
 dpl-backdrop.workspace = true
+dpl-intent.workspace = true
 egui-pilot-ai.workspace = true
 
 [dev-dependencies]

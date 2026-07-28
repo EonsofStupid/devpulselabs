@@ -250,13 +250,13 @@ pub fn comp_for_board(
     for slot in &board.slots {
         match &slot.fill {
             SlotFill::Artifact { rel } => {
-                layers.push(dpl_comp::Layer {
-                    id: slot.id.clone(),
-                    source: dpl_comp::Source::Artifact { rel: rel.clone() },
+                layers.push(dpl_comp::Layer::plain(
+                    slot.id.clone(),
+                    dpl_comp::Source::Artifact { rel: rel.clone() },
                     start,
-                    in_pt: 0.0,
-                    out_pt: DEFAULT_SPAN,
-                });
+                    0.0,
+                    DEFAULT_SPAN,
+                ));
                 start += DEFAULT_SPAN;
             }
             SlotFill::Empty => notes.push(format!("slot {} empty — no layer", slot.id)),

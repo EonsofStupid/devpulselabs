@@ -1641,6 +1641,7 @@ dependencies = [
  "dpl-hub-shows",
  "dpl-hub-wiredfront",
  "dpl-hub-workbench",
+ "dpl-intent",
  "dpl-seam",
  "dpl-shell",
  "dpl-tools-deps",
@@ -1967,6 +1968,7 @@ dependencies = [
  "egui-pilot-ai",
  "serde",
  "serde_json",
+ "sysinfo",
  "zip",
 ]
 
@@ -2078,6 +2080,7 @@ version = "0.1.0"
 dependencies = [
  "dpl-chat-core",
  "dpl-hub",
+ "dpl-intent",
  "tokio",
 ]
 
@@ -2225,6 +2228,7 @@ dependencies = [
  "dpl-fabric",
  "dpl-hub",
  "dpl-index",
+ "dpl-intent",
  "serde",
  "serde_json",
  "tokio",
@@ -2241,6 +2245,7 @@ dependencies = [
  "dpl-coldlight",
  "dpl-fabric",
  "dpl-hub",
+ "dpl-intent",
  "egui",
  "egui-pilot-ai",
  "egui_kittest",

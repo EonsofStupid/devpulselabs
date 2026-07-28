@@ -112,8 +112,8 @@ doctrine completes it.
    four mechanisms — forcing one is forbidden:
    - FACTS (state re-readable; loss OK) → stamped lossy broadcast;
    - PROGRESS (high-frequency, latest-wins) → shared polled state
-     (the RenderState idiom); signals fire ONLY at lifecycle
-     transitions;
+     (the JobBoard row's latest-wins counter — formerly the
+     RenderState idiom); signals fire ONLY at lifecycle transitions;
    - COMMANDS (must not be lost) → guaranteed mpsc with an ack
      shape. CONTRACT ONLY until R2c ships a real consumer — the
      doctrine reserves the seam; nothing speculative ships;
@@ -135,20 +135,25 @@ doctrine completes it.
    (poll-with-repaint where an off-thread signal must surface while
    idle — the render-pill pattern).
 
-6. **The JOBS domain is established NOW (contract), migrated
-   incrementally.** Long-running work (stitch render, pack ingest,
-   guide export, AE orchestration, future gen backends) speaks
-   `JobEvent { Queued{job,label} · Progress{job,stage} ·
-   Done{job,out} · Failed{job,error} }` keyed by a `JobId`. Delivery
-   for job COMMANDS must be guaranteed (mpsc, per the fabric's own
-   note); job STATUS may broadcast. This pass adds the channel and
-   emits ADDITIVELY from the three existing polled states
-   (RenderState / IngestState / ExportState — three bespoke copies of
-   the same polling pattern today); collapsing those states onto the
-   jobs domain is its own later pass. QoL payoff now: chat/agents see
-   render/ingest/export progress LIVE over `/signals`, and the status
-   bar can show one honest "working…" truth instead of per-surface
-   pills.
+6. **The JOBS domain — established at W8, MIGRATED 2026-07-28
+   (`docs/plans/jobs-board-migration.md`).** Long-running work (stitch
+   render, pack ingest, guide export, workflow stages, AE
+   orchestration, future gen backends) speaks `JobEvent {
+   Queued{job,label} · Done{job,out} · Failed{job,error} }` keyed by a
+   `JobId`. Delivery for job COMMANDS must be guaranteed (mpsc,
+   reserved for R2c); job STATUS broadcasts. THE JOBBOARD is the ONE
+   shared polled state: `publish_job` folds every transition into a
+   board inside the fabric BEFORE broadcasting, each row carrying a
+   latest-wins progress counter (law 7's PROGRESS class, centralized —
+   there is NO Progress broadcast variant). The three bespoke polled
+   states (RenderState / IngestState / ExportState) and the seam's
+   RenderStatus mirror are GONE — the composer holds JobId handles,
+   `GET /render` answers from the board, and the status bar's
+   "working…" cell shows one honest truth from every route. Rows
+   resolve in place and leave when their consumer ACKS the outcome
+   (`ack_job`); unacked resolved rows are bounded (cap 64, oldest
+   evicted). The Nth job producer mints + publishes and appears on
+   every consumer for free.
 
 10. **The COACH domain (established 2026-07-28, Phase 1.5 of
    `docs/plans/signal-ledger-and-lesson-foundation.md`).** Touchpoint
@@ -160,9 +165,21 @@ doctrine completes it.
    the domain itself is unconditional so the activity feed, the seam
    envelope, and the future ledger compile once. `Refused` never
    publishes: a refusal is a command result on the pipe, not a
-   lifecycle fact. ANTI-LOOP LAW: the coachable-signal catalog
+   lifecycle fact.    ANTI-LOOP LAW: the coachable-signal catalog
    (`coach_signals.rs`) never subscribes to this domain — a touchpoint
    waiting on a coach event would self-trigger.
+
+11. **The INTENT domain (established 2026-07-28,
+   `docs/plans/determinism-intent-gate.md`).** Privileged-mode transitions
+   and their refusals — `IntentEvent { DeterminismChanged{mode,cause} ·
+   IntentRefused{action,reason} }` — stamped like every other fact domain.
+   The PUBLISHERS are the two greppable mint sites: the chat composer's
+   slash path (`OperatorIntent::slash_command`) and the shell inspector's
+   DETERMINISM card (`OperatorIntent::ui_acknowledged`), plus the harness
+   evidence force (policy, no proof). ANTI-LOOP / ANTI-NARRATION: the
+   coachable-signal catalog never forwards this domain — mode changes are
+   not lesson material, and nothing that flows toward an agent should
+   narrate the escalation surface.
 
 ## Enforcement
 
@@ -187,6 +204,9 @@ doctrine completes it.
   output, and message content are forbidden from the Fabric envelope.
 - The status grid's signal counter: counts capture signals too — the
   operator SEES the fabric breathing.
+- The status grid's `jobs` cell: paints the JobBoard's "working…"
+  truth (running job label + latest-wins progress) from EVERY route;
+  `GET /render` answers agents from the same board.
 - THE ACTIVITY FEED (ratified, ships with the signal pass): a
   ring-buffer subscriber (cap 256, all domains, stamped order)
   rendered live in the shell inspector's SIGNALS card — every save,

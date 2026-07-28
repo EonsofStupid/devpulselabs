@@ -1068,6 +1068,13 @@ impl WiredfrontHub {
         self.composer.import_lottie(path);
     }
 
+    /// The `--fx-drill <clip-rel> <fx-rel>` harness seam (L3): one base
+    /// cut + one transformed/tinted FX overlay, rendered synchronously —
+    /// the headless alpha-overlay proof.
+    pub fn fx_drill(&mut self, clip_rel: &str, fx_rel: &str) {
+        self.composer.fx_drill(clip_rel, fx_rel);
+    }
+
     /// The `--make-slide <asset-rel>` harness seam (W11): mint a media slide
     /// from a content-relative artifact (image/video → one slide; `.pdf` →
     /// page slides) through the shelf's exact "Make slide" path. Prints the

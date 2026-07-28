@@ -395,6 +395,236 @@ pub fn render_stitch(
     run_ffmpeg(stitch_args(clips, w, h, fps, out))
 }
 
+// ── the COMP render (L3) — the base concat + alpha overlays, ONE pass ────
+//
+// Ground truth proven live on ffmpeg 8.1.2 against real RTFX elements
+// (docs/plans/l3-alpha-overlay.md §2/§8): bare `overlay` composites
+// straight (unassociated) alpha correctly — no premultiply handling;
+// `setpts=PTS-STARTPTS+at/TB` places a trimmed leg at timeline time;
+// `enable='between(t,a,b)'` + `eof_action=pass` bound the window (the
+// DEFAULT eof_action freezes an element's last frame over the rest of the
+// base); `colorchannelmixer` diagonal terms tint while alpha survives
+// (`aa` doubles as layer opacity); framesync repeats a 24fps element over
+// a 30fps base by itself — no fps filter on overlay legs.
+
+/// One leg of the comp's BASE track: a real clip/still, or generated black
+/// (a timeline gap under an overlay — e.g. a base-track Lottie's span, or
+/// the tail an overlay hangs past). Black legs keep concat time aligned
+/// with the comp timeline so `enable` windows land exactly.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CompBase {
+    Clip(StitchClip),
+    Black { dur: f32 },
+}
+
+/// Where an overlay's pixels come from: a file ffmpeg decodes whole, or a
+/// numbered PNG sequence (the Lottie helper's `frame-%05d.png` export, or
+/// an element source sequence — which may not start at frame 1).
+#[derive(Debug, Clone, PartialEq)]
+pub enum OverlayInput {
+    File(PathBuf),
+    PngSeq {
+        pattern: PathBuf,
+        fps: f32,
+        start: u32,
+    },
+}
+
+/// One overlay layer in a comp render: trimmed `[in_pt, out_pt)`, placed at
+/// `at` on the comp timeline, aspect-fit into `scale`× the comp frame,
+/// offset `(x, y)` comp-px from center, optionally rgba-multiplied.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OverlayClip {
+    pub input: OverlayInput,
+    pub in_pt: f32,
+    pub out_pt: f32,
+    pub at: f32,
+    pub x: f32,
+    pub y: f32,
+    pub scale: f32,
+    pub tint: Option<[u8; 4]>,
+    /// A held frame (image overlay): the input LOOPS for the span instead
+    /// of being trimmed — a one-frame stream would otherwise vanish after
+    /// its single frame.
+    pub hold: bool,
+}
+
+/// The one-pass comp filtergraph: the PROVEN stitch legs concat into
+/// `[base]`, then every overlay chains on top with its own trim/place/
+/// scale/tint leg and a bounded `enable` window (ADR-009: args verbatim).
+pub fn comp_args(
+    base: &[CompBase],
+    overlays: &[OverlayClip],
+    w: u32,
+    h: u32,
+    fps: u32,
+    out: &Path,
+) -> Vec<String> {
+    let mut args: Vec<String> = vec!["-y".into(), "-v".into(), "error".into()];
+    for leg in base {
+        match leg {
+            CompBase::Clip(c) => {
+                if c.still {
+                    args.push("-loop".into());
+                    args.push("1".into());
+                    args.push("-t".into());
+                    args.push(format!("{:.3}", (c.out_pt - c.in_pt).max(0.05)));
+                }
+                args.push("-i".into());
+                args.push(c.path.to_string_lossy().into_owned());
+            }
+            CompBase::Black { dur } => {
+                args.push("-f".into());
+                args.push("lavfi".into());
+                args.push("-i".into());
+                args.push(format!(
+                    "color=c=black:s={w}x{h}:r={fps}:d={:.3}",
+                    dur.max(0.05)
+                ));
+            }
+        }
+    }
+    for o in overlays {
+        match &o.input {
+            OverlayInput::File(p) => {
+                if o.hold {
+                    args.push("-loop".into());
+                    args.push("1".into());
+                    args.push("-t".into());
+                    args.push(format!("{:.3}", (o.out_pt - o.in_pt).max(0.05)));
+                }
+                args.push("-i".into());
+                args.push(p.to_string_lossy().into_owned());
+            }
+            OverlayInput::PngSeq {
+                pattern,
+                fps,
+                start,
+            } => {
+                args.push("-framerate".into());
+                args.push(format!("{fps}"));
+                args.push("-start_number".into());
+                args.push(format!("{start}"));
+                args.push("-i".into());
+                args.push(pattern.to_string_lossy().into_owned());
+            }
+        }
+    }
+
+    let mut graph = String::new();
+    for (i, leg) in base.iter().enumerate() {
+        match leg {
+            // The stitch legs VERBATIM — the proven concat tier.
+            CompBase::Clip(c) if c.still => graph.push_str(&format!(
+                "[{i}:v]fps={fps},scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[v{i}];"
+            )),
+            CompBase::Clip(c) => {
+                let s = c.in_pt.max(0.0);
+                let e = c.out_pt.max(s);
+                graph.push_str(&format!(
+                    "[{i}:v]trim=start={s:.3}:end={e:.3},setpts=PTS-STARTPTS,fps={fps},scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[v{i}];"
+                ));
+            }
+            CompBase::Black { .. } => graph.push_str(&format!(
+                "[{i}:v]setsar=1,format=yuv420p[v{i}];"
+            )),
+        }
+    }
+    for i in 0..base.len() {
+        graph.push_str(&format!("[v{i}]"));
+    }
+    graph.push_str(&format!("concat=n={}:v=1:a=0[base];", base.len()));
+
+    for (j, o) in overlays.iter().enumerate() {
+        let k = base.len() + j;
+        let s = o.in_pt.max(0.0);
+        let e = o.out_pt.max(s);
+        // Aspect-fit box: scale× the comp frame (1.0 = full-frame native).
+        let tw = ((w as f32) * o.scale).round().max(1.0) as u32;
+        let th = ((h as f32) * o.scale).round().max(1.0) as u32;
+        if o.hold {
+            // The looped input already spans exactly [0, out-in) — no trim.
+            graph.push_str(&format!(
+                "[{k}:v]setpts=PTS-STARTPTS+{:.3}/TB,scale={tw}:{th}:force_original_aspect_ratio=decrease",
+                o.at
+            ));
+        } else {
+            graph.push_str(&format!(
+                "[{k}:v]trim=start={s:.3}:end={e:.3},setpts=PTS-STARTPTS+{:.3}/TB,scale={tw}:{th}:force_original_aspect_ratio=decrease",
+                o.at
+            ));
+        }
+        if let Some([r, g, b, a]) = o.tint {
+            graph.push_str(&format!(
+                ",colorchannelmixer=rr={:.3}:gg={:.3}:bb={:.3}:aa={:.3}",
+                r as f32 / 255.0,
+                g as f32 / 255.0,
+                b as f32 / 255.0,
+                a as f32 / 255.0
+            ));
+        }
+        graph.push_str(&format!("[fx{j}];"));
+
+        let prev = if j == 0 {
+            "base".to_string()
+        } else {
+            format!("ov{}", j - 1)
+        };
+        // Sign-aware offsets: "(W-w)/2-120.0", never "+-120.0" (the ffmpeg
+        // expression parser must never see a double sign).
+        graph.push_str(&format!(
+            "[{prev}][fx{j}]overlay=x=(W-w)/2{:+.1}:y=(H-h)/2{:+.1}:enable='between(t,{:.3},{:.3})':eof_action=pass[ov{j}];",
+            o.x,
+            o.y,
+            o.at,
+            o.at + (o.out_pt - o.in_pt).max(0.0)
+        ));
+    }
+    if overlays.is_empty() {
+        graph.push_str("[base]null[out]");
+    } else {
+        graph.push_str(&format!("[ov{}]format=yuv420p[out]", overlays.len() - 1));
+    }
+
+    args.extend([
+        "-filter_complex".into(),
+        graph,
+        "-map".into(),
+        "[out]".into(),
+        "-c:v".into(),
+        "libx264".into(),
+        "-preset".into(),
+        "slow".into(),
+        "-crf".into(),
+        VIDEO_CRF.to_string(),
+        "-movflags".into(),
+        "+faststart".into(),
+        "-an".into(),
+        out.to_string_lossy().into_owned(),
+    ]);
+    args
+}
+
+/// Render a layered comp to `out` (creating its parent). Honest errors: an
+/// empty base (black legs count — a pure-overlay comp brings its own), or
+/// ffmpeg failure. Blocks — callers run it off the UI thread.
+pub fn render_comp(
+    base: &[CompBase],
+    overlays: &[OverlayClip],
+    w: u32,
+    h: u32,
+    fps: u32,
+    out: &Path,
+) -> Result<(), String> {
+    if base.is_empty() {
+        return Err("nothing to render — the composition has no base track".into());
+    }
+    if let Some(dir) = out.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("render dir: {e}"))?;
+    }
+    run_ffmpeg(comp_args(base, overlays, w, h, fps, out))
+}
+
 // ── the GUIDE renders (W5) — the light replay + the standalone video ─────
 
 /// The "incredibly light" session-replay re-encode: screen capture
@@ -816,6 +1046,213 @@ mod stitch_tests {
     #[test]
     fn render_refuses_an_empty_stitch() {
         assert!(render_stitch(&[], 1920, 1080, 30, Path::new("x.mp4")).is_err());
+    }
+}
+
+#[cfg(test)]
+mod comp_tests {
+    use super::*;
+
+    fn clip(path: &str, in_pt: f32, out_pt: f32) -> CompBase {
+        CompBase::Clip(StitchClip {
+            path: path.into(),
+            in_pt,
+            out_pt,
+            still: false,
+        })
+    }
+
+    fn fx(at: f32) -> OverlayClip {
+        OverlayClip {
+            input: OverlayInput::File("fire.mov".into()),
+            in_pt: 0.5,
+            out_pt: 2.0,
+            at,
+            x: 0.0,
+            y: 0.0,
+            scale: 1.0,
+            tint: None,
+            hold: false,
+        }
+    }
+
+    /// A held-frame overlay loops its input for the span and skips trim —
+    /// a single-frame stream would otherwise vanish after one frame.
+    #[test]
+    fn a_held_overlay_loops_and_never_trims() {
+        let mut o = fx(2.0);
+        o.input = OverlayInput::File("badge.png".into());
+        o.hold = true;
+        let a = comp_args(
+            &[clip("base.mp4", 0.0, 6.0)],
+            &[o],
+            1920,
+            1080,
+            30,
+            Path::new("out.mp4"),
+        )
+        .join(" ");
+        assert!(a.contains("-loop 1 -t 1.500 -i badge.png"), "{a}");
+        assert!(
+            a.contains("[1:v]setpts=PTS-STARTPTS+2.000/TB,scale="),
+            "no trim on a held leg: {a}"
+        );
+    }
+
+    /// The M1 proof, as args: a trimmed element placed at t=2 with a bounded
+    /// enable window, eof_action=pass, centered, aspect-fit full frame.
+    #[test]
+    fn an_overlay_leg_places_trims_and_bounds_exactly_as_proven() {
+        let a = comp_args(
+            &[clip("base.mp4", 0.0, 6.0)],
+            &[fx(2.0)],
+            1920,
+            1080,
+            30,
+            Path::new("out.mp4"),
+        )
+        .join(" ");
+        assert!(a.contains("concat=n=1:v=1:a=0[base];"), "{a}");
+        assert!(
+            a.contains("[1:v]trim=start=0.500:end=2.000,setpts=PTS-STARTPTS+2.000/TB"),
+            "{a}"
+        );
+        assert!(
+            a.contains("scale=1920:1080:force_original_aspect_ratio=decrease[fx0]"),
+            "{a}"
+        );
+        assert!(
+            a.contains(
+                "[base][fx0]overlay=x=(W-w)/2+0.0:y=(H-h)/2+0.0:enable='between(t,2.000,3.500)':eof_action=pass[ov0]"
+            ),
+            "{a}"
+        );
+        assert!(a.contains("[ov0]format=yuv420p[out]"), "{a}");
+        assert!(
+            a.contains("-map [out] -c:v libx264 -preset slow -crf 21"),
+            "{a}"
+        );
+    }
+
+    /// The M2+M3 proofs: scale shrinks the fit box, offsets shift from
+    /// center, and a tint becomes colorchannelmixer diagonals with alpha
+    /// (aa) as opacity — values as 0-1 fractions of the rgba bytes.
+    #[test]
+    fn transform_and_tint_map_to_scale_offset_and_colorchannelmixer() {
+        let mut o = fx(2.0);
+        o.scale = 0.5;
+        o.x = -120.0;
+        o.y = 40.0;
+        o.tint = Some([255, 64, 0, 230]);
+        let a = comp_args(
+            &[clip("base.mp4", 0.0, 6.0)],
+            &[o],
+            1920,
+            1080,
+            30,
+            Path::new("out.mp4"),
+        )
+        .join(" ");
+        assert!(
+            a.contains("scale=960:540:force_original_aspect_ratio=decrease"),
+            "{a}"
+        );
+        assert!(
+            a.contains("colorchannelmixer=rr=1.000:gg=0.251:bb=0.000:aa=0.902[fx0]"),
+            "{a}"
+        );
+        assert!(
+            a.contains("overlay=x=(W-w)/2-120.0:y=(H-h)/2+40.0"),
+            "sign-aware, never a double sign: {a}"
+        );
+    }
+
+    /// The M4 proof: two overlays chain [base]→[ov0]→[ov1], each with its
+    /// own window; the LAST label feeds the yuv420p output normalize.
+    #[test]
+    fn two_overlays_chain_in_order() {
+        let a = comp_args(
+            &[clip("base.mp4", 0.0, 6.0)],
+            &[fx(2.0), fx(3.0)],
+            1920,
+            1080,
+            30,
+            Path::new("out.mp4"),
+        )
+        .join(" ");
+        assert!(a.contains("[base][fx0]overlay"), "{a}");
+        assert!(a.contains("[ov0][fx1]overlay"), "{a}");
+        assert!(a.contains("enable='between(t,3.000,4.500)'"), "{a}");
+        assert!(a.contains("[ov1]format=yuv420p[out]"), "{a}");
+        assert!(!a.contains("[ov0]format"), "only the last normalizes: {a}");
+    }
+
+    /// The M5 proof: a PNG sequence joins as an input with -framerate and
+    /// -start_number BEFORE its -i (sequences don't all start at 1).
+    #[test]
+    fn a_png_sequence_overlay_carries_framerate_and_start_number() {
+        let mut o = fx(2.0);
+        o.input = OverlayInput::PngSeq {
+            pattern: "seq/frame-%05d.png".into(),
+            fps: 24.0,
+            start: 53,
+        };
+        let a = comp_args(
+            &[clip("base.mp4", 0.0, 6.0)],
+            &[o],
+            1920,
+            1080,
+            30,
+            Path::new("out.mp4"),
+        )
+        .join(" ");
+        assert!(
+            a.contains("-framerate 24 -start_number 53 -i seq/frame-%05d.png"),
+            "{a}"
+        );
+    }
+
+    /// Black legs (a base-track Lottie's span, an overlay tail) are lavfi
+    /// color inputs sized/paced like the comp and concat like any leg —
+    /// keeping enable windows aligned with the comp timeline.
+    #[test]
+    fn black_legs_keep_the_timeline_aligned() {
+        let base = [
+            clip("a.mp4", 0.0, 3.0),
+            CompBase::Black { dur: 2.5 },
+            clip("b.mp4", 1.0, 4.0),
+        ];
+        let a = comp_args(&base, &[fx(3.0)], 1920, 1080, 30, Path::new("o.mp4")).join(" ");
+        assert!(
+            a.contains("-f lavfi -i color=c=black:s=1920x1080:r=30:d=2.500"),
+            "{a}"
+        );
+        assert!(a.contains("[1:v]setsar=1,format=yuv420p[v1]"), "{a}");
+        assert!(a.contains("concat=n=3:v=1:a=0[base]"), "{a}");
+        assert!(
+            a.contains("[3:v]trim="),
+            "overlay input index follows the base inputs: {a}"
+        );
+    }
+
+    /// No overlays = the concat passes straight through — same output tail.
+    #[test]
+    fn no_overlays_passes_the_base_through() {
+        let a = comp_args(
+            &[clip("a.mp4", 0.0, 3.0)],
+            &[],
+            1920,
+            1080,
+            30,
+            Path::new("o.mp4"),
+        )
+        .join(" ");
+        assert!(a.contains("[base]null[out]"), "{a}");
+    }
+
+    #[test]
+    fn render_comp_refuses_an_empty_base() {
+        assert!(render_comp(&[], &[fx(0.0)], 1920, 1080, 30, Path::new("x.mp4")).is_err());
     }
 }
 

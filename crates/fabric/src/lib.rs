@@ -12,7 +12,7 @@
 pub use dpl_chat_core::ProviderId;
 use dpl_hub::Route;
 use std::fmt;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::broadcast;
@@ -145,6 +145,35 @@ pub struct JobId(pub u64);
 
 /// A jobs-domain subscription.
 pub type JobReceiver = broadcast::Receiver<Stamped<JobEvent>>;
+
+/// One job's live row on THE JOBBOARD (doctrine law 7: PROGRESS is shared
+/// polled state — this row is that state, centralized; signals stay
+/// transition-only). `progress` is a latest-wins unit counter the worker
+/// bumps lock-free (files copied, frames done); 0 until reported.
+#[derive(Debug, Clone)]
+pub struct JobRow {
+    pub job: JobId,
+    pub label: String,
+    pub state: JobState,
+    pub progress: Arc<AtomicUsize>,
+}
+
+impl JobRow {
+    pub fn running(&self) -> bool {
+        matches!(self.state, JobState::Running)
+    }
+}
+
+/// A job's lifecycle position, folded from the jobs stream.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum JobState {
+    Running,
+    Done { out: String },
+    Failed { error: String },
+}
+
+/// Resolved rows kept for unacking consumers before eviction (oldest first).
+const RESOLVED_CAP: usize = 64;
 
 /// Process-unique identity for one provider activation ceremony.
 ///
@@ -384,6 +413,27 @@ pub enum CoachEvent {
 
 pub type CoachReceiver = broadcast::Receiver<Stamped<CoachEvent>>;
 
+/// INTENT-domain signals — privileged-mode transitions and their refusals
+/// (determinism-intent-gate plan; signal-ledger plan §9.2/§9.3). The audit
+/// trail of the operator intent gate: every mode change names its cause,
+/// every refused escalation is a recorded fact.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IntentEvent {
+    /// The determinism mode changed. `cause` is `None` for behavioral
+    /// (the default has no cause), and names who forced strict otherwise.
+    DeterminismChanged {
+        mode: dpl_intent::DeterminismMode,
+        cause: Option<dpl_intent::StrictCause>,
+    },
+    /// A privileged transition was asked for and refused. `action` is what
+    /// was asked (`strict`, `behavioral`); `reason` is why it was refused
+    /// (`synthetic-input` — the pilot attributed the activating input to
+    /// the agent; `evidence-locked` — the run is the evidence).
+    IntentRefused { action: String, reason: String },
+}
+
+pub type IntentReceiver = broadcast::Receiver<Stamped<IntentEvent>>;
+
 /// The installed UI waker callback (doctrine law 6).
 pub type Waker = Arc<dyn Fn() + Send + Sync>;
 
@@ -412,6 +462,12 @@ pub struct Fabric {
     providers: broadcast::Sender<Stamped<ProviderEvent>>,
     build: broadcast::Sender<Stamped<BuildEvent>>,
     coach: broadcast::Sender<Stamped<CoachEvent>>,
+    intent: broadcast::Sender<Stamped<IntentEvent>>,
+    /// THE JOBBOARD — the fold of the jobs stream (+ each row's latest-wins
+    /// progress counter), shared by every Fabric clone. Running rows stay
+    /// until resolved; resolved rows stay until acked, bounded by
+    /// `RESOLVED_CAP` for publishers whose consumers never ack.
+    board: Arc<std::sync::Mutex<Vec<JobRow>>>,
     /// The stamp state: one global sequence + the birth instant.
     seq: Arc<AtomicU64>,
     born: Instant,
@@ -436,6 +492,7 @@ impl Fabric {
         let (providers, _) = broadcast::channel(128);
         let (build, _) = broadcast::channel(64);
         let (coach, _) = broadcast::channel(128);
+        let (intent, _) = broadcast::channel(64);
         Self {
             shell,
             deck,
@@ -444,6 +501,8 @@ impl Fabric {
             providers,
             build,
             coach,
+            intent,
+            board: Arc::new(std::sync::Mutex::new(Vec::new())),
             seq: Arc::new(AtomicU64::new(0)),
             born: Instant::now(),
             waker: Arc::new(std::sync::Mutex::new(None)),
@@ -497,10 +556,104 @@ impl Fabric {
         self.capture.subscribe()
     }
 
-    /// Publish a job transition — stamped, waking the UI.
+    /// Publish a job transition — folded into THE JOBBOARD first, then
+    /// stamped and broadcast, waking the UI (a consumer woken by the signal
+    /// reads a board that is already true).
     pub fn publish_job(&self, event: JobEvent) {
+        self.fold_job(&event);
         let _ = self.jobs.send(self.stamp(event));
         self.wake();
+    }
+
+    fn fold_job(&self, event: &JobEvent) {
+        let mut board = self
+            .board
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match event {
+            JobEvent::Queued { job, label } => {
+                board.retain(|r| r.job != *job);
+                board.push(JobRow {
+                    job: *job,
+                    label: label.clone(),
+                    state: JobState::Running,
+                    progress: Arc::new(AtomicUsize::new(0)),
+                });
+            }
+            JobEvent::Done { job, out } => {
+                Self::resolve(&mut board, *job, JobState::Done { out: out.clone() });
+            }
+            JobEvent::Failed { job, error } => {
+                Self::resolve(
+                    &mut board,
+                    *job,
+                    JobState::Failed {
+                        error: error.clone(),
+                    },
+                );
+            }
+        }
+        // Unacked resolved rows are bounded; Running rows never evict.
+        let mut resolved = board.iter().filter(|r| !r.running()).count();
+        while resolved > RESOLVED_CAP {
+            match board.iter().position(|r| !r.running()) {
+                Some(i) => {
+                    board.remove(i);
+                    resolved -= 1;
+                }
+                None => break,
+            }
+        }
+    }
+
+    /// A transition without a Queued still lands — the board never panics,
+    /// never lies by omission.
+    fn resolve(board: &mut Vec<JobRow>, job: JobId, state: JobState) {
+        match board.iter_mut().find(|r| r.job == job) {
+            Some(row) => row.state = state,
+            None => board.push(JobRow {
+                job,
+                label: "(untracked)".into(),
+                state,
+                progress: Arc::new(AtomicUsize::new(0)),
+            }),
+        }
+    }
+
+    /// One board row, cloned (`progress` shares the live counter).
+    pub fn job(&self, job: JobId) -> Option<JobRow> {
+        self.board
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .find(|r| r.job == job)
+            .cloned()
+    }
+
+    /// The whole board, in arrival order.
+    pub fn jobs(&self) -> Vec<JobRow> {
+        self.board
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// How many jobs are running right now — the "working…" truth.
+    pub fn jobs_running(&self) -> usize {
+        self.board
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .filter(|r| r.running())
+            .count()
+    }
+
+    /// Remove a row — the consumer that showed the outcome acknowledges it.
+    pub fn ack_job(&self, job: JobId) {
+        self.board
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .retain(|r| r.job != job);
     }
 
     pub fn subscribe_jobs(&self) -> JobReceiver {
@@ -535,6 +688,16 @@ impl Fabric {
 
     pub fn subscribe_coach(&self) -> CoachReceiver {
         self.coach.subscribe()
+    }
+
+    /// Publish an INTENT-domain fact (privileged-mode transition/refusal).
+    pub fn publish_intent(&self, event: IntentEvent) {
+        let _ = self.intent.send(self.stamp(event));
+        self.wake();
+    }
+
+    pub fn subscribe_intent(&self) -> IntentReceiver {
+        self.intent.subscribe()
     }
 
     /// Publish, ignoring "no subscribers yet" — a signal with no listeners
@@ -673,6 +836,34 @@ mod tests {
     }
 
     #[test]
+    fn intent_facts_round_trip_with_their_cause() {
+        let fabric = Fabric::new();
+        let mut rx = fabric.subscribe_intent();
+        fabric.publish_intent(IntentEvent::DeterminismChanged {
+            mode: dpl_intent::DeterminismMode::Strict,
+            cause: Some(dpl_intent::StrictCause::Operator(
+                dpl_intent::IntentChannel::SlashCommand,
+            )),
+        });
+        fabric.publish_intent(IntentEvent::IntentRefused {
+            action: "strict".into(),
+            reason: "synthetic-input".into(),
+        });
+        let a = rx.try_recv().unwrap();
+        let b = rx.try_recv().unwrap();
+        assert!(matches!(
+            a.ev,
+            IntentEvent::DeterminismChanged {
+                mode: dpl_intent::DeterminismMode::Strict,
+                ..
+            }
+        ));
+        assert!(matches!(&b.ev, IntentEvent::IntentRefused { reason, .. }
+            if reason == "synthetic-input"));
+        assert!(b.seq > a.seq);
+    }
+
+    #[test]
     fn recorder_facts_round_trip_on_the_capture_domain() {
         // The steps/session recorder's FACTS (state + skip) are capture
         // signals — the COMMAND that toggles recording stays a direct call.
@@ -721,6 +912,79 @@ mod tests {
         assert!(
             job.0 < q.seq,
             "the JobId is causally before its transitions"
+        );
+    }
+
+    #[test]
+    fn the_board_folds_the_job_stream() {
+        let fabric = Fabric::new();
+        let job = fabric.mint_job();
+        fabric.publish_job(JobEvent::Queued {
+            job,
+            label: "render".into(),
+        });
+        assert_eq!(fabric.jobs_running(), 1);
+        let row = fabric.job(job).expect("queued row");
+        assert!(row.running());
+        assert_eq!(row.label, "render");
+        fabric.publish_job(JobEvent::Done {
+            job,
+            out: "inbox/comp-1/render.mp4".into(),
+        });
+        assert_eq!(fabric.jobs_running(), 0);
+        let row = fabric.job(job).expect("resolved row stays until acked");
+        assert_eq!(
+            row.state,
+            JobState::Done {
+                out: "inbox/comp-1/render.mp4".into()
+            }
+        );
+        fabric.ack_job(job);
+        assert!(fabric.job(job).is_none(), "ack removes the row");
+    }
+
+    #[test]
+    fn board_progress_is_shared_with_the_worker() {
+        let fabric = Fabric::new();
+        let job = fabric.mint_job();
+        fabric.publish_job(JobEvent::Queued {
+            job,
+            label: "ingest pack".into(),
+        });
+        let worker = fabric.job(job).expect("row").progress;
+        worker.fetch_add(7, Ordering::Relaxed);
+        let seen = fabric
+            .job(job)
+            .expect("row")
+            .progress
+            .load(Ordering::Relaxed);
+        assert_eq!(seen, 7, "the counter is one shared cell, not a copy");
+    }
+
+    #[test]
+    fn resolved_rows_evict_at_the_cap_running_never() {
+        let fabric = Fabric::new();
+        let running = fabric.mint_job();
+        fabric.publish_job(JobEvent::Queued {
+            job: running,
+            label: "long render".into(),
+        });
+        for _ in 0..70 {
+            let job = fabric.mint_job();
+            fabric.publish_job(JobEvent::Queued {
+                job,
+                label: "stage".into(),
+            });
+            fabric.publish_job(JobEvent::Done {
+                job,
+                out: "ok".into(),
+            });
+        }
+        let rows = fabric.jobs();
+        assert_eq!(rows.iter().filter(|r| !r.running()).count(), 64);
+        assert!(
+            fabric.job(running).is_some_and(|r| r.running()),
+            "the running row outlives every eviction"
         );
     }
 

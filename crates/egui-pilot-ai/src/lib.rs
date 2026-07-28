@@ -330,6 +330,13 @@ struct SharedState {
     /// coach trigger in the same pass is the agent demonstrating, not the
     /// operator answering.
     synthetic_input: HashSet<egui::ViewportId>,
+    /// The same fact for the APPLICATION's own handlers — but never
+    /// consumed by the coach pass, so any number of widgets in the pass can
+    /// ask "was this activation the operator's own hand?" (the provenance
+    /// law: privileged transitions refuse agent-attributed input).
+    /// Maintained at the input hook: present exactly while the viewport's
+    /// current pass carries injected events.
+    synthetic_frame: HashSet<egui::ViewportId>,
 }
 
 #[derive(Clone)]
@@ -628,6 +635,14 @@ impl PilotHandle {
     /// a lifecycle fact.
     pub fn set_coach_event_tap(&self, tap: impl Fn(&CoachEvent) + Send + Sync + 'static) {
         lock(&self.shared).coach.set_tap(std::sync::Arc::new(tap));
+    }
+
+    /// Whether this viewport's current pass carries automation-injected
+    /// input. Unlike the coach's one-shot attribution flag, this query is
+    /// stable for the whole pass — any number of privileged-mode handlers
+    /// can ask, and none of them consume the answer.
+    pub fn frame_input_synthetic(&self, viewport: egui::ViewportId) -> bool {
+        lock(&self.shared).synthetic_frame.contains(&viewport)
     }
 
     pub fn mounted_coach_count(&self) -> usize {
@@ -1036,6 +1051,9 @@ impl egui::Plugin for EguiPilotPlugin {
             }
             if !queued.events.is_empty() {
                 shared.synthetic_input.insert(input.viewport_id);
+                shared.synthetic_frame.insert(input.viewport_id);
+            } else {
+                shared.synthetic_frame.remove(&input.viewport_id);
             }
             input.events.extend(queued.events);
             if let Some(time) = queued.time {
@@ -1051,6 +1069,10 @@ impl egui::Plugin for EguiPilotPlugin {
             // the two-pass parent wake barrier, this prevents either native
             // redraw queue from losing the final one-tick hover/key action.
             ctx.request_repaint_of(input.viewport_id);
+        } else {
+            // A pass with no queued injection is not synthetic, whatever
+            // the previous pass was.
+            shared.synthetic_frame.remove(&input.viewport_id);
         }
     }
 
@@ -1345,6 +1367,7 @@ fn close_viewport(shared: &mut SharedState, egui_id: egui::ViewportId) {
         .retain(|(viewport, _)| *viewport != egui_id);
     shared.viewport_close_requests.remove(&egui_id);
     shared.synthetic_input.remove(&egui_id);
+    shared.synthetic_frame.remove(&egui_id);
     // A closed viewport never paints again, so its touchpoints can no longer
     // notice their own target leaving. End their lifetimes here instead.
     shared.coach.unmount_viewport(egui_id);
@@ -1398,6 +1421,20 @@ pub fn install(ctx: &egui::Context) -> PilotHandle {
 
 pub fn handle(ctx: &egui::Context) -> Option<PilotHandle> {
     ctx.with_plugin::<EguiPilotPlugin, _>(|plugin| plugin.handle())
+}
+
+/// Whether the current viewport's pass carries automation-injected input.
+///
+/// Returns `false` when no plugin is installed — every production build —
+/// because real input is the only input a production build can receive.
+/// Privileged-mode handlers call this at activation time so an agent that
+/// fills a composer and clicks Send gets a recorded refusal, not a mode
+/// change (determinism-intent-gate plan §3.5).
+pub fn input_is_synthetic(ctx: &egui::Context) -> bool {
+    let Some(pilot) = handle(ctx) else {
+        return false;
+    };
+    pilot.frame_input_synthetic(ctx.viewport_id())
 }
 
 pub trait ContextPilotExt {
@@ -1946,6 +1983,49 @@ mod tests {
             kind: protocol::TriggerKind::Press,
             actor: CoachActor::Agent,
         }));
+    }
+
+    #[test]
+    fn the_synthetic_frame_query_survives_the_coach_pass() {
+        let ctx = egui::Context::default();
+        let pilot = install(&ctx);
+        assert!(
+            !input_is_synthetic(&ctx),
+            "no injection yet — real (or absent) input"
+        );
+
+        save_button_frame(&ctx, Default::default());
+        let rect = mount_save_touchpoint(&pilot, true);
+        let _ = pilot.take_coach_events();
+
+        pilot.queue_input(QueuedInput {
+            viewport: egui::ViewportId::ROOT,
+            events: press_at(egui_rect(rect).center()).events,
+            time: None,
+            modifiers: None,
+        });
+        // The input hook marks the frame synthetic; the coach pass must
+        // not clear it — any number of app handlers can still ask.
+        save_button_frame(&ctx, Default::default());
+        assert!(
+            pilot.frame_input_synthetic(egui::ViewportId::ROOT),
+            "injected input is still queryable after the coach pass"
+        );
+        assert!(input_is_synthetic(&ctx));
+
+        // A subsequent pass with no queued injection clears the flag.
+        save_button_frame(&ctx, Default::default());
+        assert!(!pilot.frame_input_synthetic(egui::ViewportId::ROOT));
+        assert!(!input_is_synthetic(&ctx));
+    }
+
+    #[test]
+    fn input_is_synthetic_is_false_without_a_plugin() {
+        let ctx = egui::Context::default();
+        assert!(
+            !input_is_synthetic(&ctx),
+            "production builds have no plugin — real input is the only input"
+        );
     }
 
     #[test]

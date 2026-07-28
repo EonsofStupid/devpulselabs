@@ -21,6 +21,7 @@ mod browse;
 pub mod import;
 mod mogrt;
 mod packs;
+mod rtfx;
 mod state;
 
 use dpl_coldlight::{self as cl, Tone};
@@ -35,7 +36,7 @@ use egui_pilot_ai::{
 };
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -47,6 +48,8 @@ const DEFAULT_IMAGE_SECS: f32 = 5.0;
 const LANE_H: f32 = 26.0;
 const PROP_H: f32 = 20.0;
 const RULER_H: f32 = 22.0;
+/// The FX section divider row's height (L3).
+const FXHDR_H: f32 = 18.0;
 /// The layer OUTLINE column's width (timeline left half).
 const OUTLINE_W: f32 = 252.0;
 
@@ -106,6 +109,16 @@ pub struct Composer {
     /// The LOTTIE preview lane (L2): (layer id, player) when the active
     /// layer is a native Lottie — rendered by the ThorVG subprocess helper.
     preview_lottie: Option<(String, LottiePlayer)>,
+    /// OVERLAY preview lanes (L3): one per live overlay-track layer at the
+    /// playhead, keyed by layer id — reconciled every tick, capped by the
+    /// machine (`PreviewCaps`). Export is NEVER capped.
+    overlay_lanes: Vec<(String, OverlayLane)>,
+    /// The machine-probed preview budget (operator-ratified: dynamic,
+    /// never a hardcoded laptop limit).
+    caps: PreviewCaps,
+    /// Overlay layers at the playhead the caps skipped this tick — the
+    /// viewer names them honestly, never silently.
+    overlays_skipped: usize,
     /// FOOTAGE — video + image artifacts from the index.
     palette: Option<Vec<Record>>,
     /// COMPS — every `inbox/*/comp.json`, as (name, dir).
@@ -118,12 +131,15 @@ pub struct Composer {
     packs: Option<Vec<packs::Pack>>,
     /// The footage row highlighted in the project preview well.
     proj_sel: Option<usize>,
-    /// The off-thread stitch render's shared state.
-    render: Arc<Mutex<RenderState>>,
-    /// The off-thread pack INGEST's shared state (one at a time).
-    ingest: Arc<Mutex<IngestState>>,
-    /// Files processed by the running ingest (the progress pill).
-    ingest_done: Arc<AtomicUsize>,
+    /// The FOOTAGE palette's active tag filter (L3 — the enricher's tags
+    /// made visible; None = everything).
+    palette_tag: Option<String>,
+    /// The in-flight/last stitch render — a handle into the fabric's
+    /// JobBoard (None = never rendered, or the outcome was acknowledged).
+    render_job: Option<dpl_fabric::JobId>,
+    /// The in-flight/last pack INGEST (one at a time) + the pack's
+    /// display name for the progress pill.
+    ingest_job: Option<(dpl_fabric::JobId, String)>,
     /// The active workflow tab (Editor leads; the rest are tailored).
     tab: Tab,
     /// The tool-strip selection (Selection edits today; the rest are
@@ -190,16 +206,17 @@ pub struct Composer {
     /// Two-tap arm for Apply edits — pruning deletes source frames, and a
     /// destructive action never rides one stray tap.
     apply_armed: bool,
-    /// The off-thread guide EXPORT's shared state.
-    export: Arc<Mutex<ExportState>>,
+    /// The in-flight/last guide EXPORT — a JobBoard handle like the rest.
+    export_job: Option<dpl_fabric::JobId>,
     /// The signal fabric (W8, signal-doctrine.md): every mutation this
-    /// editor performs signals; None only in tests/drills that never
-    /// wired one (emissions degrade to silence, never panic).
-    fabric: Option<dpl_fabric::Fabric>,
+    /// editor performs signals. A PRIVATE fabric by default so tests and
+    /// drills keep a working JobBoard (publishes go to no subscribers);
+    /// `wire_fabric` swaps in the app's ONE fabric.
+    fabric: dpl_fabric::Fabric,
     /// Capture-domain subscription — drained each frame; any Saved/
     /// InboxChanged invalidates the project caches (refresh chips stop
     /// being load-bearing).
-    capture_rx: Option<dpl_fabric::CaptureReceiver>,
+    capture_rx: dpl_fabric::CaptureReceiver,
     /// Ring-0 estate — dual-writes last-comp beside composer-state.json.
     /// None in tests/drills that never wired one.
     estate: Option<std::sync::Arc<dpl_estate::Estate>>,
@@ -234,14 +251,6 @@ struct ReviewStep {
     step: dpl_guide::Step,
 }
 
-/// The async guide-export job's state — the Guide tab polls it.
-enum ExportState {
-    Idle,
-    Running,
-    Done(PathBuf),
-    Failed(String),
-}
-
 /// One deferred Guide-tab action (collected during paint, applied after —
 /// the tab reads several caches while building its rows).
 enum GAct {
@@ -267,6 +276,10 @@ enum Drag {
 
 impl Default for Composer {
     fn default() -> Self {
+        // A PRIVATE fabric until the app wires the real one — the JobBoard
+        // works in tests/drills; publishes simply have no subscribers.
+        let fabric = dpl_fabric::Fabric::new();
+        let capture_rx = fabric.subscribe_capture();
         let mut c = Self {
             comp: Composition::default_1080p30(),
             dir: None,
@@ -274,15 +287,18 @@ impl Default for Composer {
             preview: None,
             preview_still: None,
             preview_lottie: None,
+            overlay_lanes: Vec::new(),
+            caps: PreviewCaps::probe(),
+            overlays_skipped: 0,
             palette: None,
             comps: None,
             renders: None,
             elements: None,
             packs: None,
             proj_sel: None,
-            render: Arc::new(Mutex::new(RenderState::Idle)),
-            ingest: Arc::new(Mutex::new(IngestState::Idle)),
-            ingest_done: Arc::new(AtomicUsize::new(0)),
+            palette_tag: None,
+            render_job: None,
+            ingest_job: None,
             tab: initial_tab(),
             etool: EditorTool::Select,
             atool: AnnotateTool::Select,
@@ -313,9 +329,9 @@ impl Default for Composer {
             make_video: true,
             make_gif: true,
             apply_armed: false,
-            export: Arc::new(Mutex::new(ExportState::Idle)),
-            fabric: None,
-            capture_rx: None,
+            export_job: None,
+            fabric,
+            capture_rx,
             estate: None,
             wf_run: None,
             status: "New composition — add footage from the Project panel.".into(),
@@ -345,6 +361,22 @@ enum Act {
     /// length, images held DEFAULT_IMAGE_SECS (W7); the row also lands
     /// in the preview well.
     Add(usize),
+    /// Overlay a FOOTAGE row ON TOP of the timeline at the playhead —
+    /// alpha composites over the cuts (L3, the FX track).
+    AddOverlay(usize),
+    /// Filter the FOOTAGE palette by an index tag (None = everything) —
+    /// in-memory over the loaded records, the house pattern.
+    PaletteTag(Option<String>),
+    /// Edit the selected overlay's transform/tint from the inspector.
+    /// `fresh` marks the first change of a gesture (one undo step).
+    OverlayEdit {
+        id: String,
+        x: f32,
+        y: f32,
+        scale: f32,
+        tint: Option<[u8; 4]>,
+        fresh: bool,
+    },
     /// Append a RENDER (name, rel_path) as a new layer.
     AddRender(String, String),
     /// Open a comp document folder.
@@ -506,31 +538,21 @@ impl AnnotateTool {
 enum Row {
     Layer(usize),
     Prop(usize, &'static str),
+    /// The FX section divider — overlays composite over the cuts (L3).
+    FxHeader,
+    /// An FX overlay layer (index into the fx track, tracks[1]).
+    Fx(usize),
+    FxProp(usize, &'static str),
 }
 
 impl Row {
     fn height(&self) -> f32 {
         match self {
-            Row::Layer(_) => LANE_H,
-            Row::Prop(..) => PROP_H,
+            Row::Layer(_) | Row::Fx(_) => LANE_H,
+            Row::Prop(..) | Row::FxProp(..) => PROP_H,
+            Row::FxHeader => FXHDR_H,
         }
     }
-}
-
-/// The async stitch-render job's state — the status row polls it.
-enum RenderState {
-    Idle,
-    Running,
-    Done(PathBuf),
-    Failed(String),
-}
-
-/// The async pack-ingest job's state — the status line polls it.
-enum IngestState {
-    Idle,
-    Running { pack: String },
-    Done { pack: String, copied: usize },
-    Failed(String),
 }
 
 impl Composer {
@@ -553,6 +575,247 @@ impl Composer {
             .first()
             .map(|t| t.layers.as_slice())
             .unwrap_or(&[])
+    }
+
+    /// The FX overlay track's layers (row 0 = topmost), empty pre-L3.
+    fn fx_layers(&self) -> &[Layer] {
+        self.comp
+            .tracks
+            .get(1)
+            .map(|t| t.layers.as_slice())
+            .unwrap_or(&[])
+    }
+
+    /// A layer anywhere in the comp, by its comp-unique id.
+    fn layer_mut(&mut self, id: &str) -> Option<&mut Layer> {
+        self.comp
+            .tracks
+            .iter_mut()
+            .flat_map(|t| t.layers.iter_mut())
+            .find(|l| l.id == id)
+    }
+
+    /// Overlay-track layers (tracks 1..) under the playhead, in PAINT order
+    /// — earlier tracks first, and within a track the BOTTOM row first
+    /// (row 0 = topmost, exactly like the base track). The topmost layer is
+    /// therefore LAST, and the caps walk keeps it first.
+    fn overlay_layers_at(&self, t: f32) -> Vec<&Layer> {
+        let mut out = Vec::new();
+        for track in self.comp.tracks.iter().skip(1) {
+            for layer in track.layers.iter().rev() {
+                if t >= layer.start && t < layer.end().max(layer.start) {
+                    out.push(layer);
+                }
+            }
+        }
+        out
+    }
+
+    /// The overlay ("fx") track, created on first use — track 0 stays the
+    /// base cuts; tracks 1.. composite over it (dpl-comp track law).
+    fn ensure_fx_track(&mut self) -> usize {
+        if self.comp.tracks.len() < 2 {
+            self.comp.tracks.push(dpl_comp::Track {
+                id: "fx".into(),
+                layers: Vec::new(),
+            });
+        }
+        1
+    }
+
+    /// Place a footage record as an FX OVERLAY at the playhead — the
+    /// element composites over whatever the base is showing there, at its
+    /// full trimmed span, untinted and full-frame until the inspector says
+    /// otherwise.
+    fn add_overlay(&mut self, rec: &Record) {
+        self.checkpoint();
+        let path = Self::resolve(&rec.rel_path);
+        let span = if rec.kind == "image" {
+            DEFAULT_IMAGE_SECS
+        } else {
+            rec.seconds
+                .filter(|s| *s > 0)
+                .map(|s| s as f32)
+                .or_else(|| dpl_video::clip::clip_duration(&path))
+                .unwrap_or(FALLBACK_CLIP_SECS)
+        };
+        let at = self.time;
+        let id = self.next_layer_id();
+        let track = self.ensure_fx_track();
+        self.comp.tracks[track].layers.insert(
+            0,
+            Layer::plain(
+                id.clone(),
+                Source::Artifact {
+                    rel: rec.rel_path.clone(),
+                },
+                at,
+                0.0,
+                span,
+            ),
+        );
+        self.status = format!(
+            "{} overlays at {at:.1}s — scale, nudge, tint it below.",
+            rec.name
+        );
+        self.select(&id);
+        self.mark_edit();
+    }
+
+    /// Keep ONE preview lane per overlay layer under the playhead — open on
+    /// enter, drop on exit, re-seek clip lanes on drift (the 0.35s law),
+    /// re-render Lottie lanes at layer-local time. The machine's caps bound
+    /// the live lanes; TOPMOST wins; the viewer names what's skipped.
+    fn reconcile_overlays(&mut self, ctx: &egui::Context) {
+        let wanted: Vec<(String, Source, f32)> = self
+            .overlay_layers_at(self.time)
+            .iter()
+            .filter(|l| !matches!(l.source, Source::Element { .. }))
+            .map(|l| {
+                (
+                    l.id.clone(),
+                    l.source.clone(),
+                    (l.in_pt + (self.time - l.start)).max(0.0),
+                )
+            })
+            .collect();
+
+        // Cap from the END of paint order (= topmost first). Stills are
+        // pipe-free and never counted.
+        let mut keep: Vec<&(String, Source, f32)> = Vec::new();
+        let (mut clips, mut lots) = (0usize, 0usize);
+        for entry in wanted.iter().rev() {
+            let ok = match &entry.1 {
+                Source::Lottie { .. } => {
+                    lots += 1;
+                    lots <= self.caps.lottie_lanes
+                }
+                Source::Artifact { rel } => {
+                    if dpl_engine_media::is_still(&Self::resolve(rel)) {
+                        true
+                    } else {
+                        clips += 1;
+                        clips <= self.caps.clip_lanes
+                    }
+                }
+                Source::Element { .. } => false,
+            };
+            if ok {
+                keep.push(entry);
+            }
+        }
+        self.overlays_skipped = wanted.len() - keep.len();
+
+        self.overlay_lanes
+            .retain(|(id, _)| keep.iter().any(|(k, _, _)| k == id));
+        for (id, source, want) in keep {
+            let have = self.overlay_lanes.iter().position(|(k, _)| k == id);
+            match source {
+                Source::Artifact { rel } => {
+                    let path = Self::resolve(rel);
+                    if dpl_engine_media::is_still(&path) {
+                        if have.is_none() {
+                            let uri =
+                                format!("file:///{}", path.to_string_lossy().replace('\\', "/"));
+                            self.overlay_lanes
+                                .push((id.clone(), OverlayLane::Still(uri)));
+                        }
+                    } else {
+                        let idx = match have {
+                            Some(i) => i,
+                            None => {
+                                let mut player = ClipPlayer::open(path);
+                                player.seek(*want);
+                                self.overlay_lanes
+                                    .push((id.clone(), OverlayLane::Clip(player)));
+                                self.overlay_lanes.len() - 1
+                            }
+                        };
+                        if let Some((_, OverlayLane::Clip(player))) =
+                            self.overlay_lanes.get_mut(idx)
+                        {
+                            if (player.position() - want).abs() > 0.35 {
+                                player.seek(*want);
+                            }
+                            if player.playing() != self.playing {
+                                player.toggle();
+                            }
+                        }
+                    }
+                }
+                Source::Lottie { rel } => {
+                    let path = Self::resolve(rel);
+                    let idx = match have {
+                        Some(i) => i,
+                        None => {
+                            let Some(lp) = LottiePlayer::open(&path) else {
+                                continue;
+                            };
+                            self.overlay_lanes
+                                .push((id.clone(), OverlayLane::Lottie(lp)));
+                            self.overlay_lanes.len() - 1
+                        }
+                    };
+                    if let Some((_, OverlayLane::Lottie(lp))) = self.overlay_lanes.get_mut(idx) {
+                        lp.render(ctx, *want);
+                    }
+                }
+                Source::Element { .. } => {}
+            }
+        }
+        if !self.overlay_lanes.is_empty() && self.playing {
+            ctx.request_repaint_after(Duration::from_millis(16));
+        }
+    }
+
+    /// Paint the live overlay lanes into the viewer `frame`, back-to-front,
+    /// honoring each layer's scale/offset/tint (the tint rides egui's
+    /// per-draw multiply — the 4th `painter.image` arg). Overlays
+    /// LETTERBOX inside their box (never cover-crop): a full-frame element
+    /// must never lose edges. Straight-alpha textures stack correctly.
+    fn paint_overlays(&self, ui: &egui::Ui, frame: Rect) {
+        let px = frame.width() / (self.comp.w.max(1) as f32);
+        for layer in self.overlay_layers_at(self.time) {
+            let Some((_, lane)) = self.overlay_lanes.iter().find(|(k, _)| k == &layer.id) else {
+                continue;
+            };
+            let tint = layer
+                .tint
+                .map(|[r, g, b, a]| Color32::from_rgba_unmultiplied(r, g, b, a))
+                .unwrap_or(Color32::WHITE);
+            let center = frame.center() + egui::vec2(layer.x * px, layer.y * px);
+            let bx = Rect::from_center_size(center, frame.size() * layer.scale);
+            match lane {
+                OverlayLane::Clip(player) => {
+                    if let Some(tex) = player.texture(ui.ctx()) {
+                        // The clip decode is 16:9 cover — a 16:9 box keeps it true.
+                        let r = fit_aspect(bx, DECODE_W as f32 / DECODE_H as f32);
+                        ui.painter().image(tex, r, FULL_UV, tint);
+                    }
+                }
+                OverlayLane::Lottie(lp) => {
+                    if let Some(tex) = lp.id() {
+                        let r = fit_aspect(bx, lp.aspect());
+                        ui.painter().image(tex, r, FULL_UV, tint);
+                    }
+                }
+                OverlayLane::Still(uri) => {
+                    egui::Image::new(uri.as_str()).tint(tint).paint_at(ui, bx);
+                }
+            }
+        }
+        if self.overlays_skipped > 0 {
+            ui.painter().text(
+                frame.left_bottom() + egui::vec2(cl::space::S2, -cl::space::S2),
+                egui::Align2::LEFT_BOTTOM,
+                format!(
+                    "{} overlay(s) past this machine's preview budget — all render in export",
+                    self.overlays_skipped
+                ),
+                egui::TextStyle::Small.resolve(ui.style()),
+                cl::ink::MUTED,
+            );
+        }
     }
 
     /// A layer id unique across the comp: the first free `clip-N`.
@@ -589,15 +852,15 @@ impl Composer {
         let id = self.next_layer_id();
         // default_1080p30 guarantees a "main" track exists.
         if let Some(track) = self.comp.tracks.first_mut() {
-            track.layers.push(Layer {
-                id: id.clone(),
-                source: Source::Artifact {
+            track.layers.push(Layer::plain(
+                id.clone(),
+                Source::Artifact {
                     rel: rec.rel_path.clone(),
                 },
                 start,
-                in_pt: 0.0,
+                0.0,
                 out_pt,
-            });
+            ));
         }
         self.status = format!(
             "Added {} — {} layer(s), {:.1}s total.",
@@ -621,15 +884,15 @@ impl Composer {
         let start = self.comp.duration();
         let id = self.next_layer_id();
         if let Some(track) = self.comp.tracks.first_mut() {
-            track.layers.push(Layer {
-                id: id.clone(),
-                source: Source::Lottie {
+            track.layers.push(Layer::plain(
+                id.clone(),
+                Source::Lottie {
                     rel: rec.rel_path.clone(),
                 },
                 start,
-                in_pt: 0.0,
+                0.0,
                 out_pt,
-            });
+            ));
         }
         self.status = format!("Added {} — native Lottie, {out_pt:.1}s.", rec.name);
         self.select(&id);
@@ -664,6 +927,9 @@ impl Composer {
             }
             ctx.request_repaint_after(Duration::from_millis(16));
         }
+        // L3: overlay lanes reconcile FIRST — they live regardless of what
+        // (or whether anything) is under the playhead on the base track.
+        self.reconcile_overlays(ctx);
         let Some(i) = Self::active_layer_at(self.layers(), self.time) else {
             // A gap (or an empty comp): nothing to follow. Keep the last
             // player around — re-entering its layer resumes cheaply.
@@ -744,9 +1010,11 @@ impl Composer {
 
     fn remove(&mut self, id: &str) {
         self.checkpoint();
-        if let Some(track) = self.comp.tracks.first_mut() {
+        // EVERY track — an FX overlay removes exactly like a base cut.
+        for track in &mut self.comp.tracks {
             track.layers.retain(|l| l.id != id);
         }
+        self.overlay_lanes.retain(|(k, _)| k != id);
         self.expanded.remove(id);
         if self.selected.as_deref() == Some(id) {
             self.selected = None;
@@ -835,6 +1103,7 @@ impl Composer {
         self.preview = None;
         self.preview_still = None;
         self.preview_lottie = None;
+        self.overlay_lanes.clear();
         self.proj_sel = None;
         self.time = 0.0;
         self.playing = false;
@@ -986,6 +1255,7 @@ impl Composer {
                 self.preview = None;
                 self.preview_still = None;
                 self.preview_lottie = None;
+                self.overlay_lanes.clear();
                 self.expanded.clear();
                 self.time = 0.0;
                 self.playing = false;
@@ -1009,53 +1279,132 @@ impl Composer {
             .unwrap()
     }
 
-    /// The main track's playable (artifact) layers → stitch clips, in order.
-    /// Element sources have no file yet (the ingest pass) — skipped.
-    fn stitch_clips(&self) -> Vec<StitchClip> {
-        self.layers()
-            .iter()
-            .filter_map(|l| match &l.source {
+    /// Gather the L3 render inputs from the WHOLE comp (all tracks), pure.
+    /// Base track: artifacts become concat legs; a Lottie span becomes a
+    /// BLACK leg + a same-timed overlay (the native render composites on
+    /// top, timeline-true). Overlay tracks: bottom row first within a
+    /// track (row 0 = topmost), tracks in order — stack order. The base is
+    /// padded black to the comp's full duration so overlays past the last
+    /// cut stay visible (output length = concat length).
+    fn render_parts(&self) -> RenderParts {
+        use dpl_engine_media::{CompBase, OverlayClip, OverlayInput};
+        let mut base = Vec::new();
+        let mut overlays = Vec::new();
+        let mut elements_skipped = 0usize;
+        let mut base_end = 0.0f32;
+        for l in self.layers() {
+            match &l.source {
                 Source::Artifact { rel } => {
                     let path = Self::resolve(rel);
-                    Some(StitchClip {
+                    base.push(CompBase::Clip(StitchClip {
                         still: dpl_engine_media::is_still(&path),
                         path,
                         in_pt: l.in_pt,
                         out_pt: l.out_pt,
-                    })
+                    }));
+                    base_end = base_end.max(l.end());
                 }
-                Source::Element { .. } => None,
-                // L2: Lottie previews live but is NOT in the stitch yet —
-                // export (helper frame-seq → ffmpeg) lands in L3. The Render
-                // action names the skipped Lottie layer(s) honestly.
-                Source::Lottie { .. } => None,
-            })
-            .collect()
+                Source::Lottie { rel } => {
+                    base.push(CompBase::Black {
+                        dur: l.span().max(0.05),
+                    });
+                    overlays.push(OverlaySlot::Lottie(PendingLottie {
+                        path: Self::resolve(rel),
+                        in_pt: l.in_pt,
+                        out_pt: l.out_pt,
+                        at: l.start,
+                        x: l.x,
+                        y: l.y,
+                        scale: l.scale,
+                        tint: l.tint,
+                    }));
+                    base_end = base_end.max(l.end());
+                }
+                Source::Element { .. } => elements_skipped += 1,
+            }
+        }
+        for track in self.comp.tracks.iter().skip(1) {
+            for l in track.layers.iter().rev() {
+                match &l.source {
+                    Source::Artifact { rel } => {
+                        let path = Self::resolve(rel);
+                        let hold = dpl_engine_media::is_still(&path);
+                        overlays.push(OverlaySlot::Ready(OverlayClip {
+                            input: OverlayInput::File(path),
+                            in_pt: l.in_pt,
+                            out_pt: l.out_pt,
+                            at: l.start,
+                            x: l.x,
+                            y: l.y,
+                            scale: l.scale,
+                            tint: l.tint,
+                            hold,
+                        }));
+                    }
+                    Source::Lottie { rel } => {
+                        overlays.push(OverlaySlot::Lottie(PendingLottie {
+                            path: Self::resolve(rel),
+                            in_pt: l.in_pt,
+                            out_pt: l.out_pt,
+                            at: l.start,
+                            x: l.x,
+                            y: l.y,
+                            scale: l.scale,
+                            tint: l.tint,
+                        }));
+                    }
+                    Source::Element { .. } => elements_skipped += 1,
+                }
+            }
+        }
+        let comp_dur = self.comp.duration();
+        if comp_dur > base_end + 0.05 {
+            base.push(CompBase::Black {
+                dur: comp_dur - base_end,
+            });
+        }
+        if base.is_empty() && !overlays.is_empty() {
+            base.push(CompBase::Black {
+                dur: comp_dur.max(0.05),
+            });
+        }
+        RenderParts {
+            base,
+            overlays,
+            elements_skipped,
+        }
     }
 
     /// Kick off the ffmpeg stitch render OFF the UI thread; the status row
-    /// polls the shared `RenderState`. Output colocates with the comp as
-    /// `<comp-dir>/render.mp4` (the comp folder is minted if unsaved).
+    /// reads this job's row on the fabric's JobBoard. Output colocates with
+    /// the comp as `<comp-dir>/render.mp4` (the comp folder is minted if
+    /// unsaved).
     fn start_render(&mut self) {
-        let clips = self.stitch_clips();
-        // L2: Lottie layers preview live but aren't in the stitch yet
-        // (export = L3) — say so honestly so the render is never silently
-        // missing them.
-        let lottie_n = self
-            .layers()
-            .iter()
-            .filter(|l| matches!(l.source, Source::Lottie { .. }))
-            .count();
-        if lottie_n > 0 {
+        let parts = self.render_parts();
+        // Honesty: Element layers have no playable file (dormant R1c
+        // placeholder) — the render never silently drops them unnamed.
+        if parts.elements_skipped > 0 {
             self.status = format!(
-                "Rendering the {} clip layer(s) — {lottie_n} Lottie layer(s) preview live; \
-                 timeline export lands next.",
-                clips.len()
+                "Rendering — {} element layer(s) have no playable file yet and are skipped.",
+                parts.elements_skipped
             );
         }
-        if clips.is_empty() {
-            *self.render.lock().expect("render state") =
-                RenderState::Failed("no playable clips to render yet".into());
+        // ONE render slot: acknowledging the previous outcome keeps the
+        // board tidy — the new row is the pill from here on.
+        let job = self.fabric.mint_job();
+        if let Some(old) = self.render_job.replace(job) {
+            self.fabric.ack_job(old);
+        }
+        self.fabric.publish_job(dpl_fabric::JobEvent::Queued {
+            job,
+            label: "render".into(),
+        });
+        if parts.base.is_empty() {
+            // The refusal is an honest fact — queued, failed, on the record.
+            self.fabric.publish_job(dpl_fabric::JobEvent::Failed {
+                job,
+                error: "no playable clips to render yet".into(),
+            });
             return;
         }
         if self.dir.is_none() {
@@ -1063,46 +1412,25 @@ impl Composer {
         }
         let out = self.dir.clone().unwrap().join("render.mp4");
         let (w, h, fps) = (self.comp.w, self.comp.h, self.comp.fps);
-        let state = Arc::clone(&self.render);
-        *state.lock().expect("render state") = RenderState::Running;
-        // Jobs domain (doctrine law 8): transitions signal; the polled
-        // RenderState stays the progress truth.
         let fabric = self.fabric.clone();
-        let job = fabric.as_ref().map(|f| f.mint_job());
-        if let (Some(f), Some(j)) = (&fabric, job) {
-            f.publish_job(dpl_fabric::JobEvent::Queued {
-                job: j,
-                label: "render".into(),
-            });
-        }
         std::thread::Builder::new()
             .name("dpl-composer-render".into())
-            .spawn(move || {
-                let result = dpl_engine_media::render_stitch(&clips, w, h, fps, &out);
-                *state.lock().expect("render state") = match result {
+            .spawn(
+                move || match render_comp_resolving(parts, w, h, fps, &out) {
                     Ok(()) => {
                         // Write-through: the render becomes an ordinary
                         // indexed artifact so Gallery/Keep/agents see it.
-                        index_render(&out, fabric.as_ref());
-                        if let (Some(f), Some(j)) = (&fabric, job) {
-                            f.publish_job(dpl_fabric::JobEvent::Done {
-                                job: j,
-                                out: out.display().to_string(),
-                            });
-                        }
-                        RenderState::Done(out)
+                        index_render(&out, Some(&fabric));
+                        fabric.publish_job(dpl_fabric::JobEvent::Done {
+                            job,
+                            out: out.display().to_string(),
+                        });
                     }
                     Err(e) => {
-                        if let (Some(f), Some(j)) = (&fabric, job) {
-                            f.publish_job(dpl_fabric::JobEvent::Failed {
-                                job: j,
-                                error: e.clone(),
-                            });
-                        }
-                        RenderState::Failed(e)
+                        fabric.publish_job(dpl_fabric::JobEvent::Failed { job, error: e });
                     }
-                };
-            })
+                },
+            )
             .expect("spawn render thread");
         self.renders = None;
     }
@@ -1252,13 +1580,14 @@ impl Composer {
         self.apply_armed = false;
     }
 
-    /// Kick off the guide EXPORT off the UI thread; the Guide tab polls
-    /// the shared `ExportState`.
+    /// Kick off the guide EXPORT off the UI thread; the Guide tab reads
+    /// this job's row on the fabric's JobBoard.
     fn start_export(&mut self) {
-        if matches!(
-            *self.export.lock().expect("export state"),
-            ExportState::Running
-        ) {
+        if self
+            .export_job
+            .and_then(|j| self.fabric.job(j))
+            .is_some_and(|r| r.running())
+        {
             return;
         }
         let Some(rev) = &self.review else {
@@ -1275,47 +1604,36 @@ impl Composer {
             make_gif: self.make_gif,
             ..Default::default()
         };
-        let state = Arc::clone(&self.export);
-        *state.lock().expect("export state") = ExportState::Running;
-        let fabric = self.fabric.clone();
-        let job = fabric.as_ref().map(|f| f.mint_job());
-        if let (Some(f), Some(j)) = (&fabric, job) {
-            f.publish_job(dpl_fabric::JobEvent::Queued {
-                job: j,
-                label: "guide export".into(),
-            });
+        let job = self.fabric.mint_job();
+        if let Some(old) = self.export_job.replace(job) {
+            self.fabric.ack_job(old);
         }
+        self.fabric.publish_job(dpl_fabric::JobEvent::Queued {
+            job,
+            label: "guide export".into(),
+        });
+        let fabric = self.fabric.clone();
         std::thread::Builder::new()
             .name("dpl-guide-export".into())
             .spawn(move || {
-                let result = run_export(
+                match run_export(
                     &root,
                     &guide_rel,
                     session_rel.as_deref(),
                     name.as_deref(),
                     opts,
-                    fabric.as_ref(),
-                );
-                *state.lock().expect("export state") = match result {
+                    Some(&fabric),
+                ) {
                     Ok(e) => {
-                        if let (Some(f), Some(j)) = (&fabric, job) {
-                            f.publish_job(dpl_fabric::JobEvent::Done {
-                                job: j,
-                                out: e.dir.display().to_string(),
-                            });
-                        }
-                        ExportState::Done(e.dir)
+                        fabric.publish_job(dpl_fabric::JobEvent::Done {
+                            job,
+                            out: e.dir.display().to_string(),
+                        });
                     }
                     Err(e) => {
-                        if let (Some(f), Some(j)) = (&fabric, job) {
-                            f.publish_job(dpl_fabric::JobEvent::Failed {
-                                job: j,
-                                error: e.clone(),
-                            });
-                        }
-                        ExportState::Failed(e)
+                        fabric.publish_job(dpl_fabric::JobEvent::Failed { job, error: e });
                     }
-                };
+                }
             })
             .expect("spawn export thread");
     }
@@ -1323,16 +1641,21 @@ impl Composer {
     /// File a finished export into a show/episode — guide folders keep
     /// wholesale (`Index::keep`).
     fn keep_export(&mut self, show: &str, ep: &str) {
-        let dir = match &*self.export.lock().expect("export state") {
-            ExportState::Done(d) => d.clone(),
-            _ => return,
+        let dir = match self.export_job.and_then(|j| self.fabric.job(j)) {
+            Some(row) => match &row.state {
+                dpl_fabric::JobState::Done { out } => PathBuf::from(out),
+                _ => return,
+            },
+            None => return,
         };
         let root = Self::content_root();
         let rel = Self::short(&dir);
         self.status =
             match dpl_index::Index::open_default().and_then(|ix| ix.keep(&root, &rel, show, ep)) {
                 Ok(new_rel) => {
-                    *self.export.lock().expect("export state") = ExportState::Idle;
+                    if let Some(job) = self.export_job.take() {
+                        self.fabric.ack_job(job);
+                    }
                     self.guides = None;
                     self.signal(dpl_fabric::CaptureEvent::InboxChanged);
                     format!("Filed into {show}/{ep} → {new_rel}")
@@ -1358,58 +1681,57 @@ impl Composer {
     /// `content/elements/<pack>/`, indexed and postered — the operator's
     /// "grab the ones I often use". One at a time; sources untouched.
     fn start_ingest(&mut self, pack: &Path) {
+        if self
+            .ingest_job
+            .as_ref()
+            .and_then(|(j, _)| self.fabric.job(*j))
+            .is_some_and(|r| r.running())
         {
-            let st = self.ingest.lock().expect("ingest state");
-            if matches!(*st, IngestState::Running { .. }) {
-                self.status = "One ingest at a time — the current one is still copying.".into();
-                return;
-            }
+            self.status = "One ingest at a time — the current one is still copying.".into();
+            return;
         }
         let name = pack
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| "pack".into());
-        self.ingest_done.store(0, Ordering::Relaxed);
-        let state = Arc::clone(&self.ingest);
-        let done = Arc::clone(&self.ingest_done);
         let pack = pack.to_path_buf();
-        *state.lock().expect("ingest state") = IngestState::Running { pack: name.clone() };
         // The BATCHING law (doctrine law 8): a 9k-file ingest speaks the
         // jobs domain + ONE InboxChanged at the end — never a Saved storm.
-        let fabric = self.fabric.clone();
-        let job = fabric.as_ref().map(|f| f.mint_job());
-        if let (Some(f), Some(j)) = (&fabric, job) {
-            f.publish_job(dpl_fabric::JobEvent::Queued {
-                job: j,
-                label: format!("ingest {name}"),
-            });
+        let job = self.fabric.mint_job();
+        if let Some((old, _)) = self.ingest_job.replace((job, name.clone())) {
+            self.fabric.ack_job(old);
         }
+        self.fabric.publish_job(dpl_fabric::JobEvent::Queued {
+            job,
+            label: format!("ingest {name}"),
+        });
+        // The board row's counter IS the progress pill (doctrine law 7) —
+        // the worker bumps it per file, lock-free.
+        let done = self.fabric.job(job).map(|r| r.progress).unwrap_or_default();
+        let fabric = self.fabric.clone();
         std::thread::Builder::new()
             .name("dpl-pack-ingest".into())
             .spawn(move || {
                 let root = Self::content_root();
-                let result = packs::ingest_copy(&root, &pack, &name, &done);
-                *state.lock().expect("ingest state") = match result {
+                // The ADR-014 index (.userdata/index.db) — the one every
+                // read surface opens. The old ad-hoc root/artifacts.db
+                // open wrote a RETIRED legacy DB nothing read: ingested
+                // packs were invisible in the library on a migrated
+                // install (verified 2026-07-27, plan §2).
+                let result = dpl_index::Index::open_default()
+                    .and_then(|ix| packs::ingest_copy(&root, &pack, &name, &ix, &done));
+                match result {
                     Ok(copied) => {
-                        if let (Some(f), Some(j)) = (&fabric, job) {
-                            f.publish_job(dpl_fabric::JobEvent::Done {
-                                job: j,
-                                out: format!("{copied} file(s)"),
-                            });
-                            f.publish_capture(dpl_fabric::CaptureEvent::InboxChanged);
-                        }
-                        IngestState::Done { pack: name, copied }
+                        fabric.publish_job(dpl_fabric::JobEvent::Done {
+                            job,
+                            out: format!("{copied} file(s)"),
+                        });
+                        fabric.publish_capture(dpl_fabric::CaptureEvent::InboxChanged);
                     }
                     Err(e) => {
-                        if let (Some(f), Some(j)) = (&fabric, job) {
-                            f.publish_job(dpl_fabric::JobEvent::Failed {
-                                job: j,
-                                error: e.clone(),
-                            });
-                        }
-                        IngestState::Failed(e)
+                        fabric.publish_job(dpl_fabric::JobEvent::Failed { job, error: e });
                     }
-                };
+                }
             })
             .expect("spawn ingest thread");
     }
@@ -1527,6 +1849,61 @@ impl Composer {
     pub fn import_lottie(&mut self, path: &Path) {
         self.handle_import(path);
         self.palette = None;
+    }
+
+    /// The `--fx-drill <clip-rel> <fx-rel>` harness seam (L3): one base
+    /// cut + one FX overlay at 1.0s — half-size, nudged off-center,
+    /// pool-tinted (Coral) — through the EXACT app paths (add_clip,
+    /// add_overlay, inspector-shaped edits), saved, then rendered
+    /// SYNCHRONOUSLY so the headless proof can ffprobe `render.mp4` the
+    /// moment the process exits. Verdict on stdout.
+    pub fn fx_drill(&mut self, clip_rel: &str, fx_rel: &str) {
+        let base = Record {
+            rel_path: clip_rel.into(),
+            kind: "video".into(),
+            name: "drill base".into(),
+            ..Record::default()
+        };
+        self.add_clip(&base);
+        self.time = 1.0;
+        let fx = Record {
+            rel_path: fx_rel.into(),
+            kind: "video".into(),
+            name: "drill fx".into(),
+            ..Record::default()
+        };
+        self.add_overlay(&fx);
+        if let Some(id) = self.selected.clone() {
+            let coral = Tone::Coral.color();
+            let tint = Some([coral.r(), coral.g(), coral.b(), 230]);
+            if let Some(l) = self.layer_mut(&id) {
+                l.scale = 0.5;
+                l.x = -120.0;
+                l.y = 40.0;
+                l.tint = tint;
+            }
+        }
+        if self.dir.is_none() {
+            self.dir = Some(Self::fresh_comp_dir());
+        }
+        let dir = self.dir.clone().expect("comp dir");
+        if let Err(e) = dpl_comp::save(&dir, &self.comp) {
+            println!("fx-drill: comp save failed: {e}");
+            return;
+        }
+        let out = dir.join("render.mp4");
+        let parts = self.render_parts();
+        match render_comp_resolving(parts, self.comp.w, self.comp.h, self.comp.fps, &out) {
+            Ok(()) => {
+                index_render(&out, Some(&self.fabric));
+                self.status = format!("FX drill rendered {}", out.display());
+                println!("fx-drill: rendered {}", out.display());
+            }
+            Err(e) => {
+                self.status = format!("FX drill failed: {e}");
+                println!("fx-drill: FAILED: {e}");
+            }
+        }
     }
 
     /// One indexed media record sent from an OUTSIDE surface — the
@@ -1688,7 +2065,7 @@ impl Composer {
         let mut pending: std::collections::HashMap<String, dpl_fabric::JobId> =
             std::collections::HashMap::new();
         let (report, board) = dpl_workflows::execute(&doc, &mut runner, &mut |ev| {
-            let Some(f) = &fabric else { return };
+            let f = &fabric;
             match ev {
                 dpl_workflows::StageEvent::Started(stage) => {
                     let job = f.mint_job();
@@ -1748,30 +2125,26 @@ impl Composer {
     /// Wire the signal fabric (called by the hub's own wire_fabric —
     /// ONE fabric end to end). Also opens this editor's capture ears.
     pub fn wire_fabric(&mut self, fabric: &dpl_fabric::Fabric) {
-        self.capture_rx = Some(fabric.subscribe_capture());
-        self.fabric = Some(fabric.clone());
+        self.capture_rx = fabric.subscribe_capture();
+        self.fabric = fabric.clone();
     }
 
-    /// Publish a capture signal when a fabric is wired (drills without
-    /// one stay silent — never a panic).
+    /// Publish a capture signal (the default private fabric publishes into
+    /// silence — drills and tests never panic).
     fn signal(&self, ev: dpl_fabric::CaptureEvent) {
-        if let Some(f) = &self.fabric {
-            f.publish_capture(ev);
-        }
+        self.fabric.publish_capture(ev);
     }
 
     /// Saved for an indexed record — the emit half of
     /// "index + signal identically".
-    fn signal_saved(fabric: &Option<dpl_fabric::Fabric>, rec: &Record) {
-        if let Some(f) = fabric {
-            f.publish_capture(dpl_fabric::CaptureEvent::Saved {
-                rel_path: rec.rel_path.clone(),
-                kind: rec.kind.clone(),
-                name: rec.name.clone(),
-                location: rec.location.clone(),
-                source: rec.source.clone(),
-            });
-        }
+    fn signal_saved(fabric: &dpl_fabric::Fabric, rec: &Record) {
+        fabric.publish_capture(dpl_fabric::CaptureEvent::Saved {
+            rel_path: rec.rel_path.clone(),
+            kind: rec.kind.clone(),
+            name: rec.name.clone(),
+            location: rec.location.clone(),
+            source: rec.source.clone(),
+        });
     }
 
     /// Drain capture signals (W8): any artifact change — ours or another
@@ -1779,13 +2152,11 @@ impl Composer {
     /// pickers reload lazily. Cheap: caches refill on next need.
     fn drain_signals(&mut self) {
         let mut dirty = false;
-        if let Some(rx) = self.capture_rx.as_mut() {
-            while let Ok(stamped) = rx.try_recv() {
-                dirty |= matches!(
-                    stamped.ev,
-                    dpl_fabric::CaptureEvent::Saved { .. } | dpl_fabric::CaptureEvent::InboxChanged
-                );
-            }
+        while let Ok(stamped) = self.capture_rx.try_recv() {
+            dirty |= matches!(
+                stamped.ev,
+                dpl_fabric::CaptureEvent::Saved { .. } | dpl_fabric::CaptureEvent::InboxChanged
+            );
         }
         if dirty {
             self.palette = None;
@@ -1881,16 +2252,21 @@ impl Composer {
     /// File the finished render into a show/episode (the tag seam) —
     /// `Index::keep` moves the artifact and its index row together.
     fn keep_render(&mut self, show: &str, ep: &str) {
-        let path = match &*self.render.lock().expect("render state") {
-            RenderState::Done(p) => p.clone(),
-            _ => return,
+        let path = match self.render_job.and_then(|j| self.fabric.job(j)) {
+            Some(row) => match &row.state {
+                dpl_fabric::JobState::Done { out } => PathBuf::from(out),
+                _ => return,
+            },
+            None => return,
         };
         let root = Self::content_root();
         let rel = Self::short(&path);
         self.status =
             match dpl_index::Index::open_default().and_then(|ix| ix.keep(&root, &rel, show, ep)) {
                 Ok(new_rel) => {
-                    *self.render.lock().expect("render state") = RenderState::Idle;
+                    if let Some(job) = self.render_job.take() {
+                        self.fabric.ack_job(job);
+                    }
                     self.renders = None;
                     self.signal(dpl_fabric::CaptureEvent::InboxChanged);
                     format!("Filed into {show}/{ep} → {new_rel}")
@@ -1914,6 +2290,18 @@ impl Composer {
                 out.push(Row::Prop(i, "Trim out"));
             }
         }
+        // L3: the FX section — overlays composite over the cuts above.
+        if !self.fx_layers().is_empty() {
+            out.push(Row::FxHeader);
+            for (i, l) in self.fx_layers().iter().enumerate() {
+                out.push(Row::Fx(i));
+                if self.expanded.contains(&l.id) {
+                    out.push(Row::FxProp(i, "Start"));
+                    out.push(Row::FxProp(i, "Trim in"));
+                    out.push(Row::FxProp(i, "Trim out"));
+                }
+            }
+        }
         out
     }
 
@@ -1925,31 +2313,42 @@ impl Composer {
         self.tick_playback(ui.ctx());
         self.show_browsers(ui.ctx());
         self.drain_media_feeds(ui.ctx());
-        // The ingest pill: progress while Running, cache reset on Done.
-        let finished = {
-            let mut st = self.ingest.lock().expect("ingest state");
-            match &*st {
-                IngestState::Running { pack } => {
+        // The ingest pill: progress while Running (the board row's counter),
+        // one-shot status + cache reset when the row resolves.
+        let finished = match self.ingest_job.clone() {
+            Some((job, pack)) => match self.fabric.job(job) {
+                Some(row) if row.running() => {
                     self.status = format!(
                         "Ingesting {pack} — {} file(s) processed…",
-                        self.ingest_done.load(Ordering::Relaxed)
+                        row.progress.load(Ordering::Relaxed)
                     );
                     ui.ctx().request_repaint_after(Duration::from_millis(300));
                     false
                 }
-                IngestState::Done { pack, copied } => {
-                    self.status =
-                        format!("Ingested {pack} — {copied} file(s) now local in your library.");
-                    *st = IngestState::Idle;
-                    true
+                Some(row) => {
+                    let done = match &row.state {
+                        dpl_fabric::JobState::Done { out } => {
+                            self.status =
+                                format!("Ingested {pack} — {out} now local in your library.");
+                            true
+                        }
+                        _ => {
+                            if let dpl_fabric::JobState::Failed { error } = &row.state {
+                                self.status = format!("Ingest failed: {error}");
+                            }
+                            false
+                        }
+                    };
+                    self.fabric.ack_job(job);
+                    self.ingest_job = None;
+                    done
                 }
-                IngestState::Failed(e) => {
-                    self.status = format!("Ingest failed: {e}");
-                    *st = IngestState::Idle;
+                None => {
+                    self.ingest_job = None;
                     false
                 }
-                IngestState::Idle => false,
-            }
+            },
+            None => false,
         };
         if finished {
             self.palette = None;
@@ -1957,10 +2356,11 @@ impl Composer {
             self.packs = None;
         }
         // A render in flight keeps the frame alive so its status pill updates.
-        if matches!(
-            *self.render.lock().expect("render state"),
-            RenderState::Running
-        ) {
+        if self
+            .render_job
+            .and_then(|j| self.fabric.job(j))
+            .is_some_and(|r| r.running())
+        {
             ui.ctx().request_repaint_after(Duration::from_millis(200));
         }
         let mut act: Option<Act> = None;
@@ -2040,6 +2440,35 @@ impl Composer {
                     self.add_clip(&rec);
                     self.proj_sel = Some(i);
                 }
+            }
+            Some(Act::AddOverlay(i)) => {
+                if let Some(rec) = self.palette.as_ref().and_then(|p| p.get(i)).cloned() {
+                    self.add_overlay(&rec);
+                    self.proj_sel = Some(i);
+                }
+            }
+            Some(Act::PaletteTag(tag)) => {
+                self.palette_tag = tag;
+                self.proj_sel = None;
+            }
+            Some(Act::OverlayEdit {
+                id,
+                x,
+                y,
+                scale,
+                tint,
+                fresh,
+            }) => {
+                if fresh {
+                    self.checkpoint();
+                }
+                if let Some(l) = self.layer_mut(&id) {
+                    l.x = x;
+                    l.y = y;
+                    l.scale = scale.max(0.05);
+                    l.tint = tint;
+                }
+                self.mark_edit();
             }
             Some(Act::AddRender(name, rel)) => {
                 let rec = Record {
@@ -2308,9 +2737,19 @@ impl Composer {
             egui::pos2(project_rect.max.x + pad, main_top),
             egui::pos2(right_rect.min.x - pad, tl_top - pad),
         );
-        // The right stack: Info (when open) above Effects & Presets.
+        // The right stack: Info (when open) above Effects & Presets. A
+        // selected OVERLAY grows Info for the L3 inspector (size/nudge/
+        // tint/opacity) — the sections must never paint over each other.
         let (info_rect, fx_rect) = if self.info_open {
-            let info_h = 120.0_f32.min(right_rect.height() * 0.4);
+            let overlay_selected = self
+                .selected
+                .as_deref()
+                .is_some_and(|id| self.fx_layers().iter().any(|l| l.id == id));
+            let info_h = if overlay_selected {
+                310.0_f32.min(right_rect.height() * 0.66)
+            } else {
+                120.0_f32.min(right_rect.height() * 0.4)
+            };
             let info = Rect::from_min_max(
                 right_rect.min,
                 egui::pos2(right_rect.max.x, right_rect.min.y + info_h),
@@ -2555,10 +2994,59 @@ impl Composer {
                 if footage.is_empty() {
                     empty_line(ui, "no clips or images yet — capture or import some");
                 }
-                for (i, rec) in footage.iter().enumerate() {
+                // L3: tag chips — the enricher's tags made tappable. Top
+                // tags by count, in memory, `dir:*` noise excluded.
+                let mut tag_counts: Vec<(&str, usize)> = Vec::new();
+                for rec in footage {
+                    for t in &rec.tags {
+                        if t.starts_with("dir:") || t == "rtfx" {
+                            continue;
+                        }
+                        match tag_counts.iter_mut().find(|(k, _)| k == t) {
+                            Some((_, n)) => *n += 1,
+                            None => tag_counts.push((t, 1)),
+                        }
+                    }
+                }
+                if !tag_counts.is_empty() {
+                    tag_counts.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+                    ui.horizontal_wrapped(|ui| {
+                        let all = self.palette_tag.is_none();
+                        let resp = cl::tip(
+                            tag_chip(ui, "all", all, "tagchip-all"),
+                            "Show every clip and image",
+                        );
+                        if resp.clicked() && !all {
+                            *act = Some(Act::PaletteTag(None));
+                        }
+                        for (tag, n) in tag_counts.iter().take(8) {
+                            let active = self.palette_tag.as_deref() == Some(*tag);
+                            let resp = cl::tip(
+                                tag_chip(ui, &format!("{tag} {n}"), active, tag),
+                                "Show only footage carrying this tag",
+                            );
+                            if resp.clicked() {
+                                *act = Some(Act::PaletteTag(if active {
+                                    None
+                                } else {
+                                    Some(tag.to_string())
+                                }));
+                            }
+                        }
+                    });
+                }
+                let wanted_tag = self.palette_tag.clone();
+                for (i, rec) in footage.iter().enumerate().filter(|(_, r)| {
+                    wanted_tag
+                        .as_deref()
+                        .is_none_or(|t| r.tags.iter().any(|x| x == t))
+                }) {
                     let glyph = if rec.kind == "video" { "vid" } else { "img" };
+                    // Trailing spaces shift the duration clear of the fx
+                    // corner painted below (right-anchored text).
+                    let trail = format!("{}     ", fmt_secs(rec.seconds));
                     let resp = cl::tip(
-                        row_line(ui, glyph, &rec.name, &fmt_secs(rec.seconds), ("ft", i)),
+                        row_line(ui, glyph, &rec.name, &trail, ("ft", i)),
                         if rec.kind == "video" {
                             "Add this clip to the timeline"
                         } else {
@@ -2574,7 +3062,30 @@ impl Composer {
                             &rec.name,
                         ),
                     );
-                    if resp.clicked() {
+                    // L3: the fx corner — overlay this ON TOP at the playhead
+                    // instead of cutting it onto the end.
+                    let fxr = Rect::from_min_max(
+                        egui::pos2(resp.rect.max.x - 26.0, resp.rect.min.y),
+                        resp.rect.max,
+                    );
+                    let fx_resp = cl::tip(
+                        ui.interact(fxr, egui::Id::new(("ft-fx", i)), Sense::click()),
+                        "Overlay this ON TOP at the playhead — alpha composites over the cuts",
+                    );
+                    ui.painter().text(
+                        fxr.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "fx",
+                        egui::FontId::monospace(9.0),
+                        if fx_resp.hovered() {
+                            Tone::Violet.color()
+                        } else {
+                            cl::ink::SUBTLE
+                        },
+                    );
+                    if fx_resp.clicked() {
+                        *act = Some(Act::AddOverlay(i));
+                    } else if resp.clicked() && !fx_resp.hovered() {
                         *act = Some(Act::Add(i));
                     }
                 }
@@ -2639,6 +3150,8 @@ impl Composer {
                 None => painter_label(ui, frame, "Add footage, then press play"),
             }
         }
+        // L3: FX overlays composite over whatever the base showed.
+        self.paint_overlays(ui, frame);
         let bar = Rect::from_min_max(egui::pos2(rect.min.x, stage_rect.max.y), rect.max);
         let mut c = ui.new_child(UiBuilder::new().max_rect(bar));
         c.horizontal(|ui| {
@@ -2675,7 +3188,9 @@ impl Composer {
         });
     }
 
-    /// INFO (mock: default shown, closable): the selected layer's facts.
+    /// INFO (mock: default shown, closable): the selected layer's facts,
+    /// plus the L3 OVERLAY inspector for an fx selection. Scroll-and-clip
+    /// (RR2): the pane must never paint over Effects & Presets below.
     fn info_pane(&self, ui: &mut egui::Ui, act: &mut Option<Act>) {
         ui.horizontal(|ui| {
             ui.label(RichText::new("INFO").small().strong());
@@ -2690,11 +3205,24 @@ impl Composer {
                 }
             });
         });
-        let Some(layer) = self
+        egui::ScrollArea::vertical()
+            .id_salt("composer-info-scroll")
+            .auto_shrink([false, false])
+            .show(ui, |ui| self.info_body(ui, act));
+    }
+
+    /// The Info pane's scrollable body (facts + the overlay inspector).
+    fn info_body(&self, ui: &mut egui::Ui, act: &mut Option<Act>) {
+        let on_fx = self
             .selected
             .as_deref()
-            .and_then(|id| self.layers().iter().find(|l| l.id == id))
-        else {
+            .is_some_and(|id| self.fx_layers().iter().any(|l| l.id == id));
+        let Some(layer) = self.selected.as_deref().and_then(|id| {
+            self.layers()
+                .iter()
+                .chain(self.fx_layers().iter())
+                .find(|l| l.id == id)
+        }) else {
             ui.label(
                 RichText::new("Select a layer to see its facts.")
                     .small()
@@ -2719,6 +3247,147 @@ impl Composer {
             .small()
             .color(cl::ink::BASE),
         );
+        if on_fx {
+            self.overlay_inspector(ui, layer, act);
+        }
+    }
+
+    /// The OVERLAY inspector (L3): size, position, tint — plain-words
+    /// controls for the selected FX layer. Emits `Act::OverlayEdit`; the
+    /// first change of a gesture (`fresh`) takes the undo checkpoint.
+    fn overlay_inspector(&self, ui: &mut egui::Ui, layer: &Layer, act: &mut Option<Act>) {
+        ui.add_space(cl::space::S1);
+        ui.label(RichText::new("OVERLAY").small().strong());
+        let (mut x, mut y, mut scale, mut tint) = (layer.x, layer.y, layer.scale, layer.tint);
+        let mut fresh = false;
+        let mut changed = false;
+
+        let rs = cl::tip(
+            ui.add(
+                egui::Slider::new(&mut scale, 0.1..=3.0)
+                    .text("size")
+                    .fixed_decimals(2),
+            ),
+            "How big the overlay sits — 1.0 fills the frame",
+        );
+        fresh |= rs.drag_started();
+        changed |= rs.changed();
+
+        ui.horizontal(|ui| {
+            let rx = cl::tip(
+                ui.add(egui::DragValue::new(&mut x).speed(2.0).prefix("x ")),
+                "Slide the overlay left/right (pixels from center)",
+            );
+            let ry = cl::tip(
+                ui.add(egui::DragValue::new(&mut y).speed(2.0).prefix("y ")),
+                "Slide the overlay up/down (pixels from center)",
+            );
+            let rc = cl::tip(
+                ui.label(RichText::new("center").small().color(cl::ink::SUBTLE))
+                    .interact(Sense::click()),
+                "Snap the overlay back to dead center",
+            );
+            fresh |= rx.drag_started() || ry.drag_started() || rc.clicked();
+            changed |= rx.changed() || ry.changed();
+            if rc.clicked() && (x, y) != (0.0, 0.0) {
+                x = 0.0;
+                y = 0.0;
+                changed = true;
+            }
+        });
+
+        // TINT: the ColdLight tone pool as tap-size swatches + none/white.
+        // Content color, chosen from the system's own hues — no alien
+        // picker popup. The alpha ride is the opacity slider below.
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("tint").small().color(cl::ink::SUBTLE));
+            let a = tint.map(|t| t[3]).unwrap_or(255);
+            let none_resp = cl::tip(
+                swatch(ui, None, tint.is_none(), "tint-none"),
+                "No tint — the element's own colors",
+            );
+            if none_resp.clicked() && tint.is_some() {
+                tint = None;
+                fresh = true;
+                changed = true;
+            }
+            for tone in [
+                Tone::Cyan,
+                Tone::Lime,
+                Tone::Violet,
+                Tone::Amber,
+                Tone::Magenta,
+                Tone::Coral,
+            ] {
+                let c = tone.color();
+                let target = [c.r(), c.g(), c.b(), a];
+                let active = tint.is_some_and(|t| t[..3] == target[..3]);
+                let resp = cl::tip(
+                    swatch(ui, Some(c), active, tone.hue_id()),
+                    "Recolor the overlay with this hue",
+                );
+                if resp.clicked() && !active {
+                    tint = Some(target);
+                    fresh = true;
+                    changed = true;
+                }
+            }
+        });
+        let mut opacity = tint.map(|t| t[3] as f32 / 255.0).unwrap_or(1.0);
+        let ro = cl::tip(
+            ui.add(
+                egui::Slider::new(&mut opacity, 0.05..=1.0)
+                    .text("opacity")
+                    .show_value(false),
+            ),
+            "Fade the whole overlay (rides the tint's alpha)",
+        );
+        fresh |= ro.drag_started();
+        if ro.changed() {
+            let a = (opacity * 255.0).round() as u8;
+            let base = tint.unwrap_or([255, 255, 255, 255]);
+            tint = if a == 255 && base[..3] == [255, 255, 255] {
+                None
+            } else {
+                Some([base[0], base[1], base[2], a])
+            };
+            changed = true;
+        }
+        // The census marks noCT elements as designed-untinted — advise,
+        // never block (the operator outranks the pack's label).
+        if tint.is_some()
+            && self
+                .rec_tags_for(layer.source.reference())
+                .contains(&"no-tint")
+        {
+            ui.label(
+                RichText::new("This element is designed untinted (noCT) — tint may look off.")
+                    .small()
+                    .color(cl::ink::MUTED),
+            );
+        }
+        if changed {
+            *act = Some(Act::OverlayEdit {
+                id: layer.id.clone(),
+                x,
+                y,
+                scale,
+                tint,
+                fresh,
+            });
+        }
+    }
+
+    /// The indexed tags for a rel path, from the loaded palette (best
+    /// effort — an unindexed ref simply has none).
+    fn rec_tags_for(&self, rel: &str) -> Vec<&str> {
+        self.palette
+            .as_deref()
+            .unwrap_or(&[])
+            .iter()
+            .find(|r| r.rel_path == rel)
+            .map(|r| r.tags.iter().map(String::as_str).collect())
+            .unwrap_or_default()
     }
 
     /// EFFECTS & PRESETS: search + honest stock (the registry and the
@@ -2785,7 +3454,7 @@ impl Composer {
             }
         });
         ui.add_space(cl::space::S1);
-        if self.layers().is_empty() {
+        if self.layers().is_empty() && self.fx_layers().is_empty() {
             ui.label(
                 RichText::new("Empty — add footage from the Project panel.")
                     .small()
@@ -2913,6 +3582,109 @@ impl Composer {
                         Tone::Cyan.color(),
                     );
                 }
+                Row::FxHeader => {
+                    painter.text(
+                        egui::pos2(r.min.x + 6.0, r.center().y),
+                        egui::Align2::LEFT_CENTER,
+                        "FX — composites over the cuts",
+                        egui::FontId::proportional(10.0),
+                        cl::ink::MUTED,
+                    );
+                }
+                Row::Fx(i) => {
+                    let layer = &self.fx_layers()[*i];
+                    let selected = self.selected.as_deref() == Some(layer.id.as_str());
+                    if selected {
+                        painter.rect_filled(r, CornerRadius::ZERO, Tone::Violet.wash());
+                    }
+                    painter.text(
+                        egui::pos2(r.min.x + 6.0, r.center().y),
+                        egui::Align2::LEFT_CENTER,
+                        "fx",
+                        egui::FontId::monospace(10.0),
+                        Tone::Violet.color(),
+                    );
+                    let chip_r = Rect::from_center_size(
+                        egui::pos2(r.min.x + 26.0, r.center().y),
+                        egui::vec2(9.0, 9.0),
+                    );
+                    painter.rect_filled(chip_r, CornerRadius::same(2), Tone::Violet.color());
+                    let open = self.expanded.contains(&layer.id);
+                    painter.text(
+                        egui::pos2(r.min.x + 40.0, r.center().y),
+                        egui::Align2::LEFT_CENTER,
+                        if open { "-" } else { "+" },
+                        egui::FontId::monospace(11.0),
+                        cl::ink::SUBTLE,
+                    );
+                    painter.text(
+                        egui::pos2(r.min.x + 56.0, r.center().y),
+                        egui::Align2::LEFT_CENTER,
+                        layer.source.reference(),
+                        egui::FontId::proportional(12.0),
+                        if selected {
+                            cl::ink::STRONG
+                        } else {
+                            cl::ink::BASE
+                        },
+                    );
+                    painter.text(
+                        egui::pos2(r.max.x - 6.0, r.center().y),
+                        egui::Align2::RIGHT_CENTER,
+                        mmss(layer.start),
+                        egui::FontId::monospace(10.0),
+                        cl::ink::SUBTLE,
+                    );
+                    let twirl = Rect::from_min_max(r.min, egui::pos2(r.min.x + 52.0, r.max.y));
+                    let tw_resp =
+                        ui.interact(twirl, egui::Id::new(("tl-fx-twirl", row_i)), Sense::click());
+                    let tw_resp = cl::tip(tw_resp, "Show this overlay's timing properties");
+                    if tw_resp.clicked() {
+                        *act = Some(Act::ToggleExpand(layer.id.clone()));
+                    }
+                    let row_resp = ui.interact(
+                        Rect::from_min_max(egui::pos2(r.min.x + 52.0, r.min.y), r.max),
+                        egui::Id::new(("tl-fx-row", row_i)),
+                        Sense::click(),
+                    );
+                    let row_resp = cl::tip(
+                        row_resp,
+                        "Select this overlay — size, position and tint live in Info",
+                    );
+                    ui.pilot_track(
+                        &row_resp,
+                        NodeMetadata::new(
+                            PilotId::new("composer.outline.fx").child(&PilotKey::new(&layer.id)),
+                            Role::Button,
+                            layer.source.reference(),
+                        ),
+                    );
+                    if row_resp.clicked() {
+                        *act = Some(Act::Select(layer.id.clone()));
+                    }
+                }
+                Row::FxProp(i, name) => {
+                    let layer = &self.fx_layers()[*i];
+                    let value = match *name {
+                        "Start" => format!("{:.2}s", layer.start),
+                        "Trim in" => format!("{:.2}s", layer.in_pt),
+                        _ => format!("{:.2}s", layer.out_pt),
+                    };
+                    painter.text(
+                        egui::pos2(r.min.x + 56.0, r.center().y),
+                        egui::Align2::LEFT_CENTER,
+                        *name,
+                        egui::FontId::proportional(11.0),
+                        cl::ink::SUBTLE,
+                    );
+                    painter.text(
+                        egui::pos2(r.max.x - 6.0, r.center().y),
+                        egui::Align2::RIGHT_CENTER,
+                        value,
+                        egui::FontId::monospace(10.0),
+                        Tone::Violet.color(),
+                    );
+                }
             }
             y += h;
         }
@@ -2968,14 +3740,20 @@ impl Composer {
             if y >= rect.max.y {
                 break;
             }
-            if let Row::Layer(i) = row {
-                let layer = &self.layers()[i];
+            // Layer and Fx rows paint bars the same way — only the source
+            // slice and idle tone differ (FX rides the Violet family).
+            let bar_layer = match row {
+                Row::Layer(i) => Some((&self.layers()[i], row_tone(i))),
+                Row::Fx(i) => Some((&self.fx_layers()[i], Tone::Violet)),
+                _ => None,
+            };
+            if let Some((layer, idle_tone)) = bar_layer {
                 let selected = self.selected.as_deref() == Some(layer.id.as_str());
                 let bar = Rect::from_min_max(
                     egui::pos2(to_x(layer.start), y + 3.0),
                     egui::pos2(to_x(layer.end()).min(rect.max.x), y + h - 3.0),
                 );
-                let tone = if selected { Tone::Magenta } else { row_tone(i) };
+                let tone = if selected { Tone::Magenta } else { idle_tone };
                 painter.rect_filled(bar, CornerRadius::same(cl::RADIUS_SM), tone.wash());
                 painter.rect_stroke(
                     bar,
@@ -3108,14 +3886,12 @@ impl Composer {
 
     /// Apply a live drag at pointer-time `pt` (seconds). All edits clamp:
     /// spans never collapse below 0.25s, nothing goes negative, moves
-    /// snap to a 0.1s grid.
+    /// snap to a 0.1s grid. Ids are comp-unique, so the same drags serve
+    /// base cuts AND FX overlays (L3).
     fn apply_drag(&mut self, drag: &Drag, pt: f32) {
-        let Some(track) = self.comp.tracks.first_mut() else {
-            return;
-        };
         match drag {
             Drag::TrimIn(id) => {
-                if let Some(l) = track.layers.iter_mut().find(|l| &l.id == id) {
+                if let Some(l) = self.layer_mut(id) {
                     let delta = pt - l.start;
                     let new_in = fit(l.in_pt + delta, 0.0, l.out_pt - 0.25);
                     l.start = (l.start + (new_in - l.in_pt)).max(0.0);
@@ -3123,12 +3899,12 @@ impl Composer {
                 }
             }
             Drag::TrimOut(id) => {
-                if let Some(l) = track.layers.iter_mut().find(|l| &l.id == id) {
+                if let Some(l) = self.layer_mut(id) {
                     l.out_pt = (l.in_pt + (pt - l.start)).max(l.in_pt + 0.25);
                 }
             }
             Drag::Move(id, grab) => {
-                if let Some(l) = track.layers.iter_mut().find(|l| &l.id == id) {
+                if let Some(l) = self.layer_mut(id) {
                     l.start = snap_tenth((pt - grab).max(0.0));
                 }
             }
@@ -3139,27 +3915,28 @@ impl Composer {
     /// The status row: New · Save · Render + the render pill, then the
     /// saved crumb + comp facts + the Info reopen toggle.
     fn status_row(&mut self, ui: &mut egui::Ui, act: &mut Option<Act>) {
-        // Snapshot the render state once (don't hold the lock across the UI).
-        let (rendering, done, pill) = {
-            let st = self.render.lock().expect("render state");
-            match &*st {
-                RenderState::Idle => (false, false, None),
-                RenderState::Running => (
-                    true,
-                    false,
-                    Some(("Rendering...".to_string(), cl::ink::BASE)),
-                ),
-                RenderState::Done(p) => (
-                    false,
-                    true,
-                    Some((format!("Rendered: {}", Self::short(p)), cl::ink::STRONG)),
-                ),
-                RenderState::Failed(e) => (
-                    false,
-                    false,
-                    Some((format!("Render failed: {e}"), cl::ink::MUTED)),
-                ),
-            }
+        // Snapshot the render job's board row once for this frame.
+        let row = self.render_job.and_then(|j| self.fabric.job(j));
+        let (rendering, done, pill) = match row.as_ref().map(|r| &r.state) {
+            None => (false, false, None),
+            Some(dpl_fabric::JobState::Running) => (
+                true,
+                false,
+                Some(("Rendering...".to_string(), cl::ink::BASE)),
+            ),
+            Some(dpl_fabric::JobState::Done { out }) => (
+                false,
+                true,
+                Some((
+                    format!("Rendered: {}", Self::short(&PathBuf::from(out))),
+                    cl::ink::STRONG,
+                )),
+            ),
+            Some(dpl_fabric::JobState::Failed { error }) => (
+                false,
+                false,
+                Some((format!("Render failed: {error}"), cl::ink::MUTED)),
+            ),
         };
         ui.horizontal(|ui| {
             if cl::tip(
@@ -3293,17 +4070,20 @@ impl Composer {
     /// the ONE edit engine) · name it · export the standalone folder
     /// (guide.html + light replay + guide-video.mp4) · file it.
     fn guide_tab(&mut self, ui: &mut egui::Ui) {
-        let (exporting, pill, done_dir) = {
-            let st = self.export.lock().expect("export state");
-            match &*st {
-                ExportState::Idle => (false, None, None),
-                ExportState::Running => (true, Some("Exporting…".to_string()), None),
-                ExportState::Done(d) => (
+        let row = self.export_job.and_then(|j| self.fabric.job(j));
+        let (exporting, pill, done_dir) = match row.as_ref().map(|r| &r.state) {
+            None => (false, None, None),
+            Some(dpl_fabric::JobState::Running) => (true, Some("Exporting…".to_string()), None),
+            Some(dpl_fabric::JobState::Done { out }) => {
+                let dir = PathBuf::from(out);
+                (
                     false,
-                    Some(format!("Exported: {}/guide.html", Self::short(d))),
-                    Some(d.clone()),
-                ),
-                ExportState::Failed(e) => (false, Some(format!("Export failed: {e}")), None),
+                    Some(format!("Exported: {}/guide.html", Self::short(&dir))),
+                    Some(dir),
+                )
+            }
+            Some(dpl_fabric::JobState::Failed { error }) => {
+                (false, Some(format!("Export failed: {error}")), None)
             }
         };
         if exporting {
@@ -3763,34 +4543,35 @@ impl Composer {
             } else {
                 painter_label(ui, canvas, "Rendering the Lottie…");
             }
-            return;
-        }
-        if let Some((_, uri)) = &self.preview_still {
+        } else if let Some((_, uri)) = &self.preview_still {
             let frame = fit_aspect(canvas.shrink(cl::space::S3), 16.0 / 9.0);
             egui::Image::new(uri.as_str())
                 .corner_radius(cl::RADIUS_SM)
                 .paint_at(ui, frame);
-            return;
+        } else {
+            match &self.preview {
+                Some((_, player)) => match player.texture(ui.ctx()) {
+                    Some(tex) => {
+                        let frame = fit_aspect(canvas.shrink(cl::space::S3), 16.0 / 9.0);
+                        let uv = dpl_video::cover_uv(
+                            DECODE_W as f32 / DECODE_H as f32,
+                            frame.aspect_ratio(),
+                        );
+                        ui.painter().image(tex, frame, uv, Color32::WHITE);
+                        ui.ctx().request_repaint_after(Duration::from_millis(16));
+                    }
+                    None => painter_label(ui, canvas, "Loading the frame..."),
+                },
+                None => painter_label(
+                    ui,
+                    canvas,
+                    "Scrub to a frame in the Editor; annotate it here (the model lands next)",
+                ),
+            }
         }
-        match &self.preview {
-            Some((_, player)) => match player.texture(ui.ctx()) {
-                Some(tex) => {
-                    let frame = fit_aspect(canvas.shrink(cl::space::S3), 16.0 / 9.0);
-                    let uv = dpl_video::cover_uv(
-                        DECODE_W as f32 / DECODE_H as f32,
-                        frame.aspect_ratio(),
-                    );
-                    ui.painter().image(tex, frame, uv, Color32::WHITE);
-                    ui.ctx().request_repaint_after(Duration::from_millis(16));
-                }
-                None => painter_label(ui, canvas, "Loading the frame..."),
-            },
-            None => painter_label(
-                ui,
-                canvas,
-                "Scrub to a frame in the Editor; annotate it here (the model lands next)",
-            ),
-        }
+        // L3: FX overlays composite over the annotate frame too — what you
+        // ink on is what exports.
+        self.paint_overlays(ui, fit_aspect(canvas.shrink(cl::space::S3), 16.0 / 9.0));
     }
 }
 
@@ -3833,6 +4614,71 @@ fn row_tone(i: usize) -> Tone {
 /// A poison-proof lock on one Browse window's shared state.
 fn lock(b: &Mutex<browse::Browser>) -> std::sync::MutexGuard<'_, browse::Browser> {
     b.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Resolve every pending Lottie to a PNG frame-sequence (the ThorVG helper,
+/// off the UI thread — this RUNS ON THE RENDER THREAD), then run the one-
+/// pass comp render. Temp sequences live under the OS temp dir (NEVER the
+/// comp folder — its contract reserves comp.json + assets) and are cleaned
+/// best-effort after the encode.
+fn render_comp_resolving(
+    parts: RenderParts,
+    w: u32,
+    h: u32,
+    fps: u32,
+    out: &Path,
+) -> Result<(), String> {
+    use dpl_engine_media::{OverlayClip, OverlayInput};
+    static SEQ_N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let seq_root = std::env::temp_dir().join(format!(
+        "dpl-comp-render-{}-{}",
+        std::process::id(),
+        SEQ_N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let mut overlays: Vec<OverlayClip> = Vec::with_capacity(parts.overlays.len());
+    for (n, slot) in parts.overlays.into_iter().enumerate() {
+        match slot {
+            OverlaySlot::Ready(o) => overlays.push(o),
+            OverlaySlot::Lottie(p) => {
+                let meta = dpl_lottie::lottie_meta(&p.path)
+                    .ok_or_else(|| format!("unreadable lottie: {}", p.path.display()))?;
+                // Export at the comp's fps, aspect-fit inside the comp
+                // frame (the graph's scale leg only ever shrinks further).
+                let (ew, eh) = fit_box(meta.width, meta.height, w, h);
+                let dir = seq_root.join(format!("seq-{n}"));
+                dpl_lottie::export_sequence(&p.path, ew, eh, fps as f32, &dir)?;
+                overlays.push(OverlayClip {
+                    input: OverlayInput::PngSeq {
+                        pattern: dir.join("frame-%05d.png"),
+                        fps: fps as f32,
+                        // The helper numbers from frame-00000.
+                        start: 0,
+                    },
+                    in_pt: p.in_pt,
+                    out_pt: p.out_pt,
+                    at: p.at,
+                    x: p.x,
+                    y: p.y,
+                    scale: p.scale,
+                    tint: p.tint,
+                    hold: false,
+                });
+            }
+        }
+    }
+    let result = dpl_engine_media::render_comp(&parts.base, &overlays, w, h, fps, out);
+    let _ = std::fs::remove_dir_all(&seq_root);
+    result
+}
+
+/// The largest w×h box of the source's aspect that fits inside the target.
+fn fit_box(src_w: u32, src_h: u32, max_w: u32, max_h: u32) -> (u32, u32) {
+    let (sw, sh) = (src_w.max(1) as f32, src_h.max(1) as f32);
+    let s = (max_w as f32 / sw).min(max_h as f32 / sh).min(1.0);
+    (
+        ((sw * s).round() as u32).max(1),
+        ((sh * s).round() as u32).max(1),
+    )
 }
 
 /// Write-through for a finished render: poster + duration + index row
@@ -4065,6 +4911,63 @@ fn small_btn(
     )
 }
 
+/// A small tag-filter chip (L3): treated neubrutal like `tool_btn`, the
+/// active filter presses in — composed from the trait system, never
+/// hand-painted chrome.
+fn tag_chip(ui: &mut egui::Ui, label: &str, active: bool, key: &str) -> egui::Response {
+    let tone = if active { Tone::Magenta } else { Tone::Cyan };
+    let state = if active {
+        cl::TraitState::Active
+    } else {
+        cl::TraitState::Idle
+    };
+    let inner = cl::treated(tone, "neubrutalist", &[], state)
+        .margin(egui::Margin::symmetric(6, 2))
+        .show(ui, |ui| {
+            ui.label(RichText::new(label).small());
+        });
+    ui.interact(
+        inner.response.rect,
+        egui::Id::new(("tag-chip", key)),
+        Sense::click(),
+    )
+}
+
+/// A tap-size tint swatch (L3 inspector): crisp square, hard edge, strong
+/// ring when active/hovered. `None` paints the no-tint slash.
+fn swatch(ui: &mut egui::Ui, color: Option<Color32>, active: bool, key: &str) -> egui::Response {
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), Sense::hover());
+    let resp = ui.interact(rect, egui::Id::new(("tint-swatch", key)), Sense::click());
+    let p = ui.painter();
+    let inner = rect.shrink(2.0);
+    match color {
+        Some(c) => {
+            p.rect_filled(inner, CornerRadius::same(2), c);
+        }
+        None => {
+            p.rect_stroke(
+                inner,
+                CornerRadius::same(2),
+                egui::Stroke::new(1.0, cl::ink::SUBTLE),
+                egui::StrokeKind::Inside,
+            );
+            p.line_segment(
+                [inner.left_bottom(), inner.right_top()],
+                egui::Stroke::new(1.0, cl::ink::SUBTLE),
+            );
+        }
+    }
+    if active || resp.hovered() {
+        p.rect_stroke(
+            rect,
+            CornerRadius::same(2),
+            egui::Stroke::new(2.0, cl::ink::STRONG),
+            egui::StrokeKind::Inside,
+        );
+    }
+    resp
+}
+
 /// A PROJECT section header line.
 fn section_header(ui: &mut egui::Ui, label: &str) {
     ui.add_space(cl::space::S2);
@@ -4251,6 +5154,84 @@ impl dpl_workflows::StageRunner for WfRunner {
             }
         }
     }
+}
+
+/// The machine-probed preview budget (L3, operator-ratified DYNAMIC): how
+/// many simultaneous overlay lanes this box affords. Each clip lane is its
+/// own ffmpeg pipe + reader thread; each Lottie lane is a synchronous
+/// helper round-trip on the UI thread — so RAM and cores set the caps,
+/// never a hardcoded laptop number. Export is NEVER capped.
+struct PreviewCaps {
+    clip_lanes: usize,
+    lottie_lanes: usize,
+}
+
+impl PreviewCaps {
+    /// Total RAM via sysinfo + logical CPUs via std (the
+    /// `dpl_engine_ae::Caps::probe` pattern, replicated per the repo's
+    /// small-utility philosophy — no engine-ae coupling for 12 lines).
+    fn probe() -> Self {
+        let mut sys = sysinfo::System::new();
+        sys.refresh_memory();
+        let ram_gb = sys.total_memory() as f32 / (1024.0 * 1024.0 * 1024.0);
+        let cpus = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
+        Self::for_machine(ram_gb, cpus)
+    }
+
+    /// The policy, pure for tests: clip lanes = cpus/4 clamped 2..=8, and a
+    /// sub-24GB box (this laptop) never exceeds 3; Lottie lanes = 2 on a
+    /// 32GB+ box, else 1 (each is a BLOCKING UI-thread round-trip).
+    fn for_machine(ram_gb: f32, cpus: usize) -> Self {
+        let mut clip_lanes = (cpus / 4).clamp(2, 8);
+        if ram_gb < 24.0 {
+            clip_lanes = clip_lanes.min(3);
+        }
+        Self {
+            clip_lanes,
+            lottie_lanes: if ram_gb >= 32.0 { 2 } else { 1 },
+        }
+    }
+}
+
+/// One live overlay preview lane (L3): the player kind feeding an
+/// overlay-track layer's pixels at the playhead.
+enum OverlayLane {
+    Clip(ClipPlayer),
+    Lottie(LottiePlayer),
+    /// A held frame: the file:/// uri (no pipe).
+    Still(String),
+}
+
+/// A Lottie layer awaiting its frame-sequence export (the render thread
+/// resolves it — a helper subprocess run never happens on the UI thread).
+struct PendingLottie {
+    path: PathBuf,
+    in_pt: f32,
+    out_pt: f32,
+    at: f32,
+    x: f32,
+    y: f32,
+    scale: f32,
+    tint: Option<[u8; 4]>,
+}
+
+/// One overlay in stack order: ready for ffmpeg, or pending a Lottie
+/// export. Order IS stacking order — the chain composites in sequence.
+enum OverlaySlot {
+    Ready(dpl_engine_media::OverlayClip),
+    Lottie(PendingLottie),
+}
+
+/// Everything the L3 render needs from the comp, gathered PURE (no
+/// subprocess): ordered base legs (black stands in for base-track Lottie
+/// spans and the tail overlays hang past), overlays in stack order, and
+/// the honest count of unplayable Element layers.
+struct RenderParts {
+    base: Vec<dpl_engine_media::CompBase>,
+    overlays: Vec<OverlaySlot>,
+    elements_skipped: usize,
 }
 
 /// A native Lottie layer's live preview — the `ClipPlayer` analog, backed
@@ -4495,6 +5476,104 @@ mod tests {
         }
     }
 
+    /// L3: an overlay lands on the FX track at the playhead, the comp
+    /// stays valid, and the base track is untouched.
+    #[test]
+    fn add_overlay_places_at_the_playhead_on_the_fx_track() {
+        let mut c = Composer::default();
+        c.add_clip(&video_rec("Base", "inbox/base.mp4", Some(10)));
+        c.time = 3.2;
+        c.add_overlay(&video_rec("Fire", "elements/rtfx/fire.mov", Some(2)));
+        assert_eq!(c.comp.tracks.len(), 2, "fx track minted on first use");
+        assert_eq!(c.comp.tracks[0].layers.len(), 1, "base untouched");
+        let fx = &c.comp.tracks[1].layers[0];
+        assert!((fx.start - 3.2).abs() < 1e-6, "placed at the playhead");
+        assert_eq!(fx.scale, 1.0);
+        assert_eq!(fx.tint, None);
+        assert!(dpl_comp::validate(&c.comp).is_empty());
+    }
+
+    /// L3: only overlay-track layers under the playhead are live, bottom
+    /// row first within a track (row 0 = topmost paints last).
+    #[test]
+    fn overlay_layers_at_selects_by_time_in_paint_order() {
+        let mut c = Composer::default();
+        c.add_clip(&video_rec("Base", "inbox/base.mp4", Some(10)));
+        c.time = 0.0;
+        c.add_overlay(&video_rec("A", "inbox/a.mov", Some(4)));
+        c.time = 1.0;
+        c.add_overlay(&video_rec("B", "inbox/b.mov", Some(4)));
+        // At t=2 both cover; row 0 (B, newest) is topmost → LAST in paint order.
+        let order: Vec<&str> = c
+            .overlay_layers_at(2.0)
+            .iter()
+            .map(|l| l.source.reference())
+            .collect();
+        assert_eq!(order, vec!["inbox/a.mov", "inbox/b.mov"]);
+        assert!(c.overlay_layers_at(0.5).len() == 1, "B not yet started");
+        assert!(c.overlay_layers_at(9.0).is_empty(), "both ended");
+    }
+
+    /// L3: render_parts maps the whole comp — base clips as concat legs, a
+    /// base-track Lottie as black + a same-timed overlay, overlay-track
+    /// artifacts as file overlays (stills hold), and black tail padding so
+    /// an overlay hanging past the last cut stays visible.
+    #[test]
+    fn render_parts_map_tracks_black_gaps_and_the_tail() {
+        use dpl_engine_media::CompBase;
+        let mut c = Composer::default();
+        c.add_clip(&video_rec("Base", "inbox/base.mp4", Some(4)));
+        // A base-track Lottie span (added directly — add_lottie probes disk).
+        if let Some(t) = c.comp.tracks.first_mut() {
+            t.layers.push(Layer::plain(
+                "lot",
+                Source::Lottie {
+                    rel: "inbox/title.json".into(),
+                },
+                4.0,
+                0.0,
+                2.0,
+            ));
+        }
+        c.time = 5.0;
+        c.add_overlay(&video_rec("Fire", "elements/fire.mov", Some(3)));
+        let parts = c.render_parts();
+        assert_eq!(parts.base.len(), 3, "clip + black lottie span + tail");
+        assert!(matches!(parts.base[0], CompBase::Clip(_)));
+        assert!(
+            matches!(parts.base[1], CompBase::Black { dur } if (dur - 2.0).abs() < 1e-3),
+            "lottie span plays black under its overlay"
+        );
+        assert!(
+            matches!(parts.base[2], CompBase::Black { dur } if (dur - 2.0).abs() < 1e-3),
+            "tail pad: overlay ends at 8s, base at 6s"
+        );
+        assert_eq!(parts.overlays.len(), 2, "lottie + fx overlay");
+        assert!(matches!(parts.overlays[0], OverlaySlot::Lottie(_)));
+        match &parts.overlays[1] {
+            OverlaySlot::Ready(o) => {
+                assert!((o.at - 5.0).abs() < 1e-6);
+                assert!(!o.hold, "a video overlay is not held");
+            }
+            _ => panic!("fx overlay should be ready"),
+        }
+        assert_eq!(parts.elements_skipped, 0);
+    }
+
+    /// L3: the caps policy is machine-derived, never a constant — a big box
+    /// earns more lanes, the 16GB laptop stays clamped.
+    #[test]
+    fn preview_caps_scale_with_the_machine() {
+        let laptop = PreviewCaps::for_machine(15.3, 16);
+        assert_eq!((laptop.clip_lanes, laptop.lottie_lanes), (3, 1));
+        let rig = PreviewCaps::for_machine(64.0, 24);
+        assert_eq!((rig.clip_lanes, rig.lottie_lanes), (6, 2));
+        let tiny = PreviewCaps::for_machine(8.0, 4);
+        assert_eq!((tiny.clip_lanes, tiny.lottie_lanes), (2, 1));
+        let monster = PreviewCaps::for_machine(128.0, 88);
+        assert_eq!((monster.clip_lanes, monster.lottie_lanes), (8, 2));
+    }
+
     #[test]
     fn add_clip_stitches_onto_the_end_and_stays_valid() {
         let mut c = Composer::default();
@@ -4595,23 +5674,30 @@ mod tests {
     }
 
     #[test]
-    fn stitch_clips_map_in_order_skipping_elements() {
+    fn render_parts_map_in_order_skipping_elements() {
+        use dpl_engine_media::CompBase;
         let mut c = Composer::default();
         c.add_clip(&video_rec("A", "inbox/a.mp4", Some(3)));
         c.add_clip(&video_rec("B", "inbox/b.mp4", Some(4)));
         if let Some(t) = c.comp.tracks.first_mut() {
-            t.layers.push(Layer {
-                id: "el".into(),
-                source: Source::Element { id: "spark".into() },
-                start: 0.0,
-                in_pt: 0.0,
-                out_pt: 2.0,
-            });
+            t.layers.push(Layer::plain(
+                "el",
+                Source::Element { id: "spark".into() },
+                0.0,
+                0.0,
+                2.0,
+            ));
         }
-        let clips = c.stitch_clips();
-        assert_eq!(clips.len(), 2, "element source is skipped");
-        assert!(clips[0].path.to_string_lossy().contains("a.mp4"));
-        assert!((clips[1].out_pt - 4.0).abs() < 1e-6);
+        let parts = c.render_parts();
+        assert_eq!(parts.base.len(), 2, "element source is skipped");
+        assert_eq!(parts.elements_skipped, 1, "and counted honestly");
+        match (&parts.base[0], &parts.base[1]) {
+            (CompBase::Clip(a), CompBase::Clip(b)) => {
+                assert!(a.path.to_string_lossy().contains("a.mp4"));
+                assert!((b.out_pt - 4.0).abs() < 1e-6);
+            }
+            _ => panic!("both base legs are clips"),
+        }
     }
 
     #[test]
@@ -4847,9 +5933,14 @@ mod tests {
         assert!((l.span() - 5.0).abs() < 1e-6, "held DEFAULT_IMAGE_SECS");
         assert!((l.start - 4.0).abs() < 1e-6, "appended after the video");
         assert!(dpl_comp::validate(&c.comp).is_empty());
-        // The stitch maps it as a STILL.
-        let clips = c.stitch_clips();
-        assert!(!clips[0].still && clips[1].still, "still flags mapped");
+        // The render maps it as a STILL leg.
+        let parts = c.render_parts();
+        match (&parts.base[0], &parts.base[1]) {
+            (dpl_engine_media::CompBase::Clip(a), dpl_engine_media::CompBase::Clip(b)) => {
+                assert!(!a.still && b.still, "still flags mapped")
+            }
+            _ => panic!("both base legs are clips"),
+        }
     }
 
     #[test]

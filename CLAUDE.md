@@ -52,6 +52,7 @@ other worktree. The operator double-clicks `target\release\devpulselabs.exe`
   --clone-seed <seed> <show> <ep> --import-drill <dir> --pin-pack <dir>
   --save-comp <name> --export-guide <guide-rel> [<session-rel>]
   --steps-drill <n> --make-slide <asset-rel> --lottie-import <file>
+  --fx-drill <clip-rel> <fx-rel>
   --run-workflow <id> --chat-open --chat-authored --chat-proof <mode>
   --seam-port <n> --no-seam --content-root <path>` (also honored as the
   `CONTENT_ROOT` env; drill scratch roots use either)
@@ -60,28 +61,33 @@ other worktree. The operator double-clicks `target\release\devpulselabs.exe`
   `target\release\eguipilotai.exe doctor | inspect devpulse-windows pixvix`.
   Kill any orphaned `devpulselabs` process after CLI runs.
 
-## CI runners (self-hosted, free)
+## CI runners (self-hosted, free — on the estate since 2026-07-28)
 
-- `dpl-win-laptop` (labels: dpl-win) runs at `C:\actions-runner` on this
-  laptop — `.github/workflows/green.yml` runs the gate on every PR.
-  NOT yet a service: after a reboot, restart it (`C:\actions-runner\
-  run.cmd`) or, ONCE from an elevated shell, register the logon task:
-  `schtasks /Create /TN dpl-actions-runner /TR C:\actions-runner\run.cmd /SC ONLOGON`.
-- Ubuntu/Wayland mini-PC lane: register a runner there with label
-  `dpl-linux` (repo Settings → Actions → Runners → New self-hosted
-  runner, or `gh api -X POST repos/EonsofStupid/devpulselabs/actions/
-  runners/registration-token`), then uncomment the `green-linux` job in
-  green.yml. The app targets BOTH: Windows laptop + Wayland Ubuntu
-  mini-PC — cross-support is a product requirement, not a nicety.
-- INTERIM Linux lane via WSL (Ubuntu-26.04 on this laptop): Rust 1.92
-  is already installed (rustup, no sudo). Cross-checking from Windows
-  dies at khronos-egl's build script — the check must run INSIDE Linux.
-  ONE operator command finishes the setup (needs sudo):
-  `sudo apt-get update && sudo apt-get install -y build-essential pkg-config libssl-dev libegl1-mesa-dev libgl1-mesa-dev libwayland-dev libxkbcommon-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev`
-  After that, any session can run the Linux gate:
-  `wsl -e bash -lc "source ~/.cargo/env; cd /mnt/c/localdev/devpulselabs && cargo check --workspace"`
-  (and a WSL-side runner with label dpl-linux is an option until the
-  mini-PC takes the lane).
+- BOTH lanes live on the dedicated server (the server1 / ssh.clyffy.ai
+  Proxmox host, 88 cores / 128 GB). The LAPTOP IS NOT A RUNNER — its
+  registration was removed 2026-07-28; never restart `C:\actions-runner`
+  here. (Leftover: `schtasks /Delete /TN dpl-actions-runner /F` from an
+  elevated shell, once.)
+- Windows lane: `devpulse-runner-win-01` (labels: dpl-win) — Proxmox VM
+  119, runner service `actions.runner.EonsofStupid-devpulselabs.
+  devpulse-runner-win-01` running as SYSTEM at `C:\actions-runner`.
+  Toolchain (all machine-usable by SYSTEM): git 2.55, rustup with the
+  pinned 1.92.0 (default profile — clippy+rustfmt) in the SYSTEM
+  profile, VS Build Tools MSVC 14.44 + Win11 SDK 26100. Reach the VM
+  from server1 via `qm guest exec 119 -- ...` (guest agent; quote
+  Windows paths — bare backslashes die in the ssh/sh layers, base64 a
+  .cmd through certutil for anything with embedded quotes).
+- Linux lane: `devpulse-runner-lnx-01` (labels: dpl-linux, rust) — LXC
+  121 on the same host; `dpl-linux-clyffy-lab` (ARM64, dpl-linux) rides
+  as extra capacity.
+- The 16GB-era LNK1318 env cures in green.yml (`debug=0`, `jobs=8`)
+  stay until the Windows VM proves it doesn't need them (it boots with
+  16 GB too).
+- Rebuild-from-blank, snapshot policy, heartbeat, and the never-public
+  security rule: `docs/runbook/ci-runners.md` (idempotent bootstrap
+  scripts beside it — LLVM/libclang included; also `-VerifyOnly` /
+  `--verify-only` audits for a runner that looks online but won't pick
+  up jobs).
 
 ## Session end (every session, no exceptions)
 

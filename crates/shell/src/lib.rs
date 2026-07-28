@@ -91,6 +91,31 @@ fn activity_coach_line(ev: &dpl_fabric::CoachEvent) -> String {
     }
 }
 
+fn activity_intent_line(ev: &dpl_fabric::IntentEvent) -> String {
+    use dpl_fabric::IntentEvent as E;
+    match ev {
+        E::DeterminismChanged { mode, cause } => {
+            let mode = match mode {
+                dpl_intent::DeterminismMode::Behavioral => "behavioral",
+                dpl_intent::DeterminismMode::Strict => "strict",
+            };
+            match cause {
+                None => format!("determinism · {mode}"),
+                Some(dpl_intent::StrictCause::Operator(
+                    dpl_intent::IntentChannel::UiAcknowledged,
+                )) => format!("determinism · {mode} · ui"),
+                Some(dpl_intent::StrictCause::Operator(
+                    dpl_intent::IntentChannel::SlashCommand,
+                )) => format!("determinism · {mode} · slash"),
+                Some(dpl_intent::StrictCause::Evidence) => {
+                    format!("determinism · {mode} · evidence")
+                }
+            }
+        }
+        E::IntentRefused { action, reason } => format!("intent refused · {action} · {reason}"),
+    }
+}
+
 /// One job transition as a feed line.
 fn activity_job_line(ev: &dpl_fabric::JobEvent) -> String {
     use dpl_fabric::JobEvent as E;
@@ -172,6 +197,12 @@ pub struct Shell {
     /// attaches after the shell exists, so no publish can precede this
     /// subscription. In production builds the domain is simply silent.
     coach_rx: dpl_fabric::CoachReceiver,
+    /// Privileged-mode transitions and refusals — same ear pattern as coach.
+    intent_rx: dpl_fabric::IntentReceiver,
+    /// The determinism gate (optional until the app attaches it at boot).
+    determinism: Option<dpl_intent::DeterminismGate>,
+    /// Two-step UI arm for demanding strict — confirm spends the proof.
+    strict_armed: bool,
     activity: std::collections::VecDeque<String>,
     /// Full-bleed: all chrome hidden, content owns the viewport (old `\` /
     /// Maximize2 behavior). Esc or the floating exit chip leaves.
@@ -224,6 +255,7 @@ impl Shell {
             });
         let events = fabric.subscribe_shell();
         let coach_rx = fabric.subscribe_coach();
+        let intent_rx = fabric.subscribe_intent();
         Self {
             hubs,
             route,
@@ -233,6 +265,9 @@ impl Shell {
             jobs_rx,
             providers_rx,
             coach_rx,
+            intent_rx,
+            determinism: None,
+            strict_armed: false,
             activity: std::collections::VecDeque::new(),
             backdrop: dpl_backdrop::Backdrop::default(),
             nav_count: 0,
@@ -244,6 +279,13 @@ impl Shell {
             zones: Zones::default(),
             window_accessories: Vec::new(),
         }
+    }
+
+    /// Attach the session's determinism gate. The shell owns the UI
+    /// second-acknowledgement channel; the app owns construction and the
+    /// slash mint site. No constructor churn — same pattern as estate wires.
+    pub fn attach_determinism(&mut self, gate: dpl_intent::DeterminismGate) {
+        self.determinism = Some(gate);
     }
 
     /// Register one app-owned native-window launcher.
@@ -409,6 +451,10 @@ impl Shell {
             self.signal_count += 1;
             self.push_activity(st.ms, activity_coach_line(&st.ev));
         }
+        while let Ok(st) = self.intent_rx.try_recv() {
+            self.signal_count += 1;
+            self.push_activity(st.ms, activity_intent_line(&st.ev));
+        }
 
         // Esc leaves full-bleed (the old shell's escape hatch).
         if self.full_bleed && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
@@ -540,6 +586,27 @@ impl Shell {
     fn status_bar(&self, ui: &mut egui::Ui, fl: &cl::Fluid) -> (Rect, Vec<status::StatusAction>) {
         let mut actions = Vec::new();
         let tone = self.active_tone();
+        // The JobBoard's "working…" truth: one running job names itself
+        // (with its latest-wins progress count when reported); several
+        // running jobs just count themselves.
+        let running: Vec<dpl_fabric::JobRow> = self
+            .fabric
+            .jobs()
+            .into_iter()
+            .filter(|r| r.running())
+            .collect();
+        let working = match running.as_slice() {
+            [] => None,
+            [one] => {
+                let n = one.progress.load(std::sync::atomic::Ordering::Relaxed);
+                Some(if n > 0 {
+                    format!("working · {} · {n}", one.label)
+                } else {
+                    format!("working · {}", one.label)
+                })
+            }
+            many => Some(format!("working · {} jobs", many.len())),
+        };
         let resp = egui::Panel::bottom("dpl_status")
             .exact_size(fl.bottombar_height())
             .show_separator_line(false)
@@ -558,6 +625,7 @@ impl Shell {
                     signals: self.signal_count,
                     build: self.build,
                     mood: self.backdrop.mood(),
+                    working,
                 };
                 actions = status::grid(ui, &cx, &self.window_accessories);
             });
@@ -720,7 +788,7 @@ impl Shell {
     }
 
     // ── PANEL: the inspector ────────────────────────────────────────────
-    fn inspector(&self, ui: &mut egui::Ui, fl: &cl::Fluid) -> Rect {
+    fn inspector(&mut self, ui: &mut egui::Ui, fl: &cl::Fluid) -> Rect {
         let (hub_label, sub_label, tone) = self.breadcrumb();
         let resp = egui::Panel::right("dpl_inspector")
             .exact_size(fl.panel_width())
@@ -795,6 +863,9 @@ impl Shell {
                 });
 
                 ui.add_space(cl::space::S3);
+                self.determinism_card(ui);
+
+                ui.add_space(cl::space::S3);
                 ui.label(RichText::new("TOOLS").small().color(cl::ink::SUBTLE));
                 ui.label(
                     RichText::new("Per-hub tool docks mount here (P1).")
@@ -803,6 +874,175 @@ impl Shell {
                 );
             });
         resp.response.rect
+    }
+
+    /// The UI second-acknowledgement channel for determinism mode.
+    /// Synthetic (agent-injected) clicks publish a refusal and mint nothing.
+    fn determinism_card(&mut self, ui: &mut egui::Ui) {
+        ui.label(RichText::new("DETERMINISM").small().color(cl::ink::SUBTLE));
+        let Some(gate) = self.determinism.clone() else {
+            cl::card_frame().show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.label(
+                    RichText::new("gate not attached")
+                        .small()
+                        .color(cl::ink::SUBTLE),
+                );
+            });
+            return;
+        };
+        let mode = gate.mode();
+        let cause = gate.strict_cause();
+        let mode_label = match mode {
+            dpl_intent::DeterminismMode::Behavioral => "behavioral",
+            dpl_intent::DeterminismMode::Strict => "strict",
+        };
+        let cause_label = match cause {
+            None => None,
+            Some(dpl_intent::StrictCause::Operator(dpl_intent::IntentChannel::UiAcknowledged)) => {
+                Some("ui")
+            }
+            Some(dpl_intent::StrictCause::Operator(dpl_intent::IntentChannel::SlashCommand)) => {
+                Some("slash")
+            }
+            Some(dpl_intent::StrictCause::Evidence) => Some("evidence"),
+        };
+        let status = match cause_label {
+            Some(cause) => format!("{mode_label} · {cause}"),
+            None => mode_label.to_owned(),
+        };
+
+        let mut arm = false;
+        let mut confirm = false;
+        let mut cancel_arm = false;
+        let mut deescalate = false;
+        cl::card_frame().show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.label(RichText::new(status).monospace().color(cl::ink::BASE));
+            match cause {
+                Some(dpl_intent::StrictCause::Evidence) => {
+                    ui.label(
+                        RichText::new("locked — this run is evidence")
+                            .small()
+                            .color(cl::ink::SUBTLE),
+                    );
+                }
+                Some(dpl_intent::StrictCause::Operator(_)) => {
+                    let btn = ui.button("return to behavioral");
+                    let btn = cl::tip(btn, "Clear operator-demanded strict.");
+                    let mut meta = NodeMetadata::new(
+                        PilotId::new("shell.determinism.behavioral"),
+                        egui_pilot_ai::protocol::Role::Button,
+                        "Return to behavioral",
+                    );
+                    meta.description = Some("Clear operator-demanded strict.".into());
+                    ui.pilot_track(&btn, meta);
+                    if btn.clicked() {
+                        deescalate = true;
+                    }
+                }
+                None if self.strict_armed => {
+                    ui.label(
+                        RichText::new("confirm to demand strict")
+                            .small()
+                            .color(cl::ink::SUBTLE),
+                    );
+                    ui.horizontal(|ui| {
+                        let yes = ui.button("confirm strict");
+                        let yes = cl::tip(yes, "Second acknowledgement — demand strict mode.");
+                        let mut meta = NodeMetadata::new(
+                            PilotId::new("shell.determinism.confirm"),
+                            egui_pilot_ai::protocol::Role::Button,
+                            "Confirm strict",
+                        );
+                        meta.description =
+                            Some("Second acknowledgement — demand strict mode.".into());
+                        ui.pilot_track(&yes, meta);
+                        if yes.clicked() {
+                            confirm = true;
+                        }
+                        let no = ui.button("cancel");
+                        if no.clicked() {
+                            cancel_arm = true;
+                        }
+                    });
+                }
+                None => {
+                    let btn = ui.button("arm strict");
+                    let btn = cl::tip(btn, "Arm a second acknowledgement for strict mode.");
+                    let mut meta = NodeMetadata::new(
+                        PilotId::new("shell.determinism.arm"),
+                        egui_pilot_ai::protocol::Role::Button,
+                        "Arm strict",
+                    );
+                    meta.description = Some("Arm a second acknowledgement for strict mode.".into());
+                    ui.pilot_track(&btn, meta);
+                    if btn.clicked() {
+                        arm = true;
+                    }
+                }
+            }
+        });
+
+        let synthetic = egui_pilot_ai::input_is_synthetic(ui.ctx());
+        if arm {
+            if synthetic {
+                self.fabric
+                    .publish_intent(dpl_fabric::IntentEvent::IntentRefused {
+                        action: "arm-strict".into(),
+                        reason: "synthetic-input".into(),
+                    });
+            } else {
+                self.strict_armed = true;
+            }
+        }
+        if cancel_arm {
+            self.strict_armed = false;
+        }
+        if confirm {
+            self.strict_armed = false;
+            if synthetic {
+                self.fabric
+                    .publish_intent(dpl_fabric::IntentEvent::IntentRefused {
+                        action: "strict".into(),
+                        reason: "synthetic-input".into(),
+                    });
+            } else {
+                let channel = gate.escalate(dpl_intent::OperatorIntent::ui_acknowledged());
+                self.fabric
+                    .publish_intent(dpl_fabric::IntentEvent::DeterminismChanged {
+                        mode: dpl_intent::DeterminismMode::Strict,
+                        cause: Some(dpl_intent::StrictCause::Operator(channel)),
+                    });
+            }
+        }
+        if deescalate {
+            if synthetic {
+                self.fabric
+                    .publish_intent(dpl_fabric::IntentEvent::IntentRefused {
+                        action: "behavioral".into(),
+                        reason: "synthetic-input".into(),
+                    });
+            } else {
+                match gate.deescalate() {
+                    dpl_intent::Deescalation::Cleared => {
+                        self.fabric
+                            .publish_intent(dpl_fabric::IntentEvent::DeterminismChanged {
+                                mode: dpl_intent::DeterminismMode::Behavioral,
+                                cause: None,
+                            });
+                    }
+                    dpl_intent::Deescalation::RefusedEvidence => {
+                        self.fabric
+                            .publish_intent(dpl_fabric::IntentEvent::IntentRefused {
+                                action: "behavioral".into(),
+                                reason: "evidence-locked".into(),
+                            });
+                    }
+                    dpl_intent::Deescalation::AlreadyBehavioral => {}
+                }
+            }
+        }
     }
 
     // ── central: the recessed well, dispatch to the active hub ──────────
