@@ -36,7 +36,7 @@ use egui_pilot_ai::{
 };
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -134,12 +134,12 @@ pub struct Composer {
     /// The FOOTAGE palette's active tag filter (L3 — the enricher's tags
     /// made visible; None = everything).
     palette_tag: Option<String>,
-    /// The off-thread stitch render's shared state.
-    render: Arc<Mutex<RenderState>>,
-    /// The off-thread pack INGEST's shared state (one at a time).
-    ingest: Arc<Mutex<IngestState>>,
-    /// Files processed by the running ingest (the progress pill).
-    ingest_done: Arc<AtomicUsize>,
+    /// The in-flight/last stitch render — a handle into the fabric's
+    /// JobBoard (None = never rendered, or the outcome was acknowledged).
+    render_job: Option<dpl_fabric::JobId>,
+    /// The in-flight/last pack INGEST (one at a time) + the pack's
+    /// display name for the progress pill.
+    ingest_job: Option<(dpl_fabric::JobId, String)>,
     /// The active workflow tab (Editor leads; the rest are tailored).
     tab: Tab,
     /// The tool-strip selection (Selection edits today; the rest are
@@ -206,16 +206,17 @@ pub struct Composer {
     /// Two-tap arm for Apply edits — pruning deletes source frames, and a
     /// destructive action never rides one stray tap.
     apply_armed: bool,
-    /// The off-thread guide EXPORT's shared state.
-    export: Arc<Mutex<ExportState>>,
+    /// The in-flight/last guide EXPORT — a JobBoard handle like the rest.
+    export_job: Option<dpl_fabric::JobId>,
     /// The signal fabric (W8, signal-doctrine.md): every mutation this
-    /// editor performs signals; None only in tests/drills that never
-    /// wired one (emissions degrade to silence, never panic).
-    fabric: Option<dpl_fabric::Fabric>,
+    /// editor performs signals. A PRIVATE fabric by default so tests and
+    /// drills keep a working JobBoard (publishes go to no subscribers);
+    /// `wire_fabric` swaps in the app's ONE fabric.
+    fabric: dpl_fabric::Fabric,
     /// Capture-domain subscription — drained each frame; any Saved/
     /// InboxChanged invalidates the project caches (refresh chips stop
     /// being load-bearing).
-    capture_rx: Option<dpl_fabric::CaptureReceiver>,
+    capture_rx: dpl_fabric::CaptureReceiver,
     /// Ring-0 estate — dual-writes last-comp beside composer-state.json.
     /// None in tests/drills that never wired one.
     estate: Option<std::sync::Arc<dpl_estate::Estate>>,
@@ -250,14 +251,6 @@ struct ReviewStep {
     step: dpl_guide::Step,
 }
 
-/// The async guide-export job's state — the Guide tab polls it.
-enum ExportState {
-    Idle,
-    Running,
-    Done(PathBuf),
-    Failed(String),
-}
-
 /// One deferred Guide-tab action (collected during paint, applied after —
 /// the tab reads several caches while building its rows).
 enum GAct {
@@ -283,6 +276,10 @@ enum Drag {
 
 impl Default for Composer {
     fn default() -> Self {
+        // A PRIVATE fabric until the app wires the real one — the JobBoard
+        // works in tests/drills; publishes simply have no subscribers.
+        let fabric = dpl_fabric::Fabric::new();
+        let capture_rx = fabric.subscribe_capture();
         let mut c = Self {
             comp: Composition::default_1080p30(),
             dir: None,
@@ -300,9 +297,8 @@ impl Default for Composer {
             packs: None,
             proj_sel: None,
             palette_tag: None,
-            render: Arc::new(Mutex::new(RenderState::Idle)),
-            ingest: Arc::new(Mutex::new(IngestState::Idle)),
-            ingest_done: Arc::new(AtomicUsize::new(0)),
+            render_job: None,
+            ingest_job: None,
             tab: initial_tab(),
             etool: EditorTool::Select,
             atool: AnnotateTool::Select,
@@ -333,9 +329,9 @@ impl Default for Composer {
             make_video: true,
             make_gif: true,
             apply_armed: false,
-            export: Arc::new(Mutex::new(ExportState::Idle)),
-            fabric: None,
-            capture_rx: None,
+            export_job: None,
+            fabric,
+            capture_rx,
             estate: None,
             wf_run: None,
             status: "New composition — add footage from the Project panel.".into(),
@@ -557,22 +553,6 @@ impl Row {
             Row::FxHeader => FXHDR_H,
         }
     }
-}
-
-/// The async stitch-render job's state — the status row polls it.
-enum RenderState {
-    Idle,
-    Running,
-    Done(PathBuf),
-    Failed(String),
-}
-
-/// The async pack-ingest job's state — the status line polls it.
-enum IngestState {
-    Idle,
-    Running { pack: String },
-    Done { pack: String, copied: usize },
-    Failed(String),
 }
 
 impl Composer {
@@ -1396,8 +1376,9 @@ impl Composer {
     }
 
     /// Kick off the ffmpeg stitch render OFF the UI thread; the status row
-    /// polls the shared `RenderState`. Output colocates with the comp as
-    /// `<comp-dir>/render.mp4` (the comp folder is minted if unsaved).
+    /// reads this job's row on the fabric's JobBoard. Output colocates with
+    /// the comp as `<comp-dir>/render.mp4` (the comp folder is minted if
+    /// unsaved).
     fn start_render(&mut self) {
         let parts = self.render_parts();
         // Honesty: Element layers have no playable file (dormant R1c
@@ -1408,9 +1389,22 @@ impl Composer {
                 parts.elements_skipped
             );
         }
+        // ONE render slot: acknowledging the previous outcome keeps the
+        // board tidy — the new row is the pill from here on.
+        let job = self.fabric.mint_job();
+        if let Some(old) = self.render_job.replace(job) {
+            self.fabric.ack_job(old);
+        }
+        self.fabric.publish_job(dpl_fabric::JobEvent::Queued {
+            job,
+            label: "render".into(),
+        });
         if parts.base.is_empty() {
-            *self.render.lock().expect("render state") =
-                RenderState::Failed("no playable clips to render yet".into());
+            // The refusal is an honest fact — queued, failed, on the record.
+            self.fabric.publish_job(dpl_fabric::JobEvent::Failed {
+                job,
+                error: "no playable clips to render yet".into(),
+            });
             return;
         }
         if self.dir.is_none() {
@@ -1418,46 +1412,25 @@ impl Composer {
         }
         let out = self.dir.clone().unwrap().join("render.mp4");
         let (w, h, fps) = (self.comp.w, self.comp.h, self.comp.fps);
-        let state = Arc::clone(&self.render);
-        *state.lock().expect("render state") = RenderState::Running;
-        // Jobs domain (doctrine law 8): transitions signal; the polled
-        // RenderState stays the progress truth.
         let fabric = self.fabric.clone();
-        let job = fabric.as_ref().map(|f| f.mint_job());
-        if let (Some(f), Some(j)) = (&fabric, job) {
-            f.publish_job(dpl_fabric::JobEvent::Queued {
-                job: j,
-                label: "render".into(),
-            });
-        }
         std::thread::Builder::new()
             .name("dpl-composer-render".into())
-            .spawn(move || {
-                let result = render_comp_resolving(parts, w, h, fps, &out);
-                *state.lock().expect("render state") = match result {
+            .spawn(
+                move || match render_comp_resolving(parts, w, h, fps, &out) {
                     Ok(()) => {
                         // Write-through: the render becomes an ordinary
                         // indexed artifact so Gallery/Keep/agents see it.
-                        index_render(&out, fabric.as_ref());
-                        if let (Some(f), Some(j)) = (&fabric, job) {
-                            f.publish_job(dpl_fabric::JobEvent::Done {
-                                job: j,
-                                out: out.display().to_string(),
-                            });
-                        }
-                        RenderState::Done(out)
+                        index_render(&out, Some(&fabric));
+                        fabric.publish_job(dpl_fabric::JobEvent::Done {
+                            job,
+                            out: out.display().to_string(),
+                        });
                     }
                     Err(e) => {
-                        if let (Some(f), Some(j)) = (&fabric, job) {
-                            f.publish_job(dpl_fabric::JobEvent::Failed {
-                                job: j,
-                                error: e.clone(),
-                            });
-                        }
-                        RenderState::Failed(e)
+                        fabric.publish_job(dpl_fabric::JobEvent::Failed { job, error: e });
                     }
-                };
-            })
+                },
+            )
             .expect("spawn render thread");
         self.renders = None;
     }
@@ -1607,13 +1580,14 @@ impl Composer {
         self.apply_armed = false;
     }
 
-    /// Kick off the guide EXPORT off the UI thread; the Guide tab polls
-    /// the shared `ExportState`.
+    /// Kick off the guide EXPORT off the UI thread; the Guide tab reads
+    /// this job's row on the fabric's JobBoard.
     fn start_export(&mut self) {
-        if matches!(
-            *self.export.lock().expect("export state"),
-            ExportState::Running
-        ) {
+        if self
+            .export_job
+            .and_then(|j| self.fabric.job(j))
+            .is_some_and(|r| r.running())
+        {
             return;
         }
         let Some(rev) = &self.review else {
@@ -1630,47 +1604,36 @@ impl Composer {
             make_gif: self.make_gif,
             ..Default::default()
         };
-        let state = Arc::clone(&self.export);
-        *state.lock().expect("export state") = ExportState::Running;
-        let fabric = self.fabric.clone();
-        let job = fabric.as_ref().map(|f| f.mint_job());
-        if let (Some(f), Some(j)) = (&fabric, job) {
-            f.publish_job(dpl_fabric::JobEvent::Queued {
-                job: j,
-                label: "guide export".into(),
-            });
+        let job = self.fabric.mint_job();
+        if let Some(old) = self.export_job.replace(job) {
+            self.fabric.ack_job(old);
         }
+        self.fabric.publish_job(dpl_fabric::JobEvent::Queued {
+            job,
+            label: "guide export".into(),
+        });
+        let fabric = self.fabric.clone();
         std::thread::Builder::new()
             .name("dpl-guide-export".into())
             .spawn(move || {
-                let result = run_export(
+                match run_export(
                     &root,
                     &guide_rel,
                     session_rel.as_deref(),
                     name.as_deref(),
                     opts,
-                    fabric.as_ref(),
-                );
-                *state.lock().expect("export state") = match result {
+                    Some(&fabric),
+                ) {
                     Ok(e) => {
-                        if let (Some(f), Some(j)) = (&fabric, job) {
-                            f.publish_job(dpl_fabric::JobEvent::Done {
-                                job: j,
-                                out: e.dir.display().to_string(),
-                            });
-                        }
-                        ExportState::Done(e.dir)
+                        fabric.publish_job(dpl_fabric::JobEvent::Done {
+                            job,
+                            out: e.dir.display().to_string(),
+                        });
                     }
                     Err(e) => {
-                        if let (Some(f), Some(j)) = (&fabric, job) {
-                            f.publish_job(dpl_fabric::JobEvent::Failed {
-                                job: j,
-                                error: e.clone(),
-                            });
-                        }
-                        ExportState::Failed(e)
+                        fabric.publish_job(dpl_fabric::JobEvent::Failed { job, error: e });
                     }
-                };
+                }
             })
             .expect("spawn export thread");
     }
@@ -1678,16 +1641,21 @@ impl Composer {
     /// File a finished export into a show/episode — guide folders keep
     /// wholesale (`Index::keep`).
     fn keep_export(&mut self, show: &str, ep: &str) {
-        let dir = match &*self.export.lock().expect("export state") {
-            ExportState::Done(d) => d.clone(),
-            _ => return,
+        let dir = match self.export_job.and_then(|j| self.fabric.job(j)) {
+            Some(row) => match &row.state {
+                dpl_fabric::JobState::Done { out } => PathBuf::from(out),
+                _ => return,
+            },
+            None => return,
         };
         let root = Self::content_root();
         let rel = Self::short(&dir);
         self.status =
             match dpl_index::Index::open_default().and_then(|ix| ix.keep(&root, &rel, show, ep)) {
                 Ok(new_rel) => {
-                    *self.export.lock().expect("export state") = ExportState::Idle;
+                    if let Some(job) = self.export_job.take() {
+                        self.fabric.ack_job(job);
+                    }
                     self.guides = None;
                     self.signal(dpl_fabric::CaptureEvent::InboxChanged);
                     format!("Filed into {show}/{ep} → {new_rel}")
@@ -1713,32 +1681,34 @@ impl Composer {
     /// `content/elements/<pack>/`, indexed and postered — the operator's
     /// "grab the ones I often use". One at a time; sources untouched.
     fn start_ingest(&mut self, pack: &Path) {
+        if self
+            .ingest_job
+            .as_ref()
+            .and_then(|(j, _)| self.fabric.job(*j))
+            .is_some_and(|r| r.running())
         {
-            let st = self.ingest.lock().expect("ingest state");
-            if matches!(*st, IngestState::Running { .. }) {
-                self.status = "One ingest at a time — the current one is still copying.".into();
-                return;
-            }
+            self.status = "One ingest at a time — the current one is still copying.".into();
+            return;
         }
         let name = pack
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| "pack".into());
-        self.ingest_done.store(0, Ordering::Relaxed);
-        let state = Arc::clone(&self.ingest);
-        let done = Arc::clone(&self.ingest_done);
         let pack = pack.to_path_buf();
-        *state.lock().expect("ingest state") = IngestState::Running { pack: name.clone() };
         // The BATCHING law (doctrine law 8): a 9k-file ingest speaks the
         // jobs domain + ONE InboxChanged at the end — never a Saved storm.
-        let fabric = self.fabric.clone();
-        let job = fabric.as_ref().map(|f| f.mint_job());
-        if let (Some(f), Some(j)) = (&fabric, job) {
-            f.publish_job(dpl_fabric::JobEvent::Queued {
-                job: j,
-                label: format!("ingest {name}"),
-            });
+        let job = self.fabric.mint_job();
+        if let Some((old, _)) = self.ingest_job.replace((job, name.clone())) {
+            self.fabric.ack_job(old);
         }
+        self.fabric.publish_job(dpl_fabric::JobEvent::Queued {
+            job,
+            label: format!("ingest {name}"),
+        });
+        // The board row's counter IS the progress pill (doctrine law 7) —
+        // the worker bumps it per file, lock-free.
+        let done = self.fabric.job(job).map(|r| r.progress).unwrap_or_default();
+        let fabric = self.fabric.clone();
         std::thread::Builder::new()
             .name("dpl-pack-ingest".into())
             .spawn(move || {
@@ -1750,27 +1720,18 @@ impl Composer {
                 // install (verified 2026-07-27, plan §2).
                 let result = dpl_index::Index::open_default()
                     .and_then(|ix| packs::ingest_copy(&root, &pack, &name, &ix, &done));
-                *state.lock().expect("ingest state") = match result {
+                match result {
                     Ok(copied) => {
-                        if let (Some(f), Some(j)) = (&fabric, job) {
-                            f.publish_job(dpl_fabric::JobEvent::Done {
-                                job: j,
-                                out: format!("{copied} file(s)"),
-                            });
-                            f.publish_capture(dpl_fabric::CaptureEvent::InboxChanged);
-                        }
-                        IngestState::Done { pack: name, copied }
+                        fabric.publish_job(dpl_fabric::JobEvent::Done {
+                            job,
+                            out: format!("{copied} file(s)"),
+                        });
+                        fabric.publish_capture(dpl_fabric::CaptureEvent::InboxChanged);
                     }
                     Err(e) => {
-                        if let (Some(f), Some(j)) = (&fabric, job) {
-                            f.publish_job(dpl_fabric::JobEvent::Failed {
-                                job: j,
-                                error: e.clone(),
-                            });
-                        }
-                        IngestState::Failed(e)
+                        fabric.publish_job(dpl_fabric::JobEvent::Failed { job, error: e });
                     }
-                };
+                }
             })
             .expect("spawn ingest thread");
     }
@@ -1934,7 +1895,7 @@ impl Composer {
         let parts = self.render_parts();
         match render_comp_resolving(parts, self.comp.w, self.comp.h, self.comp.fps, &out) {
             Ok(()) => {
-                index_render(&out, self.fabric.as_ref());
+                index_render(&out, Some(&self.fabric));
                 self.status = format!("FX drill rendered {}", out.display());
                 println!("fx-drill: rendered {}", out.display());
             }
@@ -2104,7 +2065,7 @@ impl Composer {
         let mut pending: std::collections::HashMap<String, dpl_fabric::JobId> =
             std::collections::HashMap::new();
         let (report, board) = dpl_workflows::execute(&doc, &mut runner, &mut |ev| {
-            let Some(f) = &fabric else { return };
+            let f = &fabric;
             match ev {
                 dpl_workflows::StageEvent::Started(stage) => {
                     let job = f.mint_job();
@@ -2164,30 +2125,26 @@ impl Composer {
     /// Wire the signal fabric (called by the hub's own wire_fabric —
     /// ONE fabric end to end). Also opens this editor's capture ears.
     pub fn wire_fabric(&mut self, fabric: &dpl_fabric::Fabric) {
-        self.capture_rx = Some(fabric.subscribe_capture());
-        self.fabric = Some(fabric.clone());
+        self.capture_rx = fabric.subscribe_capture();
+        self.fabric = fabric.clone();
     }
 
-    /// Publish a capture signal when a fabric is wired (drills without
-    /// one stay silent — never a panic).
+    /// Publish a capture signal (the default private fabric publishes into
+    /// silence — drills and tests never panic).
     fn signal(&self, ev: dpl_fabric::CaptureEvent) {
-        if let Some(f) = &self.fabric {
-            f.publish_capture(ev);
-        }
+        self.fabric.publish_capture(ev);
     }
 
     /// Saved for an indexed record — the emit half of
     /// "index + signal identically".
-    fn signal_saved(fabric: &Option<dpl_fabric::Fabric>, rec: &Record) {
-        if let Some(f) = fabric {
-            f.publish_capture(dpl_fabric::CaptureEvent::Saved {
-                rel_path: rec.rel_path.clone(),
-                kind: rec.kind.clone(),
-                name: rec.name.clone(),
-                location: rec.location.clone(),
-                source: rec.source.clone(),
-            });
-        }
+    fn signal_saved(fabric: &dpl_fabric::Fabric, rec: &Record) {
+        fabric.publish_capture(dpl_fabric::CaptureEvent::Saved {
+            rel_path: rec.rel_path.clone(),
+            kind: rec.kind.clone(),
+            name: rec.name.clone(),
+            location: rec.location.clone(),
+            source: rec.source.clone(),
+        });
     }
 
     /// Drain capture signals (W8): any artifact change — ours or another
@@ -2195,13 +2152,11 @@ impl Composer {
     /// pickers reload lazily. Cheap: caches refill on next need.
     fn drain_signals(&mut self) {
         let mut dirty = false;
-        if let Some(rx) = self.capture_rx.as_mut() {
-            while let Ok(stamped) = rx.try_recv() {
-                dirty |= matches!(
-                    stamped.ev,
-                    dpl_fabric::CaptureEvent::Saved { .. } | dpl_fabric::CaptureEvent::InboxChanged
-                );
-            }
+        while let Ok(stamped) = self.capture_rx.try_recv() {
+            dirty |= matches!(
+                stamped.ev,
+                dpl_fabric::CaptureEvent::Saved { .. } | dpl_fabric::CaptureEvent::InboxChanged
+            );
         }
         if dirty {
             self.palette = None;
@@ -2297,16 +2252,21 @@ impl Composer {
     /// File the finished render into a show/episode (the tag seam) —
     /// `Index::keep` moves the artifact and its index row together.
     fn keep_render(&mut self, show: &str, ep: &str) {
-        let path = match &*self.render.lock().expect("render state") {
-            RenderState::Done(p) => p.clone(),
-            _ => return,
+        let path = match self.render_job.and_then(|j| self.fabric.job(j)) {
+            Some(row) => match &row.state {
+                dpl_fabric::JobState::Done { out } => PathBuf::from(out),
+                _ => return,
+            },
+            None => return,
         };
         let root = Self::content_root();
         let rel = Self::short(&path);
         self.status =
             match dpl_index::Index::open_default().and_then(|ix| ix.keep(&root, &rel, show, ep)) {
                 Ok(new_rel) => {
-                    *self.render.lock().expect("render state") = RenderState::Idle;
+                    if let Some(job) = self.render_job.take() {
+                        self.fabric.ack_job(job);
+                    }
                     self.renders = None;
                     self.signal(dpl_fabric::CaptureEvent::InboxChanged);
                     format!("Filed into {show}/{ep} → {new_rel}")
@@ -2353,31 +2313,42 @@ impl Composer {
         self.tick_playback(ui.ctx());
         self.show_browsers(ui.ctx());
         self.drain_media_feeds(ui.ctx());
-        // The ingest pill: progress while Running, cache reset on Done.
-        let finished = {
-            let mut st = self.ingest.lock().expect("ingest state");
-            match &*st {
-                IngestState::Running { pack } => {
+        // The ingest pill: progress while Running (the board row's counter),
+        // one-shot status + cache reset when the row resolves.
+        let finished = match self.ingest_job.clone() {
+            Some((job, pack)) => match self.fabric.job(job) {
+                Some(row) if row.running() => {
                     self.status = format!(
                         "Ingesting {pack} — {} file(s) processed…",
-                        self.ingest_done.load(Ordering::Relaxed)
+                        row.progress.load(Ordering::Relaxed)
                     );
                     ui.ctx().request_repaint_after(Duration::from_millis(300));
                     false
                 }
-                IngestState::Done { pack, copied } => {
-                    self.status =
-                        format!("Ingested {pack} — {copied} file(s) now local in your library.");
-                    *st = IngestState::Idle;
-                    true
+                Some(row) => {
+                    let done = match &row.state {
+                        dpl_fabric::JobState::Done { out } => {
+                            self.status =
+                                format!("Ingested {pack} — {out} now local in your library.");
+                            true
+                        }
+                        _ => {
+                            if let dpl_fabric::JobState::Failed { error } = &row.state {
+                                self.status = format!("Ingest failed: {error}");
+                            }
+                            false
+                        }
+                    };
+                    self.fabric.ack_job(job);
+                    self.ingest_job = None;
+                    done
                 }
-                IngestState::Failed(e) => {
-                    self.status = format!("Ingest failed: {e}");
-                    *st = IngestState::Idle;
+                None => {
+                    self.ingest_job = None;
                     false
                 }
-                IngestState::Idle => false,
-            }
+            },
+            None => false,
         };
         if finished {
             self.palette = None;
@@ -2385,10 +2356,11 @@ impl Composer {
             self.packs = None;
         }
         // A render in flight keeps the frame alive so its status pill updates.
-        if matches!(
-            *self.render.lock().expect("render state"),
-            RenderState::Running
-        ) {
+        if self
+            .render_job
+            .and_then(|j| self.fabric.job(j))
+            .is_some_and(|r| r.running())
+        {
             ui.ctx().request_repaint_after(Duration::from_millis(200));
         }
         let mut act: Option<Act> = None;
@@ -3943,27 +3915,28 @@ impl Composer {
     /// The status row: New · Save · Render + the render pill, then the
     /// saved crumb + comp facts + the Info reopen toggle.
     fn status_row(&mut self, ui: &mut egui::Ui, act: &mut Option<Act>) {
-        // Snapshot the render state once (don't hold the lock across the UI).
-        let (rendering, done, pill) = {
-            let st = self.render.lock().expect("render state");
-            match &*st {
-                RenderState::Idle => (false, false, None),
-                RenderState::Running => (
-                    true,
-                    false,
-                    Some(("Rendering...".to_string(), cl::ink::BASE)),
-                ),
-                RenderState::Done(p) => (
-                    false,
-                    true,
-                    Some((format!("Rendered: {}", Self::short(p)), cl::ink::STRONG)),
-                ),
-                RenderState::Failed(e) => (
-                    false,
-                    false,
-                    Some((format!("Render failed: {e}"), cl::ink::MUTED)),
-                ),
-            }
+        // Snapshot the render job's board row once for this frame.
+        let row = self.render_job.and_then(|j| self.fabric.job(j));
+        let (rendering, done, pill) = match row.as_ref().map(|r| &r.state) {
+            None => (false, false, None),
+            Some(dpl_fabric::JobState::Running) => (
+                true,
+                false,
+                Some(("Rendering...".to_string(), cl::ink::BASE)),
+            ),
+            Some(dpl_fabric::JobState::Done { out }) => (
+                false,
+                true,
+                Some((
+                    format!("Rendered: {}", Self::short(&PathBuf::from(out))),
+                    cl::ink::STRONG,
+                )),
+            ),
+            Some(dpl_fabric::JobState::Failed { error }) => (
+                false,
+                false,
+                Some((format!("Render failed: {error}"), cl::ink::MUTED)),
+            ),
         };
         ui.horizontal(|ui| {
             if cl::tip(
@@ -4097,17 +4070,20 @@ impl Composer {
     /// the ONE edit engine) · name it · export the standalone folder
     /// (guide.html + light replay + guide-video.mp4) · file it.
     fn guide_tab(&mut self, ui: &mut egui::Ui) {
-        let (exporting, pill, done_dir) = {
-            let st = self.export.lock().expect("export state");
-            match &*st {
-                ExportState::Idle => (false, None, None),
-                ExportState::Running => (true, Some("Exporting…".to_string()), None),
-                ExportState::Done(d) => (
+        let row = self.export_job.and_then(|j| self.fabric.job(j));
+        let (exporting, pill, done_dir) = match row.as_ref().map(|r| &r.state) {
+            None => (false, None, None),
+            Some(dpl_fabric::JobState::Running) => (true, Some("Exporting…".to_string()), None),
+            Some(dpl_fabric::JobState::Done { out }) => {
+                let dir = PathBuf::from(out);
+                (
                     false,
-                    Some(format!("Exported: {}/guide.html", Self::short(d))),
-                    Some(d.clone()),
-                ),
-                ExportState::Failed(e) => (false, Some(format!("Export failed: {e}")), None),
+                    Some(format!("Exported: {}/guide.html", Self::short(&dir))),
+                    Some(dir),
+                )
+            }
+            Some(dpl_fabric::JobState::Failed { error }) => {
+                (false, Some(format!("Export failed: {error}")), None)
             }
         };
         if exporting {
