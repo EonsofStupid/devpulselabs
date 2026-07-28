@@ -2,6 +2,47 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-28 — L3: ALPHA OVERLAY — FX ELEMENTS COMPOSITE ON THE TIMELINE
+(PR #110, squash `eac44d2`; plan `docs/plans/l3-alpha-overlay.md`,
+deep-planned + operator-ratified):** the third AE-independence rung — the
+operator's videohive packs become USABLE: an element sits ON TOP of
+footage with correct straight alpha, positioned/scaled/tinted, live in
+the preview AND in the export. Pieces: (1) `dpl-comp` Layer grows
+`x`/`y` (center-px) · `scale` (1.0 = aspect-fit) · `tint [r,g,b,a]`
+(alpha = opacity) — additive, pre-L3 comps byte-identical; (2)
+`engine-media` `comp_args`/`render_comp` — ONE ffmpeg pass: proven
+concat legs → `[base]`, overlays chain `trim → setpts+at/TB → scale →
+colorchannelmixer → overlay enable='between' eof_action=pass`;
+`CompBase::Black` gap legs keep windows timeline-true; PNG-seq inputs
+(Lottie) + held stills; every arg form proven LIVE on ffmpeg 8.1.2
+against the real RTFX pack first; (3) composer layered preview —
+per-overlay lanes, painted back-to-front with tint at both viewer
+sites; caps MACHINE-PROBED (sysinfo RAM+cores; 64GB rig 6+2, this
+laptop 3+1), topmost wins, skips named, export never capped; Lottie
+layers now export via helper temp sequences (L2's honesty note CLOSED);
+(4) editor UX (ColdLight): FX timeline lane, `fx` corner on footage
+rows (overlay at the playhead), OVERLAY inspector (size/x·y/center
+snap/tone-pool tint swatches/opacity, noCT advisory), tag-filter chips
+on FOOTAGE; (5) `rtfx.rs` — the 711-file census grammar → `Record.tags`
+at ingest for every kind + the pack's own `(Footage)/previews` jpg as
+poster (an alpha element's first frame is blank); (6) **BUG FIXED**:
+pack ingest wrote the ADR-014-RETIRED legacy `artifacts.db` (invisible
+library) — `ingest_copy` now takes the caller's index, app passes
+`open_default()`; (7) `--fx-drill <clip-rel> <fx-rel>` synchronous
+headless proof. Gate: `cargo green ✔` server1 + BOTH CI lanes (linux
+3m02s, windows 23m36s). Proof: drill render ffprobed (1920×1080@30,
+comp.json exactly the ratified shape) + frame extracts (tinted overlay
+at t=1.5, absent at t=0.5) + editor shots at 1280×800 AND 1100×700 (an
+Info-pane overflow the shots caught was fixed + re-proven). CLOSE-OUT:
+`target\release\devpulselabs.exe` rebuilt HERE (mtime 2026-07-28
+10:30), `dpl-lottie-render.exe` beside it. KNOWN FOLLOW-UPS: the D:
+media drive went OFFLINE mid-session — re-run the ingest drill on the
+real RTFX pack when it returns (pin `2. Prerendered animations` +
+`6. Sound FX`, the ratified roots); the agent-seam render is still
+concat-only (overlay-aware seam = the agent-placement rung); browse
+window has no tag chips yet (FOOTAGE palette does). Build ran in the
+`devpulselabs-l3` worktree (concurrent-session lane).
+
 **2026-07-28 — DETERMINISM MODES BEHIND THE INTENT GATE
 (`docs/plans/determinism-intent-gate.md`):** `dpl-intent`'s first consumer.
 `DeterminismGate` owns `Behavioral | Strict` with `escalate(OperatorIntent)`,
