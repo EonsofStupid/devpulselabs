@@ -11,8 +11,8 @@
 //! trigger is observed from the same frame's pointer events.
 
 use crate::protocol::{
-    CoachActor, CoachEvent, CoachId, CoachRefusal, CoachUnmountReason, NodeId, SemanticNode,
-    SignalId, TriggerKind,
+    CoachActor, CoachCondition, CoachEvent, CoachId, CoachRefusal, CoachUnmountReason, NodeId,
+    SemanticNode, SignalId, TriggerKind,
 };
 use std::collections::VecDeque;
 
@@ -68,6 +68,7 @@ pub struct CoachMount {
     pub viewport: Option<egui::ViewportId>,
     pub rect: Option<crate::protocol::Rect>,
     pub on: TriggerKind,
+    pub until: Option<CoachCondition>,
     pub message: Option<String>,
     pub ttl_ms: Option<u64>,
     pub once: bool,
@@ -79,6 +80,11 @@ pub(crate) struct MountedTouchpoint {
     node: NodeId,
     viewport: Option<egui::ViewportId>,
     on: TriggerKind,
+    /// The postcondition that completes this step, if it has one.
+    until: Option<CoachCondition>,
+    /// Whether the condition held in the previous pass, so a level that stays
+    /// true reports once instead of every frame.
+    satisfied: bool,
     message: Option<String>,
     ttl_ms: Option<u64>,
     once: bool,
@@ -157,6 +163,8 @@ impl CoachStore {
             node: request.node,
             viewport: request.viewport,
             on: request.on,
+            until: request.until,
+            satisfied: false,
             message: request.message,
             ttl_ms: request.ttl_ms,
             once: request.once,
@@ -255,6 +263,7 @@ pub(crate) struct CoachFrame<'a> {
 pub(crate) fn run_pass(store: &mut CoachStore, painter: &egui::Painter, frame: &CoachFrame<'_>) {
     let mut expired: Vec<(CoachId, CoachUnmountReason)> = Vec::new();
     let mut fired: Vec<(CoachId, TriggerKind, CoachActor)> = Vec::new();
+    let mut satisfied: Vec<CoachId> = Vec::new();
     let mut resolved: Vec<(CoachId, crate::protocol::Rect)> = Vec::new();
     let mut lit: Vec<(egui::Rect, Option<String>)> = Vec::new();
     let input_actor = frame.input_actor.unwrap_or(CoachActor::App);
@@ -273,6 +282,28 @@ pub(crate) fn run_pass(store: &mut CoachStore, painter: &egui::Painter, frame: &
         {
             expired.push((touchpoint.id.clone(), CoachUnmountReason::Ttl));
             continue;
+        }
+
+        // The postcondition is a level, so it is read before anything that
+        // could end this touchpoint's life: the state a step reaches often
+        // removes the very node the step was pointing at, and "you closed it"
+        // must not lose to "your target vanished".
+        let holds = touchpoint.until.as_ref().is_some_and(|until| {
+            condition_holds(
+                frame.nodes,
+                until,
+                touchpoint.viewport == Some(frame.viewport),
+            )
+        });
+        if holds && !touchpoint.satisfied {
+            touchpoint.satisfied = true;
+            satisfied.push(touchpoint.id.clone());
+            if touchpoint.once {
+                expired.push((touchpoint.id.clone(), CoachUnmountReason::Once));
+                continue;
+            }
+        } else if !holds {
+            touchpoint.satisfied = false;
         }
 
         // A signal fires wherever the touchpoint is in its life: waiting for
@@ -340,6 +371,9 @@ pub(crate) fn run_pass(store: &mut CoachStore, painter: &egui::Painter, frame: &
             .events
             .push_back(CoachEvent::Mounted { coach_id, rect });
     }
+    for coach_id in satisfied {
+        store.events.push_back(CoachEvent::Satisfied { coach_id });
+    }
     for (coach_id, kind, actor) in fired {
         store.events.push_back(CoachEvent::Triggered {
             coach_id,
@@ -357,6 +391,11 @@ pub(crate) fn run_pass(store: &mut CoachStore, painter: &egui::Painter, frame: &
 
 /// Queue this pass's triggers for a touchpoint, and its auto-unmount if it
 /// only had one activation to give.
+///
+/// A touchpoint carrying a postcondition never ends here, however loudly it
+/// fires: the press is a hint that the operator tried, and only the state
+/// says they succeeded. Ending on the press would close the step on the click
+/// that opens a menu.
 fn push_fired(
     fired: &mut Vec<(CoachId, TriggerKind, CoachActor)>,
     expired: &mut Vec<(CoachId, CoachUnmountReason)>,
@@ -376,8 +415,22 @@ fn push_fired(
         };
         fired.push((touchpoint.id.clone(), kind, actor));
     }
-    if touchpoint.once {
+    if touchpoint.once && touchpoint.until.is_none() {
         expired.push((touchpoint.id.clone(), CoachUnmountReason::Once));
+    }
+}
+
+/// Read a level condition against this pass's nodes.
+///
+/// A positive condition answers from any pass — finding the node settles the
+/// question. Absence only counts from the viewport the touchpoint is bound
+/// to, because a viewport that never held the node cannot witness it leaving.
+fn condition_holds(nodes: &[SemanticNode], until: &CoachCondition, bound_here: bool) -> bool {
+    match until {
+        CoachCondition::NodeValue { node, value } => find_node(nodes, node)
+            .is_some_and(|found| found.value.as_deref() == Some(value.as_str())),
+        CoachCondition::NodeVisible { node } => find_node(nodes, node).is_some(),
+        CoachCondition::NodeGone { node } => bound_here && find_node(nodes, node).is_none(),
     }
 }
 
@@ -548,6 +601,7 @@ mod tests {
             viewport: Some(egui::ViewportId::ROOT),
             rect: Some(WireRect::default()),
             on: TriggerKind::Press,
+            until: None,
             message: None,
             ttl_ms,
             once,
@@ -563,6 +617,48 @@ mod tests {
             Err(CoachRefusal::DuplicateId)
         );
         assert_eq!(store.len(), 1);
+    }
+
+    /// Absence is the one condition a pass cannot answer for a viewport it is
+    /// not bound to: a second viewport never held the node, so it would report
+    /// every unrelated node as gone.
+    #[test]
+    fn absence_only_counts_from_the_viewport_the_touchpoint_is_bound_to() {
+        let nodes = [SemanticNode {
+            id: NodeId::new("root/settings.save"),
+            viewport: crate::protocol::ViewportId::new("root"),
+            parent: None,
+            role: crate::protocol::Role::Button,
+            name: "Save".into(),
+            description: None,
+            value: Some("selected".into()),
+            rect: WireRect::default(),
+            clip_rect: WireRect::default(),
+            state: crate::protocol::NodeState::default(),
+            actions: Vec::new(),
+            layer: 0,
+            changed_at: 0,
+            source: None,
+        }];
+        let gone = CoachCondition::NodeGone {
+            node: NodeId::new("root/settings.missing"),
+        };
+        assert!(condition_holds(&nodes, &gone, true));
+        assert!(!condition_holds(&nodes, &gone, false));
+
+        let value = CoachCondition::NodeValue {
+            node: NodeId::new("root/settings.save"),
+            value: "selected".into(),
+        };
+        assert!(condition_holds(&nodes, &value, false), "a match is a match");
+        assert!(!condition_holds(
+            &nodes,
+            &CoachCondition::NodeValue {
+                node: NodeId::new("root/settings.save"),
+                value: "available".into(),
+            },
+            true
+        ));
     }
 
     #[test]

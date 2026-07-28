@@ -551,3 +551,214 @@ Findings worth keeping:
 Proof: `eguipilotai inspect devpulse-cloud library` lists the 121 ids from the
 running exe; `tests/eguipilotai/coach-dynamic-triggers.toml` still passes with
 the renamed route signal.
+
+## 12. C1.5d — a mount is a subscription, not a resolution
+
+Found by running a real three-step lesson on the real exe with a real operator
+(2026-07-27), which is the only reason it was found at all.
+
+**The failure.** Step 1 spotlit the Workbench rail tile and completed
+correctly on the operator's press (`actor: operator`). Step 2 then said "now
+choose Episodes" and was **refused** `target-not-found` on
+`root/shell.rail.sub/workbench/episodes`.
+
+The node id was correct. Verified by injection: before the rail tile is
+pressed there are **zero** `shell.rail.sub/*` nodes — the accordion is folded —
+and after the press all five appear, `episodes` among them. So step 2 mounted
+a `Press` touchpoint on a node that step 1 had *just brought into existence*,
+and §4's arm predicate only arms for `NodeAppeared` (and for an unresolved
+`FabricEvent`). Everything else refuses.
+
+**This is not an edge case; it is the shape of every tutorial.** "Click here,
+now click the thing that just appeared" is what a lesson *is*. §10 finding #4
+concluded "`Press` still refuses an unresolved target: there is nothing to
+press." That is true of a bare mount and false of a lesson, where the whole
+point is *this is about to exist, and then you press it*.
+
+**The industry has a name for our bug.** Playwright draws exactly this
+distinction: an `ElementHandle` points at one node and goes stale; a `Locator`
+is a *lazy description* re-resolved immediately before every action, with
+auto-waiting actionability checks (attached, visible, **stable**, receives
+pointer events, enabled). Our `Mount` behaved like an ElementHandle — resolve
+once, refuse if absent — while the shape we want is the Locator.
+
+Two things fall out of reading it that way:
+
+1. **`locator.click({ trial: true })`** performs the actionability checks and
+   skips the action. That is precisely coach semantics: *wait until this is
+   genuinely ready, then point at it and let the human act*. The coach is a
+   trial-mode Playwright action with a paint step.
+2. **Playwright's "stable" check** (same bounding box across two consecutive
+   frames) is independently the fix for §11's finding 5, where Library
+   baselines varied because captures raced the slide art's ambient motion. One
+   check answers a targeting question and a proof-determinism question.
+
+**Ruling (2026-07-27): a mount is a subscription, not a resolution.** A
+touchpoint carrying a **node-id** locator arms whenever its target is not
+resolvable *yet*, for **every** trigger kind, and binds when the target
+resolves — `Armed → Mounted{rect} → Triggered`. §10 finding #4 is amended
+accordingly. Name and role locators still refuse when unresolved, for the
+reason §10 gave and which still holds: a name cannot be watched for.
+
+The store already worked this way. `coach::run_pass` re-resolves every mounted
+touchpoint by id on every pass and emits `Mounted{rect}` on the absent→present
+edge for any trigger; only the *firing* of `NodeAppeared` was trigger-specific.
+C1.5a built the whole lazy machine and then gated the entrance to it. The
+change is the arm predicate in `mount_coach`, not new machinery — which is the
+argument for having built `Armed` as a first-class event in the first place.
+
+### Completion should be a postcondition, not an input event
+
+The deeper lesson, and the one that shapes the lesson document type before it
+is authored. The 2026 GUI-agent literature converges hard here:
+
+- **WorldGUI** (interactive desktop benchmark) distils three principles:
+  post-planning critique, **pre-action validation**, and **post-action
+  evaluation** — verify the step's prerequisites *and* its outcome, not the
+  click.
+- **VLAA-GUI** makes a Completeness Verifier mandatory against UI-observable
+  success criteria, and reports the failure mode that matters to us: *when the
+  agent fails, it almost always believes it succeeded* — false completion is
+  dominant, not action failure.
+- **VAGEN** shows passive observation is the ceiling, and proactively probing
+  latent state (file attributes, background config) lifts OSWorld-Verified
+  verification accuracy from 84.7% to 92.9%.
+
+Applied here: **a press is a hint, and a signal is the truth.** A step that
+ends when a button was clicked has verified nothing; a step that ends when the
+route actually changed, the file was actually saved, or the value actually
+moved has verified the thing the lesson was teaching. The demo's step 3 already
+did this correctly — `signal:shell.route-changed/workbench/library` — and it is
+the one step that would have survived a UI relayout. That pattern is the norm
+for lesson steps, not the exception, and the 121-id catalog from §11 is exactly
+the postcondition vocabulary it needs.
+
+**Ships in this pass:** the arm predicate, so "click what just appeared" is
+expressible at all.
+
+**Named, deferred, each its own small pass:** the remaining actionability
+checks (stable, receives-pointer-events/occlusion, enabled) as a mount gate and
+a capture gate; a lesson step carrying a distinct *advance-on postcondition*
+separate from its *point-at target*, with `Satisfied` distinguished from
+`Triggered`; and the lesson document type itself (`validate → Vec<Issue>`, per
+the slide/episode contract). None of these are blocked by the others.
+
+### Two more findings from proving the above
+
+**Expectations already auto-retry — the flake was the window, not the
+assertion.** Recorded because the first reading of this evidence was wrong, and
+the wrong reading is the tempting one. Proving the arm predicate took two
+attempts: `expect mounted` failed after a 900 ms wait and passed after 2000 ms,
+which looks exactly like a sample-once assertion racing a slow bind, and would
+send someone off to build auto-retrying expectations. They exist.
+`Step::Expect` re-evaluates every millisecond for a hardcoded five seconds,
+and `complete_step` clears `wait_started`, so the budget is per step — the
+shape of
+Playwright's auto-retrying assertions.
+
+Which makes the failing run *more* interesting, not less: a step can only fail
+after the full five seconds have elapsed, so the touchpoint genuinely never
+bound in five seconds of polling, and the cause was the degenerate 600×400
+accordion below, where whether a row is committed at all is animation
+dependent. The lesson is about diagnosis rather than design — a retry budget
+makes a **flaky** failure wear the costume of a **timing** failure, and only
+the trace tells them apart. The one real limitation is that five seconds is
+hardcoded rather than per-expectation.
+
+**The rail accordion becomes unreachable below the app's minimum window.** At
+the 600×400 the harness launched, `shell.rail.sub/*` rows are still tracked and
+still carry ids, but every one reports `hidden + clipped` with an **inverted
+rect** (`min_y` 366…502 against `max_y` 335) because the unfold is clipped to
+the rail's bottom edge, which sits exactly at the last house tile. The rows are
+invisible *and* unclickable, and a locator aimed at one is correctly refused
+`not-visible` — the tree advertises five controls that cannot be reached.
+`with_min_inner_size` declares 640×480, so 600×400 is below contract and this
+is not a shipped-size regression; the open question is what the smallest
+supported size is and whether the accordion should scroll or fold rather than
+clip to nothing. Worth its own small pass, and a reminder that the semantic
+tree can be honest about identity while lying about reachability.
+
+## 13. C1.5e — completion is a level, not an edge (2026-07-27)
+
+### The gap, measured
+
+`TriggerKind`'s own doc comment states the law: "every trigger is an **edge**,
+never a level." That is right for input, and fatal for lessons. Measured on the
+real exe, one session, two flows differing only in whether the goal was already
+true:
+
+| Flow | Result |
+|---|---|
+| Touchpoint waits on `shell.route-changed/workbench/library` while already on `workbench/library` | **never fires** — failed after a 3s wait plus the full 5s retry budget |
+| Same mechanism waiting on `shell.route-changed/home/main`, then navigating there | fires normally |
+
+Signals work; they cannot answer *already true*. So a step whose goal is
+already met hangs forever. "Make sure you are on the Library route" hangs for
+everyone already there, and a lesson resumed part-way hangs on every step it
+has already passed — which is exactly the "from any starting point" premise
+this program is aiming at.
+
+### The ruling
+
+**Ratified (operator, 2026-07-27): a narrow level condition, `Touchpoint.until`,
+evaluated in the coach.** `CoachCondition` is `NodeValue` / `NodeVisible` /
+`NodeGone`, and a new `CoachEvent::Satisfied` is distinct from `Triggered`:
+the step is done because the application *reached the state*, not because a
+button was pressed. It is read every pass, so a condition already true at mount
+satisfies on the mounting pass. `PROTOCOL_VERSION` 2.4 → 2.5.
+
+Two constraints shaped it. It lives in `egui-pilot-ai`, not the runtime,
+because the runtime is devtools-gated and a shipped lesson cannot depend on the
+pilot pipe. And the vocabulary stays narrow because the semantic tree already
+carries the state a lesson asks about, so a node-state check is enough without
+importing the whole `Expectation` evaluator (which needs frame data the coach
+pass does not have).
+
+### What proving it taught
+
+**A trigger must not end a step that has a postcondition.** The first live
+attempt at the transition case failed, and the cause is the doctrine itself:
+the touchpoint's `on: press` fired on the click that merely *opened the rail
+accordion*, and `once` unmounted it before navigation ever happened. `push_fired`
+now skips its auto-unmount whenever `until` is set — the press is still reported,
+because an agent wants to know the operator tried, but only the state ends the
+step. This is "a press is a hint, the state is the truth" made mechanical, and
+it is what makes the ordinary lesson shape — click the thing that reveals the
+thing — expressible at all.
+
+**Node values are compound strings, which makes state hard to ask about.** A
+rail tile reports `active`, `inactive`, or `active+open`: "which route is
+current" and "is the accordion unfolded" are packed into one free-form value.
+An author writing `value: "active"` gets silence after navigating, because the
+truth is `active+open`. `NodeValue` stays an exact match — a matcher that
+guesses at `+` delimiters would be inventing protocol semantics out of one
+app's habit — so the defect to fix is upstream: openness belongs in `NodeState`,
+not concatenated into the value. Until then, lesson authors must snapshot first
+and copy the literal value.
+
+**The tree is nearly empty outside the rail.** A full snapshot on
+`workbench/library` at 1280×832 returns **six nodes**: five hub tiles and the
+chat window. The accordion sub-rows do not exist until their house tile is
+clicked, and the Library content carries no pilot ids at all. The coach can now
+express what a step means, and there is almost nothing in the app to point it
+at. Instrumentation coverage, not coach capability, is the binding constraint
+on the first real lesson.
+
+### Evidence
+
+Both flows pass on the real exe after the fix (`--window 1280x832`, fixture
+`library`): a touchpoint whose condition already holds satisfies at mount, and
+one whose condition is reached by navigating survives the intermediate click
+and satisfies on arrival. Unit tests cover the already-true case, the
+press-does-not-end-the-step rule, and the viewport asymmetry in `condition_holds`
+(absence only counts from the viewport the touchpoint is bound to, or a second
+viewport would report every unrelated node as gone).
+
+### An operational trap worth naming
+
+`target/debug/devpulselabs` built **without** `--features eguipilotai-devtools`
+silently disarms every coach proof, and the only symptom is
+`RunnerError::Protocol("target disconnected")` from the handshake. A plain
+`cargo build -p devpulselabs` from any other session is enough to cause it. The
+error should name the likely cause rather than leaving the next session to
+rediscover it.

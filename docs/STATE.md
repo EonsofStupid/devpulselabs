@@ -2,6 +2,38 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-27 — C1.5d/C1.5e: A COACH STEP COMPLETES ON STATE, NOT ON INPUT
+(`docs/plans/operator-coach-a2ui.md` §12–13, PROTOCOL_VERSION 2.4 → **2.5**):**
+two gaps found by walking a real three-step lesson, both fixed and proven on the
+real exe. (1) **A mount is a subscription, not a resolution** — any node-id
+target that has not appeared now ARMS whatever its trigger, because "click the
+thing the last step revealed" is the shape of every lesson; only a name/role
+locator is refused. (2) **Completion is a level, not an edge** — measured: a
+touchpoint waiting on `shell.route-changed/workbench/library` while already on
+that route NEVER fires (edge triggers are documented as edges), so every step
+whose goal is already met hangs forever, which kills resumed lessons and the
+"from any starting point" premise. New `Touchpoint.until` carries a narrow
+`CoachCondition` (`node-value`/`node-visible`/`node-gone`) read EVERY pass, and
+`CoachEvent::Satisfied` is distinct from `Triggered`: the step is done because
+the app REACHED THE STATE. It lives in `egui-pilot-ai` (not the devtools-gated
+runtime) so shipped lessons need no pilot pipe. Corollary discovered while
+proving it: **a trigger must not end a step that has a postcondition** — the
+press fired on the click that merely OPENED the rail accordion and `once` tore
+the step down before navigation; `push_fired` now skips auto-unmount when
+`until` is set (the press is still reported — a hint, not the truth). Also:
+`pilot_start` takes `window: "<w>x<h>"`, and a handshake timeout now NAMES the
+usual cause (a target built without `--features eguipilotai-devtools` is
+healthy and completely mute). **Two blockers for the first real lesson, both
+open:** a full snapshot on `workbench/library` returns **SIX nodes** (five hub
+tiles + chat window — Library content carries no pilot ids, accordion sub-rows
+do not exist until their tile is clicked), and rail values pack route + fold
+state into one string (`active+open`), so node state is not cleanly queryable —
+openness belongs in `NodeState`. Instrumentation coverage, not coach
+capability, is now the binding constraint. Spikes filed:
+`docs/plans/lesson-overlay-spike.md` (X11 + wgpu transparency PROVEN by probe;
+`mouse_passthrough` still unproven) and
+`docs/plans/coach-c2s-foreign-target-spike.md`.
+
 **2026-07-27 — DESIGN-SYSTEM ARCHITECTURE RATIFIED (`docs/design/
 design-system.md`):** the composable pivot. THE MODEL: *a template is a layout
 of ELEMENTS; each element wears a TREATMENT (semantic | composite); any

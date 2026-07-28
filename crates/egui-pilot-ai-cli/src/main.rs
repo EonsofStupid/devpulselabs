@@ -1,11 +1,11 @@
 // spawn-audit: exempt(CLI harness — console output is the product)
 use egui_pilot_ai_protocol as protocol;
 use egui_pilot_ai_runner::{
-    load_flow, save_flow, EguiPilotConfig, ProcessSession, RunnerError, CONFIG_FILE,
+    load_flow, save_flow, EguiPilotConfig, ProcessSession, RunnerError, WindowSize, CONFIG_FILE,
 };
 use protocol::{
-    CoachCommand, CoachId, CoachStyle, Flow, Locator, NodeId, RunOutcome, SnapshotRequest,
-    Touchpoint, TriggerKind,
+    CoachCommand, CoachCondition, CoachId, CoachStyle, Flow, Locator, NodeId, RunOutcome,
+    SnapshotRequest, Touchpoint, TriggerKind,
 };
 use serde_json::{json, Value};
 use std::fs;
@@ -121,7 +121,7 @@ fn test(
     let flow = load_flow(scenario)?;
     let declared_fixture = flow.fixture.as_ref().map(|fixture| fixture.0.as_str());
     let fixture = fixture.or(declared_fixture);
-    let mut session = ProcessSession::launch(workspace, &config, profile, fixture)?;
+    let mut session = ProcessSession::launch(workspace, &config, profile, fixture, None)?;
     let result = session.run(flow)?;
     let run_dir = session.run_dir.clone();
     session.stop()?;
@@ -155,7 +155,7 @@ fn require_passing_outcome(
 
 fn inspect(workspace: &Path, profile: &str, fixture: Option<&str>) -> Result<(), CliError> {
     let config = EguiPilotConfig::load(workspace)?;
-    let mut session = ProcessSession::launch(workspace, &config, profile, fixture)?;
+    let mut session = ProcessSession::launch(workspace, &config, profile, fixture, None)?;
     let snapshot = session.snapshot(SnapshotRequest::default())?;
     // The signal catalog rides with the semantic inventory because the two
     // answer the same question: what can a touchpoint be aimed at, and what
@@ -178,6 +178,7 @@ struct CoachOptions {
     wait: Duration,
     ttl_ms: Option<u64>,
     on: TriggerKind,
+    until: Option<CoachCondition>,
 }
 
 impl CoachOptions {
@@ -189,6 +190,7 @@ impl CoachOptions {
             wait: Duration::from_secs(180),
             ttl_ms: None,
             on: TriggerKind::Press,
+            until: None,
         };
         while let Some(flag) = arguments.next() {
             match flag.as_str() {
@@ -199,6 +201,12 @@ impl CoachOptions {
                 }
                 "--ttl-ms" => options.ttl_ms = Some(parse_ms(&mut arguments, "--ttl-ms")?),
                 "--on" => options.on = parse_trigger(&required(&mut arguments, "trigger")?)?,
+                "--until" => {
+                    let json = required(&mut arguments, "condition json")?;
+                    options.until = Some(serde_json::from_str(&json).map_err(|error| {
+                        CliError::Usage(format!("`--until` is not a condition: {error}"))
+                    })?);
+                }
                 other => return Err(CliError::Usage(format!("unknown coach flag `{other}`"))),
             }
         }
@@ -244,8 +252,13 @@ fn coach(
 ) -> Result<(), CliError> {
     let config = EguiPilotConfig::load(workspace)?;
     let coach_id = CoachId::new("coach-cli");
-    let mut session =
-        ProcessSession::launch(workspace, &config, profile, options.fixture.as_deref())?;
+    let mut session = ProcessSession::launch(
+        workspace,
+        &config,
+        profile,
+        options.fixture.as_deref(),
+        None,
+    )?;
     let mounted = session.coach(CoachCommand::Mount {
         touchpoint: Box::new(Touchpoint {
             coach_id: coach_id.clone(),
@@ -255,6 +268,7 @@ fn coach(
             },
             visual: CoachStyle::Spotlight,
             on: options.on,
+            until: options.until,
             message: options.message,
             ttl_ms: options.ttl_ms,
             once: true,
@@ -449,10 +463,14 @@ fn mcp_tools() -> Vec<Value> {
     vec![
         tool(
             "pilot_start",
-            "Launch one declared profile and optional fixture",
+            "Launch one declared profile and optional fixture. `window` sets the target's window size as `<width>x<height>` (for example `1280x832`); layout is size-dependent, so a lesson or scenario that needs room — the rail accordion cannot unfold in a small window — should ask for a size rather than inherit whatever the desktop gives it.",
             json!({
                 "type": "object", "required": ["profile"], "additionalProperties": false,
-                "properties": {"profile": {"type": "string"}, "fixture": {"type": "string"}}
+                "properties": {
+                    "profile": {"type": "string"},
+                    "fixture": {"type": "string"},
+                    "window": {"type": "string", "pattern": "^[0-9]+[xX][0-9]+$"}
+                }
             }),
         ),
         tool(
@@ -542,6 +560,16 @@ fn mcp_tools() -> Vec<Value> {
                         "description": "press (default), hover, appeared, value-changed, or signal:<id> for a signal the application publishes",
                         "default": "press"
                     },
+                    "until": {
+                        "type": "object",
+                        "description": "The postcondition that completes the step, read every frame and satisfied at once when already true — unlike `on`, which needs a transition. Use it whenever the goal may already be met.",
+                        "required": ["type", "node"], "additionalProperties": false,
+                        "properties": {
+                            "type": {"type": "string", "enum": ["node-value", "node-visible", "node-gone"]},
+                            "node": {"type": "string", "maxLength": 512},
+                            "value": {"type": "string", "maxLength": 240}
+                        }
+                    },
                     "ttl_ms": {"type": "integer", "minimum": 100, "maximum": 600000},
                     "wait_ms": {"type": "integer", "minimum": 0, "maximum": 600000}
                 },
@@ -572,13 +600,19 @@ fn call_tool(state: &mut McpState, name: &str, arguments: Value) -> Result<Value
             }
             let profile = string_field(&arguments, "profile")?;
             let fixture = arguments.get("fixture").and_then(Value::as_str);
+            let window = arguments
+                .get("window")
+                .and_then(Value::as_str)
+                .map(str::parse::<WindowSize>)
+                .transpose()?;
             let session =
-                ProcessSession::launch(&state.workspace, &state.config, profile, fixture)?;
+                ProcessSession::launch(&state.workspace, &state.config, profile, fixture, window)?;
             let result = json!({
                 "session": session.session,
                 "run_directory": session.run_dir,
                 "profile": profile,
                 "fixture": fixture,
+                "window": window,
             });
             state.session = Some(session);
             Ok(result)
@@ -632,6 +666,14 @@ fn call_tool(state: &mut McpState, name: &str, arguments: Value) -> Result<Value
                             .get("on")
                             .and_then(Value::as_str)
                             .map_or(Ok(TriggerKind::Press), parse_trigger)?,
+                        until: arguments
+                            .get("until")
+                            .cloned()
+                            .map(serde_json::from_value)
+                            .transpose()
+                            .map_err(|error| {
+                                CliError::Usage(format!("`until` is not a condition: {error}"))
+                            })?,
                         message: arguments
                             .get("message")
                             .and_then(Value::as_str)

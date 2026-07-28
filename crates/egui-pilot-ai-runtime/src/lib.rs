@@ -125,6 +125,7 @@ struct CoachSeen {
     armed: bool,
     mounted: bool,
     triggered: bool,
+    satisfied: bool,
     unmounted: bool,
     refused: bool,
 }
@@ -135,6 +136,7 @@ impl CoachSeen {
             CoachEvent::Armed { .. } => self.armed = true,
             CoachEvent::Mounted { .. } => self.mounted = true,
             CoachEvent::Triggered { .. } => self.triggered = true,
+            CoachEvent::Satisfied { .. } => self.satisfied = true,
             CoachEvent::Unmounted { .. } => self.unmounted = true,
             CoachEvent::Refused { .. } => self.refused = true,
         }
@@ -145,6 +147,7 @@ impl CoachSeen {
             CoachExpectationState::Armed => self.armed,
             CoachExpectationState::Mounted => self.mounted,
             CoachExpectationState::Triggered => self.triggered,
+            CoachExpectationState::Satisfied => self.satisfied,
             CoachExpectationState::Unmounted => self.unmounted,
             CoachExpectationState::Refused => self.refused,
         }
@@ -479,10 +482,13 @@ impl<T: Transport> RuntimeGuard<T> {
     /// Resolve a touchpoint against the live frame. Unshipped visuals refuse
     /// here rather than mounting a lie.
     ///
-    /// A `NodeAppeared` touchpoint always mounts **armed**, even over a target
-    /// that happens to be on screen: "tell me when this is there" should
-    /// answer immediately when it already is, and waiting for a second
-    /// appearance would be a trap.
+    /// A mount is a **subscription, not a resolution**: a node-id target that
+    /// is not on screen *yet* arms and binds when it appears, whatever the
+    /// trigger, because "click the thing the last step revealed" is the shape
+    /// of every lesson. A `NodeAppeared` touchpoint arms even over a target
+    /// that is already on screen: "tell me when this is there" should answer
+    /// immediately when it already is, and waiting for a second appearance
+    /// would be a trap.
     fn mount_coach(&mut self, touchpoint: &Touchpoint) -> Result<(), (CoachRefusal, String)> {
         if touchpoint.visual != CoachStyle::Spotlight {
             return Err((
@@ -494,10 +500,9 @@ impl<T: Transport> RuntimeGuard<T> {
             ));
         }
         let resolved = self.resolve_touchpoint(touchpoint);
-        // An appearance always waits. A signal trigger waits only if its
-        // target is not there — with a target it can spotlight while it waits.
-        let arm = touchpoint.on == TriggerKind::NodeAppeared
-            || (matches!(touchpoint.on, TriggerKind::FabricEvent { .. }) && resolved.is_err());
+        // Anything not on screen yet waits. An appearance waits even when its
+        // target is already there, for the reason on the doc comment.
+        let arm = touchpoint.on == TriggerKind::NodeAppeared || resolved.is_err();
         let mount = if arm {
             // A touchpoint that may outlive its target's absence needs a node
             // id to watch for; a name or role locator cannot match a node that
@@ -506,7 +511,7 @@ impl<T: Transport> RuntimeGuard<T> {
                 (
                     CoachRefusal::TargetNotFound,
                     format!(
-                        "{:?} can wait for a target that does not exist yet, so it needs a node id rather than a name or role locator",
+                        "a {:?} touchpoint may wait for a target that does not exist yet, so it needs a node id rather than a name or role locator",
                         touchpoint.on
                     ),
                 )
@@ -517,6 +522,7 @@ impl<T: Transport> RuntimeGuard<T> {
                 viewport: None,
                 rect: None,
                 on: touchpoint.on.clone(),
+                until: touchpoint.until.clone(),
                 message: touchpoint.message.clone(),
                 ttl_ms: touchpoint.ttl_ms,
                 once: touchpoint.once,
@@ -529,6 +535,7 @@ impl<T: Transport> RuntimeGuard<T> {
                 viewport: Some(viewport),
                 rect: Some(node.rect),
                 on: touchpoint.on.clone(),
+                until: touchpoint.until.clone(),
                 message: touchpoint.message.clone(),
                 ttl_ms: touchpoint.ttl_ms,
                 once: touchpoint.once,
@@ -2874,6 +2881,7 @@ mod tests {
             target,
             visual: CoachStyle::Spotlight,
             on: TriggerKind::Press,
+            until: None,
             message: Some("Press Save".into()),
             ttl_ms: None,
             once: true,
@@ -3013,6 +3021,77 @@ mod tests {
         );
     }
 
+    /// The lesson shape: step two points at a control that only exists because
+    /// step one was pressed. A mount is a subscription, not a resolution.
+    #[test]
+    fn a_press_touchpoint_waits_for_a_target_the_last_step_reveals() {
+        let (ctx, client, mut runtime) = test_runtime(32);
+        authenticate(&client, &mut runtime);
+        // Deliberately no coach frame yet: the control is not revealed.
+        let _ = ctx.run_ui(Default::default(), |_ui| {});
+
+        let target = Locator {
+            id: Some(NodeId::new("root/coach.save")),
+            ..Locator::default()
+        };
+        send_mount(&client, "mount-wait", touchpoint("coach-wait", target));
+        runtime.pump();
+
+        assert!(
+            drain_coach_events(&client).contains(&CoachEvent::Armed {
+                coach_id: CoachId::new("coach-wait"),
+            }),
+            "a press touchpoint waits for its target rather than refusing"
+        );
+        assert_eq!(runtime.pilot().mounted_coach_count(), 1);
+
+        // The previous step lands and the control comes into existence.
+        coach_frame(&ctx, Default::default());
+        runtime.pump();
+
+        let rect = drain_coach_events(&client)
+            .into_iter()
+            .find_map(|event| match event {
+                CoachEvent::Mounted { coach_id, rect }
+                    if coach_id == CoachId::new("coach-wait") =>
+                {
+                    Some(rect)
+                }
+                _ => None,
+            })
+            .expect("the touchpoint binds when its target appears");
+
+        let center = egui::pos2(
+            (rect.min_x + rect.max_x) / 2.0,
+            (rect.min_y + rect.max_y) / 2.0,
+        );
+        coach_frame(
+            &ctx,
+            egui::RawInput {
+                events: vec![
+                    egui::Event::PointerMoved(center),
+                    egui::Event::PointerButton {
+                        pos: center,
+                        button: egui::PointerButton::Primary,
+                        pressed: true,
+                        modifiers: egui::Modifiers::default(),
+                    },
+                ],
+                ..Default::default()
+            },
+        );
+        runtime.pump();
+
+        assert!(
+            drain_coach_events(&client).contains(&CoachEvent::Triggered {
+                coach_id: CoachId::new("coach-wait"),
+                kind: TriggerKind::Press,
+                actor: protocol::CoachActor::Operator,
+            }),
+            "the press fires normally once the wait resolved"
+        );
+    }
+
     #[test]
     fn a_touchpoint_that_waits_cannot_be_aimed_with_a_name_locator() {
         let (ctx, client, mut runtime) = test_runtime(32);
@@ -3055,8 +3134,11 @@ mod tests {
         authenticate(&client, &mut runtime);
         coach_frame(&ctx, Default::default());
 
+        // A *name* cannot be watched for, so an unresolved name refuses. The
+        // same touchpoint carrying a node id would wait instead — see
+        // `a_press_touchpoint_waits_for_a_target_the_last_step_reveals`.
         let missing = Locator {
-            id: Some(NodeId::new("root/does.not.exist")),
+            name: Some("Nowhere".into()),
             ..Locator::default()
         };
         send_mount(

@@ -1935,6 +1935,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "dpl-desktop-spike"
+version = "0.1.0"
+dependencies = [
+ "eframe",
+ "egui",
+]
+
+[[package]]
 name = "dpl-doc"
 version = "0.1.0"
 dependencies = [

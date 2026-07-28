@@ -1712,12 +1712,50 @@ mod tests {
                 viewport: (!arm).then_some(egui::ViewportId::ROOT),
                 rect: (!arm).then_some(()).and(rect),
                 on,
+                until: None,
                 message: Some("Press Save".into()),
                 ttl_ms: None,
                 once,
             })
             .expect("mount");
         rect
+    }
+
+    /// The failure this exists to prevent: a lesson step whose goal is already
+    /// met must complete. An edge trigger cannot answer that, because the
+    /// transition it waits for has already happened and will not repeat.
+    #[test]
+    fn a_condition_that_already_holds_satisfies_without_an_input_edge() {
+        let ctx = egui::Context::default();
+        let pilot = install(&ctx);
+        save_button_frame(&ctx, egui::RawInput::default());
+        let rect = pilot.latest_frame().nodes[0].rect;
+
+        pilot
+            .mount_coach(CoachMount {
+                coach_id: CoachId::new("coach-already"),
+                node: NodeId::new("root/settings.save"),
+                viewport: Some(egui::ViewportId::ROOT),
+                rect: Some(rect),
+                on: protocol::TriggerKind::Press,
+                until: Some(protocol::CoachCondition::NodeVisible {
+                    node: NodeId::new("root/settings.save"),
+                }),
+                message: None,
+                ttl_ms: None,
+                once: true,
+            })
+            .expect("mount");
+        let _ = pilot.take_coach_events();
+        save_button_frame(&ctx, egui::RawInput::default());
+
+        let events = pilot.take_coach_events();
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, protocol::CoachEvent::Satisfied { .. })),
+            "nobody pressed anything, but the state the step asks for holds: {events:?}"
+        );
     }
 
     fn press_at(center: egui::Pos2) -> egui::RawInput {
@@ -1733,6 +1771,50 @@ mod tests {
             ],
             ..Default::default()
         }
+    }
+
+    /// The shape of nearly every lesson step: the click that opens a menu is
+    /// not the click that finishes the step. A press must report itself and
+    /// leave a touchpoint with a postcondition standing.
+    #[test]
+    fn a_press_reports_but_does_not_end_a_step_that_has_a_postcondition() {
+        let ctx = egui::Context::default();
+        let pilot = install(&ctx);
+        save_button_frame(&ctx, egui::RawInput::default());
+        let rect = pilot.latest_frame().nodes[0].rect;
+        pilot
+            .mount_coach(CoachMount {
+                coach_id: CoachId::new("coach-hint"),
+                node: NodeId::new("root/settings.save"),
+                viewport: Some(egui::ViewportId::ROOT),
+                rect: Some(rect),
+                on: protocol::TriggerKind::Press,
+                until: Some(protocol::CoachCondition::NodeValue {
+                    node: NodeId::new("root/settings.save"),
+                    value: "never".into(),
+                }),
+                message: None,
+                ttl_ms: None,
+                once: true,
+            })
+            .expect("mount");
+        let _ = pilot.take_coach_events();
+
+        save_button_frame(&ctx, press_at(egui_rect(rect).center()));
+
+        let events = pilot.take_coach_events();
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, CoachEvent::Triggered { .. })),
+            "the press is still worth reporting: {events:?}"
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, CoachEvent::Unmounted { .. })),
+            "the state never became true, so the step is not over: {events:?}"
+        );
     }
 
     #[test]
@@ -1847,6 +1929,7 @@ mod tests {
                 viewport: Some(egui::ViewportId::ROOT),
                 rect: Some(node.rect),
                 on: protocol::TriggerKind::Press,
+                until: None,
                 message: None,
                 ttl_ms: Some(500),
                 once: false,

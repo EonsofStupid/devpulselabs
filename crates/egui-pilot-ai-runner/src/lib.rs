@@ -182,6 +182,60 @@ pub struct Fixture {
     pub environment: BTreeMap<String, String>,
 }
 
+/// A launch-time window size.
+///
+/// Layout is size-dependent — the rail accordion has no room to unfold in a
+/// small window — so a caller that needs a real size must be able to ask for
+/// one. It stays inside the "no shell strings from callers" law by being
+/// bounded and typed: the command line is rebuilt from parsed integers, so a
+/// caller's text can never become a new flag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WindowSize {
+    pub width: u32,
+    pub height: u32,
+}
+
+impl WindowSize {
+    /// Below the app's own `with_min_inner_size`, layout is out of contract.
+    pub const MIN: u32 = 320;
+    pub const MAX: u32 = 16_384;
+
+    pub fn new(width: u32, height: u32) -> Result<Self, RunnerError> {
+        for (axis, value) in [("width", width), ("height", height)] {
+            if !(Self::MIN..=Self::MAX).contains(&value) {
+                return Err(RunnerError::config(format!(
+                    "window {axis} {value} is outside {}..={}",
+                    Self::MIN,
+                    Self::MAX
+                )));
+            }
+        }
+        Ok(Self { width, height })
+    }
+
+    fn argument(self) -> String {
+        format!("{}x{}", self.width, self.height)
+    }
+}
+
+impl std::str::FromStr for WindowSize {
+    type Err = RunnerError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let (width, height) = text.split_once(['x', 'X']).ok_or_else(|| {
+            RunnerError::config(format!(
+                "window size `{text}` must read <width>x<height>, as in 1280x832"
+            ))
+        })?;
+        let axis = |name: &str, value: &str| {
+            value.trim().parse::<u32>().map_err(|_| {
+                RunnerError::config(format!("window {name} `{value}` is not a whole number"))
+            })
+        };
+        Self::new(axis("width", width)?, axis("height", height)?)
+    }
+}
+
 #[derive(Debug)]
 pub enum RunnerError {
     Config(String),
@@ -259,6 +313,7 @@ impl ProcessSession {
         config: &EguiPilotConfig,
         profile_name: &str,
         fixture_name: Option<&str>,
+        window: Option<WindowSize>,
     ) -> Result<Self, RunnerError> {
         let workspace = workspace.as_ref();
         let profile = config.profile(profile_name)?;
@@ -293,6 +348,11 @@ impl ProcessSession {
             .stderr(Stdio::piped());
         if let Some(fixture) = fixture {
             command.args(&fixture.arguments).envs(&fixture.environment);
+        }
+        // Last, so an explicitly requested size wins over anything a fixture
+        // asked for.
+        if let Some(window) = window {
+            command.args(["--window", &window.argument()]);
         }
         let mut child = command.spawn().map_err(|error| {
             RunnerError::Io(format!(
@@ -371,18 +431,20 @@ impl ProcessSession {
             handshake: None,
             trace: BufWriter::new(trace_file),
         };
-        launched.write_manifest(profile_name, fixture_name, &executable, profile)?;
-        let result = launched.request(ClientCommand::Handshake(HandshakeRequest {
-            protocol: PROTOCOL_VERSION,
-            build: env!("CARGO_PKG_VERSION").into(),
-            session_nonce: nonce,
-            required_capabilities: vec![
-                protocol::CapabilityId::new(protocol::capability::PROTOCOL_V2),
-                protocol::CapabilityId::new(protocol::capability::INTERLEAVED_EVENTS),
-                protocol::CapabilityId::new(protocol::capability::CANCELLATION),
-            ],
-            trace_level: protocol::TraceLevel::RetainOnFailure,
-        }))?;
+        launched.write_manifest(profile_name, fixture_name, &executable, profile, window)?;
+        let result = launched
+            .request(ClientCommand::Handshake(HandshakeRequest {
+                protocol: PROTOCOL_VERSION,
+                build: env!("CARGO_PKG_VERSION").into(),
+                session_nonce: nonce,
+                required_capabilities: vec![
+                    protocol::CapabilityId::new(protocol::capability::PROTOCOL_V2),
+                    protocol::CapabilityId::new(protocol::capability::INTERLEAVED_EVENTS),
+                    protocol::CapabilityId::new(protocol::capability::CANCELLATION),
+                ],
+                trace_level: protocol::TraceLevel::RetainOnFailure,
+            }))
+            .map_err(disarmed_target)?;
         let handshake = match result {
             CommandResult::Ready { handshake } => handshake,
             result => return Err(unexpected("ready handshake", result)),
@@ -400,6 +462,7 @@ impl ProcessSession {
         fixture_name: Option<&str>,
         executable: &Path,
         profile: &Profile,
+        window: Option<WindowSize>,
     ) -> Result<(), RunnerError> {
         #[derive(Serialize)]
         struct Manifest<'a> {
@@ -409,6 +472,9 @@ impl ProcessSession {
             fixture: Option<&'a str>,
             executable: String,
             adapter_policy: AdapterPolicy,
+            // Layout is size-dependent, so a run is only reproducible if the
+            // size it ran at is on the record.
+            window: Option<WindowSize>,
         }
         let manifest = Manifest {
             protocol_version: PROTOCOL_VERSION,
@@ -417,6 +483,7 @@ impl ProcessSession {
             fixture: fixture_name,
             executable: executable.to_string_lossy().into_owned(),
             adapter_policy: profile.adapter_policy,
+            window,
         };
         write_new_json(self.run_dir.join("manifest.json"), &manifest)
     }
@@ -654,6 +721,21 @@ impl Drop for ProcessSession {
 
 fn unexpected(expected: &str, result: CommandResult) -> RunnerError {
     RunnerError::Protocol(format!("expected {expected}, received {result:?}"))
+}
+
+/// A target that never answers the handshake is nearly always a target built
+/// without the devtools feature, which leaves the process perfectly healthy and
+/// completely mute. Saying so here costs one line and saves rediscovering it.
+fn disarmed_target(error: RunnerError) -> RunnerError {
+    match error {
+        RunnerError::Protocol(detail) | RunnerError::Timeout(detail) => {
+            RunnerError::Protocol(format!(
+                "{detail} — the target answered no handshake, so it is most likely built without \
+                 the pilot: rebuild it with `--features eguipilotai-devtools`"
+            ))
+        }
+        other => other,
+    }
 }
 
 fn route_server_message(
@@ -1115,6 +1197,37 @@ mod tests {
             response("request"),
         )
         .is_err());
+    }
+
+    #[test]
+    fn a_window_size_is_bounded_and_rebuilt_from_its_integers() {
+        let size: WindowSize = "1280x832".parse().expect("a plain size parses");
+        assert_eq!(
+            size,
+            WindowSize {
+                width: 1280,
+                height: 832
+            }
+        );
+        assert_eq!(size.argument(), "1280x832");
+        assert!("1280X832".parse::<WindowSize>().is_ok());
+
+        // The command line is rebuilt from parsed integers, so no caller text
+        // can ride along as a second flag, and out-of-range sizes refuse.
+        for refused in [
+            "1280",
+            "1280x",
+            "x832",
+            "1280x832 --route home",
+            "-1x600",
+            "0x0",
+            "99999x99999",
+        ] {
+            assert!(
+                refused.parse::<WindowSize>().is_err(),
+                "`{refused}` must be refused"
+            );
+        }
     }
 
     #[test]
