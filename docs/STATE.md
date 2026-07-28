@@ -2,6 +2,32 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-28 — PHASE 1.5: THE COACH SPEAKS ON THE RECORD, AND INTENT IS A TYPE
+(`docs/plans/signal-ledger-and-lesson-foundation.md` §9 + Phase 1.5):** the
+2026-07-28 rulings are ratified into the plan — the closed loop (analytics
+recommends, recommendation triggers the guided workflow), determinism as a
+dynamic named mode (behavioral default for measurement, strict escalated for
+evidence), the PROVENANCE LAW (escalation is authorized by the provenance of
+the keystroke, never by a pattern in a string; model output is never re-parsed
+for commands), redaction outranks reproducibility, and classification as three
+separated layers (CUI/Presidio base vocabulary storing the CLASS never the
+value · per-app tuning packs authored offline · HMAC pseudonymization).
+LANDED AS CODE: (1) the **COACH fabric domain** (doctrine law 10) —
+`CoachEvent { Armed · Mounted · Triggered · Satisfied · Unmounted }` stamped
+like every fact domain; the publisher is a devtools-gated TAP on the plugin's
+event record path (a witness, never a consumer — the devtools pipe still
+drains its own copy, pinned by test), bridged in `crates/app/src/
+coach_fabric.rs`; the seam's `/signals` envelope and the shell activity feed
+both carry it ("step satisfied · lesson-1/step-2" is now an operator-visible
+line). ANTI-LOOP LAW: `coach_signals.rs` never subscribes to the coach domain
+— a touchpoint waiting on a coach event would self-trigger. (2) **`dpl-intent`**
+— `OperatorIntent`, a single-use proof with no Clone/Default/serde and a
+dependency-free manifest pinned by test, whose two constructors
+(`ui_acknowledged` · `slash_command`) make `rg 'OperatorIntent::'` the
+complete audit surface; first consumer is the determinism-mode switch (next
+pass). The shell subscribes its coach ear at construction (before the pilot
+attaches), so no publish precedes the subscription.
+
 **2026-07-28 — THE WINDOWS LANE UNBLOCKED (#106) AND THE PR QUEUE ABSORBED:**
 every open PR was stuck on `green-windows`. Three stacked causes, each proven:
 (1) the runner was OFFLINE (the ONLOGON task never fired after reboot) — hours

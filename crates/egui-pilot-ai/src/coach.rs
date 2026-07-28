@@ -103,6 +103,9 @@ pub(crate) struct MountedTouchpoint {
     signals_seen: u64,
 }
 
+/// The host's witness on recorded coach events (see [`CoachStore::record`]).
+pub(crate) type CoachEventTap = std::sync::Arc<dyn Fn(&CoachEvent) + Send + Sync>;
+
 /// The mounted touchpoints, the app signals they can fire on, and the events
 /// they have produced.
 #[derive(Default)]
@@ -117,11 +120,30 @@ pub(crate) struct CoachStore {
     /// What the host says it can publish. The toolkit cannot verify this — it
     /// cannot see the host's fabric — so it is carried, not trusted.
     declared: Vec<SignalId>,
+    /// A witness invoked at record time, before the event lands in `events`.
+    /// The host bridges lifecycle facts onto its own signal fabric here.
+    /// A witness, never a consumer: whoever drains `events` still sees
+    /// everything, so the devtools pipe and the host's fabric cannot steal
+    /// from each other.
+    tap: Option<CoachEventTap>,
 }
 
 impl CoachStore {
     pub(crate) fn set_palette(&mut self, palette: CoachPalette) {
         self.palette = palette;
+    }
+
+    pub(crate) fn set_tap(&mut self, tap: CoachEventTap) {
+        self.tap = Some(tap);
+    }
+
+    /// The single door every lifecycle event leaves through. `Refused` never
+    /// passes here — a refusal is a command result, not a lifecycle fact.
+    fn record(&mut self, event: CoachEvent) {
+        if let Some(tap) = &self.tap {
+            tap(&event);
+        }
+        self.events.push_back(event);
     }
 
     pub(crate) fn declare_signals(&mut self, signals: Vec<SignalId>) {
@@ -149,7 +171,7 @@ impl CoachStore {
         {
             return Err(CoachRefusal::DuplicateId);
         }
-        self.events.push_back(match request.rect {
+        self.record(match request.rect {
             Some(rect) => CoachEvent::Mounted {
                 coach_id: request.coach_id.clone(),
                 rect,
@@ -186,7 +208,7 @@ impl CoachStore {
             return false;
         };
         self.mounted.remove(index);
-        self.events.push_back(CoachEvent::Unmounted {
+        self.record(CoachEvent::Unmounted {
             coach_id: coach_id.clone(),
             reason,
         });
@@ -200,7 +222,7 @@ impl CoachStore {
             .map(|touchpoint| touchpoint.id)
             .collect();
         for coach_id in &ids {
-            self.events.push_back(CoachEvent::Unmounted {
+            self.record(CoachEvent::Unmounted {
                 coach_id: coach_id.clone(),
                 reason,
             });
@@ -367,15 +389,13 @@ pub(crate) fn run_pass(store: &mut CoachStore, painter: &egui::Painter, frame: &
     }
     paint_spotlights(painter, &store.palette, frame.screen, &lit);
     for (coach_id, rect) in resolved {
-        store
-            .events
-            .push_back(CoachEvent::Mounted { coach_id, rect });
+        store.record(CoachEvent::Mounted { coach_id, rect });
     }
     for coach_id in satisfied {
-        store.events.push_back(CoachEvent::Satisfied { coach_id });
+        store.record(CoachEvent::Satisfied { coach_id });
     }
     for (coach_id, kind, actor) in fired {
-        store.events.push_back(CoachEvent::Triggered {
+        store.record(CoachEvent::Triggered {
             coach_id,
             kind,
             actor,
@@ -383,9 +403,7 @@ pub(crate) fn run_pass(store: &mut CoachStore, painter: &egui::Painter, frame: &
     }
     for (coach_id, reason) in expired {
         store.mounted.retain(|touchpoint| touchpoint.id != coach_id);
-        store
-            .events
-            .push_back(CoachEvent::Unmounted { coach_id, reason });
+        store.record(CoachEvent::Unmounted { coach_id, reason });
     }
 }
 

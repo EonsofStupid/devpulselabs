@@ -50,6 +50,7 @@ members = [
     "crates/editor",
     "crates/deck",
     "crates/index",
+    "crates/intent",
     "crates/estate",
     "crates/viziwiz",
     "crates/fabric",
@@ -186,6 +187,7 @@ dpl-composer = { path = "crates/composer" }
 dpl-editor = { path = "crates/editor" }
 dpl-deck = { path = "crates/deck" }
 dpl-index = { path = "crates/index" }
+dpl-intent = { path = "crates/intent" }
 dpl-estate = { path = "crates/estate" }
 dpl-viziwiz = { path = "crates/viziwiz" }
 dpl-fabric = { path = "crates/fabric" }

@@ -1,9 +1,12 @@
 # Signal Ledger + lesson foundation — the analytics substrate, without the dependency
 
-Status: RATIFIED (operator, 2026-07-27) with one amendment — **Parquet from the
-start**, not JSONL-first (see §3.2). Completes the RING-2 analytics promise made
-in `docs/design/adr-014-three-ring-root.md` and the coach findings in
-`docs/plans/operator-coach-a2ui.md` §13. Phase order ratified: Phase 1 first.
+Status: RATIFIED (operator, 2026-07-27) with amendments — **Parquet from the
+start**, not JSONL-first (see §3.2), and the **2026-07-28 rulings** on the
+closed loop, determinism, operator intent, and classification (see §9).
+Completes the RING-2 analytics promise made in
+`docs/design/adr-014-three-ring-root.md` and the coach findings in
+`docs/plans/operator-coach-a2ui.md` §13. Phase order ratified: Phase 1 first,
+then Phase 1.5 (§9.6), then the ledger.
 
 ## 1. Context
 
@@ -64,8 +67,8 @@ stamped signal stream in a shape an analytical engine can query directly.**
   schema.json                 # the ledger's own version + column contract
   events/
     date=2026-07-27/
-      shell-000001.jsonl      # append-only, size-rolled segments
-      capture-000001.jsonl
+      shell-000001.parquet    # append-only, size-rolled segments
+      capture-000001.parquet
 ```
 
 Design commitments, each answering a law already on the books:
@@ -89,16 +92,17 @@ Design commitments, each answering a law already on the books:
 - **Retention is a report, not a reaper** (ADR-014 law 3). The ledger may
   *report* what is old. It never deletes operator material.
 
-### 3.2 Why JSONL first, Parquet when it earns it
+### 3.2 Parquet from the start (AMENDED — operator, 2026-07-27)
 
-DuckDB reads both in place. JSONL costs **zero new dependencies** and is
-directly greppable and diffable, which matters while the schema is still
-settling. Parquet buys columnar compression and row-group skipping, and costs
-the `parquet` crate — which is pure Rust only with `default-features = false`
-plus `snap`, since the default feature set pulls `zstd-sys` (C). That is a
-real ADR-009 conversation, and it should happen when volume justifies it, not
-now. The partition layout is chosen so the format can change underneath without
-the query surface moving.
+The original draft argued JSONL-first, Parquet when volume earned it. The
+operator ruled the other way: the ledger writes **Parquet from day one**, via
+the pure-Rust configuration of the `parquet` crate — `default-features =
+false` plus `snap`, which keeps `zstd-sys` (C) out and stays inside ADR-009
+without an exception. What the JSONL argument was protecting (greppable,
+diffable while the schema settles) is answered instead by the schema document
+and by DuckDB/`parquet` CLI tooling over the files. Segment file extensions in
+§3.1 read `.parquet` accordingly. DuckDB itself still enters only at Phase 3,
+as an ADR.
 
 ### 3.3 Lightweight by construction
 
@@ -136,10 +140,24 @@ rail's compound value into `value` + `NodeState`. Proof: a snapshot of
 `workbench/library` returns the named surfaces, and a three-step lesson runs
 end to end on the real exe.
 
+**Phase 1.5 — the coach speaks on the record, and intent becomes law-in-code**
+(added under the §9 rulings). Two small pieces, one PR. First, a `coach`
+domain on the fabric: touchpoint lifecycle facts (armed, mounted, triggered,
+satisfied, unmounted) published as stamped signals, so the ledger has coach
+rows to record the day it lands, the activity feed shows lessons breathing,
+and A/B measurement has its outcome stream. The publisher is the devtools-
+gated pilot bridge; the domain itself is unconditional, like every other.
+The coach **never subscribes to its own domain** — a touchpoint waiting on a
+coach event would self-trigger. Second, `dpl-intent`: the operator-intent
+proof type (§9.3) as a dependency-free crate, so every privileged transition
+that follows has one gate to import instead of one convention to remember.
+
 **Phase 2 — the ledger.** `dpl-ledger` crate, schema document, bounded writer
-thread, one subscription to the stamped domains, partitioned segments. Proof:
-the app runs a session, and a DuckDB CLI query over the glob answers a real
-question the app cannot answer today.
+thread, one subscription to the stamped domains, partitioned segments. Coach
+rows carry lesson outcomes; the schema reserves the §9.5 classification
+columns (`class`, never the value). Proof: the app runs a session, and a
+DuckDB CLI query over the glob answers a real question the app cannot answer
+today.
 
 **Phase 3 — the DuckDB C-dep ADR.** Written *after* Phase 2 produces real data,
 so the ADR argues from measured volume and query latency rather than from
@@ -151,8 +169,9 @@ targets and is the option ADR-009's ban on ffmpeg crates argues hardest against.
 
 ## 5. Boundaries
 
-- No DuckDB, Arrow, or Parquet dependency in this plan's phases 0–2. Phase 3 is
-  an ADR, not an implementation.
+- No DuckDB or Arrow dependency in this plan's phases. The pure-Rust `parquet`
+  crate (`default-features = false`, `snap`) enters at Phase 2 under the §3.2
+  amendment. Phase 3 is an ADR, not an implementation.
 - The ledger is **not** a second artifact catalog. Ring 2 stays Turso's.
 - The ledger never writes into `/content` and never mutates a source.
 - No new language runtime. C++ and Python enter only as subprocesses under a
@@ -183,3 +202,87 @@ Gathered 2026-07-27 in-session; numbers in §2 are from the live exe and from
 `rg` over the working tree, not from memory. Web research on DuckDB's in-place
 Parquet/JSONL reading, pushdown behavior, and the `bundled` build cost is what
 makes the "foundation without dependency" claim safe to state.
+
+## 9. Ratified rulings (operator, 2026-07-28)
+
+A design session on determinism, escalation, and sensitive data closed with
+these rulings. They are law for this plan's remaining phases and for the
+replay/A-B work that follows.
+
+### 9.1 The closed loop is the product shape
+
+Analytics exists to close a loop, not to fill a dashboard: the platform
+observes (signals → ledger), understands (queries over the ledger), and then
+**recommends an action that can trigger the guided workflow itself** — "you
+really should do X" arrives with a button that mounts the lesson. DuckDB's
+role, in the operator's words, is to work with Turso and the platform to
+**generate tools and visual widgets** that drive that loop. It is a lens over
+the ledger files, never a store of record.
+
+### 9.2 Determinism is a named, dynamic mode
+
+Two modes, chosen per run:
+
+- **Behavioral** (default): the same trace produces the same *step outcomes*.
+  Pixels, animation timing, and wall-clock may vary. This is the measurement
+  mode — A/B comparison of lesson arms runs here.
+- **Strict** (escalated): byte-identical output — fixed clock, pinned RNG,
+  locked renderer identity. This is the evidence mode — baselines, proof
+  shots, anything that will be *compared byte-for-byte later*.
+
+Escalation is **dynamic**: strict engages when the run is sensitive or when
+the operator demands it. Evidence forces strict; measurement stays
+behavioral.
+
+### 9.3 The operator intent gate (the provenance law)
+
+Privileged transitions — strict mode on demand, and every future state change
+expensive enough to require unambiguous operator intent — are authorized by
+**the provenance of the keystroke, not the pattern in a string**:
+
+- A slash command (e.g. `/strict`) is recognized at the operator's
+  input-submit event, from the operator's own text buffer, *before* that text
+  ever becomes a message. **Model output is never re-parsed for commands**; a
+  transcript containing `/strict` is just text.
+- The UI path is a second-acknowledgement control the coach cannot
+  synthesize: the pilot attributes injected input as `Agent`, and only
+  `Operator`-attributed activation may mint the proof.
+
+Law-in-code: `dpl-intent`'s `OperatorIntent` is a single-use proof value with
+no `Clone`, no `Default`, and no serde — it cannot arrive over a wire, be
+minted from config, or be replayed from a ledger. Its two constructors name
+the two channels, so every construction site is a greppable audit surface.
+
+### 9.4 Redaction outranks reproducibility
+
+If a run touches classified material, redaction wins over replay fidelity,
+always. A strict-mode run over sensitive content is redacted first and
+byte-identical second; if those conflict, the bytes lose.
+
+### 9.5 Classification is three separated layers
+
+- **Layer 1 — base vocabulary.** Universal taxonomies (the NARA CUI Registry
+  category codes, Presidio's PII entity set) embedded as static, versioned
+  tables. The ledger stores **the class, never the value** — `CUI//PRVCY` is
+  a column entry; the phone number is not.
+- **Layer 2 — per-application tuning packs.** For heavily-used hosts (Cursor,
+  Blender, SolidWorks, After Effects, chat clients…), a pack maps that app's
+  surfaces onto the base vocabulary and carries perception and pedagogy
+  tuning. Packs are versioned against app versions. An AI (frontier model)
+  authors and maintains packs **offline**; the runtime is table lookup only.
+- **Layer 3 — identity without recovery.** When "did the same secret appear
+  twice" matters, store an HMAC of the value with the key living outside the
+  ledger. Equality and joins, nothing recoverable. One function, not a
+  system.
+
+Compile-time redaction stays the first line: sensitive fields ride `Secret`-
+style wrappers with no `Serialize`, so the ledger cannot receive them even by
+accident.
+
+### 9.6 Sequence and boundaries for the rulings
+
+Build order: intent gate + coach fabric domain (Phase 1.5) → determinism
+modes wired to the gate → ledger (Phase 2, schema carrying Layer-1 classes) →
+DuckDB ADR (Phase 3). Games integration (multiplayer tips during training) is
+**parked**: training-only was the ruling, and the anti-cheat hazard is noted;
+nothing in this plan builds toward it.
