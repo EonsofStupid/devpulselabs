@@ -80,6 +80,17 @@ arguments = ["--route", "wiredfront/editor", "--mood", "0"]
 [fixtures.wiredfront-workflows.environment]
 CONTENT_ROOT = "target/eguipilotai/wf1-content"
 
+# Assist-mode persistence: the REAL chat runtime on scratch rings, so the
+# blanket consent writes a real assist-policy.json that the paired
+# `chat-assist-persists` scenario proves survives a fresh launch.
+[fixtures.chat-assist-real]
+arguments = ["--chat-open", "--mood", "0"]
+
+[fixtures.chat-assist-real.environment]
+CONTENT_ROOT = "target/eguipilotai/assist-rings/content"
+ASSETS_ROOT = "target/eguipilotai/assist-rings/assets"
+USERDATA_ROOT = "target/eguipilotai/assist-rings/.userdata"
+
 [fixtures.workbench-studio]
 arguments = ["--route", "workbench/studio", "--mood", "0"]
 
