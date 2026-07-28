@@ -83,6 +83,11 @@ other worktree. The operator double-clicks `target\release\devpulselabs.exe`
 - The 16GB-era LNK1318 env cures in green.yml (`debug=0`, `jobs=8`)
   stay until the Windows VM proves it doesn't need them (it boots with
   16 GB too).
+- Rebuild-from-blank, snapshot policy, heartbeat, and the never-public
+  security rule: `docs/runbook/ci-runners.md` (idempotent bootstrap
+  scripts beside it — LLVM/libclang included; also `-VerifyOnly` /
+  `--verify-only` audits for a runner that looks online but won't pick
+  up jobs).
 
 ## Session end (every session, no exceptions)
 
