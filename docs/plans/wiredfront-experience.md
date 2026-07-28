@@ -123,19 +123,19 @@ shorten, never lengthen.
 
 ## 5. Friction audit — today vs the bar (the gate table)
 
-| # | Walkthrough step | Today (ground-truthed 2026-07-24) | Killed by |
+| # | Walkthrough step | Today (re-ground-truthed 2026-07-27, deep-plan sweep) | Killed by |
 |---|------------------|-----------------------------------|-----------|
 | 1 | Editor restores your comp | ✅ R1z: reopen-last via `composer-state.json` + debounced autosave + Drop flush | DONE (R1z) |
-| 2 | Media bin thumbnails | In the R1x working tree, uncommitted | LAND R1x |
-| 3 | Browse windows onto folders | Do not exist anywhere | R1y |
-| 4 | Drag-drop from Explorer | No `dropped_files` handling anywhere in the repo | R1y |
-| 5 | Real timeline (ruler/bars/trim/scrub/sequence preview) | In the R1x working tree, uncommitted | LAND R1x |
-| 6 | AE elements usable | `Source::Element` renders nothing; no ingest ran | R2a (= ratified R1c) |
-| 7 | Transitions/effects | None; render is bare concat | R2b (= ratified R1d) |
+| 2 | Media bin thumbnails | ✅ W1 (`067646d`): the editor rebuilt to the approved AE mock — thumbnail bin included | DONE (W1) |
+| 3 | Browse windows onto folders | ✅ W2 (`60db7be`): native Browse peer windows | DONE (W2) |
+| 4 | Drag-drop from Explorer | ✅ W2 (`60db7be`): drop-to-import through the one seam | DONE (W2) |
+| 5 | Real timeline (ruler/bars/trim/scrub/sequence preview) | ✅ W1 (`067646d`) | DONE (W1) |
+| 6 | AE elements usable | PARTIAL: pack shelf + ingest landed (W3/W4); `Source::Element` still renders NOTHING in preview or stitch — the dead render leg | T1a (workflows program) |
+| 7 | Transitions/effects | None; render is bare concat — the deepest gap | T1c (= ratified R1d) |
 | 8 | Undo/redo | ✅ R1z: snapshot undo/redo (cap 100, one step per drag) + Ctrl+Z/Ctrl+Shift+Z/Ctrl+Y + Space/Delete/arrows | DONE (R1z) |
-| 9 | Chat edits the open comp | Seam live (R1v/w) but no editor-side UI | R2c (= ratified R1f) |
-| 10 | Renders/library correct | `wiredfront/library` still mounts the ColdLight wall | LAND R1x commit 2 |
-| 11 | Google Drive | No HTTP client in the workspace | R2d |
+| 9 | Chat edits the open comp | PARTIAL: seam drives comps end-to-end (R1v/w) but no editor-side proposal UI | T4d (= ratified R1f) |
+| 10 | Renders/library correct | ✅ W1.2 (`9a95fc7`): the two-libraries un-crossing | DONE (W1.2) |
+| 11 | Google Drive | `ureq` landed (#98, ADR-011) — the HTTP-client blocker is gone; needs OAuth + the Drive Browse window | T1h (R2d) |
 | 12 | Background removal | Not started (ort mini-ADR owed) | R2e (= ratified R1e) |
 | 13 | Double-click Library → editor | ✅ W6: the Library is the real thumbnailed shelf; double-click sends video → timeline / image → FOOTAGE (honest) and navigates to the Editor | DONE (W6) |
 | 14 | ffmpeg found without PATH | ✅ W6: managed boot resolution (bin/ beside exe → PATH → winget links) injected into all three engine seams | DONE (W6) |
@@ -146,11 +146,10 @@ shorten, never lengthen.
 
 ## 6. The ladder — passes named by the friction they kill
 
-1. **LAND R1x** (working tree, this branch): the editor finally looks and
-   edits like an editor + the library un-crossing. Rows 2, 5, 10.
-2. **R1y — get media in from anywhere**: Browse peer windows + Explorer
-   drag-drop + import write-through. Rows 3, 4. Plan:
-   `docs/plans/r1y-media-windows.md` (authored, awaiting approval).
+1. **LAND R1x** — ✅ RETIRED: shipped as W1 (`067646d`) + W1.2
+   (`9a95fc7`). Rows 2, 5, 10 closed.
+2. **R1y — get media in from anywhere** — ✅ RETIRED: shipped as W2
+   (`60db7be`). Rows 3, 4 closed.
 3. **R1z — never lose work**: comp autosave + reopen-last + undo/redo +
    the keyboard map. Rows 1, 8. ✅ LANDED
    (`docs/plans/r1z-editor-safety.md`).
@@ -182,7 +181,10 @@ peer windows fail honestly (never silently embed).
 ## 8. Ratification asks (operator)
 
 1. Ratify this contract + the §6 ladder order.
-2. R1y plan approval (`r1y-media-windows.md`).
+2. R1y plan approval (`r1y-media-windows.md`). — retired with rung 2 (shipped as W2).
 3. "Import my After Effects": is tier (b) `.aep` project parsing required,
    or do rendered elements (a) + Lottie (c) cover the real workflow?
-4. R2d dependency: approve adding an HTTP client crate when it schedules.
+   (Partial answer landed: Lottie (c) shipped natively as L2, #99.)
+4. ~~R2d dependency: approve adding an HTTP client crate when it
+   schedules.~~ RETIRED 2026-07-27: `ureq` landed under ADR-011 (#98);
+   the remaining R2d ask is OAuth custody, not the client.

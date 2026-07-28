@@ -63,6 +63,70 @@ dpl-comp, dpl-doc; `publish = false`, workspace lints):
   verdict line; storyboard workflow ships as a registered default (a
   workflow is an ingredient — D6).
 
+### 3a. The slotted storyboard (operator refinement, 2026-07-27 — binds §3)
+
+> "…truly creating a frictionless/guided experience where we can have AI
+> easily understand what slots are remaining within the storyboard
+> template, and the storyboard has a system where it gets tailored for
+> that project at the time, configurable so we can customize like my raw
+> content where I can associate with new or existing episodes/projects."
+
+Four requirements built into the first schema — never bolted on:
+
+1. **Slots are the storyboard's unit.** `StoryboardDoc` = project/episode
+   ref + `Vec<Slot { id, role (hook/context/beat/cta…), brief (what this
+   slot needs — human- AND agent-readable), constraints, fill }>` with
+   typed fill: `Empty | Artifact(rel) | Slide(ref) | Draft(imagine id)`.
+   "Slots remaining" is a derived query on the document, never prose.
+2. **Machine-legible fill state.** Every slot is an EguiPilot semantic
+   node (`wiredfront.storyboard.slot/<id>`, value = fill state,
+   description = brief) so chat/coach/A2UI read the same truth the panel
+   paints; filling a slot publishes a fabric fact. The seam GET for slot
+   inventory is T4b — WF1's job is the document shape that makes it
+   trivial.
+3. **Tailored at mint.** A storyboard is minted from a blueprint +
+   project config (platform target, beat count, bible/style refs) through
+   a guided mint step. The blueprint is the ingredient; the minted
+   storyboard is the project-specific instance.
+4. **Raw content associates in.** A slot accepts existing library/inbox
+   artifacts — associated into a NEW or EXISTING episode/project via the
+   W10a `place_slide`/never-clobber machinery and the W9 landing policy —
+   or a fresh generation. Same gesture, either source.
+
+**The gate:** frictionless means every empty slot names what it needs,
+filling one is one gesture, and the agent sees exactly what the operator
+sees. The storyboard workflow (`Outline → SlideFromBeat → …`) is framed
+accordingly: `Outline` mints the tailored slotted storyboard; subsequent
+stages FILL slots; `AssembleComp` consumes the filled set.
+
+**Two workflow surfaces (operator, same session):**
+
+> "…we have wiredfront/workflows and then workbench/workflows where we can
+> then even storyboard out the episodes with the fully built slides and
+> then get the teleprompter script developed, to be associated with it."
+
+- **One engine, two route surfaces.** `dpl-workflows` is shared; each hub
+  mounts a `workflows` sub-route and surfaces the workflows whose
+  artifacts belong to its side of the two-libraries law:
+  **wiredfront/workflows** = raw-media pipelines (clips, stitch, post,
+  carousel media); **workbench/workflows** = slide/episode pipelines —
+  storyboarding episodes out of FULLY BUILT catalog slides (the ColdLight
+  side), slots filling with registered slides/templates rather than
+  footage. `WorkflowDoc` therefore declares its artifact side (a `surface`
+  field); the engine and document make NO hub assumptions.
+- **Teleprompter script is a first-class associated artifact.** A
+  workbench workflow stage develops the per-slide/per-beat script and
+  associates it with the episode/storyboard (same association machinery,
+  never-clobber), so the presenter/deck can drive it — the script rides
+  the episode, slot-aligned, agent-legible like every other slot fill.
+  (The Narrate tab stub and deck Beat facts are the existing anchors.)
+
+WF1 impact: the panel lands under wiredfront first; the workbench mount +
+teleprompter stage are the immediate follow-on pass. WF1 ships the
+`StoryboardDoc` shape + the `Outline` stage minting it (tailoring inputs
+carried in the workflow document's stage config), with the EguiPilot slot
+nodes on the Workflows panel.
+
 ## 4. Changes, in execution order
 
 1. `Cargo.toml`: member + workspace dep `dpl-workflows`.

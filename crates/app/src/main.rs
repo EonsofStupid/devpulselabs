@@ -58,6 +58,9 @@ fn main() -> eframe::Result {
     // double-clicked exe with a stale Explorer PATH still previews,
     // probes, and renders. W6.
     init_ffmpeg();
+    // Managed pdftoppm (same law): the staged poppler tree feeds PDF →
+    // page-slide rasterization without touching PATH.
+    init_pdftoppm();
     let args: Vec<String> = std::env::args().collect();
     let shot: Option<std::path::PathBuf> = args
         .iter()
@@ -230,6 +233,14 @@ fn main() -> eframe::Result {
         .position(|a| a == "--make-slide")
         .and_then(|i| args.get(i + 1))
         .cloned();
+    // `--run-workflow <id>` (WF1) runs a registered workflow through the
+    // Workflows tab's exact Run path — verdict on stdout; pair with
+    // `--screenshot` to terminate.
+    let run_workflow: Option<String> = args
+        .iter()
+        .position(|a| a == "--run-workflow")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
     // `--open-rail <hub>` pins the accordion open on one house (L1a) —
     // proof shots of the unfolded rail reproduce. Unknown hub degrades to
     // a folded rail, never a panic.
@@ -382,6 +393,7 @@ fn main() -> eframe::Result {
                 save_comp,
                 lottie_import,
                 make_slide,
+                run_workflow,
                 seam_port,
             });
             #[cfg(feature = "eguipilotai-devtools")]
@@ -426,6 +438,7 @@ struct Boot {
     save_comp: Option<String>,
     lottie_import: Option<String>,
     make_slide: Option<String>,
+    run_workflow: Option<String>,
     /// The agent seam's port; None = `--no-seam`.
     seam_port: Option<u16>,
 }
@@ -505,6 +518,7 @@ impl App {
             save_comp,
             lottie_import,
             make_slide,
+            run_workflow,
             seam_port,
         } = boot;
         let mut workbench = dpl_hub_workbench::WorkbenchHub::default();
@@ -581,6 +595,11 @@ impl App {
         // shelf's exact "Make slide" path (image/video → one, pdf → pages).
         if let Some(rel) = &make_slide {
             wiredfront.make_slide(rel);
+        }
+        // WF1's harness seam: run a registered workflow through the
+        // Workflows tab's exact Run path (jobs facts ride the wired fabric).
+        if let Some(id) = &run_workflow {
+            wiredfront.run_workflow(id);
         }
         // Chat coding providers work inside the canonical launch workspace,
         // not DevPULSE's media/content store. The launcher (and later the
@@ -1068,6 +1087,31 @@ fn init_ffmpeg() {
             tracing::warn!(
                 %error,
                 "verified embedded ffmpeg is unavailable; previews, probes, and renders will fail"
+            );
+        }
+    }
+}
+
+/// Resolve the verified app-relative poppler tree and inject pdftoppm into
+/// the composer's PDF rasterizer (the ffmpeg pattern). Unavailability is a
+/// warn, not a failure — the rasterizer degrades to the PATH name and its
+/// absence stays an honest per-call error.
+fn init_pdftoppm() {
+    match dpl_tools_deps::resolve_current(dpl_tools_deps::PDFTOPPM) {
+        Ok(dependency) => {
+            let path = dependency.path().to_owned();
+            tracing::info!(
+                pdftoppm = %path.display(),
+                version = dependency.version(),
+                sha256 = dependency.sha256(),
+                "verified embedded pdftoppm resolved"
+            );
+            dpl_composer::import::set_pdftoppm_path(path);
+        }
+        Err(error) => {
+            tracing::warn!(
+                %error,
+                "verified embedded pdftoppm is unavailable; PDF slides fall back to PATH"
             );
         }
     }

@@ -1915,6 +1915,7 @@ dependencies = [
  "dpl-lottie",
  "dpl-proc",
  "dpl-video",
+ "dpl-workflows",
  "egui",
  "egui-pilot-ai",
  "serde",
@@ -2238,6 +2239,16 @@ dependencies = [
  "image",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "dpl-workflows"
+version = "0.1.0"
+dependencies = [
+ "dpl-comp",
+ "dpl-doc",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

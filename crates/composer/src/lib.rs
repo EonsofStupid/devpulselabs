@@ -203,7 +203,19 @@ pub struct Composer {
     /// Ring-0 estate — dual-writes last-comp beside composer-state.json.
     /// None in tests/drills that never wired one.
     estate: Option<std::sync::Arc<dpl_estate::Estate>>,
+    /// The WORKFLOWS tab's last run (WF1): report + minted storyboard +
+    /// run folder. One run at a time; a rerun replaces it.
+    wf_run: Option<WfRun>,
     status: String,
+}
+
+/// One completed workflow run — what the Workflows tab paints and the
+/// agent reads (the storyboard's slots are semantic nodes).
+struct WfRun {
+    workflow: String,
+    report: dpl_workflows::RunReport,
+    board: dpl_workflows::StoryboardDoc,
+    dir: PathBuf,
 }
 
 /// The W5 reviewer: the selected guide's steps, editable before export —
@@ -305,6 +317,7 @@ impl Default for Composer {
             fabric: None,
             capture_rx: None,
             estate: None,
+            wf_run: None,
             status: "New composition — add footage from the Project panel.".into(),
         };
         // Proof/env override (the DPL_COMPOSER_TAB pattern): open the
@@ -321,6 +334,8 @@ enum Act {
     New,
     Save,
     Render,
+    /// Run a registered workflow by id (the Workflows tab's Run chip).
+    RunWorkflow(String),
     /// Flip reference-in-place mode (symlink imports instead of copy).
     ToggleReference,
     Tab(Tab),
@@ -355,7 +370,7 @@ enum Act {
     Keep(String, String),
 }
 
-/// The workflow tabs — Editor leads; the others are TAILORED surfaces
+/// The tab strip — Editor leads; the others are TAILORED surfaces
 /// (operator redline 2026-07-24), never the editor's spine.
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
@@ -364,15 +379,17 @@ enum Tab {
     Annotate,
     Narrate,
     Guide,
+    Workflows,
 }
 
 impl Tab {
-    const ALL: [Tab; 5] = [
+    const ALL: [Tab; 6] = [
         Tab::Editor,
         Tab::Capture,
         Tab::Annotate,
         Tab::Narrate,
         Tab::Guide,
+        Tab::Workflows,
     ];
     fn label(self) -> &'static str {
         match self {
@@ -381,6 +398,7 @@ impl Tab {
             Tab::Annotate => "Annotate",
             Tab::Narrate => "Narrate",
             Tab::Guide => "Guide",
+            Tab::Workflows => "Workflows",
         }
     }
     fn blurb(self) -> &'static str {
@@ -395,6 +413,9 @@ impl Tab {
             Tab::Narrate => "Record or drop a voiceover; the waveform rides the timeline.",
             Tab::Guide => {
                 "Export a standalone double-click guide — tailored, phone-friendly, its own flow."
+            }
+            Tab::Workflows => {
+                "Run a guided pipeline — outline, slides, comp — each step reporting honestly."
             }
         }
     }
@@ -1633,6 +1654,97 @@ impl Composer {
         Ok(vec![self.make_slide_from_library(&rec)?])
     }
 
+    /// Run a registered workflow end-to-end (the Workflows tab's Run chip
+    /// AND the `--run-workflow` harness seam — ONE entry, the
+    /// `make_slide_from_rel` law). Synchronous: the skeleton's stages are
+    /// milliseconds of minting; generation NEVER spends here (ADR-011 —
+    /// the honest skip). Every stage publishes a jobs fact; artifacts land
+    /// under a no-clobber `inbox/workflow-<id>/` run folder; completion
+    /// signals ONE `InboxChanged` (the batching law). Returns the verdict
+    /// line, or an error naming the registered workflows.
+    pub fn run_workflow(&mut self, id: &str) -> Result<String, String> {
+        let Some(doc) = dpl_workflows::find(id) else {
+            let all = dpl_workflows::workflows()
+                .iter()
+                .map(|w| w.id.clone())
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(format!("unknown workflow {id:?} — registered: {all}"));
+        };
+        let inbox = Self::content_root().join("inbox");
+        let dir = dpl_workflows::fresh_dir(&inbox, &format!("workflow-{id}"));
+        let rel = format!(
+            "inbox/{}",
+            dir.file_name().and_then(|n| n.to_str()).unwrap_or("run")
+        );
+        let mut runner = WfRunner {
+            dir: dir.clone(),
+            rel,
+            assembled: 0,
+        };
+        // Jobs domain (doctrine law 7): one fact per stage TRANSITION,
+        // labeled `workflow <id> · <stage>`; a skip is a Done that says so.
+        let fabric = self.fabric.clone();
+        let mut pending: std::collections::HashMap<String, dpl_fabric::JobId> =
+            std::collections::HashMap::new();
+        let (report, board) = dpl_workflows::execute(&doc, &mut runner, &mut |ev| {
+            let Some(f) = &fabric else { return };
+            match ev {
+                dpl_workflows::StageEvent::Started(stage) => {
+                    let job = f.mint_job();
+                    f.publish_job(dpl_fabric::JobEvent::Queued {
+                        job,
+                        label: format!("workflow {id} · {}", stage.id),
+                    });
+                    pending.insert(stage.id.clone(), job);
+                }
+                dpl_workflows::StageEvent::Finished(stage, verdict) => {
+                    let Some(job) = pending.remove(&stage.id) else {
+                        return;
+                    };
+                    f.publish_job(match verdict {
+                        dpl_workflows::StageVerdict::Done { note } => dpl_fabric::JobEvent::Done {
+                            job,
+                            out: note.clone(),
+                        },
+                        dpl_workflows::StageVerdict::Skipped { reason } => {
+                            dpl_fabric::JobEvent::Done {
+                                job,
+                                out: format!("skipped — {reason}"),
+                            }
+                        }
+                        dpl_workflows::StageVerdict::Failed { error } => {
+                            dpl_fabric::JobEvent::Failed {
+                                job,
+                                error: error.clone(),
+                            }
+                        }
+                    });
+                }
+            }
+        })?;
+        // The minted board is a DOCUMENT — crash-safe in the run folder so
+        // chat/coach/seam read the same truth the panel paints.
+        dpl_workflows::save_board(&dir, &board).map_err(|e| format!("save storyboard: {e}"))?;
+        let verdict = report.verdict_line();
+        let assembled = runner.assembled;
+        self.status = verdict.clone();
+        self.wf_run = Some(WfRun {
+            workflow: id.to_string(),
+            report,
+            board,
+            dir: dir.clone(),
+        });
+        self.signal(dpl_fabric::CaptureEvent::InboxChanged);
+        // The render leg: an assembled comp opens in the Editor and rides
+        // the EXISTING stitch job — one render path, never a second.
+        if assembled > 0 {
+            self.open_comp(dir.join("comp"));
+            self.start_render();
+        }
+        Ok(verdict)
+    }
+
     /// Wire the signal fabric (called by the hub's own wire_fabric —
     /// ONE fabric end to end). Also opens this editor's capture ears.
     pub fn wire_fabric(&mut self, fabric: &dpl_fabric::Fabric) {
@@ -1895,11 +2007,12 @@ impl Composer {
                 .rect_filled(body, CornerRadius::same(cl::RADIUS), cl::surface::WELL);
         }
         let mut mk = |rect: Rect| ui.new_child(UiBuilder::new().max_rect(rect.shrink(pad)));
-        self.workflow_tabs(&mut mk(tabbar_rect), &mut act);
+        self.tab_strip(&mut mk(tabbar_rect), &mut act);
         match self.tab {
             Tab::Editor => self.ae_screen(ui, body, &mut act),
             Tab::Annotate => self.annotate_tab(&mut mk(body), &mut act),
             Tab::Guide => self.guide_tab(&mut mk(body)),
+            Tab::Workflows => self.workflows_tab(&mut mk(body), &mut act),
             other => tab_stub(&mut mk(body), other),
         }
 
@@ -1907,6 +2020,13 @@ impl Composer {
             Some(Act::New) => self.new_comp(),
             Some(Act::Save) => self.save(),
             Some(Act::Render) => self.start_render(),
+            Some(Act::RunWorkflow(id)) => {
+                // The Err (unknown id) cannot happen from the census-read
+                // panel, but stays honest in the status line if it ever does.
+                if let Err(e) = self.run_workflow(&id) {
+                    self.status = format!("Workflow refused: {e}");
+                }
+            }
             Some(Act::Tab(t)) => self.tab = t,
             Some(Act::ETool(t)) => {
                 self.etool = t;
@@ -1986,8 +2106,8 @@ impl Composer {
         self.maybe_autosave(ui.ctx());
     }
 
-    /// The workflow tabs — tailored siblings; active glows voltage.
-    fn workflow_tabs(&self, ui: &mut egui::Ui, act: &mut Option<Act>) {
+    /// The tab strip — tailored siblings; active glows voltage.
+    fn tab_strip(&self, ui: &mut egui::Ui, act: &mut Option<Act>) {
         ui.horizontal(|ui| {
             for t in Tab::ALL {
                 let active = self.tab == t;
@@ -2006,6 +2126,148 @@ impl Composer {
                     *act = Some(Act::Tab(t));
                 }
             }
+        });
+    }
+
+    /// The WORKFLOWS tab (WF1): registered pipelines (census-read, never
+    /// hardcoded), a Run chip each, and the last run's honest story —
+    /// per-stage verdicts plus the slotted storyboard, every slot a
+    /// semantic node so the agent reads exactly what the operator sees.
+    fn workflows_tab(&self, ui: &mut egui::Ui, act: &mut Option<Act>) {
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for wf in dpl_workflows::workflows() {
+                cl::clay().show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(&wf.label).heading());
+                        ui.label(
+                            RichText::new(match wf.surface {
+                                dpl_workflows::Surface::Wiredfront => "wiredFRONT · raw media",
+                                dpl_workflows::Surface::Workbench => "Workbench · slides",
+                            })
+                            .color(cl::ink::SUBTLE),
+                        );
+                        let run = cl::tip(
+                            chip(ui, Tone::Lime, "Run", ("wf-run", &wf.id)),
+                            "Run this pipeline now — every step reports honestly below. \
+                             Nothing is ever generated or spent without a key you provisioned.",
+                        );
+                        ui.pilot_track(
+                            &run,
+                            NodeMetadata::new(
+                                PilotId::new("composer.workflows.run")
+                                    .child(&PilotKey::new(&wf.id)),
+                                Role::Button,
+                                format!("Run {}", wf.label),
+                            )
+                            .value("ready"),
+                        );
+                        if run.clicked() {
+                            *act = Some(Act::RunWorkflow(wf.id.clone()));
+                        }
+                    });
+                    ui.label(RichText::new(&wf.blurb).color(cl::ink::SUBTLE));
+                    ui.label(
+                        RichText::new(
+                            wf.stages
+                                .iter()
+                                .map(|s| s.id.as_str())
+                                .collect::<Vec<_>>()
+                                .join(" → "),
+                        )
+                        .color(cl::ink::SUBTLE)
+                        .small(),
+                    );
+                });
+                ui.add_space(cl::space::S2);
+            }
+
+            let Some(run) = &self.wf_run else {
+                plate(
+                    ui,
+                    "No run yet",
+                    "Press Run on a pipeline — its steps and storyboard land here.",
+                );
+                return;
+            };
+
+            ui.add_space(cl::space::S2);
+            cl::clay().show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(format!("Last run — {}", run.workflow)).heading());
+                    // Where the run landed — the operator can find it in Explorer.
+                    ui.label(
+                        RichText::new(run.dir.display().to_string())
+                            .small()
+                            .color(cl::ink::SUBTLE),
+                    );
+                });
+                for row in &run.report.stages {
+                    use dpl_workflows::StageVerdict as V;
+                    let (tone, word, detail) = match &row.verdict {
+                        V::Done { note } => (Tone::Lime, "done", note.as_str()),
+                        V::Skipped { reason } => (Tone::Amber, "skipped", reason.as_str()),
+                        V::Failed { error } => (Tone::Coral, "FAILED", error.as_str()),
+                    };
+                    ui.horizontal(|ui| {
+                        let badge = chip(ui, tone, word, ("wf-stage", &run.workflow, &row.stage));
+                        ui.pilot_track(
+                            &badge,
+                            NodeMetadata::new(
+                                PilotId::new("composer.workflows.stage")
+                                    .child(&PilotKey::new(&row.stage)),
+                                Role::Label,
+                                row.stage.clone(),
+                            )
+                            .value(word),
+                        );
+                        ui.label(RichText::new(&row.stage).strong());
+                        ui.label(RichText::new(detail).color(cl::ink::SUBTLE));
+                    });
+                }
+            });
+
+            ui.add_space(cl::space::S2);
+            cl::clay().show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Storyboard").heading());
+                    ui.label(
+                        RichText::new(format!(
+                            "{} of {} slots filled",
+                            run.board.filled().len(),
+                            run.board.slots.len()
+                        ))
+                        .color(cl::ink::SUBTLE),
+                    );
+                });
+                for slot in &run.board.slots {
+                    use dpl_workflows::SlotFill as F;
+                    let (tone, state) = match &slot.fill {
+                        F::Empty => (Tone::Amber, "empty"),
+                        F::Slide { .. } => (Tone::Lime, "slide"),
+                        F::Artifact { .. } => (Tone::Cyan, "artifact"),
+                        F::Draft { .. } => (Tone::Violet, "draft"),
+                    };
+                    ui.horizontal(|ui| {
+                        let badge = chip(ui, tone, state, ("wf-slot", &run.workflow, &slot.id));
+                        let resp = cl::tip(
+                            badge,
+                            "A storyboard slot — its brief says what it needs; filling one \
+                             is one gesture, from the library or a fresh creation.",
+                        );
+                        let mut meta = NodeMetadata::new(
+                            PilotId::new("wiredfront.storyboard.slot")
+                                .child(&PilotKey::new(&slot.id)),
+                            Role::ListItem,
+                            format!("{} ({})", slot.id, slot.role),
+                        )
+                        .value(state);
+                        meta.description = Some(slot.brief.clone());
+                        ui.pilot_track(&resp, meta);
+                        ui.label(RichText::new(&slot.id).strong());
+                        ui.label(RichText::new(&slot.brief).color(cl::ink::SUBTLE));
+                    });
+                }
+            });
         });
     }
 
@@ -3873,6 +4135,7 @@ fn initial_tab() -> Tab {
         Some("annotate") => Tab::Annotate,
         Some("narrate") => Tab::Narrate,
         Some("guide") => Tab::Guide,
+        Some("workflows") => Tab::Workflows,
         _ => Tab::Editor,
     }
 }
@@ -3880,6 +4143,114 @@ fn initial_tab() -> Tab {
 /// An honest stub for a tailored tab not yet built — names what it will do.
 fn tab_stub(ui: &mut egui::Ui, tab: Tab) {
     plate(ui, tab.label(), tab.blurb());
+}
+
+/// The app-side [`dpl_workflows::StageRunner`] (WF1): materializes stages
+/// with the editor's own seams — slide docs via `dpl_doc`, the comp via
+/// `dpl_comp` — under the no-clobber run folder. Fabric-free: the executor
+/// events map to jobs facts in `run_workflow`.
+struct WfRunner {
+    /// The run folder (absolute) and its content-relative prefix.
+    dir: PathBuf,
+    rel: String,
+    /// Layers the assemble stage produced — the render leg's honesty check.
+    assembled: usize,
+}
+
+impl dpl_workflows::StageRunner for WfRunner {
+    fn run_stage(
+        &mut self,
+        _workflow: &dpl_workflows::WorkflowDoc,
+        stage: &dpl_workflows::Stage,
+        board: &mut dpl_workflows::StoryboardDoc,
+    ) -> dpl_workflows::StageVerdict {
+        use dpl_workflows::{SlotFill, StageKind, StageVerdict};
+        match &stage.kind {
+            StageKind::Outline { .. } => unreachable!("the executor mints the board"),
+            StageKind::SlideFromBeat { template } => {
+                let mut minted = 0usize;
+                for slot in &mut board.slots {
+                    if !matches!(slot.fill, SlotFill::Empty) {
+                        continue;
+                    }
+                    let slide = dpl_workflows::slide_for_slot(template, slot);
+                    if let Some(i) = dpl_doc::validate(&slide).first() {
+                        return StageVerdict::Failed {
+                            error: format!(
+                                "slide for {} invalid at {}: {}",
+                                slot.id, i.path, i.message
+                            ),
+                        };
+                    }
+                    let slide_dir = self.dir.join("slides").join(&slot.id);
+                    if let Err(e) = dpl_doc::save(&slide_dir, &slide) {
+                        return StageVerdict::Failed {
+                            error: format!("save slide {}: {e}", slot.id),
+                        };
+                    }
+                    slot.fill = SlotFill::Slide {
+                        rel: format!("{}/slides/{}", self.rel, slot.id),
+                    };
+                    minted += 1;
+                }
+                StageVerdict::Done {
+                    note: format!("minted {minted} `{template}` slide(s)"),
+                }
+            }
+            StageKind::GenerateImage => {
+                // Presence CHECK only — the key VALUE is never read, logged,
+                // or carried here (ADR-011 custody).
+                if std::env::var_os("XAI_API_KEY").is_none() {
+                    StageVerdict::Skipped {
+                        reason:
+                            "no key provisioned (ADR-011) — set XAI_API_KEY to enable image art"
+                                .into(),
+                    }
+                } else {
+                    StageVerdict::Skipped {
+                        reason: "in-run generation lands with the async-run slice — \
+                                 create in Chat's panel and save to the library meanwhile"
+                            .into(),
+                    }
+                }
+            }
+            StageKind::AssembleComp { fps, w, h } => {
+                let (comp, notes) = dpl_workflows::comp_for_board(board, *fps, *w, *h);
+                if let Some(i) = dpl_comp::validate(&comp).first() {
+                    return StageVerdict::Failed {
+                        error: format!("assembled comp invalid at {}: {}", i.path, i.message),
+                    };
+                }
+                if let Err(e) = dpl_comp::save(&self.dir.join("comp"), &comp) {
+                    return StageVerdict::Failed {
+                        error: format!("save comp: {e}"),
+                    };
+                }
+                self.assembled = comp.tracks.iter().map(|t| t.layers.len()).sum();
+                StageVerdict::Done {
+                    note: format!(
+                        "assembled {} layer(s) → {}/comp ({} slot(s) noted, not layered)",
+                        self.assembled,
+                        self.rel,
+                        notes.len()
+                    ),
+                }
+            }
+            StageKind::Render => {
+                if self.assembled == 0 {
+                    StageVerdict::Skipped {
+                        reason:
+                            "nothing assembled to render — fill slots with media artifacts first"
+                                .into(),
+                    }
+                } else {
+                    StageVerdict::Done {
+                        note: "assembled comp opens in the Editor and rides the render job".into(),
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// A native Lottie layer's live preview — the `ClipPlayer` analog, backed
@@ -4075,6 +4446,44 @@ fn fmt_secs(secs: Option<u32>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// WF1: the app-side runner materializes the storyboard workflow into
+    /// a scratch run folder — slides minted per slot, board filled, comp
+    /// saved, generation and render honestly skipped. No content root, no
+    /// fabric: the runner is jailed to the dir it is handed.
+    #[test]
+    fn the_workflow_runner_materializes_the_storyboard() {
+        let dir = std::env::temp_dir()
+            .join("dpl-composer-tests")
+            .join(format!("wf-run-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let doc = dpl_workflows::find("storyboard").expect("registered");
+        let mut runner = WfRunner {
+            dir: dir.clone(),
+            rel: "inbox/workflow-storyboard".into(),
+            assembled: 0,
+        };
+        let (report, board) =
+            dpl_workflows::execute(&doc, &mut runner, &mut |_| {}).expect("valid doc runs");
+        assert!(!report.failed(), "{:?}", report);
+        assert_eq!(board.remaining().len(), 0, "every slot filled with a slide");
+        for slot in &board.slots {
+            let slide_dir = dir.join("slides").join(&slot.id);
+            let slide = dpl_doc::load(&slide_dir).expect("minted slide loads");
+            assert!(dpl_doc::validate(&slide).is_empty());
+        }
+        let comp = dpl_comp::load(&dir.join("comp")).expect("assembled comp loads");
+        assert!(dpl_comp::validate(&comp).is_empty());
+        assert_eq!(runner.assembled, 0, "text slides are not comp layers yet");
+        let render = report.stages.iter().find(|s| s.stage == "render").unwrap();
+        assert!(
+            matches!(&render.verdict, dpl_workflows::StageVerdict::Skipped { .. }),
+            "render skips honestly with nothing assembled"
+        );
+        assert!(report
+            .verdict_line()
+            .starts_with("run-workflow: storyboard ok"));
+    }
 
     fn video_rec(name: &str, rel: &str, secs: Option<u32>) -> Record {
         Record {

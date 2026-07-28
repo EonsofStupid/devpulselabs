@@ -1,0 +1,86 @@
+# WF1: the Workflows tab lists the registered census, Run executes the
+# storyboard pipeline for real (scratch CONTENT_ROOT via the fixture), and
+# the run's truth is machine-legible — stage verdicts and storyboard slots
+# are semantic nodes. Generation is honestly skipped (ADR-011: no spend
+# without a provisioned key), render skips with nothing assembled.
+id = "wiredfront-workflows"
+fixture = "wiredfront-workflows"
+record = true
+
+[[steps]]
+kind = "wait"
+milliseconds = 750
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/composer.tab/Workflows"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/composer.tab/Workflows"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/composer.workflows.run/storyboard"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/composer.workflows.run/storyboard"
+
+[[steps]]
+kind = "wait"
+milliseconds = 750
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "done"
+
+[steps.expectation.target]
+id = "root/composer.workflows.stage/assemble"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "skipped"
+
+[steps.expectation.target]
+id = "root/composer.workflows.stage/imagine"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "slide"
+
+[steps.expectation.target]
+id = "root/wiredfront.storyboard.slot/hook"
+
+[[steps]]
+kind = "capture"
+name = "wiredfront-workflows-run"

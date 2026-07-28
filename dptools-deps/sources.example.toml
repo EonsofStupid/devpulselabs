@@ -33,6 +33,17 @@ version = "8.1.2"
 target = "x86_64-pc-windows-msvc"
 source = "C:/private-tools/ffmpeg.exe"
 
+# Poppler ships as a TREE (pdftoppm.exe + sibling DLLs + share data); the
+# entrypoint names the exe within it. Optional — staging succeeds without it,
+# and the app degrades to PATH resolution honestly.
+[[dependency]]
+id = "pdftoppm"
+family = "media"
+version = "26.02.0"
+target = "x86_64-pc-windows-msvc"
+source = "C:/private-tools/poppler-26.02.0"
+entrypoint = "Library/bin/pdftoppm.exe"
+
 [[dependency]]
 id = "codex"
 family = "provider"

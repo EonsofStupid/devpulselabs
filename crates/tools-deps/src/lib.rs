@@ -22,6 +22,9 @@ pub const CODEX: DependencyId = DependencyId::new("codex", DependencyFamily::Pro
 pub const GROK: DependencyId = DependencyId::new("grok", DependencyFamily::Provider);
 pub const FFMPEG: DependencyId = DependencyId::new("ffmpeg", DependencyFamily::Media);
 pub const CHROMIUM: DependencyId = DependencyId::new("chromium", DependencyFamily::Browser);
+/// Poppler's page rasterizer (W11 PDF slides; T3 carousel) — staged as a
+/// TREE (the exe needs its sibling DLLs), entrypoint `Library/bin/pdftoppm.exe`.
+pub const PDFTOPPM: DependencyId = DependencyId::new("pdftoppm", DependencyFamily::Media);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DependencyId {
