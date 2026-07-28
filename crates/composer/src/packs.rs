@@ -198,17 +198,23 @@ pub fn pack_size(pack: &Path) -> (usize, u64) {
 /// INGEST one pack: copy every media file into
 /// `content/elements/<kebab name>/<relative subpath>` — SKIP-IF-EXISTS
 /// (resumable/idempotent), copy-to-`.part`-then-rename (never a torn
-/// file), poster+seconds for videos (best-effort), write-through into
-/// the ROOT's index. Returns the number COPIED this run. The source
-/// pack is never touched. `done` ticks per processed file (progress).
+/// file), RTFX grammar tags for every kind (L3), the pack's OWN preview
+/// jpg as the poster when it ships one (an alpha element's first frame is
+/// blank — a generated poster would lie), poster+seconds fallback for
+/// videos, write-through into the CALLER'S index. The caller owns index
+/// placement: the app passes `Index::open_default()` (the ADR-014
+/// `.userdata/index.db` every read surface opens — the old ad-hoc
+/// `root/artifacts.db` open wrote a retired legacy DB nothing read);
+/// tests pass a scratch DB. Returns the number COPIED this run. The
+/// source pack is never touched. `done` ticks per processed file.
 pub fn ingest_copy(
     root: &Path,
     pack: &Path,
     pack_name: &str,
+    ix: &dpl_index::Index,
     done: &std::sync::atomic::AtomicUsize,
 ) -> Result<usize, String> {
     let dest_root = local_dir(root, pack_name);
-    let ix = dpl_index::Index::open(&root.join("artifacts.db"))?;
     let mut copied = 0usize;
     for src in media_files(pack) {
         done.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -235,12 +241,28 @@ pub fn ingest_copy(
         if kind == "element" {
             crate::import::enrich_element(&mut rec, &dest, root);
         }
+        // RTFX grammar → tags, for EVERY kind (movs are "video", SFX are
+        // "audio" — the element tier isn't the only tagged one).
+        if let (Some(stem), Some(bucket)) = (
+            dest.file_stem().and_then(|s| s.to_str()),
+            rel.parent().map(|p| p.to_string_lossy()),
+        ) {
+            if let Some(tags) = crate::rtfx::rtfx_tags(stem, &bucket) {
+                rec.tags = tags;
+            }
+        }
         if kind == "video" {
             let poster = dest.with_file_name(format!(
                 "{}-poster.jpg",
                 dest.file_stem().and_then(|s| s.to_str()).unwrap_or("frame")
             ));
-            if dpl_engine_media::write_poster(&dest, &poster).is_ok() {
+            // The pack's shipped preview (probed from the SOURCE, still in
+            // the pinned tree) beats a generated first-frame poster.
+            let postered = match crate::rtfx::preview_poster(&src) {
+                Some(jpg) => std::fs::copy(&jpg, &poster).is_ok(),
+                None => dpl_engine_media::write_poster(&dest, &poster).is_ok(),
+            };
+            if postered {
                 rec.poster_rel_path = poster
                     .strip_prefix(root)
                     .ok()
@@ -307,19 +329,20 @@ mod tests {
         std::fs::write(pack.join("readme.txt"), b"no").unwrap();
 
         let done = AtomicUsize::new(0);
-        let copied = ingest_copy(&root, &pack, "videohive-ZZ-lower-thirds", &done).unwrap();
+        // The CALLER owns index placement (the app passes open_default —
+        // the ADR-014 DB; a scratch DB keeps this test hermetic).
+        let ix = dpl_index::Index::open(&root.join("scratch-index.db")).unwrap();
+        let copied = ingest_copy(&root, &pack, "videohive-ZZ-lower-thirds", &ix, &done).unwrap();
         assert_eq!(copied, 2, "both media files copied; txt skipped");
         let local = local_dir(&root, "videohive-ZZ-lower-thirds");
         assert!(local.join("Full HD").join("lt-01.mp4").is_file());
         assert!(local.join("song.wav").is_file());
         // The SOURCE is untouched and re-ingest copies nothing (resume).
         assert!(pack.join("song.wav").is_file());
-        let again = ingest_copy(&root, &pack, "videohive-ZZ-lower-thirds", &done).unwrap();
+        let again = ingest_copy(&root, &pack, "videohive-ZZ-lower-thirds", &ix, &done).unwrap();
         assert_eq!(again, 0, "idempotent");
-        // Index rows exist in THIS root's db.
-        let rows = dpl_index::Index::open(&root.join("artifacts.db"))
-            .and_then(|ix| ix.recent(50, None))
-            .unwrap();
+        // Index rows exist in the CALLER'S db.
+        let rows = ix.recent(50, None).unwrap();
         assert_eq!(rows.len(), 2);
         assert!(rows.iter().all(|r| r.source == "ingest"));
         // The shelf marks it local.
