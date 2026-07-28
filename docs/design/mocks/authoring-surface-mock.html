@@ -1,0 +1,393 @@
+<title>DevPULSE — Author</title>
+<style>
+  :root{
+    --ground:#0b0e14; --raised:#151a24; --raised-2:#1b2230; --well:#090c11;
+    --hairline:#2a3140; --hairline-2:#39435a;
+    --ink-strong:#e8edf5; --ink:#9aa6b8; --ink-muted:#5f6b7e;
+    --cyan:#28e0d0; --amber:#ffb020; --magenta:#ff4fd8; --coral:#ff6a5c; --good:#4ade80;
+    --tone:var(--cyan); --tone-soft:rgba(40,224,208,.16); --tone-glow:rgba(40,224,208,.22);
+    --font-mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+    --font-sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --r:6px; --shadow:5px 5px 0 rgba(0,0,0,.55); --tap:46px;
+  }
+  *{box-sizing:border-box} html,body{margin:0}
+  body{background:var(--ground);color:var(--ink);font-family:var(--font-sans);line-height:1.5;-webkit-font-smoothing:antialiased;min-height:100vh;background-image:radial-gradient(120% 80% at 84% -12%,rgba(40,224,208,.05),transparent 60%)}
+  .wrap{max-width:1280px;margin:0 auto;padding:clamp(14px,2.6vw,28px)}
+  .eyebrow{font-family:var(--font-mono);font-size:11px;letter-spacing:.28em;text-transform:uppercase;color:var(--ink-muted)}
+  h1{font-weight:800;font-size:clamp(26px,4vw,38px);line-height:1.04;letter-spacing:-.02em;color:var(--ink-strong);margin:.14em 0 .08em}
+  h1 .lit{color:var(--tone)}
+  .lede{max-width:66ch;color:var(--ink);font-size:14px}
+
+  /* top bar */
+  .bar{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:18px 0 6px}
+  .grow{margin-left:auto;display:flex;align-items:center;gap:9px;background:var(--raised);border:1px solid var(--hairline);border-radius:var(--r);box-shadow:var(--shadow);padding:8px 13px;min-height:var(--tap)}
+  .grow .lbl{font-family:var(--font-mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-muted)}
+  .grow .num{font-weight:800;font-size:19px;color:var(--tone);font-variant-numeric:tabular-nums}
+  .grow .num.bump{animation:bump .5s ease}
+  @keyframes bump{30%{transform:scale(1.35);color:var(--good)}100%{transform:none}}
+  .btn{font-family:var(--font-mono);font-size:12px;letter-spacing:.05em;text-transform:uppercase;background:var(--raised-2);color:var(--ink);border:1px solid var(--hairline-2);border-radius:var(--r);padding:9px 13px;cursor:pointer;min-height:var(--tap)}
+  .btn:hover{border-color:var(--ink-muted);color:var(--ink-strong)}
+  .btn:active{transform:translate(1px,1px)}
+  .btn.primary{background:var(--tone);color:var(--ground);border-color:var(--tone);font-weight:700;box-shadow:var(--shadow)}
+  .btn.ai{border-color:var(--magenta);color:var(--magenta)}
+  .btn.ai:hover{background:rgba(255,79,216,.1)}
+
+  main{display:grid;grid-template-columns:1fr 320px;gap:20px;align-items:start;margin-top:14px}
+  @media (max-width:900px){main{grid-template-columns:1fr}}
+
+  /* comp = deck of cards */
+  .deck-head{display:flex;align-items:baseline;gap:10px;margin:0 2px 12px}
+  .deck-head .t{font-family:var(--font-mono);font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink-strong);font-weight:600}
+  .deck-head .rule{flex:1;height:1px;background:linear-gradient(90deg,var(--hairline-2),transparent)}
+  .deck-head .n{font-family:var(--font-mono);font-size:11px;color:var(--ink-muted)}
+  .deck{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px}
+  .card{position:relative;background:var(--raised);border:1px solid var(--hairline);border-radius:var(--r);box-shadow:var(--shadow);cursor:pointer;overflow:hidden;display:flex;flex-direction:column;min-height:158px;transition:transform .1s,border-color .1s}
+  .card:hover{border-color:var(--tone)} .card:active{transform:translate(2px,2px)} .card:focus-visible{outline:3px solid var(--tone);outline-offset:2px}
+  .card.explode{animation:boom .5s ease forwards}
+  @keyframes boom{40%{transform:scale(1.06) rotate(-1deg);filter:brightness(1.5)}100%{transform:scale(1);filter:none}}
+  .card .thumb{flex:1;background:var(--well);margin:9px;border-radius:4px;border:1px solid #05070b;position:relative;overflow:hidden;display:flex;flex-direction:column;gap:5px;justify-content:center;padding:11px}
+  .card .thumb::before{content:"";position:absolute;inset:-30% -10% auto auto;width:60%;height:120%;background:radial-gradient(closest-side,var(--tone-glow),transparent 70%);pointer-events:none}
+  .card .te{font-family:var(--font-mono);font-size:8px;letter-spacing:.2em;text-transform:uppercase;color:var(--tone)}
+  .card .tt{font-weight:800;color:var(--ink-strong);font-size:15px;line-height:1.15}
+  .card .tnum{font-weight:800;font-size:30px;color:var(--tone);line-height:1;font-variant-numeric:tabular-nums}
+  .card .foot{display:flex;gap:6px;flex-wrap:wrap;padding:0 10px 11px;align-items:center}
+  .card .cname{font-weight:700;color:var(--ink-strong);font-size:12.5px;margin-right:auto}
+  .tag{font-family:var(--font-mono);font-size:9px;letter-spacing:.06em;text-transform:uppercase;border:1px solid var(--hairline-2);border-radius:999px;padding:2px 7px;color:var(--ink)}
+  .tag.q{color:var(--amber);border-color:var(--amber)} .tag.m{color:var(--cyan);border-color:var(--cyan)} .tag.i{color:var(--magenta);border-color:var(--magenta)}
+  .newcard{border:1px dashed var(--hairline-2);background:transparent;color:var(--ink-muted);display:flex;align-items:center;justify-content:center;gap:9px;font-family:var(--font-mono);font-size:13px;min-height:158px;cursor:pointer;border-radius:var(--r)}
+  .newcard:hover{border-color:var(--tone);color:var(--tone)}
+  .newcard .plus{font-size:22px;line-height:1}
+
+  /* palette rail */
+  .rail{position:sticky;top:14px;display:flex;flex-direction:column;gap:14px}
+  .panel{background:var(--raised);border:1px solid var(--hairline);border-radius:var(--r);box-shadow:var(--shadow);padding:13px}
+  .panel h2{font-family:var(--font-mono);font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 11px;font-weight:600}
+  .pbuckets{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:11px}
+  .pb{background:var(--raised-2);border:1px solid var(--hairline);border-radius:var(--r);padding:8px;cursor:pointer;text-align:left;color:var(--ink)}
+  .pb .n{font-weight:800;font-size:13px;color:var(--ink-strong)} .pb .h{font-family:var(--font-mono);font-size:9px;color:var(--ink-muted)}
+  .pb[aria-selected="true"]{border-color:var(--tone)} .pb[aria-selected="true"] .n{color:var(--tone)}
+  .plist{display:flex;flex-direction:column;gap:6px;max-height:230px;overflow:auto}
+  .pitem{display:flex;align-items:center;gap:8px;background:var(--well);border:1px solid var(--hairline);border-radius:5px;padding:8px 9px;cursor:grab;font-size:12.5px;color:var(--ink-strong)}
+  .pitem:hover{border-color:var(--tone)} .pitem:active{cursor:grabbing;transform:translate(1px,1px)}
+  .pitem .pk{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-muted);margin-left:auto}
+  .pitem.fresh{border-color:var(--good);animation:drop .3s ease}
+  .hint{font-family:var(--font-mono);font-size:10.5px;color:var(--ink-muted);margin-top:9px;line-height:1.6}
+
+  /* modal */
+  .backdrop{position:fixed;inset:0;background:rgba(4,6,10,.72);display:none;align-items:center;justify-content:center;z-index:40;padding:18px}
+  .backdrop.open{display:flex}
+  .modal{width:min(720px,100%);max-height:90vh;background:var(--raised);border:1px solid var(--hairline-2);border-radius:10px;box-shadow:8px 8px 0 rgba(0,0,0,.6);display:flex;flex-direction:column;overflow:hidden;animation:drop .18s ease}
+  @keyframes drop{from{transform:translateY(-10px);opacity:0}to{transform:none;opacity:1}}
+  .m-head{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--hairline)}
+  .m-head .mt{font-weight:800;color:var(--ink-strong);font-size:16px} .m-head .ms{font-family:var(--font-mono);font-size:11px;color:var(--ink-muted)}
+  .m-head .x{margin-left:auto;background:none;border:1px solid var(--hairline-2);color:var(--ink);width:34px;height:34px;border-radius:var(--r);cursor:pointer;font-size:17px}
+  .m-head .x:hover{color:var(--coral);border-color:var(--coral)}
+  .m-body{display:flex;min-height:340px;flex:1;overflow:hidden}
+  .tabs{width:150px;border-right:1px solid var(--hairline);background:var(--raised-2);padding:8px;display:flex;flex-direction:column;gap:4px;flex-shrink:0}
+  .tab{display:flex;align-items:center;gap:9px;background:none;border:1px solid transparent;border-radius:var(--r);padding:10px 10px;cursor:pointer;color:var(--ink);text-align:left;font-family:var(--font-sans);font-size:13px;min-height:42px}
+  .tab:hover{background:var(--well)} .tab[aria-selected="true"]{background:var(--well);border-color:var(--tone);color:var(--ink-strong);font-weight:600}
+  .tab .ic{font-size:14px;width:18px;text-align:center}
+  .tab .badge{margin-left:auto;font-family:var(--font-mono);font-size:9px;background:var(--magenta);color:var(--ground);border-radius:999px;padding:1px 6px;font-weight:700}
+  .m-main{flex:1;padding:16px 18px;overflow:auto}
+  .m-foot{display:flex;align-items:center;gap:10px;padding:12px 16px;border-top:1px solid var(--hairline);background:var(--raised-2)}
+  .m-foot .status{font-family:var(--font-mono);font-size:11px;color:var(--good);display:flex;align-items:center;gap:7px}
+  .m-foot .status .chk{width:15px;height:15px;border-radius:50%;background:var(--good);color:var(--ground);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800}
+  .m-foot .sp{flex:1}
+
+  .field{margin-bottom:14px} .field:last-child{margin-bottom:0}
+  .f-label{font-family:var(--font-mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-muted);margin-bottom:6px;display:flex;justify-content:space-between}
+  .f-in{width:100%;height:40px;background:var(--well);border:1px solid var(--hairline);border-radius:var(--r);color:var(--ink-strong);font-family:var(--font-mono);font-size:13px;padding:0 11px;outline:none}
+  textarea.f-in{height:auto;min-height:74px;padding:10px 11px;resize:vertical;line-height:1.5}
+  .f-in:focus{border-color:var(--tone);box-shadow:0 0 0 3px var(--tone-soft)}
+  .tones{display:flex;gap:7px} .tone-chip{flex:1;height:36px;border-radius:var(--r);border:1px solid var(--hairline);cursor:pointer;position:relative;background:var(--raised-2)}
+  .tone-chip .sw{position:absolute;inset:6px;border-radius:3px} .tone-chip[aria-pressed="true"]{box-shadow:0 0 0 2px var(--ground),0 0 0 3px currentColor}
+  .drop{border:1px dashed var(--hairline-2);border-radius:var(--r);padding:20px;text-align:center;color:var(--ink-muted);font-family:var(--font-mono);font-size:12px;background:repeating-linear-gradient(135deg,transparent,transparent 9px,rgba(255,255,255,.012) 9px,rgba(255,255,255,.012) 18px)}
+
+  .rx{display:flex;flex-direction:column;gap:8px}
+  .rx-item{display:flex;align-items:center;gap:11px;background:var(--well);border:1px solid var(--hairline);border-radius:var(--r);padding:11px 12px;cursor:pointer}
+  .rx-item:hover{border-color:var(--magenta)} .rx-item[aria-pressed="true"]{border-color:var(--magenta);box-shadow:0 0 0 2px rgba(255,79,216,.18)}
+  .rx-item .ic{font-size:18px} .rx-item .body{flex:1} .rx-item .rn{font-weight:700;color:var(--ink-strong);font-size:13.5px} .rx-item .rd{font-family:var(--font-mono);font-size:10.5px;color:var(--ink-muted)}
+  .rx-item .st{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.08em;border-radius:999px;padding:2px 8px}
+  .rx-item .st.have{color:var(--good);border:1px solid var(--good)} .rx-item .st.new{color:var(--magenta);border:1px solid var(--magenta)}
+
+  .prompt{background:#06080c;border:1px solid var(--hairline);border-radius:var(--r);padding:12px 13px;font-family:var(--font-mono);font-size:12px;line-height:1.6;color:var(--ink);white-space:pre-wrap;max-height:180px;overflow:auto}
+  .prompt .k{color:var(--tone)} .prompt .v{color:var(--ink-strong)} .prompt .c{color:var(--ink-muted)}
+  .plan{margin-top:12px;border:1px solid var(--hairline);border-radius:var(--r);overflow:hidden}
+  .plan .ph{background:var(--raised-2);padding:9px 12px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-muted);border-bottom:1px solid var(--hairline)}
+  .plan .step{display:flex;gap:10px;padding:10px 12px;align-items:flex-start;border-bottom:1px solid var(--hairline)}
+  .plan .step:last-child{border-bottom:none}
+  .plan .step .no{font-family:var(--font-mono);font-weight:700;color:var(--magenta);font-size:12px} .plan .step.done .no{color:var(--good)}
+  .plan .step .txt{font-size:12.5px;color:var(--ink)} .plan .step .txt b{color:var(--ink-strong)}
+  .plan .step .ent{font-family:var(--font-mono);font-size:10px;color:var(--ink-muted)}
+
+  .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(20px);background:var(--raised);border:1px solid var(--tone);border-left:4px solid var(--tone);color:var(--ink-strong);font-family:var(--font-mono);font-size:12px;padding:10px 15px;border-radius:var(--r);box-shadow:var(--shadow);opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;z-index:60}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)} .toast.grow{border-color:var(--good);border-left-color:var(--good)}
+
+  footer{margin-top:28px;padding-top:14px;border-top:1px solid var(--hairline);color:var(--ink-muted);font-family:var(--font-mono);font-size:11px;line-height:1.75} footer b{color:var(--ink)}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">DevPULSE&nbsp;·&nbsp;Author</div>
+    <h1>Build a card. The <span class="lit">library grows itself.</span></h1>
+    <p class="lede">Tap a card to edit it in a popup — quote, media, interactions, or hand it to the AI. Click raw pieces to compose a clean prompt; the AI creates any new recipe as its own registered entity <b>first</b>, then the slide. Every ask leaves a reusable entity behind.</p>
+
+    <div class="bar">
+      <button class="btn primary" id="newBtn">＋ New card</button>
+      <button class="btn ai" id="askBtn">✦ Ask AI</button>
+      <div class="grow" title="Registered, reusable entities in your library">
+        <span class="lbl">Library</span><span class="num" id="growNum">38</span><span class="lbl">entities</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div>
+      <div class="deck-head"><span class="t">Your comp</span><span class="rule"></span><span class="n" id="deckN"></span></div>
+      <div class="deck" id="deck"></div>
+    </div>
+
+    <aside class="rail">
+      <div class="panel">
+        <h2>Library — pull the raw</h2>
+        <div class="pbuckets" id="pbuckets"></div>
+        <div class="plist" id="plist"></div>
+        <div class="hint">Drag onto a card, or tap to drop a new card. New recipes the AI builds land here automatically.</div>
+      </div>
+    </aside>
+  </main>
+
+  <footer>
+    <b>What you're testing:</b> overlay authoring (New / Edit → popup: Content · Quote · Media · Interactions · Ask&nbsp;AI) · click-raw → paste-ready prompt · the AI building a <b>recipe as its own entity first</b>, then the slide · the <b>Library count ticking up</b> with every ask.<br>
+    <b>The loop:</b> use AI → it registers the correct entity → the library compounds → next time it's already there. The DS2 census is what makes "correct entity" checkable.
+  </footer>
+</div>
+
+<!-- modal -->
+<div class="backdrop" id="backdrop" role="dialog" aria-modal="true" aria-labelledby="mTitle">
+  <div class="modal">
+    <div class="m-head"><span class="mt" id="mTitle">New card</span><span class="ms" id="mSub"></span><button class="x" id="mClose" aria-label="Close">×</button></div>
+    <div class="m-body">
+      <div class="tabs" id="tabs"></div>
+      <div class="m-main" id="mMain"></div>
+    </div>
+    <div class="m-foot">
+      <span class="status" id="mStatus"><span class="chk">✓</span>captured · schema-valid</span>
+      <span class="sp"></span>
+      <button class="btn" id="mCancel">Cancel</button>
+      <button class="btn primary" id="mSave">Save card</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  const TONES={cyan:"#28e0d0",amber:"#ffb020",magenta:"#ff4fd8",coral:"#ff6a5c"};
+  const SEMANTIC={cyan:"info",amber:"warning",magenta:"primary",coral:"danger"};
+  function el(t,c,x){const n=document.createElement(t);if(c)n.className=c;if(x!=null)n.textContent=x;return n;}
+  function esc(s){return String(s).replace(/[&<>]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[m]));}
+
+  /* palette buckets */
+  const PB=[
+    {key:"blocks",name:"Blocks",hint:"chunks",items:[["Callout card","block"],["Stat cluster","block"],["Quote block","block"]]},
+    {key:"elements",name:"Elements",hint:"atoms",items:[["Eyebrow","element"],["Stat","element"],["Badge","element"],["Bar","element"],["Divider","element"],["Media","element"]]},
+    {key:"effects",name:"Effects",hint:"looks/recipes",items:[["Neubrutalist","look"],["Cyber glow","look"],["Reveal on tap","recipe"],["Flip","recipe"]]},
+    {key:"templates",name:"Templates",hint:"slides",items:[["Title card","template"],["Big number","template"],["Quote","template"],["Compare vs","template"]]},
+  ];
+  const RECIPES=[
+    {id:"reveal",name:"Reveal on tap",desc:"steps items in, one tap at a time",have:true,ic:"◐"},
+    {id:"flip",name:"Flip",desc:"front ↔ back on tap",have:true,ic:"⟳"},
+    {id:"quiz",name:"Quiz",desc:"commit-once, scored rest state",have:true,ic:"?"},
+    {id:"explode",name:"Explode-reveal minigame",desc:"slides explode on contact, revealing the answers — for engagement",have:false,ic:"💥"},
+  ];
+  let libCount=38, activeBucket="templates";
+
+  /* comp state: cards */
+  let cards=[
+    {id:1,base:"Big number",kind:"template",values:{title:"128",cap:"tokens/query",tone:"cyan"},quote:"",media:"",recipe:null},
+  ];
+  let editing=null, activeTab="content", isNew=false;
+
+  /* ---------- palette ---------- */
+  const pbEl=document.getElementById("pbuckets"), plEl=document.getElementById("plist");
+  PB.forEach(b=>{const btn=el("button","pb");btn.setAttribute("aria-selected",b.key===activeBucket);
+    btn.innerHTML=`<div class="n">${b.name}</div><div class="h">${b.hint}</div>`;
+    btn.addEventListener("click",()=>{activeBucket=b.key;[...pbEl.children].forEach((c,i)=>c.setAttribute("aria-selected",PB[i].key===b.key));paintPalette();});
+    pbEl.appendChild(btn);});
+  function paintPalette(fresh){
+    const b=PB.find(x=>x.key===activeBucket);plEl.innerHTML="";
+    b.items.forEach(([name,kind])=>{const it=el("div","pitem");it.draggable=true;
+      it.innerHTML=`<span>${name}</span><span class="pk">${kind}</span>`;
+      if(fresh&&name===fresh)it.classList.add("fresh");
+      it.addEventListener("dragstart",e=>e.dataTransfer.setData("text/plain",JSON.stringify({name,kind})));
+      it.addEventListener("click",()=>openNew({base:name,kind}));
+      plEl.appendChild(it);});
+  }
+  paintPalette();
+
+  /* ---------- deck ---------- */
+  const deck=document.getElementById("deck");
+  function paintDeck(){
+    deck.innerHTML="";
+    cards.forEach(c=>{
+      const card=el("button","card");card.type="button";card.dataset.id=c.id;
+      const tone=TONES[c.values.tone||"cyan"];card.style.setProperty("--tone",tone);
+      card.style.setProperty("--tone-glow",hexA(tone,.22));
+      const isNum=/^\d/.test(c.values.title||"");
+      card.innerHTML=`<div class="thumb"><div class="te">${esc(c.base)}</div>`+
+        (isNum?`<div class="tnum">${esc(c.values.title||"")}</div>`:`<div class="tt">${esc(c.values.title||"Untitled")}</div>`)+
+        `<div class="ts"></div></div>`+
+        `<div class="foot"><span class="cname">${esc(c.base)}</span>`+
+          (c.quote?'<span class="tag q">quote</span>':'')+
+          (c.media?'<span class="tag m">media</span>':'')+
+          (c.recipe?`<span class="tag i">↻ ${esc(c.recipe)}</span>`:'')+
+        `</div>`;
+      card.addEventListener("click",()=>{ if(c.recipe==="explode"){card.classList.add("explode");setTimeout(()=>card.classList.remove("explode"),500);} openEdit(c);});
+      // drop a palette piece onto a card
+      card.addEventListener("dragover",e=>{e.preventDefault();card.style.borderColor="var(--tone)";});
+      card.addEventListener("dragleave",()=>card.style.borderColor="");
+      card.addEventListener("drop",e=>{e.preventDefault();card.style.borderColor="";const d=JSON.parse(e.dataTransfer.getData("text/plain")||"{}");openEdit(c,d);});
+      deck.appendChild(card);
+    });
+    const nc=el("button","newcard");nc.type="button";nc.innerHTML='<span class="plus">＋</span> New card';
+    nc.addEventListener("click",()=>openNew());
+    deck.appendChild(nc);
+    document.getElementById("deckN").textContent=cards.length+(cards.length===1?" card":" cards");
+  }
+  function hexA(hex,a){const n=parseInt(hex.slice(1),16);return`rgba(${n>>16},${(n>>8)&255},${n&255},${a})`;}
+
+  /* ---------- modal ---------- */
+  const backdrop=document.getElementById("backdrop"),tabsEl=document.getElementById("tabs"),mMain=document.getElementById("mMain");
+  const TABS=[["content","Content","▤"],["quote","Quote","❝"],["media","Media","▶"],["interactions","Interactions","↻"],["ai","Ask AI","✦"]];
+  function openNew(seed){isNew=true;editing={id:Date.now(),base:seed?seed.base:"Title card",kind:seed?seed.kind:"template",values:{title:"",cap:"",tone:"cyan"},quote:"",media:"",recipe:null};activeTab="content";openModal("New card",editing.base);}
+  function openEdit(c,drop){isNew=false;editing=JSON.parse(JSON.stringify(c));if(drop){/*a piece dropped on the card*/ if(drop.kind==="recipe"||drop.kind==="look"){activeTab="interactions";} else {activeTab="content";}}else{activeTab="content";}openModal("Edit card",c.base);}
+  function openModal(title,sub){
+    document.getElementById("mTitle").textContent=title;document.getElementById("mSub").textContent="· "+sub;
+    tabsEl.innerHTML="";
+    TABS.forEach(([k,label,ic])=>{const t=el("button","tab");t.setAttribute("aria-selected",k===activeTab);
+      t.innerHTML=`<span class="ic">${ic}</span>${label}`+(k==="ai"?'<span class="badge">AI</span>':'');
+      t.addEventListener("click",()=>{activeTab=k;[...tabsEl.children].forEach(c=>c.setAttribute("aria-selected",false));t.setAttribute("aria-selected",true);renderTab();});
+      tabsEl.appendChild(t);});
+    renderTab();backdrop.classList.add("open");
+  }
+  function closeModal(){backdrop.classList.remove("open");editing=null;}
+  document.getElementById("mClose").addEventListener("click",closeModal);
+  document.getElementById("mCancel").addEventListener("click",closeModal);
+  backdrop.addEventListener("click",e=>{if(e.target===backdrop)closeModal();});
+  addEventListener("keydown",e=>{if(e.key==="Escape"&&backdrop.classList.contains("open"))closeModal();});
+  document.getElementById("mSave").addEventListener("click",()=>{
+    if(isNew){cards.push(editing);toast("Card added");}else{const i=cards.findIndex(c=>c.id===editing.id);if(i>=0)cards[i]=editing;toast("Card saved");}
+    paintDeck();closeModal();
+  });
+
+  function renderTab(){
+    const e=editing;mMain.innerHTML="";
+    if(activeTab==="content"){
+      mMain.appendChild(fieldText("Title / value",e.values.title,v=>e.values.title=v,"128 or “The stack, laid bare”"));
+      mMain.appendChild(fieldText("Caption",e.values.cap,v=>e.values.cap=v,"tokens/query"));
+      mMain.appendChild(fieldTone(e));
+    } else if(activeTab==="quote"){
+      mMain.appendChild(note("What this card is quoting — captured as a real source ref, not pasted prose."));
+      mMain.appendChild(fieldText("Quote",e.quote,v=>e.quote=v,"“less, but better”"));
+      mMain.appendChild(fieldText("Attribution",e.attrib||"",v=>e.attrib=v,"Dieter Rams"));
+      mMain.appendChild(fieldText("Source URL",e.src||"",v=>e.src=v,"https://…"));
+    } else if(activeTab==="media"){
+      mMain.appendChild(note("Paste a link or drop a file. It's copied to your inbox and content-jailed — never hotlinked."));
+      mMain.appendChild(fieldText("Image or video URL",e.media,v=>{e.media=v;},"https://… .mp4 / .png / .webp"));
+      const dz=el("div","drop","⬇  drop an image or video here");
+      dz.addEventListener("dragover",ev=>ev.preventDefault());
+      dz.addEventListener("drop",ev=>{ev.preventDefault();e.media="dropped-asset.mp4";toast("Media attached (jailed copy)");renderTab();});
+      mMain.appendChild(dz);
+    } else if(activeTab==="interactions"){
+      mMain.appendChild(note("Give the card a behavior. Existing recipes drop in instantly. A new one? The AI builds it as a registered entity first."));
+      const list=el("div","rx");
+      RECIPES.forEach(r=>{const it=el("div","rx-item");it.setAttribute("aria-pressed",e.recipe===r.id);
+        it.innerHTML=`<span class="ic">${r.ic}</span><span class="body"><span class="rn">${r.name}</span><br><span class="rd">${r.desc}</span></span><span class="st ${r.have?"have":"new"}">${r.have?"in library":"new · AI builds"}</span>`;
+        it.addEventListener("click",()=>{ if(r.have){e.recipe=r.id;[...list.children].forEach(c=>c.setAttribute("aria-pressed",false));it.setAttribute("aria-pressed",true);toast(r.name+" applied");}
+          else {activeTab="ai";e._want=r; [...tabsEl.children].forEach(c=>c.setAttribute("aria-selected",c.textContent.includes("Ask AI")));renderTab();}});
+        list.appendChild(it);});
+      mMain.appendChild(list);
+    } else if(activeTab==="ai"){
+      renderAI(e);
+    }
+  }
+
+  function renderAI(e){
+    const want=e._want; // a desired new recipe, if any
+    mMain.appendChild(note("Click-the-raw becomes a clean prompt. Add your intention; the AI creates the correct entity first, then the card."));
+    // composed prompt
+    const p=el("div","prompt");
+    p.innerHTML=
+      `<span class="c"># brief · auto-composed from this card</span>\n`+
+      `<span class="k">card</span>: <span class="v">${esc(e.base)}</span>\n`+
+      `<span class="k">content</span>: <span class="v">title="${esc(e.values.title||"…")}" caption="${esc(e.values.cap||"…")}"</span>\n`+
+      `<span class="k">treatment</span>: <span class="v">${SEMANTIC[e.values.tone||"cyan"]} (${e.values.tone||"cyan"})</span>\n`+
+      (e.quote?`<span class="k">quote</span>: <span class="v">"${esc(e.quote)}"</span>\n`:"")+
+      (e.media?`<span class="k">media</span>: <span class="v">${esc(e.media)}</span>\n`:"")+
+      (want?`<span class="k">interaction</span>: <span class="v">${esc(want.name)}</span> <span class="c"># NEW — not yet in library</span>\n`:(e.recipe?`<span class="k">interaction</span>: <span class="v">${esc(e.recipe)}</span>\n`:""))+
+      `<span class="k">intention</span>: <span class="v" id="intOut">${esc(e.intent||"…")}</span>`;
+    mMain.appendChild(p);
+    mMain.appendChild(fieldArea("Your intention",e.intent||"",v=>{e.intent=v;const o=document.getElementById("intOut");if(o)o.textContent=v||"…";},"e.g. keep them guessing — the answer only shows when they tap and it explodes"));
+    const row=el("div","field");
+    const copy=el("button","btn","⧉ Copy prompt");copy.addEventListener("click",()=>toast("Prompt copied — paste into chat"));
+    const gen=el("button","btn ai");gen.style.marginLeft="8px";gen.textContent=want?"✦ Generate (recipe first, then card)":"✦ Generate card";
+    gen.addEventListener("click",()=>generate(e,want));
+    row.append(copy,gen);mMain.appendChild(row);
+    // plan preview
+    if(want){
+      const plan=el("div","plan");
+      plan.innerHTML=`<div class="ph">What the AI will do — in order</div>`+
+        `<div class="step" id="st1"><span class="no">1</span><span class="txt"><b>Create the recipe</b> <span class="ent">Recipe "${want.id}" → registered in the census</span><br>${esc(want.desc)}. Pure state machine, unit-tested, cost-tiered.</span></div>`+
+        `<div class="step" id="st2"><span class="no">2</span><span class="txt"><b>Build the card</b> that uses it <span class="ent">dpl_doc::Slide → recipe:"${want.id}"</span></span></div>`+
+        `<div class="step" id="st3"><span class="no">3</span><span class="txt"><b>Library grows</b> <span class="ent">+1 Recipe, now reusable forever</span></span></div>`;
+      mMain.appendChild(plan);
+    }
+  }
+
+  function generate(e,want){
+    if(want){
+      // simulate architecture-first: register the recipe entity, then wire the card
+      setTimeout(()=>{document.getElementById("st1")&&document.getElementById("st1").classList.add("done");},250);
+      setTimeout(()=>{document.getElementById("st2")&&document.getElementById("st2").classList.add("done");e.recipe=want.id;want.have=true;},700);
+      setTimeout(()=>{
+        document.getElementById("st3")&&document.getElementById("st3").classList.add("done");
+        // recipe now exists in library
+        PB.find(b=>b.key==="effects").items.push([want.name,"recipe"]);
+        libCount+=1;bumpGrow();
+        activeBucket="effects";[...pbEl.children].forEach((c,i)=>c.setAttribute("aria-selected",PB[i].key==="effects"));paintPalette(want.name);
+        toastGrow("Library grew +1 · recipe “"+want.id+"” registered");
+        e._want=null;renderTab();
+      },1150);
+    } else {
+      libCount+=1;bumpGrow();toast("Card generated");
+    }
+  }
+  function bumpGrow(){const n=document.getElementById("growNum");n.textContent=libCount;n.classList.remove("bump");void n.offsetWidth;n.classList.add("bump");}
+
+  /* ---------- field builders ---------- */
+  function fieldText(label,val,on,ph){const w=el("div","field");w.innerHTML=`<div class="f-label"><span>${label}</span></div>`;
+    const i=document.createElement("input");i.className="f-in";i.type="text";i.value=val||"";i.placeholder=ph||"";i.addEventListener("input",()=>on(i.value));w.appendChild(i);return w;}
+  function fieldArea(label,val,on,ph){const w=el("div","field");w.innerHTML=`<div class="f-label"><span>${label}</span></div>`;
+    const t=document.createElement("textarea");t.className="f-in";t.value=val||"";t.placeholder=ph||"";t.addEventListener("input",()=>on(t.value));w.appendChild(t);return w;}
+  function fieldTone(e){const w=el("div","field");w.innerHTML=`<div class="f-label"><span>Tone</span><span style="text-transform:none;letter-spacing:0">→ semantic treatment</span></div>`;
+    const box=el("div","tones");Object.keys(TONES).forEach(k=>{const b=el("button","tone-chip");b.type="button";b.style.color=TONES[k];b.setAttribute("aria-pressed",(e.values.tone||"cyan")===k);
+      b.innerHTML=`<span class="sw" style="background:${TONES[k]}"></span>`;
+      b.addEventListener("click",()=>{e.values.tone=k;[...box.children].forEach((c,i)=>c.setAttribute("aria-pressed",Object.keys(TONES)[i]===k));});box.appendChild(b);});
+    w.appendChild(box);return w;}
+  function note(t){return el("div","hint",t);}
+
+  /* ---------- top buttons ---------- */
+  document.getElementById("newBtn").addEventListener("click",()=>openNew());
+  document.getElementById("askBtn").addEventListener("click",()=>{ if(!cards.length){openNew();} else {isNew=false;editing=JSON.parse(JSON.stringify(cards[cards.length-1]));activeTab="ai";openModal("Ask AI","last card");} });
+
+  /* ---------- toast ---------- */
+  let tt;const toastEl=document.getElementById("toast");
+  function toast(m){toastEl.className="toast show";toastEl.textContent=m;clearTimeout(tt);tt=setTimeout(()=>toastEl.classList.remove("show"),1600);}
+  function toastGrow(m){toastEl.className="toast grow show";toastEl.textContent="✓ "+m;clearTimeout(tt);tt=setTimeout(()=>toastEl.classList.remove("show"),2200);}
+
+  paintDeck();
+})();
+</script>
