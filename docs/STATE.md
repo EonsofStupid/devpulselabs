@@ -2,6 +2,32 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-28 — THE WINDOWS LANE UNBLOCKED (#106) AND THE PR QUEUE ABSORBED:**
+every open PR was stuck on `green-windows`. Three stacked causes, each proven:
+(1) the runner was OFFLINE (the ONLOGON task never fired after reboot) — hours
+of queued runs; (2) `LNK1318: Unexpected PDB error; LIMIT (12)` — the MSVC PDB
+server overwhelmed linking the big test exes (`dpl-chat-grok` every time) with
+debug info on the 16GB laptop; (3) full-parallel rebuilds starved the runner
+heartbeat into "lost communication" cancellations. THE FIX (#106, green.yml
+`green-windows` env only): `CARGO_PROFILE_DEV_DEBUG=0` +
+`CARGO_PROFILE_TEST_DEBUG=0` (CI never reads PDBs; no PDB work = no LNK1318),
+`CARGO_BUILD_JOBS=8`, `timeout-minutes` 30→45 for the one full rebuild per
+cache. TWO LAWS LEARNED THE HARD WAY: the Windows runner does NOT inject
+`.env`-file or user-registry env into jobs (both tried, link lines still
+carried `/DEBUG`) — the workflow file is the ONLY reliable env carrier, and it
+rides each PR's merge ref (existing runs re-run the OLD merge commit; fresh
+runs need a rebase/synchronize); and **a CONFLICTING PR gets NO Actions runs
+at all** (no test-merge ref → close/reopen and empty commits do nothing) —
+#103 sat silent until main was merged in. ABSORBED (squash): deps checkout#77
+upload-artifact#78 tungstenite#81 toml#82 sha2#83 ravif#85 kamadak-exif#86,
+then coach #103 (STATE.md ledger conflict resolved keep-both). PARKED AS REAL
+MIGRATIONS: fjall 2→3 (#80, `crates/estate` Keyspace API) and sysinfo
+0.33→0.39 (#84). Runner ops: prefer a service install over the logon task
+(the task also can't be killed cross-elevation when someone runs it as admin).
+NEXT CONSIDERED: a Windows x64 VM on the wardenclyffe Proxmox estate takes the
+`dpl-win` label off this laptop entirely (blocked on estate reachability —
+`\\10.0.0.116` was down at session end).
+
 **2026-07-27 — C1.5f: THE COACH HAD NOTHING TO POINT AT
 (`docs/plans/operator-coach-a2ui.md` §14, PROTOCOL_VERSION 2.5 → **2.6**):**
 a live snapshot of `workbench/library` returned **6 nodes** — five rail tiles
