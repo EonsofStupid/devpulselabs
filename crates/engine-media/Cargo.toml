@@ -17,7 +17,7 @@ webp = "0.3"
 ravif = { version = "0.11", default-features = false, features = ["threading"] }
 rgb = "0.8"
 # EXIF orientation bake before the metadata strip (sharp's .rotate()).
-kamadak-exif = "0.5"
+kamadak-exif = "0.6"
 
 [[bin]]
 name = "media-cli"
