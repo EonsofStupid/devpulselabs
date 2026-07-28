@@ -155,6 +155,55 @@ the deep-plan law). Verified headlines:
   C3 ColdLight catalog + chat-edits-my-comp (R2c) — the agent composes
   surfaces and edits alongside the operator.
 
+## The ComfyUI concepts port (operator directive, 2026-07-27 evening)
+
+> "We want to import and port ComfyUI concepts to our system… if I need to
+> allow python, c++, ensure this egui based version gets built methodically
+> and truly useful… workflows for all of the key stages… LinkedIn PDF fancy
+> carousels… Storyboarding, bibles… create the clips to then stitch and
+> enhance with post processing and effects, platform industry aligned."
+
+Grounded against the Aug-2026 state of the art, the concepts worth porting
+(the ideas, rebuilt egui-native — never a webview):
+
+1. **Workflow = directed node graph, two serializations.** ComfyUI nodes
+   are `{id, class_type, inputs}` where inputs reference literals or other
+   nodes' outputs, with a UI-persistence form and an execution form
+   stripped of UI metadata. Our mapping: `WorkflowDoc` v1 (WF1) is the
+   *linear* degenerate case; **v2 evolves to the graph shape** with the
+   same two-form split (panel layout vs executor plan) under the existing
+   schema-refusal law.
+2. **Subgraphs = workflows packaged as super-nodes** with declared I/O —
+   ComfyUI's reuse mechanism, a perfect match for our ingredients law: a
+   subgraph IS a library ingredient. Storyboard→clips→stitch→post composes
+   as subgraphs; **bible artifacts** (show/character/style bibles) become
+   upstream nodes whose outputs feed every downstream stage — identity
+   consistency à la Higgsfield's Soul ID, but document-shaped and ours.
+3. **Blueprints**: pre-built workflow documents shipped in the registry
+   census (LinkedIn fancy carousel, how-to, episode) — one line each, like
+   the slides registry.
+4. **Node-graph UI, egui-native.** Candidates: `egui-snarl` (serde graphs,
+   styled wires, context menus — strongest fit), `egui-graph-edit` /
+   `egui_node_editor` (Blackjack lineage). Decision lands in the WF2 plan
+   (⚠ new-dependency ask-first; a ColdLight-tuned homegrown canvas is the
+   fallback if none meets the trait doctrine).
+5. **Local configuration = loopback services.** ComfyUI itself (Python)
+   runs as an operator-owned LOCAL server with a JSON `/prompt` API — the
+   integration is the pattern we already own: a loopback backend profile
+   (the catalog's "Add Local" concept; ADR-009 spirit — external runtimes
+   as subprocesses/services, never crate deps). **Operator allowance
+   recorded:** Python/C++ are permitted in the estate where they buy
+   leverage, as external services/tools DevPULSE orchestrates over
+   loopback or subprocess; the egui app itself stays pure Rust,
+   methodical, foundation-first.
+
+Sequencing addendum: WF1 unchanged (linear engine, walking skeleton).
+**WF2 = graph schema v2 + node panel + subgraph-as-ingredient. WF3 = local
+backend profiles (ComfyUI endpoint) as generation stages.** The bible
+artifact enters T3's storyboard workflow as its first upstream node.
+Sources: ComfyUI workflow-JSON/subgraph docs (deepwiki.com/Comfy-Org),
+comfyui-wiki.com subgraph feature, github.com/zakarumych/egui-snarl.
+
 ## Ratification record (operator, 2026-07-27, in-session)
 
 1. ✅ WF1 is the next pass (T2 before further T1).
