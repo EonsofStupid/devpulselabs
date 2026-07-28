@@ -2,7 +2,31 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-28 — AUTHORING PASS B: THE FOUR-BUCKET GALLERY (`feat/authoring-b-gallery`;
+build plan `docs/plans/authoring-shell.md` §5·B; mock
+`docs/design/mocks/authoring-surface-mock.html`):** the `author` surface grew
+from Pass A's skeleton into the real, mock-shaped surface. Header (intent bar +
+New card + Ask AI + the live **Library-entities** count) · the comp **filmstrip**
+(your minted drafts, loaded from `content/inbox/authored-draft-*`, fixed-size
+truncating clay cards) · the **four-bucket palette** — Blocks · Elements ·
+Effects · Templates — drawn LIVE from the REAL registries (Census law:
+`dpl_slides::demos()` grouped by class, DS2's `dpl_slides::blocks::elements()`
+by category, `dpl_coldlight::TRAITS`), so a bucket can never drift from what
+exists (count = 28+6+4 = **38 entities**). Tapping a Template MINTS a draft of
+that template (carrying the typed intent) and publishes `CardAuthored` after the
+write (emit-with-mutation; anti-loop unchanged). **Blocks** stays an honestly
+empty shelf — the Blocks-vs-Elements line is a pending charter decision (§8.1),
+never faked. Overlay editor = Pass C; Ask-AI Copy-prompt = Pass E (both stubbed
+with honest status lines). Gate: `cargo green ✔` (fmt · spawn+structure audits ·
+clippy -D · tests · release). Real-exe proof at 1280×800:
+`docs/proof/authoring-b-gallery-{empty,cards}-1280x800.png`. Two tofu glyphs
+caught on the shots and fixed (`✦`, `→` → font-safe). Built off `main` after
+DS2 #114 + Pass A #124 merged. NEXT = **Pass C** (the governed overlay editor —
+5 tabs → valid `dpl_doc::Slide`; `dpl-chat-interactions`'s `OverlayCoordinator`
+is cleanly reusable, coupled only to `dpl-chat-core`).
+
 **2026-07-28 — AUTHORING PASS A: THE SIGNAL SPINE (`feat/authoring-a-signals`;
+charter `docs/plans/authoring-charter.md` + build plan `authoring-shell.md`,
 charter `docs/plans/authoring-charter.md` + build plan `authoring-shell.md`,
 both on PR #119; resume journal `docs/journal/2026-07-28-authoring-shell-handoff.md`):**
 the first build pass of the authoring surface, built signal-first. THREE
