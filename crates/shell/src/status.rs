@@ -49,6 +49,8 @@ pub struct StatusCtx<'a> {
     pub signals: u64,
     pub build: &'a str,
     pub mood: &'static Mood,
+    /// The JobBoard's "working…" truth — None = nothing running.
+    pub working: Option<String>,
 }
 
 /// One indicator: identity, which lane column it lives in, and its painter.
@@ -84,6 +86,11 @@ pub static CELLS: &[StatusCell] = &[
         id: "signals",
         lane: Lane::Right,
         render: signals,
+    },
+    StatusCell {
+        id: "jobs",
+        lane: Lane::Right,
+        render: jobs,
     },
     StatusCell {
         id: "build",
@@ -198,6 +205,19 @@ fn signals(ui: &mut Ui, cx: &StatusCtx) -> Option<StatusAction> {
             .small()
             .color(cl::ink::SUBTLE),
     );
+    None
+}
+
+/// The JobBoard's honest "working…" truth — a render, ingest, or export in
+/// flight is visible from EVERY route, not only the surface that started it.
+fn jobs(ui: &mut Ui, cx: &StatusCtx) -> Option<StatusAction> {
+    if let Some(text) = &cx.working {
+        cl::tone_dot(ui, cx.tone);
+        ui.label(RichText::new(text).small().color(cl::ink::BASE));
+        // Progress counters tick without a signal — keep the bar live.
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(300));
+    }
     None
 }
 

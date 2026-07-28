@@ -586,6 +586,27 @@ impl Shell {
     fn status_bar(&self, ui: &mut egui::Ui, fl: &cl::Fluid) -> (Rect, Vec<status::StatusAction>) {
         let mut actions = Vec::new();
         let tone = self.active_tone();
+        // The JobBoard's "working…" truth: one running job names itself
+        // (with its latest-wins progress count when reported); several
+        // running jobs just count themselves.
+        let running: Vec<dpl_fabric::JobRow> = self
+            .fabric
+            .jobs()
+            .into_iter()
+            .filter(|r| r.running())
+            .collect();
+        let working = match running.as_slice() {
+            [] => None,
+            [one] => {
+                let n = one.progress.load(std::sync::atomic::Ordering::Relaxed);
+                Some(if n > 0 {
+                    format!("working · {} · {n}", one.label)
+                } else {
+                    format!("working · {}", one.label)
+                })
+            }
+            many => Some(format!("working · {} jobs", many.len())),
+        };
         let resp = egui::Panel::bottom("dpl_status")
             .exact_size(fl.bottombar_height())
             .show_separator_line(false)
@@ -604,6 +625,7 @@ impl Shell {
                     signals: self.signal_count,
                     build: self.build,
                     mood: self.backdrop.mood(),
+                    working,
                 };
                 actions = status::grid(ui, &cx, &self.window_accessories);
             });

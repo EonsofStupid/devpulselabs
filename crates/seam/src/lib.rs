@@ -345,13 +345,6 @@ pub fn intent_json(st: &Stamped<IntentEvent>) -> Value {
     v
 }
 
-/// One render job's polled status (mirrors the editor's `RenderState`).
-enum RenderStatus {
-    Running,
-    Done,
-    Failed(String),
-}
-
 /// The seam's shared state: the one fabric, the registry, the last route
 /// the seam HEARD arrive (RouteChanged is the truth of arrival), the
 /// content root every rel dir is JAILED inside, the optional estate
@@ -363,7 +356,9 @@ pub struct SeamState {
     root: PathBuf,
     /// Ring-0 estate — None when open failed; never invents durability.
     estate: Option<Arc<Estate>>,
-    renders: Mutex<HashMap<String, RenderStatus>>,
+    /// rel dir → the render's job on the fabric's JobBoard — the board is
+    /// the status truth `GET /render` answers from.
+    renders: Mutex<HashMap<String, dpl_fabric::JobId>>,
 }
 
 type Shared = Arc<SeamState>;
@@ -533,20 +528,26 @@ fn start_render(s: &Shared, body: &Value) -> Result<(StatusCode, Value), Vec<Str
     if clips.is_empty() {
         return Err(vec![format!("no playable clips to render in {rel}")]);
     }
-    {
-        let mut renders = s.renders.lock().expect("seam renders");
-        if matches!(renders.get(rel), Some(RenderStatus::Running)) {
-            return Err(vec![format!("render already running for {rel}")]);
-        }
-        renders.insert(rel.to_string(), RenderStatus::Running);
-    }
     let out = dir.join("render.mp4");
     let (w, h, fps) = (comp.w, comp.h, comp.fps);
     let state = Arc::clone(s);
     let key = rel.to_string();
     // Agent-driven renders signal like operator ones (signal-doctrine
-    // law 3: EVERY mutation) — jobs transitions + Saved via SSE.
-    let job = state.fabric.mint_job();
+    // law 3: EVERY mutation) — jobs transitions + Saved via SSE. The
+    // JobBoard row is the polled status GET /render reads.
+    let job = {
+        let mut renders = s.renders.lock().expect("seam renders");
+        if renders
+            .get(rel)
+            .and_then(|id| s.fabric.job(*id))
+            .is_some_and(|r| r.running())
+        {
+            return Err(vec![format!("render already running for {rel}")]);
+        }
+        let job = s.fabric.mint_job();
+        renders.insert(rel.to_string(), job);
+        job
+    };
     state.fabric.publish_job(dpl_fabric::JobEvent::Queued {
         job,
         label: format!("render {key}"),
@@ -584,15 +585,8 @@ fn start_render(s: &Shared, body: &Value) -> Result<(StatusCode, Value), Vec<Str
                     });
                 }
             }
-            let status = match result {
-                Ok(()) => RenderStatus::Done,
-                Err(e) => RenderStatus::Failed(e),
-            };
-            state
-                .renders
-                .lock()
-                .expect("seam renders")
-                .insert(key, status);
+            // No trailing status write — the Done/Failed publish already
+            // folded the JobBoard, and the board is the status truth.
         })
         .expect("spawn seam render thread");
     Ok((
@@ -755,13 +749,21 @@ async fn get_render(
             Json(json!({"ok": false, "issues": ["missing ?dir="]})),
         );
     };
-    let body = match s.renders.lock().expect("seam renders").get(rel.as_str()) {
+    let row = s
+        .renders
+        .lock()
+        .expect("seam renders")
+        .get(rel.as_str())
+        .and_then(|id| s.fabric.job(*id));
+    let body = match row.as_ref().map(|r| &r.state) {
         None => json!({"dir": rel, "state": "idle"}),
-        Some(RenderStatus::Running) => json!({"dir": rel, "state": "running"}),
-        Some(RenderStatus::Done) => {
+        Some(dpl_fabric::JobState::Running) => json!({"dir": rel, "state": "running"}),
+        Some(dpl_fabric::JobState::Done { .. }) => {
             json!({"dir": rel, "state": "done", "out": format!("{rel}/render.mp4")})
         }
-        Some(RenderStatus::Failed(e)) => json!({"dir": rel, "state": "failed", "error": e}),
+        Some(dpl_fabric::JobState::Failed { error }) => {
+            json!({"dir": rel, "state": "failed", "error": error})
+        }
     };
     (StatusCode::OK, Json(body))
 }
