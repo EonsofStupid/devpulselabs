@@ -2,6 +2,32 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-28 — AUTHORING PASS A: THE SIGNAL SPINE (`feat/authoring-a-signals`;
+charter `docs/plans/authoring-charter.md` + build plan `authoring-shell.md`,
+both on PR #119; resume journal `docs/journal/2026-07-28-authoring-shell-handoff.md`):**
+the first build pass of the authoring surface, built signal-first. THREE
+additive pieces: (1) `dpl_fabric::BuildEvent::CardAuthored{show,episode,slide}`
+— additive, serde-free; the seam maps it to the `cardAuthored` envelope
+(`build_json`, pinned by test) and `build.card-authored` joins the coach
+`COARSE` catalog (drift-swept, so an AI/coach touchpoint can wait on an authored
+card). (2) The new **`author` subroute** on the Workbench hub — a ColdLight
+surface: an intent bar (charter §3b, captured-first) + a "Seed a draft card"
+action that mints a REAL schema-valid `slide.json` draft into `content/inbox/`
+(carrying the typed intent as a block, no-clobber probe) and publishes
+`CardAuthored` ONLY after the write succeeds (emit-with-mutation; anti-loop —
+the surface publishes `build.*`, never subscribes). (3) The LIVE ROUND proven
+in-gate: a `crates/seam` `#[tokio::test]` opens the real `/signals` SSE stream,
+publishes `CardAuthored`, and reads the stamped envelope back off the wire
+(bounded, fail-fast). Gate: `cargo green ✔` (fmt · spawn+structure audits ·
+clippy -D · tests · release). Real-exe proof: the surface renders at 1280×800
+(`docs/proof/authoring-a-surface-1280x800.png`) — breadcrumb Workbench › Author,
+Inspector route `workbench/author`, live SIGNALS feed. Tofu glyph fixed
+(`＋`→`+`, R1s font-safe law). Scope deferred per plan: `EntityRegistered`
+lands with the pass that actually registers entities (Pass D–F, no fabricated
+fact); NEXT = **Pass B** (four-bucket infinite gallery + filmstrip over the real
+registries). NOTE: built in a worktree off `main`; charter #119 + DS2 #114
+merges remain the operator's calls.
+
 **2026-07-28 — DS2 ELEMENT LIBRARY (`feat/ds2-element-library`,
 `docs/plans/ds2-element-library.md`, design-system build order §7.2):** the
 element tier brought under the **Census law**. New

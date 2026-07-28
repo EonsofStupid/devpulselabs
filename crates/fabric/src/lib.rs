@@ -367,6 +367,16 @@ pub enum BuildEvent {
     },
     /// An episode document changed shape (chapters/slides).
     EpisodeChanged { show: String, episode: String },
+    /// A card (slide) was authored on the authoring surface — published
+    /// AFTER the draft `slide.json` is written (emit-with-mutation). The
+    /// authoring charter's first fact: every ask leaves a real card.
+    /// `show`/`episode` are empty until the card is placed into an episode
+    /// (Studio's `SlidePlaced` is that later fact); `slide` is the draft id.
+    CardAuthored {
+        show: String,
+        episode: String,
+        slide: String,
+    },
 }
 
 pub type BuildReceiver = broadcast::Receiver<Stamped<BuildEvent>>;
