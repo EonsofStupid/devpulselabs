@@ -1914,6 +1914,61 @@ impl Composer {
         self.palette = None;
     }
 
+    /// The `--fx-drill <clip-rel> <fx-rel>` harness seam (L3): one base
+    /// cut + one FX overlay at 1.0s — half-size, nudged off-center,
+    /// pool-tinted (Coral) — through the EXACT app paths (add_clip,
+    /// add_overlay, inspector-shaped edits), saved, then rendered
+    /// SYNCHRONOUSLY so the headless proof can ffprobe `render.mp4` the
+    /// moment the process exits. Verdict on stdout.
+    pub fn fx_drill(&mut self, clip_rel: &str, fx_rel: &str) {
+        let base = Record {
+            rel_path: clip_rel.into(),
+            kind: "video".into(),
+            name: "drill base".into(),
+            ..Record::default()
+        };
+        self.add_clip(&base);
+        self.time = 1.0;
+        let fx = Record {
+            rel_path: fx_rel.into(),
+            kind: "video".into(),
+            name: "drill fx".into(),
+            ..Record::default()
+        };
+        self.add_overlay(&fx);
+        if let Some(id) = self.selected.clone() {
+            let coral = Tone::Coral.color();
+            let tint = Some([coral.r(), coral.g(), coral.b(), 230]);
+            if let Some(l) = self.layer_mut(&id) {
+                l.scale = 0.5;
+                l.x = -120.0;
+                l.y = 40.0;
+                l.tint = tint;
+            }
+        }
+        if self.dir.is_none() {
+            self.dir = Some(Self::fresh_comp_dir());
+        }
+        let dir = self.dir.clone().expect("comp dir");
+        if let Err(e) = dpl_comp::save(&dir, &self.comp) {
+            println!("fx-drill: comp save failed: {e}");
+            return;
+        }
+        let out = dir.join("render.mp4");
+        let parts = self.render_parts();
+        match render_comp_resolving(parts, self.comp.w, self.comp.h, self.comp.fps, &out) {
+            Ok(()) => {
+                index_render(&out, self.fabric.as_ref());
+                self.status = format!("FX drill rendered {}", out.display());
+                println!("fx-drill: rendered {}", out.display());
+            }
+            Err(e) => {
+                self.status = format!("FX drill failed: {e}");
+                println!("fx-drill: FAILED: {e}");
+            }
+        }
+    }
+
     /// One indexed media record sent from an OUTSIDE surface — the
     /// Library shelf's double-click (W6). Videos AND images (W7) join
     /// the timeline through the same path a FOOTAGE tap takes —
