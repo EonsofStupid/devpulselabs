@@ -384,6 +384,27 @@ pub enum CoachEvent {
 
 pub type CoachReceiver = broadcast::Receiver<Stamped<CoachEvent>>;
 
+/// INTENT-domain signals — privileged-mode transitions and their refusals
+/// (determinism-intent-gate plan; signal-ledger plan §9.2/§9.3). The audit
+/// trail of the operator intent gate: every mode change names its cause,
+/// every refused escalation is a recorded fact.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IntentEvent {
+    /// The determinism mode changed. `cause` is `None` for behavioral
+    /// (the default has no cause), and names who forced strict otherwise.
+    DeterminismChanged {
+        mode: dpl_intent::DeterminismMode,
+        cause: Option<dpl_intent::StrictCause>,
+    },
+    /// A privileged transition was asked for and refused. `action` is what
+    /// was asked (`strict`, `behavioral`); `reason` is why it was refused
+    /// (`synthetic-input` — the pilot attributed the activating input to
+    /// the agent; `evidence-locked` — the run is the evidence).
+    IntentRefused { action: String, reason: String },
+}
+
+pub type IntentReceiver = broadcast::Receiver<Stamped<IntentEvent>>;
+
 /// The installed UI waker callback (doctrine law 6).
 pub type Waker = Arc<dyn Fn() + Send + Sync>;
 
@@ -412,6 +433,7 @@ pub struct Fabric {
     providers: broadcast::Sender<Stamped<ProviderEvent>>,
     build: broadcast::Sender<Stamped<BuildEvent>>,
     coach: broadcast::Sender<Stamped<CoachEvent>>,
+    intent: broadcast::Sender<Stamped<IntentEvent>>,
     /// The stamp state: one global sequence + the birth instant.
     seq: Arc<AtomicU64>,
     born: Instant,
@@ -436,6 +458,7 @@ impl Fabric {
         let (providers, _) = broadcast::channel(128);
         let (build, _) = broadcast::channel(64);
         let (coach, _) = broadcast::channel(128);
+        let (intent, _) = broadcast::channel(64);
         Self {
             shell,
             deck,
@@ -444,6 +467,7 @@ impl Fabric {
             providers,
             build,
             coach,
+            intent,
             seq: Arc::new(AtomicU64::new(0)),
             born: Instant::now(),
             waker: Arc::new(std::sync::Mutex::new(None)),
@@ -535,6 +559,16 @@ impl Fabric {
 
     pub fn subscribe_coach(&self) -> CoachReceiver {
         self.coach.subscribe()
+    }
+
+    /// Publish an INTENT-domain fact (privileged-mode transition/refusal).
+    pub fn publish_intent(&self, event: IntentEvent) {
+        let _ = self.intent.send(self.stamp(event));
+        self.wake();
+    }
+
+    pub fn subscribe_intent(&self) -> IntentReceiver {
+        self.intent.subscribe()
     }
 
     /// Publish, ignoring "no subscribers yet" — a signal with no listeners
@@ -670,6 +704,34 @@ mod tests {
             actor: CoachActor::Operator,
         });
         assert!(capture_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn intent_facts_round_trip_with_their_cause() {
+        let fabric = Fabric::new();
+        let mut rx = fabric.subscribe_intent();
+        fabric.publish_intent(IntentEvent::DeterminismChanged {
+            mode: dpl_intent::DeterminismMode::Strict,
+            cause: Some(dpl_intent::StrictCause::Operator(
+                dpl_intent::IntentChannel::SlashCommand,
+            )),
+        });
+        fabric.publish_intent(IntentEvent::IntentRefused {
+            action: "strict".into(),
+            reason: "synthetic-input".into(),
+        });
+        let a = rx.try_recv().unwrap();
+        let b = rx.try_recv().unwrap();
+        assert!(matches!(
+            a.ev,
+            IntentEvent::DeterminismChanged {
+                mode: dpl_intent::DeterminismMode::Strict,
+                ..
+            }
+        ));
+        assert!(matches!(&b.ev, IntentEvent::IntentRefused { reason, .. }
+            if reason == "synthetic-input"));
+        assert!(b.seq > a.seq);
     }
 
     #[test]

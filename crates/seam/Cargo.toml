@@ -19,6 +19,7 @@ serde_json.workspace = true
 tracing = "0.1"
 
 dpl-fabric.workspace = true
+dpl-intent.workspace = true
 dpl-hub.workspace = true
 dpl-estate.workspace = true
 # The comp-document surface (R1w): the doctor gates every write; the

@@ -766,6 +766,17 @@ impl App {
             });
             shell.set_full_bleed(true);
         }
+        // One session, one determinism gate. Evidence-forced when this boot
+        // is a proof shot — policy, not operator whim (§9.2).
+        let determinism = dpl_intent::DeterminismGate::default();
+        if shot.is_some() {
+            determinism.force_evidence();
+            fabric.publish_intent(dpl_fabric::IntentEvent::DeterminismChanged {
+                mode: dpl_intent::DeterminismMode::Strict,
+                cause: Some(dpl_intent::StrictCause::Evidence),
+            });
+        }
+        shell.attach_determinism(determinism.clone());
         let chat = chat::ChatWindowCoordinator::new(
             &fabric,
             chat_runtime,
@@ -790,6 +801,7 @@ impl App {
                 proof_mode: chat_proof,
             },
         );
+        chat.attach_determinism(determinism);
 
         Self {
             shell,

@@ -24,6 +24,7 @@ image.workspace = true
 dpl-hub.workspace = true
 dpl-coldlight.workspace = true
 dpl-fabric.workspace = true
+dpl-intent.workspace = true
 dpl-shell.workspace = true
 dpl-viziwiz.workspace = true
 dpl-doc.workspace = true

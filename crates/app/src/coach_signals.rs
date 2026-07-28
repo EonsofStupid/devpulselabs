@@ -28,11 +28,12 @@ use egui_pilot_ai::protocol::SignalId;
 
 /// The app's live subscriptions, drained once per frame.
 ///
-/// Deliberately NOT the full domain set: the `coach` domain is excluded by
-/// law (signal-ledger plan §9, Phase 1.5). Coach lifecycle facts are what
-/// `coach_fabric` publishes FROM the coach — forwarding them back would let
-/// a touchpoint wait on a coach event and self-trigger. Do not "complete"
-/// this list.
+/// Deliberately NOT the full domain set: the `coach` and `intent` domains
+/// are excluded by law (signal-ledger plan §9 / determinism-intent-gate).
+/// Coach lifecycle facts are what `coach_fabric` publishes FROM the coach —
+/// forwarding them back would let a touchpoint wait on a coach event and
+/// self-trigger. Intent mode changes are not lesson material and must not
+/// narrate the escalation surface to an agent. Do not "complete" this list.
 pub struct CoachSignals {
     shell: dpl_fabric::ShellReceiver,
     deck: dpl_fabric::DeckReceiver,

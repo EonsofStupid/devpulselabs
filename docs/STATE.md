@@ -2,6 +2,19 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-28 — DETERMINISM MODES BEHIND THE INTENT GATE
+(`docs/plans/determinism-intent-gate.md`):** `dpl-intent`'s first consumer.
+`DeterminismGate` owns `Behavioral | Strict` with `escalate(OperatorIntent)`,
+`deescalate`, and `force_evidence` (evidence outranks the operator; cannot
+be talked down). The INTENT fabric domain (doctrine law 11) carries
+`DeterminismChanged` / `IntentRefused` through the seam SSE and the shell
+activity feed. Two mint sites only: chat composer slash at submit
+(`/strict` · `/behavioral`, whole-buffer exact, draft cleared before it
+becomes a message) and the inspector DETERMINISM card (arm → confirm).
+Both refuse synthetic (agent-injected) activation and publish the refusal.
+`--screenshot` boots force evidence. Pinning (clock/RNG/adapters) is NOT
+this pass — the switch and its guards land first so authorization is
+settled law when replay arrives.
 
 **RESUME POINT (2026-07-28, Fable session):** journal + next-series
 notes: `docs/journal/2026-07-28-fable-session.md` — read before

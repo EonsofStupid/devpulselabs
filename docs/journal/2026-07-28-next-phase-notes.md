@@ -69,32 +69,29 @@ are still only *compiled*, not *witnessed*:
 5. **VERIFIED.** Footer read `signals · 8` after the run; the card counted
    the coach lines alongside route changes.
 
-## B. Next build pass: the determinism-mode switch (dpl-intent's first consumer)
+## B. Determinism-mode switch (dpl-intent's first consumer)
 
-The shape, from plan §9.2/§9.3 — the pass plan will pin the details:
+**STATUS: LANDED 2026-07-28** — plan
+`docs/plans/determinism-intent-gate.md`. Harness proof:
+`docs/proof/determinism-evidence-2026-07-28.png` shows the DETERMINISM
+card reading `strict · evidence` / "locked — this run is evidence" and
+the SIGNALS feed line `determinism · strict · evidence`.
 
-- **A mode value, held once**: `Behavioral | Strict`, owned by whichever
-  seat owns the run (runner config for harness runs; the app's devtools
-  block for live sessions). Behavioral is the default and needs no proof.
-- **`/strict` at the operator's input-submit path**: recognized in the chat
-  window's submit handler, from the operator's own text buffer, *before*
-  the text becomes a message — mint `OperatorIntent::slash_command()` and
-  strip the command. Nothing that reads model output, transcripts, or
-  replayed traces can reach that code path; a test feeds a model message
-  containing `/strict` and asserts nothing happens.
-- **The UI second-acknowledgement**: a shell control whose handler refuses
-  activation when the frame's input actor is `Agent` (the pilot already
-  attributes injected input) — only `Operator`-attributed activation mints
-  `OperatorIntent::ui_acknowledged()`.
-- **Consumption writes an audit fact**: spending the proof yields its
-  `IntentChannel` — record it (likely a small stamped fabric fact; decide in
-  the pass plan whether that is a new variant or its own tiny domain).
-- **Evidence forces strict** (§9.2): baseline approval / proof-shot paths
-  demand strict mode regardless of the toggle — policy, not operator whim,
-  and it does not consume an intent proof.
-- **Tests owed**: provenance (model text is inert), single-use (already
-  pinned by compile_fail; add the audit-record assertion), refusal of
-  Agent-attributed UI activation.
+Shape pinned and implemented:
+
+- **A mode value, held once**: `DeterminismGate` in `dpl-intent`
+  (`Behavioral | Strict`). Behavioral default; `force_evidence` for
+  proof shots.
+- **`/strict` at the operator's input-submit path**: chat Ai composer
+  Send click parses whole-buffer `/strict` · `/behavioral` before the
+  draft becomes a message; clears draft; host is the ONE slash mint site.
+  Synthetic submit → `IntentRefused · synthetic-input`.
+- **The UI second-acknowledgement**: shell inspector DETERMINISM card
+  (arm → confirm); refuses synthetic; evidence-locked when forced.
+- **INTENT fabric domain** (doctrine law 11): `DeterminismChanged` /
+  `IntentRefused` through seam + activity feed.
+- **Evidence forces strict**: `--screenshot` boots call `force_evidence`.
+- **NOT this pass**: clock/RNG/adapter pinning (replay); pipe surfacing.
 
 ## C. Carried backlog (unchanged priorities)
 

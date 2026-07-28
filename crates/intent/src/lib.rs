@@ -100,6 +100,119 @@ impl OperatorIntent {
     }
 }
 
+/// The two determinism modes (signal-ledger plan §9.2).
+///
+/// Behavioral is the measurement mode: the same trace produces the same
+/// step outcomes while pixels and wall-clock may vary. Strict is the
+/// evidence mode: byte-identical output. This crate owns the SWITCH and
+/// its guards; the pinning strict mode will eventually drive (fixed clock,
+/// pinned RNG, locked adapters) lands with replay.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DeterminismMode {
+    #[default]
+    Behavioral,
+    Strict,
+}
+
+/// Why the gate is strict right now. Evidence outranks operator demand:
+/// when both hold, the cause reads `Evidence`, and de-escalation refuses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StrictCause {
+    Operator(IntentChannel),
+    /// "Evidence forces strict" — policy, not operator whim. Set by runs
+    /// whose output will be compared byte-for-byte later (proof shots,
+    /// baselines). No proof is consumed; none could be.
+    Evidence,
+}
+
+/// What `DeterminismGate::deescalate` did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Deescalation {
+    /// Operator-demanded strict cleared; the mode is behavioral again.
+    Cleared,
+    /// Refused: this run is evidence, and the run is the evidence.
+    /// Redaction and policy outrank convenience (§9.4 spirit).
+    RefusedEvidence,
+    /// Nothing to clear.
+    AlreadyBehavioral,
+}
+
+#[derive(Default)]
+struct GateState {
+    operator: Option<IntentChannel>,
+    evidence: bool,
+}
+
+/// The determinism mode behind the gate — `dpl-intent`'s first gated state.
+///
+/// A cloneable handle over one state machine. The ONLY way to reach strict
+/// on operator demand is [`DeterminismGate::escalate`], which consumes an
+/// [`OperatorIntent`] — so every escalation in the program is one of the
+/// greppable mint sites, spent here. The gate returns facts and never
+/// publishes; callers own the signal-fabric edge, which is how this crate
+/// stays dependency-free.
+#[derive(Clone, Default)]
+pub struct DeterminismGate {
+    state: std::sync::Arc<std::sync::Mutex<GateState>>,
+}
+
+impl DeterminismGate {
+    fn lock(&self) -> std::sync::MutexGuard<'_, GateState> {
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    pub fn mode(&self) -> DeterminismMode {
+        let state = self.lock();
+        if state.evidence || state.operator.is_some() {
+            DeterminismMode::Strict
+        } else {
+            DeterminismMode::Behavioral
+        }
+    }
+
+    /// Why strict, if strict. Evidence outranks operator demand.
+    pub fn strict_cause(&self) -> Option<StrictCause> {
+        let state = self.lock();
+        if state.evidence {
+            Some(StrictCause::Evidence)
+        } else {
+            state.operator.map(StrictCause::Operator)
+        }
+    }
+
+    /// Spend a proof to demand strict mode. Returns the channel for the
+    /// audit record the caller publishes.
+    pub fn escalate(&self, intent: OperatorIntent) -> IntentChannel {
+        let channel = intent.consume();
+        self.lock().operator = Some(channel);
+        channel
+    }
+
+    /// Clear operator-demanded strict. No proof — de-escalation is cheap —
+    /// but every call site must be provenance-checked operator input, the
+    /// same law as the mint sites. Evidence-forced strict refuses: the run
+    /// is the evidence.
+    pub fn deescalate(&self) -> Deescalation {
+        let mut state = self.lock();
+        if state.evidence {
+            return Deescalation::RefusedEvidence;
+        }
+        if state.operator.take().is_some() {
+            Deescalation::Cleared
+        } else {
+            Deescalation::AlreadyBehavioral
+        }
+    }
+
+    /// Policy: this run's output is evidence, so strict is not optional
+    /// (§9.2 "evidence forces strict; measurement stays behavioral").
+    pub fn force_evidence(&self) {
+        self.lock().evidence = true;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -114,6 +227,57 @@ mod tests {
 
         let intent = OperatorIntent::ui_acknowledged();
         assert_eq!(intent.consume(), IntentChannel::UiAcknowledged);
+    }
+
+    #[test]
+    fn the_gate_starts_behavioral_and_escalates_only_by_spending_a_proof() {
+        let gate = DeterminismGate::default();
+        assert_eq!(gate.mode(), DeterminismMode::Behavioral);
+        assert_eq!(gate.strict_cause(), None);
+
+        let channel = gate.escalate(OperatorIntent::slash_command());
+        assert_eq!(channel, IntentChannel::SlashCommand);
+        assert_eq!(gate.mode(), DeterminismMode::Strict);
+        assert_eq!(
+            gate.strict_cause(),
+            Some(StrictCause::Operator(IntentChannel::SlashCommand))
+        );
+        // The proof is gone — escalating again requires minting again,
+        // which is exactly the audit surface working.
+    }
+
+    #[test]
+    fn deescalation_clears_operator_demand_and_only_operator_demand() {
+        let gate = DeterminismGate::default();
+        assert_eq!(gate.deescalate(), Deescalation::AlreadyBehavioral);
+
+        gate.escalate(OperatorIntent::ui_acknowledged());
+        assert_eq!(gate.deescalate(), Deescalation::Cleared);
+        assert_eq!(gate.mode(), DeterminismMode::Behavioral);
+    }
+
+    #[test]
+    fn evidence_outranks_the_operator_in_cause_and_refuses_deescalation() {
+        let gate = DeterminismGate::default();
+        gate.force_evidence();
+        assert_eq!(gate.mode(), DeterminismMode::Strict);
+        assert_eq!(gate.strict_cause(), Some(StrictCause::Evidence));
+
+        // The operator may also demand strict; evidence still names the run.
+        gate.escalate(OperatorIntent::slash_command());
+        assert_eq!(gate.strict_cause(), Some(StrictCause::Evidence));
+
+        // The run is the evidence — nobody talks it back down.
+        assert_eq!(gate.deescalate(), Deescalation::RefusedEvidence);
+        assert_eq!(gate.mode(), DeterminismMode::Strict);
+    }
+
+    #[test]
+    fn clones_share_one_state_because_one_session_has_one_mode() {
+        let gate = DeterminismGate::default();
+        let other = gate.clone();
+        other.escalate(OperatorIntent::ui_acknowledged());
+        assert_eq!(gate.mode(), DeterminismMode::Strict);
     }
 
     #[test]
