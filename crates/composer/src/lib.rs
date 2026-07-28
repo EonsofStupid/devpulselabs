@@ -47,6 +47,8 @@ const DEFAULT_IMAGE_SECS: f32 = 5.0;
 const LANE_H: f32 = 26.0;
 const PROP_H: f32 = 20.0;
 const RULER_H: f32 = 22.0;
+/// The FX section divider row's height (L3).
+const FXHDR_H: f32 = 18.0;
 /// The layer OUTLINE column's width (timeline left half).
 const OUTLINE_W: f32 = 252.0;
 
@@ -358,6 +360,19 @@ enum Act {
     /// length, images held DEFAULT_IMAGE_SECS (W7); the row also lands
     /// in the preview well.
     Add(usize),
+    /// Overlay a FOOTAGE row ON TOP of the timeline at the playhead —
+    /// alpha composites over the cuts (L3, the FX track).
+    AddOverlay(usize),
+    /// Edit the selected overlay's transform/tint from the inspector.
+    /// `fresh` marks the first change of a gesture (one undo step).
+    OverlayEdit {
+        id: String,
+        x: f32,
+        y: f32,
+        scale: f32,
+        tint: Option<[u8; 4]>,
+        fresh: bool,
+    },
     /// Append a RENDER (name, rel_path) as a new layer.
     AddRender(String, String),
     /// Open a comp document folder.
@@ -519,13 +534,19 @@ impl AnnotateTool {
 enum Row {
     Layer(usize),
     Prop(usize, &'static str),
+    /// The FX section divider — overlays composite over the cuts (L3).
+    FxHeader,
+    /// An FX overlay layer (index into the fx track, tracks[1]).
+    Fx(usize),
+    FxProp(usize, &'static str),
 }
 
 impl Row {
     fn height(&self) -> f32 {
         match self {
-            Row::Layer(_) => LANE_H,
-            Row::Prop(..) => PROP_H,
+            Row::Layer(_) | Row::Fx(_) => LANE_H,
+            Row::Prop(..) | Row::FxProp(..) => PROP_H,
+            Row::FxHeader => FXHDR_H,
         }
     }
 }
@@ -566,6 +587,24 @@ impl Composer {
             .first()
             .map(|t| t.layers.as_slice())
             .unwrap_or(&[])
+    }
+
+    /// The FX overlay track's layers (row 0 = topmost), empty pre-L3.
+    fn fx_layers(&self) -> &[Layer] {
+        self.comp
+            .tracks
+            .get(1)
+            .map(|t| t.layers.as_slice())
+            .unwrap_or(&[])
+    }
+
+    /// A layer anywhere in the comp, by its comp-unique id.
+    fn layer_mut(&mut self, id: &str) -> Option<&mut Layer> {
+        self.comp
+            .tracks
+            .iter_mut()
+            .flat_map(|t| t.layers.iter_mut())
+            .find(|l| l.id == id)
     }
 
     /// Overlay-track layers (tracks 1..) under the playhead, in PAINT order
@@ -2246,6 +2285,18 @@ impl Composer {
                 out.push(Row::Prop(i, "Trim out"));
             }
         }
+        // L3: the FX section — overlays composite over the cuts above.
+        if !self.fx_layers().is_empty() {
+            out.push(Row::FxHeader);
+            for (i, l) in self.fx_layers().iter().enumerate() {
+                out.push(Row::Fx(i));
+                if self.expanded.contains(&l.id) {
+                    out.push(Row::FxProp(i, "Start"));
+                    out.push(Row::FxProp(i, "Trim in"));
+                    out.push(Row::FxProp(i, "Trim out"));
+                }
+            }
+        }
         out
     }
 
@@ -2372,6 +2423,31 @@ impl Composer {
                     self.add_clip(&rec);
                     self.proj_sel = Some(i);
                 }
+            }
+            Some(Act::AddOverlay(i)) => {
+                if let Some(rec) = self.palette.as_ref().and_then(|p| p.get(i)).cloned() {
+                    self.add_overlay(&rec);
+                    self.proj_sel = Some(i);
+                }
+            }
+            Some(Act::OverlayEdit {
+                id,
+                x,
+                y,
+                scale,
+                tint,
+                fresh,
+            }) => {
+                if fresh {
+                    self.checkpoint();
+                }
+                if let Some(l) = self.layer_mut(&id) {
+                    l.x = x;
+                    l.y = y;
+                    l.scale = scale.max(0.05);
+                    l.tint = tint;
+                }
+                self.mark_edit();
             }
             Some(Act::AddRender(name, rel)) => {
                 let rec = Record {
@@ -2889,8 +2965,11 @@ impl Composer {
                 }
                 for (i, rec) in footage.iter().enumerate() {
                     let glyph = if rec.kind == "video" { "vid" } else { "img" };
+                    // Trailing spaces shift the duration clear of the fx
+                    // corner painted below (right-anchored text).
+                    let trail = format!("{}     ", fmt_secs(rec.seconds));
                     let resp = cl::tip(
-                        row_line(ui, glyph, &rec.name, &fmt_secs(rec.seconds), ("ft", i)),
+                        row_line(ui, glyph, &rec.name, &trail, ("ft", i)),
                         if rec.kind == "video" {
                             "Add this clip to the timeline"
                         } else {
@@ -2906,7 +2985,30 @@ impl Composer {
                             &rec.name,
                         ),
                     );
-                    if resp.clicked() {
+                    // L3: the fx corner — overlay this ON TOP at the playhead
+                    // instead of cutting it onto the end.
+                    let fxr = Rect::from_min_max(
+                        egui::pos2(resp.rect.max.x - 26.0, resp.rect.min.y),
+                        resp.rect.max,
+                    );
+                    let fx_resp = cl::tip(
+                        ui.interact(fxr, egui::Id::new(("ft-fx", i)), Sense::click()),
+                        "Overlay this ON TOP at the playhead — alpha composites over the cuts",
+                    );
+                    ui.painter().text(
+                        fxr.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "fx",
+                        egui::FontId::monospace(9.0),
+                        if fx_resp.hovered() {
+                            Tone::Violet.color()
+                        } else {
+                            cl::ink::SUBTLE
+                        },
+                    );
+                    if fx_resp.clicked() {
+                        *act = Some(Act::AddOverlay(i));
+                    } else if resp.clicked() && !fx_resp.hovered() {
                         *act = Some(Act::Add(i));
                     }
                 }
@@ -3024,11 +3126,16 @@ impl Composer {
                 }
             });
         });
-        let Some(layer) = self
+        let on_fx = self
             .selected
             .as_deref()
-            .and_then(|id| self.layers().iter().find(|l| l.id == id))
-        else {
+            .is_some_and(|id| self.fx_layers().iter().any(|l| l.id == id));
+        let Some(layer) = self.selected.as_deref().and_then(|id| {
+            self.layers()
+                .iter()
+                .chain(self.fx_layers().iter())
+                .find(|l| l.id == id)
+        }) else {
             ui.label(
                 RichText::new("Select a layer to see its facts.")
                     .small()
@@ -3053,6 +3160,147 @@ impl Composer {
             .small()
             .color(cl::ink::BASE),
         );
+        if on_fx {
+            self.overlay_inspector(ui, layer, act);
+        }
+    }
+
+    /// The OVERLAY inspector (L3): size, position, tint — plain-words
+    /// controls for the selected FX layer. Emits `Act::OverlayEdit`; the
+    /// first change of a gesture (`fresh`) takes the undo checkpoint.
+    fn overlay_inspector(&self, ui: &mut egui::Ui, layer: &Layer, act: &mut Option<Act>) {
+        ui.add_space(cl::space::S1);
+        ui.label(RichText::new("OVERLAY").small().strong());
+        let (mut x, mut y, mut scale, mut tint) = (layer.x, layer.y, layer.scale, layer.tint);
+        let mut fresh = false;
+        let mut changed = false;
+
+        let rs = cl::tip(
+            ui.add(
+                egui::Slider::new(&mut scale, 0.1..=3.0)
+                    .text("size")
+                    .fixed_decimals(2),
+            ),
+            "How big the overlay sits — 1.0 fills the frame",
+        );
+        fresh |= rs.drag_started();
+        changed |= rs.changed();
+
+        ui.horizontal(|ui| {
+            let rx = cl::tip(
+                ui.add(egui::DragValue::new(&mut x).speed(2.0).prefix("x ")),
+                "Slide the overlay left/right (pixels from center)",
+            );
+            let ry = cl::tip(
+                ui.add(egui::DragValue::new(&mut y).speed(2.0).prefix("y ")),
+                "Slide the overlay up/down (pixels from center)",
+            );
+            let rc = cl::tip(
+                ui.label(RichText::new("center").small().color(cl::ink::SUBTLE))
+                    .interact(Sense::click()),
+                "Snap the overlay back to dead center",
+            );
+            fresh |= rx.drag_started() || ry.drag_started() || rc.clicked();
+            changed |= rx.changed() || ry.changed();
+            if rc.clicked() && (x, y) != (0.0, 0.0) {
+                x = 0.0;
+                y = 0.0;
+                changed = true;
+            }
+        });
+
+        // TINT: the ColdLight tone pool as tap-size swatches + none/white.
+        // Content color, chosen from the system's own hues — no alien
+        // picker popup. The alpha ride is the opacity slider below.
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("tint").small().color(cl::ink::SUBTLE));
+            let a = tint.map(|t| t[3]).unwrap_or(255);
+            let none_resp = cl::tip(
+                swatch(ui, None, tint.is_none(), "tint-none"),
+                "No tint — the element's own colors",
+            );
+            if none_resp.clicked() && tint.is_some() {
+                tint = None;
+                fresh = true;
+                changed = true;
+            }
+            for tone in [
+                Tone::Cyan,
+                Tone::Lime,
+                Tone::Violet,
+                Tone::Amber,
+                Tone::Magenta,
+                Tone::Coral,
+            ] {
+                let c = tone.color();
+                let target = [c.r(), c.g(), c.b(), a];
+                let active = tint.is_some_and(|t| t[..3] == target[..3]);
+                let resp = cl::tip(
+                    swatch(ui, Some(c), active, tone.hue_id()),
+                    "Recolor the overlay with this hue",
+                );
+                if resp.clicked() && !active {
+                    tint = Some(target);
+                    fresh = true;
+                    changed = true;
+                }
+            }
+        });
+        let mut opacity = tint.map(|t| t[3] as f32 / 255.0).unwrap_or(1.0);
+        let ro = cl::tip(
+            ui.add(
+                egui::Slider::new(&mut opacity, 0.05..=1.0)
+                    .text("opacity")
+                    .show_value(false),
+            ),
+            "Fade the whole overlay (rides the tint's alpha)",
+        );
+        fresh |= ro.drag_started();
+        if ro.changed() {
+            let a = (opacity * 255.0).round() as u8;
+            let base = tint.unwrap_or([255, 255, 255, 255]);
+            tint = if a == 255 && base[..3] == [255, 255, 255] {
+                None
+            } else {
+                Some([base[0], base[1], base[2], a])
+            };
+            changed = true;
+        }
+        // The census marks noCT elements as designed-untinted — advise,
+        // never block (the operator outranks the pack's label).
+        if tint.is_some()
+            && self
+                .rec_tags_for(layer.source.reference())
+                .contains(&"no-tint")
+        {
+            ui.label(
+                RichText::new("This element is designed untinted (noCT) — tint may look off.")
+                    .small()
+                    .color(cl::ink::MUTED),
+            );
+        }
+        if changed {
+            *act = Some(Act::OverlayEdit {
+                id: layer.id.clone(),
+                x,
+                y,
+                scale,
+                tint,
+                fresh,
+            });
+        }
+    }
+
+    /// The indexed tags for a rel path, from the loaded palette (best
+    /// effort — an unindexed ref simply has none).
+    fn rec_tags_for(&self, rel: &str) -> Vec<&str> {
+        self.palette
+            .as_deref()
+            .unwrap_or(&[])
+            .iter()
+            .find(|r| r.rel_path == rel)
+            .map(|r| r.tags.iter().map(String::as_str).collect())
+            .unwrap_or_default()
     }
 
     /// EFFECTS & PRESETS: search + honest stock (the registry and the
@@ -3119,7 +3367,7 @@ impl Composer {
             }
         });
         ui.add_space(cl::space::S1);
-        if self.layers().is_empty() {
+        if self.layers().is_empty() && self.fx_layers().is_empty() {
             ui.label(
                 RichText::new("Empty — add footage from the Project panel.")
                     .small()
@@ -3247,6 +3495,109 @@ impl Composer {
                         Tone::Cyan.color(),
                     );
                 }
+                Row::FxHeader => {
+                    painter.text(
+                        egui::pos2(r.min.x + 6.0, r.center().y),
+                        egui::Align2::LEFT_CENTER,
+                        "FX — composites over the cuts",
+                        egui::FontId::proportional(10.0),
+                        cl::ink::MUTED,
+                    );
+                }
+                Row::Fx(i) => {
+                    let layer = &self.fx_layers()[*i];
+                    let selected = self.selected.as_deref() == Some(layer.id.as_str());
+                    if selected {
+                        painter.rect_filled(r, CornerRadius::ZERO, Tone::Violet.wash());
+                    }
+                    painter.text(
+                        egui::pos2(r.min.x + 6.0, r.center().y),
+                        egui::Align2::LEFT_CENTER,
+                        "fx",
+                        egui::FontId::monospace(10.0),
+                        Tone::Violet.color(),
+                    );
+                    let chip_r = Rect::from_center_size(
+                        egui::pos2(r.min.x + 26.0, r.center().y),
+                        egui::vec2(9.0, 9.0),
+                    );
+                    painter.rect_filled(chip_r, CornerRadius::same(2), Tone::Violet.color());
+                    let open = self.expanded.contains(&layer.id);
+                    painter.text(
+                        egui::pos2(r.min.x + 40.0, r.center().y),
+                        egui::Align2::LEFT_CENTER,
+                        if open { "-" } else { "+" },
+                        egui::FontId::monospace(11.0),
+                        cl::ink::SUBTLE,
+                    );
+                    painter.text(
+                        egui::pos2(r.min.x + 56.0, r.center().y),
+                        egui::Align2::LEFT_CENTER,
+                        layer.source.reference(),
+                        egui::FontId::proportional(12.0),
+                        if selected {
+                            cl::ink::STRONG
+                        } else {
+                            cl::ink::BASE
+                        },
+                    );
+                    painter.text(
+                        egui::pos2(r.max.x - 6.0, r.center().y),
+                        egui::Align2::RIGHT_CENTER,
+                        mmss(layer.start),
+                        egui::FontId::monospace(10.0),
+                        cl::ink::SUBTLE,
+                    );
+                    let twirl = Rect::from_min_max(r.min, egui::pos2(r.min.x + 52.0, r.max.y));
+                    let tw_resp =
+                        ui.interact(twirl, egui::Id::new(("tl-fx-twirl", row_i)), Sense::click());
+                    let tw_resp = cl::tip(tw_resp, "Show this overlay's timing properties");
+                    if tw_resp.clicked() {
+                        *act = Some(Act::ToggleExpand(layer.id.clone()));
+                    }
+                    let row_resp = ui.interact(
+                        Rect::from_min_max(egui::pos2(r.min.x + 52.0, r.min.y), r.max),
+                        egui::Id::new(("tl-fx-row", row_i)),
+                        Sense::click(),
+                    );
+                    let row_resp = cl::tip(
+                        row_resp,
+                        "Select this overlay — size, position and tint live in Info",
+                    );
+                    ui.pilot_track(
+                        &row_resp,
+                        NodeMetadata::new(
+                            PilotId::new("composer.outline.fx").child(&PilotKey::new(&layer.id)),
+                            Role::Button,
+                            layer.source.reference(),
+                        ),
+                    );
+                    if row_resp.clicked() {
+                        *act = Some(Act::Select(layer.id.clone()));
+                    }
+                }
+                Row::FxProp(i, name) => {
+                    let layer = &self.fx_layers()[*i];
+                    let value = match *name {
+                        "Start" => format!("{:.2}s", layer.start),
+                        "Trim in" => format!("{:.2}s", layer.in_pt),
+                        _ => format!("{:.2}s", layer.out_pt),
+                    };
+                    painter.text(
+                        egui::pos2(r.min.x + 56.0, r.center().y),
+                        egui::Align2::LEFT_CENTER,
+                        *name,
+                        egui::FontId::proportional(11.0),
+                        cl::ink::SUBTLE,
+                    );
+                    painter.text(
+                        egui::pos2(r.max.x - 6.0, r.center().y),
+                        egui::Align2::RIGHT_CENTER,
+                        value,
+                        egui::FontId::monospace(10.0),
+                        Tone::Violet.color(),
+                    );
+                }
             }
             y += h;
         }
@@ -3302,14 +3653,20 @@ impl Composer {
             if y >= rect.max.y {
                 break;
             }
-            if let Row::Layer(i) = row {
-                let layer = &self.layers()[i];
+            // Layer and Fx rows paint bars the same way — only the source
+            // slice and idle tone differ (FX rides the Violet family).
+            let bar_layer = match row {
+                Row::Layer(i) => Some((&self.layers()[i], row_tone(i))),
+                Row::Fx(i) => Some((&self.fx_layers()[i], Tone::Violet)),
+                _ => None,
+            };
+            if let Some((layer, idle_tone)) = bar_layer {
                 let selected = self.selected.as_deref() == Some(layer.id.as_str());
                 let bar = Rect::from_min_max(
                     egui::pos2(to_x(layer.start), y + 3.0),
                     egui::pos2(to_x(layer.end()).min(rect.max.x), y + h - 3.0),
                 );
-                let tone = if selected { Tone::Magenta } else { row_tone(i) };
+                let tone = if selected { Tone::Magenta } else { idle_tone };
                 painter.rect_filled(bar, CornerRadius::same(cl::RADIUS_SM), tone.wash());
                 painter.rect_stroke(
                     bar,
@@ -3442,14 +3799,12 @@ impl Composer {
 
     /// Apply a live drag at pointer-time `pt` (seconds). All edits clamp:
     /// spans never collapse below 0.25s, nothing goes negative, moves
-    /// snap to a 0.1s grid.
+    /// snap to a 0.1s grid. Ids are comp-unique, so the same drags serve
+    /// base cuts AND FX overlays (L3).
     fn apply_drag(&mut self, drag: &Drag, pt: f32) {
-        let Some(track) = self.comp.tracks.first_mut() else {
-            return;
-        };
         match drag {
             Drag::TrimIn(id) => {
-                if let Some(l) = track.layers.iter_mut().find(|l| &l.id == id) {
+                if let Some(l) = self.layer_mut(id) {
                     let delta = pt - l.start;
                     let new_in = fit(l.in_pt + delta, 0.0, l.out_pt - 0.25);
                     l.start = (l.start + (new_in - l.in_pt)).max(0.0);
@@ -3457,12 +3812,12 @@ impl Composer {
                 }
             }
             Drag::TrimOut(id) => {
-                if let Some(l) = track.layers.iter_mut().find(|l| &l.id == id) {
+                if let Some(l) = self.layer_mut(id) {
                     l.out_pt = (l.in_pt + (pt - l.start)).max(l.in_pt + 0.25);
                 }
             }
             Drag::Move(id, grab) => {
-                if let Some(l) = track.layers.iter_mut().find(|l| &l.id == id) {
+                if let Some(l) = self.layer_mut(id) {
                     l.start = snap_tenth((pt - grab).max(0.0));
                 }
             }
@@ -4463,6 +4818,41 @@ fn small_btn(
         egui::Id::new(("composer-sbtn", key)),
         Sense::click(),
     )
+}
+
+/// A tap-size tint swatch (L3 inspector): crisp square, hard edge, strong
+/// ring when active/hovered. `None` paints the no-tint slash.
+fn swatch(ui: &mut egui::Ui, color: Option<Color32>, active: bool, key: &str) -> egui::Response {
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), Sense::hover());
+    let resp = ui.interact(rect, egui::Id::new(("tint-swatch", key)), Sense::click());
+    let p = ui.painter();
+    let inner = rect.shrink(2.0);
+    match color {
+        Some(c) => {
+            p.rect_filled(inner, CornerRadius::same(2), c);
+        }
+        None => {
+            p.rect_stroke(
+                inner,
+                CornerRadius::same(2),
+                egui::Stroke::new(1.0, cl::ink::SUBTLE),
+                egui::StrokeKind::Inside,
+            );
+            p.line_segment(
+                [inner.left_bottom(), inner.right_top()],
+                egui::Stroke::new(1.0, cl::ink::SUBTLE),
+            );
+        }
+    }
+    if active || resp.hovered() {
+        p.rect_stroke(
+            rect,
+            CornerRadius::same(2),
+            egui::Stroke::new(2.0, cl::ink::STRONG),
+            egui::StrokeKind::Inside,
+        );
+    }
+    resp
 }
 
 /// A PROJECT section header line.
