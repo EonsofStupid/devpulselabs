@@ -6,6 +6,11 @@ raw material and the checklist of proofs owed.
 
 ## A. Verification owed on Phase 1.5 (the real exe, not the unit tests)
 
+**STATUS: VERIFIED 2026-07-28, same session** — one devtools session
+(`devpulse-cloud` / `library-wall` @1280×832, build `c333b69`), three
+simultaneous witnesses, all agreeing. Proof shot:
+`docs/proof/coach-domain-live-2026-07-28.png`. Findings per item below.
+
 Law 2: no claim without the exe or a test. The units are green; these claims
 are still only *compiled*, not *witnessed*:
 
@@ -32,6 +37,37 @@ are still only *compiled*, not *witnessed*:
    stalls or repaint storms anyway. Evidence beats belief.
 5. **Signal counter.** The status grid's counter should tick on coach
    events like any other domain.
+
+### Verification results (2026-07-28)
+
+1. **VERIFIED.** All three surfaces saw the identical lifecycle at once:
+   the SSE stream carried the pinned envelopes
+   (`{"type":"triggered","coachId":"verify-press","trigger":"press",
+   "actor":"agent","domain":"coach","seq":4,…}`), the run's `trace.jsonl`
+   carried the same events on the pipe (the tap stole nothing — live, not
+   just in the unit), and the SIGNALS card rendered all six lines
+   (`coach mounted/fired/done · verify-press`, `coach mounted / step
+   satisfied / coach done · verify-satisfied`). The typed rail split from
+   C1.5f was also witnessed live: `workbench` reported `value=active`
+   with `state.expanded=false`.
+2. **VERIFIED.** `until: node-value(workbench=active)` was true at mount;
+   the tool returned `activated.type=satisfied` on the mounting pass and
+   `step satisfied · verify-satisfied` reached the feed — the A/B outcome
+   row exists in the wild.
+3. **VERIFIED with one nuance.** Coach events carry strictly increasing
+   global `seq` (0–5 in-session). The shell's `route-changed` interleaved
+   positionally but carries **no seq — the shell domain is unstamped by
+   design** (doctrine law 4). Cross-domain seq ordering is therefore
+   witnessable against stamped domains (capture/jobs/build/coach), not
+   shell. Not a defect; worth remembering when the ledger reconstructs
+   order: shell facts order by stream position only.
+4. **No stall observed.** The whole session (start → snapshot → two coach
+   mounts → agent flow → capture → stop) ran in ~4.5 s with the tap
+   publishing from inside the plugin lock each event. No hang, no repaint
+   storm in the trace. Not a load test — a soak under a busy lesson
+   remains future evidence.
+5. **VERIFIED.** Footer read `signals · 8` after the run; the card counted
+   the coach lines alongside route changes.
 
 ## B. Next build pass: the determinism-mode switch (dpl-intent's first consumer)
 

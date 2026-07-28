@@ -2,6 +2,20 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-28 — PHASE 1.5 VERIFIED LIVE (three witnesses, one session):**
+one devtools run (`devpulse-cloud`/`library-wall` @1280×832, build `c333b69`)
+proved the coach domain end to end — the seam SSE carried the pinned coach
+envelopes with strictly increasing `seq`, the pipe's `trace.jsonl` carried
+the identical lifecycle (the tap steals nothing, live), and the SIGNALS card
+rendered all six feed lines (`docs/proof/coach-domain-live-2026-07-28.png`).
+`Satisfied` fired on the MOUNTING pass for an already-true postcondition
+(`activated.type=satisfied`); an agent flow click produced
+`triggered · press · actor=agent`; the C1.5f typed rail split witnessed live
+(`value=active` + `state.expanded=false`). NUANCE FOR THE LEDGER: shell
+events are unstamped by design — cross-domain `seq` ordering holds among
+stamped domains only; shell facts order by stream position. Full findings:
+`docs/journal/2026-07-28-next-phase-notes.md` §A.
+
 **2026-07-28 — PHASE 1.5: THE COACH SPEAKS ON THE RECORD, AND INTENT IS A TYPE
 (`docs/plans/signal-ledger-and-lesson-foundation.md` §9 + Phase 1.5):** the
 2026-07-28 rulings are ratified into the plan — the closed loop (analytics
