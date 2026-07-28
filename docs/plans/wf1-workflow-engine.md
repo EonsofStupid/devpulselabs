@@ -63,6 +63,70 @@ dpl-comp, dpl-doc; `publish = false`, workspace lints):
   verdict line; storyboard workflow ships as a registered default (a
   workflow is an ingredient — D6).
 
+### 3a. The slotted storyboard (operator refinement, 2026-07-27 — binds §3)
+
+> "…truly creating a frictionless/guided experience where we can have AI
+> easily understand what slots are remaining within the storyboard
+> template, and the storyboard has a system where it gets tailored for
+> that project at the time, configurable so we can customize like my raw
+> content where I can associate with new or existing episodes/projects."
+
+Four requirements built into the first schema — never bolted on:
+
+1. **Slots are the storyboard's unit.** `StoryboardDoc` = project/episode
+   ref + `Vec<Slot { id, role (hook/context/beat/cta…), brief (what this
+   slot needs — human- AND agent-readable), constraints, fill }>` with
+   typed fill: `Empty | Artifact(rel) | Slide(ref) | Draft(imagine id)`.
+   "Slots remaining" is a derived query on the document, never prose.
+2. **Machine-legible fill state.** Every slot is an EguiPilot semantic
+   node (`wiredfront.storyboard.slot/<id>`, value = fill state,
+   description = brief) so chat/coach/A2UI read the same truth the panel
+   paints; filling a slot publishes a fabric fact. The seam GET for slot
+   inventory is T4b — WF1's job is the document shape that makes it
+   trivial.
+3. **Tailored at mint.** A storyboard is minted from a blueprint +
+   project config (platform target, beat count, bible/style refs) through
+   a guided mint step. The blueprint is the ingredient; the minted
+   storyboard is the project-specific instance.
+4. **Raw content associates in.** A slot accepts existing library/inbox
+   artifacts — associated into a NEW or EXISTING episode/project via the
+   W10a `place_slide`/never-clobber machinery and the W9 landing policy —
+   or a fresh generation. Same gesture, either source.
+
+**The gate:** frictionless means every empty slot names what it needs,
+filling one is one gesture, and the agent sees exactly what the operator
+sees. The storyboard workflow (`Outline → SlideFromBeat → …`) is framed
+accordingly: `Outline` mints the tailored slotted storyboard; subsequent
+stages FILL slots; `AssembleComp` consumes the filled set.
+
+**Two workflow surfaces (operator, same session):**
+
+> "…we have wiredfront/workflows and then workbench/workflows where we can
+> then even storyboard out the episodes with the fully built slides and
+> then get the teleprompter script developed, to be associated with it."
+
+- **One engine, two route surfaces.** `dpl-workflows` is shared; each hub
+  mounts a `workflows` sub-route and surfaces the workflows whose
+  artifacts belong to its side of the two-libraries law:
+  **wiredfront/workflows** = raw-media pipelines (clips, stitch, post,
+  carousel media); **workbench/workflows** = slide/episode pipelines —
+  storyboarding episodes out of FULLY BUILT catalog slides (the ColdLight
+  side), slots filling with registered slides/templates rather than
+  footage. `WorkflowDoc` therefore declares its artifact side (a `surface`
+  field); the engine and document make NO hub assumptions.
+- **Teleprompter script is a first-class associated artifact.** A
+  workbench workflow stage develops the per-slide/per-beat script and
+  associates it with the episode/storyboard (same association machinery,
+  never-clobber), so the presenter/deck can drive it — the script rides
+  the episode, slot-aligned, agent-legible like every other slot fill.
+  (The Narrate tab stub and deck Beat facts are the existing anchors.)
+
+WF1 impact: the panel lands under wiredfront first; the workbench mount +
+teleprompter stage are the immediate follow-on pass. WF1 ships the
+`StoryboardDoc` shape + the `Outline` stage minting it (tailoring inputs
+carried in the workflow document's stage config), with the EguiPilot slot
+nodes on the Workflows panel.
+
 ## 4. Changes, in execution order
 
 1. `Cargo.toml`: member + workspace dep `dpl-workflows`.
@@ -125,6 +189,60 @@ Branch `feat/wf1-workflow-engine` → PR → squash. Commit:
 Includes T0 doc corrections. Push runs the gate; session-end trio after
 merge.
 
-## 8. Evidence
+## 8. Evidence (2026-07-27)
 
-(filled at execution)
+- **§6.1 dep ceiling**: `cargo tree -p dpl-workflows -e normal --depth 1` =
+  exactly {dpl-comp, dpl-doc, serde, serde_json}.
+- **§6.2**: `cargo test -p dpl-workflows` 12/12 — census, round-trip,
+  pretty-LF save + crash-safe overwrite, newer-schema refusal, named
+  faults (duplicate stage id, orphan fill stage, empty template), jailed
+  refs (drive letter / `..` / absolute all named), dry-run executes every
+  stage with a verdict (generation Skipped naming ADR-011),
+  failed-stage-halts-and-names, invalid-doc-never-runs, no-clobber mint,
+  slide/comp value builders validate clean.
+- **§6.3**: `cargo test -p dpl-composer` 43 passed + 1 ignored (was 41 —
+  new: `the_workflow_runner_materializes_the_storyboard`, a full engine+
+  runner E2E on a scratch dir). `grep "fn workflow_tabs"` → 0 hits.
+- **§6.4**: dpl-comp 9, dpl-doc 37, dpl-slides 22 (census gate intact).
+- **§6.5**: `cargo green ✔` (fmt + clippy -D warnings + workspace tests +
+  release build; spawn audit clean); release exe mtime 2026-07-27 20:15.
+- **§6.6 headless E2E** (scratch `--content-root …\wf1-scratch\content`):
+  verdict `run-workflow: storyboard ok · 3 stage(s) done · 2 skipped`;
+  run folder `inbox/workflow-storyboard/` holds `storyboard.json` (all 5
+  slots filled `kind:"slide"`), 5 per-beat `slides/<id>/slide.json`, and
+  `comp/comp.json`; loads + validation proven at unit level (§6.3's E2E
+  runs `dpl_doc::load`/`dpl_comp::load` + validate on the same artifacts).
+  Jobs facts per stage OBSERVED live in the shell SIGNALS feed on the
+  proof shots (`job queued · workflow storyboard · <stage>` → `job done ·
+  …`); the seam serializes the same stream (pinned `job_json` golden).
+  ADAPTATION (reported): a boot-time drill's facts precede any external
+  SSE subscriber, so the SSE observation rides the feed + golden rather
+  than a live curl.
+- **§6.7 honest absence**: `--run-workflow no-such-workflow` → stderr
+  `run-workflow failed: unknown workflow "no-such-workflow" — registered:
+  storyboard`; inbox unchanged (nothing minted); clean exit.
+- **§6.8 shots + scenario**: `proof-wf1-panel-1280.png` (1280x800) and
+  `proof-wf1-panel-1600.png` (1600x1000) — census card, Run chip, honest
+  stage verdicts (imagine skipped naming ADR-011, render skipped naming
+  the fix), 5/5 slots with briefs; second shot shows the no-clobber
+  `workflow-storyboard-2` run. EguiPilotAI `wiredfront-workflows` PASSED
+  (10/10 steps incl. stage/slot value expectations) on the devtools exe
+  with a scratch `CONTENT_ROOT` fixture. Suite sweep: 13/16 green;
+  3 red are PRE-EXISTING on main (verified by rebuilding main's devtools
+  exe and rerunning): `chat-grok-signed-out-readiness` (documented
+  operator gate — signed-in Grok), `shell-navigation` (rail flyout
+  `Test Lab` locator), `chat-peer-window` (`chat.context.route` value) —
+  the latter two flagged in STATE as next-session repairs.
+- **§6.9**: release exe rebuilt by the gate; mtime moved (20:15).
+- **Poppler staging** (ratification item 4): pdftoppm 26.02.0 staged as a
+  Media-family TREE in BOTH depots (debug + release), verified through
+  the production resolver (`DevPULSE tool depot verified` × 2, all five
+  ids re-resolved); `pdftoppm -v` probe branch; `rasterize_pdf` consumes
+  the injected payload (managed-ffmpeg pattern), PATH fallback for the
+  Linux lane.
+- **Deviations from plan (reported)**: (1) `GenerateImage` with a key
+  present also skips in WF1 (reason names the async-run slice) — the Run
+  chip carries no per-image spend labeling yet, so spending there would
+  violate ADR-011's visible-cost law; the skip is the compliant reading.
+  (2) The panel run executes synchronously (milliseconds without
+  generation); the async run arrives with the generation slice.

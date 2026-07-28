@@ -5,6 +5,13 @@ description: Senior-dev salvage audit — review the prior repo (C:\localdev\dev
 
 # port-capture — the faithful-capture plan builder
 
+> **ASSUMPTION BROKEN (ground-truthed 2026-07-27):** the reference checkout at
+> `C:\localdev\devpulse labs` is BUILD OUTPUT ONLY — no source tree, no `.git`.
+> The source-capture premise below is dead until a source checkout is restored
+> (location = open question, per memory). Salvage that still exists there: old
+> exes, `artifacts.db`, `content/shows`. Do not run this skill's source
+> inventory against that path; report the gap instead.
+
 **Argument:** the subsystem to capture (e.g. `slides`, `steps-recorder`, `capture-engine`,
 `editor`, `chat`, `guides`, `infographics`). One subsystem per invocation — one plan,
 one reviewable pass.

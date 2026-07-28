@@ -293,9 +293,11 @@ fn stage_tool_dependencies(arguments: &[String]) -> Result<(), String> {
             source.entrypoint.as_deref(),
         ) {
             (true, false, None) => {}
-            (false, true, Some(entrypoint))
-                if source.family == dpl_tools_deps::DependencyFamily::Browser =>
-            {
+            // A directory source is a TREE (chromium's whole browser,
+            // poppler's exe-plus-DLLs); the entrypoint names the executable
+            // within it. Any family may ship a tree — the resolver's tree
+            // digest is family-agnostic.
+            (false, true, Some(entrypoint)) => {
                 validate_source_relative_path("entrypoint", entrypoint)?;
                 if !source.source.join(entrypoint).is_file() {
                     return Err(format!(
@@ -305,9 +307,9 @@ fn stage_tool_dependencies(arguments: &[String]) -> Result<(), String> {
                     ));
                 }
             }
-            (false, true, _) => {
+            (false, true, None) => {
                 return Err(format!(
-                    "{} directory source for `{}` requires a browser entrypoint",
+                    "{} directory source for `{}` requires an entrypoint",
                     source.source.display(),
                     source.id
                 ));
@@ -414,12 +416,19 @@ fn stage_tool_dependencies(arguments: &[String]) -> Result<(), String> {
 
     let resolver = dpl_tools_deps::Resolver::from_release_root(release_root)
         .map_err(|error| format!("staged bundle rejected: {error}"))?;
-    for id in [
-        dpl_tools_deps::CODEX,
-        dpl_tools_deps::GROK,
-        dpl_tools_deps::CHROMIUM,
-        dpl_tools_deps::FFMPEG,
-    ] {
+    // Re-resolve EVERY staged id through the production resolver — the
+    // bundle is verified as it will actually be consumed, optional tools
+    // (pdftoppm) included when present.
+    let staged: Vec<dpl_tools_deps::DependencyId> = resolver
+        .manifest()
+        .dependencies
+        .iter()
+        .map(|dependency| {
+            dependency_id(&dependency.id)
+                .ok_or_else(|| format!("staged unknown tool `{}`", dependency.id))
+        })
+        .collect::<Result<_, _>>()?;
+    for id in staged {
         resolver
             .resolve(id)
             .map_err(|error| format!("staged `{id}` rejected: {error}"))?;
@@ -503,6 +512,7 @@ fn dependency_id(id: &str) -> Option<dpl_tools_deps::DependencyId> {
         "grok" => Some(dpl_tools_deps::GROK),
         "ffmpeg" => Some(dpl_tools_deps::FFMPEG),
         "chromium" => Some(dpl_tools_deps::CHROMIUM),
+        "pdftoppm" => Some(dpl_tools_deps::PDFTOPPM),
         _ => None,
     }
 }
@@ -523,10 +533,12 @@ fn verify_staged_version(id: &str, expected: &str, executable: &Path) -> Result<
         });
     }
 
-    let version_argument = if id == "ffmpeg" {
-        "-version"
-    } else {
-        "--version"
+    let version_argument = match id {
+        "ffmpeg" => "-version",
+        // Poppler's arg parser treats `--version` as an input file; `-v`
+        // prints `pdftoppm version <x>` to stderr and exits 0.
+        "pdftoppm" => "-v",
+        _ => "--version",
     };
     let output = Command::new(executable)
         .arg(version_argument)

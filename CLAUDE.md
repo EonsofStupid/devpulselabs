@@ -39,14 +39,18 @@ other worktree. The operator double-clicks `target\release\devpulselabs.exe`
   Pro-gated on this private repo — the local hook IS the enforcement;
   a self-hosted Actions runner + protection becomes worthwhile only if
   the repo goes Pro or public.
-- Harness flags: `--screenshot <png> --shot-frame <n> --route <hub/sub>
-  --window <w>x<h> --mood 0 --pixvix --pixvix-snap --present <id>
+- Harness flags (ground-truthed vs `crates/app/src/main.rs` 2026-07-27):
+  `--screenshot <png> --shot-frame <n> --route <hub/sub> --focus <id>
+  --window <w>x<h> --mood 0 --viziwiz --viziwiz-snap --present <id>
   --presenter-drill <n> --session-drill <s> --steps-hotkey-drill
-  --video-drill <s> [--video-format <f>] --ink-drill <rel> --open-rail
-  --open-episode --open-session --open-replay --clone-seed
-  --import-drill <dir> --pin-pack <dir> --save-comp <name>
-  --export-guide <guide-rel> [<session-rel>] --steps-drill <n>
-  --make-slide <asset-rel>`
+  --video-drill <s> [--video-format <f>] --open-rail <hub>
+  --open-episode <e> --open-session <s> --open-replay <rel>
+  --clone-seed <seed> <show> <ep> --import-drill <dir> --pin-pack <dir>
+  --save-comp <name> --export-guide <guide-rel> [<session-rel>]
+  --steps-drill <n> --make-slide <asset-rel> --lottie-import <file>
+  --run-workflow <id> --chat-open --chat-authored --chat-proof <mode>
+  --seam-port <n> --no-seam --content-root <path>` (also honored as the
+  `CONTENT_ROOT` env; drill scratch roots use either)
 - EguiPilotAI: `cargo build --release -p egui-pilot-ai-cli` + devtools exe
   `cargo build -p devpulselabs --features eguipilotai-devtools`; then
   `target\release\eguipilotai.exe doctor | inspect devpulse-windows pixvix`.
