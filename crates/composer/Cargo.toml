@@ -26,4 +26,5 @@ dpl-doc.workspace = true
 dpl-proc.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sysinfo.workspace = true
 zip.workspace = true

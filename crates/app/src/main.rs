@@ -227,6 +227,12 @@ fn main() -> eframe::Result {
         .position(|a| a == "--lottie-import")
         .and_then(|i| args.get(i + 1))
         .cloned();
+    // `--fx-drill <clip-rel> <fx-rel>` (L3): base cut + transformed/tinted
+    // FX overlay, rendered synchronously — the alpha-overlay proof.
+    let fx_drill: Option<(String, String)> = args
+        .iter()
+        .position(|a| a == "--fx-drill")
+        .and_then(|i| Some((args.get(i + 1)?.clone(), args.get(i + 2)?.clone())));
     // `--make-slide <asset-rel>` (W11) mints a media slide from a
     // content-relative artifact through the shelf's "Make slide" path —
     // image/video → one slide, `.pdf` → page slides.
@@ -398,6 +404,7 @@ fn main() -> eframe::Result {
                 pin_packs,
                 save_comp,
                 lottie_import,
+                fx_drill,
                 make_slide,
                 run_workflow,
                 seam_port,
@@ -444,6 +451,7 @@ struct Boot {
     pin_packs: Vec<String>,
     save_comp: Option<String>,
     lottie_import: Option<String>,
+    fx_drill: Option<(String, String)>,
     make_slide: Option<String>,
     run_workflow: Option<String>,
     /// The agent seam's port; None = `--no-seam`.
@@ -528,6 +536,7 @@ impl App {
             pin_packs,
             save_comp,
             lottie_import,
+            fx_drill,
             make_slide,
             run_workflow,
             seam_port,
@@ -619,6 +628,11 @@ impl App {
         // L2: import a native Lottie onto the timeline (the drill seam).
         if let Some(file) = &lottie_import {
             wiredfront.import_lottie(std::path::Path::new(file));
+        }
+        // L3: the alpha-overlay proof — base cut + transformed/tinted FX
+        // overlay, rendered synchronously before the first frame.
+        if let Some((clip, fx)) = &fx_drill {
+            wiredfront.fx_drill(clip, fx);
         }
         // W11's harness seam: mint a media slide from an artifact through the
         // shelf's exact "Make slide" path (image/video → one, pdf → pages).

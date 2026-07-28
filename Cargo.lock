@@ -2091,6 +2091,7 @@ dependencies = [
  "egui-pilot-ai",
  "serde",
  "serde_json",
+ "sysinfo",
  "zip",
 ]
 

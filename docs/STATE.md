@@ -10,6 +10,126 @@ or `DPL_LEDGER=1` starts the bounded writer thread. Schema v1 columns:
 domains only (capture/jobs/providers/build/coach/intent). Files are the
 truth; DuckDB stays Phase 3.
 
+**2026-07-28 — AUTHORING PASS A: THE SIGNAL SPINE (`feat/authoring-a-signals`;
+charter `docs/plans/authoring-charter.md` + build plan `authoring-shell.md`,
+both on PR #119; resume journal `docs/journal/2026-07-28-authoring-shell-handoff.md`):**
+the first build pass of the authoring surface, built signal-first. THREE
+additive pieces: (1) `dpl_fabric::BuildEvent::CardAuthored{show,episode,slide}`
+— additive, serde-free; the seam maps it to the `cardAuthored` envelope
+(`build_json`, pinned by test) and `build.card-authored` joins the coach
+`COARSE` catalog (drift-swept, so an AI/coach touchpoint can wait on an authored
+card). (2) The new **`author` subroute** on the Workbench hub — a ColdLight
+surface: an intent bar (charter §3b, captured-first) + a "Seed a draft card"
+action that mints a REAL schema-valid `slide.json` draft into `content/inbox/`
+(carrying the typed intent as a block, no-clobber probe) and publishes
+`CardAuthored` ONLY after the write succeeds (emit-with-mutation; anti-loop —
+the surface publishes `build.*`, never subscribes). (3) The LIVE ROUND proven
+in-gate: a `crates/seam` `#[tokio::test]` opens the real `/signals` SSE stream,
+publishes `CardAuthored`, and reads the stamped envelope back off the wire
+(bounded, fail-fast). Gate: `cargo green ✔` (fmt · spawn+structure audits ·
+clippy -D · tests · release). Real-exe proof: the surface renders at 1280×800
+(`docs/proof/authoring-a-surface-1280x800.png`) — breadcrumb Workbench › Author,
+Inspector route `workbench/author`, live SIGNALS feed. Tofu glyph fixed
+(`＋`→`+`, R1s font-safe law). Scope deferred per plan: `EntityRegistered`
+lands with the pass that actually registers entities (Pass D–F, no fabricated
+fact); NEXT = **Pass B** (four-bucket infinite gallery + filmstrip over the real
+registries). NOTE: built in a worktree off `main`; charter #119 + DS2 #114
+merges remain the operator's calls.
+
+**2026-07-28 — DS2 ELEMENT LIBRARY (`feat/ds2-element-library`,
+`docs/plans/ds2-element-library.md`, design-system build order §7.2):** the
+element tier brought under the **Census law**. New
+`crates/slides/src/blocks/census.rs` — `ElementSpec {id, label, category,
+cost_tier, blurb}` + the `ElementDemo` trait + `elements()`, mirroring
+`registry::demos()` for templates, with the gallery-gate test painting all 6
+elements (eyebrow · stat · badge · bar · divider · media) at entrance AND rest
+without panic. `ElementCategory` (type/mark/meter/divider/media/**container**/
+**control**; the last two honestly EMPTY until promotion / recipes) is the
+Library SHELF, not a style; `CostTier::{Baseline,Enhanced,Max}` is DECLARED now
+(all elements Baseline — none paints an animated wash), to be HONORED by the
+`Caps→Tier` fidelity probe in a later step (§5). `workbench::library::
+blocks_wall` rewritten **census-driven** — the hand-list DIED (it had gone
+stale: `bar`/`divider` shipped but never showed); a new element now appears the
+day it registers, and nothing enumerates elements by hand (Census-law
+compliance). Elements stay ergonomic free fns; a stateless demo wraps each,
+centralized in the census module (zero element files touched). OUT-OF-SCOPE,
+each its own build-order step: treatments/`ResolvedStyle` threading (§3),
+recipes (§4), the probe honoring `cost_tier` (§5), template migration (§6).
+Gate: full `cargo green` GREEN on the Linux worktree (fmt · spawn+structure
+audits · clippy -D warnings · workspace tests incl. the 2 new census tests ·
+release build rebuilt `target/release/devpulselabs`). CLOSE-OUT (operator,
+Windows checkout): rebuild `devpulselabs.exe` + mtime, screenshot the Library
+element wall at a REAL window size showing all 6 shelved by category (`bar`/
+`divider` now present), land the PR.
+
+**2026-07-28 — JOBS-BOARD MIGRATION: ONE JOBBOARD, THE THREE POLLED STATES
+COLLAPSE (PR #120, squash `d367390`; plan `docs/plans/jobs-board-migration.md`;
+journal NEXT SERIES item 2 CLOSED):** THE JOBBOARD lives inside the Fabric —
+`publish_job` folds every `Queued/Done/Failed` into a board BEFORE
+broadcasting; each row carries a latest-wins `progress` counter (doctrine
+law 7's PROGRESS class, centralized; NO Progress broadcast variant, wire
+shape unchanged). Accessors `job/jobs/jobs_running/ack_job`; running rows
+never evict, unacked resolved rows cap at 64. Composer's
+`RenderState`/`IngestState`/`ExportState` + `ingest_done` are GONE — three
+`JobId` handles read the board (pills, keep flows, repaint keep-alives);
+composer's fabric is now ALWAYS-present (private `Fabric::new()` default,
+`wire_fabric` swaps in the app's — drills/tests keep a working board).
+Seam's `RenderStatus` mirror deleted — `renders` maps rel → `JobId`,
+`GET /render` answers from the board (wire unchanged). Shell gains the
+`jobs` status cell: `working · <label> [· n]` from EVERY route, ticking
+at 300ms while jobs run. Doctrine jobs law amended to record the
+migration. Gate: `cargo green ✔` server1 + pre-push + BOTH CI lanes
+(linux 2m50s, windows 24m13s); fabric 16 · shell 19 · seam 20 · composer
+52 tests. WITNESSED LIVE on the rebuilt exe (build `d367390`): seam
+`POST render` → `GET /render` answered `running` → `done` off the board
+(real 180s stitch, render.mp4 landed), and the status bar showed
+`working · render inbox/comp-jobs` from the ViziWiz route mid-render —
+`docs/proof/jobs-board-working-cell-2026-07-28.png`. NOTE for drills:
+seam JSON documents must be BOM-free (a PS5.1 `Set-Content -Encoding
+utf8` BOM makes the comp loader refuse the doc). CLOSE-OUT:
+`target\release\devpulselabs.exe` rebuilt HERE (mtime 2026-07-28 12:00).
+
+**2026-07-28 — L3: ALPHA OVERLAY — FX ELEMENTS COMPOSITE ON THE TIMELINE
+(PR #110, squash `eac44d2`; plan `docs/plans/l3-alpha-overlay.md`,
+deep-planned + operator-ratified):** the third AE-independence rung — the
+operator's videohive packs become USABLE: an element sits ON TOP of
+footage with correct straight alpha, positioned/scaled/tinted, live in
+the preview AND in the export. Pieces: (1) `dpl-comp` Layer grows
+`x`/`y` (center-px) · `scale` (1.0 = aspect-fit) · `tint [r,g,b,a]`
+(alpha = opacity) — additive, pre-L3 comps byte-identical; (2)
+`engine-media` `comp_args`/`render_comp` — ONE ffmpeg pass: proven
+concat legs → `[base]`, overlays chain `trim → setpts+at/TB → scale →
+colorchannelmixer → overlay enable='between' eof_action=pass`;
+`CompBase::Black` gap legs keep windows timeline-true; PNG-seq inputs
+(Lottie) + held stills; every arg form proven LIVE on ffmpeg 8.1.2
+against the real RTFX pack first; (3) composer layered preview —
+per-overlay lanes, painted back-to-front with tint at both viewer
+sites; caps MACHINE-PROBED (sysinfo RAM+cores; 64GB rig 6+2, this
+laptop 3+1), topmost wins, skips named, export never capped; Lottie
+layers now export via helper temp sequences (L2's honesty note CLOSED);
+(4) editor UX (ColdLight): FX timeline lane, `fx` corner on footage
+rows (overlay at the playhead), OVERLAY inspector (size/x·y/center
+snap/tone-pool tint swatches/opacity, noCT advisory), tag-filter chips
+on FOOTAGE; (5) `rtfx.rs` — the 711-file census grammar → `Record.tags`
+at ingest for every kind + the pack's own `(Footage)/previews` jpg as
+poster (an alpha element's first frame is blank); (6) **BUG FIXED**:
+pack ingest wrote the ADR-014-RETIRED legacy `artifacts.db` (invisible
+library) — `ingest_copy` now takes the caller's index, app passes
+`open_default()`; (7) `--fx-drill <clip-rel> <fx-rel>` synchronous
+headless proof. Gate: `cargo green ✔` server1 + BOTH CI lanes (linux
+3m02s, windows 23m36s). Proof: drill render ffprobed (1920×1080@30,
+comp.json exactly the ratified shape) + frame extracts (tinted overlay
+at t=1.5, absent at t=0.5) + editor shots at 1280×800 AND 1100×700 (an
+Info-pane overflow the shots caught was fixed + re-proven). CLOSE-OUT:
+`target\release\devpulselabs.exe` rebuilt HERE (mtime 2026-07-28
+10:30), `dpl-lottie-render.exe` beside it. KNOWN FOLLOW-UPS: the D:
+media drive went OFFLINE mid-session — re-run the ingest drill on the
+real RTFX pack when it returns (pin `2. Prerendered animations` +
+`6. Sound FX`, the ratified roots); the agent-seam render is still
+concat-only (overlay-aware seam = the agent-placement rung); browse
+window has no tag chips yet (FOOTAGE palette does). Build ran in the
+`devpulselabs-l3` worktree (concurrent-session lane).
+
 **2026-07-28 — DETERMINISM MODES BEHIND THE INTENT GATE
 (`docs/plans/determinism-intent-gate.md`):** `dpl-intent`'s first consumer.
 `DeterminismGate` owns `Behavioral | Strict` with `escalate(OperatorIntent)`,

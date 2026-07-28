@@ -628,6 +628,14 @@ fn row_build(st: &Stamped<BuildEvent>) -> LedgerRow {
             "episodeChanged",
             serde_json::json!({"show": show, "episode": episode}),
         ),
+        BuildEvent::CardAuthored {
+            show,
+            episode,
+            slide,
+        } => (
+            "cardAuthored",
+            serde_json::json!({"show": show, "episode": episode, "slide": slide}),
+        ),
     };
     base_row(st.seq, st.ms, "build", ty, body)
 }

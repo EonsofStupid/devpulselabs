@@ -278,6 +278,16 @@ pub fn build_json(st: &Stamped<BuildEvent>) -> Value {
             "show": show,
             "episode": episode,
         }),
+        BuildEvent::CardAuthored {
+            show,
+            episode,
+            slide,
+        } => json!({
+            "type": "cardAuthored",
+            "show": show,
+            "episode": episode,
+            "slide": slide,
+        }),
     };
     v["domain"] = json!("build");
     v["seq"] = json!(st.seq);
@@ -345,13 +355,6 @@ pub fn intent_json(st: &Stamped<IntentEvent>) -> Value {
     v
 }
 
-/// One render job's polled status (mirrors the editor's `RenderState`).
-enum RenderStatus {
-    Running,
-    Done,
-    Failed(String),
-}
-
 /// The seam's shared state: the one fabric, the registry, the last route
 /// the seam HEARD arrive (RouteChanged is the truth of arrival), the
 /// content root every rel dir is JAILED inside, the optional estate
@@ -363,7 +366,9 @@ pub struct SeamState {
     root: PathBuf,
     /// Ring-0 estate — None when open failed; never invents durability.
     estate: Option<Arc<Estate>>,
-    renders: Mutex<HashMap<String, RenderStatus>>,
+    /// rel dir → the render's job on the fabric's JobBoard — the board is
+    /// the status truth `GET /render` answers from.
+    renders: Mutex<HashMap<String, dpl_fabric::JobId>>,
 }
 
 type Shared = Arc<SeamState>;
@@ -533,20 +538,26 @@ fn start_render(s: &Shared, body: &Value) -> Result<(StatusCode, Value), Vec<Str
     if clips.is_empty() {
         return Err(vec![format!("no playable clips to render in {rel}")]);
     }
-    {
-        let mut renders = s.renders.lock().expect("seam renders");
-        if matches!(renders.get(rel), Some(RenderStatus::Running)) {
-            return Err(vec![format!("render already running for {rel}")]);
-        }
-        renders.insert(rel.to_string(), RenderStatus::Running);
-    }
     let out = dir.join("render.mp4");
     let (w, h, fps) = (comp.w, comp.h, comp.fps);
     let state = Arc::clone(s);
     let key = rel.to_string();
     // Agent-driven renders signal like operator ones (signal-doctrine
-    // law 3: EVERY mutation) — jobs transitions + Saved via SSE.
-    let job = state.fabric.mint_job();
+    // law 3: EVERY mutation) — jobs transitions + Saved via SSE. The
+    // JobBoard row is the polled status GET /render reads.
+    let job = {
+        let mut renders = s.renders.lock().expect("seam renders");
+        if renders
+            .get(rel)
+            .and_then(|id| s.fabric.job(*id))
+            .is_some_and(|r| r.running())
+        {
+            return Err(vec![format!("render already running for {rel}")]);
+        }
+        let job = s.fabric.mint_job();
+        renders.insert(rel.to_string(), job);
+        job
+    };
     state.fabric.publish_job(dpl_fabric::JobEvent::Queued {
         job,
         label: format!("render {key}"),
@@ -584,15 +595,8 @@ fn start_render(s: &Shared, body: &Value) -> Result<(StatusCode, Value), Vec<Str
                     });
                 }
             }
-            let status = match result {
-                Ok(()) => RenderStatus::Done,
-                Err(e) => RenderStatus::Failed(e),
-            };
-            state
-                .renders
-                .lock()
-                .expect("seam renders")
-                .insert(key, status);
+            // No trailing status write — the Done/Failed publish already
+            // folded the JobBoard, and the board is the status truth.
         })
         .expect("spawn seam render thread");
     Ok((
@@ -755,13 +759,21 @@ async fn get_render(
             Json(json!({"ok": false, "issues": ["missing ?dir="]})),
         );
     };
-    let body = match s.renders.lock().expect("seam renders").get(rel.as_str()) {
+    let row = s
+        .renders
+        .lock()
+        .expect("seam renders")
+        .get(rel.as_str())
+        .and_then(|id| s.fabric.job(*id));
+    let body = match row.as_ref().map(|r| &r.state) {
         None => json!({"dir": rel, "state": "idle"}),
-        Some(RenderStatus::Running) => json!({"dir": rel, "state": "running"}),
-        Some(RenderStatus::Done) => {
+        Some(dpl_fabric::JobState::Running) => json!({"dir": rel, "state": "running"}),
+        Some(dpl_fabric::JobState::Done { .. }) => {
             json!({"dir": rel, "state": "done", "out": format!("{rel}/render.mp4")})
         }
-        Some(RenderStatus::Failed(e)) => json!({"dir": rel, "state": "failed", "error": e}),
+        Some(dpl_fabric::JobState::Failed { error }) => {
+            json!({"dir": rel, "state": "failed", "error": error})
+        }
     };
     (StatusCode::OK, Json(body))
 }
@@ -969,6 +981,28 @@ mod envelope_tests {
                 "type": "slidePlaced",
                 "show": "devpulse-news", "episode": "ep1",
                 "chapter": "intro", "slide": "title-neon",
+            })
+        );
+    }
+
+    #[test]
+    fn the_card_authored_envelope_is_pinned() {
+        let st = Stamped {
+            seq: 6,
+            ms: 1600,
+            ev: BuildEvent::CardAuthored {
+                show: "".into(),
+                episode: "".into(),
+                slide: "authored-draft-1".into(),
+            },
+        };
+        assert_eq!(
+            build_json(&st),
+            json!({
+                "domain": "build", "seq": 6, "ms": 1600,
+                "type": "cardAuthored",
+                "show": "", "episode": "",
+                "slide": "authored-draft-1",
             })
         );
     }
@@ -1198,6 +1232,60 @@ mod tests {
         }
     }
 
+    /// The Pass-A live round: an authored card fact rides the REAL `/signals`
+    /// SSE stream, one envelope, stamped — the whole point of building the
+    /// authoring surface signal-first. `get_signals` subscribes eagerly, so
+    /// opening the stream registers the receiver before we publish; the read
+    /// is bounded so a regression fails fast instead of hanging.
+    #[tokio::test]
+    async fn a_card_authored_fact_reaches_the_live_signals_stream() {
+        let (fabric, state) = test_state();
+        let resp = router(state)
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/signals")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // The exact publish the authoring surface makes after minting a draft.
+        fabric.publish_build(BuildEvent::CardAuthored {
+            show: String::new(),
+            episode: String::new(),
+            slide: "authored-draft-1".into(),
+        });
+
+        let mut body = resp.into_body().into_data_stream();
+        let deadline = std::time::Duration::from_secs(5);
+        let envelope = tokio::time::timeout(deadline, async {
+            loop {
+                let chunk = body
+                    .next()
+                    .await
+                    .expect("stream open")
+                    .expect("chunk bytes");
+                let text = String::from_utf8(chunk.to_vec()).expect("utf8");
+                // Skip SSE keep-alive comments (`:` lines); take the first data.
+                if let Some(line) = text.lines().find_map(|l| l.strip_prefix("data: ")) {
+                    break serde_json::from_str::<Value>(line).expect("json envelope");
+                }
+            }
+        })
+        .await
+        .expect("a signal arrived before the timeout");
+
+        assert_eq!(
+            envelope["domain"], "build",
+            "authoring fact rides the build domain"
+        );
+        assert_eq!(envelope["type"], "cardAuthored");
+        assert_eq!(envelope["slide"], "authored-draft-1");
+    }
+
     #[tokio::test]
     async fn an_unknown_route_is_refused_422_and_publishes_nothing() {
         let (fabric, state) = test_state();
@@ -1360,15 +1448,15 @@ mod tests {
 
     fn demo_comp(clip_rel: &str, out_pt: f32) -> Composition {
         let mut comp = Composition::default_1080p30();
-        comp.tracks[0].layers.push(dpl_comp::Layer {
-            id: "clip-1".into(),
-            source: dpl_comp::Source::Artifact {
+        comp.tracks[0].layers.push(dpl_comp::Layer::plain(
+            "clip-1",
+            dpl_comp::Source::Artifact {
                 rel: clip_rel.into(),
             },
-            start: 0.0,
-            in_pt: 0.0,
+            0.0,
+            0.0,
             out_pt,
-        });
+        ));
         comp
     }
 
@@ -1451,13 +1539,13 @@ mod tests {
         let (_fabric, state) = test_state_at(root.clone());
         // An element-only comp is valid SHAPE but has nothing to stitch.
         let mut comp = Composition::default_1080p30();
-        comp.tracks[0].layers.push(dpl_comp::Layer {
-            id: "el-1".into(),
-            source: dpl_comp::Source::Element { id: "spark".into() },
-            start: 0.0,
-            in_pt: 0.0,
-            out_pt: 2.0,
-        });
+        comp.tracks[0].layers.push(dpl_comp::Layer::plain(
+            "el-1",
+            dpl_comp::Source::Element { id: "spark".into() },
+            0.0,
+            0.0,
+            2.0,
+        ));
         dpl_comp::save(&root.join("inbox/only-elements"), &comp).expect("save");
         let resp = router(state)
             .oneshot(post_json(

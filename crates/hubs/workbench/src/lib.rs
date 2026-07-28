@@ -6,9 +6,11 @@
 //! template live, and the vocabulary walls (colors · presets · fonts ·
 //! moods). The editor (W4) opens exactly these documents.
 
+mod author;
 mod library;
 mod studio;
 
+use author::AuthorSurface;
 use dpl_coldlight::{self as cl, Tone};
 use dpl_hub::{Hub, HubId, HubSpec, Route, SubId, SubRoute};
 use dpl_slides::document::DocSlide;
@@ -21,6 +23,7 @@ use studio::StudioState;
 
 pub const HUB: HubId = HubId("workbench");
 pub const LIBRARY: SubId = SubId("library");
+pub const AUTHOR: SubId = SubId("author");
 pub const EPISODES: SubId = SubId("episodes");
 pub const EDITOR: SubId = SubId("editor");
 pub const STUDIO: SubId = SubId("studio");
@@ -36,6 +39,11 @@ pub(crate) static SPEC: HubSpec = HubSpec {
             id: LIBRARY,
             label: "Library",
             blurb: "ALL the raw ingredients: seed slides by class, live templates, colors, presets, fonts, moods.",
+        },
+        SubRoute {
+            id: AUTHOR,
+            label: "Author",
+            blurb: "Say what you want and seed a card — the intent-first authoring surface (charter pass 1).",
         },
         SubRoute {
             id: EDITOR,
@@ -97,6 +105,9 @@ pub struct WorkbenchHub {
     clone_form: Option<CloneForm>,
     /// W10a Studio — place a finished slide into a content episode.
     studio: StudioState,
+    /// The authoring surface (charter pass 1) — intent bar + draft mint,
+    /// signal-first.
+    author: AuthorSurface,
     test_lab: egui_pilot_ai_lab::TestLab,
 }
 
@@ -327,6 +338,8 @@ impl Hub for WorkbenchHub {
     fn ui(&mut self, ui: &mut egui::Ui, route: Route) {
         if route.sub == LIBRARY {
             self.library_surface(ui);
+        } else if route.sub == AUTHOR {
+            self.author.ui(ui, &self.fabric);
         } else if route.sub == EDITOR {
             self.editor_surface(ui);
         } else if route.sub == EPISODES {
