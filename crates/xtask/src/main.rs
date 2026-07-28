@@ -111,6 +111,7 @@ fn green() -> Result<(), String> {
     run("fmt", &["fmt", "--all", "--", "--check"])?;
     docs_status()?;
     spawn_audit()?;
+    structure_audit()?;
     run(
         "clippy",
         &[
@@ -613,6 +614,279 @@ fn spawn_audit() -> Result<(), String> {
     }
 }
 
+/// The STRUCTURE audit — the layer law of `docs/design/architecture.md`,
+/// enforced as fitness functions (amending a table there means amending
+/// the matching table HERE in the same commit). Graph shape only: exact
+/// dep ceilings, the egui-free census, no lateral hub deps, the one FFI
+/// leaf, manifest hygiene, orphan crate folders, and the harness-flag
+/// census. Cheap: one `cargo metadata --no-deps` + text scans.
+fn structure_audit() -> Result<(), String> {
+    println!("── structure audit ───────────────────────────");
+
+    // Ceilings: these crates' NORMAL direct deps are EXACTLY these sets
+    // (architecture.md §2). A new edge is a decision, not a drive-by.
+    const CEILINGS: &[(&str, &[&str])] = &[
+        ("dpl-proc", &[]),
+        ("dpl-comp", &["serde", "serde_json"]),
+        (
+            "dpl-workflows",
+            &["dpl-comp", "dpl-doc", "serde", "serde_json"],
+        ),
+        ("dpl-doc", &["dpl-coldlight", "serde", "serde_json"]),
+        ("dpl-tools-deps", &["serde", "serde_json", "sha2"]),
+        ("dpl-landing", &["serde", "serde_json"]),
+        ("dpl-estate", &["fjall", "moka", "serde", "serde_json"]),
+    ];
+    // The egui-free census (architecture.md §1): document/engine/service
+    // crates never link egui/eframe directly. Adding UI to one is a
+    // conscious one-line amendment, like registering a slide.
+    const EGUI_FREE: &[&str] = &[
+        "dpl-proc",
+        "dpl-comp",
+        "dpl-doc",
+        "dpl-workflows",
+        "dpl-estate",
+        "dpl-landing",
+        "dpl-index",
+        "dpl-tools-deps",
+        "dpl-engine-capture",
+        "dpl-engine-media",
+        "dpl-engine-steps",
+        "dpl-engine-ae",
+        "dpl-engine-browser",
+        "dpl-lottie",
+        "dpl-lottie-render",
+        "dpl-guide",
+        "dpl-chat-core",
+        "dpl-chat-store",
+        "dpl-chat-accounts",
+        "dpl-chat-browser-auth",
+        "dpl-chat-interactions",
+        "dpl-chat-profiles",
+        "dpl-chat-runtime",
+        "dpl-chat-social",
+        "dpl-chat-testkit",
+        "dpl-chat-codex",
+        "dpl-chat-claude",
+        "dpl-chat-gemini",
+        "dpl-chat-grok",
+        "dpl-chat-imagine",
+        "egui-pilot-ai-protocol",
+        "egui-pilot-ai-transport",
+        "egui-pilot-ai-runner",
+        "egui-pilot-ai-cli",
+        "xtask",
+    ];
+    // The ONE FFI leaf (ADR-009): `-sys` links live here and nowhere else.
+    const SYS_ALLOWED: &[&str] = &["dpl-lottie-render"];
+    // Orphan crate folders outside the workspace, named and tolerated
+    // (architecture.md §3); anything NEW fails.
+    const ORPHAN_ALLOWED: &[&str] = &["desktop-spike"];
+
+    let output = Command::new("cargo")
+        .args(["metadata", "--format-version", "1", "--no-deps"])
+        .stderr(Stdio::inherit())
+        .output()
+        .map_err(|e| format!("structure: cargo metadata spawn failed: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "structure: cargo metadata failed ({})",
+            output.status
+        ));
+    }
+    let meta: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|e| format!("structure: metadata parse: {e}"))?;
+    let packages = meta["packages"]
+        .as_array()
+        .ok_or("structure: metadata has no packages")?;
+
+    let mut failures: Vec<String> = Vec::new();
+    let mut manifests: Vec<PathBuf> = Vec::new();
+    let normal_deps = |package: &serde_json::Value| -> Vec<String> {
+        package["dependencies"]
+            .as_array()
+            .map(|deps| {
+                deps.iter()
+                    .filter(|d| d["kind"].is_null())
+                    .filter_map(|d| d["name"].as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+
+    for package in packages {
+        let name = package["name"].as_str().unwrap_or_default();
+        let deps = normal_deps(package);
+        if let Some(path) = package["manifest_path"].as_str() {
+            manifests.push(PathBuf::from(path));
+        }
+
+        if let Some((_, ceiling)) = CEILINGS.iter().find(|(c, _)| *c == name) {
+            let mut actual: Vec<&str> = deps.iter().map(String::as_str).collect();
+            actual.sort_unstable();
+            let mut expected = ceiling.to_vec();
+            expected.sort_unstable();
+            if actual != expected {
+                failures.push(format!(
+                    "{name}: deps {actual:?} != ceiling {expected:?} (amend architecture.md §2 + this table together)"
+                ));
+            }
+        }
+        if EGUI_FREE.contains(&name) {
+            // Precise UI-lib match: our own `egui-pilot-ai-*` harness
+            // crates are NOT egui links.
+            if let Some(ui) = deps.iter().find(|d| {
+                *d == "egui" || *d == "eframe" || *d == "egui-wgpu" || d.starts_with("egui_")
+            }) {
+                failures.push(format!(
+                    "{name}: egui-free crate links `{ui}` (census: architecture.md §1)"
+                ));
+            }
+        }
+        if name.starts_with("dpl-hub-") {
+            if let Some(lateral) = deps.iter().find(|d| d.starts_with("dpl-hub-")) {
+                failures.push(format!(
+                    "{name}: hub depends on hub `{lateral}` — hubs never touch laterally"
+                ));
+            }
+        }
+        if !SYS_ALLOWED.contains(&name) {
+            if let Some(ffi) = deps.iter().find(|d| d.ends_with("-sys")) {
+                failures.push(format!(
+                    "{name}: FFI link `{ffi}` outside the one leaf (ADR-009; allowed: {SYS_ALLOWED:?})"
+                ));
+            }
+        }
+    }
+
+    // Manifest hygiene: workspace lints + never-publish, every member.
+    // The FFI leaf carries a RATIFIED per-crate lint override (unsafe is
+    // quarantined there — architecture.md §3); everyone else inherits.
+    const LINTS_OVERRIDE_ALLOWED: &[&str] = &["dpl-lottie-render"];
+    for package in packages {
+        let name = package["name"].as_str().unwrap_or_default();
+        let Some(manifest) = package["manifest_path"].as_str() else {
+            continue;
+        };
+        let text =
+            fs::read_to_string(manifest).map_err(|e| format!("structure: {manifest}: {e}"))?;
+        let lints_ok = text.contains("[lints]")
+            || text.contains("lints.workspace")
+            || LINTS_OVERRIDE_ALLOWED.contains(&name);
+        let publish_ok = text.contains("publish = false") || text.contains("publish.workspace");
+        if !lints_ok {
+            failures.push(format!("{name}: missing `[lints] workspace = true`"));
+        }
+        if !publish_ok {
+            failures.push(format!("{name}: publish is not pinned false"));
+        }
+    }
+
+    // Orphans: every crates/**/Cargo.toml is a member or named.
+    let member_set: HashSet<PathBuf> = manifests
+        .iter()
+        .filter_map(|m| m.canonicalize().ok())
+        .collect();
+    let mut stack = vec![PathBuf::from("crates")];
+    while let Some(dir) = stack.pop() {
+        let Ok(read) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in read.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.file_name().and_then(|n| n.to_str()) == Some("Cargo.toml") {
+                let canonical = path.canonicalize().unwrap_or_else(|_| path.clone());
+                let named = ORPHAN_ALLOWED.iter().any(|allow| {
+                    path.components()
+                        .any(|c| c.as_os_str().to_string_lossy() == *allow)
+                });
+                if !member_set.contains(&canonical) && !named {
+                    failures.push(format!(
+                        "{}: crate folder outside the workspace (add to members or the named orphan list)",
+                        path.display()
+                    ));
+                }
+            }
+        }
+    }
+
+    // Harness-flag census: the flags the app parses ⇔ the flags CLAUDE.md
+    // documents, both directions. `--content-root` is parsed inside
+    // engine-capture (the ring resolver), hence the one addition.
+    let flag_set = |text: &str| -> HashSet<String> {
+        let bytes = text.as_bytes();
+        let mut flags = HashSet::new();
+        let mut i = 0;
+        while let Some(offset) = text[i..].find("--") {
+            let start = i + offset;
+            let rest = &text[start + 2..];
+            let end = rest
+                .find(|c: char| !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'))
+                .unwrap_or(rest.len());
+            if end > 0 && rest.as_bytes()[0].is_ascii_lowercase() && bytes[start] == b'-' {
+                flags.insert(format!("--{}", &rest[..end]));
+            }
+            i = start + 2;
+        }
+        flags
+    };
+    let main_src = fs::read_to_string("crates/app/src/main.rs")
+        .map_err(|e| format!("structure: crates/app/src/main.rs: {e}"))?;
+    let mut parsed: HashSet<String> = main_src
+        .lines()
+        .filter(|l| l.contains("\"--"))
+        .flat_map(&flag_set)
+        .collect();
+    parsed.insert("--content-root".into());
+    let claude =
+        fs::read_to_string("CLAUDE.md").map_err(|e| format!("structure: CLAUDE.md: {e}"))?;
+    let mut documented = HashSet::new();
+    let mut in_block = false;
+    for line in claude.lines() {
+        if line.starts_with("- Harness flags") {
+            in_block = true;
+        } else if in_block && line.starts_with("- ") {
+            break;
+        }
+        if in_block {
+            documented.extend(flag_set(line));
+        }
+    }
+    for flag in parsed.difference(&documented) {
+        failures.push(format!(
+            "{flag}: parsed by the app but missing from CLAUDE.md's harness list"
+        ));
+    }
+    for flag in documented.difference(&parsed) {
+        failures.push(format!(
+            "{flag}: documented in CLAUDE.md but no app code parses it (phantom flag)"
+        ));
+    }
+
+    if failures.is_empty() {
+        println!(
+            "structure: {} ceilings · {} egui-free · {} members hygienic · {} flags in census",
+            CEILINGS.len(),
+            EGUI_FREE.len(),
+            manifests.len(),
+            parsed.len()
+        );
+        Ok(())
+    } else {
+        failures.sort();
+        Err(format!(
+            "structure audit FAILED:
+  {}",
+            failures.join(
+                "
+  "
+            )
+        ))
+    }
+}
+
 #[cfg(windows)]
 fn windows_file_version(executable: &Path) -> Result<String, String> {
     let file = pelite::FileMap::open(executable)
@@ -754,6 +1028,7 @@ fn main() -> ExitCode {
         "green" => green(),
         "sweep" => sweep(&arguments),
         "docs-status" => docs_status(),
+        "structure" => structure_audit(),
         "stage-tool-deps" => stage_tool_dependencies(&arguments),
         "fix" => run("fmt", &["fmt", "--all"]).and_then(|()| {
             run(
@@ -768,7 +1043,7 @@ fn main() -> ExitCode {
             )
         }),
         other => Err(format!(
-            "unknown task \"{other}\" — tasks: green, sweep, docs-status, stage-tool-deps, fix"
+            "unknown task \"{other}\" — tasks: green, sweep, docs-status, structure, stage-tool-deps, fix"
         )),
     };
     match result {

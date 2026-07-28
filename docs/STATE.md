@@ -2,6 +2,24 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-28 — ARCHITECTURE DOCTRINE + THE STRUCTURE AUDIT (PR #107):**
+the code-structure law, written and armed (operator ask: strict, organized,
+methodical authoring aligned to house patterns + industry practice).
+`docs/design/architecture.md` = the layer law authored from the REAL
+graph (layer stack, exact dep ceilings for 7 pure crates, standing
+exceptions recorded with their why — dpl-doc→coldlight token edge, the
+FFI leaf's ratified unsafe override, the desktop-spike orphan — plus the
+census/document/ADR-009 laws and a new-crate checklist). `cargo xtask
+structure` = the doctrine as FITNESS FUNCTIONS inside `cargo green`
+(after the spawn audit): ceiling exact-sets · egui-free census (35) · no
+lateral hub deps · `-sys` only in dpl-lottie-render · manifest hygiene
+(63 members) · orphan folders (named allowlist) · harness-flag census
+(app ⇔ CLAUDE.md, both directions, 33 flags). Amending doc or audit table
+alone fails the gate — they move in the same commit (CLAUDE.md law
+added). First light caught real drift: dpl-chat-imagine (no lints/
+publish, a #98 miss) + dpl-engine-capture (no publish pin) — fixed
+in-PR. Negative proofs in plan §8 (`architecture-doctrine.md`).
+
 **2026-07-28 — THE WINDOWS LANE UNBLOCKED (#106) AND THE PR QUEUE ABSORBED:**
 every open PR was stuck on `green-windows`. Three stacked causes, each proven:
 (1) the runner was OFFLINE (the ONLOGON task never fired after reboot) — hours
