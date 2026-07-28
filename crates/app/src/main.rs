@@ -233,6 +233,9 @@ fn main() -> eframe::Result {
         .iter()
         .position(|a| a == "--fx-drill")
         .and_then(|i| Some((args.get(i + 1)?.clone(), args.get(i + 2)?.clone())));
+    // `--l4-drill` (L4): graded base + screen leak + matted overlay from
+    // conventional scratch-root files — the blend/matte/LUT proof.
+    let l4_drill = args.iter().any(|a| a == "--l4-drill");
     // `--make-slide <asset-rel>` (W11) mints a media slide from a
     // content-relative artifact through the shelf's "Make slide" path —
     // image/video → one slide, `.pdf` → page slides.
@@ -401,6 +404,7 @@ fn main() -> eframe::Result {
                 save_comp,
                 lottie_import,
                 fx_drill,
+                l4_drill,
                 make_slide,
                 run_workflow,
                 seam_port,
@@ -447,6 +451,7 @@ struct Boot {
     save_comp: Option<String>,
     lottie_import: Option<String>,
     fx_drill: Option<(String, String)>,
+    l4_drill: bool,
     make_slide: Option<String>,
     run_workflow: Option<String>,
     /// The agent seam's port; None = `--no-seam`.
@@ -528,6 +533,7 @@ impl App {
             save_comp,
             lottie_import,
             fx_drill,
+            l4_drill,
             make_slide,
             run_workflow,
             seam_port,
@@ -606,6 +612,10 @@ impl App {
         // overlay, rendered synchronously before the first frame.
         if let Some((clip, fx)) = &fx_drill {
             wiredfront.fx_drill(clip, fx);
+        }
+        // L4's harness seam: blend + matte + LUT in one synchronous proof.
+        if l4_drill {
+            wiredfront.l4_drill();
         }
         // W11's harness seam: mint a media slide from an artifact through the
         // shelf's exact "Make slide" path (image/video → one, pdf → pages).

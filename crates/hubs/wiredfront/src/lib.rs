@@ -1075,6 +1075,13 @@ impl WiredfrontHub {
         self.composer.fx_drill(clip_rel, fx_rel);
     }
 
+    /// The `--l4-drill` harness seam: graded base + screen leak + matted
+    /// overlay from conventional scratch-root files, rendered
+    /// synchronously — the headless blend/matte/LUT proof.
+    pub fn l4_drill(&mut self) {
+        self.composer.l4_drill();
+    }
+
     /// The `--make-slide <asset-rel>` harness seam (W11): mint a media slide
     /// from a content-relative artifact (image/video → one slide; `.pdf` →
     /// page slides) through the shelf's exact "Make slide" path. Prints the

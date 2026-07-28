@@ -1969,12 +1969,70 @@ impl Composer {
                 l.tint = tint;
             }
         }
+        self.drill_render("fx-drill");
+    }
+
+    /// The `--l4-drill` harness seam: conventional scratch-root files
+    /// (`inbox/base.mp4` · `elements/leak.mp4` · `elements/matte.mov` ·
+    /// `elements/grade.cube`) exercise ALL THREE L4 mechanisms in one
+    /// comp — a graded base cut, a screen-blended leak at 1.0s, and a
+    /// matted+tinted overlay at 2.5s — rendered synchronously through
+    /// the exact app paths. Verdict on stdout.
+    pub fn l4_drill(&mut self) {
+        let base = Record {
+            rel_path: "inbox/base.mp4".into(),
+            kind: "video".into(),
+            name: "drill base".into(),
+            ..Record::default()
+        };
+        self.add_clip(&base);
+        if let Some(id) = self.selected.clone() {
+            if let Some(l) = self.layer_mut(&id) {
+                l.lut = Some("elements/grade.cube".into());
+            }
+        }
+        self.time = 1.0;
+        let leak = Record {
+            rel_path: "elements/leak.mp4".into(),
+            kind: "video".into(),
+            name: "drill leak".into(),
+            ..Record::default()
+        };
+        self.add_overlay(&leak);
+        if let Some(id) = self.selected.clone() {
+            if let Some(l) = self.layer_mut(&id) {
+                l.blend = dpl_comp::Blend::Screen;
+                l.out_pt = l.out_pt.min(l.in_pt + 3.0);
+            }
+        }
+        self.time = 2.5;
+        let matted = Record {
+            rel_path: "inbox/base.mp4".into(),
+            kind: "video".into(),
+            name: "drill matted".into(),
+            ..Record::default()
+        };
+        self.add_overlay(&matted);
+        if let Some(id) = self.selected.clone() {
+            let coral = Tone::Coral.color();
+            if let Some(l) = self.layer_mut(&id) {
+                l.matte = Some("elements/matte.mov".into());
+                l.tint = Some([coral.r(), coral.g(), coral.b(), 255]);
+                l.out_pt = l.out_pt.min(l.in_pt + 2.0);
+            }
+        }
+        self.drill_render("l4-drill");
+    }
+
+    /// A drill's shared tail: save the comp, render SYNCHRONOUSLY, print
+    /// the verdict — the headless proofs ffprobe `render.mp4` on exit.
+    fn drill_render(&mut self, tag: &str) {
         if self.dir.is_none() {
             self.dir = Some(Self::fresh_comp_dir());
         }
         let dir = self.dir.clone().expect("comp dir");
         if let Err(e) = dpl_comp::save(&dir, &self.comp) {
-            println!("fx-drill: comp save failed: {e}");
+            println!("{tag}: comp save failed: {e}");
             return;
         }
         let out = dir.join("render.mp4");
@@ -1982,12 +2040,12 @@ impl Composer {
         match render_comp_resolving(parts, self.comp.w, self.comp.h, self.comp.fps, &out) {
             Ok(()) => {
                 index_render(&out, Some(&self.fabric));
-                self.status = format!("FX drill rendered {}", out.display());
-                println!("fx-drill: rendered {}", out.display());
+                self.status = format!("{tag} rendered {}", out.display());
+                println!("{tag}: rendered {}", out.display());
             }
             Err(e) => {
-                self.status = format!("FX drill failed: {e}");
-                println!("fx-drill: FAILED: {e}");
+                self.status = format!("{tag} failed: {e}");
+                println!("{tag}: FAILED: {e}");
             }
         }
     }
