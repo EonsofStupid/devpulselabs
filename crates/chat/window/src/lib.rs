@@ -278,6 +278,47 @@ pub enum ChatWindowIntent {
     NavigateTo(Route),
     ShowMain,
     QuitApplication,
+    /// A slash command recognized at the operator's input-submit event,
+    /// from the operator's own text buffer, *before* that text became a
+    /// message. `synthetic` is the pilot's attribution of the activating
+    /// click — the host refuses to mint a proof when it is true.
+    OperatorSlash {
+        command: OperatorSlashCommand,
+        synthetic: bool,
+    },
+}
+
+/// Privileged slash commands the Ai composer recognizes at submit.
+/// Unrecognized `/…` text stays an ordinary message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OperatorSlashCommand {
+    /// Demand strict determinism.
+    Strict,
+    /// Return to behavioral determinism (operator-demanded strict only).
+    Behavioral,
+}
+
+impl OperatorSlashCommand {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Strict => "strict",
+            Self::Behavioral => "behavioral",
+        }
+    }
+}
+
+/// Parse a slash command from the operator's submit buffer.
+///
+/// Recognition is exact and whole-buffer: the trimmed draft must be exactly
+/// `/strict` or `/behavioral`. A `/strict` buried in a sentence is just text
+/// — that is the provenance law's other half: pattern-in-string never
+/// escalates; only an intentional whole-buffer command at submit does.
+pub fn parse_operator_slash(draft: &str) -> Option<OperatorSlashCommand> {
+    match draft.trim() {
+        "/strict" => Some(OperatorSlashCommand::Strict),
+        "/behavioral" => Some(OperatorSlashCommand::Behavioral),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -323,6 +364,12 @@ pub enum HostIntent {
     NavigateTo(Route),
     ShowMain,
     QuitApplication,
+    /// See [`ChatWindowIntent::OperatorSlash`] — the host is the one mint
+    /// site for `OperatorIntent::slash_command`.
+    OperatorSlash {
+        command: OperatorSlashCommand,
+        synthetic: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -716,6 +763,9 @@ impl ChatWindow {
                 session,
                 text,
             })),
+            ChatWindowIntent::OperatorSlash { command, synthetic } => {
+                Ok(Some(HostIntent::OperatorSlash { command, synthetic }))
+            }
             ChatWindowIntent::CancelTurn { provider, session } => {
                 Ok(Some(HostIntent::CancelTurn { provider, session }))
             }
@@ -2038,7 +2088,7 @@ impl ChatWindow {
                                         .push(ChatWindowIntent::CancelTurn { provider, session });
                                 }
                             } else {
-                                let send_target = selected.and_then(|provider| {
+                                let send_target = selected.as_ref().and_then(|provider| {
                                     provider.active_session.map(|session| {
                                         (
                                             provider.registration.manifest.descriptor.id,
@@ -2047,9 +2097,13 @@ impl ChatWindow {
                                         )
                                     })
                                 });
-                                let enabled = send_target.is_some_and(|(_, _, can_send)| can_send)
-                                    && !draft.trim().is_empty();
-                                let reason = if draft.trim().is_empty() {
+                                let slash = parse_operator_slash(&draft);
+                                let enabled = slash.is_some()
+                                    || (send_target.is_some_and(|(_, _, can_send)| can_send)
+                                        && !draft.trim().is_empty());
+                                let reason = if slash.is_some() {
+                                    "Run this operator command."
+                                } else if draft.trim().is_empty() {
                                     "Type a message first."
                                 } else if send_target.is_none() {
                                     "Choose or create a provider session first."
@@ -2068,7 +2122,27 @@ impl ChatWindow {
                                 metadata.description = Some(reason.to_owned());
                                 ui.pilot_track(&send, metadata);
                                 if send.clicked() {
-                                    if let Some((provider, session, _)) = send_target {
+                                    if let Some(command) = slash {
+                                        // Provenance law: recognize at the
+                                        // operator's input-submit event, from
+                                        // the operator's own text buffer,
+                                        // BEFORE the text becomes a message.
+                                        // Clear the draft so nothing is sent.
+                                        if let Some(provider) = selected.as_ref() {
+                                            intents.push(ChatWindowIntent::UpdateAiDraft {
+                                                provider: provider
+                                                    .registration
+                                                    .manifest
+                                                    .descriptor
+                                                    .id,
+                                                value: String::new(),
+                                            });
+                                        }
+                                        intents.push(ChatWindowIntent::OperatorSlash {
+                                            command,
+                                            synthetic: egui_pilot_ai::input_is_synthetic(ui.ctx()),
+                                        });
+                                    } else if let Some((provider, session, _)) = send_target {
                                         intents.push(ChatWindowIntent::SendTurn {
                                             provider,
                                             session,
@@ -4412,5 +4486,29 @@ mod tests {
         ));
         assert!(harness.ctx.memory(|memory| memory.has_focus(expected)));
         assert_eq!(harness.state().pending_focus_return, None);
+    }
+
+    #[test]
+    fn slash_parse_is_exact_and_whole_buffer() {
+        assert_eq!(
+            parse_operator_slash("/strict"),
+            Some(OperatorSlashCommand::Strict)
+        );
+        assert_eq!(
+            parse_operator_slash("  /behavioral  "),
+            Some(OperatorSlashCommand::Behavioral)
+        );
+        // Buried in a sentence — inert. Pattern-in-string never escalates.
+        assert_eq!(parse_operator_slash("please /strict now"), None);
+        assert_eq!(parse_operator_slash("/strict please"), None);
+        assert_eq!(parse_operator_slash("/stricter"), None);
+        assert_eq!(parse_operator_slash("strict"), None);
+        assert_eq!(parse_operator_slash(""), None);
+    }
+
+    #[test]
+    fn slash_commands_name_their_audit_action() {
+        assert_eq!(OperatorSlashCommand::Strict.as_str(), "strict");
+        assert_eq!(OperatorSlashCommand::Behavioral.as_str(), "behavioral");
     }
 }

@@ -17,7 +17,7 @@ use dpl_chat_social::SocialModel;
 use dpl_chat_store::HistoryCatalog;
 use dpl_chat_window::{
     ChatWindow, GenerationDraftView, GenerationStatus, HostIntent, ImagineFlushDecision,
-    ProviderPermissionChoice, ProviderPermissionChoiceKind,
+    OperatorSlashCommand, ProviderPermissionChoice, ProviderPermissionChoiceKind,
 };
 use dpl_chat_windows::{
     ChatCloseDecision, ChatWindowId, ChatWindowRecord, ChatWindowRegistry, PeerLifetime,
@@ -25,7 +25,7 @@ use dpl_chat_windows::{
     WindowGeometry, WindowKind, WindowLifecycle,
 };
 use dpl_fabric::{
-    ActivationAttemptId, AppWindowAction, CaptureEvent, Fabric, JobEvent, JobId,
+    ActivationAttemptId, AppWindowAction, CaptureEvent, Fabric, IntentEvent, JobEvent, JobId,
     ProviderActivationStage, ProviderEvent, ProviderFailureClass, ProviderReceiver, ShellEvent,
     ShellReceiver,
 };
@@ -113,6 +113,9 @@ struct Shared {
     /// The coordinator publishes `ShellEvent::NavigateRequest`; the shell
     /// drains it and navigates the main window.
     fabric: Fabric,
+    /// The session's determinism gate — slash mint site and UI channel
+    /// share one state machine (determinism-intent-gate plan).
+    determinism: dpl_intent::DeterminismGate,
     #[cfg(feature = "eguipilotai-devtools")]
     pilot_runtime: Option<Arc<Mutex<PilotRuntime>>>,
 }
@@ -459,6 +462,7 @@ impl ChatWindowCoordinator {
             next_interaction_id: 2_000_000_000,
             primary_monitor,
             fabric: fabric.clone(),
+            determinism: dpl_intent::DeterminismGate::default(),
             #[cfg(feature = "eguipilotai-devtools")]
             pilot_runtime: None,
         };
@@ -536,6 +540,10 @@ impl ChatWindowCoordinator {
             shared: Arc::new(Mutex::new(shared)),
             events: fabric.subscribe_shell(),
         }
+    }
+
+    pub fn attach_determinism(&self, gate: dpl_intent::DeterminismGate) {
+        lock(&self.shared).determinism = gate;
     }
 
     #[cfg(feature = "eguipilotai-devtools")]
@@ -1019,6 +1027,57 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
             lock(shared).lifetime.request_quit();
             ctx.send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::Close);
         }
+        HostIntent::OperatorSlash { command, synthetic } => {
+            apply_operator_slash(shared, command, synthetic);
+        }
+    }
+}
+
+/// The ONE slash-channel mint site (determinism-intent-gate plan §3.3).
+/// Model output never reaches here; synthetic activation refuses.
+fn apply_operator_slash(
+    shared: &Arc<Mutex<Shared>>,
+    command: OperatorSlashCommand,
+    synthetic: bool,
+) {
+    let state = lock(shared);
+    let action = command.as_str().to_owned();
+    if synthetic {
+        state.fabric.publish_intent(IntentEvent::IntentRefused {
+            action,
+            reason: "synthetic-input".into(),
+        });
+        return;
+    }
+    match command {
+        OperatorSlashCommand::Strict => {
+            let channel = state
+                .determinism
+                .escalate(dpl_intent::OperatorIntent::slash_command());
+            state
+                .fabric
+                .publish_intent(IntentEvent::DeterminismChanged {
+                    mode: dpl_intent::DeterminismMode::Strict,
+                    cause: Some(dpl_intent::StrictCause::Operator(channel)),
+                });
+        }
+        OperatorSlashCommand::Behavioral => match state.determinism.deescalate() {
+            dpl_intent::Deescalation::Cleared => {
+                state
+                    .fabric
+                    .publish_intent(IntentEvent::DeterminismChanged {
+                        mode: dpl_intent::DeterminismMode::Behavioral,
+                        cause: None,
+                    });
+            }
+            dpl_intent::Deescalation::RefusedEvidence => {
+                state.fabric.publish_intent(IntentEvent::IntentRefused {
+                    action,
+                    reason: "evidence-locked".into(),
+                });
+            }
+            dpl_intent::Deescalation::AlreadyBehavioral => {}
+        },
     }
 }
 

@@ -160,9 +160,21 @@ doctrine completes it.
    the domain itself is unconditional so the activity feed, the seam
    envelope, and the future ledger compile once. `Refused` never
    publishes: a refusal is a command result on the pipe, not a
-   lifecycle fact. ANTI-LOOP LAW: the coachable-signal catalog
+   lifecycle fact.    ANTI-LOOP LAW: the coachable-signal catalog
    (`coach_signals.rs`) never subscribes to this domain — a touchpoint
    waiting on a coach event would self-trigger.
+
+11. **The INTENT domain (established 2026-07-28,
+   `docs/plans/determinism-intent-gate.md`).** Privileged-mode transitions
+   and their refusals — `IntentEvent { DeterminismChanged{mode,cause} ·
+   IntentRefused{action,reason} }` — stamped like every other fact domain.
+   The PUBLISHERS are the two greppable mint sites: the chat composer's
+   slash path (`OperatorIntent::slash_command`) and the shell inspector's
+   DETERMINISM card (`OperatorIntent::ui_acknowledged`), plus the harness
+   evidence force (policy, no proof). ANTI-LOOP / ANTI-NARRATION: the
+   coachable-signal catalog never forwards this domain — mode changes are
+   not lesson material, and nothing that flows toward an agent should
+   narrate the escalation surface.
 
 ## Enforcement
 

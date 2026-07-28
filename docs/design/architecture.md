@@ -58,8 +58,10 @@ the audit, same commit, with the reason.
   never paints. (Pulling the token IDS into a paint-free crate would
   remove this edge — a ratified later pass, not a drive-by.)
 - **dpl-seam → dpl-coldlight**: the envelope serializes tone/token ids.
-- **dpl-fabric → dpl-hub + dpl-chat-core**: facts carry Route and
-  provider types. The fabric is a side rail, not a layer violation.
+- **dpl-fabric → dpl-hub + dpl-chat-core + dpl-intent**: facts carry Route,
+  provider types, and the intent gate's mode/cause/channel. The fabric is a
+  side rail, not a layer violation; reusing the gate's types avoids a
+  mirrored vocabulary.
 - **dpl-video / dpl-vector / dpl-backdrop are egui-linked**: they are
   SUPPORT crates (players, paint math), deliberately above the engine
   line.

@@ -27,8 +27,8 @@ use axum::{Json, Router};
 use dpl_comp::Composition;
 use dpl_estate::{Estate, Tree, KEY_SHELL_ROUTE, KEY_WIREDFRONT_LAST_COMP};
 use dpl_fabric::{
-    BuildEvent, CaptureEvent, CoachActor, CoachEvent, Fabric, JobEvent, ProviderEvent, ShellEvent,
-    Stamped,
+    BuildEvent, CaptureEvent, CoachActor, CoachEvent, Fabric, IntentEvent, JobEvent, ProviderEvent,
+    ShellEvent, Stamped,
 };
 use dpl_hub::{HubSpec, Route};
 use serde_json::{json, Value};
@@ -310,6 +310,36 @@ pub fn coach_json(st: &Stamped<CoachEvent>) -> Value {
         }
     };
     v["domain"] = json!("coach");
+    v["seq"] = json!(st.seq);
+    v["ms"] = json!(st.ms);
+    v
+}
+
+/// One INTENT-domain fact in the envelope — privileged-mode transitions and
+/// their refusals, the operator intent gate's audit trail.
+pub fn intent_json(st: &Stamped<IntentEvent>) -> Value {
+    let mut v = match &st.ev {
+        IntentEvent::DeterminismChanged { mode, cause } => {
+            let mode = match mode {
+                dpl_intent::DeterminismMode::Behavioral => "behavioral",
+                dpl_intent::DeterminismMode::Strict => "strict",
+            };
+            let cause = cause.map(|cause| match cause {
+                dpl_intent::StrictCause::Operator(dpl_intent::IntentChannel::UiAcknowledged) => {
+                    "ui-acknowledged"
+                }
+                dpl_intent::StrictCause::Operator(dpl_intent::IntentChannel::SlashCommand) => {
+                    "slash-command"
+                }
+                dpl_intent::StrictCause::Evidence => "evidence",
+            });
+            json!({"type": "determinismChanged", "mode": mode, "cause": cause})
+        }
+        IntentEvent::IntentRefused { action, reason } => {
+            json!({"type": "intentRefused", "action": action, "reason": reason})
+        }
+    };
+    v["domain"] = json!("intent");
     v["seq"] = json!(st.seq);
     v["ms"] = json!(st.ms);
     v
@@ -740,8 +770,8 @@ async fn get_signals(
     State(s): State<Shared>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     // ALL domains, one envelope stream (signal-doctrine law 4): shell +
-    // capture + jobs + providers + build + coach merged — the whole
-    // nervous system.
+    // capture + jobs + providers + build + coach + intent merged — the
+    // whole nervous system.
     let shell = BroadcastStream::new(s.fabric.subscribe_shell()).filter_map(|ev| {
         // Lagged receivers skip (signals are lossy by design); closed ends.
         ev.ok()
@@ -767,7 +797,12 @@ async fn get_signals(
         ev.ok()
             .map(|st| Ok(Event::default().data(coach_json(&st).to_string())))
     });
-    let stream = shell.merge(capture.merge(jobs.merge(providers.merge(build.merge(coach)))));
+    let intent = BroadcastStream::new(s.fabric.subscribe_intent()).filter_map(|ev| {
+        ev.ok()
+            .map(|st| Ok(Event::default().data(intent_json(&st).to_string())))
+    });
+    let stream =
+        shell.merge(capture.merge(jobs.merge(providers.merge(build.merge(coach.merge(intent))))));
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
@@ -969,6 +1004,60 @@ mod envelope_tests {
             json!({
                 "domain": "coach", "seq": 22, "ms": 3400,
                 "type": "satisfied", "coachId": "lesson-1/step-2",
+            })
+        );
+    }
+
+    #[test]
+    fn the_intent_envelope_is_pinned() {
+        let st = Stamped {
+            seq: 30,
+            ms: 4100,
+            ev: IntentEvent::DeterminismChanged {
+                mode: dpl_intent::DeterminismMode::Strict,
+                cause: Some(dpl_intent::StrictCause::Operator(
+                    dpl_intent::IntentChannel::SlashCommand,
+                )),
+            },
+        };
+        assert_eq!(
+            intent_json(&st),
+            json!({
+                "domain": "intent", "seq": 30, "ms": 4100,
+                "type": "determinismChanged", "mode": "strict",
+                "cause": "slash-command",
+            })
+        );
+        let st = Stamped {
+            seq: 31,
+            ms: 4200,
+            ev: IntentEvent::IntentRefused {
+                action: "strict".into(),
+                reason: "synthetic-input".into(),
+            },
+        };
+        assert_eq!(
+            intent_json(&st),
+            json!({
+                "domain": "intent", "seq": 31, "ms": 4200,
+                "type": "intentRefused", "action": "strict",
+                "reason": "synthetic-input",
+            })
+        );
+        let st = Stamped {
+            seq: 32,
+            ms: 4300,
+            ev: IntentEvent::DeterminismChanged {
+                mode: dpl_intent::DeterminismMode::Behavioral,
+                cause: None,
+            },
+        };
+        assert_eq!(
+            intent_json(&st),
+            json!({
+                "domain": "intent", "seq": 32, "ms": 4300,
+                "type": "determinismChanged", "mode": "behavioral",
+                "cause": null,
             })
         );
     }
