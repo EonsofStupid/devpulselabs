@@ -189,6 +189,60 @@ Branch `feat/wf1-workflow-engine` → PR → squash. Commit:
 Includes T0 doc corrections. Push runs the gate; session-end trio after
 merge.
 
-## 8. Evidence
+## 8. Evidence (2026-07-27)
 
-(filled at execution)
+- **§6.1 dep ceiling**: `cargo tree -p dpl-workflows -e normal --depth 1` =
+  exactly {dpl-comp, dpl-doc, serde, serde_json}.
+- **§6.2**: `cargo test -p dpl-workflows` 12/12 — census, round-trip,
+  pretty-LF save + crash-safe overwrite, newer-schema refusal, named
+  faults (duplicate stage id, orphan fill stage, empty template), jailed
+  refs (drive letter / `..` / absolute all named), dry-run executes every
+  stage with a verdict (generation Skipped naming ADR-011),
+  failed-stage-halts-and-names, invalid-doc-never-runs, no-clobber mint,
+  slide/comp value builders validate clean.
+- **§6.3**: `cargo test -p dpl-composer` 43 passed + 1 ignored (was 41 —
+  new: `the_workflow_runner_materializes_the_storyboard`, a full engine+
+  runner E2E on a scratch dir). `grep "fn workflow_tabs"` → 0 hits.
+- **§6.4**: dpl-comp 9, dpl-doc 37, dpl-slides 22 (census gate intact).
+- **§6.5**: `cargo green ✔` (fmt + clippy -D warnings + workspace tests +
+  release build; spawn audit clean); release exe mtime 2026-07-27 20:15.
+- **§6.6 headless E2E** (scratch `--content-root …\wf1-scratch\content`):
+  verdict `run-workflow: storyboard ok · 3 stage(s) done · 2 skipped`;
+  run folder `inbox/workflow-storyboard/` holds `storyboard.json` (all 5
+  slots filled `kind:"slide"`), 5 per-beat `slides/<id>/slide.json`, and
+  `comp/comp.json`; loads + validation proven at unit level (§6.3's E2E
+  runs `dpl_doc::load`/`dpl_comp::load` + validate on the same artifacts).
+  Jobs facts per stage OBSERVED live in the shell SIGNALS feed on the
+  proof shots (`job queued · workflow storyboard · <stage>` → `job done ·
+  …`); the seam serializes the same stream (pinned `job_json` golden).
+  ADAPTATION (reported): a boot-time drill's facts precede any external
+  SSE subscriber, so the SSE observation rides the feed + golden rather
+  than a live curl.
+- **§6.7 honest absence**: `--run-workflow no-such-workflow` → stderr
+  `run-workflow failed: unknown workflow "no-such-workflow" — registered:
+  storyboard`; inbox unchanged (nothing minted); clean exit.
+- **§6.8 shots + scenario**: `proof-wf1-panel-1280.png` (1280x800) and
+  `proof-wf1-panel-1600.png` (1600x1000) — census card, Run chip, honest
+  stage verdicts (imagine skipped naming ADR-011, render skipped naming
+  the fix), 5/5 slots with briefs; second shot shows the no-clobber
+  `workflow-storyboard-2` run. EguiPilotAI `wiredfront-workflows` PASSED
+  (10/10 steps incl. stage/slot value expectations) on the devtools exe
+  with a scratch `CONTENT_ROOT` fixture. Suite sweep: 13/16 green;
+  3 red are PRE-EXISTING on main (verified by rebuilding main's devtools
+  exe and rerunning): `chat-grok-signed-out-readiness` (documented
+  operator gate — signed-in Grok), `shell-navigation` (rail flyout
+  `Test Lab` locator), `chat-peer-window` (`chat.context.route` value) —
+  the latter two flagged in STATE as next-session repairs.
+- **§6.9**: release exe rebuilt by the gate; mtime moved (20:15).
+- **Poppler staging** (ratification item 4): pdftoppm 26.02.0 staged as a
+  Media-family TREE in BOTH depots (debug + release), verified through
+  the production resolver (`DevPULSE tool depot verified` × 2, all five
+  ids re-resolved); `pdftoppm -v` probe branch; `rasterize_pdf` consumes
+  the injected payload (managed-ffmpeg pattern), PATH fallback for the
+  Linux lane.
+- **Deviations from plan (reported)**: (1) `GenerateImage` with a key
+  present also skips in WF1 (reason names the async-run slice) — the Run
+  chip carries no per-image spend labeling yet, so spending there would
+  violate ADR-011's visible-cost law; the skip is the compliant reading.
+  (2) The panel run executes synchronously (milliseconds without
+  generation); the async run arrives with the generation slice.
