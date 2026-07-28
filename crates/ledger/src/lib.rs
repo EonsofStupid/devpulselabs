@@ -362,7 +362,7 @@ pub fn read_parquet_rows(path: &Path) -> Result<Vec<LedgerRow>, String> {
     let file = File::open(path).map_err(|e| format!("ledger: open {}: {e}", path.display()))?;
     let builder = ParquetRecordBatchReaderBuilder::try_new(file)
         .map_err(|e| format!("ledger: reader: {e}"))?;
-    let mut reader = builder
+    let reader = builder
         .build()
         .map_err(|e| format!("ledger: build reader: {e}"))?;
     let mut out = Vec::new();
