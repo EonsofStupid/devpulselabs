@@ -817,11 +817,29 @@ advance a lesson on a fact nobody stated. Unit test:
 `value` and typed `selected`. `root/shell.rail/workbench` now reads
 `value=active`, `expanded=false` — the compound string is gone from the tree.
 
+### A wrong inference, corrected by measurement
+
+First reading of the snapshot was that the template nodes "sit below the fold",
+making `scroll-into-view` the next binding constraint. Measured, that is false.
+
+The `library` fixture runs `--route workbench/library --focus title`, which puts
+the gallery in **solo** mode, so the wall of titles is never drawn. A second
+fixture (`library-wall`, no `--focus`) lands on the Library's default section,
+which is **seeds** — so the templates wall is not drawn there either. The
+Library is a section switcher: exactly one wall renders at a time, by design.
+Nothing was hidden; it was never asked to exist.
+
+Both fixtures report **zero clipped and zero hidden nodes**. There is at present
+no measured case of a node the coach cannot reach because of scroll position.
+`Action::ScrollIntoView` remains genuinely unimplemented — the runtime answers
+`scroll-adapter-required` — but nothing observed so far needs it, and building
+it now would be building on the inference above rather than on evidence.
+
 ### Still open
 
-Template titles (`workbench.library.template/*`) and the Episodes surfaces are
-instrumented but do **not** appear in the `library` fixture snapshot: they sit
-below the fold. This build lists `scroll-into-view` as unsupported, so a
-touchpoint cannot reach them yet regardless of instrumentation. Coverage and
-reachability are separate problems, and the second one is now the binding
-constraint on a long lesson.
+Instrumentation is proven per fixture, not in aggregate: `library` shows the
+solo controls (`template/back`, `template/replay`), `library-wall` shows
+`seeds/reload`, and both show all eight section tabs. The Episodes surfaces and
+the templates wall are authored but unwitnessed, because no harness flag can
+select a Library section without also soloing a template. That flag — not
+scrolling — is what a long Workbench lesson needs next.

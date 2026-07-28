@@ -16,11 +16,17 @@ NodeFlag`** over `NodeFlagKind` makes typed state askable, so splitting the
 value did not make fold state unreachable. **An unreported flag is neither true
 nor false** — `read` returns `Option<bool>`, and silence satisfies neither
 `on:true` nor `on:false`. (3) Sub-rows keep their value string (a committed
-fixture depends on it) and gain typed `selected` additively. STILL OPEN:
-template/episode nodes are instrumented but sit below the fold, and this build
-lists `scroll-into-view` as unsupported — reachability, not coverage, is now the
-binding constraint. Also: the backdrop asset test no longer fails under a
-shared `CARGO_TARGET_DIR` (it anchored to the exe, not the source tree).
+fixture depends on it) and gain typed `selected` additively. **A first reading
+blamed scroll — measurement refuted it**: the `library` fixture passes
+`--focus title` (solo mode, no wall) and the new `library-wall` fixture lands on
+the default **seeds** section, because the Library renders exactly ONE section
+wall at a time by design. Both report ZERO clipped and ZERO hidden nodes, so
+there is no measured case of a node the coach cannot reach; `ScrollIntoView`
+stays unimplemented but unneeded so far. STILL OPEN: no harness flag selects a
+Library section without also soloing a template, which is what actually blocks
+witnessing the templates wall and Episodes. Also: the backdrop asset test no
+longer fails under a shared `CARGO_TARGET_DIR` (it anchored to the exe, not the
+source tree).
 
 **2026-07-27 — ANALYTICS FOUNDATION RATIFIED WITHOUT THE DEPENDENCY
 (`docs/plans/signal-ledger-and-lesson-foundation.md`):** ADR-014 already names

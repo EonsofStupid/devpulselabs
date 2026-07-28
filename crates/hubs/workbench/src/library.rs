@@ -220,6 +220,22 @@ pub(crate) fn templates_gallery(
                     .interact(egui::Sense::click()),
                     "Play this slide's animation again from the start",
                 );
+                ui.pilot_track(
+                    &back,
+                    NodeMetadata::new(
+                        PilotId::new("workbench.library.template").child(&PilotKey::new("back")),
+                        egui_pilot_ai::protocol::Role::Button,
+                        "back to the wall",
+                    ),
+                );
+                ui.pilot_track(
+                    &replay,
+                    NodeMetadata::new(
+                        PilotId::new("workbench.library.template").child(&PilotKey::new("replay")),
+                        egui_pilot_ai::protocol::Role::Button,
+                        "replay",
+                    ),
+                );
                 (back, replay)
             });
             let stage = ui.available_rect_before_wrap().shrink(cl::space::S2);
