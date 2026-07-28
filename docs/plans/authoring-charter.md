@@ -154,9 +154,12 @@ other piece hangs off and it reuses spine that already exists.
 1. **Blocks vs Elements — the exact line.** Proposal: Elements = atoms (census);
    Blocks = assembled multi-element chunks below a full slide (Container tier +
    clusters). Confirm before the palette shelves both.
-2. **Where the composed prompt goes.** Clipboard (paste into any chat) vs
-   direct-to-embedded-chat (the aware chat runs it in place). Proposal: both —
-   Copy for portability, Generate for the in-app path.
+2. **Where the composed prompt goes.** ✅ RATIFIED 2026-07-28 — **both, phased.**
+   **Copy-to-clipboard ships first** (trivial, zero dependency on the chat
+   runtime — it just produces the clean paste-ready brief); the in-app
+   **Generate** path (the aware chat runs the entity-first generator in place)
+   is wired as the C-series chat seam lands. The overlay shell does not block on
+   the chat runtime.
 3. **Starter recipe set** the AI can compose without inventing — likely the
    design-system §3 set (`advance/toggle/flip/match/poll/peek`); everything else
    is AI-grown-then-registered.
