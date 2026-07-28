@@ -54,8 +54,9 @@ other worktree. The operator double-clicks `target\release\devpulselabs.exe`
   --steps-drill <n> --make-slide <asset-rel> --lottie-import <file>
   --fx-drill <clip-rel> <fx-rel>
   --run-workflow <id> --chat-open --chat-authored --chat-proof <mode>
-  --seam-port <n> --no-seam --content-root <path>` (also honored as the
-  `CONTENT_ROOT` env; drill scratch roots use either)
+  --seam-port <n> --no-seam --ledger --content-root <path>` (also honored as the
+  `CONTENT_ROOT` env; drill scratch roots use either; `DPL_LEDGER=1` also
+  enables the signal ledger)
 - EguiPilotAI: `cargo build --release -p egui-pilot-ai-cli` + devtools exe
   `cargo build -p devpulselabs --features eguipilotai-devtools`; then
   `target\release\eguipilotai.exe doctor | inspect devpulse-windows pixvix`.

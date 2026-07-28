@@ -2,6 +2,14 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-28 — SIGNAL LEDGER PHASE 2 (`docs/plans/signal-ledger-phase2.md`):**
+`dpl-ledger` writes hive-partitioned Parquet under `.userdata/analytics/`
+(pure-Rust `parquet` + `snap`, ADR-009 clean). Off by default; `--ledger`
+or `DPL_LEDGER=1` starts the bounded writer thread. Schema v1 columns:
+`seq · ms · wall_ms · domain · type · body · class · dropped`. Stamped
+domains only (capture/jobs/providers/build/coach/intent). Files are the
+truth; DuckDB stays Phase 3.
+
 **2026-07-28 — CHAT ASSIST MODE: ONE TOGGLE, ONE BLANKET ACKNOWLEDGEMENT
 (PR #126):** the consent gate the assist/bake-off/preference arc stands
 on (`docs/plans/chat-assist-mode.md`; operator: "a clear simple
