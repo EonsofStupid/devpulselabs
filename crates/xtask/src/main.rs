@@ -636,6 +636,7 @@ fn structure_audit() -> Result<(), String> {
         ("dpl-tools-deps", &["serde", "serde_json", "sha2"]),
         ("dpl-landing", &["serde", "serde_json"]),
         ("dpl-estate", &["fjall", "moka", "serde", "serde_json"]),
+        ("dpl-intent", &[]),
     ];
     // The egui-free census (architecture.md §1): document/engine/service
     // crates never link egui/eframe directly. Adding UI to one is a
@@ -648,6 +649,7 @@ fn structure_audit() -> Result<(), String> {
         "dpl-estate",
         "dpl-landing",
         "dpl-index",
+        "dpl-intent",
         "dpl-tools-deps",
         "dpl-engine-capture",
         "dpl-engine-media",

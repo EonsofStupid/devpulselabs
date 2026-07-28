@@ -26,7 +26,10 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use dpl_comp::Composition;
 use dpl_estate::{Estate, Tree, KEY_SHELL_ROUTE, KEY_WIREDFRONT_LAST_COMP};
-use dpl_fabric::{BuildEvent, CaptureEvent, Fabric, JobEvent, ProviderEvent, ShellEvent, Stamped};
+use dpl_fabric::{
+    BuildEvent, CaptureEvent, CoachActor, CoachEvent, Fabric, JobEvent, ProviderEvent, ShellEvent,
+    Stamped,
+};
 use dpl_hub::{HubSpec, Route};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -277,6 +280,36 @@ pub fn build_json(st: &Stamped<BuildEvent>) -> Value {
         }),
     };
     v["domain"] = json!("build");
+    v["seq"] = json!(st.seq);
+    v["ms"] = json!(st.ms);
+    v
+}
+
+/// One COACH-domain fact in the envelope (Phase 1.5 — the coach speaks on
+/// the record): touchpoint lifecycle from the operator coach.
+pub fn coach_json(st: &Stamped<CoachEvent>) -> Value {
+    let actor_str = |actor: &CoachActor| match actor {
+        CoachActor::Operator => "operator",
+        CoachActor::Agent => "agent",
+        CoachActor::App => "app",
+    };
+    let mut v = match &st.ev {
+        CoachEvent::Armed { coach_id } => json!({"type": "armed", "coachId": coach_id}),
+        CoachEvent::Mounted { coach_id } => json!({"type": "mounted", "coachId": coach_id}),
+        CoachEvent::Triggered {
+            coach_id,
+            trigger,
+            actor,
+        } => json!({
+            "type": "triggered", "coachId": coach_id,
+            "trigger": trigger, "actor": actor_str(actor),
+        }),
+        CoachEvent::Satisfied { coach_id } => json!({"type": "satisfied", "coachId": coach_id}),
+        CoachEvent::Unmounted { coach_id, reason } => {
+            json!({"type": "unmounted", "coachId": coach_id, "reason": reason})
+        }
+    };
+    v["domain"] = json!("coach");
     v["seq"] = json!(st.seq);
     v["ms"] = json!(st.ms);
     v
@@ -707,7 +740,8 @@ async fn get_signals(
     State(s): State<Shared>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     // ALL domains, one envelope stream (signal-doctrine law 4): shell +
-    // capture + jobs + providers + build merged — the whole nervous system.
+    // capture + jobs + providers + build + coach merged — the whole
+    // nervous system.
     let shell = BroadcastStream::new(s.fabric.subscribe_shell()).filter_map(|ev| {
         // Lagged receivers skip (signals are lossy by design); closed ends.
         ev.ok()
@@ -729,7 +763,11 @@ async fn get_signals(
         ev.ok()
             .map(|st| Ok(Event::default().data(build_json(&st).to_string())))
     });
-    let stream = shell.merge(capture.merge(jobs.merge(providers.merge(build))));
+    let coach = BroadcastStream::new(s.fabric.subscribe_coach()).filter_map(|ev| {
+        ev.ok()
+            .map(|st| Ok(Event::default().data(coach_json(&st).to_string())))
+    });
+    let stream = shell.merge(capture.merge(jobs.merge(providers.merge(build.merge(coach)))));
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
@@ -896,6 +934,41 @@ mod envelope_tests {
                 "type": "slidePlaced",
                 "show": "devpulse-news", "episode": "ep1",
                 "chapter": "intro", "slide": "title-neon",
+            })
+        );
+    }
+
+    #[test]
+    fn the_coach_envelope_is_pinned() {
+        let st = Stamped {
+            seq: 21,
+            ms: 3300,
+            ev: CoachEvent::Triggered {
+                coach_id: "lesson-1/step-2".into(),
+                trigger: "press".into(),
+                actor: CoachActor::Operator,
+            },
+        };
+        assert_eq!(
+            coach_json(&st),
+            json!({
+                "domain": "coach", "seq": 21, "ms": 3300,
+                "type": "triggered", "coachId": "lesson-1/step-2",
+                "trigger": "press", "actor": "operator",
+            })
+        );
+        let st = Stamped {
+            seq: 22,
+            ms: 3400,
+            ev: CoachEvent::Satisfied {
+                coach_id: "lesson-1/step-2".into(),
+            },
+        };
+        assert_eq!(
+            coach_json(&st),
+            json!({
+                "domain": "coach", "seq": 22, "ms": 3400,
+                "type": "satisfied", "coachId": "lesson-1/step-2",
             })
         );
     }

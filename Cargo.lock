@@ -2181,6 +2181,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "dpl-intent"
+version = "0.1.0"
+
+[[package]]
 name = "dpl-landing"
 version = "0.1.0"
 dependencies = [

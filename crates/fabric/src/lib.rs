@@ -342,6 +342,48 @@ pub enum BuildEvent {
 
 pub type BuildReceiver = broadcast::Receiver<Stamped<BuildEvent>>;
 
+/// Who activated a touchpoint — mirrored from the pilot protocol so the
+/// fabric stays serde-free (doctrine law 4) and dependency-free.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CoachActor {
+    Operator,
+    Agent,
+    /// Application state moved with no input to explain it.
+    App,
+}
+
+/// COACH-domain signals — touchpoint lifecycle facts from the operator
+/// coach (the EguiPilotAI plugin). The publisher is the devtools-gated
+/// pilot bridge in the app; the domain itself is unconditional so every
+/// consumer (activity feed, ledger, A/B measurement) compiles once.
+///
+/// LAW (plan §9, Phase 1.5): the coach NEVER subscribes to this domain.
+/// A touchpoint waiting on a coach event would self-trigger — the
+/// coachable-signal catalog deliberately excludes it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CoachEvent {
+    /// Accepted, but its target is not on screen yet.
+    Armed { coach_id: String },
+    /// Bound to a live target.
+    Mounted { coach_id: String },
+    /// An input edge fired the touchpoint. `trigger` speaks the pilot
+    /// CLI's `--on` vocabulary: `press`, `hover`, `node-appeared`,
+    /// `value-changed`, `signal:<id>`.
+    Triggered {
+        coach_id: String,
+        trigger: String,
+        actor: CoachActor,
+    },
+    /// The touchpoint's postcondition holds — the step completed because
+    /// the application reached the state, not because a button was pressed.
+    Satisfied { coach_id: String },
+    /// `reason` speaks the protocol's kebab-case vocabulary: `ttl`,
+    /// `operator`, `agent`, `once`, `target-lost`, `session-ended`.
+    Unmounted { coach_id: String, reason: String },
+}
+
+pub type CoachReceiver = broadcast::Receiver<Stamped<CoachEvent>>;
+
 /// The installed UI waker callback (doctrine law 6).
 pub type Waker = Arc<dyn Fn() + Send + Sync>;
 
@@ -369,6 +411,7 @@ pub struct Fabric {
     jobs: broadcast::Sender<Stamped<JobEvent>>,
     providers: broadcast::Sender<Stamped<ProviderEvent>>,
     build: broadcast::Sender<Stamped<BuildEvent>>,
+    coach: broadcast::Sender<Stamped<CoachEvent>>,
     /// The stamp state: one global sequence + the birth instant.
     seq: Arc<AtomicU64>,
     born: Instant,
@@ -392,6 +435,7 @@ impl Fabric {
         let (jobs, _) = broadcast::channel(64);
         let (providers, _) = broadcast::channel(128);
         let (build, _) = broadcast::channel(64);
+        let (coach, _) = broadcast::channel(128);
         Self {
             shell,
             deck,
@@ -399,6 +443,7 @@ impl Fabric {
             jobs,
             providers,
             build,
+            coach,
             seq: Arc::new(AtomicU64::new(0)),
             born: Instant::now(),
             waker: Arc::new(std::sync::Mutex::new(None)),
@@ -480,6 +525,16 @@ impl Fabric {
 
     pub fn subscribe_build(&self) -> BuildReceiver {
         self.build.subscribe()
+    }
+
+    /// Publish a COACH-domain fact (touchpoint lifecycle).
+    pub fn publish_coach(&self, event: CoachEvent) {
+        let _ = self.coach.send(self.stamp(event));
+        self.wake();
+    }
+
+    pub fn subscribe_coach(&self) -> CoachReceiver {
+        self.coach.subscribe()
     }
 
     /// Publish, ignoring "no subscribers yet" — a signal with no listeners
@@ -590,6 +645,31 @@ mod tests {
         let mut shell_rx = fabric.subscribe_shell();
         fabric.publish_capture(CaptureEvent::InboxChanged);
         assert!(shell_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn coach_signals_stamp_in_total_order_and_round_trip() {
+        let fabric = Fabric::new();
+        let mut rx = fabric.subscribe_coach();
+        fabric.publish_coach(CoachEvent::Mounted {
+            coach_id: "lesson-1/step-2".into(),
+        });
+        fabric.publish_coach(CoachEvent::Satisfied {
+            coach_id: "lesson-1/step-2".into(),
+        });
+        let a = rx.try_recv().unwrap();
+        let b = rx.try_recv().unwrap();
+        assert!(matches!(&a.ev, CoachEvent::Mounted { coach_id } if coach_id == "lesson-1/step-2"));
+        assert!(matches!(&b.ev, CoachEvent::Satisfied { .. }));
+        assert!(b.seq > a.seq, "one global sequence orders signals");
+        // Domains stay separate: coach lifecycle never wakes capture ears.
+        let mut capture_rx = fabric.subscribe_capture();
+        fabric.publish_coach(CoachEvent::Triggered {
+            coach_id: "lesson-1/step-3".into(),
+            trigger: "press".into(),
+            actor: CoachActor::Operator,
+        });
+        assert!(capture_rx.try_recv().is_err());
     }
 
     #[test]

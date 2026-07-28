@@ -150,6 +150,20 @@ doctrine completes it.
    bar can show one honest "working…" truth instead of per-surface
    pills.
 
+10. **The COACH domain (established 2026-07-28, Phase 1.5 of
+   `docs/plans/signal-ledger-and-lesson-foundation.md`).** Touchpoint
+   lifecycle facts from the operator coach — `CoachEvent { Armed ·
+   Mounted · Triggered{trigger,actor} · Satisfied · Unmounted{reason} }`
+   — stamped like every other fact domain. The PUBLISHER is the
+   devtools-gated pilot bridge (`crates/app/src/coach_fabric.rs`, a tap
+   on the plugin's event record path — a witness, never a consumer);
+   the domain itself is unconditional so the activity feed, the seam
+   envelope, and the future ledger compile once. `Refused` never
+   publishes: a refusal is a command result on the pipe, not a
+   lifecycle fact. ANTI-LOOP LAW: the coachable-signal catalog
+   (`coach_signals.rs`) never subscribes to this domain — a touchpoint
+   waiting on a coach event would self-trigger.
+
 ## Enforcement
 
 - Wire-shape tests in `crates/seam` assert the exact JSON per kind.

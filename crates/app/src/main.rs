@@ -9,6 +9,8 @@
 
 mod chat;
 #[cfg(feature = "eguipilotai-devtools")]
+mod coach_fabric;
+#[cfg(feature = "eguipilotai-devtools")]
 mod coach_signals;
 
 use dpl_fabric::Fabric;
@@ -872,6 +874,15 @@ impl App {
         guard
             .pilot()
             .declare_coach_signals(self.coach_catalog.clone());
+        // The reverse seam: every coach lifecycle fact becomes a stamped
+        // COACH-domain signal. The tap is a witness — the devtools pipe
+        // still drains its own copy.
+        let fabric = self.fabric.clone();
+        guard.pilot().set_coach_event_tap(move |event| {
+            if let Some(event) = coach_fabric::to_fabric(event) {
+                fabric.publish_coach(event);
+            }
+        });
         let runtime = std::sync::Arc::new(std::sync::Mutex::new(guard));
         self.chat
             .attach_pilot_runtime(std::sync::Arc::clone(&runtime));

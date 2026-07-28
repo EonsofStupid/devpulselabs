@@ -618,6 +618,18 @@ impl PilotHandle {
         lock(&self.shared).coach.take_events()
     }
 
+    /// Install a witness on every coach lifecycle event, invoked at record
+    /// time — before the event lands in the drain queue, independent of who
+    /// drains it. The host bridges these onto its own signal fabric.
+    ///
+    /// A witness, never a consumer: `take_coach_events` still returns every
+    /// event, so the devtools pipe and the host cannot steal from each other.
+    /// `Refused` never reaches the tap — a refusal is a command result, not
+    /// a lifecycle fact.
+    pub fn set_coach_event_tap(&self, tap: impl Fn(&CoachEvent) + Send + Sync + 'static) {
+        lock(&self.shared).coach.set_tap(std::sync::Arc::new(tap));
+    }
+
     pub fn mounted_coach_count(&self) -> usize {
         lock(&self.shared).coach.len()
     }
@@ -1886,6 +1898,31 @@ mod tests {
 
         assert!(pilot.take_coach_events().is_empty());
         assert_eq!(pilot.mounted_coach_count(), 1);
+    }
+
+    #[test]
+    fn the_event_tap_witnesses_without_consuming() {
+        let ctx = egui::Context::default();
+        let pilot = install(&ctx);
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let witness = std::sync::Arc::clone(&seen);
+        pilot.set_coach_event_tap(move |event| witness.lock().unwrap().push(event.clone()));
+
+        save_button_frame(&ctx, Default::default());
+        let rect = mount_save_touchpoint(&pilot, true);
+        save_button_frame(&ctx, press_at(egui_rect(rect).center()));
+
+        let drained = pilot.take_coach_events();
+        let seen = seen.lock().unwrap().clone();
+        assert_eq!(
+            seen, drained,
+            "the tap is a witness: it sees exactly what the drain returns, and steals nothing"
+        );
+        assert!(
+            seen.iter()
+                .any(|event| matches!(event, CoachEvent::Triggered { .. })),
+            "{seen:?}"
+        );
     }
 
     #[test]

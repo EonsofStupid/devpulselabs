@@ -77,6 +77,20 @@ fn activity_capture_line(ev: &dpl_fabric::CaptureEvent) -> String {
     }
 }
 
+/// One coach lifecycle fact as a feed line — the lesson breathing, live.
+fn activity_coach_line(ev: &dpl_fabric::CoachEvent) -> String {
+    use dpl_fabric::CoachEvent as E;
+    match ev {
+        E::Armed { coach_id } => format!("coach armed · {coach_id}"),
+        E::Mounted { coach_id } => format!("coach mounted · {coach_id}"),
+        E::Triggered {
+            coach_id, trigger, ..
+        } => format!("coach fired · {coach_id} · {trigger}"),
+        E::Satisfied { coach_id } => format!("step satisfied · {coach_id}"),
+        E::Unmounted { coach_id, reason } => format!("coach done · {coach_id} · {reason}"),
+    }
+}
+
 /// One job transition as a feed line.
 fn activity_job_line(ev: &dpl_fabric::JobEvent) -> String {
     use dpl_fabric::JobEvent as E;
@@ -153,6 +167,11 @@ pub struct Shell {
     capture_rx: dpl_fabric::CaptureReceiver,
     jobs_rx: dpl_fabric::JobReceiver,
     providers_rx: dpl_fabric::ProviderReceiver,
+    /// Coach lifecycle ear — opened at construction like the shell's own,
+    /// not passed in: the coach publisher (the devtools pilot bridge)
+    /// attaches after the shell exists, so no publish can precede this
+    /// subscription. In production builds the domain is simply silent.
+    coach_rx: dpl_fabric::CoachReceiver,
     activity: std::collections::VecDeque<String>,
     /// Full-bleed: all chrome hidden, content owns the viewport (old `\` /
     /// Maximize2 behavior). Esc or the floating exit chip leaves.
@@ -204,6 +223,7 @@ impl Shell {
                 sub: SubId("_none"),
             });
         let events = fabric.subscribe_shell();
+        let coach_rx = fabric.subscribe_coach();
         Self {
             hubs,
             route,
@@ -212,6 +232,7 @@ impl Shell {
             capture_rx,
             jobs_rx,
             providers_rx,
+            coach_rx,
             activity: std::collections::VecDeque::new(),
             backdrop: dpl_backdrop::Backdrop::default(),
             nav_count: 0,
@@ -383,6 +404,10 @@ impl Shell {
         while let Ok(st) = self.providers_rx.try_recv() {
             self.signal_count += 1;
             self.push_activity(st.ms, activity_provider_line(&st.ev));
+        }
+        while let Ok(st) = self.coach_rx.try_recv() {
+            self.signal_count += 1;
+            self.push_activity(st.ms, activity_coach_line(&st.ev));
         }
 
         // Esc leaves full-bleed (the old shell's escape hatch).
