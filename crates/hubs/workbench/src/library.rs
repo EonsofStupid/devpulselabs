@@ -374,56 +374,49 @@ pub(crate) fn templates_gallery(
 /// The BLOCKS wall — every paint primitive in `dpl_slides::blocks` live on
 /// a plate. A block that exists but never shows here cannot exist.
 pub(crate) fn blocks_wall(ui: &mut egui::Ui) {
+    use dpl_slides::blocks::{elements, ElementCategory};
     ui.label(
         RichText::new(
-            "BLOCKS — reusable pieces templates are built from. \
-             Eyebrow · badge · stat · ambient backdrop — painted live, never a screenshot.",
+            "ELEMENTS — the standalone primitives templates compose from, \
+             shelved by category. Painted live from the census, never a screenshot.",
         )
         .small()
         .color(cl::ink::MUTED),
     );
     ui.add_space(cl::space::S2);
+    // The census IS the wall (Census law): every registered element shows, and
+    // nothing is named by hand here — a new element appears the day it registers.
+    let census = elements();
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            block_plate(ui, "eyebrow", "Mono uppercase micro-label", |ui, fluid| {
-                dpl_slides::blocks::eyebrow(ui, fluid, "coldlight", Some(SPEC.tone.color()));
-            });
-            block_plate(
-                ui,
-                "badge",
-                "Emphasis chip — neutral and live",
-                |ui, fluid| {
-                    ui.horizontal(|ui| {
-                        dpl_slides::blocks::badge(ui, fluid, "draft", None);
-                        ui.add_space(cl::space::S2);
-                        dpl_slides::blocks::badge(ui, fluid, "live", Some(Tone::Cyan));
-                    });
-                },
-            );
-            block_plate(ui, "stat", "Value + label pair", |ui, fluid| {
-                dpl_slides::blocks::stat(ui, fluid, "128", "tokens", SPEC.tone.color());
-            });
-            block_plate(
-                ui,
-                "ambient",
-                "Vector backdrop ambience (rings)",
-                |ui, _fluid| {
-                    let (rect, _) =
-                        ui.allocate_exact_size(egui::vec2(280.0, 120.0), egui::Sense::hover());
-                    ui.painter()
-                        .rect_filled(rect, cl::RADIUS, cl::surface::WELL);
-                    let now = ui.input(|i| i.time);
-                    dpl_slides::blocks::ambient_backdrop(
-                        ui,
-                        rect,
-                        dpl_slides::blocks::Ambient::Rings,
-                        Tone::Cyan.color(),
-                        now,
-                        0.0,
+            for category in ElementCategory::ALL {
+                ui.add_space(cl::space::S2);
+                ui.label(
+                    RichText::new(format!("{} —", category.label().to_uppercase()))
+                        .strong()
+                        .color(cl::ink::STRONG),
+                );
+                let members: Vec<_> = census
+                    .iter()
+                    .filter(|element| element.spec().category == category)
+                    .collect();
+                if members.is_empty() {
+                    ui.label(
+                        RichText::new(format!(
+                            "no {} elements yet — the shelf stays honest and empty",
+                            category.label()
+                        ))
+                        .small()
+                        .color(cl::ink::MUTED),
                     );
-                },
-            );
+                    continue;
+                }
+                for element in members {
+                    let spec = element.spec();
+                    block_plate(ui, spec.label, spec.blurb, |ui, _fluid| element.paint(ui));
+                }
+            }
         });
 }
 
