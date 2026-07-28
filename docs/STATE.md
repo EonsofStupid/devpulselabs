@@ -2,6 +2,12 @@
 
 Updated every pass. This file is the first read of every session.
 
+
+**RESUME POINT (2026-07-28, Fable session):** journal + next-series
+notes: `docs/journal/2026-07-28-fable-session.md` — read before
+starting guide-UX-redlines / jobs-migration / R2c work. (The parallel
+lane's phase notes: `docs/journal/2026-07-28-next-phase-notes.md`.)
+
 **2026-07-28 — PHASE 1.5 VERIFIED LIVE (three witnesses, one session):**
 one devtools run (`devpulse-cloud`/`library-wall` @1280×832, build `c333b69`)
 proved the coach domain end to end — the seam SSE carried the pinned coach
