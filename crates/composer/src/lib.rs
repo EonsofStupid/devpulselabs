@@ -667,7 +667,10 @@ impl Composer {
     /// re-render Lottie lanes at layer-local time. The machine's caps bound
     /// the live lanes; TOPMOST wins; the viewer names what's skipped.
     fn reconcile_overlays(&mut self, ctx: &egui::Context) {
-        let wanted: Vec<(String, Source, f32)> = self
+        // L4: the lane's pipe GRADE (exact LUT + matte preview) travels
+        // with the want; a changed grade reopens the lane. A blended
+        // layer's matte is ignored (blend drops alpha — mirrored here).
+        let wanted: Vec<(String, Source, f32, dpl_video::clip::PipeGrade)> = self
             .overlay_layers_at(self.time)
             .iter()
             .filter(|l| !matches!(l.source, Source::Element { .. }))
@@ -676,13 +679,19 @@ impl Composer {
                     l.id.clone(),
                     l.source.clone(),
                     (l.in_pt + (self.time - l.start)).max(0.0),
+                    dpl_video::clip::PipeGrade {
+                        lut: l.lut.as_deref().map(Self::resolve),
+                        matte: (l.blend == dpl_comp::Blend::Normal)
+                            .then(|| l.matte.as_deref().map(Self::resolve))
+                            .flatten(),
+                    },
                 )
             })
             .collect();
 
         // Cap from the END of paint order (= topmost first). Stills are
         // pipe-free and never counted.
-        let mut keep: Vec<&(String, Source, f32)> = Vec::new();
+        let mut keep: Vec<&(String, Source, f32, dpl_video::clip::PipeGrade)> = Vec::new();
         let (mut clips, mut lots) = (0usize, 0usize);
         for entry in wanted.iter().rev() {
             let ok = match &entry.1 {
@@ -707,9 +716,18 @@ impl Composer {
         self.overlays_skipped = wanted.len() - keep.len();
 
         self.overlay_lanes
-            .retain(|(id, _)| keep.iter().any(|(k, _, _)| k == id));
-        for (id, source, want) in keep {
-            let have = self.overlay_lanes.iter().position(|(k, _)| k == id);
+            .retain(|(id, _)| keep.iter().any(|(k, _, _, _)| k == id));
+        for (id, source, want, grade) in keep {
+            let mut have = self.overlay_lanes.iter().position(|(k, _)| k == id);
+            // A changed grade means a different pipe — reopen the lane.
+            if let Some(i) = have {
+                if let Some((_, OverlayLane::Clip(player))) = self.overlay_lanes.get(i) {
+                    if player.grade() != grade {
+                        self.overlay_lanes.remove(i);
+                        have = None;
+                    }
+                }
+            }
             match source {
                 Source::Artifact { rel } => {
                     let path = Self::resolve(rel);
@@ -724,7 +742,7 @@ impl Composer {
                         let idx = match have {
                             Some(i) => i,
                             None => {
-                                let mut player = ClipPlayer::open(path);
+                                let mut player = ClipPlayer::open_graded(path, grade.clone());
                                 player.seek(*want);
                                 self.overlay_lanes
                                     .push((id.clone(), OverlayLane::Clip(player)));
@@ -802,6 +820,28 @@ impl Composer {
                 OverlayLane::Still(uri) => {
                     egui::Image::new(uri.as_str()).tint(tint).paint_at(ui, bx);
                 }
+            }
+            // L4 honesty badges: blends approximate in the viewer (egui
+            // has no screen/add compositing) and Lottie grades apply at
+            // export only — the badge NAMES it; the render is exact.
+            let badge = match (layer.blend, lane) {
+                (dpl_comp::Blend::Screen, _) => Some("screen · export-exact"),
+                (dpl_comp::Blend::Add, _) => Some("add · export-exact"),
+                (dpl_comp::Blend::Normal, OverlayLane::Lottie(_))
+                    if layer.lut.is_some() || layer.matte.is_some() =>
+                {
+                    Some("grades in export")
+                }
+                _ => None,
+            };
+            if let Some(text) = badge {
+                ui.painter().text(
+                    bx.left_top() + egui::vec2(cl::space::S1, cl::space::S1),
+                    egui::Align2::LEFT_TOP,
+                    text,
+                    egui::TextStyle::Small.resolve(ui.style()),
+                    cl::ink::MUTED,
+                );
             }
         }
         if self.overlays_skipped > 0 {
@@ -944,6 +984,11 @@ impl Composer {
         let lid = layer.id.clone();
         let want = layer.in_pt + (self.time - layer.start);
         let source = layer.source.clone(); // owned — releases the layer borrow
+                                           // L4: a graded base cut previews EXACTLY (lut3d in the pipe).
+        let base_grade = dpl_video::clip::PipeGrade {
+            lut: layer.lut.as_deref().map(Self::resolve),
+            matte: None,
+        };
 
         // L2: a native Lottie layer previews on its OWN lane (the ThorVG
         // helper), rendered here so the immutable viewer just reads the tex.
@@ -990,8 +1035,12 @@ impl Composer {
             return;
         }
         self.preview_still = None;
-        if self.preview.as_ref().map(|(k, _)| k.as_str()) != Some(id.as_str()) {
-            let mut player = ClipPlayer::open(path);
+        let stale_grade = self
+            .preview
+            .as_ref()
+            .is_some_and(|(k, p)| k == &id && p.grade() != &base_grade);
+        if stale_grade || self.preview.as_ref().map(|(k, _)| k.as_str()) != Some(id.as_str()) {
+            let mut player = ClipPlayer::open_graded(path, base_grade);
             player.seek(want);
             self.preview = Some((id, player));
         }
@@ -1296,12 +1345,16 @@ impl Composer {
             match &l.source {
                 Source::Artifact { rel } => {
                     let path = Self::resolve(rel);
-                    base.push(CompBase::Clip(StitchClip {
-                        still: dpl_engine_media::is_still(&path),
-                        path,
-                        in_pt: l.in_pt,
-                        out_pt: l.out_pt,
-                    }));
+                    base.push(CompBase::Clip {
+                        clip: StitchClip {
+                            still: dpl_engine_media::is_still(&path),
+                            path,
+                            in_pt: l.in_pt,
+                            out_pt: l.out_pt,
+                        },
+                        // L4: base cuts grade (blend/matte are overlay-only).
+                        lut: l.lut.as_deref().map(Self::resolve),
+                    });
                     base_end = base_end.max(l.end());
                 }
                 Source::Lottie { rel } => {
@@ -1317,6 +1370,9 @@ impl Composer {
                         y: l.y,
                         scale: l.scale,
                         tint: l.tint,
+                        blend: engine_blend(l.blend),
+                        matte: l.matte.as_deref().map(Self::resolve),
+                        lut: l.lut.as_deref().map(Self::resolve),
                     }));
                     base_end = base_end.max(l.end());
                 }
@@ -1339,6 +1395,9 @@ impl Composer {
                             scale: l.scale,
                             tint: l.tint,
                             hold,
+                            blend: engine_blend(l.blend),
+                            matte: l.matte.as_deref().map(Self::resolve),
+                            lut: l.lut.as_deref().map(Self::resolve),
                         }));
                     }
                     Source::Lottie { rel } => {
@@ -1351,6 +1410,9 @@ impl Composer {
                             y: l.y,
                             scale: l.scale,
                             tint: l.tint,
+                            blend: engine_blend(l.blend),
+                            matte: l.matte.as_deref().map(Self::resolve),
+                            lut: l.lut.as_deref().map(Self::resolve),
                         }));
                     }
                     Source::Element { .. } => elements_skipped += 1,
@@ -4662,6 +4724,9 @@ fn render_comp_resolving(
                     scale: p.scale,
                     tint: p.tint,
                     hold: false,
+                    blend: p.blend,
+                    matte: p.matte,
+                    lut: p.lut,
                 });
             }
         }
@@ -5215,6 +5280,19 @@ struct PendingLottie {
     y: f32,
     scale: f32,
     tint: Option<[u8; 4]>,
+    blend: dpl_engine_media::OverlayBlend,
+    matte: Option<PathBuf>,
+    lut: Option<PathBuf>,
+}
+
+/// `dpl_comp::Blend` → the engine's blend word (the crates share no dep;
+/// the document layer never learns ffmpeg).
+fn engine_blend(b: dpl_comp::Blend) -> dpl_engine_media::OverlayBlend {
+    match b {
+        dpl_comp::Blend::Normal => dpl_engine_media::OverlayBlend::Normal,
+        dpl_comp::Blend::Screen => dpl_engine_media::OverlayBlend::Screen,
+        dpl_comp::Blend::Add => dpl_engine_media::OverlayBlend::Add,
+    }
 }
 
 /// One overlay in stack order: ready for ffmpeg, or pending a Lottie
@@ -5539,7 +5617,7 @@ mod tests {
         c.add_overlay(&video_rec("Fire", "elements/fire.mov", Some(3)));
         let parts = c.render_parts();
         assert_eq!(parts.base.len(), 3, "clip + black lottie span + tail");
-        assert!(matches!(parts.base[0], CompBase::Clip(_)));
+        assert!(matches!(parts.base[0], CompBase::Clip { .. }));
         assert!(
             matches!(parts.base[1], CompBase::Black { dur } if (dur - 2.0).abs() < 1e-3),
             "lottie span plays black under its overlay"
@@ -5692,7 +5770,7 @@ mod tests {
         assert_eq!(parts.base.len(), 2, "element source is skipped");
         assert_eq!(parts.elements_skipped, 1, "and counted honestly");
         match (&parts.base[0], &parts.base[1]) {
-            (CompBase::Clip(a), CompBase::Clip(b)) => {
+            (CompBase::Clip { clip: a, .. }, CompBase::Clip { clip: b, .. }) => {
                 assert!(a.path.to_string_lossy().contains("a.mp4"));
                 assert!((b.out_pt - 4.0).abs() < 1e-6);
             }
@@ -5936,7 +6014,10 @@ mod tests {
         // The render maps it as a STILL leg.
         let parts = c.render_parts();
         match (&parts.base[0], &parts.base[1]) {
-            (dpl_engine_media::CompBase::Clip(a), dpl_engine_media::CompBase::Clip(b)) => {
+            (
+                dpl_engine_media::CompBase::Clip { clip: a, .. },
+                dpl_engine_media::CompBase::Clip { clip: b, .. },
+            ) => {
                 assert!(!a.still && b.still, "still flags mapped")
             }
             _ => panic!("both base legs are clips"),
