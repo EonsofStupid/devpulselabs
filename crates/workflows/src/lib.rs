@@ -1142,9 +1142,11 @@ mod schema_pin {
         // (the full `..` jail is engine-enforced — both layers are law).
         for bad_rel in ["/etc/passwd", "C:\\loot", "a\\b"] {
             let mut doc = good.clone();
-            doc["slots"][0]["fill"] =
-                serde_json::json!({"kind": "artifact", "rel": bad_rel});
-            assert!(!v.is_valid(&doc), "jailbreak rel {bad_rel:?} must be refused");
+            doc["slots"][0]["fill"] = serde_json::json!({"kind": "artifact", "rel": bad_rel});
+            assert!(
+                !v.is_valid(&doc),
+                "jailbreak rel {bad_rel:?} must be refused"
+            );
         }
 
         // An unknown fill kind is drift.
