@@ -366,7 +366,7 @@ pub fn read_parquet_rows(path: &Path) -> Result<Vec<LedgerRow>, String> {
         .build()
         .map_err(|e| format!("ledger: build reader: {e}"))?;
     let mut out = Vec::new();
-    while let Some(batch) = reader.next() {
+    for batch in reader {
         let batch = batch.map_err(|e| format!("ledger: batch: {e}"))?;
         let seq = col_u64(&batch, "seq")?;
         let ms = col_u64(&batch, "ms")?;
@@ -831,8 +831,4 @@ mod tests {
         // 2024-02-29 (leap day).
         assert_eq!(civil_from_days(19_782), (2024, 2, 29));
     }
-
-    // Silence unused import warning in some rustc versions.
-    #[allow(dead_code)]
-    static _MUTEX: Mutex<()> = Mutex::new(());
 }
