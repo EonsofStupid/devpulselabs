@@ -81,7 +81,13 @@ fn is_zero(v: &f32) -> bool {
 impl Layer {
     /// A bare layer: full-frame, centered, unscaled, untinted — the straight
     /// cut every pre-L3 comp is made of, and the default new layers start as.
-    pub fn plain(id: impl Into<String>, source: Source, start: f32, in_pt: f32, out_pt: f32) -> Self {
+    pub fn plain(
+        id: impl Into<String>,
+        source: Source,
+        start: f32,
+        in_pt: f32,
+        out_pt: f32,
+    ) -> Self {
         Self {
             id: id.into(),
             source,

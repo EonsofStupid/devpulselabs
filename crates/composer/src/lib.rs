@@ -5940,10 +5940,9 @@ mod tests {
         // The render maps it as a STILL leg.
         let parts = c.render_parts();
         match (&parts.base[0], &parts.base[1]) {
-            (
-                dpl_engine_media::CompBase::Clip(a),
-                dpl_engine_media::CompBase::Clip(b),
-            ) => assert!(!a.still && b.still, "still flags mapped"),
+            (dpl_engine_media::CompBase::Clip(a), dpl_engine_media::CompBase::Clip(b)) => {
+                assert!(!a.still && b.still, "still flags mapped")
+            }
             _ => panic!("both base legs are clips"),
         }
     }
