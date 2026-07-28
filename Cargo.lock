@@ -1778,6 +1778,8 @@ dependencies = [
  "egui-wgpu",
  "egui_extras",
  "image",
+ "serde",
+ "serde_json",
  "tracing",
  "tracing-subscriber",
 ]

@@ -58,6 +58,7 @@ fn run() -> Result<(), String> {
             | "grok-auth"
             | "compact"
             | "snapped"
+            | "assist"
     ) {
         return Err(format!("unknown native Chat proof state {state:?}"));
     }

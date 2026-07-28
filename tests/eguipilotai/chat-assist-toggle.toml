@@ -1,0 +1,95 @@
+# Assist mode: one toggle, one blanket acknowledgement, every provider.
+# The chip starts off; tapping it raises the host-authored consent overlay
+# (two buttons — no "always"); approving flips the chip on. The window
+# never flips itself: the value moves only when the host projects it.
+id = "chat-assist-toggle"
+fixture = "chat-authored"
+record = true
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "open"
+
+[steps.expectation.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "wait"
+milliseconds = 750
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "focus-viewport"
+
+[steps.action.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.overlay/interaction-1003/reject"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "off"
+
+[steps.expectation.target]
+id = "chat.primary/chat.assist.toggle"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.assist.toggle"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.overlay/interaction-2000000000/approve"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.overlay/interaction-2000000000/approve"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "on"
+
+[steps.expectation.target]
+id = "chat.primary/chat.assist.toggle"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "close-viewport"
+
+[steps.action.viewport]
+key = "chat.primary"

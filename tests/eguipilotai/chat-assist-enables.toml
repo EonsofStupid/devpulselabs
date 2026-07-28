@@ -1,0 +1,78 @@
+# Assist mode on the REAL runtime (scratch rings): toggle → the blanket
+# acknowledgement → approve → on. This launch WRITES assist-policy.json;
+# the paired `chat-assist-persists` scenario proves the fresh-launch
+# restore. Run the pair in order (the fixture's scratch rings persist
+# under target/).
+id = "chat-assist-enables"
+fixture = "chat-assist-real"
+record = true
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "open"
+
+[steps.expectation.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "wait"
+milliseconds = 750
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "focus-viewport"
+
+[steps.action.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "off"
+
+[steps.expectation.target]
+id = "chat.primary/chat.assist.toggle"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.assist.toggle"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.overlay/interaction-2000000000/approve"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "on"
+
+[steps.expectation.target]
+id = "chat.primary/chat.assist.toggle"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "close-viewport"
+
+[steps.action.viewport]
+key = "chat.primary"

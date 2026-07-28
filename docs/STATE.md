@@ -10,6 +10,33 @@ or `DPL_LEDGER=1` starts the bounded writer thread. Schema v1 columns:
 domains only (capture/jobs/providers/build/coach/intent). Files are the
 truth; DuckDB stays Phase 3.
 
+**2026-07-28 — CHAT ASSIST MODE: ONE TOGGLE, ONE BLANKET ACKNOWLEDGEMENT
+(PR #126):** the consent gate the assist/bake-off/preference arc stands
+on (`docs/plans/chat-assist-mode.md`; operator: "a clear simple
+acknowledgement that will blanket for all providers"). Pieces: (1) the
+⚡ Assist chip beside the route-context chip in the chat composer row —
+NEVER provider- or capability-gated; node `chat.assist.toggle`
+(value on/off); (2) typed intents `ToggleAssist { enable }` +
+`ResolveAssistAcknowledgement { accepted }` across the window→host
+boundary — the chip never flips itself, the HOST projects policy truth
+via `set_assist`; (3) the ONE acknowledgement: a host-authored Approval
+overlay, TWO buttons ("Turn on assist — all providers" / "Not now"), no
+"always" (approving IS the durable answer), copy names the blanket
+across all providers current and future; asked once EVER
+(`acknowledged` persists); (4) `AssistPolicy { enabled, acknowledged }`
+→ `assist-policy.json` in userdata (imagine-policy shape; authored
+fixtures never write disk; disabling is instant, no ceremony);
+(5) proofs: window tests 22/22 (3 new); scenario `chat-assist-toggle`
+(authored) + the real-runtime pair `chat-assist-enables`/`-persists` on
+scratch rings proving write + fresh-launch restore with no re-ask; six
+existing chat scenarios stay green; `proof-chat-assist-ack.png` via the
+new chat-native-proof `assist` state. CI note: green-linux's first run
+died on LXC 121 missing `libgbm-dev` — installed via `pct exec` from
+server1, lane green after (memory updated). NEXT on this arc: the first
+bake-off interaction (choice-with-previews) + the estate-backed
+preference record it feeds (assist ON is now the consent that permits
+them).
+
 **2026-07-28 — AUTHORING PASS A: THE SIGNAL SPINE (`feat/authoring-a-signals`;
 charter `docs/plans/authoring-charter.md` + build plan `authoring-shell.md`,
 both on PR #119; resume journal `docs/journal/2026-07-28-authoring-shell-handoff.md`):**
