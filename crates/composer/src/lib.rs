@@ -21,6 +21,7 @@ mod browse;
 pub mod import;
 mod mogrt;
 mod packs;
+mod rtfx;
 mod state;
 
 use dpl_coldlight::{self as cl, Tone};
@@ -130,6 +131,9 @@ pub struct Composer {
     packs: Option<Vec<packs::Pack>>,
     /// The footage row highlighted in the project preview well.
     proj_sel: Option<usize>,
+    /// The FOOTAGE palette's active tag filter (L3 — the enricher's tags
+    /// made visible; None = everything).
+    palette_tag: Option<String>,
     /// The off-thread stitch render's shared state.
     render: Arc<Mutex<RenderState>>,
     /// The off-thread pack INGEST's shared state (one at a time).
@@ -295,6 +299,7 @@ impl Default for Composer {
             elements: None,
             packs: None,
             proj_sel: None,
+            palette_tag: None,
             render: Arc::new(Mutex::new(RenderState::Idle)),
             ingest: Arc::new(Mutex::new(IngestState::Idle)),
             ingest_done: Arc::new(AtomicUsize::new(0)),
@@ -363,6 +368,9 @@ enum Act {
     /// Overlay a FOOTAGE row ON TOP of the timeline at the playhead —
     /// alpha composites over the cuts (L3, the FX track).
     AddOverlay(usize),
+    /// Filter the FOOTAGE palette by an index tag (None = everything) —
+    /// in-memory over the loaded records, the house pattern.
+    PaletteTag(Option<String>),
     /// Edit the selected overlay's transform/tint from the inspector.
     /// `fresh` marks the first change of a gesture (one undo step).
     OverlayEdit {
@@ -1759,7 +1767,13 @@ impl Composer {
             .name("dpl-pack-ingest".into())
             .spawn(move || {
                 let root = Self::content_root();
-                let result = packs::ingest_copy(&root, &pack, &name, &done);
+                // The ADR-014 index (.userdata/index.db) — the one every
+                // read surface opens. The old ad-hoc root/artifacts.db
+                // open wrote a RETIRED legacy DB nothing read: ingested
+                // packs were invisible in the library on a migrated
+                // install (verified 2026-07-27, plan §2).
+                let result = dpl_index::Index::open_default()
+                    .and_then(|ix| packs::ingest_copy(&root, &pack, &name, &ix, &done));
                 *state.lock().expect("ingest state") = match result {
                     Ok(copied) => {
                         if let (Some(f), Some(j)) = (&fabric, job) {
@@ -2430,6 +2444,10 @@ impl Composer {
                     self.proj_sel = Some(i);
                 }
             }
+            Some(Act::PaletteTag(tag)) => {
+                self.palette_tag = tag;
+                self.proj_sel = None;
+            }
             Some(Act::OverlayEdit {
                 id,
                 x,
@@ -2963,7 +2981,53 @@ impl Composer {
                 if footage.is_empty() {
                     empty_line(ui, "no clips or images yet — capture or import some");
                 }
-                for (i, rec) in footage.iter().enumerate() {
+                // L3: tag chips — the enricher's tags made tappable. Top
+                // tags by count, in memory, `dir:*` noise excluded.
+                let mut tag_counts: Vec<(&str, usize)> = Vec::new();
+                for rec in footage {
+                    for t in &rec.tags {
+                        if t.starts_with("dir:") || t == "rtfx" {
+                            continue;
+                        }
+                        match tag_counts.iter_mut().find(|(k, _)| k == t) {
+                            Some((_, n)) => *n += 1,
+                            None => tag_counts.push((t, 1)),
+                        }
+                    }
+                }
+                if !tag_counts.is_empty() {
+                    tag_counts.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+                    ui.horizontal_wrapped(|ui| {
+                        let all = self.palette_tag.is_none();
+                        let resp = cl::tip(
+                            tag_chip(ui, "all", all, "tagchip-all"),
+                            "Show every clip and image",
+                        );
+                        if resp.clicked() && !all {
+                            *act = Some(Act::PaletteTag(None));
+                        }
+                        for (tag, n) in tag_counts.iter().take(8) {
+                            let active = self.palette_tag.as_deref() == Some(*tag);
+                            let resp = cl::tip(
+                                tag_chip(ui, &format!("{tag} {n}"), active, tag),
+                                "Show only footage carrying this tag",
+                            );
+                            if resp.clicked() {
+                                *act = Some(Act::PaletteTag(if active {
+                                    None
+                                } else {
+                                    Some(tag.to_string())
+                                }));
+                            }
+                        }
+                    });
+                }
+                let wanted_tag = self.palette_tag.clone();
+                for (i, rec) in footage.iter().enumerate().filter(|(_, r)| {
+                    wanted_tag
+                        .as_deref()
+                        .is_none_or(|t| r.tags.iter().any(|x| x == t))
+                }) {
                     let glyph = if rec.kind == "video" { "vid" } else { "img" };
                     // Trailing spaces shift the duration clear of the fx
                     // corner painted below (right-anchored text).
@@ -4816,6 +4880,28 @@ fn small_btn(
     ui.interact(
         inner.response.rect,
         egui::Id::new(("composer-sbtn", key)),
+        Sense::click(),
+    )
+}
+
+/// A small tag-filter chip (L3): treated neubrutal like `tool_btn`, the
+/// active filter presses in — composed from the trait system, never
+/// hand-painted chrome.
+fn tag_chip(ui: &mut egui::Ui, label: &str, active: bool, key: &str) -> egui::Response {
+    let tone = if active { Tone::Magenta } else { Tone::Cyan };
+    let state = if active {
+        cl::TraitState::Active
+    } else {
+        cl::TraitState::Idle
+    };
+    let inner = cl::treated(tone, "neubrutalist", &[], state)
+        .margin(egui::Margin::symmetric(6, 2))
+        .show(ui, |ui| {
+            ui.label(RichText::new(label).small());
+        });
+    ui.interact(
+        inner.response.rect,
+        egui::Id::new(("tag-chip", key)),
         Sense::click(),
     )
 }
