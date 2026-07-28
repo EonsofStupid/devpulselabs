@@ -28,6 +28,32 @@ fact); NEXT = **Pass B** (four-bucket infinite gallery + filmstrip over the real
 registries). NOTE: built in a worktree off `main`; charter #119 + DS2 #114
 merges remain the operator's calls.
 
+**2026-07-28 — DS2 ELEMENT LIBRARY (`feat/ds2-element-library`,
+`docs/plans/ds2-element-library.md`, design-system build order §7.2):** the
+element tier brought under the **Census law**. New
+`crates/slides/src/blocks/census.rs` — `ElementSpec {id, label, category,
+cost_tier, blurb}` + the `ElementDemo` trait + `elements()`, mirroring
+`registry::demos()` for templates, with the gallery-gate test painting all 6
+elements (eyebrow · stat · badge · bar · divider · media) at entrance AND rest
+without panic. `ElementCategory` (type/mark/meter/divider/media/**container**/
+**control**; the last two honestly EMPTY until promotion / recipes) is the
+Library SHELF, not a style; `CostTier::{Baseline,Enhanced,Max}` is DECLARED now
+(all elements Baseline — none paints an animated wash), to be HONORED by the
+`Caps→Tier` fidelity probe in a later step (§5). `workbench::library::
+blocks_wall` rewritten **census-driven** — the hand-list DIED (it had gone
+stale: `bar`/`divider` shipped but never showed); a new element now appears the
+day it registers, and nothing enumerates elements by hand (Census-law
+compliance). Elements stay ergonomic free fns; a stateless demo wraps each,
+centralized in the census module (zero element files touched). OUT-OF-SCOPE,
+each its own build-order step: treatments/`ResolvedStyle` threading (§3),
+recipes (§4), the probe honoring `cost_tier` (§5), template migration (§6).
+Gate: full `cargo green` GREEN on the Linux worktree (fmt · spawn+structure
+audits · clippy -D warnings · workspace tests incl. the 2 new census tests ·
+release build rebuilt `target/release/devpulselabs`). CLOSE-OUT (operator,
+Windows checkout): rebuild `devpulselabs.exe` + mtime, screenshot the Library
+element wall at a REAL window size showing all 6 shelved by category (`bar`/
+`divider` now present), land the PR.
+
 **2026-07-28 — JOBS-BOARD MIGRATION: ONE JOBBOARD, THE THREE POLLED STATES
 COLLAPSE (PR #120, squash `d367390`; plan `docs/plans/jobs-board-migration.md`;
 journal NEXT SERIES item 2 CLOSED):** THE JOBBOARD lives inside the Fabric —

@@ -1,13 +1,15 @@
 name: green
 
 # The green gate on SELF-HOSTED runners — zero hosted minutes, native
-# targets. Windows lane: dpl-win (this dev laptop). Linux/Wayland lane:
-# activates when the Ubuntu mini-PC registers a runner labeled dpl-linux
-# (see CLAUDE.md "CI runners"). Free-plan note: checks report on the PR
-# but cannot hard-block merges (branch protection is Pro-gated); the
-# committed pre-push hook is the local enforcement.
+# targets, both lanes on the dedicated-server estate (CLAUDE.md "CI
+# runners"). Windows lane: dpl-win = devpulse-runner-win-01 (Proxmox VM).
+# Linux lane: dpl-linux = devpulse-runner-lnx-01 (LXC) + the ARM64
+# clyffy-lab runner. Free-plan note: checks report on the PR but cannot
+# hard-block merges (branch protection is Pro-gated); the committed
+# pre-push hook is the local enforcement.
 
 on:
+  workflow_dispatch:
   pull_request:
     branches: [main]
     paths-ignore:
@@ -21,14 +23,15 @@ env:
 jobs:
   green-windows:
     runs-on: [self-hosted, dpl-win]
-    # 45: the debug=0 fingerprint change forces one full rebuild per cache;
-    # the laptop needs the headroom (runs after that are incremental).
+    # 45: a cold cache (fresh runner) or a debug=0 fingerprint change
+    # forces one full rebuild; runs after that are incremental.
     timeout-minutes: 45
     env:
-      # The 16GB laptop lane dies on LNK1318 "PDB LIMIT" when cargo test
+      # A 16GB Windows lane dies on LNK1318 "PDB LIMIT" when cargo test
       # links its big test exes with debug info under memory pressure, and
       # full-parallel builds starve the runner's heartbeat ("lost
       # communication"). CI doesn't need debug info; local builds keep it.
+      # The VM boots with 16 GB too — these cures stay.
       CARGO_PROFILE_DEV_DEBUG: "0"
       CARGO_PROFILE_TEST_DEBUG: "0"
       CARGO_BUILD_JOBS: "8"
@@ -41,8 +44,9 @@ jobs:
       - name: tests
         run: cargo test --workspace
 
-  # Linux/Wayland lane — the ARM64 runner (labels: dpl-linux) is registered
-  # and online (dpl-linux-clyffy-lab). Cross-support is a product requirement.
+  # Linux/Wayland lane — devpulse-runner-lnx-01 (x64 LXC) + the ARM64
+  # clyffy-lab runner both carry dpl-linux. Cross-support is a product
+  # requirement.
   green-linux:
     runs-on: [self-hosted, dpl-linux]
     timeout-minutes: 30
