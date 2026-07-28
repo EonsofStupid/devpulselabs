@@ -1299,30 +1299,6 @@ impl Composer {
             .unwrap()
     }
 
-    /// The main track's playable (artifact) layers → stitch clips, in order.
-    /// Element sources have no file yet (the ingest pass) — skipped.
-    fn stitch_clips(&self) -> Vec<StitchClip> {
-        self.layers()
-            .iter()
-            .filter_map(|l| match &l.source {
-                Source::Artifact { rel } => {
-                    let path = Self::resolve(rel);
-                    Some(StitchClip {
-                        still: dpl_engine_media::is_still(&path),
-                        path,
-                        in_pt: l.in_pt,
-                        out_pt: l.out_pt,
-                    })
-                }
-                Source::Element { .. } => None,
-                // L2: Lottie previews live but is NOT in the stitch yet —
-                // export (helper frame-seq → ffmpeg) lands in L3. The Render
-                // action names the skipped Lottie layer(s) honestly.
-                Source::Lottie { .. } => None,
-            })
-            .collect()
-    }
-
     /// Gather the L3 render inputs from the WHOLE comp (all tracks), pure.
     /// Base track: artifacts become concat legs; a Lottie span becomes a
     /// BLACK leg + a same-timed overlay (the native render composites on
@@ -5702,7 +5678,8 @@ mod tests {
     }
 
     #[test]
-    fn stitch_clips_map_in_order_skipping_elements() {
+    fn render_parts_map_in_order_skipping_elements() {
+        use dpl_engine_media::CompBase;
         let mut c = Composer::default();
         c.add_clip(&video_rec("A", "inbox/a.mp4", Some(3)));
         c.add_clip(&video_rec("B", "inbox/b.mp4", Some(4)));
@@ -5715,10 +5692,16 @@ mod tests {
                 2.0,
             ));
         }
-        let clips = c.stitch_clips();
-        assert_eq!(clips.len(), 2, "element source is skipped");
-        assert!(clips[0].path.to_string_lossy().contains("a.mp4"));
-        assert!((clips[1].out_pt - 4.0).abs() < 1e-6);
+        let parts = c.render_parts();
+        assert_eq!(parts.base.len(), 2, "element source is skipped");
+        assert_eq!(parts.elements_skipped, 1, "and counted honestly");
+        match (&parts.base[0], &parts.base[1]) {
+            (CompBase::Clip(a), CompBase::Clip(b)) => {
+                assert!(a.path.to_string_lossy().contains("a.mp4"));
+                assert!((b.out_pt - 4.0).abs() < 1e-6);
+            }
+            _ => panic!("both base legs are clips"),
+        }
     }
 
     #[test]
@@ -5954,9 +5937,15 @@ mod tests {
         assert!((l.span() - 5.0).abs() < 1e-6, "held DEFAULT_IMAGE_SECS");
         assert!((l.start - 4.0).abs() < 1e-6, "appended after the video");
         assert!(dpl_comp::validate(&c.comp).is_empty());
-        // The stitch maps it as a STILL.
-        let clips = c.stitch_clips();
-        assert!(!clips[0].still && clips[1].still, "still flags mapped");
+        // The render maps it as a STILL leg.
+        let parts = c.render_parts();
+        match (&parts.base[0], &parts.base[1]) {
+            (
+                dpl_engine_media::CompBase::Clip(a),
+                dpl_engine_media::CompBase::Clip(b),
+            ) => assert!(!a.still && b.still, "still flags mapped"),
+            _ => panic!("both base legs are clips"),
+        }
     }
 
     #[test]
