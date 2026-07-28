@@ -2,6 +2,7 @@
 name = "dpl-engine-capture"
 version = "0.1.0"
 edition = "2021"
+publish = false
 description = "DevPULSE Labs screen-capture engine (xcap recorder + ffmpeg x264). Pure engine — no Tauri."
 authors = ["DevPULSE Labs"]
 

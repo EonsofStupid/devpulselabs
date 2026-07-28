@@ -27,6 +27,10 @@ other worktree. The operator double-clicks `target\release\devpulselabs.exe`
   never delete. Sources are never mutated (flatten/captures file NEW).
 - No `#[allow]` attributes; no re-export shims on moves; ffmpeg is a
   subprocess, never a crate dep (ADR-009).
+- **Structure is law**: `docs/design/architecture.md` (layer stack, dep
+  ceilings, named exceptions, new-crate checklist) is enforced by the
+  `structure` phase of `cargo green` — amend the doc AND the audit table
+  in `crates/xtask/src/main.rs` in the SAME commit.
 - Proof-shot exe runs are SEQUENTIAL (parallel runs corrupted the index).
 
 ## Commands
