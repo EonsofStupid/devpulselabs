@@ -22,7 +22,9 @@ param(
     [string]$Token = "",
     [string]$RunnerName = "$env:COMPUTERNAME".ToLower(),
     [string]$Labels = "dpl-win",
-    [string]$RunnerRoot = "C:\actions-runner",
+    # Per-repo roots (C:\actions\runner-<repo>) -- this guest hosts more
+    # than one repo's runner; they must never share a directory.
+    [string]$RunnerRoot = "C:\actions\runner-devpulselabs",
     [switch]$VerifyOnly
 )
 
@@ -154,6 +156,17 @@ else {
 Step "register + service install ($RunnerName, labels: $Labels)"
 Push-Location $RunnerRoot
 try {
+    # A stale LOCAL config makes config.cmd refuse outright ("already
+    # configured") -- --replace only supersedes the SERVER-side name.
+    # Clearing the local state files is what config.cmd remove would do
+    # locally; --replace then covers the server side. (Found live: an
+    # interrupted provisioning left .runner behind, 2026-07-28.)
+    foreach ($stale in @('.runner', '.credentials', '.credentials_rsaparams', '.service')) {
+        if (Test-Path ".\$stale") {
+            Write-Host "   clearing stale local config: $stale"
+            Remove-Item -Force ".\$stale"
+        }
+    }
     # --replace: safe re-run; a same-named registration is superseded.
     & .\config.cmd --unattended --replace --url $RepoUrl --token $Token `
         --name $RunnerName --labels $Labels `

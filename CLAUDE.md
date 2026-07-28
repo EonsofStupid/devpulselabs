@@ -70,7 +70,9 @@ other worktree. The operator double-clicks `target\release\devpulselabs.exe`
   elevated shell, once.)
 - Windows lane: `devpulse-runner-win-01` (labels: dpl-win) — Proxmox VM
   119, runner service `actions.runner.EonsofStupid-devpulselabs.
-  devpulse-runner-win-01` running as SYSTEM at `C:\actions-runner`.
+  devpulse-runner-win-01` running as SYSTEM at
+  `C:\actions\runner-devpulselabs` (per-repo roots — the VM hosts
+  another repo's runner beside it).
   Toolchain (all machine-usable by SYSTEM): git 2.55, rustup with the
   pinned 1.92.0 (default profile — clippy+rustfmt) in the SYSTEM
   profile, VS Build Tools MSVC 14.44 + Win11 SDK 26100. Reach the VM
