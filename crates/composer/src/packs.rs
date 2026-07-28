@@ -250,6 +250,12 @@ pub fn ingest_copy(
             if let Some(tags) = crate::rtfx::rtfx_tags(stem, &bucket) {
                 rec.tags = tags;
             }
+            // Grammar-independent tags (L4: bare "X Matte NN" sources).
+            for t in crate::rtfx::generic_media_tags(stem) {
+                if !rec.tags.contains(&t) {
+                    rec.tags.push(t);
+                }
+            }
         }
         if kind == "video" {
             let poster = dest.with_file_name(format!(

@@ -134,6 +134,8 @@ pub struct Composer {
     /// The FOOTAGE palette's active tag filter (L3 — the enricher's tags
     /// made visible; None = everything).
     palette_tag: Option<String>,
+    /// L4: the pickable `.cube` grades (`lut`-tagged elements).
+    luts: Option<Vec<Record>>,
     /// The in-flight/last stitch render — a handle into the fabric's
     /// JobBoard (None = never rendered, or the outcome was acknowledged).
     render_job: Option<dpl_fabric::JobId>,
@@ -297,6 +299,7 @@ impl Default for Composer {
             packs: None,
             proj_sel: None,
             palette_tag: None,
+            luts: None,
             render_job: None,
             ingest_job: None,
             tab: initial_tab(),
@@ -367,6 +370,14 @@ enum Act {
     /// Filter the FOOTAGE palette by an index tag (None = everything) —
     /// in-memory over the loaded records, the house pattern.
     PaletteTag(Option<String>),
+    /// Edit the selected layer's L4 grade (blend/matte/lut) from the
+    /// inspector — discrete taps, one undo step each.
+    GradeEdit {
+        id: String,
+        blend: dpl_comp::Blend,
+        matte: Option<String>,
+        lut: Option<String>,
+    },
     /// Edit the selected overlay's transform/tint from the inspector.
     /// `fresh` marks the first change of a gesture (one undo step).
     OverlayEdit {
@@ -1518,6 +1529,19 @@ impl Composer {
                 .unwrap_or_default();
             self.palette = Some(rows);
         }
+        if self.luts.is_none() {
+            // L4: the pickable grades — `lut`-tagged elements (the
+            // enricher tags .cube files by their LUTs bucket).
+            let rows = dpl_index::Index::open_default()
+                .and_then(|ix| ix.list(Some("element"), None))
+                .map(|rows| {
+                    rows.into_iter()
+                        .filter(|r| r.tags.iter().any(|t| t == "lut"))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            self.luts = Some(rows);
+        }
         if self.comps.is_none() {
             self.comps = Some(scan_inbox_for(&Self::content_root(), "comp.json"));
         }
@@ -2513,6 +2537,20 @@ impl Composer {
                 self.palette_tag = tag;
                 self.proj_sel = None;
             }
+            Some(Act::GradeEdit {
+                id,
+                blend,
+                matte,
+                lut,
+            }) => {
+                self.checkpoint();
+                if let Some(l) = self.layer_mut(&id) {
+                    l.blend = blend;
+                    l.matte = matte;
+                    l.lut = lut;
+                }
+                self.mark_edit();
+            }
             Some(Act::OverlayEdit {
                 id,
                 x,
@@ -3312,6 +3350,163 @@ impl Composer {
         if on_fx {
             self.overlay_inspector(ui, layer, act);
         }
+        self.grade_rows(ui, layer, on_fx, act);
+    }
+
+    /// The L4 GRADE rows: blend + matte for overlays, a LUT for EVERY
+    /// layer (base cuts grade too). Discrete taps — one undo step each.
+    fn grade_rows(&self, ui: &mut egui::Ui, layer: &Layer, on_fx: bool, act: &mut Option<Act>) {
+        let (mut blend, mut matte, mut lut) = (layer.blend, layer.matte.clone(), layer.lut.clone());
+        let mut changed = false;
+        if on_fx {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("blend").small().color(cl::ink::SUBTLE));
+                for (label, b, tip_text) in [
+                    (
+                        "normal",
+                        dpl_comp::Blend::Normal,
+                        "Composite by transparency — the element's own alpha",
+                    ),
+                    (
+                        "screen",
+                        dpl_comp::Blend::Screen,
+                        "Brighten onto the video below — light leaks and glows \
+                         (viewer approximates; the export is exact)",
+                    ),
+                    (
+                        "add",
+                        dpl_comp::Blend::Add,
+                        "Pure additive light — lasers, flares \
+                         (viewer approximates; the export is exact)",
+                    ),
+                ] {
+                    let active = blend == b;
+                    let resp = cl::tip(tag_chip(ui, label, active, label), tip_text);
+                    if resp.clicked() && !active {
+                        blend = b;
+                        changed = true;
+                    }
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("matte").small().color(cl::ink::SUBTLE));
+                let shown = matte
+                    .as_deref()
+                    .map(short_name)
+                    .unwrap_or_else(|| "none".into());
+                let combo = egui::ComboBox::from_id_salt(("matte-pick", &layer.id))
+                    .selected_text(shown)
+                    .show_ui(ui, |ui| {
+                        if ui.selectable_label(matte.is_none(), "none").clicked() && matte.is_some()
+                        {
+                            matte = None;
+                            changed = true;
+                        }
+                        for rec in self.matte_candidates() {
+                            let sel = matte.as_deref() == Some(rec.rel_path.as_str());
+                            if ui.selectable_label(sel, &rec.name).clicked() && !sel {
+                                matte = Some(rec.rel_path.clone());
+                                changed = true;
+                            }
+                        }
+                    });
+                cl::tip(
+                    combo.response,
+                    "Carve this overlay with another video's brightness — \
+                     white shows, black hides (matte wipes)",
+                );
+            });
+            // The auto-pair SUGGESTION (operator-ratified): shared leading
+            // word + exactly one matte-tagged match — offered, never applied.
+            if matte.is_none() {
+                if let Some(rec) = self.matte_suggestion(layer) {
+                    let resp = cl::tip(
+                        ui.label(
+                            RichText::new(format!("try: {}", rec.name))
+                                .small()
+                                .color(Tone::Cyan.color()),
+                        )
+                        .interact(Sense::click()),
+                        "Same-family matte found in your library — tap to use it",
+                    );
+                    if resp.clicked() {
+                        matte = Some(rec.rel_path.clone());
+                        changed = true;
+                    }
+                }
+            }
+        }
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("grade").small().color(cl::ink::SUBTLE));
+            let shown = lut
+                .as_deref()
+                .map(short_name)
+                .unwrap_or_else(|| "none".into());
+            let combo = egui::ComboBox::from_id_salt(("lut-pick", &layer.id))
+                .selected_text(shown)
+                .show_ui(ui, |ui| {
+                    if ui.selectable_label(lut.is_none(), "none").clicked() && lut.is_some() {
+                        lut = None;
+                        changed = true;
+                    }
+                    for rec in self.luts.as_deref().unwrap_or(&[]) {
+                        let sel = lut.as_deref() == Some(rec.rel_path.as_str());
+                        if ui.selectable_label(sel, &rec.name).clicked() && !sel {
+                            lut = Some(rec.rel_path.clone());
+                            changed = true;
+                        }
+                    }
+                });
+            cl::tip(
+                combo.response,
+                "Color-grade this layer with a .cube LUT from your library \
+                 (previews exactly)",
+            );
+        });
+        if changed {
+            *act = Some(Act::GradeEdit {
+                id: layer.id.clone(),
+                blend,
+                matte,
+                lut,
+            });
+        }
+    }
+
+    /// Matte pick order: `matte`-tagged videos first, then the rest.
+    fn matte_candidates(&self) -> Vec<&Record> {
+        let mut v: Vec<&Record> = self
+            .palette
+            .as_deref()
+            .unwrap_or(&[])
+            .iter()
+            .filter(|r| r.kind == "video")
+            .collect();
+        v.sort_by_key(|r| (!r.tags.iter().any(|t| t == "matte"), r.name.clone()));
+        v
+    }
+
+    /// The auto-pair candidate: the ONE matte-tagged video sharing this
+    /// layer's leading name word (`Brush …` ↔ `Brush Matte 01`), or None.
+    fn matte_suggestion(&self, layer: &Layer) -> Option<&Record> {
+        let lead = Path::new(layer.source.reference())
+            .file_stem()?
+            .to_str()?
+            .split(' ')
+            .next()?
+            .to_ascii_lowercase();
+        let hits: Vec<&Record> = self
+            .palette
+            .as_deref()
+            .unwrap_or(&[])
+            .iter()
+            .filter(|r| {
+                r.tags.iter().any(|t| t == "matte")
+                    && r.name.to_ascii_lowercase().starts_with(&lead)
+                    && r.rel_path != layer.source.reference()
+            })
+            .collect();
+        (hits.len() == 1).then(|| hits[0])
     }
 
     /// The OVERLAY inspector (L3): size, position, tint — plain-words
@@ -5031,6 +5226,14 @@ fn swatch(ui: &mut egui::Ui, color: Option<Color32>, active: bool, key: &str) ->
         );
     }
     resp
+}
+
+/// A rel path's file stem — compact picker labels.
+fn short_name(rel: &str) -> String {
+    Path::new(rel)
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| rel.into())
 }
 
 /// A PROJECT section header line.
