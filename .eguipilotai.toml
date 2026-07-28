@@ -71,6 +71,15 @@ arguments = ["--chat-open", "--chat-authored", "--chat-proof", "grok-auth", "--m
 [fixtures.wiredfront-editor]
 arguments = ["--route", "wiredfront/editor", "--mood", "0"]
 
+# WF1: the Workflows tab + a real storyboard run. CONTENT_ROOT is a scratch
+# tree under target/ so the drill's minted run folders never touch the
+# operator's content (relative = resolved from the workspace-root CWD).
+[fixtures.wiredfront-workflows]
+arguments = ["--route", "wiredfront/editor", "--mood", "0"]
+
+[fixtures.wiredfront-workflows.environment]
+CONTENT_ROOT = "target/eguipilotai/wf1-content"
+
 [fixtures.workbench-studio]
 arguments = ["--route", "workbench/studio", "--mood", "0"]
 

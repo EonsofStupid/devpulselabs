@@ -74,6 +74,40 @@ capability, is now the binding constraint. Spikes filed:
 `mouse_passthrough` still unproven) and
 `docs/plans/coach-c2s-foreign-target-spike.md`.
 
+**2026-07-27 — WF1: THE WORKFLOW ENGINE + SLOTTED STORYBOARD (PR #105):**
+the first pass of the ratified Workflows program (`docs/plans/
+wiredfront-workflows-program.md`; plan `wf1-workflow-engine.md` §3a = the
+slotted-storyboard + two-surface refinement, evidence in §8). Pieces:
+(1) pure crate **`dpl-workflows`** (deps exactly serde/serde_json/
+dpl-comp/dpl-doc) — a workflow is a TYPED DOCUMENT (D3): `WorkflowDoc` v1
+(linear = the degenerate case of WF2's graph; stage ids from day one;
+`surface` declares the two-libraries side), the slotted `StoryboardDoc`
+(role + agent-readable brief + typed fill; "slots remaining" = derived
+query), census registry (D6), named-issue validation + jailed refs,
+crash-safe board save, executor + honest `DryRunner` (12 tests);
+(2) composer **Workflows tab** (sixth `Tab`; `workflow_tabs`→`tab_strip`):
+census cards, Run chip, per-stage verdict chips, slots as EguiPilot nodes
+(`wiredfront.storyboard.slot/<id>`, value = fill, description = brief);
+`WfRunner` materializes stages under no-clobber `inbox/workflow-<id>/`;
+per-stage `jobs.*` facts + ONE `InboxChanged`; generation NEVER spends
+(ADR-011 presence-check, honest skip); an assembled comp opens in the
+Editor and rides the existing render job; (3) `--run-workflow <id>`
+harness seam + `wiredfront-workflows` fixture/scenario (scratch
+CONTENT_ROOT), proof shots at 1280x800 + 1600x1000; (4) **poppler
+staged**: pdftoppm 26.02.0 as a Media-family TREE in BOTH depots (xtask
+tree gate generalized, per-id `-v` probe, verify-all-staged);
+`rasterize_pdf` consumes the injected depot payload, PATH fallback for
+the Linux lane; (5) T0 record hygiene (gate table rows 2/3/4/5/10 DONE
+with W1 `067646d`/W1.2 `9a95fc7`/W2 `60db7be`; ladder rungs 1–2 retired;
+CLAUDE.md harness flags ground-truthed; port-capture skill records the
+gutted reference repo). **KNOWN BROKEN (pre-existing on main, verified
+against a main-built devtools exe):** EguiPilotAI `shell-navigation`
+(rail flyout `Test Lab` locator dead) and `chat-peer-window`
+(`chat.context.route` ≠ "wiredfront") both fail — next-session repair;
+`chat-grok-signed-out-readiness` stays the documented signed-out gate.
+NEXT (§3a): workbench/workflows mount + teleprompter-script stage; then
+T1a (element render leg) per the ratified tier order.
+
 **2026-07-27 — DESIGN-SYSTEM ARCHITECTURE RATIFIED (`docs/design/
 design-system.md`):** the composable pivot. THE MODEL: *a template is a layout
 of ELEMENTS; each element wears a TREATMENT (semantic | composite); any

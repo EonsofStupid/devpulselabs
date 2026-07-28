@@ -1090,6 +1090,17 @@ impl WiredfrontHub {
         }
     }
 
+    /// The `--run-workflow <id>` harness seam (WF1): run a registered
+    /// workflow through the Workflows tab's exact Run path. Prints the
+    /// verdict line for the headless drill (an unknown id goes to stderr
+    /// naming the registered set; nothing is minted).
+    pub fn run_workflow(&mut self, id: &str) {
+        match self.composer.run_workflow(id) {
+            Ok(verdict) => println!("{verdict}"),
+            Err(e) => eprintln!("run-workflow failed: {e}"),
+        }
+    }
+
     /// Open one session IN PLACE on the Gallery (doctrine §1.2) — the
     /// same path a session thumb tap takes (also `--open-replay`).
     pub fn open_replay(&mut self, rel: &str) {

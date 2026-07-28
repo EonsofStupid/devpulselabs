@@ -21,9 +21,19 @@ env:
 jobs:
   green-windows:
     runs-on: [self-hosted, dpl-win]
-    timeout-minutes: 30
+    # 45: the debug=0 fingerprint change forces one full rebuild per cache;
+    # the laptop needs the headroom (runs after that are incremental).
+    timeout-minutes: 45
+    env:
+      # The 16GB laptop lane dies on LNK1318 "PDB LIMIT" when cargo test
+      # links its big test exes with debug info under memory pressure, and
+      # full-parallel builds starve the runner's heartbeat ("lost
+      # communication"). CI doesn't need debug info; local builds keep it.
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      CARGO_BUILD_JOBS: "8"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: fmt
         run: cargo fmt --all --check
       - name: clippy (deny warnings)
@@ -37,7 +47,7 @@ jobs:
     runs-on: [self-hosted, dpl-linux]
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: fmt
         run: cargo fmt --all --check
       - name: clippy (deny warnings)
@@ -52,7 +62,7 @@ jobs:
   #   runs-on: [self-hosted, dpl-mac]
   #   timeout-minutes: 30
   #   steps:
-  #     - uses: actions/checkout@v4
+  #     - uses: actions/checkout@v7
   #     - name: fmt
   #       run: cargo fmt --all --check
   #     - name: clippy (deny warnings)

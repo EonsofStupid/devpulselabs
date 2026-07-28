@@ -56,13 +56,23 @@ pub fn sanitize_name(raw: &str) -> Option<String> {
     (!cleaned.is_empty()).then_some(cleaned)
 }
 
+/// The managed pdftoppm payload (the ffmpeg pattern): the app shell resolves
+/// the verified depot tree once and injects the absolute path here.
+static PDFTOPPM: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// Idempotent: the first caller wins; later calls are ignored.
+pub fn set_pdftoppm_path(p: PathBuf) {
+    let _ = PDFTOPPM.set(p);
+}
+
 /// Rasterize each page of a PDF to a PNG via `pdftoppm` — a SUBPROCESS
 /// (ADR-009, the ffmpeg pattern: NEVER a crate PDF parser) wrapped in the
 /// quiet-spawn law. Pages land in `out_dir` as `<stem>-<n>.png` (pdftoppm
 /// zero-pads within a document, so a lexical sort is page order). Returns
-/// the page paths in order. The tool is resolved off PATH today; its absence
-/// is an HONEST error naming the fix (dptools-deps staging is the portable
-/// follow-up, exactly like managed ffmpeg).
+/// the page paths in order. The tool is the injected depot payload
+/// ([`set_pdftoppm_path`]); without one it degrades to the bare PATH name
+/// (the Linux-gate box installs poppler-utils via apt) and absence stays an
+/// HONEST error naming the fix.
 pub fn rasterize_pdf(pdf: &Path, out_dir: &Path, stem: &str) -> Result<Vec<PathBuf>, String> {
     let is_pdf = pdf
         .extension()
@@ -78,7 +88,12 @@ pub fn rasterize_pdf(pdf: &Path, out_dir: &Path, stem: &str) -> Result<Vec<PathB
     std::fs::create_dir_all(out_dir).map_err(|e| format!("stage dir: {e}"))?;
     let prefix = out_dir.join(stem);
 
-    let mut cmd = std::process::Command::new("pdftoppm");
+    let mut cmd = std::process::Command::new(
+        PDFTOPPM
+            .get()
+            .map(PathBuf::as_path)
+            .unwrap_or_else(|| Path::new("pdftoppm")),
+    );
     cmd.arg("-png").arg("-r").arg("150").arg(pdf).arg(&prefix);
     let status = dpl_proc::quiet(&mut cmd).status().map_err(|e| {
         format!("pdftoppm unavailable ({e}) — install poppler-utils or stage it in dptools-deps")

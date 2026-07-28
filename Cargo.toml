@@ -44,6 +44,7 @@ members = [
     "crates/doc",
     "crates/proc",
     "crates/comp",
+    "crates/workflows",
     "crates/guide",
     "crates/composer",
     "crates/editor",
@@ -100,7 +101,7 @@ data-encoding = "2"
 # concurrent in-process cache (the hot-read layer). Pure Rust, no server.
 fjall = "2"
 moka = { version = "0.12", features = ["sync"] }
-sha2 = "0.10"
+sha2 = "0.11"
 agent-client-protocol = "=2.0.0"
 async-channel = "2"
 async-io = "2"
@@ -117,8 +118,8 @@ sysinfo = { version = "0.33", default-features = false, features = ["system"] }
 thorvg-sys = "0.3"
 # The browser driver's CDP socket (ADR-013): pure-Rust WebSocket framing
 # over OUR TcpStream, localhost only — no TLS features, ever.
-tungstenite = { version = "0.27", default-features = false, features = ["handshake"] }
-toml = "0.9"
+tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+toml = "1.1"
 tokio = { version = "1", default-features = false, features = ["sync"] }
 turso = "0.7"
 # The agent seam (R1v): localhost HTTP over the fabric — axum is the
@@ -179,6 +180,7 @@ dpl-slides = { path = "crates/slides" }
 dpl-doc = { path = "crates/doc" }
 dpl-proc = { path = "crates/proc" }
 dpl-comp = { path = "crates/comp" }
+dpl-workflows = { path = "crates/workflows" }
 dpl-guide = { path = "crates/guide" }
 dpl-composer = { path = "crates/composer" }
 dpl-editor = { path = "crates/editor" }
