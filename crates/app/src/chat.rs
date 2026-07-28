@@ -57,6 +57,8 @@ pub enum ChatProofMode {
     GrokAuthorization,
     Compact,
     Snapped,
+    /// The blanket assist acknowledgement, open — the visual proof state.
+    Assist,
 }
 
 #[cfg(feature = "eguipilotai-devtools")]
@@ -74,6 +76,7 @@ impl ChatProofMode {
             "grok-auth" => Some(Self::GrokAuthorization),
             "compact" => Some(Self::Compact),
             "snapped" => Some(Self::Snapped),
+            "assist" => Some(Self::Assist),
             _ => None,
         }
     }
@@ -99,6 +102,7 @@ struct Shared {
     grok_attempt: Option<ActivationAttemptId>,
     codex_attempt: Option<ActivationAttemptId>,
     imagine: ImagineState,
+    assist: AssistPolicy,
     provider_events: ProviderReceiver,
     provider_runtime_enabled: bool,
     auth_browser: BrowserAuthCoordinator,
@@ -141,6 +145,37 @@ struct ImagineState {
 impl ImagineState {
     fn in_flight(&self) -> bool {
         self.worker.is_some()
+    }
+}
+
+/// Assist-mode policy — ONE toggle, ONE acknowledgement, blanketing ALL
+/// providers (never per-provider). `acknowledged` persists the one-time
+/// consent; the toggle asks it exactly once, ever. The `imagine-policy`
+/// file shape: infallible load failing closed to Default, tmp-then-rename
+/// save; authored fixtures never touch disk.
+const ASSIST_POLICY_FILE: &str = "assist-policy.json";
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct AssistPolicy {
+    #[serde(default)]
+    enabled: bool,
+    #[serde(default)]
+    acknowledged: bool,
+}
+
+impl AssistPolicy {
+    fn load(userdata: &std::path::Path) -> Self {
+        std::fs::read(userdata.join(ASSIST_POLICY_FILE))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default()
+    }
+
+    fn save(&self, userdata: &std::path::Path) -> std::io::Result<()> {
+        let bytes = serde_json::to_vec_pretty(self).map_err(std::io::Error::other)?;
+        let temporary = userdata.join(format!("{ASSIST_POLICY_FILE}.tmp"));
+        std::fs::write(&temporary, bytes)?;
+        std::fs::rename(temporary, userdata.join(ASSIST_POLICY_FILE))
     }
 }
 
@@ -269,6 +304,10 @@ impl ChatWindowCoordinator {
                             dpl_chat_window::DomainOverlay::Generation,
                         )))
                         .expect("the generation overlay is valid");
+                }
+                ChatProofMode::Assist => {
+                    // The acknowledgement itself is raised AFTER Shared
+                    // exists (the interaction id rides its counter).
                 }
                 ChatProofMode::CodexLogin => {
                     window
@@ -435,6 +474,14 @@ impl ChatWindowCoordinator {
                 last_error: None,
             });
         }
+        // Assist mode: the persisted blanket consent (authored fixtures
+        // start from defaults and never write disk).
+        let assist = if provider_runtime_enabled {
+            AssistPolicy::load(&dpl_engine_capture::userdata_root())
+        } else {
+            AssistPolicy::default()
+        };
+        window.set_assist(assist.enabled);
         let mut shared = Shared {
             registry,
             lifetime: PeerLifetime::default(),
@@ -451,6 +498,7 @@ impl ChatWindowCoordinator {
             grok_attempt: None,
             codex_attempt: None,
             imagine,
+            assist,
             provider_events: fabric.subscribe_providers(),
             provider_runtime_enabled,
             auth_browser: BrowserAuthCoordinator::new(),
@@ -466,6 +514,14 @@ impl ChatWindowCoordinator {
             #[cfg(feature = "eguipilotai-devtools")]
             pilot_runtime: None,
         };
+        #[cfg(feature = "eguipilotai-devtools")]
+        if proof_mode == Some(ChatProofMode::Assist) {
+            let interaction = InteractionId(shared.next_interaction_id);
+            shared.next_interaction_id = shared.next_interaction_id.saturating_add(1);
+            if let Err(error) = shared.window.register_assist_acknowledgement(interaction) {
+                tracing::warn!(%error, "assist proof state could not raise the acknowledgement");
+            }
+        }
         #[cfg(feature = "eguipilotai-devtools")]
         if proof_mode == Some(ChatProofMode::GrokAuthorization) {
             let attempt = shared.fabric.mint_provider_attempt();
@@ -1000,6 +1056,16 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
         HostIntent::ResolveImagineFlush { decision } => {
             let mut state = lock(shared);
             resolve_imagine_flush(&mut state, decision);
+            ctx.request_repaint();
+        }
+        HostIntent::ToggleAssist { enable } => {
+            let mut state = lock(shared);
+            toggle_assist(&mut state, enable);
+            ctx.request_repaint();
+        }
+        HostIntent::ResolveAssistAcknowledgement { accepted } => {
+            let mut state = lock(shared);
+            resolve_assist_acknowledgement(&mut state, accepted);
             ctx.request_repaint();
         }
         HostIntent::NavigateTo(route) => {
@@ -1557,6 +1623,54 @@ fn resolve_imagine_flush(state: &mut Shared, decision: ImagineFlushDecision) {
             }
             project_imagine(state);
         }
+    }
+}
+
+/// The assist toggle's host arm: disabling is instant; enabling stands
+/// behind the ONE blanket acknowledgement (asked once, ever — it covers
+/// every provider). The window's chip only moves via `set_assist`.
+fn toggle_assist(state: &mut Shared, enable: bool) {
+    if !enable {
+        state.assist.enabled = false;
+        save_assist(state);
+        state.window.set_assist(false);
+        return;
+    }
+    if state.assist.acknowledged {
+        state.assist.enabled = true;
+        save_assist(state);
+        state.window.set_assist(true);
+        return;
+    }
+    let interaction = InteractionId(state.next_interaction_id);
+    state.next_interaction_id = state.next_interaction_id.saturating_add(1);
+    if let Err(error) = state.window.register_assist_acknowledgement(interaction) {
+        tracing::warn!(%error, "assist acknowledgement could not be raised");
+    }
+}
+
+/// The acknowledgement resolved: accepting is the durable consent
+/// (enabled + acknowledged persist together); declining changes nothing
+/// on disk and assist stays off.
+fn resolve_assist_acknowledgement(state: &mut Shared, accepted: bool) {
+    if accepted {
+        state.assist.enabled = true;
+        state.assist.acknowledged = true;
+        save_assist(state);
+    } else {
+        tracing::info!("assist mode declined by the operator — staying off");
+    }
+    state.window.set_assist(state.assist.enabled);
+}
+
+/// Persist the assist policy — never in authored fixtures (they run on
+/// in-memory defaults and must not touch Ring-0).
+fn save_assist(state: &Shared) {
+    if !state.provider_runtime_enabled {
+        return;
+    }
+    if let Err(error) = state.assist.save(&dpl_engine_capture::userdata_root()) {
+        tracing::warn!(%error, "assist policy could not be persisted");
     }
 }
 

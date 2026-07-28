@@ -83,6 +83,7 @@ pub const GENERATION_MODE_VIDEO_ID: PilotId = PilotId::new("chat.generation.mode
 pub const GENERATION_GENERATE_ID: PilotId = PilotId::new("chat.generation.generate");
 pub const GENERATION_DRAFT_ID: PilotId = PilotId::new("chat.generation.draft");
 pub const UTILITY_OPEN_ID: PilotId = PilotId::new("chat.utility.open");
+pub const ASSIST_ID: PilotId = PilotId::new("chat.assist.toggle");
 
 const FULL_RAIL_WIDTH: f32 = 840.0;
 const SIDEBAR_WIDTH: f32 = 252.0;
@@ -275,6 +276,18 @@ pub enum ChatWindowIntent {
         interaction: InteractionId,
         decision: ImagineFlushDecision,
     },
+    /// The operator tapped the assist chip — `enable` is the DESIRED
+    /// state. Enabling waits on the one blanket acknowledgement (host
+    /// policy); disabling is instant.
+    ToggleAssist {
+        enable: bool,
+    },
+    /// The blanket assist acknowledgement resolved — ONE consent for
+    /// ALL providers, current and future; never per-provider.
+    ResolveAssistAcknowledgement {
+        interaction: InteractionId,
+        accepted: bool,
+    },
     NavigateTo(Route),
     ShowMain,
     QuitApplication,
@@ -360,6 +373,12 @@ pub enum HostIntent {
     },
     ResolveImagineFlush {
         decision: ImagineFlushDecision,
+    },
+    ToggleAssist {
+        enable: bool,
+    },
+    ResolveAssistAcknowledgement {
+        accepted: bool,
     },
     NavigateTo(Route),
     ShowMain,
@@ -456,6 +475,11 @@ pub struct ChatWindow {
     generation_drafts: Vec<GenerationDraftView>,
     generation_textures: GenerationTextures,
     imagine_flush_consent: Option<InteractionId>,
+    /// The blanket assist acknowledgement's open interaction, if any —
+    /// the single-slot binding (the imagine-flush shape).
+    assist_acknowledgement: Option<InteractionId>,
+    /// Assist mode as the HOST projects it (the window never decides).
+    assist_enabled: bool,
 }
 
 impl ChatWindow {
@@ -548,11 +572,65 @@ impl ChatWindow {
             generation_drafts: Vec::new(),
             generation_textures: GenerationTextures::default(),
             imagine_flush_consent: None,
+            assist_acknowledgement: None,
+            assist_enabled: false,
         }
     }
 
     pub fn set_generation_status(&mut self, status: GenerationStatus) {
         self.generation_status = status;
+    }
+
+    /// Assist mode as the host's policy truth — projected, never derived.
+    pub fn set_assist(&mut self, enabled: bool) {
+        self.assist_enabled = enabled;
+    }
+
+    pub fn assist_enabled(&self) -> bool {
+        self.assist_enabled
+    }
+
+    /// Raise the ONE blanket assist acknowledgement: a governed Approval
+    /// overlay that consents for ALL providers, current and future —
+    /// never per-provider, asked once ever. Two buttons only (no
+    /// "always": approving IS the durable answer).
+    pub fn register_assist_acknowledgement(
+        &mut self,
+        interaction: InteractionId,
+    ) -> Result<(), ChatWindowError> {
+        let spec = InteractionSpec {
+            id: interaction,
+            provenance: InteractionProvenance::Host,
+            required_capability: None,
+            lifecycle: InteractionLifecycle::Visible,
+            placement: InteractionPlacement::Overlay,
+            content: InteractionContent::Approval {
+                title: "Assist mode".to_owned(),
+                summary: "Chat and the app work as one: chat can see where you are — \
+                          your route, your open document, your storyboard's empty slots — \
+                          and may offer suggestions as pop-ups you approve or dismiss. \
+                          One setting, every provider: this applies across all chat \
+                          providers, current and future. Nothing is sent or changed \
+                          without your action."
+                    .to_owned(),
+                approve_label: "Turn on assist — all providers".to_owned(),
+                always_approve_label: None,
+                reject_label: "Not now".to_owned(),
+            },
+        };
+        self.interactions
+            .register(spec)
+            .map_err(|error| ChatWindowError::Interaction(error.to_string()))?;
+        self.overlay_coordinator
+            .open(OverlayEntry {
+                interaction_id: interaction,
+                origin_semantic_id: ASSIST_ID.as_str(),
+                priority: 1_000,
+                blocks_focus: true,
+            })
+            .map_err(|error| ChatWindowError::Interaction(error.to_string()))?;
+        self.assist_acknowledgement = Some(interaction);
+        Ok(())
     }
 
     pub fn replace_generation_drafts(&mut self, drafts: Vec<GenerationDraftView>) {
@@ -809,6 +887,25 @@ impl ChatWindow {
                 }
                 self.imagine_flush_consent = None;
                 Ok(Some(HostIntent::ResolveImagineFlush { decision }))
+            }
+            // The chip never flips itself: the desired state crosses the
+            // typed host boundary and the HOST projects the outcome back
+            // (consent may stand between).
+            ChatWindowIntent::ToggleAssist { enable } => {
+                Ok(Some(HostIntent::ToggleAssist { enable }))
+            }
+            ChatWindowIntent::ResolveAssistAcknowledgement {
+                interaction,
+                accepted,
+            } => {
+                self.interactions
+                    .transition(interaction, InteractionLifecycle::Completed)
+                    .map_err(|error| ChatWindowError::Interaction(error.to_string()))?;
+                if self.overlay_coordinator.dismiss(interaction).is_some() {
+                    self.pending_focus_return = self.approval_focus_origin;
+                }
+                self.assist_acknowledgement = None;
+                Ok(Some(HostIntent::ResolveAssistAcknowledgement { accepted }))
             }
             ChatWindowIntent::NavigateTo(route) => Ok(Some(HostIntent::NavigateTo(route))),
             ChatWindowIntent::ShowMain => Ok(Some(HostIntent::ShowMain)),
@@ -1948,6 +2045,31 @@ impl ChatWindow {
                     route_metadata.value = Some(route_hub);
                     route_metadata.description = Some(route_label);
                     ui.pilot_track(&route_response, route_metadata);
+                    // ASSIST — beside the route truth it activates. Never
+                    // provider- or capability-gated: one toggle, one
+                    // acknowledgement, every provider.
+                    let assist_label = if self.assist_enabled {
+                        "⚡ Assist on"
+                    } else {
+                        "⚡ Assist"
+                    };
+                    let assist = ui
+                        .add(egui::Button::new(assist_label).small().selected(self.assist_enabled))
+                        .on_hover_text(
+                            "Assist mode: chat and the app work as one — chat sees your \
+                             route and open work and may offer pop-up suggestions you \
+                             approve or dismiss. One setting for every provider.",
+                        );
+                    let mut assist_metadata =
+                        NodeMetadata::new(ASSIST_ID, Role::Button, "Assist mode");
+                    assist_metadata.value =
+                        Some(if self.assist_enabled { "on" } else { "off" }.to_owned());
+                    ui.pilot_track(&assist, assist_metadata);
+                    if assist.clicked() {
+                        intents.push(ChatWindowIntent::ToggleAssist {
+                            enable: !self.assist_enabled,
+                        });
+                    }
                     let selected = self.runtime.selected_provider();
                     let supports = |capability| {
                         selected.as_ref().is_some_and(|provider| {
@@ -3205,6 +3327,13 @@ impl ChatWindow {
                                             interaction: spec.id,
                                             decision: ImagineFlushDecision::FlushNow,
                                         });
+                                    } else if self.assist_acknowledgement == Some(spec.id) {
+                                        intents.push(
+                                            ChatWindowIntent::ResolveAssistAcknowledgement {
+                                                interaction: spec.id,
+                                                accepted: true,
+                                            },
+                                        );
                                     } else {
                                         intents
                                             .push(ChatWindowIntent::CompleteInteraction(spec.id));
@@ -3266,6 +3395,13 @@ impl ChatWindow {
                                             interaction: spec.id,
                                             decision: ImagineFlushDecision::Defer,
                                         });
+                                    } else if self.assist_acknowledgement == Some(spec.id) {
+                                        intents.push(
+                                            ChatWindowIntent::ResolveAssistAcknowledgement {
+                                                interaction: spec.id,
+                                                accepted: false,
+                                            },
+                                        );
                                     } else {
                                         intents.push(ChatWindowIntent::DismissInteraction(spec.id));
                                     }
@@ -4424,6 +4560,96 @@ mod tests {
                 option_id: Some("always".into()),
             })
         );
+        assert_eq!(window.overlay_coordinator.ordered().len(), 0);
+    }
+
+    /// Assist is host-owned truth: the chip's tap crosses the typed
+    /// boundary carrying the DESIRED state, and the window's own flag
+    /// moves only when the host projects it back.
+    #[test]
+    fn assist_toggle_crosses_the_typed_host_boundary() {
+        let mut window = window();
+        assert!(!window.assist_enabled(), "assist defaults off");
+        assert_eq!(
+            window
+                .apply(ChatWindowIntent::ToggleAssist { enable: true })
+                .expect("toggle assist"),
+            Some(HostIntent::ToggleAssist { enable: true })
+        );
+        assert!(
+            !window.assist_enabled(),
+            "the window never flips itself — consent may stand between"
+        );
+        window.set_assist(true);
+        assert!(window.assist_enabled());
+        assert_eq!(
+            window
+                .apply(ChatWindowIntent::ToggleAssist { enable: false })
+                .expect("toggle assist off"),
+            Some(HostIntent::ToggleAssist { enable: false })
+        );
+    }
+
+    /// The blanket acknowledgement: registered once, TWO buttons only
+    /// (no "always" — approving IS the durable answer), copy names that
+    /// it covers all providers, and both resolutions cross the typed
+    /// boundary and clear the overlay.
+    #[test]
+    fn assist_acknowledgement_is_one_blanket_consent() {
+        let mut window = window();
+        let interaction = InteractionId(2_000_000_000);
+        window
+            .register_assist_acknowledgement(interaction)
+            .expect("register acknowledgement");
+        let spec = window.interaction(interaction).expect("registered spec");
+        let InteractionContent::Approval {
+            summary,
+            always_approve_label,
+            ..
+        } = &spec.content
+        else {
+            panic!("acknowledgement must be an Approval");
+        };
+        assert!(
+            always_approve_label.is_none(),
+            "two buttons only — no separate 'always'"
+        );
+        assert!(
+            summary.contains("all chat providers"),
+            "the copy states the blanket: {summary}"
+        );
+        assert_eq!(window.overlay_coordinator.ordered().len(), 1);
+        assert_eq!(
+            window
+                .apply(ChatWindowIntent::ResolveAssistAcknowledgement {
+                    interaction,
+                    accepted: true,
+                })
+                .expect("resolve acknowledgement"),
+            Some(HostIntent::ResolveAssistAcknowledgement { accepted: true })
+        );
+        assert_eq!(window.overlay_coordinator.ordered().len(), 0);
+    }
+
+    /// Declining the acknowledgement forwards `accepted: false` — the
+    /// host keeps assist off and persists nothing.
+    #[test]
+    fn assist_acknowledgement_decline_stays_off() {
+        let mut window = window();
+        let interaction = InteractionId(2_000_000_001);
+        window
+            .register_assist_acknowledgement(interaction)
+            .expect("register acknowledgement");
+        assert_eq!(
+            window
+                .apply(ChatWindowIntent::ResolveAssistAcknowledgement {
+                    interaction,
+                    accepted: false,
+                })
+                .expect("decline acknowledgement"),
+            Some(HostIntent::ResolveAssistAcknowledgement { accepted: false })
+        );
+        assert!(!window.assist_enabled());
         assert_eq!(window.overlay_coordinator.ordered().len(), 0);
     }
 
