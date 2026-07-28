@@ -14,7 +14,7 @@ webp = "0.3"
 # AVIF encode, pure Rust (rav1e). The quality scale matches sharp's 0-100.
 # asm feature OFF: it demands nasm on the build host; pure-Rust encode is
 # slower but toolchain-free (a build-machine constraint, not a quality one).
-ravif = { version = "0.11", default-features = false, features = ["threading"] }
+ravif = { version = "0.13", default-features = false, features = ["threading"] }
 rgb = "0.8"
 # EXIF orientation bake before the metadata strip (sharp's .rotate()).
 kamadak-exif = "0.6"
