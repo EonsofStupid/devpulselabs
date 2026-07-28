@@ -2,6 +2,24 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-28 — THE MILESTONE-LOOP LEDGER (agent workflow infra, PR #131):**
+the agent's internal workflow is now SELF-INSTRUMENTING (operator ask:
+"an internal ledger… emit clear signals for me to capture so we can tune
+and improve this process"). `.claude/ledger/` = one JSONL signal stream
+(`ledger.jsonl`, gitignored telemetry) + `emit.sh` (jq-optional) + three
+hook scripts wired in `.claude/settings.json`: SessionStart feeds STATE ·
+the latest `docs/journal/` entry · the previous session's 500-entry
+transcript tail at ZERO tool-call cost (path recorded by the
+PreCompact/SessionEnd clear edges, which also demand the journal).
+`.claude/skills/milestone-loop/SKILL.md` = the loop contract: target →
+work → journal at 75–85% context → clear → hook-fed re-engage → plan
+(HARD caps: ≤3 passes, ≤2 web-research subagents) → anti-drift checks
+bound to the plan's numbered steps (`drift.check … on-plan|corrected`) →
+EguiPilot verify → journal, repeat. Signal vocabulary + operator tuning
+recipes: `.claude/ledger/README.md`. Chain tested live end-to-end (real
+transcript fed back). First journal:
+`docs/journal/2026-07-28-milestone-loop-ledger.md`.
+
 **2026-07-28 — THE WORKFLOW WIRE CONTRACT + DOCTRINE (PR #129, squash
 `c803e51`; plan `docs/plans/workflow-doctrine-and-schemas.md`):**
 workflows are now schema-governed for scale — `schemas/
