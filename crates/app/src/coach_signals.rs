@@ -180,6 +180,7 @@ fn build(event: &BuildEvent) -> Vec<SignalId> {
     match event {
         BuildEvent::SlidePlaced { .. } => vec![id(BUILD_SLIDE_PLACED)],
         BuildEvent::EpisodeChanged { .. } => vec![id(BUILD_EPISODE_CHANGED)],
+        BuildEvent::CardAuthored { .. } => vec![id(BUILD_CARD_AUTHORED)],
     }
 }
 
@@ -223,6 +224,7 @@ pub const PROVIDERS_CANCELLED: &str = "providers.cancelled";
 pub const PROVIDERS_EXPIRED: &str = "providers.expired";
 pub const BUILD_SLIDE_PLACED: &str = "build.slide-placed";
 pub const BUILD_EPISODE_CHANGED: &str = "build.episode-changed";
+pub const BUILD_CARD_AUTHORED: &str = "build.card-authored";
 
 /// Every coarse fact, in domain order. One entry per fabric variant.
 const COARSE: &[&str] = &[
@@ -258,6 +260,7 @@ const COARSE: &[&str] = &[
     PROVIDERS_EXPIRED,
     BUILD_SLIDE_PLACED,
     BUILD_EPISODE_CHANGED,
+    BUILD_CARD_AUTHORED,
 ];
 
 /// The declared catalog: every id an agent can wait for in THIS build.
@@ -477,6 +480,11 @@ mod tests {
             BuildEvent::EpisodeChanged {
                 show: "s".into(),
                 episode: "e".into(),
+            },
+            BuildEvent::CardAuthored {
+                show: "".into(),
+                episode: "".into(),
+                slide: "sl".into(),
             },
         ] {
             signals.extend(build(&event));

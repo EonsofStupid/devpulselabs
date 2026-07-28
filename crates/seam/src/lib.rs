@@ -278,6 +278,16 @@ pub fn build_json(st: &Stamped<BuildEvent>) -> Value {
             "show": show,
             "episode": episode,
         }),
+        BuildEvent::CardAuthored {
+            show,
+            episode,
+            slide,
+        } => json!({
+            "type": "cardAuthored",
+            "show": show,
+            "episode": episode,
+            "slide": slide,
+        }),
     };
     v["domain"] = json!("build");
     v["seq"] = json!(st.seq);
@@ -976,6 +986,28 @@ mod envelope_tests {
     }
 
     #[test]
+    fn the_card_authored_envelope_is_pinned() {
+        let st = Stamped {
+            seq: 6,
+            ms: 1600,
+            ev: BuildEvent::CardAuthored {
+                show: "".into(),
+                episode: "".into(),
+                slide: "authored-draft-1".into(),
+            },
+        };
+        assert_eq!(
+            build_json(&st),
+            json!({
+                "domain": "build", "seq": 6, "ms": 1600,
+                "type": "cardAuthored",
+                "show": "", "episode": "",
+                "slide": "authored-draft-1",
+            })
+        );
+    }
+
+    #[test]
     fn the_coach_envelope_is_pinned() {
         let st = Stamped {
             seq: 21,
@@ -1198,6 +1230,60 @@ mod tests {
             ShellEvent::NavigateRequest { route } => assert_eq!(route.sub.0, "library"),
             other => panic!("wrong event: {other:?}"),
         }
+    }
+
+    /// The Pass-A live round: an authored card fact rides the REAL `/signals`
+    /// SSE stream, one envelope, stamped — the whole point of building the
+    /// authoring surface signal-first. `get_signals` subscribes eagerly, so
+    /// opening the stream registers the receiver before we publish; the read
+    /// is bounded so a regression fails fast instead of hanging.
+    #[tokio::test]
+    async fn a_card_authored_fact_reaches_the_live_signals_stream() {
+        let (fabric, state) = test_state();
+        let resp = router(state)
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/signals")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // The exact publish the authoring surface makes after minting a draft.
+        fabric.publish_build(BuildEvent::CardAuthored {
+            show: String::new(),
+            episode: String::new(),
+            slide: "authored-draft-1".into(),
+        });
+
+        let mut body = resp.into_body().into_data_stream();
+        let deadline = std::time::Duration::from_secs(5);
+        let envelope = tokio::time::timeout(deadline, async {
+            loop {
+                let chunk = body
+                    .next()
+                    .await
+                    .expect("stream open")
+                    .expect("chunk bytes");
+                let text = String::from_utf8(chunk.to_vec()).expect("utf8");
+                // Skip SSE keep-alive comments (`:` lines); take the first data.
+                if let Some(line) = text.lines().find_map(|l| l.strip_prefix("data: ")) {
+                    break serde_json::from_str::<Value>(line).expect("json envelope");
+                }
+            }
+        })
+        .await
+        .expect("a signal arrived before the timeout");
+
+        assert_eq!(
+            envelope["domain"], "build",
+            "authoring fact rides the build domain"
+        );
+        assert_eq!(envelope["type"], "cardAuthored");
+        assert_eq!(envelope["slide"], "authored-draft-1");
     }
 
     #[tokio::test]
