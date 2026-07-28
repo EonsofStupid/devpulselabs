@@ -443,6 +443,10 @@ pub struct OverlayClip {
     pub y: f32,
     pub scale: f32,
     pub tint: Option<[u8; 4]>,
+    /// A held frame (image overlay): the input LOOPS for the span instead
+    /// of being trimmed — a one-frame stream would otherwise vanish after
+    /// its single frame.
+    pub hold: bool,
 }
 
 /// The one-pass comp filtergraph: the PROVEN stitch legs concat into
@@ -483,6 +487,12 @@ pub fn comp_args(
     for o in overlays {
         match &o.input {
             OverlayInput::File(p) => {
+                if o.hold {
+                    args.push("-loop".into());
+                    args.push("1".into());
+                    args.push("-t".into());
+                    args.push(format!("{:.3}", (o.out_pt - o.in_pt).max(0.05)));
+                }
                 args.push("-i".into());
                 args.push(p.to_string_lossy().into_owned());
             }
@@ -532,10 +542,18 @@ pub fn comp_args(
         // Aspect-fit box: scale× the comp frame (1.0 = full-frame native).
         let tw = ((w as f32) * o.scale).round().max(1.0) as u32;
         let th = ((h as f32) * o.scale).round().max(1.0) as u32;
-        graph.push_str(&format!(
-            "[{k}:v]trim=start={s:.3}:end={e:.3},setpts=PTS-STARTPTS+{:.3}/TB,scale={tw}:{th}:force_original_aspect_ratio=decrease",
-            o.at
-        ));
+        if o.hold {
+            // The looped input already spans exactly [0, out-in) — no trim.
+            graph.push_str(&format!(
+                "[{k}:v]setpts=PTS-STARTPTS+{:.3}/TB,scale={tw}:{th}:force_original_aspect_ratio=decrease",
+                o.at
+            ));
+        } else {
+            graph.push_str(&format!(
+                "[{k}:v]trim=start={s:.3}:end={e:.3},setpts=PTS-STARTPTS+{:.3}/TB,scale={tw}:{th}:force_original_aspect_ratio=decrease",
+                o.at
+            ));
+        }
         if let Some([r, g, b, a]) = o.tint {
             graph.push_str(&format!(
                 ",colorchannelmixer=rr={:.3}:gg={:.3}:bb={:.3}:aa={:.3}",
@@ -1054,7 +1072,31 @@ mod comp_tests {
             y: 0.0,
             scale: 1.0,
             tint: None,
+            hold: false,
         }
+    }
+
+    /// A held-frame overlay loops its input for the span and skips trim —
+    /// a single-frame stream would otherwise vanish after one frame.
+    #[test]
+    fn a_held_overlay_loops_and_never_trims() {
+        let mut o = fx(2.0);
+        o.input = OverlayInput::File("badge.png".into());
+        o.hold = true;
+        let a = comp_args(
+            &[clip("base.mp4", 0.0, 6.0)],
+            &[o],
+            1920,
+            1080,
+            30,
+            Path::new("out.mp4"),
+        )
+        .join(" ");
+        assert!(a.contains("-loop 1 -t 1.500 -i badge.png"), "{a}");
+        assert!(
+            a.contains("[1:v]setpts=PTS-STARTPTS+2.000/TB,scale="),
+            "no trim on a held leg: {a}"
+        );
     }
 
     /// The M1 proof, as args: a trimmed element placed at t=2 with a bounded

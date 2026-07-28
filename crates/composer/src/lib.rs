@@ -106,6 +106,16 @@ pub struct Composer {
     /// The LOTTIE preview lane (L2): (layer id, player) when the active
     /// layer is a native Lottie — rendered by the ThorVG subprocess helper.
     preview_lottie: Option<(String, LottiePlayer)>,
+    /// OVERLAY preview lanes (L3): one per live overlay-track layer at the
+    /// playhead, keyed by layer id — reconciled every tick, capped by the
+    /// machine (`PreviewCaps`). Export is NEVER capped.
+    overlay_lanes: Vec<(String, OverlayLane)>,
+    /// The machine-probed preview budget (operator-ratified: dynamic,
+    /// never a hardcoded laptop limit).
+    caps: PreviewCaps,
+    /// Overlay layers at the playhead the caps skipped this tick — the
+    /// viewer names them honestly, never silently.
+    overlays_skipped: usize,
     /// FOOTAGE — video + image artifacts from the index.
     palette: Option<Vec<Record>>,
     /// COMPS — every `inbox/*/comp.json`, as (name, dir).
@@ -274,6 +284,9 @@ impl Default for Composer {
             preview: None,
             preview_still: None,
             preview_lottie: None,
+            overlay_lanes: Vec::new(),
+            caps: PreviewCaps::probe(),
+            overlays_skipped: 0,
             palette: None,
             comps: None,
             renders: None,
@@ -555,6 +568,229 @@ impl Composer {
             .unwrap_or(&[])
     }
 
+    /// Overlay-track layers (tracks 1..) under the playhead, in PAINT order
+    /// — earlier tracks first, and within a track the BOTTOM row first
+    /// (row 0 = topmost, exactly like the base track). The topmost layer is
+    /// therefore LAST, and the caps walk keeps it first.
+    fn overlay_layers_at(&self, t: f32) -> Vec<&Layer> {
+        let mut out = Vec::new();
+        for track in self.comp.tracks.iter().skip(1) {
+            for layer in track.layers.iter().rev() {
+                if t >= layer.start && t < layer.end().max(layer.start) {
+                    out.push(layer);
+                }
+            }
+        }
+        out
+    }
+
+    /// The overlay ("fx") track, created on first use — track 0 stays the
+    /// base cuts; tracks 1.. composite over it (dpl-comp track law).
+    fn ensure_fx_track(&mut self) -> usize {
+        if self.comp.tracks.len() < 2 {
+            self.comp.tracks.push(dpl_comp::Track {
+                id: "fx".into(),
+                layers: Vec::new(),
+            });
+        }
+        1
+    }
+
+    /// Place a footage record as an FX OVERLAY at the playhead — the
+    /// element composites over whatever the base is showing there, at its
+    /// full trimmed span, untinted and full-frame until the inspector says
+    /// otherwise.
+    fn add_overlay(&mut self, rec: &Record) {
+        self.checkpoint();
+        let path = Self::resolve(&rec.rel_path);
+        let span = if rec.kind == "image" {
+            DEFAULT_IMAGE_SECS
+        } else {
+            rec.seconds
+                .filter(|s| *s > 0)
+                .map(|s| s as f32)
+                .or_else(|| dpl_video::clip::clip_duration(&path))
+                .unwrap_or(FALLBACK_CLIP_SECS)
+        };
+        let at = self.time;
+        let id = self.next_layer_id();
+        let track = self.ensure_fx_track();
+        self.comp.tracks[track].layers.insert(
+            0,
+            Layer::plain(
+                id.clone(),
+                Source::Artifact {
+                    rel: rec.rel_path.clone(),
+                },
+                at,
+                0.0,
+                span,
+            ),
+        );
+        self.status = format!(
+            "{} overlays at {at:.1}s — scale, nudge, tint it below.",
+            rec.name
+        );
+        self.select(&id);
+        self.mark_edit();
+    }
+
+    /// Keep ONE preview lane per overlay layer under the playhead — open on
+    /// enter, drop on exit, re-seek clip lanes on drift (the 0.35s law),
+    /// re-render Lottie lanes at layer-local time. The machine's caps bound
+    /// the live lanes; TOPMOST wins; the viewer names what's skipped.
+    fn reconcile_overlays(&mut self, ctx: &egui::Context) {
+        let wanted: Vec<(String, Source, f32)> = self
+            .overlay_layers_at(self.time)
+            .iter()
+            .filter(|l| !matches!(l.source, Source::Element { .. }))
+            .map(|l| {
+                (
+                    l.id.clone(),
+                    l.source.clone(),
+                    (l.in_pt + (self.time - l.start)).max(0.0),
+                )
+            })
+            .collect();
+
+        // Cap from the END of paint order (= topmost first). Stills are
+        // pipe-free and never counted.
+        let mut keep: Vec<&(String, Source, f32)> = Vec::new();
+        let (mut clips, mut lots) = (0usize, 0usize);
+        for entry in wanted.iter().rev() {
+            let ok = match &entry.1 {
+                Source::Lottie { .. } => {
+                    lots += 1;
+                    lots <= self.caps.lottie_lanes
+                }
+                Source::Artifact { rel } => {
+                    if dpl_engine_media::is_still(&Self::resolve(rel)) {
+                        true
+                    } else {
+                        clips += 1;
+                        clips <= self.caps.clip_lanes
+                    }
+                }
+                Source::Element { .. } => false,
+            };
+            if ok {
+                keep.push(entry);
+            }
+        }
+        self.overlays_skipped = wanted.len() - keep.len();
+
+        self.overlay_lanes
+            .retain(|(id, _)| keep.iter().any(|(k, _, _)| k == id));
+        for (id, source, want) in keep {
+            let have = self.overlay_lanes.iter().position(|(k, _)| k == id);
+            match source {
+                Source::Artifact { rel } => {
+                    let path = Self::resolve(rel);
+                    if dpl_engine_media::is_still(&path) {
+                        if have.is_none() {
+                            let uri =
+                                format!("file:///{}", path.to_string_lossy().replace('\\', "/"));
+                            self.overlay_lanes
+                                .push((id.clone(), OverlayLane::Still(uri)));
+                        }
+                    } else {
+                        let idx = match have {
+                            Some(i) => i,
+                            None => {
+                                let mut player = ClipPlayer::open(path);
+                                player.seek(*want);
+                                self.overlay_lanes
+                                    .push((id.clone(), OverlayLane::Clip(player)));
+                                self.overlay_lanes.len() - 1
+                            }
+                        };
+                        if let Some((_, OverlayLane::Clip(player))) =
+                            self.overlay_lanes.get_mut(idx)
+                        {
+                            if (player.position() - want).abs() > 0.35 {
+                                player.seek(*want);
+                            }
+                            if player.playing() != self.playing {
+                                player.toggle();
+                            }
+                        }
+                    }
+                }
+                Source::Lottie { rel } => {
+                    let path = Self::resolve(rel);
+                    let idx = match have {
+                        Some(i) => i,
+                        None => {
+                            let Some(lp) = LottiePlayer::open(&path) else {
+                                continue;
+                            };
+                            self.overlay_lanes
+                                .push((id.clone(), OverlayLane::Lottie(lp)));
+                            self.overlay_lanes.len() - 1
+                        }
+                    };
+                    if let Some((_, OverlayLane::Lottie(lp))) = self.overlay_lanes.get_mut(idx) {
+                        lp.render(ctx, *want);
+                    }
+                }
+                Source::Element { .. } => {}
+            }
+        }
+        if !self.overlay_lanes.is_empty() && self.playing {
+            ctx.request_repaint_after(Duration::from_millis(16));
+        }
+    }
+
+    /// Paint the live overlay lanes into the viewer `frame`, back-to-front,
+    /// honoring each layer's scale/offset/tint (the tint rides egui's
+    /// per-draw multiply — the 4th `painter.image` arg). Overlays
+    /// LETTERBOX inside their box (never cover-crop): a full-frame element
+    /// must never lose edges. Straight-alpha textures stack correctly.
+    fn paint_overlays(&self, ui: &egui::Ui, frame: Rect) {
+        let px = frame.width() / (self.comp.w.max(1) as f32);
+        for layer in self.overlay_layers_at(self.time) {
+            let Some((_, lane)) = self.overlay_lanes.iter().find(|(k, _)| k == &layer.id) else {
+                continue;
+            };
+            let tint = layer
+                .tint
+                .map(|[r, g, b, a]| Color32::from_rgba_unmultiplied(r, g, b, a))
+                .unwrap_or(Color32::WHITE);
+            let center = frame.center() + egui::vec2(layer.x * px, layer.y * px);
+            let bx = Rect::from_center_size(center, frame.size() * layer.scale);
+            match lane {
+                OverlayLane::Clip(player) => {
+                    if let Some(tex) = player.texture(ui.ctx()) {
+                        // The clip decode is 16:9 cover — a 16:9 box keeps it true.
+                        let r = fit_aspect(bx, DECODE_W as f32 / DECODE_H as f32);
+                        ui.painter().image(tex, r, FULL_UV, tint);
+                    }
+                }
+                OverlayLane::Lottie(lp) => {
+                    if let Some(tex) = lp.id() {
+                        let r = fit_aspect(bx, lp.aspect());
+                        ui.painter().image(tex, r, FULL_UV, tint);
+                    }
+                }
+                OverlayLane::Still(uri) => {
+                    egui::Image::new(uri.as_str()).tint(tint).paint_at(ui, bx);
+                }
+            }
+        }
+        if self.overlays_skipped > 0 {
+            ui.painter().text(
+                frame.left_bottom() + egui::vec2(cl::space::S2, -cl::space::S2),
+                egui::Align2::LEFT_BOTTOM,
+                format!(
+                    "{} overlay(s) past this machine's preview budget — all render in export",
+                    self.overlays_skipped
+                ),
+                egui::TextStyle::Small.resolve(ui.style()),
+                cl::ink::MUTED,
+            );
+        }
+    }
+
     /// A layer id unique across the comp: the first free `clip-N`.
     fn next_layer_id(&self) -> String {
         let used: BTreeSet<&str> = self
@@ -664,6 +900,9 @@ impl Composer {
             }
             ctx.request_repaint_after(Duration::from_millis(16));
         }
+        // L3: overlay lanes reconcile FIRST — they live regardless of what
+        // (or whether anything) is under the playhead on the base track.
+        self.reconcile_overlays(ctx);
         let Some(i) = Self::active_layer_at(self.layers(), self.time) else {
             // A gap (or an empty comp): nothing to follow. Keep the last
             // player around — re-entering its layer resumes cheaply.
@@ -744,9 +983,11 @@ impl Composer {
 
     fn remove(&mut self, id: &str) {
         self.checkpoint();
-        if let Some(track) = self.comp.tracks.first_mut() {
+        // EVERY track — an FX overlay removes exactly like a base cut.
+        for track in &mut self.comp.tracks {
             track.layers.retain(|l| l.id != id);
         }
+        self.overlay_lanes.retain(|(k, _)| k != id);
         self.expanded.remove(id);
         if self.selected.as_deref() == Some(id) {
             self.selected = None;
@@ -835,6 +1076,7 @@ impl Composer {
         self.preview = None;
         self.preview_still = None;
         self.preview_lottie = None;
+        self.overlay_lanes.clear();
         self.proj_sel = None;
         self.time = 0.0;
         self.playing = false;
@@ -986,6 +1228,7 @@ impl Composer {
                 self.preview = None;
                 self.preview_still = None;
                 self.preview_lottie = None;
+                self.overlay_lanes.clear();
                 self.expanded.clear();
                 self.time = 0.0;
                 self.playing = false;
@@ -1033,27 +1276,116 @@ impl Composer {
             .collect()
     }
 
+    /// Gather the L3 render inputs from the WHOLE comp (all tracks), pure.
+    /// Base track: artifacts become concat legs; a Lottie span becomes a
+    /// BLACK leg + a same-timed overlay (the native render composites on
+    /// top, timeline-true). Overlay tracks: bottom row first within a
+    /// track (row 0 = topmost), tracks in order — stack order. The base is
+    /// padded black to the comp's full duration so overlays past the last
+    /// cut stay visible (output length = concat length).
+    fn render_parts(&self) -> RenderParts {
+        use dpl_engine_media::{CompBase, OverlayClip, OverlayInput};
+        let mut base = Vec::new();
+        let mut overlays = Vec::new();
+        let mut elements_skipped = 0usize;
+        let mut base_end = 0.0f32;
+        for l in self.layers() {
+            match &l.source {
+                Source::Artifact { rel } => {
+                    let path = Self::resolve(rel);
+                    base.push(CompBase::Clip(StitchClip {
+                        still: dpl_engine_media::is_still(&path),
+                        path,
+                        in_pt: l.in_pt,
+                        out_pt: l.out_pt,
+                    }));
+                    base_end = base_end.max(l.end());
+                }
+                Source::Lottie { rel } => {
+                    base.push(CompBase::Black {
+                        dur: l.span().max(0.05),
+                    });
+                    overlays.push(OverlaySlot::Lottie(PendingLottie {
+                        path: Self::resolve(rel),
+                        in_pt: l.in_pt,
+                        out_pt: l.out_pt,
+                        at: l.start,
+                        x: l.x,
+                        y: l.y,
+                        scale: l.scale,
+                        tint: l.tint,
+                    }));
+                    base_end = base_end.max(l.end());
+                }
+                Source::Element { .. } => elements_skipped += 1,
+            }
+        }
+        for track in self.comp.tracks.iter().skip(1) {
+            for l in track.layers.iter().rev() {
+                match &l.source {
+                    Source::Artifact { rel } => {
+                        let path = Self::resolve(rel);
+                        let hold = dpl_engine_media::is_still(&path);
+                        overlays.push(OverlaySlot::Ready(OverlayClip {
+                            input: OverlayInput::File(path),
+                            in_pt: l.in_pt,
+                            out_pt: l.out_pt,
+                            at: l.start,
+                            x: l.x,
+                            y: l.y,
+                            scale: l.scale,
+                            tint: l.tint,
+                            hold,
+                        }));
+                    }
+                    Source::Lottie { rel } => {
+                        overlays.push(OverlaySlot::Lottie(PendingLottie {
+                            path: Self::resolve(rel),
+                            in_pt: l.in_pt,
+                            out_pt: l.out_pt,
+                            at: l.start,
+                            x: l.x,
+                            y: l.y,
+                            scale: l.scale,
+                            tint: l.tint,
+                        }));
+                    }
+                    Source::Element { .. } => elements_skipped += 1,
+                }
+            }
+        }
+        let comp_dur = self.comp.duration();
+        if comp_dur > base_end + 0.05 {
+            base.push(CompBase::Black {
+                dur: comp_dur - base_end,
+            });
+        }
+        if base.is_empty() && !overlays.is_empty() {
+            base.push(CompBase::Black {
+                dur: comp_dur.max(0.05),
+            });
+        }
+        RenderParts {
+            base,
+            overlays,
+            elements_skipped,
+        }
+    }
+
     /// Kick off the ffmpeg stitch render OFF the UI thread; the status row
     /// polls the shared `RenderState`. Output colocates with the comp as
     /// `<comp-dir>/render.mp4` (the comp folder is minted if unsaved).
     fn start_render(&mut self) {
-        let clips = self.stitch_clips();
-        // L2: Lottie layers preview live but aren't in the stitch yet
-        // (export = L3) — say so honestly so the render is never silently
-        // missing them.
-        let lottie_n = self
-            .layers()
-            .iter()
-            .filter(|l| matches!(l.source, Source::Lottie { .. }))
-            .count();
-        if lottie_n > 0 {
+        let parts = self.render_parts();
+        // Honesty: Element layers have no playable file (dormant R1c
+        // placeholder) — the render never silently drops them unnamed.
+        if parts.elements_skipped > 0 {
             self.status = format!(
-                "Rendering the {} clip layer(s) — {lottie_n} Lottie layer(s) preview live; \
-                 timeline export lands next.",
-                clips.len()
+                "Rendering — {} element layer(s) have no playable file yet and are skipped.",
+                parts.elements_skipped
             );
         }
-        if clips.is_empty() {
+        if parts.base.is_empty() {
             *self.render.lock().expect("render state") =
                 RenderState::Failed("no playable clips to render yet".into());
             return;
@@ -1078,7 +1410,7 @@ impl Composer {
         std::thread::Builder::new()
             .name("dpl-composer-render".into())
             .spawn(move || {
-                let result = dpl_engine_media::render_stitch(&clips, w, h, fps, &out);
+                let result = render_comp_resolving(parts, w, h, fps, &out);
                 *state.lock().expect("render state") = match result {
                     Ok(()) => {
                         // Write-through: the render becomes an ordinary
@@ -2639,6 +2971,8 @@ impl Composer {
                 None => painter_label(ui, frame, "Add footage, then press play"),
             }
         }
+        // L3: FX overlays composite over whatever the base showed.
+        self.paint_overlays(ui, frame);
         let bar = Rect::from_min_max(egui::pos2(rect.min.x, stage_rect.max.y), rect.max);
         let mut c = ui.new_child(UiBuilder::new().max_rect(bar));
         c.horizontal(|ui| {
@@ -3763,34 +4097,35 @@ impl Composer {
             } else {
                 painter_label(ui, canvas, "Rendering the Lottie…");
             }
-            return;
-        }
-        if let Some((_, uri)) = &self.preview_still {
+        } else if let Some((_, uri)) = &self.preview_still {
             let frame = fit_aspect(canvas.shrink(cl::space::S3), 16.0 / 9.0);
             egui::Image::new(uri.as_str())
                 .corner_radius(cl::RADIUS_SM)
                 .paint_at(ui, frame);
-            return;
+        } else {
+            match &self.preview {
+                Some((_, player)) => match player.texture(ui.ctx()) {
+                    Some(tex) => {
+                        let frame = fit_aspect(canvas.shrink(cl::space::S3), 16.0 / 9.0);
+                        let uv = dpl_video::cover_uv(
+                            DECODE_W as f32 / DECODE_H as f32,
+                            frame.aspect_ratio(),
+                        );
+                        ui.painter().image(tex, frame, uv, Color32::WHITE);
+                        ui.ctx().request_repaint_after(Duration::from_millis(16));
+                    }
+                    None => painter_label(ui, canvas, "Loading the frame..."),
+                },
+                None => painter_label(
+                    ui,
+                    canvas,
+                    "Scrub to a frame in the Editor; annotate it here (the model lands next)",
+                ),
+            }
         }
-        match &self.preview {
-            Some((_, player)) => match player.texture(ui.ctx()) {
-                Some(tex) => {
-                    let frame = fit_aspect(canvas.shrink(cl::space::S3), 16.0 / 9.0);
-                    let uv = dpl_video::cover_uv(
-                        DECODE_W as f32 / DECODE_H as f32,
-                        frame.aspect_ratio(),
-                    );
-                    ui.painter().image(tex, frame, uv, Color32::WHITE);
-                    ui.ctx().request_repaint_after(Duration::from_millis(16));
-                }
-                None => painter_label(ui, canvas, "Loading the frame..."),
-            },
-            None => painter_label(
-                ui,
-                canvas,
-                "Scrub to a frame in the Editor; annotate it here (the model lands next)",
-            ),
-        }
+        // L3: FX overlays composite over the annotate frame too — what you
+        // ink on is what exports.
+        self.paint_overlays(ui, fit_aspect(canvas.shrink(cl::space::S3), 16.0 / 9.0));
     }
 }
 
@@ -3833,6 +4168,71 @@ fn row_tone(i: usize) -> Tone {
 /// A poison-proof lock on one Browse window's shared state.
 fn lock(b: &Mutex<browse::Browser>) -> std::sync::MutexGuard<'_, browse::Browser> {
     b.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Resolve every pending Lottie to a PNG frame-sequence (the ThorVG helper,
+/// off the UI thread — this RUNS ON THE RENDER THREAD), then run the one-
+/// pass comp render. Temp sequences live under the OS temp dir (NEVER the
+/// comp folder — its contract reserves comp.json + assets) and are cleaned
+/// best-effort after the encode.
+fn render_comp_resolving(
+    parts: RenderParts,
+    w: u32,
+    h: u32,
+    fps: u32,
+    out: &Path,
+) -> Result<(), String> {
+    use dpl_engine_media::{OverlayClip, OverlayInput};
+    static SEQ_N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let seq_root = std::env::temp_dir().join(format!(
+        "dpl-comp-render-{}-{}",
+        std::process::id(),
+        SEQ_N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let mut overlays: Vec<OverlayClip> = Vec::with_capacity(parts.overlays.len());
+    for (n, slot) in parts.overlays.into_iter().enumerate() {
+        match slot {
+            OverlaySlot::Ready(o) => overlays.push(o),
+            OverlaySlot::Lottie(p) => {
+                let meta = dpl_lottie::lottie_meta(&p.path)
+                    .ok_or_else(|| format!("unreadable lottie: {}", p.path.display()))?;
+                // Export at the comp's fps, aspect-fit inside the comp
+                // frame (the graph's scale leg only ever shrinks further).
+                let (ew, eh) = fit_box(meta.width, meta.height, w, h);
+                let dir = seq_root.join(format!("seq-{n}"));
+                dpl_lottie::export_sequence(&p.path, ew, eh, fps as f32, &dir)?;
+                overlays.push(OverlayClip {
+                    input: OverlayInput::PngSeq {
+                        pattern: dir.join("frame-%05d.png"),
+                        fps: fps as f32,
+                        // The helper numbers from frame-00000.
+                        start: 0,
+                    },
+                    in_pt: p.in_pt,
+                    out_pt: p.out_pt,
+                    at: p.at,
+                    x: p.x,
+                    y: p.y,
+                    scale: p.scale,
+                    tint: p.tint,
+                    hold: false,
+                });
+            }
+        }
+    }
+    let result = dpl_engine_media::render_comp(&parts.base, &overlays, w, h, fps, out);
+    let _ = std::fs::remove_dir_all(&seq_root);
+    result
+}
+
+/// The largest w×h box of the source's aspect that fits inside the target.
+fn fit_box(src_w: u32, src_h: u32, max_w: u32, max_h: u32) -> (u32, u32) {
+    let (sw, sh) = (src_w.max(1) as f32, src_h.max(1) as f32);
+    let s = (max_w as f32 / sw).min(max_h as f32 / sh).min(1.0);
+    (
+        ((sw * s).round() as u32).max(1),
+        ((sh * s).round() as u32).max(1),
+    )
 }
 
 /// Write-through for a finished render: poster + duration + index row
@@ -4253,6 +4653,84 @@ impl dpl_workflows::StageRunner for WfRunner {
     }
 }
 
+/// The machine-probed preview budget (L3, operator-ratified DYNAMIC): how
+/// many simultaneous overlay lanes this box affords. Each clip lane is its
+/// own ffmpeg pipe + reader thread; each Lottie lane is a synchronous
+/// helper round-trip on the UI thread — so RAM and cores set the caps,
+/// never a hardcoded laptop number. Export is NEVER capped.
+struct PreviewCaps {
+    clip_lanes: usize,
+    lottie_lanes: usize,
+}
+
+impl PreviewCaps {
+    /// Total RAM via sysinfo + logical CPUs via std (the
+    /// `dpl_engine_ae::Caps::probe` pattern, replicated per the repo's
+    /// small-utility philosophy — no engine-ae coupling for 12 lines).
+    fn probe() -> Self {
+        let mut sys = sysinfo::System::new();
+        sys.refresh_memory();
+        let ram_gb = sys.total_memory() as f32 / (1024.0 * 1024.0 * 1024.0);
+        let cpus = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
+        Self::for_machine(ram_gb, cpus)
+    }
+
+    /// The policy, pure for tests: clip lanes = cpus/4 clamped 2..=8, and a
+    /// sub-24GB box (this laptop) never exceeds 3; Lottie lanes = 2 on a
+    /// 32GB+ box, else 1 (each is a BLOCKING UI-thread round-trip).
+    fn for_machine(ram_gb: f32, cpus: usize) -> Self {
+        let mut clip_lanes = (cpus / 4).clamp(2, 8);
+        if ram_gb < 24.0 {
+            clip_lanes = clip_lanes.min(3);
+        }
+        Self {
+            clip_lanes,
+            lottie_lanes: if ram_gb >= 32.0 { 2 } else { 1 },
+        }
+    }
+}
+
+/// One live overlay preview lane (L3): the player kind feeding an
+/// overlay-track layer's pixels at the playhead.
+enum OverlayLane {
+    Clip(ClipPlayer),
+    Lottie(LottiePlayer),
+    /// A held frame: the file:/// uri (no pipe).
+    Still(String),
+}
+
+/// A Lottie layer awaiting its frame-sequence export (the render thread
+/// resolves it — a helper subprocess run never happens on the UI thread).
+struct PendingLottie {
+    path: PathBuf,
+    in_pt: f32,
+    out_pt: f32,
+    at: f32,
+    x: f32,
+    y: f32,
+    scale: f32,
+    tint: Option<[u8; 4]>,
+}
+
+/// One overlay in stack order: ready for ffmpeg, or pending a Lottie
+/// export. Order IS stacking order — the chain composites in sequence.
+enum OverlaySlot {
+    Ready(dpl_engine_media::OverlayClip),
+    Lottie(PendingLottie),
+}
+
+/// Everything the L3 render needs from the comp, gathered PURE (no
+/// subprocess): ordered base legs (black stands in for base-track Lottie
+/// spans and the tail overlays hang past), overlays in stack order, and
+/// the honest count of unplayable Element layers.
+struct RenderParts {
+    base: Vec<dpl_engine_media::CompBase>,
+    overlays: Vec<OverlaySlot>,
+    elements_skipped: usize,
+}
+
 /// A native Lottie layer's live preview — the `ClipPlayer` analog, backed
 /// by the `dpl-lottie` subprocess helper (ThorVG). The FRAME render +
 /// texture upload happen in `tick_playback` (`&mut`); the viewer only
@@ -4493,6 +4971,104 @@ mod tests {
             seconds: secs,
             ..Default::default()
         }
+    }
+
+    /// L3: an overlay lands on the FX track at the playhead, the comp
+    /// stays valid, and the base track is untouched.
+    #[test]
+    fn add_overlay_places_at_the_playhead_on_the_fx_track() {
+        let mut c = Composer::default();
+        c.add_clip(&video_rec("Base", "inbox/base.mp4", Some(10)));
+        c.time = 3.2;
+        c.add_overlay(&video_rec("Fire", "elements/rtfx/fire.mov", Some(2)));
+        assert_eq!(c.comp.tracks.len(), 2, "fx track minted on first use");
+        assert_eq!(c.comp.tracks[0].layers.len(), 1, "base untouched");
+        let fx = &c.comp.tracks[1].layers[0];
+        assert!((fx.start - 3.2).abs() < 1e-6, "placed at the playhead");
+        assert_eq!(fx.scale, 1.0);
+        assert_eq!(fx.tint, None);
+        assert!(dpl_comp::validate(&c.comp).is_empty());
+    }
+
+    /// L3: only overlay-track layers under the playhead are live, bottom
+    /// row first within a track (row 0 = topmost paints last).
+    #[test]
+    fn overlay_layers_at_selects_by_time_in_paint_order() {
+        let mut c = Composer::default();
+        c.add_clip(&video_rec("Base", "inbox/base.mp4", Some(10)));
+        c.time = 0.0;
+        c.add_overlay(&video_rec("A", "inbox/a.mov", Some(4)));
+        c.time = 1.0;
+        c.add_overlay(&video_rec("B", "inbox/b.mov", Some(4)));
+        // At t=2 both cover; row 0 (B, newest) is topmost → LAST in paint order.
+        let order: Vec<&str> = c
+            .overlay_layers_at(2.0)
+            .iter()
+            .map(|l| l.source.reference())
+            .collect();
+        assert_eq!(order, vec!["inbox/a.mov", "inbox/b.mov"]);
+        assert!(c.overlay_layers_at(0.5).len() == 1, "B not yet started");
+        assert!(c.overlay_layers_at(9.0).is_empty(), "both ended");
+    }
+
+    /// L3: render_parts maps the whole comp — base clips as concat legs, a
+    /// base-track Lottie as black + a same-timed overlay, overlay-track
+    /// artifacts as file overlays (stills hold), and black tail padding so
+    /// an overlay hanging past the last cut stays visible.
+    #[test]
+    fn render_parts_map_tracks_black_gaps_and_the_tail() {
+        use dpl_engine_media::CompBase;
+        let mut c = Composer::default();
+        c.add_clip(&video_rec("Base", "inbox/base.mp4", Some(4)));
+        // A base-track Lottie span (added directly — add_lottie probes disk).
+        if let Some(t) = c.comp.tracks.first_mut() {
+            t.layers.push(Layer::plain(
+                "lot",
+                Source::Lottie {
+                    rel: "inbox/title.json".into(),
+                },
+                4.0,
+                0.0,
+                2.0,
+            ));
+        }
+        c.time = 5.0;
+        c.add_overlay(&video_rec("Fire", "elements/fire.mov", Some(3)));
+        let parts = c.render_parts();
+        assert_eq!(parts.base.len(), 3, "clip + black lottie span + tail");
+        assert!(matches!(parts.base[0], CompBase::Clip(_)));
+        assert!(
+            matches!(parts.base[1], CompBase::Black { dur } if (dur - 2.0).abs() < 1e-3),
+            "lottie span plays black under its overlay"
+        );
+        assert!(
+            matches!(parts.base[2], CompBase::Black { dur } if (dur - 2.0).abs() < 1e-3),
+            "tail pad: overlay ends at 8s, base at 6s"
+        );
+        assert_eq!(parts.overlays.len(), 2, "lottie + fx overlay");
+        assert!(matches!(parts.overlays[0], OverlaySlot::Lottie(_)));
+        match &parts.overlays[1] {
+            OverlaySlot::Ready(o) => {
+                assert!((o.at - 5.0).abs() < 1e-6);
+                assert!(!o.hold, "a video overlay is not held");
+            }
+            _ => panic!("fx overlay should be ready"),
+        }
+        assert_eq!(parts.elements_skipped, 0);
+    }
+
+    /// L3: the caps policy is machine-derived, never a constant — a big box
+    /// earns more lanes, the 16GB laptop stays clamped.
+    #[test]
+    fn preview_caps_scale_with_the_machine() {
+        let laptop = PreviewCaps::for_machine(15.3, 16);
+        assert_eq!((laptop.clip_lanes, laptop.lottie_lanes), (3, 1));
+        let rig = PreviewCaps::for_machine(64.0, 24);
+        assert_eq!((rig.clip_lanes, rig.lottie_lanes), (6, 2));
+        let tiny = PreviewCaps::for_machine(8.0, 4);
+        assert_eq!((tiny.clip_lanes, tiny.lottie_lanes), (2, 1));
+        let monster = PreviewCaps::for_machine(128.0, 88);
+        assert_eq!((monster.clip_lanes, monster.lottie_lanes), (8, 2));
     }
 
     #[test]
