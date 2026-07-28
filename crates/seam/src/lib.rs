@@ -1198,15 +1198,15 @@ mod tests {
 
     fn demo_comp(clip_rel: &str, out_pt: f32) -> Composition {
         let mut comp = Composition::default_1080p30();
-        comp.tracks[0].layers.push(dpl_comp::Layer {
-            id: "clip-1".into(),
-            source: dpl_comp::Source::Artifact {
+        comp.tracks[0].layers.push(dpl_comp::Layer::plain(
+            "clip-1",
+            dpl_comp::Source::Artifact {
                 rel: clip_rel.into(),
             },
-            start: 0.0,
-            in_pt: 0.0,
+            0.0,
+            0.0,
             out_pt,
-        });
+        ));
         comp
     }
 
@@ -1289,13 +1289,13 @@ mod tests {
         let (_fabric, state) = test_state_at(root.clone());
         // An element-only comp is valid SHAPE but has nothing to stitch.
         let mut comp = Composition::default_1080p30();
-        comp.tracks[0].layers.push(dpl_comp::Layer {
-            id: "el-1".into(),
-            source: dpl_comp::Source::Element { id: "spark".into() },
-            start: 0.0,
-            in_pt: 0.0,
-            out_pt: 2.0,
-        });
+        comp.tracks[0].layers.push(dpl_comp::Layer::plain(
+            "el-1",
+            dpl_comp::Source::Element { id: "spark".into() },
+            0.0,
+            0.0,
+            2.0,
+        ));
         dpl_comp::save(&root.join("inbox/only-elements"), &comp).expect("save");
         let resp = router(state)
             .oneshot(post_json(

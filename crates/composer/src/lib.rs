@@ -589,15 +589,15 @@ impl Composer {
         let id = self.next_layer_id();
         // default_1080p30 guarantees a "main" track exists.
         if let Some(track) = self.comp.tracks.first_mut() {
-            track.layers.push(Layer {
-                id: id.clone(),
-                source: Source::Artifact {
+            track.layers.push(Layer::plain(
+                id.clone(),
+                Source::Artifact {
                     rel: rec.rel_path.clone(),
                 },
                 start,
-                in_pt: 0.0,
+                0.0,
                 out_pt,
-            });
+            ));
         }
         self.status = format!(
             "Added {} — {} layer(s), {:.1}s total.",
@@ -621,15 +621,15 @@ impl Composer {
         let start = self.comp.duration();
         let id = self.next_layer_id();
         if let Some(track) = self.comp.tracks.first_mut() {
-            track.layers.push(Layer {
-                id: id.clone(),
-                source: Source::Lottie {
+            track.layers.push(Layer::plain(
+                id.clone(),
+                Source::Lottie {
                     rel: rec.rel_path.clone(),
                 },
                 start,
-                in_pt: 0.0,
+                0.0,
                 out_pt,
-            });
+            ));
         }
         self.status = format!("Added {} — native Lottie, {out_pt:.1}s.", rec.name);
         self.select(&id);
@@ -4600,13 +4600,13 @@ mod tests {
         c.add_clip(&video_rec("A", "inbox/a.mp4", Some(3)));
         c.add_clip(&video_rec("B", "inbox/b.mp4", Some(4)));
         if let Some(t) = c.comp.tracks.first_mut() {
-            t.layers.push(Layer {
-                id: "el".into(),
-                source: Source::Element { id: "spark".into() },
-                start: 0.0,
-                in_pt: 0.0,
-                out_pt: 2.0,
-            });
+            t.layers.push(Layer::plain(
+                "el",
+                Source::Element { id: "spark".into() },
+                0.0,
+                0.0,
+                2.0,
+            ));
         }
         let clips = c.stitch_clips();
         assert_eq!(clips.len(), 2, "element source is skipped");

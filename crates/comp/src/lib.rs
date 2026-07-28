@@ -38,8 +38,9 @@ pub struct Track {
 
 /// One layer — a source clip placed on its track's timeline and trimmed.
 /// Times are seconds. `start` is the placement on the track; `in_pt`/`out_pt`
-/// trim WITHIN the source. Transform keyframes + effect refs are a later
-/// pass — a bare layer is a straight cut, which is all stitching needs.
+/// trim WITHIN the source. L3 adds a STATIC transform + tint (overlay tracks
+/// honor them; the base track ignores them). Keyframes are a later pass —
+/// a bare layer is a straight cut, which is all stitching needs.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Layer {
     pub id: String,
@@ -50,9 +51,50 @@ pub struct Layer {
     pub in_pt: f32,
     /// Trim out — seconds into the source where this layer ends.
     pub out_pt: f32,
+    /// Center-relative horizontal offset in comp px (0 = centered).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub x: f32,
+    /// Center-relative vertical offset in comp px (0 = centered).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub y: f32,
+    /// Size factor: 1.0 = aspect-fit the comp frame (full-frame native).
+    #[serde(default = "one", skip_serializing_if = "is_one")]
+    pub scale: f32,
+    /// RGBA multiply as VALUES 0-255 (`[r,g,b,a]`; `a` is layer opacity).
+    /// None = untinted. An array, never a hex string — the shape law.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tint: Option<[u8; 4]>,
+}
+
+fn one() -> f32 {
+    1.0
+}
+
+fn is_one(v: &f32) -> bool {
+    *v == 1.0
+}
+
+fn is_zero(v: &f32) -> bool {
+    *v == 0.0
 }
 
 impl Layer {
+    /// A bare layer: full-frame, centered, unscaled, untinted — the straight
+    /// cut every pre-L3 comp is made of, and the default new layers start as.
+    pub fn plain(id: impl Into<String>, source: Source, start: f32, in_pt: f32, out_pt: f32) -> Self {
+        Self {
+            id: id.into(),
+            source,
+            start,
+            in_pt,
+            out_pt,
+            x: 0.0,
+            y: 0.0,
+            scale: 1.0,
+            tint: None,
+        }
+    }
+
     /// The layer's on-timeline length: the trimmed span.
     pub fn span(&self) -> f32 {
         (self.out_pt - self.in_pt).max(0.0)
@@ -249,6 +291,18 @@ pub fn validate(comp: &Composition) -> Vec<Issue> {
                     format!("start must be >= 0 (got {})", layer.start),
                 );
             }
+            if !(layer.scale.is_finite() && layer.scale > 0.0) {
+                push(
+                    format!("{at}.scale"),
+                    format!("scale must be finite and > 0 (got {})", layer.scale),
+                );
+            }
+            if !layer.x.is_finite() || !layer.y.is_finite() {
+                push(
+                    format!("{at}.offset"),
+                    format!("x/y must be finite (got x={} y={})", layer.x, layer.y),
+                );
+            }
         }
     }
 
@@ -330,24 +384,24 @@ mod tests {
             tracks: vec![Track {
                 id: "main".into(),
                 layers: vec![
-                    Layer {
-                        id: "clip-a".into(),
-                        source: Source::Artifact {
+                    Layer::plain(
+                        "clip-a",
+                        Source::Artifact {
                             rel: "inbox/a.mp4".into(),
                         },
-                        start: 0.0,
-                        in_pt: 0.0,
-                        out_pt: 6.0,
-                    },
-                    Layer {
-                        id: "clip-b".into(),
-                        source: Source::Artifact {
+                        0.0,
+                        0.0,
+                        6.0,
+                    ),
+                    Layer::plain(
+                        "clip-b",
+                        Source::Artifact {
                             rel: "inbox/b.mp4".into(),
                         },
-                        start: 6.0,
-                        in_pt: 1.0,
-                        out_pt: 9.0,
-                    },
+                        6.0,
+                        1.0,
+                        9.0,
+                    ),
                 ],
             }],
         }
@@ -412,15 +466,15 @@ mod tests {
             h: 1080,
             tracks: vec![Track {
                 id: "main".into(),
-                layers: vec![Layer {
-                    id: "lot-1".into(),
-                    source: Source::Lottie {
+                layers: vec![Layer::plain(
+                    "lot-1",
+                    Source::Lottie {
                         rel: "inbox/title.json".into(),
                     },
-                    start: 0.0,
-                    in_pt: 0.0,
-                    out_pt: 3.0,
-                }],
+                    0.0,
+                    0.0,
+                    3.0,
+                )],
             }],
         };
         assert!(validate(&comp).is_empty(), "a Lottie layer validates");
@@ -442,21 +496,25 @@ mod tests {
                     id: "dup".into(),
                     layers: vec![
                         Layer {
-                            id: "x".into(),
-                            source: Source::Element { id: "  ".into() },
-                            start: -1.0,
-                            in_pt: -0.5,
-                            out_pt: -0.5,
+                            scale: 0.0,
+                            x: f32::NAN,
+                            ..Layer::plain(
+                                "x",
+                                Source::Element { id: "  ".into() },
+                                -1.0,
+                                -0.5,
+                                -0.5,
+                            )
                         },
-                        Layer {
-                            id: "x".into(),
-                            source: Source::Artifact {
+                        Layer::plain(
+                            "x",
+                            Source::Artifact {
                                 rel: "ok.mp4".into(),
                             },
-                            start: 0.0,
-                            in_pt: 2.0,
-                            out_pt: 1.0,
-                        },
+                            0.0,
+                            2.0,
+                            1.0,
+                        ),
                     ],
                 },
                 Track {
@@ -479,6 +537,8 @@ mod tests {
             "in_pt must be >= 0",
             "out_pt must be > in_pt",
             "start must be >= 0",
+            "scale must be finite and > 0",
+            "x/y must be finite",
         ] {
             assert!(
                 all.contains(needle),
@@ -510,6 +570,54 @@ mod tests {
             .join(" | ");
         assert!(all.contains("\"notes.txt\""), "stray named: {all}");
         assert!(all.contains("leftover transient"), "transient named: {all}");
+    }
+
+    /// The L3 back-compat law: a pre-L3 comp.json (no x/y/scale/tint) loads
+    /// with the defaults — full-frame, centered, unscaled, untinted.
+    #[test]
+    fn a_pre_l3_comp_loads_with_transform_defaults() {
+        let dir = scratch("backcompat");
+        std::fs::create_dir_all(&dir).unwrap();
+        let raw = r#"{
+  "v": 1, "fps": 30, "w": 1920, "h": 1080,
+  "tracks": [{ "id": "main", "layers": [{
+    "id": "clip-a",
+    "source": { "kind": "artifact", "rel": "inbox/a.mp4" },
+    "start": 0.0, "in_pt": 0.0, "out_pt": 6.0
+  }]}]
+}"#;
+        std::fs::write(dir.join(FILE), raw).unwrap();
+        let comp = load(&dir).unwrap();
+        let layer = &comp.tracks[0].layers[0];
+        assert_eq!(layer.x, 0.0);
+        assert_eq!(layer.y, 0.0);
+        assert_eq!(layer.scale, 1.0);
+        assert_eq!(layer.tint, None);
+        assert!(validate(&comp).is_empty());
+    }
+
+    /// A transformed + tinted overlay layer round-trips identically, its tint
+    /// serialized as an rgba VALUE array (never a hex string — the shape law),
+    /// and default-valued transforms stay OUT of the JSON (old shape holds).
+    #[test]
+    fn transform_and_tint_round_trip_as_value_arrays() {
+        let dir = scratch("transform");
+        let mut comp = sample();
+        comp.tracks[0].layers[0].x = -120.0;
+        comp.tracks[0].layers[0].y = 40.0;
+        comp.tracks[0].layers[0].scale = 0.5;
+        comp.tracks[0].layers[0].tint = Some([255, 64, 0, 230]);
+        assert!(validate(&comp).is_empty());
+        save(&dir, &comp).unwrap();
+        let raw = std::fs::read_to_string(dir.join(FILE)).unwrap();
+        assert!(raw.contains("\"tint\""), "tint serialized: {raw}");
+        assert!(!raw.contains('#'), "values, never hex");
+        // The UNTOUCHED second layer keeps the pre-L3 shape on disk.
+        assert!(
+            !raw.contains("\"scale\": 1.0"),
+            "default transform is skipped: {raw}"
+        );
+        assert_eq!(load(&dir).unwrap(), comp, "round-trips identically");
     }
 
     /// The operator's requirement, made concrete: two stitched clips persist
