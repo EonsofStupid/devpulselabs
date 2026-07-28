@@ -1,4 +1,5 @@
-//! Authoring surface — charter passes A + B.
+//! Authoring surface — charter passes A + B + C (the red-pen-ready walkable
+//! shell).
 //!
 //! Pass A gave the SIGNAL SPINE (additive `BuildEvent::CardAuthored`, published
 //! after a real draft-mint; anti-loop). Pass B renders the real, mock-shaped
@@ -8,8 +9,13 @@
 //! Templates — over the REAL registries (Census law: `dpl_slides::demos()`,
 //! `dpl_slides::blocks::elements()`, `dpl_coldlight::TRAITS`), so a bucket can
 //! never drift from what actually exists. Tapping a template mints a draft OF
-//! that template and publishes `CardAuthored`. The overlay editor is Pass C;
-//! real AI generation (Ask AI → Copy-prompt) is Pass E.
+//! that template and publishes `CardAuthored`. Pass C adds the OVERLAY EDITOR —
+//! a scrim `egui::Modal` opened by New card / a template / a comp-card tap, with
+//! the five tabs (Content · Quote · Media · Interactions · Ask AI). Content is
+//! the REAL `dpl_editor::Editor` over the draft's `slide.json` (edits auto-save,
+//! the editor stays fabric-free per the layer law); the other tabs are honest
+//! guided stubs until their constrained-capture forms land (D/E). Real AI
+//! generation (Ask AI → Copy-prompt) is Pass E.
 //!
 //! Law: the surface PUBLISHES `build.*` and never SUBSCRIBES to it (anti-loop);
 //! it paints ColdLight only; a mutation publishes only AFTER the write succeeds.
@@ -19,6 +25,48 @@ use egui::RichText;
 
 /// The Workbench house tone.
 const TONE: Tone = Tone::Amber;
+
+/// The overlay editor's tabs (charter §3c / mock). Content is the real editor
+/// (reusing `dpl_editor::Editor`); the rest are honest guided stubs until their
+/// constrained-capture forms land.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+enum EditorTab {
+    #[default]
+    Content,
+    Quote,
+    Media,
+    Interactions,
+    AskAi,
+}
+
+impl EditorTab {
+    const ALL: [EditorTab; 5] = [
+        EditorTab::Content,
+        EditorTab::Quote,
+        EditorTab::Media,
+        EditorTab::Interactions,
+        EditorTab::AskAi,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            EditorTab::Content => "Content",
+            EditorTab::Quote => "Quote",
+            EditorTab::Media => "Media",
+            EditorTab::Interactions => "Interactions",
+            EditorTab::AskAi => "Ask AI",
+        }
+    }
+}
+
+/// The open overlay editor — a real `dpl_editor::Editor` over the draft's
+/// `slide.json` (edits auto-save; the editor stays fabric-free per the layer
+/// law) plus the active tab.
+struct CardEditor {
+    title: String,
+    editor: dpl_editor::Editor,
+    tab: EditorTab,
+}
 
 /// The four user-facing buckets — the ENTIRE user-facing vocabulary (charter):
 /// all 7 census categories, treatments, cost tiers etc. sort into these four.
@@ -129,6 +177,10 @@ pub(crate) struct AuthorSurface {
     drafts: Option<Vec<DraftCard>>,
     /// The registry snapshot, loaded once.
     palette: Option<Palette>,
+    /// The open overlay editor (Pass C) — `None` = closed.
+    editing: Option<CardEditor>,
+    /// One-shot: whether the `DPL_AUTHOR_EDIT` proof affordance has been read.
+    env_checked: bool,
 }
 
 impl AuthorSurface {
@@ -138,6 +190,15 @@ impl AuthorSurface {
         }
         if self.drafts.is_none() {
             self.drafts = Some(load_drafts());
+        }
+        // Proof affordance (inert in normal use): open the editor on a draft so
+        // the overlay can be screenshotted headlessly. Mirrors `DPL_COMPOSER_TAB`.
+        if !self.env_checked {
+            self.env_checked = true;
+            if let Ok(id) = std::env::var("DPL_AUTHOR_EDIT") {
+                let dir = dpl_engine_capture::content_root().join("inbox").join(&id);
+                self.open_editor(&dir, id);
+            }
         }
 
         self.header(ui, fabric);
@@ -160,6 +221,9 @@ impl AuthorSurface {
                 |ui| self.palette_rail(ui, fabric),
             );
         });
+
+        // The overlay editor rides on top of everything (Pass C).
+        self.editor_modal(ui);
     }
 
     /// The header: the promise, the intent bar, and the actions.
@@ -253,18 +317,27 @@ impl AuthorSurface {
 
     /// The comp filmstrip — the cards you've authored, newest work in place.
     fn comp_deck(&mut self, ui: &mut egui::Ui) {
-        let drafts = self.drafts.as_deref().unwrap_or(&[]);
+        // Own the render data so a click can mutate `self` (open the editor)
+        // without a borrow clash against `self.drafts`.
+        let cards: Vec<(String, String, String)> = self
+            .drafts
+            .as_deref()
+            .unwrap_or(&[])
+            .iter()
+            .map(|d| (d.id.clone(), d.template.clone(), d.title.clone()))
+            .collect();
+
         ui.horizontal(|ui| {
             ui.label(RichText::new("YOUR COMP").small().color(cl::ink::SUBTLE));
             ui.label(
-                RichText::new(format!("· {} card{}", drafts.len(), plural(drafts.len())))
+                RichText::new(format!("· {} card{}", cards.len(), plural(cards.len())))
                     .small()
                     .color(cl::ink::MUTED),
             );
         });
         ui.add_space(cl::space::S2);
 
-        if drafts.is_empty() {
+        if cards.is_empty() {
             cl::clay().show(ui, |ui| {
                 ui.set_min_height(120.0);
                 ui.vertical_centered(|ui| {
@@ -280,16 +353,23 @@ impl AuthorSurface {
             return;
         }
 
+        let mut open: Option<String> = None;
         egui::ScrollArea::horizontal()
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    for d in drafts {
-                        comp_card(ui, d);
+                    for (id, template, title) in &cards {
+                        if comp_card(ui, template, title, id) {
+                            open = Some(id.clone());
+                        }
                         ui.add_space(cl::space::S2);
                     }
                 });
             });
+        if let Some(id) = open {
+            let dir = dpl_engine_capture::content_root().join("inbox").join(&id);
+            self.open_editor(&dir, id);
+        }
     }
 
     /// The four-bucket palette — the raw pieces, drawn live from the registries.
@@ -406,11 +486,133 @@ impl AuthorSurface {
                     f.publish_build(dpl_fabric::BuildEvent::CardAuthored {
                         show: String::new(),
                         episode: String::new(),
-                        slide,
+                        slide: slide.clone(),
                     });
                 }
+                // Open the overlay editor on the fresh card so authoring flows
+                // straight into refining it (charter §3c).
+                let dir = dpl_engine_capture::content_root()
+                    .join("inbox")
+                    .join(&slide);
+                self.open_editor(&dir, slide);
             }
             Err(e) => self.status = format!("could not author a card: {e}"),
+        }
+    }
+
+    /// Open the overlay editor on a draft folder (a fresh mint or a tapped comp
+    /// card). The embedded `dpl_editor::Editor` edits the real `slide.json`.
+    fn open_editor(&mut self, dir: &std::path::Path, title: String) {
+        match dpl_editor::Editor::open(dir) {
+            Ok(editor) => {
+                self.editing = Some(CardEditor {
+                    title,
+                    editor,
+                    tab: EditorTab::default(),
+                });
+            }
+            Err(e) => self.status = format!("could not open the card editor: {e}"),
+        }
+    }
+
+    /// The overlay card editor (Pass C) — a scrim modal with the five tabs.
+    /// Content is the real `dpl_editor::Editor`; the rest are honest guided
+    /// stubs. Edits auto-save; closing reloads the filmstrip.
+    fn editor_modal(&mut self, ui: &mut egui::Ui) {
+        let mut close = false;
+        if let Some(ed) = self.editing.as_mut() {
+            let modal = egui::Modal::new(egui::Id::new("author.card-editor"))
+                .backdrop_color(egui::Color32::from_black_alpha(184))
+                .frame(
+                    egui::Frame::new()
+                        .fill(cl::surface::RAISED)
+                        .stroke(egui::Stroke::new(1.0, TONE.color()))
+                        .corner_radius(egui::CornerRadius::same(cl::RADIUS_LG))
+                        .inner_margin(egui::Margin::same(16)),
+                )
+                .show(ui.ctx(), |ui| {
+                    ui.set_width(720.0);
+
+                    // Head — title + close.
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new("EDIT CARD")
+                                .monospace()
+                                .small()
+                                .color(TONE.color()),
+                        );
+                        ui.label(RichText::new(&ed.title).strong().color(cl::ink::STRONG));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if cl::tip(
+                                ui.label(RichText::new("Close").small().color(cl::ink::MUTED))
+                                    .interact(egui::Sense::click()),
+                                "Close — your edits are already saved.",
+                            )
+                            .clicked()
+                            {
+                                close = true;
+                            }
+                        });
+                    });
+                    ui.add_space(cl::space::S2);
+
+                    // Tab bar.
+                    ui.horizontal_wrapped(|ui| {
+                        for t in EditorTab::ALL {
+                            let active = ed.tab == t;
+                            if ui
+                                .label(RichText::new(t.label()).strong().color(if active {
+                                    TONE.color()
+                                } else {
+                                    cl::ink::MUTED
+                                }))
+                                .interact(egui::Sense::click())
+                                .clicked()
+                            {
+                                ed.tab = t;
+                            }
+                            ui.add_space(cl::space::S3);
+                        }
+                    });
+                    ui.separator();
+
+                    // Body — the active tab.
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .max_height(440.0)
+                        .show(ui, |ui| match ed.tab {
+                            EditorTab::Content => ed.editor.ui(ui),
+                            other => tab_stub(ui, other),
+                        });
+
+                    ui.separator();
+                    // Foot.
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new("edits save as you type")
+                                .small()
+                                .color(cl::ink::SUBTLE),
+                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if cl::tip(
+                                ui.label(RichText::new("Done").strong().color(TONE.color()))
+                                    .interact(egui::Sense::click()),
+                                "Close the editor — your card is saved.",
+                            )
+                            .clicked()
+                            {
+                                close = true;
+                            }
+                        });
+                    });
+                });
+            if modal.should_close() {
+                close = true;
+            }
+        }
+        if close {
+            self.editing = None;
+            self.drafts = None; // the filmstrip reloads (title may have changed)
         }
     }
 
@@ -465,12 +667,12 @@ impl AuthorSurface {
 
 /// One comp card — a FIXED-size clay plate showing the draft's template + its
 /// intent text. Every label truncates (never wraps), so a long id/title can't
-/// stretch the card vertically.
-fn comp_card(ui: &mut egui::Ui, d: &DraftCard) {
-    let title = if d.title.trim().is_empty() {
+/// stretch the card vertically. Returns true when tapped (opens the editor).
+fn comp_card(ui: &mut egui::Ui, template: &str, title: &str, id: &str) -> bool {
+    let title = if title.trim().is_empty() {
         "Untitled"
     } else {
-        d.title.trim()
+        title.trim()
     };
     let resp = cl::clay()
         .show(ui, |ui| {
@@ -479,7 +681,7 @@ fn comp_card(ui: &mut egui::Ui, d: &DraftCard) {
             ui.vertical(|ui| {
                 ui.add(
                     egui::Label::new(
-                        RichText::new(d.template.to_uppercase())
+                        RichText::new(template.to_uppercase())
                             .small()
                             .color(TONE.color()),
                     )
@@ -491,15 +693,50 @@ fn comp_card(ui: &mut egui::Ui, d: &DraftCard) {
                 );
                 ui.add_space(cl::space::S1);
                 ui.add(
-                    egui::Label::new(RichText::new(&d.id).small().color(cl::ink::SUBTLE))
-                        .truncate(),
+                    egui::Label::new(RichText::new(id).small().color(cl::ink::SUBTLE)).truncate(),
                 );
             });
         })
-        .response;
-    cl::tip(
-        resp,
-        "Your authored draft. Opening it to edit lands with the overlay editor (Pass C).",
+        .response
+        .interact(egui::Sense::click());
+    cl::tip(resp, "Tap to open this card in the editor.").clicked()
+}
+
+/// A tab that isn't wired yet — named honestly, never faked (charter passes
+/// D/E fill these). Keeps the modal walkable end to end.
+fn tab_stub(ui: &mut egui::Ui, tab: EditorTab) {
+    let (what, when) = match tab {
+        EditorTab::Quote => (
+            "Guided quote capture — attribution, source, and a bounded length.",
+            "the constrained-fields pass",
+        ),
+        EditorTab::Media => (
+            "Attach an image, video, or PDF page as a content-jailed media block.",
+            "the media pass",
+        ),
+        EditorTab::Interactions => (
+            "Dress the card with a registered recipe (reveal, flip, explode) — the \
+             AI registers the entity first, then applies it.",
+            "Pass D",
+        ),
+        EditorTab::AskAi => (
+            "Compose a paste-ready, entity-first prompt from what you've picked, \
+             then hand it to the context-aware chat.",
+            "Pass E",
+        ),
+        EditorTab::Content => ("", ""),
+    };
+    ui.add_space(cl::space::S3);
+    ui.label(RichText::new(tab.label()).strong().color(cl::ink::STRONG));
+    ui.add_space(cl::space::S1);
+    ui.label(RichText::new(what).color(cl::ink::BASE));
+    ui.add_space(cl::space::S2);
+    ui.label(
+        RichText::new(format!(
+            "Lands in {when} — the card stays valid until then."
+        ))
+        .small()
+        .color(cl::ink::SUBTLE),
     );
 }
 

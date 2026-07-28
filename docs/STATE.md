@@ -2,7 +2,31 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-28 — AUTHORING PASS C: THE OVERLAY EDITOR — WALKABLE SHELL COMPLETE
+(`feat/authoring-c-editor`, stacked on Pass B; build plan
+`docs/plans/authoring-shell.md` §5·C):** the `author` surface gains the OVERLAY
+EDITOR, so Passes A+B+C together are the **red-pen-ready walkable shell** the
+plan targets. New card / a template tap / a comp-card tap opens a scrim
+`egui::Modal` (ColdLight-framed, amber edge) with the five tabs — Content ·
+Quote · Media · Interactions · Ask AI. **Content is the REAL `dpl_editor::Editor`**
+over the draft's `slide.json` (live slide preview, Looks restyle strip, Undo;
+edits auto-save; the editor stays fabric-free per the layer law — no new dep, it
+was already the EDITOR-subroute engine). The other four tabs are honest guided
+stubs naming what each will capture (constrained fields / media / recipes = Pass
+D / Ask-AI Copy = Pass E) — never faked. Opening flows straight from authoring:
+a fresh mint still publishes `CardAuthored`, then the editor opens on it;
+closing reloads the filmstrip. Proof affordance `DPL_AUTHOR_EDIT=<draft-id>`
+opens the overlay headlessly (mirrors `DPL_COMPOSER_TAB`, inert in normal use).
+Gate: `cargo green ✔`. Real-exe proof at 1280×800:
+`docs/proof/authoring-c-overlay-editor-1280x800.png` (the modal open on Content,
+the real editor inside). Decided here: `dpl-chat-interactions`'s declarative
+`OverlayCoordinator` (coupled only to `dpl-chat-core`) is for **Pass D's
+AI-authored interaction overlays**, not this first-party human modal — so the
+card editor uses `egui::Modal` directly. NEXT = **Pass D** (the recipe registry +
+census + the signal-driven interaction overlay, `reveal` end to end).
+
 **2026-07-28 — AUTHORING PASS B: THE FOUR-BUCKET GALLERY (`feat/authoring-b-gallery`;
+build plan `docs/plans/authoring-shell.md` §5·B; mock
 build plan `docs/plans/authoring-shell.md` §5·B; mock
 `docs/design/mocks/authoring-surface-mock.html`):** the `author` surface grew
 from Pass A's skeleton into the real, mock-shaped surface. Header (intent bar +
