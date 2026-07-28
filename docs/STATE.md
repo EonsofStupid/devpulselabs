@@ -2,6 +2,33 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-28 — JOBS-BOARD MIGRATION: ONE JOBBOARD, THE THREE POLLED STATES
+COLLAPSE (PR #120, squash `d367390`; plan `docs/plans/jobs-board-migration.md`;
+journal NEXT SERIES item 2 CLOSED):** THE JOBBOARD lives inside the Fabric —
+`publish_job` folds every `Queued/Done/Failed` into a board BEFORE
+broadcasting; each row carries a latest-wins `progress` counter (doctrine
+law 7's PROGRESS class, centralized; NO Progress broadcast variant, wire
+shape unchanged). Accessors `job/jobs/jobs_running/ack_job`; running rows
+never evict, unacked resolved rows cap at 64. Composer's
+`RenderState`/`IngestState`/`ExportState` + `ingest_done` are GONE — three
+`JobId` handles read the board (pills, keep flows, repaint keep-alives);
+composer's fabric is now ALWAYS-present (private `Fabric::new()` default,
+`wire_fabric` swaps in the app's — drills/tests keep a working board).
+Seam's `RenderStatus` mirror deleted — `renders` maps rel → `JobId`,
+`GET /render` answers from the board (wire unchanged). Shell gains the
+`jobs` status cell: `working · <label> [· n]` from EVERY route, ticking
+at 300ms while jobs run. Doctrine jobs law amended to record the
+migration. Gate: `cargo green ✔` server1 + pre-push + BOTH CI lanes
+(linux 2m50s, windows 24m13s); fabric 16 · shell 19 · seam 20 · composer
+52 tests. WITNESSED LIVE on the rebuilt exe (build `d367390`): seam
+`POST render` → `GET /render` answered `running` → `done` off the board
+(real 180s stitch, render.mp4 landed), and the status bar showed
+`working · render inbox/comp-jobs` from the ViziWiz route mid-render —
+`docs/proof/jobs-board-working-cell-2026-07-28.png`. NOTE for drills:
+seam JSON documents must be BOM-free (a PS5.1 `Set-Content -Encoding
+utf8` BOM makes the comp loader refuse the doc). CLOSE-OUT:
+`target\release\devpulselabs.exe` rebuilt HERE (mtime 2026-07-28 12:00).
+
 **2026-07-28 — L3: ALPHA OVERLAY — FX ELEMENTS COMPOSITE ON THE TIMELINE
 (PR #110, squash `eac44d2`; plan `docs/plans/l3-alpha-overlay.md`,
 deep-planned + operator-ratified):** the third AE-independence rung — the
