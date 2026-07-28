@@ -2765,9 +2765,19 @@ impl Composer {
             egui::pos2(project_rect.max.x + pad, main_top),
             egui::pos2(right_rect.min.x - pad, tl_top - pad),
         );
-        // The right stack: Info (when open) above Effects & Presets.
+        // The right stack: Info (when open) above Effects & Presets. A
+        // selected OVERLAY grows Info for the L3 inspector (size/nudge/
+        // tint/opacity) — the sections must never paint over each other.
         let (info_rect, fx_rect) = if self.info_open {
-            let info_h = 120.0_f32.min(right_rect.height() * 0.4);
+            let overlay_selected = self
+                .selected
+                .as_deref()
+                .is_some_and(|id| self.fx_layers().iter().any(|l| l.id == id));
+            let info_h = if overlay_selected {
+                310.0_f32.min(right_rect.height() * 0.66)
+            } else {
+                120.0_f32.min(right_rect.height() * 0.4)
+            };
             let info = Rect::from_min_max(
                 right_rect.min,
                 egui::pos2(right_rect.max.x, right_rect.min.y + info_h),
@@ -3206,7 +3216,9 @@ impl Composer {
         });
     }
 
-    /// INFO (mock: default shown, closable): the selected layer's facts.
+    /// INFO (mock: default shown, closable): the selected layer's facts,
+    /// plus the L3 OVERLAY inspector for an fx selection. Scroll-and-clip
+    /// (RR2): the pane must never paint over Effects & Presets below.
     fn info_pane(&self, ui: &mut egui::Ui, act: &mut Option<Act>) {
         ui.horizontal(|ui| {
             ui.label(RichText::new("INFO").small().strong());
@@ -3221,6 +3233,14 @@ impl Composer {
                 }
             });
         });
+        egui::ScrollArea::vertical()
+            .id_salt("composer-info-scroll")
+            .auto_shrink([false, false])
+            .show(ui, |ui| self.info_body(ui, act));
+    }
+
+    /// The Info pane's scrollable body (facts + the overlay inspector).
+    fn info_body(&self, ui: &mut egui::Ui, act: &mut Option<Act>) {
         let on_fx = self
             .selected
             .as_deref()
