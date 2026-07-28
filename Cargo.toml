@@ -118,7 +118,7 @@ thorvg-sys = "0.3"
 # The browser driver's CDP socket (ADR-013): pure-Rust WebSocket framing
 # over OUR TcpStream, localhost only — no TLS features, ever.
 tungstenite = { version = "0.27", default-features = false, features = ["handshake"] }
-toml = "0.9"
+toml = "1.1"
 tokio = { version = "1", default-features = false, features = ["sync"] }
 turso = "0.7"
 # The agent seam (R1v): localhost HTTP over the fabric — axum is the
