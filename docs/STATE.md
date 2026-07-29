@@ -2,6 +2,26 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-29 — THUMBNAIL MODE (`docs/plans/slide-thumbnail-mode.md`):** the
+seed-thumbnail crop, deferred twice since #136, is fixed at its cause. It was
+never a surface bug: `Fluid::eval` ends in `.clamp(min, max)`, so below ~46
+rem the type stops shrinking while the stage keeps going and a whole slide
+crops inside a card. That floor is RIGHT for a real stage and wrong for a
+picture of one. `Fluid::thumbnail(rect)` evaluates at a nominal 16:9 stage
+and scales down uniformly; `NOMINAL_REM = 48` is DERIVED (the authored ramp
+brings every type token to its min at ≈46.3 rem) and pinned by
+`nothing_is_clamped_at_the_nominal_stage`. One factor suffices because
+`document.rs` sources every size from `Fluid` and holds zero fixed
+`cl::space::*`. `Stage::{Full,Thumbnail}` + `render_thumbnail` +
+`DocSlide::thumbnail_ui`; `render_inner`'s step/now/t0/stage became a
+`Playhead`. Carousel cards and filmstrip tiles switched over — tiles are real
+miniatures now, not labelled plates, and keep their names. The seeds and
+episode walls were never callers (they size to full width). Two shot-driven
+fixes beyond the plan (§8.3): strip tiles resized to the authored
+`ctl-thumb-*` after starving the carousel at 1100×700, and the carousel
+caption capped at a third of the band with the sub-line DROPPED rather than
+clipped when it will not fit. NEXT in this lane = the six card tabs.
+
 **2026-07-29 — THE CONTAINER-LABELLED FILMSTRIP (`docs/plans/author-filmstrip.md`):**
 the authoring surface now says what it is building INTO and shows what has
 been started. `containers.rs` is the container census: Lesson · Guide ·

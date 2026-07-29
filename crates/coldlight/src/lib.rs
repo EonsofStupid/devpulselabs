@@ -1003,20 +1003,64 @@ pub fn aurora(painter: &egui::Painter, rect: Rect) {
 pub struct Fluid {
     w_rem: f32,
     h_rem: f32,
+    /// A uniform multiplier on every evaluated token. 1.0 for a real stage;
+    /// below 1 only for [`Fluid::thumbnail`].
+    scale: f32,
 }
 
 impl Fluid {
+    /// The reference stage a MINIATURE stands for: 48 rem wide, 16:9.
+    ///
+    /// Not a chosen number. The authored ramp is built so every type token
+    /// reaches its `min` at the same stage — ≈46.3 rem on a 16:9 stage — so
+    /// 48 rem is the nearest whole rem that clears the floor for all of
+    /// them. `nothing_is_clamped_at_the_nominal_stage` pins it, and will
+    /// fail if `tokens/fluid.json` is ever re-authored past it.
+    pub const NOMINAL_REM: f32 = 48.0;
+
     /// Fluid sizing for content laid out inside `rect`.
     pub fn of(rect: Rect) -> Self {
         Self {
             w_rem: rect.width() / 16.0,
             h_rem: rect.height() / 16.0,
+            scale: 1.0,
+        }
+    }
+
+    /// Sizing for a stage drawn as a MINIATURE of a full one.
+    ///
+    /// `Fluid::of` sizes content TO its stage, which is right for every real
+    /// stage and wrong for a thumbnail: the ramp has a floor (`clamp(min,
+    /// ..)`), so below roughly 46 rem the type stops shrinking while the
+    /// stage keeps going, and a whole slide crops inside a card.
+    ///
+    /// A thumbnail is a picture OF the full stage, not a small stage, so it
+    /// is evaluated at [`Fluid::NOMINAL_REM`] and scaled down to fit `rect`.
+    /// Everything a document draws — type, padding, radii — flows through
+    /// this one struct, so a single factor shrinks the whole render
+    /// proportionally with no second mechanism.
+    ///
+    /// Fits INSIDE `rect` on both axes, so a stage that is not 16:9
+    /// letterboxes rather than overflowing.
+    pub fn thumbnail(rect: Rect) -> Self {
+        let nominal_w = Self::NOMINAL_REM * 16.0;
+        let nominal_h = nominal_w * 9.0 / 16.0;
+        let scale = (rect.width() / nominal_w).min(rect.height() / nominal_h);
+        Self {
+            w_rem: Self::NOMINAL_REM,
+            h_rem: nominal_h / 16.0,
+            // A degenerate rect must not produce a negative or NaN ramp.
+            scale: if scale.is_finite() {
+                scale.max(0.0)
+            } else {
+                0.0
+            },
         }
     }
 
     #[inline]
     fn eval(&self, min: f32, max: f32, slope: f32, slope_y: f32, intercept: f32) -> f32 {
-        (intercept + slope * self.w_rem + slope_y * self.h_rem).clamp(min, max) * 16.0
+        (intercept + slope * self.w_rem + slope_y * self.h_rem).clamp(min, max) * 16.0 * self.scale
     }
 }
 
@@ -1328,6 +1372,92 @@ pub fn frame_overlay(painter: &egui::Painter, content: Rect, top_accent: Tone) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A 16:9 stage `rem` rem wide.
+    fn stage(rem: f32) -> Rect {
+        let w = rem * 16.0;
+        Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(w, w * 9.0 / 16.0))
+    }
+
+    /// Every type size a document can name. Kept beside the resolver in
+    /// `dpl-slides`; if the ramp grows a step, this list is what has to grow
+    /// with it.
+    fn type_ramp(f: &Fluid) -> [f32; 10] {
+        [
+            f.fs_eyebrow(),
+            f.fs_body_sm(),
+            f.fs_body(),
+            f.fs_body_lg(),
+            f.fs_h4(),
+            f.fs_h3(),
+            f.fs_h2(),
+            f.fs_h1(),
+            f.fs_display(),
+            f.fs_display_xl(),
+        ]
+    }
+
+    /// The definition of "nominal", made executable: at the reference stage
+    /// NOTHING is pinned to its floor, so a size there is still a real
+    /// function of the stage. A token that has stopped responding would read
+    /// identically on a slightly smaller stage — that is what clamped means.
+    #[test]
+    fn nothing_is_clamped_at_the_nominal_stage() {
+        let at = type_ramp(&Fluid::of(stage(Fluid::NOMINAL_REM)));
+        let smaller = type_ramp(&Fluid::of(stage(Fluid::NOMINAL_REM * 0.98)));
+        for (i, (a, b)) in at.iter().zip(smaller.iter()).enumerate() {
+            assert!(
+                a > b,
+                "type step {i} is already floored at the nominal stage \
+                 ({a} vs {b}) — NOMINAL_REM no longer clears the ramp"
+            );
+        }
+    }
+
+    /// The floor is real, and it is what a miniature has to escape: well
+    /// below the nominal stage, `of()` stops shrinking.
+    #[test]
+    fn a_small_stage_floors_the_ramp_but_a_thumbnail_does_not() {
+        let small = stage(20.0);
+        let smaller = stage(10.0);
+        assert_eq!(
+            Fluid::of(small).fs_display(),
+            Fluid::of(smaller).fs_display(),
+            "the floor is the whole reason thumbnail() exists"
+        );
+        assert!(
+            Fluid::thumbnail(smaller).fs_display() < Fluid::thumbnail(small).fs_display(),
+            "a miniature must keep shrinking with its stage"
+        );
+    }
+
+    /// A miniature is the full stage scaled: every token shrinks by ONE
+    /// factor, so proportions are identical to the real render.
+    #[test]
+    fn a_thumbnail_is_the_nominal_stage_scaled_uniformly() {
+        let full = Fluid::of(stage(Fluid::NOMINAL_REM));
+        let half = Fluid::thumbnail(stage(Fluid::NOMINAL_REM / 2.0));
+        for (a, b) in type_ramp(&full).iter().zip(type_ramp(&half).iter()) {
+            assert!(
+                (b * 2.0 - a).abs() < 0.01,
+                "expected exactly half of {a}, got {b}"
+            );
+        }
+        // Padding rides the same factor — a document's spacing is fluid too.
+        assert!((half.sp_7() * 2.0 - full.sp_7()).abs() < 0.01);
+    }
+
+    /// `of()` is untouched by the new field, and a degenerate rect cannot
+    /// produce a NaN or negative size.
+    #[test]
+    fn of_is_unscaled_and_a_degenerate_rect_stays_finite() {
+        let f = Fluid::of(stage(40.0));
+        assert!((f.fs_body() - Fluid::of(stage(40.0)).fs_body()).abs() < f32::EPSILON);
+        let nothing = Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(0.0, 0.0));
+        for size in type_ramp(&Fluid::thumbnail(nothing)) {
+            assert!(size.is_finite() && size >= 0.0, "got {size}");
+        }
+    }
 
     #[test]
     fn the_pool_is_the_whole_registry_not_a_seed() {

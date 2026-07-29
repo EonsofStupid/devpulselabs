@@ -184,6 +184,22 @@ impl RenderMap {
     }
 }
 
+/// How a document's stage is sized.
+///
+/// The distinction exists because `Fluid`'s ramp has a floor: below roughly
+/// 46 rem the type stops shrinking while the stage keeps going, so a whole
+/// slide drawn into a card-sized rect crops. That floor is CORRECT for a
+/// real stage — text has to stay legible — and wrong for a picture of one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Stage {
+    /// A real stage: content sizes TO the rect, floor and all.
+    #[default]
+    Full,
+    /// A miniature OF a full stage: sized at the nominal stage and scaled
+    /// down uniformly, so the whole slide fits and keeps its proportions.
+    Thumbnail,
+}
+
 /// Render a document into `rect`. The ONE path — every surface calls this.
 /// `look` is the show's trait (W3b): the slide's absent styling fields
 /// inherit from it via `dpl_doc::resolve`; standalone slides pass
@@ -199,6 +215,31 @@ pub fn render(
     let _ = render_traced(ui, rect, slide, look, now, t0);
 }
 
+/// Render a document as a MINIATURE — the seeds wall, the authoring
+/// carousel, the filmstrip. Same document, same code path; only the stage
+/// sizing differs (see [`Stage`]).
+pub fn render_thumbnail(
+    ui: &mut Ui,
+    rect: Rect,
+    slide: &dpl_doc::Slide,
+    look: &dpl_doc::Look,
+    now: f64,
+    t0: f64,
+) -> RenderMap {
+    render_inner(
+        ui,
+        rect,
+        slide,
+        look,
+        Playhead {
+            step: None,
+            now,
+            t0,
+            stage: Stage::Thumbnail,
+        },
+    )
+}
+
 /// Render AND return where every block landed (for the editor's hit-test).
 /// Wall mode: every block visible, the entrance staggers them all.
 pub fn render_traced(
@@ -209,7 +250,18 @@ pub fn render_traced(
     now: f64,
     t0: f64,
 ) -> RenderMap {
-    render_inner(ui, rect, slide, look, None, now, t0)
+    render_inner(
+        ui,
+        rect,
+        slide,
+        look,
+        Playhead {
+            step: None,
+            now,
+            t0,
+            stage: Stage::Full,
+        },
+    )
 }
 
 /// Deck mode (D2): render at a BEAT position. Step 0 = setup (unrevealed
@@ -227,7 +279,31 @@ pub fn render_step(
     now: f64,
     t0: f64,
 ) -> RenderMap {
-    render_inner(ui, rect, slide, look, Some(step), now, t0)
+    render_inner(
+        ui,
+        rect,
+        slide,
+        look,
+        Playhead {
+            step: Some(step),
+            now,
+            t0,
+            stage: Stage::Full,
+        },
+    )
+}
+
+/// Where one render sits in time, and how its stage is sized.
+///
+/// Bundled rather than passed loose: the four travel together through every
+/// entry point, and splitting them across a long argument list is how the
+/// deck's beat and the wall's stagger got confused for each other.
+struct Playhead {
+    /// `Some(k)` is deck mode at beat k; `None` is wall mode (all visible).
+    step: Option<usize>,
+    now: f64,
+    t0: f64,
+    stage: Stage,
 }
 
 fn render_inner(
@@ -235,10 +311,14 @@ fn render_inner(
     rect: Rect,
     slide: &dpl_doc::Slide,
     look: &dpl_doc::Look,
-    step: Option<usize>,
-    now: f64,
-    t0: f64,
+    at: Playhead,
 ) -> RenderMap {
+    let Playhead {
+        step,
+        now,
+        t0,
+        stage,
+    } = at;
     // The whole cascade happens HERE, once — the body below paints a
     // fully-specified document exactly as before W3b.
     let slide = &dpl_doc::resolve(slide, look);
@@ -270,7 +350,10 @@ fn render_inner(
         }
     }
 
-    let fluid = cl::Fluid::of(rect);
+    let fluid = match stage {
+        Stage::Full => cl::Fluid::of(rect),
+        Stage::Thumbnail => cl::Fluid::thumbnail(rect),
+    };
     let painter = ui.painter_at(rect);
     let pad = fluid.sp_7();
     let wrap = (rect.width() - pad * 2.0).max(40.0);
@@ -409,6 +492,13 @@ impl DocSlide {
         let now = ui.input(|i| i.time);
         let t0 = self.clock.tick(now);
         render(ui, rect, &self.slide, &self.look, now, t0);
+    }
+
+    /// Draw this document as a miniature — see [`Stage::Thumbnail`].
+    pub fn thumbnail_ui(&mut self, ui: &mut Ui, rect: Rect) {
+        let now = ui.input(|i| i.time);
+        let t0 = self.clock.tick(now);
+        render_thumbnail(ui, rect, &self.slide, &self.look, now, t0);
     }
 }
 

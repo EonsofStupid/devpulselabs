@@ -36,15 +36,25 @@ const PAGE: usize = 6;
 /// motion rather than a row of photocopies.
 const TONE_CYCLE: [Tone; 4] = [Tone::Cyan, Tone::Amber, Tone::Magenta, Tone::Coral];
 
-/// One tile in the filmstrip: a small treated plate carrying a name.
+/// One tile in the filmstrip: the card drawn as a miniature, with its name
+/// under it.
 ///
-/// A tile deliberately does NOT draw the card's own document. A whole slide
-/// squeezed into a thumb-sized stage overflows, because the type ramp has a
-/// floor — the same crop named in the carousel pass. That needs a thumbnail
-/// mode in the document renderer (`dpl-slides`), so until it lands a tile is
-/// an honest labelled plate: exactly the degrade the renderer already uses
-/// for a ref it cannot resolve.
-fn film_tile(ui: &mut egui::Ui, w: f32, h: f32, label: &str, tone: Tone) -> egui::Response {
+/// It used to be a labelled plate, because a whole slide squeezed into a
+/// thumb-sized stage cropped — the ramp has a floor. `DocSlide::thumbnail_ui`
+/// removed that, so the tile now shows the real document.
+///
+/// It keeps the NAME as well as the picture. Three freshly-started cards look
+/// alike as pictures — the caption is what tells them apart, which is why the
+/// ratified mock's film card carries both. A card whose document will not
+/// load keeps the caption and shows an empty stage rather than pretending.
+fn film_tile(
+    ui: &mut egui::Ui,
+    w: f32,
+    h: f32,
+    label: &str,
+    tone: Tone,
+    doc: &mut Option<dpl_slides::document::DocSlide>,
+) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, h), egui::Sense::click());
     let style = cl::compose(
         tone,
@@ -56,9 +66,9 @@ fn film_tile(ui: &mut egui::Ui, w: f32, h: f32, label: &str, tone: Tone) -> egui
             cl::TraitState::Idle
         },
     );
-    // Clipped to its own tile so a long name runs out of room rather than
-    // over its neighbour.
-    let painter = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
+    let fluid = cl::Fluid::of(rect);
+    let clip = rect.intersect(ui.clip_rect());
+    let painter = ui.painter().with_clip_rect(clip);
     for sh in &style.shadows {
         painter.rect_filled(
             rect.translate(egui::vec2(sh.offset[0] as f32, sh.offset[1] as f32)),
@@ -67,22 +77,37 @@ fn film_tile(ui: &mut egui::Ui, w: f32, h: f32, label: &str, tone: Tone) -> egui
         );
     }
     painter.rect_filled(rect, egui::CornerRadius::same(style.radius), style.fill);
-    painter.rect_stroke(
-        rect,
-        egui::CornerRadius::same(style.radius),
-        style.edge,
-        egui::StrokeKind::Inside,
+
+    // The picture on top, the name under it — the mock's film card.
+    let caption_h = fluid.fs_body_sm() + cl::space::S2;
+    let inset = style.edge.width + 1.0;
+    let stage = egui::Rect::from_min_max(
+        rect.min + egui::vec2(inset, inset),
+        egui::pos2(rect.max.x - inset, rect.max.y - caption_h),
     );
+    if let Some(doc) = doc {
+        if stage.width() > 1.0 && stage.height() > 1.0 {
+            let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(stage));
+            inner.set_clip_rect(stage.intersect(clip));
+            doc.thumbnail_ui(&mut inner, stage);
+        }
+    }
     painter.text(
-        rect.center(),
+        egui::pos2(rect.center().x, rect.max.y - caption_h * 0.5),
         egui::Align2::CENTER_CENTER,
         label,
-        egui::FontId::proportional(cl::Fluid::of(rect).fs_body_sm()),
+        egui::FontId::proportional(fluid.fs_body_sm()),
         if resp.hovered() {
             tone.color()
         } else {
             style.ink
         },
+    );
+    painter.rect_stroke(
+        rect,
+        egui::CornerRadius::same(style.radius),
+        style.edge,
+        egui::StrokeKind::Inside,
     );
     resp
 }
@@ -267,6 +292,8 @@ struct CardEditor {
     title: String,
     editor: dpl_editor::Editor,
     tab: CardTab,
+    /// Which card's folder is open, so the strip can re-read it on close.
+    dir: std::path::PathBuf,
 }
 
 /// One card's worth of shelf metadata — owned, so painting can borrow the
@@ -341,6 +368,19 @@ struct Draft {
     slide: String,
     label: String,
     dir: std::path::PathBuf,
+    /// The card's own document, drawn as a miniature in the strip. `None`
+    /// when it will not load — the tile falls back to a labelled plate
+    /// rather than showing a blank stage and pretending nothing is wrong.
+    doc: Option<dpl_slides::document::DocSlide>,
+}
+
+/// Read a draft's document off disk. Called when the card is started and
+/// again whenever its editor closes, because the editor saves as you type
+/// and a strip still showing the old words would be lying.
+fn load_draft_doc(dir: &std::path::Path) -> Option<dpl_slides::document::DocSlide> {
+    dpl_doc::load(dir)
+        .ok()
+        .map(dpl_slides::document::DocSlide::new)
 }
 
 impl AuthorSurface {
@@ -448,6 +488,7 @@ impl AuthorSurface {
                 self.drafts.push(Draft {
                     slide: slide.clone(),
                     label: title.clone(),
+                    doc: load_draft_doc(&dir),
                     dir: dir.clone(),
                 });
                 self.open_editor(&dir, title);
@@ -504,6 +545,7 @@ impl AuthorSurface {
                     title,
                     editor,
                     tab: CardTab::default(),
+                    dir: dir.to_path_buf(),
                 })
             }
             Err(e) => {
@@ -618,7 +660,13 @@ impl AuthorSurface {
             });
 
         if close {
-            self.editing = None;
+            // The editor writes as you type, so the strip's copy of this
+            // card is stale the moment it closes. Re-read it.
+            if let Some(ed) = self.editing.take() {
+                if let Some(draft) = self.drafts.iter_mut().find(|d| d.dir == ed.dir) {
+                    draft.doc = load_draft_doc(&draft.dir);
+                }
+            }
         }
     }
 
@@ -877,8 +925,13 @@ impl AuthorSurface {
 
         // The film itself — a row of what has been started, then a tile that
         // starts one more.
-        let card_w = fluid.ctl_thumb_w() * 2.0;
-        let card_h = fluid.ctl_thumb_h();
+        // `ctl-thumb-*` IS the authored size for a thumbnail, and a strip item
+        // is a thumbnail — half again as wide so the tap target clears
+        // `tap-min`, and no larger. A tile sized like a hero card starves the
+        // carousel it sits under: at 1100x700 that cost the sweep two thirds
+        // of its height, which is a worse trade than a smaller preview.
+        let card_w = fluid.ctl_thumb_w() * 1.5;
+        let card_h = card_w * 9.0 / 16.0 + fluid.fs_body_sm() + cl::space::S2;
         egui::ScrollArea::horizontal()
             .id_salt("author.filmstrip")
             .max_height(card_h)
@@ -896,8 +949,15 @@ impl AuthorSurface {
                         );
                     }
                     let mut reopen = None;
-                    for (ix, draft) in self.drafts.iter().enumerate() {
-                        let resp = film_tile(ui, card_w, card_h, &draft.label, kind.tone());
+                    for (ix, draft) in self.drafts.iter_mut().enumerate() {
+                        let resp = film_tile(
+                            ui,
+                            card_w,
+                            card_h,
+                            &draft.label,
+                            kind.tone(),
+                            &mut draft.doc,
+                        );
                         let tip = format!(
                             "Open “{}” again — it is saved as inbox/{}",
                             draft.label, draft.slide
@@ -907,7 +967,9 @@ impl AuthorSurface {
                         }
                         ui.add_space(cl::space::S2);
                     }
-                    let plus = film_tile(ui, card_h, card_h, "+", Tone::Amber);
+                    // The new-card tile has no card behind it yet, so it is
+                    // the one plate that stays a plate.
+                    let plus = film_tile(ui, card_h, card_h, "+", Tone::Amber, &mut None);
                     if cl::tip(plus, "Start one more card").clicked() {
                         start_one = true;
                     }
@@ -985,15 +1047,24 @@ impl AuthorSurface {
         // content", so it is the honest minimum here too.
         let across = (lane_w / fluid.panel_width()).floor().clamp(1.0, 4.0);
         let card_w = ((lane_w - gap * (across - 1.0)) / across).max(arrow_w);
-        // Room under the stage for a name AND its line, not one on top of the
-        // other — two body lines plus the padding around them.
-        let caption_h = fluid.fs_body() + fluid.fs_body_sm() + cl::space::S6;
         // Width proposes, HEIGHT disposes. A tall card on a short window pushed
         // its own captions — and everything under the carousel — off the bottom
         // edge. Whichever axis is tighter decides the card, so the band always
         // fits the room it was given.
         let room_below = fluid.fs_body_lg() + cl::space::S6 + reserve_below;
-        let max_card_h = (ui.available_height() - room_below).max(caption_h + arrow_w);
+        let room = (ui.available_height() - room_below).max(arrow_w * 2.0);
+        // Room under the stage for a name AND its line, not one on top of the
+        // other — two body lines plus the padding around them.
+        //
+        // Capped at a third of the band, because on a short window the caption
+        // was out-eating the picture it captions: at 1100x700 the whole band is
+        // ~105pt, and a fixed 63pt caption left the stage barely taller than
+        // its own label. Under the cap the card keeps the name and drops the
+        // line under it — `card` checks the room it was actually given rather
+        // than clipping. Same defect the thumbnail mode exists to fix, chrome
+        // starving the card, one level up.
+        let caption_h = (fluid.fs_body() + fluid.fs_body_sm() + cl::space::S6).min(room / 3.0);
+        let max_card_h = room.max(caption_h + arrow_w);
         let card_w = card_w.min((max_card_h - caption_h).max(arrow_w) * 16.0 / 9.0);
         let stage_h = card_w * 9.0 / 16.0;
         let card_h = stage_h + caption_h;
@@ -1203,6 +1274,12 @@ impl AuthorSurface {
             // Stacked, tight, and never wrapping — the name reads first, the
             // line under it explains, and a long one is cut rather than shoving
             // the card taller than its neighbours.
+            // The line under the name is dropped, not clipped, when the band
+            // is too short for it. Half a sentence sheared off by an edge
+            // reads as a bug; a name on its own reads as a name.
+            let name_h = fluid.fs_body() * 1.35;
+            let line_h = fluid.fs_body_sm() * 1.35;
+            let room_for_the_line = text.height() >= name_h + line_h + cl::space::S1;
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = cl::space::S1;
                 ui.add(
@@ -1214,14 +1291,16 @@ impl AuthorSurface {
                     )
                     .truncate(),
                 );
-                ui.add(
-                    egui::Label::new(
-                        RichText::new(&item.blurb)
-                            .size(fluid.fs_body_sm())
-                            .color(cl::ink::MUTED),
-                    )
-                    .truncate(),
-                );
+                if room_for_the_line {
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(&item.blurb)
+                                .size(fluid.fs_body_sm())
+                                .color(cl::ink::MUTED),
+                        )
+                        .truncate(),
+                    );
+                }
             });
         });
 
@@ -1342,7 +1421,11 @@ impl AuthorSurface {
         match self.shelf {
             Shelf::Starters => {
                 if let Some((_, doc)) = self.seeds.iter_mut().find(|(id, _)| *id == item.id) {
-                    doc.ui(ui, rect);
+                    // As a MINIATURE: a card stage is well under the ramp's
+                    // floor, so sizing content TO it leaves a headline at its
+                    // minimum and crops the card. A thumbnail is a picture of
+                    // the whole slide, which is what a shelf of premades is.
+                    doc.thumbnail_ui(ui, rect);
                 }
             }
             Shelf::Layouts => {
