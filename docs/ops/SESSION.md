@@ -14,26 +14,22 @@ milestone-loop). Product truth stays in `docs/STATE.md`.
 **coach / ledger / lesson** — ordered backlog:
 `docs/journal/2026-07-28-remaining-work.md`
 
-**NEXT:** Live synthetic `/strict` refusal (SSE + feed witness)
+**NEXT:** Overlay passthrough proof (**p2b**)
 
-**CLOSED:** Library section harness (**p6**) — `--lib-section` via DS3 #135
+**CLOSED:** p6 (`--lib-section` via #135) · live `/strict` synthetic
+refusal witness (mint-site unit matrix)
 
 ## Opens
 
 | Kind | Ref | Notes |
 |---|---|---|
-| PR | #133 `feat/session-os` | Reconcile landing now |
-| Parallel — do not steal | authoring #119 → #128 → #130 | stack after DS3 |
-| Parallel — do not steal | chat assist bake-off | STATE assist-mode entry |
+| Authoring | overlay already on main (#136); filmstrip + thumbnail crop remain | do not steal unless redirected |
+| Parallel | chat assist bake-off | STATE assist-mode entry |
+| Parallel | authoring charter #119 merged | Pass B/C closed unmerged |
 
 ## Milestone
 
-Land reconciled Session OS → coach `/strict` witness → p2b → p4 → C2s…
-
-## Context budget
-
-Journal + refresh `docs/ops/resume/CURRENT.md` near ~75–85% context.
-`dirty: true` while unsaved; Cursor `stop` hook may nudge once.
+Coach p2b → p4 → C2s → C2a/C2b → strict pinning → DuckDB ADR → class column
 
 ## Signals
 

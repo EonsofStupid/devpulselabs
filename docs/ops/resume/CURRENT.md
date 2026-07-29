@@ -6,27 +6,26 @@
 
 ## Goal
 
-Land reconciled Session OS (#133), then coach live `/strict` refusal.
+Land `/strict` synthetic-refusal witness, then p2b overlay passthrough.
 
 ## Done
 
-- DS3 + `--lib-section` (p6) on main via #135
-- Milestone-loop (#131) on main
-- Session OS reconciled: `docs/ops/` shared; Cursor + Claude surfaces compose
+- #135 DS3 + p6; #133 Session OS; #119 charter; #136 carousel (overlay included)
+- `resolve_operator_slash` mint-site matrix (synthetic refuse / escalate /
+  evidence-locked / already-behavioral)
 
 ## Next
 
-1. Merge #133
-2. Live `/strict` synthetic refusal witness
-3. p2b overlay passthrough → p4 rail → C2s…
+1. Merge this PR
+2. Overlay passthrough proof (p2b)
+3. Rail accordion (p4) → C2s…
 
 ## Blockers
 
-Authoring stack (#119/#128/#130) and chat bake-off are parallel — do not steal.
+None on coach lane. Authoring filmstrip is a parallel lane.
 
 ## Key files
 
+- `docs/plans/strict-refusal-witness.md`
+- `crates/app/src/chat.rs` (`resolve_operator_slash` + `slash_mint_tests`)
 - `docs/journal/2026-07-28-remaining-work.md`
-- `docs/journal/2026-07-29-session-os-reconcile.md`
-- `.cursor/skills/session-os/SKILL.md`
-- `.claude/skills/milestone-loop/SKILL.md`
