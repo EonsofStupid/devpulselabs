@@ -99,6 +99,22 @@ impl Editor {
         self.mutate(|slide| slide.background = background);
     }
 
+    /// What the show's look says the entrance is — what "follow the show"
+    /// resolves to, so a picker can name it instead of showing an invisible
+    /// default.
+    pub fn look_enter(&self) -> Option<String> {
+        self.look.enter.clone()
+    }
+
+    /// Set how the words arrive, or `None` to follow the show's look.
+    ///
+    /// Restarts the clock so the entrance actually plays: a movement picker
+    /// whose preview does not move is a contradiction.
+    pub fn set_enter(&mut self, enter: Option<String>) {
+        self.mutate(|slide| slide.enter = enter);
+        self.clock.restart();
+    }
+
     /// Apply an edit: snapshot for undo, mutate, then write back the
     /// colocated file immediately (no save ceremony — the file is truth).
     fn mutate(&mut self, f: impl FnOnce(&mut dpl_doc::Slide)) {

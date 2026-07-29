@@ -2,6 +2,23 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-29 — THE MOVEMENT TAB (`docs/plans/author-tab-movement.md`):**
+second of the six placeholders, and deliberately small because the truth is.
+GROUND TRUTH — `dpl_doc::ENTERS` permits exactly `rise` and `none`, and
+`document.rs` implements `rise` alone; the other seventeen motion effects
+belong to TEMPLATES for their own elements, so offering them would offer refs
+the document cannot hold. The shelf is therefore THREE: follow the show ·
+rise into place · stay still. `dpl_doc::enters()` now exposes the vocabulary
+`validate` enforces, so a picker can never drift from it, and
+`the_movement_row_is_the_schemas_vocabulary` fails the day a fourth entrance
+lands unoffered. "Follow the show" names what it resolves to
+(`Editor::look_enter`) because inheriting is invisible by nature; picking
+restarts the clock so the entrance plays. The shortfall is stated ON the tab:
+arriving is all that is built, and getting noticed / going out each need a
+movement authored + the schema taught to name it + the player taught to play
+it — which is why none of that shipped under a tab's name. NEXT = A quote,
+Picture, On tap, Ask for help.
+
 **2026-07-29 — THE VISUAL-EXPERIENCE POAM (`docs/plans/poam-visual-experience.md`):**
 ratified from the operator's directive: V1 animation becomes a HOME
 privilege (every other route gets a static mood wash, zero idle repaints);
