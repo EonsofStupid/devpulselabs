@@ -2,6 +2,23 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-29 — THE INSPECTOR IS AN OVERLAY (#148, `docs/plans/inspector-overlay.md`):**
+the shell's right panel was ported as a DOCKED `egui::Panel::right` eating
+`panel_width()` (320–448 px) on every route — but the operator's directive has
+been in docs/shell.md verbatim since task #103: "rightside **overlay** the
+content". Now faithful: closed by default (`Zones.panel == Rect::ZERO`, the
+well spans to the root's right edge — ~30% more editor width at 1100×700);
+the topbar toggle beside full-bleed (or `--inspector`) floats the plate OVER
+the well at `panel_width()` — the content rect never shrinks, nothing
+reflows; close via the plate's ✕ or the toggle. Existing chrome vocabulary
+only (RAISED + sheen + hard-edged left diffusion band) — no new ingredients,
+no token changes. docs/shell.md Law 8 names re-docking a regression;
+`the_inspector_overlays_the_content_instead_of_docking` pins the open plate
+INSIDE the content rect. KNOWN (parity-kept, future polish): the inspector
+cards spill under the plate's right margin exactly as they did when docked —
+clipped identically. NEXT candidates in this lane: per-hub tool docks (P1)
+mount into the overlay; an open/close slide animation.
+
 **2026-07-29 — THE BACKGROUND TAB (`docs/plans/author-tab-background.md`):**
 the first of the overlay editor's six placeholders becomes real. Three rows in
 the order a person decides — the colour, blend a second, something moving over
