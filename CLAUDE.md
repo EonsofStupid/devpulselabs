@@ -67,6 +67,7 @@ other worktree. The operator double-clicks `target\release\devpulselabs.exe`
   --clone-seed <seed> <show> <ep> --import-drill <dir> --pin-pack <dir>
   --save-comp <name> --export-guide <guide-rel> [<session-rel>]
   --steps-drill <n> --make-slide <asset-rel> --lottie-import <file>
+  --inspector
   --fx-drill <clip-rel> <fx-rel> --l4-drill
   --run-workflow <id> --chat-open --chat-authored --chat-proof <mode>
   --seam-port <n> --no-seam --ledger --content-root <path>` (also honored as the

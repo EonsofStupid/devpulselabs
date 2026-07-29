@@ -10,11 +10,12 @@ have cssgrid for all of my status indicators."*
 
 ```
 ┌─ TOP ────────────────────────────────── topbar_height() ─┐
-├─ RAIL ─┬─ CONTENT (the well) ─────────────┬─ PANEL ──────┤
-│ rail_  │ the active hub renders here over │ panel_width()│
-│ collap-│ the app backdrop; a hub that     │ (inspector)  │
-│ sed()  │ overflows scrolls ITSELF —       │              │
-│        │ chrome never moves               │              │
+├─ RAIL ─┬─ CONTENT (the well) ──────────────┬╌ PANEL ╌╌╌╌╌┤
+│ rail_  │ the active hub renders here over  ┆ overlay —   │
+│ collap-│ the app backdrop; a hub that      ┆ optional,   │
+│ sed()  │ overflows scrolls ITSELF —        ┆ floats OVER │
+│        │ chrome never moves; the well owns ┆ the well;   │
+│        │ the FULL width to the right edge  ┆panel_width()│
 ├─ STATUS (the indicator grid) ──── bottombar_height() ────┤
 └──────────────────────────────────────────────────────────┘
 ```
@@ -30,11 +31,12 @@ have cssgrid for all of my status indicators."*
    in paint code.
 2. **The zones are observable.** Each frame captures the REAL panel rects
    into `Zones { root, top, status, rail, panel, content }` —
-   `Shell::zones()`. The egui_kittest test
+   `Shell::zones()`. `panel` is `Rect::ZERO` while the inspector overlay is
+   closed. The egui_kittest test
    `zones_pin_chrome_to_the_viewport_at_any_size` pins the contract at two
    viewport sizes: status bottom == root bottom (the off-screen-footer
    regression), chrome dims == token values, the well tiles inside the
-   chrome without overlap.
+   chrome without overlap and spans to the root's right edge.
 3. **Content scrolls inside.** The well is fixed; a hub whose surface
    overflows owns its own `ScrollArea` (Library already does). The shell
    never wraps hubs in one — that would double-scroll. **Exception (p4):**
@@ -66,6 +68,15 @@ have cssgrid for all of my status indicators."*
    footer-under-the-taskbar bug.
 7. **Full-bleed** hides all chrome (Esc or the exit chip leaves); only the
    CONTENT zone survives in `zones()` while it's on.
+8. **The PANEL is an OPTIONAL OVERLAY** (the operator's "rightside overlay
+   the content" — verbatim above). Closed by default: it reserves NO width
+   and the well spans to the root's right edge. The topbar toggle (or
+   `--inspector`) opens it; open, the plate floats OVER the well's right
+   edge at `panel_width()` — the content rect does not shrink and nothing
+   reflows. The kittest test
+   `the_inspector_overlays_the_content_instead_of_docking` pins this: the
+   open panel sits INSIDE the content rect. Docking it again is the
+   regression this law exists to prevent.
 
 ## Evolving it
 

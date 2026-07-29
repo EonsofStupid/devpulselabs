@@ -290,6 +290,10 @@ fn main() -> eframe::Result {
         .position(|a| a == "--open-rail")
         .and_then(|i| args.get(i + 1))
         .cloned();
+    // `--inspector` pins the inspector OVERLAY open — proof shots of the
+    // floating panel reproduce (it is closed by default; content owns the
+    // full width).
+    let inspector = args.iter().any(|a| a == "--inspector");
     // The AGENT SEAM (R1v): localhost HTTP over the fabric so chat can
     // observe and drive the app. `--seam-port <n>` moves it; `--no-seam`
     // turns it off. A busy port logs and degrades — never a boot failure.
@@ -436,6 +440,7 @@ fn main() -> eframe::Result {
                 open_session,
                 open_replay,
                 open_rail,
+                inspector,
                 open_episode,
                 import_drill,
                 pin_packs,
@@ -488,6 +493,7 @@ struct Boot {
     open_session: Option<String>,
     open_replay: Option<String>,
     open_rail: Option<String>,
+    inspector: bool,
     open_episode: Option<String>,
     import_drill: Option<String>,
     pin_packs: Vec<String>,
@@ -578,6 +584,7 @@ impl App {
             open_session,
             open_replay,
             open_rail,
+            inspector,
             open_episode,
             import_drill,
             pin_packs,
@@ -870,6 +877,10 @@ impl App {
         // The CLI string is leaked once, like the boot route's.
         if let Some(h) = open_rail {
             shell.set_open_house(Some(dpl_hub::HubId(Box::leak(h.into_boxed_str()))));
+        }
+        // `--inspector` — the overlay pinned open for proof shots.
+        if inspector {
+            shell.set_inspector_open(true);
         }
         if present.is_some() {
             // The harness path: the hub opened its deck before the shell
