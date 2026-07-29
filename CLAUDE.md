@@ -2,8 +2,9 @@
 
 Read `docs/STATE.md` FIRST — it is the living ledger (current state, known
 broken, next). Then `docs/ops/SESSION.md` + `docs/ops/resume/CURRENT.md`
-(Session OS boot). Then `docs/plans/roadmap.md` for the program map.
-Default ops skill: `session-os`.
+(shared durable ops index). Then `docs/plans/roadmap.md` for the program map.
+Default ops: Claude skill `milestone-loop` + Cursor skill `session-os`
+(same loop; different surfaces).
 
 ## The one checkout
 
@@ -47,6 +48,7 @@ other worktree. The operator double-clicks `target\release\devpulselabs.exe`
   the repo goes Pro or public.
 - Harness flags (ground-truthed vs `crates/app/src/main.rs` 2026-07-27):
   `--screenshot <png> --shot-frame <n> --route <hub/sub> --focus <id>
+  --lib-section <slug>
   --window <w>x<h> --mood 0 --viziwiz --viziwiz-snap --present <id>
   --presenter-drill <n> --session-drill <s> --steps-hotkey-drill
   --video-drill <s> [--video-format <f>] --open-rail <hub>
@@ -54,7 +56,7 @@ other worktree. The operator double-clicks `target\release\devpulselabs.exe`
   --clone-seed <seed> <show> <ep> --import-drill <dir> --pin-pack <dir>
   --save-comp <name> --export-guide <guide-rel> [<session-rel>]
   --steps-drill <n> --make-slide <asset-rel> --lottie-import <file>
-  --fx-drill <clip-rel> <fx-rel>
+  --fx-drill <clip-rel> <fx-rel> --l4-drill
   --run-workflow <id> --chat-open --chat-authored --chat-proof <mode>
   --seam-port <n> --no-seam --ledger --content-root <path>` (also honored as the
   `CONTENT_ROOT` env; drill scratch roots use either; `DPL_LEDGER=1` also

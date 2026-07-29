@@ -1,36 +1,32 @@
 # Resume pack — CURRENT
 
-**Updated:** 2026-07-28
+**Updated:** 2026-07-29
 **Lane:** coach-ledger
 **Dirty:** false
 
 ## Goal
 
-Merge Session OS, then execute coach-lane **p6** (Library section harness)
-via Session OS loop.
+Land reconciled Session OS (#133), then coach live `/strict` refusal.
 
 ## Done
 
-- Determinism gate (#116) + signal ledger Phase 2 (#117)
-- Remaining-work + determinism journals
-- Session OS A–E: ops ledger, skill, rule, agents, hooks, pointers
-- Hook dry-run verified locally (sessionStart / preCompact@82% / stop dirty)
+- DS3 + `--lib-section` (p6) on main via #135
+- Milestone-loop (#131) on main
+- Session OS reconciled: `docs/ops/` shared; Cursor + Claude surfaces compose
 
 ## Next
 
-1. Land `feat/session-os` via PR
-2. New chat: Session OS boot
-3. Non-trivial p6: grounder → gap-closer → operator approve → executor
-4. Journal; repeat remaining-work items 2…
+1. Merge #133
+2. Live `/strict` synthetic refusal witness
+3. p2b overlay passthrough → p4 rail → C2s…
 
 ## Blockers
 
-None. Await merge + operator "go" on p6.
+Authoring stack (#119/#128/#130) and chat bake-off are parallel — do not steal.
 
 ## Key files
 
-- `docs/plans/session-os.md`
-- `docs/journal/2026-07-28-session-os.md`
 - `docs/journal/2026-07-28-remaining-work.md`
+- `docs/journal/2026-07-29-session-os-reconcile.md`
 - `.cursor/skills/session-os/SKILL.md`
-- `.cursor/hooks.json`
+- `.claude/skills/milestone-loop/SKILL.md`

@@ -34,23 +34,12 @@ That vision is now half-foundation, half-product:
 
 Each item is one PR-sized pass. Status is the gate for starting the next.
 
-### 1. Library section harness (p6) — **NEXT**
+### 1. Library section harness (p6) — **CLOSED** (PR #135)
 
-**Why first:** a first end-to-end lesson needs the templates wall and
-Episodes surfaces reachable under the pilot without `--focus` soloing
-one template. Instrumentation coverage was the stated blocker after
-C1.5f.
+`--lib-section <slug>` on the real exe; Library walls provable. Lesson
+E2E scripts may still deepen coverage, but the harness blocker is gone.
 
-**Shape:** harness flag (or fixture) that selects a Library section
-without collapsing the gallery; prove with `library-wall`-class
-snapshot that named templates are present. Census: flag in
-`main.rs` ⇔ CLAUDE.md, same commit.
-
-**Done when:** `pilot_snapshot` of the wall returns the surfaces a
-three-step lesson names; one short lesson script runs on the real
-devtools exe.
-
-### 2. Live synthetic `/strict` refusal (optional witness)
+### 2. Live synthetic `/strict` refusal (optional witness) — **NEXT**
 
 **Why now:** the provenance law is unit-covered; the optional live
 SSE witness was left on the table when #116 landed. Small, closes a

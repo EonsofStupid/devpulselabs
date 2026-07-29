@@ -64,6 +64,36 @@ pub struct Layer {
     /// None = untinted. An array, never a hex string — the shape law.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tint: Option<[u8; 4]>,
+    /// How this layer composites (L4). Overlay tracks honor it; the base
+    /// track ignores it. Normal = alpha-over (skipped on disk).
+    #[serde(default, skip_serializing_if = "Blend::is_normal")]
+    pub blend: Blend,
+    /// A luma-matte video's rel path — its LUMINANCE becomes this layer's
+    /// alpha (the estate's matte-wipe packs). A REF, never bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub matte: Option<String>,
+    /// A `.cube` LUT's rel path applied to this layer (base cuts grade
+    /// too — the 860-cube use case). A REF, never bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lut: Option<String>,
+}
+
+/// The L4 blend modes — screen and add cover the estate's light-leak/
+/// dust/glow overlays (black is their neutral, so black-padded legs
+/// composite invisibly). More modes join additively as passes need them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Blend {
+    #[default]
+    Normal,
+    Screen,
+    Add,
+}
+
+impl Blend {
+    fn is_normal(&self) -> bool {
+        *self == Blend::Normal
+    }
 }
 
 fn one() -> f32 {
@@ -98,6 +128,9 @@ impl Layer {
             y: 0.0,
             scale: 1.0,
             tint: None,
+            blend: Blend::Normal,
+            matte: None,
+            lut: None,
         }
     }
 
@@ -308,6 +341,12 @@ pub fn validate(comp: &Composition) -> Vec<Issue> {
                     format!("{at}.offset"),
                     format!("x/y must be finite (got x={} y={})", layer.x, layer.y),
                 );
+            }
+            if layer.matte.as_deref().is_some_and(|m| m.trim().is_empty()) {
+                push(format!("{at}.matte"), "matte ref must not be empty".into());
+            }
+            if layer.lut.as_deref().is_some_and(|l| l.trim().is_empty()) {
+                push(format!("{at}.lut"), "lut ref must not be empty".into());
             }
         }
     }
@@ -624,6 +663,39 @@ mod tests {
             "default transform is skipped: {raw}"
         );
         assert_eq!(load(&dir).unwrap(), comp, "round-trips identically");
+    }
+
+    /// L4: blend/matte/lut round-trip as kebab data + refs; defaults stay
+    /// OFF the disk (a pre-L4 comp is byte-identical), and empty refs are
+    /// named faults.
+    #[test]
+    fn blend_matte_lut_round_trip_and_validate() {
+        let dir = scratch("l4");
+        let mut comp = sample();
+        comp.tracks[0].layers[0].blend = Blend::Screen;
+        comp.tracks[0].layers[0].matte = Some("elements/brush-matte-01.mov".into());
+        comp.tracks[0].layers[0].lut = Some("elements/cc-basic-1.cube".into());
+        assert!(validate(&comp).is_empty());
+        save(&dir, &comp).unwrap();
+        let raw = std::fs::read_to_string(dir.join(FILE)).unwrap();
+        assert!(raw.contains("\"blend\": \"screen\""), "kebab blend: {raw}");
+        assert!(raw.contains("\"matte\""), "{raw}");
+        // The UNTOUCHED second layer stays pre-L4-shaped on disk.
+        assert!(
+            !raw.contains("\"blend\": \"normal\""),
+            "default skipped: {raw}"
+        );
+        assert_eq!(load(&dir).unwrap(), comp);
+
+        comp.tracks[0].layers[0].matte = Some("  ".into());
+        comp.tracks[0].layers[0].lut = Some("".into());
+        let all = validate(&comp)
+            .iter()
+            .map(|i| i.message.clone())
+            .collect::<Vec<_>>()
+            .join(" | ");
+        assert!(all.contains("matte ref must not be empty"), "{all}");
+        assert!(all.contains("lut ref must not be empty"), "{all}");
     }
 
     /// The operator's requirement, made concrete: two stitched clips persist

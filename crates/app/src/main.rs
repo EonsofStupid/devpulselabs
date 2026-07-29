@@ -85,6 +85,15 @@ fn main() -> eframe::Result {
         .position(|a| a == "--focus")
         .and_then(|i| args.get(i + 1))
         .cloned();
+    // `--lib-section <slug>` — boot the Workbench Library on ONE section by
+    // its chip slug (seeds/templates/blocks/elements/looks/colors/presets/
+    // fonts/moods), so every wall is provable on the real exe, not just
+    // templates.
+    let lib_section: Option<String> = args
+        .iter()
+        .position(|a| a == "--lib-section")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
     // `--shot-frame <n>` — capture later than the default frame 6, so sweep
     // animations can reach their rest state before the proof is taken.
     let shot_frame: u32 = args
@@ -233,6 +242,9 @@ fn main() -> eframe::Result {
         .iter()
         .position(|a| a == "--fx-drill")
         .and_then(|i| Some((args.get(i + 1)?.clone(), args.get(i + 2)?.clone())));
+    // `--l4-drill` (L4): graded base + screen leak + matted overlay from
+    // conventional scratch-root files — the blend/matte/LUT proof.
+    let l4_drill = args.iter().any(|a| a == "--l4-drill");
     // `--make-slide <asset-rel>` (W11) mints a media slide from a
     // content-relative artifact through the shelf's "Make slide" path —
     // image/video → one slide, `.pdf` → page slides.
@@ -380,6 +392,7 @@ fn main() -> eframe::Result {
                 shot,
                 boot_route,
                 focus,
+                lib_section,
                 shot_frame,
                 viziwiz_open,
                 viziwiz_snap,
@@ -405,6 +418,7 @@ fn main() -> eframe::Result {
                 save_comp,
                 lottie_import,
                 fx_drill,
+                l4_drill,
                 make_slide,
                 run_workflow,
                 seam_port,
@@ -427,6 +441,7 @@ struct Boot {
     shot: Option<std::path::PathBuf>,
     boot_route: Option<(String, String)>,
     focus: Option<String>,
+    lib_section: Option<String>,
     shot_frame: u32,
     viziwiz_open: bool,
     viziwiz_snap: bool,
@@ -452,6 +467,7 @@ struct Boot {
     save_comp: Option<String>,
     lottie_import: Option<String>,
     fx_drill: Option<(String, String)>,
+    l4_drill: bool,
     make_slide: Option<String>,
     run_workflow: Option<String>,
     /// The agent seam's port; None = `--no-seam`.
@@ -512,6 +528,7 @@ impl App {
             shot,
             boot_route,
             focus,
+            lib_section,
             shot_frame,
             viziwiz_open,
             viziwiz_snap,
@@ -537,6 +554,7 @@ impl App {
             save_comp,
             lottie_import,
             fx_drill,
+            l4_drill,
             make_slide,
             run_workflow,
             seam_port,
@@ -545,6 +563,16 @@ impl App {
         let mut workbench = dpl_hub_workbench::WorkbenchHub::default();
         if let Some(id) = focus {
             workbench.set_focus(id);
+        }
+        // Section BEFORE focus would be pointless — `set_focus` pins TEMPLATES
+        // — so the section seam runs after and wins when both are given.
+        if let Some(slug) = &lib_section {
+            if !workbench.set_lib_section(slug) {
+                tracing::warn!(
+                    slug = %slug,
+                    "unknown --lib-section; the Library opens on its default wall"
+                );
+            }
         }
         // The episode-wall seam (D5 proofs).
         if let Some(id) = &open_episode {
@@ -633,6 +661,10 @@ impl App {
         // overlay, rendered synchronously before the first frame.
         if let Some((clip, fx)) = &fx_drill {
             wiredfront.fx_drill(clip, fx);
+        }
+        // L4's harness seam: blend + matte + LUT in one synchronous proof.
+        if l4_drill {
+            wiredfront.l4_drill();
         }
         // W11's harness seam: mint a media slide from an artifact through the
         // shelf's exact "Make slide" path (image/video → one, pdf → pages).

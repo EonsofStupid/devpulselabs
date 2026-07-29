@@ -2,22 +2,111 @@
 
 Updated every pass. This file is the first read of every session.
 
-**2026-07-28 — SESSION OS:** default agent operations —
-`docs/plans/session-os.md`, skill `.cursor/skills/session-os/`, ops
-ledger `docs/ops/SESSION.md` + `docs/ops/resume/CURRENT.md`, hooks
-`.cursor/hooks.json` (sessionStart / preCompact / stop), agents
-grounder→gap-closer→executor. Boot: STATE → SESSION → resume. NEXT
-product cut after this lands: coach lane **p6**. Journal:
-`docs/journal/2026-07-28-session-os.md`.
+**2026-07-29 — SESSION OS RECONCILED WITH MILESTONE-LOOP (PR #133):**
+one operating loop, two surfaces. Durable index = `docs/ops/` (SESSION +
+resume + signals). Cursor: skill `session-os`, `.cursor/hooks.json`,
+agents grounder→gap-closer→executor. Claude: skill `milestone-loop`,
+`.claude/ledger/*` hooks (SessionStart / PreCompact / SessionEnd). Same
+caps (≤3 plan / ≤2 web), journal at ~75–85%, disk beats chat memory.
+Product NEXT after this lands: coach **live `/strict` refusal** (p6
+Library `--lib-section` landed with DS3 #135). Journals:
+`docs/journal/2026-07-28-session-os.md` +
+`docs/journal/2026-07-29-session-os-reconcile.md`.
+
+**2026-07-28 — DS3 INGREDIENT LADDER + LIBRARY SECTION HARNESS (PR #135):**
+`elements/` earns its name; `blocks/` is the chunk tier; Library speaks
+plain words; harness `--lib-section <slug>` proves every Library wall
+(coach p6 CLOSED). Proofs under `docs/proof/ds3-library-*.png`.
+
+**2026-07-28 — THE MILESTONE-LOOP LEDGER (agent workflow infra, PR #131):**
+the agent's internal workflow is SELF-INSTRUMENTING. `.claude/ledger/` =
+JSONL signal stream + emit.sh + SessionStart/PreCompact/SessionEnd hooks;
+skill `milestone-loop`. Composes with Session OS (`docs/ops/`) — not a
+second competing product. Journal:
+`docs/journal/2026-07-28-milestone-loop-ledger.md`.
 
 **2026-07-28 — COACH / LEDGER LANE RESUME:** narrative close-out
 `docs/journal/2026-07-28-determinism-and-ledger.md`; ordered remaining
-work `docs/journal/2026-07-28-remaining-work.md` (NEXT = Library section
-harness p6 → optional live `/strict` refusal → overlay passthrough →
-rail degrade → C2s spike → C2a/C2b → strict pinning → DuckDB ADR →
-classification). Phase 1.5 verification notes kept in
-`docs/journal/2026-07-28-next-phase-notes.md` (superseded for backlog).
-Ops index: `docs/ops/SESSION.md`.
+work `docs/journal/2026-07-28-remaining-work.md` (p6 CLOSED via #135;
+NEXT = live `/strict` refusal → overlay passthrough → rail degrade →
+C2s → C2a/C2b → strict pinning → DuckDB ADR → classification). Ops index:
+`docs/ops/SESSION.md`.
+
+**2026-07-28 — THE WORKFLOW WIRE CONTRACT + DOCTRINE (PR #129, squash
+`c803e51`; plan `docs/plans/workflow-doctrine-and-schemas.md`):**
+workflows are now schema-governed for scale — `schemas/
+workflow.v1.schema.json` + `storyboard.v1.schema.json` (strict JSON
+Schema 2020-12, `v` const-pinned, kebab ids, jail-safe refs; vN files
+are append-only, v2 lands BESIDE v1) PINNED BY TEST: 4 `schema_pin`
+tests in `dpl-workflows` (dev-dep `jsonschema`, no default features,
+outside the ceiling audit) validate the real registered types AND prove
+refusal (unknown kinds/fields, non-kebab ids, future `v`, jailbreak
+refs). `docs/design/workflow-doctrine.md` = 11 laws ratifying WF1's
+patterns + THE WORKFLOW-PR CHECKLIST every workflow PR copies into its
+plan — the "all workflow PRs similar and consistent" gate. Agents and
+platform tools author/validate workflow documents schema-first, the
+same convergence seam the signal envelope rides.
+
+**2026-07-28 — CI MOVED TO THE ESTATE, RUNNERS BECAME CATTLE (PRs
+#122/#125/#127; runbook `docs/runbook/ci-runners.md`):** both green
+lanes run on the dedicated server's guests — `devpulse-runner-win-01`
+(Proxmox VM 119, 32 GB, per-repo root `C:\actions\runner-devpulselabs`,
+SYSTEM service, toolchain git 2.55/rust 1.92/MSVC 14.44/LLVM 18.1.8) +
+`devpulse-runner-lnx-01` (LXC 121, full dep set) + the ARM64 clyffy-lab
+runner; the laptop is UNREGISTERED as a runner. Idempotent bootstraps
+(`win-runner-bootstrap.ps1` with `-VerifyOnly`, `linux-runner-bootstrap
+.sh --verify-only`) are committed and were PROVEN live — the Windows one
+re-provisioned its own runner through two real failure modes (stale
+local config; the clock-skew incident that got a registration deleted —
+VM clocks must stay NTP-true). Known-good snapshots
+`known-good-2026-07-28` exist for 119 + 121; proof = green runs on both
+lanes incl. the post-migration main dispatch. KNOWN: single Windows
+runner = queue bottleneck under multi-lane load (second runner/VM is an
+ask-first lever); a runner-health watchdog script is drafted but
+unlanded (logging gap named by the operator — its own small pass).
+NOTE: this session's exe-law was satisfied at `d367390` (12:00 rebuild
++ live witness); everything merged after by this session is docs/CI/
+schemas + dev-dep only — no shipped-code drift.
+
+**2026-07-28 — L4: BLEND · MATTE · LUT — THE ESTATE UNLOCK (PR #123,
+squash `867bff3`; plan `docs/plans/l4-blend-matte-lut.md`):** the fourth
+AE-independence rung, sized by the 30-pack/~60 GB estate census (censused
++ ffprobe-verified this session; triage in the census section of the L4
+plan §1-2): most non-template media is NOT straight alpha — leaks/dust
+want SCREEN/ADD, matte packs are grayscale luma wipes, the Bundle ships
+860 `.cube` LUTs. Pieces: (1) `dpl-comp` `Blend {Normal|Screen|Add}` +
+`matte`/`lut` refs on Layer (additive v1, empty refs = named faults);
+(2) `engine-media` — blended legs pad to the FULL frame on BLACK (the
+screen/add neutral) at the layer's offset and run `blend=all_mode` on
+gbrp with the bounded window; mattes join as inputs and `alphamerge`
+(a blended leg SKIPS its matte — blend drops alpha); `lut3d` grades base
++ overlay legs via `filter_path` (Windows colon escaping, unit-tested);
+(3) preview — `PipeGrade` on ClipPlayer: LUT + matte preview EXACTLY
+(one pipe; matte as a second input at the same seek), lanes reopen on
+grade change; blends approximate under a NAMED badge (`screen ·
+export-exact`); (4) inspector GRADE rows — blend chips, matte picker
+(matte-tagged first) + the operator-ratified AUTO-PAIR suggestion
+(shared leading word + exactly one match → tappable "try: Brush Matte
+01", offered never applied), `.cube` picker on EVERY layer; (5) enricher:
+`LUTs/` buckets tag `lut`, bare `X Matte NN` stems tag `matte`;
+(6) `--l4-drill`. Mechanisms proven LIVE on ffmpeg 8.1.2 against real
+estate files BEFORE the plan (cinepunch 8K leak · RTFX Brush Matte ·
+Bundle cube); the real-exe drill reproduced all three in one render
+(graded base + screened leak + brush-carved tinted overlay, frame-
+verified). Gate `cargo green ✔` server1; green-linux ✔ on the new
+`devpulse-runner-lnx-01` (post-provision); green-windows on
+`devpulse-runner-win-01` died mid-clippy twice (runner drop, NO step
+failure — suspect VM resources during workspace clippy; watch the next
+PR), operator called the merge on the server1 gate. CLOSE-OUT: main's
+exe built from `867bff3` and placed in THE checkout (mtime 2026-07-28
+17:13; the checkout itself was held on a concurrent session's branch —
+built in the `devpulselabs-l3` worktree lane). KNOWN FOLLOW-UPS: grade
+rows sit below the Info scroll fold at short window heights (scrollable,
+no overlap — a taller-window or scrolled-shot proof nicety remains);
+the real-RTFX pin+ingest drill remains operator-driven (D: is back;
+pin `2. Prerendered animations` + `6. Sound FX`); template-variants rung
+awaits the operator's Bodymovin exports (mogrt title · Toko slide ·
+cyberpunk HUD → drop the .json files in).
 
 **2026-07-28 — SIGNAL LEDGER PHASE 2 (`docs/plans/signal-ledger-phase2.md`):**
 `dpl-ledger` writes hive-partitioned Parquet under `.userdata/analytics/`

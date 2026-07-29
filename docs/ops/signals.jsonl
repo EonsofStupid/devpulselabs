@@ -1,3 +1,5 @@
 {"ts":"2026-07-28T20:18:00Z","signal":"milestone.set","lane":"session-os","detail":{"milestone":"land-session-os-a-e"}}
 {"ts":"2026-07-28T20:18:00Z","signal":"open.identified","lane":"coach-ledger","detail":{"next":"p6-library-section-harness"}}
 {"ts":"2026-07-28T20:20:00Z","signal":"journal.wrote","lane":"session-os","detail":{"path":"docs/journal/2026-07-28-session-os.md","hooks_dry_run":true}}
+{"ts":"2026-07-29T04:45:00Z","signal":"milestone.set","lane":"session-os","detail":{"milestone":"reconcile-with-milestone-loop","p6":"closed-via-135"}}
+{"ts":"2026-07-29T04:45:00Z","signal":"open.identified","lane":"coach-ledger","detail":{"next":"live-strict-refusal"}}

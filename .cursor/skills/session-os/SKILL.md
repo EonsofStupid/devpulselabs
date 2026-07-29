@@ -13,6 +13,8 @@ Any model. Progressive skill: keep this file loaded for the loop; open
 references only when needed.
 
 **Not** the product Parquet ledger (`dpl-ledger`). Ops live under `docs/ops/`.
+Claude Code runs the same loop via skill `milestone-loop` +
+`.claude/ledger/` hooks — compose, do not fork a second backlog.
 
 ## Boot (every session — do this first)
 

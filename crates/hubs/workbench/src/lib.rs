@@ -137,6 +137,24 @@ impl WorkbenchHub {
         self.lib_section = LibSection::Templates;
     }
 
+    /// Open the Library on one SECTION by its chip slug — the
+    /// `--lib-section <slug>` proof hook. Every wall other than templates was
+    /// unreachable from the harness before DS3, so no shelf but that one could
+    /// be proven on the real exe.
+    ///
+    /// Unknown slugs degrade to the default section (law: degrade, never
+    /// crash) and report it, so a typo in a proof script is visible rather
+    /// than silently shooting the wrong wall.
+    pub fn set_lib_section(&mut self, slug: &str) -> bool {
+        match LibSection::ALL.iter().find(|s| s.slug() == slug) {
+            Some(&section) => {
+                self.lib_section = section;
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Open one episode's wall — the same path a picker tap takes (also
     /// the `--open-episode` harness seam). Accepts the picker's badge
     /// vocabulary: `<show>/<id>`, `template/<id>` (a seed), or a bare id
@@ -170,7 +188,8 @@ impl WorkbenchHub {
                 library::templates_gallery(ui, demos, &mut self.focus);
             }
             LibSection::Blocks => library::blocks_wall(ui),
-            LibSection::Traits => library::traits_wall(ui),
+            LibSection::Elements => library::elements_wall(ui),
+            LibSection::Looks => library::traits_wall(ui),
             LibSection::Colors => library::pool_wall(ui),
             LibSection::Presets => library::presets_wall(ui),
             LibSection::Fonts => library::fonts_wall(ui),

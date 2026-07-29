@@ -3,7 +3,7 @@
 use dpl_coldlight as cl;
 use egui::{Align2, Color32, FontId, Pos2, Rect};
 
-use crate::blocks::eyebrow::tracked;
+use crate::elements::eyebrow::tracked;
 
 pub const LOGICAL_W: f32 = 960.0;
 pub const LOGICAL_H: f32 = 540.0;

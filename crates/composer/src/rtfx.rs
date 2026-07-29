@@ -62,6 +62,8 @@ fn bucket_tags(bucket: &str) -> Vec<String> {
         ("backgrounds", "bg"),
         ("foregrounds", "fg"),
         ("sound fx", "sfx"),
+        // L4: the Bundle's LUTs bucket → pickable grades.
+        ("luts", "lut"),
     ] {
         if lower.contains(needle) {
             out.push(tag.to_string());
@@ -123,6 +125,19 @@ pub fn rtfx_tags(stem: &str, bucket: &str) -> Option<Vec<String>> {
         }
     }
     Some(tags)
+}
+
+/// Grammar-independent tags every pack understands: a `… Matte NN` /
+/// `… Matte` stem is a LUMA MATTE regardless of prefix (the RTFX source
+/// movs are bare `Brush Matte 01.mov`) — the picker lists these first
+/// and the auto-pair suggestion keys on them.
+pub fn generic_media_tags(stem: &str) -> Vec<String> {
+    let lower = stem.to_ascii_lowercase();
+    let mut out = Vec::new();
+    if lower.contains(" matte ") || lower.ends_with(" matte") {
+        out.push("matte".into());
+    }
+    out
 }
 
 /// The pack's OWN preview jpg for a source file, if the pinned tree ships
@@ -209,6 +224,15 @@ mod tests {
         assert!(t.contains(&"sfx".into()));
         assert!(t.contains(&"energy".into()));
         assert!(t.contains(&"8bit".into()));
+    }
+
+    /// L4: bare matte sources tag as mattes regardless of grammar; a LUTs
+    /// bucket tags the grade.
+    #[test]
+    fn generic_matte_and_lut_bucket_tags() {
+        assert_eq!(generic_media_tags("Brush Matte 01"), vec!["matte"]);
+        assert_eq!(generic_media_tags("Fire 01 Up"), Vec::<String>::new());
+        assert!(bucket_tags("Atom After Effects/(Footage)/LUTs").contains(&"lut".to_string()));
     }
 
     /// Non-RTFX names refuse honestly — never a guessed tag set.

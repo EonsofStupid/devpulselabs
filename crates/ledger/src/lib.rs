@@ -196,6 +196,30 @@ impl LedgerHandle {
         self.dropped.load(Ordering::Relaxed)
     }
 
+    /// A handle with NO writer thread, over a channel nobody drains — the
+    /// test seam for the backpressure arm.
+    ///
+    /// Overflow cannot be provoked against a live writer: it drains
+    /// concurrently, so whether a burst ever fills the channel is a race with
+    /// the scheduler, not a property of this code. Removing the consumer makes
+    /// "the channel is full" a fact instead of a coin flip.
+    ///
+    /// The receiver comes back so the caller can keep it alive — dropping it
+    /// would make sends fail as `Disconnected` rather than `Full`, testing a
+    /// different arm than intended.
+    #[cfg(test)]
+    fn stalled() -> (Self, mpsc::Receiver<WriterMsg>) {
+        let (tx, rx) = mpsc::sync_channel(CHANNEL_CAP);
+        (
+            Self {
+                tx,
+                dropped: Arc::new(AtomicU64::new(0)),
+                join: None,
+            },
+            rx,
+        )
+    }
+
     pub fn flush_and_join(mut self) {
         let _ = self.tx.send(WriterMsg::Flush);
         let _ = self.tx.send(WriterMsg::Shutdown);
@@ -746,33 +770,85 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    fn burst_row(i: u64) -> LedgerRow {
+        LedgerRow {
+            seq: i,
+            ms: i,
+            wall_ms: i,
+            domain: "capture".into(),
+            type_name: "inboxChanged".into(),
+            body: "{}".into(),
+            class: String::new(),
+        }
+    }
+
+    /// Backpressure, deterministically: against a channel nobody drains, the
+    /// first `CHANNEL_CAP` rows queue and EVERY row after is dropped and
+    /// counted — never blocked.
+    ///
+    /// This replaces a test that raced the live writer thread and asserted
+    /// overflow "happened". It could not: the writer drains concurrently, so on
+    /// a fast machine the burst never filled the channel and the assertion
+    /// failed intermittently — including inside the pre-push hook. Overflow is
+    /// not a property of this code; how it BEHAVES when full is, and that is
+    /// what this pins.
     #[test]
-    fn overflow_increments_dropped_instead_of_blocking() {
+    fn a_full_channel_drops_and_counts_instead_of_blocking() {
+        let (handle, rx) = LedgerHandle::stalled();
+
+        for i in 0..CHANNEL_CAP as u64 {
+            assert_eq!(
+                handle.try_record(burst_row(i)),
+                RecordResult::Queued,
+                "row {i} should still fit — capacity is {CHANNEL_CAP}"
+            );
+        }
+        assert_eq!(handle.dropped(), 0, "nothing dropped while there was room");
+
+        for i in 0..200u64 {
+            assert_eq!(
+                handle.try_record(burst_row(i)),
+                RecordResult::Dropped,
+                "row {i} past capacity must drop, not block"
+            );
+        }
+        assert_eq!(handle.dropped(), 200, "every drop is counted exactly once");
+
+        // Teardown order matters: `Drop for LedgerHandle` sends Flush and
+        // Shutdown with a BLOCKING send, which would park forever on a full
+        // channel. Dropping the receiver first disconnects it, so those sends
+        // fail fast instead.
+        drop(rx);
+        drop(handle);
+    }
+
+    /// The property that actually protects the app: recording NEVER blocks the
+    /// caller, and no row is silently lost — every one is queued or counted.
+    /// True whichever way the drain race falls, so it holds on any machine.
+    #[test]
+    fn a_burst_never_blocks_and_every_row_is_accounted_for() {
         let dir = std::env::temp_dir().join(format!("dpl-ledger-drop-{}", wall_ms_now()));
         let _ = fs::remove_dir_all(&dir);
         let handle = LedgerHandle::spawn(dir.clone()).unwrap();
-        // Fill past capacity with a stuck consumer: we don't flush, we just
-        // hammer try_record. The channel is 4096; send more.
-        let mut dropped = 0u64;
-        for i in 0..(CHANNEL_CAP as u64 + 200) {
-            let result = handle.try_record(LedgerRow {
-                seq: i,
-                ms: i,
-                wall_ms: i,
-                domain: "capture".into(),
-                type_name: "inboxChanged".into(),
-                body: "{}".into(),
-                class: String::new(),
-            });
-            if result == RecordResult::Dropped {
-                dropped += 1;
+
+        let total = CHANNEL_CAP as u64 + 200;
+        let started = std::time::Instant::now();
+        let (mut queued, mut dropped) = (0u64, 0u64);
+        for i in 0..total {
+            match handle.try_record(burst_row(i)) {
+                RecordResult::Queued => queued += 1,
+                RecordResult::Dropped => dropped += 1,
             }
         }
+        let elapsed = started.elapsed();
+
+        assert_eq!(queued + dropped, total, "every row was queued or counted");
+        assert_eq!(dropped, handle.dropped(), "the counter matches the returns");
         assert!(
-            dropped > 0 || handle.dropped() > 0,
-            "expected overflow under burst; dropped={dropped} handle={}",
-            handle.dropped()
+            elapsed < Duration::from_secs(5),
+            "recording must never block the caller — {total} rows took {elapsed:?}"
         );
+
         handle.flush_and_join();
         let _ = fs::remove_dir_all(&dir);
     }

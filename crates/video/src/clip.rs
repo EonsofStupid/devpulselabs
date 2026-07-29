@@ -13,11 +13,41 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+/// L4 preview grading for a clip pipe: an optional `.cube` LUT and an
+/// optional luma-matte companion — both EXACT in preview because the
+/// same ffmpeg applies them inside the decode pipe.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PipeGrade {
+    pub lut: Option<PathBuf>,
+    pub matte: Option<PathBuf>,
+}
+
+/// A path as an ffmpeg FILTER argument (lut3d): forward slashes, drive
+/// colon escaped, single-quoted — the filtergraph parser eats bare `:`.
+/// (engine-media has the same 3 lines; the crates share no dep — the
+/// repo's small-utility philosophy.)
+fn filter_path(p: &Path) -> String {
+    let s = p.to_string_lossy().replace('\\', "/").replace(':', "\\:");
+    format!("'{s}'")
+}
+
 /// The rawvideo pipe from `start` seconds: `-ss` BEFORE `-i` (fast
 /// seek), realtime paced, cover-cropped to the shared decode size,
-/// finite (a clip ends).
-fn clip_pipe_args(path: &Path, start: f32) -> Vec<String> {
-    vec![
+/// finite (a clip ends). A LUT rides the filter chain; a matte joins as
+/// a second input whose luminance alphamerges onto the frame (the L4
+/// proven forms, at preview scale).
+fn clip_pipe_args(path: &Path, start: f32, grade: &PipeGrade) -> Vec<String> {
+    let fit = format!(
+        "scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}",
+        w = DECODE_W,
+        h = DECODE_H
+    );
+    let lut = grade
+        .lut
+        .as_deref()
+        .map(|p| format!(",lut3d={}", filter_path(p)))
+        .unwrap_or_default();
+    let mut args: Vec<String> = vec![
         "-v".into(),
         "error".into(),
         "-re".into(),
@@ -25,19 +55,33 @@ fn clip_pipe_args(path: &Path, start: f32) -> Vec<String> {
         format!("{start:.3}"),
         "-i".into(),
         path.to_string_lossy().into_owned(),
-        "-an".into(),
-        "-vf".into(),
-        format!(
-            "scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}",
-            w = DECODE_W,
-            h = DECODE_H
-        ),
+    ];
+    match &grade.matte {
+        Some(m) => {
+            args.extend([
+                "-ss".into(),
+                format!("{start:.3}"),
+                "-i".into(),
+                m.to_string_lossy().into_owned(),
+                "-an".into(),
+                "-filter_complex".into(),
+                format!("[0:v]{fit}{lut}[f];[1:v]{fit},format=gray[m];[f][m]alphamerge[out]"),
+                "-map".into(),
+                "[out]".into(),
+            ]);
+        }
+        None => {
+            args.extend(["-an".into(), "-vf".into(), format!("{fit}{lut}")]);
+        }
+    }
+    args.extend([
         "-f".into(),
         "rawvideo".into(),
         "-pix_fmt".into(),
         "rgba".into(),
         "-".into(),
-    ]
+    ]);
+    args
 }
 
 /// "Duration: HH:MM:SS.cc" from an `ffmpeg -i` stderr banner → seconds.
@@ -84,6 +128,8 @@ struct ClipTex {
 /// most one live pipe feeds the texture.
 pub struct ClipPlayer {
     path: PathBuf,
+    /// The L4 pipe grade (LUT/matte) — every (re)spawn carries it.
+    grade: PipeGrade,
     shared: Arc<ClipShared>,
     tex: Mutex<ClipTex>,
     /// The clip's probed length; None degrades (rail spans the events).
@@ -98,10 +144,18 @@ pub struct ClipPlayer {
 impl ClipPlayer {
     /// Open and start playing from 0.
     pub fn open(path: PathBuf) -> Self {
+        Self::open_graded(path, PipeGrade::default())
+    }
+
+    /// Open with an L4 pipe grade (LUT and/or luma matte) — the preview
+    /// is EXACT for both; a changed grade means a lane reopen (callers
+    /// compare via [`ClipPlayer::grade`]).
+    pub fn open_graded(path: PathBuf, grade: PipeGrade) -> Self {
         let duration = clip_duration(&path);
         let mut p = Self {
-            shared: Self::spawn(&path, 0.0),
+            shared: Self::spawn(&path, 0.0, &grade),
             path,
+            grade,
             tex: Mutex::new(ClipTex::default()),
             duration,
             base: 0.0,
@@ -111,7 +165,12 @@ impl ClipPlayer {
         p
     }
 
-    fn spawn(path: &Path, start: f32) -> Arc<ClipShared> {
+    /// The grade this player's pipes carry.
+    pub fn grade(&self) -> &PipeGrade {
+        &self.grade
+    }
+
+    fn spawn(path: &Path, start: f32, grade: &PipeGrade) -> Arc<ClipShared> {
         let shared = Arc::new(ClipShared {
             frame: Mutex::new((0, Vec::new())),
             seq: AtomicU64::new(0),
@@ -120,9 +179,10 @@ impl ClipPlayer {
         });
         let reader = Arc::clone(&shared);
         let path = path.to_path_buf();
+        let grade = grade.clone();
         std::thread::Builder::new()
             .name("dpl-video-clip".into())
-            .spawn(move || read_clip(&reader, &path, start))
+            .spawn(move || read_clip(&reader, &path, start, &grade))
             .expect("spawn clip reader thread");
         shared
     }
@@ -162,7 +222,7 @@ impl ClipPlayer {
             self.playing_since = None;
             self.kill_pipe();
         } else {
-            self.shared = Self::spawn(&self.path, self.base);
+            self.shared = Self::spawn(&self.path, self.base, &self.grade);
             self.playing_since = Some(Instant::now());
         }
     }
@@ -171,7 +231,7 @@ impl ClipPlayer {
     pub fn seek(&mut self, t: f32) {
         let t = t.max(0.0);
         self.kill_pipe();
-        self.shared = Self::spawn(&self.path, t);
+        self.shared = Self::spawn(&self.path, t, &self.grade);
         self.base = t;
         self.playing_since = Some(Instant::now());
     }
@@ -213,9 +273,9 @@ impl Drop for ClipPlayer {
 
 /// One pipe, one life: read frames until EOF or stop. EOF marks
 /// `ended` — NO respawn.
-fn read_clip(shared: &ClipShared, path: &Path, start: f32) {
+fn read_clip(shared: &ClipShared, path: &Path, start: f32, grade: &PipeGrade) {
     let mut cmd = Command::new(ffmpeg_program());
-    cmd.args(clip_pipe_args(path, start))
+    cmd.args(clip_pipe_args(path, start, grade))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
@@ -259,7 +319,7 @@ mod tests {
 
     #[test]
     fn clip_args_fast_seek_and_finite() {
-        let args = clip_pipe_args(Path::new("s.mp4"), 12.5);
+        let args = clip_pipe_args(Path::new("s.mp4"), 12.5, &PipeGrade::default());
         let joined = args.join(" ");
         assert!(
             joined.contains("-ss 12.500 -i"),
@@ -271,6 +331,39 @@ mod tests {
         );
         assert!(joined.contains("-re"), "realtime pacing: {joined}");
         assert!(joined.ends_with("-pix_fmt rgba -"), "raw rgba: {joined}");
+    }
+
+    /// L4: a LUT rides the -vf chain; a matte becomes a second input at
+    /// the SAME seek, grayed and alphamerged at decode scale — the
+    /// preview is exact, one pipe either way.
+    #[test]
+    fn graded_pipes_carry_lut_and_matte_exactly() {
+        let g = PipeGrade {
+            lut: Some("C:\\g\\cc.cube".into()),
+            matte: None,
+        };
+        let joined = clip_pipe_args(Path::new("s.mp4"), 0.0, &g).join(" ");
+        assert!(
+            joined.contains(",lut3d='C\\:/g/cc.cube'"),
+            "escaped grade in -vf: {joined}"
+        );
+        assert!(joined.contains("-vf"), "single input keeps -vf: {joined}");
+
+        let g = PipeGrade {
+            lut: None,
+            matte: Some("m.mov".into()),
+        };
+        let joined = clip_pipe_args(Path::new("s.mp4"), 2.0, &g).join(" ");
+        assert!(
+            joined.contains("-ss 2.000 -i s.mp4 -ss 2.000 -i m.mov"),
+            "matte seeks WITH the clip: {joined}"
+        );
+        assert!(
+            joined.contains(",format=gray[m];[f][m]alphamerge[out]"),
+            "{joined}"
+        );
+        assert!(joined.contains("-map [out]"), "{joined}");
+        assert!(joined.ends_with("-pix_fmt rgba -"), "{joined}");
     }
 
     #[test]
@@ -291,6 +384,7 @@ mod tests {
         // Constructed directly — no ffmpeg involved in the math.
         let mut p = ClipPlayer {
             path: PathBuf::from("x.mp4"),
+            grade: PipeGrade::default(),
             shared: Arc::new(ClipShared {
                 frame: Mutex::new((0, Vec::new())),
                 seq: AtomicU64::new(0),

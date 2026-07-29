@@ -1,24 +1,22 @@
-//! Blocks — atomic, insertable units. Promotion rule: a pattern lives here
-//! only after recurring in ≥ 2 templates (eyebrow recurred 9× before its
-//! extraction in the prior app — it arrives pre-promoted).
+//! Blocks — the ladder's second rung: a few [`crate::elements`] composed into
+//! one reusable chunk.
 //!
-//! The [`census`] module is the element registry (Census law): it categorizes
-//! every block, declares its `cost_tier`, and enumerates the catalog the
-//! Library shelves. The blocks themselves stay ergonomic free functions.
+//! **This tier ships empty, and that is its correct state.** The promotion rule
+//! (crate doc) says a pattern climbs a rung only after recurring in ≥ 2
+//! templates; nothing is authored here to fill a shelf. The tier exists now so
+//! that the folder structure equals the vocabulary the operator sees — Elements
+//! → Blocks → Templates — rather than the first rung wearing the second's name
+//! (the collision DS3 closed).
+//!
+//! Which composites have actually earned promotion is a recurrence audit across
+//! the registered templates. That audit, and the first real blocks it justifies,
+//! are their own pass — not this one.
+//!
+//! The [`census`] module is this tier's registry, mirroring
+//! [`crate::elements::census`] for elements and `crate::registry` for
+//! templates: ONE function enumerates, and a census test fails when reality and
+//! the list drift.
 
-pub mod badge;
-pub mod bar;
 pub mod census;
-pub mod divider;
-pub mod eyebrow;
-pub mod media;
-pub mod stat;
 
-pub use census::{elements, CostTier, ElementCategory, ElementDemo, ElementId, ElementSpec};
-
-pub use badge::badge;
-pub use bar::bar;
-pub use divider::rule;
-pub use eyebrow::{eyebrow, tracked};
-pub use media::{ambient_backdrop, media_backdrop, media_block_backdrop, Ambient, Media};
-pub use stat::stat;
+pub use census::{blocks, BlockDemo, BlockId, BlockSpec};

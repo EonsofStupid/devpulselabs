@@ -60,7 +60,9 @@
 				{ "name": "ctl-btn", "min": 2.25, "max": 3.0 },
 				{ "name": "ctl-thumb-w", "min": 3.5, "max": 5.0 },
 				{ "name": "ctl-thumb-h", "min": 2.1875, "max": 3.125 },
-				{ "name": "ctl-clear", "min": 5.0, "max": 7.0 }
+				{ "name": "ctl-clear", "min": 5.0, "max": 7.0 },
+				{ "name": "ctl-card-w", "min": 15.0, "max": 22.0 },
+				{ "name": "ctl-card-h", "min": 11.25, "max": 16.5 }
 			]
 		}
 	}

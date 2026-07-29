@@ -23,13 +23,15 @@ The canonical product, visual, route, and generated-surface contract is
 `docs/plans/chat-window-product-vision.md`; architecture and delivery remain
 canonical in `docs/plans/chat-architecture.md`.
 
-## Session OS (every agent)
+## Session OS / milestone-loop (every agent)
 
-Default operations live in skill `session-os` (`.cursor/skills/session-os/`).
-Boot from disk before acting: `docs/STATE.md` → `docs/ops/SESSION.md` →
-`docs/ops/resume/CURRENT.md`. Journal near ~75–85% context / end of cut;
+One loop, two surfaces. Durable index: `docs/STATE.md` →
+`docs/ops/SESSION.md` → `docs/ops/resume/CURRENT.md`. Cursor skill
+`session-os` + hooks/agents under `.cursor/`; Claude skill `milestone-loop`
++ `.claude/ledger/` hooks. Journal near ~75–85% context / end of cut;
 after compact or clear, trust the resume pack over chat memory. Ops ledger
-≠ product `dpl-ledger`. Plan: `docs/plans/session-os.md`.
+≠ product `dpl-ledger`. Plans: `docs/plans/session-os.md` +
+`docs/journal/2026-07-28-milestone-loop-ledger.md`.
 
 ## Laws
 

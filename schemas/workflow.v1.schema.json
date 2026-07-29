@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:devpulselabs:schemas:workflow:v1",
+  "title": "DevPULSE workflow document (v1)",
+  "description": "The wire contract for dpl-workflows WorkflowDoc v1. Strict: unknown fields are drift, refused at the contract. The Rust shape and this schema are pinned together by test (crates/workflows schema_pin). v2 will sit BESIDE this file, never replace it (docs/design/workflow-doctrine.md).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "id", "label", "blurb", "surface", "stages"],
+  "properties": {
+    "v": { "const": 1 },
+    "id": { "$ref": "#/$defs/kebab" },
+    "label": { "type": "string", "minLength": 1 },
+    "blurb": { "type": "string", "minLength": 1 },
+    "surface": { "enum": ["wiredfront", "workbench"] },
+    "stages": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/stage" }
+    }
+  },
+  "$defs": {
+    "kebab": {
+      "type": "string",
+      "pattern": "^[a-z0-9_-]+$"
+    },
+    "beat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "role", "title", "brief"],
+      "properties": {
+        "id": { "$ref": "#/$defs/kebab" },
+        "role": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "brief": { "type": "string" }
+      }
+    },
+    "dimension": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+    "stage": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "kind", "beats"],
+          "properties": {
+            "id": { "$ref": "#/$defs/kebab" },
+            "kind": { "const": "outline" },
+            "beats": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/beat" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "kind", "template"],
+          "properties": {
+            "id": { "$ref": "#/$defs/kebab" },
+            "kind": { "const": "slide-from-beat" },
+            "template": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "kind"],
+          "properties": {
+            "id": { "$ref": "#/$defs/kebab" },
+            "kind": { "const": "generate-image" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "kind", "fps", "w", "h"],
+          "properties": {
+            "id": { "$ref": "#/$defs/kebab" },
+            "kind": { "const": "assemble-comp" },
+            "fps": { "$ref": "#/$defs/dimension" },
+            "w": { "$ref": "#/$defs/dimension" },
+            "h": { "$ref": "#/$defs/dimension" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "kind"],
+          "properties": {
+            "id": { "$ref": "#/$defs/kebab" },
+            "kind": { "const": "render" }
+          }
+        }
+      ]
+    }
+  }
+}
