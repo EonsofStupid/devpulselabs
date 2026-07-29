@@ -2,6 +2,46 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-28 — L4: BLEND · MATTE · LUT — THE ESTATE UNLOCK (PR #123,
+squash `867bff3`; plan `docs/plans/l4-blend-matte-lut.md`):** the fourth
+AE-independence rung, sized by the 30-pack/~60 GB estate census (censused
++ ffprobe-verified this session; triage in the census section of the L4
+plan §1-2): most non-template media is NOT straight alpha — leaks/dust
+want SCREEN/ADD, matte packs are grayscale luma wipes, the Bundle ships
+860 `.cube` LUTs. Pieces: (1) `dpl-comp` `Blend {Normal|Screen|Add}` +
+`matte`/`lut` refs on Layer (additive v1, empty refs = named faults);
+(2) `engine-media` — blended legs pad to the FULL frame on BLACK (the
+screen/add neutral) at the layer's offset and run `blend=all_mode` on
+gbrp with the bounded window; mattes join as inputs and `alphamerge`
+(a blended leg SKIPS its matte — blend drops alpha); `lut3d` grades base
++ overlay legs via `filter_path` (Windows colon escaping, unit-tested);
+(3) preview — `PipeGrade` on ClipPlayer: LUT + matte preview EXACTLY
+(one pipe; matte as a second input at the same seek), lanes reopen on
+grade change; blends approximate under a NAMED badge (`screen ·
+export-exact`); (4) inspector GRADE rows — blend chips, matte picker
+(matte-tagged first) + the operator-ratified AUTO-PAIR suggestion
+(shared leading word + exactly one match → tappable "try: Brush Matte
+01", offered never applied), `.cube` picker on EVERY layer; (5) enricher:
+`LUTs/` buckets tag `lut`, bare `X Matte NN` stems tag `matte`;
+(6) `--l4-drill`. Mechanisms proven LIVE on ffmpeg 8.1.2 against real
+estate files BEFORE the plan (cinepunch 8K leak · RTFX Brush Matte ·
+Bundle cube); the real-exe drill reproduced all three in one render
+(graded base + screened leak + brush-carved tinted overlay, frame-
+verified). Gate `cargo green ✔` server1; green-linux ✔ on the new
+`devpulse-runner-lnx-01` (post-provision); green-windows on
+`devpulse-runner-win-01` died mid-clippy twice (runner drop, NO step
+failure — suspect VM resources during workspace clippy; watch the next
+PR), operator called the merge on the server1 gate. CLOSE-OUT: main's
+exe built from `867bff3` and placed in THE checkout (mtime 2026-07-28
+17:13; the checkout itself was held on a concurrent session's branch —
+built in the `devpulselabs-l3` worktree lane). KNOWN FOLLOW-UPS: grade
+rows sit below the Info scroll fold at short window heights (scrollable,
+no overlap — a taller-window or scrolled-shot proof nicety remains);
+the real-RTFX pin+ingest drill remains operator-driven (D: is back;
+pin `2. Prerendered animations` + `6. Sound FX`); template-variants rung
+awaits the operator's Bodymovin exports (mogrt title · Toko slide ·
+cyberpunk HUD → drop the .json files in).
+
 **2026-07-28 — SIGNAL LEDGER PHASE 2 (`docs/plans/signal-ledger-phase2.md`):**
 `dpl-ledger` writes hive-partitioned Parquet under `.userdata/analytics/`
 (pure-Rust `parquet` + `snap`, ADR-009 clean). Off by default; `--ledger`
