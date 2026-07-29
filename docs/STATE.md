@@ -2,11 +2,18 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-29 — C2S FOREIGN-TARGET SPIKE (`docs/plans/coach-c2s-foreign-target-spike.md` §9):**
+`foreign-target-probe` resolves `gnome-calculator` button `7` via AT-SPI,
+composes screen coords from X11 origin + `_GTK_FRAME_EXTENTS` (never
+trusts SCREEN), paints ColdLight spotlight (`docs/proof/c2s-foreign-spotlight.png`),
+and semantic-invokes via `Action.doAction("click")`. Linux-only gated so
+Windows green does not compile atspi/x11rb. Coach NEXT = **C2a** ADR.
+
 **2026-07-29 — P4 RAIL ACCORDION DEGRADE (`docs/plans/p4-rail-accordion-degrade.md`):**
 rail body scrolls when the accordion exceeds the zone; opening a house
 queues a reveal so the unfold is not clipped to an inverted unreachable
 rect. Kittest `cramped_rail_keeps_the_open_house_reachable` + real-exe
-proofs at 640×480 / 1280×800. Coach NEXT = **C2s** foreign-target spike.
+proofs at 640×480 / 1280×800.
 
 **2026-07-29 — P2B OVERLAY MOUSE-PASSTHROUGH (`docs/plans/p2b-overlay-passthrough.md`):**
 `passthrough-probe` in `crates/desktop-spike` — witness under transparent

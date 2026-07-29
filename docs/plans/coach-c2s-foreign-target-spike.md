@@ -336,3 +336,26 @@ wants is userspace — window/focus from AT-SPI or UIA events, file changes from
 and app-internal facts from the app's own event API (`DSldWorksEvents`,
 `bpy.app.handlers`), which is strictly richer than anything the kernel sees.
 eBPF would deliver syscall noise where lesson-level meaning is required.
+
+## 9. Evidence — spike run (2026-07-29)
+
+Binary: `foreign-target-probe` in `crates/desktop-spike` (Linux/X11 only;
+Windows builds the stub). Workspace deps promoted at locked versions:
+`atspi 0.29`, `x11rb 0.13`, `zbus 5`.
+
+| Step | Command / check | Result |
+|---|---|---|
+| Unit | `cargo test -p dpl-desktop-spike --lib` (§2 reconciliation) | PASS |
+| Locate | `foreign-target-probe locate --name 7` | PASS — WINDOW `64×44@16,293` → screen `64×44@219,462` via origin `(142,114)` + extents `(61,61,55,67)` |
+| Invoke | `foreign-target-probe invoke --name 7` | PASS — `Action.doAction("click")` returned true. Display Text iface empty on this GTK4 build (cannot auto-assert digit change). |
+| Paint | spotlight 6s + `gnome-screenshot` → `docs/proof/c2s-foreign-spotlight.png` | PASS — ColdLight caption "Press 7" and scatter visible at composed coords |
+| Observe Triggered | display-change poll during spotlight | TIMEOUT in unattended run — operator press still required for that half; click-through overlay did not block the desktop |
+| Negative | bogus control name | refuses `no Button named …` |
+| Bus path | `org.a11y.Bus` GetAddress | path is `/org/a11y/bus` (lowercase) — corrected in probe |
+
+**Verdict:** Tier A foreign resolve + compose + ColdLight paint + semantic
+invoke are proven on this box against `gnome-calculator`. C2a ADR may
+proceed from these findings. Operator Triggered observe remains a live
+manual check until display Text (or an event listener) is readable.
+
+Ops NEXT after land → **C2a** coach-overlay ADR.
