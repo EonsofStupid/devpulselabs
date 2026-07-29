@@ -10,6 +10,9 @@ dpl-hub.workspace = true
 dpl-fabric.workspace = true
 dpl-coldlight.workspace = true
 dpl-doc.workspace = true
+# The `.guide` content model — one of the two container kinds the authoring
+# strip can actually label itself with (containers.rs).
+dpl-guide.workspace = true
 dpl-slides.workspace = true
 dpl-editor.workspace = true
 dpl-engine-capture.workspace = true

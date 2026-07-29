@@ -7,6 +7,7 @@
 //! moods). The editor (W4) opens exactly these documents.
 
 mod author;
+mod containers;
 mod library;
 mod studio;
 
@@ -141,6 +142,22 @@ impl WorkbenchHub {
     /// seam, so the overlay is provable on the real exe.
     pub fn open_author_editor(&mut self) {
         self.author.open_editor_drill();
+    }
+
+    /// Start `n` cards on the authoring surface WITHOUT opening the editor —
+    /// the `--author-draft <n>` proof seam. The filmstrip is only interesting
+    /// with something in it, and the overlay would cover it.
+    pub fn author_draft(&mut self, n: usize) {
+        self.author.draft_drill(n);
+    }
+
+    /// Point the authoring surface at one container kind — the
+    /// `--author-container <kind>` proof seam, so the honest-empty line of a
+    /// kind with no storage can be photographed alongside a real one.
+    ///
+    /// Unknown slugs are ignored rather than guessed at.
+    pub fn author_container(&mut self, slug: &str) {
+        self.author.container_drill(slug);
     }
 
     /// Open the Library on one SECTION by its chip slug — the
