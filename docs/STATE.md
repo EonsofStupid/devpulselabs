@@ -2,6 +2,23 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-28 — SESSION OS:** default agent operations —
+`docs/plans/session-os.md`, skill `.cursor/skills/session-os/`, ops
+ledger `docs/ops/SESSION.md` + `docs/ops/resume/CURRENT.md`, hooks
+`.cursor/hooks.json` (sessionStart / preCompact / stop), agents
+grounder→gap-closer→executor. Boot: STATE → SESSION → resume. NEXT
+product cut after this lands: coach lane **p6**. Journal:
+`docs/journal/2026-07-28-session-os.md`.
+
+**2026-07-28 — COACH / LEDGER LANE RESUME:** narrative close-out
+`docs/journal/2026-07-28-determinism-and-ledger.md`; ordered remaining
+work `docs/journal/2026-07-28-remaining-work.md` (NEXT = Library section
+harness p6 → optional live `/strict` refusal → overlay passthrough →
+rail degrade → C2s spike → C2a/C2b → strict pinning → DuckDB ADR →
+classification). Phase 1.5 verification notes kept in
+`docs/journal/2026-07-28-next-phase-notes.md` (superseded for backlog).
+Ops index: `docs/ops/SESSION.md`.
+
 **2026-07-28 — SIGNAL LEDGER PHASE 2 (`docs/plans/signal-ledger-phase2.md`):**
 `dpl-ledger` writes hive-partitioned Parquet under `.userdata/analytics/`
 (pure-Rust `parquet` + `snap`, ADR-009 clean). Off by default; `--ledger`

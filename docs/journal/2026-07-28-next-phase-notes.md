@@ -1,8 +1,13 @@
-# Notes — next phase: test & verification, then the determinism switch
+# Notes — Phase 1.5 verification + determinism (closed)
 
-Working notes, not a ratified plan. The next pass that writes code still
-authors its own `docs/plans/<pass>.md` first (law 1); these notes are the
-raw material and the checklist of proofs owed.
+**Superseded for remaining work.** The ordered resume for this lane is
+now `docs/journal/2026-07-28-remaining-work.md`. Narrative close-out:
+`docs/journal/2026-07-28-determinism-and-ledger.md`.
+
+This file keeps the verification evidence and the landed shapes so a
+future pass does not re-prove what already happened.
+
+---
 
 ## A. Verification owed on Phase 1.5 (the real exe, not the unit tests)
 
@@ -93,17 +98,12 @@ Shape pinned and implemented:
 - **Evidence forces strict**: `--screenshot` boots call `force_evidence`.
 - **NOT this pass**: clock/RNG/adapter pinning (replay); pipe surfacing.
 
-## C. Carried backlog (unchanged priorities)
+## C. Backlog — moved
 
-- **p6** — harness flag to select a Library section without soloing a
-  template; still what blocks witnessing the templates wall and an Episodes
-  lesson end to end.
-- **p2b** — prove `mouse_passthrough` with a synthetic click and a witness
-  window (overlay spike follow-up).
-- **p4** — rail accordion degrades instead of clipping to nothing.
-- **p5** — C2s foreign-target spike: AT-SPI on a Tier A app
-  (`docs/plans/coach-c2s-foreign-target-spike.md`), findings feed the C2a ADR.
-- **Phase 2** — `dpl-ledger` — **LANDED** (`docs/plans/signal-ledger-phase2.md`).
-  Proof: `--ledger --screenshot` left `intent-000001.parquet` with the
-  evidence determinism row.
-- **Phase 3** — DuckDB C-dep ADR (after Phase 2 produces real data).
+Ordered remaining work for this lane (p6 → overlay → C2s → pinning →
+Phase 3 → classification) lives in
+`docs/journal/2026-07-28-remaining-work.md`.
+
+Phase 2 (`dpl-ledger`) is **LANDED** — plan
+`docs/plans/signal-ledger-phase2.md`; proof via `--ledger --screenshot`
+→ `intent-000001.parquet` with the evidence determinism row.

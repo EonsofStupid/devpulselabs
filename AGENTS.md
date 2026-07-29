@@ -23,10 +23,18 @@ The canonical product, visual, route, and generated-surface contract is
 `docs/plans/chat-window-product-vision.md`; architecture and delivery remain
 canonical in `docs/plans/chat-architecture.md`.
 
+## Session OS (every agent)
+
+Default operations live in skill `session-os` (`.cursor/skills/session-os/`).
+Boot from disk before acting: `docs/STATE.md` → `docs/ops/SESSION.md` →
+`docs/ops/resume/CURRENT.md`. Journal near ~75–85% context / end of cut;
+after compact or clear, trust the resume pack over chat memory. Ops ledger
+≠ product `dpl-ledger`. Plan: `docs/plans/session-os.md`.
+
 ## Laws
 
 1. **Plan before code.** Every pass has a plan in `docs/`. Reality contradicting
-   the plan stops the pass — amend, then continue.
+ the plan stops the pass — amend, then continue.
 2. **Test the real artifact.** The exe proves itself: `cargo run -- --screenshot
    out.png` boots the real app, captures its own window, exits. Unit tests for
    logic; the screenshot for pixels. No claim without one of the two.
