@@ -2,15 +2,21 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-29 — P2B OVERLAY MOUSE-PASSTHROUGH (`docs/plans/p2b-overlay-passthrough.md`):**
+`passthrough-probe` in `crates/desktop-spike` — witness under transparent
+always-on-top overlay, XTEST click at center. Control pair on this X11
+box (NVIDIA GB10 / Vulkan): passthrough ON → HIT; `--no-passthrough`
+(opaque overlay) → no HIT. Evidence in `lesson-overlay-spike.md` §8.1.
+Caveat: hollow transparent + passthrough-off is not a valid negative
+control here. Coach NEXT = **p4** rail accordion degrade.
+
 **2026-07-29 — STRICT REFUSAL WITNESS (`docs/plans/strict-refusal-witness.md`):**
 slash mint-site policy extracted as `resolve_operator_slash` in
 `crates/app/src/chat.rs`. Unit matrix: agent-synthetic `/strict` →
 `IntentRefused · synthetic-input` (intent domain / SSE envelope path),
 mode stays behavioral; real escalate; evidence-locked behavioral refuse;
-already-behavioral silent. Coach NEXT = **p2b** overlay passthrough.
-Authoring note: Pass C overlay editor already lives on the carousel
-(#136) — STATE's prior "port overlay" NEXT is satisfied; filmstrip +
-seed-thumbnail crop remain on that lane.
+already-behavioral silent. Authoring note: Pass C overlay editor already
+lives on the carousel (#136) — filmstrip + seed-thumbnail crop remain.
 
 **2026-07-29 — THE AUTHORING RESET: LADDER, PLAIN WORDS, CAROUSEL
 (PRs #135, #136; #128/#130 closed unmerged).** Three passes off one

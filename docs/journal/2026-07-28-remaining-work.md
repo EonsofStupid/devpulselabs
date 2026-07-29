@@ -24,7 +24,7 @@ That vision is now half-foundation, half-product:
 | **Record** — stamped coach + intent facts → Parquet ledger | **Landed** (Phase 1.5 → gate → Phase 2) |
 | **Authorize** — `OperatorIntent` + determinism modes | **Landed** (switch yes; pinning no) |
 | **Teach inside DevPULSE** — instrumented surfaces + postcondition steps | **Partial** (Workbench started; Library section selection still blocks a full lesson) |
-| **Paint the monitor** — click-through overlay process | **Spike proven** (transparency); passthrough + daemon not done |
+| **Paint the monitor** — click-through overlay process | **Spike proven** (transparency + passthrough on X11); daemon not done |
 | **Perceive foreign apps** — AT-SPI / UIA tier ladder | **Plan only** (C2s spike authorized, not executed) |
 | **Analyze** — DuckDB lens over ledger files | **Phase 3 ADR**, after real volume |
 
@@ -46,20 +46,17 @@ Mint-site policy extracted as `resolve_operator_slash` in
 → `IntentRefused · synthetic-input` and mode stays behavioral. Plan:
 `docs/plans/strict-refusal-witness.md`.
 
-### 3. Overlay passthrough proof (p2b) — **NEXT**
+### 3. Overlay passthrough proof (p2b) — **CLOSED** (2026-07-29)
 
-**Why:** transparency is proven on X11+wgpu; click-through is not.
+**Why:** transparency is proven on X11+wgpu; click-through was not.
 C2b cannot start without knowing whether `mouse_passthrough` actually
 delivers clicks to a window underneath.
 
-**Shape:** synthetic click + witness window (plan already anticipated
-`dpl-coach-overlay` as its own process). Probe only — no product
-chrome.
+**Shape:** `passthrough-probe` in `crates/desktop-spike` — witness +
+overlay + XTEST; control pair ON/OFF. Plan:
+`docs/plans/p2b-overlay-passthrough.md`. Evidence: spike §8.1 — **PASS**.
 
-**Done when:** click lands on the witness under the overlay; documented
-in the overlay spike plan §evidence.
-
-### 4. Rail accordion degrade (p4)
+### 4. Rail accordion degrade (p4) — **NEXT**
 
 **Why:** at small heights the accordion can clip to nothing — a
 lesson that names a rail hub fails when chrome collapses. Product
