@@ -62,7 +62,6 @@ pub fn client_origin(window: WindowOrigin, extents: FrameExtents) -> (i32, i32) 
 /// Compose a descendant's AT-SPI `WINDOW` rect onto the screen.
 ///
 /// `screen_rect = client_origin + atspi_WINDOW_rect`
-#[must_use]
 pub fn compose_screen_rect(
     window: WindowOrigin,
     extents: FrameExtents,
