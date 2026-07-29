@@ -2329,6 +2329,7 @@ dependencies = [
  "egui",
  "egui-pilot-ai",
  "egui-pilot-ai-lab",
+ "egui_kittest",
 ]
 
 [[package]]

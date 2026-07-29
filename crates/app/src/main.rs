@@ -98,6 +98,14 @@ fn main() -> eframe::Result {
     // overlay editor at boot. The overlay opens only on a tap, so this is how
     // it gets photographed; pair it with `--content-root` to write to scratch.
     let author_editor = args.iter().any(|a| a == "--author-editor");
+    // `--card-tab <slug>` — open the card editor on one tab (words/background/
+    // movement/quote/picture/on-tap/help). Words is the default, so this is
+    // how any other tab gets photographed.
+    let card_tab: Option<String> = args
+        .iter()
+        .position(|a| a == "--card-tab")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
     // `--author-container <kind>` — point the Author surface at one container
     // kind (lesson/guide/episode/deck), so a kind with nowhere to live yet can
     // be photographed saying so beside one that is real.
@@ -417,6 +425,7 @@ fn main() -> eframe::Result {
                 author_editor,
                 author_container,
                 author_draft,
+                card_tab,
                 shot_frame,
                 viziwiz_open,
                 viziwiz_snap,
@@ -469,6 +478,7 @@ struct Boot {
     author_editor: bool,
     author_container: Option<String>,
     author_draft: usize,
+    card_tab: Option<String>,
     shot_frame: u32,
     viziwiz_open: bool,
     viziwiz_snap: bool,
@@ -559,6 +569,7 @@ impl App {
             author_editor,
             author_container,
             author_draft,
+            card_tab,
             shot_frame,
             viziwiz_open,
             viziwiz_snap,
@@ -606,6 +617,11 @@ impl App {
         }
         if author_editor {
             workbench.open_author_editor();
+        }
+        // After the editor seam: the tab only exists once the overlay is open,
+        // and this opens one itself when nothing else did.
+        if let Some(slug) = &card_tab {
+            workbench.open_card_tab(slug);
         }
         if let Some(slug) = &lib_section {
             if !workbench.set_lib_section(slug) {

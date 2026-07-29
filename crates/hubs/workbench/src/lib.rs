@@ -145,6 +145,12 @@ impl WorkbenchHub {
         self.author.open_editor_drill();
     }
 
+    /// Open the card editor on one tab by slug — the `--card-tab <slug>`
+    /// proof seam, so a tab other than Words is provable on the real exe.
+    pub fn open_card_tab(&mut self, slug: &str) {
+        self.author.card_tab_drill(slug);
+    }
+
     /// Start `n` cards on the authoring surface WITHOUT opening the editor —
     /// the `--author-draft <n>` proof seam. The filmstrip is only interesting
     /// with something in it, and the overlay would cover it.

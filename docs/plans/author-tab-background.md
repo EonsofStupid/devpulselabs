@@ -151,4 +151,75 @@ count stated · tooltips on every tile · tests · proof shots.
 
 ## 8. Evidence
 
-_Filled during the pass._
+### 8.1 The gate
+
+`cargo green ✔` — fmt · spawn audit · structure audit · clippy `-D warnings`
+· tests · release build. 17 tests in `dpl-hub-workbench`, 8 of them new.
+
+Census (`backgrounds.rs`): `the_colour_row_is_the_registry` ·
+`the_ambience_row_is_what_the_renderer_resolves` (an option the renderer
+silently degrades to nothing is worse than no option) ·
+`the_mix_row_is_the_preset_registry` · `no_option_speaks_engineering`.
+
+Behaviour, driven headlessly through the REAL widget with `egui_kittest`:
+`tapping_a_colour_writes_it_to_the_card` ·
+`a_second_colour_blends_rather_than_replaces` ·
+`movement_over_a_single_colour_promotes_it_to_a_blend` ·
+`every_colour_writes_a_document_that_validates` — the last runs all ten
+colours and validates each resulting document, because an option that
+produces a file the app refuses to load is not an option.
+
+### 8.2 Real-exe proof
+
+Sequential runs, scratch content root, via the new `--card-tab <slug>` seam.
+
+| shot | what it proves |
+|---|---|
+| `docs/proof/author-tab-background-1280x800.png` | all three rows; ten colours painted as LIVE gradients plus "Nothing"; Deep lagoon picked and correctly absent from the blend row |
+| `docs/proof/author-tab-background-1100x700.png` | the same at a short window |
+
+### 8.3 Deviations and findings
+
+**The count is ten, and the tab says ten.** The mock promises "around forty
+to choose from". `tokens/moods.json` holds ten. The forty is real but comes
+from combination — ten flat, forty-five pairs, each with a mix and an
+optional movement. The heading reads "The colour — 10 to choose from" off
+`colours().len()`, so it tracks the registry. The shelf was NOT padded with
+generated variations to reach a number; if ten is too few the fix is new
+entries in the tokens, a data pass.
+
+**The tab writes through the editor, not the file.** `Editor::set_background`
+is new and goes through the existing private `mutate`, so a tapped colour
+lands on the undo stack and saves like any other edit. One mutation path.
+
+**Swatches needed accessibility names.** They are painted, not built from
+widgets, so they carried no name — the headless harness could not find them
+and neither could a screen reader. `Response::widget_info` now names each
+one. The tests caught a real accessibility gap, which is the argument for
+driving the widget rather than testing the model beside it.
+
+**A colour appears twice on purpose.** Row one offers ten colours and row two
+offers the same ten to blend with, so a name matches two tiles. `drive_nth`
+in the tests says which row it means. This is correct behaviour, not a
+collision to design away.
+
+**Row three sits below the fold at 1280×800.** The modal body is capped at
+55% of the window (from #141), and three rows exceed it; it scrolls. Proven
+by `movement_over_a_single_colour_promotes_it_to_a_blend` rather than by a
+screenshot. Whether that modal wants the mock's two-pane shape — tab rail
+left, live preview right — is a question for the pass that takes the next
+tab, not a thing to change under this one.
+
+**The drill reopens rather than mints.** `--card-tab` opens the newest card
+in the inbox and only mints when there is none. A drill that shows a tab
+should not need a fresh card each time, and re-opening is what a person does.
+
+### 8.4 For the Movement tab (the next one)
+
+Ground-truthed here so that pass starts from the truth: `tokens/motion.json`
+holds **18 effects**, but they are mostly element-level (`chart-*`,
+`bar-grow`, `gauge-sweep`, `layer-fade`). Only three are true entrances —
+`enter-fade`, `enter-rise`, `enter-bloom` — and **there are no exit effects
+at all**. The mock's "how things come in, get noticed, and go out" cannot be
+honoured by the registry as it stands; the going-out half has to be authored
+before it can be offered.
