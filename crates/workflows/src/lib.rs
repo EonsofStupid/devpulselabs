@@ -1043,3 +1043,120 @@ mod tests {
         assert!(notes.iter().any(|n| n.contains("not a renderable")));
     }
 }
+
+/// THE SCHEMA PIN (workflow-doctrine law 3): the wire contract in
+/// `schemas/` and the serde shapes here are ONE thing — these tests fail
+/// the gate the moment either drifts. Includes a negative case so the
+/// schema is proven load-bearing, never decorative.
+#[cfg(test)]
+mod schema_pin {
+    use super::*;
+
+    fn validator(file: &str) -> jsonschema::Validator {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../schemas")
+            .join(file);
+        let raw = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        let schema: serde_json::Value = serde_json::from_str(&raw).expect("schema is JSON");
+        jsonschema::validator_for(&schema).expect("schema compiles")
+    }
+
+    fn assert_valid(v: &jsonschema::Validator, doc: &serde_json::Value, what: &str) {
+        let errors: Vec<String> = v.iter_errors(doc).map(|e| e.to_string()).collect();
+        assert!(errors.is_empty(), "{what} violates the schema: {errors:?}");
+    }
+
+    #[test]
+    fn every_registered_workflow_matches_the_v1_wire_schema() {
+        let v = validator("workflow.v1.schema.json");
+        for wf in workflows() {
+            let doc = serde_json::to_value(&wf).expect("serialize");
+            assert_valid(&v, &doc, &format!("registered workflow {:?}", wf.id));
+        }
+    }
+
+    #[test]
+    fn a_minted_and_filled_storyboard_matches_the_v1_wire_schema() {
+        let v = validator("storyboard.v1.schema.json");
+        let wf = find("storyboard").expect("registered");
+        let StageKind::Outline { beats } = &wf.stages[0].kind else {
+            panic!("storyboard opens with an outline");
+        };
+        let mut board = mint_storyboard(&wf.id, beats);
+        board.show = Some("devpulse-news".into());
+        board.episode = Some("ep1".into());
+        board.slots[0].fill = SlotFill::Artifact {
+            rel: "inbox/comp-1/render.mp4".into(),
+        };
+        board.slots[1].fill = SlotFill::Slide {
+            rel: "inbox/slide-1".into(),
+        };
+        board.slots[2].fill = SlotFill::Draft { id: "d-42".into() };
+        board.slots[3].constraints = vec!["16:9".into()];
+        let doc = serde_json::to_value(&board).expect("serialize");
+        assert_valid(&v, &doc, "minted+filled storyboard");
+    }
+
+    #[test]
+    fn the_workflow_schema_refuses_drift() {
+        let v = validator("workflow.v1.schema.json");
+        let good = serde_json::to_value(find("storyboard").unwrap()).unwrap();
+
+        // An unknown stage kind is drift, not tolerated input.
+        let mut doc = good.clone();
+        doc["stages"][0] = serde_json::json!({"id": "teleport", "kind": "teleport"});
+        assert!(!v.is_valid(&doc), "unknown stage kind must be refused");
+
+        // A non-kebab id breaks the identity law at the contract.
+        let mut doc = good.clone();
+        doc["id"] = serde_json::json!("Not Kebab");
+        assert!(!v.is_valid(&doc), "non-kebab workflow id must be refused");
+
+        // Unknown root fields are drift (additionalProperties: false).
+        let mut doc = good.clone();
+        doc["vibes"] = serde_json::json!("immaculate");
+        assert!(!v.is_valid(&doc), "unknown fields must be refused");
+
+        // A future major version never validates against the v1 file.
+        let mut doc = good;
+        doc["v"] = serde_json::json!(2);
+        assert!(!v.is_valid(&doc), "v2 must not pass the v1 schema");
+    }
+
+    #[test]
+    fn the_storyboard_schema_refuses_drift() {
+        let v = validator("storyboard.v1.schema.json");
+        let board = mint_storyboard(
+            "storyboard",
+            &[Beat {
+                id: "hook".into(),
+                role: "hook".into(),
+                title: "The hook".into(),
+                brief: "Grab attention.".into(),
+            }],
+        );
+        let good = serde_json::to_value(&board).unwrap();
+
+        // Absolute and drive-lettered refs are refused at the contract
+        // (the full `..` jail is engine-enforced — both layers are law).
+        for bad_rel in ["/etc/passwd", "C:\\loot", "a\\b"] {
+            let mut doc = good.clone();
+            doc["slots"][0]["fill"] = serde_json::json!({"kind": "artifact", "rel": bad_rel});
+            assert!(
+                !v.is_valid(&doc),
+                "jailbreak rel {bad_rel:?} must be refused"
+            );
+        }
+
+        // An unknown fill kind is drift.
+        let mut doc = good.clone();
+        doc["slots"][0]["fill"] = serde_json::json!({"kind": "hologram"});
+        assert!(!v.is_valid(&doc), "unknown fill kind must be refused");
+
+        // Extra slot fields are drift.
+        let mut doc = good;
+        doc["slots"][0]["mood"] = serde_json::json!("neon");
+        assert!(!v.is_valid(&doc), "unknown slot fields must be refused");
+    }
+}

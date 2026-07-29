@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:devpulselabs:schemas:storyboard:v1",
+  "title": "DevPULSE storyboard document (v1)",
+  "description": "The wire contract for dpl-workflows StoryboardDoc v1 - the minted, slotted board whose fill state is machine-legible truth. Strict: unknown fields are drift. Fills are REFS, never values. The rel pattern refuses drive letters, backslashes, and absolute paths at the contract; the full '..' jail is engine-enforced (validate_board) - both layers are law (docs/design/workflow-doctrine.md).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "workflow", "slots"],
+  "properties": {
+    "v": { "const": 1 },
+    "workflow": { "$ref": "#/$defs/kebab" },
+    "show": { "type": "string", "minLength": 1 },
+    "episode": { "type": "string", "minLength": 1 },
+    "slots": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/slot" }
+    }
+  },
+  "$defs": {
+    "kebab": {
+      "type": "string",
+      "pattern": "^[a-z0-9_-]+$"
+    },
+    "jailedRel": {
+      "type": "string",
+      "pattern": "^[^/\\\\:][^\\\\:]*$"
+    },
+    "slot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "role", "brief", "fill"],
+      "properties": {
+        "id": { "$ref": "#/$defs/kebab" },
+        "role": { "type": "string", "minLength": 1 },
+        "brief": { "type": "string", "minLength": 1 },
+        "constraints": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "fill": { "$ref": "#/$defs/fill" }
+      }
+    },
+    "fill": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": { "kind": { "const": "empty" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "rel"],
+          "properties": {
+            "kind": { "const": "artifact" },
+            "rel": { "$ref": "#/$defs/jailedRel" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "rel"],
+          "properties": {
+            "kind": { "const": "slide" },
+            "rel": { "$ref": "#/$defs/jailedRel" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "id"],
+          "properties": {
+            "kind": { "const": "draft" },
+            "id": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    }
+  }
+}

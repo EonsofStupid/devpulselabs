@@ -42,7 +42,7 @@ renderers are surfaces.
 |---|---|---|
 | dpl-proc | ∅ | the quiet-spawn law is dependency-free |
 | dpl-comp | serde, serde_json | AI-editable comp truth stays pure data |
-| dpl-workflows | serde, serde_json, dpl-comp, dpl-doc | workflows are documents, not code paths (D3) |
+| dpl-workflows | serde, serde_json, dpl-comp, dpl-doc | workflows are documents, not code paths (D3); wire contract `schemas/*.v1.schema.json`, pinned by test (dev-dep jsonschema — dev-deps sit outside this ceiling; see workflow-doctrine.md) |
 | dpl-doc | serde, serde_json, dpl-coldlight | slide truth + the ONE styling edge (below) |
 | dpl-tools-deps | serde, serde_json, sha2 | the depot resolver trusts nothing else |
 | dpl-landing | serde, serde_json | the landing policy is shared pure data |

@@ -95,6 +95,10 @@ egui_kittest = { version = "0.35", default-features = false }
 # The document layer (dpl-doc): slide.json is serde data, end to end.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Schema-pin tests ONLY (dev-dep in dpl-workflows): validates the serde
+# shapes against schemas/*.schema.json so Rust and wire never drift.
+# default-features off: no reqwest — our $refs are all local.
+jsonschema = { version = "0.49", default-features = false }
 # ADR-011: the ONE outbound HTTPS client, used only by dpl-chat-imagine's
 # bounded worker against the compiled-in xAI Imagine endpoint.
 ureq = "2"
