@@ -2,6 +2,25 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-29 — THE CONTAINER-LABELLED FILMSTRIP (`docs/plans/author-filmstrip.md`):**
+the authoring surface now says what it is building INTO and shows what has
+been started. `containers.rs` is the container census: Lesson · Guide ·
+Episode · Deck, `slug()`/`label()` split, one `containers()` function reading
+disk. GROUND TRUTH — only **two of the four are stored anywhere**: an episode
+is `episode.json` under a show, a guide is `guide.json` in an inbox folder; a
+deck is a way of PLAYING an episode, and "lesson" appears nowhere in the
+codebase. Both gaps are REGISTERED and say why in plain words, with
+`every_kind_is_backed_or_says_why` pinning the backed set to
+`{episode, guide}` — when lesson storage lands, that test fails and forces
+the wiring with it. The strip's head is drawn from the loaded container, and
+its wording does not claim a placement that has not happened ("N started
+here, not put in yet") — drafts are in `inbox/` until something copies them
+in, which is the NEXT pass (`dpl_doc::place_slide`). The band measures its own
+height and the carousel reserves exactly that. Seams `--author-container
+<kind>` + `--author-draft <n>`. KNOWN: the band makes #136's seed-thumbnail
+crop bite sooner at small windows (see §8.3) — the fix is a thumbnail mode in
+`dpl-slides`, the next item.
+
 **2026-07-29 — CI INCIDENT + MERGE-DISCIPLINE LAW (CLAUDE.md):** both
 lanes went red in sequence because PRs merged before their green
 finished: #139 broke `green-windows` (unconditional x11rb → `xcb.lib`
