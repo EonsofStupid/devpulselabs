@@ -154,4 +154,67 @@ two, which is still one more than belongs in a surface.
 
 ## 8. Evidence
 
-_Filled during the pass._
+### 8.1 The gate
+
+`cargo green ✔` — fmt · spawn audit · structure audit · clippy `-D warnings`
+· tests · release build.
+
+Four new tests in `dpl-coldlight` (28 pass in that crate):
+`nothing_is_clamped_at_the_nominal_stage` — the definition of "nominal" made
+executable, by asserting each type step still *responds* at that stage (a
+floored token reads identically on a slightly smaller one) ·
+`a_small_stage_floors_the_ramp_but_a_thumbnail_does_not` — pins both halves
+of the defect · `a_thumbnail_is_the_nominal_stage_scaled_uniformly` — every
+step and the padding shrink by ONE factor · `of_is_unscaled_and_a_degenerate_
+rect_stays_finite`.
+
+### 8.2 Real-exe proof
+
+Sequential runs, scratch content root seeded by `--clone-seed`.
+
+| shot | before | after |
+|---|---|---|
+| `docs/proof/author-thumbnail-1100x700.png` | `author-filmstrip-1100x700.png`: cards read "all y?", "4", "G", "ba" | every card shows its whole slide; names read in full |
+| `docs/proof/author-thumbnail-1280x800.png` | `author-filmstrip-1280x800.png`: headlines clipped mid-word | whole slides, both caption lines, film tiles carrying real previews |
+
+The film tiles stopped being labelled plates, closing the note `film_tile`
+carried since the filmstrip pass.
+
+### 8.3 Deviations and findings
+
+**§6's wrap-width risk was unfounded, and the reason is worth keeping.**
+`wrap` is `rect.width() - pad*2` where `pad` is fluid. Under a uniform scale
+both terms scale together, so `wrap` stays exactly proportional. The
+"everything flows through Fluid" claim holds.
+
+**Clippy caught a design smell, not a nit.** Threading `Stage` made
+`render_inner` an 8-argument function, and `#[allow]` is forbidden. The four
+values that always travel together — `step`, `now`, `t0`, `stage` — became a
+`Playhead`. Better shape than the one this pass started with.
+
+**Two adjustments the proof shots forced, both scope beyond the plan.**
+
+1. *Film tiles were sized like hero cards.* First pass made them 16:9 at
+   twice the thumb token. At 1100×700 that stole two thirds of the
+   carousel's height. `ctl-thumb-*` IS the authored thumbnail size; a strip
+   item is a thumbnail. Now `ctl_thumb_w * 1.5` — wide enough to clear
+   `tap-min`, no wider.
+2. *The carousel's caption was out-eating the picture it captioned.* A fixed
+   `fs_body + fs_body_sm + S6` ≈ 63pt caption inside a ~105pt band left the
+   stage barely taller than its own label. The caption is now capped at a
+   third of the band, and the line under the name is **dropped rather than
+   clipped** when it will not fit — half a sentence sheared off by an edge
+   reads as a bug; a name on its own reads as a name. At 1280×800 both lines
+   show; at 1100×700 the name alone.
+
+   This is the same defect one level up — chrome starving the card — which is
+   why it belonged in this pass rather than a later one.
+
+**The tiles keep their names.** Rendering the document alone made three
+freshly-started cards three identical gradients. The ratified mock's film
+card carries a preview AND a footer name; it is right and the first attempt
+here was not.
+
+**Drafts re-read on editor close.** The editor saves as you type, so a strip
+still showing the old words would be lying. `CardEditor` remembers its
+folder and the tile re-loads when the overlay closes.
