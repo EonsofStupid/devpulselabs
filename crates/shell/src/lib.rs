@@ -13,7 +13,9 @@
 //! rail is an ACCORDION (Program L, doctrine §5.2): tapping a house unfolds
 //! its subroutes downward inside the rail — the houses below push down —
 //! and folds whatever was open; one open at a time, folded is icon-mode
-//! compact. The status bar is a data-driven cell registry ([`status`]).
+//! compact. When the accordion exceeds the rail zone the body scrolls so
+//! the open house stays reachable (p4). The status bar is a data-driven
+//! cell registry ([`status`]).
 //! Every navigation publishes `ShellEvent::RouteChanged` on the fabric.
 
 pub mod status;
