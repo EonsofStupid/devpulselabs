@@ -9,7 +9,10 @@
 //!
 //! Layout v2 (docs/shell.md): five named ZONES — TOP, STATUS, RAIL, PANEL,
 //! CONTENT — every dimension resolved through the generated fluid `shell`
-//! token group at the live viewport; nothing hardcoded (workspace law). The
+//! token group at the live viewport; nothing hardcoded (workspace law).
+//! PANEL is an OPTIONAL OVERLAY (the operator's "rightside overlay the
+//! content"): closed by default — the content well owns the full width —
+//! and when opened it floats OVER the well's right edge, never docking. The
 //! rail is an ACCORDION (Program L, doctrine §5.2): tapping a house unfolds
 //! its subroutes downward inside the rail — the houses below push down —
 //! and folds whatever was open; one open at a time, folded is icon-mode
@@ -36,6 +39,8 @@ pub struct Zones {
     pub top: Rect,
     pub status: Rect,
     pub rail: Rect,
+    /// The inspector overlay's plate — `Rect::ZERO` while it is closed
+    /// (closed reserves no width; the content spans to the root's edge).
     pub panel: Rect,
     pub content: Rect,
 }
@@ -209,6 +214,10 @@ pub struct Shell {
     /// Full-bleed: all chrome hidden, content owns the viewport (old `\` /
     /// Maximize2 behavior). Esc or the floating exit chip leaves.
     full_bleed: bool,
+    /// The inspector overlay (PANEL zone): OPTIONAL — closed by default so
+    /// the content well keeps the full width; open, it floats OVER the
+    /// well's right edge (docs/shell.md, "rightside overlay the content").
+    inspector_open: bool,
     /// The build stamp the footer shows (git hash · utc) — the running app
     /// itself proves which code it is.
     build: &'static str,
@@ -281,6 +290,7 @@ impl Shell {
             nav_count: 0,
             signal_count: 0,
             full_bleed: false,
+            inspector_open: false,
             build: "",
             tooltip_mood: dpl_backdrop::random_mood_index(),
             open_house: None,
@@ -349,6 +359,15 @@ impl Shell {
 
     pub fn set_full_bleed(&mut self, on: bool) {
         self.full_bleed = on;
+    }
+
+    pub fn inspector_open(&self) -> bool {
+        self.inspector_open
+    }
+
+    /// Harness access (`--inspector` pins the overlay open for proof shots).
+    pub fn set_inspector_open(&mut self, on: bool) {
+        self.inspector_open = on;
     }
 
     /// The footer Snip launcher (and the global hotkey, later): summon the
@@ -497,9 +516,12 @@ impl Shell {
         }
 
         let tone = self.active_tone();
-        let (top, go_fullbleed) = self.top_bar(ui, &fl);
+        let (top, go_fullbleed, toggle_inspector) = self.top_bar(ui, &fl);
         if go_fullbleed {
             self.full_bleed = true;
+        }
+        if toggle_inspector {
+            self.inspector_open = !self.inspector_open;
         }
         let (status_rect, actions) = self.status_bar(ui, &fl);
         for action in actions {
@@ -518,8 +540,17 @@ impl Shell {
         if let Some(route) = clicked {
             self.navigate(route);
         }
-        let panel = self.inspector(ui, &fl);
         let content = self.central(ui);
+        // The frame overlay: seams + diffusion framing the well, on top of
+        // every plate edge — this is what makes the chrome float.
+        cl::frame_overlay(ui.painter(), content, tone);
+        // The inspector rides ABOVE the well when open; closed it reserves
+        // nothing — the content just spanned to the root's right edge.
+        let panel = if self.inspector_open {
+            self.inspector(ui, &fl, content)
+        } else {
+            Rect::ZERO
+        };
         self.zones = Zones {
             root,
             top,
@@ -528,9 +559,6 @@ impl Shell {
             panel,
             content,
         };
-        // The overlay: seams + diffusion framing the well. Painted last, on
-        // top of every plate edge — this is what makes the chrome float.
-        cl::frame_overlay(ui.painter(), content, tone);
     }
 
     /// The floating full-bleed exit chip (old `FullbleedExit`): top-right,
@@ -565,11 +593,14 @@ impl Shell {
     }
 
     // ── TOP: identity + breadcrumb; backdrop tiles + full-bleed right ────
-    /// Returns the zone rect and whether the full-bleed toggle was clicked.
-    fn top_bar(&mut self, ui: &mut egui::Ui, fl: &cl::Fluid) -> (Rect, bool) {
+    /// Returns the zone rect, whether the full-bleed toggle was clicked,
+    /// and whether the inspector-overlay toggle was clicked.
+    fn top_bar(&mut self, ui: &mut egui::Ui, fl: &cl::Fluid) -> (Rect, bool, bool) {
         let (hub_label, sub_label, tone) = self.breadcrumb();
+        let inspector_open = self.inspector_open;
         let backdrop = &mut self.backdrop;
         let mut go_fullbleed = false;
+        let mut toggle_inspector = false;
         let resp = egui::Panel::top("dpl_top")
             .exact_size(fl.topbar_height())
             .show_separator_line(false)
@@ -597,12 +628,24 @@ impl Shell {
                             go_fullbleed = true;
                         }
                         ui.add_space(cl::space::S2);
+                        if icon_button(
+                            ui,
+                            cl::icon::WINDOW,
+                            if inspector_open {
+                                "close the inspector — the content keeps this space"
+                            } else {
+                                "inspector — floats over the content, takes no space"
+                            },
+                        ) {
+                            toggle_inspector = true;
+                        }
+                        ui.add_space(cl::space::S2);
                         // The two loops; every click pulls a fresh mood.
                         backdrop.tiles(ui);
                     });
                 });
             });
-        (resp.response.rect, go_fullbleed)
+        (resp.response.rect, go_fullbleed, toggle_inspector)
     }
 
     // ── STATUS: the indicator grid — three lanes of registered cells ────
@@ -843,93 +886,120 @@ impl Shell {
         }
     }
 
-    // ── PANEL: the inspector ────────────────────────────────────────────
-    fn inspector(&mut self, ui: &mut egui::Ui, fl: &cl::Fluid) -> Rect {
+    // ── PANEL: the inspector — an OPTIONAL OVERLAY riding the well's
+    // right edge (the operator's "rightside overlay the content"): the
+    // content rect is untouched beneath it; closed it reserves nothing. ──
+    fn inspector(&mut self, ui: &mut egui::Ui, fl: &cl::Fluid, content: Rect) -> Rect {
         let (hub_label, sub_label, tone) = self.breadcrumb();
-        let resp = egui::Panel::right("dpl_inspector")
-            .exact_size(fl.panel_width())
-            .resizable(false)
-            .show_separator_line(false)
-            .frame(
-                egui::Frame::new()
-                    .fill(cl::surface::RAISED)
-                    .inner_margin(egui::Margin::symmetric(12, 12)),
-            )
-            .show(ui, |ui| {
-                cl::sheen(ui.painter(), ui.max_rect().expand(10.0));
-
+        let w = fl.panel_width();
+        let rect = Rect::from_min_max(egui::pos2(content.max.x - w, content.min.y), content.max);
+        // The plate swallows pointer input so content beneath the overlay
+        // never receives stray clicks (the fullbleed-exit precedent).
+        ui.interact(rect, egui::Id::new("dpl_inspector_bg"), Sense::click());
+        // The exposed left edge wears the well's hard-edged black
+        // diffusion — the same scatter `frame_overlay` paints; painted
+        // depth, never blur (doctrine).
+        ui.painter().rect_filled(
+            Rect::from_min_size(
+                rect.min - egui::vec2(6.0, 0.0),
+                egui::vec2(6.0, rect.height()),
+            ),
+            0,
+            Color32::from_black_alpha(90),
+        );
+        ui.painter().rect_filled(rect, 0, cl::surface::RAISED);
+        cl::sheen(ui.painter(), rect);
+        let mut child = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(rect.shrink(12.0))
+                .layout(Layout::top_down(Align::Min)),
+        );
+        child.set_clip_rect(rect);
+        let mut close = false;
+        {
+            let ui = &mut child;
+            ui.horizontal(|ui| {
                 ui.label(RichText::new("INSPECTOR").small().color(cl::ink::SUBTLE));
-                cl::card_frame().show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.horizontal(|ui| {
-                        cl::tone_dot(ui, tone);
-                        ui.label(RichText::new(hub_label).strong().color(cl::ink::STRONG));
-                    });
-                    ui.label(RichText::new(sub_label).color(tone.color()));
-                    ui.label(
-                        RichText::new(format!("{}/{}", self.route.hub, self.route.sub))
-                            .monospace()
-                            .small()
-                            .color(cl::ink::MUTED),
-                    );
-                });
-
-                ui.add_space(cl::space::S3);
-                ui.label(RichText::new("SIGNALS").small().color(cl::ink::SUBTLE));
-                cl::card_frame().show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("route changes").small().color(cl::ink::MUTED));
-                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            ui.label(
-                                RichText::new(format!("{}", self.nav_count))
-                                    .monospace()
-                                    .color(cl::ink::BASE),
-                            );
-                        });
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("shell bus").small().color(cl::ink::MUTED));
-                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            ui.label(
-                                RichText::new("broadcast·64")
-                                    .monospace()
-                                    .color(cl::ink::BASE),
-                            );
-                        });
-                    });
-                    // THE ACTIVITY FEED (W8): the nervous system, live —
-                    // newest first, plain words, mm:ss since boot.
-                    if self.activity.is_empty() {
-                        ui.label(
-                            RichText::new("quiet — saves, imports, and jobs appear here live")
-                                .small()
-                                .color(cl::ink::SUBTLE),
-                        );
-                    } else {
-                        for line in self.activity.iter().rev().take(9) {
-                            ui.label(
-                                RichText::new(line.as_str())
-                                    .monospace()
-                                    .small()
-                                    .color(cl::ink::BASE),
-                            );
-                        }
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if icon_button(ui, cl::icon::CLOSE, "close — the content keeps this space") {
+                        close = true;
                     }
                 });
-
-                ui.add_space(cl::space::S3);
-                self.determinism_card(ui);
-
-                ui.add_space(cl::space::S3);
-                ui.label(RichText::new("TOOLS").small().color(cl::ink::SUBTLE));
+            });
+            cl::card_frame().show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    cl::tone_dot(ui, tone);
+                    ui.label(RichText::new(hub_label).strong().color(cl::ink::STRONG));
+                });
+                ui.label(RichText::new(sub_label).color(tone.color()));
                 ui.label(
-                    RichText::new("Per-hub tool docks mount here (P1).")
+                    RichText::new(format!("{}/{}", self.route.hub, self.route.sub))
+                        .monospace()
                         .small()
-                        .color(cl::ink::SUBTLE),
+                        .color(cl::ink::MUTED),
                 );
             });
-        resp.response.rect
+
+            ui.add_space(cl::space::S3);
+            ui.label(RichText::new("SIGNALS").small().color(cl::ink::SUBTLE));
+            cl::card_frame().show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("route changes").small().color(cl::ink::MUTED));
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.label(
+                            RichText::new(format!("{}", self.nav_count))
+                                .monospace()
+                                .color(cl::ink::BASE),
+                        );
+                    });
+                });
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("shell bus").small().color(cl::ink::MUTED));
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.label(
+                            RichText::new("broadcast·64")
+                                .monospace()
+                                .color(cl::ink::BASE),
+                        );
+                    });
+                });
+                // THE ACTIVITY FEED (W8): the nervous system, live —
+                // newest first, plain words, mm:ss since boot.
+                if self.activity.is_empty() {
+                    ui.label(
+                        RichText::new("quiet — saves, imports, and jobs appear here live")
+                            .small()
+                            .color(cl::ink::SUBTLE),
+                    );
+                } else {
+                    for line in self.activity.iter().rev().take(9) {
+                        ui.label(
+                            RichText::new(line.as_str())
+                                .monospace()
+                                .small()
+                                .color(cl::ink::BASE),
+                        );
+                    }
+                }
+            });
+
+            ui.add_space(cl::space::S3);
+            self.determinism_card(ui);
+
+            ui.add_space(cl::space::S3);
+            ui.label(RichText::new("TOOLS").small().color(cl::ink::SUBTLE));
+            ui.label(
+                RichText::new("Per-hub tool docks mount here (P1).")
+                    .small()
+                    .color(cl::ink::SUBTLE),
+            );
+        }
+        if close {
+            self.inspector_open = false;
+        }
+        rect
     }
 
     /// The UI second-acknowledgement channel for determinism mode.
@@ -1782,12 +1852,54 @@ mod tests {
             assert!(eq(z.top.height(), fl.topbar_height()));
             assert!(eq(z.status.height(), fl.bottombar_height()));
             assert!(eq(z.rail.width(), fl.rail_collapsed()));
-            assert!(eq(z.panel.width(), fl.panel_width()));
+            assert_eq!(
+                z.panel,
+                Rect::ZERO,
+                "the closed inspector must reserve no zone"
+            );
 
             assert!(z.content.min.y >= z.top.max.y - 0.5);
             assert!(z.content.max.y <= z.status.min.y + 0.5);
             assert!(z.content.min.x >= z.rail.max.x - 0.5);
-            assert!(z.content.max.x <= z.panel.min.x + 0.5);
+            assert!(
+                eq(z.content.max.x, z.root.max.x),
+                "content must own the full width to the root's right edge"
+            );
         }
+    }
+
+    /// The PANEL zone is an OPTIONAL OVERLAY (the operator's "rightside
+    /// overlay the content", docs/shell.md): closed it reserves nothing —
+    /// pinned above — and open it floats OVER the well: the panel rect is
+    /// token-wide, sits INSIDE the content rect, and the content still
+    /// spans to the root's right edge (no reflow, no lost space).
+    #[test]
+    fn the_inspector_overlays_the_content_instead_of_docking() {
+        let size = egui::vec2(1280.0, 800.0);
+        let (mut sh, _rx) = shell();
+        sh.set_inspector_open(true);
+        let mut harness = egui_kittest::Harness::builder()
+            .with_size(size)
+            .build_ui_state(|ui, sh: &mut Shell| sh.ui(ui), sh);
+        harness.run_steps(3);
+        let z = harness.state().zones();
+        let fl = cl::Fluid::of(Rect::from_min_size(egui::Pos2::ZERO, size));
+        let eq = |a: f32, b: f32| (a - b).abs() < 0.75;
+        assert!(
+            eq(z.panel.width(), fl.panel_width()),
+            "open panel width {} != panel_width token {}",
+            z.panel.width(),
+            fl.panel_width()
+        );
+        assert!(
+            eq(z.content.max.x, z.root.max.x),
+            "the open overlay must not shrink the content"
+        );
+        assert!(
+            z.content.contains_rect(z.panel),
+            "the panel must float INSIDE the well (content={:?} panel={:?})",
+            z.content,
+            z.panel
+        );
     }
 }
