@@ -119,6 +119,113 @@ impl Shelf {
     }
 }
 
+/// The overlay editor's tabs, in the operator's words.
+///
+/// **Words** is the REAL [`dpl_editor::Editor`] over the card's own
+/// `slide.json` — editing a card edits its document, and edits save as you
+/// type. The rest are honest placeholders: each names what will live there and
+/// admits it is not built, which beats a control that does nothing.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+enum CardTab {
+    #[default]
+    Words,
+    Background,
+    Movement,
+    Quote,
+    Picture,
+    OnTap,
+    Help,
+}
+
+impl CardTab {
+    const ALL: [CardTab; 7] = [
+        CardTab::Words,
+        CardTab::Background,
+        CardTab::Movement,
+        CardTab::Quote,
+        CardTab::Picture,
+        CardTab::OnTap,
+        CardTab::Help,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            CardTab::Words => "Words",
+            CardTab::Background => "Background",
+            CardTab::Movement => "Movement",
+            CardTab::Quote => "A quote",
+            CardTab::Picture => "Picture",
+            CardTab::OnTap => "On tap",
+            CardTab::Help => "Ask for help",
+        }
+    }
+
+    /// Stable machine id — the pilot key. Never drawn.
+    fn slug(self) -> &'static str {
+        match self {
+            CardTab::Words => "words",
+            CardTab::Background => "background",
+            CardTab::Movement => "movement",
+            CardTab::Quote => "quote",
+            CardTab::Picture => "picture",
+            CardTab::OnTap => "on-tap",
+            CardTab::Help => "help",
+        }
+    }
+
+    fn tip(self) -> &'static str {
+        match self {
+            CardTab::Words => "What the card says — type and it saves itself",
+            CardTab::Background => "What sits behind the words",
+            CardTab::Movement => "How things arrive and leave",
+            CardTab::Quote => "Someone else's words, kept with where they came from",
+            CardTab::Picture => "An image or a video on the card",
+            CardTab::OnTap => "What happens when someone taps it",
+            CardTab::Help => "Hand this card and what you want to the AI",
+        }
+    }
+
+    /// What this tab will hold once built — shown INSTEAD of a fake control.
+    fn not_yet(self) -> &'static str {
+        match self {
+            CardTab::Background => {
+                "Two colours blended, something moving, or one flat colour — around forty to \
+                 choose from, tapped straight onto the card."
+            }
+            CardTab::Movement => {
+                "How things come in, get noticed, and go out — tapped on, and shown on the card \
+                 beside you."
+            }
+            CardTab::Quote => {
+                "The quote, who said it, and where it came from — kept together so it can be \
+                 checked later."
+            }
+            CardTab::Picture => {
+                "Paste a link or drop a file. A copy comes in with it, and your originals are \
+                 never touched."
+            }
+            CardTab::OnTap => {
+                "Reveal, flip, explode. Anything you already have drops straight in; anything \
+                 new gets built properly on its own first."
+            }
+            CardTab::Help => {
+                "What you are making plus this card, written up as one clear ask — with the \
+                 pieces underneath built before the card that uses them."
+            }
+            CardTab::Words => "",
+        }
+    }
+}
+
+/// The open overlay editor — the real [`dpl_editor::Editor`] over the card's
+/// `slide.json` (edits auto-save; the editor stays fabric-free per the layer
+/// law) plus which tab is showing.
+struct CardEditor {
+    title: String,
+    editor: dpl_editor::Editor,
+    tab: CardTab,
+}
+
 /// One card's worth of shelf metadata — owned, so painting can borrow the
 /// surface mutably without fighting the list it is walking.
 struct ShelfItem {
@@ -165,6 +272,8 @@ pub(crate) struct AuthorSurface {
     seeds: Vec<(String, dpl_slides::document::DocSlide)>,
     /// Set after the first frame so the registries are read exactly once.
     loaded: bool,
+    /// The open overlay editor, if a card is being edited.
+    editing: Option<CardEditor>,
 }
 
 impl AuthorSurface {
@@ -225,6 +334,15 @@ impl AuthorSurface {
                         Some(l) => format!("started “{l}” — saved as inbox/{slide}"),
                         None => format!("started a blank card — saved as inbox/{slide}"),
                     };
+                    // Straight into the editor. Starting a card and then having
+                    // to go find it is exactly the friction this surface exists
+                    // to remove, and the document is already on disk — so the
+                    // editor opens on a real file, not a buffer hoping to be one.
+                    let dir = dpl_engine_capture::content_root()
+                        .join("inbox")
+                        .join(&slide);
+                    let title = label.clone().unwrap_or_else(|| "New card".to_string());
+                    self.open_editor(&dir, title);
                     // Emit-with-mutation: the fact is published AFTER the write
                     // succeeds, never before. show/episode are empty until the
                     // card is placed into an episode (Studio's `SlidePlaced`).
@@ -246,6 +364,153 @@ impl AuthorSurface {
         if !self.status.is_empty() {
             ui.add_space(cl::space::S2);
             ui.label(RichText::new(&self.status).small().color(cl::ink::BASE));
+        }
+
+        // Last, so the scrim sits over everything drawn above it.
+        self.editor_modal(ui);
+    }
+
+    /// Mint a card and open its editor — the `--author-editor` proof seam.
+    ///
+    /// The overlay is reachable only by tapping, so without this the surface
+    /// this pass adds could not be photographed on the real exe. Point
+    /// `--content-root` at a scratch dir and it writes nowhere near real work.
+    pub(crate) fn open_editor_drill(&mut self) {
+        match self.mint_draft() {
+            Ok(slide) => {
+                let dir = dpl_engine_capture::content_root()
+                    .join("inbox")
+                    .join(&slide);
+                self.status = format!("started a card — saved as inbox/{slide}");
+                self.open_editor(&dir, "New card".to_string());
+            }
+            Err(e) => self.status = format!("could not start a card: {e}"),
+        }
+    }
+
+    /// Open the overlay editor on a card's own folder.
+    fn open_editor(&mut self, dir: &std::path::Path, title: String) {
+        match dpl_editor::Editor::open(dir) {
+            Ok(editor) => {
+                self.editing = Some(CardEditor {
+                    title,
+                    editor,
+                    tab: CardTab::default(),
+                })
+            }
+            Err(e) => {
+                self.status = format!("the card was saved, but its editor would not open: {e}")
+            }
+        }
+    }
+
+    /// The overlay editor — a scrim over the surface, tabs across the top.
+    ///
+    /// Words is the real editor over the card's `slide.json`; the rest name
+    /// what they will hold and admit they are not built.
+    fn editor_modal(&mut self, ui: &mut egui::Ui) {
+        let Some(ed) = self.editing.as_mut() else {
+            return;
+        };
+        let tone = super::SPEC.tone;
+        let mut close = false;
+
+        egui::Modal::new(egui::Id::new("author.card-editor"))
+            .backdrop_color(egui::Color32::from_black_alpha(184))
+            .frame(
+                egui::Frame::new()
+                    .fill(cl::surface::RAISED)
+                    .stroke(egui::Stroke::new(1.0, tone.color()))
+                    .corner_radius(egui::CornerRadius::same(cl::RADIUS_LG))
+                    .inner_margin(egui::Margin::same(16)),
+            )
+            .show(ui.ctx(), |ui| {
+                let room = ui.ctx().content_rect();
+                let fluid = cl::Fluid::of(room);
+                // Wide enough for the editor to breathe, never wider than the
+                // window it sits in.
+                ui.set_width((fluid.panel_width() * 2.0).min(room.width() * 0.8));
+
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(&ed.title)
+                            .size(fluid.fs_h4())
+                            .strong()
+                            .color(cl::ink::STRONG),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if cl::tip(
+                            ui.label(RichText::new("Done").strong().color(tone.color()))
+                                .interact(egui::Sense::click()),
+                            "Close this — your card is already saved.",
+                        )
+                        .clicked()
+                        {
+                            close = true;
+                        }
+                    });
+                });
+                ui.add_space(cl::space::S2);
+
+                ui.horizontal_wrapped(|ui| {
+                    for t in CardTab::ALL {
+                        let active = ed.tab == t;
+                        let chip = cl::tip(
+                            ui.label(RichText::new(t.label()).strong().color(if active {
+                                tone.color()
+                            } else {
+                                cl::ink::MUTED
+                            }))
+                            .interact(egui::Sense::click()),
+                            t.tip(),
+                        );
+                        ui.pilot_track(
+                            &chip,
+                            NodeMetadata::new(
+                                PilotId::new("workbench.author.tab")
+                                    .child(&PilotKey::new(t.slug())),
+                                egui_pilot_ai::protocol::Role::Tab,
+                                t.label(),
+                            )
+                            .value(if active { "active" } else { "available" })
+                            .selected(active),
+                        );
+                        if chip.clicked() {
+                            ed.tab = t;
+                        }
+                        ui.add_space(cl::space::S3);
+                    }
+                });
+                ui.separator();
+
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .max_height(room.height() * 0.55)
+                    .show(ui, |ui| match ed.tab {
+                        CardTab::Words => ed.editor.ui(ui),
+                        other => {
+                            ui.add_space(cl::space::S4);
+                            ui.label(
+                                RichText::new("Not built yet.")
+                                    .size(fluid.fs_body_lg())
+                                    .strong()
+                                    .color(cl::ink::STRONG),
+                            );
+                            ui.add_space(cl::space::S2);
+                            ui.label(RichText::new(other.not_yet()).color(cl::ink::MUTED));
+                        }
+                    });
+
+                ui.separator();
+                ui.label(
+                    RichText::new("Everything you type here saves itself.")
+                        .small()
+                        .color(cl::ink::SUBTLE),
+                );
+            });
+
+        if close {
+            self.editing = None;
         }
     }
 
