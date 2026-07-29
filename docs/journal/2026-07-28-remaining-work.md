@@ -25,7 +25,7 @@ That vision is now half-foundation, half-product:
 | **Authorize** — `OperatorIntent` + determinism modes | **Landed** (switch yes; pinning no) |
 | **Teach inside DevPULSE** — instrumented surfaces + postcondition steps | **Partial** (Workbench started; Library section selection still blocks a full lesson) |
 | **Paint the monitor** — click-through overlay process | **Spike proven** (transparency + passthrough on X11); daemon not done |
-| **Perceive foreign apps** — AT-SPI / UIA tier ladder | **Plan only** (C2s spike authorized, not executed) |
+| **Perceive foreign apps** — AT-SPI / UIA tier ladder | **Spike proven** (C2s Tier A on X11); C2a ADR next |
 | **Analyze** — DuckDB lens over ledger files | **Phase 3 ADR**, after real volume |
 
 ---
@@ -65,19 +65,14 @@ lessons that name a rail hub failed when chrome collapsed.
 Plan: `docs/plans/p4-rail-accordion-degrade.md`. Proof:
 `docs/proof/p4-rail-cramped-640x480.png` + shell kittest.
 
-### 5. C2s foreign-target spike (p5) — **NEXT**
+### 5. C2s foreign-target spike (p5) — **CLOSED** (2026-07-29)
 
-**Plan:** `docs/plans/coach-c2s-foreign-target-spike.md` (authorized).
+**Plan:** `docs/plans/coach-c2s-foreign-target-spike.md` — evidence §9.
+Locate + compose + ColdLight paint + `Action.doAction` on
+`gnome-calculator` button `7`. Triggered-observe needs operator (display
+Text empty on this GTK4).
 
-**Why before C2a ADR:** findings feed the ADR; the operator ruled
-spike-first. Tier A app on this ARM64 X11 box; proof-of-concept only;
-AT-SPI path with zero adapter.
-
-**Done when:** resolve a control by identity, paint ColdLight spotlight
-at true screen coords, observe operator press, separately invoke by
-identity — evidence written into the spike plan, then C2a.
-
-### 6. C2a coach-overlay ADR → C2b daemon
+### 6. C2a coach-overlay ADR → C2b daemon — **NEXT**
 
 **Why after C2s:** ADR argues from measured coords + AT-SPI reality,
 not taste. Separate process `dpl-coach-overlay`, feature-gated /

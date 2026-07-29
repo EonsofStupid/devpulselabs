@@ -6,27 +6,26 @@
 
 ## Goal
 
-Close p4 rail accordion degrade, then C2s foreign-target spike.
+Land C2s foreign-target spike evidence, then author C2a coach-overlay ADR.
 
 ## Done
 
-- #135 DS3 + p6; #133 Session OS; #119 charter; #136 carousel
-- `/strict` mint-site matrix; **p2b** passthrough PASS (#139)
-- **p4** rail ScrollArea + open-house reveal (cramped 640×480 proof)
+- p6 / `/strict` / p2b / p4
+- **C2s** Tier A: locate + compose + spotlight paint + semantic invoke
 
 ## Next
 
-1. Merge this PR (p4)
-2. C2s foreign-target spike (`docs/plans/coach-c2s-foreign-target-spike.md`)
-3. C2a ADR → C2b daemon…
+1. Merge this PR (C2s)
+2. C2a coach-overlay ADR (from spike findings)
+3. C2b daemon…
 
 ## Blockers
 
-None on coach lane. Authoring filmstrip is a parallel lane.
+Triggered-observe needs operator (calculator Text iface empty). Windows /
+Wayland unproven.
 
 ## Key files
 
-- `docs/plans/p4-rail-accordion-degrade.md`
-- `crates/shell/src/lib.rs` (`rail()` ScrollArea)
-- `docs/proof/p4-rail-cramped-640x480.png`
-- `docs/shell.md` (law 3/5 cramped exception)
+- `docs/plans/coach-c2s-foreign-target-spike.md` §9
+- `crates/desktop-spike/src/bin/foreign_target_probe*.rs`
+- `docs/proof/c2s-foreign-spotlight.png`

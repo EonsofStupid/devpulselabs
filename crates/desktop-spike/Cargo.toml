@@ -3,9 +3,11 @@ name = "dpl-desktop-spike"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+autobins = false
 
 # Desktop-integration probes. Deliberately NOT a dependency of `crates/app`:
 # nothing here can reach a production build, so no feature gate is needed.
+# Linux/X11 only — Windows green must not compile AT-SPI / x11rb.
 
 [lints]
 workspace = true
@@ -13,8 +15,12 @@ workspace = true
 [dependencies]
 eframe.workspace = true
 egui.workspace = true
-# XTEST click for the passthrough probe only (already transitive via eframe).
-x11rb = { version = "0.13", default-features = false, features = ["allow-unsafe-code", "xtest"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+async-io.workspace = true
+atspi.workspace = true
+zbus.workspace = true
+x11rb.workspace = true
 
 [[bin]]
 name = "overlay-probe"
@@ -23,3 +29,7 @@ path = "src/bin/overlay_probe.rs"
 [[bin]]
 name = "passthrough-probe"
 path = "src/bin/passthrough_probe.rs"
+
+[[bin]]
+name = "foreign-target-probe"
+path = "src/bin/foreign_target_probe.rs"

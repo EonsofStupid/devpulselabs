@@ -50,14 +50,18 @@ not as a JS runtime. The no-webview/no-second-language contract holds.
   hover card, `crates/chat/window/src/lib.rs`); shell paints
   `cl::frame_overlay` after hubs.
 - **AccessKit is already on.** eframe 0.35 default features include
-  `accesskit`; on Linux `accesskit_unix` (0.22.x) exposes the tree over
-  AT-SPI via zbus. Upstream caveat: 0.22.0 panics on a broken AT-SPI bus
-  (AccessKit #727; fix PR #741, 2026-07).
+  `accesskit`; on Linux locked `accesskit_unix` is **0.21.1** (not the
+  0.22.x the early draft assumed) and exposes the tree over AT-SPI via
+  zbus. Re-check AccessKit #727 against 0.21.1 before assuming the bus
+  panic.
 - **This box:** GNOME on **X11** (`XDG_SESSION_TYPE=x11`). AT-SPI bus
-  running; `org.gnome.desktop.interface toolkit-accessibility` = **false**
-  (toolkit apps other than AccessKit ones won't publish trees until
-  flipped). No ydotool — irrelevant on X11, XTEST covers input synthesis.
-  Second target is the Windows laptop (UI Automation + layered windows).
+  running. **`org.gnome.desktop.interface toolkit-accessibility` may stay
+  false** — measured 2026-07-27 / reconfirmed C2s 2026-07-29: GTK3/GTK4
+  apps (terminal, calculator, Nautilus) still publish AT-SPI trees with
+  the flag off. No operator flip required for Tier A GTK. Electron still
+  needs `--force-renderer-accessibility`. No ydotool — irrelevant on X11,
+  XTEST covers input synthesis. Second target is the Windows laptop
+  (UI Automation + layered windows).
 - **Test Lab** today only text-filters the tree and prints rects; no
   spotlight paint, no live-control session.
 
@@ -352,15 +356,17 @@ the program map.
   next egui bump.
 
 **Operator changes required (this box)**
-1. One-time: `gsettings set org.gnome.desktop.interface
-   toolkit-accessibility true` — lets GTK/Qt/Electron apps publish AT-SPI
-   trees (needed for C4; DevPULSE itself already publishes via AccessKit).
+1. **GTK Tier A: none.** Measured with `toolkit-accessibility` still false —
+   calculator / terminal / Nautilus publish AT-SPI trees anyway (C2s). Flip
+   the gsettings key only if Qt/Electron targets stay dark; Electron also
+   needs `--force-renderer-accessibility`.
 2. Stay on the X11 session for coach work — best overlay + input story
    today. If you later want Wayland: Hyprland/Sway/niri give the full
    layer-shell experience; GNOME Wayland does not.
 3. Nothing to install for input (X11 = XTEST built in). `ydotool` only
    becomes relevant on a Wayland session.
 4. Windows laptop: no changes — layered windows + UI Automation are native.
+5. a11y bus address path is `/org/a11y/bus` (lowercase), not `/org/a11y/Bus`.
 
 **Language verdict: stay pure Rust.** Every layer has first-class Rust:
 winit/egui/AccessKit (UI + a11y), x11rb (XShape/XTEST), smithay-client-toolkit
