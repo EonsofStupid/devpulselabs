@@ -99,6 +99,13 @@ impl Editor {
         self.mutate(|slide| slide.background = background);
     }
 
+    /// The show's look this slide resolves against. A preview drawn beside
+    /// the editor has to cascade the same way the card does, or it shows
+    /// something the deck never will.
+    pub fn look(&self) -> &dpl_doc::Look {
+        &self.look
+    }
+
     /// What the show's look says the entrance is — what "follow the show"
     /// resolves to, so a picker can name it instead of showing an invisible
     /// default.

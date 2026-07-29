@@ -126,6 +126,105 @@ fn newest_draft() -> Option<std::path::PathBuf> {
     dirs.pop()
 }
 
+/// One tab chip. Shared by both rail orientations so a reworded tab, a pilot
+/// key or the selected styling can never drift between them.
+fn tab_chip(ui: &mut egui::Ui, ed: &mut CardEditor, t: CardTab, tone: Tone) {
+    let active = ed.tab == t;
+    let chip = cl::tip(
+        ui.label(RichText::new(t.label()).strong().color(if active {
+            tone.color()
+        } else {
+            cl::ink::MUTED
+        }))
+        .interact(egui::Sense::click()),
+        t.tip(),
+    );
+    ui.pilot_track(
+        &chip,
+        NodeMetadata::new(
+            PilotId::new("workbench.author.tab").child(&PilotKey::new(t.slug())),
+            egui_pilot_ai::protocol::Role::Tab,
+            t.label(),
+        )
+        .value(if active { "active" } else { "available" })
+        .selected(active),
+    );
+    if chip.clicked() {
+        ed.tab = t;
+    }
+}
+
+/// The rail as R1 draws it — one tab per line down the left.
+fn tab_rail(ui: &mut egui::Ui, ed: &mut CardEditor, tone: Tone) {
+    for t in CardTab::ALL {
+        tab_chip(ui, ed, t, tone);
+        ui.add_space(cl::space::S2);
+    }
+}
+
+/// The rail when there is no room for a column — wrapped across the top, the
+/// same degrade R1 makes on a narrow window.
+fn tab_rail_wrapped(ui: &mut egui::Ui, ed: &mut CardEditor, tone: Tone) {
+    ui.horizontal_wrapped(|ui| {
+        for t in CardTab::ALL {
+            tab_chip(ui, ed, t, tone);
+            ui.add_space(cl::space::S3);
+        }
+    });
+}
+
+/// The live pane: the card as it looks right now.
+///
+/// Drawn from the editor's OWN in-memory slide, not a re-read of the file, so
+/// a tapped colour shows on the next frame rather than after a save
+/// round-trip. `thumbnail_ui` is what makes it possible at pane size — before
+/// #147 a whole slide in a 300pt stage cropped.
+fn live_pane(ui: &mut egui::Ui, ed: &mut CardEditor) {
+    let fluid = cl::Fluid::of(ui.ctx().content_rect());
+    ui.horizontal(|ui| {
+        cl::tone_dot(ui, Tone::Cyan);
+        ui.label(
+            RichText::new("as it looks right now")
+                .size(fluid.fs_eyebrow())
+                .color(cl::ink::MUTED),
+        );
+    });
+    ui.add_space(cl::space::S2);
+
+    let w = ui.available_width();
+    let (stage, _) = ui.allocate_exact_size(egui::vec2(w, w * 9.0 / 16.0), egui::Sense::hover());
+    ui.painter()
+        .rect_filled(stage, cl::RADIUS, cl::surface::WELL);
+    {
+        let now = ui.input(|i| i.time);
+        let t0 = ed.preview.tick(now);
+        let inner_rect = stage.shrink(1.0);
+        let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(inner_rect));
+        inner.set_clip_rect(stage.intersect(ui.clip_rect()));
+        dpl_slides::document::render_thumbnail(
+            &mut inner,
+            inner_rect,
+            ed.editor.slide(),
+            ed.editor.look(),
+            now,
+            t0,
+        );
+    }
+    ui.painter().rect_stroke(
+        stage,
+        cl::RADIUS,
+        egui::Stroke::new(1.0, cl::surface::HAIRLINE),
+        egui::StrokeKind::Inside,
+    );
+
+    ui.add_space(cl::space::S2);
+    ui.label(
+        RichText::new("Every change lands here as you make it.")
+            .size(fluid.fs_body_sm())
+            .color(cl::ink::SUBTLE),
+    );
+}
+
 /// The Movement tab — how the words arrive.
 ///
 /// THREE choices, and that is the whole truth of it. The document permits two
@@ -557,7 +656,7 @@ impl Shelf {
 /// `slide.json` — editing a card edits its document, and edits save as you
 /// type. The rest are honest placeholders: each names what will live there and
 /// admits it is not built, which beats a control that does nothing.
-#[derive(Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum CardTab {
     #[default]
     Words,
@@ -617,6 +716,18 @@ impl CardTab {
         }
     }
 
+    /// Does this tab get the live card beside it?
+    ///
+    /// Everywhere but Words, the card is a PREVIEW: change a colour, the card
+    /// shows it. On Words the card is the CONTROL — you tap a line on the
+    /// slide to select what to edit — so a second card beside it, only one of
+    /// which answers a tap, would be worse than one. This is a deliberate
+    /// deviation from the mock's uniform two-pane body, recorded in
+    /// `docs/plans/author-overlay-live-pane.md` §8.
+    fn shows_live_card(self) -> bool {
+        !matches!(self, CardTab::Words)
+    }
+
     /// What this tab will hold once built — shown INSTEAD of a fake control.
     fn not_yet(self) -> &'static str {
         match self {
@@ -658,6 +769,10 @@ struct CardEditor {
     tab: CardTab,
     /// Which card's folder is open, so the strip can re-read it on close.
     dir: std::path::PathBuf,
+    /// The live pane's clock. Owned here rather than by a `DocSlide`,
+    /// because the pane renders the editor's slide DIRECTLY — rebuilding a
+    /// document each frame would restart the entrance on every keystroke.
+    preview: dpl_slides::motion::Clock,
 }
 
 /// One card's worth of shelf metadata — owned, so painting can borrow the
@@ -939,6 +1054,7 @@ impl AuthorSurface {
                     editor,
                     tab: CardTab::default(),
                     dir: dir.to_path_buf(),
+                    preview: dpl_slides::motion::Clock::default(),
                 })
             }
             Err(e) => {
@@ -995,56 +1111,95 @@ impl AuthorSurface {
                 });
                 ui.add_space(cl::space::S2);
 
-                ui.horizontal_wrapped(|ui| {
-                    for t in CardTab::ALL {
-                        let active = ed.tab == t;
-                        let chip = cl::tip(
-                            ui.label(RichText::new(t.label()).strong().color(if active {
-                                tone.color()
-                            } else {
-                                cl::ink::MUTED
-                            }))
-                            .interact(egui::Sense::click()),
-                            t.tip(),
-                        );
-                        ui.pilot_track(
-                            &chip,
-                            NodeMetadata::new(
-                                PilotId::new("workbench.author.tab")
-                                    .child(&PilotKey::new(t.slug())),
-                                egui_pilot_ai::protocol::Role::Tab,
-                                t.label(),
-                            )
-                            .value(if active { "active" } else { "available" })
-                            .selected(active),
-                        );
-                        if chip.clicked() {
-                            ed.tab = t;
-                        }
-                        ui.add_space(cl::space::S3);
-                    }
-                });
                 ui.separator();
 
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
-                    .max_height(room.height() * 0.55)
-                    .show(ui, |ui| match ed.tab {
-                        CardTab::Words => ed.editor.ui(ui),
-                        CardTab::Background => background_tab(ui, &mut ed.editor),
-                        CardTab::Movement => movement_tab(ui, &mut ed.editor),
-                        other => {
-                            ui.add_space(cl::space::S4);
-                            ui.label(
-                                RichText::new("Not built yet.")
-                                    .size(fluid.fs_body_lg())
-                                    .strong()
-                                    .color(cl::ink::STRONG),
-                            );
-                            ui.add_space(cl::space::S2);
-                            ui.label(RichText::new(other.not_yet()).color(cl::ink::MUTED));
-                        }
-                    });
+                // R1's shape: a rail down the left, the tab's controls in the
+                // middle, the card itself live on the right.
+                //
+                // Explicit rects rather than nested layouts — the same idiom
+                // the carousel uses, and for the same reason: a band whose
+                // parts must line up is easier to reason about as geometry
+                // than as a stack of layout negotiations.
+                let rail_w = fluid.panel_width() * 0.44;
+                let body_h = (room.height() * 0.5).max(fluid.panel_width());
+                // The rail only goes vertical when it can afford a column
+                // beside two more. Below that it wraps across the top, which
+                // is the degrade R1 makes at 760px.
+                let vertical_rail = ui.available_width() > rail_w * 4.0;
+                if !vertical_rail {
+                    tab_rail_wrapped(ui, ed, tone);
+                    ui.add_space(cl::space::S2);
+                }
+
+                // The card only earns a pane where it is a PREVIEW. On Words
+                // it is the control — you tap a line on the slide to select
+                // it — and two cards side by side, only one of which answers
+                // a tap, is worse than one.
+                let live = ed.tab.shows_live_card();
+                let (band, _) = ui.allocate_exact_size(
+                    egui::vec2(ui.available_width(), body_h),
+                    egui::Sense::hover(),
+                );
+                let gap = cl::space::S3;
+                let mut x = band.min.x;
+                if vertical_rail {
+                    let rail = egui::Rect::from_min_size(band.min, egui::vec2(rail_w, body_h));
+                    // `new_child`, not `scope_builder`: the band already
+                    // claimed its height, and a scope would claim more on top
+                    // — which walked the footer up into the band.
+                    let mut rail_ui = ui.new_child(egui::UiBuilder::new().max_rect(rail));
+                    rail_ui.set_clip_rect(rail.intersect(ui.clip_rect()));
+                    tab_rail(&mut rail_ui, ed, tone);
+                    x = rail.max.x + gap;
+                }
+                let live_w = if live {
+                    ((band.max.x - x) * 0.4).min(fluid.panel_width())
+                } else {
+                    0.0
+                };
+                let controls = egui::Rect::from_min_max(
+                    egui::pos2(x, band.min.y),
+                    egui::pos2(
+                        band.max.x - live_w - if live { gap } else { 0.0 },
+                        band.max.y,
+                    ),
+                );
+                let mut controls_ui = ui.new_child(egui::UiBuilder::new().max_rect(controls));
+                controls_ui.set_clip_rect(controls.intersect(ui.clip_rect()));
+                {
+                    let ui = &mut controls_ui;
+                    egui::ScrollArea::vertical()
+                        .id_salt("author.card-editor.controls")
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            ui.set_clip_rect(controls.intersect(ui.clip_rect()));
+                            match ed.tab {
+                                CardTab::Words => ed.editor.ui(ui),
+                                CardTab::Background => background_tab(ui, &mut ed.editor),
+                                CardTab::Movement => movement_tab(ui, &mut ed.editor),
+                                other => {
+                                    ui.add_space(cl::space::S4);
+                                    ui.label(
+                                        RichText::new("Not built yet.")
+                                            .size(fluid.fs_body_lg())
+                                            .strong()
+                                            .color(cl::ink::STRONG),
+                                    );
+                                    ui.add_space(cl::space::S2);
+                                    ui.label(RichText::new(other.not_yet()).color(cl::ink::MUTED));
+                                }
+                            }
+                        });
+                }
+                if live {
+                    let pane = egui::Rect::from_min_max(
+                        egui::pos2(band.max.x - live_w, band.min.y),
+                        band.max,
+                    );
+                    let mut pane_ui = ui.new_child(egui::UiBuilder::new().max_rect(pane));
+                    pane_ui.set_clip_rect(pane.intersect(ui.clip_rect()));
+                    live_pane(&mut pane_ui, ed);
+                }
 
                 ui.separator();
                 ui.label(
@@ -2158,5 +2313,86 @@ mod movement_tests {
         let after = drive_movement(&dir, "Follow the show");
         std::fs::remove_dir_all(&dir).ok();
         assert_eq!(after.enter, None, "inheriting must not write a value");
+    }
+}
+
+#[cfg(test)]
+mod overlay_tests {
+    use super::background_tests::card;
+    use super::*;
+    use egui_kittest::kittest::Queryable as _;
+
+    fn editor_over(dir: &std::path::Path) -> CardEditor {
+        CardEditor {
+            title: "Test card".into(),
+            editor: dpl_editor::Editor::open(dir).unwrap(),
+            tab: CardTab::default(),
+            dir: dir.to_path_buf(),
+            preview: dpl_slides::motion::Clock::default(),
+        }
+    }
+
+    /// The gallery gate for tabs: every registered tab is reachable from the
+    /// rail, in BOTH orientations. A tab that exists but cannot be got to is
+    /// the same defect as one that never paints.
+    #[test]
+    fn every_tab_is_reachable_from_the_rail_in_both_orientations() {
+        for vertical in [true, false] {
+            let dir = card(&format!("rail-{vertical}"), None);
+            let ed = editor_over(&dir);
+            let mut harness = egui_kittest::Harness::builder()
+                .with_size(egui::vec2(1280.0, 800.0))
+                .build_ui_state(
+                    move |ui, ed: &mut CardEditor| {
+                        if vertical {
+                            tab_rail(ui, ed, Tone::Amber);
+                        } else {
+                            tab_rail_wrapped(ui, ed, Tone::Amber);
+                        }
+                    },
+                    ed,
+                );
+            harness.run();
+            for tab in CardTab::ALL {
+                harness.get_by_label(tab.label()).click();
+                harness.run();
+                assert_eq!(
+                    harness.state().tab,
+                    tab,
+                    "{} unreachable with vertical={vertical}",
+                    tab.slug()
+                );
+            }
+            std::fs::remove_dir_all(&dir).ok();
+        }
+    }
+
+    /// Words owns its card because the card is its control; every other tab
+    /// gets the preview pane beside it.
+    #[test]
+    fn only_the_words_tab_owns_its_card() {
+        assert!(!CardTab::Words.shows_live_card());
+        for tab in CardTab::ALL.into_iter().filter(|t| *t != CardTab::Words) {
+            assert!(tab.shows_live_card(), "{} wants a preview", tab.slug());
+        }
+    }
+
+    /// The live pane draws the card from the editor's own slide, so a change
+    /// is on screen before any file round-trip.
+    ///
+    /// `run_steps`, not `run`: the card is a REAL document render and the
+    /// mood blend never rests, so the pane requests a repaint every frame.
+    /// A converging harness here would mean the preview had stopped being
+    /// live — the thing this pass exists to add.
+    #[test]
+    fn the_live_pane_shows_a_moving_card_and_says_so() {
+        let dir = card("live", None);
+        let ed = editor_over(&dir);
+        let mut harness = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(400.0, 400.0))
+            .build_ui_state(|ui, ed: &mut CardEditor| live_pane(ui, ed), ed);
+        harness.run_steps(4);
+        harness.get_by_label_contains("as it looks right now");
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

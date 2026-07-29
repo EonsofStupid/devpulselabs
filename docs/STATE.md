@@ -2,6 +2,27 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-29 — THE OVERLAY'S LIVE PANE (M5b, `docs/plans/author-overlay-live-pane.md`):**
+the card editor becomes what the mock specifies — a tab rail down the left,
+the tab's controls in the middle, and THE CARD ITSELF, LIVE, on the right
+("as it looks right now"). The operator asked for this in as many words: "the
+card would then appear show live preview as i start to fill it out". Sequenced
+AHEAD of the four remaining tabs so they arrive into the right shape, and it
+closes the below-the-fold problem from author-tab-background §8.3. ONE
+deliberate deviation from the mock's uniform two-pane body: **Words keeps its
+own stage and gets no live pane** — everywhere else the card is a preview, but
+on Words it is the CONTROL (you tap a line on the slide to select it), and two
+cards where only one answers a tap is worse than one. Pinned by
+`CardTab::shows_live_card`. The pane renders the editor's IN-MEMORY slide via
+`render_thumbnail` with a clock owned by `CardEditor` — not a file re-read,
+not a rebuilt `DocSlide`, either of which would restart the entrance on every
+keystroke; `Editor::look` is new so the preview cascades like the card does.
+Build notes worth keeping (§8.3): nested egui layouts allocated three columns
+and painted nothing — explicit rects, the carousel's idiom, worked at once;
+and `scope_builder` walked the footer into the band because the band had
+already claimed its height (`new_child` does not). NEXT = the four remaining
+tabs (A quote · Picture · On tap · Ask for help).
+
 **2026-07-29 — THE MOVEMENT TAB (`docs/plans/author-tab-movement.md`):**
 second of the six placeholders, and deliberately small because the truth is.
 GROUND TRUTH — `dpl_doc::ENTERS` permits exactly `rise` and `none`, and
