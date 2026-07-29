@@ -407,14 +407,51 @@ pub fn render_stitch(
 // (`aa` doubles as layer opacity); framesync repeats a 24fps element over
 // a 30fps base by itself — no fps filter on overlay legs.
 
-/// One leg of the comp's BASE track: a real clip/still, or generated black
-/// (a timeline gap under an overlay — e.g. a base-track Lottie's span, or
-/// the tail an overlay hangs past). Black legs keep concat time aligned
-/// with the comp timeline so `enable` windows land exactly.
+/// One leg of the comp's BASE track: a real clip/still (optionally LUT-
+/// graded, L4), or generated black (a timeline gap under an overlay —
+/// e.g. a base-track Lottie's span, or the tail an overlay hangs past).
+/// Black legs keep concat time aligned with the comp timeline so
+/// `enable` windows land exactly.
 #[derive(Debug, Clone, PartialEq)]
 pub enum CompBase {
-    Clip(StitchClip),
-    Black { dur: f32 },
+    Clip {
+        clip: StitchClip,
+        /// A `.cube` LUT graded onto this leg (the 860-cube use case).
+        lut: Option<PathBuf>,
+    },
+    Black {
+        dur: f32,
+    },
+}
+
+/// The L4 blend link for an overlay: how it meets the chain below it.
+/// Screen/add legs pad to the FULL frame on BLACK (their neutral, so the
+/// pad is invisible) and run the `blend` filter instead of `overlay`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OverlayBlend {
+    #[default]
+    Normal,
+    Screen,
+    Add,
+}
+
+impl OverlayBlend {
+    /// The ffmpeg `blend=all_mode=` word.
+    fn mode(self) -> &'static str {
+        match self {
+            OverlayBlend::Normal => "normal",
+            OverlayBlend::Screen => "screen",
+            OverlayBlend::Add => "addition",
+        }
+    }
+}
+
+/// A filesystem path as an ffmpeg FILTER argument (lut3d): forward
+/// slashes, the drive colon escaped (`C\:`), wrapped in single quotes —
+/// the filtergraph parser otherwise eats `:` as an option separator.
+pub fn filter_path(p: &Path) -> String {
+    let s = p.to_string_lossy().replace('\\', "/").replace(':', "\\:");
+    format!("'{s}'")
 }
 
 /// Where an overlay's pixels come from: a file ffmpeg decodes whole, or a
@@ -447,6 +484,14 @@ pub struct OverlayClip {
     /// of being trimmed — a one-frame stream would otherwise vanish after
     /// its single frame.
     pub hold: bool,
+    /// L4: screen/add legs blend instead of alpha-over (black-pad neutral).
+    pub blend: OverlayBlend,
+    /// L4: a luma-matte video whose LUMINANCE becomes this leg's alpha
+    /// (`alphamerge`, trimmed/placed with the layer). Ignored on a
+    /// blended leg — `blend` drops alpha; the doctor names the combo.
+    pub matte: Option<PathBuf>,
+    /// L4: a `.cube` LUT graded onto this leg.
+    pub lut: Option<PathBuf>,
 }
 
 /// The one-pass comp filtergraph: the PROVEN stitch legs concat into
@@ -463,7 +508,7 @@ pub fn comp_args(
     let mut args: Vec<String> = vec!["-y".into(), "-v".into(), "error".into()];
     for leg in base {
         match leg {
-            CompBase::Clip(c) => {
+            CompBase::Clip { clip: c, .. } => {
                 if c.still {
                     args.push("-loop".into());
                     args.push("1".into());
@@ -510,24 +555,50 @@ pub fn comp_args(
             }
         }
     }
+    // L4: matte videos join as their own inputs AFTER every overlay input;
+    // `matte_at[j]` remembers each matted overlay's input index.
+    let mut matte_at: Vec<Option<usize>> = Vec::with_capacity(overlays.len());
+    let mut next_in = base.len() + overlays.len();
+    for o in overlays {
+        let idx = match (&o.matte, o.blend) {
+            // blend drops alpha — a matte there is dead weight (the comp
+            // doctor names the combo); skip its input entirely.
+            (Some(m), OverlayBlend::Normal) => {
+                args.push("-i".into());
+                args.push(m.to_string_lossy().into_owned());
+                next_in += 1;
+                Some(next_in - 1)
+            }
+            _ => None,
+        };
+        matte_at.push(idx);
+    }
 
     let mut graph = String::new();
     for (i, leg) in base.iter().enumerate() {
         match leg {
-            // The stitch legs VERBATIM — the proven concat tier.
-            CompBase::Clip(c) if c.still => graph.push_str(&format!(
-                "[{i}:v]fps={fps},scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[v{i}];"
-            )),
-            CompBase::Clip(c) => {
-                let s = c.in_pt.max(0.0);
-                let e = c.out_pt.max(s);
-                graph.push_str(&format!(
-                    "[{i}:v]trim=start={s:.3}:end={e:.3},setpts=PTS-STARTPTS,fps={fps},scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[v{i}];"
-                ));
+            // The stitch legs VERBATIM — the proven concat tier. An L4
+            // LUT grades the leg after the pad, before normalization.
+            CompBase::Clip { clip: c, lut } => {
+                let grade = lut
+                    .as_deref()
+                    .map(|p| format!(",lut3d={}", filter_path(p)))
+                    .unwrap_or_default();
+                if c.still {
+                    graph.push_str(&format!(
+                        "[{i}:v]fps={fps},scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2{grade},setsar=1,format=yuv420p[v{i}];"
+                    ));
+                } else {
+                    let s = c.in_pt.max(0.0);
+                    let e = c.out_pt.max(s);
+                    graph.push_str(&format!(
+                        "[{i}:v]trim=start={s:.3}:end={e:.3},setpts=PTS-STARTPTS,fps={fps},scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2{grade},setsar=1,format=yuv420p[v{i}];"
+                    ));
+                }
             }
-            CompBase::Black { .. } => graph.push_str(&format!(
-                "[{i}:v]setsar=1,format=yuv420p[v{i}];"
-            )),
+            CompBase::Black { .. } => {
+                graph.push_str(&format!("[{i}:v]setsar=1,format=yuv420p[v{i}];"))
+            }
         }
     }
     for i in 0..base.len() {
@@ -563,22 +634,52 @@ pub fn comp_args(
                 a as f32 / 255.0
             ));
         }
-        graph.push_str(&format!("[fx{j}];"));
-
+        if let Some(lut) = &o.lut {
+            graph.push_str(&format!(",lut3d={}", filter_path(lut)));
+        }
         let prev = if j == 0 {
             "base".to_string()
         } else {
             format!("ov{}", j - 1)
         };
-        // Sign-aware offsets: "(W-w)/2-120.0", never "+-120.0" (the ffmpeg
-        // expression parser must never see a double sign).
-        graph.push_str(&format!(
-            "[{prev}][fx{j}]overlay=x=(W-w)/2{:+.1}:y=(H-h)/2{:+.1}:enable='between(t,{:.3},{:.3})':eof_action=pass[ov{j}];",
-            o.x,
-            o.y,
-            o.at,
-            o.at + (o.out_pt - o.in_pt).max(0.0)
-        ));
+        let win_end = o.at + (o.out_pt - o.in_pt).max(0.0);
+        match o.blend {
+            // L4 blend link (proven form): pad the leg to the FULL frame
+            // on BLACK — the neutral for screen/add, so position rides the
+            // pad's centering expression — then per-plane blend on gbrp.
+            OverlayBlend::Screen | OverlayBlend::Add => {
+                graph.push_str(&format!(
+                    ",pad={w}:{h}:(ow-iw)/2{:+.1}:(oh-ih)/2{:+.1}:black,format=gbrp[fx{j}];",
+                    o.x, o.y
+                ));
+                graph.push_str(&format!(
+                    "[{prev}]format=gbrp[pv{j}];[pv{j}][fx{j}]blend=all_mode={}:enable='between(t,{:.3},{win_end:.3})'[bl{j}];[bl{j}]format=yuv420p[ov{j}];",
+                    o.blend.mode(),
+                    o.at
+                ));
+            }
+            OverlayBlend::Normal => {
+                graph.push_str(&format!("[fx{j}];"));
+                // L4 luma matte: the matte input trims/places WITH the
+                // layer, grays, and becomes the leg's alpha (proven form).
+                let fx_label = match matte_at[j] {
+                    Some(m) => {
+                        graph.push_str(&format!(
+                            "[{m}:v]trim=start={s:.3}:end={e:.3},setpts=PTS-STARTPTS+{:.3}/TB,scale={tw}:{th}:force_original_aspect_ratio=decrease,format=gray[mt{j}];[fx{j}][mt{j}]alphamerge[fm{j}];",
+                            o.at
+                        ));
+                        format!("fm{j}")
+                    }
+                    None => format!("fx{j}"),
+                };
+                // Sign-aware offsets: "(W-w)/2-120.0", never "+-120.0" (the
+                // ffmpeg expression parser must never see a double sign).
+                graph.push_str(&format!(
+                    "[{prev}][{fx_label}]overlay=x=(W-w)/2{:+.1}:y=(H-h)/2{:+.1}:enable='between(t,{:.3},{win_end:.3})':eof_action=pass[ov{j}];",
+                    o.x, o.y, o.at
+                ));
+            }
+        }
     }
     if overlays.is_empty() {
         graph.push_str("[base]null[out]");
@@ -1054,12 +1155,15 @@ mod comp_tests {
     use super::*;
 
     fn clip(path: &str, in_pt: f32, out_pt: f32) -> CompBase {
-        CompBase::Clip(StitchClip {
-            path: path.into(),
-            in_pt,
-            out_pt,
-            still: false,
-        })
+        CompBase::Clip {
+            clip: StitchClip {
+                path: path.into(),
+                in_pt,
+                out_pt,
+                still: false,
+            },
+            lut: None,
+        }
     }
 
     fn fx(at: f32) -> OverlayClip {
@@ -1073,7 +1177,129 @@ mod comp_tests {
             scale: 1.0,
             tint: None,
             hold: false,
+            blend: OverlayBlend::Normal,
+            matte: None,
+            lut: None,
         }
+    }
+
+    /// L4: a Windows path becomes a quoted, colon-escaped, forward-slash
+    /// filter argument — the filtergraph parser never eats the drive colon.
+    #[test]
+    fn filter_path_escapes_windows_shapes() {
+        assert_eq!(
+            filter_path(Path::new("C:\\x y\\a.cube")),
+            "'C\\:/x y/a.cube'"
+        );
+        assert_eq!(filter_path(Path::new("rel/b.cube")), "'rel/b.cube'");
+    }
+
+    /// L4: a graded base leg carries lut3d after the pad; a graded overlay
+    /// leg carries it after tint.
+    #[test]
+    fn luts_grade_base_and_overlay_legs() {
+        let base = [CompBase::Clip {
+            clip: StitchClip {
+                path: "a.mp4".into(),
+                in_pt: 0.0,
+                out_pt: 3.0,
+                still: false,
+            },
+            lut: Some("C:\\g\\cc.cube".into()),
+        }];
+        let mut o = fx(1.0);
+        o.lut = Some("cc2.cube".into());
+        let a = comp_args(&base, &[o], 1920, 1080, 30, Path::new("o.mp4")).join(" ");
+        assert!(
+            a.contains("(oh-ih)/2,lut3d='C\\:/g/cc.cube',setsar=1"),
+            "base grade after pad: {a}"
+        );
+        assert!(
+            a.contains(",lut3d='cc2.cube'[fx0]"),
+            "overlay grade ends the leg: {a}"
+        );
+    }
+
+    /// L4 (the screen proof, as args): a blended leg pads to the FULL
+    /// frame on black at its offset, converts to gbrp both sides, blends
+    /// with a bounded window, and returns to yuv420p for the chain.
+    #[test]
+    fn a_screen_leg_pads_black_and_blends() {
+        let mut o = fx(1.0);
+        o.blend = OverlayBlend::Screen;
+        o.x = -60.0;
+        o.scale = 0.5;
+        let a = comp_args(
+            &[clip("base.mp4", 0.0, 6.0)],
+            &[o],
+            1920,
+            1080,
+            30,
+            Path::new("o.mp4"),
+        )
+        .join(" ");
+        assert!(
+            a.contains(",pad=1920:1080:(ow-iw)/2-60.0:(oh-ih)/2+0.0:black,format=gbrp[fx0]"),
+            "{a}"
+        );
+        assert!(a.contains("[base]format=gbrp[pv0]"), "{a}");
+        assert!(
+            a.contains("[pv0][fx0]blend=all_mode=screen:enable='between(t,1.000,2.500)'[bl0]"),
+            "{a}"
+        );
+        assert!(a.contains("[bl0]format=yuv420p[ov0]"), "{a}");
+        assert!(
+            !a.contains("overlay=x="),
+            "a blended leg never overlays: {a}"
+        );
+    }
+
+    /// L4 (the matte proof, as args): the matte joins as its own input
+    /// AFTER all overlay inputs, trims/places WITH the layer, grays, and
+    /// alphamerges onto the leg before the overlay link.
+    #[test]
+    fn a_matted_leg_alphamerges_before_the_overlay() {
+        let mut o = fx(1.0);
+        o.matte = Some("brush-matte.mov".into());
+        let a = comp_args(
+            &[clip("base.mp4", 0.0, 6.0)],
+            &[o],
+            1920,
+            1080,
+            30,
+            Path::new("o.mp4"),
+        )
+        .join(" ");
+        assert!(a.contains("-i brush-matte.mov"), "{a}");
+        assert!(
+            a.contains(
+                "[2:v]trim=start=0.500:end=2.000,setpts=PTS-STARTPTS+1.000/TB,scale=1920:1080:force_original_aspect_ratio=decrease,format=gray[mt0]"
+            ),
+            "matte input follows the overlay inputs: {a}"
+        );
+        assert!(a.contains("[fx0][mt0]alphamerge[fm0]"), "{a}");
+        assert!(a.contains("[base][fm0]overlay=x="), "{a}");
+    }
+
+    /// L4 honesty: blend drops alpha, so a matte on a blended leg is
+    /// skipped entirely — no dead input, no half-graph.
+    #[test]
+    fn a_blended_leg_skips_its_matte() {
+        let mut o = fx(1.0);
+        o.blend = OverlayBlend::Add;
+        o.matte = Some("m.mov".into());
+        let a = comp_args(
+            &[clip("base.mp4", 0.0, 6.0)],
+            &[o],
+            1920,
+            1080,
+            30,
+            Path::new("o.mp4"),
+        )
+        .join(" ");
+        assert!(!a.contains("m.mov"), "matte input skipped: {a}");
+        assert!(a.contains("blend=all_mode=addition"), "{a}");
+        assert!(!a.contains("alphamerge"), "{a}");
     }
 
     /// A held-frame overlay loops its input for the span and skips trim —
