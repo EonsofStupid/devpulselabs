@@ -225,5 +225,66 @@ the pass is unaffected.
 
 ## 8. Evidence
 
-_(filled on completion — gate output, the grep from §7.3, both proof PNGs,
-`git log --follow` excerpt, PR number, STATE tip.)_
+**Gate.** `env -u CARGO_TARGET_DIR cargo xtask green` → **`green ✔`**
+(fmt · spawn audit · structure audit · clippy `-D warnings` · workspace tests ·
+release build; exe `target/release/devpulselabs` rebuilt).
+
+**§7.3 — no stragglers.** `grep -rn "blocks::" crates/ --include=*.rs` returns
+exactly two hits, both the NEW chunk tier's own API:
+`library.rs:445 use dpl_slides::blocks::blocks;` and `library.rs:831` (its
+test). Every former element path now reads `dpl_slides::elements::…`. No
+re-export shim exists.
+
+**§7.2 — tests.** `cargo test -p dpl-slides -p dpl-hub-workbench`:
+26 + 3 passed, 0 failed. New: `blocks::census::tests::the_registry_is_the_census`,
+`blocks::census::tests::every_block_paints_at_start_and_at_rest`,
+`library::tests::{the_chip_row_is_the_census, elements_and_blocks_are_distinct_shelves,
+no_chip_speaks_engineering}`. Pre-existing gates still green
+(`elements::census::*`, `registry::the_folder_law_matches_the_registry_taxonomy`).
+
+**§7.4 — history.** `git log --follow` on the six atom files reaches pre-move
+history (eyebrow 2, badge 3, stat 3, bar 2, divider 2, media 8 commits).
+`elements/census.rs` shows 2 = its complete history (DS2 created it).
+**One exception, recorded honestly:** `elements/mod.rs` shows 1 commit — git
+paired the old `blocks/mod.rs` with the NEW tier's `blocks/mod.rs` (same
+filename) rather than with the moved file. Nothing is lost; the pre-DS3 chain
+is fully reachable at `git log -- crates/slides/src/blocks/mod.rs` (6 commits
+back to the toolchain commit). A filename reused by a sibling tier is the cost.
+
+**§7.5 — real-exe proof.** The plan's §7.5 was WRONG as written: `--focus`
+pins `LibSection::Templates` by design (`workbench/src/lib.rs:137`), so
+`--focus elements|blocks` shot the templates gallery. No harness flag reached
+any wall but templates. Closed by adding **`--lib-section <slug>`** (see the
+scope note below), then:
+
+- `docs/proof/ds3-library-elements-1280x800.png` — `--route workbench/library
+  --lib-section elements --window 1280x800`. Chip row reads
+  `seeds templates blocks **elements** looks colors presets fonts moods`;
+  the wall shelves TYPE (Eyebrow, Stat) · MARK (Badge) · METER (Bar) ·
+  DIVIDER (Divider) live from the census.
+- `docs/proof/ds3-library-blocks-1280x800.png` — same, `--lib-section blocks`.
+  The chunk shelf renders "Nothing here yet — and that is on purpose." with
+  the promotion rule stated in plain words.
+
+Both at a REAL 1280×800 window, taken SEQUENTIALLY. Footer confirms build
+`2b20cc7`.
+
+**Scope added beyond the approved plan (flagged):** `--lib-section <slug>` —
+parsed in `crates/app/src/main.rs`, `WorkbenchHub::set_lib_section` (unknown
+slug degrades to the default wall and warns), documented in CLAUDE.md's harness
+list. Required because the standing "proof on the real exe" law could not
+otherwise be satisfied for this pass: the two walls it delivers were
+unreachable. The structure audit's harness-flag census is bidirectional and
+passes, so code and CLAUDE.md are pinned in agreement.
+
+**Unrelated pre-existing flake observed:** `dpl-ledger`
+`tests::overflow_increments_dropped_instead_of_blocking` failed once under full
+workspace parallel load (`dropped=0 handle=0`), then passed 3/3 in isolation
+and on the clean re-run. DS3 touches no ledger file. The test asserts a bounded
+channel overflows under burst, which does not hold when the writer thread
+drains faster than the burst fills — machine-speed dependent. Worth its own fix;
+not this pass.
+
+**Not done here:** PR + merge to `main`, and the operator's Windows close-out
+(rebuild `target\release\devpulselabs.exe` there, verify mtime, tip
+`docs/STATE.md`).
