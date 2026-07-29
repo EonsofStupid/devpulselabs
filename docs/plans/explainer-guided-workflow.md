@@ -214,7 +214,7 @@ with every step visible on the JobBoard and in the Workflows panel.
 
 | M | Scope (files) | Exit criteria | Status |
 |---|---|---|---|
-| M1 · Documents | dpl-workflows: BibleDoc+IntakeSpec+FormatProfile census+tailor+save/load_workflow; schemas/bible.v1.schema.json; pin tests | V1+V2 green in-lane | not started |
+| M1 · Documents | dpl-workflows: BibleDoc+IntakeSpec+FormatProfile census+tailor+save/load_workflow; schemas/bible.v1.schema.json; pin tests | V1+V2 green in-lane | **DONE 2026-07-29** — 24/24 tests, fmt+clippy clean (journal: explainer-m1) |
 | M2 · Run real | composer run_workflow_doc; StageKind::RasterizeSlides; --slides-still pre-window mode; comp_for_board slide-still legs; --run-workflow-doc + --render-sync; schema oneOf + pins | V3+V5 green; ffprobed short+long fixtures | not started |
 | M3 · Guided intake | chat: InteractionContent::GuidedPrompt + inline renderer + intents + IntakeSession store; panel intake form (parity); mint→tailor→run chain; --intake/--intake-answers; --chat-proof intake | V4+V6 green | not started |
 | M4 · Close-out | rebase, full V7-V9, baselines, STATE+journal, double-green merge | PR merged, exe rebuilt HERE | not started |

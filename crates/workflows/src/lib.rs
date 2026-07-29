@@ -42,7 +42,60 @@ pub struct WorkflowDoc {
     /// Which side of the two-libraries law the artifacts belong to; the
     /// hubs mount by this, the engine never branches on it.
     pub surface: Surface,
+    /// The guided intake this blueprint opens with (EX1): a declarative
+    /// Q&A whose answers mint the bible. ADDITIVE-optional — pre-EX1
+    /// documents stay valid v1 (doctrine law 2/3 additive amendment).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub intake: Option<IntakeSpec>,
     pub stages: Vec<Stage>,
+}
+
+/// The declarative guided intake (EX1): ordered typed questions both
+/// surfaces render — the chat guided flow AND the panel form paint THIS
+/// spec (D5 operator-parity by construction). Nothing else enumerates
+/// intake questions.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IntakeSpec {
+    pub fields: Vec<IntakeField>,
+}
+
+/// One intake question: what to ask, what kind of answer it takes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IntakeField {
+    pub id: String,
+    /// The question, in the operator's language.
+    pub ask: String,
+    #[serde(flatten)]
+    pub kind: IntakeFieldKind,
+    /// Optional questions may be skipped; answers to required ones gate
+    /// the bible mint.
+    #[serde(default = "default_true", skip_serializing_if = "is_true")]
+    pub required: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// serde's `skip_serializing_if` contract requires `&bool`.
+fn is_true(b: &bool) -> bool {
+    *b
+}
+
+/// The v1 intake answer kinds — exactly what the explainer needs. New
+/// kinds join HERE (census law: enum + validate arm + schema + pins).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum IntakeFieldKind {
+    /// Free text (subject, audience, tone…).
+    Text,
+    /// One of a named set.
+    Choice { options: Vec<String> },
+    /// Pick a registered FormatProfile (the short↔long axis).
+    FormatPick,
+    /// Draft/confirm the beat list (title + brief + narration per beat);
+    /// the assist may propose, the operator disposes.
+    BeatsDraft,
 }
 
 /// The artifact side a workflow declares (two-libraries law): WiredFRONT =
@@ -277,13 +330,241 @@ pub fn comp_for_board(
     (comp, notes)
 }
 
+// ── the bible (EX1: production + script) ────────────────────────────────
+
+/// The PRODUCTION + SCRIPT bible — the canon every downstream stage
+/// answers to (program map: "bible artifacts become upstream nodes whose
+/// outputs feed every downstream stage"). Minted from a completed intake;
+/// the storyboard is tailored FROM it; narration is the script half the
+/// VO/caption passes will consume. Wire contract:
+/// `schemas/bible.v1.schema.json` (doctrine law 3).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BibleDoc {
+    pub v: u32,
+    /// Kebab identity of THIS bible instance (its folder name stem).
+    pub id: String,
+    /// The blueprint this bible answers (registry id, e.g. "explainer").
+    pub workflow: String,
+    pub subject: String,
+    pub audience: String,
+    /// Tone/voice in plain words ("confident, plain-spoken, no hype").
+    pub tone: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub style_refs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub key_points: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub avoid: Vec<String>,
+    /// A registered [`FormatProfile`] id — the short↔long axis.
+    pub format: String,
+    /// The SCRIPT half: authored beats, narration required per beat.
+    pub beats: Vec<BibleBeat>,
+}
+
+/// One authored bible beat — a storyboard [`Beat`] plus its narration.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BibleBeat {
+    pub id: String,
+    pub role: String,
+    pub title: String,
+    pub brief: String,
+    /// What is SAID over this beat — the script-bible law: no beat
+    /// without its narration.
+    pub narration: String,
+}
+
+/// Name every structural fault in a bible. The tailor refuses a bible
+/// with issues — half-valid never mints.
+pub fn validate_bible(bible: &BibleDoc) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    let mut push = |path: String, message: String| issues.push(Issue { path, message });
+    if !kebab_ok(&bible.id) {
+        push(
+            "id".into(),
+            format!("bible id {:?} is not kebab-case", bible.id),
+        );
+    }
+    if !kebab_ok(&bible.workflow) {
+        push(
+            "workflow".into(),
+            format!("workflow ref {:?} is not kebab-case", bible.workflow),
+        );
+    }
+    for (field, value) in [
+        ("subject", &bible.subject),
+        ("audience", &bible.audience),
+        ("tone", &bible.tone),
+    ] {
+        if value.trim().is_empty() {
+            push(field.into(), format!("{field} is empty"));
+        }
+    }
+    if format_profile(&bible.format).is_none() {
+        let all = format_profiles()
+            .iter()
+            .map(|p| p.id)
+            .collect::<Vec<_>>()
+            .join(", ");
+        push(
+            "format".into(),
+            format!("unknown format {:?} — registered: {all}", bible.format),
+        );
+    }
+    if bible.beats.is_empty() {
+        push("beats".into(), "a bible needs at least one beat".into());
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for b in &bible.beats {
+        let at = format!("beats.{}", b.id);
+        if !kebab_ok(&b.id) {
+            push(at.clone(), format!("beat id {:?} is not kebab-case", b.id));
+        }
+        if !seen.insert(b.id.clone()) {
+            push(at.clone(), "duplicate beat id".into());
+        }
+        if b.title.trim().is_empty() {
+            push(format!("{at}.title"), "title is empty".into());
+        }
+        if b.narration.trim().is_empty() {
+            push(
+                format!("{at}.narration"),
+                "narration is empty — the script bible has no silent beats".into(),
+            );
+        }
+    }
+    issues
+}
+
+// ── format profiles (the short↔long axis, D6 ingredients) ───────────────
+
+/// One registered video format — duration + beat shape at 16:9 (v1;
+/// vertical joins as a later census line). The tailor reads geometry and
+/// pacing from HERE; nothing else hardcodes them.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FormatProfile {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub blurb: &'static str,
+    pub fps: u32,
+    pub w: u32,
+    pub h: u32,
+    /// The beat count the intake's BeatsDraft proposes (a target, not a
+    /// cage — the operator's authored count wins).
+    pub beat_budget: usize,
+    /// Seconds each beat holds on screen in the assembled comp.
+    pub per_beat_secs: f32,
+}
+
+/// THE format census — one line per profile, nothing else enumerates.
+pub fn format_profiles() -> Vec<FormatProfile> {
+    vec![
+        FormatProfile {
+            id: "short",
+            label: "Short",
+            blurb: "Under a minute — hook, one idea, call to action.",
+            fps: 30,
+            w: 1920,
+            h: 1080,
+            beat_budget: 4,
+            per_beat_secs: 11.0,
+        },
+        FormatProfile {
+            id: "standard",
+            label: "Standard",
+            blurb: "A couple of minutes — room to show, not just tell.",
+            fps: 30,
+            w: 1920,
+            h: 1080,
+            beat_budget: 7,
+            per_beat_secs: 17.0,
+        },
+        FormatProfile {
+            id: "long",
+            label: "Long-form",
+            blurb: "Five minutes and up — sections, depth, worked examples.",
+            fps: 30,
+            w: 1920,
+            h: 1080,
+            beat_budget: 12,
+            per_beat_secs: 30.0,
+        },
+    ]
+}
+
+/// Look one profile up by id.
+pub fn format_profile(id: &str) -> Option<FormatProfile> {
+    format_profiles().into_iter().find(|p| p.id == id)
+}
+
+// ── the tailor (bible → per-run workflow instance) ──────────────────────
+
+/// Mint the tailored, per-run [`WorkflowDoc`] from a bible: the bible's
+/// beats become the outline, the format profile supplies geometry.
+/// Pure and DETERMINISTIC — the same bible always mints the same doc.
+/// Narration stays in the bible (the upstream node downstream stages
+/// read); it never leaks into slide text. Refuses an invalid bible with
+/// every issue named.
+pub fn tailor(bible: &BibleDoc) -> Result<WorkflowDoc, Vec<Issue>> {
+    let issues = validate_bible(bible);
+    if !issues.is_empty() {
+        return Err(issues);
+    }
+    let profile = format_profile(&bible.format).expect("validated");
+    let beats = bible
+        .beats
+        .iter()
+        .map(|b| Beat {
+            id: b.id.clone(),
+            role: b.role.clone(),
+            title: b.title.clone(),
+            brief: b.brief.clone(),
+        })
+        .collect();
+    Ok(WorkflowDoc {
+        v: SCHEMA_V,
+        id: format!("{}-{}", bible.workflow, bible.id),
+        label: format!("{} — {}", bible.subject, profile.label),
+        blurb: format!("Tailored {} run of {:?}.", profile.id, bible.workflow),
+        surface: Surface::Wiredfront,
+        intake: None,
+        stages: vec![
+            Stage {
+                id: "outline".into(),
+                kind: StageKind::Outline { beats },
+            },
+            Stage {
+                id: "slides".into(),
+                kind: StageKind::SlideFromBeat {
+                    template: "title".into(),
+                },
+            },
+            Stage {
+                id: "imagine".into(),
+                kind: StageKind::GenerateImage,
+            },
+            Stage {
+                id: "assemble".into(),
+                kind: StageKind::AssembleComp {
+                    fps: profile.fps,
+                    w: profile.w,
+                    h: profile.h,
+                },
+            },
+            Stage {
+                id: "render".into(),
+                kind: StageKind::Render,
+            },
+        ],
+    })
+}
+
 // ── the registry census ─────────────────────────────────────────────────
 
 /// Every registered workflow, one line each — nothing else enumerates
 /// workflows anywhere (the slides-registry census law). The storyboard
 /// blueprint ships as the WF1 walking skeleton.
 pub fn workflows() -> Vec<WorkflowDoc> {
-    vec![storyboard()]
+    vec![storyboard(), explainer()]
 }
 
 /// Theme one up by id — the `--run-workflow` and panel entry.
@@ -307,6 +588,7 @@ fn storyboard() -> WorkflowDoc {
         label: "Storyboard".into(),
         blurb: "Outline beats, mint slide drafts, optionally imagine art, assemble a comp.".into(),
         surface: Surface::Wiredfront,
+        intake: None,
         stages: vec![
             Stage {
                 id: "outline".into(),
@@ -316,6 +598,141 @@ fn storyboard() -> WorkflowDoc {
                         beat("context", "context", "The setup", "Why this matters, fast."),
                         beat("beat-1", "beat", "First beat", "The core idea, shown."),
                         beat("beat-2", "beat", "Second beat", "The payoff or proof."),
+                        beat("cta", "cta", "Call to action", "What to do next."),
+                    ],
+                },
+            },
+            Stage {
+                id: "slides".into(),
+                kind: StageKind::SlideFromBeat {
+                    template: "title".into(),
+                },
+            },
+            Stage {
+                id: "imagine".into(),
+                kind: StageKind::GenerateImage,
+            },
+            Stage {
+                id: "assemble".into(),
+                kind: StageKind::AssembleComp {
+                    fps: 30,
+                    w: 1920,
+                    h: 1080,
+                },
+            },
+            Stage {
+                id: "render".into(),
+                kind: StageKind::Render,
+            },
+        ],
+    }
+}
+
+/// The EXPLAINER blueprint (EX1, T3): the guided one — its intake mints
+/// the bible, the bible tailors the run. The default beats here are the
+/// standard-format arc the BeatsDraft question opens with.
+fn explainer() -> WorkflowDoc {
+    let beat = |id: &str, role: &str, title: &str, brief: &str| Beat {
+        id: id.into(),
+        role: role.into(),
+        title: title.into(),
+        brief: brief.into(),
+    };
+    let ask = |id: &str, ask: &str, kind: IntakeFieldKind, required: bool| IntakeField {
+        id: id.into(),
+        ask: ask.into(),
+        kind,
+        required,
+    };
+    WorkflowDoc {
+        v: SCHEMA_V,
+        id: "explainer".into(),
+        label: "Explainer video".into(),
+        blurb: "Guided intake → production+script bible → tailored storyboard → video.".into(),
+        surface: Surface::Wiredfront,
+        intake: Some(IntakeSpec {
+            fields: vec![
+                ask(
+                    "subject",
+                    "What is this explainer about? One or two sentences.",
+                    IntakeFieldKind::Text,
+                    true,
+                ),
+                ask(
+                    "audience",
+                    "Who is it for? What do they already know?",
+                    IntakeFieldKind::Text,
+                    true,
+                ),
+                ask(
+                    "tone",
+                    "What tone and voice should it carry?",
+                    IntakeFieldKind::Text,
+                    true,
+                ),
+                ask(
+                    "style-refs",
+                    "Any style references worth naming? (optional)",
+                    IntakeFieldKind::Text,
+                    false,
+                ),
+                ask(
+                    "key-points",
+                    "Key points that MUST land, one per line. (optional)",
+                    IntakeFieldKind::Text,
+                    false,
+                ),
+                ask(
+                    "avoid",
+                    "Anything to avoid — claims, jargon, topics? (optional)",
+                    IntakeFieldKind::Text,
+                    false,
+                ),
+                ask(
+                    "format",
+                    "How long should it run?",
+                    IntakeFieldKind::FormatPick,
+                    true,
+                ),
+                ask(
+                    "beats",
+                    "Here's a draft arc — tune the beats and their narration.",
+                    IntakeFieldKind::BeatsDraft,
+                    true,
+                ),
+            ],
+        }),
+        stages: vec![
+            Stage {
+                id: "outline".into(),
+                kind: StageKind::Outline {
+                    beats: vec![
+                        beat("hook", "hook", "The hook", "Name the pain in one line."),
+                        beat(
+                            "promise",
+                            "context",
+                            "The promise",
+                            "What they'll be able to do.",
+                        ),
+                        beat("context", "context", "The setup", "Why this matters, fast."),
+                        beat(
+                            "step-1",
+                            "beat",
+                            "First move",
+                            "The first concrete step, shown.",
+                        ),
+                        beat(
+                            "step-2",
+                            "beat",
+                            "Second move",
+                            "The next step, building on it.",
+                        ),
+                        beat(
+                            "payoff",
+                            "beat",
+                            "The payoff",
+                            "The result, proven on screen.",
+                        ),
                         beat("cta", "cta", "Call to action", "What to do next."),
                     ],
                 },
@@ -395,6 +812,43 @@ pub fn validate(doc: &WorkflowDoc) -> Vec<Issue> {
             "stages".into(),
             "a workflow needs at least one stage".into(),
         );
+    }
+
+    if let Some(intake) = &doc.intake {
+        if intake.fields.is_empty() {
+            push("intake".into(), "an intake needs at least one field".into());
+        }
+        let mut seen_field = std::collections::BTreeSet::new();
+        let mut format_picks = 0usize;
+        let mut beats_drafts = 0usize;
+        for f in &intake.fields {
+            let at = format!("intake.{}", f.id);
+            if !kebab_ok(&f.id) {
+                push(at.clone(), format!("field id {:?} is not kebab-case", f.id));
+            }
+            if !seen_field.insert(f.id.clone()) {
+                push(at.clone(), "duplicate field id".into());
+            }
+            if f.ask.trim().is_empty() {
+                push(format!("{at}.ask"), "ask is empty".into());
+            }
+            match &f.kind {
+                IntakeFieldKind::Choice { options } => {
+                    if options.is_empty() {
+                        push(format!("{at}.options"), "choice has no options".into());
+                    }
+                }
+                IntakeFieldKind::FormatPick => format_picks += 1,
+                IntakeFieldKind::BeatsDraft => beats_drafts += 1,
+                IntakeFieldKind::Text => {}
+            }
+        }
+        if format_picks > 1 {
+            push("intake".into(), "at most one format-pick field".into());
+        }
+        if beats_drafts > 1 {
+            push("intake".into(), "at most one beats-draft field".into());
+        }
     }
 
     let mut seen_stage = std::collections::BTreeSet::new();
@@ -544,6 +998,8 @@ impl std::fmt::Display for DocError {
 impl std::error::Error for DocError {}
 
 const BOARD_FILE: &str = "storyboard.json";
+const WORKFLOW_FILE: &str = "workflow.json";
+const BIBLE_FILE: &str = "bible.json";
 
 /// Load `<dir>/storyboard.json`, refusing a newer schema honestly.
 pub fn load_board(dir: &Path) -> Result<StoryboardDoc, DocError> {
@@ -559,15 +1015,50 @@ pub fn load_board(dir: &Path) -> Result<StoryboardDoc, DocError> {
 /// bak-step-aside → swap; the `dpl-doc` writer, replicated so the document
 /// layer depends on no other crate for a file swap).
 pub fn save_board(dir: &Path, board: &StoryboardDoc) -> Result<(), DocError> {
-    std::fs::create_dir_all(dir).map_err(DocError::Io)?;
-    let target = dir.join(BOARD_FILE);
-    let tmp = dir.join(format!("{BOARD_FILE}.tmp"));
-    let bak = dir.join(format!("{BOARD_FILE}.bak"));
+    save_json(dir, BOARD_FILE, board)
+}
 
-    let mut json = serde_json::to_string_pretty(board).map_err(DocError::Parse)?;
+/// Load `<dir>/workflow.json` (a tailored per-run instance), refusing a
+/// newer schema honestly.
+pub fn load_workflow(dir: &Path) -> Result<WorkflowDoc, DocError> {
+    let raw = std::fs::read_to_string(dir.join(WORKFLOW_FILE)).map_err(DocError::Io)?;
+    let doc: WorkflowDoc = serde_json::from_str(&raw).map_err(DocError::Parse)?;
+    if doc.v > SCHEMA_V {
+        return Err(DocError::Version(doc.v));
+    }
+    Ok(doc)
+}
+
+/// Crash-safe write of a tailored instance into `<dir>/workflow.json`.
+pub fn save_workflow(dir: &Path, doc: &WorkflowDoc) -> Result<(), DocError> {
+    save_json(dir, WORKFLOW_FILE, doc)
+}
+
+/// Load `<dir>/bible.json`, refusing a newer schema honestly.
+pub fn load_bible(dir: &Path) -> Result<BibleDoc, DocError> {
+    let raw = std::fs::read_to_string(dir.join(BIBLE_FILE)).map_err(DocError::Io)?;
+    let bible: BibleDoc = serde_json::from_str(&raw).map_err(DocError::Parse)?;
+    if bible.v > SCHEMA_V {
+        return Err(DocError::Version(bible.v));
+    }
+    Ok(bible)
+}
+
+/// Crash-safe write of the bible into `<dir>/bible.json`.
+pub fn save_bible(dir: &Path, bible: &BibleDoc) -> Result<(), DocError> {
+    save_json(dir, BIBLE_FILE, bible)
+}
+
+/// The ONE crash-safe pretty-JSON+LF writer (tmp → bak-step-aside →
+/// swap) all three run documents share.
+fn save_json<T: Serialize>(dir: &Path, file: &str, value: &T) -> Result<(), DocError> {
+    std::fs::create_dir_all(dir).map_err(DocError::Io)?;
+    let target = dir.join(file);
+    let tmp = dir.join(format!("{file}.tmp"));
+    let bak = dir.join(format!("{file}.bak"));
+    let mut json = serde_json::to_string_pretty(value).map_err(DocError::Parse)?;
     json.push('\n');
     std::fs::write(&tmp, json).map_err(DocError::Io)?;
-
     if target.exists() {
         let _ = std::fs::remove_file(&bak);
         std::fs::rename(&target, &bak).map_err(DocError::Io)?;
@@ -771,7 +1262,7 @@ mod tests {
     #[test]
     fn the_registry_is_the_census() {
         let all = workflows();
-        assert_eq!(all.len(), 1, "WF1 ships exactly the storyboard skeleton");
+        assert_eq!(all.len(), 2, "WF1 storyboard + EX1 explainer");
         let mut ids = std::collections::BTreeSet::new();
         for w in &all {
             assert!(ids.insert(w.id.clone()), "workflow ids must be unique");
@@ -870,6 +1361,7 @@ mod tests {
             label: "Orphan".into(),
             blurb: "b".into(),
             surface: Surface::Wiredfront,
+            intake: None,
             stages: vec![Stage {
                 id: "slides".into(),
                 kind: StageKind::SlideFromBeat {
@@ -1158,5 +1650,169 @@ mod schema_pin {
         let mut doc = good;
         doc["slots"][0]["mood"] = serde_json::json!("neon");
         assert!(!v.is_valid(&doc), "unknown slot fields must be refused");
+    }
+
+    fn fixture_bible() -> BibleDoc {
+        let beat = |id: &str, title: &str, narration: &str| BibleBeat {
+            id: id.into(),
+            role: "beat".into(),
+            title: title.into(),
+            brief: "shown on screen".into(),
+            narration: narration.into(),
+        };
+        BibleDoc {
+            v: SCHEMA_V,
+            id: "rust-traits".into(),
+            workflow: "explainer".into(),
+            subject: "What Rust traits are and when to reach for them".into(),
+            audience: "Working devs new to Rust".into(),
+            tone: "Confident, plain-spoken, no hype".into(),
+            style_refs: vec!["fireship pacing".into()],
+            key_points: vec!["traits are contracts".into()],
+            avoid: vec!["monad jokes".into()],
+            format: "short".into(),
+            beats: vec![
+                beat(
+                    "hook",
+                    "The hook",
+                    "You keep writing the same function five times.",
+                ),
+                beat(
+                    "idea",
+                    "One contract",
+                    "A trait is the contract; types opt in.",
+                ),
+                beat(
+                    "payoff",
+                    "The payoff",
+                    "One impl block later, it just works.",
+                ),
+                beat("cta", "Try it", "Take one duplicated function and lift it."),
+            ],
+        }
+    }
+
+    #[test]
+    fn a_minted_bible_matches_the_v1_wire_schema() {
+        let v = validator("bible.v1.schema.json");
+        let doc = serde_json::to_value(fixture_bible()).expect("serialize");
+        assert_valid(&v, &doc, "fixture bible");
+    }
+
+    #[test]
+    fn the_bible_schema_refuses_drift() {
+        let v = validator("bible.v1.schema.json");
+        let good = serde_json::to_value(fixture_bible()).unwrap();
+
+        // A silent beat breaks the script-bible law at the contract.
+        let mut doc = good.clone();
+        doc["beats"][0]["narration"] = serde_json::json!("");
+        assert!(!v.is_valid(&doc), "empty narration must be refused");
+
+        let mut doc = good.clone();
+        doc["id"] = serde_json::json!("Not Kebab");
+        assert!(!v.is_valid(&doc), "non-kebab id must be refused");
+
+        let mut doc = good.clone();
+        doc["vibes"] = serde_json::json!("immaculate");
+        assert!(!v.is_valid(&doc), "unknown fields must be refused");
+
+        let mut doc = good;
+        doc["v"] = serde_json::json!(2);
+        assert!(!v.is_valid(&doc), "v2 must not pass the v1 schema");
+    }
+
+    #[test]
+    fn the_explainer_intake_rides_the_amended_v1_schema() {
+        // The ADDITIVE amendment: blueprints WITH intake validate, and
+        // pre-EX1 documents (no intake) stay valid — both proven by
+        // every_registered_workflow_matches_the_v1_wire_schema covering
+        // storyboard (no intake) and explainer (intake) alike. Here:
+        // the intake vocabulary itself refuses drift.
+        let v = validator("workflow.v1.schema.json");
+        let good = serde_json::to_value(find("explainer").unwrap()).unwrap();
+        assert_valid(&v, &good, "explainer blueprint with intake");
+
+        let mut doc = good.clone();
+        doc["intake"]["fields"][0]["kind"] = serde_json::json!("mind-reading");
+        assert!(!v.is_valid(&doc), "unknown intake kind must be refused");
+
+        let mut doc = good;
+        doc["intake"]["fields"][0]["mood"] = serde_json::json!("neon");
+        assert!(
+            !v.is_valid(&doc),
+            "unknown intake field props must be refused"
+        );
+    }
+
+    #[test]
+    fn tailor_mints_a_schema_valid_deterministic_doc() {
+        let v = validator("workflow.v1.schema.json");
+        let bible = fixture_bible();
+        let a = tailor(&bible).expect("valid bible tailors");
+        let b = tailor(&bible).expect("valid bible tailors");
+        assert_eq!(a, b, "tailor is deterministic");
+        assert_valid(&v, &serde_json::to_value(&a).unwrap(), "tailored instance");
+        assert!(validate(&a).is_empty(), "tailored doc validates clean");
+        assert_eq!(a.id, "explainer-rust-traits");
+    }
+
+    #[test]
+    fn tailor_short_and_long_differ_only_on_the_declared_axis() {
+        let bible = fixture_bible();
+        let mut long = bible.clone();
+        long.format = "long".into();
+        let a = tailor(&bible).unwrap();
+        let b = tailor(&long).unwrap();
+        // Same beats, same stage ids, same geometry (both 16:9 in v1) —
+        // the axis lives in the profile the run reads (per-beat span,
+        // M2) and the label.
+        let ids = |d: &WorkflowDoc| d.stages.iter().map(|s| s.id.clone()).collect::<Vec<_>>();
+        assert_eq!(ids(&a), ids(&b));
+        assert_ne!(a.label, b.label, "the format names itself");
+    }
+
+    #[test]
+    fn tailor_refuses_an_invalid_bible_naming_issues() {
+        let mut bible = fixture_bible();
+        bible.format = "imax".into();
+        bible.beats[0].narration = String::new();
+        let issues = tailor(&bible).unwrap_err();
+        assert!(issues.iter().any(|i| i.path == "format"));
+        assert!(issues.iter().any(|i| i.path.ends_with(".narration")));
+    }
+
+    #[test]
+    fn bible_and_workflow_docs_round_trip_crash_safe() {
+        let dir = std::env::temp_dir()
+            .join("dpl-workflows-tests")
+            .join(format!("ex1-docs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let bible = fixture_bible();
+        save_bible(&dir, &bible).unwrap();
+        assert_eq!(load_bible(&dir).unwrap(), bible);
+        let doc = tailor(&bible).unwrap();
+        save_workflow(&dir, &doc).unwrap();
+        assert_eq!(load_workflow(&dir).unwrap(), doc);
+        // Newer-schema refusal, both documents.
+        let mut newer = bible.clone();
+        newer.v = SCHEMA_V + 1;
+        save_bible(&dir, &newer).unwrap();
+        assert!(matches!(load_bible(&dir), Err(DocError::Version(_))));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_format_census_is_the_census() {
+        let all = format_profiles();
+        assert_eq!(all.len(), 3, "short + standard + long (v1, all 16:9)");
+        let mut ids = std::collections::BTreeSet::new();
+        for p in &all {
+            assert!(ids.insert(p.id), "duplicate profile id {}", p.id);
+            assert!(!p.label.is_empty() && !p.blurb.is_empty());
+            assert!(p.fps >= 1 && p.w >= 1 && p.h >= 1 && p.per_beat_secs > 0.0);
+            assert!(p.beat_budget >= 1);
+        }
+        assert!(format_profile("ghost").is_none());
     }
 }
