@@ -47,6 +47,12 @@ learning what a template is.
    pieces.
 4. **The container is configurable** — lesson · guide · episode · deck,
    loaded from disk, never compiled in.
+5. **A quote is a convention over text blocks** (2026-07-29) — not a new
+   `Block` kind. Ratified after the codebase showed block ids are *already*
+   semantic (`eyebrow`/`title`/`subtitle`, `label`/`number`/`caption`) and that
+   `document.rs` never reads `slide.template`: it flows the blocks and sizes
+   each from its own ref. A `Block::Quote` would have cost renderer work,
+   a schema bump and a degrade path for no gain.
 
 ---
 
@@ -96,12 +102,27 @@ nothing here is a mystery when picked up cold.
 
 ### M5 — the four remaining tabs
 
-| Item | Waiting on | Size | Note |
-|---|---|---|---|
-| **A quote** | nothing | S | The quote, who said it, where it came from. Needs a `Block` kind or a convention over text blocks — decide first. |
-| **Picture** | nothing | M | `Block::Media` already exists (schema v2, W11). Needs a file picker and the sources law (never mutate; capture NEW). |
-| **On tap** | **the interaction tier does not exist** | L | `Shelf::Interactions` ships empty for the same reason. Needs the `Recipe` trait + registry (charter §6.2) before a tab can offer anything. |
-| **Ask for help** | **M10** | L | This is the assist path's entry point; it should not ship before the thing it hands off to. |
+Planned in full; ready to implement.
+
+| Tab | Plan | Waiting on | Size | State |
+|---|---|---|---|---|
+| **A quote** | `author-tab-quote.md` | nothing | S | **planned** — three reserved ids (`quote` · `said-by` · `source`), operator-ratified as a convention over text blocks |
+| **Picture** | `author-tab-picture.md` | nothing | M | **planned** — the picker is `dpl_index`, whose `rel_path` is already content-relative, so the jail cannot be violated by construction |
+| **On tap** | — | **the interaction tier** | L | **blocked** — see below |
+| **Ask for help** | — | **M10** | L | **deferred on purpose** — see below |
+
+**On tap is blocked, precisely.** There is no `Recipe` trait and no recipe
+registry (charter §6.2), which is the same reason `Shelf::Interactions` ships
+empty and `dpl_doc` has no field for a tap behaviour. Three things must exist
+before a tab can offer anything: **(a)** the trait + registry in `dpl-slides`,
+**(b)** a document field to hold the ref, **(c)** a player that runs it.
+Building the tab first would mean a picker over an empty registry writing a
+field that does not exist.
+
+**Ask for help is deferred on purpose.** It is M10's entry point — the hand-off
+to the entity-first generator. Shipping a button that hands work to something
+that cannot receive it would be the one thing this lane has consistently
+refused to do.
 
 ### M5b — the live preview panel — ✅ **closed by #155**
 
