@@ -59,6 +59,7 @@ learning what a template is.
 | **M3** | The carousel — sweep and tap the premades | ✅ closed | #136 |
 | **M4** | The overlay editor opens on a real file | ✅ closed | #141 |
 | **M5** | **The card tabs become real** (7 tabs) | 🔶 **3 of 7** | #149, #151 |
+| **M5b** | The overlay's live pane — rail + controls + the card | ✅ closed | #155 |
 | **M6** | The container spine — filmstrip + thumbnails | ✅ closed | #146, #147 |
 | **M7** | Placing cards into the container | ⬜ not started | — |
 | **M8** | The dashboard — intent declared first | ⬜ not started | — |
@@ -80,6 +81,7 @@ Each row: what landed, and where the evidence is.
 | Thumbnail mode | #147 | `slide-thumbnail-mode.md` | `Fluid::thumbnail` — a miniature is a scaled full stage. Carousel cards and film tiles show whole slides instead of crops. |
 | Background tab | #149 | `author-tab-background.md` | Ten live-rendered colours + blend + ambience, written through `Editor::set_background`. Seam `--card-tab`. |
 | Movement tab | #151 | `author-tab-movement.md` | Three real choices from the schema's own vocabulary; the shortfall stated on the tab. |
+| Overlay live pane | #155 | `author-overlay-live-pane.md` | R1's shape: vertical tab rail, controls, and the card live beside them. Words keeps its own stage — there the card is the control. Closes the below-the-fold problem. |
 
 **Infrastructure repaired along the way:** #144 restored the Linux CI lane
 (red since #142); the Windows lane was fixed by #142 after #139 broke it.
@@ -101,18 +103,11 @@ nothing here is a mystery when picked up cold.
 | **On tap** | **the interaction tier does not exist** | L | `Shelf::Interactions` ships empty for the same reason. Needs the `Recipe` trait + registry (charter §6.2) before a tab can offer anything. |
 | **Ask for help** | **M10** | L | This is the assist path's entry point; it should not ship before the thing it hands off to. |
 
-### M5b — the live preview panel (R1, `.m-split` / `.m-live`)
+### M5b — the live preview panel — ✅ **closed by #155**
 
-**Named here because it is easy to miss.** The mock's overlay is *two panes*:
-tabs and fields on the left, a **live card preview on the right**, so you see
-the card change as you fill it in. Today only the Words tab has a preview (the
-editor draws its own stage); Background and Movement have none, and the
-operator's own words were *"the card would then appear show live preview as i
-start to fill it out"*.
-
-Waiting on: nothing. Should probably land **before** the remaining tabs, since
-each new tab otherwise inherits the wrong shape. Also fixes the
-below-the-fold problem noted in `author-tab-background.md` §8.3.
+Landed ahead of the remaining tabs exactly so they arrive into the right
+shape. The overlay is now rail + controls + live card, and the Background
+tab's third row is no longer below the fold.
 
 ### M7 — placing cards into the container
 
@@ -154,6 +149,13 @@ Size XL. This is the lane's endgame.
 
 Each is a **data/authoring pass**, not a code pass. Code that would paper
 over them was deliberately not written.
+
+**The moods row has an owner.** `docs/plans/poam-visual-experience.md` is the
+visual-experience program — backdrops, moods, icons, buttons — and it cites
+this lane's Background census (#149) as its starting count. The seam between
+the two lanes: **that** POA&M authors the ingredients, **this** one offers
+them. Nothing here should author a mood, and nothing there should build a
+picker.
 
 ---
 
