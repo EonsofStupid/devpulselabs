@@ -18,6 +18,16 @@ other worktree. The operator double-clicks `target\release\devpulselabs.exe`
   Ground-truth by reading the real files in-session; never code from memory.
 - **PRs, not direct pushes**: branch → `gh pr create` → merge. Pre-release
   means move fast, not push blind.
+- **MERGE ONLY ON DOUBLE-GREEN** (2026-07-29 incident law): never merge a
+  PR until BOTH Actions lanes (`green-windows` + `green-linux`) are
+  COMPLETED SUCCESS — `gh pr checks <n> --watch` first, then merge. The
+  local pre-push gate only proves the pusher's own OS; #139 merged with
+  Windows red (unconditional x11rb → `xcb.lib` link death), #142 merged
+  mid-run and turned the Linux lane red (clippy in a linux-only file).
+  A running check is a red check. Corollary: before authoring any fix,
+  `gh pr list` — parallel sessions fix the same defect (it happened
+  twice in one hour); an open PR for the defect means adopt it, not
+  duplicate it.
 - **The product is the EXPERIENCE, not the feature list.** Layman-friendly,
   touch-first, tooltips on controls, finesse. A pass that works but looks/
   feels worse than the old app (`C:\localdev\devpulse labs`, READ-ONLY

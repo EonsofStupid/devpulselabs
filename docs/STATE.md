@@ -2,6 +2,21 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-29 — CI INCIDENT + MERGE-DISCIPLINE LAW (CLAUDE.md):** both
+lanes went red in sequence because PRs merged before their green
+finished: #139 broke `green-windows` (unconditional x11rb → `xcb.lib`
+link death, every Windows run red until #142's linux-gating), then #142
+merged mid-run and broke `green-linux` (clippy `manual_is_multiple_of`
+in the linux-only probe — invisible to Windows-side clippy; fix = #144).
+TWO sessions authored the same #144 fix concurrently (duplicates stood
+down). New law in CLAUDE.md: **merge only on double-green** —
+`gh pr checks <n> --watch` until BOTH lanes are COMPLETED SUCCESS; a
+running check is a red check; `gh pr list` before authoring any fix.
+Estate hygiene same pass: stale worktrees (`devpulselabs-l3` clean but
+holding the `main` ref, `devpulselabs-chat-vision` gone) flagged for
+removal — the ONE-checkout law was being violated by parallel-session
+leftovers; release exe re-stamped at `c929b29`.
+
 **2026-07-29 — C2S FOREIGN-TARGET SPIKE (`docs/plans/coach-c2s-foreign-target-spike.md` §9):**
 `foreign-target-probe` resolves `gnome-calculator` button `7` via AT-SPI,
 composes screen coords from X11 origin + `_GTK_FRAME_EXTENTS` (never
