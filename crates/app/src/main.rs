@@ -98,6 +98,23 @@ fn main() -> eframe::Result {
     // overlay editor at boot. The overlay opens only on a tap, so this is how
     // it gets photographed; pair it with `--content-root` to write to scratch.
     let author_editor = args.iter().any(|a| a == "--author-editor");
+    // `--author-container <kind>` — point the Author surface at one container
+    // kind (lesson/guide/episode/deck), so a kind with nowhere to live yet can
+    // be photographed saying so beside one that is real.
+    let author_container: Option<String> = args
+        .iter()
+        .position(|a| a == "--author-container")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
+    // `--author-draft <n>` — start n cards WITHOUT opening the editor, so the
+    // filmstrip can be photographed with something in it rather than under an
+    // overlay that covers it.
+    let author_draft: usize = args
+        .iter()
+        .position(|a| a == "--author-draft")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
     // `--shot-frame <n>` — capture later than the default frame 6, so sweep
     // animations can reach their rest state before the proof is taken.
     let shot_frame: u32 = args
@@ -398,6 +415,8 @@ fn main() -> eframe::Result {
                 focus,
                 lib_section,
                 author_editor,
+                author_container,
+                author_draft,
                 shot_frame,
                 viziwiz_open,
                 viziwiz_snap,
@@ -448,6 +467,8 @@ struct Boot {
     focus: Option<String>,
     lib_section: Option<String>,
     author_editor: bool,
+    author_container: Option<String>,
+    author_draft: usize,
     shot_frame: u32,
     viziwiz_open: bool,
     viziwiz_snap: bool,
@@ -536,6 +557,8 @@ impl App {
             focus,
             lib_section,
             author_editor,
+            author_container,
+            author_draft,
             shot_frame,
             viziwiz_open,
             viziwiz_snap,
@@ -573,6 +596,14 @@ impl App {
         }
         // Section BEFORE focus would be pointless — `set_focus` pins TEMPLATES
         // — so the section seam runs after and wins when both are given.
+        // Container BEFORE the drafts: a draft started under the wrong
+        // heading would be labelled by the wrong container in the strip.
+        if let Some(slug) = &author_container {
+            workbench.author_container(slug);
+        }
+        if author_draft > 0 {
+            workbench.author_draft(author_draft);
+        }
         if author_editor {
             workbench.open_author_editor();
         }

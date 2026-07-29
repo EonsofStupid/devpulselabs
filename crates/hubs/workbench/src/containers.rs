@@ -232,7 +232,11 @@ mod tests {
         let mut sorted = slugs.clone();
         sorted.sort_unstable();
         sorted.dedup();
-        assert_eq!(sorted.len(), slugs.len(), "two kinds share a slug: {slugs:?}");
+        assert_eq!(
+            sorted.len(),
+            slugs.len(),
+            "two kinds share a slug: {slugs:?}"
+        );
         assert_eq!(slugs, ["lesson", "guide", "episode", "deck"]);
     }
 
@@ -250,7 +254,9 @@ mod tests {
         assert_eq!(backed, ["guide", "episode"]);
         for kind in Kind::ALL {
             if !kind.is_stored() {
-                let why = kind.not_stored_yet().expect("an unbacked kind must say why");
+                let why = kind
+                    .not_stored_yet()
+                    .expect("an unbacked kind must say why");
                 assert!(
                     why.len() > 40,
                     "{}'s empty line has to explain, not shrug: {why:?}",

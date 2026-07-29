@@ -2323,6 +2323,7 @@ dependencies = [
  "dpl-editor",
  "dpl-engine-capture",
  "dpl-fabric",
+ "dpl-guide",
  "dpl-hub",
  "dpl-slides",
  "egui",

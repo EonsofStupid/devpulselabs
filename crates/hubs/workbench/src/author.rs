@@ -23,6 +23,7 @@
 //! (anti-loop) — the coachable-signal catalog forwards the fact to touchpoints
 //! so AI/coach overlays react without the surface self-triggering.
 
+use crate::containers::{containers, pretty, Container, Kind};
 use dpl_coldlight::{self as cl, Tone};
 use dpl_slides::SlideTemplate;
 use egui::RichText;
@@ -35,13 +36,55 @@ const PAGE: usize = 6;
 /// motion rather than a row of photocopies.
 const TONE_CYCLE: [Tone; 4] = [Tone::Cyan, Tone::Amber, Tone::Magenta, Tone::Coral];
 
-/// A folder id as a person would say it: `title-card` → "Title card".
-fn pretty(id: &str) -> String {
-    let mut out = id.replace(['-', '_'], " ");
-    if let Some(first) = out.get_mut(0..1) {
-        first.make_ascii_uppercase();
+/// One tile in the filmstrip: a small treated plate carrying a name.
+///
+/// A tile deliberately does NOT draw the card's own document. A whole slide
+/// squeezed into a thumb-sized stage overflows, because the type ramp has a
+/// floor — the same crop named in the carousel pass. That needs a thumbnail
+/// mode in the document renderer (`dpl-slides`), so until it lands a tile is
+/// an honest labelled plate: exactly the degrade the renderer already uses
+/// for a ref it cannot resolve.
+fn film_tile(ui: &mut egui::Ui, w: f32, h: f32, label: &str, tone: Tone) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, h), egui::Sense::click());
+    let style = cl::compose(
+        tone,
+        "claymorphic",
+        &[],
+        if resp.hovered() {
+            cl::TraitState::Hover
+        } else {
+            cl::TraitState::Idle
+        },
+    );
+    // Clipped to its own tile so a long name runs out of room rather than
+    // over its neighbour.
+    let painter = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
+    for sh in &style.shadows {
+        painter.rect_filled(
+            rect.translate(egui::vec2(sh.offset[0] as f32, sh.offset[1] as f32)),
+            egui::CornerRadius::same(style.radius),
+            sh.color,
+        );
     }
-    out
+    painter.rect_filled(rect, egui::CornerRadius::same(style.radius), style.fill);
+    painter.rect_stroke(
+        rect,
+        egui::CornerRadius::same(style.radius),
+        style.edge,
+        egui::StrokeKind::Inside,
+    );
+    painter.text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        label,
+        egui::FontId::proportional(cl::Fluid::of(rect).fs_body_sm()),
+        if resp.hovered() {
+            tone.color()
+        } else {
+            style.ink
+        },
+    );
+    resp
 }
 
 /// The shelves, in the operator's words.
@@ -274,6 +317,27 @@ pub(crate) struct AuthorSurface {
     loaded: bool,
     /// The open overlay editor, if a card is being edited.
     editing: Option<CardEditor>,
+    /// Which sort of thing is being built into. `None` until the first load
+    /// picks one — a strip labelled with nothing would be a lie.
+    kind: Option<Kind>,
+    /// Every container of [`Self::kind`], read off disk when the kind
+    /// changes rather than every frame.
+    offered: Vec<Container>,
+    /// Which of [`Self::offered`] the strip is labelled with.
+    into: Option<usize>,
+    /// The cards this sitting has started, oldest first. These live in
+    /// `inbox/` and are NOT in the container yet — the strip says so.
+    drafts: Vec<Draft>,
+}
+
+/// One card started in this sitting: what it is called, and where on disk it
+/// actually is. The strip lists these; placing them into the container is a
+/// real mutation and its own pass.
+struct Draft {
+    /// The inbox folder name — machine-side.
+    slide: String,
+    label: String,
+    dir: std::path::PathBuf,
 }
 
 impl AuthorSurface {
@@ -310,8 +374,13 @@ impl AuthorSurface {
         ui.add_space(cl::space::S3);
 
         self.load_once();
+        self.container_bar(ui);
         self.shelf_picker(ui);
-        let picked = self.carousel(ui);
+        // The strip is drawn last but reserved for FIRST — otherwise a tall
+        // card pushes the band off the bottom edge exactly as it once pushed
+        // its own captions off.
+        let strip_h = Self::strip_height(&cl::Fluid::of(ui.max_rect()));
+        let picked = self.carousel(ui, strip_h);
 
         ui.add_space(cl::space::S3);
         let seed = cl::tip(
@@ -328,36 +397,7 @@ impl AuthorSurface {
         // so a card minted by a tap is the same real document as any other.
         let request = picked.or_else(|| seed.clicked().then(|| ("blank".to_string(), None)));
         if let Some((from, label)) = request {
-            match self.mint_draft() {
-                Ok(slide) => {
-                    self.status = match &label {
-                        Some(l) => format!("started “{l}” — saved as inbox/{slide}"),
-                        None => format!("started a blank card — saved as inbox/{slide}"),
-                    };
-                    // Straight into the editor. Starting a card and then having
-                    // to go find it is exactly the friction this surface exists
-                    // to remove, and the document is already on disk — so the
-                    // editor opens on a real file, not a buffer hoping to be one.
-                    let dir = dpl_engine_capture::content_root()
-                        .join("inbox")
-                        .join(&slide);
-                    let title = label.clone().unwrap_or_else(|| "New card".to_string());
-                    self.open_editor(&dir, title);
-                    // Emit-with-mutation: the fact is published AFTER the write
-                    // succeeds, never before. show/episode are empty until the
-                    // card is placed into an episode (Studio's `SlidePlaced`).
-                    if let Some(f) = fabric {
-                        f.publish_build(dpl_fabric::BuildEvent::CardAuthored {
-                            show: String::new(),
-                            episode: String::new(),
-                            slide,
-                        });
-                    }
-                }
-                Err(e) => {
-                    self.status = format!("could not start a card: {e} (nothing was written)")
-                }
-            }
+            self.start_card(label, fabric);
             let _ = from;
         }
 
@@ -366,8 +406,61 @@ impl AuthorSurface {
             ui.label(RichText::new(&self.status).small().color(cl::ink::BASE));
         }
 
+        // The band sits along the bottom, on the room reserved for it before
+        // the carousel sized itself.
+        let space = ui.available_height() - Self::strip_height(&cl::Fluid::of(ui.max_rect()));
+        if space > 0.0 {
+            ui.add_space(space);
+        }
+        if self.filmstrip(ui) {
+            // The strip's own tile is the same authoring path as everything
+            // else — not a second way to make a card.
+            self.start_card(None, fabric);
+        }
+
         // Last, so the scrim sits over everything drawn above it.
         self.editor_modal(ui);
+    }
+
+    /// Start a card: write the document, remember it, open its editor, then
+    /// publish the fact. The ONE path — every control that starts a card
+    /// comes through here.
+    fn start_card(&mut self, label: Option<String>, fabric: &Option<dpl_fabric::Fabric>) {
+        match self.mint_draft() {
+            Ok(slide) => {
+                self.status = match &label {
+                    Some(l) => format!("started “{l}” — saved as inbox/{slide}"),
+                    None => format!("started a blank card — saved as inbox/{slide}"),
+                };
+                // Straight into the editor. Starting a card and then having
+                // to go find it is exactly the friction this surface exists
+                // to remove, and the document is already on disk — so the
+                // editor opens on a real file, not a buffer hoping to be one.
+                let dir = dpl_engine_capture::content_root()
+                    .join("inbox")
+                    .join(&slide);
+                let title = label.unwrap_or_else(|| "New card".to_string());
+                // Remembered BEFORE the editor opens, so the strip shows it
+                // whether or not the editor could be opened on it.
+                self.drafts.push(Draft {
+                    slide: slide.clone(),
+                    label: title.clone(),
+                    dir: dir.clone(),
+                });
+                self.open_editor(&dir, title);
+                // Emit-with-mutation: the fact is published AFTER the write
+                // succeeds, never before. show/episode are empty until the
+                // card is placed into an episode (Studio's `SlidePlaced`).
+                if let Some(f) = fabric {
+                    f.publish_build(dpl_fabric::BuildEvent::CardAuthored {
+                        show: String::new(),
+                        episode: String::new(),
+                        slide,
+                    });
+                }
+            }
+            Err(e) => self.status = format!("could not start a card: {e} (nothing was written)"),
+        }
     }
 
     /// Mint a card and open its editor — the `--author-editor` proof seam.
@@ -376,15 +469,27 @@ impl AuthorSurface {
     /// this pass adds could not be photographed on the real exe. Point
     /// `--content-root` at a scratch dir and it writes nowhere near real work.
     pub(crate) fn open_editor_drill(&mut self) {
-        match self.mint_draft() {
-            Ok(slide) => {
-                let dir = dpl_engine_capture::content_root()
-                    .join("inbox")
-                    .join(&slide);
-                self.status = format!("started a card — saved as inbox/{slide}");
-                self.open_editor(&dir, "New card".to_string());
-            }
-            Err(e) => self.status = format!("could not start a card: {e}"),
+        // The same path a tap takes — a drill that minted differently would
+        // prove a code path the operator never walks.
+        self.start_card(None, &None);
+    }
+
+    /// Start `n` cards WITHOUT opening the editor — the `--author-draft <n>`
+    /// proof seam, so the filmstrip can be photographed with something in it.
+    /// Same mint, then the overlay is dismissed so the band is visible.
+    pub(crate) fn draft_drill(&mut self, n: usize) {
+        for _ in 0..n {
+            self.start_card(None, &None);
+        }
+        self.editing = None;
+    }
+
+    /// Show one kind's shelf of containers — the `--author-container <kind>`
+    /// proof seam. An unknown slug is ignored rather than guessed at.
+    pub(crate) fn container_drill(&mut self, slug: &str) {
+        if let Some(kind) = Kind::ALL.into_iter().find(|k| k.slug() == slug) {
+            self.load_once();
+            self.choose_kind(kind);
         }
     }
 
@@ -560,11 +665,258 @@ impl AuthorSurface {
         ui.add_space(cl::space::S2);
     }
 
+    /// Load the containers of one kind and land on the first of them.
+    ///
+    /// Reads the disk, so it runs on a kind change and at first load — never
+    /// per frame.
+    fn choose_kind(&mut self, kind: Kind) {
+        self.kind = Some(kind);
+        self.offered = containers(kind, &dpl_engine_capture::content_root());
+        self.into = (!self.offered.is_empty()).then_some(0);
+    }
+
+    /// The container currently being built into.
+    fn container(&self) -> Option<&Container> {
+        self.into.and_then(|ix| self.offered.get(ix))
+    }
+
+    /// "Building into …" — the kind, then which one.
+    ///
+    /// Both pickers are drawn from [`Kind::ALL`] and the disk census; neither
+    /// is a hand-list. A kind with nothing behind it says why in its own
+    /// words instead of offering an empty menu.
+    fn container_bar(&mut self, ui: &mut egui::Ui) {
+        let fluid = cl::Fluid::of(ui.max_rect());
+        let kind = self.kind.unwrap_or(Kind::Episode);
+        let mut want = None;
+
+        ui.horizontal_wrapped(|ui| {
+            ui.label(
+                RichText::new("Building into")
+                    .size(fluid.fs_body_sm())
+                    .color(cl::ink::MUTED),
+            );
+            ui.add_space(cl::space::S2);
+
+            let kind_box = egui::ComboBox::from_id_salt("author.kind")
+                .selected_text(
+                    RichText::new(kind.label())
+                        .strong()
+                        .color(kind.tone().color()),
+                )
+                .show_ui(ui, |ui| {
+                    for k in Kind::ALL {
+                        let on = k == kind;
+                        let mut picked = on;
+                        let item = cl::tip(
+                            ui.toggle_value(
+                                &mut picked,
+                                RichText::new(format!("{} — {}", k.label(), k.blurb()))
+                                    .color(if on { k.tone().color() } else { cl::ink::BASE }),
+                            ),
+                            k.tip(),
+                        );
+                        if item.clicked() && k != kind {
+                            want = Some(k);
+                        }
+                    }
+                });
+            cl::tip(kind_box.response, "What sort of thing you're building into");
+
+            ui.add_space(cl::space::S3);
+
+            // Which one — only ever the containers that really exist.
+            if self.offered.is_empty() {
+                // Two different emptinesses, and they must not read alike:
+                // a kind with no home at all, versus a real kind you simply
+                // have none of yet.
+                let why = if kind.is_stored() {
+                    format!(
+                        "No {} yet — make one and it shows up here.",
+                        kind.label().to_lowercase()
+                    )
+                } else {
+                    kind.not_stored_yet().unwrap_or_default().to_string()
+                };
+                cl::tip(
+                    ui.label(
+                        RichText::new(&why)
+                            .size(fluid.fs_body_sm())
+                            .color(cl::ink::MUTED),
+                    ),
+                    "Nothing to build into under this heading yet",
+                );
+            } else {
+                let current = self.container().map(|c| c.name.clone()).unwrap_or_default();
+                let which = egui::ComboBox::from_id_salt("author.container")
+                    .selected_text(RichText::new(&current).strong().color(cl::ink::STRONG))
+                    .show_ui(ui, |ui| {
+                        for (ix, c) in self.offered.iter().enumerate() {
+                            let mut picked = self.into == Some(ix);
+                            let item = ui.toggle_value(
+                                &mut picked,
+                                RichText::new(format!("{}  ({} {})", c.name, c.count, kind.unit()))
+                                    .color(cl::ink::BASE),
+                            );
+                            if item.clicked() {
+                                self.into = Some(ix);
+                            }
+                        }
+                    });
+                cl::tip(which.response, "Which one you're adding to");
+            }
+        });
+
+        if let Some(k) = want {
+            self.choose_kind(k);
+        }
+        ui.add_space(cl::space::S3);
+    }
+
+    /// How much room the strip needs, so the carousel can subtract it BEFORE
+    /// it proposes a card size. The band is the last thing drawn but the
+    /// first thing accounted for; otherwise a tall card pushes it off the
+    /// bottom edge exactly as it once pushed its own captions off.
+    fn strip_height(fluid: &cl::Fluid) -> f32 {
+        // head line + a film card + the padding around both
+        fluid.fs_body_lg() + fluid.ctl_thumb_h() + cl::space::S6
+    }
+
+    /// The filmstrip — what you have started, labelled by what it is for.
+    ///
+    /// The head is drawn from the loaded container, never a constant. What it
+    /// lists are this sitting's drafts, which live in `inbox/` and are NOT in
+    /// the container yet; the wording says exactly that, because claiming a
+    /// placement that has not happened is the one thing this band must not do.
+    fn filmstrip(&mut self, ui: &mut egui::Ui) -> bool {
+        let fluid = cl::Fluid::of(ui.max_rect());
+        let Some(kind) = self.kind else {
+            return false;
+        };
+        let mut start_one = false;
+
+        // A hairline is what separates the band from the surface it serves —
+        // the strip is a shelf, not another card competing for attention.
+        let seam = ui.available_rect_before_wrap();
+        ui.painter().hline(
+            seam.x_range(),
+            seam.top(),
+            egui::Stroke::new(1.0, cl::surface::HAIRLINE),
+        );
+        ui.add_space(cl::space::S3);
+
+        ui.horizontal_wrapped(|ui| {
+            // The kind pill — the strip's one piece of colour, so which sort
+            // of thing you are building into reads at a glance.
+            cl::tip(
+                ui.label(
+                    RichText::new(format!(" {} ", kind.label().to_uppercase()))
+                        .size(fluid.fs_eyebrow())
+                        .strong()
+                        .color(kind.tone().color()),
+                ),
+                kind.tip(),
+            );
+            ui.add_space(cl::space::S2);
+
+            match self.container() {
+                Some(c) => {
+                    ui.label(
+                        RichText::new(&c.name)
+                            .size(fluid.fs_body_lg())
+                            .strong()
+                            .color(cl::ink::STRONG),
+                    );
+                    ui.label(
+                        RichText::new(format!("· already has {} {}", c.count, kind.unit()))
+                            .size(fluid.fs_body_sm())
+                            .color(cl::ink::MUTED),
+                    );
+                }
+                None => {
+                    ui.label(
+                        RichText::new("Nothing chosen to build into yet")
+                            .size(fluid.fs_body_lg())
+                            .color(cl::ink::MUTED),
+                    );
+                }
+            }
+
+            ui.add_space(cl::space::S3);
+            if !self.drafts.is_empty() {
+                cl::tip(
+                    ui.label(
+                        RichText::new(format!(
+                            "{} started here, not put in yet",
+                            self.drafts.len()
+                        ))
+                        .size(fluid.fs_body_sm())
+                        .color(Tone::Amber.color()),
+                    ),
+                    "Cards you started this sitting. They are saved in your inbox; putting \
+                     them into what you picked above comes next.",
+                );
+            }
+        });
+        ui.add_space(cl::space::S2);
+
+        // The film itself — a row of what has been started, then a tile that
+        // starts one more.
+        let card_w = fluid.ctl_thumb_w() * 2.0;
+        let card_h = fluid.ctl_thumb_h();
+        egui::ScrollArea::horizontal()
+            .id_salt("author.filmstrip")
+            .max_height(card_h)
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    if self.drafts.is_empty() {
+                        ui.label(
+                            RichText::new(format!(
+                                "Tap something above to drop your first {} in here.",
+                                kind.unit_one()
+                            ))
+                            .size(fluid.fs_body())
+                            .color(cl::ink::MUTED),
+                        );
+                    }
+                    let mut reopen = None;
+                    for (ix, draft) in self.drafts.iter().enumerate() {
+                        let resp = film_tile(ui, card_w, card_h, &draft.label, kind.tone());
+                        let tip = format!(
+                            "Open “{}” again — it is saved as inbox/{}",
+                            draft.label, draft.slide
+                        );
+                        if cl::tip(resp, &tip).clicked() {
+                            reopen = Some(ix);
+                        }
+                        ui.add_space(cl::space::S2);
+                    }
+                    let plus = film_tile(ui, card_h, card_h, "+", Tone::Amber);
+                    if cl::tip(plus, "Start one more card").clicked() {
+                        start_one = true;
+                    }
+                    if let Some(ix) = reopen {
+                        let (dir, label) = {
+                            let d = &self.drafts[ix];
+                            (d.dir.clone(), d.label.clone())
+                        };
+                        self.open_editor(&dir, label);
+                    }
+                });
+            });
+        start_one
+    }
+
     /// ONE carousel: big cards, swept sideways. Returns what was tapped.
     ///
     /// Three cards across whatever the window, so the targets stay thumb-sized
     /// on the 75" prop and the layout never needs a magic width.
-    fn carousel(&mut self, ui: &mut egui::Ui) -> Option<(String, Option<String>)> {
+    fn carousel(
+        &mut self,
+        ui: &mut egui::Ui,
+        reserve_below: f32,
+    ) -> Option<(String, Option<String>)> {
         let fluid = cl::Fluid::of(ui.max_rect());
         let items = self.shelf_items();
         let mut picked = None;
@@ -623,7 +975,7 @@ impl AuthorSurface {
         // its own captions — and everything under the carousel — off the bottom
         // edge. Whichever axis is tighter decides the card, so the band always
         // fits the room it was given.
-        let room_below = fluid.fs_body_lg() + cl::space::S6;
+        let room_below = fluid.fs_body_lg() + cl::space::S6 + reserve_below;
         let max_card_h = (ui.available_height() - room_below).max(caption_h + arrow_w);
         let card_w = card_w.min((max_card_h - caption_h).max(arrow_w) * 16.0 / 9.0);
         let stage_h = card_w * 9.0 / 16.0;
@@ -879,6 +1231,15 @@ impl AuthorSurface {
             return;
         }
         self.loaded = true;
+        // Land on the first kind that has something behind it, so the strip
+        // starts labelled with a real container rather than an empty heading.
+        // If none do, the bar says so and the strip stays honest about it.
+        let root = dpl_engine_capture::content_root();
+        let first = Kind::ALL
+            .into_iter()
+            .find(|k| !containers(*k, &root).is_empty())
+            .unwrap_or(Kind::Episode);
+        self.choose_kind(first);
         self.demos = dpl_slides::demos();
         self.seeds = dpl_doc::list_seeds()
             .into_iter()
