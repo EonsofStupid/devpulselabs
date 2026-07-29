@@ -126,6 +126,106 @@ fn newest_draft() -> Option<std::path::PathBuf> {
     dirs.pop()
 }
 
+/// The Movement tab — how the words arrive.
+///
+/// THREE choices, and that is the whole truth of it. The document permits two
+/// entrances (`dpl_doc::enters()`) and the renderer implements one; the third
+/// choice is to follow the show, which is a real answer and not an absence.
+///
+/// The seventeen other motion effects in the tokens belong to TEMPLATES, for
+/// their own elements — the document path consumes `ENTER_RISE` alone.
+/// Offering them here would offer refs the document cannot hold.
+///
+/// The shortfall is stated under the choices rather than hidden. An operator
+/// should leave this tab knowing what exists, not wondering whether the UI is
+/// broken.
+fn movement_tab(ui: &mut egui::Ui, editor: &mut dpl_editor::Editor) {
+    let fluid = cl::Fluid::of(ui.ctx().content_rect());
+    let current = editor.slide().enter.clone();
+    let mut want: Option<Option<String>> = None;
+
+    ui.add_space(cl::space::S2);
+    ui.label(
+        RichText::new("How the words arrive")
+            .size(fluid.fs_body_lg())
+            .strong()
+            .color(cl::ink::STRONG),
+    );
+    ui.add_space(cl::space::S2);
+
+    // "Follow the show" first: inheriting is the default and the commonest
+    // right answer, so it should not read as the leftover option.
+    let inherited = editor.look_enter();
+    let follow = cl::tip(
+        ui.selectable_label(
+            current.is_none(),
+            format!("Follow the show — {}", movement_words(inherited.as_deref())),
+        ),
+        "Use whatever this show does. Change the show and this card follows.",
+    );
+    if follow.clicked() {
+        want = Some(None);
+    }
+    for enter in dpl_doc::enters() {
+        let on = current.as_deref() == Some(*enter);
+        let hit = cl::tip(
+            ui.selectable_label(on, movement_label(enter)),
+            movement_tip(enter),
+        );
+        if hit.clicked() {
+            want = Some(Some((*enter).to_string()));
+        }
+    }
+
+    ui.add_space(cl::space::S4);
+    ui.label(
+        RichText::new("Arriving is all that is built")
+            .size(fluid.fs_body())
+            .strong()
+            .color(cl::ink::BASE),
+    );
+    ui.label(
+        RichText::new(
+            "Getting noticed and going out are not. Each one needs a movement authored, \
+             the card's file taught to name it, and the player taught to play it — so \
+             they arrive together or not at all.",
+        )
+        .color(cl::ink::MUTED),
+    );
+
+    if let Some(next) = want {
+        editor.set_enter(next);
+    }
+}
+
+/// The operator's word for an entrance ref. `slug` never reaches the screen.
+fn movement_label(slug: &str) -> &'static str {
+    match slug {
+        "rise" => "Rise into place",
+        "none" => "Stay still",
+        // A new entrance allowed by the schema before anyone wrote its word:
+        // say so rather than printing the ref.
+        _ => "A new way in",
+    }
+}
+
+fn movement_tip(slug: &str) -> &'static str {
+    match slug {
+        "rise" => "The words lift into place, one after another",
+        "none" => "The words are simply there — nothing moves",
+        _ => "A movement this build does not have a word for yet",
+    }
+}
+
+/// What "follow the show" currently amounts to, so the choice is legible
+/// rather than an invisible default.
+fn movement_words(inherited: Option<&str>) -> String {
+    match inherited {
+        Some(slug) => movement_label(slug).to_lowercase(),
+        None => "nothing set".to_string(),
+    }
+}
+
 /// The Background tab — what sits behind the words.
 ///
 /// Every tile is a LIVE render of the backdrop it offers, painted through the
@@ -932,6 +1032,7 @@ impl AuthorSurface {
                     .show(ui, |ui| match ed.tab {
                         CardTab::Words => ed.editor.ui(ui),
                         CardTab::Background => background_tab(ui, &mut ed.editor),
+                        CardTab::Movement => movement_tab(ui, &mut ed.editor),
                         other => {
                             ui.add_space(cl::space::S4);
                             ui.label(
@@ -1859,12 +1960,12 @@ impl AuthorSurface {
 }
 
 #[cfg(test)]
-mod background_tests {
+pub(crate) mod background_tests {
     use super::*;
     use egui_kittest::kittest::Queryable as _;
 
     /// A slide folder with a real, schema-valid document in it.
-    fn card(name: &str, background: Option<dpl_doc::Background>) -> std::path::PathBuf {
+    pub(crate) fn card(name: &str, background: Option<dpl_doc::Background>) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("dpl-bg-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -1994,5 +2095,68 @@ mod background_tests {
             std::fs::remove_dir_all(&dir).ok();
             assert!(issues.is_empty(), "{} → {issues:?}", colour.slug);
         }
+    }
+}
+
+#[cfg(test)]
+mod movement_tests {
+    use super::background_tests::*;
+    use super::*;
+    use egui_kittest::kittest::Queryable as _;
+
+    fn drive_movement(dir: &std::path::Path, label: &str) -> dpl_doc::Slide {
+        let editor = dpl_editor::Editor::open(dir).unwrap();
+        let mut harness = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(1280.0, 800.0))
+            .build_ui_state(
+                |ui, ed: &mut dpl_editor::Editor| movement_tab(ui, ed),
+                editor,
+            );
+        harness.run();
+        harness.get_by_label_contains(label).click();
+        harness.run();
+        dpl_doc::load(dir).unwrap()
+    }
+
+    /// The shelf IS the schema's vocabulary plus "follow the show". This
+    /// fails the day `ENTERS` grows — which is the point: a new entrance
+    /// must reach the picker, not sit in the schema unoffered.
+    #[test]
+    fn the_movement_row_is_the_schemas_vocabulary() {
+        assert_eq!(dpl_doc::enters(), ["rise", "none"]);
+        for slug in dpl_doc::enters() {
+            assert_ne!(
+                movement_label(slug),
+                "A new way in",
+                "{slug} is allowed by the schema but has no operator word"
+            );
+        }
+    }
+
+    #[test]
+    fn picking_a_movement_writes_it_and_still_validates() {
+        for (label, expected) in [("Rise into place", "rise"), ("Stay still", "none")] {
+            let dir = card(&format!("move-{expected}"), None);
+            let after = drive_movement(&dir, label);
+            let issues = dpl_doc::validate(&after);
+            std::fs::remove_dir_all(&dir).ok();
+            assert_eq!(after.enter.as_deref(), Some(expected));
+            assert!(issues.is_empty(), "{expected} → {issues:?}");
+        }
+    }
+
+    /// "Follow the show" clears the override rather than writing a value —
+    /// inheriting is an absence in the document, and must stay one.
+    #[test]
+    fn following_the_show_clears_the_override() {
+        let dir = card("move-follow", None);
+        // Start from a deliberate override so clearing it is observable.
+        {
+            let mut ed = dpl_editor::Editor::open(&dir).unwrap();
+            ed.set_enter(Some("none".into()));
+        }
+        let after = drive_movement(&dir, "Follow the show");
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(after.enter, None, "inheriting must not write a value");
     }
 }

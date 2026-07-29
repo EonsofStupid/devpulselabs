@@ -208,6 +208,16 @@ const BLEND_MOTIONS: &[&str] = &["blend-drift"];
 /// "none" is the explicit static override — a slide opting OUT of the
 /// show look's entrance (absent would mean inherit, not static).
 const ENTERS: &[&str] = &["rise", "none"];
+
+/// Every entrance a slide may name — the SAME list [`validate`] enforces.
+///
+/// Exposed so a picker offers exactly what the validator accepts. A surface
+/// that hand-lists these would drift the day one is added and start writing
+/// documents the app refuses to load; this way a new entrance reaches every
+/// picker the moment it is allowed here.
+pub fn enters() -> &'static [&'static str] {
+    ENTERS
+}
 /// The media block's `as` discriminator (W11) — image or looping video.
 const MEDIA_SHOWS: &[&str] = &["image", "video"];
 /// The media stage fit — fill (cover) or letterbox (contain).
