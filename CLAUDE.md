@@ -59,7 +59,7 @@ other worktree. The operator double-clicks `target\release\devpulselabs.exe`
 - Harness flags (ground-truthed vs `crates/app/src/main.rs` 2026-07-27):
   `--screenshot <png> --shot-frame <n> --route <hub/sub> --focus <id>
   --lib-section <slug> --author-editor --author-container <kind>
-  --author-draft <n>
+  --author-draft <n> --card-tab <slug>
   --window <w>x<h> --mood 0 --viziwiz --viziwiz-snap --present <id>
   --presenter-drill <n> --session-drill <s> --steps-hotkey-drill
   --video-drill <s> [--video-format <f>] --open-rail <hub>

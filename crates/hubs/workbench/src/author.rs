@@ -112,6 +112,270 @@ fn film_tile(
     resp
 }
 
+/// The most recently named card in the inbox, if there is one. Sorted by
+/// name, which is mint order — `authored-draft-2` follows `authored-draft-1`.
+fn newest_draft() -> Option<std::path::PathBuf> {
+    let inbox = dpl_engine_capture::content_root().join("inbox");
+    let mut dirs: Vec<std::path::PathBuf> = std::fs::read_dir(inbox)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.join("slide.json").is_file())
+        .collect();
+    dirs.sort();
+    dirs.pop()
+}
+
+/// The Background tab — what sits behind the words.
+///
+/// Every tile is a LIVE render of the backdrop it offers, painted through the
+/// same path the card uses, so what you tap is what you get. A picker showing
+/// an approximation of the result is the friction this whole surface exists
+/// to remove.
+///
+/// The rows arrive in the order a person decides: pick a colour, then
+/// optionally blend a second, then optionally set something moving. Rows two
+/// and three stay hidden until row one is answered, so the first decision is
+/// never buried under two that depend on it.
+fn background_tab(ui: &mut egui::Ui, editor: &mut dpl_editor::Editor) {
+    let fluid = cl::Fluid::of(ui.ctx().content_rect());
+    let colours = crate::backgrounds::colours();
+    let current = editor.slide().background.clone();
+
+    // What is picked right now, read off the document rather than remembered
+    // beside it — the file is the truth.
+    let (first, second, ambience) = match &current {
+        Some(dpl_doc::Background::Mood { mood }) => (Some(mood.clone()), None, None),
+        Some(dpl_doc::Background::MoodBlend {
+            moods, ambience, ..
+        }) => (
+            moods.first().cloned(),
+            moods.get(1).cloned(),
+            ambience.clone(),
+        ),
+        _ => (None, None, None),
+    };
+
+    ui.add_space(cl::space::S2);
+    ui.label(
+        RichText::new(format!("The colour — {} to choose from", colours.len()))
+            .size(fluid.fs_body_lg())
+            .strong()
+            .color(cl::ink::STRONG),
+    );
+    ui.add_space(cl::space::S2);
+
+    let mut want: Option<Option<dpl_doc::Background>> = None;
+
+    // Row one: the colour. "Nothing" sits first because a bare card is a real
+    // answer, not a failure to choose.
+    let tile_w = fluid.ctl_thumb_w() * 1.6;
+    let tile_h = tile_w * 9.0 / 16.0;
+    ui.horizontal_wrapped(|ui| {
+        if swatch(
+            ui,
+            tile_w,
+            tile_h,
+            None,
+            first.is_none(),
+            crate::backgrounds::NOTHING,
+        )
+        .clicked()
+        {
+            want = Some(Some(dpl_doc::Background::None));
+        }
+        for colour in &colours {
+            let picked = first.as_deref() == Some(colour.slug.as_str());
+            if swatch(
+                ui,
+                tile_w,
+                tile_h,
+                Some(&colour.slug),
+                picked,
+                &colour.label,
+            )
+            .clicked()
+            {
+                want = Some(Some(dpl_doc::Background::Mood {
+                    mood: colour.slug.clone(),
+                }));
+            }
+        }
+    });
+
+    // Rows two and three only exist once there is something to blend WITH.
+    if let Some(base) = first.clone() {
+        ui.add_space(cl::space::S4);
+        ui.label(
+            RichText::new("Blend a second into it")
+                .size(fluid.fs_body_lg())
+                .strong()
+                .color(cl::ink::STRONG),
+        );
+        ui.label(
+            RichText::new("Tap the one that is already on to go back to a single colour.")
+                .small()
+                .color(cl::ink::MUTED),
+        );
+        ui.add_space(cl::space::S2);
+        let mix = crate::backgrounds::mixes()
+            .first()
+            .map(|m| m.slug.clone())
+            .unwrap_or_default();
+        ui.horizontal_wrapped(|ui| {
+            for colour in &colours {
+                if colour.slug == base {
+                    continue;
+                }
+                let picked = second.as_deref() == Some(colour.slug.as_str());
+                if swatch(
+                    ui,
+                    tile_w,
+                    tile_h,
+                    Some(&colour.slug),
+                    picked,
+                    &colour.label,
+                )
+                .clicked()
+                {
+                    want = Some(Some(if picked {
+                        dpl_doc::Background::Mood { mood: base.clone() }
+                    } else {
+                        dpl_doc::Background::MoodBlend {
+                            moods: vec![base.clone(), colour.slug.clone()],
+                            motion: mix.clone(),
+                            ambience: ambience.clone(),
+                        }
+                    }));
+                }
+            }
+        });
+
+        ui.add_space(cl::space::S4);
+        ui.label(
+            RichText::new("Something moving over it")
+                .size(fluid.fs_body_lg())
+                .strong()
+                .color(cl::ink::STRONG),
+        );
+        ui.add_space(cl::space::S2);
+        ui.horizontal_wrapped(|ui| {
+            let moving = crate::backgrounds::ambiences();
+            let still = cl::tip(
+                ui.selectable_label(ambience.is_none(), "Still"),
+                "Nothing drifting over the colour",
+            );
+            if still.clicked() {
+                want = Some(Some(background_with(&base, &second, &mix, None)));
+            }
+            for choice in &moving {
+                let on = ambience.as_deref() == Some(choice.slug.as_str());
+                let hit = cl::tip(
+                    ui.selectable_label(on, &choice.label),
+                    "Tap to put this over the colour",
+                );
+                if hit.clicked() {
+                    let next = (!on).then(|| choice.slug.clone());
+                    want = Some(Some(background_with(&base, &second, &mix, next)));
+                }
+            }
+        });
+    }
+
+    if let Some(next) = want {
+        editor.set_background(next);
+    }
+}
+
+/// Rebuild a background around a possibly-changed ambience, keeping whatever
+/// colours are already picked. An ambience rides on a blend, so a single
+/// colour is promoted to a blend with itself rather than losing the movement.
+fn background_with(
+    base: &str,
+    second: &Option<String>,
+    mix: &str,
+    ambience: Option<String>,
+) -> dpl_doc::Background {
+    match (second, &ambience) {
+        (None, None) => dpl_doc::Background::Mood {
+            mood: base.to_string(),
+        },
+        (Some(other), _) => dpl_doc::Background::MoodBlend {
+            moods: vec![base.to_string(), other.clone()],
+            motion: mix.to_string(),
+            ambience,
+        },
+        (None, Some(_)) => dpl_doc::Background::MoodBlend {
+            moods: vec![base.to_string(), base.to_string()],
+            motion: mix.to_string(),
+            ambience,
+        },
+    }
+}
+
+/// One background option, painted for real.
+///
+/// `mood` of `None` is the bare well — the honest picture of "nothing behind
+/// the words", not an empty box.
+fn swatch(
+    ui: &mut egui::Ui,
+    w: f32,
+    h: f32,
+    mood: Option<&str>,
+    picked: bool,
+    label: &str,
+) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, h), egui::Sense::click());
+    let radius = egui::CornerRadius::same(cl::RADIUS);
+    let painter = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
+    match mood.and_then(|name| cl::MOODS.iter().find(|m| m.name == name)) {
+        Some(m) => cl::mood_gradient(&painter, rect, m),
+        None => {
+            painter.rect_filled(rect, radius, cl::surface::WELL);
+        }
+    }
+    // The name rides ON the colour, over a scrim, because a caption beneath
+    // would double the height of a row that is already ten wide.
+    painter.rect_filled(
+        egui::Rect::from_min_max(egui::pos2(rect.min.x, rect.max.y - cl::space::S5), rect.max),
+        radius,
+        cl::scrim(150),
+    );
+    painter.text(
+        egui::pos2(rect.center().x, rect.max.y - cl::space::S5 * 0.5),
+        egui::Align2::CENTER_CENTER,
+        label,
+        egui::FontId::proportional(cl::Fluid::of(rect).fs_body_sm()),
+        cl::ink::STRONG,
+    );
+    painter.rect_stroke(
+        rect,
+        radius,
+        egui::Stroke::new(
+            if picked { 2.0 } else { 1.0 },
+            if picked {
+                super::SPEC.tone.color()
+            } else {
+                cl::surface::HAIRLINE
+            },
+        ),
+        egui::StrokeKind::Inside,
+    );
+    // A tile is painted, not built from a widget, so it carries no name of
+    // its own. Say what it is: screen readers and the headless harness both
+    // read this, and a control a machine cannot name is one a person cannot
+    // either.
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, picked, label));
+    let tip = if picked {
+        format!("{label} — this is what the card has now")
+    } else {
+        format!("Tap to put {} behind the words", label.to_lowercase())
+    };
+    let resp = cl::tip(resp, &tip);
+    ui.add_space(cl::space::S2);
+    resp
+}
+
 /// The shelves, in the operator's words.
 ///
 /// [`Shelf::slug`] is the machine id — what the code calls the tier, and what
@@ -518,6 +782,35 @@ impl AuthorSurface {
         self.start_card(None, &None);
     }
 
+    /// Open the overlay editor on one TAB by its slug — the
+    /// `--card-tab <slug>` proof seam. Words is the default, so no tab but
+    /// that one could be photographed on the real exe before this.
+    ///
+    /// Unknown slugs leave the tab alone rather than guessing.
+    pub(crate) fn card_tab_drill(&mut self, slug: &str) {
+        if self.editing.is_none() {
+            // Re-open the newest card in the inbox rather than minting another
+            // one. A drill that shows a tab should not need a fresh card each
+            // time, and re-opening is what a person does anyway.
+            match newest_draft() {
+                Some(dir) => {
+                    let label = dir
+                        .file_name()
+                        .map(|n| pretty(&n.to_string_lossy()))
+                        .unwrap_or_else(|| "New card".to_string());
+                    self.open_editor(&dir, label);
+                }
+                None => self.open_editor_drill(),
+            }
+        }
+        if let (Some(ed), Some(tab)) = (
+            self.editing.as_mut(),
+            CardTab::ALL.into_iter().find(|t| t.slug() == slug),
+        ) {
+            ed.tab = tab;
+        }
+    }
+
     /// Start `n` cards WITHOUT opening the editor — the `--author-draft <n>`
     /// proof seam, so the filmstrip can be photographed with something in it.
     /// Same mint, then the overlay is dismissed so the band is visible.
@@ -638,6 +931,7 @@ impl AuthorSurface {
                     .max_height(room.height() * 0.55)
                     .show(ui, |ui| match ed.tab {
                         CardTab::Words => ed.editor.ui(ui),
+                        CardTab::Background => background_tab(ui, &mut ed.editor),
                         other => {
                             ui.add_space(cl::space::S4);
                             ui.label(
@@ -1561,5 +1855,144 @@ impl AuthorSurface {
         };
         dpl_doc::save(&dir, &slide).map_err(|e| e.to_string())?;
         Ok(id)
+    }
+}
+
+#[cfg(test)]
+mod background_tests {
+    use super::*;
+    use egui_kittest::kittest::Queryable as _;
+
+    /// A slide folder with a real, schema-valid document in it.
+    fn card(name: &str, background: Option<dpl_doc::Background>) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("dpl-bg-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let slide = dpl_doc::Slide {
+            v: dpl_doc::SCHEMA_V,
+            template: "title-card".into(),
+            background,
+            blocks: Vec::new(),
+            enter: None,
+            reveals: Vec::new(),
+        };
+        dpl_doc::save(&dir, &slide).unwrap();
+        dir
+    }
+
+    /// Run the tab and hand back the document it left behind.
+    ///
+    /// A colour name appears in row one AND row two once a first colour is
+    /// picked — the same ten colours are offered to blend with. `nth` says
+    /// which row's tile to tap: 0 is "make this the colour", 1 is "blend this
+    /// into it".
+    fn drive_nth(dir: &std::path::Path, label: &str, nth: usize) -> dpl_doc::Slide {
+        let editor = dpl_editor::Editor::open(dir).unwrap();
+        let mut harness = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(1280.0, 800.0))
+            .build_ui_state(
+                |ui, ed: &mut dpl_editor::Editor| background_tab(ui, ed),
+                editor,
+            );
+        harness.run();
+        let hits = harness.get_all_by_label(label).collect::<Vec<_>>();
+        assert!(hits.len() > nth, "{label:?} has {} tiles", hits.len());
+        hits[nth].click();
+        harness.run();
+        dpl_doc::load(dir).unwrap()
+    }
+
+    /// Run the tab for a few frames and hand back the document it left behind.
+    fn drive(dir: &std::path::Path, clicks: &[&str]) -> dpl_doc::Slide {
+        let editor = dpl_editor::Editor::open(dir).unwrap();
+        let mut harness = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(1280.0, 800.0))
+            .build_ui_state(
+                |ui, ed: &mut dpl_editor::Editor| background_tab(ui, ed),
+                editor,
+            );
+        harness.run();
+        for label in clicks {
+            harness.get_by_label(label).click();
+            harness.run();
+        }
+        dpl_doc::load(dir).unwrap()
+    }
+
+    /// The gallery gate: every authored colour paints, and tapping one lands
+    /// in the card's own document. A picker that draws but does not write is
+    /// the exact failure this surface exists to avoid.
+    #[test]
+    fn tapping_a_colour_writes_it_to_the_card() {
+        let dir = card("pick", None);
+        let after = drive(&dir, &["Deep lagoon"]);
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(
+            after.background,
+            Some(dpl_doc::Background::Mood {
+                mood: "deep-lagoon".into()
+            })
+        );
+    }
+
+    /// Row two only exists once row one is answered — and when it is, a
+    /// second colour promotes the card to a blend rather than replacing it.
+    #[test]
+    fn a_second_colour_blends_rather_than_replaces() {
+        let dir = card(
+            "blend",
+            Some(dpl_doc::Background::Mood {
+                mood: "ember-drift".into(),
+            }),
+        );
+        // Row two: the tile that blends, not the one that replaces.
+        let after = drive_nth(&dir, "Jade current", 1);
+        std::fs::remove_dir_all(&dir).ok();
+        match after.background {
+            Some(dpl_doc::Background::MoodBlend { moods, .. }) => {
+                assert_eq!(
+                    moods,
+                    vec!["ember-drift".to_string(), "jade-current".into()]
+                );
+            }
+            other => panic!("expected a blend, got {other:?}"),
+        }
+    }
+
+    /// Row three: something drifting over the colour. It rides on a blend, so
+    /// a single colour is promoted rather than losing the movement — and the
+    /// ref written must be one `document.rs` actually resolves.
+    #[test]
+    fn movement_over_a_single_colour_promotes_it_to_a_blend() {
+        let dir = card(
+            "ambience",
+            Some(dpl_doc::Background::Mood {
+                mood: "violet-static".into(),
+            }),
+        );
+        let after = drive(&dir, &["Rings"]);
+        std::fs::remove_dir_all(&dir).ok();
+        match after.background {
+            Some(dpl_doc::Background::MoodBlend {
+                moods, ambience, ..
+            }) => {
+                assert_eq!(ambience.as_deref(), Some("rings"));
+                assert!(moods.iter().all(|m| m == "violet-static"));
+            }
+            other => panic!("expected a blend carrying the movement, got {other:?}"),
+        }
+    }
+
+    /// Whatever the tab writes has to survive the validator — an option that
+    /// produces a document the app refuses to load is not an option.
+    #[test]
+    fn every_colour_writes_a_document_that_validates() {
+        for colour in crate::backgrounds::colours() {
+            let dir = card(&format!("valid-{}", colour.slug), None);
+            let after = drive(&dir, &[colour.label.as_str()]);
+            let issues = dpl_doc::validate(&after);
+            std::fs::remove_dir_all(&dir).ok();
+            assert!(issues.is_empty(), "{} → {issues:?}", colour.slug);
+        }
     }
 }

@@ -2,6 +2,27 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-29 — THE BACKGROUND TAB (`docs/plans/author-tab-background.md`):**
+the first of the overlay editor's six placeholders becomes real. Three rows in
+the order a person decides — the colour, blend a second, something moving over
+it — every tile a LIVE render of the backdrop it offers, painted through the
+same path the card uses. Rows two and three stay hidden until row one is
+answered. `backgrounds.rs` is the census: colours are `cl::MOODS` from tokens,
+movement is the `Ambient` vocabulary `document.rs` resolves, mixes are
+`cl::MOTION_PRESETS`. GROUND TRUTH — the mock promises "around forty"; the
+registry holds **TEN** colours, and the forty is real only through COMBINATION
+(ten flat, forty-five pairs, each with a mix and optional movement). The
+heading states the real count off `colours().len()`; the shelf was not padded
+to reach a number. Writes go through a new `Editor::set_background`, so a
+tapped colour joins the undo stack and saves like any other edit. Swatches
+gained `widget_info` names — they are painted, not widgets, so neither a
+screen reader nor the harness could find them. Seam `--card-tab <slug>`
+(reopens the newest inbox card, mints only if there is none). 8 new tests, 4
+driving the real widget under `egui_kittest`. NEXT = the Movement tab, and
+§8.4 records what it will find: 18 effects but only three true entrances, and
+**no exit effects at all**, so "how things go out" must be authored before it
+can be offered.
+
 **2026-07-29 — THUMBNAIL MODE (`docs/plans/slide-thumbnail-mode.md`):** the
 seed-thumbnail crop, deferred twice since #136, is fixed at its cause. It was
 never a surface bug: `Fluid::eval` ends in `.clamp(min, max)`, so below ~46
