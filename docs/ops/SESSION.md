@@ -14,10 +14,10 @@ milestone-loop). Product truth stays in `docs/STATE.md`.
 **coach / ledger / lesson** — ordered backlog:
 `docs/journal/2026-07-28-remaining-work.md`
 
-**NEXT:** Rail accordion degrade (**p4**)
+**NEXT:** C2s foreign-target spike (**p5**)
 
-**CLOSED:** p6 (`--lib-section` via #135) · live `/strict` synthetic
-refusal witness · **p2b** overlay mouse-passthrough (PASS, spike §8.1)
+**CLOSED:** p6 · `/strict` refusal witness · **p2b** passthrough · **p4**
+rail accordion degrade (scroll + reveal)
 
 ## Opens
 
@@ -29,7 +29,7 @@ refusal witness · **p2b** overlay mouse-passthrough (PASS, spike §8.1)
 
 ## Milestone
 
-Coach p4 → C2s → C2a/C2b → strict pinning → DuckDB ADR → class column
+Coach C2s → C2a/C2b → strict pinning → DuckDB ADR → class column
 
 ## Signals
 

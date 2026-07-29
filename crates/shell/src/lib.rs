@@ -217,6 +217,12 @@ pub struct Shell {
     /// The accordion's ONE open house (doctrine §5.2) — its subroutes
     /// unfold beneath its rail row; `None` = fully folded, icon-compact.
     open_house: Option<HubId>,
+    /// After an open-house change, scroll the rail body until that house
+    /// (and its unfold) intersects the visible clip (p4 cramped degrade).
+    rail_reveal_pending: bool,
+    /// Clip-intersected rect of the open house tile ∪ unfold after the
+    /// last `rail()` paint — `None` when folded. Kittest contract (p4).
+    last_open_rail_body: Option<Rect>,
     /// Last frame's zone rects (docs/shell.md).
     zones: Zones,
     /// Data-only launchers for app-owned native windows. The shell renders
@@ -276,6 +282,8 @@ impl Shell {
             build: "",
             tooltip_mood: dpl_backdrop::random_mood_index(),
             open_house: None,
+            rail_reveal_pending: false,
+            last_open_rail_body: None,
             zones: Zones::default(),
             window_accessories: Vec::new(),
         }
@@ -393,6 +401,16 @@ impl Shell {
     /// reproducible proof shots).
     pub fn set_open_house(&mut self, id: Option<HubId>) {
         self.open_house = id;
+        self.rail_reveal_pending = id.is_some();
+        if id.is_none() {
+            self.last_open_rail_body = None;
+        }
+    }
+
+    /// Clip-intersected open accordion body after the last rail paint
+    /// (`None` when folded). Used by the p4 cramped-rail contract.
+    pub fn last_open_rail_body(&self) -> Option<Rect> {
+        self.last_open_rail_body
     }
 
     /// Tapping a house in the rail — THE accordion gesture: the open house
@@ -402,8 +420,11 @@ impl Shell {
     pub fn toggle_house(&mut self, id: HubId) {
         if self.open_house == Some(id) {
             self.open_house = None;
+            self.rail_reveal_pending = false;
+            self.last_open_rail_body = None;
         } else {
             self.open_house = Some(id);
+            self.rail_reveal_pending = true;
             self.activate_hub(id);
         }
     }
@@ -634,7 +655,9 @@ impl Shell {
 
     // ── RAIL: the accordion — tap a house, its subroutes unfold beneath
     // it and the houses below push down; ONE open at a time (doctrine
-    // §5.2), folded is icon-compact. ─────────────────────────────────────
+    // §5.2), folded is icon-compact. When the accordion exceeds the rail
+    // zone height the BODY scrolls (p4) — chrome zones themselves do not.
+    // ────────────────────────────────────────────────────────────────────
     fn rail(&mut self, ui: &mut egui::Ui, fl: &cl::Fluid) -> (Rect, Option<Route>) {
         let mut clicked: Option<Route> = None;
         let mut toggled: Option<HubId> = None;
@@ -663,7 +686,10 @@ impl Shell {
         let mood = self.tooltip_mood();
         let route = self.route;
         let open_house = self.open_house;
+        let reveal_pending = self.rail_reveal_pending;
         let hubs = &self.hubs;
+        let mut open_body: Option<Rect> = None;
+        let mut reveal_done = false;
         let resp = egui::Panel::left("dpl_rail")
             .exact_size(width)
             .resizable(false)
@@ -675,101 +701,129 @@ impl Shell {
             )
             .show(ui, |ui| {
                 cl::sheen(ui.painter(), ui.max_rect().expand(10.0));
-                for (hub, &f) in hubs.iter().zip(&factors) {
-                    let spec = hub.spec();
-                    let active = spec.id == route.hub;
-                    let open = open_house == Some(spec.id);
-                    let r = cl::tip(
-                        house_tile(
-                            ui,
-                            &HouseTile {
-                                icon: spec.icon,
-                                label: spec.label,
-                                tone: spec.tone,
-                                active,
-                                expand: max_f,
-                                height: fl.tap_min(),
-                                icon_col,
-                            },
-                        ),
-                        spec.label,
-                    );
-                    ui.pilot_track(
-                        &r,
-                        NodeMetadata::new(
-                            PilotId::new("shell.rail").child(&PilotKey::new(spec.id.0)),
-                            egui_pilot_ai::protocol::Role::Button,
-                            spec.label,
-                        )
-                        // Two independent facts, reported as two. They used to
-                        // be one string (`active+open`), which no condition
-                        // could ask a question of.
-                        .value(if active { "active" } else { "inactive" })
-                        .expanded(open),
-                    );
-                    if r.clicked() {
-                        toggled = Some(spec.id);
-                    }
-                    // The unfold: the section allocates its full height
-                    // scaled by the factor and clip-reveals from the top —
-                    // subroutes extend DOWN, the houses below push down.
-                    if f > 0.001 {
-                        let w = ui.available_width();
-                        let gap = ui.spacing().item_spacing.y;
-                        let rows = spec.subroutes.len() as f32;
-                        let full_h = 8.0 + rows * 26.0 + (rows - 1.0).max(0.0) * gap;
-                        let (rect, _) =
-                            ui.allocate_exact_size(egui::vec2(w, full_h * f), Sense::hover());
-                        let mut child = ui.new_child(
-                            egui::UiBuilder::new()
-                                .max_rect(Rect::from_min_size(rect.min, egui::vec2(w, full_h)))
-                                .layout(Layout::top_down(Align::Min)),
-                        );
-                        child.set_clip_rect(rect.intersect(ui.clip_rect()));
-                        // The unfold PLATE: the open house's subroutes sit on
-                        // their own recessed background — visibly a different
-                        // layer than the rail (operator ask: "slightly
-                        // indented with a different background").
-                        child.painter().rect_filled(
-                            Rect::from_min_size(rect.min, egui::vec2(w, full_h)),
-                            CornerRadius::same(cl::RADIUS_SM),
-                            cl::surface::BASE,
-                        );
-                        // The boot-rolled mood strip — the "random mood on
-                        // reload", carried over from the flyout it replaces.
-                        let strip = Rect::from_min_size(rect.min, egui::vec2(w, 3.0));
-                        cl::mood_gradient(child.painter(), strip, mood);
-                        child.add_space(8.0);
-                        for sub in spec.subroutes {
-                            let selected = active && sub.id == route.sub;
-                            let response = cl::tip(
-                                sub_item(&mut child, sub.label, spec.tone, selected),
-                                sub.blurb,
+                // p4: cramped heights used to clip the unfold to nothing
+                // (inverted pilot rects). Scroll the accordion body inside
+                // the rail zone so the open house stays reachable.
+                egui::ScrollArea::vertical()
+                    .id_salt("dpl_rail_accordion")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        for (hub, &f) in hubs.iter().zip(&factors) {
+                            let spec = hub.spec();
+                            let active = spec.id == route.hub;
+                            let open = open_house == Some(spec.id);
+                            let r = cl::tip(
+                                house_tile(
+                                    ui,
+                                    &HouseTile {
+                                        icon: spec.icon,
+                                        label: spec.label,
+                                        tone: spec.tone,
+                                        active,
+                                        expand: max_f,
+                                        height: fl.tap_min(),
+                                        icon_col,
+                                    },
+                                ),
+                                spec.label,
                             );
-                            child.pilot_track(
-                                &response,
+                            ui.pilot_track(
+                                &r,
                                 NodeMetadata::new(
-                                    PilotId::new("shell.rail.sub").child(&PilotKey::new(format!(
-                                        "{}/{}",
-                                        spec.id.0, sub.id.0
-                                    ))),
-                                    egui_pilot_ai::protocol::Role::MenuItem,
-                                    sub.label,
+                                    PilotId::new("shell.rail").child(&PilotKey::new(spec.id.0)),
+                                    egui_pilot_ai::protocol::Role::Button,
+                                    spec.label,
                                 )
-                                .value(if selected { "selected" } else { "available" })
-                                .selected(selected),
+                                // Two independent facts, reported as two. They used to
+                                // be one string (`active+open`), which no condition
+                                // could ask a question of.
+                                .value(if active { "active" } else { "inactive" })
+                                .expanded(open),
                             );
-                            if response.clicked() {
-                                clicked = Some(Route {
-                                    hub: spec.id,
-                                    sub: sub.id,
-                                });
+                            if r.clicked() {
+                                toggled = Some(spec.id);
                             }
+                            let mut block = r.rect;
+                            // The unfold: the section allocates its full height
+                            // scaled by the factor and clip-reveals from the top —
+                            // subroutes extend DOWN, the houses below push down.
+                            if f > 0.001 {
+                                let w = ui.available_width();
+                                let gap = ui.spacing().item_spacing.y;
+                                let rows = spec.subroutes.len() as f32;
+                                let full_h = 8.0 + rows * 26.0 + (rows - 1.0).max(0.0) * gap;
+                                let (rect, _) = ui
+                                    .allocate_exact_size(egui::vec2(w, full_h * f), Sense::hover());
+                                block = block.union(rect);
+                                let mut child = ui.new_child(
+                                    egui::UiBuilder::new()
+                                        .max_rect(Rect::from_min_size(
+                                            rect.min,
+                                            egui::vec2(w, full_h),
+                                        ))
+                                        .layout(Layout::top_down(Align::Min)),
+                                );
+                                child.set_clip_rect(rect.intersect(ui.clip_rect()));
+                                // The unfold PLATE: the open house's subroutes sit on
+                                // their own recessed background — visibly a different
+                                // layer than the rail (operator ask: "slightly
+                                // indented with a different background").
+                                child.painter().rect_filled(
+                                    Rect::from_min_size(rect.min, egui::vec2(w, full_h)),
+                                    CornerRadius::same(cl::RADIUS_SM),
+                                    cl::surface::BASE,
+                                );
+                                // The boot-rolled mood strip — the "random mood on
+                                // reload", carried over from the flyout it replaces.
+                                let strip = Rect::from_min_size(rect.min, egui::vec2(w, 3.0));
+                                cl::mood_gradient(child.painter(), strip, mood);
+                                child.add_space(8.0);
+                                for sub in spec.subroutes {
+                                    let selected = active && sub.id == route.sub;
+                                    let response = cl::tip(
+                                        sub_item(&mut child, sub.label, spec.tone, selected),
+                                        sub.blurb,
+                                    );
+                                    child.pilot_track(
+                                        &response,
+                                        NodeMetadata::new(
+                                            PilotId::new("shell.rail.sub").child(&PilotKey::new(
+                                                format!("{}/{}", spec.id.0, sub.id.0),
+                                            )),
+                                            egui_pilot_ai::protocol::Role::MenuItem,
+                                            sub.label,
+                                        )
+                                        .value(if selected { "selected" } else { "available" })
+                                        .selected(selected),
+                                    );
+                                    if response.clicked() {
+                                        clicked = Some(Route {
+                                            hub: spec.id,
+                                            sub: sub.id,
+                                        });
+                                    }
+                                }
+                            }
+                            if open {
+                                let visible = block.intersect(ui.clip_rect());
+                                open_body = Some(visible);
+                                if reveal_pending {
+                                    ui.scroll_to_rect(block, Some(Align::TOP));
+                                    // Enough of the open body is on-screen to
+                                    // click a house tile or the first subrows.
+                                    if visible.height() >= fl.tap_min() * 0.5 {
+                                        reveal_done = true;
+                                    }
+                                }
+                            }
+                            ui.add_space(cl::space::S1);
                         }
-                    }
-                    ui.add_space(cl::space::S1);
-                }
+                    });
             });
+        self.last_open_rail_body = open_body;
+        if reveal_done {
+            self.rail_reveal_pending = false;
+        }
         if let Some(id) = toggled {
             self.toggle_house(id);
         }
@@ -1577,6 +1631,120 @@ mod tests {
         shell.set_harness_mood(3);
         assert_eq!(shell.backdrop.mood().name, cl::MOODS[3].name);
         assert_eq!(shell.tooltip_mood().name, cl::MOODS[3].name);
+    }
+
+    /// p4: at the app's minimum window the accordion used to clip the
+    /// open unfold to an inverted unreachable rect. With five houses and
+    /// a fat last unfold, the open body must still report a positive
+    /// non-inverted clip intersection inside the rail zone.
+    #[test]
+    fn cramped_rail_keeps_the_open_house_reachable() {
+        static SPEC_C: HubSpec = HubSpec {
+            id: HubId("c"),
+            label: "C",
+            icon: "•",
+            tone: Tone::Amber,
+            subroutes: &[SubRoute {
+                id: SubId("only"),
+                label: "Only",
+                blurb: "",
+            }],
+        };
+        static SPEC_D: HubSpec = HubSpec {
+            id: HubId("d"),
+            label: "D",
+            icon: "•",
+            tone: Tone::Violet,
+            subroutes: &[SubRoute {
+                id: SubId("only"),
+                label: "Only",
+                blurb: "",
+            }],
+        };
+        static FAT: HubSpec = HubSpec {
+            id: HubId("fat"),
+            label: "Fat",
+            icon: "•",
+            tone: Tone::Magenta,
+            subroutes: &[
+                SubRoute {
+                    id: SubId("s1"),
+                    label: "S1",
+                    blurb: "",
+                },
+                SubRoute {
+                    id: SubId("s2"),
+                    label: "S2",
+                    blurb: "",
+                },
+                SubRoute {
+                    id: SubId("s3"),
+                    label: "S3",
+                    blurb: "",
+                },
+                SubRoute {
+                    id: SubId("s4"),
+                    label: "S4",
+                    blurb: "",
+                },
+                SubRoute {
+                    id: SubId("s5"),
+                    label: "S5",
+                    blurb: "",
+                },
+                SubRoute {
+                    id: SubId("s6"),
+                    label: "S6",
+                    blurb: "",
+                },
+                SubRoute {
+                    id: SubId("s7"),
+                    label: "S7",
+                    blurb: "",
+                },
+                SubRoute {
+                    id: SubId("s8"),
+                    label: "S8",
+                    blurb: "",
+                },
+            ],
+        };
+        let size = egui::vec2(640.0, 480.0);
+        let fabric = Fabric::new();
+        let sh = Shell::new(
+            vec![
+                Box::new(Fake(&SPEC_A)),
+                Box::new(Fake(&SPEC_B)),
+                Box::new(Fake(&SPEC_C)),
+                Box::new(Fake(&SPEC_D)),
+                Box::new(Fake(&FAT)),
+            ],
+            fabric,
+        );
+        let mut harness = egui_kittest::Harness::builder()
+            .with_size(size)
+            .build_ui_state(|ui, sh: &mut Shell| sh.ui(ui), sh);
+        harness.state_mut().set_open_house(Some(HubId("fat")));
+        // Unfold animation (0.18s) + scroll reveal settle.
+        harness.run_steps(120);
+        let body = harness
+            .state()
+            .last_open_rail_body()
+            .expect("open house must report a body rect");
+        let rail = harness.state().zones().rail;
+        assert!(
+            body.is_positive() && body.height() > 1.0 && body.width() > 1.0,
+            "open body must not be inverted/empty: {body:?}"
+        );
+        assert!(
+            body.min.y <= body.max.y && body.min.x <= body.max.x,
+            "open body must not be inverted: {body:?}"
+        );
+        let hit = body.intersect(rail);
+        assert!(
+            hit.height() >= 20.0,
+            "open body must intersect the rail zone (body={body:?} rail={rail:?})"
+        );
     }
 
     /// THE layout contract (docs/shell.md), pinned headlessly at two real

@@ -2,13 +2,19 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-29 — P4 RAIL ACCORDION DEGRADE (`docs/plans/p4-rail-accordion-degrade.md`):**
+rail body scrolls when the accordion exceeds the zone; opening a house
+queues a reveal so the unfold is not clipped to an inverted unreachable
+rect. Kittest `cramped_rail_keeps_the_open_house_reachable` + real-exe
+proofs at 640×480 / 1280×800. Coach NEXT = **C2s** foreign-target spike.
+
 **2026-07-29 — P2B OVERLAY MOUSE-PASSTHROUGH (`docs/plans/p2b-overlay-passthrough.md`):**
 `passthrough-probe` in `crates/desktop-spike` — witness under transparent
 always-on-top overlay, XTEST click at center. Control pair on this X11
 box (NVIDIA GB10 / Vulkan): passthrough ON → HIT; `--no-passthrough`
 (opaque overlay) → no HIT. Evidence in `lesson-overlay-spike.md` §8.1.
 Caveat: hollow transparent + passthrough-off is not a valid negative
-control here. Coach NEXT = **p4** rail accordion degrade.
+control here.
 
 **2026-07-29 — STRICT REFUSAL WITNESS (`docs/plans/strict-refusal-witness.md`):**
 slash mint-site policy extracted as `resolve_operator_slash` in

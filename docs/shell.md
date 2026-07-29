@@ -37,7 +37,10 @@ have cssgrid for all of my status indicators."*
    chrome without overlap.
 3. **Content scrolls inside.** The well is fixed; a hub whose surface
    overflows owns its own `ScrollArea` (Library already does). The shell
-   never wraps hubs in one — that would double-scroll.
+   never wraps hubs in one — that would double-scroll. **Exception (p4):**
+   the rail *body* may scroll when the accordion exceeds the rail zone
+   height — so the open house stays reachable. Top / status / panel chrome
+   still never scroll; only the accordion list inside the rail zone does.
 4. **The STATUS zone is a registry, not a flex row.** `shell::status` —
    three lanes (Left/Center/Right thirds), each cell one `StatusCell { id,
    lane, render }` in the static `CELLS` slice. Adding an indicator = adding
@@ -54,7 +57,10 @@ have cssgrid for all of my status indicators."*
    `rail_expanded()` (animated, 0.18s) and hub labels fade in beside their
    glyphs. The unfold wears a 3px strip tinted by the boot-rolled mood
    (`dpl_backdrop::random_mood_index()` — fresh every launch, the
-   operator's "random generated mood on reload").
+   operator's "random generated mood on reload"). When the open house
+   plus unfold exceeds the rail zone, the accordion body scrolls and a
+   pending reveal scrolls the open house into view (p4 — never clip the
+   unfold to an inverted unreachable rect).
 6. **Boot is maximized** (`with_maximized(true)` in crates/app). A fixed
    logical size overflows small displays at dpr > 1 — that was the original
    footer-under-the-taskbar bug.
