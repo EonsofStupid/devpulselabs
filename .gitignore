@@ -13,3 +13,7 @@ proof-*.png
 
 # The old Tauri app kept only as a READ-ONLY reference — never committed.
 /PORT/
+
+# Milestone-loop ledger: local operator telemetry, never committed
+.claude/ledger/ledger.jsonl
+.claude/ledger/last-session.txt

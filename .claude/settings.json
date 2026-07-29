@@ -5,7 +5,27 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo '=== STATE (docs/STATE.md) ===' && cat docs/STATE.md && echo '=== last 5 commits ===' && git log --oneline -5 && echo '=== working tree ===' && git status --short --branch"
+            "command": "bash .claude/ledger/session-start.sh"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/ledger/pre-compact.sh"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/ledger/session-end.sh"
           }
         ]
       }
