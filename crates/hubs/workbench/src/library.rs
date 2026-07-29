@@ -1,11 +1,29 @@
 //! The Workbench LIBRARY — ALL the raw ingredients on one surface
-//! (doctrine §1.1): seed slides by class, every registered template LIVE,
-//! reusable blocks, and the vocabulary walls (color pool · presets ·
-//! fonts · moods).
+//! (doctrine §1.1): seed slides by class, every registered template LIVE, the
+//! ingredient ladder (elements → blocks), and the vocabulary walls (color pool
+//! · presets · fonts · moods).
 //!
 //! The anti-recurrence law rode in with the walls: this surface renders
 //! **everything that exists** — a template or token that never shows here
-//! cannot exist. Elements sections join later; the chip row leaves room.
+//! cannot exist.
+//!
+//! The chip row spells the ladder coarse-to-fine (DS3), and every word on it
+//! is the OPERATOR'S word, not the code's. The two vocabularies are split
+//! deliberately — [`LibSection::slug`] is the machine id (harness argument,
+//! pilot key), [`LibSection::label`] is what gets drawn:
+//!
+//! | drawn | code |
+//! |---|---|
+//! | Starters | `seeds/` |
+//! | Layouts | `templates/` + `infographics/` |
+//! | Combos | `blocks/` |
+//! | Pieces | `elements/` |
+//! | Looks | `tokens/traits.json` |
+//! | Styles | `presets.json` |
+//!
+//! Same split as "card" for `dpl_doc::Slide`. The stack is invisible — a
+//! layman never has to learn that a small label is called an eyebrow
+//! (docs/plans/authoring-architecture.md, the UI law).
 
 use super::SPEC;
 use dpl_coldlight::{self as cl, Tone};
@@ -21,7 +39,8 @@ pub(crate) enum LibSection {
     Seeds,
     Templates,
     Blocks,
-    Traits,
+    Elements,
+    Looks,
     Colors,
     Presets,
     Fonts,
@@ -29,23 +48,32 @@ pub(crate) enum LibSection {
 }
 
 impl LibSection {
-    pub(crate) const ALL: [LibSection; 8] = [
+    /// Ladder order, coarse to fine — Templates → Blocks → Elements — then the
+    /// vocabulary walls. Seeds still lead (the ingredient the editor tailors
+    /// first).
+    pub(crate) const ALL: [LibSection; 9] = [
         LibSection::Seeds,
         LibSection::Templates,
         LibSection::Blocks,
-        LibSection::Traits,
+        LibSection::Elements,
+        LibSection::Looks,
         LibSection::Colors,
         LibSection::Presets,
         LibSection::Fonts,
         LibSection::Moods,
     ];
 
-    pub(crate) fn label(self) -> &'static str {
+    /// The STABLE machine id — the `--lib-section` argument and the pilot node
+    /// key. Engineering vocabulary lives here and is never drawn on screen.
+    /// Renaming one of these breaks proof scripts and recorded pilot runs, so
+    /// they change only with a reason.
+    pub(crate) fn slug(self) -> &'static str {
         match self {
             LibSection::Seeds => "seeds",
             LibSection::Templates => "templates",
             LibSection::Blocks => "blocks",
-            LibSection::Traits => "traits",
+            LibSection::Elements => "elements",
+            LibSection::Looks => "looks",
             LibSection::Colors => "colors",
             LibSection::Presets => "presets",
             LibSection::Fonts => "fonts",
@@ -53,17 +81,38 @@ impl LibSection {
         }
     }
 
-    /// The tooltip law — each wall explains itself in plain words.
+    /// What the OPERATOR reads on the chip. Plain words only — the stack is
+    /// invisible (docs/plans/authoring-architecture.md, the UI law). "Combos"
+    /// and "Pieces" are what the code files under `blocks/` and `elements/`;
+    /// the operator has no reason to learn either word.
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            LibSection::Seeds => "Starters",
+            LibSection::Templates => "Layouts",
+            LibSection::Blocks => "Combos",
+            LibSection::Elements => "Pieces",
+            LibSection::Looks => "Looks",
+            LibSection::Colors => "Colors",
+            LibSection::Presets => "Styles",
+            LibSection::Fonts => "Type",
+            LibSection::Moods => "Moods",
+        }
+    }
+
+    /// The tooltip law — each wall explains itself, in the same plain words.
     fn tip(self) -> &'static str {
         match self {
-            LibSection::Seeds => "Ready-made starter slides you can copy into a show",
-            LibSection::Templates => "Every slide design, running live — tap one to see it big",
-            LibSection::Blocks => "Small reusable pieces templates are built from — shown live",
-            LibSection::Traits => "The composable treatments every surface is dressed in",
-            LibSection::Colors => "The whole color pool the app draws from",
-            LibSection::Presets => "Saved style bundles — one tap applies a whole look",
-            LibSection::Fonts => "Every typeface in the app, shown in its own face",
-            LibSection::Moods => "The color moods the backdrop rolls on launch",
+            LibSection::Seeds => "Whole cards, ready to go — copy one and make it yours",
+            LibSection::Templates => {
+                "Every card design you have, running live — tap one to see it big"
+            }
+            LibSection::Blocks => "A few pieces that keep turning up together",
+            LibSection::Elements => "The smallest things everything else is built from",
+            LibSection::Looks => "How a card is dressed — pick one, stack more on top",
+            LibSection::Colors => "Every color the app draws from",
+            LibSection::Presets => "Saved combinations — one tap dresses the whole card",
+            LibSection::Fonts => "Every typeface you have, each shown in itself",
+            LibSection::Moods => "The colors the background drifts through",
         }
     }
 }
@@ -76,14 +125,17 @@ const TEMPLATE_CLASSES: [TemplateClass; 4] = [
     TemplateClass::Interactive,
 ];
 
-/// The traits wall — every generated trait rendered LIVE through the
+/// The LOOKS wall — every generated trait rendered LIVE through the
 /// compositor (moved here from the WiredFRONT composer under the
 /// two-libraries law: ColdLight ingredients belong to WORKBENCH).
+///
+/// Named `traits_wall` because `tokens/traits.json` is what it reads; the
+/// operator only ever sees the word "Looks".
 pub(crate) fn traits_wall(ui: &mut egui::Ui) {
     ui.label(
         RichText::new(format!(
-            "TRAITS — {} generated treatments · base traits stand alone, stack traits ride the \
-             neubrutalist base (their real use)",
+            "{} ways to dress a card. The first two stand on their own; the rest \
+             stack on top of them — which is how they are shown here.",
             cl::TRAITS.len()
         ))
         .small()
@@ -148,7 +200,7 @@ pub(crate) fn chip_row(ui: &mut egui::Ui, current: &mut LibSection) {
         for section in LibSection::ALL {
             let active = *current == section;
             let chip = cl::tip(
-                ui.label(RichText::new(section.label()).monospace().color(if active {
+                ui.label(RichText::new(section.label()).color(if active {
                     SPEC.tone.color()
                 } else {
                     cl::ink::MUTED
@@ -158,9 +210,10 @@ pub(crate) fn chip_row(ui: &mut egui::Ui, current: &mut LibSection) {
             );
             ui.pilot_track(
                 &chip,
+                // Key on the SLUG so recorded runs and proof scripts survive a
+                // wording change; the human label rides alongside it.
                 NodeMetadata::new(
-                    PilotId::new("workbench.library.section")
-                        .child(&PilotKey::new(section.label())),
+                    PilotId::new("workbench.library.section").child(&PilotKey::new(section.slug())),
                     egui_pilot_ai::protocol::Role::Tab,
                     section.label(),
                 )
@@ -371,14 +424,14 @@ pub(crate) fn templates_gallery(
     }
 }
 
-/// The BLOCKS wall — every paint primitive in `dpl_slides::blocks` live on
-/// a plate. A block that exists but never shows here cannot exist.
-pub(crate) fn blocks_wall(ui: &mut egui::Ui) {
-    use dpl_slides::blocks::{elements, ElementCategory};
+/// The ELEMENTS wall — every paint primitive in `dpl_slides::elements` live on
+/// a plate. An element that exists but never shows here cannot exist.
+pub(crate) fn elements_wall(ui: &mut egui::Ui) {
+    use dpl_slides::elements::{elements, ElementCategory};
     ui.label(
         RichText::new(
-            "ELEMENTS — the standalone primitives templates compose from, \
-             shelved by category. Painted live from the census, never a screenshot.",
+            "The smallest things everything else is built from, grouped by what \
+             they do. Each one is drawn here for real, not a picture of it.",
         )
         .small()
         .color(cl::ink::MUTED),
@@ -404,8 +457,8 @@ pub(crate) fn blocks_wall(ui: &mut egui::Ui) {
                 if members.is_empty() {
                     ui.label(
                         RichText::new(format!(
-                            "no {} elements yet — the shelf stays honest and empty",
-                            category.label()
+                            "nothing under {} yet — it stays empty until something belongs here",
+                            category.label().to_lowercase()
                         ))
                         .small()
                         .color(cl::ink::MUTED),
@@ -416,6 +469,54 @@ pub(crate) fn blocks_wall(ui: &mut egui::Ui) {
                     let spec = element.spec();
                     block_plate(ui, spec.label, spec.blurb, |ui, _fluid| element.paint(ui));
                 }
+            }
+        });
+}
+
+/// The BLOCKS wall — the chunk tier: a few elements combined into one reusable
+/// piece. Census-driven exactly like the elements wall, so a promoted block
+/// appears the day it registers.
+///
+/// Empty today, and it says so plainly rather than pretending otherwise — the
+/// same honesty the element shelves already use for their unpopulated
+/// categories.
+pub(crate) fn blocks_wall(ui: &mut egui::Ui) {
+    use dpl_slides::blocks::blocks;
+    ui.label(
+        RichText::new(
+            "A few pieces that keep turning up together, saved as one thing you \
+             can drop in. Each one is drawn here for real, not a picture of it.",
+        )
+        .small()
+        .color(cl::ink::MUTED),
+    );
+    ui.add_space(cl::space::S2);
+    let census = blocks();
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            if census.is_empty() {
+                ui.add_space(cl::space::S2);
+                ui.label(
+                    RichText::new("Nothing here yet — and that is on purpose.")
+                        .strong()
+                        .color(cl::ink::STRONG),
+                );
+                ui.add_space(cl::space::S1);
+                ui.label(
+                    RichText::new(
+                        "Something only shows up here once you have used the same handful of \
+                         pieces together on two or more cards. Until that happens this stays \
+                         empty, rather than filling up with things nothing actually uses.",
+                    )
+                    .small()
+                    .color(cl::ink::MUTED),
+                );
+                return;
+            }
+            for block in &census {
+                let spec = block.spec();
+                block_plate(ui, spec.label, spec.blurb, |ui, _fluid| block.paint(ui));
             }
         });
 }
@@ -733,4 +834,93 @@ pub(crate) fn moods_wall(ui: &mut egui::Ui) {
                 }
             });
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    /// The chip row is a census too: every section appears exactly once under
+    /// both names, and every one carries tooltip copy (the tooltip law).
+    #[test]
+    fn the_chip_row_is_the_census() {
+        let slugs: HashSet<&str> = LibSection::ALL.iter().map(|s| s.slug()).collect();
+        assert_eq!(
+            slugs.len(),
+            LibSection::ALL.len(),
+            "slugs must be unique — a duplicate makes --lib-section ambiguous"
+        );
+        let labels: HashSet<&str> = LibSection::ALL.iter().map(|s| s.label()).collect();
+        assert_eq!(
+            labels.len(),
+            LibSection::ALL.len(),
+            "labels must be unique — two chips reading the same word is a bug"
+        );
+        for section in LibSection::ALL {
+            assert!(!section.slug().is_empty());
+            assert!(!section.label().is_empty());
+            assert!(!section.tip().is_empty(), "every chip explains itself");
+        }
+    }
+
+    /// DS3: the ladder's two lower rungs are SEPARATE shelves reading SEPARATE
+    /// censuses. Before DS3 one variant showed the other tier's contents.
+    #[test]
+    fn elements_and_blocks_are_distinct_shelves() {
+        assert_ne!(LibSection::Elements, LibSection::Blocks);
+        assert!(
+            !dpl_slides::elements::elements().is_empty(),
+            "the element tier is populated"
+        );
+        assert!(
+            dpl_slides::blocks::blocks().is_empty(),
+            "the chunk tier is empty until a composite earns promotion — if this \
+             fails, register the block on the Blocks shelf and update this test"
+        );
+    }
+
+    /// The operator never reads engineering words off a chip (the UI law:
+    /// "the stack is invisible"). The words below are what the CODE calls
+    /// these tiers — folders, types, token files. None may reach a label.
+    #[test]
+    fn no_chip_speaks_engineering() {
+        const CODE_WORDS: [&str; 6] =
+            ["blocks", "elements", "traits", "presets", "seeds", "tokens"];
+        for section in LibSection::ALL {
+            let label = section.label().to_lowercase();
+            for word in CODE_WORDS {
+                assert_ne!(
+                    label,
+                    word,
+                    "chip `{}` reads as the code's own word for it — translate it",
+                    section.slug()
+                );
+            }
+        }
+    }
+
+    /// Every piece on the Pieces shelf names itself the way the operator would
+    /// name it. `eyebrow` is the code's word (and a typography term); nobody
+    /// outside that trade knows it, so it may not be what the shelf says.
+    #[test]
+    fn no_piece_speaks_engineering() {
+        const CODE_WORDS: [&str; 6] = ["eyebrow", "stat", "badge", "bar", "divider", "media"];
+        for element in dpl_slides::elements::elements() {
+            let spec = element.spec();
+            let label = spec.label.to_lowercase();
+            for word in CODE_WORDS {
+                assert_ne!(
+                    label, word,
+                    "`{}` shows its code name on the shelf — give it a plain one",
+                    spec.id
+                );
+            }
+            assert!(
+                !spec.blurb.is_empty(),
+                "`{}` needs a line saying what it is",
+                spec.id
+            );
+        }
+    }
 }

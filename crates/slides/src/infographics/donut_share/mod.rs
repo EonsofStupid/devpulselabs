@@ -136,7 +136,7 @@ impl SlideTemplate for DonutShare {
             let label_at = center + bisector * (radius * 1.06 + stage.len(18.0));
             let pct = ((slice.value / total) * 100.0).round() as i32;
             let galley = painter.layout_no_wrap(
-                crate::blocks::eyebrow::tracked(&format!("{} · {}%", slice.label, pct)),
+                crate::elements::eyebrow::tracked(&format!("{} · {}%", slice.label, pct)),
                 egui::FontId::monospace(stage.len(17.0)),
                 cl::ink::BASE,
             );

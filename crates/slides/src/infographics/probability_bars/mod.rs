@@ -8,7 +8,7 @@
 use dpl_coldlight::{self as cl, Fluid, Tone};
 use egui::{Align2, FontId, Rect, Ui};
 
-use crate::blocks::eyebrow::tracked;
+use crate::elements::eyebrow::tracked;
 use crate::motion::Clock;
 use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
 
