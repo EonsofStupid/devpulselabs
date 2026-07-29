@@ -13,6 +13,8 @@
 //! Self-terminating. An always-on-top click-through window that outlives
 //! its probe is an operator hazard.
 
+// spawn-audit: exempt(spike probe — orchestrator must inherit console for role stdout)
+
 use std::{
     fs,
     path::{Path, PathBuf},
