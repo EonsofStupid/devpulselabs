@@ -89,6 +89,16 @@ impl Editor {
         &self.slide
     }
 
+    /// Set what sits behind the words, or `None` to inherit the show's look.
+    ///
+    /// The authoring surface's Background tab is a VIEW over this document,
+    /// so it asks the editor to change the slide rather than writing the file
+    /// itself. Going through `mutate` means a tapped colour lands on the undo
+    /// stack and saves like every other edit — one mutation path, not two.
+    pub fn set_background(&mut self, background: Option<dpl_doc::Background>) {
+        self.mutate(|slide| slide.background = background);
+    }
+
     /// Apply an edit: snapshot for undo, mutate, then write back the
     /// colocated file immediately (no save ceremony — the file is truth).
     fn mutate(&mut self, f: impl FnOnce(&mut dpl_doc::Slide)) {
