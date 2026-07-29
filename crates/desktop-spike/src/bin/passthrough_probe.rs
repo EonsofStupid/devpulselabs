@@ -22,45 +22,35 @@ use std::{
 };
 
 use x11rb::{
-    connection::Connection,
-    protocol::xtest::ConnectionExt as _,
-    rust_connection::RustConnection,
+    connection::Connection, protocol::xtest::ConnectionExt as _, rust_connection::RustConnection,
 };
 
 fn main() -> eframe::Result<()> {
     let options = ProbeOptions::from_args();
     match options.role {
-        Role::Orchestrate => {
-            match run_orchestrator(&options) {
-                Ok(code) => std::process::exit(code),
-                Err(error) => {
-                    eprintln!("passthrough-probe: orchestrator failed: {error}");
-                    std::process::exit(2);
-                }
+        Role::Orchestrate => match run_orchestrator(&options) {
+            Ok(code) => std::process::exit(code),
+            Err(error) => {
+                eprintln!("passthrough-probe: orchestrator failed: {error}");
+                std::process::exit(2);
             }
-        }
+        },
         Role::Witness => run_witness(options),
         Role::Overlay => run_overlay(options),
     }
 }
 
 fn run_orchestrator(options: &ProbeOptions) -> Result<i32, String> {
-    let hit_file = options
-        .hit_file
-        .clone()
-        .unwrap_or_else(|| std::env::temp_dir().join(format!("dpl-passthrough-hit-{}.txt", std::process::id())));
+    let hit_file = options.hit_file.clone().unwrap_or_else(|| {
+        std::env::temp_dir().join(format!("dpl-passthrough-hit-{}.txt", std::process::id()))
+    });
     let _ = fs::remove_file(&hit_file);
 
     println!("passthrough-probe: orchestrator {options:?}");
     println!("hit-file: {}", hit_file.display());
 
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let mut witness = spawn_role(
-        &exe,
-        Role::Witness,
-        options,
-        &hit_file,
-    )?;
+    let mut witness = spawn_role(&exe, Role::Witness, options, &hit_file)?;
     // Let the witness map before covering it.
     thread::sleep(Duration::from_millis(800));
 
@@ -121,7 +111,10 @@ fn spawn_role(
         Role::Overlay => "--overlay",
         Role::Orchestrate => unreachable!(),
     });
-    cmd.arg("--size").arg(format!("{}x{}", options.width as i32, options.height as i32));
+    cmd.arg("--size").arg(format!(
+        "{}x{}",
+        options.width as i32, options.height as i32
+    ));
     if let Some([x, y]) = options.position {
         cmd.arg("--at").arg(format!("{},{}", x as i32, y as i32));
     }
@@ -288,7 +281,8 @@ impl eframe::App for Witness {
 
         let rect = ui.max_rect();
         let response = ui.allocate_rect(rect, egui::Sense::click());
-        ui.painter().rect_filled(rect, 0.0, egui::Color32::from_rgb(30, 120, 60));
+        ui.painter()
+            .rect_filled(rect, 0.0, egui::Color32::from_rgb(30, 120, 60));
         ui.painter().text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
