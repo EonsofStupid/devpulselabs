@@ -13,7 +13,13 @@ workspace = true
 [dependencies]
 eframe.workspace = true
 egui.workspace = true
+
 # XTEST click for the passthrough probe only (already transitive via eframe).
+# Declared PER-TARGET because x11rb links libxcb, which the Windows lane does
+# not have: an unconditional dep fails `cargo green` there with
+# `rust-lld: could not open 'xcb.lib'`. XTEST is X11-only by nature, so the
+# probe carries a non-Linux stub rather than pretending to be portable.
+[target.'cfg(target_os = "linux")'.dependencies]
 x11rb = { version = "0.13", default-features = false, features = ["allow-unsafe-code", "xtest"] }
 
 [[bin]]

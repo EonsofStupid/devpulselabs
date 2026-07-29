@@ -23,6 +23,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(target_os = "linux")]
 use x11rb::{
     connection::Connection, protocol::xtest::ConnectionExt as _, rust_connection::RustConnection,
 };
@@ -164,6 +165,15 @@ fn window_at(root_x: i16, root_y: i16) -> Result<String, String> {
     Ok(format!("WINDOW={wid} name={name:?}"))
 }
 
+/// Synthesising a click needs the X11 XTEST extension. There is no portable
+/// stand-in, so every other platform gets a stub that refuses honestly rather
+/// than a probe that silently reports a pass it never measured.
+#[cfg(not(target_os = "linux"))]
+fn xtest_click(_root_x: i16, _root_y: i16) -> Result<(), String> {
+    Err("XTEST is X11-only — run this probe on Linux".to_owned())
+}
+
+#[cfg(target_os = "linux")]
 fn xtest_click(root_x: i16, root_y: i16) -> Result<(), String> {
     let (conn, screen_num) = RustConnection::connect(None).map_err(|e| e.to_string())?;
     let screen = &conn.setup().roots[screen_num];
