@@ -15,6 +15,11 @@ sh .claude/ledger/emit.sh session.reengaged "" "source=$src"
 
 echo "=== STATE (docs/STATE.md) ==="
 cat docs/STATE.md
+echo "=== SESSION (docs/ops/SESSION.md) — shared durable index with Cursor Session OS ==="
+if [ -f docs/ops/SESSION.md ]; then cat docs/ops/SESSION.md; else echo '(none)'; fi
+echo "=== RESUME (docs/ops/resume/CURRENT.md) ==="
+if [ -f docs/ops/resume/CURRENT.md ]; then cat docs/ops/resume/CURRENT.md; else echo '(none)'; fi
+echo "=== adopt skill milestone-loop (Claude) / session-os (Cursor); ops ledger != product dpl-ledger ==="
 echo "=== last 5 commits ==="
 git log --oneline -5
 echo "=== working tree ==="

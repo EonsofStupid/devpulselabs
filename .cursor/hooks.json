@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": ".cursor/hooks/session-start.sh"
+      }
+    ],
+    "preCompact": [
+      {
+        "command": ".cursor/hooks/pre-compact.sh"
+      }
+    ],
+    "stop": [
+      {
+        "command": ".cursor/hooks/stop-journal.sh",
+        "loop_limit": 1
+      }
+    ]
+  }
+}

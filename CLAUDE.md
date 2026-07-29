@@ -1,7 +1,10 @@
 # DevPULSE Labs — agent operating contract
 
 Read `docs/STATE.md` FIRST — it is the living ledger (current state, known
-broken, next). Then `docs/plans/roadmap.md` for the program map.
+broken, next). Then `docs/ops/SESSION.md` + `docs/ops/resume/CURRENT.md`
+(shared durable ops index). Then `docs/plans/roadmap.md` for the program map.
+Default ops: Claude skill `milestone-loop` + Cursor skill `session-os`
+(same loop; different surfaces).
 
 ## The one checkout
 

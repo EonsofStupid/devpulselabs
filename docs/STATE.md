@@ -2,23 +2,35 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-29 — SESSION OS RECONCILED WITH MILESTONE-LOOP (PR #133):**
+one operating loop, two surfaces. Durable index = `docs/ops/` (SESSION +
+resume + signals). Cursor: skill `session-os`, `.cursor/hooks.json`,
+agents grounder→gap-closer→executor. Claude: skill `milestone-loop`,
+`.claude/ledger/*` hooks (SessionStart / PreCompact / SessionEnd). Same
+caps (≤3 plan / ≤2 web), journal at ~75–85%, disk beats chat memory.
+Product NEXT after this lands: coach **live `/strict` refusal** (p6
+Library `--lib-section` landed with DS3 #135). Journals:
+`docs/journal/2026-07-28-session-os.md` +
+`docs/journal/2026-07-29-session-os-reconcile.md`.
+
+**2026-07-28 — DS3 INGREDIENT LADDER + LIBRARY SECTION HARNESS (PR #135):**
+`elements/` earns its name; `blocks/` is the chunk tier; Library speaks
+plain words; harness `--lib-section <slug>` proves every Library wall
+(coach p6 CLOSED). Proofs under `docs/proof/ds3-library-*.png`.
+
 **2026-07-28 — THE MILESTONE-LOOP LEDGER (agent workflow infra, PR #131):**
-the agent's internal workflow is now SELF-INSTRUMENTING (operator ask:
-"an internal ledger… emit clear signals for me to capture so we can tune
-and improve this process"). `.claude/ledger/` = one JSONL signal stream
-(`ledger.jsonl`, gitignored telemetry) + `emit.sh` (jq-optional) + three
-hook scripts wired in `.claude/settings.json`: SessionStart feeds STATE ·
-the latest `docs/journal/` entry · the previous session's 500-entry
-transcript tail at ZERO tool-call cost (path recorded by the
-PreCompact/SessionEnd clear edges, which also demand the journal).
-`.claude/skills/milestone-loop/SKILL.md` = the loop contract: target →
-work → journal at 75–85% context → clear → hook-fed re-engage → plan
-(HARD caps: ≤3 passes, ≤2 web-research subagents) → anti-drift checks
-bound to the plan's numbered steps (`drift.check … on-plan|corrected`) →
-EguiPilot verify → journal, repeat. Signal vocabulary + operator tuning
-recipes: `.claude/ledger/README.md`. Chain tested live end-to-end (real
-transcript fed back). First journal:
+the agent's internal workflow is SELF-INSTRUMENTING. `.claude/ledger/` =
+JSONL signal stream + emit.sh + SessionStart/PreCompact/SessionEnd hooks;
+skill `milestone-loop`. Composes with Session OS (`docs/ops/`) — not a
+second competing product. Journal:
 `docs/journal/2026-07-28-milestone-loop-ledger.md`.
+
+**2026-07-28 — COACH / LEDGER LANE RESUME:** narrative close-out
+`docs/journal/2026-07-28-determinism-and-ledger.md`; ordered remaining
+work `docs/journal/2026-07-28-remaining-work.md` (p6 CLOSED via #135;
+NEXT = live `/strict` refusal → overlay passthrough → rail degrade →
+C2s → C2a/C2b → strict pinning → DuckDB ADR → classification). Ops index:
+`docs/ops/SESSION.md`.
 
 **2026-07-28 — THE WORKFLOW WIRE CONTRACT + DOCTRINE (PR #129, squash
 `c803e51`; plan `docs/plans/workflow-doctrine-and-schemas.md`):**

@@ -1,7 +1,7 @@
 ﻿/target
 *.png.tmp
 proof-*.png
-# Runtime content root (captures/inbox) â€” operator data, never committed.
+# Runtime content root (captures/inbox) — operator data, never committed.
 /content
 
 # The three-ring root (ADR-014): working + state rings are operator data.
@@ -13,6 +13,10 @@ proof-*.png
 
 # The old Tauri app kept only as a READ-ONLY reference — never committed.
 /PORT/
+
+# Session OS: bulky transcript tails (CURRENT.md stays committed).
+/docs/ops/resume/raw/
+/docs/ops/resume/LAST_COMPACT.txt
 
 # Milestone-loop ledger: local operator telemetry, never committed
 .claude/ledger/ledger.jsonl

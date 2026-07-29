@@ -12,6 +12,10 @@ the repo root). The vocabulary and the operator's tuning recipes live in
 wraps `plan-code-change` / `deep-plan` / `eguipilotai`, never replaces
 them.
 
+Shared durable index with Cursor Session OS: `docs/ops/SESSION.md` +
+`docs/ops/resume/CURRENT.md` (read on every re-engage; do not maintain a
+second NEXT list).
+
 ## The loop
 
 ### 1. TARGET
