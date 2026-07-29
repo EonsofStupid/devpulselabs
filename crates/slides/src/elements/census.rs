@@ -44,7 +44,8 @@ pub enum ElementCategory {
 }
 
 impl ElementCategory {
-    pub const fn label(self) -> &'static str {
+    /// The STABLE machine id — never drawn on screen.
+    pub const fn slug(self) -> &'static str {
         match self {
             ElementCategory::Type => "type",
             ElementCategory::Mark => "mark",
@@ -53,6 +54,20 @@ impl ElementCategory {
             ElementCategory::Media => "media",
             ElementCategory::Container => "container",
             ElementCategory::Control => "control",
+        }
+    }
+
+    /// The shelf heading the OPERATOR reads. Plain words — "type" and "mark"
+    /// are trade terms, and a shelf is no place to teach them.
+    pub const fn label(self) -> &'static str {
+        match self {
+            ElementCategory::Type => "Words",
+            ElementCategory::Mark => "Tags",
+            ElementCategory::Meter => "Levels",
+            ElementCategory::Divider => "Lines",
+            ElementCategory::Media => "Pictures",
+            ElementCategory::Container => "Boxes",
+            ElementCategory::Control => "Buttons",
         }
     }
 
@@ -121,10 +136,10 @@ const DEMO_TONE: Tone = Tone::Cyan;
 
 static EYEBROW: ElementSpec = ElementSpec {
     id: ElementId("eyebrow"),
-    label: "Eyebrow",
+    label: "Small label",
     category: ElementCategory::Type,
     cost_tier: CostTier::Baseline,
-    blurb: "Mono uppercase micro-label — the tracked kicker over a title.",
+    blurb: "The little line above a title.",
 };
 struct EyebrowDemo;
 impl ElementDemo for EyebrowDemo {
@@ -139,10 +154,10 @@ impl ElementDemo for EyebrowDemo {
 
 static STAT: ElementSpec = ElementSpec {
     id: ElementId("stat"),
-    label: "Stat",
+    label: "Big number",
     category: ElementCategory::Type,
     cost_tier: CostTier::Baseline,
-    blurb: "Value-over-label pair — the unit big numbers and stat grids repeat.",
+    blurb: "One number with its unit under it.",
 };
 struct StatDemo;
 impl ElementDemo for StatDemo {
@@ -157,10 +172,10 @@ impl ElementDemo for StatDemo {
 
 static BADGE: ElementSpec = ElementSpec {
     id: ElementId("badge"),
-    label: "Badge",
+    label: "Tag",
     category: ElementCategory::Mark,
     cost_tier: CostTier::Baseline,
-    blurb: "Emphasis chip — neutral, or a live tone fill with the presence dot.",
+    blurb: "A small pill — draft, live, new.",
 };
 struct BadgeDemo;
 impl ElementDemo for BadgeDemo {
@@ -179,10 +194,10 @@ impl ElementDemo for BadgeDemo {
 
 static BAR: ElementSpec = ElementSpec {
     id: ElementId("bar"),
-    label: "Bar",
+    label: "Progress bar",
     category: ElementCategory::Meter,
     cost_tier: CostTier::Baseline,
-    blurb: "Horizontal ratio meter — a WELL track with a toned fill to a fraction.",
+    blurb: "A track that fills to a fraction.",
 };
 struct BarDemo;
 impl ElementDemo for BarDemo {
@@ -198,10 +213,10 @@ impl ElementDemo for BarDemo {
 
 static DIVIDER: ElementSpec = ElementSpec {
     id: ElementId("divider"),
-    label: "Divider",
+    label: "Line",
     category: ElementCategory::Divider,
     cost_tier: CostTier::Baseline,
-    blurb: "Toned horizontal rule — a bright accent segment, then a hairline.",
+    blurb: "A rule that separates two things.",
 };
 struct DividerDemo;
 impl ElementDemo for DividerDemo {
@@ -224,10 +239,10 @@ impl ElementDemo for DividerDemo {
 
 static MEDIA: ElementSpec = ElementSpec {
     id: ElementId("media"),
-    label: "Media backdrop",
+    label: "Picture",
     category: ElementCategory::Media,
     cost_tier: CostTier::Baseline,
-    blurb: "Vector backdrop ambience (rings) — the atmosphere behind a slide.",
+    blurb: "An image or video, sitting behind the words.",
 };
 struct MediaDemo;
 impl ElementDemo for MediaDemo {

@@ -146,7 +146,7 @@ impl WorkbenchHub {
     /// crash) and report it, so a typo in a proof script is visible rather
     /// than silently shooting the wrong wall.
     pub fn set_lib_section(&mut self, slug: &str) -> bool {
-        match LibSection::ALL.iter().find(|s| s.label() == slug) {
+        match LibSection::ALL.iter().find(|s| s.slug() == slug) {
             Some(&section) => {
                 self.lib_section = section;
                 true
