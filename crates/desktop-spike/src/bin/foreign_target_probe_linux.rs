@@ -254,7 +254,7 @@ async fn invoke_click(app: &str, control_name: &str) -> Result<Option<bool>, Str
     let index = actions
         .iter()
         .position(|a| a.name.eq_ignore_ascii_case("click"))
-        .or_else(|| if actions.is_empty() { None } else { Some(0) })
+        .or(if actions.is_empty() { None } else { Some(0) })
         .ok_or_else(|| format!("no click action on {control_name}; actions={actions:?}"))?;
     let ok = action
         .do_action(index as i32)
