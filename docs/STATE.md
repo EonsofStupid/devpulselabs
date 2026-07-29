@@ -2,6 +2,16 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-29 — STRICT REFUSAL WITNESS (`docs/plans/strict-refusal-witness.md`):**
+slash mint-site policy extracted as `resolve_operator_slash` in
+`crates/app/src/chat.rs`. Unit matrix: agent-synthetic `/strict` →
+`IntentRefused · synthetic-input` (intent domain / SSE envelope path),
+mode stays behavioral; real escalate; evidence-locked behavioral refuse;
+already-behavioral silent. Coach NEXT = **p2b** overlay passthrough.
+Authoring note: Pass C overlay editor already lives on the carousel
+(#136) — STATE's prior "port overlay" NEXT is satisfied; filmstrip +
+seed-thumbnail crop remain on that lane.
+
 **2026-07-29 — THE AUTHORING RESET: LADDER, PLAIN WORDS, CAROUSEL
 (PRs #135, #136; #128/#130 closed unmerged).** Three passes off one
 operator red-pen on the authoring mock (artifact `a3db4aee`).

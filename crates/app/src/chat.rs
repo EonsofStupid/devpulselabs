@@ -1107,42 +1107,46 @@ fn apply_operator_slash(
     synthetic: bool,
 ) {
     let state = lock(shared);
+    if let Some(ev) = resolve_operator_slash(&state.determinism, command, synthetic) {
+        state.fabric.publish_intent(ev);
+    }
+}
+
+/// Mint-site policy for privileged slash commands — extracted so the
+/// synthetic-refusal path is unit-testable without constructing Chat `Shared`.
+///
+/// Returns the fabric fact to publish, or `None` when the command is a no-op
+/// (already behavioral).
+fn resolve_operator_slash(
+    gate: &dpl_intent::DeterminismGate,
+    command: OperatorSlashCommand,
+    synthetic: bool,
+) -> Option<IntentEvent> {
     let action = command.as_str().to_owned();
     if synthetic {
-        state.fabric.publish_intent(IntentEvent::IntentRefused {
+        return Some(IntentEvent::IntentRefused {
             action,
             reason: "synthetic-input".into(),
         });
-        return;
     }
     match command {
         OperatorSlashCommand::Strict => {
-            let channel = state
-                .determinism
-                .escalate(dpl_intent::OperatorIntent::slash_command());
-            state
-                .fabric
-                .publish_intent(IntentEvent::DeterminismChanged {
-                    mode: dpl_intent::DeterminismMode::Strict,
-                    cause: Some(dpl_intent::StrictCause::Operator(channel)),
-                });
+            let channel = gate.escalate(dpl_intent::OperatorIntent::slash_command());
+            Some(IntentEvent::DeterminismChanged {
+                mode: dpl_intent::DeterminismMode::Strict,
+                cause: Some(dpl_intent::StrictCause::Operator(channel)),
+            })
         }
-        OperatorSlashCommand::Behavioral => match state.determinism.deescalate() {
-            dpl_intent::Deescalation::Cleared => {
-                state
-                    .fabric
-                    .publish_intent(IntentEvent::DeterminismChanged {
-                        mode: dpl_intent::DeterminismMode::Behavioral,
-                        cause: None,
-                    });
-            }
-            dpl_intent::Deescalation::RefusedEvidence => {
-                state.fabric.publish_intent(IntentEvent::IntentRefused {
-                    action,
-                    reason: "evidence-locked".into(),
-                });
-            }
-            dpl_intent::Deescalation::AlreadyBehavioral => {}
+        OperatorSlashCommand::Behavioral => match gate.deescalate() {
+            dpl_intent::Deescalation::Cleared => Some(IntentEvent::DeterminismChanged {
+                mode: dpl_intent::DeterminismMode::Behavioral,
+                cause: None,
+            }),
+            dpl_intent::Deescalation::RefusedEvidence => Some(IntentEvent::IntentRefused {
+                action,
+                reason: "evidence-locked".into(),
+            }),
+            dpl_intent::Deescalation::AlreadyBehavioral => None,
         },
     }
 }
@@ -3287,4 +3291,69 @@ fn lock<T>(value: &Mutex<T>) -> MutexGuard<'_, T> {
     value
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+#[cfg(test)]
+mod slash_mint_tests {
+    use super::*;
+
+    #[test]
+    fn synthetic_strict_refuses_and_leaves_behavioral() {
+        let gate = dpl_intent::DeterminismGate::default();
+        // Policy only — no Shared. The refuse fact is what SSE/feed would
+        // carry when an agent injects Send on `/strict`.
+        let ev = resolve_operator_slash(&gate, OperatorSlashCommand::Strict, true)
+            .expect("synthetic /strict always publishes a refusal");
+        assert!(matches!(
+            &ev,
+            IntentEvent::IntentRefused { action, reason }
+                if action == "strict" && reason == "synthetic-input"
+        ));
+        let fabric = Fabric::new();
+        let mut rx = fabric.subscribe_intent();
+        fabric.publish_intent(ev);
+        let stamped = rx.try_recv().expect("refusal reached the intent domain");
+        assert!(matches!(
+            &stamped.ev,
+            IntentEvent::IntentRefused { reason, .. } if reason == "synthetic-input"
+        ));
+        assert_eq!(gate.mode(), dpl_intent::DeterminismMode::Behavioral);
+    }
+
+    #[test]
+    fn real_strict_escalates() {
+        let gate = dpl_intent::DeterminismGate::default();
+        let ev = resolve_operator_slash(&gate, OperatorSlashCommand::Strict, false)
+            .expect("operator /strict publishes a mode change");
+        assert!(matches!(
+            ev,
+            IntentEvent::DeterminismChanged {
+                mode: dpl_intent::DeterminismMode::Strict,
+                cause: Some(dpl_intent::StrictCause::Operator(
+                    dpl_intent::IntentChannel::SlashCommand
+                )),
+            }
+        ));
+        assert_eq!(gate.mode(), dpl_intent::DeterminismMode::Strict);
+    }
+
+    #[test]
+    fn evidence_locked_behavioral_refuses() {
+        let gate = dpl_intent::DeterminismGate::default();
+        gate.force_evidence();
+        let ev = resolve_operator_slash(&gate, OperatorSlashCommand::Behavioral, false)
+            .expect("evidence-locked /behavioral publishes a refusal");
+        assert!(matches!(
+            &ev,
+            IntentEvent::IntentRefused { action, reason }
+                if action == "behavioral" && reason == "evidence-locked"
+        ));
+        assert_eq!(gate.mode(), dpl_intent::DeterminismMode::Strict);
+    }
+
+    #[test]
+    fn already_behavioral_is_silent() {
+        let gate = dpl_intent::DeterminismGate::default();
+        assert!(resolve_operator_slash(&gate, OperatorSlashCommand::Behavioral, false).is_none());
+    }
 }

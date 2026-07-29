@@ -39,17 +39,14 @@ Each item is one PR-sized pass. Status is the gate for starting the next.
 `--lib-section <slug>` on the real exe; Library walls provable. Lesson
 E2E scripts may still deepen coverage, but the harness blocker is gone.
 
-### 2. Live synthetic `/strict` refusal (optional witness) — **NEXT**
+### 2. Live synthetic `/strict` refusal — **CLOSED** (2026-07-29)
 
-**Why now:** the provenance law is unit-covered; the optional live
-SSE witness was left on the table when #116 landed. Small, closes a
-honesty gap before overlay work distracts.
+Mint-site policy extracted as `resolve_operator_slash` in
+`crates/app/src/chat.rs`; unit matrix proves agent-injected `/strict`
+→ `IntentRefused · synthetic-input` and mode stays behavioral. Plan:
+`docs/plans/strict-refusal-witness.md`.
 
-**Done when:** agent fills composer with `/strict` + Send →
-`IntentRefused · synthetic-input` on SSE + feed; mode stays
-behavioral. Screenshot optional.
-
-### 3. Overlay passthrough proof (p2b)
+### 3. Overlay passthrough proof (p2b) — **NEXT**
 
 **Why:** transparency is proven on X11+wgpu; click-through is not.
 C2b cannot start without knowing whether `mouse_passthrough` actually
