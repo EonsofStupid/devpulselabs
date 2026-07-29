@@ -7,6 +7,7 @@
 //! moods). The editor (W4) opens exactly these documents.
 
 mod author;
+mod backgrounds;
 mod containers;
 mod library;
 mod studio;
