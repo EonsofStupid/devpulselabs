@@ -7,3 +7,4 @@
 {"ts":"2026-07-29T14:12:10Z","signal":"compact.observed","session_id":"06997217-aa23-4ee2-ba01-207f6794e8ab","detail":{"context_usage_percent":91.21054687499999,"context_tokens":233499,"trigger":"auto","tail":"/home/hades/Projects/devpulselabs/docs/ops/resume/raw/precompact-20260729T141210Z.txt"}}
 {"ts":"2026-07-29T14:12:10Z","signal":"context.budget","session_id":"06997217-aa23-4ee2-ba01-207f6794e8ab","detail":{"context_usage_percent":91.21054687499999,"source":"preCompact"}}
 {"ts":"2026-07-29T14:20:00Z","signal":"journal.wrote","lane":"coach-ledger","detail":{"path":"docs/plans/p2b-overlay-passthrough.md","closed":"p2b","verdict":"PASS","next":"p4"}}
+{"ts":"2026-07-29T14:22:00Z","signal":"journal.wrote","lane":"coach-ledger","detail":{"path":"docs/plans/p4-rail-accordion-degrade.md","closed":"p4","verdict":"PASS","next":"C2s"}}

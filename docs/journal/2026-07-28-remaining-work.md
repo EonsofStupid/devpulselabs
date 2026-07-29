@@ -56,16 +56,16 @@ delivers clicks to a window underneath.
 overlay + XTEST; control pair ON/OFF. Plan:
 `docs/plans/p2b-overlay-passthrough.md`. Evidence: spike §8.1 — **PASS**.
 
-### 4. Rail accordion degrade (p4) — **NEXT**
+### 4. Rail accordion degrade (p4) — **CLOSED** (2026-07-29)
 
-**Why:** at small heights the accordion can clip to nothing — a
-lesson that names a rail hub fails when chrome collapses. Product
-feel + lesson reliability.
+**Why:** at small heights the accordion clipped the unfold to nothing —
+lessons that name a rail hub failed when chrome collapsed.
 
-**Done when:** at a documented cramped size the rail still exposes the
-active hub (scroll / collapse / overflow — pick one, prove it).
+**Shape:** rail body `ScrollArea` + pending reveal of the open house.
+Plan: `docs/plans/p4-rail-accordion-degrade.md`. Proof:
+`docs/proof/p4-rail-cramped-640x480.png` + shell kittest.
 
-### 5. C2s foreign-target spike (p5)
+### 5. C2s foreign-target spike (p5) — **NEXT**
 
 **Plan:** `docs/plans/coach-c2s-foreign-target-spike.md` (authorized).
 
