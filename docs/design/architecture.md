@@ -16,9 +16,10 @@ DOCUMENT crates    dpl-doc · dpl-comp · dpl-workflows        (pure serde data;
                    schema_v + newer-refusal + crash-safe tmp/bak writes)
 ENGINE crates      dpl-proc · dpl-engine-{capture,media,steps,ae,browser} ·
                    dpl-index · dpl-estate · dpl-landing · dpl-tools-deps ·
-                   dpl-lottie · dpl-guide · dpl-intent        (IO + subprocess
-                   leaves per ADR-009; egui-free; dpl-proc and
-                   dpl-intent are pure LAW crates, ∅ deps)
+                   dpl-lottie · dpl-guide · dpl-intent · dpl-ledger
+                   (IO + subprocess leaves per ADR-009; egui-free; dpl-proc
+                   and dpl-intent are pure LAW crates, ∅ deps; dpl-ledger
+                   writes Parquet via pure-Rust `parquet`+`snap`)
 SUPPORT crates     dpl-coldlight (tokens+paint) · dpl-vector · dpl-video ·
                    dpl-backdrop                               (egui-typed helpers)
 SURFACE crates     dpl-slides · dpl-editor · dpl-deck · dpl-composer ·

@@ -2,6 +2,81 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-28 — L4: BLEND · MATTE · LUT — THE ESTATE UNLOCK (PR #123,
+squash `867bff3`; plan `docs/plans/l4-blend-matte-lut.md`):** the fourth
+AE-independence rung, sized by the 30-pack/~60 GB estate census (censused
++ ffprobe-verified this session; triage in the census section of the L4
+plan §1-2): most non-template media is NOT straight alpha — leaks/dust
+want SCREEN/ADD, matte packs are grayscale luma wipes, the Bundle ships
+860 `.cube` LUTs. Pieces: (1) `dpl-comp` `Blend {Normal|Screen|Add}` +
+`matte`/`lut` refs on Layer (additive v1, empty refs = named faults);
+(2) `engine-media` — blended legs pad to the FULL frame on BLACK (the
+screen/add neutral) at the layer's offset and run `blend=all_mode` on
+gbrp with the bounded window; mattes join as inputs and `alphamerge`
+(a blended leg SKIPS its matte — blend drops alpha); `lut3d` grades base
++ overlay legs via `filter_path` (Windows colon escaping, unit-tested);
+(3) preview — `PipeGrade` on ClipPlayer: LUT + matte preview EXACTLY
+(one pipe; matte as a second input at the same seek), lanes reopen on
+grade change; blends approximate under a NAMED badge (`screen ·
+export-exact`); (4) inspector GRADE rows — blend chips, matte picker
+(matte-tagged first) + the operator-ratified AUTO-PAIR suggestion
+(shared leading word + exactly one match → tappable "try: Brush Matte
+01", offered never applied), `.cube` picker on EVERY layer; (5) enricher:
+`LUTs/` buckets tag `lut`, bare `X Matte NN` stems tag `matte`;
+(6) `--l4-drill`. Mechanisms proven LIVE on ffmpeg 8.1.2 against real
+estate files BEFORE the plan (cinepunch 8K leak · RTFX Brush Matte ·
+Bundle cube); the real-exe drill reproduced all three in one render
+(graded base + screened leak + brush-carved tinted overlay, frame-
+verified). Gate `cargo green ✔` server1; green-linux ✔ on the new
+`devpulse-runner-lnx-01` (post-provision); green-windows on
+`devpulse-runner-win-01` died mid-clippy twice (runner drop, NO step
+failure — suspect VM resources during workspace clippy; watch the next
+PR), operator called the merge on the server1 gate. CLOSE-OUT: main's
+exe built from `867bff3` and placed in THE checkout (mtime 2026-07-28
+17:13; the checkout itself was held on a concurrent session's branch —
+built in the `devpulselabs-l3` worktree lane). KNOWN FOLLOW-UPS: grade
+rows sit below the Info scroll fold at short window heights (scrollable,
+no overlap — a taller-window or scrolled-shot proof nicety remains);
+the real-RTFX pin+ingest drill remains operator-driven (D: is back;
+pin `2. Prerendered animations` + `6. Sound FX`); template-variants rung
+awaits the operator's Bodymovin exports (mogrt title · Toko slide ·
+cyberpunk HUD → drop the .json files in).
+
+**2026-07-28 — SIGNAL LEDGER PHASE 2 (`docs/plans/signal-ledger-phase2.md`):**
+`dpl-ledger` writes hive-partitioned Parquet under `.userdata/analytics/`
+(pure-Rust `parquet` + `snap`, ADR-009 clean). Off by default; `--ledger`
+or `DPL_LEDGER=1` starts the bounded writer thread. Schema v1 columns:
+`seq · ms · wall_ms · domain · type · body · class · dropped`. Stamped
+domains only (capture/jobs/providers/build/coach/intent). Files are the
+truth; DuckDB stays Phase 3.
+
+**2026-07-28 — CHAT ASSIST MODE: ONE TOGGLE, ONE BLANKET ACKNOWLEDGEMENT
+(PR #126):** the consent gate the assist/bake-off/preference arc stands
+on (`docs/plans/chat-assist-mode.md`; operator: "a clear simple
+acknowledgement that will blanket for all providers"). Pieces: (1) the
+⚡ Assist chip beside the route-context chip in the chat composer row —
+NEVER provider- or capability-gated; node `chat.assist.toggle`
+(value on/off); (2) typed intents `ToggleAssist { enable }` +
+`ResolveAssistAcknowledgement { accepted }` across the window→host
+boundary — the chip never flips itself, the HOST projects policy truth
+via `set_assist`; (3) the ONE acknowledgement: a host-authored Approval
+overlay, TWO buttons ("Turn on assist — all providers" / "Not now"), no
+"always" (approving IS the durable answer), copy names the blanket
+across all providers current and future; asked once EVER
+(`acknowledged` persists); (4) `AssistPolicy { enabled, acknowledged }`
+→ `assist-policy.json` in userdata (imagine-policy shape; authored
+fixtures never write disk; disabling is instant, no ceremony);
+(5) proofs: window tests 22/22 (3 new); scenario `chat-assist-toggle`
+(authored) + the real-runtime pair `chat-assist-enables`/`-persists` on
+scratch rings proving write + fresh-launch restore with no re-ask; six
+existing chat scenarios stay green; `proof-chat-assist-ack.png` via the
+new chat-native-proof `assist` state. CI note: green-linux's first run
+died on LXC 121 missing `libgbm-dev` — installed via `pct exec` from
+server1, lane green after (memory updated). NEXT on this arc: the first
+bake-off interaction (choice-with-previews) + the estate-backed
+preference record it feeds (assist ON is now the consent that permits
+them).
+
 **2026-07-28 — AUTHORING PASS A: THE SIGNAL SPINE (`feat/authoring-a-signals`;
 charter `docs/plans/authoring-charter.md` + build plan `authoring-shell.md`,
 both on PR #119; resume journal `docs/journal/2026-07-28-authoring-shell-handoff.md`):**

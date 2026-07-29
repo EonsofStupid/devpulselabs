@@ -650,6 +650,7 @@ fn structure_audit() -> Result<(), String> {
         "dpl-landing",
         "dpl-index",
         "dpl-intent",
+        "dpl-ledger",
         "dpl-tools-deps",
         "dpl-engine-capture",
         "dpl-engine-media",

@@ -1,0 +1,40 @@
+# The persistence half of the pair: a FRESH launch on the same scratch
+# rings restores assist "on" from assist-policy.json with NO
+# re-acknowledgement — the consent was asked once, ever, for every
+# provider. Requires `chat-assist-enables` to have run first.
+id = "chat-assist-persists"
+fixture = "chat-assist-real"
+record = true
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "open"
+
+[steps.expectation.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "wait"
+milliseconds = 750
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "on"
+
+[steps.expectation.target]
+id = "chat.primary/chat.assist.toggle"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "close-viewport"
+
+[steps.action.viewport]
+key = "chat.primary"

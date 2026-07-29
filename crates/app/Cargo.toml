@@ -16,6 +16,10 @@ eguipilotai-devtools = [
 # Structured logging ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â RUST_LOG drives verbosity (tracing is the modern std).
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# App-owned persisted policies (assist-policy.json — the imagine-policy
+# file shape lives HERE because the integration layer owns consent state).
+serde.workspace = true
+serde_json.workspace = true
 egui.workspace = true
 eframe.workspace = true
 egui-wgpu.workspace = true
@@ -25,6 +29,7 @@ dpl-hub.workspace = true
 dpl-coldlight.workspace = true
 dpl-fabric.workspace = true
 dpl-intent.workspace = true
+dpl-ledger.workspace = true
 dpl-shell.workspace = true
 dpl-viziwiz.workspace = true
 dpl-doc.workspace = true

@@ -233,6 +233,9 @@ fn main() -> eframe::Result {
         .iter()
         .position(|a| a == "--fx-drill")
         .and_then(|i| Some((args.get(i + 1)?.clone(), args.get(i + 2)?.clone())));
+    // `--l4-drill` (L4): graded base + screen leak + matted overlay from
+    // conventional scratch-root files — the blend/matte/LUT proof.
+    let l4_drill = args.iter().any(|a| a == "--l4-drill");
     // `--make-slide <asset-rel>` (W11) mints a media slide from a
     // content-relative artifact through the shelf's "Make slide" path —
     // image/video → one slide, `.pdf` → page slides.
@@ -271,6 +274,10 @@ fn main() -> eframe::Result {
                 .unwrap_or(7341),
         )
     };
+    // Signal ledger (Phase 2): off by default. `--ledger` or `DPL_LEDGER=1`
+    // starts the Parquet writer under `.userdata/analytics/`.
+    let ledger = args.iter().any(|a| a == "--ledger")
+        || std::env::var_os("DPL_LEDGER").is_some_and(|v| v != "0" && v != "false");
     // `--clone-seed <seed-id> <show> <episode>` — the headless clone
     // drill (X3): copy a seed into the real content tree through the
     // engine (`dpl_doc::clone_episode`) and exit; no window boots.
@@ -401,9 +408,11 @@ fn main() -> eframe::Result {
                 save_comp,
                 lottie_import,
                 fx_drill,
+                l4_drill,
                 make_slide,
                 run_workflow,
                 seam_port,
+                ledger,
             });
             #[cfg(feature = "eguipilotai-devtools")]
             let app = {
@@ -447,10 +456,13 @@ struct Boot {
     save_comp: Option<String>,
     lottie_import: Option<String>,
     fx_drill: Option<(String, String)>,
+    l4_drill: bool,
     make_slide: Option<String>,
     run_workflow: Option<String>,
     /// The agent seam's port; None = `--no-seam`.
     seam_port: Option<u16>,
+    /// Signal ledger (Phase 2) — Parquet writer under `.userdata/analytics/`.
+    ledger: bool,
 }
 
 struct App {
@@ -495,6 +507,8 @@ struct App {
     /// the hub registry and the provider registrations at boot.
     #[cfg(feature = "eguipilotai-devtools")]
     coach_catalog: Vec<egui_pilot_ai::protocol::SignalId>,
+    /// Durable stamped-signal writer. `None` when `--ledger` was not set.
+    ledger: Option<dpl_ledger::LedgerTap>,
 }
 
 impl App {
@@ -528,9 +542,11 @@ impl App {
             save_comp,
             lottie_import,
             fx_drill,
+            l4_drill,
             make_slide,
             run_workflow,
             seam_port,
+            ledger: ledger_on,
         } = boot;
         let mut workbench = dpl_hub_workbench::WorkbenchHub::default();
         if let Some(id) = focus {
@@ -543,6 +559,23 @@ impl App {
         // ONE fabric, shared: the shell publishes AND (since D2) listens;
         // the Present hub requests full-bleed over it.
         let fabric = Fabric::new();
+        // Open the ledger ears AT FABRIC BIRTH — before boot drills publish —
+        // so harness mutations land in Parquet exactly like real ones.
+        let ledger = if ledger_on {
+            let root = dpl_engine_capture::userdata_root().join("analytics");
+            match dpl_ledger::LedgerTap::open(&fabric, root.clone()) {
+                Ok(tap) => {
+                    tracing::info!(root = %root.display(), "signal ledger writing");
+                    Some(tap)
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "signal ledger failed to open — continuing without it");
+                    None
+                }
+            }
+        } else {
+            None
+        };
         // Open the shell's signal ears AT FABRIC BIRTH (W8): the boot
         // drills below publish real signals; ears opened later miss them.
         let shell_capture_rx = fabric.subscribe_capture();
@@ -606,6 +639,10 @@ impl App {
         // overlay, rendered synchronously before the first frame.
         if let Some((clip, fx)) = &fx_drill {
             wiredfront.fx_drill(clip, fx);
+        }
+        // L4's harness seam: blend + matte + LUT in one synchronous proof.
+        if l4_drill {
+            wiredfront.l4_drill();
         }
         // W11's harness seam: mint a media slide from an artifact through the
         // shelf's exact "Make slide" path (image/video → one, pdf → pages).
@@ -849,6 +886,7 @@ impl App {
             coach_signals: None,
             #[cfg(feature = "eguipilotai-devtools")]
             coach_catalog,
+            ledger,
         }
     }
 
@@ -988,10 +1026,17 @@ impl App {
             match image::RgbaImage::from_raw(w as u32, h as u32, rgba).map(|buf| buf.save(&path)) {
                 Some(Ok(())) => {
                     eprintln!("screenshot written: {}", path.display());
+                    // process::exit skips Drop — flush the ledger explicitly.
+                    if let Some(tap) = self.ledger.take() {
+                        tap.flush_and_join();
+                    }
                     std::process::exit(0);
                 }
                 other => {
                     eprintln!("screenshot FAILED: {other:?}");
+                    if let Some(tap) = self.ledger.take() {
+                        tap.flush_and_join();
+                    }
                     std::process::exit(1);
                 }
             }
@@ -1001,6 +1046,9 @@ impl App {
         ctx.request_repaint();
         if self.frames > self.shot_frame + 300 {
             eprintln!("screenshot never arrived after 300 frames");
+            if let Some(tap) = self.ledger.take() {
+                tap.flush_and_join();
+            }
             std::process::exit(1);
         }
     }
@@ -1200,6 +1248,12 @@ fn fit_window(ctx: &egui::Context) {
 }
 
 impl eframe::App for App {
+    fn on_exit(&mut self) {
+        if let Some(tap) = self.ledger.take() {
+            tap.flush_and_join();
+        }
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         // The WAKER (signal doctrine law 6), installed once: background
         // publishes repaint the UI the same frame — no polling burn.
@@ -1421,6 +1475,10 @@ impl eframe::App for App {
                 }
             }
             ctx.request_repaint();
+        }
+
+        if let Some(tap) = &mut self.ledger {
+            tap.drain();
         }
 
         self.screenshot_harness(&ctx);
