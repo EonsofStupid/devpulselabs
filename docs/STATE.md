@@ -2,6 +2,42 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-28 — THE WORKFLOW WIRE CONTRACT + DOCTRINE (PR #129, squash
+`c803e51`; plan `docs/plans/workflow-doctrine-and-schemas.md`):**
+workflows are now schema-governed for scale — `schemas/
+workflow.v1.schema.json` + `storyboard.v1.schema.json` (strict JSON
+Schema 2020-12, `v` const-pinned, kebab ids, jail-safe refs; vN files
+are append-only, v2 lands BESIDE v1) PINNED BY TEST: 4 `schema_pin`
+tests in `dpl-workflows` (dev-dep `jsonschema`, no default features,
+outside the ceiling audit) validate the real registered types AND prove
+refusal (unknown kinds/fields, non-kebab ids, future `v`, jailbreak
+refs). `docs/design/workflow-doctrine.md` = 11 laws ratifying WF1's
+patterns + THE WORKFLOW-PR CHECKLIST every workflow PR copies into its
+plan — the "all workflow PRs similar and consistent" gate. Agents and
+platform tools author/validate workflow documents schema-first, the
+same convergence seam the signal envelope rides.
+
+**2026-07-28 — CI MOVED TO THE ESTATE, RUNNERS BECAME CATTLE (PRs
+#122/#125/#127; runbook `docs/runbook/ci-runners.md`):** both green
+lanes run on the dedicated server's guests — `devpulse-runner-win-01`
+(Proxmox VM 119, 32 GB, per-repo root `C:\actions\runner-devpulselabs`,
+SYSTEM service, toolchain git 2.55/rust 1.92/MSVC 14.44/LLVM 18.1.8) +
+`devpulse-runner-lnx-01` (LXC 121, full dep set) + the ARM64 clyffy-lab
+runner; the laptop is UNREGISTERED as a runner. Idempotent bootstraps
+(`win-runner-bootstrap.ps1` with `-VerifyOnly`, `linux-runner-bootstrap
+.sh --verify-only`) are committed and were PROVEN live — the Windows one
+re-provisioned its own runner through two real failure modes (stale
+local config; the clock-skew incident that got a registration deleted —
+VM clocks must stay NTP-true). Known-good snapshots
+`known-good-2026-07-28` exist for 119 + 121; proof = green runs on both
+lanes incl. the post-migration main dispatch. KNOWN: single Windows
+runner = queue bottleneck under multi-lane load (second runner/VM is an
+ask-first lever); a runner-health watchdog script is drafted but
+unlanded (logging gap named by the operator — its own small pass).
+NOTE: this session's exe-law was satisfied at `d367390` (12:00 rebuild
++ live witness); everything merged after by this session is docs/CI/
+schemas + dev-dep only — no shipped-code drift.
+
 **2026-07-28 — L4: BLEND · MATTE · LUT — THE ESTATE UNLOCK (PR #123,
 squash `867bff3`; plan `docs/plans/l4-blend-matte-lut.md`):** the fourth
 AE-independence rung, sized by the 30-pack/~60 GB estate census (censused
