@@ -12,7 +12,7 @@
 use dpl_coldlight::{self as cl, Tone};
 use egui::{Align2, FontId, Ui};
 
-use crate::blocks::{media_backdrop, Media};
+use crate::elements::{media_backdrop, Media};
 use crate::frame::Stage;
 use crate::motion::Clock;
 use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};

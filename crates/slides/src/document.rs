@@ -7,7 +7,7 @@
 //! the default face, unknown sizes to body, unknown inks to base, unknown
 //! moods to an honest labeled plate.
 
-use crate::blocks::{ambient_backdrop, media_block_backdrop, Ambient};
+use crate::elements::{ambient_backdrop, media_block_backdrop, Ambient};
 use crate::motion::Clock;
 use dpl_coldlight::{self as cl};
 use egui::{Color32, Rect, Ui};

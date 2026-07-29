@@ -1,11 +1,16 @@
 //! The Workbench LIBRARY — ALL the raw ingredients on one surface
-//! (doctrine §1.1): seed slides by class, every registered template LIVE,
-//! reusable blocks, and the vocabulary walls (color pool · presets ·
-//! fonts · moods).
+//! (doctrine §1.1): seed slides by class, every registered template LIVE, the
+//! ingredient ladder (elements → blocks), and the vocabulary walls (color pool
+//! · presets · fonts · moods).
 //!
 //! The anti-recurrence law rode in with the walls: this surface renders
 //! **everything that exists** — a template or token that never shows here
-//! cannot exist. Elements sections join later; the chip row leaves room.
+//! cannot exist.
+//!
+//! The chip row spells the ladder coarse-to-fine, and its words are the words
+//! the operator sees everywhere else (DS3): TEMPLATES → BLOCKS → ELEMENTS.
+//! "Looks" is the operator's word for what the code authors as traits — the
+//! same split as "card" for `dpl_doc::Slide`.
 
 use super::SPEC;
 use dpl_coldlight::{self as cl, Tone};
@@ -21,7 +26,8 @@ pub(crate) enum LibSection {
     Seeds,
     Templates,
     Blocks,
-    Traits,
+    Elements,
+    Looks,
     Colors,
     Presets,
     Fonts,
@@ -29,11 +35,15 @@ pub(crate) enum LibSection {
 }
 
 impl LibSection {
-    pub(crate) const ALL: [LibSection; 8] = [
+    /// Ladder order, coarse to fine — Templates → Blocks → Elements — then the
+    /// vocabulary walls. Seeds still lead (the ingredient the editor tailors
+    /// first).
+    pub(crate) const ALL: [LibSection; 9] = [
         LibSection::Seeds,
         LibSection::Templates,
         LibSection::Blocks,
-        LibSection::Traits,
+        LibSection::Elements,
+        LibSection::Looks,
         LibSection::Colors,
         LibSection::Presets,
         LibSection::Fonts,
@@ -45,7 +55,8 @@ impl LibSection {
             LibSection::Seeds => "seeds",
             LibSection::Templates => "templates",
             LibSection::Blocks => "blocks",
-            LibSection::Traits => "traits",
+            LibSection::Elements => "elements",
+            LibSection::Looks => "looks",
             LibSection::Colors => "colors",
             LibSection::Presets => "presets",
             LibSection::Fonts => "fonts",
@@ -58,8 +69,11 @@ impl LibSection {
         match self {
             LibSection::Seeds => "Ready-made starter slides you can copy into a show",
             LibSection::Templates => "Every slide design, running live — tap one to see it big",
-            LibSection::Blocks => "Small reusable pieces templates are built from — shown live",
-            LibSection::Traits => "The composable treatments every surface is dressed in",
+            LibSection::Blocks => "Chunks — a few elements combined into one reusable piece",
+            LibSection::Elements => {
+                "The smallest pieces everything else is built from — shown live"
+            }
+            LibSection::Looks => "The treatments every surface is dressed in — mix and match",
             LibSection::Colors => "The whole color pool the app draws from",
             LibSection::Presets => "Saved style bundles — one tap applies a whole look",
             LibSection::Fonts => "Every typeface in the app, shown in its own face",
@@ -371,10 +385,10 @@ pub(crate) fn templates_gallery(
     }
 }
 
-/// The BLOCKS wall — every paint primitive in `dpl_slides::blocks` live on
-/// a plate. A block that exists but never shows here cannot exist.
-pub(crate) fn blocks_wall(ui: &mut egui::Ui) {
-    use dpl_slides::blocks::{elements, ElementCategory};
+/// The ELEMENTS wall — every paint primitive in `dpl_slides::elements` live on
+/// a plate. An element that exists but never shows here cannot exist.
+pub(crate) fn elements_wall(ui: &mut egui::Ui) {
+    use dpl_slides::elements::{elements, ElementCategory};
     ui.label(
         RichText::new(
             "ELEMENTS — the standalone primitives templates compose from, \
@@ -416,6 +430,54 @@ pub(crate) fn blocks_wall(ui: &mut egui::Ui) {
                     let spec = element.spec();
                     block_plate(ui, spec.label, spec.blurb, |ui, _fluid| element.paint(ui));
                 }
+            }
+        });
+}
+
+/// The BLOCKS wall — the chunk tier: a few elements combined into one reusable
+/// piece. Census-driven exactly like the elements wall, so a promoted block
+/// appears the day it registers.
+///
+/// Empty today, and it says so plainly rather than pretending otherwise — the
+/// same honesty the element shelves already use for their unpopulated
+/// categories.
+pub(crate) fn blocks_wall(ui: &mut egui::Ui) {
+    use dpl_slides::blocks::blocks;
+    ui.label(
+        RichText::new(
+            "BLOCKS — chunks: a few elements combined into one reusable piece. \
+             Painted live from the census, never a screenshot.",
+        )
+        .small()
+        .color(cl::ink::MUTED),
+    );
+    ui.add_space(cl::space::S2);
+    let census = blocks();
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            if census.is_empty() {
+                ui.add_space(cl::space::S2);
+                ui.label(
+                    RichText::new("Nothing here yet — and that is on purpose.")
+                        .strong()
+                        .color(cl::ink::STRONG),
+                );
+                ui.add_space(cl::space::S1);
+                ui.label(
+                    RichText::new(
+                        "A piece only becomes a block once the same combination has turned up \
+                         in two or more templates. Until one earns it, this shelf stays empty \
+                         rather than filled with pieces nothing actually uses.",
+                    )
+                    .small()
+                    .color(cl::ink::MUTED),
+                );
+                return;
+            }
+            for block in &census {
+                let spec = block.spec();
+                block_plate(ui, spec.label, spec.blurb, |ui, _fluid| block.paint(ui));
             }
         });
 }
@@ -733,4 +795,56 @@ pub(crate) fn moods_wall(ui: &mut egui::Ui) {
                 }
             });
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    /// The chip row is a census too: every section appears exactly once, and
+    /// every one carries tooltip copy (the tooltip law).
+    #[test]
+    fn the_chip_row_is_the_census() {
+        let slugs: HashSet<&str> = LibSection::ALL.iter().map(|s| s.label()).collect();
+        assert_eq!(
+            slugs.len(),
+            LibSection::ALL.len(),
+            "section slugs must be unique — a duplicate makes a chip unreachable"
+        );
+        for section in LibSection::ALL {
+            assert!(!section.label().is_empty());
+            assert!(!section.tip().is_empty(), "every chip explains itself");
+        }
+    }
+
+    /// DS3: the ladder's two lower rungs are SEPARATE shelves reading SEPARATE
+    /// censuses. Before DS3 one variant showed the other tier's contents.
+    #[test]
+    fn elements_and_blocks_are_distinct_shelves() {
+        assert_ne!(LibSection::Elements, LibSection::Blocks);
+        assert!(
+            !dpl_slides::elements::elements().is_empty(),
+            "the element tier is populated"
+        );
+        assert!(
+            dpl_slides::blocks::blocks().is_empty(),
+            "the chunk tier is empty until a composite earns promotion — if this \
+             fails, register the block on the Blocks shelf and update this test"
+        );
+    }
+
+    /// The operator never reads engineering words off a chip. "Traits" is what
+    /// the code authors; "Looks" is what the Library says (same split as
+    /// "card" for `dpl_doc::Slide`).
+    #[test]
+    fn no_chip_speaks_engineering() {
+        for section in LibSection::ALL {
+            assert_ne!(
+                section.label(),
+                "traits",
+                "the treatment shelf is LOOKS on the surface"
+            );
+        }
+    }
 }

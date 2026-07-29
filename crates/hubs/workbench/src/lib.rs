@@ -170,7 +170,8 @@ impl WorkbenchHub {
                 library::templates_gallery(ui, demos, &mut self.focus);
             }
             LibSection::Blocks => library::blocks_wall(ui),
-            LibSection::Traits => library::traits_wall(ui),
+            LibSection::Elements => library::elements_wall(ui),
+            LibSection::Looks => library::traits_wall(ui),
             LibSection::Colors => library::pool_wall(ui),
             LibSection::Presets => library::presets_wall(ui),
             LibSection::Fonts => library::fonts_wall(ui),

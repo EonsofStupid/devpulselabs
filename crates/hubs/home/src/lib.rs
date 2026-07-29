@@ -41,7 +41,7 @@ impl Hub for HomeHub {
         painter.text(
             egui::pos2(full.center().x, cy - fluid.sp_5()),
             Align2::CENTER_BOTTOM,
-            dpl_slides::blocks::eyebrow::tracked("one stop · capture · author · present"),
+            dpl_slides::elements::eyebrow::tracked("one stop · capture · author · present"),
             FontId::monospace(fluid.fs_eyebrow()),
             SPEC.tone.color(),
         );
