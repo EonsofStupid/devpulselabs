@@ -2,6 +2,17 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-29 — THE VISUAL-EXPERIENCE POAM (`docs/plans/poam-visual-experience.md`):**
+ratified from the operator's directive: V1 animation becomes a HOME
+privilege (every other route gets a static mood wash, zero idle repaints);
+V2 mood-derived card backgrounds as a generated ColdLight ingredient; V3
+the operator's years of SVGs become the icon language (intake → ADR on the
+SVG→egui path → generated registry → the icon-only rail wears them); V4
+rail links become ACTUAL clear buttons (neubrutalist actionable trait); V5
+the Home showcase — clay + brutal, first frame is the finished look. Each
+milestone is its own plan-gated pass. V3 is gated on the operator pointing
+at the SVG set and its ADR.
+
 **2026-07-29 — THE INSPECTOR IS AN OVERLAY (#148, `docs/plans/inspector-overlay.md`):**
 the shell's right panel was ported as a DOCKED `egui::Panel::right` eating
 `panel_width()` (320–448 px) on every route — but the operator's directive has
