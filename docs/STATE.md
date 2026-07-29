@@ -2,6 +2,75 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-29 — THE AUTHORING RESET: LADDER, PLAIN WORDS, CAROUSEL
+(PRs #135, #136; #128/#130 closed unmerged).** Three passes off one
+operator red-pen on the authoring mock (artifact `a3db4aee`).
+
+**DS3 — the ingredient ladder (#135, `docs/plans/ds3-ingredient-ladder.md`).**
+`crates/slides/src/blocks/` held six ATOMS that DS2 had already typed
+`ElementId`/`ElementSpec`/`elements()` — types said element, folder said
+block — while the chunk tier had no home. Now three rungs, three folders,
+one census each: `elements/` (git mv, 34 refs across 26 files, no shim per
+the no-shim law), a NEW `blocks/` (`BlockId`/`BlockSpec`/`BlockDemo`/
+`blocks()` with `made_of: &[ElementId]`), `templates/` untouched. **The
+chunk tier ships EMPTY by design** — the promotion rule says a composite
+earns the rung by recurring in ≥2 templates, and the census test asserts
+the emptiness so promotion and registration land together. Library split
+accordingly: `LibSection::Elements` added, `blocks_wall` → `elements_wall`
+plus a new honest-empty `blocks_wall`. Structure audit needed NO amendment
+— it is crate-graph only, and `dpl-slides` is named once as a SURFACE
+crate. New harness seam **`--lib-section <slug>`**: `--focus` pins
+TEMPLATES by design, so no wall but templates was provable on the exe.
+
+**Plain words (same PR).** The chip row still read `seeds templates blocks
+elements looks…` with "Eyebrow — Mono uppercase micro-label, the tracked
+kicker over a title" under it. Operator: *"elements the eyebrow would be
+confusing"*. Two vocabularies now split — `slug()` is the machine id
+(harness arg, pilot key, never drawn), `label()` is what the operator
+reads. Drawn: **Starters · Layouts · Combos · Pieces · Looks · Colors ·
+Styles · Type · Moods**. Pieces: Eyebrow→**Small label**, Stat→**Big
+number**, Badge→**Tag**, Bar→**Progress bar**, Divider→**Line**, Media→
+**Picture**; `ElementCategory` type/mark/meter→Words/Tags/Levels. Every
+blurb rewritten from the reader's side. Two tests hold the line:
+`no_chip_speaks_engineering`, `no_piece_speaks_engineering`.
+
+**The carousel (#136).** Operator: *"you still have never made the
+carousel … easily able to select from premades"*. A shelf picker over ONE
+carousel of large cards — Starters · Layouts · Combos · Pieces · Looks ·
+Interactions — every card drawn LIVE from the real registries (seeds via
+`DocSlide`, the Library's own paint path). Tap inserts through the SAME
+mint path as the blank-card button, so a carousel card is the same real
+document and publishes `CardAuthored` after the write. Arrows page and dim
+at the end (never move); "keeps going" is the checkbox; empty shelves say
+WHY. Fit-guarded on both axes — three layout bugs fixed and named in the
+PR: clips must INTERSECT not replace (cards were painting over the
+Inspector), height binds as well as width (captions pushed off a short
+window), card count adapts 1–4 across.
+
+**Passes B/C retired** (`docs/journal/2026-07-29-authoring-reset.md`).
+They were built to the pre-red-pen mock: `enum Bucket {Blocks, Elements,
+Effects, Templates}` — the code's own words drawn on screen, with Effects
+since ruled into two tiers — over a "comp filmstrip" colliding with
+`crates/comp`. Also stale against main. Closed unmerged, branches KEPT,
+with a salvage map: **Pass C's overlay editor survives** — `editor_modal`
+and `CardEditor` over the REAL `dpl_editor::Editor` with auto-save port
+largely as-is; the palette/bucket/comp layer does not.
+
+**Also:** `dpl-ledger`'s `overflow_increments_dropped_instead_of_blocking`
+raced the writer (its "stuck consumer" was never stuck) and intermittently
+blocked the pre-push hook. Replaced by two deterministic tests — a
+`LedgerHandle::stalled()` seam pins the full-channel behaviour with no
+thread at all, and a live-writer test asserts what holds either way
+(never blocks; queued + dropped accounts for every row).
+
+**KNOWN, outstanding:** a seed document drawn into a card-sized stage
+crops its headline — the type ramp has a floor, so a full slide at
+thumbnail scale overflows (visible in both #136 proof shots). The fix is a
+thumbnail mode in the document renderer and belongs to `dpl-slides`.
+**NEXT on this lane:** port the overlay editor per the salvage map, then
+the filmstrip labelled by whichever container (lesson · guide · episode ·
+deck) is loaded.
+
 **2026-07-29 — SESSION OS RECONCILED WITH MILESTONE-LOOP (PR #133):**
 one operating loop, two surfaces. Durable index = `docs/ops/` (SESSION +
 resume + signals). Cursor: skill `session-os`, `.cursor/hooks.json`,
