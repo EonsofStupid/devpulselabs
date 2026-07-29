@@ -328,6 +328,9 @@ pub(crate) struct AuthorSurface {
     /// The cards this sitting has started, oldest first. These live in
     /// `inbox/` and are NOT in the container yet — the strip says so.
     drafts: Vec<Draft>,
+    /// What the strip actually took last frame, measured as it drew. Zero
+    /// until it has drawn once; see [`AuthorSurface::strip_height`].
+    strip_h: f32,
 }
 
 /// One card started in this sitting: what it is called, and where on disk it
@@ -379,7 +382,7 @@ impl AuthorSurface {
         // The strip is drawn last but reserved for FIRST — otherwise a tall
         // card pushes the band off the bottom edge exactly as it once pushed
         // its own captions off.
-        let strip_h = Self::strip_height(&cl::Fluid::of(ui.max_rect()));
+        let strip_h = self.strip_height(&cl::Fluid::of(ui.max_rect()));
         let picked = self.carousel(ui, strip_h);
 
         ui.add_space(cl::space::S3);
@@ -408,7 +411,7 @@ impl AuthorSurface {
 
         // The band sits along the bottom, on the room reserved for it before
         // the carousel sized itself.
-        let space = ui.available_height() - Self::strip_height(&cl::Fluid::of(ui.max_rect()));
+        let space = ui.available_height() - self.strip_height(&cl::Fluid::of(ui.max_rect()));
         if space > 0.0 {
             ui.add_space(space);
         }
@@ -777,9 +780,19 @@ impl AuthorSurface {
     /// it proposes a card size. The band is the last thing drawn but the
     /// first thing accounted for; otherwise a tall card pushes it off the
     /// bottom edge exactly as it once pushed its own captions off.
-    fn strip_height(fluid: &cl::Fluid) -> f32 {
-        // head line + a film card + the padding around both
-        fluid.fs_body_lg() + fluid.ctl_thumb_h() + cl::space::S6
+    ///
+    /// The head wraps at narrow widths, so its height is not something a sum
+    /// of tokens can predict. Rather than guess a number big enough to be
+    /// safe — which is a magic px by another name — the band MEASURES itself
+    /// as it draws and the next frame reserves exactly that. The seed below
+    /// is only ever used for frame one, and it converges immediately because
+    /// the strip's height does not depend on what was reserved for it.
+    fn strip_height(&self, fluid: &cl::Fluid) -> f32 {
+        if self.strip_h > 0.0 {
+            return self.strip_h;
+        }
+        // Frame one: hairline gap + one head line + a film card + padding.
+        cl::space::S3 + fluid.fs_body_lg() + cl::space::S2 + fluid.ctl_thumb_h() + cl::space::S4
     }
 
     /// The filmstrip — what you have started, labelled by what it is for.
@@ -794,6 +807,8 @@ impl AuthorSurface {
             return false;
         };
         let mut start_one = false;
+        // Where the band begins, so it can report what it actually took.
+        let top = ui.cursor().top();
 
         // A hairline is what separates the band from the surface it serves —
         // the strip is a shelf, not another card competing for attention.
@@ -905,6 +920,8 @@ impl AuthorSurface {
                     }
                 });
             });
+        // Measured, not guessed — the next frame reserves exactly this.
+        self.strip_h = (ui.cursor().top() - top).max(0.0);
         start_one
     }
 

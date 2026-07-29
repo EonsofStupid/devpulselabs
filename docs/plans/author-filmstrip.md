@@ -171,4 +171,58 @@ new tile, honest empty) · drafts recorded as they are minted so they appear
 
 ## 8. Evidence
 
-_Filled during the pass._
+### 8.1 The gate
+
+`cargo green ✔` on this branch — fmt · spawn audit · structure audit ·
+clippy `-D warnings` · tests · release build. The structure audit passed with
+`dpl-guide` added to the workbench manifest and **no** amendment to
+`architecture.md`, confirming §2's assertion: hubs carry no exact-set ceiling
+and an engine dep is not a lateral hub dep.
+
+Tests: 5 new in `containers::tests`, all green —
+`the_kind_row_is_the_census` · `every_kind_is_backed_or_says_why` ·
+`no_kind_speaks_engineering` ·
+`unbacked_kinds_and_missing_roots_are_empty_not_loud` ·
+`a_guide_folder_is_found_by_its_manifest` (a guide folder and an authored
+draft side by side in one `inbox/`; only the one with a manifest is listed).
+
+### 8.2 Real-exe proof
+
+Sequential runs, `--content-root` at a scratch dir seeded by
+`--clone-seed how-ai-works effingai ep04`. Nothing near `/content`.
+
+| shot | what it proves |
+|---|---|
+| `docs/proof/author-filmstrip-1280x800.png` | the bar reads "Building into · Episode · Effingai · How AI actually works"; the strip head carries the magenta EPISODE pill, the container's name, "already has 4 cards" read off `episode.json`, and "2 started here, not put in yet" |
+| `docs/proof/author-filmstrip-1100x700.png` | the fit guard: the carousel gives up height and the whole band still lands inside the panel |
+| `docs/proof/author-filmstrip-unbacked-kind.png` | `--author-container lesson` — the honest-empty line, and a strip that says "Nothing chosen to build into yet" rather than inventing a label |
+
+### 8.3 Deviations and findings
+
+**The height reservation is measured, not summed.** §5 step 4 assumed a
+token sum would predict the band's height. The first 1280×800 shot proved
+otherwise — the head wraps, and the film tiles were clipped by the panel's
+bottom edge. Making the number bigger would have been a magic px wearing a
+token's clothes. Instead the band measures what it actually took as it draws,
+and the next frame reserves exactly that. It converges in one frame, because
+the strip's height does not depend on what was reserved for it. This is scope
+beyond the approved plan and is recorded here for that reason.
+
+**The strip makes the seed-thumbnail crop worse, and 8.2 shows it.** At
+1100×700 the carousel cards read "all y?", "4", "G", "ba" — a full slide
+drawn into a card-sized stage, cropped because the type ramp has a floor. The
+defect is NOT new (it is the one named in #136), but the band takes real
+height, so the cards shrink and the crop bites sooner. Nothing in this pass
+can fix it: the fix is a thumbnail mode in `dpl-slides`, the next item in the
+lane. Flagged rather than quietly shipped, because a proof shot that looks
+worse than the last one has to say why.
+
+**Film tiles are labelled plates, not miniatures**, for the same reason —
+`film_tile` documents it in place.
+
+### 8.4 Lane note
+
+`main` was red on BOTH lanes while this pass was written, from other lanes'
+merges: Windows since #139 (fixed by #142), Linux since #142 (a clippy
+`manual_is_multiple_of` miss, fixed by #144). Both were merged while their own
+CI was still running. This branch's gate could not pass until #144 landed.
