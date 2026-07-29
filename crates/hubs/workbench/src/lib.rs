@@ -137,6 +137,12 @@ impl WorkbenchHub {
         self.lib_section = LibSection::Templates;
     }
 
+    /// Mint a card and open its overlay editor — the `--author-editor` proof
+    /// seam, so the overlay is provable on the real exe.
+    pub fn open_author_editor(&mut self) {
+        self.author.open_editor_drill();
+    }
+
     /// Open the Library on one SECTION by its chip slug — the
     /// `--lib-section <slug>` proof hook. Every wall other than templates was
     /// unreachable from the harness before DS3, so no shelf but that one could
