@@ -2,6 +2,23 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-29 — PROVIDER EASY-SELECT RESTORED (POA&M M1+M2, plan
+`docs/plans/chat-provider-easy-select.md`):** the #94 regression is
+undone — the AI rail again shows EVERY provider as an always-visible
+one-click row (accent mark · status dot · activation label · session
+count; `provider_roster` replaces the dropdown `provider_selector`),
+with the catalog overlay demoted to the `＋ More providers…` escape
+hatch (Add local / Add custom / census). Catalog copies of the rows
+re-homed to `chat.provider.catalog/<id>` so rail + overlay never mint
+duplicate pilot ids. Activation paths UNTOUCHED (M2: zero non-window
+lines in the diff; scenarios `chat-provider-catalog`, `chat-peer-window`,
+`chat-assist-toggle` pass unchanged; new scenario `chat-provider-rows`
+proves roster-without-overlay + escape hatch). Proof:
+`docs/proof/chat-provider-rows-native.png`. Session POA&M:
+`docs/plans/poam-2026-07-29.md` (M3 = connected-provider tabs NEXT).
+Lesson: `chat-native-proof` captures the RELEASE exe by window title —
+rebuild `devpulselabs.exe` BEFORE shooting proofs.
+
 **2026-07-29 — THE OVERLAY'S LIVE PANE (M5b, `docs/plans/author-overlay-live-pane.md`):**
 the card editor becomes what the mock specifies — a tab rail down the left,
 the tab's controls in the middle, and THE CARD ITSELF, LIVE, on the right
