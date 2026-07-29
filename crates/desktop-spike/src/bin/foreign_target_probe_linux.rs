@@ -481,7 +481,7 @@ fn x11_window_for_class(class_needle: &str) -> Option<(u32, WindowOrigin, FrameE
         .reply()
         .ok()?;
     let raw: Vec<u8> = reply.value;
-    if raw.len() % 4 != 0 {
+    if !raw.len().is_multiple_of(4) {
         return None;
     }
     let windows: Vec<u32> = raw
