@@ -23,7 +23,7 @@ milestone-loop). Product truth stays in `docs/STATE.md`.
 
 | Kind | Ref | Notes |
 |---|---|---|
-| Authoring | overlay already on main (#136); filmstrip + thumbnail crop remain | do not steal unless redirected |
+| Authoring | **`docs/plans/authoring-lane-poam.md`** is the one page for this lane — goal, milestones, done, remaining, and what each remaining item waits on | M1–M4 + M6 closed (#135 #136 #141 #146 #147); M5 tabs 3 of 7 (#149 #151). Do not steal unless redirected. |
 | Parallel | chat assist bake-off | STATE assist-mode entry |
 | Parallel | authoring charter #119 merged | Pass B/C closed unmerged |
 
