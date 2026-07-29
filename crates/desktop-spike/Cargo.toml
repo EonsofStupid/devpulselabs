@@ -13,7 +13,13 @@ workspace = true
 [dependencies]
 eframe.workspace = true
 egui.workspace = true
+# XTEST click for the passthrough probe only (already transitive via eframe).
+x11rb = { version = "0.13", default-features = false, features = ["allow-unsafe-code", "xtest"] }
 
 [[bin]]
 name = "overlay-probe"
 path = "src/bin/overlay_probe.rs"
+
+[[bin]]
+name = "passthrough-probe"
+path = "src/bin/passthrough_probe.rs"

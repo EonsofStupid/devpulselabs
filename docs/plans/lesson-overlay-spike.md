@@ -184,3 +184,36 @@ Not proven by this run, and not to be assumed:
 
 Captures: `/tmp/shot_transparent.png`, `/tmp/shot_opaque.png` (scratch, not
 committed; re-runnable in about twenty seconds from the two commands above).
+
+### 8.1 Mouse passthrough (p2b) — 2026-07-29
+
+Binary: `passthrough-probe` in `crates/desktop-spike` (plan
+`docs/plans/p2b-overlay-passthrough.md`). Same box: ARM64, `DISPLAY=:1`,
+X11, wgpu Vulkan / **NVIDIA GB10**.
+
+Control pair (orchestrator spawns witness → overlay → XTEST click at
+overlay center):
+
+```
+passthrough-probe --hit-file /tmp/dpl-passthrough-on.txt \
+  --seconds 8 --at 200,200 --size 400x300
+# → hit=true passthrough=true expect_hit=true → PASS
+
+passthrough-probe --hit-file /tmp/dpl-passthrough-off.txt \
+  --seconds 8 --at 200,200 --size 400x300 --no-passthrough
+# → hit=false passthrough=false expect_hit=false → PASS
+  # (control forces --opaque on the overlay so it can own the pointer)
+```
+
+**Verdict: `with_mouse_passthrough(true)` on a transparent always-on-top
+overlay delivers a synthetic click to a witness underneath on this X11
+box.** The opaque `--no-passthrough` control is what makes it conclusive.
+
+Caveat recorded during the probe: a *transparent* overlay with
+passthrough off and only a hollow painted ring still let the click
+reach the witness (alpha / hollow center). The negative control therefore
+uses an opaque overlay window. Product chrome that must eat clicks needs
+opaque (or input-shaped) pixels under the pointer — not hollow
+transparent interiors alone.
+
+Still unproven: Windows laptop, Wayland mini-PC.
