@@ -94,6 +94,10 @@ fn main() -> eframe::Result {
         .position(|a| a == "--lib-section")
         .and_then(|i| args.get(i + 1))
         .cloned();
+    // `--author-editor` — mint a card on the Author surface and open its
+    // overlay editor at boot. The overlay opens only on a tap, so this is how
+    // it gets photographed; pair it with `--content-root` to write to scratch.
+    let author_editor = args.iter().any(|a| a == "--author-editor");
     // `--shot-frame <n>` — capture later than the default frame 6, so sweep
     // animations can reach their rest state before the proof is taken.
     let shot_frame: u32 = args
@@ -393,6 +397,7 @@ fn main() -> eframe::Result {
                 boot_route,
                 focus,
                 lib_section,
+                author_editor,
                 shot_frame,
                 viziwiz_open,
                 viziwiz_snap,
@@ -442,6 +447,7 @@ struct Boot {
     boot_route: Option<(String, String)>,
     focus: Option<String>,
     lib_section: Option<String>,
+    author_editor: bool,
     shot_frame: u32,
     viziwiz_open: bool,
     viziwiz_snap: bool,
@@ -529,6 +535,7 @@ impl App {
             boot_route,
             focus,
             lib_section,
+            author_editor,
             shot_frame,
             viziwiz_open,
             viziwiz_snap,
@@ -566,6 +573,9 @@ impl App {
         }
         // Section BEFORE focus would be pointless — `set_focus` pins TEMPLATES
         // — so the section seam runs after and wins when both are given.
+        if author_editor {
+            workbench.open_author_editor();
+        }
         if let Some(slug) = &lib_section {
             if !workbench.set_lib_section(slug) {
                 tracing::warn!(
