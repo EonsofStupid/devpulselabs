@@ -223,6 +223,7 @@ impl WorkbenchHub {
             LibSection::Colors => library::pool_wall(ui),
             LibSection::Presets => library::presets_wall(ui),
             LibSection::Fonts => library::fonts_wall(ui),
+            LibSection::Icons => library::icons_wall(ui),
             LibSection::Moods => library::moods_wall(ui),
         }
     }

@@ -148,6 +148,93 @@ pub fn font_family(id: &str) -> egui::FontFamily {
     egui::FontFamily::Name(id.into())
 }
 
+/// A registry icon: Lucide geometry tessellated at BUILD time from the
+/// vendored pool (tokens/icons.json → build.rs, ADR-015). The mesh is
+/// single-color and unopinionated — styling (ink, size, layers) composes
+/// at paint time, the visx law.
+#[derive(Debug, Clone, Copy)]
+pub struct IconDef {
+    pub id: &'static str,
+    pub label: &'static str,
+    /// The vendored source file: assets/lucide/icons/{lucide}.svg.
+    pub lucide: &'static str,
+    pub blurb: &'static str,
+    /// x, y, w, h of the source viewBox (Lucide: 0 0 24 24).
+    pub viewbox: (f32, f32, f32, f32),
+    pub vertices: &'static [(f32, f32)],
+    pub indices: &'static [u32],
+}
+
+include!(concat!(env!("OUT_DIR"), "/icons_gen.rs"));
+
+impl IconDef {
+    /// The icon as a tinted mesh mapped into `rect` — uniform scale,
+    /// centered; icons never stretch. Built for OPAQUE tints: the stroke
+    /// tessellation double-covers at caps and joins, so a translucent
+    /// color would reveal seams — paint washes as separate layers.
+    pub fn mesh(&self, rect: egui::Rect, color: Color32) -> egui::Mesh {
+        let (vx, vy, vw, vh) = self.viewbox;
+        let scale = (rect.width() / vw).min(rect.height() / vh);
+        let ox = rect.center().x - (vx + vw * 0.5) * scale;
+        let oy = rect.center().y - (vy + vh * 0.5) * scale;
+        let mut mesh = egui::Mesh::default();
+        mesh.vertices.reserve(self.vertices.len());
+        for &(x, y) in self.vertices {
+            mesh.vertices.push(egui::epaint::Vertex {
+                pos: egui::pos2(x * scale + ox, y * scale + oy),
+                uv: egui::epaint::WHITE_UV,
+                color,
+            });
+        }
+        mesh.indices.extend_from_slice(self.indices);
+        mesh
+    }
+}
+
+/// Paint a registry icon into `rect`. An unknown id paints an honest
+/// hairline box — a missing icon must be SEEN, never silently skipped.
+pub fn draw_icon(painter: &egui::Painter, id: &str, rect: egui::Rect, color: Color32) {
+    match icon_def(id) {
+        Some(def) => {
+            painter.add(egui::Shape::mesh(def.mesh(rect, color)));
+        }
+        None => {
+            painter.rect_stroke(
+                rect.shrink(2.0),
+                CornerRadius::same(2),
+                Stroke::new(1.0, color),
+                egui::StrokeKind::Inside,
+            );
+        }
+    }
+}
+
+/// The brutal rendition: the icon's own mesh re-drawn offset as a hard
+/// shadow SHAPE under the tinted pass — doctrine's neubrutalist pop,
+/// never a blur. The offset tracks icon size and lands on the trait
+/// system's [3, 3] at chrome sizes.
+pub fn draw_icon_brutal(
+    painter: &egui::Painter,
+    id: &str,
+    rect: egui::Rect,
+    color: Color32,
+    shadow: Color32,
+) {
+    let off = (rect.width().min(rect.height()) / 8.0).max(2.0);
+    draw_icon(painter, id, rect.translate(egui::vec2(off, off)), shadow);
+    draw_icon(painter, id, rect, color);
+}
+
+/// An inline icon control: allocates `size`², paints the registry icon,
+/// answers hover/click. Callers still owe the tooltip law (`cl::tip`).
+pub fn icon_label(ui: &mut egui::Ui, id: &str, size: f32, color: Color32) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
+    if ui.is_rect_visible(rect) {
+        draw_icon(ui.painter(), id, rect, color);
+    }
+    resp
+}
+
 /// A LOOK preset — a named bundle of REFS (font, two moods, blend motion,
 /// optional ambience) from tokens/presets.json, the 6th source. Applying
 /// one is swapping refs on a document; presets are never new code.

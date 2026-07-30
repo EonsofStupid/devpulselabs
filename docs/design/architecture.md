@@ -16,10 +16,12 @@ DOCUMENT crates    dpl-doc · dpl-comp · dpl-workflows        (pure serde data;
                    schema_v + newer-refusal + crash-safe tmp/bak writes)
 ENGINE crates      dpl-proc · dpl-engine-{capture,media,steps,ae,browser} ·
                    dpl-index · dpl-estate · dpl-landing · dpl-tools-deps ·
-                   dpl-lottie · dpl-guide · dpl-intent · dpl-ledger
-                   (IO + subprocess leaves per ADR-009; egui-free; dpl-proc
-                   and dpl-intent are pure LAW crates, ∅ deps; dpl-ledger
-                   writes Parquet via pure-Rust `parquet`+`snap`)
+                   dpl-lottie · dpl-guide · dpl-intent · dpl-ledger · dpl-svg
+                   (IO + subprocess leaves per ADR-009; egui-free; dpl-proc,
+                   dpl-intent, and dpl-svg are pure LAW crates, ∅ deps;
+                   dpl-ledger writes Parquet via pure-Rust `parquet`+`snap`;
+                   dpl-svg rides as coldlight's BUILD-dep — icon geometry
+                   is generated, never parsed at runtime, ADR-015)
 SUPPORT crates     dpl-coldlight (tokens+paint) · dpl-vector · dpl-video ·
                    dpl-backdrop                               (egui-typed helpers)
 SURFACE crates     dpl-slides · dpl-editor · dpl-deck · dpl-composer ·
@@ -48,6 +50,7 @@ renderers are surfaces.
 | dpl-landing | serde, serde_json | the landing policy is shared pure data |
 | dpl-estate | fjall, moka, serde, serde_json | Ring-0 persistence, no app types |
 | dpl-intent | ∅ | the operator-intent proof must never learn to serialize, clone, or arrive over a wire (signal-ledger plan §9.3) |
+| dpl-svg | ∅ | the icon-subset SVG law is dependency-free — parsing, flattening, and stroking are owned (ADR-015) |
 
 Adding an edge to these crates is a DECISION: amend the table here + in
 the audit, same commit, with the reason.

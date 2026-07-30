@@ -38,6 +38,7 @@ members = [
     "crates/engine-steps",
     "crates/engine-ae",
     "crates/engine-browser",
+    "crates/svg",
     "crates/lottie",
     "crates/lottie-render",
     "crates/slides",
@@ -180,6 +181,7 @@ dpl-coldlight = { path = "crates/coldlight" }
 dpl-vector = { path = "crates/vector" }
 dpl-video = { path = "crates/video" }
 dpl-backdrop = { path = "crates/backdrop" }
+dpl-svg = { path = "crates/svg" }
 dpl-engine-capture = { path = "crates/engine-capture" }
 dpl-engine-media = { path = "crates/engine-media" }
 dpl-engine-steps = { path = "crates/engine-steps" }
