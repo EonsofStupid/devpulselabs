@@ -145,4 +145,65 @@ image/video filters · live thumbnails · `Editor::set_media` · the fit choice 
 
 ## 8. Evidence
 
-_Filled during the pass._
+### 8.1 The gate
+
+`cargo green ✔` — including the structure audit with `dpl-index` newly on the
+workbench manifest and **no** `architecture.md` amendment owed, as §2
+asserted. 41 tests in `dpl-hub-workbench`, 9 new.
+
+Census: `the_kind_row_is_the_schemas_media_vocabulary` ·
+`no_kind_speaks_engineering` · `every_fit_has_a_plain_word` ·
+`every_offered_picture_is_a_legal_media_ref` — the last builds a document from
+every record the shelf offers and asserts `validate` is silent, which is the
+jail proven by construction rather than by hope.
+
+Behaviour: `setting_a_picture_writes_a_valid_media_block` ·
+`contain_is_written_because_it_is_not_the_default` (sparse documents) ·
+`a_second_picture_replaces_the_first` · `no_picture_clears_it_and_keeps_the_words`
+· `an_escaping_ref_would_not_validate` (`/etc/passwd`, `C:\x.png`,
+`../../escape.png` all refused — the jail is real, which is *why* passing index
+paths through keeps this tab inside it).
+
+### 8.2 Real-exe proof
+
+| shot | what it proves |
+|---|---|
+| `docs/proof/author-tab-picture-empty.png` | the empty-index line, built and shot FIRST per §6 |
+| `docs/proof/author-tab-picture-1280x800.png` | three real thumbnails, `quote-card` ringed as chosen, "No picture" and "How it sits" present, the live pane rendering the card with the picture on it |
+| `docs/proof/author-tab-picture-1100x700.png` | the same at a short window |
+
+The populated runs were seeded through `--import-drill`, the app's own import
+seam — so the records under test arrived the way real ones do, not by hand.
+
+### 8.3 Deviations and findings
+
+**The proof run found a hang, and it was mine.** `picture_tab` called
+`pictures()` every frame — and `pictures()` opens the artifact index, which is
+a database connection, not a lookup. The exe never reached its screenshot.
+§6 of `author-filmstrip.md` had already written the rule down ("read once into
+state, never per frame") and this pass broke it. The shelf is now cached on
+`CardEditor` and re-read only by the gesture that changes it, exactly as
+`containers.rs` does. Recorded because a per-frame DB open is the kind of
+defect that looks like a UI freeze and gets blamed on paint.
+
+**`locate_asset` was not content-root aware — a pre-existing bug in every
+drill.** With the hang fixed, every tile still showed "file not found" for
+files that were plainly on disk. `dpl_video::locate_asset` probes exe-adjacent
+dirs and the cwd, but **not** the root named by `--content-root`, so any drill
+pointed at a scratch dir resolves nothing — media *cards* included, not just
+this picker.
+
+Fixed in `dpl-video` by reading `--content-root` (and the `CONTENT_ROOT` env
+behind it) straight from the process args. That is the same contract
+`dpl_engine_capture::explicit_root` implements, and doing it with two lines of
+arg parsing honours that function's own note about staying free of a heavy
+engine-capture dependency. Scope beyond this plan, and worth having: it makes
+every media-bearing drill provable.
+
+**The degrade ladder behaved perfectly while broken**, which is why the bug was
+diagnosable rather than mysterious: each tile painted the honest "file not
+found" plate instead of a blank or a crash.
+
+**`cover` is not written.** It is the schema's default, so `set_media` stores
+`fit` only when it is `contain` — a sparse document, the same discipline the
+rest of `dpl_doc` keeps.

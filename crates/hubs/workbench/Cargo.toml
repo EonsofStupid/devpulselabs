@@ -13,6 +13,10 @@ dpl-doc.workspace = true
 # The `.guide` content model — one of the two container kinds the authoring
 # strip can actually label itself with (containers.rs).
 dpl-guide.workspace = true
+# The artifact INDEX — the Picture tab's picker. Every `Record.rel_path` is
+# already content-root-relative, so the media content-jail cannot be violated
+# by construction (author-tab-picture.md §2).
+dpl-index.workspace = true
 dpl-slides.workspace = true
 dpl-editor.workspace = true
 dpl-engine-capture.workspace = true

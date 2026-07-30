@@ -257,11 +257,38 @@ pub fn loop_backdrop(ui: &egui::Ui, rect: egui::Rect, path: &Path) -> bool {
     painted
 }
 
+/// `--content-root <path>` / `--content-root=<path>` from the process args,
+/// else the `CONTENT_ROOT` env the harness speaks. Deliberately duplicated
+/// from `dpl_engine_capture` rather than depended on: this crate stays a leaf,
+/// and the contract is two lines of arg parsing.
+fn explicit_content_root() -> Option<PathBuf> {
+    let mut args = std::env::args().skip(1);
+    while let Some(a) = args.next() {
+        if a == "--content-root" {
+            return args.next().map(PathBuf::from);
+        }
+        if let Some(v) = a.strip_prefix("--content-root=") {
+            return Some(PathBuf::from(v));
+        }
+    }
+    std::env::var("CONTENT_ROOT").ok().map(PathBuf::from)
+}
+
 /// Resolve a repo asset (`assets/backdrops/dpl.mp4`) from the exe's folder
 /// upward, then the CWD — dev runs from the repo, packaged runs sit next to
 /// `assets/`. `None` when nothing exists (callers degrade honestly).
 pub fn locate_asset(rel: &str) -> Option<PathBuf> {
     let mut roots: Vec<PathBuf> = Vec::new();
+    // The EXPLICIT content root, when the harness named one. Read straight
+    // from the process args (and the env seam behind them), which is exactly
+    // what `dpl_engine_capture::explicit_root` does — so this honours the same
+    // contract with no dependency on that crate, as the note below requires.
+    //
+    // Without this, every drill that points `--content-root` at a scratch dir
+    // resolves nothing: the ambient candidates are exe-adjacent and the cwd,
+    // neither of which is the scratch root. A media card and a picture picker
+    // both showed "file not found" for files that were plainly there.
+    roots.extend(explicit_content_root());
     if let Ok(exe) = std::env::current_exe() {
         let mut dir = exe.parent().map(Path::to_path_buf);
         // Walk up a few levels: target/release/exe → repo root in dev.

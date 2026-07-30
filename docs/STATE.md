@@ -2,6 +2,24 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-30 — THE PICTURE TAB (`docs/plans/author-tab-picture.md`):**
+fifth of the seven card tabs; M5 is now 5 of 7 and **the two that remain are
+BLOCKED, not pending**. The picker is the artifact INDEX, not a file dialog,
+and that is the design: every `Record.rel_path` is already
+content-root-relative, so `dpl_doc`'s media content-jail **cannot be violated
+by construction** — this module never builds a path, it passes one through.
+`show` comes from the record's own `kind`, never sniffed from the extension.
+`cover` is not written (schema default; sparse documents). One picture per
+card — a second replaces. TWO defects the proof run caught, both in §8.3: (1)
+`picture_tab` called the census EVERY FRAME, and the census opens a database
+connection — the exe never reached its screenshot; the shelf is now cached on
+`CardEditor` and re-read only by the gesture that changes it, the rule
+`author-filmstrip.md` §6 had already written down. (2) `dpl_video::locate_asset`
+was NOT content-root aware, so **every drill using `--content-root` resolved
+nothing** — media cards included, not just this picker. Fixed in `dpl-video` by
+reading `--content-root`/`CONTENT_ROOT` from the process args, the same
+contract `engine_capture::explicit_root` implements, with no new dependency.
+
 **2026-07-30 — C2c MOCK LOOK-APPROVED (`docs/ops/references/coach-operator-mock-c2c.html`):**
 Operator: “looks good.” Coach hub home locked for implementation.
 Product spine: `docs/plans/coach-operator-experience.md`. Coach NEXT =

@@ -64,7 +64,7 @@ learning what a template is.
 | **M2** | The ingredient ladder + plain words | ✅ closed | #135 |
 | **M3** | The carousel — sweep and tap the premades | ✅ closed | #136 |
 | **M4** | The overlay editor opens on a real file | ✅ closed | #141 |
-| **M5** | **The card tabs become real** (7 tabs) | 🔶 **4 of 7** | #149, #151, #159 |
+| **M5** | **The card tabs become real** (7 tabs) | 🔶 **5 of 7** — the two that remain are blocked, not pending | #149, #151, #159, #160 |
 | **M5b** | The overlay's live pane — rail + controls + the card | ✅ closed | #155 |
 | **M6** | The container spine — filmstrip + thumbnails | ✅ closed | #146, #147 |
 | **M7** | Placing cards into the container | ⬜ not started | — |
@@ -87,6 +87,7 @@ Each row: what landed, and where the evidence is.
 | Thumbnail mode | #147 | `slide-thumbnail-mode.md` | `Fluid::thumbnail` — a miniature is a scaled full stage. Carousel cards and film tiles show whole slides instead of crops. |
 | Background tab | #149 | `author-tab-background.md` | Ten live-rendered colours + blend + ambience, written through `Editor::set_background`. Seam `--card-tab`. |
 | Movement tab | #151 | `author-tab-movement.md` | Three real choices from the schema's own vocabulary; the shortfall stated on the tab. |
+| Picture tab | #160 | `author-tab-picture.md` | An index-backed picker (no file dialog, jail satisfied by construction), live thumbnails, fit in plain words. Also made `locate_asset` content-root aware, fixing every media-bearing drill. |
 | A quote tab | #159 | `author-tab-quote.md` | Three plain fields over the ratified convention; blank removes its block; `quote_lines()` declared in `dpl_doc` so the surface cannot drift from the validator. |
 | Overlay live pane | #155 | `author-overlay-live-pane.md` | R1's shape: vertical tab rail, controls, and the card live beside them. Words keeps its own stage — there the card is the control. Closes the below-the-fold problem. |
 
@@ -108,7 +109,7 @@ Planned in full; ready to implement.
 | Tab | Plan | Waiting on | Size | State |
 |---|---|---|---|---|
 | **A quote** | `author-tab-quote.md` | — | S | ✅ **done** (#159) — three reserved ids (`quote` · `said-by` · `source`), the convention declared in `dpl_doc` beside `enters()` |
-| **Picture** | `author-tab-picture.md` | nothing | M | **planned** — the picker is `dpl_index`, whose `rel_path` is already content-relative, so the jail cannot be violated by construction |
+| **Picture** | `author-tab-picture.md` | — | M | ✅ **done** (#160) — the picker is `dpl_index`, whose `rel_path` is already content-relative, so the jail cannot be violated by construction |
 | **On tap** | — | **the interaction tier** | L | **blocked** — see below |
 | **Ask for help** | — | **M10** | L | **deferred on purpose** — see below |
 

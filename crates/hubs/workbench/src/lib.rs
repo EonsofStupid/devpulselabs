@@ -10,6 +10,7 @@ mod author;
 mod backgrounds;
 mod containers;
 mod library;
+mod pictures;
 mod studio;
 
 use author::AuthorSurface;

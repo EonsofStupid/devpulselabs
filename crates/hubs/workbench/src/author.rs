@@ -225,6 +225,185 @@ fn live_pane(ui: &mut egui::Ui, ed: &mut CardEditor) {
     );
 }
 
+/// The Picture tab — an image or a video on the card.
+///
+/// The shelf is the artifact INDEX, not a file dialog. That is the design:
+/// every path the index holds is already content-root-relative, so the media
+/// content-jail is satisfied by construction (`pictures.rs`). A dialog would
+/// mean copying files in — a capture concern, and sources are never mutated —
+/// or authoring a ref that escapes the root.
+fn picture_tab(ui: &mut egui::Ui, ed: &mut CardEditor) {
+    let fluid = cl::Fluid::of(ui.ctx().content_rect());
+    let current = ed.editor.media();
+    if ed.shelf.is_none() {
+        ed.shelf = Some(crate::pictures::pictures(ed.pictures));
+    }
+    let mut want: Option<Option<(String, String, String)>> = None;
+
+    ui.add_space(cl::space::S2);
+    ui.horizontal_wrapped(|ui| {
+        for kind in crate::pictures::Kind::ALL {
+            let on = ed.pictures == kind;
+            if cl::tip(ui.selectable_label(on, kind.label()), kind.tip()).clicked() && !on {
+                ed.pictures = kind;
+                // The gesture that changes the shelf is the one that re-reads
+                // it.
+                ed.shelf = None;
+            }
+        }
+        ui.add_space(cl::space::S3);
+        if current.is_some()
+            && cl::tip(
+                ui.selectable_label(false, crate::pictures::NOTHING),
+                "Take the picture off this card",
+            )
+            .clicked()
+        {
+            want = Some(None);
+        }
+    });
+    ui.add_space(cl::space::S2);
+
+    // Two different emptinesses, and they must not read alike: the list could
+    // not be opened, versus you simply have none of this kind yet.
+    let shelf = ed.shelf.as_ref().expect("just filled");
+    if let Some(why) = &shelf.unavailable {
+        ui.label(RichText::new(why).color(cl::ink::MUTED));
+        return;
+    }
+    if shelf.items.is_empty() {
+        ui.label(
+            RichText::new(format!(
+                "No {} in your content folder yet.",
+                ed.pictures.label().to_lowercase()
+            ))
+            .size(fluid.fs_body_lg())
+            .strong()
+            .color(cl::ink::STRONG),
+        );
+        ui.add_space(cl::space::S2);
+        ui.label(
+            RichText::new(
+                "Snip something, or bring a folder in, and it shows up here. Nothing is \
+                 copied or changed when you pick it — the card just points at it.",
+            )
+            .color(cl::ink::MUTED),
+        );
+        return;
+    }
+
+    // How it sits on the card. Only meaningful once there IS one.
+    if let Some((src, show, fit)) = &current {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(
+                RichText::new("How it sits")
+                    .size(fluid.fs_body())
+                    .color(cl::ink::BASE),
+            );
+            ui.add_space(cl::space::S2);
+            for option in ["cover", "contain"] {
+                let on = fit == option;
+                if cl::tip(
+                    ui.selectable_label(on, crate::pictures::fit_label(option)),
+                    if option == "cover" {
+                        "Fills the whole card, cropping the edges if it has to"
+                    } else {
+                        "Shows the whole picture, with space around it"
+                    },
+                )
+                .clicked()
+                    && !on
+                {
+                    want = Some(Some((src.clone(), show.clone(), option.to_string())));
+                }
+            }
+        });
+        ui.add_space(cl::space::S3);
+    }
+
+    let tile_w = fluid.ctl_thumb_w() * 1.6;
+    let tile_h = tile_w * 9.0 / 16.0;
+    ui.horizontal_wrapped(|ui| {
+        for item in &shelf.items {
+            let picked = current
+                .as_ref()
+                .is_some_and(|(src, _, _)| *src == item.rel_path);
+            let (rect, resp) =
+                ui.allocate_exact_size(egui::vec2(tile_w, tile_h), egui::Sense::click());
+            let clip = rect.intersect(ui.clip_rect());
+            {
+                let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+                inner.set_clip_rect(clip);
+                // The same ladder the card uses — locate, paint, or an honest
+                // plate. A record whose file has gone shows as missing here
+                // exactly as it would there.
+                dpl_slides::elements::asset_thumb(&mut inner, rect, &item.rel_path);
+            }
+            let painter = ui.painter().with_clip_rect(clip);
+            painter.rect_filled(
+                egui::Rect::from_min_max(
+                    egui::pos2(rect.min.x, rect.max.y - cl::space::S5),
+                    rect.max,
+                ),
+                egui::CornerRadius::same(cl::RADIUS),
+                cl::scrim(160),
+            );
+            painter.text(
+                egui::pos2(rect.center().x, rect.max.y - cl::space::S5 * 0.5),
+                egui::Align2::CENTER_CENTER,
+                &item.name,
+                egui::FontId::proportional(cl::Fluid::of(rect).fs_body_sm()),
+                cl::ink::STRONG,
+            );
+            painter.rect_stroke(
+                rect,
+                egui::CornerRadius::same(cl::RADIUS),
+                egui::Stroke::new(
+                    if picked { 2.0 } else { 1.0 },
+                    if picked {
+                        super::SPEC.tone.color()
+                    } else {
+                        cl::surface::HAIRLINE
+                    },
+                ),
+                egui::StrokeKind::Inside,
+            );
+            resp.widget_info(|| {
+                egui::WidgetInfo::selected(egui::WidgetType::Button, true, picked, &item.name)
+            });
+            let tip = if picked {
+                format!("{} — this is what the card has now", item.name)
+            } else {
+                format!("Put “{}” on the card", item.name)
+            };
+            if cl::tip(resp, &tip).clicked() && !picked {
+                want = Some(Some((
+                    item.rel_path.clone(),
+                    item.show.clone(),
+                    current
+                        .as_ref()
+                        .map(|(_, _, f)| f.clone())
+                        .unwrap_or_else(|| "cover".to_string()),
+                )));
+            }
+            ui.add_space(cl::space::S2);
+        }
+    });
+
+    if shelf.more {
+        ui.add_space(cl::space::S2);
+        ui.label(
+            RichText::new("Showing the most recent — there are more than fit here.")
+                .size(fluid.fs_body_sm())
+                .color(cl::ink::SUBTLE),
+        );
+    }
+
+    if let Some(next) = want {
+        ed.editor.set_media(next);
+    }
+}
+
 /// The "A quote" tab — someone else's words, kept with where they came from.
 ///
 /// A quote is a CONVENTION over text blocks, ratified by the operator on
@@ -869,6 +1048,15 @@ struct CardEditor {
     tab: CardTab,
     /// Which card's folder is open, so the strip can re-read it on close.
     dir: std::path::PathBuf,
+    /// Which sort of picture the Picture tab is showing.
+    pictures: crate::pictures::Kind,
+    /// The shelf for [`Self::pictures`], read ONCE per kind.
+    ///
+    /// `pictures()` opens the artifact index — a database connection, not a
+    /// lookup. Calling it per frame hung the UI thread hard enough that a
+    /// proof run never reached its screenshot. Same law `containers.rs`
+    /// follows: read on the gesture that changes it, never in the paint.
+    shelf: Option<crate::pictures::Shelf>,
     /// The quote tab's field buffer, adopted from the document the first time
     /// the tab is opened. Held so typing does not write — and therefore does
     /// not snapshot undo — on every keystroke.
@@ -1159,6 +1347,8 @@ impl AuthorSurface {
                     tab: CardTab::default(),
                     dir: dir.to_path_buf(),
                     quote: None,
+                    pictures: crate::pictures::Kind::default(),
+                    shelf: None,
                     preview: dpl_slides::motion::Clock::default(),
                 })
             }
@@ -1283,6 +1473,7 @@ impl AuthorSurface {
                                 CardTab::Background => background_tab(ui, &mut ed.editor),
                                 CardTab::Movement => movement_tab(ui, &mut ed.editor),
                                 CardTab::Quote => quote_tab(ui, ed),
+                                CardTab::Picture => picture_tab(ui, ed),
                                 other => {
                                     ui.add_space(cl::space::S4);
                                     ui.label(
@@ -2435,6 +2626,8 @@ mod overlay_tests {
             tab: CardTab::default(),
             dir: dir.to_path_buf(),
             quote: None,
+            pictures: crate::pictures::Kind::default(),
+            shelf: None,
             preview: dpl_slides::motion::Clock::default(),
         }
     }
@@ -2616,5 +2809,130 @@ mod quote_tests {
         let read = dpl_editor::Editor::open(&dir).unwrap().quote();
         std::fs::remove_dir_all(&dir).ok();
         assert_eq!(read, ["W".to_string(), String::new(), "S".to_string()]);
+    }
+}
+
+#[cfg(test)]
+mod picture_tests {
+    use super::background_tests::card;
+
+    /// Putting a picture on writes a Media block the validator accepts, with
+    /// `show` taken from the index's own kind — never sniffed.
+    #[test]
+    fn setting_a_picture_writes_a_valid_media_block() {
+        let dir = card("pic-set", None);
+        let mut ed = dpl_editor::Editor::open(&dir).unwrap();
+        ed.set_media(Some((
+            "inbox/shot.png".into(),
+            "image".into(),
+            "cover".into(),
+        )));
+        let after = dpl_doc::load(&dir).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+
+        match &after.blocks[0] {
+            dpl_doc::Block::Media { show, src, fit, .. } => {
+                assert_eq!(show, "image");
+                assert_eq!(src, "inbox/shot.png");
+                // cover is the schema's default — a sparse document does not
+                // write it.
+                assert_eq!(*fit, None);
+            }
+            other => panic!("expected a media block, got {other:?}"),
+        }
+        assert!(dpl_doc::validate(&after).is_empty());
+    }
+
+    /// "Show all of it" is the non-default, so it IS written.
+    #[test]
+    fn contain_is_written_because_it_is_not_the_default() {
+        let dir = card("pic-fit", None);
+        let mut ed = dpl_editor::Editor::open(&dir).unwrap();
+        ed.set_media(Some((
+            "inbox/shot.png".into(),
+            "image".into(),
+            "contain".into(),
+        )));
+        let after = dpl_doc::load(&dir).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+        match &after.blocks[0] {
+            dpl_doc::Block::Media { fit, .. } => assert_eq!(fit.as_deref(), Some("contain")),
+            other => panic!("expected a media block, got {other:?}"),
+        }
+    }
+
+    /// One picture per card: choosing a second REPLACES rather than appending,
+    /// because two backdrops would fight.
+    #[test]
+    fn a_second_picture_replaces_the_first() {
+        let dir = card("pic-replace", None);
+        let mut ed = dpl_editor::Editor::open(&dir).unwrap();
+        ed.set_media(Some(("inbox/a.png".into(), "image".into(), "cover".into())));
+        ed.set_media(Some(("inbox/b.png".into(), "image".into(), "cover".into())));
+        let after = dpl_doc::load(&dir).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+
+        let media: Vec<&dpl_doc::Block> = after
+            .blocks
+            .iter()
+            .filter(|b| matches!(b, dpl_doc::Block::Media { .. }))
+            .collect();
+        assert_eq!(media.len(), 1, "only one picture may be on a card");
+        match media[0] {
+            dpl_doc::Block::Media { src, .. } => assert_eq!(src, "inbox/b.png"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// "No picture" removes the block and leaves the card's words alone.
+    #[test]
+    fn no_picture_clears_it_and_keeps_the_words() {
+        let dir = card("pic-clear", None);
+        let mut ed = dpl_editor::Editor::open(&dir).unwrap();
+        ed.set_quote(["Words".into(), String::new(), String::new()]);
+        ed.set_media(Some(("inbox/a.png".into(), "image".into(), "cover".into())));
+        ed.set_media(None);
+        let after = dpl_doc::load(&dir).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+
+        assert!(
+            !after
+                .blocks
+                .iter()
+                .any(|b| matches!(b, dpl_doc::Block::Media { .. })),
+            "the picture should be gone"
+        );
+        assert!(
+            after.blocks.iter().any(|b| b.id() == "quote"),
+            "the words should remain"
+        );
+        assert!(dpl_doc::validate(&after).is_empty());
+    }
+
+    /// An escaping ref would be rejected by the validator — proving the jail
+    /// is real, and therefore that passing index paths through is what keeps
+    /// this tab inside it.
+    #[test]
+    fn an_escaping_ref_would_not_validate() {
+        for bad in ["/etc/passwd", "C:\\x.png", "../../escape.png"] {
+            let slide = dpl_doc::Slide {
+                v: dpl_doc::SCHEMA_V,
+                template: "media".into(),
+                background: None,
+                blocks: vec![dpl_doc::Block::Media {
+                    id: "picture".into(),
+                    show: "image".into(),
+                    src: bad.into(),
+                    fit: None,
+                    poster: None,
+                }],
+                enter: None,
+                reveals: Vec::new(),
+            };
+            assert!(
+                !dpl_doc::validate(&slide).is_empty(),
+                "{bad} should be refused by the content jail"
+            );
+        }
     }
 }
