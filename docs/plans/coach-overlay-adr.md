@@ -138,11 +138,12 @@ C2b may not claim done, and no harness may auto-start the daemon, until:
 | Structure | New crate(s) follow `docs/design/architecture.md`; Linux-only deps `cfg`-gated so `green-windows` stays honest |
 | Docs | `doctor` / capability bit `coach.desktop-overlay` honest; AGENTS.md gains a one-line pointer only after ratification |
 
-## 7. Runtime profile (C2b shape — not built by this ADR)
+## 7. Runtime profile (C2b shape — painter; Operator UX is separate)
 
 ```
 dpl-coach-overlay
-  ├── stdio framed CoachCommand / CoachEvent
+  ├── stdio framed CoachCommand / CoachEvent   (Advanced / Pass-2; parked)
+  ├── --self-test                              (proven #158)
   ├── backend_x11   (atspi + x11rb; WINDOW paint; Sync-grab observe)
   ├── backend_win   (UIA + layered window; later)
   └── backend_wlr   (layer-shell; later)
@@ -152,6 +153,11 @@ dpl-coach-overlay
   `dpl-desktop-spike` stays a probe; daemon is the productized sibling).
 - In-app coach (C1*) and desktop overlay share protocol types; they do not
   share a process or a wgpu device.
+- **Operator Coach UX** (picker, inventory, fabric mint, tips) is **not**
+  this process — it is the in-app product surface described in
+  [`coach-operator-experience.md`](coach-operator-experience.md) (C2c–C2f).
+  Overlay remains the foreign/monitor **painter/observer** under these
+  launch gates. Devtools-only here does **not** mean “no Operator product.”
 - `Target::ScreenRect` / foreign `SemanticNode` emission remain **C3** —
   this ADR only bounds the painter/observer process.
 

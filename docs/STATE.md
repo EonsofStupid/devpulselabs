@@ -2,6 +2,18 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-30 — C2c MOCK LOOK-APPROVED (`docs/ops/references/coach-operator-mock-c2c.html`):**
+Operator: “looks good.” Coach hub home locked for implementation.
+Product spine: `docs/plans/coach-operator-experience.md`. Coach NEXT =
+**C2d** lightweight target inventory (Phase 0+1).
+
+**2026-07-30 — COACH PRODUCT SPINE + C2c MOCK (`docs/plans/coach-operator-experience.md`):**
+Physics (C2s/C2b #158) stays proven; Operator Coach UX path — picker,
+lightweight inventory, fabric mint from a11y streams (not screenshots),
+seeds + refuse tips; Advanced/EguiPilot is a second surface. Mock:
+`docs/ops/references/coach-operator-mock-c2c.html` (**Coach hub**).
+Pass-2 stdio / strict pinning **parked**.
+
 **2026-07-30 — THE ALIGNMENT PASS (operator: "I want my project back
 under control… getting it all aligned"):** every stray landed, one truth
 on main. (1) THE checkout is BACK ON MAIN, clean, exe fresh (23:58
@@ -46,8 +58,7 @@ with the M5b live pane rendering the real card beside them. M5 = 4 of 7.
 **2026-07-30 — C2B `dpl-coach-overlay` SELF-TEST PASS (`docs/journal/2026-07-30-c2b-coach-overlay.md`):**
 Workspace member `crates/coach-overlay`; ADR ratified; `--self-test --name 7`
 → Triggered exit 0 on calculator (`stream_hit="7"`); bogon refuses exit 2.
-Never a dep of `app`. Pass 2 stdio coach loop deferred. Coach NEXT =
-**optional Pass 2 stdio** / strict pinning (this PR lands pass-1).
+Never a dep of `app`. Landed #158. Pass 2 stdio parked (Advanced).
 
 **2026-07-30 — C2A COACH-OVERLAY ADR RATIFIED (`docs/plans/coach-overlay-adr.md`):**
 Boundary for `dpl-coach-overlay` — feature-gated / devtools-only process,
