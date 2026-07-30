@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DevPULSE &mdash; The Visual Language (V3 mock)</title>
+<style>
+  :root{
+    /* surfaces + inks -- VERBATIM crates/coldlight/src/lib.rs */
+    --well:#07090e; --base:#0a0c12; --raised:#11141d; --overlay:#181c27; --hairline:#232836;
+    --ink-strong:#eef2f9; --ink:#c2c9d6; --ink-muted:#8a93a6; --ink-subtle:#5b6478; --annotate:#f8f1dd;
+    --void-base:oklch(0.08 0.01 220);
+    --font-mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+    --font-sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box} html,body{margin:0}
+  body{background:var(--void-base);color:var(--ink);font-family:var(--font-sans);line-height:1.5;-webkit-font-smoothing:antialiased;min-height:100vh}
+  .wrap{max-width:1280px;margin:0 auto;padding:clamp(14px,2.6vw,28px)}
+  .eyebrow{font-family:var(--font-mono);font-size:11px;letter-spacing:.28em;text-transform:uppercase;color:var(--ink-muted)}
+  h1{font-weight:800;font-size:clamp(26px,4vw,38px);line-height:1.04;letter-spacing:-.02em;color:var(--ink-strong);margin:.14em 0 .08em}
+  h1 .lit{color:var(--cyan-400)}
+  h2{font-family:var(--font-mono);font-size:13px;letter-spacing:.22em;text-transform:uppercase;color:var(--ink-strong);margin:44px 0 4px}
+  .sub{font-size:13px;color:var(--ink-muted);max-width:78ch;margin:0 0 16px}
+  .lede{max-width:70ch;color:var(--ink);font-size:14px}
+  .tagline{font-family:var(--font-mono);font-size:11px;color:var(--ink-subtle);margin-top:6px}
+
+  /* tone plumbing: --t-* is "the surface Tone", exactly compose()'s ladder-relative refs */
+  .tone-cyan{--t-100:var(--cyan-100);--t-300:var(--cyan-300);--t-400:var(--cyan-400);--t-500:var(--cyan-500);--t-700:var(--cyan-700)}
+  .tone-lime{--t-100:var(--lime-100);--t-300:var(--lime-300);--t-400:var(--lime-400);--t-500:var(--lime-500);--t-700:var(--lime-700)}
+  .tone-violet{--t-100:var(--violet-100);--t-300:var(--violet-300);--t-400:var(--violet-400);--t-500:var(--violet-500);--t-700:var(--violet-700)}
+  .tone-amber{--t-100:var(--amber-100);--t-300:var(--amber-300);--t-400:var(--amber-400);--t-500:var(--amber-500);--t-700:var(--amber-700)}
+  .tone-magenta{--t-100:var(--magenta-100);--t-300:var(--magenta-300);--t-400:var(--magenta-400);--t-500:var(--magenta-500);--t-700:var(--magenta-700)}
+  .tone-coral{--t-100:var(--coral-100);--t-300:var(--coral-300);--t-400:var(--coral-400);--t-500:var(--coral-500);--t-700:var(--coral-700)}
+
+  /* NEUBRUTALIST (base, actionable) -- tokens/traits.json verbatim:
+     fill tone-400 / edge 2px tone-700 / r6 / shadow [3,3] blur 0 black@230 /
+     back-glow tone-300 (painted ring falloff, never a real blur) */
+  .brutal{position:relative;background:var(--t-400);border:2px solid var(--t-700);border-radius:6px;color:var(--well);
+    box-shadow:3px 3px 0 0 rgba(0,0,0,.9), 0 0 0 4px color-mix(in oklab,var(--t-300) 14%,transparent), 0 0 0 9px color-mix(in oklab,var(--t-300) 7%,transparent), 0 0 0 15px color-mix(in oklab,var(--t-300) 3%,transparent);
+    cursor:pointer;transition:transform .06s ease,box-shadow .06s ease}
+  .brutal:hover{transform:translate(-1px,-1px);
+    box-shadow:4px 4px 0 0 rgba(0,0,0,.92), 0 0 0 5px color-mix(in oklab,var(--t-300) 22%,transparent), 0 0 0 12px color-mix(in oklab,var(--t-300) 10%,transparent), 0 0 0 20px color-mix(in oklab,var(--t-300) 4%,transparent)}
+  .brutal:active{transform:translate(2px,2px);box-shadow:1px 1px 0 0 rgba(0,0,0,.9)}
+  /* reference: neubrutalist.png -- the comic energy: bevel-extruded slabs, halftone
+     print texture, jagged starburst glow. All painted: dots, spikes, hard bevels. */
+  .brutal-bevel{box-shadow:3px 3px 0 0 rgba(0,0,0,.9), inset 0 2px 0 rgba(255,255,255,.28), inset 0 -3px 0 rgba(0,0,0,.35)}
+  .halftone::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;opacity:.45;
+    background-image:radial-gradient(rgba(0,0,0,.55) 1px, transparent 1.4px);background-size:5px 5px}
+  .burst{isolation:isolate}
+  .burst::before{content:"";position:absolute;inset:-26px;z-index:-1;
+    background:repeating-conic-gradient(from 8deg, color-mix(in oklab,var(--t-300) 55%,transparent) 0deg 4deg, transparent 4deg 24deg);
+    -webkit-mask:radial-gradient(closest-side, #000 30%, transparent 72%);mask:radial-gradient(closest-side, #000 30%, transparent 72%)}
+
+  /* CLAYMORPHIC (base, passive) -- traits.json verbatim: RAISED fill / hairline /
+     r16 / light top-left, dark bottom-right / 135deg diffuse tint. Never a button. */
+  .clay{background:var(--raised);border:1px solid var(--hairline);border-radius:16px;color:var(--ink);
+    background-image:linear-gradient(135deg, rgba(24,28,39,.42), transparent 55%);
+    box-shadow:inset 0 1px 0 rgba(238,242,249,.08), -6px -6px 16px rgba(238,242,249,.06), 8px 10px 22px rgba(0,0,0,.66)}
+  /* clay pill + tile (reference: claymorphism-icons-examples.png) -- DEEP extrusion,
+     top rim light, NEON INK: the glow IS the ink (egui: ~5 offset glyph copies at
+     falling alpha -- painted bloom, no blur pass) */
+  .clay-pill{display:inline-flex;align-items:center;gap:8px;background:linear-gradient(180deg,var(--overlay),var(--raised) 60%);
+    border:1px solid var(--hairline);border-radius:999px;padding:10px 18px;cursor:pointer;
+    font-family:var(--font-mono);font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--cyan-300);text-shadow:0 0 1px var(--cyan-300),0 0 6px color-mix(in oklab,var(--cyan-400) 70%,transparent),0 0 14px color-mix(in oklab,var(--cyan-500) 45%,transparent);
+    box-shadow:inset 0 1px 0 rgba(238,242,249,.10), -5px -5px 12px rgba(238,242,249,.05), 7px 9px 18px rgba(0,0,0,.62);
+    transition:box-shadow .08s ease,color .08s ease}
+  .clay-pill svg{width:16px;height:16px;filter:drop-shadow(0 0 5px color-mix(in oklab,var(--cyan-400) 60%,transparent))}
+  .clay-pill:hover{color:var(--cyan-100);text-shadow:0 0 1px var(--cyan-100),0 0 8px var(--cyan-300),0 0 18px color-mix(in oklab,var(--cyan-400) 60%,transparent)}
+  .clay-pill:active{box-shadow:inset 0 2px 8px rgba(0,0,0,.6), inset 0 1px 0 rgba(0,0,0,.4)}
+  .clay-tile{display:flex;align-items:center;justify-content:center;width:46px;height:46px;border-radius:14px;cursor:pointer;
+    background:linear-gradient(180deg,var(--overlay),var(--raised) 60%);border:1px solid var(--hairline);
+    box-shadow:inset 0 1px 0 rgba(238,242,249,.10), -5px -5px 12px rgba(238,242,249,.05), 7px 9px 18px rgba(0,0,0,.62)}
+  .clay-tile svg{width:22px;height:22px;color:var(--cyan-300);filter:drop-shadow(0 0 6px color-mix(in oklab,var(--cyan-400) 65%,transparent))}
+
+  /* LIQUID GLASS (base, PROPOSED -- not yet trait data) -- translucent OVERLAY fill,
+     specular top edge, painted diagonal sheen. NO backdrop blur: egui paints alpha,
+     it does not blur what's behind (doctrine holds). */
+  .glass{position:relative;background:rgba(24,28,39,.55);border:1px solid rgba(238,242,249,.16);border-radius:12px;color:var(--ink-strong);
+    background-image:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.02) 38%, transparent 60%),
+                     linear-gradient(115deg, transparent 42%, rgba(255,255,255,.07) 50%, transparent 58%);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.22), inset 1px 0 0 rgba(255,255,255,.06), 0 10px 26px rgba(0,0,0,.5)}
+
+  /* RETRO (stack) -- traits.json verbatim overrides: 2px amber-700 edge / r3 /
+     amber-200 ink / amber-900 wash / + the scanline element (painted hlines) */
+  .retro{border:2px solid var(--amber-700);border-radius:3px;color:var(--amber-200)}
+  .retro::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+    background:repeating-linear-gradient(0deg, rgba(0,0,0,.20) 0 1px, transparent 1px 3px),
+               linear-gradient(0deg, color-mix(in oklab,var(--amber-900) 24%,transparent), transparent 70%)}
+  .retro.brutal{color:var(--amber-200)}
+
+  /* CYBER (stack) -- traits.json verbatim: 1px cyan-400 edge / cyan-100 ink /
+     180deg cyan-500 wash / double glow bloom (ring falloff, blur 0) */
+  .cyber{border:1px solid var(--cyan-400);color:var(--cyan-100)}
+  .cyber-glow{box-shadow:0 0 0 3px color-mix(in oklab,var(--cyan-400) 26%,transparent), 0 0 0 7px color-mix(in oklab,var(--cyan-400) 13%,transparent), 0 0 0 13px color-mix(in oklab,var(--cyan-600) 7%,transparent), 0 0 0 20px color-mix(in oklab,var(--cyan-600) 3%,transparent)}
+  .cyber-wash{background-image:linear-gradient(180deg, color-mix(in oklab,var(--cyan-500) 14%,transparent), transparent 55%)}
+
+  /* layout helpers */
+  .row{display:flex;gap:18px;flex-wrap:wrap;align-items:stretch}
+  .col{flex:1 1 340px;min-width:300px}
+  .panel{padding:18px}
+  .panel h3{margin:0 0 2px;font-size:15px;color:inherit}
+  .panel .k{font-family:var(--font-mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;opacity:.75}
+  .panel p{font-size:12.5px;margin:.5em 0 0;opacity:.9}
+  .chiprow{display:flex;gap:14px;flex-wrap:wrap;margin-top:14px}
+  .chip{display:inline-flex;align-items:center;gap:8px;padding:9px 13px;font-family:var(--font-mono);font-size:12px;font-weight:700;letter-spacing:.04em}
+  .chip svg{width:16px;height:16px}
+  .iconbtn{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px}
+  .iconbtn svg{width:22px;height:22px}
+  .badge{position:absolute;top:-10px;right:12px;font-family:var(--font-mono);font-size:9px;letter-spacing:.18em;text-transform:uppercase;background:var(--overlay);border:1px solid var(--hairline);color:var(--ink-muted);padding:3px 8px;border-radius:4px}
+  .badge.new{color:var(--annotate);border-color:var(--amber-700)}
+
+  /* the wash stage the glass/mix panels float over */
+  .stage{position:relative;border-radius:14px;padding:26px;overflow:hidden;border:1px solid var(--hairline)}
+  .stage .veil{position:absolute;inset:0;pointer-events:none}
+  .stage>.inner{position:relative}
+
+  /* icon grid */
+  .modes{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 16px}
+  .mode{font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;background:var(--raised);color:var(--ink-muted);border:1px solid var(--hairline);border-radius:6px;padding:8px 12px;cursor:pointer}
+  .mode:hover{color:var(--ink-strong);border-color:var(--ink-subtle)}
+  .mode.on{background:var(--cyan-400);color:var(--well);border-color:var(--cyan-700);font-weight:700;box-shadow:2px 2px 0 rgba(0,0,0,.85)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:14px}
+  .cell{display:flex;flex-direction:column;align-items:center;gap:8px}
+  .cell .seat{position:relative;display:flex;align-items:center;justify-content:center;width:64px;height:64px}
+  .cell .seat svg{width:28px;height:28px}
+  .cell .name{font-family:var(--font-mono);font-size:10px;letter-spacing:.06em;color:var(--ink-subtle)}
+  /* per-mode seat treatments */
+  .grid[data-mode="plain"] .seat{color:var(--ink)}
+  .grid[data-mode="brutal"] .seat{color:var(--t-400);filter:drop-shadow(3px 3px 0 rgba(0,0,0,.9))}
+  .grid[data-mode="brutal-chip"] .seat{background:var(--t-400);border:2px solid var(--t-700);border-radius:6px;color:var(--well);box-shadow:3px 3px 0 rgba(0,0,0,.9)}
+  .grid[data-mode="clay"] .seat{background:var(--raised);border:1px solid var(--hairline);border-radius:16px;color:var(--ink);background-image:linear-gradient(135deg,rgba(24,28,39,.42),transparent 55%);box-shadow:-4px -4px 12px rgba(238,242,249,.05),6px 6px 16px rgba(0,0,0,.59)}
+  .grid[data-mode="glass"] .seat{background:rgba(24,28,39,.55);border:1px solid rgba(238,242,249,.16);border-radius:12px;color:var(--ink-strong);background-image:linear-gradient(180deg,rgba(255,255,255,.10),rgba(255,255,255,.02) 38%,transparent 60%);box-shadow:inset 0 1px 0 rgba(255,255,255,.22),0 8px 18px rgba(0,0,0,.45)}
+  .grid[data-mode="brutal-retro"] .seat{background:var(--t-400);border:2px solid var(--amber-700);border-radius:3px;color:var(--amber-200);box-shadow:3px 3px 0 rgba(0,0,0,.9)}
+  .grid[data-mode="brutal-retro"] .seat::after{content:"";position:absolute;inset:0;border-radius:inherit;background:repeating-linear-gradient(0deg,rgba(0,0,0,.20) 0 1px,transparent 1px 3px)}
+  .grid[data-mode="clay-cyber"] .seat{background:var(--raised);border:1px solid var(--cyan-400);border-radius:16px;color:var(--cyan-100);background-image:linear-gradient(180deg,color-mix(in oklab,var(--cyan-500) 14%,transparent),transparent 55%);box-shadow:-4px -4px 12px rgba(238,242,249,.05),6px 6px 16px rgba(0,0,0,.59),0 0 0 3px color-mix(in oklab,var(--cyan-400) 18%,transparent),0 0 0 8px color-mix(in oklab,var(--cyan-400) 8%,transparent)}
+  .grid[data-mode="cyber-retro"] .seat{background:var(--overlay);border:2px solid var(--amber-700);border-radius:3px;color:var(--cyan-100);box-shadow:0 0 0 3px color-mix(in oklab,var(--cyan-400) 22%,transparent),0 0 0 8px color-mix(in oklab,var(--cyan-400) 10%,transparent)}
+  .grid[data-mode="cyber-retro"] .seat::after{content:"";position:absolute;inset:0;border-radius:inherit;background:repeating-linear-gradient(0deg,rgba(0,0,0,.22) 0 1px,transparent 1px 3px),linear-gradient(180deg,color-mix(in oklab,var(--cyan-500) 12%,transparent),transparent 60%)}
+
+  /* the rail vision */
+  .shellmock{display:flex;border-radius:14px;overflow:hidden;border:1px solid var(--hairline);min-height:380px}
+  .railcol{background:var(--well);padding:14px 12px;display:flex;flex-direction:column;gap:16px;align-items:center}
+  .railcol .iconbtn{width:46px;height:46px}
+  .contentcol{position:relative;flex:1;padding:24px;overflow:hidden}
+  .contentcol .inner{position:relative;display:flex;gap:18px;flex-wrap:wrap}
+  .contentcol .clay,.contentcol .glass{flex:1 1 260px;min-width:240px}
+
+  /* moods */
+  .moodrow{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:12px}
+  .mood{height:72px;border-radius:10px;border:1px solid var(--hairline);position:relative;overflow:hidden}
+  .mood .name{position:absolute;left:8px;bottom:6px;font-family:var(--font-mono);font-size:9.5px;letter-spacing:.08em;color:var(--ink-strong);text-shadow:0 1px 2px rgba(0,0,0,.8)}
+
+  /* ratification notes */
+  .notes{margin-top:10px;font-size:13px}
+  .notes li{margin:.45em 0}
+  .notes .law{color:var(--ink-strong)}
+  .notes .new{color:var(--annotate)}
+  code{font-family:var(--font-mono);font-size:.92em;background:var(--raised);border:1px solid var(--hairline);border-radius:4px;padding:.08em .35em}
+  footer{margin:48px 0 8px;font-family:var(--font-mono);font-size:10.5px;color:var(--ink-subtle)}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-app-window" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2" />
+  <path d="M10 4v4" />
+  <path d="M2 8h20" />
+  <path d="M6 4v4" /></symbol>
+    <symbol id="i-bot" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8" />
+  <rect width="16" height="12" x="4" y="8" rx="2" />
+  <path d="M2 14h2" />
+  <path d="M20 14h2" />
+  <path d="M15 13v2" />
+  <path d="M9 13v2" /></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z" />
+  <circle cx="12" cy="13" r="3" /></symbol>
+    <symbol id="i-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6" /></symbol>
+    <symbol id="i-chevron-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6" /></symbol>
+    <symbol id="i-circle-dot" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" />
+  <circle cx="12" cy="12" r="1" /></symbol>
+    <symbol id="i-clapperboard" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.296 3.464 3.02 3.956" />
+  <path d="M20.2 6 3 11l-.9-2.4c-.3-1.1.3-2.2 1.3-2.5l13.5-4c1.1-.3 2.2.3 2.5 1.3z" />
+  <path d="M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+  <path d="m6.18 5.276 3.1 3.899" /></symbol>
+    <symbol id="i-footprints" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16v-2.38C4 11.5 2.97 10.5 3 8c.03-2.72 1.49-6 4.5-6C9.37 2 10 3.8 10 5.5c0 3.11-2 5.66-2 8.68V16a2 2 0 1 1-4 0Z" />
+  <path d="M20 20v-2.38c0-2.12 1.03-3.12 1-5.62-.03-2.72-1.49-6-4.5-6C14.63 6 14 7.8 14 9.5c0 3.11 2 5.66 2 8.68V20a2 2 0 1 0 4 0Z" />
+  <path d="M16 17h4" />
+  <path d="M4 13h4" /></symbol>
+    <symbol id="i-hammer" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 12-9.373 9.373a1 1 0 0 1-3.001-3L12 9" />
+  <path d="m18 15 4-4" />
+  <path d="m21.5 11.5-1.914-1.914A2 2 0 0 1 19 8.172v-.344a2 2 0 0 0-.586-1.414l-1.657-1.657A6 6 0 0 0 12.516 3H9l1.243 1.243A6 6 0 0 1 12 8.485V10l2 2h1.172a2 2 0 0 1 1.414.586L18.5 14.5" /></symbol>
+    <symbol id="i-house" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" />
+  <path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></symbol>
+    <symbol id="i-lasso" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.704 14.467a10 8 0 1 1 3.115 2.375" />
+  <path d="M7 22a5 5 0 0 1-2-3.994" />
+  <circle cx="5" cy="16" r="2" /></symbol>
+    <symbol id="i-layout-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1" />
+  <rect width="7" height="7" x="14" y="3" rx="1" />
+  <rect width="7" height="7" x="14" y="14" rx="1" />
+  <rect width="7" height="7" x="3" y="14" rx="1" /></symbol>
+    <symbol id="i-maximize-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6" />
+  <path d="m21 3-7 7" />
+  <path d="m3 21 7-7" />
+  <path d="M9 21H3v-6" /></symbol>
+    <symbol id="i-minimize-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m14 10 7-7" />
+  <path d="M20 10h-6V4" />
+  <path d="m3 21 7-7" />
+  <path d="M4 14h6v6" /></symbol>
+    <symbol id="i-monitor-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.033 9.44a.647.647 0 0 1 0 1.12l-4.065 2.352a.645.645 0 0 1-.968-.56V7.648a.645.645 0 0 1 .967-.56z" />
+  <path d="M12 17v4" />
+  <path d="M8 21h8" />
+  <rect x="2" y="3" width="20" height="14" rx="2" /></symbol>
+    <symbol id="i-monitor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2" />
+  <line x1="8" x2="16" y1="21" y2="21" />
+  <line x1="12" x2="12" y1="17" y2="21" /></symbol>
+    <symbol id="i-scan" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2" />
+  <path d="M17 3h2a2 2 0 0 1 2 2v2" />
+  <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
+  <path d="M7 21H5a2 2 0 0 1-2-2v-2" /></symbol>
+    <symbol id="i-square" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" /></symbol>
+    <symbol id="i-video" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5" />
+  <rect x="2" y="6" width="14" height="12" rx="2" /></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18" />
+  <path d="m6 6 12 12" /></symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <div class="eyebrow">DevPULSE Labs &middot; visual-experience POAM &middot; V3 vision mock &middot; for ratification</div>
+  <h1>The <span class="lit">visual language</span> &mdash; icons, bases, mixes</h1>
+  <p class="lede">Every color on this page is computed by the REAL ColdLight engine (the same lightness &times; chroma
+  curves, floor, and authored overrides as <code>build.rs</code>). Icons are the pinned Lucide set
+  (<code>lucide@1.27.0</code>) &mdash; the same geometry the generated registry will carry. The clay depth, neon
+  ink, comic-brutal texture, and console notes are translated from YOUR reference set
+  (<code>docs/design/references/</code>). Nothing here uses backdrop blur: what you see is what egui can paint.</p>
+  <div class="tagline">bases: NEUBRUTALIST (actionable) &middot; CLAYMORPHIC (passive) &middot; LIQUID GLASS (proposed) &mdash; stacks: CYBER &middot; RETRO</div>
+
+  <h2>1 &middot; The three bases</h2>
+  <p class="sub">Neubrutalist and claymorphic are ratified trait data today. Liquid glass is the NEW base this mock
+  proposes: translucent overlay fill, specular top edge, painted diagonal sheen &mdash; floats over mood washes.</p>
+  <div class="row">
+    <div class="col panel brutal tone-cyan">
+      <span class="badge">trait data &middot; law</span>
+      <h3>Neubrutalist</h3><span class="k">base &middot; actionable</span>
+      <p>Flat saturated surface, crisp hard edge, hard offset shadow, lit-from-behind ring glow. Hover lifts, press sinks onto the shadow. Loud, honest, tappable &mdash; and cheap.</p>
+      <div class="chiprow">
+        <span class="chip brutal tone-amber"><svg><use href="#i-hammer"/></svg>WORKBENCH</span>
+        <span class="chip brutal tone-magenta"><svg><use href="#i-clapperboard"/></svg>WIREDFRONT</span>
+        <span class="chip brutal tone-lime"><svg><use href="#i-circle-dot"/></svg>REC</span>
+      </div>
+      <div class="chiprow">
+        <span class="chip brutal brutal-bevel halftone burst tone-magenta"><svg><use href="#i-monitor-play"/></svg>START SYSTEM</span>
+      </div>
+      <p style="font-size:11px;opacity:.75">From your reference: the comic primary &mdash; bevel slab + halftone print + starburst glow, all painted.</p>
+    </div>
+    <div class="col panel clay">
+      <span class="badge">trait data &middot; law</span>
+      <h3 style="color:var(--ink-strong)">Claymorphic</h3><span class="k">base &middot; passive</span>
+      <p>Soft extruded plane &mdash; light top-left, shadow bottom-right, generous radius, diffuse 135&deg; tint. Content sits IN it; chrome sits ON it. It is never a button.</p>
+      <div class="chiprow">
+        <span class="chip clay"><svg style="color:var(--cyan-400)"><use href="#i-house"/></svg><span style="color:var(--ink)">a quiet home card</span></span>
+        <span class="chip clay"><svg style="color:var(--violet-400)"><use href="#i-layout-grid"/></svg><span style="color:var(--ink)">library shelf</span></span>
+      </div>
+      <div class="chiprow">
+        <button class="clay-pill"><svg><use href="#i-house"/></svg>Dashboard</button>
+        <button class="clay-pill"><svg><use href="#i-monitor"/></svg>Analytics</button>
+      </div>
+      <p style="font-size:11px;opacity:.75">From your reference: DEEP clay + neon ink turns the pill actionable &mdash; the doctrine question in &sect;6.</p>
+    </div>
+    <div class="col panel glass">
+      <span class="badge new">PROPOSED &middot; new trait</span>
+      <h3>Liquid glass</h3><span class="k">base &middot; floating</span>
+      <p>Translucent pane with a specular top edge and a painted sheen band. Reads as glass WITHOUT blurring what's behind &mdash; alpha + gradients only, so it costs nothing and obeys the no-blur doctrine.</p>
+      <div class="chiprow">
+        <span class="chip glass"><svg style="color:var(--cyan-ice-300)"><use href="#i-monitor-play"/></svg>overlay chrome</span>
+        <span class="chip glass"><svg style="color:var(--ink-strong)"><use href="#i-scan"/></svg>capture HUD</span>
+      </div>
+    </div>
+  </div>
+
+  <h2>2 &middot; The mixes</h2>
+  <p class="sub">Stacks ride on bases &mdash; override axes last-wins (edge, radius, ink), additive axes concatenate
+  (glows, washes, scanlines). These three are the operator-named mixtures, shown over a live mood wash.</p>
+  <div class="stage" id="mix-stage">
+    <div class="veil"></div>
+    <div class="inner row">
+      <div class="col panel brutal retro tone-cyan">
+        <span class="badge">brutal + retro</span>
+        <h3>Neubrutalist / Retro</h3><span class="k">CRT amber over a hard tone slab</span>
+        <p>The tone-400 slab and hard shadow stay; retro overrides the edge (chunky amber, r3), re-inks in amber-200, and lays scanlines + a bottom ember wash on top.</p>
+        <div class="chiprow">
+          <span class="chip brutal retro tone-cyan"><svg><use href="#i-video"/></svg>REPLAY</span>
+          <span class="chip brutal retro tone-violet"><svg><use href="#i-monitor"/></svg>CRT FULL</span>
+        </div>
+      </div>
+      <div class="col panel clay cyber cyber-glow cyber-wash">
+        <span class="badge">clay + cyber</span>
+        <h3>Claymorphic / Cyber</h3><span class="k">neon bloom on a soft plane</span>
+        <p>The clay extrusion keeps its softness; cyber re-edges it in thin cyan, re-inks cold, adds the top wash and a double ring bloom &mdash; painted falloff, zero blur.</p>
+        <div class="chiprow">
+          <span class="chip clay cyber"><svg><use href="#i-bot"/></svg>assist online</span>
+          <span class="chip clay cyber"><svg><use href="#i-footprints"/></svg>steps armed</span>
+        </div>
+      </div>
+      <div class="col panel glass cyber retro cyber-glow" style="border-radius:3px">
+        <span class="badge new">cyber + retro (on glass)</span>
+        <h3>Cyber / Retro</h3><span class="k">both stacks, one surface</span>
+        <p>Both stacks composed: retro's chunky edge + scanlines, cyber's ring bloom + cold ink. Shown on the proposed glass base so the mood bleeds through the mixture.</p>
+        <div class="chiprow">
+          <span class="chip glass cyber"><svg><use href="#i-camera"/></svg>SNIP</span>
+          <span class="chip glass retro" style="position:relative;overflow:hidden"><svg><use href="#i-square"/></svg>STOP</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>3 &middot; The icon language &mdash; 24 meanings, every treatment</h2>
+  <p class="sub">The Lucide geometry, tinted per hub tone, switched through the treatments. This is the registry
+  the rail (V3b) and chrome will consume &mdash; click the modes.</p>
+  <div class="modes" id="modes">
+    <button class="mode on" data-mode="plain">plain ink</button>
+    <button class="mode" data-mode="brutal">brutal glyph</button>
+    <button class="mode" data-mode="brutal-chip">brutal chip</button>
+    <button class="mode" data-mode="clay">clay chip</button>
+    <button class="mode" data-mode="glass">glass chip</button>
+    <button class="mode" data-mode="brutal-retro">brutal+retro</button>
+    <button class="mode" data-mode="clay-cyber">clay+cyber</button>
+    <button class="mode" data-mode="cyber-retro">cyber+retro</button>
+  </div>
+  <div class="grid" data-mode="plain" id="icon-grid"></div>
+
+  <h2>4 &middot; The rail, wearing it (V3b + V4 preview)</h2>
+  <p class="sub">Icon-only rail as ACTUAL clear buttons over the WELL &mdash; pick a lane: <b>A</b> neubrutalist per-hub
+  tone, or <b>B</b> the deep-clay neon tiles from your reference. Content floats on a static mood wash &mdash; a clay
+  card and a glass pane side by side. First frame is the finished look.</p>
+  <div class="shellmock">
+    <div class="railcol">
+      <span style="font-family:var(--font-mono);font-size:9px;letter-spacing:.14em;color:var(--ink-subtle)">A</span>
+      <span class="iconbtn brutal tone-cyan" title="Home"><svg><use href="#i-house"/></svg></span>
+      <span class="iconbtn brutal tone-amber" title="Workbench"><svg><use href="#i-hammer"/></svg></span>
+      <span class="iconbtn brutal tone-violet" title="Shows"><svg><use href="#i-layout-grid"/></svg></span>
+      <span class="iconbtn brutal tone-magenta" title="WiredFRONT"><svg><use href="#i-clapperboard"/></svg></span>
+      <span class="iconbtn brutal tone-coral" title="Present"><svg><use href="#i-monitor-play"/></svg></span>
+    </div>
+    <div class="railcol" style="background:var(--base)">
+      <span style="font-family:var(--font-mono);font-size:9px;letter-spacing:.14em;color:var(--ink-subtle)">B</span>
+      <span class="clay-tile" title="Home"><svg><use href="#i-house"/></svg></span>
+      <span class="clay-tile" title="Workbench"><svg><use href="#i-hammer"/></svg></span>
+      <span class="clay-tile" title="Shows"><svg><use href="#i-layout-grid"/></svg></span>
+      <span class="clay-tile" title="WiredFRONT"><svg><use href="#i-clapperboard"/></svg></span>
+      <span class="clay-tile" title="Present"><svg><use href="#i-monitor-play"/></svg></span>
+    </div>
+    <div class="contentcol" id="rail-stage">
+      <div class="veil"></div>
+      <div class="inner">
+        <div class="clay panel">
+          <h3 style="color:var(--ink-strong)">Continue where you left off</h3><span class="k">clay &middot; passive content</span>
+          <p>The mood wash behind this pane is STATIC &mdash; one painted gradient, zero idle repaints (V1). The card background is a generated mood ingredient (V2).</p>
+          <div class="chiprow"><span class="chip brutal tone-cyan"><svg><use href="#i-monitor-play"/></svg>RESUME</span></div>
+        </div>
+        <div class="glass panel">
+          <h3>Capture HUD</h3><span class="k">liquid glass &middot; floating chrome</span>
+          <p>Glass carries transient chrome &mdash; HUDs, palettes, overlays &mdash; letting the mood breathe through without costing a single blur pass.</p>
+          <div class="chiprow">
+            <span class="chip glass"><svg style="color:var(--coral-400)"><use href="#i-circle-dot"/></svg>REC</span>
+            <span class="chip glass"><svg style="color:var(--ink-strong)"><use href="#i-scan"/></svg>REGION</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>5 &middot; The ten moods &mdash; static washes (V1/V2 raw material)</h2>
+  <p class="sub">The authored mood registry, rendered as the static washes every non-Home route gets. Cards derive
+  their backgrounds from these &mdash; animation stays a Home privilege.</p>
+  <div class="moodrow" id="moods"></div>
+
+  <h2>6 &middot; What ratifying this mock means</h2>
+  <ul class="notes">
+    <li><span class="law">Already law:</span> neubrutalist, claymorphic, cyber, retro are trait DATA (<code>tokens/traits.json</code>) &mdash; the mixes above are <code>compose()</code> doing what it already does. No new machinery.</li>
+    <li><span class="new">NEW &mdash; liquid glass:</span> one added base trait (translucent fill + specular edge + sheen tint). Needs a small vocabulary addition: a specular-edge axis or a sheen element. Authored as data, regenerated &mdash; never hand-rolled.</li>
+    <li><span class="new">NEW &mdash; the icon language:</span> Lucide sources &rarr; generated stroke registry (<code>ADR-015</code>, plan <code>icon-language-v3a.md</code>). Styled at PAINT time (brutal offset-dup, clay/glass chips) &mdash; assets stay pure geometry, so your own SVGs later inherit every treatment for free.</li>
+    <li><span class="law">Doctrine holds:</span> zero real blur anywhere on this page &mdash; glows are ring falloffs, glass is alpha + gradients, scanlines are painted lines. Everything here is first-frame cheap in egui.</li>
+    <li><span class="law">Translated from your references</span> (<code>docs/design/references/</code>): clay goes DEEPER &mdash; rim light, heavier extrusion, NEON INK (painted multi-copy bloom, never a blur pass) &mdash; the pills and rail option B; neubrutalist gains the comic energy &mdash; bevel slabs, halftone print texture, starburst glow (all painted); the metal machine-console look (<code>claymorphism-cyber.png</code>) is a candidate flavor for the Present / show-machine surface, its own later pass; the two editor shots map to flat wells + liquid-glass/cyber chrome + glow spotlights (WiredFRONT, Guide Workbench).</li>
+    <li><span class="law">RULED (operator, 2026-07-30): clay IS a button.</span> The "clay is never a button" line was the port's inference, never operator law &mdash; retired in <code>doctrine.md</code>. Both bases are actionable: brutal presses ONTO its shadow, clay sinks INTO its extrusion, neon ink carries clay's tappability. Clay hover/active state data lands in <code>traits.json</code> with the trait pass.</li>
+    <li><span class="law">Sequence after ratification:</span> V3a (registry + variants, no UI) &rarr; V3b+V4 (the rail wears icons as clear buttons) &rarr; liquid-glass trait pass &rarr; V5 Home showcase composes all of it.</li>
+  </ul>
+
+  <footer>DevPULSE Labs &middot; docs/design/mocks/visual-language-v3-mock.html &middot; lucide@1.27.0 (ISC) &middot; colors: live OKLCH from the ColdLight curves &middot; 2026-07-29</footer>
+</div>
+
+<script>
+/* The ColdLight palette engine, ported verbatim from crates/coldlight/build.rs */
+const STEPS=[25,50,100,200,300,400,500,600,700,800,900,950,975];
+const FLOOR=0.10;
+const L={
+  brand:[.99,.98,.95,.90,.84,.79,.72,.62,.52,.42,.32,.22,.14],
+  neutral:[.99,.98,.94,.86,.72,.58,.44,.32,.24,.20,.16,.13,.11],
+  muted:[.97,.94,.88,.80,.72,.62,.52,.44,.36,.28,.22,.16,.12],
+  "high-contrast":[.995,.99,.96,.90,.82,.72,.60,.48,.36,.26,.18,.14,.10],
+  "low-key":[.85,.78,.70,.62,.54,.46,.38,.32,.26,.22,.18,.14,.11],
+  luminous:[.99,.97,.94,.90,.86,.82,.78,.72,.60,.46,.34,.24,.15]};
+L.perceptual=L.brand;
+const M={
+  "linear-to-500":[.08,.15,.30,.55,.80,.95,1,1,.90,.75,.55,.35,.22],
+  flat:[1,1,1,1,1,1,1,1,1,1,1,1,1],
+  soft:[.25,.40,.55,.70,.85,.95,1,.95,.85,.70,.55,.40,.28],
+  "peak-at-400":[.12,.22,.40,.68,.90,1,.95,.82,.68,.55,.42,.28,.18],
+  "peak-at-600":[.08,.15,.28,.48,.68,.85,.95,1,.98,.85,.65,.42,.26],
+  bloom:[.45,.60,.75,.88,.96,1,.98,.88,.72,.55,.38,.24,.14]};
+/* hues.json, all groups -- [hue, chroma, curve, chromaCurve] */
+const HUES={
+  viridian:[155,.16,"brand","linear-to-500"],teal:[190,.145,"brand","linear-to-500"],cyan:[210,.15,"brand","linear-to-500"],
+  "cyan-ice":[220,.14,"luminous","bloom"],cerulean:[230,.17,"brand","linear-to-500"],electric:[275,.22,"luminous","bloom"],
+  magenta:[340,.22,"brand","linear-to-500"],"magenta-orchid":[320,.2,"brand","peak-at-400"],vermilion:[30,.2,"brand","peak-at-400"],
+  "amber-ember":[45,.18,"high-contrast","peak-at-600"],saffron:[65,.17,"brand","linear-to-500"],amber:[75,.17,"brand","linear-to-500"],
+  crimson:[20,.22,"high-contrast","linear-to-500"],oxblood:[20,.15,"low-key","peak-at-600"],coral:[25,.2,"brand","linear-to-500"],
+  rose:[10,.17,"brand","linear-to-500"],terracotta:[40,.13,"brand","soft"],orange:[50,.18,"brand","linear-to-500"],
+  gold:[85,.14,"brand","soft"],chartreuse:[115,.2,"luminous","peak-at-400"],lime:[128,.2,"brand","linear-to-500"],
+  botanical:[140,.13,"brand","soft"],emerald:[150,.16,"high-contrast","peak-at-600"],sage:[150,.06,"muted","soft"],
+  jade:[165,.12,"brand","soft"],mint:[165,.11,"luminous","bloom"],"teal-accent":[190,.13,"brand","linear-to-500"],
+  sky:[230,.13,"luminous","bloom"],azure:[250,.18,"brand","linear-to-500"],indigo:[265,.2,"high-contrast","peak-at-600"],
+  violet:[290,.2,"brand","linear-to-500"],purple:[295,.22,"brand","linear-to-500"],lavender:[295,.1,"luminous","soft"],
+  plum:[325,.14,"muted","soft"],aubergine:[320,.1,"low-key","peak-at-600"],fuchsia:[345,.24,"luminous","peak-at-400"],
+  pink:[355,.12,"brand","soft"],
+  graphite:[60,.012,"neutral","flat"],ink:[260,.014,"neutral","flat"],midnight:[260,.04,"low-key","flat"],
+  mocha:[40,.02,"neutral","flat"],porcelain:[90,.008,"neutral","flat"],slate:[245,.018,"neutral","flat"],
+  neutral:[0,0,"neutral","flat"],void:[220,.01,"neutral","flat"]};
+/* authored dark-end overrides -- hues.json verbatim */
+const OV={
+  graphite:{950:[.14,.01,60],975:[.11,.008,60]},ink:{950:[.14,.012,260]},
+  mocha:{950:[.14,.016,40],975:[.11,.014,40]},slate:{950:[.13,.014,245],975:[.11,.012,245]},
+  void:{900:[.19,.01,220],950:[.12,.01,220],975:[.1,.01,220]}};
+const root=document.documentElement;
+for(const [id,[h,c,curve,cm]] of Object.entries(HUES)){
+  STEPS.forEach((s,i)=>{
+    let l=Math.max(L[curve][i],FLOOR),cc=c*M[cm][i],hh=h;
+    const o=OV[id]&&OV[id][s]; if(o){[l,cc,hh]=o;}
+    root.style.setProperty(`--${id}-${s}`,`oklch(${l} ${cc} ${hh})`);
+  });
+}
+root.style.setProperty("--white-100","oklch(1 0 0)");
+
+/* moods.json -- stops resolved through the engine; scrim = first stop's veil */
+const MOODS=[
+  ["ember-drift",[["oxblood",900],["vermilion",700],["amber-ember",500],["gold",400]],168],
+  ["deep-lagoon",[["midnight",950],["cerulean",800],["teal",600],["mint",400]],176],
+  ["orchid-haze",[["aubergine",900],["purple",700],["magenta-orchid",500],["rose",400]],172],
+  ["botanical-night",[["ink",950],["botanical",800],["emerald",600],["chartreuse",400]],176],
+  ["solar-flare",[["oxblood",950],["crimson",700],["orange",500],["saffron",300]],160],
+  ["glacier-signal",[["midnight",900],["azure",700],["cyan-ice",400],["white",100]],184],
+  ["violet-static",[["void",950],["indigo",800],["violet",600],["lavender",300]],176],
+  ["terracotta-dusk",[["mocha",900],["terracotta",600],["coral",400],["saffron",200]],164],
+  ["jade-current",[["graphite",950],["viridian",700],["jade",500],["sky",300]],172],
+  ["fuchsia-arc",[["aubergine",950],["plum",700],["fuchsia",500],["pink",300],["gold",200]],176]];
+const wash=stops=>`linear-gradient(135deg, ${stops.map(([h,s],i)=>`var(--${h}-${s}) ${Math.round(i*100/(stops.length-1))}%`).join(", ")})`;
+const moodrow=document.getElementById("moods");
+for(const [name,stops] of MOODS){
+  const d=document.createElement("div");d.className="mood";d.style.background=wash(stops);
+  d.innerHTML=`<span class="name">${name}</span>`;moodrow.appendChild(d);
+}
+/* stage washes: mixes over orchid-haze, rail content over deep-lagoon, each with its scrim veil */
+function stage(id,mood){const [,stops,scrim]=MOODS.find(m=>m[0]===mood);const el=document.getElementById(id);
+  el.style.background=wash(stops);
+  el.querySelector(".veil").style.background=`color-mix(in oklab, var(--${stops[0][0]}-${stops[0][1]}) ${Math.round(scrim/255*100)}%, transparent)`;}
+stage("mix-stage","orchid-haze");stage("rail-stage","deep-lagoon");
+
+/* the 24 meanings -> the 20 Lucide files (tokens/icons.json mapping) */
+const MEANINGS=[
+  ["home","house","cyan"],["workbench","hammer","amber"],["library","layout-grid","violet"],["shows","layout-grid","violet"],
+  ["wiredfront","clapperboard","magenta"],["bot","bot","lime"],["present","monitor-play","coral"],["session","monitor-play","cyan"],
+  ["snip","camera","cyan"],["img","camera","amber"],["dock","chevron-up","cyan"],["fullbleed","maximize-2","cyan"],
+  ["fullbleed-exit","minimize-2","cyan"],["close","x","coral"],["back","chevron-left","cyan"],["video","video","magenta"],
+  ["steps","footprints","lime"],["mark","footprints","lime"],["rec","circle-dot","coral"],["stop","square","coral"],
+  ["region","scan","cyan"],["window","app-window","violet"],["full","monitor","violet"],["free","lasso","amber"]];
+const grid=document.getElementById("icon-grid");
+for(const [name,file,tone] of MEANINGS){
+  const c=document.createElement("div");c.className=`cell tone-${tone}`;
+  c.innerHTML=`<span class="seat"><svg><use href="#i-${file}"/></svg></span><span class="name">${name}</span>`;
+  grid.appendChild(c);
+}
+document.getElementById("modes").addEventListener("click",e=>{
+  const b=e.target.closest(".mode");if(!b)return;
+  document.querySelectorAll(".mode").forEach(m=>m.classList.toggle("on",m===b));
+  grid.dataset.mode=b.dataset.mode;
+});
+</script>
+</body>
+</html>

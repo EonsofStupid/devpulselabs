@@ -114,3 +114,29 @@ with zero dependencies.
   Lucide subset is the baseline engine, not a general SVG renderer. When
   the operator points at the collection, a follow-up ADR decides full-SVG
   handling (extend `dpl-svg` vs an ADR-009 helper) against real files.
+
+## Amendment — 2026-07-30 (the alignment pass)
+
+- **Parallel proposal absorbed.** A concurrent session authored the same
+  decision as "ADR-015 — the icon language", proposing `roxmltree` +
+  `svgtypes` + `kurbo` build-deps and runtime-stroked polylines at
+  `assets/icons/lucide/`. The landed zero-dep engine supersedes that
+  path; the proposal is filed verbatim as
+  `adr-016-icon-language.md` for its still-live parts (the styled paint
+  vocabulary, the operator-SVG-same-pipe future).
+- **Operator redirect recorded** (2026-07-29, verbatim): *"Lucide for
+  now that we will style in neubrutalist and claymorphism variants"* —
+  the personal SVG library is a later intake through the same generator,
+  not the gate. Consistent with what landed.
+- **The mock gate** (operator, 2026-07-29, verbatim): *"We should have
+  mocks built first for a clear vision to work from."* The vision mock
+  is `docs/design/mocks/visual-language-v3-mock.html`, with the
+  operator's reference set in `docs/design/references/`. STYLING passes
+  — icon treatment variants, and M2's visible re-skin of the rail and
+  chrome — hold until the operator ratifies or redlines the mock. The
+  landed M1 is the infrastructure the mock draws from, not a styling
+  pass.
+- **The clay ruling** (operator, 2026-07-30, doctrine.md): *"clay IS a
+  button"* — actionable clay (deep extrusion, top rim light, NEON-INK
+  painted bloom) joins the icon treatment vocabulary once its
+  hover/active trait data lands in `tokens/traits.json`.

@@ -21,3 +21,4 @@
 {"ts":"2026-07-30T03:10:00Z","signal":"journal.wrote","lane":"coach-ledger","detail":{"path":"docs/journal/2026-07-30-c2b-coach-overlay.md","closed":"C2b-self-test","verdict":"PASS","next":"land-pr-or-pass2-stdio"}}
 {"ts":"2026-07-30T03:12:00Z","signal":"journal.wrote","lane":"coach-ledger","detail":{"path":"docs/journal/2026-07-30-c2b-coach-overlay.md","closed":"C2b-self-test","verdict":"PASS","next":"land-c2b-pr","session_dirty":false,"resume":"docs/ops/resume/CURRENT.md"}}
 {"ts":"2026-07-30T03:20:00Z","signal":"pr.opened","lane":"coach-ledger","detail":{"pr":158,"branch":"feat/c2b-coach-overlay","path":"https://github.com/EonsofStupid/devpulselabs/pull/158","next":"double-green-merge"}}
+{"ts":"2026-07-30","event":"law.amended","seat":"claude","note":"operator ruling: clay IS a button (both bases actionable); doctrine.md CLAYMORPHIC bullet amended, mock section 6 records the ruling; clay hover/active trait data deferred to trait pass"}

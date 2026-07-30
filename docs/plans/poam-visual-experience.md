@@ -68,29 +68,52 @@ Home card both wearing mood backgrounds in proof shots; zero animation cost
 demonstrated (no repaint requests from the card).
 **Depends on:** V1's static wash paint path (shared code).
 
-### V3 — The operator's SVG library becomes the icon language
+### V3 — The icon language (REDIRECTED to Lucide; the engine is LANDED)
 
-**Scope:** ingest the operator's years of SVGs into an icon library that
-the rail's icon-only mode (and beyond) draws from.
-**Deliverables, in order:**
-1. **Intake + curation:** operator drops source SVGs into a sources
-   location; sources are NEVER mutated (house law) — derived assets file
-   NEW. Two-libraries law respected: raw SVGs are source media; what the
-   app consumes is a GENERATED in-app ingredient derived from them.
-2. **ADR — the SVG→egui path:** decide rasterize-at-build/import (textures)
-   vs tessellate-to-mesh (feeding `crates/vector`); any new crate or
-   subprocess helper goes through the architecture checklist (ADR-009
-   pattern if a helper binary is warranted). This ADR gates the rest.
-3. **The icon registry:** icons become a generated, named registry (like
-   status cells: adding one = adding one entry), so `HubSpec.icon` and
-   other consumers can reference operator icons by id with the Phosphor
-   glyphs as fallback.
-4. **The rail wears them:** icon-only mode renders operator icons.
-**Evidence gate:** ADR merged; registry test (unknown icon id fails the
-build or degrades honestly); rail proof shots in icon-only mode with
-operator icons at 1100x700.
-**Depends on:** operator supplying/pointing at the SVG set (open input);
-V4 pairs naturally (same surface).
+**Redirect (operator, 2026-07-29, verbatim): "Lucide for now that we
+will style in neubrutalist and claymorphism variants."** The personal
+SVG library becomes a LATER intake through the SAME pipeline — deferred,
+not dropped. **Directive (operator, 2026-07-29, verbatim): "lets take
+the time to pull lucide and then properly own it as part of coldlight,
+we will have the SVG engine that is based off the airbnb engine airvx
+and establish baselines for our diverse and default polished stylings."**
+
+**M1 — LANDED (#163, double-green; ADR-015
+`docs/design/adr-015-svg-icon-engine.md`; plan
+`docs/plans/lucide-icon-engine.md`):** Lucide 1.27.0 vendored wholesale
+(1,756 SVGs + LICENSE + VERSION); the zero-dep `dpl-svg` engine (the
+icon subset of SVG → stroked meshes, corpus-tested against the whole
+pool every run); `tokens/icons.json` as the 8th authored source (24
+semantic ids, geometry baked at build); paint baselines ink / tone /
+brutal; `LibSection::Icons`, the library's 10th wall
+(`--lib-section icons`, proof `docs/proof/lucide-icons-gallery.png`).
+
+**MOCK GATE (operator, 2026-07-29, verbatim): "We should have mocks
+built first for a clear vision to work from."** The vision mock is
+`docs/design/mocks/visual-language-v3-mock.html` — live ColdLight
+ladders (the JS port of the build.rs curves), the pinned lucide@1.27.0
+geometry, the ratified bases + stacks, the operator-named mixes
+(neubrutalist/retro, claymorphism/cyber, cyber/retro), the PROPOSED
+liquid-glass base, the icon grid in every treatment, and the V3b/V4
+rail preview. The operator's reference set is `docs/design/references/`:
+`claymorphism-icons-examples.png` (deep rim-lit clay, NEON-INK pills —
+the nav-is-clay-buttons question, RESOLVED by the 2026-07-30 doctrine
+ruling "clay IS a button"), `neubrutalist.png` (comic energy: bevel
+slabs, halftone, starburst — all paintable), `claymorphism-cyber.png`
+(metal machine-console — candidate Present-hub flavor, own pass),
+`editor.png`/`editor-2.png` (flat wells + neon + glow-spotlight chrome
+for WiredFRONT / Guide Workbench). **NO STYLING pass in this program
+executes until the operator ratifies (or redlines) the mock.** That
+gate holds M2 (the 40-call-site migration that makes rail/chrome
+visibly wear Lucide), every treatment-variant pass, and V4/V5. Liquid
+glass, once ratified, is its own trait-data pass.
+
+**Remaining, in order (all behind the mock gate):** M2 migration
+(`docs/plans/lucide-icon-engine.md` §4 M2); styled icon variants as
+trait DATA; V3b — the rail wears them (pairs with V4); the
+operator-SVG intake through the same generator (its own later pass;
+sources never mutated, two-libraries law).
+**Depends on:** the operator ratifying the vision mock.
 
 ### V4 — Actual clear buttons for the links
 
@@ -128,9 +151,9 @@ maximized AND 1100x700 shots; the operator's feel bar.
 |---|-----------|--------|------------|
 | V1 | Backdrop policy — animation only on Home | not started | — |
 | V2 | Mood card backgrounds (generated ingredient) | not started | V1 paint path |
-| V3 | SVG icon library + registry + rail | not started | operator SVG intake; ADR |
-| V4 | Rail links become clear buttons | not started | — (pairs with V3) |
-| V5 | Home showcase — clay + brutal, fast | not started | V1–V4 |
+| V3 | Icon language — Lucide, owned (redirected) | **M1 LANDED (#163)**; M2 + variants held | **the MOCK GATE** |
+| V4 | Rail links become clear buttons | not started | the MOCK GATE (pairs with V3b) |
+| V5 | Home showcase — clay + brutal, fast | not started | V1–V4; the MOCK GATE |
 
 Every milestone is its own pass (or passes): plan-before-code
 (`docs/plans/<pass>.md`, 7 sections + §8), the ColdLight gate before UI is
