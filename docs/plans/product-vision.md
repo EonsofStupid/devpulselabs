@@ -84,11 +84,31 @@ Magenta tone), `crates/engine-media` (ffmpeg subprocess per ADR-009),
 The AE-independence rungs L1–L4 are landed: concat, Lottie, alpha overlay
 compositing, and blend/matte/LUT grading against the real 30-pack estate.
 
-**The import seam is the pillar's unfinished edge.** "Import into my slides
-via the workbench editor" is the sentence the whole product turns on, and
-today it is the least specified link in the chain. `dpl_doc::place_slide`
-and the container filmstrip exist; a finished WiredFRONT render becoming a
-Workbench slide is not yet one continuous, provable path.
+**The import seam is the pillar's unfinished edge — and it is one gesture
+wide.** "Import into my slides via the workbench editor" is the sentence the
+whole product turns on. Ground-truthed against `origin/main` this pass, the
+machinery is *already built*:
+
+- `Composer::make_slide_from_rel(rel)` is the ONE entry — an image or video
+  mints a media slide, a `.pdf` explodes to page slides, anything else is an
+  honest error;
+- `mint_media_slide` validates the document BEFORE touching disk and writes
+  crash-safe; the media block refs the artifact **in place**, never a copy;
+- `dpl_doc::place_slide` copies a draft into a chapter — no-clobber, never
+  moves the seed, rolls back if the episode would end up invalid;
+- the harness seam `--make-slide <asset-rel>` drives the shelf's exact path.
+
+**What is missing is the operator's gesture, not the plumbing.** The RENDERS
+shelf already censuses every `inbox/*/render.mp4`, but a render row's only
+action is `Act::AddRender` — *"Add this render to the timeline as footage."*
+A finished render can go back into the timeline; it cannot become a slide.
+The FOOTAGE rows beside it already carry a second corner action (`fx` →
+`Act::AddOverlay`), so the idiom for "a row with two verbs" exists and is
+established.
+
+So the spine's joint is: **a render row needs a second verb, and the
+render → slide → `place_slide` → episode chain needs one end-to-end proof.**
+Nothing needs inventing; it needs connecting and witnessing.
 
 | Piece | Status |
 |---|---|
@@ -96,7 +116,10 @@ Workbench slide is not yet one continuous, provable path.
 | L1–L4 AE-independence rungs | Landed (concat · Lottie · alpha overlay · blend/matte/LUT) |
 | Raw-media library + external assets (copy ⇄ in place) | Landed (#60) |
 | Workbench card authoring (7 tabs) | 4 of 7 (`Words · Background · Movement · A quote`); Picture open as #160 |
-| **Finished render → slide, end to end** | **NOT PROVEN — the spine's weakest link** |
+| Media slide minting (`make_slide_from_rel`, `--make-slide`) | Landed — image · video · pdf-explode |
+| `place_slide` into an episode chapter | Landed — no-clobber, validates, rolls back |
+| **A render row offering "make a slide"** | **MISSING — the shelf's only verb is "add to timeline"** |
+| **Render → slide → placed, proven end to end** | **NOT PROVEN — no drill chains it** |
 
 ### 2.2 Chat — route-aware, and always willing
 
@@ -274,7 +297,7 @@ waiting on a coach event would trigger itself.
 
 | Pillar | Strongest evidence | Weakest link |
 |---|---|---|
-| WiredFRONT | L1–L4 rungs landed; editor to ratified mock | **Finished render → slide never proven end to end** |
+| WiredFRONT | L1–L4 rungs landed; editor to ratified mock; slide-minting + `place_slide` both landed | **A render row has no "make a slide" verb; the chain is never proven end to end** |
 | Chat | Route context + Assist toggle (#126) landed | "Triggered naturally" unspecified; `chat-peer-window` route failure open |
 | Council | Provider law ratified; roster + tabs landed | Council itself **not qualified** — product shape undefined |
 | Workflows | Schemas pinned with refusal tests; 11 doctrine laws | Per-stage **fulfilment contract** thinner than the doc schema |
@@ -288,9 +311,12 @@ have mocks built first for a clear vision to work from."
 
 ## 5. What this doc asks the operator to settle
 
-1. **The import seam.** Does a finished WiredFRONT render become a Workbench
-   slide by copy, by reference, or by both (the `⧉ copy` ⇄ `⌁ in place` pair
-   that already exists for external assets)?
+1. **The import seam's gesture.** A render row gains a second verb beside
+   "add to timeline". Does it follow the FOOTAGE rows' existing corner-action
+   idiom (`fx` → `Act::AddOverlay`), or does it want its own mock first?
+   Reference is already decided by the code — `media_slide_for` refs the
+   artifact **in place**, so there is no copy-vs-reference question left to
+   answer for media.
 2. **"Triggered naturally."** What is assist allowed to notice on its own,
    and what must it never interrupt?
 3. **A true council.** Panel or debate? What does it produce, and where does
