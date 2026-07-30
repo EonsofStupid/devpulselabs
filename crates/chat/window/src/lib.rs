@@ -31,7 +31,7 @@ use egui::{
 };
 use egui_pilot_ai::{
     protocol::{PilotViewportKey, Role},
-    NodeMetadata, PilotId, PilotKey, UiPilotExt,
+    NodeMetadata, PilotId, PilotKey, PilotPath, UiPilotExt,
 };
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
@@ -40,6 +40,10 @@ pub const WINDOW_KEY: AppWindowKey = AppWindowKey("chat.primary");
 pub const LAUNCHER_ID: PilotId = PilotId::new("shell.window.chat");
 pub const AI_MODE_ID: PilotId = PilotId::new("chat.mode.ai");
 pub const SOCIAL_MODE_ID: PilotId = PilotId::new("chat.mode.social");
+pub const PROVIDER_TAB_ID: PilotId = PilotId::new("chat.mode.provider");
+/// One slot in the title-bar tab strip. Shared by the mode buttons and by the
+/// width budget that decides when the search field must yield to them.
+const MODE_TAB_WIDTH: f32 = 112.0;
 pub const ROUTE_ID: PilotId = PilotId::new("chat.context.route");
 pub const SHOW_MAIN_ID: PilotId = PilotId::new("chat.window.show-main");
 pub const QUIT_ID: PilotId = PilotId::new("chat.window.quit");
@@ -216,6 +220,9 @@ impl ChatDomainStates {
 pub enum ChatWindowIntent {
     SelectDomain(ChatDomain),
     SelectProvider(ProviderId),
+    /// Scope the AI domain to one connected provider — the tab beside
+    /// AI/Social that a provider earns once it is activated.
+    SelectProviderTab(ProviderId),
     SelectSession {
         provider: ProviderId,
         session: ChatSessionId,
@@ -468,6 +475,9 @@ pub struct ChatWindow {
     provider_trace_expanded: HashMap<ProviderId, bool>,
     composer_focus_requested: bool,
     domain: ChatDomain,
+    /// The connected provider whose tab is focused. `None` means the AI
+    /// tab itself — the roster and every provider's sessions.
+    provider_tab: Option<ProviderId>,
     domain_states: ChatDomainStates,
     provider_profiles: Vec<ProviderProfile>,
     provider_profile_draft: ProviderProfileDraft,
@@ -563,6 +573,7 @@ impl ChatWindow {
             provider_trace_expanded: HashMap::new(),
             composer_focus_requested: false,
             domain: ChatDomain::Ai,
+            provider_tab: None,
             domain_states,
             provider_profiles: Vec::new(),
             provider_profile_draft: ProviderProfileDraft::for_kind(
@@ -751,10 +762,19 @@ impl ChatWindow {
         match intent {
             ChatWindowIntent::SelectDomain(domain) => {
                 self.domain = domain;
+                self.provider_tab = None;
                 Ok(None)
             }
             ChatWindowIntent::SelectProvider(provider) => {
                 self.runtime.select_provider(provider)?;
+                Ok(Some(HostIntent::ProviderSelected(provider)))
+            }
+            ChatWindowIntent::SelectProviderTab(provider) => {
+                // The runtime call leads so a rejected provider leaves the
+                // tab focus exactly where it was.
+                self.runtime.select_provider(provider)?;
+                self.domain = ChatDomain::Ai;
+                self.provider_tab = Some(provider);
                 Ok(Some(HostIntent::ProviderSelected(provider)))
             }
             ChatWindowIntent::SelectSession { provider, session } => {
@@ -1164,7 +1184,12 @@ impl ChatWindow {
             })
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    let compact = ui.available_width() < 820.0;
+                    // Every connected provider spends a tab's worth of the row,
+                    // so the width the strip needs before the search field may
+                    // keep its place grows with them.
+                    let connected = self.connected_tabs();
+                    let compact =
+                        ui.available_width() < 820.0 + MODE_TAB_WIDTH * connected.len() as f32;
                     let title = ui
                         .allocate_ui_with_layout(
                             egui::vec2(166.0, 35.0),
@@ -1192,8 +1217,33 @@ impl ChatWindow {
                             .send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
                     }
                     ui.add_space(if compact { 4.0 } else { 20.0 });
-                    if mode_button(ui, AI_MODE_ID, "AI", self.domain == ChatDomain::Ai).clicked() {
+                    let focused_tab = self.focused_provider_tab();
+                    if mode_button(
+                        ui,
+                        AI_MODE_ID,
+                        "AI",
+                        self.domain == ChatDomain::Ai && focused_tab.is_none(),
+                    )
+                    .clicked()
+                    {
                         intents.push(ChatWindowIntent::SelectDomain(ChatDomain::Ai));
+                    }
+                    for (id, label, short_label) in connected {
+                        let selected = self.domain == ChatDomain::Ai && focused_tab == Some(id);
+                        // A tab is one fixed slot wide, so it carries the SHORT
+                        // label always — "ChatGPT / Codex" clips to nonsense at
+                        // this size, and a truncated tab is worse than a terse
+                        // one. The full name rides in the pilot metadata.
+                        let tab = mode_button(
+                            ui,
+                            PROVIDER_TAB_ID.child(&PilotKey::new(id.0)),
+                            short_label,
+                            selected,
+                        )
+                        .on_hover_text(label);
+                        if tab.clicked() {
+                            intents.push(ChatWindowIntent::SelectProviderTab(id));
+                        }
                     }
                     let social_label = if self.domain_states.social.unread > 0 {
                         format!("Social  {}", self.domain_states.social.unread)
@@ -1320,9 +1370,27 @@ impl ChatWindow {
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         ui.spacing_mut().item_spacing.y = 2.0;
-                        self.provider_roster(ui, &providers, intents);
-                        ui.add_space(9.0);
-                        self.session_groups(ui, &providers, intents);
+                        // A focused provider tab scopes the rail to that one
+                        // provider; the AI tab is the roster and the census.
+                        match self.focused_provider_tab().and_then(|focus| {
+                            providers
+                                .iter()
+                                .find(|provider| {
+                                    provider.registration.manifest.descriptor.id == focus
+                                })
+                                .cloned()
+                        }) {
+                            Some(focused) => {
+                                self.provider_tab_header(ui, &focused, intents);
+                                ui.add_space(9.0);
+                                self.session_groups(ui, std::slice::from_ref(&focused), intents);
+                            }
+                            None => {
+                                self.provider_roster(ui, &providers, intents);
+                                ui.add_space(9.0);
+                                self.session_groups(ui, &providers, intents);
+                            }
+                        }
                     });
             },
         );
@@ -1506,6 +1574,59 @@ impl ChatWindow {
                 intents.push(ChatWindowIntent::SetOverlay(Some(DomainOverlay::Picker)));
             }
         });
+    }
+
+    /// The providers that have earned a tab beside AI and Social. A tab is
+    /// the reward for being connected, so the predicate is activation and
+    /// nothing else; registration order is preserved so the strip never
+    /// reshuffles under the operator's finger.
+    fn connected_tabs(&self) -> Vec<(ProviderId, &'static str, &'static str)> {
+        self.runtime
+            .provider_views()
+            .iter()
+            .filter(|provider| provider.registration.activation.is_activated())
+            .map(|provider| {
+                let descriptor = provider.registration.manifest.descriptor;
+                (descriptor.id, descriptor.label, descriptor.short_label)
+            })
+            .collect()
+    }
+
+    /// The provider the rail is scoped to: `provider_tab`, but only while it
+    /// still names a connected provider. Sign-out therefore drops the tab
+    /// AND returns the roster without anyone having to send an intent.
+    fn focused_provider_tab(&self) -> Option<ProviderId> {
+        let focus = self.provider_tab?;
+        self.connected_tabs()
+            .into_iter()
+            .find(|(id, _, _)| *id == focus)
+            .map(|(id, _, _)| id)
+    }
+
+    /// What stands where the roster stands when the rail is scoped to one
+    /// provider: the way back to the roster, then that provider's own row so
+    /// its status and its login stay one tap away.
+    fn provider_tab_header(
+        &self,
+        ui: &mut egui::Ui,
+        provider: &ProviderView,
+        intents: &mut Vec<ChatWindowIntent>,
+    ) {
+        let descriptor = provider.registration.manifest.descriptor;
+        let back = sidebar_destination_button(ui, "‹  All providers", true);
+        let mut metadata = NodeMetadata::new(
+            PROVIDER_TAB_ID.child(&PilotKey::new("all")),
+            Role::Button,
+            "All providers",
+        );
+        metadata.description = Some("Back to the full provider roster.".to_owned());
+        ui.pilot_track(&back, metadata);
+        if back.clicked() {
+            intents.push(ChatWindowIntent::SelectDomain(ChatDomain::Ai));
+        }
+        ui.add_space(2.0);
+        micro_heading(ui, descriptor.label);
+        self.provider_row(ui, provider, true, false, intents);
     }
 
     fn provider_roster(
@@ -3449,8 +3570,14 @@ impl SessionPredicate {
     }
 }
 
-fn mode_button(ui: &mut egui::Ui, id: PilotId, label: &str, selected: bool) -> egui::Response {
-    const TAB_SIZE: egui::Vec2 = egui::vec2(112.0, 35.0);
+fn mode_button(
+    ui: &mut egui::Ui,
+    path: impl Into<PilotPath>,
+    label: &str,
+    selected: bool,
+) -> egui::Response {
+    const TAB_SIZE: egui::Vec2 = egui::vec2(MODE_TAB_WIDTH, 35.0);
+    let path = path.into();
     let (rect, response) = ui.allocate_exact_size(TAB_SIZE, Sense::click());
     let fill = if selected {
         Color32::from_rgb(8, 31, 36)
@@ -3487,10 +3614,12 @@ fn mode_button(ui: &mut egui::Ui, id: PilotId, label: &str, selected: bool) -> e
             Stroke::new(2.5, Tone::Cyan.color()),
         );
     }
-    let accent = if id == AI_MODE_ID {
-        Tone::Cyan.color()
-    } else {
+    // Violet is Social's colour alone; AI and every provider tab under it
+    // are cyan, so a provider tab never reads as the other domain.
+    let accent = if path == SOCIAL_MODE_ID.path() {
         Tone::Violet.color()
+    } else {
+        Tone::Cyan.color()
     };
     ui.painter().circle_filled(
         egui::pos2(rect.left() + 18.0, rect.center().y),
@@ -3508,7 +3637,7 @@ fn mode_button(ui: &mut egui::Ui, id: PilotId, label: &str, selected: bool) -> e
             cl::ink::MUTED
         },
     );
-    let mut metadata = NodeMetadata::new(id, Role::Tab, label.to_owned());
+    let mut metadata = NodeMetadata::new(path, Role::Tab, label.to_owned());
     metadata.selected = Some(selected);
     ui.pilot_track(&response, metadata);
     response
@@ -4369,6 +4498,85 @@ mod tests {
         let window = multi_provider_window();
         assert_eq!(active_session_count(&window.runtime.provider_views()), 2);
         assert_eq!(window.runtime.provider_views().len(), 2);
+    }
+
+    #[test]
+    fn only_activated_providers_earn_a_tab() {
+        let mut ready = ProviderRegistration::planned(MANIFEST);
+        ready.activation = ActivationState::Ready;
+        let mut signed_out = ProviderRegistration::planned(SECOND_MANIFEST);
+        signed_out.activation = ActivationState::SignedOut {
+            reason: "Not signed in".into(),
+            recovery: Vec::new(),
+        };
+        let runtime = ChatRuntime::try_from_registrations([ready, signed_out]).expect("runtime");
+        let window = ChatWindow::new(
+            runtime,
+            ROUTE,
+            HistoryCatalog::default(),
+            vec![("Library".into(), ROUTE)],
+        );
+        let tabs = window.connected_tabs();
+        assert_eq!(tabs.len(), 1, "a signed-out provider has not earned a tab");
+        assert_eq!(tabs[0].0, PROVIDER);
+    }
+
+    #[test]
+    fn a_provider_tab_selects_its_provider() {
+        let mut window = multi_provider_window();
+        window
+            .apply(ChatWindowIntent::SelectProviderTab(SECOND_PROVIDER))
+            .expect("provider tab intent");
+        assert_eq!(window.domain, ChatDomain::Ai);
+        assert_eq!(window.focused_provider_tab(), Some(SECOND_PROVIDER));
+        assert_eq!(window.runtime.selected_provider_id(), Some(SECOND_PROVIDER));
+    }
+
+    #[test]
+    fn selecting_a_domain_clears_the_provider_tab() {
+        let mut window = multi_provider_window();
+        window
+            .apply(ChatWindowIntent::SelectProviderTab(SECOND_PROVIDER))
+            .expect("provider tab intent");
+        window
+            .apply(ChatWindowIntent::SelectDomain(ChatDomain::Ai))
+            .expect("domain intent");
+        assert_eq!(
+            window.focused_provider_tab(),
+            None,
+            "the AI tab is the roster fallback"
+        );
+    }
+
+    #[test]
+    fn signing_out_drops_the_tab_and_its_focus() {
+        let mut window = multi_provider_window();
+        window
+            .apply(ChatWindowIntent::SelectProviderTab(SECOND_PROVIDER))
+            .expect("provider tab intent");
+        assert_eq!(window.focused_provider_tab(), Some(SECOND_PROVIDER));
+        window
+            .runtime
+            .set_activation(
+                SECOND_PROVIDER,
+                ActivationState::SignedOut {
+                    reason: "Signed out".into(),
+                    recovery: Vec::new(),
+                },
+            )
+            .expect("activation");
+        assert!(
+            window
+                .connected_tabs()
+                .iter()
+                .all(|(id, _, _)| *id != SECOND_PROVIDER),
+            "a signed-out provider loses its tab"
+        );
+        assert_eq!(
+            window.focused_provider_tab(),
+            None,
+            "and the rail falls back to the roster with no intent"
+        );
     }
 
     #[test]
