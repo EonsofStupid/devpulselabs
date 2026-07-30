@@ -50,6 +50,8 @@ Binary: `target/release/dpl-coach-overlay`.
 
 ## Next
 
-1. Land via branch/PR (`feat/c2b-coach-overlay`).
-2. Optional Pass 2: stdio coach event loop under ADR launch gates.
-3. Coach spine after C2b: strict pinning → DuckDB ADR → class column.
+1. Product spine: [`../plans/coach-operator-experience.md`](../plans/coach-operator-experience.md)
+   — C2c mock → C2d inventory → C2e mint → C2f wire (Operator surface).
+2. **Parked (Advanced):** Pass-2 stdio `CoachCommand` / `CoachEvent` loop
+   under ADR launch gates — only when operator asks.
+3. Strict pinning / DuckDB — after product path or operator redirect.

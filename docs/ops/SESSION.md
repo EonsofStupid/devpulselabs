@@ -12,28 +12,28 @@ milestone-loop). Product truth stays in `docs/STATE.md`.
 ## Active lane
 
 **coach / ledger / lesson** — ordered backlog:
-`docs/journal/2026-07-28-remaining-work.md`
+`docs/journal/2026-07-28-remaining-work.md`  
+**Product spine:** `docs/plans/coach-operator-experience.md`  
+**Mock:** `docs/ops/references/coach-operator-mock-c2c.html`
 
-**NEXT:** merge C2b PR (`feat/c2b-coach-overlay`); optional Pass 2 stdio
-coach loop; then strict pinning
+**NEXT:** operator look-approves C2c mock (provisional Coach hub); then
+C2d lightweight inventory. Pass-2 stdio / strict pinning **parked**.
 
-**CLOSED:** p6 · `/strict` · **p2b** · **p4** · **C2s** (Tier A + live
-Triggered) · **C2a** ADR ratified · **C2b** self-test pass 1
-(`dpl-coach-overlay --self-test` → Triggered)
+**CLOSED:** p6 · `/strict` · **p2b** · **p4** · **C2s** · **C2a** ·
+**C2b** (#158) · doc alignment Passes 1–5 · **C2c mock authored**
 
 ## Opens
 
 | Kind | Ref | Notes |
 |---|---|---|
-| Authoring | **`docs/plans/authoring-lane-poam.md`** is the one page for this lane — goal, milestones, done, remaining, and what each remaining item waits on | M1–M4 + M6 closed (#135 #136 #141 #146 #147); M5 tabs 3 of 7 (#149 #151). Do not steal unless redirected. |
-| Parallel | chat assist bake-off | STATE assist-mode entry |
-| Parallel | authoring charter #119 merged | Pass B/C closed unmerged |
-| Coach | C2b Pass 2 stdio `CoachCommand` loop | deferred; ADR launch gates apply |
-| Land | `feat/c2b-coach-overlay` PR | merge on double-green |
+| Coach product | look-approve mock → C2d → C2e → C2f | provisional home = Coach hub |
+| Coach Advanced | C2b Pass-2 stdio | parked; ADR launch gates |
+| Authoring | own POA&M | do not steal |
+| Parallel | chat / L4 / workflows | do not steal |
 
 ## Milestone
 
-Land C2b → (optional Pass 2) → strict pinning → DuckDB ADR → class column
+C2c look-approve → C2d → C2e → C2f → (parked Advanced) → pinning → DuckDB
 
 ## Signals
 

@@ -5,28 +5,34 @@ coding. Every code pass still authors its own `docs/plans/<pass>.md`
 first (law 1). Parallel lanes (authoring, chat assist, L4, workflows)
 are listed at the bottom so they are not accidentally stolen.
 
-Updated 2026-07-28 after PR #117 (`dpl-ledger`) landed on main.
+Updated 2026-07-30 — **product spine alignment** after C2b #158:
+physics closed; NEXT is operator experience (C2c), not Pass-2 stdio.
+Canonical product contract:
+`docs/plans/coach-operator-experience.md`.
 
 ---
 
 ## The vision (one sentence)
 
-DevPULSE Labs, while running, can teach — inside its own UI today, and
-eventually over the whole monitor and into foreign apps — with lessons
-whose steps advance on real postconditions, whose outcomes land in a
-queryable ledger, and whose privileged modes only escalate by the
-provenance of the operator's keystroke.
+DevPULSE Labs, while running, teaches the operator through a guided
+Coach surface: pick an installed app, mint a semantic fabric from
+accessibility streams (not screenshots), let AI mount touchpoints that
+paint and wait for real presses, advance lessons on real postconditions,
+record outcomes in the ledger, and escalate privileged modes only by
+operator-keystroke provenance — with Advanced / EguiPilot as a separate
+devtools surface.
 
-That vision is now half-foundation, half-product:
+That vision is now physics-proven, product-incomplete:
 
 | Stack | Status |
 |---|---|
 | **Record** — stamped coach + intent facts → Parquet ledger | **Landed** (Phase 1.5 → gate → Phase 2) |
 | **Authorize** — `OperatorIntent` + determinism modes | **Landed** (switch yes; pinning no) |
-| **Teach inside DevPULSE** — instrumented surfaces + postcondition steps | **Partial** (Workbench started; Library section selection still blocks a full lesson) |
-| **Paint the monitor** — click-through overlay process | **Spike proven** (transparency + passthrough on X11); daemon not done |
-| **Perceive foreign apps** — AT-SPI / UIA tier ladder | **C2b self-test PASS** (`dpl-coach-overlay`); C2a ratified |
-| **Analyze** — DuckDB lens over ledger files | **Phase 3 ADR**, after real volume |
+| **Teach inside DevPULSE** — instrumented surfaces + postcondition steps | **Partial** (C1 touchpoints; full lesson UX still open) |
+| **Paint foreign / monitor** — overlay process | **C2b PASS** (#158 `dpl-coach-overlay` self-test) |
+| **Perceive foreign apps** — AT-SPI / UIA Tier A | **PASS** (C2s live Triggered + C2b) |
+| **Operator Coach UX** — picker, mint ETA, seeds, refuse tips | **NEXT (C2c→C2f)** — missing |
+| **Analyze** — DuckDB lens over ledger files | **Phase 3**, after real volume |
 
 ---
 
@@ -34,126 +40,99 @@ That vision is now half-foundation, half-product:
 
 Each item is one PR-sized pass. Status is the gate for starting the next.
 
-### 1. Library section harness (p6) — **CLOSED** (PR #135)
+### 1–5. Foundation — **CLOSED**
 
-`--lib-section <slug>` on the real exe; Library walls provable. Lesson
-E2E scripts may still deepen coverage, but the harness blocker is gone.
+p6 Library harness (#135) · `/strict` refusal · p2b passthrough · p4 rail
+degrade · C2s foreign-target (live Triggered 2026-07-30).
 
-### 2. Live synthetic `/strict` refusal — **CLOSED** (2026-07-29)
-
-Mint-site policy extracted as `resolve_operator_slash` in
-`crates/app/src/chat.rs`; unit matrix proves agent-injected `/strict`
-→ `IntentRefused · synthetic-input` and mode stays behavioral. Plan:
-`docs/plans/strict-refusal-witness.md`.
-
-### 3. Overlay passthrough proof (p2b) — **CLOSED** (2026-07-29)
-
-**Why:** transparency is proven on X11+wgpu; click-through was not.
-C2b cannot start without knowing whether `mouse_passthrough` actually
-delivers clicks to a window underneath.
-
-**Shape:** `passthrough-probe` in `crates/desktop-spike` — witness +
-overlay + XTEST; control pair ON/OFF. Plan:
-`docs/plans/p2b-overlay-passthrough.md`. Evidence: spike §8.1 — **PASS**.
-
-### 4. Rail accordion degrade (p4) — **CLOSED** (2026-07-29)
-
-**Why:** at small heights the accordion clipped the unfold to nothing —
-lessons that name a rail hub failed when chrome collapsed.
-
-**Shape:** rail body `ScrollArea` + pending reveal of the open house.
-Plan: `docs/plans/p4-rail-accordion-degrade.md`. Proof:
-`docs/proof/p4-rail-cramped-640x480.png` + shell kittest.
-
-### 5. C2s foreign-target spike (p5) — **CLOSED** (2026-07-29 / live 2026-07-30)
-
-**Plan:** `docs/plans/coach-c2s-foreign-target-spike.md` — evidence §9 + §10.
-Locate + compose + ColdLight paint + `Action.doAction` + **Triggered
-observe** (Sync-grab + ReplayPointer; digit-matched display watch;
-`GetAccessibleAtPoint` identity gate) on `gnome-calculator` button `7`.
-**Live operator proof 2026-07-30:** ButtonPress inside hotspot → Triggered.
-Journal: `docs/journal/2026-07-30-c2s-triggered-live.md`.
-
-### 6. C2a coach-overlay ADR → C2b daemon — **C2b SELF-TEST PASS** (2026-07-30)
+### 6. C2a ADR → C2b overlay daemon — **CLOSED** (PR #158)
 
 **ADR:** `docs/plans/coach-overlay-adr.md` — RATIFIED.  
-**C2b plan:** `docs/plans/coach-c2b-overlay-daemon.md` — pass-1 PASS.  
+**Plan:** `docs/plans/coach-c2b-overlay-daemon.md` — pass-1 PASS.  
 **Journal:** `docs/journal/2026-07-30-c2b-coach-overlay.md`.
 
-Crate `crates/coach-overlay` (`dpl-coach-overlay`): locate → identity →
-WINDOW paint → Sync-grab → Triggered on calculator; bogon refuses.
-Never a dep of `app`. Pass 2 stdio coach loop deferred.
+`--self-test` Triggered on calculator; bogon refuses. Never a dep of
+`app`. **Pass-2 stdio is PARKED** (Advanced plumbing — not product NEXT).
 
-**Done when (pass 1):** met — self-test paints hotspot + Triggered /
-non-intercept observe. Remaining: land PR; optional Pass 2 stdio.
+### 7. C2c — operator experience spine + UI mock — **MOCK AUTHORED**
 
-### 7. Strict-mode pinning (replay pass)
+**Plan:** `docs/plans/coach-operator-experience.md` +
+`docs/plans/coach-c2c-operator-mock.md`.  
+**Mock:** `docs/ops/references/coach-operator-mock-c2c.html`.  
+Provisional home: shell Coach hub. Dual surface: Operator vs Advanced.
 
-**Why not earlier:** the gate exists; pinning is expensive and belongs
-with replay / baseline comparison. Evidence already *forces* the mode
-label; this pass makes strict mean byte-identical.
+**Done when:** operator look-approves mock; docs’ NEXT all say C2d.
 
-**Done when:** fixed clock + pinned RNG path under `Strict` /
-`force_evidence`, proven by a byte-compare of two proof shots.
+### 8. C2d — lightweight target inventory (Phase 0+1)
 
-### 8. Phase 3 — DuckDB C-dep ADR
+Cold `.desktop`/catalog cache + shallow live census (name/PID only). No
+deep walk at startup. No freeze.
 
-**Why last in this spine:** needs real Parquet volume and a real
-question the app cannot answer today. Three candidates stay live
-(external CLI only / subprocess / `bundled` crate). No implementation
-in the ADR pass.
+**Done when:** list on this box without UI stall; unit + live evidence.
 
-**Done when:** ADR merged with a measured recommendation.
+### 9. C2e — fabric mint for selected Calculator
 
-### 9. Classification Layer-1 → `class` column
+Budgeted deep walk on **one** selected target; progress + ETA; refuse tips;
+seed lesson (e.g. button `7`).
 
-**Why after ledger exists:** schema already reserves `class`. Base
-CUI/Presidio vocabulary, store the class never the value (§9.5).
-Per-app packs and HMAC pseudonymization are later.
+**Done when:** mint journal + `FabricEvent`/progress proof; no screenshot loop.
 
-**Done when:** obvious classes (password / PII-shaped / CUI-tagged)
-write into `class` on matching rows; redaction still outranks
-reproducibility.
+### 10. C2f — wire Operator select → overlay paint
+
+Guided path reuses C2b physics; Advanced keeps CLI/self-test.
+
+**Done when:** operator picks Calculator → sees paint → press Triggered
+without invoking probes by hand.
+
+### 11. Strict-mode pinning (replay) — after product path or operator ask
+
+Fixed clock + pinned RNG under `Strict` / `force_evidence`; byte-compare
+proof shots.
+
+### 12. Phase 3 — DuckDB C-dep ADR
+
+After real Parquet volume + a real unanswered question. See
+`docs/plans/phase3-analytics-program.md`.
+
+### 13. Classification Layer-1 → `class` column
+
+Obvious classes into `class`; redaction outranks reproducibility.
 
 ---
 
 ## Explicitly parked (do not start without operator ask)
 
+- **C2b Pass-2** stdio `CoachCommand`/`CoachEvent` loop on overlay
+  (Advanced; ADR gates still apply).
 - Games / multiplayer training tips (training-only ruling; anti-cheat
   hazard).
-- Tier B foreign plug-ins (Blender/`bpy`, SolidWorks COM) — ratified
-  narrowly as marshal-only; after Tier A works.
+- Tier B foreign plug-ins (Blender/`bpy`, SolidWorks COM) — after Tier A
+  product path.
 - Wayland GNOME overlay as first target — X11 first on this box.
-- Shell/deck stamping — unstamped by design; ledger does not invent
-  stamps for them.
+- Shell/deck stamping — unstamped by design.
 - In-app DuckDB dependency — Phase 3 ADR decides.
+- Tier C vision as primary eyes — refuse path only.
 
 ---
 
 ## Parallel lanes (not this resume — operator redirects)
 
-Do not pick these up as "the next thing" from this journal unless the
-operator says so. They have their own nexts:
-
-| Lane | Next (from their own journals / STATE) |
+| Lane | Notes |
 |---|---|
-| Authoring | Pass B — four-bucket infinite gallery + filmstrip |
-| Chat assist | First bake-off interaction + estate preference record |
-| Fable / WiredFRONT | Guide UX redlines; R2c chat→comp; R2b LUT registry |
-| L4 / workflows | Their feature branches (`feat/l4-…`, `feat/workflow-…`) |
+| Authoring | Own POA&M — do not steal |
+| Chat assist | Own bake-off / provider tabs |
+| Fable / WiredFRONT / L4 / workflows | Own branches |
 
 ---
 
 ## How to start the next session
 
 1. `git checkout main && git pull`
-2. **Session OS boot:** `docs/STATE.md` → `docs/ops/SESSION.md` →
-   `docs/ops/resume/CURRENT.md` (skill `session-os`).
-3. Author `docs/plans/<pass>.md` for **item 1** (Library section harness)
-   unless the operator redirects — non-trivial: grounder → gap-closer →
-   approve → executor.
-4. Execute one pass → PR → merge → update this file + ops SESSION →
-   journal near context budget → stop or take the next item.
+2. Session OS: `docs/STATE.md` → `docs/ops/SESSION.md` →
+   `docs/ops/resume/CURRENT.md`
+3. Read `docs/plans/coach-operator-experience.md`
+4. Author/execute **C2c mock** (or next open C2d–C2f) — plan first
+5. One pass → PR → merge → tip this file + SESSION → journal
 
-One pass at a time. Evidence before assertion. Main moves — re-ground
-before every pass.
+One pass at a time. Evidence before assertion. Accuracy over speed —
+second/third doc passes are welcome when contradictions remain.

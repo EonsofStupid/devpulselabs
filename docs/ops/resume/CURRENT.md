@@ -6,33 +6,34 @@
 
 ## Goal
 
-Land C2b (`dpl-coach-overlay` self-test) via PR; optional Pass 2 stdio loop.
+Frictionless **Operator Coach**: pick installed app → mint semantic fabric
+(Tier A streams, not screenshots) → AI paints/guides → tips on refuse.
+Advanced/EguiPilot stays separate.
 
 ## Done this session
 
-- C2a ADR ratified (`docs/plans/coach-overlay-adr.md`); `AGENTS.md` tipped
-- C2b pass-1 self-test **PASS** — journal
-  `docs/journal/2026-07-30-c2b-coach-overlay.md`
-  - unit 4/4 · clippy clean · structure hygienic
-  - `--self-test --name 7` → exit 0 Triggered (`stream_hit="7"`)
-  - `--self-test --name bogon` → exit 2 refuse
-- Ops tipped: STATE · SESSION · remaining-work · signals · program map
+- Doc alignment Passes 1–5 + C2c HTML mock authored
+- Spine: `docs/plans/coach-operator-experience.md`
+- Mock: `docs/ops/references/coach-operator-mock-c2c.html`
+- Mock plan: `docs/plans/coach-c2c-operator-mock.md`
+- Provisional home: **Coach hub** (shell rail)
 
 ## Next
 
-1. Merge PR for `feat/c2b-coach-overlay` (after double-green)
-2. Optional: Pass 2 stdio `CoachCommand` / `CoachEvent` under ADR launch gates
-3. Strict pinning → DuckDB ADR → class column
+1. Operator: look-approve mock (or redirect home / composition)
+2. Merge docs PR → C2d lightweight inventory plan
+3. C2e fabric mint (Calculator) → C2f wire to overlay
 
 ## Blockers
 
+- Look-approve before inventory code
 - Windows / Wayland overlay unproven
-- Production `app` wiring still forbidden
+- Production auto-launch of overlay still forbidden (ADR)
 
 ## Key files
 
+- `docs/ops/references/coach-operator-mock-c2c.html`
+- `docs/plans/coach-c2c-operator-mock.md`
+- `docs/plans/coach-operator-experience.md`
+- `docs/journal/2026-07-30-coach-product-spine.md`
 - `crates/coach-overlay/`
-- `docs/plans/coach-overlay-adr.md`
-- `docs/plans/coach-c2b-overlay-daemon.md`
-- `docs/journal/2026-07-30-c2b-coach-overlay.md`
-- `docs/journal/2026-07-30-c2s-triggered-live.md`

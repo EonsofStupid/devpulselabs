@@ -266,11 +266,15 @@ internalize what we actually use.
    polling measurably hurts.
 4. **C2a — coach-overlay ADR** (boundary, launch gates, forbidden set).
    **RATIFIED 2026-07-30** — [`coach-overlay-adr.md`](coach-overlay-adr.md).
-   **C2b — daemon** pass-1 self-test **PASS** same day —
+   **C2b — daemon** pass-1 self-test **PASS** (#158) —
    [`coach-c2b-overlay-daemon.md`](coach-c2b-overlay-daemon.md);
    journal [`../journal/2026-07-30-c2b-coach-overlay.md`](../journal/2026-07-30-c2b-coach-overlay.md).
-   X11 first (this box); Windows second; layer-shell third. Pass 2 stdio
-   coach loop deferred.
+   X11 first; Windows second; layer-shell third. **Pass-2 stdio PARKED**
+   (Advanced — not product NEXT).
+4b. **C2c–C2f — Operator Coach experience** (product spine) —
+   [`coach-operator-experience.md`](coach-operator-experience.md).
+   Mock → lightweight inventory → fabric mint (Tier A) → wire to overlay.
+   Dual surface: Operator vs Advanced/EguiPilot. **THIS IS NEXT.**
 5. **C3 — ColdLight catalog + Surface commands**, in-app renderer first.
 6. **C4 — desktop semantic control**, external-MCP-first evaluation, then
    the `atspi` adapter if internalization earns its keep.
@@ -323,8 +327,9 @@ the program map.
 - C1 lands as one pass (`coach-c1-touchpoint`), delivery-doc Slice 8
   amended in the same PR; C1.5a (`coach-c15a-dynamic-triggers`) stacks on
   it as its own pass, carrying this §3.2 amendment. C1.5b is deferred.
-  C2a ADR + C2b self-test land together (ratified + proven 2026-07-30);
-  Pass 2 stdio is a follow-up PR.
+  C2a ADR + C2b self-test land together (ratified + proven #158);
+  Pass-2 stdio is PARKED. Product NEXT = C2c–C2f
+  ([`coach-operator-experience.md`](coach-operator-experience.md)).
 
 ## 8. Evidence — grounding cheat sheet (2026-07-26)
 

@@ -1,9 +1,11 @@
 # C2b — `dpl-coach-overlay` daemon (X11 self-test first)
 
-**Status:** PASS pass-1 self-test 2026-07-30  
+**Status:** PASS pass-1 self-test 2026-07-30 · landed #158  
 **ADR:** [`coach-overlay-adr.md`](coach-overlay-adr.md) (RATIFIED)  
 **Evidence base:** C2s spike + live Triggered journal  
-**Journal:** [`../journal/2026-07-30-c2b-coach-overlay.md`](../journal/2026-07-30-c2b-coach-overlay.md)
+**Journal:** [`../journal/2026-07-30-c2b-coach-overlay.md`](../journal/2026-07-30-c2b-coach-overlay.md)  
+**Product NEXT (not this plan):** [`coach-operator-experience.md`](coach-operator-experience.md)
+(C2c mock → inventory → fabric mint). **Pass-2 stdio is PARKED** (Advanced).
 
 ## 1. Goal
 
@@ -15,8 +17,9 @@ gates on this box: locate → stream identity → WINDOW-space ColdLight paint
 
 - Physics proven in `foreign-target-probe` (desktop-spike) + live Triggered.
 - ADR ratified; production IPC still forbidden.
-- `crates/coach-overlay` ships; `--self-test` green on this X11 box.
-- Pass 2 stdio coach loop still deferred.
+- `crates/coach-overlay` ships on main (#158); `--self-test` green on this X11 box.
+- Pass-2 stdio coach loop **parked** — product work is Operator Coach UX
+  (C2c+), not more daemon pipe before the picker exists.
 
 ## 3. Design
 
@@ -80,3 +83,8 @@ stdio coach loop is a follow-up PR if not in the first land.
 | `--self-test --name 7` | exit 0 Triggered; ButtonPress `251,484` inside `64×44@219,462`; `stream_hit="7"` |
 
 Journal: `docs/journal/2026-07-30-c2b-coach-overlay.md`.
+
+**After #158:** do **not** treat Pass-2 stdio as NEXT. Product spine:
+[`coach-operator-experience.md`](coach-operator-experience.md) (C2c+).
+Pass-2 remains a valid Advanced follow-up under ADR launch gates when the
+operator asks for it.
