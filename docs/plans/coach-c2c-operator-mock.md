@@ -1,6 +1,6 @@
 # C2c — Operator Coach UI mock
 
-**Status:** authored 2026-07-30 — awaiting operator look-approve  
+**Status:** LOOK-APPROVED 2026-07-30 — operator “looks good”  
 **Spine:** [`coach-operator-experience.md`](coach-operator-experience.md)  
 **Mock:** [`../ops/references/coach-operator-mock-c2c.html`](../ops/references/coach-operator-mock-c2c.html)
 

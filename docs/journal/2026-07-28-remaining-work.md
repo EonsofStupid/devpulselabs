@@ -54,14 +54,14 @@ degrade · C2s foreign-target (live Triggered 2026-07-30).
 `--self-test` Triggered on calculator; bogon refuses. Never a dep of
 `app`. **Pass-2 stdio is PARKED** (Advanced plumbing — not product NEXT).
 
-### 7. C2c — operator experience spine + UI mock — **MOCK AUTHORED**
+### 7. C2c — operator experience spine + UI mock — **LOOK-APPROVED**
 
 **Plan:** `docs/plans/coach-operator-experience.md` +
 `docs/plans/coach-c2c-operator-mock.md`.  
 **Mock:** `docs/ops/references/coach-operator-mock-c2c.html`.  
-Provisional home: shell Coach hub. Dual surface: Operator vs Advanced.
+Home: shell Coach hub. Operator 2026-07-30: “looks good.”
 
-**Done when:** operator look-approves mock; docs’ NEXT all say C2d.
+**Done when:** met for look-approve. NEXT = C2d inventory.
 
 ### 8. C2d — lightweight target inventory (Phase 0+1)
 

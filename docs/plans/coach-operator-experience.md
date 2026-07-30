@@ -1,11 +1,11 @@
 # Coach operator experience — product spine (frictionless vision)
 
-**Status:** ALIGNED 2026-07-30 (doc Passes 1–5) + **C2c mock authored** —
-awaiting operator look-approve before C2d inventory code  
+**Status:** LOOK-APPROVED 2026-07-30 (operator: “looks good”) — C2c mock
+locked; **NEXT = C2d** lightweight inventory  
 **Lane:** coach-ledger  
 **Mock:** [`../ops/references/coach-operator-mock-c2c.html`](../ops/references/coach-operator-mock-c2c.html)  
 **Mock plan:** [`coach-c2c-operator-mock.md`](coach-c2c-operator-mock.md)  
-**Provisional home:** shell **Coach hub** (not chat peer window)  
+**Home (ratified provisional):** shell **Coach hub** (not chat peer window)  
 **Canvas:** `coach-vision-alignment.canvas.tsx` (Cursor; not repo truth)  
 **Physics evidence:** C2s live Triggered · C2a ADR · C2b #158  
 **Program map:** [`operator-coach-a2ui.md`](operator-coach-a2ui.md)  

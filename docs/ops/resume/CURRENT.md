@@ -8,25 +8,22 @@
 
 Frictionless **Operator Coach**: pick installed app → mint semantic fabric
 (Tier A streams, not screenshots) → AI paints/guides → tips on refuse.
-Advanced/EguiPilot stays separate.
 
-## Done this session
+## Done
 
-- Doc alignment Passes 1–5 + C2c HTML mock authored
-- Spine: `docs/plans/coach-operator-experience.md`
+- C2c mock **look-approved** (operator: “looks good”)
 - Mock: `docs/ops/references/coach-operator-mock-c2c.html`
-- Mock plan: `docs/plans/coach-c2c-operator-mock.md`
-- Provisional home: **Coach hub** (shell rail)
+- Home locked: shell **Coach hub**
+- Spine: `docs/plans/coach-operator-experience.md`
 
 ## Next
 
-1. Operator: look-approve mock (or redirect home / composition)
-2. Merge docs PR → C2d lightweight inventory plan
+1. Merge PR #167 (docs + mock) on double-green
+2. Author **C2d** lightweight inventory plan → implement Phase 0+1
 3. C2e fabric mint (Calculator) → C2f wire to overlay
 
 ## Blockers
 
-- Look-approve before inventory code
 - Windows / Wayland overlay unproven
 - Production auto-launch of overlay still forbidden (ADR)
 
@@ -35,5 +32,4 @@ Advanced/EguiPilot stays separate.
 - `docs/ops/references/coach-operator-mock-c2c.html`
 - `docs/plans/coach-c2c-operator-mock.md`
 - `docs/plans/coach-operator-experience.md`
-- `docs/journal/2026-07-30-coach-product-spine.md`
-- `crates/coach-overlay/`
+- `docs/journal/2026-07-28-remaining-work.md` §8 (C2d)

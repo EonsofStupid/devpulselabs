@@ -14,26 +14,26 @@ milestone-loop). Product truth stays in `docs/STATE.md`.
 **coach / ledger / lesson** — ordered backlog:
 `docs/journal/2026-07-28-remaining-work.md`  
 **Product spine:** `docs/plans/coach-operator-experience.md`  
-**Mock:** `docs/ops/references/coach-operator-mock-c2c.html`
+**Mock:** `docs/ops/references/coach-operator-mock-c2c.html` (look-approved)
 
-**NEXT:** operator look-approves C2c mock (provisional Coach hub); then
-C2d lightweight inventory. Pass-2 stdio / strict pinning **parked**.
+**NEXT:** C2d lightweight target inventory (Phase 0+1). Pass-2 stdio /
+strict pinning **parked**.
 
 **CLOSED:** p6 · `/strict` · **p2b** · **p4** · **C2s** · **C2a** ·
-**C2b** (#158) · doc alignment Passes 1–5 · **C2c mock authored**
+**C2b** (#158) · doc alignment · **C2c mock look-approved**
 
 ## Opens
 
 | Kind | Ref | Notes |
 |---|---|---|
-| Coach product | look-approve mock → C2d → C2e → C2f | provisional home = Coach hub |
+| Coach product | C2d inventory → C2e mint → C2f wire | home = Coach hub |
 | Coach Advanced | C2b Pass-2 stdio | parked; ADR launch gates |
 | Authoring | own POA&M | do not steal |
 | Parallel | chat / L4 / workflows | do not steal |
 
 ## Milestone
 
-C2c look-approve → C2d → C2e → C2f → (parked Advanced) → pinning → DuckDB
+C2d → C2e → C2f → (parked Advanced) → pinning → DuckDB
 
 ## Signals
 

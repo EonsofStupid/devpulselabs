@@ -2,13 +2,17 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-30 — C2c MOCK LOOK-APPROVED (`docs/ops/references/coach-operator-mock-c2c.html`):**
+Operator: “looks good.” Coach hub home locked for implementation.
+Product spine: `docs/plans/coach-operator-experience.md`. Coach NEXT =
+**C2d** lightweight target inventory (Phase 0+1).
+
 **2026-07-30 — COACH PRODUCT SPINE + C2c MOCK (`docs/plans/coach-operator-experience.md`):**
-Physics (C2s/C2b #158) stays proven; Operator Coach UX is NEXT — picker,
+Physics (C2s/C2b #158) stays proven; Operator Coach UX path — picker,
 lightweight inventory, fabric mint from a11y streams (not screenshots),
-seeds + refuse tips; Advanced/EguiPilot is a second surface. Mock authored:
-`docs/ops/references/coach-operator-mock-c2c.html` (provisional **Coach hub**).
-Pass-2 stdio / strict pinning **parked**. Coach NEXT = **look-approve mock**
-→ C2d inventory.
+seeds + refuse tips; Advanced/EguiPilot is a second surface. Mock:
+`docs/ops/references/coach-operator-mock-c2c.html` (**Coach hub**).
+Pass-2 stdio / strict pinning **parked**.
 
 **2026-07-30 — THE ALIGNMENT PASS (operator: "I want my project back
 under control… getting it all aligned"):** every stray landed, one truth
