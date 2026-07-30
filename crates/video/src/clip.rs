@@ -292,29 +292,25 @@ fn read_clip(shared: &ClipShared, path: &Path, start: f32, grade: &PipeGrade) {
     };
     let mut out = child.stdout.take().expect("piped stdout");
     let mut buf = vec![0u8; FRAME_BYTES];
-    loop {
-        match out.read_exact(&mut buf) {
-            Ok(()) => {
-                let seq = shared.seq.load(Ordering::Relaxed) + 1;
-                {
-                    let mut slot = shared.frame.lock().expect("clip frame lock");
-                    slot.0 = seq;
-                    if slot.1.len() == FRAME_BYTES {
-                        slot.1.copy_from_slice(&buf);
-                    } else {
-                        slot.1 = buf.clone();
-                    }
-                }
-                shared.seq.store(seq, Ordering::Release);
+    while let Ok(()) = out.read_exact(&mut buf) {
+        let seq = shared.seq.load(Ordering::Relaxed) + 1;
+        {
+            let mut slot = shared.frame.lock().expect("clip frame lock");
+            slot.0 = seq;
+            if slot.1.len() == FRAME_BYTES {
+                slot.1.copy_from_slice(&buf);
+            } else {
+                slot.1 = buf.clone();
             }
-            Err(_) => break, // EOF (or a dead pipe): the clip is over.
         }
+        shared.seq.store(seq, Ordering::Release);
         if shared.stop.load(Ordering::Acquire) {
             let _ = child.kill();
             let _ = child.wait();
             return;
         }
     }
+    // EOF (or a dead pipe): the clip is over.
     let _ = child.wait();
     shared.ended.store(true, Ordering::Release);
 }
