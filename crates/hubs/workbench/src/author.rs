@@ -266,7 +266,10 @@ fn picture_tab(ui: &mut egui::Ui, ed: &mut CardEditor) {
 
     // Two different emptinesses, and they must not read alike: the list could
     // not be opened, versus you simply have none of this kind yet.
-    let shelf = ed.shelf.as_ref().expect("just filled");
+    // Degrade, never crash: a paint path does not panic on its own state.
+    let Some(shelf) = ed.shelf.as_ref() else {
+        return;
+    };
     if let Some(why) = &shelf.unavailable {
         ui.label(RichText::new(why).color(cl::ink::MUTED));
         return;
