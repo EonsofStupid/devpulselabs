@@ -9,6 +9,7 @@
 mod author;
 mod backgrounds;
 mod containers;
+mod controls;
 mod library;
 mod pictures;
 mod studio;

@@ -24,6 +24,7 @@
 //! so AI/coach overlays react without the surface self-triggering.
 
 use crate::containers::{containers, Container, ContainerKind};
+use crate::controls::{control, stacked_control, Weight};
 use crate::words::pretty;
 use dpl_coldlight::{self as cl, Tone};
 use dpl_slides::SlideTemplate;
@@ -131,15 +132,7 @@ fn newest_draft() -> Option<std::path::PathBuf> {
 /// key or the selected styling can never drift between them.
 fn tab_chip(ui: &mut egui::Ui, ed: &mut CardEditor, t: CardTab, tone: Tone) {
     let active = ed.tab == t;
-    let chip = cl::tip(
-        ui.label(RichText::new(t.label()).strong().color(if active {
-            tone.color()
-        } else {
-            cl::ink::MUTED
-        }))
-        .interact(egui::Sense::click()),
-        t.tip(),
-    );
+    let chip = cl::tip(control(ui, t.label(), active, tone, Weight::Quiet), t.tip());
     ui.pilot_track(
         &chip,
         NodeMetadata::new(
@@ -1303,44 +1296,23 @@ impl AuthorSurface {
             ];
             for (ix, (tone, title, blurb, foot)) in lanes.into_iter().enumerate() {
                 let w = (ui.available_width() / 3.0 - cl::space::S4).max(fluid.panel_width() * 0.6);
-                ui.allocate_ui(egui::vec2(w, fluid.panel_width() * 0.5), |ui| {
-                    ui.vertical(|ui| {
-                        let hit = cl::tip(
-                            ui.label(
-                                RichText::new(title)
-                                    .size(fluid.fs_h4())
-                                    .strong()
-                                    .color(tone.color()),
-                            )
-                            .interact(egui::Sense::click()),
-                            match ix {
-                                0 => "Choose what to build into, then start cards",
-                                1 => "Straight back into the last thing you touched",
-                                _ => "Everything you can build with, on one wall",
-                            },
-                        );
-                        ui.label(
-                            RichText::new(blurb)
-                                .size(fluid.fs_body_sm())
-                                .color(cl::ink::BASE),
-                        );
-                        ui.label(
-                            RichText::new(&foot)
-                                .size(fluid.fs_body_sm())
-                                .color(cl::ink::SUBTLE),
-                        );
-                        if hit.clicked() {
-                            // Lane 3 belongs to M9's platform lane, which does
-                            // not exist. The Library IS "what you can build
-                            // with", so it goes there rather than nowhere —
-                            // and the tooltip says that is what it is.
-                            go = Some(match ix {
-                                1 => Some(0),
-                                _ => None,
-                            });
-                        }
+                let hit = cl::tip(
+                    stacked_control(ui, title, blurb, &foot, false, tone, w),
+                    match ix {
+                        0 => "Choose what to build into, then start cards",
+                        1 => "Straight back into the last thing you touched",
+                        _ => "Everything you can build with, on one wall",
+                    },
+                );
+                if hit.clicked() {
+                    // Lane 3 belongs to M9's platform lane, which does not
+                    // exist. The Library IS "what you can build with", so it
+                    // goes there rather than nowhere.
+                    go = Some(match ix {
+                        1 => Some(0),
+                        _ => None,
                     });
-                });
+                }
                 ui.add_space(cl::space::S4);
             }
         });
@@ -1370,19 +1342,20 @@ impl AuthorSurface {
         ui.horizontal_wrapped(|ui| {
             for (ix, (c, when)) in open.iter().enumerate() {
                 let hit = cl::tip(
-                    ui.label(
-                        RichText::new(format!(
-                            "{}  ·  {}  ·  {} {} · {}",
+                    control(
+                        ui,
+                        &format!(
+                            "{} · {} · {} {} · {}",
                             c.kind.label(),
                             c.label,
                             c.count,
                             c.kind.unit(),
                             coarse_when(*when),
-                        ))
-                        .size(fluid.fs_body_sm())
-                        .color(c.kind.tone().color()),
-                    )
-                    .interact(egui::Sense::click()),
+                        ),
+                        false,
+                        c.kind.tone(),
+                        Weight::Quiet,
+                    ),
                     "Go straight into this one",
                 );
                 if hit.clicked() {
@@ -1458,12 +1431,7 @@ impl AuthorSurface {
 
         ui.add_space(cl::space::S3);
         let seed = cl::tip(
-            ui.label(
-                RichText::new("+ Start a blank card")
-                    .strong()
-                    .color(Tone::Amber.color()),
-            )
-            .interact(egui::Sense::click()),
+            control(ui, "+ Start a blank card", false, Tone::Amber, Weight::Loud),
             "Make a card with nothing on it but your words, and add to it from there.",
         );
 
@@ -1712,8 +1680,7 @@ impl AuthorSurface {
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if cl::tip(
-                            ui.label(RichText::new("Done").strong().color(tone.color()))
-                                .interact(egui::Sense::click()),
+                            control(ui, "Done", false, tone, Weight::Loud),
                             "Close this — your card is already saved.",
                         )
                         .clicked()
@@ -1844,17 +1811,7 @@ impl AuthorSurface {
                 // the tooltip and in the carousel header, not doubled across a
                 // row that then wraps onto two lines.
                 let chip = cl::tip(
-                    ui.label(
-                        RichText::new(shelf.label())
-                            .size(cl::Fluid::of(ui.max_rect()).fs_body_lg())
-                            .strong()
-                            .color(if active {
-                                super::SPEC.tone.color()
-                            } else {
-                                cl::ink::MUTED
-                            }),
-                    )
-                    .interact(egui::Sense::click()),
+                    control(ui, shelf.label(), active, super::SPEC.tone, Weight::Quiet),
                     shelf.tip(),
                 );
                 ui.pilot_track(
@@ -2129,13 +2086,13 @@ impl AuthorSurface {
                             // One chapter is not a decision.
                             Some([(id, _)]) => {
                                 if cl::tip(
-                                    ui.label(
-                                        RichText::new("Put them in")
-                                            .size(fluid.fs_body_sm())
-                                            .strong()
-                                            .color(super::SPEC.tone.color()),
-                                    )
-                                    .interact(egui::Sense::click()),
+                                    control(
+                                        ui,
+                                        "Put them in",
+                                        false,
+                                        super::SPEC.tone,
+                                        Weight::Loud,
+                                    ),
                                     "Copy every card you started into this one. Your \
                                      originals stay where they are.",
                                 )
@@ -2153,13 +2110,7 @@ impl AuthorSurface {
                                 );
                                 for (id, title) in many {
                                     if cl::tip(
-                                        ui.label(
-                                            RichText::new(title)
-                                                .size(fluid.fs_body_sm())
-                                                .strong()
-                                                .color(super::SPEC.tone.color()),
-                                        )
-                                        .interact(egui::Sense::click()),
+                                        control(ui, title, false, super::SPEC.tone, Weight::Loud),
                                         "Copy every card you started into this chapter",
                                     )
                                     .clicked()
