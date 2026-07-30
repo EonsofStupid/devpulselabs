@@ -13,7 +13,11 @@
 //! queries) — a different job; the estate is KV blobs + cache, not a query
 //! engine. Values are bytes; `*_json` helpers ride serde for typed docs.
 
-use fjall::{Config, Keyspace, PartitionCreateOptions, PartitionHandle, PersistMode};
+// fjall 3 renamed the whole vocabulary one rung DOWN: what v2 called a
+// `Keyspace` (the store) is now a `Database`, and what it called a
+// `PartitionHandle` (one named tree inside it) is now a `Keyspace`. The
+// estate's own `Tree` naming is unaffected — it was never fjall's word.
+use fjall::{Config, Database, Keyspace, KeyspaceCreateOptions, PersistMode};
 use moka::sync::Cache;
 use serde::{de::DeserializeOwned, Serialize};
 use std::path::Path;
@@ -54,25 +58,58 @@ impl Tree {
 /// One project's estate: a Fjall keyspace of partitions + a Moka read cache.
 /// Clone-cheap is not offered — an estate is opened once and shared by `&`.
 pub struct Estate {
-    keyspace: Keyspace,
-    docs: PartitionHandle,
-    state: PartitionHandle,
-    manifest: PartitionHandle,
-    agents: PartitionHandle,
+    db: Database,
+    docs: Keyspace,
+    state: Keyspace,
+    manifest: Keyspace,
+    agents: Keyspace,
     /// Read cache keyed by "<tree>/<key>" — bytes shared as `Arc<[u8]>`.
     cache: Cache<String, Arc<[u8]>>,
+    /// Set when [`Estate::open`] found a store it could not read and stepped
+    /// it aside. The caller LOGS this — the ceiling (fjall, moka, serde,
+    /// serde_json) admits no logger, and a reset that only whispers into a
+    /// `warn!` nobody reads is how durable state silently stays off forever.
+    stepped_aside: Option<std::path::PathBuf>,
 }
 
 impl Estate {
     /// Open (creating if absent) the estate rooted at `dir`.
     pub fn open(dir: &Path) -> Result<Self, String> {
-        let keyspace = Config::new(dir)
-            .open()
-            .map_err(|e| format!("estate open {}: {e}", dir.display()))?;
+        // fjall 3 uses a new on-disk format and REFUSES a v2 store outright
+        // (`InvalidVersion`) rather than migrating it. That is the right
+        // default for a database holding authored work — but this estate does
+        // not: its only production keys are `shell/route` and
+        // `wiredfront/last-comp`, both pure reopen-convenience. So a stale
+        // store is stepped ASIDE (never deleted — the document law's
+        // bak-step-aside, applied to a directory) and a fresh one opened, and
+        // the move is REPORTED so the caller can say so out loud. The
+        // alternative — returning Err — disables durable seam state on every
+        // launch from here to forever, behind one `warn!`.
+        let mut stepped_aside = None;
+        let db = match Database::open(Config::new(dir)) {
+            Ok(db) => db,
+            Err(fjall::Error::InvalidVersion(found)) if dir.exists() => {
+                let aside = Self::aside_path(dir);
+                std::fs::rename(dir, &aside).map_err(|e| {
+                    format!(
+                        "estate {}: unreadable format ({found:?}) and stepping it aside to {} failed: {e}",
+                        dir.display(),
+                        aside.display()
+                    )
+                })?;
+                stepped_aside = Some(aside);
+                Database::open(Config::new(dir)).map_err(|e| {
+                    format!("estate reopen after stepping aside {}: {e}", dir.display())
+                })?
+            }
+            Err(e) => return Err(format!("estate open {}: {e}", dir.display())),
+        };
         let mut parts = Vec::with_capacity(Tree::ALL.len());
         for t in Tree::ALL {
-            let p = keyspace
-                .open_partition(t.name(), PartitionCreateOptions::default())
+            // v3 takes the create options as a CLOSURE — it is only called
+            // when the keyspace does not already exist.
+            let p = db
+                .keyspace(t.name(), KeyspaceCreateOptions::default)
                 .map_err(|e| format!("estate partition {}: {e}", t.name()))?;
             parts.push(p);
         }
@@ -83,11 +120,31 @@ impl Estate {
             manifest: it.next().unwrap(),
             agents: it.next().unwrap(),
             cache: Cache::new(8192),
-            keyspace,
+            db,
+            stepped_aside,
         })
     }
 
-    fn partition(&self, tree: Tree) -> &PartitionHandle {
+    /// The store this estate could not read, moved out of the way at open —
+    /// `None` on every normal launch. The caller logs it; nothing reads it
+    /// back. No-clobber, so a second stale store never overwrites the first.
+    pub fn stepped_aside(&self) -> Option<&Path> {
+        self.stepped_aside.as_deref()
+    }
+
+    /// `<dir>.stale`, then `.stale-2`, `.stale-3`… — never an existing path.
+    fn aside_path(dir: &Path) -> std::path::PathBuf {
+        let first = dir.with_extension("stale");
+        if !first.exists() {
+            return first;
+        }
+        (2..)
+            .map(|n| dir.with_extension(format!("stale-{n}")))
+            .find(|p| !p.exists())
+            .expect("an unused suffix exists")
+    }
+
+    fn partition(&self, tree: Tree) -> &Keyspace {
         match tree {
             Tree::Docs => &self.docs,
             Tree::State => &self.state,
@@ -123,7 +180,7 @@ impl Estate {
             .map_err(|e| format!("estate get {}/{key}: {e}", tree.name()))?
         {
             Some(slice) => {
-                let arc: Arc<[u8]> = Arc::from(slice.as_ref());
+                let arc: Arc<[u8]> = Arc::from(&slice[..]);
                 self.cache.insert(ck, arc.clone());
                 Ok(Some(arc))
             }
@@ -163,16 +220,18 @@ impl Estate {
     /// Every key in a tree (sorted by Fjall's key order) — for listing docs,
     /// manifest entries, sessions. Malformed rows are skipped, never invented.
     pub fn keys(&self, tree: Tree) -> Vec<String> {
+        // v3 has no `keys()`: iteration yields a `Guard` that lends the key
+        // without forcing the value off disk, so `key()` IS the cheap read.
         self.partition(tree)
-            .keys()
-            .filter_map(|r| r.ok())
+            .iter()
+            .filter_map(|guard| guard.key().ok())
             .filter_map(|k| String::from_utf8(k.to_vec()).ok())
             .collect()
     }
 
     /// Flush to disk durably — call at editor save points.
     pub fn persist(&self) -> Result<(), String> {
-        self.keyspace
+        self.db
             .persist(PersistMode::SyncAll)
             .map_err(|e| format!("estate persist: {e}"))
     }
@@ -188,6 +247,49 @@ mod tests {
             .join(format!("{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir
+    }
+
+    /// The fjall 2 → 3 case, exercised through the REAL open path: a store
+    /// whose version marker fjall refuses must be stepped aside (not deleted,
+    /// not fatal), a fresh estate must open in its place, and the move must
+    /// be REPORTED so the caller can say it out loud. Writing a bogus marker
+    /// is how a v2 store presents itself to v3 — an unreadable version, which
+    /// is exactly the branch under test.
+    #[test]
+    fn an_unreadable_store_is_stepped_aside_not_fatal() {
+        let dir = scratch("stale-format");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("version"), [b'F', b'J', b'L', b'L', 2]).unwrap();
+
+        let e = Estate::open(&dir).expect("a stale store must not be fatal");
+        let aside = e
+            .stepped_aside()
+            .expect("the move must be reported, not silent")
+            .to_path_buf();
+        assert!(aside.exists(), "the old store is preserved, never deleted");
+        assert_ne!(
+            aside, dir,
+            "it is moved out of the way, not opened in place"
+        );
+
+        // The fresh estate is fully usable, and survives a reopen.
+        e.put_json(Tree::State, KEY_SHELL_ROUTE, &"web/home".to_string())
+            .unwrap();
+        e.persist().unwrap();
+        drop(e);
+
+        let reopened = Estate::open(&dir).unwrap();
+        assert!(
+            reopened.stepped_aside().is_none(),
+            "a healthy store reports no move"
+        );
+        assert_eq!(
+            reopened
+                .get_json::<String>(Tree::State, KEY_SHELL_ROUTE)
+                .unwrap()
+                .as_deref(),
+            Some("web/home")
+        );
     }
 
     #[test]
