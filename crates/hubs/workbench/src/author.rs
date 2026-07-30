@@ -23,7 +23,8 @@
 //! (anti-loop) — the coachable-signal catalog forwards the fact to touchpoints
 //! so AI/coach overlays react without the surface self-triggering.
 
-use crate::containers::{containers, pretty, Container, Kind};
+use crate::containers::{containers, Container, ContainerKind};
+use crate::words::pretty;
 use dpl_coldlight::{self as cl, Tone};
 use dpl_slides::SlideTemplate;
 use egui::RichText;
@@ -225,6 +226,188 @@ fn live_pane(ui: &mut egui::Ui, ed: &mut CardEditor) {
     );
 }
 
+/// The Picture tab — an image or a video on the card.
+///
+/// The shelf is the artifact INDEX, not a file dialog. That is the design:
+/// every path the index holds is already content-root-relative, so the media
+/// content-jail is satisfied by construction (`pictures.rs`). A dialog would
+/// mean copying files in — a capture concern, and sources are never mutated —
+/// or authoring a ref that escapes the root.
+fn picture_tab(ui: &mut egui::Ui, ed: &mut CardEditor) {
+    let fluid = cl::Fluid::of(ui.ctx().content_rect());
+    let current = ed.editor.media();
+    if ed.shelf.is_none() {
+        ed.shelf = Some(crate::pictures::pictures(ed.pictures));
+    }
+    let mut want: Option<Option<(String, String, String)>> = None;
+
+    ui.add_space(cl::space::S2);
+    ui.horizontal_wrapped(|ui| {
+        for kind in crate::pictures::PictureKind::ALL {
+            let on = ed.pictures == kind;
+            if cl::tip(ui.selectable_label(on, kind.label()), kind.tip()).clicked() && !on {
+                ed.pictures = kind;
+                // The gesture that changes the shelf is the one that re-reads
+                // it.
+                ed.shelf = None;
+            }
+        }
+        ui.add_space(cl::space::S3);
+        if current.is_some()
+            && cl::tip(
+                ui.selectable_label(false, crate::pictures::NOTHING),
+                "Take the picture off this card",
+            )
+            .clicked()
+        {
+            want = Some(None);
+        }
+    });
+    ui.add_space(cl::space::S2);
+
+    // Two different emptinesses, and they must not read alike: the list could
+    // not be opened, versus you simply have none of this kind yet.
+    // Degrade, never crash: a paint path does not panic on its own state.
+    let Some(shelf) = ed.shelf.as_ref() else {
+        return;
+    };
+    if let Some(why) = &shelf.unavailable {
+        ui.label(RichText::new(why).color(cl::ink::MUTED));
+        return;
+    }
+    if shelf.items.is_empty() {
+        ui.label(
+            RichText::new(format!(
+                "No {} in your content folder yet.",
+                ed.pictures.label().to_lowercase()
+            ))
+            .size(fluid.fs_body_lg())
+            .strong()
+            .color(cl::ink::STRONG),
+        );
+        ui.add_space(cl::space::S2);
+        ui.label(
+            RichText::new(
+                "Snip something, or bring a folder in, and it shows up here. Nothing is \
+                 copied or changed when you pick it — the card just points at it.",
+            )
+            .color(cl::ink::MUTED),
+        );
+        return;
+    }
+
+    // How it sits on the card. Only meaningful once there IS one.
+    if let Some((src, show, fit)) = &current {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(
+                RichText::new("How it sits")
+                    .size(fluid.fs_body())
+                    .color(cl::ink::BASE),
+            );
+            ui.add_space(cl::space::S2);
+            for option in ["cover", "contain"] {
+                let on = fit == option;
+                if cl::tip(
+                    ui.selectable_label(on, crate::pictures::fit_label(option)),
+                    if option == "cover" {
+                        "Fills the whole card, cropping the edges if it has to"
+                    } else {
+                        "Shows the whole picture, with space around it"
+                    },
+                )
+                .clicked()
+                    && !on
+                {
+                    want = Some(Some((src.clone(), show.clone(), option.to_string())));
+                }
+            }
+        });
+        ui.add_space(cl::space::S3);
+    }
+
+    let tile_w = fluid.ctl_thumb_w() * 1.6;
+    let tile_h = tile_w * 9.0 / 16.0;
+    ui.horizontal_wrapped(|ui| {
+        for item in &shelf.items {
+            let picked = current
+                .as_ref()
+                .is_some_and(|(src, _, _)| *src == item.slug);
+            let (rect, resp) =
+                ui.allocate_exact_size(egui::vec2(tile_w, tile_h), egui::Sense::click());
+            let clip = rect.intersect(ui.clip_rect());
+            {
+                let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+                inner.set_clip_rect(clip);
+                // The same ladder the card uses — locate, paint, or an honest
+                // plate. A record whose file has gone shows as missing here
+                // exactly as it would there.
+                dpl_slides::elements::asset_thumb(&mut inner, rect, &item.slug);
+            }
+            let painter = ui.painter().with_clip_rect(clip);
+            painter.rect_filled(
+                egui::Rect::from_min_max(
+                    egui::pos2(rect.min.x, rect.max.y - cl::space::S5),
+                    rect.max,
+                ),
+                egui::CornerRadius::same(cl::RADIUS),
+                cl::scrim(160),
+            );
+            painter.text(
+                egui::pos2(rect.center().x, rect.max.y - cl::space::S5 * 0.5),
+                egui::Align2::CENTER_CENTER,
+                &item.label,
+                egui::FontId::proportional(cl::Fluid::of(rect).fs_body_sm()),
+                cl::ink::STRONG,
+            );
+            painter.rect_stroke(
+                rect,
+                egui::CornerRadius::same(cl::RADIUS),
+                egui::Stroke::new(
+                    if picked { 2.0 } else { 1.0 },
+                    if picked {
+                        super::SPEC.tone.color()
+                    } else {
+                        cl::surface::HAIRLINE
+                    },
+                ),
+                egui::StrokeKind::Inside,
+            );
+            resp.widget_info(|| {
+                egui::WidgetInfo::selected(egui::WidgetType::Button, true, picked, &item.label)
+            });
+            let tip = if picked {
+                format!("{} — this is what the card has now", item.label)
+            } else {
+                format!("Put “{}” on the card", item.label)
+            };
+            if cl::tip(resp, &tip).clicked() && !picked {
+                want = Some(Some((
+                    item.slug.clone(),
+                    item.show.clone(),
+                    current
+                        .as_ref()
+                        .map(|(_, _, f)| f.clone())
+                        .unwrap_or_else(|| "cover".to_string()),
+                )));
+            }
+            ui.add_space(cl::space::S2);
+        }
+    });
+
+    if shelf.more {
+        ui.add_space(cl::space::S2);
+        ui.label(
+            RichText::new("Showing the most recent — there are more than fit here.")
+                .size(fluid.fs_body_sm())
+                .color(cl::ink::SUBTLE),
+        );
+    }
+
+    if let Some(next) = want {
+        ed.editor.set_media(next);
+    }
+}
+
 /// The "A quote" tab — someone else's words, kept with where they came from.
 ///
 /// A quote is a CONVENTION over text blocks, ratified by the operator on
@@ -338,7 +521,8 @@ fn quote_tab(ui: &mut egui::Ui, ed: &mut CardEditor) {
 /// The shortfall is stated under the choices rather than hidden. An operator
 /// should leave this tab knowing what exists, not wondering whether the UI is
 /// broken.
-fn movement_tab(ui: &mut egui::Ui, editor: &mut dpl_editor::Editor) {
+fn movement_tab(ui: &mut egui::Ui, ed: &mut CardEditor) {
+    let editor = &mut ed.editor;
     let fluid = cl::Fluid::of(ui.ctx().content_rect());
     let current = editor.slide().enter.clone();
     let mut want: Option<Option<String>> = None;
@@ -436,7 +620,8 @@ fn movement_words(inherited: Option<&str>) -> String {
 /// optionally blend a second, then optionally set something moving. Rows two
 /// and three stay hidden until row one is answered, so the first decision is
 /// never buried under two that depend on it.
-fn background_tab(ui: &mut egui::Ui, editor: &mut dpl_editor::Editor) {
+fn background_tab(ui: &mut egui::Ui, ed: &mut CardEditor) {
+    let editor = &mut ed.editor;
     let fluid = cl::Fluid::of(ui.ctx().content_rect());
     let colours = crate::backgrounds::colours();
     let current = editor.slide().background.clone();
@@ -869,6 +1054,15 @@ struct CardEditor {
     tab: CardTab,
     /// Which card's folder is open, so the strip can re-read it on close.
     dir: std::path::PathBuf,
+    /// Which sort of picture the Picture tab is showing.
+    pictures: crate::pictures::PictureKind,
+    /// The shelf for [`Self::pictures`], read ONCE per kind.
+    ///
+    /// `pictures()` opens the artifact index — a database connection, not a
+    /// lookup. Calling it per frame hung the UI thread hard enough that a
+    /// proof run never reached its screenshot. Same law `containers.rs`
+    /// follows: read on the gesture that changes it, never in the paint.
+    shelf: Option<crate::pictures::Shelf>,
     /// The quote tab's field buffer, adopted from the document the first time
     /// the tab is opened. Held so typing does not write — and therefore does
     /// not snapshot undo — on every keystroke.
@@ -887,6 +1081,39 @@ struct ShelfItem {
     label: String,
     blurb: String,
     tip: String,
+}
+
+/// How long ago, in words a person uses. The folder's modified time is the
+/// only fact available — anything more precise would imply a history this
+/// surface does not keep.
+fn coarse_when(when: Option<std::time::SystemTime>) -> String {
+    let Some(when) = when else {
+        return "unknown".to_string();
+    };
+    let Ok(ago) = std::time::SystemTime::now().duration_since(when) else {
+        return "just now".to_string();
+    };
+    let hours = ago.as_secs() / 3600;
+    match hours {
+        0 => "in the last hour".to_string(),
+        1..=23 => "today".to_string(),
+        24..=47 => "yesterday".to_string(),
+        48..=167 => "this week".to_string(),
+        _ => "a while ago".to_string(),
+    }
+}
+
+/// Which screen the authoring surface is showing.
+///
+/// The mock opens on a choice, not on the pieces — "Pick the lane first.
+/// Everything after it … follows from this one choice." Every drill that
+/// enters the content surface sets [`Screen::Content`] explicitly, so a proof
+/// script lands where it always did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum Screen {
+    #[default]
+    Dashboard,
+    Content,
 }
 
 /// The authoring surface's transient state. Default-derivable so the hub
@@ -927,9 +1154,12 @@ pub(crate) struct AuthorSurface {
     loaded: bool,
     /// The open overlay editor, if a card is being edited.
     editing: Option<CardEditor>,
+    /// Which screen the surface is on. The operator's third standing
+    /// correction: declare intent FIRST, then reach the pieces.
+    screen: Screen,
     /// Which sort of thing is being built into. `None` until the first load
     /// picks one — a strip labelled with nothing would be a lie.
-    kind: Option<Kind>,
+    kind: Option<ContainerKind>,
     /// Every container of [`Self::kind`], read off disk when the kind
     /// changes rather than every frame.
     offered: Vec<Container>,
@@ -968,6 +1198,224 @@ fn load_draft_doc(dir: &std::path::Path) -> Option<dpl_slides::document::DocSlid
 
 impl AuthorSurface {
     pub(crate) fn ui(&mut self, ui: &mut egui::Ui, fabric: &Option<dpl_fabric::Fabric>) {
+        self.load_once();
+        match self.screen {
+            Screen::Dashboard => self.dashboard(ui),
+            Screen::Content => self.content(ui, fabric),
+        }
+    }
+
+    /// How many ingredients the operator has to build WITH. Every registry
+    /// the Library already enumerates — no new count, no stored total.
+    fn to_build_with(&self) -> usize {
+        self.demos.len()
+            + self.seeds.len()
+            + dpl_slides::elements::elements().len()
+            + dpl_slides::blocks::blocks().len()
+            + cl::TRAITS.len()
+    }
+
+    /// Every container the operator has, across every kind, newest first.
+    ///
+    /// "Newest" is the folder's own modified time — a fact on disk, not a
+    /// history this surface keeps. Anything richer would need a store, and an
+    /// invented one is the padding this lane keeps refusing.
+    fn everything_open(&self) -> Vec<(Container, Option<std::time::SystemTime>)> {
+        let root = dpl_engine_capture::content_root();
+        let mut all: Vec<(Container, Option<std::time::SystemTime>)> = ContainerKind::ALL
+            .into_iter()
+            .flat_map(|kind| containers(kind, &root))
+            .map(|c| {
+                let when = std::fs::metadata(&c.dir).and_then(|m| m.modified()).ok();
+                (c, when)
+            })
+            .collect();
+        all.sort_by(|a, b| b.1.cmp(&a.1));
+        all
+    }
+
+    /// The dashboard — declare what you are doing before reaching the pieces.
+    fn dashboard(&mut self, ui: &mut egui::Ui) {
+        let fluid = cl::Fluid::of(ui.max_rect());
+        let open = self.everything_open();
+        let mut go: Option<Option<usize>> = None;
+
+        // A legibility scrim under the whole screen.
+        //
+        // The content surface fills its panel and hides the backdrop by
+        // sheer volume; the dashboard is deliberately sparse, so the
+        // artwork came straight through and the lane footers were barely
+        // readable. This is the same legibility diffusion the media painter
+        // lays under a picture before words sit on it — the vocabulary
+        // already had the answer.
+        ui.painter()
+            .rect_filled(ui.max_rect(), cl::RADIUS, cl::scrim(196));
+        ui.add_space(cl::space::S2);
+
+        ui.label(
+            RichText::new("DEVPULSE · AUTHOR")
+                .size(fluid.fs_eyebrow())
+                .color(cl::ink::MUTED),
+        );
+        ui.label(
+            RichText::new("What are you working on today?")
+                .heading()
+                .color(cl::ink::STRONG),
+        );
+        ui.label(
+            RichText::new(
+                "Pick the lane first. Everything after it — what you see, what the buttons \
+                 say, where the file lands — follows from this one choice.",
+            )
+            .small()
+            .color(cl::ink::MUTED),
+        );
+        ui.add_space(cl::space::S5);
+
+        // Three lanes. Every number is read from a census that already exists;
+        // none is stored and none is invented.
+        ui.horizontal_wrapped(|ui| {
+            let lanes: [(Tone, &str, &str, String); 3] = [
+                (
+                    Tone::Cyan,
+                    "Make something",
+                    "Build cards into a lesson, guide, episode or deck. Pick one you \
+                     already have, or start fresh.",
+                    format!("{} open", open.len()),
+                ),
+                (
+                    Tone::Amber,
+                    "Pick up where I left off",
+                    "Straight back into the last thing you touched, exactly as you left \
+                     it.",
+                    match open.first() {
+                        Some((c, _)) => format!("last · {}", c.label),
+                        None => "nothing yet".to_string(),
+                    },
+                ),
+                (
+                    Tone::Magenta,
+                    "Build a new piece",
+                    "Add to what you can build WITH — a piece, a combo, a look, a whole \
+                     layout. One kit, mixed and matched.",
+                    format!("{} to build with", self.to_build_with()),
+                ),
+            ];
+            for (ix, (tone, title, blurb, foot)) in lanes.into_iter().enumerate() {
+                let w = (ui.available_width() / 3.0 - cl::space::S4).max(fluid.panel_width() * 0.6);
+                ui.allocate_ui(egui::vec2(w, fluid.panel_width() * 0.5), |ui| {
+                    ui.vertical(|ui| {
+                        let hit = cl::tip(
+                            ui.label(
+                                RichText::new(title)
+                                    .size(fluid.fs_h4())
+                                    .strong()
+                                    .color(tone.color()),
+                            )
+                            .interact(egui::Sense::click()),
+                            match ix {
+                                0 => "Choose what to build into, then start cards",
+                                1 => "Straight back into the last thing you touched",
+                                _ => "Everything you can build with, on one wall",
+                            },
+                        );
+                        ui.label(
+                            RichText::new(blurb)
+                                .size(fluid.fs_body_sm())
+                                .color(cl::ink::BASE),
+                        );
+                        ui.label(
+                            RichText::new(&foot)
+                                .size(fluid.fs_body_sm())
+                                .color(cl::ink::SUBTLE),
+                        );
+                        if hit.clicked() {
+                            // Lane 3 belongs to M9's platform lane, which does
+                            // not exist. The Library IS "what you can build
+                            // with", so it goes there rather than nowhere —
+                            // and the tooltip says that is what it is.
+                            go = Some(match ix {
+                                1 => Some(0),
+                                _ => None,
+                            });
+                        }
+                    });
+                });
+                ui.add_space(cl::space::S4);
+            }
+        });
+
+        ui.add_space(cl::space::S5);
+        ui.label(
+            RichText::new("OPEN NOW")
+                .size(fluid.fs_eyebrow())
+                .color(cl::ink::MUTED),
+        );
+        ui.label(
+            RichText::new("every kind you have — new kinds can be added any time")
+                .size(fluid.fs_body_sm())
+                .color(cl::ink::SUBTLE),
+        );
+        ui.add_space(cl::space::S2);
+
+        if open.is_empty() {
+            ui.label(
+                RichText::new(
+                    "Nothing open yet. Make something, and whatever you build into shows \
+                     up here.",
+                )
+                .color(cl::ink::MUTED),
+            );
+        }
+        ui.horizontal_wrapped(|ui| {
+            for (ix, (c, when)) in open.iter().enumerate() {
+                let hit = cl::tip(
+                    ui.label(
+                        RichText::new(format!(
+                            "{}  ·  {}  ·  {} {} · {}",
+                            c.kind.label(),
+                            c.label,
+                            c.count,
+                            c.kind.unit(),
+                            coarse_when(*when),
+                        ))
+                        .size(fluid.fs_body_sm())
+                        .color(c.kind.tone().color()),
+                    )
+                    .interact(egui::Sense::click()),
+                    "Go straight into this one",
+                );
+                if hit.clicked() {
+                    go = Some(Some(ix));
+                }
+                ui.add_space(cl::space::S3);
+            }
+        });
+
+        if let Some(which) = go {
+            if let Some(ix) = which {
+                if let Some((c, _)) = open.get(ix) {
+                    self.choose_kind(c.kind);
+                    self.into = self.offered.iter().position(|o| o.slug == c.slug);
+                }
+            }
+            self.screen = Screen::Content;
+        }
+    }
+
+    /// The content surface — everything downstream of the choice.
+    fn content(&mut self, ui: &mut egui::Ui, fabric: &Option<dpl_fabric::Fabric>) {
+        ui.horizontal(|ui| {
+            if cl::tip(
+                ui.label(RichText::new("← Back").strong().color(cl::ink::MUTED))
+                    .interact(egui::Sense::click()),
+                "Back to choosing what you are working on",
+            )
+            .clicked()
+            {
+                self.screen = Screen::Dashboard;
+            }
+        });
         ui.label(
             RichText::new("AUTHOR — turn an intention into a card")
                 .heading()
@@ -1048,6 +1496,58 @@ impl AuthorSurface {
         self.editor_modal(ui);
     }
 
+    /// Put one of this sitting's cards into the loaded container.
+    ///
+    /// `dpl_doc::place_slide` does the mutation and does it carefully: it
+    /// COPIES (the inbox draft survives), refuses a slide that does not
+    /// validate, refuses to create an episode, never clobbers a name, and
+    /// rolls the episode back if the result would be invalid. So this is a
+    /// gesture over a safe primitive, not a new mutation.
+    ///
+    /// On success the draft leaves the strip — it is in the container now —
+    /// and the count is RE-READ from disk rather than incremented, so the
+    /// number on screen is the number in the folder. On failure the card
+    /// stays and the reason is shown verbatim: an operator who believes their
+    /// work is filed when it is not is the worst outcome this surface can
+    /// produce.
+    /// `root` is passed rather than read from `content_root()`, which is a
+    /// process-wide `OnceLock` and therefore un-pointable from a test. Taking
+    /// it as an argument is both better design and what makes this path
+    /// provable.
+    fn place_draft(&mut self, ix: usize, chapter: &str, root: &std::path::Path) {
+        let Some(container) = self.container().cloned() else {
+            return;
+        };
+        let Some(draft) = self.drafts.get(ix) else {
+            return;
+        };
+        let Some((show, episode)) = container.slug.split_once('/') else {
+            self.status = "that container's name is not a show and an episode".into();
+            return;
+        };
+        match dpl_doc::place_slide(root, &draft.dir, show, episode, chapter, None) {
+            Ok(placed) => {
+                self.status = format!(
+                    "put “{}” into {} — it is now {}/{}",
+                    draft.label, container.label, placed.chapter, placed.slide
+                );
+                self.drafts.remove(ix);
+                // Re-read, never increment: the count is a fact about the
+                // folder, not a tally the surface keeps.
+                self.offered = containers(container.kind, root);
+                self.into = self
+                    .offered
+                    .iter()
+                    .position(|c| c.slug == container.slug)
+                    .or(self.into);
+            }
+            // Verbatim. `place_slide` already says why in plain-enough words
+            // ("slide is not finished…", "chapter … not in episode"), and
+            // rewording it here would only lose detail.
+            Err(why) => self.status = format!("could not put that card in: {why}"),
+        }
+    }
+
     /// Start a card: write the document, remember it, open its editor, then
     /// publish the fact. The ONE path — every control that starts a card
     /// comes through here.
@@ -1099,6 +1599,7 @@ impl AuthorSurface {
         // The same path a tap takes — a drill that minted differently would
         // prove a code path the operator never walks.
         self.start_card(None, &None);
+        self.screen = Screen::Content;
     }
 
     /// Open the overlay editor on one TAB by its slug — the
@@ -1107,6 +1608,7 @@ impl AuthorSurface {
     ///
     /// Unknown slugs leave the tab alone rather than guessing.
     pub(crate) fn card_tab_drill(&mut self, slug: &str) {
+        self.screen = Screen::Content;
         if self.editing.is_none() {
             // Re-open the newest card in the inbox rather than minting another
             // one. A drill that shows a tab should not need a fresh card each
@@ -1138,15 +1640,19 @@ impl AuthorSurface {
             self.start_card(None, &None);
         }
         self.editing = None;
+        self.screen = Screen::Content;
     }
 
     /// Show one kind's shelf of containers — the `--author-container <kind>`
     /// proof seam. An unknown slug is ignored rather than guessed at.
     pub(crate) fn container_drill(&mut self, slug: &str) {
-        if let Some(kind) = Kind::ALL.into_iter().find(|k| k.slug() == slug) {
+        if let Some(kind) = ContainerKind::ALL.into_iter().find(|k| k.slug() == slug) {
             self.load_once();
             self.choose_kind(kind);
         }
+        // Every seam enters the CONTENT surface. The dashboard is where a
+        // person starts; a proof script has already made its choice.
+        self.screen = Screen::Content;
     }
 
     /// Open the overlay editor on a card's own folder.
@@ -1159,6 +1665,8 @@ impl AuthorSurface {
                     tab: CardTab::default(),
                     dir: dir.to_path_buf(),
                     quote: None,
+                    pictures: crate::pictures::PictureKind::default(),
+                    shelf: None,
                     preview: dpl_slides::motion::Clock::default(),
                 })
             }
@@ -1280,9 +1788,10 @@ impl AuthorSurface {
                             ui.set_clip_rect(controls.intersect(ui.clip_rect()));
                             match ed.tab {
                                 CardTab::Words => ed.editor.ui(ui),
-                                CardTab::Background => background_tab(ui, &mut ed.editor),
-                                CardTab::Movement => movement_tab(ui, &mut ed.editor),
+                                CardTab::Background => background_tab(ui, ed),
+                                CardTab::Movement => movement_tab(ui, ed),
                                 CardTab::Quote => quote_tab(ui, ed),
+                                CardTab::Picture => picture_tab(ui, ed),
                                 other => {
                                     ui.add_space(cl::space::S4);
                                     ui.label(
@@ -1376,7 +1885,7 @@ impl AuthorSurface {
     ///
     /// Reads the disk, so it runs on a kind change and at first load — never
     /// per frame.
-    fn choose_kind(&mut self, kind: Kind) {
+    fn choose_kind(&mut self, kind: ContainerKind) {
         self.kind = Some(kind);
         self.offered = containers(kind, &dpl_engine_capture::content_root());
         self.into = (!self.offered.is_empty()).then_some(0);
@@ -1389,12 +1898,12 @@ impl AuthorSurface {
 
     /// "Building into …" — the kind, then which one.
     ///
-    /// Both pickers are drawn from [`Kind::ALL`] and the disk census; neither
+    /// Both pickers are drawn from [`ContainerKind::ALL`] and the disk census; neither
     /// is a hand-list. A kind with nothing behind it says why in its own
     /// words instead of offering an empty menu.
     fn container_bar(&mut self, ui: &mut egui::Ui) {
         let fluid = cl::Fluid::of(ui.max_rect());
-        let kind = self.kind.unwrap_or(Kind::Episode);
+        let kind = self.kind.unwrap_or(ContainerKind::Episode);
         let mut want = None;
 
         ui.horizontal_wrapped(|ui| {
@@ -1412,7 +1921,7 @@ impl AuthorSurface {
                         .color(kind.tone().color()),
                 )
                 .show_ui(ui, |ui| {
-                    for k in Kind::ALL {
+                    for k in ContainerKind::ALL {
                         let on = k == kind;
                         let mut picked = on;
                         let item = cl::tip(
@@ -1454,7 +1963,10 @@ impl AuthorSurface {
                     "Nothing to build into under this heading yet",
                 );
             } else {
-                let current = self.container().map(|c| c.name.clone()).unwrap_or_default();
+                let current = self
+                    .container()
+                    .map(|c| c.label.clone())
+                    .unwrap_or_default();
                 let which = egui::ComboBox::from_id_salt("author.container")
                     .selected_text(RichText::new(&current).strong().color(cl::ink::STRONG))
                     .show_ui(ui, |ui| {
@@ -1462,8 +1974,13 @@ impl AuthorSurface {
                             let mut picked = self.into == Some(ix);
                             let item = ui.toggle_value(
                                 &mut picked,
-                                RichText::new(format!("{}  ({} {})", c.name, c.count, kind.unit()))
-                                    .color(cl::ink::BASE),
+                                RichText::new(format!(
+                                    "{}  ({} {})",
+                                    c.label,
+                                    c.count,
+                                    kind.unit()
+                                ))
+                                .color(cl::ink::BASE),
                             );
                             if item.clicked() {
                                 self.into = Some(ix);
@@ -1511,6 +2028,8 @@ impl AuthorSurface {
             return false;
         };
         let mut start_one = false;
+        // Which chapter the operator asked to put this sitting's cards into.
+        let mut put_in: Option<String> = None;
         // Where the band begins, so it can report what it actually took.
         let top = ui.cursor().top();
 
@@ -1541,7 +2060,7 @@ impl AuthorSurface {
             match self.container() {
                 Some(c) => {
                     ui.label(
-                        RichText::new(&c.name)
+                        RichText::new(&c.label)
                             .size(fluid.fs_body_lg())
                             .strong()
                             .color(cl::ink::STRONG),
@@ -1572,9 +2091,87 @@ impl AuthorSurface {
                         .size(fluid.fs_body_sm())
                         .color(Tone::Amber.color()),
                     ),
-                    "Cards you started this sitting. They are saved in your inbox; putting \
-                     them into what you picked above comes next.",
+                    "Cards you started this sitting. They are saved in your inbox until \
+                     you put them in.",
                 );
+                ui.add_space(cl::space::S3);
+                // The gesture the strip has been promising. Only an episode
+                // holds slide folders; every other kind says why instead of
+                // offering a button that cannot work.
+                match kind.cannot_take_a_card() {
+                    Some(why) => {
+                        cl::tip(
+                            ui.label(
+                                RichText::new("can't put cards in here")
+                                    .size(fluid.fs_body_sm())
+                                    .color(cl::ink::SUBTLE),
+                            ),
+                            why,
+                        );
+                    }
+                    None => {
+                        let chapters = self.container().map(|c| c.chapters.clone());
+                        match chapters.as_deref() {
+                            // Nothing to put them in — an episode with no
+                            // chapters cannot receive a card, and saying so
+                            // beats a button that always fails.
+                            Some([]) | None => {
+                                cl::tip(
+                                    ui.label(
+                                        RichText::new("no chapters to put them in")
+                                            .size(fluid.fs_body_sm())
+                                            .color(cl::ink::SUBTLE),
+                                    ),
+                                    "This episode has no chapters yet, and a card goes into \
+                                     a chapter.",
+                                );
+                            }
+                            // One chapter is not a decision.
+                            Some([(id, _)]) => {
+                                if cl::tip(
+                                    ui.label(
+                                        RichText::new("Put them in")
+                                            .size(fluid.fs_body_sm())
+                                            .strong()
+                                            .color(super::SPEC.tone.color()),
+                                    )
+                                    .interact(egui::Sense::click()),
+                                    "Copy every card you started into this one. Your \
+                                     originals stay where they are.",
+                                )
+                                .clicked()
+                                {
+                                    put_in = Some(id.clone());
+                                }
+                            }
+                            // More than one IS a decision, so ask.
+                            Some(many) => {
+                                ui.label(
+                                    RichText::new("Put them in")
+                                        .size(fluid.fs_body_sm())
+                                        .color(cl::ink::MUTED),
+                                );
+                                for (id, title) in many {
+                                    if cl::tip(
+                                        ui.label(
+                                            RichText::new(title)
+                                                .size(fluid.fs_body_sm())
+                                                .strong()
+                                                .color(super::SPEC.tone.color()),
+                                        )
+                                        .interact(egui::Sense::click()),
+                                        "Copy every card you started into this chapter",
+                                    )
+                                    .clicked()
+                                    {
+                                        put_in = Some(id.clone());
+                                    }
+                                    ui.add_space(cl::space::S2);
+                                }
+                            }
+                        }
+                    }
+                }
             }
         });
         ui.add_space(cl::space::S2);
@@ -1638,6 +2235,20 @@ impl AuthorSurface {
                     }
                 });
             });
+        if let Some(chapter) = put_in {
+            // Oldest first, and from the front each time, because a successful
+            // place removes the draft it just filed.
+            while !self.drafts.is_empty() {
+                let before = self.drafts.len();
+                self.place_draft(0, &chapter, &dpl_engine_capture::content_root());
+                if self.drafts.len() == before {
+                    // It refused. Stop rather than retrying the same card
+                    // forever — the reason is already in the status line.
+                    break;
+                }
+            }
+        }
+
         // Measured, not guessed — the next frame reserves exactly this.
         self.strip_h = (ui.cursor().top() - top).max(0.0);
         start_one
@@ -1987,10 +2598,10 @@ impl AuthorSurface {
         // starts labelled with a real container rather than an empty heading.
         // If none do, the bar says so and the strip stays honest about it.
         let root = dpl_engine_capture::content_root();
-        let first = Kind::ALL
+        let first = ContainerKind::ALL
             .into_iter()
             .find(|k| !containers(*k, &root).is_empty())
-            .unwrap_or(Kind::Episode);
+            .unwrap_or(ContainerKind::Episode);
         self.choose_kind(first);
         self.demos = dpl_slides::demos();
         self.seeds = dpl_doc::list_seeds()
@@ -2242,6 +2853,21 @@ pub(crate) mod background_tests {
         dir
     }
 
+    /// A `CardEditor` over a real card folder — the state every tab takes.
+    /// Shared, so a test never builds one a different way from the surface.
+    pub(super) fn card_editor(dir: &std::path::Path) -> CardEditor {
+        CardEditor {
+            title: "Test card".into(),
+            editor: dpl_editor::Editor::open(dir).unwrap(),
+            tab: CardTab::default(),
+            dir: dir.to_path_buf(),
+            quote: None,
+            pictures: crate::pictures::PictureKind::default(),
+            shelf: None,
+            preview: dpl_slides::motion::Clock::default(),
+        }
+    }
+
     /// Run the tab and hand back the document it left behind.
     ///
     /// A colour name appears in row one AND row two once a first colour is
@@ -2249,12 +2875,11 @@ pub(crate) mod background_tests {
     /// which row's tile to tap: 0 is "make this the colour", 1 is "blend this
     /// into it".
     fn drive_nth(dir: &std::path::Path, label: &str, nth: usize) -> dpl_doc::Slide {
-        let editor = dpl_editor::Editor::open(dir).unwrap();
         let mut harness = egui_kittest::Harness::builder()
             .with_size(egui::vec2(1280.0, 800.0))
             .build_ui_state(
-                |ui, ed: &mut dpl_editor::Editor| background_tab(ui, ed),
-                editor,
+                |ui, ed: &mut CardEditor| background_tab(ui, ed),
+                card_editor(dir),
             );
         harness.run();
         let hits = harness.get_all_by_label(label).collect::<Vec<_>>();
@@ -2266,12 +2891,11 @@ pub(crate) mod background_tests {
 
     /// Run the tab for a few frames and hand back the document it left behind.
     fn drive(dir: &std::path::Path, clicks: &[&str]) -> dpl_doc::Slide {
-        let editor = dpl_editor::Editor::open(dir).unwrap();
         let mut harness = egui_kittest::Harness::builder()
             .with_size(egui::vec2(1280.0, 800.0))
             .build_ui_state(
-                |ui, ed: &mut dpl_editor::Editor| background_tab(ui, ed),
-                editor,
+                |ui, ed: &mut CardEditor| background_tab(ui, ed),
+                card_editor(dir),
             );
         harness.run();
         for label in clicks {
@@ -2366,12 +2990,11 @@ mod movement_tests {
     use egui_kittest::kittest::Queryable as _;
 
     fn drive_movement(dir: &std::path::Path, label: &str) -> dpl_doc::Slide {
-        let editor = dpl_editor::Editor::open(dir).unwrap();
         let mut harness = egui_kittest::Harness::builder()
             .with_size(egui::vec2(1280.0, 800.0))
             .build_ui_state(
-                |ui, ed: &mut dpl_editor::Editor| movement_tab(ui, ed),
-                editor,
+                |ui, ed: &mut CardEditor| movement_tab(ui, ed),
+                card_editor(dir),
             );
         harness.run();
         harness.get_by_label_contains(label).click();
@@ -2424,20 +3047,9 @@ mod movement_tests {
 
 #[cfg(test)]
 mod overlay_tests {
-    use super::background_tests::card;
+    use super::background_tests::{card, card_editor};
     use super::*;
     use egui_kittest::kittest::Queryable as _;
-
-    fn editor_over(dir: &std::path::Path) -> CardEditor {
-        CardEditor {
-            title: "Test card".into(),
-            editor: dpl_editor::Editor::open(dir).unwrap(),
-            tab: CardTab::default(),
-            dir: dir.to_path_buf(),
-            quote: None,
-            preview: dpl_slides::motion::Clock::default(),
-        }
-    }
 
     /// The gallery gate for tabs: every registered tab is reachable from the
     /// rail, in BOTH orientations. A tab that exists but cannot be got to is
@@ -2446,7 +3058,7 @@ mod overlay_tests {
     fn every_tab_is_reachable_from_the_rail_in_both_orientations() {
         for vertical in [true, false] {
             let dir = card(&format!("rail-{vertical}"), None);
-            let ed = editor_over(&dir);
+            let ed = card_editor(&dir);
             let mut harness = egui_kittest::Harness::builder()
                 .with_size(egui::vec2(1280.0, 800.0))
                 .build_ui_state(
@@ -2494,7 +3106,7 @@ mod overlay_tests {
     #[test]
     fn the_live_pane_shows_a_moving_card_and_says_so() {
         let dir = card("live", None);
-        let ed = editor_over(&dir);
+        let ed = card_editor(&dir);
         let mut harness = egui_kittest::Harness::builder()
             .with_size(egui::vec2(400.0, 400.0))
             .build_ui_state(|ui, ed: &mut CardEditor| live_pane(ui, ed), ed);
@@ -2616,5 +3228,411 @@ mod quote_tests {
         let read = dpl_editor::Editor::open(&dir).unwrap().quote();
         std::fs::remove_dir_all(&dir).ok();
         assert_eq!(read, ["W".to_string(), String::new(), "S".to_string()]);
+    }
+}
+
+#[cfg(test)]
+mod picture_tests {
+    use super::background_tests::card;
+
+    /// Putting a picture on writes a Media block the validator accepts, with
+    /// `show` taken from the index's own kind — never sniffed.
+    #[test]
+    fn setting_a_picture_writes_a_valid_media_block() {
+        let dir = card("pic-set", None);
+        let mut ed = dpl_editor::Editor::open(&dir).unwrap();
+        ed.set_media(Some((
+            "inbox/shot.png".into(),
+            "image".into(),
+            "cover".into(),
+        )));
+        let after = dpl_doc::load(&dir).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+
+        match &after.blocks[0] {
+            dpl_doc::Block::Media { show, src, fit, .. } => {
+                assert_eq!(show, "image");
+                assert_eq!(src, "inbox/shot.png");
+                // cover is the schema's default — a sparse document does not
+                // write it.
+                assert_eq!(*fit, None);
+            }
+            other => panic!("expected a media block, got {other:?}"),
+        }
+        assert!(dpl_doc::validate(&after).is_empty());
+    }
+
+    /// "Show all of it" is the non-default, so it IS written.
+    #[test]
+    fn contain_is_written_because_it_is_not_the_default() {
+        let dir = card("pic-fit", None);
+        let mut ed = dpl_editor::Editor::open(&dir).unwrap();
+        ed.set_media(Some((
+            "inbox/shot.png".into(),
+            "image".into(),
+            "contain".into(),
+        )));
+        let after = dpl_doc::load(&dir).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+        match &after.blocks[0] {
+            dpl_doc::Block::Media { fit, .. } => assert_eq!(fit.as_deref(), Some("contain")),
+            other => panic!("expected a media block, got {other:?}"),
+        }
+    }
+
+    /// One picture per card: choosing a second REPLACES rather than appending,
+    /// because two backdrops would fight.
+    #[test]
+    fn a_second_picture_replaces_the_first() {
+        let dir = card("pic-replace", None);
+        let mut ed = dpl_editor::Editor::open(&dir).unwrap();
+        ed.set_media(Some(("inbox/a.png".into(), "image".into(), "cover".into())));
+        ed.set_media(Some(("inbox/b.png".into(), "image".into(), "cover".into())));
+        let after = dpl_doc::load(&dir).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+
+        let media: Vec<&dpl_doc::Block> = after
+            .blocks
+            .iter()
+            .filter(|b| matches!(b, dpl_doc::Block::Media { .. }))
+            .collect();
+        assert_eq!(media.len(), 1, "only one picture may be on a card");
+        match media[0] {
+            dpl_doc::Block::Media { src, .. } => assert_eq!(src, "inbox/b.png"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// "No picture" removes the block and leaves the card's words alone.
+    #[test]
+    fn no_picture_clears_it_and_keeps_the_words() {
+        let dir = card("pic-clear", None);
+        let mut ed = dpl_editor::Editor::open(&dir).unwrap();
+        ed.set_quote(["Words".into(), String::new(), String::new()]);
+        ed.set_media(Some(("inbox/a.png".into(), "image".into(), "cover".into())));
+        ed.set_media(None);
+        let after = dpl_doc::load(&dir).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+
+        assert!(
+            !after
+                .blocks
+                .iter()
+                .any(|b| matches!(b, dpl_doc::Block::Media { .. })),
+            "the picture should be gone"
+        );
+        assert!(
+            after.blocks.iter().any(|b| b.id() == "quote"),
+            "the words should remain"
+        );
+        assert!(dpl_doc::validate(&after).is_empty());
+    }
+
+    /// An escaping ref would be rejected by the validator — proving the jail
+    /// is real, and therefore that passing index paths through is what keeps
+    /// this tab inside it.
+    #[test]
+    fn an_escaping_ref_would_not_validate() {
+        for bad in ["/etc/passwd", "C:\\x.png", "../../escape.png"] {
+            let slide = dpl_doc::Slide {
+                v: dpl_doc::SCHEMA_V,
+                template: "media".into(),
+                background: None,
+                blocks: vec![dpl_doc::Block::Media {
+                    id: "picture".into(),
+                    show: "image".into(),
+                    src: bad.into(),
+                    fit: None,
+                    poster: None,
+                }],
+                enter: None,
+                reveals: Vec::new(),
+            };
+            assert!(
+                !dpl_doc::validate(&slide).is_empty(),
+                "{bad} should be refused by the content jail"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod place_tests {
+    /// A content root with one real episode holding one chapter.
+    fn episode_root(name: &str) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!("dpl-place-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let ep = root.join("effingai").join("ep04");
+        std::fs::create_dir_all(&ep).unwrap();
+        dpl_doc::save_episode(
+            &ep,
+            &dpl_doc::Episode {
+                v: dpl_doc::SCHEMA_V,
+                id: "ep04".into(),
+                title: "Neon Drop".into(),
+                chapters: vec![dpl_doc::Chapter {
+                    id: "intro".into(),
+                    title: "Intro".into(),
+                    slides: Vec::new(),
+                }],
+            },
+        )
+        .unwrap();
+        root
+    }
+
+    /// A finished card in the inbox, ready to be filed.
+    fn draft(
+        root: &std::path::Path,
+        name: &str,
+        blocks: Vec<dpl_doc::Block>,
+    ) -> std::path::PathBuf {
+        let dir = root.join("inbox").join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        dpl_doc::save(
+            &dir,
+            &dpl_doc::Slide {
+                v: dpl_doc::SCHEMA_V,
+                template: "title".into(),
+                background: None,
+                blocks,
+                enter: None,
+                reveals: Vec::new(),
+            },
+        )
+        .unwrap();
+        dir
+    }
+
+    /// The whole point: a card ends up in the episode, the chapter grows, and
+    /// the operator's own inbox copy is left exactly where it was.
+    #[test]
+    fn placing_copies_into_the_chapter_and_leaves_the_draft_alone() {
+        let root = episode_root("ok");
+        let dir = draft(&root, "authored-draft-1", Vec::new());
+        let placed =
+            dpl_doc::place_slide(&root, &dir, "effingai", "ep04", "intro", None).expect("place");
+
+        let ep = dpl_doc::load_episode(&root.join("effingai").join("ep04")).unwrap();
+        let survived = dir.join("slide.json").is_file();
+        std::fs::remove_dir_all(&root).ok();
+
+        assert_eq!(ep.chapters[0].slides, vec![placed.slide]);
+        assert!(survived, "the inbox draft must survive — place COPIES");
+    }
+
+    /// A refused place must leave the card where it is. An operator who
+    /// believes their work is filed when it is not is the worst outcome this
+    /// surface can produce.
+    #[test]
+    fn an_unfinished_card_is_refused_and_survives() {
+        let root = episode_root("bad");
+        // An unknown size ref is exactly what `validate` exists to catch.
+        let dir = draft(
+            &root,
+            "authored-draft-1",
+            vec![dpl_doc::Block::Text {
+                id: "title".into(),
+                text: "hi".into(),
+                font: None,
+                size: "not-a-size".into(),
+                ink: None,
+            }],
+        );
+        let outcome = dpl_doc::place_slide(&root, &dir, "effingai", "ep04", "intro", None);
+        let ep = dpl_doc::load_episode(&root.join("effingai").join("ep04")).unwrap();
+        let survived = dir.join("slide.json").is_file();
+        std::fs::remove_dir_all(&root).ok();
+
+        assert!(outcome.is_err(), "an unfinished card must not be placed");
+        assert!(
+            ep.chapters[0].slides.is_empty(),
+            "nothing may reach the chapter"
+        );
+        assert!(survived, "the draft must still be there to fix");
+    }
+
+    /// The count the strip shows is a fact about the folder, so it has to come
+    /// FROM the folder after a place — never an increment.
+    #[test]
+    fn the_count_after_placing_is_what_is_on_disk() {
+        let root = episode_root("count");
+        for n in 1..=2 {
+            let dir = draft(&root, &format!("authored-draft-{n}"), Vec::new());
+            dpl_doc::place_slide(&root, &dir, "effingai", "ep04", "intro", None).expect("place");
+        }
+        let found = crate::containers::containers(crate::containers::ContainerKind::Episode, &root);
+        std::fs::remove_dir_all(&root).ok();
+
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].count, 2, "the census must read the placed cards");
+        assert_eq!(found[0].chapters.len(), 1);
+    }
+
+    /// The wiring itself: the surface's own gesture files the card, drops it
+    /// from the sitting, and re-reads the count from disk.
+    ///
+    /// Provable only because `place_draft` takes the root — `content_root()`
+    /// is a process-wide `OnceLock` and cannot be pointed at a scratch dir
+    /// from a test.
+    #[test]
+    fn the_surfaces_own_gesture_files_the_card_and_updates_itself() {
+        let root = episode_root("surface");
+        let dir = draft(&root, "authored-draft-1", Vec::new());
+
+        let mut surface = super::AuthorSurface {
+            offered: crate::containers::containers(
+                crate::containers::ContainerKind::Episode,
+                &root,
+            ),
+            into: Some(0),
+            kind: Some(crate::containers::ContainerKind::Episode),
+            ..Default::default()
+        };
+        surface.drafts.push(super::Draft {
+            slide: "authored-draft-1".into(),
+            label: "New card".into(),
+            dir,
+            doc: None,
+        });
+
+        surface.place_draft(0, "intro", &root);
+        let ep = dpl_doc::load_episode(&root.join("effingai").join("ep04")).unwrap();
+        let drafts_left = surface.drafts.len();
+        let count = surface.offered[0].count;
+        let status = surface.status.clone();
+        std::fs::remove_dir_all(&root).ok();
+
+        assert_eq!(
+            ep.chapters[0].slides.len(),
+            1,
+            "the card must reach the chapter"
+        );
+        assert_eq!(drafts_left, 0, "a filed card leaves the sitting's list");
+        assert_eq!(count, 1, "the count is re-read from disk, not incremented");
+        assert!(status.contains("put"), "the operator is told: {status:?}");
+    }
+
+    /// A refused place leaves the card in the strip AND says why — the
+    /// failure mode this whole gesture must never have is silent success.
+    #[test]
+    fn a_refused_place_keeps_the_card_and_explains() {
+        let root = episode_root("surface-bad");
+        let dir = draft(
+            &root,
+            "authored-draft-1",
+            vec![dpl_doc::Block::Text {
+                id: "title".into(),
+                text: "hi".into(),
+                font: None,
+                size: "not-a-size".into(),
+                ink: None,
+            }],
+        );
+
+        let mut surface = super::AuthorSurface {
+            offered: crate::containers::containers(
+                crate::containers::ContainerKind::Episode,
+                &root,
+            ),
+            into: Some(0),
+            ..Default::default()
+        };
+        surface.drafts.push(super::Draft {
+            slide: "authored-draft-1".into(),
+            label: "New card".into(),
+            dir,
+            doc: None,
+        });
+
+        surface.place_draft(0, "intro", &root);
+        let drafts_left = surface.drafts.len();
+        let status = surface.status.clone();
+        std::fs::remove_dir_all(&root).ok();
+
+        assert_eq!(drafts_left, 1, "a refused card must stay in the strip");
+        assert!(
+            status.contains("could not put that card in"),
+            "the reason must reach the operator: {status:?}"
+        );
+    }
+
+    /// Only an episode can receive a card, and the others say why in words
+    /// rather than offering a control that cannot work.
+    #[test]
+    fn only_an_episode_takes_a_card_and_the_rest_explain() {
+        use crate::containers::ContainerKind;
+        assert!(ContainerKind::Episode.cannot_take_a_card().is_none());
+        for kind in [
+            ContainerKind::Guide,
+            ContainerKind::Lesson,
+            ContainerKind::Deck,
+        ] {
+            let why = kind.cannot_take_a_card().expect("must explain");
+            assert!(why.len() > 40, "{} shrugs: {why:?}", kind.slug());
+        }
+        // A guide is a different content model, not a shortfall — its wording
+        // must not imply it is unfinished.
+        let guide = ContainerKind::Guide.cannot_take_a_card().unwrap();
+        assert!(
+            !guide.contains("yet"),
+            "a guide is not waiting on anything: {guide:?}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod dashboard_tests {
+    use super::*;
+
+    /// Every harness seam must land on the CONTENT surface. The dashboard is
+    /// where a person starts; a proof script has already made its choice, and
+    /// every committed proof shot depends on this.
+    #[test]
+    fn every_drill_enters_the_content_screen() {
+        let mut s = AuthorSurface::default();
+        s.container_drill("episode");
+        assert_eq!(s.screen, Screen::Content, "--author-container");
+
+        let mut s = AuthorSurface::default();
+        s.card_tab_drill("background");
+        assert_eq!(s.screen, Screen::Content, "--card-tab");
+
+        // The default is still the dashboard — that is the whole point.
+        assert_eq!(AuthorSurface::default().screen, Screen::Dashboard);
+    }
+
+    /// The "to build with" count summarises the registries the Library shows.
+    /// A lane that quoted a number nobody could reach would be the padding
+    /// this lane keeps refusing.
+    #[test]
+    fn the_build_with_count_is_the_registries() {
+        let mut s = AuthorSurface::default();
+        s.load_once();
+        let expected = s.demos.len()
+            + s.seeds.len()
+            + dpl_slides::elements::elements().len()
+            + dpl_slides::blocks::blocks().len()
+            + cl::TRAITS.len();
+        assert_eq!(s.to_build_with(), expected);
+        assert!(expected > 0, "the kit is not empty");
+    }
+
+    /// "When" is coarse on purpose: the folder's mtime is the only fact, and
+    /// a precise timestamp would imply a history this surface does not keep.
+    #[test]
+    fn when_is_coarse_and_never_a_timestamp() {
+        use std::time::{Duration, SystemTime};
+        let now = SystemTime::now();
+        assert_eq!(coarse_when(Some(now)), "in the last hour");
+        assert_eq!(
+            coarse_when(Some(now - Duration::from_secs(30 * 3600))),
+            "yesterday"
+        );
+        assert_eq!(
+            coarse_when(Some(now - Duration::from_secs(400 * 3600))),
+            "a while ago"
+        );
+        assert_eq!(coarse_when(None), "unknown");
     }
 }

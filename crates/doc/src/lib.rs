@@ -258,7 +258,15 @@ const MEDIA_FITS: &[&str] = &["cover", "contain"];
 /// drive-letter root. The doctor NAMES a violation; the renderer never
 /// follows a ref off the reservation.
 fn rel_ok(p: &str) -> bool {
-    if p.is_empty() || p.starts_with('\\') || p.contains(':') {
+    // A LEADING SEPARATOR OF EITHER KIND is refused on every platform, and
+    // `is_absolute()` alone is not enough to do that.
+    //
+    // `Path::is_absolute` is platform-defined: on Windows a path needs a drive
+    // or a UNC prefix to count, so `/etc/passwd` is NOT absolute there. Relying
+    // on it meant the content jail was strictly weaker on Windows than on
+    // Linux — a root-anchored POSIX path walked straight through. Caught by a
+    // Picture-tab test that passed on Linux and failed on the Windows lane.
+    if p.is_empty() || p.starts_with('/') || p.starts_with('\\') || p.contains(':') {
         return false;
     }
     let path = Path::new(p);
@@ -1174,6 +1182,31 @@ fn copy_dir(from: &Path, to: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The content jail must refuse the same paths on EVERY platform.
+    ///
+    /// `Path::is_absolute` is platform-defined — on Windows a path needs a
+    /// drive or UNC prefix, so `/etc/passwd` is not absolute there. Leaning on
+    /// it made the jail strictly weaker on Windows: a root-anchored POSIX path
+    /// walked through. This pins the predicate itself rather than a caller.
+    #[test]
+    fn the_content_jail_is_the_same_on_every_platform() {
+        for escaping in [
+            "/etc/passwd",
+            "/",
+            "\\\\server\\share",
+            "\\windows\\system32",
+            "C:\\Users\\x.png",
+            "../../escape.png",
+            "a/../../b.png",
+            "",
+        ] {
+            assert!(!rel_ok(escaping), "{escaping:?} must never pass the jail");
+        }
+        for ok in ["inbox/pix.png", "shows/ep/slide.json", "a.png"] {
+            assert!(rel_ok(ok), "{ok:?} is a legal content-relative ref");
+        }
+    }
 
     /// The quote convention has to be usable: distinct ids, and sizes and
     /// inks the validator itself accepts. A default that failed validation

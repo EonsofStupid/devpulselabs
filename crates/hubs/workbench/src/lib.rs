@@ -10,7 +10,9 @@ mod author;
 mod backgrounds;
 mod containers;
 mod library;
+mod pictures;
 mod studio;
+mod words;
 
 use author::AuthorSurface;
 use dpl_coldlight::{self as cl, Tone};

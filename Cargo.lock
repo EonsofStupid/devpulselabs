@@ -2338,6 +2338,7 @@ dependencies = [
  "dpl-fabric",
  "dpl-guide",
  "dpl-hub",
+ "dpl-index",
  "dpl-slides",
  "egui",
  "egui-pilot-ai",
