@@ -1083,6 +1083,39 @@ struct ShelfItem {
     tip: String,
 }
 
+/// How long ago, in words a person uses. The folder's modified time is the
+/// only fact available — anything more precise would imply a history this
+/// surface does not keep.
+fn coarse_when(when: Option<std::time::SystemTime>) -> String {
+    let Some(when) = when else {
+        return "unknown".to_string();
+    };
+    let Ok(ago) = std::time::SystemTime::now().duration_since(when) else {
+        return "just now".to_string();
+    };
+    let hours = ago.as_secs() / 3600;
+    match hours {
+        0 => "in the last hour".to_string(),
+        1..=23 => "today".to_string(),
+        24..=47 => "yesterday".to_string(),
+        48..=167 => "this week".to_string(),
+        _ => "a while ago".to_string(),
+    }
+}
+
+/// Which screen the authoring surface is showing.
+///
+/// The mock opens on a choice, not on the pieces — "Pick the lane first.
+/// Everything after it … follows from this one choice." Every drill that
+/// enters the content surface sets [`Screen::Content`] explicitly, so a proof
+/// script lands where it always did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum Screen {
+    #[default]
+    Dashboard,
+    Content,
+}
+
 /// The authoring surface's transient state. Default-derivable so the hub
 /// stays `#[derive(Default)]`.
 #[derive(Default)]
@@ -1121,6 +1154,9 @@ pub(crate) struct AuthorSurface {
     loaded: bool,
     /// The open overlay editor, if a card is being edited.
     editing: Option<CardEditor>,
+    /// Which screen the surface is on. The operator's third standing
+    /// correction: declare intent FIRST, then reach the pieces.
+    screen: Screen,
     /// Which sort of thing is being built into. `None` until the first load
     /// picks one — a strip labelled with nothing would be a lie.
     kind: Option<ContainerKind>,
@@ -1162,6 +1198,224 @@ fn load_draft_doc(dir: &std::path::Path) -> Option<dpl_slides::document::DocSlid
 
 impl AuthorSurface {
     pub(crate) fn ui(&mut self, ui: &mut egui::Ui, fabric: &Option<dpl_fabric::Fabric>) {
+        self.load_once();
+        match self.screen {
+            Screen::Dashboard => self.dashboard(ui),
+            Screen::Content => self.content(ui, fabric),
+        }
+    }
+
+    /// How many ingredients the operator has to build WITH. Every registry
+    /// the Library already enumerates — no new count, no stored total.
+    fn to_build_with(&self) -> usize {
+        self.demos.len()
+            + self.seeds.len()
+            + dpl_slides::elements::elements().len()
+            + dpl_slides::blocks::blocks().len()
+            + cl::TRAITS.len()
+    }
+
+    /// Every container the operator has, across every kind, newest first.
+    ///
+    /// "Newest" is the folder's own modified time — a fact on disk, not a
+    /// history this surface keeps. Anything richer would need a store, and an
+    /// invented one is the padding this lane keeps refusing.
+    fn everything_open(&self) -> Vec<(Container, Option<std::time::SystemTime>)> {
+        let root = dpl_engine_capture::content_root();
+        let mut all: Vec<(Container, Option<std::time::SystemTime>)> = ContainerKind::ALL
+            .into_iter()
+            .flat_map(|kind| containers(kind, &root))
+            .map(|c| {
+                let when = std::fs::metadata(&c.dir).and_then(|m| m.modified()).ok();
+                (c, when)
+            })
+            .collect();
+        all.sort_by(|a, b| b.1.cmp(&a.1));
+        all
+    }
+
+    /// The dashboard — declare what you are doing before reaching the pieces.
+    fn dashboard(&mut self, ui: &mut egui::Ui) {
+        let fluid = cl::Fluid::of(ui.max_rect());
+        let open = self.everything_open();
+        let mut go: Option<Option<usize>> = None;
+
+        // A legibility scrim under the whole screen.
+        //
+        // The content surface fills its panel and hides the backdrop by
+        // sheer volume; the dashboard is deliberately sparse, so the
+        // artwork came straight through and the lane footers were barely
+        // readable. This is the same legibility diffusion the media painter
+        // lays under a picture before words sit on it — the vocabulary
+        // already had the answer.
+        ui.painter()
+            .rect_filled(ui.max_rect(), cl::RADIUS, cl::scrim(196));
+        ui.add_space(cl::space::S2);
+
+        ui.label(
+            RichText::new("DEVPULSE · AUTHOR")
+                .size(fluid.fs_eyebrow())
+                .color(cl::ink::MUTED),
+        );
+        ui.label(
+            RichText::new("What are you working on today?")
+                .heading()
+                .color(cl::ink::STRONG),
+        );
+        ui.label(
+            RichText::new(
+                "Pick the lane first. Everything after it — what you see, what the buttons \
+                 say, where the file lands — follows from this one choice.",
+            )
+            .small()
+            .color(cl::ink::MUTED),
+        );
+        ui.add_space(cl::space::S5);
+
+        // Three lanes. Every number is read from a census that already exists;
+        // none is stored and none is invented.
+        ui.horizontal_wrapped(|ui| {
+            let lanes: [(Tone, &str, &str, String); 3] = [
+                (
+                    Tone::Cyan,
+                    "Make something",
+                    "Build cards into a lesson, guide, episode or deck. Pick one you \
+                     already have, or start fresh.",
+                    format!("{} open", open.len()),
+                ),
+                (
+                    Tone::Amber,
+                    "Pick up where I left off",
+                    "Straight back into the last thing you touched, exactly as you left \
+                     it.",
+                    match open.first() {
+                        Some((c, _)) => format!("last · {}", c.label),
+                        None => "nothing yet".to_string(),
+                    },
+                ),
+                (
+                    Tone::Magenta,
+                    "Build a new piece",
+                    "Add to what you can build WITH — a piece, a combo, a look, a whole \
+                     layout. One kit, mixed and matched.",
+                    format!("{} to build with", self.to_build_with()),
+                ),
+            ];
+            for (ix, (tone, title, blurb, foot)) in lanes.into_iter().enumerate() {
+                let w = (ui.available_width() / 3.0 - cl::space::S4).max(fluid.panel_width() * 0.6);
+                ui.allocate_ui(egui::vec2(w, fluid.panel_width() * 0.5), |ui| {
+                    ui.vertical(|ui| {
+                        let hit = cl::tip(
+                            ui.label(
+                                RichText::new(title)
+                                    .size(fluid.fs_h4())
+                                    .strong()
+                                    .color(tone.color()),
+                            )
+                            .interact(egui::Sense::click()),
+                            match ix {
+                                0 => "Choose what to build into, then start cards",
+                                1 => "Straight back into the last thing you touched",
+                                _ => "Everything you can build with, on one wall",
+                            },
+                        );
+                        ui.label(
+                            RichText::new(blurb)
+                                .size(fluid.fs_body_sm())
+                                .color(cl::ink::BASE),
+                        );
+                        ui.label(
+                            RichText::new(&foot)
+                                .size(fluid.fs_body_sm())
+                                .color(cl::ink::SUBTLE),
+                        );
+                        if hit.clicked() {
+                            // Lane 3 belongs to M9's platform lane, which does
+                            // not exist. The Library IS "what you can build
+                            // with", so it goes there rather than nowhere —
+                            // and the tooltip says that is what it is.
+                            go = Some(match ix {
+                                1 => Some(0),
+                                _ => None,
+                            });
+                        }
+                    });
+                });
+                ui.add_space(cl::space::S4);
+            }
+        });
+
+        ui.add_space(cl::space::S5);
+        ui.label(
+            RichText::new("OPEN NOW")
+                .size(fluid.fs_eyebrow())
+                .color(cl::ink::MUTED),
+        );
+        ui.label(
+            RichText::new("every kind you have — new kinds can be added any time")
+                .size(fluid.fs_body_sm())
+                .color(cl::ink::SUBTLE),
+        );
+        ui.add_space(cl::space::S2);
+
+        if open.is_empty() {
+            ui.label(
+                RichText::new(
+                    "Nothing open yet. Make something, and whatever you build into shows \
+                     up here.",
+                )
+                .color(cl::ink::MUTED),
+            );
+        }
+        ui.horizontal_wrapped(|ui| {
+            for (ix, (c, when)) in open.iter().enumerate() {
+                let hit = cl::tip(
+                    ui.label(
+                        RichText::new(format!(
+                            "{}  ·  {}  ·  {} {} · {}",
+                            c.kind.label(),
+                            c.label,
+                            c.count,
+                            c.kind.unit(),
+                            coarse_when(*when),
+                        ))
+                        .size(fluid.fs_body_sm())
+                        .color(c.kind.tone().color()),
+                    )
+                    .interact(egui::Sense::click()),
+                    "Go straight into this one",
+                );
+                if hit.clicked() {
+                    go = Some(Some(ix));
+                }
+                ui.add_space(cl::space::S3);
+            }
+        });
+
+        if let Some(which) = go {
+            if let Some(ix) = which {
+                if let Some((c, _)) = open.get(ix) {
+                    self.choose_kind(c.kind);
+                    self.into = self.offered.iter().position(|o| o.slug == c.slug);
+                }
+            }
+            self.screen = Screen::Content;
+        }
+    }
+
+    /// The content surface — everything downstream of the choice.
+    fn content(&mut self, ui: &mut egui::Ui, fabric: &Option<dpl_fabric::Fabric>) {
+        ui.horizontal(|ui| {
+            if cl::tip(
+                ui.label(RichText::new("← Back").strong().color(cl::ink::MUTED))
+                    .interact(egui::Sense::click()),
+                "Back to choosing what you are working on",
+            )
+            .clicked()
+            {
+                self.screen = Screen::Dashboard;
+            }
+        });
         ui.label(
             RichText::new("AUTHOR — turn an intention into a card")
                 .heading()
@@ -1345,6 +1599,7 @@ impl AuthorSurface {
         // The same path a tap takes — a drill that minted differently would
         // prove a code path the operator never walks.
         self.start_card(None, &None);
+        self.screen = Screen::Content;
     }
 
     /// Open the overlay editor on one TAB by its slug — the
@@ -1353,6 +1608,7 @@ impl AuthorSurface {
     ///
     /// Unknown slugs leave the tab alone rather than guessing.
     pub(crate) fn card_tab_drill(&mut self, slug: &str) {
+        self.screen = Screen::Content;
         if self.editing.is_none() {
             // Re-open the newest card in the inbox rather than minting another
             // one. A drill that shows a tab should not need a fresh card each
@@ -1384,6 +1640,7 @@ impl AuthorSurface {
             self.start_card(None, &None);
         }
         self.editing = None;
+        self.screen = Screen::Content;
     }
 
     /// Show one kind's shelf of containers — the `--author-container <kind>`
@@ -1393,6 +1650,9 @@ impl AuthorSurface {
             self.load_once();
             self.choose_kind(kind);
         }
+        // Every seam enters the CONTENT surface. The dashboard is where a
+        // person starts; a proof script has already made its choice.
+        self.screen = Screen::Content;
     }
 
     /// Open the overlay editor on a card's own folder.
@@ -3318,5 +3578,61 @@ mod place_tests {
             !guide.contains("yet"),
             "a guide is not waiting on anything: {guide:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod dashboard_tests {
+    use super::*;
+
+    /// Every harness seam must land on the CONTENT surface. The dashboard is
+    /// where a person starts; a proof script has already made its choice, and
+    /// every committed proof shot depends on this.
+    #[test]
+    fn every_drill_enters_the_content_screen() {
+        let mut s = AuthorSurface::default();
+        s.container_drill("episode");
+        assert_eq!(s.screen, Screen::Content, "--author-container");
+
+        let mut s = AuthorSurface::default();
+        s.card_tab_drill("background");
+        assert_eq!(s.screen, Screen::Content, "--card-tab");
+
+        // The default is still the dashboard — that is the whole point.
+        assert_eq!(AuthorSurface::default().screen, Screen::Dashboard);
+    }
+
+    /// The "to build with" count summarises the registries the Library shows.
+    /// A lane that quoted a number nobody could reach would be the padding
+    /// this lane keeps refusing.
+    #[test]
+    fn the_build_with_count_is_the_registries() {
+        let mut s = AuthorSurface::default();
+        s.load_once();
+        let expected = s.demos.len()
+            + s.seeds.len()
+            + dpl_slides::elements::elements().len()
+            + dpl_slides::blocks::blocks().len()
+            + cl::TRAITS.len();
+        assert_eq!(s.to_build_with(), expected);
+        assert!(expected > 0, "the kit is not empty");
+    }
+
+    /// "When" is coarse on purpose: the folder's mtime is the only fact, and
+    /// a precise timestamp would imply a history this surface does not keep.
+    #[test]
+    fn when_is_coarse_and_never_a_timestamp() {
+        use std::time::{Duration, SystemTime};
+        let now = SystemTime::now();
+        assert_eq!(coarse_when(Some(now)), "in the last hour");
+        assert_eq!(
+            coarse_when(Some(now - Duration::from_secs(30 * 3600))),
+            "yesterday"
+        );
+        assert_eq!(
+            coarse_when(Some(now - Duration::from_secs(400 * 3600))),
+            "a while ago"
+        );
+        assert_eq!(coarse_when(None), "unknown");
     }
 }

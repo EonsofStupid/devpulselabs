@@ -68,7 +68,7 @@ learning what a template is.
 | **M5b** | The overlay's live pane — rail + controls + the card | ✅ closed | #155 |
 | **M6** | The container spine — filmstrip + thumbnails | ✅ closed | #146, #147 |
 | **M7** | Placing cards into the container | ✅ closed | #162 |
-| **M8** | The dashboard — intent declared first | ⬜ not started | — |
+| **M8** | The dashboard — intent declared first | ✅ closed | #160 |
 | **M9** | The platform lane — build the ingredients themselves | ⬜ not started | — |
 | **M10** | Assist — paste a recipe, get elements → templates → cards | ⬜ not started | — |
 
@@ -140,12 +140,11 @@ The filmstrip's "not put in yet" is now a promise it can keep. `place_slide`
 did the mutation already; the pass added the gesture, the chapter choice, and
 honest reporting — plus removed a global that had made the wiring untestable.
 
-### M8 — the dashboard
+### M8 — the dashboard — ✅ **closed by #160**
 
-Operator correction #3, and the only ratified screen with nothing built.
-Three intents: *edit existing · expand the platform · work on content*, plus
-a recents row. Waiting on: nothing. Size M. The `← Back` and `Change`
-controls deferred in `author-filmstrip.md` §4 belong to it.
+Standing correction #3 honoured: intent is declared first. Three lanes with
+live counts, an "Open now" row over every container, and `← Back`. Every
+harness seam enters the content screen so the lane's proofs still hold.
 
 ### M9 — the platform lane
 
