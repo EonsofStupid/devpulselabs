@@ -10,11 +10,12 @@ ARCH="$(uname -m)"
 OS="$(uname -s)"
 
 case "${OS}-${ARCH}" in
-  Linux-aarch64|Linux-arm64)
-    PATTERN="devpulselabs-linux-aarch64.zip"
-    ;;
   Linux-x86_64)
-    echo "error: nightly currently publishes linux-aarch64 (dpl-linux runner). No x86_64 linux asset yet." >&2
+    PATTERN="devpulselabs-linux-x64.zip"
+    ;;
+  Linux-aarch64|Linux-arm64)
+    echo "error: nightly publishes linux-x64 (hosted ubuntu-latest). The ARM64 asset ended when the" >&2
+    echo "       self-hosted dpl-linux runners were deregistered on 2026-07-30." >&2
     exit 1
     ;;
   Darwin-*)
