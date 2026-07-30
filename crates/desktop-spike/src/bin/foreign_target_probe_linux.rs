@@ -1106,7 +1106,10 @@ fn paint_spotlight(
         let size = galley.size() + egui::vec2(18.0, 12.0);
         // Prefer ABOVE the hotspot. Below lands on the next keypad row
         // (coaching 7 put the cyan plate on 5 — operator clicked the plate).
-        let mut pos = egui::pos2(target.center().x - size.x * 0.5, target.top() - size.y - 10.0);
+        let mut pos = egui::pos2(
+            target.center().x - size.x * 0.5,
+            target.top() - size.y - 10.0,
+        );
         if pos.y < screen.min.y + 4.0 {
             pos.y = target.bottom() + 10.0;
         }
