@@ -225,6 +225,106 @@ fn live_pane(ui: &mut egui::Ui, ed: &mut CardEditor) {
     );
 }
 
+/// The "A quote" tab — someone else's words, kept with where they came from.
+///
+/// A quote is a CONVENTION over text blocks, ratified by the operator on
+/// 2026-07-29 and declared in `dpl_doc::quote_lines()`: three reserved ids,
+/// ordinary blocks, nothing special-cased at render. The tab is therefore
+/// three fields, and the live pane beside it shows the result as it is typed.
+///
+/// Editing is debounced through the tab's own buffer rather than writing on
+/// every keystroke: `set_quote` snapshots for undo, so a per-character write
+/// would fill the undo stack with fifty entries for one sentence.
+fn quote_tab(ui: &mut egui::Ui, ed: &mut CardEditor) {
+    let fluid = cl::Fluid::of(ui.ctx().content_rect());
+    // Adopt the document's own words the first time this card's tab is shown,
+    // so the fields reflect the card rather than the last one edited.
+    if ed.quote.is_none() {
+        ed.quote = Some(ed.editor.quote());
+    }
+    let Some(lines) = ed.quote.as_mut() else {
+        return;
+    };
+
+    ui.add_space(cl::space::S2);
+    ui.label(
+        RichText::new("Someone else's words")
+            .size(fluid.fs_body_lg())
+            .strong()
+            .color(cl::ink::STRONG),
+    );
+    ui.label(
+        RichText::new("Leave a line empty and it comes off the card.")
+            .small()
+            .color(cl::ink::MUTED),
+    );
+    ui.add_space(cl::space::S3);
+
+    let mut changed = false;
+    for (slot, label, hint) in [
+        (0usize, "What was said", "the words themselves"),
+        (1, "Who said it", "a name, or who they are"),
+        (2, "Where it's from", "a talk, a page, a date"),
+    ] {
+        ui.label(
+            RichText::new(label)
+                .size(fluid.fs_body())
+                .color(cl::ink::BASE),
+        );
+        let edit = if slot == 0 {
+            ui.add(
+                egui::TextEdit::multiline(&mut lines[slot])
+                    .desired_rows(3)
+                    .hint_text(hint)
+                    .desired_width(f32::INFINITY),
+            )
+        } else {
+            ui.add(
+                egui::TextEdit::singleline(&mut lines[slot])
+                    .hint_text(hint)
+                    .desired_width(f32::INFINITY),
+            )
+        };
+        changed |= edit.changed();
+        cl::tip(edit, hint);
+        ui.add_space(cl::space::S3);
+    }
+
+    // Written when the field loses focus or a frame after a change settles —
+    // one undo entry per edit, not one per character.
+    if changed {
+        let next = lines.clone();
+        ed.editor.set_quote(next);
+    }
+
+    // Say what this card is, so adding a quote to a title card is a choice
+    // rather than a surprise.
+    let other: Vec<String> = ed
+        .editor
+        .slide()
+        .blocks
+        .iter()
+        .map(|b| b.id().to_string())
+        .filter(|id| !dpl_doc::quote_lines().iter().any(|(q, _, _)| q == id))
+        .collect();
+    if !other.is_empty() {
+        ui.add_space(cl::space::S2);
+        ui.label(
+            RichText::new(format!(
+                "This card already has {} of its own, and they stay. A quote is added \
+                 alongside them.",
+                if other.len() == 1 {
+                    "a line".to_string()
+                } else {
+                    format!("{} lines", other.len())
+                }
+            ))
+            .size(fluid.fs_body_sm())
+            .color(cl::ink::SUBTLE),
+        );
+    }
+}
+
 /// The Movement tab — how the words arrive.
 ///
 /// THREE choices, and that is the whole truth of it. The document permits two
@@ -769,6 +869,10 @@ struct CardEditor {
     tab: CardTab,
     /// Which card's folder is open, so the strip can re-read it on close.
     dir: std::path::PathBuf,
+    /// The quote tab's field buffer, adopted from the document the first time
+    /// the tab is opened. Held so typing does not write — and therefore does
+    /// not snapshot undo — on every keystroke.
+    quote: Option<[String; 3]>,
     /// The live pane's clock. Owned here rather than by a `DocSlide`,
     /// because the pane renders the editor's slide DIRECTLY — rebuilding a
     /// document each frame would restart the entrance on every keystroke.
@@ -1054,6 +1158,7 @@ impl AuthorSurface {
                     editor,
                     tab: CardTab::default(),
                     dir: dir.to_path_buf(),
+                    quote: None,
                     preview: dpl_slides::motion::Clock::default(),
                 })
             }
@@ -1177,6 +1282,7 @@ impl AuthorSurface {
                                 CardTab::Words => ed.editor.ui(ui),
                                 CardTab::Background => background_tab(ui, &mut ed.editor),
                                 CardTab::Movement => movement_tab(ui, &mut ed.editor),
+                                CardTab::Quote => quote_tab(ui, ed),
                                 other => {
                                     ui.add_space(cl::space::S4);
                                     ui.label(
@@ -2328,6 +2434,7 @@ mod overlay_tests {
             editor: dpl_editor::Editor::open(dir).unwrap(),
             tab: CardTab::default(),
             dir: dir.to_path_buf(),
+            quote: None,
             preview: dpl_slides::motion::Clock::default(),
         }
     }
@@ -2394,5 +2501,120 @@ mod overlay_tests {
         harness.run_steps(4);
         harness.get_by_label_contains("as it looks right now");
         std::fs::remove_dir_all(&dir).ok();
+    }
+}
+
+#[cfg(test)]
+mod quote_tests {
+    use super::background_tests::card;
+
+    fn text_ids(slide: &dpl_doc::Slide) -> Vec<String> {
+        slide.blocks.iter().map(|b| b.id().to_string()).collect()
+    }
+
+    /// Filling all three lines writes exactly the reserved ids, declares the
+    /// card a quote, and leaves a document the app will load.
+    #[test]
+    fn a_full_quote_writes_the_reserved_ids_and_validates() {
+        let dir = card("quote-full", None);
+        let mut ed = dpl_editor::Editor::open(&dir).unwrap();
+        ed.set_quote([
+            "The stack is invisible.".into(),
+            "The operator".into(),
+            "2026-07-29".into(),
+        ]);
+        let after = dpl_doc::load(&dir).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+
+        assert_eq!(text_ids(&after), ["quote", "said-by", "source"]);
+        assert_eq!(after.template, dpl_doc::QUOTE_TEMPLATE);
+        assert!(
+            dpl_doc::validate(&after).is_empty(),
+            "{:?}",
+            dpl_doc::validate(&after)
+        );
+    }
+
+    /// A blank line REMOVES its block. An empty text block is a rendering
+    /// artefact, not an empty field.
+    #[test]
+    fn a_blank_line_removes_its_block() {
+        let dir = card("quote-blank", None);
+        let mut ed = dpl_editor::Editor::open(&dir).unwrap();
+        ed.set_quote(["Words".into(), "Someone".into(), "Somewhere".into()]);
+        ed.set_quote(["Words".into(), String::new(), "Somewhere".into()]);
+        let after = dpl_doc::load(&dir).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+
+        assert_eq!(
+            text_ids(&after),
+            ["quote", "source"],
+            "said-by should be gone"
+        );
+        assert!(dpl_doc::validate(&after).is_empty());
+    }
+
+    /// Writing twice UPDATES the block, never appends a second with the same
+    /// id — the §6 risk this pass named.
+    #[test]
+    fn writing_twice_updates_rather_than_duplicates() {
+        let dir = card("quote-twice", None);
+        let mut ed = dpl_editor::Editor::open(&dir).unwrap();
+        ed.set_quote(["First".into(), String::new(), String::new()]);
+        ed.set_quote(["Second".into(), String::new(), String::new()]);
+        let after = dpl_doc::load(&dir).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+
+        assert_eq!(text_ids(&after), ["quote"]);
+        match &after.blocks[0] {
+            dpl_doc::Block::Text { text, .. } => assert_eq!(text, "Second"),
+            other => panic!("expected a text block, got {other:?}"),
+        }
+    }
+
+    /// The card's own lines survive. Adding a quote to a title card adds to
+    /// it; it does not restructure it.
+    #[test]
+    fn a_cards_existing_lines_are_left_alone() {
+        let dir = card("quote-alongside", None);
+        {
+            let mut ed = dpl_editor::Editor::open(&dir).unwrap();
+            // Give the card a title of its own, the way a seed would.
+            ed.set_quote(["placeholder".into(), String::new(), String::new()]);
+            let mut slide = dpl_doc::load(&dir).unwrap();
+            slide.blocks.insert(
+                0,
+                dpl_doc::Block::Text {
+                    id: "title".into(),
+                    text: "A card that was here first".into(),
+                    font: None,
+                    size: "h1".into(),
+                    ink: Some("strong".into()),
+                },
+            );
+            dpl_doc::save(&dir, &slide).unwrap();
+        }
+        let mut ed = dpl_editor::Editor::open(&dir).unwrap();
+        ed.set_quote(["Real words".into(), "Real person".into(), String::new()]);
+        let after = dpl_doc::load(&dir).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+
+        assert!(
+            text_ids(&after).contains(&"title".to_string()),
+            "{:?}",
+            text_ids(&after)
+        );
+        assert!(dpl_doc::validate(&after).is_empty());
+    }
+
+    /// Reading back what was written is what the tab's fields do on open.
+    #[test]
+    fn the_tab_reads_the_cards_own_quote() {
+        let dir = card("quote-read", None);
+        let mut ed = dpl_editor::Editor::open(&dir).unwrap();
+        ed.set_quote(["W".into(), String::new(), "S".into()]);
+        let read = dpl_editor::Editor::open(&dir).unwrap().quote();
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(read, ["W".to_string(), String::new(), "S".to_string()]);
     }
 }
