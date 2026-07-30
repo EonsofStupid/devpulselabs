@@ -764,6 +764,9 @@ pub fn row_ai(st: &Stamped<AiEvent>) -> LedgerRow {
         AiEvent::CallFinished {
             tokens_in,
             tokens_out,
+            total_tokens,
+            context_used,
+            context_size,
             cost_micros,
             duration_ms,
             outcome,
@@ -774,6 +777,9 @@ pub fn row_ai(st: &Stamped<AiEvent>) -> LedgerRow {
                 "call": call,
                 "tokens_in": tokens_in,
                 "tokens_out": tokens_out,
+                "total_tokens": total_tokens,
+                "context_used": context_used,
+                "context_size": context_size,
                 "cost_micros": cost_micros,
                 "duration_ms": duration_ms,
                 "outcome": outcome.label(),
@@ -937,9 +943,12 @@ mod tests {
         });
         fabric.publish_ai(AiEvent::CallFinished {
             call,
-            tokens_in: 1200,
-            tokens_out: 450,
-            cost_micros: 9_750,
+            tokens_in: Some(1200),
+            tokens_out: Some(450),
+            total_tokens: Some(1650),
+            context_used: None,
+            context_size: None,
+            cost_micros: None,
             duration_ms: 2_100,
             outcome: dpl_fabric::AiOutcome::Error(dpl_fabric::AiFailureClass::RateLimit),
         });
@@ -981,7 +990,9 @@ mod tests {
                         // recomputable when the price table was wrong.
                         assert!(row.body.contains("\"tokens_in\":1200"));
                         assert!(row.body.contains("\"tokens_out\":450"));
-                        assert!(row.body.contains("\"cost_micros\":9750"));
+                        // Cost is NULL until the price table prices it —
+                        // absent, never a lying zero.
+                        assert!(row.body.contains("\"cost_micros\":null"));
                         assert!(row.body.contains("\"failure\":\"rate-limit\""));
                     }
                     other => panic!("unexpected ai row type {other}"),

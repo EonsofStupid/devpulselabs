@@ -567,11 +567,21 @@ pub enum AiEvent {
     /// actually feel.
     FirstToken { call: CallId, ttft_ms: u32 },
     /// The call ended, however it ended.
+    ///
+    /// Every count is OPTIONAL because providers report different things:
+    /// Codex gives an input/output split, Grok gives context-window
+    /// occupancy. `None` means "the provider did not say" — which is not
+    /// zero, and must never be priced as zero.
     CallFinished {
         call: CallId,
-        tokens_in: u32,
-        tokens_out: u32,
-        cost_micros: u64,
+        tokens_in: Option<u64>,
+        tokens_out: Option<u64>,
+        total_tokens: Option<u64>,
+        context_used: Option<u64>,
+        context_size: Option<u64>,
+        /// `None` until the price table prices it (Phase 3 PR 2). Derived,
+        /// never authoritative — recomputed from the counts above.
+        cost_micros: Option<u64>,
         duration_ms: u32,
         outcome: AiOutcome,
     },
@@ -1291,9 +1301,12 @@ mod tests {
         fabric.publish_ai(AiEvent::FirstToken { call, ttft_ms: 320 });
         fabric.publish_ai(AiEvent::CallFinished {
             call,
-            tokens_in: 1200,
-            tokens_out: 450,
-            cost_micros: 9_750,
+            tokens_in: Some(1200),
+            tokens_out: Some(450),
+            total_tokens: Some(1650),
+            context_used: None,
+            context_size: None,
+            cost_micros: None,
             duration_ms: 2_100,
             outcome: AiOutcome::Ok,
         });

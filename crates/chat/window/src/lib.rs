@@ -3928,6 +3928,7 @@ fn event_row(ui: &mut egui::Ui, content: &ChatEventContent) {
     let (role, body, tone) = match content {
         ChatEventContent::UserMessage(body) => ("YOU", body.as_str(), Tone::Cyan),
         ChatEventContent::AssistantMessage(body) => ("ASSISTANT", body.as_str(), Tone::Amber),
+        ChatEventContent::ModelSelected { model } => ("MODEL", model.as_str(), Tone::Violet),
         ChatEventContent::StatusUpdated(body) => ("STATUS", body.as_str(), Tone::Violet),
         ChatEventContent::PlanUpdated(body) => ("PLAN", body.as_str(), Tone::Violet),
         ChatEventContent::ToolStarted { label } => ("TOOL", label.as_str(), Tone::Cyan),
@@ -3952,7 +3953,7 @@ fn event_row(ui: &mut egui::Ui, content: &ChatEventContent) {
             if *accepted { "Approved" } else { "Rejected" },
             if *accepted { Tone::Lime } else { Tone::Coral },
         ),
-        ChatEventContent::UsageUpdated { summary } => ("USAGE", summary.as_str(), Tone::Violet),
+        ChatEventContent::UsageUpdated { summary, .. } => ("USAGE", summary.as_str(), Tone::Violet),
         ChatEventContent::TurnCompleted => ("SYSTEM", "Turn completed", Tone::Lime),
         ChatEventContent::TurnInterrupted => ("SYSTEM", "Turn interrupted", Tone::Amber),
         ChatEventContent::Unknown(payload) => {

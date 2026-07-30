@@ -3,7 +3,7 @@ use dpl_chat_browser_auth::{BrowserAuthCoordinator, BrowserAuthError, BrowserAut
 use dpl_chat_core::{
     ActivationState, BoundedNativePayload, Capability, ChatEvent, ChatEventContent, ChatEventId,
     ChatSessionId, ProviderId, ProviderSessionId, RecoveryAction, RecoveryActionKind, SessionGroup,
-    SessionState, SessionSummary, TurnId,
+    SessionState, SessionSummary, TokenUsage, TurnId,
 };
 #[cfg(feature = "eguipilotai-devtools")]
 use dpl_chat_core::{ChatDomain, DeviceAuthorizationPrompt, GuidedValue, GuidedValueSensitivity};
@@ -2428,6 +2428,9 @@ struct AiCall {
     started: Instant,
     /// TTFT fires exactly once per call, on the first content chunk.
     first_token_seen: bool,
+    /// Accumulated across the turn — providers report usage in pieces,
+    /// and later reports supersede earlier ones field-by-field.
+    usage: TokenUsage,
 }
 
 /// THE CHAT → AI BRIDGE.
@@ -2450,6 +2453,7 @@ fn ai_call_started(
             call,
             started: Instant::now(),
             first_token_seen: false,
+            usage: TokenUsage::default(),
         },
     );
     state.fabric.publish_ai(AiEvent::CallStarted {
@@ -2485,18 +2489,30 @@ fn ai_call_finished(state: &mut Shared, provider_session_id: &str, outcome: AiOu
     let Some(entry) = state.ai_calls.remove(provider_session_id) else {
         return;
     };
+    let usage = entry.usage;
     state.fabric.publish_ai(AiEvent::CallFinished {
         call: entry.call,
-        // Token counts and cost land in PR 2 with the versioned price
-        // table; the provider payloads that carry them are parsed there.
-        // Zero here is HONEST-EMPTY, and `cost_micros` is derived, never
-        // authoritative — the raw counts are what get recomputed from.
-        tokens_in: 0,
-        tokens_out: 0,
-        cost_micros: 0,
+        tokens_in: usage.input_tokens,
+        tokens_out: usage.output_tokens,
+        total_tokens: usage.total_tokens,
+        context_used: usage.context_used,
+        context_size: usage.context_size,
+        // Cost stays unpriced HERE: the versioned price table (PR 2) is
+        // what turns tokens into money, and it needs the model id. The
+        // token counts above are the truth cost is recomputed from.
+        cost_micros: None,
         duration_ms: entry.started.elapsed().as_millis() as u32,
         outcome,
     });
+}
+
+/// A provider reported token accounting mid-turn. MERGED, not replaced —
+/// Codex reports an input/output split, Grok reports context occupancy,
+/// and a turn may carry several reports before it ends.
+fn ai_usage_observed(state: &mut Shared, provider_session_id: &str, usage: TokenUsage) {
+    if let Some(entry) = state.ai_calls.get_mut(provider_session_id) {
+        entry.usage = entry.usage.merge(usage);
+    }
 }
 
 fn send_grok_turn(state: &mut Shared, session: ChatSessionId, text: String) {
@@ -2609,13 +2625,24 @@ fn project_grok_update(
             provider_session_id,
             ChatEventContent::StatusUpdated(format!("{count} provider commands available")),
         ),
-        dpl_chat_grok::GrokSessionUpdate::Usage { used, size } => append_grok_event(
-            state,
-            provider_session_id,
-            ChatEventContent::UsageUpdated {
-                summary: format!("{used} of {size} context tokens"),
-            },
-        ),
+        dpl_chat_grok::GrokSessionUpdate::Usage { used, size } => {
+            // Grok reports context-window occupancy, not an input/output
+            // split — recorded as exactly that, never guessed into one.
+            let usage = TokenUsage {
+                context_used: Some(used),
+                context_size: Some(size),
+                ..TokenUsage::default()
+            };
+            ai_usage_observed(state, provider_session_id, usage);
+            append_grok_event(
+                state,
+                provider_session_id,
+                ChatEventContent::UsageUpdated {
+                    summary: format!("{used} of {size} context tokens"),
+                    usage,
+                },
+            );
+        }
         dpl_chat_grok::GrokSessionUpdate::Other(summary) => append_grok_event(
             state,
             provider_session_id,

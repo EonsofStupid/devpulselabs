@@ -5,7 +5,7 @@
 
 use dpl_chat_core::{
     BoundedNativePayload, Capability, ChatEventContent, ProviderAccent, ProviderDescriptor,
-    ProviderId, ProviderManifest, ProviderProfileId,
+    ProviderId, ProviderManifest, ProviderProfileId, TokenUsage,
 };
 use dpl_chat_store::{DecodeOutcome, DecodedHistoryEvent, HistoryDecoder, HistoryIndexMetadata};
 use serde_json::Value;
@@ -121,8 +121,11 @@ impl HistoryDecoder for ClaudeHistoryDecoder {
                     .unwrap_or("Claude progress updated")
                     .to_owned(),
             )),
+            // Rate-limit status carries no token accounting — an empty
+            // `TokenUsage` says "not reported", which is the truth here.
             "rate_limit_event" => event(ChatEventContent::UsageUpdated {
                 summary: "Claude rate-limit status updated".into(),
+                usage: TokenUsage::default(),
             }),
             other => unknown(&format!("claude.{other}"), &redacted_shape(other, &value)),
         }
