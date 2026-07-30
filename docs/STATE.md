@@ -2,6 +2,27 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-30 — PUTTING A CARD IN ITS CONTAINER (M7,
+`docs/plans/author-place-into-container.md`):** the filmstrip has been telling
+the operator "N started here, not put in yet" since #146 — accurate, and an
+outstanding promise the band offered no way to close. Now it does.
+`dpl_doc::place_slide` already did the mutation carefully (COPIES not moves,
+refuses an unfinished slide, refuses to create an episode, never clobbers,
+rolls the episode back if the result would be invalid), so the correct amount
+of new mutation code was ZERO — this pass added the gesture, the chapter
+choice, and honest reporting. One chapter is not a decision and is used; more
+than one is, so the strip offers them by their authored titles. Only an
+EPISODE holds slide folders: guide/lesson/deck each say why via
+`cannot_take_a_card`, and a test asserts the guide wording contains no "yet"
+because a guide is a different content model, not a shortfall. The count is
+RE-READ from disk after placing, never incremented. FINDING: `place_draft`
+first read `content_root()`, a process-wide `OnceLock` that cannot be pointed
+at a scratch dir from a test — so the root became a parameter. Better design
+independently, and the only reason the two surface-level tests exist;
+"it cannot be tested" turned out to be "it reads a global it did not need to".
+44 tests, 6 new — including that a REFUSED place keeps the card and says why,
+because silent success is the one failure this gesture must never have.
+
 **2026-07-30 — THE AUTHORING SURFACE, ALIGNED (`docs/plans/author-surface-alignment.md`):**
 five tabs and three censuses were built in a day, each correct alone and each
 slightly different. Pre-release, so the drift was REWRITTEN OUT before the

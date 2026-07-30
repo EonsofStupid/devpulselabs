@@ -1242,6 +1242,58 @@ impl AuthorSurface {
         self.editor_modal(ui);
     }
 
+    /// Put one of this sitting's cards into the loaded container.
+    ///
+    /// `dpl_doc::place_slide` does the mutation and does it carefully: it
+    /// COPIES (the inbox draft survives), refuses a slide that does not
+    /// validate, refuses to create an episode, never clobbers a name, and
+    /// rolls the episode back if the result would be invalid. So this is a
+    /// gesture over a safe primitive, not a new mutation.
+    ///
+    /// On success the draft leaves the strip — it is in the container now —
+    /// and the count is RE-READ from disk rather than incremented, so the
+    /// number on screen is the number in the folder. On failure the card
+    /// stays and the reason is shown verbatim: an operator who believes their
+    /// work is filed when it is not is the worst outcome this surface can
+    /// produce.
+    /// `root` is passed rather than read from `content_root()`, which is a
+    /// process-wide `OnceLock` and therefore un-pointable from a test. Taking
+    /// it as an argument is both better design and what makes this path
+    /// provable.
+    fn place_draft(&mut self, ix: usize, chapter: &str, root: &std::path::Path) {
+        let Some(container) = self.container().cloned() else {
+            return;
+        };
+        let Some(draft) = self.drafts.get(ix) else {
+            return;
+        };
+        let Some((show, episode)) = container.slug.split_once('/') else {
+            self.status = "that container's name is not a show and an episode".into();
+            return;
+        };
+        match dpl_doc::place_slide(root, &draft.dir, show, episode, chapter, None) {
+            Ok(placed) => {
+                self.status = format!(
+                    "put “{}” into {} — it is now {}/{}",
+                    draft.label, container.label, placed.chapter, placed.slide
+                );
+                self.drafts.remove(ix);
+                // Re-read, never increment: the count is a fact about the
+                // folder, not a tally the surface keeps.
+                self.offered = containers(container.kind, root);
+                self.into = self
+                    .offered
+                    .iter()
+                    .position(|c| c.slug == container.slug)
+                    .or(self.into);
+            }
+            // Verbatim. `place_slide` already says why in plain-enough words
+            // ("slide is not finished…", "chapter … not in episode"), and
+            // rewording it here would only lose detail.
+            Err(why) => self.status = format!("could not put that card in: {why}"),
+        }
+    }
+
     /// Start a card: write the document, remember it, open its editor, then
     /// publish the fact. The ONE path — every control that starts a card
     /// comes through here.
@@ -1716,6 +1768,8 @@ impl AuthorSurface {
             return false;
         };
         let mut start_one = false;
+        // Which chapter the operator asked to put this sitting's cards into.
+        let mut put_in: Option<String> = None;
         // Where the band begins, so it can report what it actually took.
         let top = ui.cursor().top();
 
@@ -1777,9 +1831,87 @@ impl AuthorSurface {
                         .size(fluid.fs_body_sm())
                         .color(Tone::Amber.color()),
                     ),
-                    "Cards you started this sitting. They are saved in your inbox; putting \
-                     them into what you picked above comes next.",
+                    "Cards you started this sitting. They are saved in your inbox until \
+                     you put them in.",
                 );
+                ui.add_space(cl::space::S3);
+                // The gesture the strip has been promising. Only an episode
+                // holds slide folders; every other kind says why instead of
+                // offering a button that cannot work.
+                match kind.cannot_take_a_card() {
+                    Some(why) => {
+                        cl::tip(
+                            ui.label(
+                                RichText::new("can't put cards in here")
+                                    .size(fluid.fs_body_sm())
+                                    .color(cl::ink::SUBTLE),
+                            ),
+                            why,
+                        );
+                    }
+                    None => {
+                        let chapters = self.container().map(|c| c.chapters.clone());
+                        match chapters.as_deref() {
+                            // Nothing to put them in — an episode with no
+                            // chapters cannot receive a card, and saying so
+                            // beats a button that always fails.
+                            Some([]) | None => {
+                                cl::tip(
+                                    ui.label(
+                                        RichText::new("no chapters to put them in")
+                                            .size(fluid.fs_body_sm())
+                                            .color(cl::ink::SUBTLE),
+                                    ),
+                                    "This episode has no chapters yet, and a card goes into \
+                                     a chapter.",
+                                );
+                            }
+                            // One chapter is not a decision.
+                            Some([(id, _)]) => {
+                                if cl::tip(
+                                    ui.label(
+                                        RichText::new("Put them in")
+                                            .size(fluid.fs_body_sm())
+                                            .strong()
+                                            .color(super::SPEC.tone.color()),
+                                    )
+                                    .interact(egui::Sense::click()),
+                                    "Copy every card you started into this one. Your \
+                                     originals stay where they are.",
+                                )
+                                .clicked()
+                                {
+                                    put_in = Some(id.clone());
+                                }
+                            }
+                            // More than one IS a decision, so ask.
+                            Some(many) => {
+                                ui.label(
+                                    RichText::new("Put them in")
+                                        .size(fluid.fs_body_sm())
+                                        .color(cl::ink::MUTED),
+                                );
+                                for (id, title) in many {
+                                    if cl::tip(
+                                        ui.label(
+                                            RichText::new(title)
+                                                .size(fluid.fs_body_sm())
+                                                .strong()
+                                                .color(super::SPEC.tone.color()),
+                                        )
+                                        .interact(egui::Sense::click()),
+                                        "Copy every card you started into this chapter",
+                                    )
+                                    .clicked()
+                                    {
+                                        put_in = Some(id.clone());
+                                    }
+                                    ui.add_space(cl::space::S2);
+                                }
+                            }
+                        }
+                    }
+                }
             }
         });
         ui.add_space(cl::space::S2);
@@ -1843,6 +1975,20 @@ impl AuthorSurface {
                     }
                 });
             });
+        if let Some(chapter) = put_in {
+            // Oldest first, and from the front each time, because a successful
+            // place removes the draft it just filed.
+            while !self.drafts.is_empty() {
+                let before = self.drafts.len();
+                self.place_draft(0, &chapter, &dpl_engine_capture::content_root());
+                if self.drafts.len() == before {
+                    // It refused. Stop rather than retrying the same card
+                    // forever — the reason is already in the status line.
+                    break;
+                }
+            }
+        }
+
         // Measured, not guessed — the next frame reserves exactly this.
         self.strip_h = (ui.cursor().top() - top).max(0.0);
         start_one
@@ -2947,5 +3093,230 @@ mod picture_tests {
                 "{bad} should be refused by the content jail"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod place_tests {
+    /// A content root with one real episode holding one chapter.
+    fn episode_root(name: &str) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!("dpl-place-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let ep = root.join("effingai").join("ep04");
+        std::fs::create_dir_all(&ep).unwrap();
+        dpl_doc::save_episode(
+            &ep,
+            &dpl_doc::Episode {
+                v: dpl_doc::SCHEMA_V,
+                id: "ep04".into(),
+                title: "Neon Drop".into(),
+                chapters: vec![dpl_doc::Chapter {
+                    id: "intro".into(),
+                    title: "Intro".into(),
+                    slides: Vec::new(),
+                }],
+            },
+        )
+        .unwrap();
+        root
+    }
+
+    /// A finished card in the inbox, ready to be filed.
+    fn draft(
+        root: &std::path::Path,
+        name: &str,
+        blocks: Vec<dpl_doc::Block>,
+    ) -> std::path::PathBuf {
+        let dir = root.join("inbox").join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        dpl_doc::save(
+            &dir,
+            &dpl_doc::Slide {
+                v: dpl_doc::SCHEMA_V,
+                template: "title".into(),
+                background: None,
+                blocks,
+                enter: None,
+                reveals: Vec::new(),
+            },
+        )
+        .unwrap();
+        dir
+    }
+
+    /// The whole point: a card ends up in the episode, the chapter grows, and
+    /// the operator's own inbox copy is left exactly where it was.
+    #[test]
+    fn placing_copies_into_the_chapter_and_leaves_the_draft_alone() {
+        let root = episode_root("ok");
+        let dir = draft(&root, "authored-draft-1", Vec::new());
+        let placed =
+            dpl_doc::place_slide(&root, &dir, "effingai", "ep04", "intro", None).expect("place");
+
+        let ep = dpl_doc::load_episode(&root.join("effingai").join("ep04")).unwrap();
+        let survived = dir.join("slide.json").is_file();
+        std::fs::remove_dir_all(&root).ok();
+
+        assert_eq!(ep.chapters[0].slides, vec![placed.slide]);
+        assert!(survived, "the inbox draft must survive — place COPIES");
+    }
+
+    /// A refused place must leave the card where it is. An operator who
+    /// believes their work is filed when it is not is the worst outcome this
+    /// surface can produce.
+    #[test]
+    fn an_unfinished_card_is_refused_and_survives() {
+        let root = episode_root("bad");
+        // An unknown size ref is exactly what `validate` exists to catch.
+        let dir = draft(
+            &root,
+            "authored-draft-1",
+            vec![dpl_doc::Block::Text {
+                id: "title".into(),
+                text: "hi".into(),
+                font: None,
+                size: "not-a-size".into(),
+                ink: None,
+            }],
+        );
+        let outcome = dpl_doc::place_slide(&root, &dir, "effingai", "ep04", "intro", None);
+        let ep = dpl_doc::load_episode(&root.join("effingai").join("ep04")).unwrap();
+        let survived = dir.join("slide.json").is_file();
+        std::fs::remove_dir_all(&root).ok();
+
+        assert!(outcome.is_err(), "an unfinished card must not be placed");
+        assert!(
+            ep.chapters[0].slides.is_empty(),
+            "nothing may reach the chapter"
+        );
+        assert!(survived, "the draft must still be there to fix");
+    }
+
+    /// The count the strip shows is a fact about the folder, so it has to come
+    /// FROM the folder after a place — never an increment.
+    #[test]
+    fn the_count_after_placing_is_what_is_on_disk() {
+        let root = episode_root("count");
+        for n in 1..=2 {
+            let dir = draft(&root, &format!("authored-draft-{n}"), Vec::new());
+            dpl_doc::place_slide(&root, &dir, "effingai", "ep04", "intro", None).expect("place");
+        }
+        let found = crate::containers::containers(crate::containers::ContainerKind::Episode, &root);
+        std::fs::remove_dir_all(&root).ok();
+
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].count, 2, "the census must read the placed cards");
+        assert_eq!(found[0].chapters.len(), 1);
+    }
+
+    /// The wiring itself: the surface's own gesture files the card, drops it
+    /// from the sitting, and re-reads the count from disk.
+    ///
+    /// Provable only because `place_draft` takes the root — `content_root()`
+    /// is a process-wide `OnceLock` and cannot be pointed at a scratch dir
+    /// from a test.
+    #[test]
+    fn the_surfaces_own_gesture_files_the_card_and_updates_itself() {
+        let root = episode_root("surface");
+        let dir = draft(&root, "authored-draft-1", Vec::new());
+
+        let mut surface = super::AuthorSurface {
+            offered: crate::containers::containers(
+                crate::containers::ContainerKind::Episode,
+                &root,
+            ),
+            into: Some(0),
+            kind: Some(crate::containers::ContainerKind::Episode),
+            ..Default::default()
+        };
+        surface.drafts.push(super::Draft {
+            slide: "authored-draft-1".into(),
+            label: "New card".into(),
+            dir,
+            doc: None,
+        });
+
+        surface.place_draft(0, "intro", &root);
+        let ep = dpl_doc::load_episode(&root.join("effingai").join("ep04")).unwrap();
+        let drafts_left = surface.drafts.len();
+        let count = surface.offered[0].count;
+        let status = surface.status.clone();
+        std::fs::remove_dir_all(&root).ok();
+
+        assert_eq!(
+            ep.chapters[0].slides.len(),
+            1,
+            "the card must reach the chapter"
+        );
+        assert_eq!(drafts_left, 0, "a filed card leaves the sitting's list");
+        assert_eq!(count, 1, "the count is re-read from disk, not incremented");
+        assert!(status.contains("put"), "the operator is told: {status:?}");
+    }
+
+    /// A refused place leaves the card in the strip AND says why — the
+    /// failure mode this whole gesture must never have is silent success.
+    #[test]
+    fn a_refused_place_keeps_the_card_and_explains() {
+        let root = episode_root("surface-bad");
+        let dir = draft(
+            &root,
+            "authored-draft-1",
+            vec![dpl_doc::Block::Text {
+                id: "title".into(),
+                text: "hi".into(),
+                font: None,
+                size: "not-a-size".into(),
+                ink: None,
+            }],
+        );
+
+        let mut surface = super::AuthorSurface {
+            offered: crate::containers::containers(
+                crate::containers::ContainerKind::Episode,
+                &root,
+            ),
+            into: Some(0),
+            ..Default::default()
+        };
+        surface.drafts.push(super::Draft {
+            slide: "authored-draft-1".into(),
+            label: "New card".into(),
+            dir,
+            doc: None,
+        });
+
+        surface.place_draft(0, "intro", &root);
+        let drafts_left = surface.drafts.len();
+        let status = surface.status.clone();
+        std::fs::remove_dir_all(&root).ok();
+
+        assert_eq!(drafts_left, 1, "a refused card must stay in the strip");
+        assert!(
+            status.contains("could not put that card in"),
+            "the reason must reach the operator: {status:?}"
+        );
+    }
+
+    /// Only an episode can receive a card, and the others say why in words
+    /// rather than offering a control that cannot work.
+    #[test]
+    fn only_an_episode_takes_a_card_and_the_rest_explain() {
+        use crate::containers::ContainerKind;
+        assert!(ContainerKind::Episode.cannot_take_a_card().is_none());
+        for kind in [
+            ContainerKind::Guide,
+            ContainerKind::Lesson,
+            ContainerKind::Deck,
+        ] {
+            let why = kind.cannot_take_a_card().expect("must explain");
+            assert!(why.len() > 40, "{} shrugs: {why:?}", kind.slug());
+        }
+        // A guide is a different content model, not a shortfall — its wording
+        // must not imply it is unfinished.
+        let guide = ContainerKind::Guide.cannot_take_a_card().unwrap();
+        assert!(
+            !guide.contains("yet"),
+            "a guide is not waiting on anything: {guide:?}"
+        );
     }
 }

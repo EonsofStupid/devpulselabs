@@ -130,6 +130,24 @@ impl ContainerKind {
         }
     }
 
+    /// Why a card cannot be put into this kind, in plain words — `None` when
+    /// it can.
+    ///
+    /// Only an episode holds slide folders. A guide is not a shortfall: it is
+    /// a different content model (steps, not cards), and the wording must not
+    /// imply it is broken. Lesson and deck have nowhere to put anything at
+    /// all, which [`ContainerKind::not_stored_yet`] already explains.
+    pub(crate) fn cannot_take_a_card(self) -> Option<&'static str> {
+        match self {
+            ContainerKind::Episode => None,
+            ContainerKind::Guide => Some(
+                "A guide is a recorded walkthrough — it holds steps, not cards. Cards go \
+                 into an episode.",
+            ),
+            ContainerKind::Lesson | ContainerKind::Deck => self.not_stored_yet(),
+        }
+    }
+
     /// Is this kind actually backed by something on disk?
     pub(crate) fn is_stored(self) -> bool {
         self.not_stored_yet().is_none()
@@ -151,6 +169,11 @@ pub(crate) struct Container {
     /// How many of the kind's unit are already in it.
     pub(crate) count: usize,
     pub(crate) dir: PathBuf,
+    /// `(id, title)` for each chapter, when the kind has chapters. Only an
+    /// episode does — and a card can only be put INTO a chapter, so this is
+    /// what makes placing possible without the surface reloading the episode
+    /// behind the census's back.
+    pub(crate) chapters: Vec<(String, String)>,
 }
 
 /// THE census: every container of one kind under `root`, sorted.
@@ -185,6 +208,11 @@ fn episodes(root: &Path) -> Vec<Container> {
                 kind: ContainerKind::Episode,
                 label: format!("{} · {title}", pretty(&show)),
                 count: dpl_doc::episode_slides(&dir, &ep).len(),
+                chapters: ep
+                    .chapters
+                    .iter()
+                    .map(|c| (c.id.clone(), c.title.clone()))
+                    .collect(),
                 dir,
             })
         })
@@ -215,6 +243,9 @@ fn guides(root: &Path) -> Vec<Container> {
                 kind: ContainerKind::Guide,
                 label,
                 count: manifest.steps.len(),
+                // A guide holds steps, not slide folders — it has no chapters
+                // and cannot receive a card.
+                chapters: Vec::new(),
                 dir,
             })
         })
