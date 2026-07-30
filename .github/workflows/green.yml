@@ -1,12 +1,21 @@
 name: green
 
-# The green gate on SELF-HOSTED runners — zero hosted minutes, native
-# targets, both lanes on the dedicated-server estate (CLAUDE.md "CI
-# runners"). Windows lane: dpl-win = devpulse-runner-win-01 (Proxmox VM).
-# Linux lane: dpl-linux = devpulse-runner-lnx-01 (LXC) + the ARM64
-# clyffy-lab runner. Free-plan note: checks report on the PR but cannot
-# hard-block merges (branch protection is Pro-gated); the committed
-# pre-push hook is the local enforcement.
+# The green gate on GITHUB-HOSTED runners.
+#
+# It ran on self-hosted runners on the estate until 2026-07-30, which was safe
+# only while the repo was private and every PR author was the operator. The
+# repo went public, and `docs/runbook/ci-runners.md` calls that combination
+# non-negotiable: a fork PR would have executed arbitrary code on the estate
+# (the Windows runner ran as SYSTEM). Both runners were deregistered and these
+# lanes moved to hosted images — exactly the rework that runbook demanded
+# before going public.
+#
+# Hosted minutes are free and unmetered for public repositories, so this also
+# ends the single-Windows-runner queue that serialised every merge.
+#
+# The toolchain is pinned by `rust-toolchain.toml` (1.92.0 + clippy/rustfmt),
+# so the hosted image's preinstalled Rust is overridden automatically — the
+# lane cannot silently drift onto a newer compiler.
 
 on:
   workflow_dispatch:
@@ -17,26 +26,35 @@ on:
       - "**.md"
       - ".claude/**"
 
+# A new push supersedes an in-flight run for the same PR. On self-hosted this
+# had to be done by hand — stale runs sat in the queue holding the only
+# Windows slot.
+concurrency:
+  group: green-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
 
 jobs:
   green-windows:
-    runs-on: [self-hosted, dpl-win]
-    # 45: a cold cache (fresh runner) or a debug=0 fingerprint change
-    # forces one full rebuild; runs after that are incremental.
-    timeout-minutes: 45
+    runs-on: windows-latest
+    timeout-minutes: 60
     env:
-      # A 16GB Windows lane dies on LNK1318 "PDB LIMIT" when cargo test
-      # links its big test exes with debug info under memory pressure, and
-      # full-parallel builds starve the runner's heartbeat ("lost
-      # communication"). CI doesn't need debug info; local builds keep it.
-      # The VM boots with 16 GB too — these cures stay.
+      # Carried over from the 16 GB self-hosted VM, where cargo test hit
+      # LNK1318 "PDB LIMIT" linking big test exes with debug info. Hosted
+      # Windows images are also 16 GB, and CI has never needed debug info —
+      # local builds keep it. Drop these only with a green run proving it.
       CARGO_PROFILE_DEV_DEBUG: "0"
       CARGO_PROFILE_TEST_DEBUG: "0"
-      CARGO_BUILD_JOBS: "8"
     steps:
       - uses: actions/checkout@v7
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # Hosted runners start cold; the cache is keyed per-job so the two
+          # lanes never share artifacts.
+          key: green-windows
       - name: fmt
         run: cargo fmt --all --check
       - name: clippy (deny warnings)
@@ -44,14 +62,29 @@ jobs:
       - name: tests
         run: cargo test --workspace
 
-  # Linux/Wayland lane — devpulse-runner-lnx-01 (x64 LXC) + the ARM64
-  # clyffy-lab runner both carry dpl-linux. Cross-support is a product
-  # requirement.
   green-linux:
-    runs-on: [self-hosted, dpl-linux]
-    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
+      # khronos-egl and friends need the full dev set — a runner with only
+      # rustup dies at `pkg-config egl` in the first clippy. This is the same
+      # list `docs/runbook/linux-runner-bootstrap.sh` installed; keep them in
+      # step.
+      - name: system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            build-essential cmake pkg-config ffmpeg libssl-dev \
+            libegl1-mesa-dev libgl1-mesa-dev libwayland-dev libxkbcommon-dev \
+            libxkbcommon-x11-dev libx11-dev libxcursor-dev libxrandr-dev \
+            libxi-dev libxtst-dev libxdo-dev libudev-dev libevdev-dev \
+            libasound2-dev libpipewire-0.3-dev libdbus-1-dev libgtk-3-dev \
+            libpango1.0-dev libcairo2-dev libglib2.0-dev libv4l-dev \
+            clang libclang-dev llvm-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: green-linux
       - name: fmt
         run: cargo fmt --all --check
       - name: clippy (deny warnings)
@@ -59,14 +92,17 @@ jobs:
       - name: tests
         run: cargo test --workspace
 
-  # macOS lane — STAGED, ready to flip (docs/plans/mac-parity.md). Uncomment
-  # once a Mac runner labeled dpl-mac is registered (a job on a missing label
-  # queues forever). The macOS implementation happens on the operator's Mac.
+  # macOS lane — STAGED, ready to flip (docs/plans/mac-parity.md). Hosted
+  # `macos-latest` is free for public repos, so this no longer waits on a Mac
+  # being registered; it waits on the macOS implementation itself.
   # green-mac:
-  #   runs-on: [self-hosted, dpl-mac]
-  #   timeout-minutes: 30
+  #   runs-on: macos-latest
+  #   timeout-minutes: 60
   #   steps:
   #     - uses: actions/checkout@v7
+  #     - uses: Swatinem/rust-cache@v2
+  #       with:
+  #         key: green-mac
   #     - name: fmt
   #       run: cargo fmt --all --check
   #     - name: clippy (deny warnings)

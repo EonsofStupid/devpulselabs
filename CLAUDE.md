@@ -52,10 +52,8 @@ other worktree. The operator double-clicks `target\release\devpulselabs.exe`
   (the Lottie render helper ships BESIDE the exe — the façade spawns it, ADR-009)
 - The gate is WIRED as a pre-push hook (`.githooks/pre-push`; fresh
   clones run `git config core.hooksPath .githooks` once). Never bypass
-  with --no-verify. NOTE: GitHub branch protection / required checks are
-  Pro-gated on this private repo — the local hook IS the enforcement;
-  a self-hosted Actions runner + protection becomes worthwhile only if
-  the repo goes Pro or public.
+  with --no-verify. The hook proves the pusher's own OS only — the two
+  hosted lanes are what prove the other one (see CI below).
 - Harness flags (ground-truthed vs `crates/app/src/main.rs` 2026-07-27):
   `--screenshot <png> --shot-frame <n> --route <hub/sub> --focus <id>
   --lib-section <slug> --author-editor --author-container <kind>
@@ -78,35 +76,24 @@ other worktree. The operator double-clicks `target\release\devpulselabs.exe`
   `target\release\eguipilotai.exe doctor | inspect devpulse-windows pixvix`.
   Kill any orphaned `devpulselabs` process after CLI runs.
 
-## CI runners (self-hosted, free — on the estate since 2026-07-28)
+## CI (GitHub-hosted since 2026-07-30)
 
-- BOTH lanes live on the dedicated server (the server1 / ssh.clyffy.ai
-  Proxmox host, 88 cores / 128 GB). The LAPTOP IS NOT A RUNNER — its
-  registration was removed 2026-07-28; never restart `C:\actions-runner`
-  here. (Leftover: `schtasks /Delete /TN dpl-actions-runner /F` from an
-  elevated shell, once.)
-- Windows lane: `devpulse-runner-win-01` (labels: dpl-win) — Proxmox VM
-  119, runner service `actions.runner.EonsofStupid-devpulselabs.
-  devpulse-runner-win-01` running as SYSTEM at
-  `C:\actions\runner-devpulselabs` (per-repo roots — the VM hosts
-  another repo's runner beside it).
-  Toolchain (all machine-usable by SYSTEM): git 2.55, rustup with the
-  pinned 1.92.0 (default profile — clippy+rustfmt) in the SYSTEM
-  profile, VS Build Tools MSVC 14.44 + Win11 SDK 26100. Reach the VM
-  from server1 via `qm guest exec 119 -- ...` (guest agent; quote
-  Windows paths — bare backslashes die in the ssh/sh layers, base64 a
-  .cmd through certutil for anything with embedded quotes).
-- Linux lane: `devpulse-runner-lnx-01` (labels: dpl-linux, rust) — LXC
-  121 on the same host; `dpl-linux-clyffy-lab` (ARM64, dpl-linux) rides
-  as extra capacity.
-- The 16GB-era LNK1318 env cures in green.yml (`debug=0`, `jobs=8`)
-  stay until the Windows VM proves it doesn't need them (it boots with
-  16 GB too).
-- Rebuild-from-blank, snapshot policy, heartbeat, and the never-public
-  security rule: `docs/runbook/ci-runners.md` (idempotent bootstrap
-  scripts beside it — LLVM/libclang included; also `-VerifyOnly` /
-  `--verify-only` audits for a runner that looks online but won't pick
-  up jobs).
+- Both lanes run on **hosted images** — `windows-latest` + `ubuntu-latest`
+  in `.github/workflows/green.yml`. Free and unmetered because the repo is
+  public.
+- The **self-hosted estate runners are deregistered**. They executed PR code
+  with real privileges (Windows as SYSTEM), which is safe only on a private
+  repo; the repo went public on 2026-07-30 and they came off the same day.
+  `docs/runbook/ci-runners.md` keeps the rebuild recipe and the standing rule:
+  never wire a self-hosted runner to `pull_request` on a public repo.
+- The toolchain is pinned by `rust-toolchain.toml` (1.92.0), so a hosted
+  image's preinstalled Rust cannot silently become the lane's compiler.
+- `concurrency: cancel-in-progress` supersedes a stale run when a PR is
+  force-pushed — on self-hosted those sat in the queue holding the only
+  Windows slot.
+- Public repo means **branch protection with required checks is now
+  available** on the free plan. Turning it on would enforce the double-green
+  law mechanically instead of by discipline — not yet configured.
 
 ## Session end (every session, no exceptions)
 
