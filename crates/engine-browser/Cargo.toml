@@ -16,5 +16,12 @@ serde_json.workspace = true
 # Pure-Rust WebSocket framing over OUR TcpStream, localhost only — no TLS.
 tungstenite.workspace = true
 
+# DECLARED, not auto-discovered: cargo names an undiscovered `src/bin/*.rs`
+# after the FILE, which is how this binary shipped as `browser_cli` while
+# every sibling CLI was kebab (architecture.md §4).
+[[bin]]
+name = "browser-cli"
+path = "src/bin/browser_cli.rs"
+
 [lints]
 workspace = true
