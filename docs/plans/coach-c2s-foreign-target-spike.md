@@ -180,9 +180,11 @@ five things and nothing else:
    spotlight vocabulary at the composed rect: crisp edge ring, gradient tint,
    one black diffusion scatter with a hole for the target, caption plate.
    Never backdrop blur.
-4. **Observe** — carve a single `XShape` input rectangle at the target and
-   report `Triggered` when the operator presses it, mirroring C1's
-   observe-never-intercept law: the real button still does its real work.
+4. **Observe** — keep the overlay fully click-through (`mouse_passthrough`);
+   report `Triggered` when Button1 edges down while the pointer is inside
+   the composed hotspot (`QueryPointer` edge-detect). Never carve an
+   overlay input region that would eat the click — the real button must
+   still do its real work (C1 observe-never-intercept). See §10.
 5. **Invoke** — separately drive the same control through
    `Action.doAction("click")` with no coordinates, establishing the
    semantic-first rung of the actuation ladder and proving the two halves are
@@ -349,13 +351,94 @@ Windows builds the stub). Workspace deps promoted at locked versions:
 | Locate | `foreign-target-probe locate --name 7` | PASS — WINDOW `64×44@16,293` → screen `64×44@219,462` via origin `(142,114)` + extents `(61,61,55,67)` |
 | Invoke | `foreign-target-probe invoke --name 7` | PASS — `Action.doAction("click")` returned true. Display Text iface empty on this GTK4 build (cannot auto-assert digit change). |
 | Paint | spotlight 6s + `gnome-screenshot` → `docs/proof/c2s-foreign-spotlight.png` | PASS — ColdLight caption "Press 7" and scatter visible at composed coords |
-| Observe Triggered | display-change poll during spotlight | TIMEOUT in unattended run — operator press still required for that half; click-through overlay did not block the desktop |
+| Observe Triggered | display-change poll during spotlight | TIMEOUT in unattended run — superseded by §10 QueryPointer edge-detect |
+| Observe Triggered (§10) | `spotlight --name 7 --proof-xtest` | PASS — `Triggered (Button1 press-edge inside hotspot)` exit 0; no-press `--seconds 2` → timeout exit 1 |
 | Negative | bogus control name | refuses `no Button named …` |
 | Bus path | `org.a11y.Bus` GetAddress | path is `/org/a11y/bus` (lowercase) — corrected in probe |
 
 **Verdict:** Tier A foreign resolve + compose + ColdLight paint + semantic
-invoke are proven on this box against `gnome-calculator`. C2a ADR may
-proceed from these findings. Operator Triggered observe remains a live
-manual check until display Text (or an event listener) is readable.
+invoke + **Triggered observe** (QueryPointer press-edge; display Text not
+required) are proven on this box against `gnome-calculator`. C2a ADR may
+proceed from these findings.
 
 Ops NEXT after land → **C2a** coach-overlay ADR.
+
+## 10. Follow-up plan — Triggered observe without display Text (2026-07-29)
+
+### Problem
+
+§9 Observe timed out unattended because `gnome-calculator` on this GTK4
+build exposes Text ifaces whose `GetText` body is empty (`chars` 0/1, body
+`""`). Display-change polling can never emit `Triggered` here, even when
+the operator (or `Action.doAction`) actually presses button `7`.
+
+§3.3 #4 also named an `XShape` input carve at the hotspot. That would
+**eat** the click in our overlay window and break the observe-never-
+intercept law (the calculator would not receive the press). C1's in-app
+coach observes via AccessKit while the overlay stays fully click-through;
+the foreign analog must observe without taking the event.
+
+### Decision
+
+1. Keep the spotlight fully `mouse_passthrough` (click reaches calculator).
+2. Observe via **X11 `QueryPointer` edge-detect**: Button1 transitions
+   up→down while the pointer lies inside the composed hotspot rect →
+   `Triggered`, then close the spotlight early.
+3. Pure edge logic lives in `dpl-desktop-spike` (`press_edge_in_hotspot`)
+   with unit tests; the probe polls X11 each paint tick.
+4. Unattended proof: `--proof-xtest` after spotlight mount synthesizes one
+   XTEST click at the hotspot center (actor=agent for the proof only;
+   live operator press is the product path).
+5. Display-text polling is retired as the Triggered signal (may remain
+   diagnostic later; not the gate).
+
+### In / out / blast radius
+
+- **In:** `crates/desktop-spike` lib + `foreign-target-probe` spotlight path;
+  this plan §3.3 #4 amendment + §10 evidence; ops tip that observe is closed.
+- **Out:** `dpl-coach-overlay` daemon, protocol `CoachEvent` wire, Windows /
+  Wayland, AT-SPI event-bus subscribe (named future alternative), C2a ADR.
+- **Blast radius:** spike-only binary; no `app` dep; Windows still builds the
+  stub. Live calculator on `:1` during proof.
+
+### Tasks
+
+1. Amend §3.3 #4 wording to QueryPointer (not XShape carve).
+2. Add `press_edge_in_hotspot` + unit matrix (inside / outside / no-edge).
+3. Wire spotlight UI to poll pointer, set `Triggered`, close viewport.
+4. Add `--proof-xtest` for unattended agent click at hotspot center.
+5. Prove: `spotlight --name 7 --proof-xtest` → `Triggered`; update §9/§10
+   evidence.
+
+### Risks
+
+- QueryPointer samples between press/release of a very short XTEST → miss.
+  Mitigate: hold Button1 ~50ms in proof inject, poll every frame (~50ms).
+- False Triggered if operator holds Button1 elsewhere then moves in — edge
+  requires up→down *while already inside* (down-edge only inside rect).
+- Multi-monitor / scaled DPI — out of scope; this box is single X11 screen.
+
+### Verification (clyffy-verify modes)
+
+1. **Correctness:** unit tests on `press_edge_in_hotspot`.
+2. **Reality:** live `foreign-target-probe spotlight --name 7 --proof-xtest`
+   prints `Triggered` against running `gnome-calculator`.
+3. **Adversary:** click outside hotspot must not Trigger; timeout still
+   exits 1; locate/invoke unchanged.
+
+### Evidence (2026-07-29)
+
+| Check | Result |
+|---|---|
+| `cargo test -p dpl-desktop-spike --lib` (incl. press-edge matrix) | PASS |
+| `spotlight --name 7 --proof-xtest --seconds 8` | PASS — Sync-grab ButtonPress + ReplayPointer |
+| `spotlight --name 7 --seconds 2` (no inject) | PASS — timeout exit 1 |
+| Display Text reader | Fixed — `Role::Text` + `GetText(0,-1)` |
+| Live operator on `:1` (first) | Presses reached X11; click was on composed **5** (`323,523`), display `"5"`. False Triggered via any-display-change — fixed. |
+| Caption-below landmine | Cyan plate under ring sat on keypad row 5 — operator clicked plate. Caption now prefers **above**. |
+| Live operator (2026-07-30) | ButtonPress `256,480` inside hotspot → **Triggered** exit 0 (~4s). Journal: `docs/journal/2026-07-30-c2s-triggered-live.md`. |
+| Compose vs stream (2026-07-30) | XTEST at composed `7` → display `7`; composed `5` → `5`. `ppp=1`, overlay `1920×1080+0+0`. Geometry is not hardcoded wrong. |
+| Stream verify | `GetAccessibleAtPoint(WINDOW, center)` must name-match before paint; caption carries `stream:7`. |
+| Wrong-digit adversary | Coaching `7`, XTEST on `5` → timeout (no false Triggered). |
+
+Observe: Sync-grab Button1 + `ReplayPointer`; display-change only when text matches the coached digit; locate gated by AT-SPI point identity. No screenshot / SigLIP in the gate — a11y + X11 streams only. SigLIP remains a named Tier-C research option for apps with dark a11y trees, not this path.

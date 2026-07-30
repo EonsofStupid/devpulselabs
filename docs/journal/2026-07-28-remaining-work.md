@@ -25,7 +25,7 @@ That vision is now half-foundation, half-product:
 | **Authorize** — `OperatorIntent` + determinism modes | **Landed** (switch yes; pinning no) |
 | **Teach inside DevPULSE** — instrumented surfaces + postcondition steps | **Partial** (Workbench started; Library section selection still blocks a full lesson) |
 | **Paint the monitor** — click-through overlay process | **Spike proven** (transparency + passthrough on X11); daemon not done |
-| **Perceive foreign apps** — AT-SPI / UIA tier ladder | **Spike proven** (C2s Tier A on X11); C2a ADR next |
+| **Perceive foreign apps** — AT-SPI / UIA tier ladder | **C2b self-test PASS** (`dpl-coach-overlay`); C2a ratified |
 | **Analyze** — DuckDB lens over ledger files | **Phase 3 ADR**, after real volume |
 
 ---
@@ -65,22 +65,27 @@ lessons that name a rail hub failed when chrome collapsed.
 Plan: `docs/plans/p4-rail-accordion-degrade.md`. Proof:
 `docs/proof/p4-rail-cramped-640x480.png` + shell kittest.
 
-### 5. C2s foreign-target spike (p5) — **CLOSED** (2026-07-29)
+### 5. C2s foreign-target spike (p5) — **CLOSED** (2026-07-29 / live 2026-07-30)
 
-**Plan:** `docs/plans/coach-c2s-foreign-target-spike.md` — evidence §9.
-Locate + compose + ColdLight paint + `Action.doAction` on
-`gnome-calculator` button `7`. Triggered-observe needs operator (display
-Text empty on this GTK4).
+**Plan:** `docs/plans/coach-c2s-foreign-target-spike.md` — evidence §9 + §10.
+Locate + compose + ColdLight paint + `Action.doAction` + **Triggered
+observe** (Sync-grab + ReplayPointer; digit-matched display watch;
+`GetAccessibleAtPoint` identity gate) on `gnome-calculator` button `7`.
+**Live operator proof 2026-07-30:** ButtonPress inside hotspot → Triggered.
+Journal: `docs/journal/2026-07-30-c2s-triggered-live.md`.
 
-### 6. C2a coach-overlay ADR → C2b daemon — **NEXT**
+### 6. C2a coach-overlay ADR → C2b daemon — **C2b SELF-TEST PASS** (2026-07-30)
 
-**Why after C2s:** ADR argues from measured coords + AT-SPI reality,
-not taste. Separate process `dpl-coach-overlay`, feature-gated /
-devtools-only until ratified (no-IPC law; chat providers are the
-template).
+**ADR:** `docs/plans/coach-overlay-adr.md` — RATIFIED.  
+**C2b plan:** `docs/plans/coach-c2b-overlay-daemon.md` — pass-1 PASS.  
+**Journal:** `docs/journal/2026-07-30-c2b-coach-overlay.md`.
 
-**Done when:** ADR merged; daemon self-test paints a hotspot and
-proves non-interception.
+Crate `crates/coach-overlay` (`dpl-coach-overlay`): locate → identity →
+WINDOW paint → Sync-grab → Triggered on calculator; bogon refuses.
+Never a dep of `app`. Pass 2 stdio coach loop deferred.
+
+**Done when (pass 1):** met — self-test paints hotspot + Triggered /
+non-intercept observe. Remaining: land PR; optional Pass 2 stdio.
 
 ### 7. Strict-mode pinning (replay pass)
 

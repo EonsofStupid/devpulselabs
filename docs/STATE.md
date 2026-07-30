@@ -2,6 +2,31 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-30 — C2B `dpl-coach-overlay` SELF-TEST PASS (`docs/journal/2026-07-30-c2b-coach-overlay.md`):**
+Workspace member `crates/coach-overlay`; ADR ratified; `--self-test --name 7`
+→ Triggered exit 0 on calculator (`stream_hit="7"`); bogon refuses exit 2.
+Never a dep of `app`. Pass 2 stdio coach loop deferred. Coach NEXT =
+**optional Pass 2 stdio** / strict pinning (this PR lands pass-1).
+
+**2026-07-30 — C2A COACH-OVERLAY ADR RATIFIED (`docs/plans/coach-overlay-adr.md`):**
+Boundary for `dpl-coach-overlay` — feature-gated / devtools-only process,
+WINDOW-space paint, Sync-grab observe, identity gate, forbidden set,
+launch gates. Operator authorized build 2026-07-30. C2b self-test closed
+same day.
+
+**2026-07-30 — C2S LIVE TRIGGERED (`docs/journal/2026-07-30-c2s-triggered-live.md`):**
+Operator press on spotlit `gnome-calculator` `7` → `Triggered` (ButtonPress
+inside hotspot). Stream identity via `GetAccessibleAtPoint(WINDOW)`;
+paint on calculator client (WINDOW space); caption above ring (caption-below
+had looked like `5`). Wrong-digit no longer false-Triggers.
+
+**2026-07-29 — C2S TRIGGERED OBSERVE (§10 of `coach-c2s-foreign-target-spike.md`):**
+`foreign-target-probe spotlight` reports `Triggered` on Button1 press-edge
+inside the composed hotspot via `QueryPointer` (overlay stays
+`mouse_passthrough` — never eats the click). Display Text polling retired
+as the gate. `--proof-xtest` proves unattended; live operator press is the
+product path.
+
 **2026-07-29 — THE OWNED LUCIDE ICON ENGINE (#163, ADR-015, POAM V3 M1,
 plan `docs/plans/lucide-icon-engine.md`):** the operator's "pull lucide
 and properly own it as part of coldlight" landed double-green. Lucide

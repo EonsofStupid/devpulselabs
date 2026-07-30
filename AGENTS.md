@@ -12,11 +12,16 @@ Implementation order is `docs/plans/eguipilotai-v1-delivery.md`; current
 evidence, gaps, and the DevPULSE census are indexed at
 `docs/research/eguipilotai/README.md`.
 
-Chat's named provider adapters are the only ratified production-process
+Chat's named provider adapters are the only ratified **production-process**
 exception to the no-IPC law. The exact allowed boundary, launch gates, and
 forbidden behavior are canonical in
 `docs/plans/chat-provider-runtime-adr.md`; no generic command runner or
 credential-handling path is permitted.
+
+`dpl-coach-overlay` is the ratified **devtools-only** process exception for
+foreign/whole-monitor coach chrome (`docs/plans/coach-overlay-adr.md`).
+Normal production builds contain no overlay endpoint; C2b lands behind the
+same discipline as EguiPilot's inherited pipe.
 
 Chat's primary UI is an independent native peer window, never a hub route.
 The canonical product, visual, route, and generated-surface contract is

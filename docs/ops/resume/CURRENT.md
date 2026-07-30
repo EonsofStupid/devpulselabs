@@ -1,31 +1,38 @@
 # Resume pack — CURRENT
 
-**Updated:** 2026-07-29
+**Updated:** 2026-07-30
 **Lane:** coach-ledger
 **Dirty:** false
 
 ## Goal
 
-Land C2s foreign-target spike evidence, then author C2a coach-overlay ADR.
+Land C2b (`dpl-coach-overlay` self-test) via PR; optional Pass 2 stdio loop.
 
-## Done
+## Done this session
 
-- p6 / `/strict` / p2b / p4
-- **C2s** Tier A: locate + compose + spotlight paint + semantic invoke
+- C2a ADR ratified (`docs/plans/coach-overlay-adr.md`); `AGENTS.md` tipped
+- C2b pass-1 self-test **PASS** — journal
+  `docs/journal/2026-07-30-c2b-coach-overlay.md`
+  - unit 4/4 · clippy clean · structure hygienic
+  - `--self-test --name 7` → exit 0 Triggered (`stream_hit="7"`)
+  - `--self-test --name bogon` → exit 2 refuse
+- Ops tipped: STATE · SESSION · remaining-work · signals · program map
 
 ## Next
 
-1. Merge this PR (C2s)
-2. C2a coach-overlay ADR (from spike findings)
-3. C2b daemon…
+1. Merge PR for `feat/c2b-coach-overlay` (after double-green)
+2. Optional: Pass 2 stdio `CoachCommand` / `CoachEvent` under ADR launch gates
+3. Strict pinning → DuckDB ADR → class column
 
 ## Blockers
 
-Triggered-observe needs operator (calculator Text iface empty). Windows /
-Wayland unproven.
+- Windows / Wayland overlay unproven
+- Production `app` wiring still forbidden
 
 ## Key files
 
-- `docs/plans/coach-c2s-foreign-target-spike.md` §9
-- `crates/desktop-spike/src/bin/foreign_target_probe*.rs`
-- `docs/proof/c2s-foreign-spotlight.png`
+- `crates/coach-overlay/`
+- `docs/plans/coach-overlay-adr.md`
+- `docs/plans/coach-c2b-overlay-daemon.md`
+- `docs/journal/2026-07-30-c2b-coach-overlay.md`
+- `docs/journal/2026-07-30-c2s-triggered-live.md`
