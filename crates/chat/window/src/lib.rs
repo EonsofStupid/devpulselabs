@@ -1320,7 +1320,7 @@ impl ChatWindow {
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         ui.spacing_mut().item_spacing.y = 2.0;
-                        self.provider_selector(ui, &providers, intents);
+                        self.provider_roster(ui, &providers, intents);
                         ui.add_space(9.0);
                         self.session_groups(ui, &providers, intents);
                     });
@@ -1508,71 +1508,23 @@ impl ChatWindow {
         });
     }
 
-    fn provider_selector(
+    fn provider_roster(
         &self,
         ui: &mut egui::Ui,
         providers: &[ProviderView],
         intents: &mut Vec<ChatWindowIntent>,
     ) {
         micro_heading(ui, "AI PROVIDERS");
-        let selected = self.runtime.selected_provider();
-        let active = active_session_count(providers);
-        let response = egui::Frame::new()
-            .fill(Color32::from_rgb(10, 36, 40))
-            .stroke(Stroke::new(1.0, Color32::from_rgb(18, 91, 96)))
-            .corner_radius(CornerRadius::same(4))
-            .inner_margin(egui::Margin::symmetric(8, 7))
-            .show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                ui.horizontal(|ui| {
-                    if let Some(provider) = &selected {
-                        provider_mark(ui, provider.registration.manifest.descriptor.accent);
-                    } else {
-                        provider_mark(ui, ProviderAccent::Cyan);
-                    }
-                    ui.vertical(|ui| {
-                        ui.spacing_mut().item_spacing.y = 0.0;
-                        ui.label(
-                            RichText::new(
-                                selected
-                                    .as_ref()
-                                    .map_or("Choose an AI provider", |provider| {
-                                        provider.registration.manifest.descriptor.label
-                                    }),
-                            )
-                            .small()
-                            .strong()
-                            .color(cl::ink::STRONG),
-                        );
-                        ui.label(
-                            RichText::new(format!(
-                                "{active} active session{}",
-                                if active == 1 { "" } else { "s" }
-                            ))
-                            .small()
-                            .color(cl::ink::MUTED),
-                        );
-                    });
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.label(RichText::new("⌄").color(Tone::Cyan.color()));
-                    });
-                });
-            })
-            .response
-            .interact(Sense::click());
+        for provider in providers {
+            self.provider_row(ui, provider, true, false, intents);
+        }
+        ui.add_space(2.0);
+        let more = sidebar_destination_button(ui, "＋  More providers…", true);
         let mut metadata = NodeMetadata::new(PROVIDERS_ID, Role::Button, "Open AI Providers");
-        metadata.description = Some(
-            "Shows active sessions, all built-in providers, and Local or Custom setup.".to_owned(),
-        );
-        metadata.value = selected.map(|provider| {
-            format!(
-                "{} · {active} active session{}",
-                provider.registration.manifest.descriptor.label,
-                if active == 1 { "" } else { "s" }
-            )
-        });
-        ui.pilot_track(&response, metadata);
-        if response.clicked() {
+        metadata.description =
+            Some("All built-in providers plus Local or Custom setup.".to_owned());
+        ui.pilot_track(&more, metadata);
+        if more.clicked() {
             intents.push(ChatWindowIntent::SetOverlay(Some(
                 DomainOverlay::ProviderCatalog,
             )));
@@ -1584,6 +1536,7 @@ impl ChatWindow {
         ui: &mut egui::Ui,
         provider: &ProviderView,
         expanded: bool,
+        in_catalog: bool,
         intents: &mut Vec<ChatWindowIntent>,
     ) {
         let descriptor = provider.registration.manifest.descriptor;
@@ -1650,8 +1603,13 @@ impl ChatWindow {
         } else {
             sidebar_row(ui, descriptor.short_label, selected)
         };
+        let home = if in_catalog {
+            PROVIDER_CATALOG_ID
+        } else {
+            PROVIDERS_ID
+        };
         let mut metadata = NodeMetadata::new(
-            PROVIDERS_ID.child(&PilotKey::new(descriptor.id.0)),
+            home.child(&PilotKey::new(descriptor.id.0)),
             Role::Tab,
             descriptor.label,
         );
@@ -2494,7 +2452,7 @@ impl ChatWindow {
                                     ui.add_space(8.0);
                                     micro_heading(ui, "AVAILABLE PROVIDERS");
                                     for provider in &providers {
-                                        self.provider_row(ui, provider, true, intents);
+                                        self.provider_row(ui, provider, true, true, intents);
                                     }
                                     for supplement in SUPPLEMENTS.iter().filter(|supplement| {
                                         supplement.action == CatalogSupplementAction::FutureAdapter
@@ -4407,7 +4365,7 @@ mod tests {
     }
 
     #[test]
-    fn provider_selector_summarizes_all_active_sessions() {
+    fn active_session_count_spans_all_providers() {
         let window = multi_provider_window();
         assert_eq!(active_session_count(&window.runtime.provider_views()), 2);
         assert_eq!(window.runtime.provider_views().len(), 2);
