@@ -167,16 +167,16 @@ fn run(args: &[String]) -> Result<i32, String> {
             // Paint in AT-SPI WINDOW space: overlay sits on the calculator
             // client rect so paint coords == GetExtents(WINDOW) == hit-test.
             // Observe/grab still use screen_rect (root pixels).
-            let result = run_spotlight(
-                located.window_rect,
-                located.client_origin,
-                located.client_size,
-                located.screen_rect,
-                &caption,
+            let result = run_spotlight(SpotlightPaint {
+                window_hotspot: located.window_rect,
+                client_origin: located.client_origin,
+                client_size: located.client_size,
+                screen_hotspot: located.screen_rect,
+                message: caption,
                 seconds,
-                Arc::clone(&triggered),
-                debug_pointer,
-            );
+                triggered: Arc::clone(&triggered),
+                debug: debug_pointer,
+            });
             stop_watch.store(true, Ordering::SeqCst);
             result.map_err(|e| e.to_string())?;
             let hit = triggered.load(Ordering::SeqCst);
@@ -899,17 +899,28 @@ fn spawn_hotspot_watch(
     });
 }
 
-fn run_spotlight(
+struct SpotlightPaint {
     window_hotspot: IRect,
     client_origin: (i32, i32),
     client_size: (i32, i32),
     screen_hotspot: IRect,
-    message: &str,
+    message: String,
     seconds: u64,
     triggered: Arc<AtomicBool>,
     debug: bool,
-) -> eframe::Result<()> {
-    let message = message.to_string();
+}
+
+fn run_spotlight(paint: SpotlightPaint) -> eframe::Result<()> {
+    let SpotlightPaint {
+        window_hotspot,
+        client_origin,
+        client_size,
+        screen_hotspot,
+        message,
+        seconds,
+        triggered,
+        debug,
+    } = paint;
     let started = Instant::now();
     let (cw, ch) = client_size;
     if cw <= 0 || ch <= 0 {
