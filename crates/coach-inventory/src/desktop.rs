@@ -45,8 +45,8 @@ impl ApplicationDirs {
                 h
             });
         paths.push(home.join("applications"));
-        let data_dirs = std::env::var("XDG_DATA_DIRS")
-            .unwrap_or_else(|_| "/usr/local/share:/usr/share".into());
+        let data_dirs =
+            std::env::var("XDG_DATA_DIRS").unwrap_or_else(|_| "/usr/local/share:/usr/share".into());
         for part in data_dirs.split(':').filter(|s| !s.is_empty()) {
             paths.push(PathBuf::from(part).join("applications"));
         }
@@ -90,8 +90,8 @@ pub fn cold_catalog(dirs: &ApplicationDirs) -> Result<Vec<ColdEntry>, String> {
             if !seen.insert(name.to_string()) {
                 continue;
             }
-            let text = fs::read_to_string(&path)
-                .map_err(|e| format!("read {}: {e}", path.display()))?;
+            let text =
+                fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
             if let Some(mut entry) = parse_desktop_entry(name, &text, &dirs.current_desktop) {
                 entry.path = path;
                 out.push(entry);
@@ -195,4 +195,3 @@ fn desktop_list_matches(list: &str, current: &str) -> bool {
         .filter(|s| !s.is_empty())
         .any(|item| currents.iter().any(|c| c.eq_ignore_ascii_case(item)))
 }
-

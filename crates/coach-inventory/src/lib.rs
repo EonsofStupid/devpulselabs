@@ -68,13 +68,14 @@ pub fn join_inventory(cold: &[ColdEntry], live: &[LiveApp]) -> Vec<InventoryItem
     let mut items: Vec<InventoryItem> = cold
         .iter()
         .map(|c| {
-            let live_hint = live.iter().find(|l| cold_matches_live(c, l)).map(|l| {
-                LiveHint {
+            let live_hint = live
+                .iter()
+                .find(|l| cold_matches_live(c, l))
+                .map(|l| LiveHint {
                     atspi_name: l.name.clone(),
                     pid: l.pid,
                     running: true,
-                }
-            });
+                });
             let complexity = classify_complexity(c, live_hint.is_some());
             let seed_tip = seed_tip_for(c, live_hint.is_some());
             InventoryItem {
@@ -120,9 +121,11 @@ pub fn join_inventory(cold: &[ColdEntry], live: &[LiveApp]) -> Vec<InventoryItem
     }
 
     items.sort_by(|a, b| {
-        b.live.is_some()
-            .cmp(&a.live.is_some())
-            .then(a.display_name.to_lowercase().cmp(&b.display_name.to_lowercase()))
+        b.live.is_some().cmp(&a.live.is_some()).then(
+            a.display_name
+                .to_lowercase()
+                .cmp(&b.display_name.to_lowercase()),
+        )
     });
     items
 }
@@ -150,14 +153,11 @@ fn cold_matches_live(cold: &ColdEntry, live: &LiveApp) -> bool {
     }
     let compact_id = id_stem.replace('.', "").to_lowercase();
     let compact_live = live_l.replace(['-', '_', ' '], "");
-    if compact_id.contains(&compact_live) || compact_live.contains(&compact_id.replace("orggnome", ""))
+    if compact_id.contains(&compact_live)
+        || compact_live.contains(&compact_id.replace("orggnome", ""))
     {
         // orggnomeCalculator vs gnomecalculator
-        let id_tail = id_stem
-            .rsplit('.')
-            .next()
-            .unwrap_or(id_stem)
-            .to_lowercase();
+        let id_tail = id_stem.rsplit('.').next().unwrap_or(id_stem).to_lowercase();
         if id_tail == live_l || live_l.contains(&id_tail) || id_tail.contains(&live_l) {
             return true;
         }

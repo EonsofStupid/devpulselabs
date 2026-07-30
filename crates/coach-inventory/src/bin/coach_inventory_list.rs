@@ -51,7 +51,11 @@ fn main() {
                     include_live
                 );
                 for item in &items {
-                    let run = if item.live.is_some() { "RUNNING" } else { "cold" };
+                    let run = if item.live.is_some() {
+                        "RUNNING"
+                    } else {
+                        "cold"
+                    };
                     let tip = item.seed_tip.as_deref().unwrap_or("");
                     println!(
                         "{:40}  {:28}  {}  {}  {}",
