@@ -65,6 +65,7 @@ members = [
     "crates/hubs/wiredfront",
     "crates/app",
     "crates/desktop-spike",
+    "crates/coach-overlay",
     "crates/xtask",
 ]
 
@@ -125,8 +126,8 @@ thorvg-sys = "0.3"
 # The browser driver's CDP socket (ADR-013): pure-Rust WebSocket framing
 # over OUR TcpStream, localhost only — no TLS features, ever.
 tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
-# C2s foreign-target spike (desktop-spike only): locked transitive versions
-# promoted to direct deps — no new third-party tree.
+# C2s/C2b desktop overlay (desktop-spike + coach-overlay): locked transitive
+# versions promoted to direct deps — no new third-party tree.
 atspi = { version = "0.29", default-features = false, features = ["proxies", "zbus"] }
 zbus = { version = "5", default-features = false, features = ["async-io"] }
 x11rb = { version = "0.13", default-features = false, features = ["allow-unsafe-code", "xtest"] }

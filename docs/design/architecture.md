@@ -70,9 +70,11 @@ the audit, same commit, with the reason.
   per-crate `[lints.rust] unsafe_code = "allow"` (the C API demands
   `unsafe`; every other crate inherits the workspace deny) — allowlisted
   in the audit's hygiene check.
-- **crates/desktop-spike/**: an orphan spike folder outside the
-  workspace; allowlisted in the audit. Deleting it is the operator's
-  call.
+- **crates/desktop-spike/**: orphan spike probes (never a dep of `app`);
+  workspace member; Linux-gated AT-SPI/x11rb. Operator may delete later.
+- **crates/coach-overlay/** (`dpl-coach-overlay`): ratified **devtools-only**
+  overlay process (ADR `coach-overlay-adr.md`); never a dep of `app`;
+  Linux X11 backend first. Production builds must not wire it.
 
 ## 4. The laws every new crate inherits
 

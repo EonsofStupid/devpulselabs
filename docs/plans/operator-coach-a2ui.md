@@ -264,9 +264,13 @@ internalize what we actually use.
    existing telemetry lane ticking `SemanticFrame::revision`; agents pull
    `Snapshot { mode: Changes, since_revision }` for detail. Deferred until
    polling measurably hurts.
-4. **C2a — coach-overlay ADR** (boundary, launch gates, forbidden set;
-   ratify before code). **C2b — daemon**: X11 backend first (this box),
-   Windows backend second, layer-shell third.
+4. **C2a — coach-overlay ADR** (boundary, launch gates, forbidden set).
+   **RATIFIED 2026-07-30** — [`coach-overlay-adr.md`](coach-overlay-adr.md).
+   **C2b — daemon** pass-1 self-test **PASS** same day —
+   [`coach-c2b-overlay-daemon.md`](coach-c2b-overlay-daemon.md);
+   journal [`../journal/2026-07-30-c2b-coach-overlay.md`](../journal/2026-07-30-c2b-coach-overlay.md).
+   X11 first (this box); Windows second; layer-shell third. Pass 2 stdio
+   coach loop deferred.
 5. **C3 — ColdLight catalog + Surface commands**, in-app renderer first.
 6. **C4 — desktop semantic control**, external-MCP-first evaluation, then
    the `atspi` adapter if internalization earns its keep.
@@ -319,7 +323,8 @@ the program map.
 - C1 lands as one pass (`coach-c1-touchpoint`), delivery-doc Slice 8
   amended in the same PR; C1.5a (`coach-c15a-dynamic-triggers`) stacks on
   it as its own pass, carrying this §3.2 amendment. C1.5b is deferred.
-  C2a ADR is its own PR before any C2b code.
+  C2a ADR + C2b self-test land together (ratified + proven 2026-07-30);
+  Pass 2 stdio is a follow-up PR.
 
 ## 8. Evidence — grounding cheat sheet (2026-07-26)
 

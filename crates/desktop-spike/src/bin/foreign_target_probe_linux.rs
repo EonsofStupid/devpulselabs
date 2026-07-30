@@ -7,7 +7,8 @@
 //! - `locate` — print composed screen rect (or refuse)
 //! - `invoke` — `Action.doAction("click")` with no coordinates
 //! - `spotlight` — paint ColdLight spotlight, click-through, wait for
-//!   operator press (display changes) → `Triggered`
+//!   Button1 press-edge inside the hotspot → `Triggered`
+//!   (`--proof-xtest` injects one agent click for unattended proof)
 
 // spawn-audit: exempt(spike probe — operator console is the product)
 
@@ -26,10 +27,16 @@ use atspi::{
     proxy::{accessible::AccessibleProxy, action::ActionProxy, component::ComponentProxy},
     CoordType, ObjectRefOwned, Role,
 };
-use dpl_desktop_spike::{client_size, compose_screen_rect, FrameExtents, IRect, WindowOrigin};
+use dpl_desktop_spike::{
+    client_size, compose_screen_rect, press_edge_in_hotspot, FrameExtents, IRect, PointerSample,
+    WindowOrigin,
+};
 use x11rb::{
     connection::Connection,
-    protocol::xproto::{self, ConnectionExt as _},
+    protocol::{
+        xproto::{self, ConnectionExt as _},
+        xtest::ConnectionExt as _,
+    },
     rust_connection::RustConnection,
 };
 use zbus::{proxy, Connection as ZbusConnection};
@@ -52,6 +59,8 @@ fn run(args: &[String]) -> Result<i32, String> {
     let mut seconds = 20u64;
     let mut message = "Press 7".to_string();
     let mut command = "locate".to_string();
+    let mut proof_xtest = false;
+    let mut debug_pointer = false;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -76,6 +85,8 @@ fn run(args: &[String]) -> Result<i32, String> {
                 i += 1;
                 message = args.get(i).cloned().ok_or("--message needs a value")?;
             }
+            "--proof-xtest" => proof_xtest = true,
+            "--debug-pointer" => debug_pointer = true,
             other => return Err(format!("unknown argument: {other}")),
         }
         i += 1;
@@ -109,38 +120,72 @@ fn run(args: &[String]) -> Result<i32, String> {
         }
         "spotlight" => {
             let located = block_on(locate_target(&app, &name))?;
+            let verified = block_on(stream_verify_window_hit(&app, located.window_rect, &name))?;
             println!(
-                "spotlight: screen_rect={}×{}@{},{} · {seconds}s · {message}",
+                "spotlight: screen_rect={}×{}@{},{} · stream_hit={verified:?} · {seconds}s · {message} · proof_xtest={proof_xtest}",
                 located.screen_rect.w,
                 located.screen_rect.h,
                 located.screen_rect.x,
                 located.screen_rect.y
             );
-            let before = block_on(read_display_text(&app)).unwrap_or_default();
             let triggered = Arc::new(AtomicBool::new(false));
-            let watch = Arc::clone(&triggered);
-            let app_watch = app.clone();
-            let before_watch = before.clone();
-            thread::spawn(move || {
-                let deadline = Instant::now() + Duration::from_secs(seconds);
-                while Instant::now() < deadline {
-                    if let Ok(text) = block_on(read_display_text(&app_watch)) {
-                        if text != before_watch && !text.is_empty() {
-                            watch.store(true, Ordering::SeqCst);
-                            return;
-                        }
+            let stop_watch = Arc::new(AtomicBool::new(false));
+            spawn_hotspot_watch(
+                located.screen_rect,
+                Arc::clone(&triggered),
+                Arc::clone(&stop_watch),
+                debug_pointer,
+            );
+            // Display observe only for digit targets — and only when the
+            // display text matches that digit (never Triggered on a wrong key).
+            if name.chars().all(|c| c.is_ascii_digit()) {
+                spawn_display_watch(
+                    app.clone(),
+                    name.clone(),
+                    Arc::clone(&triggered),
+                    Arc::clone(&stop_watch),
+                    debug_pointer,
+                );
+            }
+            if proof_xtest {
+                let rect = located.screen_rect;
+                thread::spawn(move || {
+                    // Let the overlay map before injecting.
+                    thread::sleep(Duration::from_millis(700));
+                    let cx = (rect.x + rect.w / 2) as i16;
+                    let cy = (rect.y + rect.h / 2) as i16;
+                    if let Err(error) = xtest_press_hold(cx, cy, Duration::from_millis(80)) {
+                        eprintln!("proof-xtest: {error}");
                     }
-                    thread::sleep(Duration::from_millis(80));
-                }
-            });
-            run_spotlight(located.screen_rect, &message, seconds).map_err(|e| e.to_string())?;
+                });
+            }
+            let caption = if message.is_empty() {
+                format!("Press {verified}")
+            } else {
+                format!("{message} · stream:{verified}")
+            };
+            // Paint in AT-SPI WINDOW space: overlay sits on the calculator
+            // client rect so paint coords == GetExtents(WINDOW) == hit-test.
+            // Observe/grab still use screen_rect (root pixels).
+            let result = run_spotlight(
+                located.window_rect,
+                located.client_origin,
+                located.client_size,
+                located.screen_rect,
+                &caption,
+                seconds,
+                Arc::clone(&triggered),
+                debug_pointer,
+            );
+            stop_watch.store(true, Ordering::SeqCst);
+            result.map_err(|e| e.to_string())?;
             let hit = triggered.load(Ordering::SeqCst);
             println!(
                 "result: {}",
                 if hit {
-                    "Triggered (operator press observed via display change)"
+                    "Triggered (hotspot ButtonPress and/or matching display digit)"
                 } else {
-                    "timeout — no display change"
+                    "timeout — no hotspot press and no matching display digit"
                 }
             );
             Ok(if hit { 0 } else { 1 })
@@ -187,6 +232,9 @@ fn ensure_calculator_running(app: &str) -> Result<(), String> {
 struct Located {
     window_rect: IRect,
     screen_rect: IRect,
+    /// Calculator client origin in root pixels (X11 origin + frame extents).
+    client_origin: (i32, i32),
+    client_size: (i32, i32),
     window_id: u32,
 }
 
@@ -213,14 +261,112 @@ async fn locate_target(app: &str, control_name: &str) -> Result<Located, String>
         return Err("refused: degenerate X11 window".into());
     }
     let (cw, ch) = client_size(outer_w, outer_h, extents);
-    println!("x11: id=0x{window_id:x} origin={origin:?} extents={extents:?} client={cw}×{ch}");
+    let client_origin = dpl_desktop_spike::client_origin(origin, extents);
+    println!(
+        "x11: id=0x{window_id:x} origin={origin:?} extents={extents:?} client={cw}×{ch}@{},{}",
+        client_origin.0, client_origin.1
+    );
     let screen_rect =
         compose_screen_rect(origin, extents, window_rect).map_err(|e| format!("{e:?}"))?;
     Ok(Located {
         window_rect,
         screen_rect,
+        client_origin,
+        client_size: (cw, ch),
         window_id,
     })
+}
+
+/// Stream identity check: AT-SPI `GetAccessibleAtPoint` in WINDOW space at the
+/// composed control's center must resolve to the expected name (button or its
+/// label). No screenshots — the a11y tree is the source of truth.
+async fn stream_verify_window_hit(
+    app: &str,
+    window_rect: IRect,
+    expected: &str,
+) -> Result<String, String> {
+    let conn = a11y_connection().await.map_err(|e| e.to_string())?;
+    let root = find_app_root(&conn, app).await?;
+    let frame = find_toplevel_frame(&conn, &root).await?;
+    let component = ComponentProxy::builder(&conn)
+        .destination(frame.inner().destination())
+        .map_err(|e| e.to_string())?
+        .path(frame.inner().path())
+        .map_err(|e| e.to_string())?
+        .build()
+        .await
+        .map_err(|e| e.to_string())?;
+    let cx = window_rect.x + window_rect.w / 2;
+    let cy = window_rect.y + window_rect.h / 2;
+    let hit = component
+        .get_accessible_at_point(cx, cy, CoordType::Window)
+        .await
+        .map_err(|e| e.to_string())?;
+    let hit_name = accessible_name_walk(&conn, &hit, 0).await?;
+    if hit_name == expected {
+        return Ok(hit_name);
+    }
+    Err(format!(
+        "stream-verify refused: WINDOW center ({cx},{cy}) hit {hit_name:?}, expected {expected:?}"
+    ))
+}
+
+async fn find_toplevel_frame<'a>(
+    conn: &'a ZbusConnection,
+    root: &AccessibleProxy<'_>,
+) -> Result<AccessibleProxy<'a>, String> {
+    let children = root.get_children().await.map_err(|e| e.to_string())?;
+    for child in children {
+        let Some(proxy) = proxy_for(conn, &child).await? else {
+            continue;
+        };
+        let role = proxy.get_role().await.unwrap_or(Role::Invalid);
+        if matches!(role, Role::Frame | Role::Window | Role::Application) {
+            let dest = proxy.inner().destination().to_owned();
+            let path = proxy.inner().path().to_owned();
+            return AccessibleProxy::builder(conn)
+                .destination(dest)
+                .map_err(|e| e.to_string())?
+                .path(path)
+                .map_err(|e| e.to_string())?
+                .build()
+                .await
+                .map_err(|e| e.to_string());
+        }
+    }
+    // Fall back to the app root itself.
+    let dest = root.inner().destination().to_owned();
+    let path = root.inner().path().to_owned();
+    AccessibleProxy::builder(conn)
+        .destination(dest)
+        .map_err(|e| e.to_string())?
+        .path(path)
+        .map_err(|e| e.to_string())?
+        .build()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+async fn accessible_name_walk(
+    conn: &ZbusConnection,
+    obj: &ObjectRefOwned,
+    depth: usize,
+) -> Result<String, String> {
+    if depth > 6 {
+        return Ok(String::new());
+    }
+    let Some(proxy) = proxy_for(conn, obj).await? else {
+        return Ok(String::new());
+    };
+    let name = proxy.name().await.unwrap_or_default();
+    if !name.is_empty() {
+        return Ok(name);
+    }
+    // GTK often hits the unlabeled panel; try parent.
+    if let Ok(parent) = proxy.parent().await {
+        return Box::pin(accessible_name_walk(conn, &parent, depth + 1)).await;
+    }
+    Ok(String::new())
 }
 
 async fn invoke_click(app: &str, control_name: &str) -> Result<Option<bool>, String> {
@@ -275,44 +421,47 @@ async fn invoke_click(app: &str, control_name: &str) -> Result<Option<bool>, Str
     }
 }
 
-async fn read_display_text(app: &str) -> Result<String, String> {
-    let conn = a11y_connection().await.map_err(|e| e.to_string())?;
-    read_display_text_on(&conn, app).await
-}
-
 async fn read_display_text_on(conn: &ZbusConnection, app: &str) -> Result<String, String> {
     let root = find_app_root(conn, app).await?;
-    // Prefer an accessible whose role is a text-ish name with non-empty content.
-    if let Some(text) = find_first_textish(conn, &root, 0).await? {
+    // Calculator's entry is Role::Text (not labels). Prefer get_text(0, -1).
+    if let Some(text) = find_display_text(conn, &root, 0).await? {
         return Ok(text);
     }
     Ok(String::new())
 }
 
-async fn find_first_textish(
+async fn find_display_text(
     conn: &ZbusConnection,
     node: &AccessibleProxy<'_>,
     depth: usize,
 ) -> Result<Option<String>, String> {
-    if depth > 10 {
+    if depth > 12 {
         return Ok(None);
     }
-    // Force the Text proxy — InterfaceSet checks have been empty on this
-    // GTK4 calculator while GI still exposes text nodes.
-    if let Ok(text) = atspi::proxy::text::TextProxy::builder(conn)
-        .destination(node.inner().destination())
-        .map_err(|e| e.to_string())?
-        .path(node.inner().path())
-        .map_err(|e| e.to_string())?
-        .build()
-        .await
-    {
-        if let Ok(count) = text.character_count().await {
-            if count > 0 {
-                if let Ok(body) = text.get_text(0, count).await {
-                    let body = body.trim().to_string();
-                    if !body.is_empty() {
-                        return Ok(Some(body));
+    let role = node.get_role().await.unwrap_or(Role::Invalid);
+    if matches!(role, Role::Text | Role::Entry | Role::PasswordText) {
+        if let Ok(text) = atspi::proxy::text::TextProxy::builder(conn)
+            .destination(node.inner().destination())
+            .map_err(|e| e.to_string())?
+            .path(node.inner().path())
+            .map_err(|e| e.to_string())?
+            .build()
+            .await
+        {
+            // -1 = to end; GTK4 calculator returns body via this form.
+            if let Ok(body) = text.get_text(0, -1).await {
+                let body = body.trim().to_string();
+                if !body.is_empty() {
+                    return Ok(Some(body));
+                }
+            }
+            if let Ok(count) = text.character_count().await {
+                if count > 0 {
+                    if let Ok(body) = text.get_text(0, count).await {
+                        let body = body.trim().to_string();
+                        if !body.is_empty() {
+                            return Ok(Some(body));
+                        }
                     }
                 }
             }
@@ -323,7 +472,7 @@ async fn find_first_textish(
         let Some(child_proxy) = proxy_for(conn, &child).await? else {
             continue;
         };
-        if let Some(found) = Box::pin(find_first_textish(conn, &child_proxy, depth + 1)).await? {
+        if let Some(found) = Box::pin(find_display_text(conn, &child_proxy, depth + 1)).await? {
             return Ok(Some(found));
         }
     }
@@ -567,28 +716,236 @@ fn card4_prop(conn: &RustConnection, wid: u32, atom: xproto::Atom) -> Option<Fra
     })
 }
 
-fn run_spotlight(target: IRect, message: &str, seconds: u64) -> eframe::Result<()> {
-    let (conn, screen_num) = RustConnection::connect(None).expect("x11");
+fn xtest_press_hold(root_x: i16, root_y: i16, hold: Duration) -> Result<(), String> {
+    let (conn, screen_num) = RustConnection::connect(None).map_err(|e| e.to_string())?;
     let screen = &conn.setup().roots[screen_num];
-    let width = f32::from(screen.width_in_pixels);
-    let height = f32::from(screen.height_in_pixels);
+    let root = screen.root;
+    // MotionNotify=6, ButtonPress=4, ButtonRelease=5.
+    conn.xtest_fake_input(6, 0, 0, root, root_x, root_y, 0)
+        .map_err(|e| e.to_string())?
+        .check()
+        .map_err(|e| e.to_string())?;
+    conn.xtest_fake_input(4, 1, 0, root, root_x, root_y, 0)
+        .map_err(|e| e.to_string())?
+        .check()
+        .map_err(|e| e.to_string())?;
+    conn.flush().map_err(|e| e.to_string())?;
+    // Hold so QueryPointer sampling in the overlay can see Button1 down.
+    thread::sleep(hold);
+    conn.xtest_fake_input(5, 1, 0, root, root_x, root_y, 0)
+        .map_err(|e| e.to_string())?
+        .check()
+        .map_err(|e| e.to_string())?;
+    conn.flush().map_err(|e| e.to_string())?;
+    Ok(())
+}
 
-    let target_rect = egui::Rect::from_min_size(
-        egui::pos2(target.x as f32, target.y as f32),
-        egui::vec2(target.w as f32, target.h as f32),
-    );
+fn spawn_display_watch(
+    app: String,
+    expected_digit: String,
+    triggered: Arc<AtomicBool>,
+    stop: Arc<AtomicBool>,
+    debug: bool,
+) {
+    thread::spawn(move || {
+        // Reset so a press of the same digit is still a visible change.
+        let _ = block_on(clear_calculator_display(&app));
+        // Wait for clear to settle — GTK can briefly publish "" mid-update.
+        let mut before = String::new();
+        for _ in 0..20 {
+            if stop.load(Ordering::SeqCst) || triggered.load(Ordering::SeqCst) {
+                return;
+            }
+            thread::sleep(Duration::from_millis(50));
+            before = block_on(read_display_text(&app)).unwrap_or_default();
+            if !before.is_empty() {
+                break;
+            }
+        }
+        if debug {
+            eprintln!("display-watch: expect={expected_digit:?} before={before:?}");
+        }
+        while !stop.load(Ordering::SeqCst) && !triggered.load(Ordering::SeqCst) {
+            let Ok(now) = block_on(read_display_text(&app)) else {
+                thread::sleep(Duration::from_millis(50));
+                continue;
+            };
+            // Only the coached digit counts — pressing 5 while coaching 7 must not Trigger.
+            if !now.is_empty()
+                && now != before
+                && (now == expected_digit || now.ends_with(&expected_digit))
+            {
+                if debug {
+                    eprintln!(
+                        "display-watch: TRIGGERED expect={expected_digit:?} before={before:?} after={now:?}"
+                    );
+                }
+                triggered.store(true, Ordering::SeqCst);
+                return;
+            }
+            thread::sleep(Duration::from_millis(40));
+        }
+    });
+}
+
+async fn clear_calculator_display(app: &str) -> Result<(), String> {
+    let conn = a11y_connection().await.map_err(|e| e.to_string())?;
+    let clear = find_named_button(&conn, app, "C").await?;
+    let action = ActionProxy::builder(&conn)
+        .destination(clear.inner().destination())
+        .map_err(|e| e.to_string())?
+        .path(clear.inner().path())
+        .map_err(|e| e.to_string())?
+        .build()
+        .await
+        .map_err(|e| e.to_string())?;
+    let _ = action.do_action(0).await;
+    Ok(())
+}
+
+async fn read_display_text(app: &str) -> Result<String, String> {
+    let conn = a11y_connection().await.map_err(|e| e.to_string())?;
+    read_display_text_on(&conn, app).await
+}
+
+fn spawn_hotspot_watch(
+    hotspot: IRect,
+    triggered: Arc<AtomicBool>,
+    stop: Arc<AtomicBool>,
+    debug: bool,
+) {
+    thread::spawn(move || {
+        let Ok((conn, screen_num)) = RustConnection::connect(None) else {
+            eprintln!("hotspot-watch: failed to connect to X11");
+            return;
+        };
+        let root = conn.setup().roots[screen_num].root;
+        if let Err(error) = (|| {
+            conn.grab_button(
+                false,
+                root,
+                xproto::EventMask::BUTTON_PRESS,
+                xproto::GrabMode::SYNC,
+                xproto::GrabMode::ASYNC,
+                x11rb::NONE,
+                x11rb::NONE,
+                xproto::ButtonIndex::M1,
+                xproto::ModMask::ANY,
+            )?
+            .check()?;
+            Ok::<(), Box<dyn std::error::Error>>(())
+        })() {
+            eprintln!("hotspot-watch: grab_button failed: {error}");
+            return;
+        }
+        if debug {
+            eprintln!(
+                "hotspot-watch: sync-grab Button1 · hotspot={}×{}@{},{}",
+                hotspot.w, hotspot.h, hotspot.x, hotspot.y
+            );
+        }
+        while !stop.load(Ordering::SeqCst) && !triggered.load(Ordering::SeqCst) {
+            let event = match conn.poll_for_event() {
+                Ok(Some(event)) => event,
+                Ok(None) => {
+                    thread::sleep(Duration::from_millis(2));
+                    continue;
+                }
+                Err(error) => {
+                    eprintln!("hotspot-watch: poll error: {error}");
+                    break;
+                }
+            };
+            let x11rb::protocol::Event::ButtonPress(press) = event else {
+                continue;
+            };
+            let sample = PointerSample {
+                x: i32::from(press.root_x),
+                y: i32::from(press.root_y),
+                button1_down: true,
+            };
+            let previous = PointerSample {
+                x: sample.x,
+                y: sample.y,
+                button1_down: false,
+            };
+            let inside = press_edge_in_hotspot(hotspot, previous, sample);
+            if debug {
+                eprintln!(
+                    "hotspot-watch: ButtonPress at {},{} inside={inside}",
+                    sample.x, sample.y
+                );
+            }
+            // Always replay so the calculator (or whatever is under the
+            // pointer) still receives the real click.
+            if let Err(error) = (|| {
+                conn.allow_events(xproto::Allow::REPLAY_POINTER, x11rb::CURRENT_TIME)?
+                    .check()?;
+                Ok::<(), Box<dyn std::error::Error>>(())
+            })() {
+                eprintln!("hotspot-watch: allow_events failed: {error}");
+            }
+            let _ = conn.flush();
+            if inside {
+                if debug {
+                    eprintln!("hotspot-watch: TRIGGERED at {},{}", sample.x, sample.y);
+                }
+                triggered.store(true, Ordering::SeqCst);
+                break;
+            }
+        }
+        let _ = conn.ungrab_button(xproto::ButtonIndex::M1, root, xproto::ModMask::ANY);
+        let _ = conn.flush();
+    });
+}
+
+fn run_spotlight(
+    window_hotspot: IRect,
+    client_origin: (i32, i32),
+    client_size: (i32, i32),
+    screen_hotspot: IRect,
+    message: &str,
+    seconds: u64,
+    triggered: Arc<AtomicBool>,
+    debug: bool,
+) -> eframe::Result<()> {
     let message = message.to_string();
     let started = Instant::now();
+    let (cw, ch) = client_size;
+    if cw <= 0 || ch <= 0 {
+        eprintln!("spotlight: refused degenerate client size {cw}×{ch}");
+        return Ok(());
+    }
 
+    // Overlay matches the calculator's visible client area — same origin the
+    // AT-SPI WINDOW coordinate system uses after frame-extents composition.
     let viewport = egui::ViewportBuilder::default()
         .with_title("DevPULSE foreign-target spotlight")
-        .with_inner_size([width, height])
-        .with_position([0.0, 0.0])
+        .with_inner_size([cw as f32, ch as f32])
+        .with_position([client_origin.0 as f32, client_origin.1 as f32])
         .with_decorations(false)
         .with_transparent(true)
         .with_mouse_passthrough(true)
         .with_always_on_top()
         .with_taskbar(false);
+
+    if debug {
+        eprintln!(
+            "spotlight-paint: client={}×{}@{},{} window_hotspot={}×{}@{},{} screen_hotspot={}×{}@{},{}",
+            cw,
+            ch,
+            client_origin.0,
+            client_origin.1,
+            window_hotspot.w,
+            window_hotspot.h,
+            window_hotspot.x,
+            window_hotspot.y,
+            screen_hotspot.w,
+            screen_hotspot.h,
+            screen_hotspot.x,
+            screen_hotspot.y
+        );
+    }
 
     eframe::run_native(
         "foreign-target-spotlight",
@@ -598,22 +955,34 @@ fn run_spotlight(target: IRect, message: &str, seconds: u64) -> eframe::Result<(
         },
         Box::new(move |_cc| {
             Ok(Box::new(SpotlightApp {
-                target: target_rect,
+                window_hotspot,
+                screen_hotspot,
+                client_origin,
+                client_size,
                 message,
                 started,
                 seconds,
-                screen: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, height)),
+                triggered,
+                debug,
+                logged_metrics: false,
             }))
         }),
     )
 }
 
 struct SpotlightApp {
-    target: egui::Rect,
+    /// Hotspot in AT-SPI WINDOW pixels (paint space).
+    window_hotspot: IRect,
+    /// Same hotspot in root pixels (observe / debug).
+    screen_hotspot: IRect,
+    client_origin: (i32, i32),
+    client_size: (i32, i32),
     message: String,
     started: Instant,
     seconds: u64,
-    screen: egui::Rect,
+    triggered: Arc<AtomicBool>,
+    debug: bool,
+    logged_metrics: bool,
 }
 
 impl eframe::App for SpotlightApp {
@@ -622,14 +991,53 @@ impl eframe::App for SpotlightApp {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        if self.started.elapsed().as_secs() >= self.seconds {
+        if self.triggered.load(Ordering::SeqCst) || self.started.elapsed().as_secs() >= self.seconds
+        {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
             return;
         }
+        let ppp = ui.ctx().pixels_per_point();
+        if self.debug && !self.logged_metrics {
+            self.logged_metrics = true;
+            let outer = ui.ctx().input(|i| i.viewport().outer_rect);
+            eprintln!(
+                "spotlight-paint: ppp={ppp} outer={outer:?} expected_client={}×{}@{},{} window_hotspot={}×{}@{},{} screen_hotspot={}×{}@{},{}",
+                self.client_size.0,
+                self.client_size.1,
+                self.client_origin.0,
+                self.client_origin.1,
+                self.window_hotspot.w,
+                self.window_hotspot.h,
+                self.window_hotspot.x,
+                self.window_hotspot.y,
+                self.screen_hotspot.w,
+                self.screen_hotspot.h,
+                self.screen_hotspot.x,
+                self.screen_hotspot.y
+            );
+        }
+        // Paint in WINDOW pixels inside the client-sized overlay.
+        let target = egui::Rect::from_min_size(
+            egui::pos2(
+                self.window_hotspot.x as f32 / ppp,
+                self.window_hotspot.y as f32 / ppp,
+            ),
+            egui::vec2(
+                self.window_hotspot.w as f32 / ppp,
+                self.window_hotspot.h as f32 / ppp,
+            ),
+        );
+        let screen = egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(
+                self.client_size.0 as f32 / ppp,
+                self.client_size.1 as f32 / ppp,
+            ),
+        );
         let painter = ui.painter();
         let palette = ForeignPalette::default();
-        paint_spotlight(painter, &palette, self.screen, self.target, &self.message);
-        ui.ctx().request_repaint_after(Duration::from_millis(50));
+        paint_spotlight(painter, &palette, screen, target, &self.message);
+        ui.ctx().request_repaint_after(Duration::from_millis(16));
     }
 }
 
@@ -696,9 +1104,11 @@ fn paint_spotlight(
             palette.caption_ink,
         );
         let size = galley.size() + egui::vec2(18.0, 12.0);
-        let mut pos = egui::pos2(target.center().x - size.x * 0.5, target.bottom() + 10.0);
-        if pos.y + size.y > screen.max.y {
-            pos.y = target.top() - size.y - 10.0;
+        // Prefer ABOVE the hotspot. Below lands on the next keypad row
+        // (coaching 7 put the cyan plate on 5 — operator clicked the plate).
+        let mut pos = egui::pos2(target.center().x - size.x * 0.5, target.top() - size.y - 10.0);
+        if pos.y < screen.min.y + 4.0 {
+            pos.y = target.bottom() + 10.0;
         }
         pos.x = pos.x.clamp(screen.min.x + 8.0, screen.max.x - size.x - 8.0);
         let plate = egui::Rect::from_min_size(pos, size);

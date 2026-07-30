@@ -88,6 +88,35 @@ pub fn client_size(outer_w: i32, outer_h: i32, extents: FrameExtents) -> (i32, i
     )
 }
 
+/// Pointer sample used for observe-never-intercept Triggered detection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PointerSample {
+    pub x: i32,
+    pub y: i32,
+    pub button1_down: bool,
+}
+
+/// True on a Button1 up→down edge while the pointer is inside `hotspot`.
+///
+/// Outside the rect never triggers (even on a down edge). Holding Button1
+/// already down and sliding in does not trigger — only a press that begins
+/// inside the hotspot. Matches C2s §10.
+#[must_use]
+pub fn press_edge_in_hotspot(
+    hotspot: IRect,
+    previous: PointerSample,
+    current: PointerSample,
+) -> bool {
+    if !hotspot.is_positive() {
+        return false;
+    }
+    let inside = current.x >= hotspot.x
+        && current.y >= hotspot.y
+        && current.x < hotspot.x + hotspot.w
+        && current.y < hotspot.y + hotspot.h;
+    inside && current.button1_down && !previous.button1_down
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -136,5 +165,41 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(err, LocateRefuse::DegenerateWindow);
+    }
+
+    #[test]
+    fn press_edge_triggers_only_inside_on_down_edge() {
+        let hot = IRect::new(10, 20, 30, 40);
+        let up_inside = PointerSample {
+            x: 15,
+            y: 25,
+            button1_down: false,
+        };
+        let down_inside = PointerSample {
+            x: 15,
+            y: 25,
+            button1_down: true,
+        };
+        let down_outside = PointerSample {
+            x: 0,
+            y: 0,
+            button1_down: true,
+        };
+        let up_outside = PointerSample {
+            x: 0,
+            y: 0,
+            button1_down: false,
+        };
+
+        assert!(press_edge_in_hotspot(hot, up_inside, down_inside));
+        assert!(!press_edge_in_hotspot(hot, down_inside, down_inside));
+        assert!(!press_edge_in_hotspot(hot, up_outside, down_outside));
+        // Slide in while already held — not a press that began inside.
+        assert!(!press_edge_in_hotspot(hot, down_outside, down_inside));
+        assert!(!press_edge_in_hotspot(
+            IRect::new(0, 0, 0, 10),
+            up_inside,
+            down_inside
+        ));
     }
 }
