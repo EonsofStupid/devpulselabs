@@ -13,6 +13,13 @@ name: green
 # Hosted minutes are free and unmetered for public repositories, so this also
 # ends the single-Windows-runner queue that serialised every merge.
 #
+# ONE DEFINITION OF GREEN: both lanes run `cargo green` — the same xtask gate
+# the pre-push hook enforces locally (fmt → docs-status → spawn audit →
+# structure audit → clippy -D warnings → workspace tests → workspace release
+# build with the exe-regression assert). Hand-rolled step lists drifted from
+# the real gate once already (no structure phase, no release build in CI);
+# the lanes now cannot diverge from the hook or from each other.
+#
 # The toolchain is pinned by `rust-toolchain.toml` (1.92.0 + clippy/rustfmt),
 # so the hosted image's preinstalled Rust is overridden automatically — the
 # lane cannot silently drift onto a newer compiler.
@@ -40,7 +47,9 @@ env:
 jobs:
   green-windows:
     runs-on: windows-latest
-    timeout-minutes: 60
+    # 90: `cargo green` adds the workspace RELEASE build the old step list
+    # skipped; a cold cache pays for it once, warm runs are incremental.
+    timeout-minutes: 90
     env:
       # Carried over from the 16 GB self-hosted VM, where cargo test hit
       # LNK1318 "PDB LIMIT" linking big test exes with debug info. Hosted
@@ -53,18 +62,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           # Hosted runners start cold; the cache is keyed per-job so the two
-          # lanes never share artifacts.
+          # lanes never share artifacts. Release artifacts ride too.
           key: green-windows
-      - name: fmt
-        run: cargo fmt --all --check
-      - name: clippy (deny warnings)
-        run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: tests
-        run: cargo test --workspace
+          cache-all-crates: "true"
+      - name: cargo green (the xtask gate)
+        run: cargo green
 
   green-linux:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
       # khronos-egl and friends need the full dev set — a runner with only
@@ -86,27 +92,20 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: green-linux
-      - name: fmt
-        run: cargo fmt --all --check
-      - name: clippy (deny warnings)
-        run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: tests
-        run: cargo test --workspace
+          cache-all-crates: "true"
+      - name: cargo green (the xtask gate)
+        run: cargo green
 
   # macOS lane — STAGED, ready to flip (docs/plans/mac-parity.md). Hosted
   # `macos-latest` is free for public repos, so this no longer waits on a Mac
   # being registered; it waits on the macOS implementation itself.
   # green-mac:
   #   runs-on: macos-latest
-  #   timeout-minutes: 60
+  #   timeout-minutes: 90
   #   steps:
   #     - uses: actions/checkout@v7
   #     - uses: Swatinem/rust-cache@v2
   #       with:
   #         key: green-mac
-  #     - name: fmt
-  #       run: cargo fmt --all --check
-  #     - name: clippy (deny warnings)
-  #       run: cargo clippy --workspace --all-targets -- -D warnings
-  #     - name: tests
-  #       run: cargo test --workspace
+  #     - name: cargo green (the xtask gate)
+  #       run: cargo green
