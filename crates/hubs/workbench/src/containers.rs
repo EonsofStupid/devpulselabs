@@ -6,8 +6,8 @@
 //! container is loaded, so this module is the only place that decides what a
 //! container is called and how many things are already in it.
 //!
-//! Vocabulary: [`Kind::slug`] is the machine id and is never drawn;
-//! [`Kind::label`] is what the operator reads. Same split `Shelf` and
+//! Vocabulary: [`ContainerKind::slug`] is the machine id and is never drawn;
+//! [`ContainerKind::label`] is what the operator reads. Same split `Shelf` and
 //! `LibSection` make.
 //!
 //! **Two of the four ratified kinds have nowhere to live yet.** An episode is
@@ -15,55 +15,52 @@
 //! (`guide.json`), but a deck is a way of *playing* an episode rather than a
 //! thing on disk, and a lesson is not stored anywhere at all. Both are
 //! registered here and say so in their own words — a kind that quietly
-//! vanished would hide the gap instead of naming it. [`Kind::not_stored_yet`]
+//! vanished would hide the gap instead of naming it. [`ContainerKind::not_stored_yet`]
 //! carries that sentence, and the census test pins exactly which kinds are
 //! backed, so the day lesson storage lands the test fails and forces the
 //! wiring to land with it.
 
+use crate::words::pretty;
 use dpl_coldlight::Tone;
 use std::path::{Path, PathBuf};
-
-/// A folder id as a person would say it: `title-card` → "Title card".
-pub(crate) fn pretty(id: &str) -> String {
-    let mut out = id.replace(['-', '_'], " ");
-    if let Some(first) = out.get_mut(0..1) {
-        first.make_ascii_uppercase();
-    }
-    out
-}
 
 /// The sort of thing a run of cards is filed under.
 ///
 /// Drawn in the operator's ratified order (mock `a3db4aee`), which is not the
-/// order of how real they are — see [`Kind::not_stored_yet`].
+/// order of how real they are — see [`ContainerKind::not_stored_yet`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Kind {
+pub(crate) enum ContainerKind {
     Lesson,
     Guide,
     Episode,
     Deck,
 }
 
-impl Kind {
-    pub(crate) const ALL: [Kind; 4] = [Kind::Lesson, Kind::Guide, Kind::Episode, Kind::Deck];
+impl ContainerKind {
+    pub(crate) const ALL: [ContainerKind; 4] = [
+        ContainerKind::Lesson,
+        ContainerKind::Guide,
+        ContainerKind::Episode,
+        ContainerKind::Deck,
+    ];
 
     /// Stable machine id — never drawn.
     pub(crate) fn slug(self) -> &'static str {
         match self {
-            Kind::Lesson => "lesson",
-            Kind::Guide => "guide",
-            Kind::Episode => "episode",
-            Kind::Deck => "deck",
+            ContainerKind::Lesson => "lesson",
+            ContainerKind::Guide => "guide",
+            ContainerKind::Episode => "episode",
+            ContainerKind::Deck => "deck",
         }
     }
 
     /// What the operator reads.
     pub(crate) fn label(self) -> &'static str {
         match self {
-            Kind::Lesson => "Lesson",
-            Kind::Guide => "Guide",
-            Kind::Episode => "Episode",
-            Kind::Deck => "Deck",
+            ContainerKind::Lesson => "Lesson",
+            ContainerKind::Guide => "Guide",
+            ContainerKind::Episode => "Episode",
+            ContainerKind::Deck => "Deck",
         }
     }
 
@@ -71,7 +68,7 @@ impl Kind {
     /// has cards.
     pub(crate) fn unit(self) -> &'static str {
         match self {
-            Kind::Guide => "steps",
+            ContainerKind::Guide => "steps",
             _ => "cards",
         }
     }
@@ -79,7 +76,7 @@ impl Kind {
     /// The same unit, singular — for "your first card in here".
     pub(crate) fn unit_one(self) -> &'static str {
         match self {
-            Kind::Guide => "step",
+            ContainerKind::Guide => "step",
             _ => "card",
         }
     }
@@ -87,30 +84,30 @@ impl Kind {
     /// One line on what the kind is for.
     pub(crate) fn blurb(self) -> &'static str {
         match self {
-            Kind::Lesson => "teaches one idea, start to finish",
-            Kind::Guide => "walks through a real task, step by step",
-            Kind::Episode => "one show instalment, under a show",
-            Kind::Deck => "a run of cards for the touchscreen",
+            ContainerKind::Lesson => "teaches one idea, start to finish",
+            ContainerKind::Guide => "walks through a real task, step by step",
+            ContainerKind::Episode => "one show instalment, under a show",
+            ContainerKind::Deck => "a run of cards for the touchscreen",
         }
     }
 
     /// The accent this kind wears, so the strip reads at a glance.
     pub(crate) fn tone(self) -> Tone {
         match self {
-            Kind::Lesson => Tone::Cyan,
-            Kind::Guide => Tone::Amber,
-            Kind::Episode => Tone::Magenta,
-            Kind::Deck => Tone::Coral,
+            ContainerKind::Lesson => Tone::Cyan,
+            ContainerKind::Guide => Tone::Amber,
+            ContainerKind::Episode => Tone::Magenta,
+            ContainerKind::Deck => Tone::Coral,
         }
     }
 
     /// The tooltip law.
     pub(crate) fn tip(self) -> &'static str {
         match self {
-            Kind::Lesson => "A run of cards that teaches one idea from start to finish",
-            Kind::Guide => "A recorded walkthrough of a real task, step by step",
-            Kind::Episode => "One instalment of a show — lives under the show's name",
-            Kind::Deck => "A run of cards meant to be played on the touchscreen",
+            ContainerKind::Lesson => "A run of cards that teaches one idea from start to finish",
+            ContainerKind::Guide => "A recorded walkthrough of a real task, step by step",
+            ContainerKind::Episode => "One instalment of a show — lives under the show's name",
+            ContainerKind::Deck => "A run of cards meant to be played on the touchscreen",
         }
     }
 
@@ -121,15 +118,33 @@ impl Kind {
     /// would be and what has to exist before it can hold anything.
     pub(crate) fn not_stored_yet(self) -> Option<&'static str> {
         match self {
-            Kind::Episode | Kind::Guide => None,
-            Kind::Deck => Some(
+            ContainerKind::Episode | ContainerKind::Guide => None,
+            ContainerKind::Deck => Some(
                 "A deck is an episode played full-screen, so it has no folder of its own \
                  yet. Pick an Episode and play it on the touchscreen.",
             ),
-            Kind::Lesson => Some(
+            ContainerKind::Lesson => Some(
                 "Lessons aren't saved anywhere yet — nothing on disk holds one. Until they \
                  are, build into an Episode and it will carry over.",
             ),
+        }
+    }
+
+    /// Why a card cannot be put into this kind, in plain words — `None` when
+    /// it can.
+    ///
+    /// Only an episode holds slide folders. A guide is not a shortfall: it is
+    /// a different content model (steps, not cards), and the wording must not
+    /// imply it is broken. Lesson and deck have nowhere to put anything at
+    /// all, which [`ContainerKind::not_stored_yet`] already explains.
+    pub(crate) fn cannot_take_a_card(self) -> Option<&'static str> {
+        match self {
+            ContainerKind::Episode => None,
+            ContainerKind::Guide => Some(
+                "A guide is a recorded walkthrough — it holds steps, not cards. Cards go \
+                 into an episode.",
+            ),
+            ContainerKind::Lesson | ContainerKind::Deck => self.not_stored_yet(),
         }
     }
 
@@ -139,15 +154,26 @@ impl Kind {
     }
 }
 
-/// One container, read off disk. `id` is machine-side; `name` is drawn.
+/// One container, read off disk.
+///
+/// `slug` / `label` rather than `id` / `name`, so that every pickable thing on
+/// this surface names its two shared fields the same way — the data types
+/// following the same law the `slug()`/`label()` methods already do.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Container {
-    pub(crate) id: String,
-    pub(crate) kind: Kind,
-    pub(crate) name: String,
+    /// The machine id. Never drawn.
+    pub(crate) slug: String,
+    pub(crate) kind: ContainerKind,
+    /// What the operator reads.
+    pub(crate) label: String,
     /// How many of the kind's unit are already in it.
     pub(crate) count: usize,
     pub(crate) dir: PathBuf,
+    /// `(id, title)` for each chapter, when the kind has chapters. Only an
+    /// episode does — and a card can only be put INTO a chapter, so this is
+    /// what makes placing possible without the surface reloading the episode
+    /// behind the census's back.
+    pub(crate) chapters: Vec<(String, String)>,
 }
 
 /// THE census: every container of one kind under `root`, sorted.
@@ -155,12 +181,12 @@ pub(crate) struct Container {
 /// Reads the disk each call, so a folder made outside the app shows up
 /// without a restart. Callers hold the result for the sitting rather than
 /// calling per frame.
-pub(crate) fn containers(kind: Kind, root: &Path) -> Vec<Container> {
+pub(crate) fn containers(kind: ContainerKind, root: &Path) -> Vec<Container> {
     match kind {
-        Kind::Episode => episodes(root),
-        Kind::Guide => guides(root),
+        ContainerKind::Episode => episodes(root),
+        ContainerKind::Guide => guides(root),
         // Registered, deliberately empty — `not_stored_yet` says why.
-        Kind::Lesson | Kind::Deck => Vec::new(),
+        ContainerKind::Lesson | ContainerKind::Deck => Vec::new(),
     }
 }
 
@@ -178,10 +204,15 @@ fn episodes(root: &Path) -> Vec<Container> {
                 ep.title.clone()
             };
             Some(Container {
-                id: format!("{show}/{episode}"),
-                kind: Kind::Episode,
-                name: format!("{} · {title}", pretty(&show)),
+                slug: format!("{show}/{episode}"),
+                kind: ContainerKind::Episode,
+                label: format!("{} · {title}", pretty(&show)),
                 count: dpl_doc::episode_slides(&dir, &ep).len(),
+                chapters: ep
+                    .chapters
+                    .iter()
+                    .map(|c| (c.id.clone(), c.title.clone()))
+                    .collect(),
                 dir,
             })
         })
@@ -201,22 +232,25 @@ fn guides(root: &Path) -> Vec<Container> {
         .filter_map(|e| {
             let dir = e.path();
             let manifest = dpl_guide::load_guide(&dir).ok()?;
-            let id = e.file_name().to_string_lossy().into_owned();
-            let name = if manifest.name.trim().is_empty() {
-                pretty(&id)
+            let slug = e.file_name().to_string_lossy().into_owned();
+            let label = if manifest.name.trim().is_empty() {
+                pretty(&slug)
             } else {
                 manifest.name.clone()
             };
             Some(Container {
-                id,
-                kind: Kind::Guide,
-                name,
+                slug,
+                kind: ContainerKind::Guide,
+                label,
                 count: manifest.steps.len(),
+                // A guide holds steps, not slide folders — it has no chapters
+                // and cannot receive a card.
+                chapters: Vec::new(),
                 dir,
             })
         })
         .collect();
-    out.sort_by(|a, b| a.id.cmp(&b.id));
+    out.sort_by(|a, b| a.slug.cmp(&b.slug));
     out
 }
 
@@ -224,11 +258,11 @@ fn guides(root: &Path) -> Vec<Container> {
 mod tests {
     use super::*;
 
-    /// The census law: the chip row IS `Kind::ALL`, and every kind carries a
+    /// The census law: the chip row IS `ContainerKind::ALL`, and every kind carries a
     /// distinct machine id.
     #[test]
     fn the_kind_row_is_the_census() {
-        let slugs: Vec<&str> = Kind::ALL.iter().map(|k| k.slug()).collect();
+        let slugs: Vec<&str> = ContainerKind::ALL.iter().map(|k| k.slug()).collect();
         let mut sorted = slugs.clone();
         sorted.sort_unstable();
         sorted.dedup();
@@ -246,13 +280,13 @@ mod tests {
     /// kind that lists nothing forever.
     #[test]
     fn every_kind_is_backed_or_says_why() {
-        let backed: Vec<&str> = Kind::ALL
+        let backed: Vec<&str> = ContainerKind::ALL
             .iter()
             .filter(|k| k.is_stored())
             .map(|k| k.slug())
             .collect();
         assert_eq!(backed, ["guide", "episode"]);
-        for kind in Kind::ALL {
+        for kind in ContainerKind::ALL {
             if !kind.is_stored() {
                 let why = kind
                     .not_stored_yet()
@@ -272,7 +306,7 @@ mod tests {
         const CODE_WORDS: [&str; 8] = [
             "slug", "enum", "struct", "json", "serde", "registry", "trait", "impl",
         ];
-        for kind in Kind::ALL {
+        for kind in ContainerKind::ALL {
             let drawn = format!(
                 "{} {} {} {} {}",
                 kind.label(),
@@ -297,7 +331,7 @@ mod tests {
     #[test]
     fn unbacked_kinds_and_missing_roots_are_empty_not_loud() {
         let nowhere = Path::new("/does/not/exist/devpulse-test");
-        for kind in Kind::ALL {
+        for kind in ContainerKind::ALL {
             assert!(containers(kind, nowhere).is_empty());
         }
     }
@@ -317,12 +351,12 @@ mod tests {
         )
         .unwrap();
 
-        let found = containers(Kind::Guide, &tmp);
+        let found = containers(ContainerKind::Guide, &tmp);
         std::fs::remove_dir_all(&tmp).ok();
 
         assert_eq!(found.len(), 1, "only the folder with a manifest is a guide");
-        assert_eq!(found[0].name, "Twilio notification keys");
+        assert_eq!(found[0].label, "Twilio notification keys");
         assert_eq!(found[0].count, 2);
-        assert_eq!(found[0].kind, Kind::Guide);
+        assert_eq!(found[0].kind, ContainerKind::Guide);
     }
 }

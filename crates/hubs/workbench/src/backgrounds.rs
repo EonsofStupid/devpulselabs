@@ -24,16 +24,8 @@
 //! rather than technical ("ember drift", "jade current"), so the operator's
 //! word here IS the authored one, prettified.
 
+use crate::words::pretty;
 use dpl_coldlight::{self as cl};
-
-/// A folder-or-registry id as a person would say it.
-fn pretty(id: &str) -> String {
-    let mut out = id.replace(['-', '_'], " ");
-    if let Some(first) = out.get_mut(0..1) {
-        first.make_ascii_uppercase();
-    }
-    out
-}
 
 /// One thing that can be picked on the Background tab.
 #[derive(Debug, Clone, PartialEq, Eq)]

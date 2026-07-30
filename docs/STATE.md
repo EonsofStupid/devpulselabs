@@ -2,6 +2,63 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-30 — PUTTING A CARD IN ITS CONTAINER (M7,
+`docs/plans/author-place-into-container.md`):** the filmstrip has been telling
+the operator "N started here, not put in yet" since #146 — accurate, and an
+outstanding promise the band offered no way to close. Now it does.
+`dpl_doc::place_slide` already did the mutation carefully (COPIES not moves,
+refuses an unfinished slide, refuses to create an episode, never clobbers,
+rolls the episode back if the result would be invalid), so the correct amount
+of new mutation code was ZERO — this pass added the gesture, the chapter
+choice, and honest reporting. One chapter is not a decision and is used; more
+than one is, so the strip offers them by their authored titles. Only an
+EPISODE holds slide folders: guide/lesson/deck each say why via
+`cannot_take_a_card`, and a test asserts the guide wording contains no "yet"
+because a guide is a different content model, not a shortfall. The count is
+RE-READ from disk after placing, never incremented. FINDING: `place_draft`
+first read `content_root()`, a process-wide `OnceLock` that cannot be pointed
+at a scratch dir from a test — so the root became a parameter. Better design
+independently, and the only reason the two surface-level tests exist;
+"it cannot be tested" turned out to be "it reads a global it did not need to".
+44 tests, 6 new — including that a REFUSED place keeps the card and says why,
+because silent success is the one failure this gesture must never have.
+
+**2026-07-30 — THE AUTHORING SURFACE, ALIGNED (`docs/plans/author-surface-alignment.md`):**
+five tabs and three censuses were built in a day, each correct alone and each
+slightly different. Pre-release, so the drift was REWRITTEN OUT before the
+Picture tab landed rather than merged and cleaned up after. Four alignments:
+one `pretty()` in a new `words.rs` (it had been copied one layer above the
+exact place the lane already paid twice to stop copying vocabulary); two
+`pub(crate) enum Kind` meaning unrelated things become `ContainerKind` and
+`PictureKind`; "a thing you can pick" had three shapes (`slug`/`label`,
+`id`/`name`, `rel_path`/`name`) and now every one carries `slug` + `label`, so
+the data types follow the law the methods already did; and all four tab
+functions take `&mut CardEditor` instead of two taking each. A fifth fell out:
+one shared `card_editor()` test builder, so a test cannot construct the
+surface's state differently from the surface. NOT aligned, deliberately: the
+census return types — `Shelf` carries `more`/`unavailable` the others have no
+concept of, and symmetry would mean inventing state. Nothing drawn changed:
+the four `no_*_speaks_engineering` tests pass untouched and the proof shot is
+structurally identical. 38 tests, up from 37 — none deleted, one added.
+
+**2026-07-30 — THE PICTURE TAB (`docs/plans/author-tab-picture.md`):**
+fifth of the seven card tabs; M5 is now 5 of 7 and **the two that remain are
+BLOCKED, not pending**. The picker is the artifact INDEX, not a file dialog,
+and that is the design: every `Record.rel_path` is already
+content-root-relative, so `dpl_doc`'s media content-jail **cannot be violated
+by construction** — this module never builds a path, it passes one through.
+`show` comes from the record's own `kind`, never sniffed from the extension.
+`cover` is not written (schema default; sparse documents). One picture per
+card — a second replaces. TWO defects the proof run caught, both in §8.3: (1)
+`picture_tab` called the census EVERY FRAME, and the census opens a database
+connection — the exe never reached its screenshot; the shelf is now cached on
+`CardEditor` and re-read only by the gesture that changes it, the rule
+`author-filmstrip.md` §6 had already written down. (2) `dpl_video::locate_asset`
+was NOT content-root aware, so **every drill using `--content-root` resolved
+nothing** — media cards included, not just this picker. Fixed in `dpl-video` by
+reading `--content-root`/`CONTENT_ROOT` from the process args, the same
+contract `engine_capture::explicit_root` implements, with no new dependency.
+
 **2026-07-30 — C2c MOCK LOOK-APPROVED (`docs/ops/references/coach-operator-mock-c2c.html`):**
 Operator: “looks good.” Coach hub home locked for implementation.
 Product spine: `docs/plans/coach-operator-experience.md`. Coach NEXT =

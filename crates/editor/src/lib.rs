@@ -174,6 +174,50 @@ impl Editor {
         });
     }
 
+    /// The card's picture, if it has one: `(src, show, fit)`.
+    pub fn media(&self) -> Option<(String, String, String)> {
+        self.slide.blocks.iter().find_map(|b| match b {
+            dpl_doc::Block::Media { show, src, fit, .. } => Some((
+                src.clone(),
+                show.clone(),
+                fit.clone().unwrap_or_else(|| "cover".to_string()),
+            )),
+            _ => None,
+        })
+    }
+
+    /// Put a picture on the card, or take it off with `None`.
+    ///
+    /// `src` must be content-relative — the Picture tab passes through a path
+    /// the artifact index already holds, so the content jail is satisfied by
+    /// construction rather than by a check here. `show` comes from the index's
+    /// own `kind`, never sniffed from the extension: the schema authors that
+    /// discriminator so the doctor can name a mismatch.
+    ///
+    /// One picture per card. A second call replaces rather than appends,
+    /// because `Block::Media` is a backdrop and two would fight.
+    pub fn set_media(&mut self, media: Option<(String, String, String)>) {
+        self.mutate(|slide| {
+            slide
+                .blocks
+                .retain(|b| !matches!(b, dpl_doc::Block::Media { .. }));
+            if let Some((src, show, fit)) = media {
+                slide.blocks.insert(
+                    0,
+                    dpl_doc::Block::Media {
+                        id: "picture".to_string(),
+                        show,
+                        src,
+                        // The schema's default is cover; write it only when it
+                        // is the other one, so a document stays sparse.
+                        fit: (fit != "cover").then_some(fit),
+                        poster: None,
+                    },
+                );
+            }
+        });
+    }
+
     /// Set how the words arrive, or `None` to follow the show's look.
     ///
     /// Restarts the clock so the entrance actually plays: a movement picker

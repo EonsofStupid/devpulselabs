@@ -1,11 +1,20 @@
 name: nightly
 
-# Rolling self-hosted nightlies → GitHub Release tag `nightly`.
-# Exe-only zip (no /content, no invented dptools-deps). Operator stages
-# private tools separately via `cargo xtask stage-tool-deps`.
+# Rolling nightlies on GITHUB-HOSTED runners → GitHub Release tag `nightly`.
 #
-# Soft lane: each platform publishes its own asset independently so an
-# offline runner (queued forever) cannot block the other lane's Release.
+# Self-hosted until 2026-07-30: the estate runners were deregistered when the
+# repo went public (green moved to hosted in #168) and this workflow was left
+# behind, so every scheduled run queued forever against labels nothing
+# answers. Both lanes are hosted now — same images as the green gate.
+#
+# The zip ships BOTH shipped binaries: `devpulselabs` and the
+# `dpl-lottie-render` helper that must live BESIDE the exe (ADR-009 — the
+# façade spawns it, so an app-only zip is a broken nightly for every Lottie
+# surface). No /content, no invented dptools-deps: the operator stages
+# private tools via `cargo xtask stage-tool-deps`.
+#
+# Soft lane: each platform publishes its own asset independently so one
+# failing lane cannot block the other lane's Release.
 
 on:
   schedule:
@@ -18,15 +27,19 @@ env:
 
 jobs:
   nightly-windows:
-    runs-on: [self-hosted, dpl-win]
-    timeout-minutes: 45
+    runs-on: windows-latest
+    timeout-minutes: 90
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v7
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: nightly-windows
+          cache-all-crates: "true"
       - name: release build
         shell: pwsh
-        run: cargo build --release -p devpulselabs
+        run: cargo build --release -p devpulselabs -p dpl-lottie-render
       - name: stage + zip
         shell: pwsh
         run: |
@@ -36,14 +49,16 @@ jobs:
           $stage = "dist/nightly-windows"
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
           Copy-Item "target/release/devpulselabs.exe" "$stage/devpulselabs.exe"
+          Copy-Item "target/release/dpl-lottie-render.exe" "$stage/dpl-lottie-render.exe"
           @"
           # DevPULSE Labs nightly (Windows x64)
 
           - Commit: $sha
           - Built: ${date}Z
-          - Runner: self-hosted dpl-win
+          - Runner: hosted windows-latest
 
-          Exe only — stage private tools with ``cargo xtask stage-tool-deps <release-root>``.
+          App exe + the dpl-lottie-render helper beside it (ADR-009).
+          Stage private tools with ``cargo xtask stage-tool-deps <release-root>``.
           Pull: ``.\scripts\pull-nightly.ps1``
           "@ | Set-Content -Encoding utf8 "$stage/NIGHTLY.md"
           if (Test-Path "devpulselabs-windows-x64.zip") { Remove-Item "devpulselabs-windows-x64.zip" }
@@ -65,7 +80,7 @@ jobs:
           - Commit: ``$sha`` (``$short``)
           - Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
-          Exe-only zip — private tools staged via ``cargo xtask stage-tool-deps``.
+          App + lottie-render helper — private tools staged via ``cargo xtask stage-tool-deps``.
           Pull: ``./scripts/pull-nightly.sh`` or ``.\scripts\pull-nightly.ps1``.
           "@ | Set-Content -Encoding utf8 $notes
           $exists = $true
@@ -80,14 +95,32 @@ jobs:
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "### Windows nightly`n- uploaded: ``$asset`` (``$short``)"
 
   nightly-linux:
-    runs-on: [self-hosted, dpl-linux]
-    timeout-minutes: 45
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v7
+      # The same dev set the green lane installs — a bare image dies at
+      # `pkg-config egl` long before the link step.
+      - name: system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            build-essential cmake pkg-config ffmpeg libssl-dev \
+            libegl1-mesa-dev libgl1-mesa-dev libwayland-dev libxkbcommon-dev \
+            libxkbcommon-x11-dev libx11-dev libxcursor-dev libxrandr-dev \
+            libxi-dev libxtst-dev libxdo-dev libudev-dev libevdev-dev \
+            libasound2-dev libpipewire-0.3-dev libdbus-1-dev libgtk-3-dev \
+            libgbm-dev libxcb1-dev \
+            libpango1.0-dev libcairo2-dev libglib2.0-dev libv4l-dev \
+            clang libclang-dev llvm-dev zip
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: nightly-linux
+          cache-all-crates: "true"
       - name: release build
-        run: cargo build --release -p devpulselabs
+        run: cargo build --release -p devpulselabs -p dpl-lottie-render
       - name: stage + zip
         run: |
           set -euo pipefail
@@ -96,19 +129,21 @@ jobs:
           STAGE=dist/nightly-linux
           mkdir -p "$STAGE"
           cp target/release/devpulselabs "$STAGE/devpulselabs"
-          chmod +x "$STAGE/devpulselabs"
+          cp target/release/dpl-lottie-render "$STAGE/dpl-lottie-render"
+          chmod +x "$STAGE/devpulselabs" "$STAGE/dpl-lottie-render"
           cat > "$STAGE/NIGHTLY.md" <<EOF
-          # DevPULSE Labs nightly (Linux aarch64)
+          # DevPULSE Labs nightly (Linux x86_64)
 
           - Commit: ${SHA}
           - Built: ${DATE}Z
-          - Runner: self-hosted dpl-linux
+          - Runner: hosted ubuntu-latest
 
-          Exe only — stage private tools with \`cargo xtask stage-tool-deps <release-root>\`.
+          App exe + the dpl-lottie-render helper beside it (ADR-009).
+          Stage private tools with \`cargo xtask stage-tool-deps <release-root>\`.
           Pull: \`./scripts/pull-nightly.sh\`
           EOF
-          rm -f "$GITHUB_WORKSPACE/devpulselabs-linux-aarch64.zip"
-          (cd "$STAGE" && zip -r "$GITHUB_WORKSPACE/devpulselabs-linux-aarch64.zip" .)
+          rm -f "$GITHUB_WORKSPACE/devpulselabs-linux-x64.zip"
+          (cd "$STAGE" && zip -r "$GITHUB_WORKSPACE/devpulselabs-linux-x64.zip" .)
       - name: publish asset to Release nightly
         env:
           GH_TOKEN: ${{ github.token }}
@@ -117,7 +152,7 @@ jobs:
           DATE="$(date -u +%Y-%m-%d)"
           SHA="${{ github.sha }}"
           SHORT="${SHA:0:7}"
-          ASSET=devpulselabs-linux-aarch64.zip
+          ASSET=devpulselabs-linux-x64.zip
           NOTES="$(mktemp)"
           {
             echo "## Nightly ${DATE}"
@@ -125,7 +160,7 @@ jobs:
             echo "- Commit: \`${SHA}\` (\`${SHORT}\`)"
             echo "- Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             echo
-            echo "Exe-only zip — private tools staged via \`cargo xtask stage-tool-deps\`."
+            echo "App + lottie-render helper — private tools staged via \`cargo xtask stage-tool-deps\`."
             echo "Pull: \`./scripts/pull-nightly.sh\` or \`.\\scripts\\pull-nightly.ps1\`."
           } > "$NOTES"
           if gh release view nightly >/dev/null 2>&1; then

@@ -27,5 +27,7 @@ pub use badge::badge;
 pub use bar::bar;
 pub use divider::rule;
 pub use eyebrow::{eyebrow, tracked};
-pub use media::{ambient_backdrop, media_backdrop, media_block_backdrop, Ambient, Media};
+pub use media::{
+    ambient_backdrop, asset_thumb, media_backdrop, media_block_backdrop, Ambient, Media,
+};
 pub use stat::stat;

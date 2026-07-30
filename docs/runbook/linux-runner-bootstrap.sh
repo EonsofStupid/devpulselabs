@@ -40,6 +40,7 @@ APT_DEPS=(build-essential cmake pkg-config ffmpeg libssl-dev
   libxi-dev libxtst-dev libxdo-dev libudev-dev libevdev-dev
   libasound2-dev libpipewire-0.3-dev libdbus-1-dev libgtk-3-dev
   libpango1.0-dev libcairo2-dev libglib2.0-dev libv4l-dev
+  libgbm-dev libxcb1-dev
   clang libclang-dev llvm-dev curl git)
 
 step() { echo "== $*"; }

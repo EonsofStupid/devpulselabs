@@ -63,6 +63,27 @@ pub fn media_block_backdrop(
     }
 }
 
+/// Paint one content asset as a THUMBNAIL — for a picker, not a card.
+///
+/// Same ladder as the card's own image path (locate → paint → labeled plate)
+/// and deliberately the same `file:///` handling, because the three-slash
+/// detail is a Windows UNC trap and belongs in exactly one place.
+///
+/// The difference from [`media_block_backdrop`]: no legibility diffusion. A
+/// backdrop is dimmed so words can sit on it; a picker tile IS the subject and
+/// dimming it would misrepresent what the operator is choosing.
+pub fn asset_thumb(ui: &mut Ui, rect: Rect, src: &str) {
+    match dpl_video::locate_asset(src) {
+        Some(file) => {
+            let uri = file.to_string_lossy().replace('\\', "/");
+            egui::Image::new(format!("file:///{uri}"))
+                .corner_radius(cl::RADIUS)
+                .paint_at(ui, rect);
+        }
+        None => missing_plate(ui, rect, "file not found"),
+    }
+}
+
 /// A labeled fallback plate — the honest bottom rung of every ladder.
 fn missing_plate(ui: &Ui, rect: Rect, label: &str) {
     let painter = ui.painter();

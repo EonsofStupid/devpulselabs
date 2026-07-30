@@ -64,11 +64,11 @@ learning what a template is.
 | **M2** | The ingredient ladder + plain words | ✅ closed | #135 |
 | **M3** | The carousel — sweep and tap the premades | ✅ closed | #136 |
 | **M4** | The overlay editor opens on a real file | ✅ closed | #141 |
-| **M5** | **The card tabs become real** (7 tabs) | 🔶 **4 of 7** | #149, #151, #159 |
+| **M5** | **The card tabs become real** (7 tabs) | 🔶 **5 of 7** — the two that remain are blocked, not pending | #149, #151, #159, #160 |
 | **M5b** | The overlay's live pane — rail + controls + the card | ✅ closed | #155 |
 | **M6** | The container spine — filmstrip + thumbnails | ✅ closed | #146, #147 |
-| **M7** | Placing cards into the container | ⬜ not started | — |
-| **M8** | The dashboard — intent declared first | ⬜ not started | — |
+| **M7** | Placing cards into the container | ✅ closed | #162 |
+| **M8** | The dashboard — intent declared first | ✅ closed | #160 |
 | **M9** | The platform lane — build the ingredients themselves | ⬜ not started | — |
 | **M10** | Assist — paste a recipe, get elements → templates → cards | ⬜ not started | — |
 
@@ -87,6 +87,9 @@ Each row: what landed, and where the evidence is.
 | Thumbnail mode | #147 | `slide-thumbnail-mode.md` | `Fluid::thumbnail` — a miniature is a scaled full stage. Carousel cards and film tiles show whole slides instead of crops. |
 | Background tab | #149 | `author-tab-background.md` | Ten live-rendered colours + blend + ambience, written through `Editor::set_background`. Seam `--card-tab`. |
 | Movement tab | #151 | `author-tab-movement.md` | Three real choices from the schema's own vocabulary; the shortfall stated on the tab. |
+| Surface alignment | #160 | `author-surface-alignment.md` | One `pretty()`, `ContainerKind`/`PictureKind`, every pickable thing on `slug`+`label`, one tab signature. Landed WITH Picture so `main` never took the drift. |
+| Put a card in its container | #162 | `author-place-into-container.md` | The gesture the filmstrip had been promising. Chapter chosen when there is a choice; count re-read from disk; a refused place keeps the card and says why. |
+| Picture tab | #160 | `author-tab-picture.md` | An index-backed picker (no file dialog, jail satisfied by construction), live thumbnails, fit in plain words. Also made `locate_asset` content-root aware, fixing every media-bearing drill. |
 | A quote tab | #159 | `author-tab-quote.md` | Three plain fields over the ratified convention; blank removes its block; `quote_lines()` declared in `dpl_doc` so the surface cannot drift from the validator. |
 | Overlay live pane | #155 | `author-overlay-live-pane.md` | R1's shape: vertical tab rail, controls, and the card live beside them. Words keeps its own stage — there the card is the control. Closes the below-the-fold problem. |
 
@@ -108,7 +111,7 @@ Planned in full; ready to implement.
 | Tab | Plan | Waiting on | Size | State |
 |---|---|---|---|---|
 | **A quote** | `author-tab-quote.md` | — | S | ✅ **done** (#159) — three reserved ids (`quote` · `said-by` · `source`), the convention declared in `dpl_doc` beside `enters()` |
-| **Picture** | `author-tab-picture.md` | nothing | M | **planned** — the picker is `dpl_index`, whose `rel_path` is already content-relative, so the jail cannot be violated by construction |
+| **Picture** | `author-tab-picture.md` | — | M | ✅ **done** (#160) — the picker is `dpl_index`, whose `rel_path` is already content-relative, so the jail cannot be violated by construction |
 | **On tap** | — | **the interaction tier** | L | **blocked** — see below |
 | **Ask for help** | — | **M10** | L | **deferred on purpose** — see below |
 
@@ -131,18 +134,17 @@ Landed ahead of the remaining tabs exactly so they arrive into the right
 shape. The overlay is now rail + controls + live card, and the Background
 tab's third row is no longer below the fold.
 
-### M7 — placing cards into the container
+### M7 — placing cards into the container — ✅ **closed by #162**
 
-The filmstrip says *"N started here, not put in yet"* and means it. Drafts
-live in `inbox/`; `dpl_doc::place_slide` exists and Studio already uses it.
-Waiting on: nothing. Size M. This closes the loop the filmstrip opened.
+The filmstrip's "not put in yet" is now a promise it can keep. `place_slide`
+did the mutation already; the pass added the gesture, the chapter choice, and
+honest reporting — plus removed a global that had made the wiring untestable.
 
-### M8 — the dashboard
+### M8 — the dashboard — ✅ **closed by #160**
 
-Operator correction #3, and the only ratified screen with nothing built.
-Three intents: *edit existing · expand the platform · work on content*, plus
-a recents row. Waiting on: nothing. Size M. The `← Back` and `Change`
-controls deferred in `author-filmstrip.md` §4 belong to it.
+Standing correction #3 honoured: intent is declared first. Three lanes with
+live counts, an "Open now" row over every container, and `← Back`. Every
+harness seam enters the content screen so the lane's proofs still hold.
 
 ### M9 — the platform lane
 
