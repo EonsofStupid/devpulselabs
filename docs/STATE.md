@@ -23,6 +23,30 @@ in THE checkout is OWED a rebuild — the checkout was held by the
 provider-easy-select session this pass; the lane exe
 (`C:\localdev\dpl-lane-lucide\target\release\devpulselabs.exe`) is fresh.
 
+**2026-07-29 — CONNECTED PROVIDERS EARN A TAB (POA&M M3, plan
+`docs/plans/chat-connected-provider-tabs.md`):** the third clause of the
+operator's regression report is built — an ACTIVATED provider
+(`is_activated()` = Ready or Experimental) gets its own tab in the
+title-bar strip beside AI and Social, and entering it scopes the AI rail
+to that provider's sessions. `provider_tab: Option<ProviderId>` on the
+window, NOT a `ChatDomain::Provider` variant (that costs
+`ChatDomainStates::get/get_mut` their `const fn` and grows every
+exhaustive match for no behaviour this pass ships — §3.1). Because
+`focused_provider_tab()` filters the focus through the live tab census,
+SIGN-OUT DROPS BOTH the tab and the scoping in the same frame with no
+intent sent. `session_groups` needed zero change — scoping is
+`slice::from_ref`. Proof `docs/proof/chat-provider-tab-native.png`
+(AI · Codex · Gemini · Social; Blocked/SignedOut providers tab-less).
+Lessons: **the first EguiPilot run after any rebuild fails the handshake
+— warm-up race, re-run it**; `chat-native-proof` needs the RELEASE exe
+built WITH `--features eguipilotai-devtools` (it spawns `--chat-proof`,
+which is gated — otherwise the viewport never opens and the shim blames
+window discovery); `hidden` cannot prove a node was never minted, use
+`count = 0`. PARKED SIDE-FIND: `chat-peer-window.toml` fails on `main`
+itself (`chat.context.route` reads `workbench`, expects `wiredfront` —
+bisected against unmodified `faf5132`); default landing route seems to
+have moved under #155/#156, decide stale-expectation vs regression.
+
 **2026-07-29 — PROVIDER EASY-SELECT RESTORED (POA&M M1+M2, plan
 `docs/plans/chat-provider-easy-select.md`):** the #94 regression is
 undone — the AI rail again shows EVERY provider as an always-visible

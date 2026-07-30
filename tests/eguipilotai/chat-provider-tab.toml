@@ -1,0 +1,147 @@
+id = "chat-provider-tab"
+fixture = "chat-authored"
+record = true
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "open"
+
+[steps.expectation.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "wait"
+milliseconds = 750
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "focus-viewport"
+
+[steps.action.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.overlay/interaction-1003/reject"
+
+# Connected providers earn a tab. In the authored fixture codex is Ready
+# and gemini is Experimental — both activated, both tabbed.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.mode.provider/codex"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.mode.provider/gemini"
+
+# Blocked and signed-out providers have earned nothing. `count = 0` — not
+# `hidden` — because an unearned tab is never minted at all, and `hidden`
+# requires the node to resolve before it can be judged invisible.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "count"
+value = 0
+
+[steps.expectation.target]
+id = "chat.primary/chat.mode.provider/claude"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "count"
+value = 0
+
+[steps.expectation.target]
+id = "chat.primary/chat.mode.provider/grok"
+
+# The AI tab is the roster while no provider tab is focused.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.sidebar.providers/grok"
+
+# Enter the tab: the rail scopes to that provider.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.mode.provider/codex"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.mode.provider/all"
+
+# The roster is gone while the rail is scoped — the row is not merely
+# invisible, it is not rendered.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "count"
+value = 0
+
+[steps.expectation.target]
+id = "chat.primary/chat.sidebar.providers/grok"
+
+# The AI tab is the way back to the roster.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.mode.ai"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.sidebar.providers/grok"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "close-viewport"
+
+[steps.action.viewport]
+key = "chat.primary"
