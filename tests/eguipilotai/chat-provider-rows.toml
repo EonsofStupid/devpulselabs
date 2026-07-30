@@ -1,0 +1,120 @@
+id = "chat-provider-rows"
+fixture = "chat-authored"
+record = true
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "open"
+
+[steps.expectation.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "wait"
+milliseconds = 750
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "focus-viewport"
+
+[steps.action.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.overlay/interaction-1003/reject"
+
+# The roster: every provider visible in the rail, no click, no overlay.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.sidebar.providers/codex"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.sidebar.providers/claude"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.sidebar.providers/gemini"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.sidebar.providers/grok"
+
+# One-click select straight from the rail.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.sidebar.providers/grok"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "Signed out"
+
+[steps.expectation.target]
+id = "chat.primary/chat.sidebar.providers/grok"
+
+# The catalog survives as the escape hatch only.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.sidebar.providers"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.provider.catalog"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "close-viewport"
+
+[steps.action.viewport]
+key = "chat.primary"
