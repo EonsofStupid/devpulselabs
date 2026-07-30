@@ -63,12 +63,14 @@ Home: shell Coach hub. Operator 2026-07-30: “looks good.”
 
 **Done when:** met for look-approve. NEXT = C2d inventory.
 
-### 8. C2d — lightweight target inventory (Phase 0+1)
+### 8. C2d — lightweight target inventory (Phase 0+1) — **PASS**
 
-Cold `.desktop`/catalog cache + shallow live census (name/PID only). No
-deep walk at startup. No freeze.
+**Plan:** `docs/plans/coach-c2d-lightweight-inventory.md`  
+**Journal:** `docs/journal/2026-07-30-c2d-inventory.md`  
+Crate `dpl-coach-inventory` + `coach-inventory-list`. Cold XDG + shallow
+AT-SPI desktop-root census. Calculator seed RUNNING. No deep walk.
 
-**Done when:** list on this box without UI stall; unit + live evidence.
+**Done when:** met. NEXT = C2e fabric mint.
 
 ### 9. C2e — fabric mint for selected Calculator
 

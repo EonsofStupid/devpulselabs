@@ -67,6 +67,7 @@ members = [
     "crates/app",
     "crates/desktop-spike",
     "crates/coach-overlay",
+    "crates/coach-inventory",
     "crates/xtask",
 ]
 
