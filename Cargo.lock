@@ -2099,6 +2099,7 @@ dependencies = [
 name = "dpl-coldlight"
 version = "0.1.0"
 dependencies = [
+ "dpl-svg",
  "egui",
  "palette",
  "serde_json",
@@ -2448,6 +2449,10 @@ dependencies = [
  "egui",
  "egui_extras",
 ]
+
+[[package]]
+name = "dpl-svg"
+version = "0.1.0"
 
 [[package]]
 name = "dpl-tools-deps"

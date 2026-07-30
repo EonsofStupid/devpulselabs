@@ -10,6 +10,9 @@ egui.workspace = true
 [build-dependencies]
 serde_json = "1"
 palette = "0.7"
+# ADR-015: icon geometry is tessellated at BUILD time from the vendored
+# Lucide pool — runtime never parses SVG and carries no new deps.
+dpl-svg.workspace = true
 
 [lints]
 workspace = true

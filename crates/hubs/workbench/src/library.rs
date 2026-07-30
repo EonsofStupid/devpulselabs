@@ -44,6 +44,7 @@ pub(crate) enum LibSection {
     Colors,
     Presets,
     Fonts,
+    Icons,
     Moods,
 }
 
@@ -51,7 +52,7 @@ impl LibSection {
     /// Ladder order, coarse to fine — Templates → Blocks → Elements — then the
     /// vocabulary walls. Seeds still lead (the ingredient the editor tailors
     /// first).
-    pub(crate) const ALL: [LibSection; 9] = [
+    pub(crate) const ALL: [LibSection; 10] = [
         LibSection::Seeds,
         LibSection::Templates,
         LibSection::Blocks,
@@ -60,6 +61,7 @@ impl LibSection {
         LibSection::Colors,
         LibSection::Presets,
         LibSection::Fonts,
+        LibSection::Icons,
         LibSection::Moods,
     ];
 
@@ -77,6 +79,7 @@ impl LibSection {
             LibSection::Colors => "colors",
             LibSection::Presets => "presets",
             LibSection::Fonts => "fonts",
+            LibSection::Icons => "icons",
             LibSection::Moods => "moods",
         }
     }
@@ -95,6 +98,7 @@ impl LibSection {
             LibSection::Colors => "Colors",
             LibSection::Presets => "Styles",
             LibSection::Fonts => "Type",
+            LibSection::Icons => "Icons",
             LibSection::Moods => "Moods",
         }
     }
@@ -112,6 +116,7 @@ impl LibSection {
             LibSection::Colors => "Every color the app draws from",
             LibSection::Presets => "Saved combinations — one tap dresses the whole card",
             LibSection::Fonts => "Every typeface you have, each shown in itself",
+            LibSection::Icons => "Every icon the app draws — your Lucide set, in every dressing",
             LibSection::Moods => "The colors the background drifts through",
         }
     }
@@ -769,6 +774,56 @@ pub(crate) fn fonts_wall(ui: &mut egui::Ui) {
                 }
                 ui.add_space(cl::space::S3);
             }
+        });
+}
+
+/// The icons wall — every registry icon (tokens/icons.json over the
+/// vendored Lucide pool, ADR-015) in three renditions: default ink, tone
+/// accent, and the brutal cut (the icon's own mesh as a hard offset
+/// shadow). The gallery gate for the 8th token source.
+pub(crate) fn icons_wall(ui: &mut egui::Ui) {
+    ui.label(
+        RichText::new(format!(
+            "ICON REGISTRY — {} semantic ids over the vendored Lucide 1.27.0 pool (ISC, assets/lucide) · geometry baked at build, styled at paint",
+            cl::ICON_COUNT
+        ))
+        .small()
+        .color(cl::ink::SUBTLE),
+    );
+    ui.add_space(cl::space::S2);
+
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                for def in cl::ICONS.iter() {
+                    let resp = cl::card_frame().show(ui, |ui| {
+                        ui.set_width(168.0);
+                        ui.horizontal(|ui| {
+                            let _ = cl::icon_label(ui, def.id, 28.0, cl::ink::STRONG);
+                            let _ = cl::icon_label(ui, def.id, 28.0, SPEC.tone.color());
+                            let (rect, _) = ui
+                                .allocate_exact_size(egui::vec2(28.0, 28.0), egui::Sense::hover());
+                            cl::draw_icon_brutal(
+                                ui.painter(),
+                                def.id,
+                                rect,
+                                SPEC.tone.color(),
+                                egui::Color32::BLACK,
+                            );
+                        });
+                        ui.label(RichText::new(def.label).small().color(cl::ink::STRONG));
+                        ui.label(
+                            RichText::new(format!("{} · {}", def.id, def.lucide))
+                                .monospace()
+                                .small()
+                                .color(cl::ink::SUBTLE),
+                        );
+                    });
+                    let _ = cl::tip(resp.response, def.blurb);
+                    ui.add_space(cl::space::S2);
+                }
+            });
         });
 }
 
