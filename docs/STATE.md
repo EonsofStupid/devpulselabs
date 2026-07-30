@@ -2,6 +2,24 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-30 — THE AUTHORING SURFACE, ALIGNED (`docs/plans/author-surface-alignment.md`):**
+five tabs and three censuses were built in a day, each correct alone and each
+slightly different. Pre-release, so the drift was REWRITTEN OUT before the
+Picture tab landed rather than merged and cleaned up after. Four alignments:
+one `pretty()` in a new `words.rs` (it had been copied one layer above the
+exact place the lane already paid twice to stop copying vocabulary); two
+`pub(crate) enum Kind` meaning unrelated things become `ContainerKind` and
+`PictureKind`; "a thing you can pick" had three shapes (`slug`/`label`,
+`id`/`name`, `rel_path`/`name`) and now every one carries `slug` + `label`, so
+the data types follow the law the methods already did; and all four tab
+functions take `&mut CardEditor` instead of two taking each. A fifth fell out:
+one shared `card_editor()` test builder, so a test cannot construct the
+surface's state differently from the surface. NOT aligned, deliberately: the
+census return types — `Shelf` carries `more`/`unavailable` the others have no
+concept of, and symmetry would mean inventing state. Nothing drawn changed:
+the four `no_*_speaks_engineering` tests pass untouched and the proof shot is
+structurally identical. 38 tests, up from 37 — none deleted, one added.
+
 **2026-07-30 — THE PICTURE TAB (`docs/plans/author-tab-picture.md`):**
 fifth of the seven card tabs; M5 is now 5 of 7 and **the two that remain are
 BLOCKED, not pending**. The picker is the artifact INDEX, not a file dialog,
