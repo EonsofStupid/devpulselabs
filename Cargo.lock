@@ -2415,6 +2415,7 @@ dependencies = [
  "dpl-hub",
  "dpl-index",
  "dpl-intent",
+ "dpl-ledger",
  "serde",
  "serde_json",
  "tokio",

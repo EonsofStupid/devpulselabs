@@ -27,8 +27,8 @@ use axum::{Json, Router};
 use dpl_comp::Composition;
 use dpl_estate::{Estate, Tree, KEY_SHELL_ROUTE, KEY_WIREDFRONT_LAST_COMP};
 use dpl_fabric::{
-    BuildEvent, CaptureEvent, CoachActor, CoachEvent, Fabric, IntentEvent, JobEvent, ProviderEvent,
-    ShellEvent, Stamped,
+    AiEvent, BuildEvent, CaptureEvent, CoachActor, CoachEvent, Fabric, IntentEvent, JobEvent,
+    ProviderEvent, ShellEvent, Stamped,
 };
 use dpl_hub::{HubSpec, Route};
 use serde_json::{json, Value};
@@ -350,6 +350,63 @@ pub fn intent_json(st: &Stamped<IntentEvent>) -> Value {
         }
     };
     v["domain"] = json!("intent");
+    v["seq"] = json!(st.seq);
+    v["ms"] = json!(st.ms);
+    v
+}
+
+/// The AI domain's envelope.
+///
+/// Doctrine law 4 — ONE envelope: the body fields here are the same set
+/// `dpl_ledger::row_ai` writes to Parquet, so an agent watching `/signals`
+/// and a query over the ledger see the same facts under the same names.
+/// `call` rides every row so the four facts of one call join without a
+/// self-join. Message content is absent by construction.
+pub fn ai_json(st: &Stamped<AiEvent>) -> Value {
+    let call = st.ev.call().0;
+    let mut v = match &st.ev {
+        AiEvent::CallStarted {
+            provider,
+            model,
+            origin,
+            ..
+        } => json!({
+            "type": "callStarted",
+            "provider": provider.0,
+            "model": model,
+            "surface": origin.surface,
+            "hub": origin.route.map(|r| r.hub.0),
+            "sub": origin.route.map(|r| r.sub.0),
+            "subject": origin.subject,
+        }),
+        AiEvent::FirstToken { ttft_ms, .. } => json!({
+            "type": "firstToken",
+            "ttft_ms": ttft_ms,
+        }),
+        AiEvent::CallFinished {
+            tokens_in,
+            tokens_out,
+            cost_micros,
+            duration_ms,
+            outcome,
+            ..
+        } => json!({
+            "type": "callFinished",
+            "tokens_in": tokens_in,
+            "tokens_out": tokens_out,
+            "cost_micros": cost_micros,
+            "duration_ms": duration_ms,
+            "outcome": outcome.label(),
+            "failure": outcome.failure().map(|f| f.label()),
+        }),
+        AiEvent::Disposition { kept, target, .. } => json!({
+            "type": "disposition",
+            "kept": kept,
+            "target": target,
+        }),
+    };
+    v["call"] = json!(call);
+    v["domain"] = json!("ai");
     v["seq"] = json!(st.seq);
     v["ms"] = json!(st.ms);
     v
@@ -813,8 +870,13 @@ async fn get_signals(
         ev.ok()
             .map(|st| Ok(Event::default().data(intent_json(&st).to_string())))
     });
-    let stream =
-        shell.merge(capture.merge(jobs.merge(providers.merge(build.merge(coach.merge(intent))))));
+    let ai = BroadcastStream::new(s.fabric.subscribe_ai()).filter_map(|ev| {
+        ev.ok()
+            .map(|st| Ok(Event::default().data(ai_json(&st).to_string())))
+    });
+    let stream = shell.merge(
+        capture.merge(jobs.merge(providers.merge(build.merge(coach.merge(intent.merge(ai)))))),
+    );
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
@@ -1094,6 +1156,91 @@ mod envelope_tests {
                 "cause": null,
             })
         );
+    }
+
+    #[test]
+    fn ai_envelopes_are_pinned_and_carry_no_message_content() {
+        let started = ai_json(&Stamped {
+            seq: 40,
+            ms: 5000,
+            ev: AiEvent::CallStarted {
+                call: dpl_fabric::CallId(39),
+                provider: dpl_fabric::ProviderId("claude"),
+                model: "claude-opus-5".into(),
+                origin: dpl_fabric::Origin {
+                    route: Some(Route {
+                        hub: dpl_hub::HubId("workbench"),
+                        sub: dpl_hub::SubId("author"),
+                    }),
+                    surface: "author-editor",
+                    subject: Some("slide-7".into()),
+                },
+            },
+        });
+        assert_eq!(
+            started,
+            json!({
+                "domain": "ai", "seq": 40, "ms": 5000, "call": 39,
+                "type": "callStarted", "provider": "claude",
+                "model": "claude-opus-5", "surface": "author-editor",
+                "hub": "workbench", "sub": "author", "subject": "slide-7",
+            })
+        );
+
+        let finished = ai_json(&Stamped {
+            seq: 41,
+            ms: 5100,
+            ev: AiEvent::CallFinished {
+                call: dpl_fabric::CallId(39),
+                tokens_in: 1200,
+                tokens_out: 450,
+                cost_micros: 9_750,
+                duration_ms: 2_100,
+                outcome: dpl_fabric::AiOutcome::Error(dpl_fabric::AiFailureClass::RateLimit),
+            },
+        });
+        assert_eq!(
+            finished,
+            json!({
+                "domain": "ai", "seq": 41, "ms": 5100, "call": 39,
+                "type": "callFinished", "tokens_in": 1200, "tokens_out": 450,
+                "cost_micros": 9750, "duration_ms": 2100,
+                "outcome": "error", "failure": "rate-limit",
+            })
+        );
+
+        // Law 4 — ONE envelope: the seam's field names are exactly the
+        // ledger's, so `/signals` and a ledger query never disagree.
+        let row = dpl_ledger::row_ai(&Stamped {
+            seq: 41,
+            ms: 5100,
+            ev: AiEvent::CallFinished {
+                call: dpl_fabric::CallId(39),
+                tokens_in: 1200,
+                tokens_out: 450,
+                cost_micros: 9_750,
+                duration_ms: 2_100,
+                outcome: dpl_fabric::AiOutcome::Error(dpl_fabric::AiFailureClass::RateLimit),
+            },
+        });
+        let body: Value = serde_json::from_str(&row.body).unwrap();
+        for key in [
+            "call",
+            "tokens_in",
+            "tokens_out",
+            "cost_micros",
+            "duration_ms",
+            "outcome",
+            "failure",
+        ] {
+            assert_eq!(
+                body.get(key),
+                finished.get(key),
+                "ledger row and seam envelope disagree on `{key}`"
+            );
+        }
+        assert_eq!(row.domain, finished["domain"].as_str().unwrap());
+        assert_eq!(row.type_name, finished["type"].as_str().unwrap());
     }
 
     #[test]

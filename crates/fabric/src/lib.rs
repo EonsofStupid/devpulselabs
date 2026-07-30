@@ -444,6 +444,160 @@ pub enum IntentEvent {
 
 pub type IntentReceiver = broadcast::Receiver<Stamped<IntentEvent>>;
 
+/// One AI call, correlated across its lifetime (dispatch → first token →
+/// finish → disposition). Minted from the SAME sequence space as stamps
+/// and job ids, so a call is causally ordered against every other signal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct CallId(pub u64);
+
+impl fmt::Display for CallId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "call-{}", self.0)
+    }
+}
+
+/// WHERE an AI call came from — the attribution key.
+///
+/// Without this, "is the AI earning its keep in the authoring loop?" is
+/// unanswerable: cost and latency alone cannot say which surface spent
+/// the tokens or what the call was working on.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Origin {
+    /// Where the operator was standing when the call was dispatched.
+    pub route: Option<Route>,
+    /// The surface that dispatched it (`"chat"`, `"author-editor"`, …).
+    /// A static str: surfaces are code, not operator data.
+    pub surface: &'static str,
+    /// What it was working on — slide/comp/episode id when there is one.
+    pub subject: Option<String>,
+}
+
+impl Origin {
+    /// The common case: a surface with no route or subject context.
+    pub const fn surface(surface: &'static str) -> Self {
+        Self {
+            route: None,
+            surface,
+            subject: None,
+        }
+    }
+}
+
+/// Why an AI call did not return a usable answer. Distinct from
+/// `AiOutcome::Refused` — a refusal is a valid answer the model chose to
+/// give; these are failures of the call itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AiFailureClass {
+    Auth,
+    RateLimit,
+    Timeout,
+    Transport,
+    Protocol,
+    /// The provider's local runtime broke (parity with
+    /// `ProviderFailureClass::Runtime`).
+    Runtime,
+    Server,
+    Unknown,
+}
+
+impl AiFailureClass {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Auth => "auth",
+            Self::RateLimit => "rate-limit",
+            Self::Timeout => "timeout",
+            Self::Transport => "transport",
+            Self::Protocol => "protocol",
+            Self::Runtime => "runtime",
+            Self::Server => "server",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+/// How an AI call ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AiOutcome {
+    Ok,
+    /// The model answered by declining — a real answer, not a failure.
+    Refused,
+    Cancelled,
+    Error(AiFailureClass),
+}
+
+impl AiOutcome {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::Refused => "refused",
+            Self::Cancelled => "cancelled",
+            Self::Error(_) => "error",
+        }
+    }
+
+    /// The failure class when this outcome is an error.
+    pub const fn failure(self) -> Option<AiFailureClass> {
+        match self {
+            Self::Error(class) => Some(class),
+            _ => None,
+        }
+    }
+}
+
+/// AI-domain facts — what the AI cost, how fast it was, what it was
+/// doing, and whether the operator kept the result.
+///
+/// Message CONTENT is deliberately absent from this type: prompts and
+/// responses are segregated into their own opt-in, credential-scrubbed
+/// store and joined by hash (Phase 3 §3.6). Events stay small and fast.
+///
+/// `cost_micros` is DERIVED from a versioned price table; `tokens_in`,
+/// `tokens_out` and `model` are the truth and are always carried, so
+/// cost can be recomputed when the table was wrong or prices moved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AiEvent {
+    /// A call was dispatched to a provider.
+    CallStarted {
+        call: CallId,
+        provider: ProviderId,
+        model: String,
+        origin: Origin,
+    },
+    /// First token arrived — time-to-first-token, the latency operators
+    /// actually feel.
+    FirstToken { call: CallId, ttft_ms: u32 },
+    /// The call ended, however it ended.
+    CallFinished {
+        call: CallId,
+        tokens_in: u32,
+        tokens_out: u32,
+        cost_micros: u64,
+        duration_ms: u32,
+        outcome: AiOutcome,
+    },
+    /// The attribution payoff: did the operator KEEP what the AI made?
+    /// `target` names what it became when kept (slide/comp id).
+    Disposition {
+        call: CallId,
+        kept: bool,
+        target: Option<String>,
+    },
+}
+
+impl AiEvent {
+    /// Every AI fact belongs to exactly one call — the correlation key.
+    pub const fn call(&self) -> CallId {
+        match self {
+            Self::CallStarted { call, .. }
+            | Self::FirstToken { call, .. }
+            | Self::CallFinished { call, .. }
+            | Self::Disposition { call, .. } => *call,
+        }
+    }
+}
+
+pub type AiReceiver = broadcast::Receiver<Stamped<AiEvent>>;
+
 /// The installed UI waker callback (doctrine law 6).
 pub type Waker = Arc<dyn Fn() + Send + Sync>;
 
@@ -473,6 +627,7 @@ pub struct Fabric {
     build: broadcast::Sender<Stamped<BuildEvent>>,
     coach: broadcast::Sender<Stamped<CoachEvent>>,
     intent: broadcast::Sender<Stamped<IntentEvent>>,
+    ai: broadcast::Sender<Stamped<AiEvent>>,
     /// THE JOBBOARD — the fold of the jobs stream (+ each row's latest-wins
     /// progress counter), shared by every Fabric clone. Running rows stay
     /// until resolved; resolved rows stay until acked, bounded by
@@ -503,6 +658,10 @@ impl Fabric {
         let (build, _) = broadcast::channel(64);
         let (coach, _) = broadcast::channel(128);
         let (intent, _) = broadcast::channel(64);
+        // AI facts arrive up to 4 per call (start/first-token/finish/
+        // disposition) across concurrent provider calls — sized like the
+        // provider lane, not the chatty capture lane.
+        let (ai, _) = broadcast::channel(128);
         Self {
             shell,
             deck,
@@ -512,6 +671,7 @@ impl Fabric {
             build,
             coach,
             intent,
+            ai,
             board: Arc::new(std::sync::Mutex::new(Vec::new())),
             seq: Arc::new(AtomicU64::new(0)),
             born: Instant::now(),
@@ -554,6 +714,12 @@ impl Fabric {
 
     pub fn mint_provider_attempt(&self) -> ActivationAttemptId {
         ActivationAttemptId(self.seq.fetch_add(1, Ordering::Relaxed))
+    }
+
+    /// Mint a process-unique AI call id (same sequence space as stamps —
+    /// a CallId is causally ordered against every signal).
+    pub fn mint_ai_call(&self) -> CallId {
+        CallId(self.seq.fetch_add(1, Ordering::Relaxed))
     }
 
     /// Publish a capture signal — stamped, waking the UI.
@@ -708,6 +874,17 @@ impl Fabric {
 
     pub fn subscribe_intent(&self) -> IntentReceiver {
         self.intent.subscribe()
+    }
+
+    /// Publish an AI-domain fact (cost, latency, attribution, disposition).
+    /// Message content never rides this channel — see `AiEvent`.
+    pub fn publish_ai(&self, event: AiEvent) {
+        let _ = self.ai.send(self.stamp(event));
+        self.wake();
+    }
+
+    pub fn subscribe_ai(&self) -> AiReceiver {
+        self.ai.subscribe()
     }
 
     /// Publish, ignoring "no subscribers yet" — a signal with no listeners
@@ -1090,5 +1267,115 @@ mod tests {
             },
         });
         // No panic, no Result to mishandle — the signal simply had no audience.
+    }
+
+    #[test]
+    fn an_ai_call_correlates_across_its_whole_lifetime() {
+        let fabric = Fabric::new();
+        let mut rx = fabric.subscribe_ai();
+        let call = fabric.mint_ai_call();
+
+        fabric.publish_ai(AiEvent::CallStarted {
+            call,
+            provider: ProviderId("claude"),
+            model: "claude-opus-5".into(),
+            origin: Origin {
+                route: Some(Route {
+                    hub: HubId("workbench"),
+                    sub: SubId("author"),
+                }),
+                surface: "author-editor",
+                subject: Some("slide-7".into()),
+            },
+        });
+        fabric.publish_ai(AiEvent::FirstToken { call, ttft_ms: 320 });
+        fabric.publish_ai(AiEvent::CallFinished {
+            call,
+            tokens_in: 1200,
+            tokens_out: 450,
+            cost_micros: 9_750,
+            duration_ms: 2_100,
+            outcome: AiOutcome::Ok,
+        });
+        fabric.publish_ai(AiEvent::Disposition {
+            call,
+            kept: true,
+            target: Some("slide-7".into()),
+        });
+
+        // All four facts carry the SAME call id — that is what makes
+        // cost, latency, attribution and disposition joinable.
+        for _ in 0..4 {
+            assert_eq!(rx.try_recv().unwrap().ev.call(), call);
+        }
+    }
+
+    #[test]
+    fn ai_facts_are_stamped_and_ordered_against_other_domains() {
+        let fabric = Fabric::new();
+        let mut ai_rx = fabric.subscribe_ai();
+        let mut build_rx = fabric.subscribe_build();
+
+        let call = fabric.mint_ai_call();
+        fabric.publish_ai(AiEvent::Disposition {
+            call,
+            kept: true,
+            target: Some("slide-1".into()),
+        });
+        fabric.publish_build(BuildEvent::CardAuthored {
+            show: String::new(),
+            episode: String::new(),
+            slide: "slide-1".into(),
+        });
+
+        let ai = ai_rx.try_recv().unwrap();
+        let build = build_rx.try_recv().unwrap();
+        // ONE global sequence across domains: the AI disposition provably
+        // precedes the card it produced. This is the join the whole
+        // analytics program stands on.
+        assert!(
+            ai.seq < build.seq,
+            "ai seq {} should precede build seq {}",
+            ai.seq,
+            build.seq
+        );
+    }
+
+    #[test]
+    fn a_minted_call_id_never_repeats() {
+        let fabric = Fabric::new();
+        let a = fabric.mint_ai_call();
+        let b = fabric.mint_ai_call();
+        assert_ne!(a, b);
+        // And it shares the stamp sequence — never a parallel counter.
+        let job = fabric.mint_job();
+        assert_ne!(a.0, job.0);
+        assert_ne!(b.0, job.0);
+    }
+
+    #[test]
+    fn an_outcome_reports_its_failure_class_or_none() {
+        assert_eq!(AiOutcome::Ok.failure(), None);
+        assert_eq!(AiOutcome::Refused.failure(), None);
+        assert_eq!(AiOutcome::Refused.label(), "refused");
+        assert_eq!(
+            AiOutcome::Error(AiFailureClass::RateLimit).failure(),
+            Some(AiFailureClass::RateLimit)
+        );
+        assert_eq!(AiFailureClass::RateLimit.label(), "rate-limit");
+    }
+
+    #[test]
+    fn ai_facts_do_not_wake_other_domain_ears() {
+        let fabric = Fabric::new();
+        let mut provider_rx = fabric.subscribe_providers();
+        fabric.publish_ai(AiEvent::FirstToken {
+            call: fabric.mint_ai_call(),
+            ttft_ms: 10,
+        });
+        assert!(
+            provider_rx.try_recv().is_err(),
+            "AI usage is its own domain, not provider auth lifecycle"
+        );
     }
 }

@@ -25,9 +25,9 @@ use dpl_chat_windows::{
     WindowGeometry, WindowKind, WindowLifecycle,
 };
 use dpl_fabric::{
-    ActivationAttemptId, AppWindowAction, CaptureEvent, Fabric, IntentEvent, JobEvent, JobId,
-    ProviderActivationStage, ProviderEvent, ProviderFailureClass, ProviderReceiver, ShellEvent,
-    ShellReceiver,
+    ActivationAttemptId, AiEvent, AiFailureClass, AiOutcome, AppWindowAction, CallId, CaptureEvent,
+    Fabric, IntentEvent, JobEvent, JobId, Origin, ProviderActivationStage, ProviderEvent,
+    ProviderFailureClass, ProviderReceiver, ShellEvent, ShellReceiver,
 };
 use dpl_hub::Route;
 use egui_pilot_ai::{
@@ -99,6 +99,9 @@ struct Shared {
     grok_sessions: BTreeMap<String, ChatSessionId>,
     grok_turns: BTreeMap<String, TurnId>,
     grok_permissions: BTreeMap<u64, PendingGrokPermission>,
+    /// In-flight AI calls keyed by provider session id — the AI domain's
+    /// correlation state. Mint at dispatch, first-token once, finish once.
+    ai_calls: BTreeMap<String, AiCall>,
     grok_attempt: Option<ActivationAttemptId>,
     codex_attempt: Option<ActivationAttemptId>,
     imagine: ImagineState,
@@ -494,6 +497,7 @@ impl ChatWindowCoordinator {
             grok_runtime_ready: false,
             grok_sessions: BTreeMap::new(),
             grok_turns: BTreeMap::new(),
+            ai_calls: BTreeMap::new(),
             grok_permissions: BTreeMap::new(),
             grok_attempt: None,
             codex_attempt: None,
@@ -2283,6 +2287,7 @@ fn poll_grok_runtime(state: &mut Shared) -> bool {
                 stop_reason: _,
             } => {
                 append_grok_event(state, &provider_session_id, ChatEventContent::TurnCompleted);
+                ai_call_finished(state, &provider_session_id, AiOutcome::Ok);
                 set_grok_session_idle(state, &provider_session_id);
                 state.grok_turns.remove(&provider_session_id);
             }
@@ -2294,6 +2299,11 @@ fn poll_grok_runtime(state: &mut Shared) -> bool {
                         ChatEventContent::TurnFailed {
                             message: failure.reason,
                         },
+                    );
+                    ai_call_finished(
+                        state,
+                        &provider_session_id,
+                        AiOutcome::Error(AiFailureClass::Runtime),
                     );
                     set_grok_session_idle(state, &provider_session_id);
                     state.grok_turns.remove(&provider_session_id);
@@ -2411,6 +2421,84 @@ fn provider_session_id(state: &Shared, session: ChatSessionId) -> Option<String>
         .map(|id| id.0)
 }
 
+/// One in-flight AI call. Providers speak their own dialects; this is the
+/// single shape the AI domain is minted from.
+struct AiCall {
+    call: CallId,
+    started: Instant,
+    /// TTFT fires exactly once per call, on the first content chunk.
+    first_token_seen: bool,
+}
+
+/// THE CHAT → AI BRIDGE.
+///
+/// Provider crates stay fabric-free (their ceilings forbid it); the app
+/// owns the translation, exactly like the `publish_provider` sites above.
+/// These four functions are the ONLY place `AiEvent` is minted, so the
+/// correlation invariant — one `CallId`, one start, one finish — is
+/// enforced in one readable place rather than scattered per provider.
+fn ai_call_started(
+    state: &mut Shared,
+    provider: dpl_chat_core::ProviderId,
+    provider_session_id: &str,
+    model: &str,
+) {
+    let call = state.fabric.mint_ai_call();
+    state.ai_calls.insert(
+        provider_session_id.to_owned(),
+        AiCall {
+            call,
+            started: Instant::now(),
+            first_token_seen: false,
+        },
+    );
+    state.fabric.publish_ai(AiEvent::CallStarted {
+        call,
+        provider,
+        model: model.to_owned(),
+        // The chat window is its own OS surface and does not own the main
+        // window's route; `observe_route` feeds the projection, not this.
+        // Route-bearing origins arrive with the editor surface (PR 3) —
+        // an absent route is honest, a guessed one would poison the join.
+        origin: Origin::surface("chat"),
+    });
+}
+
+/// The latency operators actually feel. Idempotent per call.
+fn ai_first_token(state: &mut Shared, provider_session_id: &str) {
+    let Some(entry) = state.ai_calls.get_mut(provider_session_id) else {
+        return;
+    };
+    if entry.first_token_seen {
+        return;
+    }
+    entry.first_token_seen = true;
+    let (call, ttft_ms) = (entry.call, entry.started.elapsed().as_millis() as u32);
+    state
+        .fabric
+        .publish_ai(AiEvent::FirstToken { call, ttft_ms });
+}
+
+/// Closes the call and RETIRES the correlation entry, so a late duplicate
+/// finish cannot publish a second `CallFinished` for the same id.
+fn ai_call_finished(state: &mut Shared, provider_session_id: &str, outcome: AiOutcome) {
+    let Some(entry) = state.ai_calls.remove(provider_session_id) else {
+        return;
+    };
+    state.fabric.publish_ai(AiEvent::CallFinished {
+        call: entry.call,
+        // Token counts and cost land in PR 2 with the versioned price
+        // table; the provider payloads that carry them are parsed there.
+        // Zero here is HONEST-EMPTY, and `cost_micros` is derived, never
+        // authoritative — the raw counts are what get recomputed from.
+        tokens_in: 0,
+        tokens_out: 0,
+        cost_micros: 0,
+        duration_ms: entry.started.elapsed().as_millis() as u32,
+        outcome,
+    });
+}
+
 fn send_grok_turn(state: &mut Shared, session: ChatSessionId, text: String) {
     let Some(provider_session_id) = provider_session_id(state, session) else {
         tracing::warn!(%session, "Grok session binding is missing");
@@ -2432,6 +2520,14 @@ fn send_grok_turn(state: &mut Shared, session: ChatSessionId, text: String) {
     if !send_grok_command(state, command) {
         return;
     }
+    // The call is airborne — mint its correlation id before any chunk
+    // can arrive, so TTFT has something to attach to.
+    // Model is EMPTY here on purpose: the Grok ACP runtime does not
+    // surface a model id at this layer. Model resolution lands with the
+    // price table (PR 2) — the two are inseparable, since pricing is
+    // per-model. An empty model reads as "not yet known", never as a
+    // wrong model quietly priced.
+    ai_call_started(state, dpl_chat_grok::PROVIDER, &provider_session_id, "");
     state.grok_turns.insert(provider_session_id, turn);
     if let Err(error) = state
         .window
@@ -2453,6 +2549,7 @@ fn project_grok_update(
             // the composer clears atomically with a successful enqueue.
         }
         dpl_chat_grok::GrokSessionUpdate::AssistantText(chunk) => {
+            ai_first_token(state, provider_session_id);
             let Some(session) = state.grok_sessions.get(provider_session_id).copied() else {
                 return;
             };

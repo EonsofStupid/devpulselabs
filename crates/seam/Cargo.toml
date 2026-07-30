@@ -31,3 +31,8 @@ dpl-engine-media.workspace = true
 tower = { workspace = true, features = ["util"] }
 # Tests construct a real HubSpec (its tone rides ColdLight).
 dpl-coldlight.workspace = true
+# Doctrine law 4 (ONE envelope) is ENFORCED, not asserted: a test pins the
+# seam's AI envelope field-for-field against the ledger's Parquet row, so
+# the two projections cannot drift the way capture's already did. Dev-dep
+# only — the seam never depends on the ledger at runtime.
+dpl-ledger.workspace = true

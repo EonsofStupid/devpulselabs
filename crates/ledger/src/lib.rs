@@ -11,7 +11,8 @@
 use arrow_array::{Array, ArrayRef, RecordBatch, StringArray, UInt64Array};
 use arrow_schema::{DataType, Field, Schema};
 use dpl_fabric::{
-    BuildEvent, CaptureEvent, CoachEvent, Fabric, IntentEvent, JobEvent, ProviderEvent, Stamped,
+    AiEvent, BuildEvent, CaptureEvent, CoachEvent, Fabric, IntentEvent, JobEvent, ProviderEvent,
+    Stamped,
 };
 use parquet::arrow::ArrowWriter;
 use parquet::basic::Compression;
@@ -91,6 +92,7 @@ pub struct LedgerTap {
     build: dpl_fabric::BuildReceiver,
     coach: dpl_fabric::CoachReceiver,
     intent: dpl_fabric::IntentReceiver,
+    ai: dpl_fabric::AiReceiver,
     handle: LedgerHandle,
 }
 
@@ -106,6 +108,7 @@ impl LedgerTap {
             build: fabric.subscribe_build(),
             coach: fabric.subscribe_coach(),
             intent: fabric.subscribe_intent(),
+            ai: fabric.subscribe_ai(),
             handle,
         })
     }
@@ -129,6 +132,9 @@ impl LedgerTap {
         }
         while let Ok(st) = self.intent.try_recv() {
             let _ = self.handle.try_record(row_intent(&st));
+        }
+        while let Ok(st) = self.ai.try_recv() {
+            let _ = self.handle.try_record(row_ai(&st));
         }
     }
 
@@ -724,6 +730,64 @@ fn row_intent(st: &Stamped<IntentEvent>) -> LedgerRow {
     base_row(st.seq, st.ms, "intent", ty, body)
 }
 
+/// The AI domain's projection.
+///
+/// `call` is lifted onto EVERY row so the four facts of one call join
+/// without a self-join. Tokens and model are recorded raw beside the
+/// derived `cost_micros`, so cost can be recomputed when the price table
+/// was wrong. Message content never appears here — it lives in its own
+/// opt-in store, joined by hash (Phase 3 §3.6).
+pub fn row_ai(st: &Stamped<AiEvent>) -> LedgerRow {
+    let call = st.ev.call().0;
+    let (ty, body) = match &st.ev {
+        AiEvent::CallStarted {
+            provider,
+            model,
+            origin,
+            ..
+        } => (
+            "callStarted",
+            serde_json::json!({
+                "call": call,
+                "provider": provider.0,
+                "model": model,
+                "surface": origin.surface,
+                "hub": origin.route.map(|r| r.hub.0),
+                "sub": origin.route.map(|r| r.sub.0),
+                "subject": origin.subject,
+            }),
+        ),
+        AiEvent::FirstToken { ttft_ms, .. } => (
+            "firstToken",
+            serde_json::json!({ "call": call, "ttft_ms": ttft_ms }),
+        ),
+        AiEvent::CallFinished {
+            tokens_in,
+            tokens_out,
+            cost_micros,
+            duration_ms,
+            outcome,
+            ..
+        } => (
+            "callFinished",
+            serde_json::json!({
+                "call": call,
+                "tokens_in": tokens_in,
+                "tokens_out": tokens_out,
+                "cost_micros": cost_micros,
+                "duration_ms": duration_ms,
+                "outcome": outcome.label(),
+                "failure": outcome.failure().map(|f| f.label()),
+            }),
+        ),
+        AiEvent::Disposition { kept, target, .. } => (
+            "disposition",
+            serde_json::json!({ "call": call, "kept": kept, "target": target }),
+        ),
+    };
+    base_row(st.seq, st.ms, "ai", ty, body)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -850,6 +914,81 @@ mod tests {
         );
 
         handle.flush_and_join();
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_ai_call_lands_in_its_own_segment_joinable_by_call_id() {
+        let dir = std::env::temp_dir().join(format!("dpl-ledger-ai-{}", wall_ms_now()));
+        let _ = fs::remove_dir_all(&dir);
+        let fabric = Fabric::new();
+        let mut tap = LedgerTap::open(&fabric, dir.clone()).unwrap();
+
+        let call = fabric.mint_ai_call();
+        fabric.publish_ai(AiEvent::CallStarted {
+            call,
+            provider: dpl_fabric::ProviderId("claude"),
+            model: "claude-opus-5".into(),
+            origin: dpl_fabric::Origin {
+                route: None,
+                surface: "author-editor",
+                subject: Some("slide-7".into()),
+            },
+        });
+        fabric.publish_ai(AiEvent::CallFinished {
+            call,
+            tokens_in: 1200,
+            tokens_out: 450,
+            cost_micros: 9_750,
+            duration_ms: 2_100,
+            outcome: dpl_fabric::AiOutcome::Error(dpl_fabric::AiFailureClass::RateLimit),
+        });
+        tap.drain();
+        thread::sleep(Duration::from_millis(50));
+        tap.flush_and_join();
+
+        let date = utc_date_today();
+        let day = dir.join("events").join(format!("date={date}"));
+        let mut started = false;
+        let mut finished = false;
+        for entry in fs::read_dir(&day).unwrap().flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("parquet") {
+                continue;
+            }
+            // The AI domain gets its OWN segment file — never mixed in.
+            let name = path.file_name().unwrap().to_string_lossy().to_string();
+            if !name.starts_with("ai-") {
+                continue;
+            }
+            for row in read_parquet_rows(&path).unwrap() {
+                assert_eq!(row.domain, "ai");
+                // The join key rides EVERY row of the call.
+                assert!(
+                    row.body.contains(&format!("\"call\":{}", call.0)),
+                    "every ai row carries its call id: {}",
+                    row.body
+                );
+                match row.type_name.as_str() {
+                    "callStarted" => {
+                        started = true;
+                        assert!(row.body.contains("author-editor"), "attribution survives");
+                        assert!(row.body.contains("claude-opus-5"), "model is raw truth");
+                    }
+                    "callFinished" => {
+                        finished = true;
+                        // Raw tokens beside the derived cost — so cost is
+                        // recomputable when the price table was wrong.
+                        assert!(row.body.contains("\"tokens_in\":1200"));
+                        assert!(row.body.contains("\"tokens_out\":450"));
+                        assert!(row.body.contains("\"cost_micros\":9750"));
+                        assert!(row.body.contains("\"failure\":\"rate-limit\""));
+                    }
+                    other => panic!("unexpected ai row type {other}"),
+                }
+            }
+        }
+        assert!(started && finished, "both ai facts reached parquet");
         let _ = fs::remove_dir_all(&dir);
     }
 
