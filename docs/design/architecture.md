@@ -78,6 +78,9 @@ the audit, same commit, with the reason.
 - **crates/coach-overlay/** (`dpl-coach-overlay`): ratified **devtools-only**
   overlay process (ADR `coach-overlay-adr.md`); never a dep of `app`;
   Linux X11 backend first. Production builds must not wire it.
+- **crates/coach-inventory/** (`dpl-coach-inventory`): C2d lightweight
+  target inventory (XDG cold catalog + AT-SPI desktop-root census);
+  egui-free; never deep-walks; orphan until Coach hub consumes it.
 
 ## 4. The laws every new crate inherits
 

@@ -2,6 +2,11 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-30 — C2d INVENTORY PASS (`docs/journal/2026-07-30-c2d-inventory.md`):**
+`dpl-coach-inventory` Phase 0+1 + `coach-inventory-list`. Calculator
+**small · RUNNING** + seed tip; ~20 ms; no deep `GetChildren`. Coach NEXT =
+**C2e** fabric mint for selected Calculator.
+
 **2026-07-30 — PUTTING A CARD IN ITS CONTAINER (M7,
 `docs/plans/author-place-into-container.md`):** the filmstrip has been telling
 the operator "N started here, not put in yet" since #146 — accurate, and an

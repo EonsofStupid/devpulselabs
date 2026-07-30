@@ -1,0 +1,25 @@
+[package]
+name = "dpl-coach-inventory"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+autobins = false
+
+# Lightweight Coach target inventory (C2d). Egui-free. Never a dep of
+# `crates/app` until the Coach hub lands. Plan:
+# docs/plans/coach-c2d-lightweight-inventory.md
+
+[lints]
+workspace = true
+
+[dependencies]
+# Phase 0 is pure std. Phase 1 Linux uses atspi on the a11y bus.
+
+[target.'cfg(target_os = "linux")'.dependencies]
+async-io.workspace = true
+atspi.workspace = true
+zbus.workspace = true
+
+[[bin]]
+name = "coach-inventory-list"
+path = "src/bin/coach_inventory_list.rs"
