@@ -328,6 +328,8 @@ impl ProviderUsage for CodexUsage {
             context_window: true,
             provider_priced: false,
             model: true,
+            // `total_token_usage` restates the running total each time.
+            counts_are_cumulative: true,
             history_backfill: true,
         }
     }
@@ -374,6 +376,10 @@ fn codex_token_usage(payload: &Value) -> TokenUsage {
     };
     TokenUsage {
         input_tokens: at("input_tokens"),
+        // Codex reports cached input separately too — kept separate for
+        // the same reason: it bills at a different rate.
+        cache_read_tokens: at("cached_input_tokens"),
+        cache_write_tokens: None,
         output_tokens: at("output_tokens"),
         total_tokens: at("total_tokens"),
         context_used: None,

@@ -210,15 +210,20 @@ mod tests {
     }
 
     #[test]
-    fn claude_reads_real_money_and_folds_cache_into_input() {
+    fn claude_reads_real_money_and_keeps_cache_separate() {
         let claude = usage_for(dpl_chat_claude::PROVIDER).expect("claude");
         let assistant = r#"{"type":"assistant","message":{"model":"claude-opus-5",
             "usage":{"input_tokens":100,"cache_read_input_tokens":900,
             "cache_creation_input_tokens":50,"output_tokens":200}}}"#;
         let usage = claude.usage_from_line(assistant).expect("usage");
-        // Cache reads ARE input tokens, billed differently — 100+900+50.
-        assert_eq!(usage.input_tokens, Some(1050));
+        // Cache reads bill at a fraction of fresh input, so they stay
+        // SEPARATE — folding them would overestimate cost, and the split
+        // can never be recovered from a folded number.
+        assert_eq!(usage.input_tokens, Some(100), "fresh input only");
+        assert_eq!(usage.cache_read_tokens, Some(900));
+        assert_eq!(usage.cache_write_tokens, Some(50));
         assert_eq!(usage.output_tokens, Some(200));
+        // The total is still everything billed: 100 + 900 + 50 + 200.
         assert_eq!(usage.total_tokens, Some(1250));
         assert_eq!(
             claude.model_from_line(assistant).as_deref(),

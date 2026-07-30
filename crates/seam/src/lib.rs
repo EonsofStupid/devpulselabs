@@ -369,9 +369,11 @@ pub fn ai_json(st: &Stamped<AiEvent>) -> Value {
             provider,
             model,
             origin,
+            observation,
             ..
         } => json!({
             "type": "callStarted",
+            "observation": observation.label(),
             "provider": provider.0,
             "model": model,
             "surface": origin.surface,
@@ -385,6 +387,8 @@ pub fn ai_json(st: &Stamped<AiEvent>) -> Value {
         }),
         AiEvent::CallFinished {
             tokens_in,
+            cache_read,
+            cache_write,
             tokens_out,
             total_tokens,
             context_used,
@@ -396,6 +400,8 @@ pub fn ai_json(st: &Stamped<AiEvent>) -> Value {
         } => json!({
             "type": "callFinished",
             "tokens_in": tokens_in,
+            "cache_read": cache_read,
+            "cache_write": cache_write,
             "tokens_out": tokens_out,
             "total_tokens": total_tokens,
             "context_used": context_used,
@@ -1181,6 +1187,7 @@ mod envelope_tests {
                     surface: "author-editor",
                     subject: Some("slide-7".into()),
                 },
+                observation: dpl_fabric::Observation::Live,
             },
         });
         assert_eq!(
@@ -1188,6 +1195,7 @@ mod envelope_tests {
             json!({
                 "domain": "ai", "seq": 40, "ms": 5000, "call": 39,
                 "type": "callStarted", "provider": "claude",
+                "observation": "live",
                 "model": "claude-opus-5", "surface": "author-editor",
                 "hub": "workbench", "sub": "author", "subject": "slide-7",
             })
@@ -1199,6 +1207,8 @@ mod envelope_tests {
             ev: AiEvent::CallFinished {
                 call: dpl_fabric::CallId(39),
                 tokens_in: Some(1200),
+                cache_read: Some(800),
+                cache_write: None,
                 tokens_out: Some(450),
                 total_tokens: Some(1650),
                 context_used: None,
@@ -1212,7 +1222,8 @@ mod envelope_tests {
             finished,
             json!({
                 "domain": "ai", "seq": 41, "ms": 5100, "call": 39,
-                "type": "callFinished", "tokens_in": 1200, "tokens_out": 450,
+                "type": "callFinished", "tokens_in": 1200,
+                "cache_read": 800, "cache_write": null, "tokens_out": 450,
                 "total_tokens": 1650, "context_used": null, "context_size": null,
                 "cost_micros": null, "duration_ms": 2100,
                 "outcome": "error", "failure": "rate-limit",
@@ -1227,6 +1238,8 @@ mod envelope_tests {
             ev: AiEvent::CallFinished {
                 call: dpl_fabric::CallId(39),
                 tokens_in: Some(1200),
+                cache_read: Some(800),
+                cache_write: None,
                 tokens_out: Some(450),
                 total_tokens: Some(1650),
                 context_used: None,
@@ -1240,6 +1253,8 @@ mod envelope_tests {
         for key in [
             "call",
             "tokens_in",
+            "cache_read",
+            "cache_write",
             "tokens_out",
             "total_tokens",
             "context_used",

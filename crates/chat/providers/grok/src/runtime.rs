@@ -1888,6 +1888,8 @@ impl GrokUsage {
         match update {
             GrokSessionUpdate::Usage { used, size } => Some(TokenUsage {
                 input_tokens: None,
+                cache_read_tokens: None,
+                cache_write_tokens: None,
                 output_tokens: None,
                 total_tokens: None,
                 context_used: Some(*used),
@@ -1910,6 +1912,8 @@ impl ProviderUsage for GrokUsage {
             context_window: true,
             provider_priced: false,
             model: false,
+            // Occupancy is a level, not an accumulating count.
+            counts_are_cumulative: true,
             // Live-only: ACP usage exists on the wire and nowhere else.
             history_backfill: false,
         }

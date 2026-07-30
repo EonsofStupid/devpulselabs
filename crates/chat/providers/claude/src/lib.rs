@@ -161,6 +161,9 @@ impl ProviderUsage for ClaudeUsage {
             context_window: false,
             provider_priced: true,
             model: true,
+            // Each assistant message reports only ITS OWN turn, so a
+            // session total is the sum, not the last reading.
+            counts_are_cumulative: false,
             history_backfill: true,
         }
     }
@@ -173,21 +176,23 @@ impl ProviderUsage for ClaudeUsage {
             _ => return None,
         };
         let n = |key: &str| usage.get(key).and_then(Value::as_u64);
-        // Cache reads/creation ARE input tokens — billed differently, not
-        // absent. Summing them is what makes the input count true.
-        let input = [
-            n("input_tokens"),
-            n("cache_read_input_tokens"),
-            n("cache_creation_input_tokens"),
-        ]
-        .into_iter()
-        .flatten()
-        .reduce(|a, b| a.saturating_add(b));
+        // Cache reads and cache writes stay SEPARATE from fresh input:
+        // they bill at very different rates, and a folded number can
+        // never be split again.
+        let input = n("input_tokens");
+        let cache_read = n("cache_read_input_tokens");
+        let cache_write = n("cache_creation_input_tokens");
         let output = n("output_tokens");
+        let billed_in = [input, cache_read, cache_write]
+            .into_iter()
+            .flatten()
+            .reduce(|a, b| a.saturating_add(b));
         let out = TokenUsage {
             input_tokens: input,
+            cache_read_tokens: cache_read,
+            cache_write_tokens: cache_write,
             output_tokens: output,
-            total_tokens: match (input, output) {
+            total_tokens: match (billed_in, output) {
                 (Some(i), Some(o)) => Some(i.saturating_add(o)),
                 _ => None,
             },

@@ -744,11 +744,13 @@ pub fn row_ai(st: &Stamped<AiEvent>) -> LedgerRow {
             provider,
             model,
             origin,
+            observation,
             ..
         } => (
             "callStarted",
             serde_json::json!({
                 "call": call,
+                "observation": observation.label(),
                 "provider": provider.0,
                 "model": model,
                 "surface": origin.surface,
@@ -763,6 +765,8 @@ pub fn row_ai(st: &Stamped<AiEvent>) -> LedgerRow {
         ),
         AiEvent::CallFinished {
             tokens_in,
+            cache_read,
+            cache_write,
             tokens_out,
             total_tokens,
             context_used,
@@ -776,6 +780,8 @@ pub fn row_ai(st: &Stamped<AiEvent>) -> LedgerRow {
             serde_json::json!({
                 "call": call,
                 "tokens_in": tokens_in,
+                "cache_read": cache_read,
+                "cache_write": cache_write,
                 "tokens_out": tokens_out,
                 "total_tokens": total_tokens,
                 "context_used": context_used,
@@ -940,10 +946,13 @@ mod tests {
                 surface: "author-editor",
                 subject: Some("slide-7".into()),
             },
+            observation: dpl_fabric::Observation::Live,
         });
         fabric.publish_ai(AiEvent::CallFinished {
             call,
             tokens_in: Some(1200),
+            cache_read: Some(800),
+            cache_write: None,
             tokens_out: Some(450),
             total_tokens: Some(1650),
             context_used: None,
@@ -989,6 +998,9 @@ mod tests {
                         // Raw tokens beside the derived cost — so cost is
                         // recomputable when the price table was wrong.
                         assert!(row.body.contains("\"tokens_in\":1200"));
+                        // Cache reads stay SEPARATE — a folded number can
+                        // never be split again, and they bill differently.
+                        assert!(row.body.contains("\"cache_read\":800"));
                         assert!(row.body.contains("\"tokens_out\":450"));
                         // Cost is NULL until the price table prices it —
                         // absent, never a lying zero.

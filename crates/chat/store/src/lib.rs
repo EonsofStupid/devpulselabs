@@ -94,6 +94,13 @@ pub struct UsageReporting {
     pub provider_priced: bool,
     /// The provider names the model it is running.
     pub model: bool,
+    /// Counts are CUMULATIVE — each report restates the running total for
+    /// the session (Codex's `total_token_usage`), so the last report is
+    /// the whole picture and reports must NOT be summed. When false, each
+    /// report covers one turn (Claude's per-message `usage`) and a
+    /// session total is the SUM. Getting this backwards silently
+    /// under- or over-counts real spend.
+    pub counts_are_cumulative: bool,
     /// Usage can be recovered from ALREADY-STORED sessions, so the
     /// backfill pass can walk this provider's history and recover cost
     /// the operator has already spent. False for live-only transports
@@ -111,6 +118,7 @@ impl UsageReporting {
         context_window: false,
         provider_priced: false,
         model: false,
+        counts_are_cumulative: false,
         history_backfill: false,
     };
 
@@ -149,6 +157,26 @@ pub trait ProviderUsage: Send + Sync {
     /// price table of ours — it knows its own billing, we infer it.
     fn cost_micros_from_line(&self, _line: &str) -> Option<u64> {
         None
+    }
+}
+
+/// One stored session's recovered accounting (the piggyback result).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionUsage {
+    pub native_id: ProviderSessionId,
+    /// Merged across every record that carried accounting.
+    pub usage: TokenUsage,
+    pub model: Option<String>,
+    /// Provider-reported money, when the provider prices itself.
+    pub cost_micros: Option<u64>,
+    /// How many records carried accounting — zero means this session had
+    /// nothing to recover, which is a fact, not a failure.
+    pub records: usize,
+}
+
+impl SessionUsage {
+    pub const fn is_empty(&self) -> bool {
+        self.records == 0
     }
 }
 
@@ -429,6 +457,74 @@ impl JsonlHistorySource {
         Ok(self
             .decoder
             .index_metadata(path, &String::from_utf8_lossy(&prefix)))
+    }
+
+    /// Recover one stored session's accounting — the PIGGYBACK path.
+    ///
+    /// Walks records already on disk through the provider's own usage
+    /// dialect, inside this source's jail, so past cost the operator has
+    /// already spent becomes queryable without re-running anything.
+    ///
+    /// Merges field-by-field across the session: providers report usage
+    /// in pieces, and the last word on each field wins.
+    pub fn scan_usage(
+        &self,
+        locator: HistoryLocator,
+        usage: &dyn ProviderUsage,
+    ) -> Result<SessionUsage, StoreError> {
+        let cumulative = usage.reports().counts_are_cumulative;
+        let (path, metadata) = self.resolve(locator)?;
+        let mut file = File::open(&path).map_err(|error| StoreError::Io {
+            operation: "open history file for usage scan",
+            message: error.to_string(),
+        })?;
+        let mut raw = String::new();
+        file.read_to_string(&mut raw)
+            .map_err(|error| StoreError::Io {
+                operation: "read history file for usage scan",
+                message: error.to_string(),
+            })?;
+
+        let mut out = SessionUsage {
+            native_id: metadata.native_id,
+            usage: TokenUsage::default(),
+            model: None,
+            cost_micros: None,
+            records: 0,
+        };
+        for line in raw.lines() {
+            // The same ceiling the paging path honours — one pathological
+            // line never becomes unbounded work.
+            if line.len() > self.limits.max_line_bytes {
+                continue;
+            }
+            let mut carried = false;
+            if let Some(found) = usage.usage_from_line(line) {
+                out.usage = if cumulative {
+                    // Each report restates the running total — the last
+                    // word is the whole session.
+                    out.usage.merge(found)
+                } else {
+                    // Each report covers one turn — the session is the sum.
+                    out.usage.accumulate(found)
+                };
+                carried = true;
+            }
+            if let Some(model) = usage.model_from_line(line) {
+                out.model = Some(model);
+                carried = true;
+            }
+            // Provider-reported money is cumulative per session; the last
+            // statement is the whole bill, not one to sum.
+            if let Some(cost) = usage.cost_micros_from_line(line) {
+                out.cost_micros = Some(cost);
+                carried = true;
+            }
+            if carried {
+                out.records += 1;
+            }
+        }
+        Ok(out)
     }
 
     fn resolve(

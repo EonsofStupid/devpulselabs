@@ -448,7 +448,15 @@ impl BoundedNativePayload {
 /// not, and cost computed from a guessed zero would be a lie.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TokenUsage {
+    /// FRESH input — tokens the provider actually processed anew.
     pub input_tokens: Option<u64>,
+    /// Tokens served from cache. Billed at a small fraction of fresh
+    /// input, so they MUST stay separate: folding them into `input`
+    /// makes cost an overestimate, and the split cannot be recovered
+    /// afterwards from a folded number.
+    pub cache_read_tokens: Option<u64>,
+    /// Tokens written INTO the cache — billed above fresh input.
+    pub cache_write_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
     pub total_tokens: Option<u64>,
     /// Context-window occupancy, when the provider reports it that way.
@@ -459,10 +467,36 @@ pub struct TokenUsage {
 impl TokenUsage {
     pub const fn is_empty(self) -> bool {
         self.input_tokens.is_none()
+            && self.cache_read_tokens.is_none()
+            && self.cache_write_tokens.is_none()
             && self.output_tokens.is_none()
             && self.total_tokens.is_none()
             && self.context_used.is_none()
             && self.context_size.is_none()
+    }
+
+    /// Accumulate per-turn reports into a session total. Absent stays
+    /// absent; a present value adds to whatever came before, so summing
+    /// never invents a number out of two absences.
+    pub fn accumulate(self, turn: Self) -> Self {
+        fn plus(a: Option<u64>, b: Option<u64>) -> Option<u64> {
+            match (a, b) {
+                (Some(a), Some(b)) => Some(a.saturating_add(b)),
+                (Some(v), None) | (None, Some(v)) => Some(v),
+                (None, None) => None,
+            }
+        }
+        Self {
+            input_tokens: plus(self.input_tokens, turn.input_tokens),
+            cache_read_tokens: plus(self.cache_read_tokens, turn.cache_read_tokens),
+            cache_write_tokens: plus(self.cache_write_tokens, turn.cache_write_tokens),
+            output_tokens: plus(self.output_tokens, turn.output_tokens),
+            total_tokens: plus(self.total_tokens, turn.total_tokens),
+            // Context occupancy is a LEVEL, never a sum — the latest
+            // reading is the truth, adding them would be meaningless.
+            context_used: turn.context_used.or(self.context_used),
+            context_size: turn.context_size.or(self.context_size),
+        }
     }
 
     /// Later reports supersede earlier ones field-by-field, so a provider
@@ -471,6 +505,8 @@ impl TokenUsage {
     pub fn merge(self, newer: Self) -> Self {
         Self {
             input_tokens: newer.input_tokens.or(self.input_tokens),
+            cache_read_tokens: newer.cache_read_tokens.or(self.cache_read_tokens),
+            cache_write_tokens: newer.cache_write_tokens.or(self.cache_write_tokens),
             output_tokens: newer.output_tokens.or(self.output_tokens),
             total_tokens: newer.total_tokens.or(self.total_tokens),
             context_used: newer.context_used.or(self.context_used),

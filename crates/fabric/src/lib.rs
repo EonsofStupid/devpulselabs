@@ -544,6 +544,39 @@ impl AiOutcome {
     }
 }
 
+/// Was this fact WITNESSED live, or recovered from records already on
+/// disk?
+///
+/// The distinction is load-bearing, not bookkeeping. A history file
+/// cannot yield time-to-first-token, and a backfilled event's `seq` is
+/// synthetic — it was never ordered against the captures and cards it
+/// now sits beside. Recording recovered facts as live would silently
+/// corrupt every latency percentile and every cross-domain join, which
+/// is exactly the kind of quiet wrongness analytics must not have.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Observation {
+    /// Witnessed as it happened. Latency is real; ordering is real.
+    #[default]
+    Live,
+    /// Recovered from a stored session. Never carries `FirstToken`, and
+    /// queries must exclude it from any latency or ordering question.
+    Backfilled,
+}
+
+impl Observation {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Live => "live",
+            Self::Backfilled => "backfilled",
+        }
+    }
+
+    /// Whether timing derived from this fact means anything.
+    pub const fn timing_is_real(self) -> bool {
+        matches!(self, Self::Live)
+    }
+}
+
 /// AI-domain facts — what the AI cost, how fast it was, what it was
 /// doing, and whether the operator kept the result.
 ///
@@ -562,6 +595,8 @@ pub enum AiEvent {
         provider: ProviderId,
         model: String,
         origin: Origin,
+        /// Live, or recovered from a stored session. See `Observation`.
+        observation: Observation,
     },
     /// First token arrived — time-to-first-token, the latency operators
     /// actually feel.
@@ -575,6 +610,11 @@ pub enum AiEvent {
     CallFinished {
         call: CallId,
         tokens_in: Option<u64>,
+        /// Served from cache — bills at a fraction of fresh input, so it
+        /// is never folded into `tokens_in`.
+        cache_read: Option<u64>,
+        /// Written into the cache — bills above fresh input.
+        cache_write: Option<u64>,
         tokens_out: Option<u64>,
         total_tokens: Option<u64>,
         context_used: Option<u64>,
@@ -1297,11 +1337,14 @@ mod tests {
                 surface: "author-editor",
                 subject: Some("slide-7".into()),
             },
+            observation: Observation::Live,
         });
         fabric.publish_ai(AiEvent::FirstToken { call, ttft_ms: 320 });
         fabric.publish_ai(AiEvent::CallFinished {
             call,
             tokens_in: Some(1200),
+            cache_read: Some(800),
+            cache_write: None,
             tokens_out: Some(450),
             total_tokens: Some(1650),
             context_used: None,

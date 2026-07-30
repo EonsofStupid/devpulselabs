@@ -2468,6 +2468,9 @@ fn ai_call_started(
         // Route-bearing origins arrive with the editor surface (PR 3) —
         // an absent route is honest, a guessed one would poison the join.
         origin: Origin::surface("chat"),
+        // Witnessed as it happens — the backfill pass is the only
+        // producer of the other kind.
+        observation: dpl_fabric::Observation::Live,
     });
 }
 
@@ -2500,6 +2503,8 @@ fn ai_call_finished(state: &mut Shared, provider_session_id: &str, outcome: AiOu
     state.fabric.publish_ai(AiEvent::CallFinished {
         call: entry.call,
         tokens_in: usage.input_tokens,
+        cache_read: usage.cache_read_tokens,
+        cache_write: usage.cache_write_tokens,
         tokens_out: usage.output_tokens,
         total_tokens: usage.total_tokens,
         context_used: usage.context_used,
