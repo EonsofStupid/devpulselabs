@@ -20,47 +20,48 @@
 /// One picture on offer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Picture {
-    /// Content-relative, straight from the index. Written into
-    /// `Block::Media.src` unchanged.
-    pub(crate) rel_path: String,
+    /// The machine id: content-relative, straight from the index, written
+    /// into `Block::Media.src` unchanged. Named `slug` like every other
+    /// pickable thing on this surface.
+    pub(crate) slug: String,
     /// "image" | "video" — the schema's `as` discriminator, from the record's
     /// own `kind`.
     pub(crate) show: String,
     /// What the operator reads.
-    pub(crate) name: String,
+    pub(crate) label: String,
 }
 
 /// Which sort of picture the shelf is showing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(crate) enum Kind {
+pub(crate) enum PictureKind {
     #[default]
     Image,
     Video,
 }
 
-impl Kind {
-    pub(crate) const ALL: [Kind; 2] = [Kind::Image, Kind::Video];
+impl PictureKind {
+    pub(crate) const ALL: [PictureKind; 2] = [PictureKind::Image, PictureKind::Video];
 
     /// The index's own `kind` value. Never drawn.
     pub(crate) fn slug(self) -> &'static str {
         match self {
-            Kind::Image => "image",
-            Kind::Video => "video",
+            PictureKind::Image => "image",
+            PictureKind::Video => "video",
         }
     }
 
     /// What the operator reads.
     pub(crate) fn label(self) -> &'static str {
         match self {
-            Kind::Image => "Pictures",
-            Kind::Video => "Videos",
+            PictureKind::Image => "Pictures",
+            PictureKind::Video => "Videos",
         }
     }
 
     pub(crate) fn tip(self) -> &'static str {
         match self {
-            Kind::Image => "Still pictures you have already captured or brought in",
-            Kind::Video => "Clips you have already captured or brought in",
+            PictureKind::Image => "Still pictures you have already captured or brought in",
+            PictureKind::Video => "Clips you have already captured or brought in",
         }
     }
 }
@@ -85,7 +86,7 @@ pub(crate) struct Shelf {
 /// Reads the index, which is a queryable view over files + sidecars — the
 /// files are the truth (`dpl_index`'s own law), so a stale index means a
 /// missing tile, never a wrong write.
-pub(crate) fn pictures(kind: Kind) -> Shelf {
+pub(crate) fn pictures(kind: PictureKind) -> Shelf {
     let index = match dpl_index::Index::open_default() {
         Ok(index) => index,
         // The index is rebuildable and its absence is not the operator's
@@ -117,13 +118,13 @@ pub(crate) fn pictures(kind: Kind) -> Shelf {
         .into_iter()
         .filter(|r| r.kind == kind.slug())
         .map(|r| Picture {
-            name: if r.name.trim().is_empty() {
+            label: if r.name.trim().is_empty() {
                 r.rel_path.clone()
             } else {
                 r.name.clone()
             },
             show: r.kind,
-            rel_path: r.rel_path,
+            slug: r.rel_path,
         })
         .collect();
     let more = items.len() > SHELF;
@@ -155,14 +156,14 @@ mod tests {
     /// tab can never offer a kind the document cannot hold.
     #[test]
     fn the_kind_row_is_the_schemas_media_vocabulary() {
-        let slugs: Vec<&str> = Kind::ALL.iter().map(|k| k.slug()).collect();
+        let slugs: Vec<&str> = PictureKind::ALL.iter().map(|k| k.slug()).collect();
         assert_eq!(slugs, ["image", "video"]);
     }
 
     /// The UI law.
     #[test]
     fn no_kind_speaks_engineering() {
-        for kind in Kind::ALL {
+        for kind in PictureKind::ALL {
             let drawn = format!("{} {}", kind.label(), kind.tip()).to_lowercase();
             for word in ["slug", "kind", "json", "src", "rel_path", "enum"] {
                 assert!(!drawn.contains(word), "{drawn:?} says {word:?}");
@@ -184,7 +185,7 @@ mod tests {
     /// index the machine has, including none.
     #[test]
     fn every_offered_picture_is_a_legal_media_ref() {
-        for kind in Kind::ALL {
+        for kind in PictureKind::ALL {
             let shelf = pictures(kind);
             for item in &shelf.items {
                 let slide = dpl_doc::Slide {
@@ -194,7 +195,7 @@ mod tests {
                     blocks: vec![dpl_doc::Block::Media {
                         id: "picture".into(),
                         show: item.show.clone(),
-                        src: item.rel_path.clone(),
+                        src: item.slug.clone(),
                         fit: None,
                         poster: None,
                     }],
@@ -204,7 +205,7 @@ mod tests {
                 assert!(
                     dpl_doc::validate(&slide).is_empty(),
                     "{} is offered but does not validate: {:?}",
-                    item.rel_path,
+                    item.slug,
                     dpl_doc::validate(&slide)
                 );
             }

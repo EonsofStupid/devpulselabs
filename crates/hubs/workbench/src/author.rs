@@ -23,7 +23,8 @@
 //! (anti-loop) — the coachable-signal catalog forwards the fact to touchpoints
 //! so AI/coach overlays react without the surface self-triggering.
 
-use crate::containers::{containers, pretty, Container, Kind};
+use crate::containers::{containers, Container, ContainerKind};
+use crate::words::pretty;
 use dpl_coldlight::{self as cl, Tone};
 use dpl_slides::SlideTemplate;
 use egui::RichText;
@@ -242,7 +243,7 @@ fn picture_tab(ui: &mut egui::Ui, ed: &mut CardEditor) {
 
     ui.add_space(cl::space::S2);
     ui.horizontal_wrapped(|ui| {
-        for kind in crate::pictures::Kind::ALL {
+        for kind in crate::pictures::PictureKind::ALL {
             let on = ed.pictures == kind;
             if cl::tip(ui.selectable_label(on, kind.label()), kind.tip()).clicked() && !on {
                 ed.pictures = kind;
@@ -330,7 +331,7 @@ fn picture_tab(ui: &mut egui::Ui, ed: &mut CardEditor) {
         for item in &shelf.items {
             let picked = current
                 .as_ref()
-                .is_some_and(|(src, _, _)| *src == item.rel_path);
+                .is_some_and(|(src, _, _)| *src == item.slug);
             let (rect, resp) =
                 ui.allocate_exact_size(egui::vec2(tile_w, tile_h), egui::Sense::click());
             let clip = rect.intersect(ui.clip_rect());
@@ -340,7 +341,7 @@ fn picture_tab(ui: &mut egui::Ui, ed: &mut CardEditor) {
                 // The same ladder the card uses — locate, paint, or an honest
                 // plate. A record whose file has gone shows as missing here
                 // exactly as it would there.
-                dpl_slides::elements::asset_thumb(&mut inner, rect, &item.rel_path);
+                dpl_slides::elements::asset_thumb(&mut inner, rect, &item.slug);
             }
             let painter = ui.painter().with_clip_rect(clip);
             painter.rect_filled(
@@ -354,7 +355,7 @@ fn picture_tab(ui: &mut egui::Ui, ed: &mut CardEditor) {
             painter.text(
                 egui::pos2(rect.center().x, rect.max.y - cl::space::S5 * 0.5),
                 egui::Align2::CENTER_CENTER,
-                &item.name,
+                &item.label,
                 egui::FontId::proportional(cl::Fluid::of(rect).fs_body_sm()),
                 cl::ink::STRONG,
             );
@@ -372,16 +373,16 @@ fn picture_tab(ui: &mut egui::Ui, ed: &mut CardEditor) {
                 egui::StrokeKind::Inside,
             );
             resp.widget_info(|| {
-                egui::WidgetInfo::selected(egui::WidgetType::Button, true, picked, &item.name)
+                egui::WidgetInfo::selected(egui::WidgetType::Button, true, picked, &item.label)
             });
             let tip = if picked {
-                format!("{} — this is what the card has now", item.name)
+                format!("{} — this is what the card has now", item.label)
             } else {
-                format!("Put “{}” on the card", item.name)
+                format!("Put “{}” on the card", item.label)
             };
             if cl::tip(resp, &tip).clicked() && !picked {
                 want = Some(Some((
-                    item.rel_path.clone(),
+                    item.slug.clone(),
                     item.show.clone(),
                     current
                         .as_ref()
@@ -520,7 +521,8 @@ fn quote_tab(ui: &mut egui::Ui, ed: &mut CardEditor) {
 /// The shortfall is stated under the choices rather than hidden. An operator
 /// should leave this tab knowing what exists, not wondering whether the UI is
 /// broken.
-fn movement_tab(ui: &mut egui::Ui, editor: &mut dpl_editor::Editor) {
+fn movement_tab(ui: &mut egui::Ui, ed: &mut CardEditor) {
+    let editor = &mut ed.editor;
     let fluid = cl::Fluid::of(ui.ctx().content_rect());
     let current = editor.slide().enter.clone();
     let mut want: Option<Option<String>> = None;
@@ -618,7 +620,8 @@ fn movement_words(inherited: Option<&str>) -> String {
 /// optionally blend a second, then optionally set something moving. Rows two
 /// and three stay hidden until row one is answered, so the first decision is
 /// never buried under two that depend on it.
-fn background_tab(ui: &mut egui::Ui, editor: &mut dpl_editor::Editor) {
+fn background_tab(ui: &mut egui::Ui, ed: &mut CardEditor) {
+    let editor = &mut ed.editor;
     let fluid = cl::Fluid::of(ui.ctx().content_rect());
     let colours = crate::backgrounds::colours();
     let current = editor.slide().background.clone();
@@ -1052,7 +1055,7 @@ struct CardEditor {
     /// Which card's folder is open, so the strip can re-read it on close.
     dir: std::path::PathBuf,
     /// Which sort of picture the Picture tab is showing.
-    pictures: crate::pictures::Kind,
+    pictures: crate::pictures::PictureKind,
     /// The shelf for [`Self::pictures`], read ONCE per kind.
     ///
     /// `pictures()` opens the artifact index — a database connection, not a
@@ -1120,7 +1123,7 @@ pub(crate) struct AuthorSurface {
     editing: Option<CardEditor>,
     /// Which sort of thing is being built into. `None` until the first load
     /// picks one — a strip labelled with nothing would be a lie.
-    kind: Option<Kind>,
+    kind: Option<ContainerKind>,
     /// Every container of [`Self::kind`], read off disk when the kind
     /// changes rather than every frame.
     offered: Vec<Container>,
@@ -1334,7 +1337,7 @@ impl AuthorSurface {
     /// Show one kind's shelf of containers — the `--author-container <kind>`
     /// proof seam. An unknown slug is ignored rather than guessed at.
     pub(crate) fn container_drill(&mut self, slug: &str) {
-        if let Some(kind) = Kind::ALL.into_iter().find(|k| k.slug() == slug) {
+        if let Some(kind) = ContainerKind::ALL.into_iter().find(|k| k.slug() == slug) {
             self.load_once();
             self.choose_kind(kind);
         }
@@ -1350,7 +1353,7 @@ impl AuthorSurface {
                     tab: CardTab::default(),
                     dir: dir.to_path_buf(),
                     quote: None,
-                    pictures: crate::pictures::Kind::default(),
+                    pictures: crate::pictures::PictureKind::default(),
                     shelf: None,
                     preview: dpl_slides::motion::Clock::default(),
                 })
@@ -1473,8 +1476,8 @@ impl AuthorSurface {
                             ui.set_clip_rect(controls.intersect(ui.clip_rect()));
                             match ed.tab {
                                 CardTab::Words => ed.editor.ui(ui),
-                                CardTab::Background => background_tab(ui, &mut ed.editor),
-                                CardTab::Movement => movement_tab(ui, &mut ed.editor),
+                                CardTab::Background => background_tab(ui, ed),
+                                CardTab::Movement => movement_tab(ui, ed),
                                 CardTab::Quote => quote_tab(ui, ed),
                                 CardTab::Picture => picture_tab(ui, ed),
                                 other => {
@@ -1570,7 +1573,7 @@ impl AuthorSurface {
     ///
     /// Reads the disk, so it runs on a kind change and at first load — never
     /// per frame.
-    fn choose_kind(&mut self, kind: Kind) {
+    fn choose_kind(&mut self, kind: ContainerKind) {
         self.kind = Some(kind);
         self.offered = containers(kind, &dpl_engine_capture::content_root());
         self.into = (!self.offered.is_empty()).then_some(0);
@@ -1583,12 +1586,12 @@ impl AuthorSurface {
 
     /// "Building into …" — the kind, then which one.
     ///
-    /// Both pickers are drawn from [`Kind::ALL`] and the disk census; neither
+    /// Both pickers are drawn from [`ContainerKind::ALL`] and the disk census; neither
     /// is a hand-list. A kind with nothing behind it says why in its own
     /// words instead of offering an empty menu.
     fn container_bar(&mut self, ui: &mut egui::Ui) {
         let fluid = cl::Fluid::of(ui.max_rect());
-        let kind = self.kind.unwrap_or(Kind::Episode);
+        let kind = self.kind.unwrap_or(ContainerKind::Episode);
         let mut want = None;
 
         ui.horizontal_wrapped(|ui| {
@@ -1606,7 +1609,7 @@ impl AuthorSurface {
                         .color(kind.tone().color()),
                 )
                 .show_ui(ui, |ui| {
-                    for k in Kind::ALL {
+                    for k in ContainerKind::ALL {
                         let on = k == kind;
                         let mut picked = on;
                         let item = cl::tip(
@@ -1648,7 +1651,10 @@ impl AuthorSurface {
                     "Nothing to build into under this heading yet",
                 );
             } else {
-                let current = self.container().map(|c| c.name.clone()).unwrap_or_default();
+                let current = self
+                    .container()
+                    .map(|c| c.label.clone())
+                    .unwrap_or_default();
                 let which = egui::ComboBox::from_id_salt("author.container")
                     .selected_text(RichText::new(&current).strong().color(cl::ink::STRONG))
                     .show_ui(ui, |ui| {
@@ -1656,8 +1662,13 @@ impl AuthorSurface {
                             let mut picked = self.into == Some(ix);
                             let item = ui.toggle_value(
                                 &mut picked,
-                                RichText::new(format!("{}  ({} {})", c.name, c.count, kind.unit()))
-                                    .color(cl::ink::BASE),
+                                RichText::new(format!(
+                                    "{}  ({} {})",
+                                    c.label,
+                                    c.count,
+                                    kind.unit()
+                                ))
+                                .color(cl::ink::BASE),
                             );
                             if item.clicked() {
                                 self.into = Some(ix);
@@ -1735,7 +1746,7 @@ impl AuthorSurface {
             match self.container() {
                 Some(c) => {
                     ui.label(
-                        RichText::new(&c.name)
+                        RichText::new(&c.label)
                             .size(fluid.fs_body_lg())
                             .strong()
                             .color(cl::ink::STRONG),
@@ -2181,10 +2192,10 @@ impl AuthorSurface {
         // starts labelled with a real container rather than an empty heading.
         // If none do, the bar says so and the strip stays honest about it.
         let root = dpl_engine_capture::content_root();
-        let first = Kind::ALL
+        let first = ContainerKind::ALL
             .into_iter()
             .find(|k| !containers(*k, &root).is_empty())
-            .unwrap_or(Kind::Episode);
+            .unwrap_or(ContainerKind::Episode);
         self.choose_kind(first);
         self.demos = dpl_slides::demos();
         self.seeds = dpl_doc::list_seeds()
@@ -2436,6 +2447,21 @@ pub(crate) mod background_tests {
         dir
     }
 
+    /// A `CardEditor` over a real card folder — the state every tab takes.
+    /// Shared, so a test never builds one a different way from the surface.
+    pub(super) fn card_editor(dir: &std::path::Path) -> CardEditor {
+        CardEditor {
+            title: "Test card".into(),
+            editor: dpl_editor::Editor::open(dir).unwrap(),
+            tab: CardTab::default(),
+            dir: dir.to_path_buf(),
+            quote: None,
+            pictures: crate::pictures::PictureKind::default(),
+            shelf: None,
+            preview: dpl_slides::motion::Clock::default(),
+        }
+    }
+
     /// Run the tab and hand back the document it left behind.
     ///
     /// A colour name appears in row one AND row two once a first colour is
@@ -2443,12 +2469,11 @@ pub(crate) mod background_tests {
     /// which row's tile to tap: 0 is "make this the colour", 1 is "blend this
     /// into it".
     fn drive_nth(dir: &std::path::Path, label: &str, nth: usize) -> dpl_doc::Slide {
-        let editor = dpl_editor::Editor::open(dir).unwrap();
         let mut harness = egui_kittest::Harness::builder()
             .with_size(egui::vec2(1280.0, 800.0))
             .build_ui_state(
-                |ui, ed: &mut dpl_editor::Editor| background_tab(ui, ed),
-                editor,
+                |ui, ed: &mut CardEditor| background_tab(ui, ed),
+                card_editor(dir),
             );
         harness.run();
         let hits = harness.get_all_by_label(label).collect::<Vec<_>>();
@@ -2460,12 +2485,11 @@ pub(crate) mod background_tests {
 
     /// Run the tab for a few frames and hand back the document it left behind.
     fn drive(dir: &std::path::Path, clicks: &[&str]) -> dpl_doc::Slide {
-        let editor = dpl_editor::Editor::open(dir).unwrap();
         let mut harness = egui_kittest::Harness::builder()
             .with_size(egui::vec2(1280.0, 800.0))
             .build_ui_state(
-                |ui, ed: &mut dpl_editor::Editor| background_tab(ui, ed),
-                editor,
+                |ui, ed: &mut CardEditor| background_tab(ui, ed),
+                card_editor(dir),
             );
         harness.run();
         for label in clicks {
@@ -2560,12 +2584,11 @@ mod movement_tests {
     use egui_kittest::kittest::Queryable as _;
 
     fn drive_movement(dir: &std::path::Path, label: &str) -> dpl_doc::Slide {
-        let editor = dpl_editor::Editor::open(dir).unwrap();
         let mut harness = egui_kittest::Harness::builder()
             .with_size(egui::vec2(1280.0, 800.0))
             .build_ui_state(
-                |ui, ed: &mut dpl_editor::Editor| movement_tab(ui, ed),
-                editor,
+                |ui, ed: &mut CardEditor| movement_tab(ui, ed),
+                card_editor(dir),
             );
         harness.run();
         harness.get_by_label_contains(label).click();
@@ -2618,22 +2641,9 @@ mod movement_tests {
 
 #[cfg(test)]
 mod overlay_tests {
-    use super::background_tests::card;
+    use super::background_tests::{card, card_editor};
     use super::*;
     use egui_kittest::kittest::Queryable as _;
-
-    fn editor_over(dir: &std::path::Path) -> CardEditor {
-        CardEditor {
-            title: "Test card".into(),
-            editor: dpl_editor::Editor::open(dir).unwrap(),
-            tab: CardTab::default(),
-            dir: dir.to_path_buf(),
-            quote: None,
-            pictures: crate::pictures::Kind::default(),
-            shelf: None,
-            preview: dpl_slides::motion::Clock::default(),
-        }
-    }
 
     /// The gallery gate for tabs: every registered tab is reachable from the
     /// rail, in BOTH orientations. A tab that exists but cannot be got to is
@@ -2642,7 +2652,7 @@ mod overlay_tests {
     fn every_tab_is_reachable_from_the_rail_in_both_orientations() {
         for vertical in [true, false] {
             let dir = card(&format!("rail-{vertical}"), None);
-            let ed = editor_over(&dir);
+            let ed = card_editor(&dir);
             let mut harness = egui_kittest::Harness::builder()
                 .with_size(egui::vec2(1280.0, 800.0))
                 .build_ui_state(
@@ -2690,7 +2700,7 @@ mod overlay_tests {
     #[test]
     fn the_live_pane_shows_a_moving_card_and_says_so() {
         let dir = card("live", None);
-        let ed = editor_over(&dir);
+        let ed = card_editor(&dir);
         let mut harness = egui_kittest::Harness::builder()
             .with_size(egui::vec2(400.0, 400.0))
             .build_ui_state(|ui, ed: &mut CardEditor| live_pane(ui, ed), ed);
