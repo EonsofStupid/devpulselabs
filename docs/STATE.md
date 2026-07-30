@@ -2,6 +2,27 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-29 — THE OWNED LUCIDE ICON ENGINE (#163, ADR-015, POAM V3 M1,
+plan `docs/plans/lucide-icon-engine.md`):** the operator's "pull lucide
+and properly own it as part of coldlight" landed double-green. Lucide
+1.27.0 vendored WHOLESALE (1,756 SVGs + LICENSE + VERSION,
+`crates/coldlight/assets/lucide/` — the pool is the authored source, only
+registry-referenced icons enter the binary, the fonts law). New ∅-dep
+ENGINE crate `dpl-svg` owns the icon subset of SVG (xml reader, full
+d-grammar with arc→cubic, adaptive flatten, round cap/join stroking →
+pure triangle buffers; refusals are NAMED; the corpus test tessellates
+the whole pool every run). `tokens/icons.json` is the 8th authored
+source (24 semantic ids); geometry bakes at BUILD time — runtime never
+parses SVG. Styling composes at paint (the visx law): ink / tone /
+BRUTAL (the icon's own mesh as a hard offset shadow shape, never blur).
+Gallery-gated: `LibSection::Icons`, the library's 10th wall
+(`--lib-section icons`; proof `docs/proof/lucide-icons-gallery.png`).
+NEXT (M2): migrate the 40 Phosphor glyph call sites (11 files) so the
+app wears Lucide, then retire `cl::icon`'s consts. NOTE: the release exe
+in THE checkout is OWED a rebuild — the checkout was held by the
+provider-easy-select session this pass; the lane exe
+(`C:\localdev\dpl-lane-lucide\target\release\devpulselabs.exe`) is fresh.
+
 **2026-07-29 — PROVIDER EASY-SELECT RESTORED (POA&M M1+M2, plan
 `docs/plans/chat-provider-easy-select.md`):** the #94 regression is
 undone — the AI rail again shows EVERY provider as an always-visible
