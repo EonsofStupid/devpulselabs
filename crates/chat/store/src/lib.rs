@@ -459,7 +459,9 @@ impl HistorySource for JsonlHistorySource {
                 break;
             }
         }
-        sessions.sort_by(|left, right| right.modified_millis.cmp(&left.modified_millis));
+        // Newest first — `Reverse` says descending in the signature rather
+        // than by which side of `cmp` the arguments landed on.
+        sessions.sort_by_key(|s| std::cmp::Reverse(s.modified_millis));
         Ok(HistoryIndex {
             provider_id: self.provider_id(),
             sessions,
