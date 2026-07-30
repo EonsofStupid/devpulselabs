@@ -137,4 +137,54 @@ fill · the "not a quote yet" line · tests · proof shots.
 
 ## 8. Evidence
 
-_Filled during the pass._
+### 8.1 The gate
+
+`cargo green ✔`. 6 new tests — 1 in `dpl-doc`, 5 in `dpl-hub-workbench`.
+
+`the_quote_convention_writes_a_valid_document` (in `dpl-doc`, beside the
+validator it has to satisfy) builds a slide from the convention's own
+`(id, size, ink)` defaults and asserts `validate` is silent — a default that
+failed validation would hand the operator a document the app refuses to load.
+
+In the surface: `a_full_quote_writes_the_reserved_ids_and_validates` ·
+`a_blank_line_removes_its_block` ·
+`writing_twice_updates_rather_than_duplicates` (the §6 risk, pinned) ·
+`a_cards_existing_lines_are_left_alone` ·
+`the_tab_reads_the_cards_own_quote`.
+
+### 8.2 Real-exe proof
+
+`docs/proof/author-tab-quote-1280x800.png` and `-1100x700.png`, via
+`--card-tab quote`, sequential runs against a scratch content root.
+
+Three plain-language fields — *What was said · Who said it · Where it's from* —
+and the M5b live pane beside them rendering the actual quote card. The shot
+was taken against a card carrying a real quote, so the pane shows the words on
+a `violet-static` backdrop rather than an empty stage.
+
+### 8.3 Findings
+
+**The decision held all the way down.** Nothing about a quote is
+special-cased at render, because nothing needed to be: `set_quote` writes
+ordinary `Block::Text` values and `document.rs` flows them like any other.
+The whole tab is a view over three blocks.
+
+**Blank removes, and that took a test to keep honest.** The obvious
+implementation writes an empty string. `a_blank_line_removes_its_block`
+asserts the block is gone, because a document carrying an empty text block is
+a rendering artefact the operator never asked for.
+
+**Typing does not write per keystroke.** `set_quote` snapshots for undo, so a
+per-character write would put fifty entries on the undo stack for one
+sentence. `CardEditor` holds the field buffer and writes on change, which is
+one undo entry per edit. This was not in §5 and is scope beyond the plan,
+recorded here.
+
+**The convention lives in `dpl_doc`, not the surface.** `quote_lines()` sits
+beside `enters()` for the same reason: a hand-listed copy in the tab would
+drift the day the shape changed and start writing documents the validator
+rejects.
+
+**The "already has lines of its own" note is dynamic.** It counts the card's
+non-quote block ids, so adding a quote to a title card says so plainly rather
+than silently restructuring it — and says nothing at all on a blank card.

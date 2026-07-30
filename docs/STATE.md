@@ -2,6 +2,22 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-30 — THE "A QUOTE" TAB (`docs/plans/author-tab-quote.md`):**
+fourth of the seven card tabs. Operator-ratified 2026-07-29: **a quote is a
+CONVENTION over text blocks**, not a `Block` kind — and the decision held all
+the way down, because nothing needed special-casing at render. `dpl_doc::
+quote_lines()` declares the shape beside `enters()` (`quote` h2/strong ·
+`said-by` body-lg/tone · `source` body-sm/subtle) so the surface can never
+drift from the validator, and a test in `dpl-doc` asserts the convention's own
+defaults validate. `Editor::set_quote` adds/updates/removes ordinary blocks: a
+BLANK line REMOVES its block (an empty text block is a rendering artefact),
+writing twice UPDATES rather than appending a duplicate, and a card's existing
+lines are left alone with the tab saying so. Typing does not write per
+keystroke — `CardEditor` holds the buffer, because `set_quote` snapshots undo
+and per-character writes would put fifty entries on the stack for one
+sentence. Three plain fields (What was said · Who said it · Where it's from)
+with the M5b live pane rendering the real card beside them. M5 = 4 of 7.
+
 **2026-07-30 — C2B `dpl-coach-overlay` SELF-TEST PASS (`docs/journal/2026-07-30-c2b-coach-overlay.md`):**
 Workspace member `crates/coach-overlay`; ADR ratified; `--self-test --name 7`
 → Triggered exit 0 on calculator (`stream_hit="7"`); bogon refuses exit 2.

@@ -218,6 +218,36 @@ const ENTERS: &[&str] = &["rise", "none"];
 pub fn enters() -> &'static [&'static str] {
     ENTERS
 }
+
+/// A quote is a CONVENTION over text blocks, not a [`Block`] kind
+/// (operator-ratified 2026-07-29).
+///
+/// The codebase already worked this way: every seed names its blocks by ROLE
+/// — `eyebrow`/`title`/`subtitle`, `label`/`number`/`caption` — and the
+/// renderer flows them, sizing each from its own ref. It never reads
+/// [`Slide::template`]. So three text blocks with reserved ids need no new
+/// variant, no schema bump and no degrade path; they render today.
+///
+/// `(id, size, ink)` in the order the lines read. The size and ink are the
+/// DEFAULTS a picker writes — they are ordinary text blocks afterwards, and
+/// restyling one through the editor is expected, not a corruption.
+const QUOTE_LINES: [(&str, &str, &str); 3] = [
+    ("quote", "h2", "strong"),
+    ("said-by", "body-lg", "tone"),
+    ("source", "body-sm", "subtle"),
+];
+
+/// The shape of a quote — see [`QUOTE_LINES`].
+///
+/// Exposed for the same reason as [`enters`]: a surface that hand-listed
+/// these would drift from the validator the day one changed.
+pub fn quote_lines() -> &'static [(&'static str, &'static str, &'static str)] {
+    &QUOTE_LINES
+}
+
+/// What `template` a quote card declares itself as. The renderer ignores it
+/// today; the doctor and any future template-aware path can use it.
+pub const QUOTE_TEMPLATE: &str = "quote";
 /// The media block's `as` discriminator (W11) — image or looping video.
 const MEDIA_SHOWS: &[&str] = &["image", "video"];
 /// The media stage fit — fill (cover) or letterbox (contain).
@@ -1144,6 +1174,47 @@ fn copy_dir(from: &Path, to: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The quote convention has to be usable: distinct ids, and sizes and
+    /// inks the validator itself accepts. A default that failed validation
+    /// would hand the operator a document the app refuses to load.
+    #[test]
+    fn the_quote_convention_writes_a_valid_document() {
+        let lines = quote_lines();
+        assert_eq!(lines.len(), 3);
+        let ids: Vec<&str> = lines.iter().map(|(id, _, _)| *id).collect();
+        let mut sorted = ids.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(
+            sorted.len(),
+            ids.len(),
+            "two quote lines share an id: {ids:?}"
+        );
+
+        let slide = Slide {
+            v: SCHEMA_V,
+            template: QUOTE_TEMPLATE.into(),
+            background: None,
+            blocks: lines
+                .iter()
+                .map(|(id, size, ink)| Block::Text {
+                    id: (*id).into(),
+                    text: "x".into(),
+                    font: None,
+                    size: (*size).into(),
+                    ink: Some((*ink).into()),
+                })
+                .collect(),
+            enter: None,
+            reveals: Vec::new(),
+        };
+        assert!(
+            validate(&slide).is_empty(),
+            "the convention's own defaults must validate: {:?}",
+            validate(&slide)
+        );
+    }
 
     /// Fully specified on purpose — every field `Some` so the round-trip
     /// and validation tests keep their pre-W3b meaning.

@@ -113,6 +113,67 @@ impl Editor {
         self.look.enter.clone()
     }
 
+    /// The three lines of a quote, in convention order — empty where the card
+    /// has no such block. Read for the tab's fields.
+    pub fn quote(&self) -> [String; 3] {
+        let mut out = [String::new(), String::new(), String::new()];
+        for (slot, (id, _, _)) in out.iter_mut().zip(dpl_doc::quote_lines()) {
+            if let Some(dpl_doc::Block::Text { text, .. }) =
+                self.slide.blocks.iter().find(|b| b.id() == *id)
+            {
+                *slot = text.clone();
+            }
+        }
+        out
+    }
+
+    /// Write the three lines of a quote.
+    ///
+    /// A quote is a convention over text blocks (`dpl_doc::quote_lines`), so
+    /// this adds, updates or removes ordinary blocks — nothing here is
+    /// special-cased at render.
+    ///
+    /// - a line with text UPDATES the block with that id, or appends it
+    ///   (never a second block with the same id);
+    /// - a BLANK line removes its block, because a document carrying an empty
+    ///   text block is a rendering artefact, not an empty field;
+    /// - the first non-blank line makes the card declare itself a quote via
+    ///   `template`, which changes nothing about the paint today and is there
+    ///   for the doctor and any future template-aware path.
+    pub fn set_quote(&mut self, lines: [String; 3]) {
+        self.mutate(|slide| {
+            for (line, (id, size, ink)) in lines.iter().zip(dpl_doc::quote_lines()) {
+                let words = line.trim();
+                let at = slide.blocks.iter().position(|b| b.id() == *id);
+                match (words.is_empty(), at) {
+                    // Blank and present — the block goes.
+                    (true, Some(i)) => {
+                        slide.blocks.remove(i);
+                    }
+                    (true, None) => {}
+                    // Present — update in place, keeping whatever restyling
+                    // the operator has since done to it.
+                    (false, Some(i)) => {
+                        if let dpl_doc::Block::Text { text, .. } = &mut slide.blocks[i] {
+                            *text = words.to_string();
+                        }
+                    }
+                    // New — append with the convention's defaults.
+                    (false, None) => slide.blocks.push(dpl_doc::Block::Text {
+                        id: (*id).to_string(),
+                        text: words.to_string(),
+                        font: None,
+                        size: (*size).to_string(),
+                        ink: Some((*ink).to_string()),
+                    }),
+                }
+            }
+            if lines.iter().any(|l| !l.trim().is_empty()) {
+                slide.template = dpl_doc::QUOTE_TEMPLATE.to_string();
+            }
+        });
+    }
+
     /// Set how the words arrive, or `None` to follow the show's look.
     ///
     /// Restarts the clock so the entrance actually plays: a movement picker
