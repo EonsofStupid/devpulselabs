@@ -273,6 +273,12 @@ impl Drop for ClipPlayer {
 
 /// One pipe, one life: read frames until EOF or stop. EOF marks
 /// `ended` — NO respawn.
+///
+/// The stop flag is honored AFTER a frame lands, never before the
+/// first: a paused open is open→seek→pause within one UI tick, so a
+/// top-of-loop check loses the race every time and the stage never
+/// gets its poster frame — the pipe died looking like a missing
+/// ffmpeg. One frame always escapes; THEN the kill wins.
 fn read_clip(shared: &ClipShared, path: &Path, start: f32, grade: &PipeGrade) {
     let mut cmd = Command::new(ffmpeg_program());
     cmd.args(clip_pipe_args(path, start, grade))
@@ -287,11 +293,6 @@ fn read_clip(shared: &ClipShared, path: &Path, start: f32, grade: &PipeGrade) {
     let mut out = child.stdout.take().expect("piped stdout");
     let mut buf = vec![0u8; FRAME_BYTES];
     loop {
-        if shared.stop.load(Ordering::Acquire) {
-            let _ = child.kill();
-            let _ = child.wait();
-            return;
-        }
         match out.read_exact(&mut buf) {
             Ok(()) => {
                 let seq = shared.seq.load(Ordering::Relaxed) + 1;
@@ -307,6 +308,11 @@ fn read_clip(shared: &ClipShared, path: &Path, start: f32, grade: &PipeGrade) {
                 shared.seq.store(seq, Ordering::Release);
             }
             Err(_) => break, // EOF (or a dead pipe): the clip is over.
+        }
+        if shared.stop.load(Ordering::Acquire) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return;
         }
     }
     let _ = child.wait();
