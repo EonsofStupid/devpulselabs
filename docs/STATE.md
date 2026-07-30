@@ -2,6 +2,42 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-30 — THE NAMING LAW GETS A GATE (architecture.md §4 + §6):** the
+law was never wrong, it was never ENFORCED — "`dpl-` prefix; kebab ids" has
+been §4 since the doctrine pass, with nothing checking it and no exception
+list, so drift collected where nobody looked and nobody could tell intent
+from accident. Measured surface: 67 crates and 170 `.rs` files were already
+100% conformant; exactly TWO strays existed. (1) `browser_cli` was the only
+binary in the workspace with underscores — `engine-browser` never declared
+`[[bin]]`, so cargo auto-discovered the file and the FILENAME became the
+shipped name; now declared `browser-cli` with its usage strings updated
+(nothing spawns it — manifest-only references, checked). (2)
+`dpl-index-cli.rs` was the only kebab file in any `src/bin/`; snaked to
+`dpl_index_cli.rs` with the name DECLARED — **the binary `dpl-index-cli` is
+unchanged**, so no caller, script, or doc reference breaks. OPERATOR RULING
+2026-07-30: "not everything has to be dpl-" — the `egui-pilot-ai*` family
+stays unprefixed as its own product surface, now RATIFIED in §4 beside
+`devpulselabs` (the exe) and `xtask` (cargo's convention) rather than
+tolerated. The audit lands in `structure_audit()` in the same commit (§6
+amended with it, per the same-commit law) and is proven BOTH ways: green on
+the clean tree, and red with the exact remediation on a planted underscore
+binary and a planted kebab bin source. Doc command-references predating the
+rename are left as contemporaneous records — plans are evidence, and git
+holds the change. SAME PASS, same commit (both are "the gate should enforce
+what we think it enforces"): `cargo green` could not pass on
+any machine with a redirected build dir — `target/release` was hardcoded at
+two sites, so a Linux clone with `CARGO_TARGET_DIR` set built the exe fine
+and then failed claiming it was missing. `target_dir()` now reads the env
+var, else `cargo metadata`'s `target_directory` (which also honours
+`build.target-dir` from a config file). That was the LAST fresh-clone
+blocker: a bare Linux clone now passes its own gate after running
+`docs/runbook/linux-runner-bootstrap.sh`, whose `APT_DEPS` is complete —
+`libgbm-dev` + `libxcb1-dev` were folded in by #168, closing the LXC 121
+incident in the script and not just on the machine. Witnessed here: the
+gate went green on a clone that had none of the toolchain, and printed the
+REDIRECTED exe path (`$CARGO_TARGET_DIR/release/devpulselabs`), which is the
+portable fix proving itself.
+
 **2026-07-30 — C2d INVENTORY PASS (`docs/journal/2026-07-30-c2d-inventory.md`):**
 `dpl-coach-inventory` Phase 0+1 + `coach-inventory-list`. Calculator
 **small · RUNNING** + seed tip; ~20 ms; no deep `GetChildren`. Coach NEXT =

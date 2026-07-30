@@ -15,5 +15,12 @@ serde.workspace = true
 serde_json.workspace = true
 dpl-engine-capture.workspace = true
 
+# DECLARED so the SOURCE can be snake_case like every other `src/bin` file
+# while the BINARY keeps its kebab name (architecture.md §4). The shipped
+# name `dpl-index-cli` is unchanged — only the file and the declaration move.
+[[bin]]
+name = "dpl-index-cli"
+path = "src/bin/dpl_index_cli.rs"
+
 [lints]
 workspace = true
