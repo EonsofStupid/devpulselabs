@@ -18,10 +18,10 @@ BRUTAL (the icon's own mesh as a hard offset shadow shape, never blur).
 Gallery-gated: `LibSection::Icons`, the library's 10th wall
 (`--lib-section icons`; proof `docs/proof/lucide-icons-gallery.png`).
 NEXT (M2): migrate the 40 Phosphor glyph call sites (11 files) so the
-app wears Lucide, then retire `cl::icon`'s consts. NOTE: the release exe
-in THE checkout is OWED a rebuild — the checkout was held by the
-provider-easy-select session this pass; the lane exe
-(`C:\localdev\dpl-lane-lucide\target\release\devpulselabs.exe`) is fresh.
+app wears Lucide, then retire `cl::icon`'s consts. ~~NOTE: the release exe
+in THE checkout is OWED a rebuild~~ — SETTLED 2026-07-29 23:58: the
+provider-tab session rebuilt `target\release\devpulselabs.exe` at
+`4acfd86`, which includes this pass.
 
 **2026-07-29 — CONNECTED PROVIDERS EARN A TAB (POA&M M3, plan
 `docs/plans/chat-connected-provider-tabs.md`):** the third clause of the
