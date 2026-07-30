@@ -2425,6 +2425,8 @@ fn provider_session_id(state: &Shared, session: ChatSessionId) -> Option<String>
 /// single shape the AI domain is minted from.
 struct AiCall {
     call: CallId,
+    /// Kept so the drift check knows whose dialect to hold to account.
+    provider: ProviderId,
     started: Instant,
     /// TTFT fires exactly once per call, on the first content chunk.
     first_token_seen: bool,
@@ -2451,6 +2453,7 @@ fn ai_call_started(
         provider_session_id.to_owned(),
         AiCall {
             call,
+            provider,
             started: Instant::now(),
             first_token_seen: false,
             usage: TokenUsage::default(),
@@ -2490,6 +2493,10 @@ fn ai_call_finished(state: &mut Shared, provider_session_id: &str, outcome: AiOu
         return;
     };
     let usage = entry.usage;
+    // A provider that DECLARED it reports usage and then delivered none
+    // for a whole call has likely changed its payload shape — surface the
+    // drift instead of recording a silent zero.
+    crate::ai_usage::note_usage_drift(entry.provider, usage);
     state.fabric.publish_ai(AiEvent::CallFinished {
         call: entry.call,
         tokens_in: usage.input_tokens,
@@ -2626,13 +2633,13 @@ fn project_grok_update(
             ChatEventContent::StatusUpdated(format!("{count} provider commands available")),
         ),
         dpl_chat_grok::GrokSessionUpdate::Usage { used, size } => {
-            // Grok reports context-window occupancy, not an input/output
-            // split — recorded as exactly that, never guessed into one.
-            let usage = TokenUsage {
-                context_used: Some(used),
-                context_size: Some(size),
-                ..TokenUsage::default()
-            };
+            // The dialect lives in GROK'S crate, not here — one adapter
+            // per provider (Phase 3 §3.2b), so a Grok release changes one
+            // file and touches no other provider.
+            let usage = dpl_chat_grok::GrokUsage::usage_from_update(
+                &dpl_chat_grok::GrokSessionUpdate::Usage { used, size },
+            )
+            .unwrap_or_default();
             ai_usage_observed(state, provider_session_id, usage);
             append_grok_event(
                 state,

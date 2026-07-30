@@ -5,7 +5,7 @@
 
 use dpl_chat_core::{
     BoundedNativePayload, ChatEvent, ChatEventContent, ChatEventId, ChatSessionId, ProviderId,
-    ProviderSessionId, SessionState, SessionSummary, TurnId,
+    ProviderSessionId, SessionState, SessionSummary, TokenUsage, TurnId,
 };
 use std::collections::HashSet;
 use std::fmt;
@@ -74,6 +74,82 @@ pub trait HistoryDecoder {
     fn provider_id(&self) -> ProviderId;
     fn index_metadata(&self, path: &Path, prefix: &str) -> Option<HistoryIndexMetadata>;
     fn decode_line(&self, line: &str) -> DecodeOutcome;
+}
+
+/// What a provider is ABLE to report about token usage.
+///
+/// Declared, never discovered. This is the honesty mechanism: a surface
+/// can say "Grok does not report an input/output split" instead of
+/// rendering a silent zero, and a half-implemented provider stays legible
+/// instead of looking broken.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct UsageReporting {
+    /// Separate prompt and completion counts.
+    pub input_output_split: bool,
+    /// A single combined total.
+    pub total_tokens: bool,
+    /// Context-window occupancy (used / size).
+    pub context_window: bool,
+    /// The provider computes real money itself — trusted over our table.
+    pub provider_priced: bool,
+    /// The provider names the model it is running.
+    pub model: bool,
+    /// Usage can be recovered from ALREADY-STORED sessions, so the
+    /// backfill pass can walk this provider's history and recover cost
+    /// the operator has already spent. False for live-only transports
+    /// (Grok's ACP), where usage exists on the wire and nowhere else.
+    pub history_backfill: bool,
+}
+
+impl UsageReporting {
+    /// A provider that reports nothing yet. A truthful state, not a bug —
+    /// it makes "not implemented" legible and turns adding support into
+    /// filling in one file rather than discovering an absence.
+    pub const NOTHING: Self = Self {
+        input_output_split: false,
+        total_tokens: false,
+        context_window: false,
+        provider_priced: false,
+        model: false,
+        history_backfill: false,
+    };
+
+    pub const fn reports_anything(self) -> bool {
+        self.input_output_split || self.total_tokens || self.context_window
+    }
+}
+
+/// ONE provider's usage dialect.
+///
+/// Providers report different things, in different shapes, and CHANGE
+/// them between releases. Each adapter owns its own dialect so a new
+/// provider — or a new release of an existing one — extends HERE without
+/// touching any other provider's code.
+///
+/// Follows `HistoryDecoder`'s discipline exactly: `&str` in, typed out,
+/// so this crate and `dpl-chat-core` stay dependency-free and every
+/// provider keeps parsing its native format with its own serde.
+pub trait ProviderUsage: Send + Sync {
+    fn provider_id(&self) -> ProviderId;
+
+    /// What this provider can report. Callers consult this BEFORE
+    /// treating an absent number as meaningful.
+    fn reports(&self) -> UsageReporting;
+
+    /// Token accounting carried by one native record, if any.
+    fn usage_from_line(&self, line: &str) -> Option<TokenUsage>;
+
+    /// The model named by one native record, if any.
+    fn model_from_line(&self, _line: &str) -> Option<String> {
+        None
+    }
+
+    /// Cost the PROVIDER itself computed, in micros. When a provider
+    /// reports real money (Claude does), it is authoritative over any
+    /// price table of ours — it knows its own billing, we infer it.
+    fn cost_micros_from_line(&self, _line: &str) -> Option<u64> {
+        None
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

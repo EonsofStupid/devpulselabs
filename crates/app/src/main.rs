@@ -7,6 +7,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod ai_usage;
 mod chat;
 #[cfg(feature = "eguipilotai-devtools")]
 mod coach_fabric;
@@ -54,6 +55,10 @@ fn main() -> eframe::Result {
             ),
             Err(e) => tracing::warn!(error = %e, "three-ring root could not be created"),
         }
+        // Same honesty law, applied to AI accounting: name which providers
+        // report usage and which do not, so an empty cost column is
+        // explained rather than mysterious.
+        crate::ai_usage::log_census();
     }
     // Managed ffmpeg (the original's tools.rs law, ported): resolve ONE
     // absolute binary at boot and inject it into every engine seam, so a

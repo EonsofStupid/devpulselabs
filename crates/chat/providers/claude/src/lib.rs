@@ -7,7 +7,10 @@ use dpl_chat_core::{
     BoundedNativePayload, Capability, ChatEventContent, ProviderAccent, ProviderDescriptor,
     ProviderId, ProviderManifest, ProviderProfileId, TokenUsage,
 };
-use dpl_chat_store::{DecodeOutcome, DecodedHistoryEvent, HistoryDecoder, HistoryIndexMetadata};
+use dpl_chat_store::{
+    DecodeOutcome, DecodedHistoryEvent, HistoryDecoder, HistoryIndexMetadata, ProviderUsage,
+    UsageReporting,
+};
 use serde_json::Value;
 use std::path::Path;
 
@@ -129,6 +132,87 @@ impl HistoryDecoder for ClaudeHistoryDecoder {
             }),
             other => unknown(&format!("claude.{other}"), &redacted_shape(other, &value)),
         }
+    }
+}
+
+/// Claude's usage dialect.
+///
+/// Claude is the one major that PRICES ITS OWN CALLS — `result` records
+/// carry `total_cost_usd`, real billed money. That is authoritative over
+/// any price table of ours: it knows its billing, we only infer it.
+///
+/// Counts live in two places: per-turn on `assistant.message.usage`, and
+/// cumulative on `result.usage`. Cache reads and cache creation are
+/// reported separately and are FOLDED INTO input, because that is what
+/// they are — input tokens billed at a different rate. Pricing (PR 2)
+/// splits them again; the raw fields survive on the record either way.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ClaudeUsage;
+
+impl ProviderUsage for ClaudeUsage {
+    fn provider_id(&self) -> ProviderId {
+        PROVIDER
+    }
+
+    fn reports(&self) -> UsageReporting {
+        UsageReporting {
+            input_output_split: true,
+            total_tokens: true,
+            context_window: false,
+            provider_priced: true,
+            model: true,
+            history_backfill: true,
+        }
+    }
+
+    fn usage_from_line(&self, line: &str) -> Option<TokenUsage> {
+        let value: Value = serde_json::from_str(line).ok()?;
+        let usage = match value.get("type").and_then(Value::as_str)? {
+            "assistant" => value.get("message")?.get("usage")?,
+            "result" => value.get("usage")?,
+            _ => return None,
+        };
+        let n = |key: &str| usage.get(key).and_then(Value::as_u64);
+        // Cache reads/creation ARE input tokens — billed differently, not
+        // absent. Summing them is what makes the input count true.
+        let input = [
+            n("input_tokens"),
+            n("cache_read_input_tokens"),
+            n("cache_creation_input_tokens"),
+        ]
+        .into_iter()
+        .flatten()
+        .reduce(|a, b| a.saturating_add(b));
+        let output = n("output_tokens");
+        let out = TokenUsage {
+            input_tokens: input,
+            output_tokens: output,
+            total_tokens: match (input, output) {
+                (Some(i), Some(o)) => Some(i.saturating_add(o)),
+                _ => None,
+            },
+            context_used: None,
+            context_size: None,
+        };
+        (!out.is_empty()).then_some(out)
+    }
+
+    fn model_from_line(&self, line: &str) -> Option<String> {
+        let value: Value = serde_json::from_str(line).ok()?;
+        if value.get("type").and_then(Value::as_str)? != "assistant" {
+            return None;
+        }
+        string_at(&value, &["message", "model"])
+    }
+
+    fn cost_micros_from_line(&self, line: &str) -> Option<u64> {
+        let value: Value = serde_json::from_str(line).ok()?;
+        if value.get("type").and_then(Value::as_str)? != "result" {
+            return None;
+        }
+        let usd = value.get("total_cost_usd").and_then(Value::as_f64)?;
+        // Refuse nonsense rather than casting it into a plausible number.
+        (usd.is_finite() && usd >= 0.0).then(|| (usd * 1_000_000.0).round() as u64)
     }
 }
 

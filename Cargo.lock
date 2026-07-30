@@ -1968,6 +1968,7 @@ name = "dpl-chat-gemini"
 version = "0.1.0"
 dependencies = [
  "dpl-chat-core",
+ "dpl-chat-store",
 ]
 
 [[package]]
@@ -1979,6 +1980,7 @@ dependencies = [
  "async-io",
  "async-process",
  "dpl-chat-core",
+ "dpl-chat-store",
  "dpl-proc",
  "dpl-tools-deps",
  "futures-lite",
@@ -2081,6 +2083,15 @@ dependencies = [
  "dpl-chat-core",
  "dpl-chat-interactions",
  "dpl-hub",
+]
+
+[[package]]
+name = "dpl-coach-inventory"
+version = "0.1.0"
+dependencies = [
+ "async-io",
+ "atspi",
+ "zbus",
 ]
 
 [[package]]

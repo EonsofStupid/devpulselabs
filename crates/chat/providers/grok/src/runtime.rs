@@ -20,6 +20,8 @@ use agent_client_protocol::{
 };
 use async_channel::{Receiver, Sender, TryRecvError, TrySendError};
 use async_process::Child;
+use dpl_chat_core::{ProviderId, TokenUsage};
+use dpl_chat_store::{ProviderUsage, UsageReporting};
 use futures_lite::future;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -1863,5 +1865,59 @@ mod tests {
     #[test]
     fn qualified_fixture_stays_on_the_activation_floor() {
         assert_eq!(fixture_profile().version(), MINIMUM_VERSION);
+    }
+}
+
+/// Grok's usage dialect.
+///
+/// Grok reports CONTEXT-WINDOW OCCUPANCY — how full the window is — and
+/// nothing else. No input/output split, no total, no model, no price. It
+/// is recorded as exactly that; inflating occupancy into a prompt/
+/// completion split would invent numbers the provider never gave.
+///
+/// Grok is also LIVE-ONLY: usage arrives over ACP and is never written to
+/// a session file we can read, so `history_backfill` is false and
+/// `usage_from_line` has nothing to parse. `usage_from_update` is the
+/// real entry point — the typed path the live runtime already owns.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct GrokUsage;
+
+impl GrokUsage {
+    /// The live path: one typed ACP session update → usage, if it carries any.
+    pub const fn usage_from_update(update: &GrokSessionUpdate) -> Option<TokenUsage> {
+        match update {
+            GrokSessionUpdate::Usage { used, size } => Some(TokenUsage {
+                input_tokens: None,
+                output_tokens: None,
+                total_tokens: None,
+                context_used: Some(*used),
+                context_size: Some(*size),
+            }),
+            _ => None,
+        }
+    }
+}
+
+impl ProviderUsage for GrokUsage {
+    fn provider_id(&self) -> ProviderId {
+        crate::PROVIDER
+    }
+
+    fn reports(&self) -> UsageReporting {
+        UsageReporting {
+            input_output_split: false,
+            total_tokens: false,
+            context_window: true,
+            provider_priced: false,
+            model: false,
+            // Live-only: ACP usage exists on the wire and nowhere else.
+            history_backfill: false,
+        }
+    }
+
+    /// Always `None` — and that is the truth, not a stub. Grok persists no
+    /// session records for us to read; see `usage_from_update`.
+    fn usage_from_line(&self, _line: &str) -> Option<TokenUsage> {
+        None
     }
 }

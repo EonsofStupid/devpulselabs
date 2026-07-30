@@ -15,7 +15,10 @@ use dpl_chat_core::{
     BoundedNativePayload, Capability, ChatEventContent, ProviderAccent, ProviderDescriptor,
     ProviderId, ProviderManifest, ProviderProfileId, TokenUsage,
 };
-use dpl_chat_store::{DecodeOutcome, DecodedHistoryEvent, HistoryDecoder, HistoryIndexMetadata};
+use dpl_chat_store::{
+    DecodeOutcome, DecodedHistoryEvent, HistoryDecoder, HistoryIndexMetadata, ProviderUsage,
+    UsageReporting,
+};
 use serde_json::Value;
 use std::path::Path;
 
@@ -303,6 +306,50 @@ fn string_at(value: &Value, path: &[&str]) -> Option<String> {
         current = current.get(*segment)?;
     }
     current.as_str().map(str::to_owned)
+}
+
+/// Codex's usage dialect.
+///
+/// Codex reports a full input/output split plus a combined total and the
+/// model context window, and names its model in `session_configured`. It
+/// does not price its own calls.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CodexUsage;
+
+impl ProviderUsage for CodexUsage {
+    fn provider_id(&self) -> ProviderId {
+        PROVIDER
+    }
+
+    fn reports(&self) -> UsageReporting {
+        UsageReporting {
+            input_output_split: true,
+            total_tokens: true,
+            context_window: true,
+            provider_priced: false,
+            model: true,
+            history_backfill: true,
+        }
+    }
+
+    fn usage_from_line(&self, line: &str) -> Option<TokenUsage> {
+        let value: Value = serde_json::from_str(line).ok()?;
+        let payload = value.get("payload")?;
+        if payload.get("type").and_then(Value::as_str)? != "token_count" {
+            return None;
+        }
+        let usage = codex_token_usage(payload);
+        (!usage.is_empty()).then_some(usage)
+    }
+
+    fn model_from_line(&self, line: &str) -> Option<String> {
+        let value: Value = serde_json::from_str(line).ok()?;
+        let payload = value.get("payload")?;
+        if payload.get("type").and_then(Value::as_str)? != "session_configured" {
+            return None;
+        }
+        string_at(payload, &["model"])
+    }
 }
 
 fn u64_at(value: &Value, path: &[&str]) -> Option<u64> {
