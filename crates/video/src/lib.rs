@@ -35,6 +35,12 @@ pub fn set_ffmpeg_path(p: PathBuf) {
     let _ = FFMPEG.set(p);
 }
 
+/// Whether an ffmpeg path was injected — surfaces use this to tell
+/// "still decoding" apart from "this install has no media engine".
+pub fn ffmpeg_available() -> bool {
+    FFMPEG.get().is_some()
+}
+
 pub(crate) fn ffmpeg_program() -> PathBuf {
     FFMPEG
         .get()
