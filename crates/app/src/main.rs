@@ -677,14 +677,28 @@ impl App {
         }
         // Ring-0 estate (Fjall+Moka): durable shell route + WiredFRONT
         // lastComp for the agent seam. Open failure never kills the app.
-        let estate: Option<std::sync::Arc<dpl_estate::Estate>> =
-            match dpl_estate::Estate::open(&dpl_engine_capture::userdata_root().join("estate")) {
-                Ok(e) => Some(std::sync::Arc::new(e)),
-                Err(e) => {
-                    tracing::warn!(%e, "estate open failed — durable seam state disabled");
-                    None
+        let estate: Option<std::sync::Arc<dpl_estate::Estate>> = match dpl_estate::Estate::open(
+            &dpl_engine_capture::userdata_root().join("estate"),
+        ) {
+            Ok(e) => {
+                if let Some(aside) = e.stepped_aside() {
+                    // Says it ONCE, plainly, and names where the old store
+                    // went. The estate only ever held `shell/route` and
+                    // `wiredfront/last-comp`, so the cost is that the app
+                    // reopens on the default route — not lost work.
+                    tracing::warn!(
+                        stale = %aside.display(),
+                        "estate was unreadable (older on-disk format) — moved aside and started fresh; \
+                         the remembered route and last comp reset"
+                    );
                 }
-            };
+                Some(std::sync::Arc::new(e))
+            }
+            Err(e) => {
+                tracing::warn!(%e, "estate open failed — durable seam state disabled");
+                None
+            }
+        };
         // The harness path into the SESSIONS player (S2).
         let mut wiredfront = dpl_hub_wiredfront::WiredfrontHub::default();
         // WIRE THE FABRIC BEFORE THE DRILLS (W8 fix): harness mutations
