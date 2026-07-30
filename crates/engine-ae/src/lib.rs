@@ -398,6 +398,59 @@ fn enable_automation_at(prefs: &Path, ae_running: bool) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    /// `Caps::probe` reads `sysinfo::System::total_memory()`, and the ONLY
+    /// thing standing between that number and the render tuning is a divide
+    /// by 1024³. sysinfo has changed that unit before (kB in the 0.2x line,
+    /// bytes since), and a unit flip does not fail to compile — it silently
+    /// reports a 128 GB rig as 0.125 GB and tunes every render for a machine
+    /// that does not exist. Every other test here feeds `Caps` literals, so
+    /// this is the one place the real reading is checked at all.
+    ///
+    /// The band is deliberately wide: it must pass on CI runners and on a
+    /// 128 GB workstation alike. It fails on a unit change by three orders of
+    /// magnitude in either direction, which is exactly the bug it exists for.
+    #[test]
+    fn the_probe_reads_total_memory_in_bytes() {
+        let caps = Caps::probe();
+        assert!(
+            (0.5..=4096.0).contains(&caps.ram_gb),
+            "ram_gb {} is outside any real machine — sysinfo's total_memory() \
+             unit likely changed (expected bytes, divided by 1024³)",
+            caps.ram_gb
+        );
+        assert!(
+            caps.logical_cpus >= 1,
+            "a machine running this test has at least one CPU"
+        );
+    }
+
+    /// `ae_running()` decides by `name().starts_with("afterfx")`. If sysinfo
+    /// ever returned a full path there instead of a bare file name, that match
+    /// would silently go false — and `enable_automation` would rewrite AE's
+    /// prefs WHILE AE is running, which this module documents as futile
+    /// because AE overwrites them on quit. Nothing else exercises the process
+    /// side of sysinfo: the toggle tests drive `enable_automation_at` with a
+    /// literal bool, deliberately, so the real scan is checked only here.
+    /// Pinned against this test binary — the one process guaranteed to exist.
+    #[test]
+    fn a_process_name_is_a_bare_file_name_not_a_path() {
+        let mut sys = sysinfo::System::new();
+        sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+        let me = sysinfo::Pid::from_u32(std::process::id());
+        let name = sys
+            .process(me)
+            .expect("the running test process is in the process list")
+            .name()
+            .to_string_lossy()
+            .to_string();
+        assert!(!name.is_empty(), "a process always has a name");
+        assert!(
+            !name.contains('/') && !name.contains('\\'),
+            "name() must be a bare file name for the afterfx/aerender prefix \
+             match to work; got {name:?}"
+        );
+    }
+
     // ---- tuning policy across the real machine tiers ----
 
     #[test]
