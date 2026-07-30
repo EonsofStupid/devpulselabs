@@ -65,15 +65,28 @@ queue forever. Check when a job sits queued > ~2 min:
   re-registration: restart the runner service
   (`Restart-Service actions.runner.*` / `./svc.sh stop && ./svc.sh start`).
 
-## Security rule (non-negotiable)
+## Security rule (non-negotiable) — SETTLED 2026-07-30
 
-These runners execute PR code with real privileges (the Windows one as
-SYSTEM). That is acceptable ONLY while this repo is private and every
-PR author is the operator. **This repo must never go public while
-self-hosted runners are wired to `pull_request`** — fork PRs would run
-arbitrary code on the estate. Going public requires reworking CI first
-(hosted runners for PRs, or label-gated workflows + dedicated
-low-privilege accounts).
+**The rule below was hit for real, and the resolution is: the estate runners
+are gone.** The repo went public on 2026-07-30 while both self-hosted runners
+were still wired to `pull_request`. Both were deregistered within minutes and
+`green.yml` moved to GitHub-hosted images (`windows-latest`, `ubuntu-latest`),
+which is the rework this rule always demanded. Hosted minutes are free and
+unmetered for public repos.
+
+The rule stands for any future self-hosted runner:
+
+> These runners execute PR code with real privileges (the Windows one ran as
+> SYSTEM). That is acceptable ONLY while this repo is private and every PR
+> author is the operator. **Never wire a self-hosted runner to
+> `pull_request` on a public repo** — fork PRs would run arbitrary code on the
+> estate. Re-registering one requires either making the repo private again, or
+> label-gating the workflow to same-repo PRs plus a dedicated low-privilege
+> account.
+
+Everything below about registering, bootstrapping and rebuilding the estate
+runners is kept because it is the recipe for standing them back up if the repo
+ever returns to private — not because anything is registered today.
 
 ## Paid-for gotchas (2026-07-28, each from a real failing run)
 
