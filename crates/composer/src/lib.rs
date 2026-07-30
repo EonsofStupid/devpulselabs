@@ -3303,7 +3303,17 @@ impl Composer {
                         ui.painter().image(tex, frame, uv, Color32::WHITE);
                         ui.ctx().request_repaint_after(Duration::from_millis(16));
                     }
-                    None => painter_label(ui, frame, "Loading the frame… (needs ffmpeg on PATH)"),
+                    // ffmpeg ships inside the app (dptools-deps) — a missing
+                    // engine is an install fault, never a PATH ask.
+                    None => painter_label(
+                        ui,
+                        frame,
+                        if dpl_video::ffmpeg_available() {
+                            "Loading the frame…"
+                        } else {
+                            "The media engine is missing — reinstall the app"
+                        },
+                    ),
                 },
                 None => painter_label(ui, frame, "Add footage, then press play"),
             }
