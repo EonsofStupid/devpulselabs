@@ -2,6 +2,31 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-30 — THE ALIGNMENT PASS (operator: "I want my project back
+under control… getting it all aligned"):** every stray landed, one truth
+on main. (1) THE checkout is BACK ON MAIN, clean, exe fresh (23:58
+rebuild covers #162–#165 incl. the Lucide engine); the `devpulselabs-fx`
+worktree was squatting the `main` branch ref — detached (nothing
+deleted). (2) The parallel icon-language session's uncommitted work is
+FILED: its ADR (was a second "ADR-015") renumbered to
+`adr-016-icon-language.md` verbatim with a supersession header — the
+engine decision was settled by the LANDED zero-dep `dpl-svg` (#163,
+ADR-015 + 2026-07-30 amendment); its plan `icon-language-v3a.md` filed
+with an alignment note. (3) OPERATOR LAW captured from working trees
+onto main: the doctrine RULING "clay IS a button" (2026-07-30,
+doctrine.md); the V3 redirect ("Lucide for now…"); the MOCK GATE ("We
+should have mocks built first for a clear vision to work from") — the
+vision mock + the operator's 5 reference images now live at
+`docs/design/mocks/` + `docs/design/references/`, and NO styling pass
+(V3 M2 migration, variants, V4, V5) executes until the operator
+ratifies the mock (POAM V3 + sequencing table updated). (4) Orphans
+landed: `adr-010-workbench-assembly.md` (ADR-010 finally authored,
+awaiting ratification), `wiredfront-capture-share-spec.md` (operator
+spec, verbatim), the L4-closeout journal, the signals ledger line.
+Open PRs after alignment: #160 (Picture tab, another session's),
+dependabot #84/#80 (major bumps — operator decision). NEXT: the
+operator ratifies/redlines the vision mock, then M2 + V3b/V4 proceed.
+
 **2026-07-30 — THE "A QUOTE" TAB (`docs/plans/author-tab-quote.md`):**
 fourth of the seven card tabs. Operator-ratified 2026-07-29: **a quote is a
 CONVENTION over text blocks**, not a `Block` kind — and the decision held all

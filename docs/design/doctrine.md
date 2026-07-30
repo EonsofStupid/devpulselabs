@@ -36,10 +36,19 @@ ref** resolved against the surface's runtime `Tone`, so one trait dresses any hu
   is a CHEAP painted back-glow (tone 300 halo behind the rect) — **never a real
   blur**. Loud, honest, unmistakably tappable, fast. Hover lifts the shadow +
   glow; active presses the shadow in.
-- **CLAYMORPHIC** (base, *passive*) — soft extruded plane (the original's neumorphic
-  specialty). Directional double-shadow (light top-left, dark bottom-right),
-  generous radius, hairline edge, optional two-color diffuse tint. Content sits IN
-  it; chrome sits ON it.
+- **CLAYMORPHIC** (base, *actionable AND passive*) — soft extruded plane (the
+  original's neumorphic specialty). Directional double-shadow (light top-left,
+  dark bottom-right), generous radius, hairline edge, optional two-color diffuse
+  tint. **RULING (operator, 2026-07-30): clay IS a button.** The earlier
+  "passive — never a button; content sits in it, chrome sits on it" line was the
+  port's inference from the original's usage pattern, NOT operator law — retired.
+  Actionable clay = deep extrusion + top rim light + NEON INK (the glow is the
+  ink itself: ~5 offset glyph copies at falling alpha — painted bloom, law 6
+  holds); hover brightens the ink, active sinks the extrusion inward (inset).
+  Reference: `docs/design/references/claymorphism-icons-examples.png`. The
+  `hover`/`active` state data for claymorphic lands in `tokens/traits.json`
+  with the next trait pass — until then `compose()` simply has no clay press
+  state, which is a gap, not a rule.
 - **CYBER** (stack) — cyan back-glow + a cyan top wash + hue-drift, thin bright
   edge. Rides on top of a base.
 - **RETRO** (stack) — scanline texture + chunky amber edge + sharp corners +
