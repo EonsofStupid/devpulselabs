@@ -529,6 +529,16 @@ mod tests {
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
+        // A pid + counter is NOT a unique filename across runs: Windows reuses
+        // process ids aggressively, and the self-hosted runner never clears
+        // %TEMP%. So a previous CI run's database was still sitting at this
+        // exact path, `open` adopted it, and `list` returned that run's profile
+        // beside this one. The test then failed for every PR after the run that
+        // created the file — including PRs that touch nothing near this crate.
+        //
+        // Start from nothing, and leave nothing behind.
+        let _ = std::fs::remove_file(&path);
+
         let store = ProfileStore::open(&path).expect("store");
         let mut draft = ProviderProfileDraft::for_kind(ProviderConfigurationKind::Local);
         draft.display_name = "Studio model".into();
@@ -537,6 +547,10 @@ mod tests {
         drop(store);
 
         let reopened = ProfileStore::open(&path).expect("reopen");
-        assert_eq!(reopened.list().expect("list"), vec![saved]);
+        let listed = reopened.list().expect("list");
+        drop(reopened);
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(listed, vec![saved]);
     }
 }
