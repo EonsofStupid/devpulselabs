@@ -1223,7 +1223,9 @@ impl AuthorSurface {
                 (c, when)
             })
             .collect();
-        all.sort_by(|a, b| b.1.cmp(&a.1));
+        // Newest first. `None` (no readable mtime) sorts last, exactly as the
+        // hand-rolled descending comparator did.
+        all.sort_by_key(|(_, when)| std::cmp::Reverse(*when));
         all
     }
 
