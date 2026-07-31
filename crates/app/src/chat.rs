@@ -2,7 +2,8 @@ use dpl_chat_accounts::ActivationLedger;
 use dpl_chat_browser_auth::{BrowserAuthCoordinator, BrowserAuthError, BrowserAuthEvent};
 use dpl_chat_core::{
     ActivationState, BoundedNativePayload, Capability, ChatEvent, ChatEventContent, ChatEventId,
-    ChatSessionId, ProviderId, ProviderSessionId, RecoveryAction, RecoveryActionKind, SessionGroup,
+    ChatSessionId, ContentChapter, ContentEpisode, ContentEpisodeId, ContentSlide, ContentSpine,
+    ContentView, ProviderId, ProviderSessionId, RecoveryAction, RecoveryActionKind, SessionGroup,
     SessionState, SessionSummary, TurnId,
 };
 #[cfg(feature = "eguipilotai-devtools")]
@@ -59,6 +60,10 @@ pub enum ChatProofMode {
     Snapped,
     /// The blanket assist acknowledgement, open — the visual proof state.
     Assist,
+    /// The Content domain with a real episode spine loaded (D1).
+    Content,
+    /// A REAL local transcript open in the conversation pane (H1).
+    History,
 }
 
 #[cfg(feature = "eguipilotai-devtools")]
@@ -77,6 +82,8 @@ impl ChatProofMode {
             "compact" => Some(Self::Compact),
             "snapped" => Some(Self::Snapped),
             "assist" => Some(Self::Assist),
+            "content" => Some(Self::Content),
+            "history" => Some(Self::History),
             _ => None,
         }
     }
@@ -90,6 +97,10 @@ struct Shared {
     registry: ChatWindowRegistry,
     lifetime: PeerLifetime,
     window: ChatWindow,
+    /// The transcript catalog lives HERE, not in the window: paging a past
+    /// session is IO, and the host owns IO. The window borrowed it once to
+    /// build its index (H1 §3.2).
+    catalog: HistoryCatalog,
     codex_activation: dpl_chat_codex::CodexActivationCoordinator,
     grok_activation: dpl_chat_grok::GrokActivationCoordinator,
     grok_runtime: Option<dpl_chat_grok::GrokAcpRuntime>,
@@ -253,14 +264,19 @@ impl ChatWindowCoordinator {
             Some((social, interactions)) => ChatWindow::with_models(
                 runtime,
                 initial_route,
-                catalog,
+                &catalog,
                 routes,
                 social,
                 interactions,
             ),
-            None => ChatWindow::new(runtime, initial_route, catalog, routes),
+            None => ChatWindow::new(runtime, initial_route, &catalog, routes),
         };
         window.replace_provider_profiles(provider_profiles);
+        // Trigger 0 of the content refresh policy (D1 plan §3.4): seed the
+        // census at CONSTRUCTION. The window has more than one way to be
+        // opened — `--chat-open` never raises a WindowRequest — so the open
+        // path is a refresh, never the only read.
+        window.observe_content(read_content_view());
         #[cfg(feature = "eguipilotai-devtools")]
         if let Some(mode) = proof_mode {
             if mode != ChatProofMode::Approval {
@@ -277,6 +293,36 @@ impl ChatWindowCoordinator {
                             ChatDomain::Social,
                         ))
                         .expect("the authored Social domain is valid");
+                }
+                ChatProofMode::Content => {
+                    window
+                        .apply(dpl_chat_window::ChatWindowIntent::SelectDomain(
+                            ChatDomain::Content,
+                        ))
+                        .expect("the Content domain is valid");
+                    // Load a REAL spine so the proof shows slides, not an
+                    // empty board: the first census row, whatever it is.
+                    if let Some(first) = window.content_episode_ids().first().cloned() {
+                        if let Some(spine) = read_content_spine(&first) {
+                            window.observe_content_spine(spine);
+                        }
+                    }
+                }
+                ChatProofMode::History => {
+                    // Open the operator's OWN newest transcript. If the rail
+                    // found nothing the proof shot shows exactly that, which
+                    // is the failure worth seeing.
+                    if let Some((provider, locator)) = window.first_history_session() {
+                        window
+                            .apply(dpl_chat_window::ChatWindowIntent::SelectHistorySession {
+                                provider,
+                                locator,
+                            })
+                            .expect("the selected transcript is registered");
+                        if let Ok(page) = catalog.page(provider, locator, None) {
+                            window.observe_history_page(page);
+                        }
+                    }
                 }
                 ChatProofMode::ProviderHover => {
                     window
@@ -486,6 +532,7 @@ impl ChatWindowCoordinator {
             registry,
             lifetime: PeerLifetime::default(),
             window,
+            catalog,
             codex_activation,
             grok_activation,
             grok_runtime: None,
@@ -648,6 +695,11 @@ impl ChatWindowCoordinator {
             }
         }
         if open_requested {
+            // Trigger 1 of the content refresh policy (D1 plan §3.4): read the
+            // census when the window opens. NEVER on the frame path — this
+            // function runs every frame and the census is a directory walk.
+            let view = read_content_view();
+            lock(&self.shared).window.observe_content(view);
             self.open_or_focus(ctx);
         }
 
@@ -876,6 +928,94 @@ fn viewport_geometry(viewport: &egui::ViewportInfo) -> Option<(Option<[i32; 2]>,
     Some((position, [width as u32, height as u32]))
 }
 
+/// The address grammar the Workbench's `open_episode` already accepts:
+/// `"<show>/<episode>"` for operator content, `"template/<episode>"` for a
+/// seed. Minted here so Chat's addresses ARE the harness's addresses.
+fn content_address(entry: &dpl_doc::EpisodeEntry) -> ContentEpisodeId {
+    ContentEpisodeId(match entry.show.as_deref() {
+        Some(show) => format!("{show}/{}", entry.id),
+        None => format!("template/{}", entry.id),
+    })
+}
+
+/// Resolve an address back to its entry — the inverse of [`content_address`],
+/// matching `dpl_hub_workbench::open_episode`'s resolution exactly.
+fn find_content_entry(id: &ContentEpisodeId) -> Option<dpl_doc::EpisodeEntry> {
+    let union = dpl_doc::all_episodes(&dpl_engine_capture::content_root());
+    match id.0.split_once('/') {
+        Some(("template", ep)) => union.into_iter().find(|e| e.show.is_none() && e.id == ep),
+        Some((show, ep)) => union
+            .into_iter()
+            .find(|e| e.show.as_deref() == Some(show) && e.id == ep),
+        None => union.into_iter().find(|e| e.id == id.0),
+    }
+}
+
+/// The content census — a directory walk, never a full library load. Called
+/// on the triggers named in the D1 plan §3.4, NEVER from the frame path.
+fn read_content_view() -> ContentView {
+    let root = dpl_engine_capture::content_root();
+    // A missing content root is a NOTE, never an early return: `all_episodes`
+    // unions the root with `seeds/episodes/`, which lives outside it, so the
+    // seed templates are still real census rows and must still be listed.
+    let error = (!root.exists())
+        .then(|| format!("No content root yet at {} — showing seeds.", root.display()));
+    let episodes = dpl_doc::all_episodes(&root)
+        .into_iter()
+        .map(|entry| {
+            // A title needs the episode document; an unreadable one is a row
+            // with a fallback name, never a missing row.
+            let title = dpl_doc::load_episode(&entry.dir)
+                .map(|ep| ep.title)
+                .unwrap_or_else(|_| entry.id.clone());
+            ContentEpisode {
+                id: content_address(&entry),
+                show: entry.show.clone(),
+                title,
+            }
+        })
+        .collect();
+    ContentView {
+        episodes,
+        spine: None,
+        error,
+    }
+}
+
+/// One episode's chapter→slide structure. Only this episode is read.
+fn read_content_spine(id: &ContentEpisodeId) -> Option<ContentSpine> {
+    let entry = find_content_entry(id)?;
+    let episode = dpl_doc::load_episode(&entry.dir).ok()?;
+    let refs = dpl_doc::episode_slides(&entry.dir, &episode);
+    let chapters = episode
+        .chapters
+        .iter()
+        .map(|chapter| ContentChapter {
+            id: chapter.id.clone(),
+            title: chapter.title.clone(),
+            slides: refs
+                .iter()
+                .filter(|slide_ref| slide_ref.chapter == chapter.id)
+                .map(|slide_ref| ContentSlide {
+                    chapter: slide_ref.chapter.clone(),
+                    name: slide_ref.name.clone(),
+                    // A slide folder that does not parse is a displayable
+                    // fact, never a failed episode.
+                    template: dpl_doc::load(&slide_ref.dir)
+                        .map(|slide| slide.template)
+                        .unwrap_or_else(|_| "unknown".to_owned()),
+                    index: slide_ref.index,
+                })
+                .collect(),
+        })
+        .collect();
+    Some(ContentSpine {
+        id: id.clone(),
+        title: episode.title,
+        chapters,
+    })
+}
+
 fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: HostIntent) {
     match intent {
         HostIntent::OpenUtility {
@@ -884,6 +1024,20 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
         } => open_utility(ctx, shared, interaction_id, placement),
         HostIntent::ActivateProvider(provider) => {
             activate_provider(shared, provider);
+            ctx.request_repaint();
+        }
+        HostIntent::LoadHistoryPage { provider, locator } => {
+            // The host owns the catalog because reading a transcript is IO.
+            // A failed read is reported to the operator, never swallowed —
+            // an empty pane with no reason is how the count label happened.
+            let mut state = lock(shared);
+            match state.catalog.page(provider, locator, None) {
+                Ok(page) => state.window.observe_history_page(page),
+                Err(error) => {
+                    tracing::warn!(%error, %provider, "chat transcript page unavailable");
+                }
+            }
+            drop(state);
             ctx.request_repaint();
         }
         HostIntent::ProviderSelected(provider) => {
@@ -1067,6 +1221,15 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
             let mut state = lock(shared);
             resolve_assist_acknowledgement(&mut state, accepted);
             ctx.request_repaint();
+        }
+        HostIntent::RefreshContent => {
+            let view = read_content_view();
+            lock(shared).window.observe_content(view);
+        }
+        HostIntent::LoadContentSpine(episode) => {
+            if let Some(spine) = read_content_spine(&episode) {
+                lock(shared).window.observe_content_spine(spine);
+            }
         }
         HostIntent::NavigateTo(route) => {
             // Route loading lives in the MAIN app: publish the ask and let the

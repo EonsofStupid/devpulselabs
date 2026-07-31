@@ -1,0 +1,101 @@
+id = "chat-local-histories"
+fixture = "chat"
+record = true
+
+# Does the operator's REAL local chat history actually surface in Chat?
+# `chat` is the live runtime fixture — no authored models — so everything this
+# asserts comes from ~/.claude/projects and ~/.codex/sessions on THIS machine,
+# decoded by ClaudeHistoryDecoder / CodexHistoryDecoder.
+#
+# Before H1 this scenario found ZERO session rows: the transcripts were found,
+# decoded, indexed, and then rendered as a count in an unclickable label.
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "open"
+
+[steps.expectation.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "wait"
+milliseconds = 2500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "focus-viewport"
+
+[steps.action.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.sidebar.providers/claude"
+
+# THE DIRECTIVE: a provider whose transcripts are on this machine is genuinely
+# activated, so it earns a tab beside AI and Social. `connected_tabs()` filters
+# on activation and nothing else, so this node cannot exist unless Claude
+# actually activated.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.mode.provider/claude"
+
+# THE CRITERION THAT MATTERS: the RECENT CHATS heading renders ONLY when
+# history rows exist, so its presence IS "the operator's chats surfaced". Its
+# pilot value carries how many were found.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.sidebar.sessions.history"
+
+# Scope the rail to Claude and prove the rows survive the tab, not just the
+# unscoped roster.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.mode.provider/claude"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.sidebar.sessions.history"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "close-viewport"
+
+[steps.action.viewport]
+key = "chat.primary"

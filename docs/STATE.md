@@ -8,6 +8,91 @@ nodes · seed `7` · ~255 ms**; ChildCount-gated BFS; oversized refuse in
 unit tests. Inventory stays desktop-root-only. Coach NEXT = **C2f** wire
 Operator select → overlay paint.
 
+**2026-07-30 — THE CHATS ARE IN ONE SYSTEM (H1, plan
+`docs/plans/chat-histories-in-one-system.md`, PR #180, `green ✔`):** the
+165 transcripts were found, decoded, and indexed at startup and then shown
+as a COUNT in an unclickable label. Fixed — and the operator named the
+structural half of it: *"the providers that get activated in the chat
+become available in the platform."* `connected_tabs()` is explicit that
+"a tab is the reward for being connected, so the predicate is activation
+and nothing else", and Claude registered as `planned` → `Blocked`, so it
+could never earn one. **Rows alone would not have worked**; the plan was
+rewritten before any code.
+
+The model already had every piece: `Capability::ReadSessions`/`PageHistory`
+existed and had never been qualified, `ActivationState::Experimental`
+counts as activated while carrying a truthful reason, and `can_send()`
+needs `StreamTurns` — which a history-only provider never gains, so the
+composer disables itself with no new gate. `with_local_history`
+(`app/src/main.rs`) therefore activates a provider **for what it can
+actually do**. Gemini has no transcripts and correctly stays `Blocked`.
+Catalog ownership inverted per D1's law (host owns the IO, the window
+borrows to index); the seam mirrors D1 exactly.
+
+**Measured: `chat-local-histories` on the LIVE fixture went from ZERO
+session rows to 10/10** — asserting the Claude TAB and the RECENT CHATS
+heading, in the roster and scoped to the tab. 39 window pins, 8 app pins,
+5 regressions pass. Proofs `chat-local-histories-native.png` (live) and
+`chat-transcript-reader-native.png` (a real transcript, read-only).
+
+⚠ **Two defects only the PROOF SHOTS caught.** (1) The tab strip had no
+overflow behaviour — once Claude and Grok both earned tabs, the window
+controls were drawn ON TOP of the Social tab. A regression the moment the
+feature started working, invisible to every unit test. (2) `--chat-proof`
+is deliberately inert without `--chat-authored`; special-casing the
+harness silently disabled the preset instead of loosening the gate
+(explicit `--live` flag instead). LESSON, continuing D1's: authored
+fixtures prove composition, the live fixture proves the product works, and
+only a real shot at a real size proves it LOOKS right.
+
+⚠ **Known, not fixed:** `ClaudeHistoryDecoder` emits `UNKNOWN` for newer
+record types (`last-prompt`, `ai-title`, `mode`, `permission-mode`), so a
+real transcript reads noisily. The reader is correct; the decoder is
+behind. **PR #169 is actively rewriting that file** — adopt, never
+duplicate.
+
+**NEXT — P1:** the second half of the directive. H1 made activation TRUE;
+nothing outside the chat crates can SEE it. `ChatRuntime` is a private
+field of `ChatWindow` (a SURFACE), the coordinator exposes only
+`frame`/`attach_*`, and a grep for `ActivationState`/`Capability::`
+outside `crates/chat/` returns only the chat host. P1 lands a
+fabric-carried availability signal AND its first real consumer together —
+a publication nobody reads proves nothing.
+
+**2026-07-30 — CHAT READS THE CONTENT (D1, program map
+`docs/plans/chat-operations-console.md`, plan
+`docs/plans/chat-content-seam.md`):** Chat's whole view of the platform
+was a `Route` enum; it now has a THIRD DOMAIN, `Content`, showing the
+real census (shows → episodes) and the focused episode's chapter→slide
+spine. The seam carries PLAIN DATA — the host translates `dpl_doc` and
+pushes via `observe_content*`, mirroring `observe_route`; `dpl-chat-
+window` gained NO content dependency and the gate greps for it.
+`ChatDomain::Content` is a UNIT variant so `ChatDomainStates` keeps its
+`const fn` accessors (M3 rejected `Provider(ProviderId)` for the DATA it
+carried, not for being a variant). Proof
+`docs/proof/chat-content-spine-native.png` — real exe, real spine.
+
+**⚠ THE FINDING THAT REORDERS THE PROGRAM:** the operator has 128 Claude
++ 37 Codex transcripts = **165 real chats on disk**, and a LIVE-runtime
+pilot snapshot (`chat-local-histories`, fixture `chat`) found **ZERO**
+session rows. The decoders (`ClaudeHistoryDecoder`/`CodexHistoryDecoder`)
+are complete, `local_chat_history_catalog()` (`app/src/main.rs:1162`)
+registers both roots, and `ChatWindow::new` indexes them into
+`self.histories` — which is then used in ONE place, as a COUNT in an
+unclickable label. Every session ROW comes from the LIVE registry, empty
+for history-backed providers. The chats are found, decoded, indexed, and
+shown as a number. **H1 (chats-in-one-system) is sequenced NEXT, ahead
+of D2.** It is small: `IndexedSession.summary` IS the `SessionSummary`
+the rail renders and `HistoryCatalog::page()` returns the `ChatEvent`
+the pane renders. LESSON: authored fixtures prove composition, never
+that the product works — run the LIVE fixture too. Three passes of chat
+chrome shipped before anyone asked whether the chats appear.
+
+**Landmine:** the disk hit 99% and SILENTLY failed a build (os error
+112) while `cargo … | tail` masked the exit code — never pipe cargo
+without capturing `$?`. Freed 24.3 GB via `target/debug/incremental`
+(pure cache); `deps` and both `dptools-deps` depots left alone.
+
 **2026-07-30 — THE NAMING LAW GETS A GATE (architecture.md §4 + §6):** the
 law was never wrong, it was never ENFORCED — "`dpl-` prefix; kebab ids" has
 been §4 since the doctrine pass, with nothing checking it and no exception
@@ -117,7 +202,6 @@ lightweight inventory, fabric mint from a11y streams (not screenshots),
 seeds + refuse tips; Advanced/EguiPilot is a second surface. Mock:
 `docs/ops/references/coach-operator-mock-c2c.html` (**Coach hub**).
 Pass-2 stdio / strict pinning **parked**.
-
 **2026-07-30 — THE ALIGNMENT PASS (operator: "I want my project back
 under control… getting it all aligned"):** every stray landed, one truth
 on main. (1) THE checkout is BACK ON MAIN, clean, exe fresh (23:58

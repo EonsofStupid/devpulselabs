@@ -41,7 +41,7 @@ fn run() -> Result<(), String> {
     let output = argument_value(&arguments, "--out")
         .map(PathBuf::from)
         .ok_or_else(|| {
-            "usage: chat-native-proof --out <png> [--state approval|ai|social|providers|hover|codex|grok|grok-auth|compact|snapped] [--title <exact title>] [--app <exe>]".to_owned()
+            "usage: chat-native-proof --out <png> [--state approval|ai|social|content|providers|hover|codex|generation|grok|grok-auth|compact|snapped|assist] [--title <exact title>] [--app <exe>]".to_owned()
         })?;
     let title = argument_value(&arguments, "--title").unwrap_or_else(|| DEFAULT_TITLE.to_owned());
     let state = argument_value(&arguments, "--state").unwrap_or_else(|| "approval".to_owned());
@@ -59,6 +59,8 @@ fn run() -> Result<(), String> {
             | "compact"
             | "snapped"
             | "assist"
+            | "content"
+            | "history"
     ) {
         return Err(format!("unknown native Chat proof state {state:?}"));
     }
@@ -85,16 +87,20 @@ fn run() -> Result<(), String> {
         ));
     }
 
+    // Authored models make a proof shot reproducible, and `--chat-proof` is
+    // deliberately inert without them (main.rs: a preset "cannot activate a
+    // provider or Social transport"). `--live` opts OUT of the fixture to
+    // photograph this machine's own truth — real activation, real transcripts
+    // — and the preset is then correctly ignored. Both are honest proofs of
+    // different things, so neither is the default for the other.
+    let live = arguments.iter().any(|argument| argument == "--live");
+    let mut spawn: Vec<&str> = vec!["--chat-open"];
+    if !live {
+        spawn.push("--chat-authored");
+    }
+    spawn.extend(["--chat-proof", &state, "--mood", "0", "--no-seam"]);
     let child = Command::new(&app)
-        .args([
-            "--chat-open",
-            "--chat-authored",
-            "--chat-proof",
-            &state,
-            "--mood",
-            "0",
-            "--no-seam",
-        ])
+        .args(&spawn)
         .env(
             "RUST_LOG",
             if verbose {
