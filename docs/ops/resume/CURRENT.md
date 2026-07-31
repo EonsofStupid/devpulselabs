@@ -6,22 +6,23 @@
 
 ## Goal
 
-C2f — wire Operator select → existing overlay paint (guided lesson).
+Look-approve Coach mock rev (Import Process), then C2f against the Lab
+program — not a CLI-only overlay wire.
 
 ## Done
 
-- C2e: `dpl-coach-fabric` + `coach-fabric-mint`
-- Live: Calculator Ready · 82 nodes · seed `7` · ~255 ms
-- Journal: `docs/journal/2026-07-31-c2e-fabric-mint.md`
+- C2e merged (#179)
+- Lab capture: mock rev + program + research + journal
 
 ## Next
 
-1. Land C2e PR (`feat/c2e-coach-fabric`)
-2. Author/implement **C2f** Operator → overlay paint path
+1. Operator look-approve `docs/ops/references/coach-operator-mock-c2c.html`
+2. Land docs PR `docs/coach-import-lab-capture`
+3. Author C2f plan from Import Process
 
 ## Key files
 
-- `crates/coach-fabric/`
-- `docs/plans/coach-c2e-fabric-mint.md`
-- `docs/journal/2026-07-31-c2e-fabric-mint.md`
-- `crates/coach-overlay/` (paint physics)
+- `docs/ops/references/coach-operator-mock-c2c.html`
+- `docs/plans/coach-lab-experiment-program.md`
+- `docs/research/coach/`
+- `docs/journal/2026-07-31-coach-import-lab-capture.md`

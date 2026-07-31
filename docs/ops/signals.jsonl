@@ -32,3 +32,4 @@
 {"ts":"2026-07-30T23:59:12Z","signal":"pr.merged","lane":"coach-ledger","detail":{"pr":172,"verdict":"PASS","closed":"C2d","next":"C2e-fabric-mint","merge":"9b3b1af"}}
 {"ts":"2026-07-30T23:59:12Z","signal":"plan.drafted","lane":"coach-ledger","detail":{"path":"docs/plans/coach-c2e-fabric-mint.md","pass":"C2e","next":"operator-approve"}}
 {"ts":"2026-07-31T06:30:00Z","signal":"journal.wrote","lane":"coach-ledger","detail":{"path":"docs/journal/2026-07-31-c2e-fabric-mint.md","closed":"C2e","verdict":"PASS","next":"C2f-wire-overlay"}}
+{"ts":"2026-07-31T16:05:00Z","signal":"journal.wrote","lane":"coach-ledger","detail":{"path":"docs/journal/2026-07-31-coach-import-lab-capture.md","closed":"lab-import-capture","verdict":"CAPTURED","next":"operator-look-approve-mock-rev","mock":"docs/ops/references/coach-operator-mock-c2c.html","program":"docs/plans/coach-lab-experiment-program.md"}}

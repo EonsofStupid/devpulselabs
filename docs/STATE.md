@@ -2,11 +2,17 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-31 — COACH IMPORT + LAB CAPTURE
+(`docs/journal/2026-07-31-coach-import-lab-capture.md`):** mock rev adds
+honesty prompt → essential checks (a11y) → Standard vs Advanced Import →
+lesson-ready (no screenshot hot path). Lab program +
+`docs/research/coach/` registry. Coach NEXT = **look-approve mock rev**
+then **C2f** against Import Process (not CLI-only wire).
+
 **2026-07-31 — C2e FABRIC MINT PASS (`docs/journal/2026-07-31-c2e-fabric-mint.md`):**
 `dpl-coach-fabric` + `coach-fabric-mint`. Live Calculator **Ready · 82
 nodes · seed `7` · ~255 ms**; ChildCount-gated BFS; oversized refuse in
-unit tests. Inventory stays desktop-root-only. Coach NEXT = **C2f** wire
-Operator select → overlay paint.
+unit tests. Inventory stays desktop-root-only.
 
 **2026-07-30 — THE NAMING LAW GETS A GATE (architecture.md §4 + §6):** the
 law was never wrong, it was never ENFORCED — "`dpl-` prefix; kebab ids" has

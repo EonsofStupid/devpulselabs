@@ -1,12 +1,14 @@
 <!doctype html>
 <html lang="en">
 <head>
-<!-- DevPULSE Operator Coach mock — C2c reference.
-     Ratified look-target for the frictionless coach product spine
-     (docs/plans/coach-operator-experience.md). Not production UI.
-     Visual vocabulary mirrors the authoring mock (ColdLight-adjacent:
-     crisp edges, hard offset shadow, mono eyebrows — no backdrop blur).
-     Provisional home: Coach as a shell HUB route (not chat peer window). -->
+<!-- DevPULSE Operator Coach mock — C2c reference (rev 2026-07-31).
+     LOOK-APPROVED base 2026-07-30; this rev adds Import Process:
+     honesty prompt → essential checks (a11y) → Standard vs Advanced Import
+     → lightweight lesson execute (no screenshot hot path).
+     Spine: docs/plans/coach-operator-experience.md
+     Capture: docs/plans/coach-lab-experiment-program.md
+     Not production UI. ColdLight-adjacent: crisp edges, hard offset shadow,
+     mono eyebrows — no backdrop blur. Home: Coach shell hub (not chat peer). -->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>DevPULSE — Coach</title>
@@ -17,6 +19,7 @@
     --ink-strong:#e8edf5; --ink:#9aa6b8; --ink-muted:#5f6b7e;
     --cyan:#28e0d0; --amber:#ffb020; --good:#4ade80; --warn:#ff6a5c;
     --tone:var(--cyan); --tone-soft:rgba(40,224,208,.14);
+    --amber-soft:rgba(255,176,32,.12); --warn-soft:rgba(255,106,92,.08);
     --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
     --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
     --r:8px; --shadow:5px 5px 0 rgba(0,0,0,.55); --shadow-sm:3px 3px 0 rgba(0,0,0,.5);
@@ -70,15 +73,31 @@
   }
   .btn.tone{border-color:var(--tone);color:var(--tone)}
   .btn.tone:hover{background:var(--tone-soft)}
+  .btn.amber{border-color:var(--amber);color:var(--amber)}
+  .btn.amber:hover{background:var(--amber-soft)}
   .btn:focus-visible{outline:3px solid var(--tone);outline-offset:2px}
   .btn:active{transform:translate(1px,1px)}
+  .btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
   .wrap{padding:22px clamp(16px,2.5vw,28px);max-width:1180px}
   .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.28em;text-transform:uppercase;color:var(--ink-muted)}
   h1{font-weight:800;font-size:clamp(24px,3.2vw,34px);line-height:1.05;letter-spacing:-.02em;color:var(--ink-strong);margin:.12em 0 .1em}
   h1 .lit{color:var(--tone)}
-  .dek{font-size:15px;color:var(--ink);max-width:58ch;margin:0 0 22px}
+  .dek{font-size:15px;color:var(--ink);max-width:62ch;margin:0 0 18px}
+  .stagebar{
+    display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px;
+  }
+  .stagebar button{
+    font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;
+    border:1px solid var(--hairline);background:var(--raised);color:var(--ink-muted);
+    border-radius:999px;padding:7px 11px;cursor:pointer;
+  }
+  .stagebar button.on{border-color:var(--tone);color:var(--tone);background:var(--tone-soft)}
   .grid{display:grid;grid-template-columns:1.15fr .85fr;gap:18px;align-items:start}
-  @media (max-width:920px){.shell{grid-template-columns:1fr}.rail{flex-direction:row;justify-content:flex-start;border-right:none;border-bottom:1px solid var(--hairline)}.grid{grid-template-columns:1fr}}
+  @media (max-width:920px){
+    .shell{grid-template-columns:1fr}
+    .rail{flex-direction:row;justify-content:flex-start;border-right:none;border-bottom:1px solid var(--hairline)}
+    .grid{grid-template-columns:1fr}
+  }
   .panel{
     background:var(--raised);border:1px solid var(--hairline-2);border-radius:12px;
     box-shadow:var(--shadow);padding:18px 16px 16px;
@@ -93,6 +112,7 @@
   }
   .app:hover{border-color:var(--ink-muted)}
   .app.sel{border-color:var(--tone);background:var(--tone-soft)}
+  .app.thin{border-color:var(--amber)}
   .app:focus-visible{outline:3px solid var(--tone);outline-offset:2px}
   .app .glyph{
     width:40px;height:40px;border-radius:var(--r);border:1px solid var(--hairline-2);
@@ -109,6 +129,7 @@
   }
   .pill.ready{border-color:var(--good);color:var(--good)}
   .pill.deep{border-color:var(--amber);color:var(--amber)}
+  .pill.thin{border-color:var(--warn);color:var(--warn)}
   .seed{
     margin-top:14px;padding:12px;border:1px dashed var(--hairline-2);border-radius:var(--r);
     font-size:13px;color:var(--ink);
@@ -117,7 +138,8 @@
   .progress{
     height:10px;background:var(--well);border:1px solid var(--hairline);border-radius:999px;overflow:hidden;
   }
-  .progress > i{display:block;height:100%;width:12%;background:var(--tone)}
+  .progress > i{display:block;height:100%;background:var(--tone);width:var(--p,12%)}
+  .progress.amber > i{background:var(--amber)}
   .steps{margin:14px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}
   .steps li{
     display:flex;gap:10px;align-items:flex-start;font-size:13px;color:var(--ink);
@@ -125,20 +147,47 @@
   }
   .steps li:last-child{border-bottom:none}
   .steps .n{font-family:var(--mono);font-size:11px;color:var(--tone);min-width:2.2ch}
-  .refuse{
-    margin-top:14px;padding:12px;border:1px solid var(--warn);border-radius:var(--r);
-    background:rgba(255,106,92,.08);font-size:13px;color:var(--ink-strong);
+  .steps .ok{color:var(--good)}
+  .steps .bad{color:var(--warn)}
+  .check{
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+    padding:10px 0;border-bottom:1px solid var(--hairline);font-size:13px;
   }
-  .refuse .tip{margin-top:6px;color:var(--ink);font-size:12.5px}
+  .check:last-child{border-bottom:none}
+  .check .label{color:var(--ink-strong)}
+  .check .sub{display:block;font-family:var(--mono);font-size:11px;color:var(--ink-muted);margin-top:2px}
+  .refuse,.callout{
+    margin-top:14px;padding:12px;border:1px solid var(--warn);border-radius:var(--r);
+    background:var(--warn-soft);font-size:13px;color:var(--ink-strong);
+  }
+  .callout.good{border-color:var(--good);background:rgba(74,222,128,.08)}
+  .callout.amber{border-color:var(--amber);background:var(--amber-soft)}
+  .callout .tip,.refuse .tip{margin-top:6px;color:var(--ink);font-size:12.5px}
   .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
   .adv{
     margin-top:22px;padding-top:14px;border-top:1px solid var(--hairline);
     font-family:var(--mono);font-size:11px;letter-spacing:.04em;color:var(--ink-muted);
   }
   .adv a{color:var(--ink);text-decoration:underline;text-underline-offset:3px}
-  .note{
-    margin-top:18px;font-size:12px;color:var(--ink-muted);max-width:70ch;
+  .note{margin-top:18px;font-size:12px;color:var(--ink-muted);max-width:72ch}
+  .law{
+    margin-top:14px;padding:12px;border:1px solid var(--hairline-2);border-radius:var(--r);
+    background:var(--well);font-size:12.5px;color:var(--ink);
   }
+  .law b{color:var(--tone)}
+  .hidden{display:none !important}
+  .modal-scrim{
+    position:fixed;inset:0;background:rgba(0,0,0,.55);display:grid;place-items:center;
+    padding:20px;z-index:20;
+  }
+  .modal{
+    width:min(480px,100%);background:var(--raised);border:1px solid var(--hairline-2);
+    border-radius:12px;box-shadow:var(--shadow);padding:20px 18px 16px;
+  }
+  .modal h2{margin:0 0 8px;font-size:18px;color:var(--ink-strong)}
+  .modal p{margin:0 0 10px;font-size:14px;color:var(--ink)}
+  .modal ul{margin:0 0 14px;padding-left:1.2em;color:var(--ink);font-size:13.5px}
+  .modal li{margin:.35em 0}
 </style>
 </head>
 <body>
@@ -154,102 +203,322 @@
     <header class="topbar">
       <div class="crumb">Hubs <span aria-hidden="true">/</span> <b>Coach</b></div>
       <div class="sp"></div>
-      <div class="sig" title="Tier A stream — not screenshots"><span class="led" aria-hidden="true"></span> Stream <b>ready</b></div>
+      <div class="sig" title="Lesson execute uses fabric — not screenshots"><span class="led" aria-hidden="true"></span> Stream <b>ready</b></div>
       <button class="btn" type="button" title="Advanced / EguiPilot surface">Advanced</button>
     </header>
     <div class="wrap">
       <div class="eyebrow">Operator Coach</div>
       <h1>Teach with <span class="lit">Coach</span></h1>
       <p class="dek">
-        Choose an installed app. We build a signal map from the accessibility
-        stream so AI can highlight real controls — no screenshot loop.
-        Larger apps take longer; you can cancel anytime.
+        Choose an installed app. We <b>check essentials</b> (accessibility first),
+        then import a signal map. Lessons run light — open, highlight, press —
+        with <b>no screenshot loop</b>. If accessibility is thin, a separate
+        Advanced Import builds a proprietary fabric for the same fast lessons.
       </p>
+
+      <div class="stagebar" role="tablist" aria-label="Mock stages">
+        <button type="button" class="on" data-stage="pick">1 · Pick</button>
+        <button type="button" data-stage="confirm">2 · Confirm import</button>
+        <button type="button" data-stage="checks">3 · Essential checks</button>
+        <button type="button" data-stage="standard">4 · Standard import</button>
+        <button type="button" data-stage="advanced">5 · Advanced import</button>
+        <button type="button" data-stage="ready">6 · Lesson-ready</button>
+      </div>
 
       <div class="grid">
         <section class="panel" aria-labelledby="pick-h">
           <h2 id="pick-h">Installed &amp; available</h2>
-          <p class="hint">Lightweight list first. Deep scan starts only after you select.</p>
-          <div class="list" role="listbox" aria-label="Target apps">
-            <button class="app sel" type="button" role="option" aria-selected="true">
+          <p class="hint">Lightweight list first. Import (deep work) starts only after you confirm.</p>
+          <div class="list" role="listbox" aria-label="Target apps" id="app-list">
+            <button class="app sel" type="button" role="option" aria-selected="true" data-app="calc" data-a11y="ok">
               <span class="glyph">7±</span>
               <span class="meta">
                 <span class="name">Calculator</span>
-                <span class="sub">gnome-calculator · seed proven on this box</span>
+                <span class="sub">gnome-calculator · a11y healthy · seed proven</span>
               </span>
               <span class="pill ready">Ready · small</span>
             </button>
-            <button class="app" type="button" role="option" aria-selected="false">
+            <button class="app" type="button" role="option" aria-selected="false" data-app="files" data-a11y="ok">
               <span class="glyph">Fs</span>
               <span class="meta">
                 <span class="name">Files</span>
-                <span class="sub">nautilus · medium tree</span>
+                <span class="sub">nautilus · medium tree · a11y ok</span>
               </span>
               <span class="pill ready">Ready · medium</span>
             </button>
-            <button class="app" type="button" role="option" aria-selected="false">
+            <button class="app thin" type="button" role="option" aria-selected="false" data-app="legacy" data-a11y="thin">
+              <span class="glyph">Lg</span>
+              <span class="meta">
+                <span class="name">Legacy Draw</span>
+                <span class="sub">custom canvas · accessibility thin / dark</span>
+              </span>
+              <span class="pill thin">Check · thin a11y</span>
+            </button>
+            <button class="app" type="button" role="option" aria-selected="false" data-app="blender" data-a11y="deep">
               <span class="glyph">Bl</span>
               <span class="meta">
                 <span class="name">Blender</span>
-                <span class="sub">needs Tier B later · deep / custom UI</span>
+                <span class="sub">Tier B API later · deep / custom UI</span>
               </span>
               <span class="pill deep">Later · deep</span>
             </button>
           </div>
           <div class="seed">
-            <b>Seed tip:</b> start with Calculator — we already proved paint + press
-            on button <b>7</b>. If the list is empty, open the app once, then refresh.
+            <b>Seed tip:</b> start with Calculator — paint + press proven on button <b>7</b>.
+            Thin a11y apps divert to <b>Advanced Import</b> (separate workflow), not a fake Standard mint.
           </div>
           <div class="actions">
-            <button class="btn tone" type="button">Build signal map</button>
+            <button class="btn tone" type="button" id="btn-import">Import / analyze…</button>
             <button class="btn" type="button">Refresh list</button>
           </div>
         </section>
 
-        <section class="panel" aria-labelledby="mint-h">
-          <h2 id="mint-h">After you select</h2>
-          <p class="hint">Honest progress. Complexity copy stays visible.</p>
-          <div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:8px;font-family:var(--mono);font-size:11px;color:var(--ink-muted)">
-            <span>Building signal map…</span>
-            <span>12%</span>
-          </div>
-          <div class="progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="12" role="progressbar"><i></i></div>
-          <ul class="steps">
-            <li><span class="n">01</span><span>Shallow census — name + window (done)</span></li>
-            <li><span class="n">02</span><span>Walking menus &amp; buttons…</span></li>
-            <li><span class="n">03</span><span>Identity check before any paint</span></li>
-          </ul>
-          <p class="hint" style="margin-top:12px">
-            Bigger / custom-drawn apps take longer. We use the accessibility
-            stream first; vision only if that stream is empty.
-          </p>
-          <div class="actions">
-            <button class="btn" type="button">Cancel</button>
-          </div>
-
-          <div class="refuse" role="status">
-            Example refuse (when a control is missing)
-            <div class="tip">
-              No Button named “bogon” — tip: open the keypad view, or pick the
-              seed lesson Calculator → 7.
-            </div>
-          </div>
+        <section class="panel" aria-labelledby="flow-h" id="flow-panel">
+          <!-- filled by stage script -->
         </section>
+      </div>
+
+      <div class="law">
+        <b>Execution law:</b> after import, lessons use the fabric — Mount, highlight,
+        observe real presses. Screenshots / vision are <b>import fuel only</b> (Advanced
+        path), never the hot path while teaching.
       </div>
 
       <p class="adv">
         Advanced stays separate:
         <a href="#">dpl-coach-overlay --self-test</a>
-        · EguiPilot CoachCommand · stream dumps — not the operator entry.
+        · Advanced Import harvest · EguiPilot CoachCommand — not the operator entry.
       </p>
       <p class="note">
-        Mock only (C2c). Provisional home: Coach hub in the shell rail.
-        Not a chat-style peer window. Paint to foreign apps still uses
-        dpl-coach-overlay under ADR launch gates. Plan:
-        docs/plans/coach-c2c-operator-mock.md
+        Mock rev 2026-07-31 — Import Process + dual workflow. Home: Coach hub rail.
+        Capture: docs/plans/coach-lab-experiment-program.md ·
+        docs/research/coach/import-process.md · Journal:
+        docs/journal/2026-07-31-coach-import-lab-capture.md
       </p>
     </div>
   </div>
 </div>
+
+<div class="modal-scrim hidden" id="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-h">
+  <div class="modal">
+    <h2 id="confirm-h">Analyze &amp; import?</h2>
+    <p id="confirm-body">
+      We’ll take a <b>few minutes</b> to analyze <b>Calculator</b> and build a signal map.
+    </p>
+    <ul>
+      <li>Check accessibility stream (required for Standard Import)</li>
+      <li>Check window focus + interactive controls</li>
+      <li>Build fabric for lightweight lessons (no screenshot loop later)</li>
+    </ul>
+    <p class="hint" id="confirm-eta" style="margin:0 0 12px;font-size:13px;color:var(--ink-muted)">
+      ETA: about a minute — Calculator is a small signal map.
+    </p>
+    <div class="actions" style="margin-top:0">
+      <button class="btn tone" type="button" id="confirm-start">Start import</button>
+      <button class="btn" type="button" id="confirm-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const apps = {
+    calc: { name: "Calculator", eta: "About a minute — small signal map.", a11y: "ok" },
+    files: { name: "Files", eta: "A few minutes — walking menus.", a11y: "ok" },
+    legacy: { name: "Legacy Draw", eta: "Accessibility looks thin — Advanced Import may be required.", a11y: "thin" },
+    blender: { name: "Blender", eta: "May take a while or refuse — deep / custom UI.", a11y: "deep" },
+  };
+  let selected = "calc";
+  let stage = "pick";
+
+  const flow = document.getElementById("flow-panel");
+  const modal = document.getElementById("confirm-modal");
+  const confirmBody = document.getElementById("confirm-body");
+  const confirmEta = document.getElementById("confirm-eta");
+
+  function setStage(next) {
+    stage = next;
+    document.querySelectorAll(".stagebar button").forEach((b) => {
+      b.classList.toggle("on", b.dataset.stage === next);
+    });
+    renderFlow();
+  }
+
+  function renderFlow() {
+    const a = apps[selected];
+    if (stage === "pick") {
+      flow.innerHTML = `
+        <h2 id="flow-h">After you select</h2>
+        <p class="hint">Import never starts silently. You always get an honesty prompt + ETA.</p>
+        <ul class="steps">
+          <li><span class="n">01</span><span>Pick an installed app from the list</span></li>
+          <li><span class="n">02</span><span>Confirm import — “this will take a few minutes…”</span></li>
+          <li><span class="n">03</span><span>Essential checks — accessibility first</span></li>
+          <li><span class="n">04</span><span>Standard Import <em>or</em> Advanced Import (if a11y thin)</span></li>
+          <li><span class="n">05</span><span>Lesson-ready — lightweight Mount / highlight / press</span></li>
+        </ul>
+        <div class="callout good">
+          Selected: <b>${a.name}</b>
+          <div class="tip">Press <b>Import / analyze…</b> to see the confirm prompt.</div>
+        </div>`;
+      return;
+    }
+    if (stage === "confirm") {
+      flow.innerHTML = `
+        <h2 id="flow-h">Honesty prompt</h2>
+        <p class="hint">Shown before any deep work. Cancel always available.</p>
+        <div class="callout amber">
+          Analyze <b>${a.name}</b> and begin import?
+          <div class="tip">${a.eta}</div>
+        </div>
+        <ul class="steps">
+          <li><span class="n">·</span><span>We will check the accessibility stream</span></li>
+          <li><span class="n">·</span><span>Then build a fabric for fast lessons</span></li>
+          <li><span class="n">·</span><span>Vision/screenshots are never the lesson hot path</span></li>
+        </ul>
+        <div class="actions">
+          <button class="btn tone" type="button" data-go="checks">Continue to checks</button>
+        </div>`;
+      return;
+    }
+    if (stage === "checks") {
+      const ok = a.a11y === "ok";
+      flow.innerHTML = `
+        <h2 id="flow-h">Essential checks</h2>
+        <p class="hint">Gate that chooses the workflow. a11y is the big one.</p>
+        <div class="check"><div><span class="label">Accessibility stream</span><span class="sub">AT-SPI / UIA app root + interactables</span></div><span class="pill ${ok ? "ready" : "thin"}">${ok ? "PASS" : "THIN"}</span></div>
+        <div class="check"><div><span class="label">Window focus</span><span class="sub">resolvable target window</span></div><span class="pill ready">PASS</span></div>
+        <div class="check"><div><span class="label">Interactive density</span><span class="sub">named buttons / menus for lessons</span></div><span class="pill ${ok ? "ready" : "thin"}">${ok ? "PASS" : "LOW"}</span></div>
+        <div class="check"><div><span class="label">Screenshot loop</span><span class="sub">forbidden as primary eyes</span></div><span class="pill ready">REFUSED</span></div>
+        ${ok ? `
+          <div class="callout good">Checks pass → <b>Standard Import</b>
+            <div class="tip">Budgeted Tier A mint. Minutes, cancelable.</div>
+          </div>
+          <div class="actions"><button class="btn tone" type="button" data-go="standard">Start Standard Import</button></div>
+        ` : `
+          <div class="callout amber">Accessibility thin / dark → <b>Advanced Import</b>
+            <div class="tip">Separate workflow: build a proprietary fabric offline so lessons still run without screenshots.</div>
+          </div>
+          <div class="actions"><button class="btn amber" type="button" data-go="advanced">Start Advanced Import</button></div>
+        `}`;
+      return;
+    }
+    if (stage === "standard") {
+      flow.innerHTML = `
+        <h2 id="flow-h">Standard Import</h2>
+        <p class="hint">Tier A fabric mint — ChildCount-gated, progress + cancel.</p>
+        <div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:8px;font-family:var(--mono);font-size:11px;color:var(--ink-muted)">
+          <span>Building signal map…</span><span>48%</span>
+        </div>
+        <div class="progress" style="--p:48%" role="progressbar" aria-valuenow="48"><i></i></div>
+        <ul class="steps">
+          <li><span class="n ok">01</span><span>Essential checks — passed</span></li>
+          <li><span class="n">02</span><span>Walking menus &amp; buttons (budgeted)</span></li>
+          <li><span class="n">03</span><span>Seed identity (e.g. button 7)</span></li>
+        </ul>
+        <div class="law" style="margin-top:12px"><b>Output:</b> FabricGraph — same shape Advanced Import produces.</div>
+        <div class="actions">
+          <button class="btn" type="button">Cancel</button>
+          <button class="btn tone" type="button" data-go="ready">Skip to lesson-ready</button>
+        </div>`;
+      return;
+    }
+    if (stage === "advanced") {
+      flow.innerHTML = `
+        <h2 id="flow-h">Advanced Import</h2>
+        <p class="hint">Separate workflow when a11y is missing or dark — not a fake Standard mint.</p>
+        <div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:8px;font-family:var(--mono);font-size:11px;color:var(--ink-muted)">
+          <span>Harvesting proprietary fabric…</span><span>22%</span>
+        </div>
+        <div class="progress amber" style="--p:22%" role="progressbar" aria-valuenow="22"><i></i></div>
+        <ul class="steps">
+          <li><span class="n ok">01</span><span>Essential checks — a11y thin (diverted)</span></li>
+          <li><span class="n">02</span><span>Bounded explore / structured parse (import fuel)</span></li>
+          <li><span class="n">03</span><span>Compile HarvestedGraph → same Fabric IDs</span></li>
+          <li><span class="n">04</span><span>Validate open · manipulate · highlight targets</span></li>
+        </ul>
+        <div class="callout amber">
+          Longer ETA · operator consent · kill criteria
+          <div class="tip">Vision may help <b>build</b> the fabric. Lessons still execute without screenshot loops.</div>
+        </div>
+        <div class="actions">
+          <button class="btn" type="button">Cancel</button>
+          <button class="btn amber" type="button" data-go="ready">Skip to lesson-ready</button>
+        </div>`;
+      return;
+    }
+    if (stage === "ready") {
+      flow.innerHTML = `
+        <h2 id="flow-h">Lesson-ready</h2>
+        <p class="hint">Import finished. Runtime is lightweight and screenshot-free.</p>
+        <div class="callout good">
+          Fabric ready for <b>${a.name}</b>
+          <div class="tip">Open · manipulate · edit · highlight — Mount / observe / Triggered.</div>
+        </div>
+        <ul class="steps">
+          <li><span class="n ok">·</span><span>Dock lesson chrome opposite the action (product chrome)</span></li>
+          <li><span class="n ok">·</span><span>Highlight accurate viewport regions from fabric extents</span></li>
+          <li><span class="n ok">·</span><span>Beat clear: animation / notify — not a new capture</span></li>
+          <li><span class="n ok">·</span><span>Teacher mode: same touchpoints, AI may open &amp; execute</span></li>
+        </ul>
+        <div class="actions">
+          <button class="btn tone" type="button">Start guided lesson</button>
+          <button class="btn" type="button" data-go="pick">Back to pick</button>
+        </div>
+        <div class="refuse" role="status">
+          Example refuse (missing control)
+          <div class="tip">No Button named “bogon” — tip: open the keypad view, or pick Calculator → 7.</div>
+        </div>`;
+    }
+  }
+
+  document.getElementById("app-list").addEventListener("click", (e) => {
+    const btn = e.target.closest(".app");
+    if (!btn) return;
+    selected = btn.dataset.app;
+    document.querySelectorAll(".app").forEach((el) => {
+      const on = el === btn;
+      el.classList.toggle("sel", on);
+      el.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    if (stage === "pick") renderFlow();
+  });
+
+  document.querySelector(".stagebar").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-stage]");
+    if (!b) return;
+    if (b.dataset.stage === "confirm") {
+      openConfirm();
+      return;
+    }
+    setStage(b.dataset.stage);
+  });
+
+  flow.addEventListener("click", (e) => {
+    const go = e.target.closest("[data-go]");
+    if (go) setStage(go.dataset.go);
+  });
+
+  function openConfirm() {
+    const a = apps[selected];
+    confirmBody.innerHTML = `We’ll take a <b>few minutes</b> to analyze <b>${a.name}</b> and build a signal map.`;
+    confirmEta.textContent = "ETA: " + a.eta;
+    modal.classList.remove("hidden");
+    setStage("confirm");
+  }
+
+  document.getElementById("btn-import").addEventListener("click", openConfirm);
+  document.getElementById("confirm-cancel").addEventListener("click", () => {
+    modal.classList.add("hidden");
+    setStage("pick");
+  });
+  document.getElementById("confirm-start").addEventListener("click", () => {
+    modal.classList.add("hidden");
+    setStage("checks");
+  });
+
+  renderFlow();
+})();
+</script>
 </body>
 </html>

@@ -80,12 +80,15 @@ Calculator Ready · 82 nodes · seed `7` · ~255 ms. Journal:
 
 **Done when:** met. NEXT = C2f.
 
-### 10. C2f — wire Operator select → overlay paint
+### 10. C2f — Operator Import Process → guided lesson + paint
 
-Guided path reuses C2b physics; Advanced keeps CLI/self-test.
+**Contract:** [`docs/plans/coach-lab-experiment-program.md`](../plans/coach-lab-experiment-program.md)
++ mock rev Import Process. Honesty prompt → essential checks (a11y) →
+Standard Import → Mount/paint/Triggered. Advanced Import / Harvest =
+Lab spikes (CX-harvest), not a silent fake Standard mint.
 
-**Done when:** operator picks Calculator → sees paint → press Triggered
-without invoking probes by hand.
+**Done when:** operator picks Calculator → confirms import → checks pass
+→ sees paint → press Triggered without CLI probes; ledger stamps import facts.
 
 ### 11. Strict-mode pinning (replay) — after product path or operator ask
 
