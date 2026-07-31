@@ -173,7 +173,59 @@ Cost, stated plainly: the cascade goes from two levels to three (`Look` →
 **2 → 3**. `load` already refuses newer versions loudly, so old builds fail
 honest rather than misreading — which is exactly what the v1→v2 bump was for.
 
-### 2.3 Modern practice this schema should adopt
+### 2.4 RATIFIED — everything is an ENTITY; presets are entity-scoped
+
+**OPERATOR RULING 2026-07-31: "colour lives per entity."** Colour is one of the
+4-7, so the 4-7 are the *selected entity's* traits — which makes the preset
+entity-scoped too. You add text, then you style **that text**. The card is
+itself an entity (the stage), so the model closes with no special cases:
+
+> Every entity has a preset. Every preset exposes 4-7 traits. Colour is always
+> one of them.
+
+| entity | its preset carries | typical `exposes` |
+|---|---|---|
+| **card** (the stage) | moods · motion · ambience · tone | background · ambience · motion · colour |
+| **text** | font · size · ink · tone · enter | font · size · ink · colour · motion |
+| **picture** | fit · tone · enter | fit · colour · motion |
+| **quote** | font · size · ink · tone · attribution style | font · size · ink · colour |
+
+Today's five presets (`neon-intro`, `glacier-stat`, …) are **card** presets —
+they carry moods and ambience, which only the stage has. They are not thrown
+away; they are re-filed under the card scope and grown to 10-15. The other
+three sets are new data.
+
+Two consequences for §3.1:
+
+- `presets.json` gains a `for` field naming the entity kind, and the build-time
+  check becomes per-scope. An `exposes` name must be a knob **that entity
+  actually has** — a text preset exposing `ambience` fails the build.
+- "10-15" is **per entity kind**, not 10-15 in total.
+
+And one for the schema: `preset` and `tone` are **not** slide-level fields.
+They sit on every entity — the slide for the card, each block for its own:
+
+```rust
+struct Slide {
+  v: 3, template, title: Option<String>,
+  preset: Option<String>,          // the CARD entity's preset
+  tone: Option<String>,            // the CARD entity's colour
+  background: Option<Background>,  // sparse OVERRIDE of the preset
+  blocks: Vec<Block>, enter: Option<String>,
+  recipe: Option<String>,          // ratified #4 — reserved, unused this pass
+  reveals: Vec<String>,
+}
+Block::Text  { id, preset?, tone?, text, font?, size?, ink? }
+Block::Media { id, preset?, tone?, as, src, fit?, poster? }
+Block::Quote { id, preset?, tone?, text, attribution, source? }   // ratified #3
+```
+
+`Block::Text.size` goes **required → optional** in v3: size now comes from the
+preset, and a present value means a deliberate override. That is the single
+migration hazard in the bump, so the v2→v3 migration writes the old required
+`size` through as an explicit override — no card changes appearance.
+
+### 2.5 Modern practice this schema should adopt
 
 It already does three things right — refs-never-values, a version that refuses
 newer, and registry-validated references (the census law). What is missing:
@@ -208,10 +260,11 @@ That is the whole surface. Five steps, and **nothing else may be added to the
 path**:
 
 ```
-new card ─┐
-          ├─→ add <thing> ─→ pick a PRESET (10-15) ─→ tweak 4-7 TRAITS ─→ save
-existing ─┘                        │                    (colour always one)
-                                   └── everything else is decided FOR you
+new card ─┐                    ┌── select an ENTITY (the card, or a thing on it)
+          ├─→ add <thing> ─────┤
+existing ─┘                    └─→ pick its PRESET ─→ tweak its 4-7 TRAITS ─→ save
+                                          │             (colour always one)
+                                          └── everything else is decided FOR you
 ```
 
 Every other section of this plan exists to serve this flow. If a section does
@@ -223,44 +276,56 @@ A preset is already exactly the right shape in this codebase
 (`crates/coldlight/tokens/presets.json`): *"a NAMED BUNDLE OF REFS into the
 other registries (fonts/moods/motion) — data composed FROM the generated
 styling, zero new code per preset."* Five exist (`neon-intro`,
-`glacier-stat`, `arcade-flash`, `warm-editorial`, `fuchsia-signal`); the spec
-wants **10-15**.
+`glacier-stat`, `arcade-flash`, `warm-editorial`, `fuchsia-signal`) — all of
+them **card** presets (§2.4). The spec wants **10-15 per entity kind**.
 
 The rule that makes "only 4-7 traits" real rather than a UI convention: **a
-preset DECLARES the traits it exposes.** One new authored field:
+preset DECLARES the traits it exposes.** Two new authored fields — `for` (the
+entity kind it styles) and `exposes`:
 
 ```jsonc
 {
-  "id": "neon-intro", "label": "Neon intro",
-  "font": "orbitron", "moods": ["ember-drift","deep-lagoon"],
-  "motion": "blend-drift", "ambience": "pulse",
-  "exposes": ["colour", "font", "size", "ambience"]   // ← 4-7, colour mandatory
+  "id": "neon-intro", "label": "Neon intro", "for": "card",
+  "moods": ["ember-drift","deep-lagoon"], "motion": "blend-drift",
+  "ambience": "pulse", "tone": "magenta",
+  "exposes": ["colour", "background", "ambience", "motion"]  // 4-7, colour mandatory
+}
+{
+  "id": "neon-headline", "label": "Neon headline", "for": "text",
+  "font": "orbitron", "size": "display", "ink": "strong", "tone": "cyan",
+  "exposes": ["colour", "font", "size", "ink"]
 }
 ```
 
 Everything not in `exposes` is resolved by the preset and **cannot be reached
-from the card overlay at all** — that is "the complexity is behind the scenes,"
-made structural. Because presets are cross-validated at build time (an unknown
-ref already fails the build), this is enforceable the same way:
+from the overlay at all** — that is "the complexity is behind the scenes," made
+structural. Because presets are cross-validated at build time (an unknown ref
+already fails the build), this is enforceable the same way:
 
 - a preset exposing fewer than 4 or more than 7 traits **fails the build**;
 - a preset that does not expose `colour` **fails the build**;
+- a preset exposing a knob **its entity kind does not have** fails the build
+  (a `text` preset exposing `ambience` — the stage has ambience, text does not);
 - a trait name not in the knob registry **fails the build**.
 
-The knob set, drawn from what already exists — no new styling machinery:
+The knob registry, drawn from what already exists — no new styling machinery.
+The right column is what makes the per-scope check above decidable:
 
-| trait (the knob) | what it swaps | source |
-|---|---|---|
-| **colour** *(always exposed)* | the tone | `Tone` / `cl::MOODS` |
-| font | the typeface | `cl::FONTS` (13) |
-| size | the fluid step | the `Fluid` ramp |
-| ink | text weight/emphasis | strong · base · muted · subtle · tone |
-| background | the mood blend | `cl::MOODS` (10) |
-| motion | how it arrives | `MOTION_PRESETS` |
-| ambience | the ambient loop | none · pulse · drift · rings |
+| trait (the knob) | what it swaps | source | entities that have it |
+|---|---|---|---|
+| **colour** *(always exposed)* | the tone | `Tone` | **all** |
+| motion | how it arrives | `Slide.enter` / `MOTION_PRESETS` | all |
+| font | the typeface | `cl::FONTS` (13) | text · quote |
+| size | the fluid step | the `Fluid` ramp | text · quote |
+| ink | weight / emphasis | strong · base · muted · subtle · tone | text · quote |
+| background | the mood blend | `cl::MOODS` (10) | card |
+| ambience | the ambient loop | none · pulse · drift · rings | card |
+| drift | how the moods pan | the old `Background.motion` (§8.3 #6) | card |
+| fit | cover or contain | `Media.fit` | picture |
 
-Seven knobs total, 4-7 exposed per preset. A tray shows only the exposed ones,
-each drawn as itself (§3.3) — never a dropdown of words.
+Nine knobs across four entity kinds; **4-7 exposed per preset**, and colour is
+in every set. A tray shows only the exposed ones, each drawn as itself (§3.6)
+— never a dropdown of words.
 
 ### 3.2 The word "trait" means two things — resolved
 
@@ -406,11 +471,11 @@ aligned set is **one signal per step of the §3.0 flow** — so the signal strea
 pub enum BuildEvent {
     SlidePlaced      { show, episode, chapter, slide },  // Studio — unchanged
     EpisodeChanged   { show, episode },                  // Studio — unchanged
-    CardStarted      { slide },                  // new card, or an existing one opened
-    CardAdded        { slide, kind },            // text · picture · quote  (§3.5 ADD)
-    CardStyled       { slide, preset },          // a preset was picked     (§3.5 STYLE)
-    CardTraitChanged { slide, trait_name },      // one of the 4-7 knobs moved
-    CardSaved        { show, episode, slide },   // RENAMED from CardAuthored
+    CardStarted      { slide },                       // new card, or an existing one opened
+    CardAdded        { slide, entity, kind },         // text · picture · quote (§3.5 ADD)
+    CardStyled       { slide, entity, kind, preset }, // a preset was picked    (§3.5 STYLE)
+    CardTraitChanged { slide, entity, trait_name },   // one of the 4-7 knobs moved
+    CardSaved        { show, episode, slide },        // RENAMED from CardAuthored
 }
 ```
 
@@ -421,6 +486,12 @@ pub enum BuildEvent {
 | pick a preset | `CardStyled` | `build.card-styled` |
 | tweak a trait | `CardTraitChanged` | `build.card-trait-changed` |
 | save | `CardSaved` | `build.card-saved` |
+
+Since presets are entity-scoped (§2.4), the styling signals carry **which
+entity** was styled (`entity` = the block id, or `"card"` for the stage) and
+**which kind** it is. Without those, a coach could see that *something* was
+styled but never what — and preset usage per entity kind, the measurable form
+of the compounding claim, would be unrecoverable from the ledger.
 
 - `CardStarted` fires where `CardAuthored` fires today (`author.rs:1552`, after
   the draft write — emit-with-mutation) — that is what today's signal *actually*
@@ -474,7 +545,23 @@ things this pass could lose or fake silently, so each gets its own proof seam.
 3. **`crates/seam/src/lib.rs`** (`:264` wire shapes, pinned tests `:970/:993/:1256`)
    + **`crates/ledger/src/lib.rs:640`** — rows and shapes follow.
 
-**Commit 2 — the vocabulary, no behaviour change.**
+**Commit 2 — `SCHEMA_V` 3: the composition can express the flow (§2.1-2.4).**
+
+3a. **`crates/doc/src/lib.rs`** — `SCHEMA_V` 2→3. `Slide` gains `title`,
+    `preset`, `tone`, `recipe` (reserved). `Block::Text` gains `preset`,
+    `tone`, and `size` goes required → optional. `Block::Media` gains
+    `preset`, `tone`. **`Block::Quote{id,preset?,tone?,text,attribution,source?}`
+    is new** — the quote convention (`:222-250`) is retired, and
+    `quote_lines()` with it.
+3b. **The v2→v3 migration + its test** — a v2 document loads, its required
+    `size` is written through as an explicit override, and it renders
+    **identically**. The four authored template docs are migrated in the same
+    commit, not stranded (§2.5.1).
+3c. **`resolve()` gains the middle level** — `Look` → preset → entity
+    override — with one table-driven cascade test (§2.5.2).
+3d. **Provenance** — `created`/`modified`/`by` (§2.5.3).
+
+**Commit 3 — the vocabulary, no behaviour change.**
 
 4. **`crates/doc/src/lib.rs:840-885`** — `Seed` → `TemplateDoc`, `list_seeds()`
    → `list_template_docs()`, `SEED_CLASSES` → `TEMPLATE_CLASSES`,
@@ -483,7 +570,7 @@ things this pass could lose or fake silently, so each gets its own proof seam.
 5. **`crates/coldlight`** — `cl::TRAITS` → `cl::TREATMENTS` (§3.2), in
    `build.rs`'s generator and every call site. Token files unchanged in shape.
 
-**Commit 3 — the presets (§3.1), the flow's engine.**
+**Commit 4 — the presets (§3.1), the flow's engine.**
 
 6. **`crates/coldlight/tokens/presets.json`** — add the authored `exposes`
    array to each look preset; grow 5 → **10-15** (data only, zero new code per
@@ -492,7 +579,7 @@ things this pass could lose or fake silently, so each gets its own proof seam.
    alongside the existing unknown-ref check: **4 ≤ len ≤ 7**, `colour` always
    present, every name in the §3.1 knob registry. A violation fails the build.
 
-**Commit 4 — the Editor surface (§§3.3-3.6).**
+**Commit 5 — the Editor surface (§§3.3-3.6).**
 
 8. **`git mv crates/hubs/workbench/src/author.rs editor.rs`** —
    `AuthorSurface` → `EditorSurface`; `Shelf` → `Bucket` (six → four, labels ==
@@ -513,7 +600,7 @@ things this pass could lose or fake silently, so each gets its own proof seam.
 13. **`crates/app/src/main.rs`** — flags per §3.8, incl. `--card-existing` and
     `--card-preset`.
 
-**Commit 5 — the record.**
+**Commit 6 — the record.**
 
 14. **`CLAUDE.md`** harness-flag list + **`docs/design/architecture.md`** + the
     `structure_audit()` table in `crates/xtask/src/main.rs` — same commit
@@ -575,16 +662,18 @@ those two is the error called out on 2026-07-31 01:54.
 
 ## 7. Commit plan
 
-One branch `feat/workbench-editor`, off `main`, five commits — each one green
+One branch `feat/workbench-editor`, off `main`, six commits — each one green
 on its own:
 
-1. `refactor(fabric): card signals mirror the authoring flow` — §4 steps 1–3.
-2. `refactor(vocab): a template document is not a seed; traits are not treatments`
-   — §4 steps 4–5.
-3. `feat(coldlight): a preset declares the 4-7 traits it exposes` — §4 steps 6–7.
-4. `feat(workbench): the Editor — add, style, save` — §4 steps 8–13.
-5. `docs(editor): supersede the author-* lane; STATE + architecture + audit` —
-   §4 steps 14–15.
+1. `refactor(fabric): card signals mirror the authoring flow`
+2. `feat(doc): SCHEMA_V 3 — presets by reference, quote as a block, colour per entity`
+3. `refactor(vocab): a template document is not a seed; traits are not treatments`
+4. `feat(coldlight): a preset declares the entity it styles and the 4-7 traits it exposes`
+5. `feat(workbench): the Editor — add, style, save`
+6. `docs(editor): supersede the author-* lane; STATE + architecture + audit`
+
+Commit 2 is the load-bearing one: until the schema can hold a preset ref, a
+per-entity tone, and a real quote, the flow cannot be built at all.
 
 `gh pr list` first (parallel-session law). PR → `gh pr checks --watch` →
 **merge only on double-green** → rebuild `target/release/devpulselabs.exe`
@@ -614,22 +703,24 @@ font + two moods + motion + ambience + `exposes`), so I will propose the set
 composed from the registered fonts and moods and you red-pen the names and
 looks. I am not silently authoring taste.
 
-### 8.3 OPEN — the schema decisions (§2.1-2.3). Nothing else blocks.
+### 8.3 RATIFIED 2026-07-31 — the schema decisions (§2.1-2.3)
 
-Each has a recommendation; "yes to all" is a complete answer.
+| # | decision | ruling |
+|---|---|---|
+| 1 | preset: ref+overrides vs bake | ✅ **NOT BAKE** — ref + sparse overrides, `SCHEMA_V` 2→3 |
+| 2 | colour: per card or per block | ✅ **PER ENTITY** — operator correction; see §2.4 |
+| 3 | quote as a real block kind | ✅ **YES** — `Block::Quote{id,text,attribution,source?}` |
+| 4 | `recipe` field now, unused | ✅ **YES** — one field today instead of a second bump later |
+| 5 | authored card title | ✅ **YES** — `title: Option<String>` |
+| 6 | `motion` means two things | ⬜ not answered — taking the recommendation: the **knob** is `Slide.enter`; the background's field becomes `drift`. Say so if you want it the other way. |
 
-| # | decision | recommendation | why |
-|---|---|---|---|
-| 1 | **Preset: ref+overrides, or bake?** | **ref + overrides**, `SCHEMA_V` 2→3 | the only option where "only 4-7 traits" survives closing the card (§2.2) |
-| 2 | **Colour: per card, or per block?** | **per card** — one `tone` on `Slide` | per-block colour re-creates the twenty-knob surface this pass exists to kill |
-| 3 | **Quote: real block kind, or stay convention?** | **real** — `Block::Quote{id,text,attribution,source?}` | charter §2 ratified a source ref, "never pasted prose"; a citation needs somewhere to put the URL |
-| 4 | **Recipe field now, or later?** | **now, unused** — `recipe: Option<String>` | it costs one field today and a SECOND schema bump later; Interactions then lands as UI only |
-| 5 | **Card title: authored, or folder id?** | **authored** — `title: Option<String>` | the filmstrip caption is the folder id today, so three new cards read alike |
-| 6 | **`motion` means two things** (`Slide.enter` vs `Background.motion`) | the knob means **`Slide.enter`**; the background's becomes `drift` | one name, one concept (§2.3.4) |
+### 8.4 The preset sets I will bring back, not invent
 
-If 1 is **yes**, the pass gains one commit — `feat(doc): SCHEMA_V 3, presets by
-reference` — landing 1-6 together with a v2→v3 migration and its test, so the
-four authored template docs come along instead of being stranded.
+Per §2.4 the 10-15 is **per entity kind**, so there are four sets to author
+(card · text · picture · quote). All of it is data — refs into the registered
+fonts, moods, motion, and tones, plus each preset's `exposes` list. I will
+propose all four sets in one table for you to red-pen before any of it is
+written. I am not silently authoring taste.
 
 ### 8.2 Named follow-ups (NOT this pass — so they stop being invisible)
 
