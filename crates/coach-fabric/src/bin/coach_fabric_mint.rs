@@ -65,10 +65,7 @@ fn main() {
         if json || quiet {
             return;
         }
-        if matches!(p.phase, MintPhase::Walking)
-            && p.visited > 0
-            && !p.visited.is_multiple_of(25)
-        {
+        if matches!(p.phase, MintPhase::Walking) && p.visited > 0 && !p.visited.is_multiple_of(25) {
             return;
         }
         let _ = writeln!(
@@ -137,7 +134,6 @@ fn main() {
             std::process::exit(3);
         }
     }
-
 }
 
 fn json_str(s: &str) -> String {

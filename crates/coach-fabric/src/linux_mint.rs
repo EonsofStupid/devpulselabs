@@ -66,8 +66,8 @@ impl NodeSource for AtspiTree {
             let Ok(proxy) = proxy_key(&self.conn, id).await else {
                 return Vec::new();
             };
-            let Ok(builder) = ActionProxy::builder(&self.conn)
-                .destination(proxy.inner().destination())
+            let Ok(builder) =
+                ActionProxy::builder(&self.conn).destination(proxy.inner().destination())
             else {
                 return Vec::new();
             };
@@ -99,8 +99,7 @@ pub fn mint_blocking(
         Err(e) => {
             return MintOutcome::Refused(Refused {
                 reason: format!("a11y bus unavailable: {e}"),
-                tip: "Accessibility must be on for Coach — check Settings → Accessibility."
-                    .into(),
+                tip: "Accessibility must be on for Coach — check Settings → Accessibility.".into(),
             });
         }
     };
@@ -241,9 +240,7 @@ async fn a11y_connection() -> zbus::Result<ZbusConnection> {
 }
 
 fn compact_name(s: &str) -> String {
-    s.chars()
-        .filter(|c| c.is_ascii_alphanumeric())
-        .collect()
+    s.chars().filter(|c| c.is_ascii_alphanumeric()).collect()
 }
 
 fn block_on<F: Future>(fut: F) -> F::Output {

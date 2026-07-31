@@ -53,16 +53,10 @@ impl MintBudget {
 /// Layman ETA copy keyed off inventory complexity pills.
 pub fn eta_hint(c: Complexity) -> String {
     match c {
-        Complexity::Small => {
-            "About a second — Calculator is a small signal map.".into()
-        }
+        Complexity::Small => "About a second — Calculator is a small signal map.".into(),
         Complexity::Medium => "A few seconds — walking menus.".into(),
-        Complexity::Deep => {
-            "May take a while — or refuse if the tree is too large.".into()
-        }
-        Complexity::Unknown => {
-            "We'll try with a tight budget and tip if we stop.".into()
-        }
+        Complexity::Deep => "May take a while — or refuse if the tree is too large.".into(),
+        Complexity::Unknown => "We'll try with a tight budget and tip if we stop.".into(),
     }
 }
 

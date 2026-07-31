@@ -1,8 +1,6 @@
 //! Pure budgeted BFS over a [`NodeSource`] — unit-tested without AT-SPI.
 
-use crate::{
-    eta_hint, FabricNode, MintBudget, MintOutcome, MintPhase, MintProgress, Refused,
-};
+use crate::{eta_hint, FabricNode, MintBudget, MintOutcome, MintPhase, MintProgress, Refused};
 use dpl_coach_inventory::{Complexity, DesktopId};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -135,10 +133,7 @@ where
     });
 
     while let Some((id, depth, path)) = queue.pop_front() {
-        if params
-            .cancel
-            .is_some_and(|c| c.load(Ordering::Relaxed))
-        {
+        if params.cancel.is_some_and(|c| c.load(Ordering::Relaxed)) {
             return MintOutcome::Cancelled;
         }
         if started.elapsed().as_millis() as u64 > budget.max_ms {
@@ -151,8 +146,9 @@ where
         if nodes.len() as u32 >= budget.max_nodes {
             return MintOutcome::Refused(Refused {
                 reason: format!("mint exceeded {} node budget", budget.max_nodes),
-                tip: "This tree is too large for a guided lesson — pick a smaller seed (Calculator)."
-                    .into(),
+                tip:
+                    "This tree is too large for a guided lesson — pick a smaller seed (Calculator)."
+                        .into(),
             });
         }
 
