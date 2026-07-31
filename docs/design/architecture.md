@@ -81,6 +81,9 @@ the audit, same commit, with the reason.
 - **crates/coach-inventory/** (`dpl-coach-inventory`): C2d lightweight
   target inventory (XDG cold catalog + AT-SPI desktop-root census);
   egui-free; never deep-walks; orphan until Coach hub consumes it.
+- **crates/coach-fabric/** (`dpl-coach-fabric`): C2e budgeted Tier A
+  fabric mint for one selected target; egui-free; may depend on
+  inventory; never a dep of `app` until Coach hub consumes it.
 
 ## 4. The laws every new crate inherits
 
