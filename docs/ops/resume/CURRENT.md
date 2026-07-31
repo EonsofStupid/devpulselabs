@@ -1,26 +1,27 @@
 # Resume pack — CURRENT
 
-**Updated:** 2026-07-30
+**Updated:** 2026-07-31
 **Lane:** coach-ledger
 **Dirty:** false
 
 ## Goal
 
-C2e fabric mint for selected Calculator after C2d inventory PASS.
+C2f — wire Operator select → existing overlay paint (guided lesson).
 
 ## Done
 
-- C2d: `dpl-coach-inventory` + `coach-inventory-list`
-- Live: Calculator small RUNNING + seed tip (~20 ms)
-- Journal: `docs/journal/2026-07-30-c2d-inventory.md`
+- C2e: `dpl-coach-fabric` + `coach-fabric-mint`
+- Live: Calculator Ready · 82 nodes · seed `7` · ~255 ms
+- Journal: `docs/journal/2026-07-31-c2e-fabric-mint.md`
 
 ## Next
 
-1. Land C2d PR (`feat/c2d-coach-inventory`)
-2. Author/implement **C2e** fabric mint plan
+1. Land C2e PR (`feat/c2e-coach-fabric`)
+2. Author/implement **C2f** Operator → overlay paint path
 
 ## Key files
 
-- `crates/coach-inventory/`
-- `docs/plans/coach-c2d-lightweight-inventory.md`
-- `docs/journal/2026-07-30-c2d-inventory.md`
+- `crates/coach-fabric/`
+- `docs/plans/coach-c2e-fabric-mint.md`
+- `docs/journal/2026-07-31-c2e-fabric-mint.md`
+- `crates/coach-overlay/` (paint physics)

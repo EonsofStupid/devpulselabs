@@ -2078,6 +2078,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "dpl-coach-fabric"
+version = "0.1.0"
+dependencies = [
+ "async-io",
+ "atspi",
+ "dpl-coach-inventory",
+ "zbus",
+]
+
+[[package]]
 name = "dpl-coach-inventory"
 version = "0.1.0"
 dependencies = [

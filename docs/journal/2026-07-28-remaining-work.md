@@ -74,10 +74,11 @@ AT-SPI desktop-root census. Calculator seed RUNNING. No deep walk.
 
 ### 9. C2e — fabric mint for selected Calculator
 
-Budgeted deep walk on **one** selected target; progress + ETA; refuse tips;
-seed lesson (e.g. button `7`).
+**PASS** 2026-07-31 — `dpl-coach-fabric` + `coach-fabric-mint`. Live
+Calculator Ready · 82 nodes · seed `7` · ~255 ms. Journal:
+`docs/journal/2026-07-31-c2e-fabric-mint.md`.
 
-**Done when:** mint journal + `FabricEvent`/progress proof; no screenshot loop.
+**Done when:** met. NEXT = C2f.
 
 ### 10. C2f — wire Operator select → overlay paint
 

@@ -1,7 +1,9 @@
 # Coach operator experience — product spine (frictionless vision)
 
-**Status:** LOOK-APPROVED 2026-07-30 (operator: “looks good”) — C2c mock
-locked; **NEXT = C2d** lightweight inventory  
+**Status:** LOOK-APPROVED 2026-07-30 — C2c mock locked; C2d (#172) + C2e
+fabric mint PASS; **NEXT = C2f** wire Operator select → overlay paint  
+
+ 
 **Lane:** coach-ledger  
 **Mock:** [`../ops/references/coach-operator-mock-c2c.html`](../ops/references/coach-operator-mock-c2c.html)  
 **Mock plan:** [`coach-c2c-operator-mock.md`](coach-c2c-operator-mock.md)  
@@ -29,9 +31,9 @@ refusals teach with tips. Advanced / EguiPilot remains a second surface.
 | Overlay process exception + self-test binary | **PASS** (C2a + C2b #158) |
 | Stdio coach loop on overlay | Deferred (Advanced plumbing) |
 | **Operator picker / mint / tip UX** | **MISSING — this is NEXT** |
-| Lightweight installed-app inventory | Not started |
-| Fabric mint progress + ETA | Not started |
-| Doc NEXT pointers | **Aligned this pass** → C2c Operator UX |
+| Lightweight installed-app inventory | **PASS** C2d (#172) |
+| Fabric mint progress + ETA | **PASS** C2e (`dpl-coach-fabric`) |
+| Doc NEXT pointers | C2f wire Operator → overlay |
 
 ## 3. Design
 
