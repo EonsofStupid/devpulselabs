@@ -62,6 +62,8 @@ pub enum ChatProofMode {
     Assist,
     /// The Content domain with a real episode spine loaded (D1).
     Content,
+    /// A REAL local transcript open in the conversation pane (H1).
+    History,
 }
 
 #[cfg(feature = "eguipilotai-devtools")]
@@ -81,6 +83,7 @@ impl ChatProofMode {
             "snapped" => Some(Self::Snapped),
             "assist" => Some(Self::Assist),
             "content" => Some(Self::Content),
+            "history" => Some(Self::History),
             _ => None,
         }
     }
@@ -94,6 +97,10 @@ struct Shared {
     registry: ChatWindowRegistry,
     lifetime: PeerLifetime,
     window: ChatWindow,
+    /// The transcript catalog lives HERE, not in the window: paging a past
+    /// session is IO, and the host owns IO. The window borrowed it once to
+    /// build its index (H1 §3.2).
+    catalog: HistoryCatalog,
     codex_activation: dpl_chat_codex::CodexActivationCoordinator,
     grok_activation: dpl_chat_grok::GrokActivationCoordinator,
     grok_runtime: Option<dpl_chat_grok::GrokAcpRuntime>,
@@ -257,12 +264,12 @@ impl ChatWindowCoordinator {
             Some((social, interactions)) => ChatWindow::with_models(
                 runtime,
                 initial_route,
-                catalog,
+                &catalog,
                 routes,
                 social,
                 interactions,
             ),
-            None => ChatWindow::new(runtime, initial_route, catalog, routes),
+            None => ChatWindow::new(runtime, initial_route, &catalog, routes),
         };
         window.replace_provider_profiles(provider_profiles);
         // Trigger 0 of the content refresh policy (D1 plan §3.4): seed the
@@ -298,6 +305,22 @@ impl ChatWindowCoordinator {
                     if let Some(first) = window.content_episode_ids().first().cloned() {
                         if let Some(spine) = read_content_spine(&first) {
                             window.observe_content_spine(spine);
+                        }
+                    }
+                }
+                ChatProofMode::History => {
+                    // Open the operator's OWN newest transcript. If the rail
+                    // found nothing the proof shot shows exactly that, which
+                    // is the failure worth seeing.
+                    if let Some((provider, locator)) = window.first_history_session() {
+                        window
+                            .apply(dpl_chat_window::ChatWindowIntent::SelectHistorySession {
+                                provider,
+                                locator,
+                            })
+                            .expect("the selected transcript is registered");
+                        if let Ok(page) = catalog.page(provider, locator, None) {
+                            window.observe_history_page(page);
                         }
                     }
                 }
@@ -509,6 +532,7 @@ impl ChatWindowCoordinator {
             registry,
             lifetime: PeerLifetime::default(),
             window,
+            catalog,
             codex_activation,
             grok_activation,
             grok_runtime: None,
@@ -1000,6 +1024,20 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
         } => open_utility(ctx, shared, interaction_id, placement),
         HostIntent::ActivateProvider(provider) => {
             activate_provider(shared, provider);
+            ctx.request_repaint();
+        }
+        HostIntent::LoadHistoryPage { provider, locator } => {
+            // The host owns the catalog because reading a transcript is IO.
+            // A failed read is reported to the operator, never swallowed —
+            // an empty pane with no reason is how the count label happened.
+            let mut state = lock(shared);
+            match state.catalog.page(provider, locator, None) {
+                Ok(page) => state.window.observe_history_page(page),
+                Err(error) => {
+                    tracing::warn!(%error, %provider, "chat transcript page unavailable");
+                }
+            }
+            drop(state);
             ctx.request_repaint();
         }
         HostIntent::ProviderSelected(provider) => {
