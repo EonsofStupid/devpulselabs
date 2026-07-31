@@ -101,6 +101,94 @@ only emitted fact and it carries the wrong word. Consumers:
 No crate outside `hubs/workbench` names the surface. `xtask` route audit
 (`main.rs:1031`) lists `wiredfront/editor`, not this one.
 
+## 2.1 THE COMPOSITION SCHEMA — what it can say, and the gaps
+
+Operator, 2026-07-31: *"we have far too many gaps in the actual recipe/seed for
+the composition."* Correct. Here is the whole document
+(`crates/doc/src/lib.rs:19-131`, `SCHEMA_V = 2`):
+
+```rust
+struct Slide {
+    v: u32,
+    template: String,                 // which registered template renders it
+    background: Option<Background>,   // MoodBlend{moods[2],motion,ambience} | Mood | None
+    blocks: Vec<Block>,               // Text{id,text,font?,size,ink?} | Media{id,as,src,fit?,poster?}
+    enter: Option<String>,            // entrance ref
+    reveals: Vec<String>,             // the beat grammar (D2)
+}
+```
+
+Cascade is exactly two levels — episode `Look` → `Slide`, sparse means inherit
+(`:695-760`). What is genuinely good and must not be lost: **refs never
+values** — a slide names `"orbitron"`, `"ember-drift"`, never a hex or a pixel.
+That single property is the reason presets can work at all.
+
+Now the flow (§3.0) against that schema, honestly:
+
+| flow step | schema support | gap |
+|---|---|---|
+| new / existing card | ✅ `Slide` | — |
+| add **text** | ✅ `Block::Text` | — |
+| add **picture** | ✅ `Block::Media` | — |
+| add **quote** | ⚠️ convention over two Text blocks (`:222`) | **no attribution, no source URL** — charter §2 ratified a real source ref, "never pasted prose" |
+| pick a **preset** | ❌ **nothing** | **THE GAP** — a slide cannot say which preset styled it |
+| **colour** (always exposed) | ❌ **nothing** | `ink:"tone"` means *use the tone*, but the tone itself is never in the document — it comes from the caller |
+| font · size · ink | ✅ `Block::Text` | — |
+| background · ambience | ✅ `Background` | — |
+| motion | ⚠️ two of them — `Slide.enter` and `Background.motion` | which one is the "motion" knob? |
+| save | ✅ | — |
+
+Two further gaps the flow does not hit yet but the charter's law requires:
+
+- **Recipes / interactions** — charter §4's entire law is that a card
+  references a registered recipe (`recipe:"explode-reveal"`) so a phantom
+  interaction fails validation. **No field on `Slide` or `Block` can hold
+  one.** The Effects bucket offers recipes the document cannot reference.
+- **Provenance** — no created/modified, no record of what generated a card.
+  The compounding-library economics (charter §5) are unmeasurable without it.
+- **Title** — `Episode`, `Chapter`, and `SlideRef` carry titles (`:479-496`);
+  the slide document itself does not. The filmstrip caption is the folder id.
+
+### 2.2 The architectural fork: a preset is a REF, not a bake
+
+This is the decision everything else hangs on.
+
+**Bake** — picking a preset copies its font/moods/motion/ambience onto the
+slide and forgets it. Simple, and it **breaks the spec on reload**: reopen the
+card and the Editor cannot know which preset it was, so it cannot know which
+4-7 traits to expose. "Only 4-7 knobs" would hold only until you close the lid.
+
+**Ref + sparse overrides** — the slide stores `preset: "neon-intro"` plus only
+the traits you actually changed. This is the standard composition pattern
+(design tokens, Figma components + overrides, symbol/instance) and it is the
+only one where the spec survives a reload:
+
+- reopen → read the preset → look up its `exposes` → show exactly those knobs;
+- improve a preset once → every card using it improves;
+- the on-disk diff stays tiny and readable;
+- it preserves refs-never-values rather than smearing resolved values around.
+
+Cost, stated plainly: the cascade goes from two levels to three (`Look` →
+`preset` → `slide overrides`), `resolve()` gains a step, and `SCHEMA_V` goes
+**2 → 3**. `load` already refuses newer versions loudly, so old builds fail
+honest rather than misreading — which is exactly what the v1→v2 bump was for.
+
+### 2.3 Modern practice this schema should adopt
+
+It already does three things right — refs-never-values, a version that refuses
+newer, and registry-validated references (the census law). What is missing:
+
+1. **Additive-only evolution with real migrations.** Today v1 documents simply
+   fail. One `migrate(v, json) -> Slide` with a test per hop means the four
+   authored template docs are not stranded by the v3 bump.
+2. **An explicit, tested cascade order** — `Look` → preset → slide, one
+   `resolve()`, one table-driven test. Undocumented cascades rot.
+3. **Provenance** — `created`/`modified` and a `by` field (`operator` |
+   `preset:<id>` | `ai:<model>`), which is what makes charter §5's compounding
+   claim measurable instead of rhetorical.
+4. **One name per concept** — the discipline §3.2/§3.6 apply to `trait` and
+   `seed`, applied to the schema too: `motion` must mean one thing.
+
 ## 3. Target design
 
 **One subroute. `workbench/editor`. Labelled "Editor". `AUTHOR` is deleted, not
@@ -525,6 +613,23 @@ look presets and five exist. The five new-to-ten are *data* (`presets.json` —
 font + two moods + motion + ambience + `exposes`), so I will propose the set
 composed from the registered fonts and moods and you red-pen the names and
 looks. I am not silently authoring taste.
+
+### 8.3 OPEN — the schema decisions (§2.1-2.3). Nothing else blocks.
+
+Each has a recommendation; "yes to all" is a complete answer.
+
+| # | decision | recommendation | why |
+|---|---|---|---|
+| 1 | **Preset: ref+overrides, or bake?** | **ref + overrides**, `SCHEMA_V` 2→3 | the only option where "only 4-7 traits" survives closing the card (§2.2) |
+| 2 | **Colour: per card, or per block?** | **per card** — one `tone` on `Slide` | per-block colour re-creates the twenty-knob surface this pass exists to kill |
+| 3 | **Quote: real block kind, or stay convention?** | **real** — `Block::Quote{id,text,attribution,source?}` | charter §2 ratified a source ref, "never pasted prose"; a citation needs somewhere to put the URL |
+| 4 | **Recipe field now, or later?** | **now, unused** — `recipe: Option<String>` | it costs one field today and a SECOND schema bump later; Interactions then lands as UI only |
+| 5 | **Card title: authored, or folder id?** | **authored** — `title: Option<String>` | the filmstrip caption is the folder id today, so three new cards read alike |
+| 6 | **`motion` means two things** (`Slide.enter` vs `Background.motion`) | the knob means **`Slide.enter`**; the background's becomes `drift` | one name, one concept (§2.3.4) |
+
+If 1 is **yes**, the pass gains one commit — `feat(doc): SCHEMA_V 3, presets by
+reference` — landing 1-6 together with a v2→v3 migration and its test, so the
+four authored template docs come along instead of being stranded.
 
 ### 8.2 Named follow-ups (NOT this pass — so they stop being invisible)
 
