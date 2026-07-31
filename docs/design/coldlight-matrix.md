@@ -257,7 +257,187 @@ A test pins each of the four legacy calls against its coordinate and asserts
 the `ResolvedStyle` is **byte-identical** — so the matrix is proven to be a
 reclassification, not a restyle.
 
-## 9. Open for ratification
+## 9. TARGETS — egui is one consumer, not the owner
+
+**OPERATOR REQUIREMENT 2026-07-31:** the matrix is the foundation for a
+**Svelte** rebuild, which then spins off a **TanStack Start + React Aria
+Components** version. Three renderers, one definition.
+
+This is a return to the original pipeline, not a new idea — `doctrine.md`
+records it: *"The original's web pipeline (author JSON → Style Dictionary → CSS
+vars → cascade) lands in egui as author JSON → `build.rs` generates Rust consts
+→ a pure compositor."* The matrix restores the web leg and adds a third.
+
+```
+                  tokens/*.json  ← THE ONLY AUTHORED THING
+                        │
+        ┌───────────────┼────────────────┐
+        ▼               ▼                ▼
+   build.rs        gen:css/ts       gen:css/ts
+   Rust consts     CSS vars +       same vars,
+   + resolve()     Svelte module    RAC/TanStack
+        │               │                │
+      egui           Svelte          React (RAC)
+   (the exe)     (web foundation)   (spun off Svelte)
+```
+
+### 9.1 The law this creates
+
+> **Nothing may be authored in Rust.** A facet value, an ancestor ruling, a
+> preset, a knob — if it lives in Rust code rather than `tokens/*.json`, the
+> web targets cannot see it and the three renderers diverge silently.
+
+The existing generated-consts approach already respects this; the matrix makes
+it load-bearing rather than stylistic. A build-time check enforces it: the Rust
+generator must emit **only** from JSON, and a test asserts every ancestor,
+facet value and preset id in the generated Rust appears in the JSON.
+
+### 9.2 The semantics port cleanly — checked, not assumed
+
+| matrix concept | egui | CSS (Svelte / RAC) |
+|---|---|---|
+| override axes, last-wins | `resolve()` last-writer | the cascade — this is what CSS *is* |
+| additive axes, concatenate | `Vec`/`&'static [..]` | comma lists: `box-shadow: a, b, c` |
+| a `Coordinate` | packed enum key → memo table | one class per coordinate, or 4 data-attrs |
+| `Tone` | runtime arg | a custom property, `--tone` |
+| `STATE` (idle/hover/active) | `TraitState` | `:hover` / `:active` |
+
+The one asymmetry worth naming: the **memoized integer key** (§ the
+optimization that removes per-frame allocation) is a Rust-side implementation
+detail. CSS gets that for free — the browser already caches computed style. So
+the optimization work is egui-only and does not fork the definition.
+
+### 9.3 Fonts are part of the matrix, and they must ship to all three
+
+`font` is owned by ANCESTOR (§3), so typography is matrix data, not a
+per-target choice. The 13 faces live at `crates/coldlight/assets/fonts/`
+(1.8 MB of OFL TTFs). Each target needs its own form:
+
+| target | form | note |
+|---|---|---|
+| egui | TTF, atlas-built at startup | today's cost — see the startup note below |
+| Svelte / RAC | **WOFF2**, `@font-face`, subset per face | TTF→WOFF2 is a build step, ~60-70% smaller |
+
+**The startup honesty from the last answer lands here.** Thirteen faces in one
+atlas is the egui startup cost I flagged; on web it is 13 network fetches
+unless subset and preloaded. Same problem, two shapes. The fix is the same in
+both: **an ancestor pins its face**, so a given screen needs the faces its
+coordinates actually use — load per-ancestor, not all-13-up-front. That is a
+capability the matrix creates: without ancestors owning typography, you cannot
+know which faces a screen needs.
+
+## 10. THE TYPE POOL — ~20 faces per ancestral family
+
+**OPERATOR REQUIREMENT 2026-07-31:** each family offers ~20 faces, not one.
+Correct — one face per lineage is too rigid, and typography is where a movement
+is most recognisable.
+
+### 10.1 A font is CLASSIFIED, not assigned
+
+Hand-assigning 8 × 20 = 160 faces would be 160 decisions that rot the moment a
+face is added. Apply the same principle the rest of the matrix uses: **a face
+carries a classification, and an ancestor rules on the classes** (§5), so any
+face in an allowed class works and a new face is classified once, not eight
+times.
+
+```jsonc
+{ "id": "jost", "family": "Jost", "class": "geometric-sans",
+  "axes": ["wght"], "variable": true }
+```
+
+Classes: `geometric-sans` · `neo-grotesque` · `humanist-sans` · `rounded-sans` ·
+`condensed-grotesque` · `display-geometric` · `display-decorative` ·
+`didone` · `transitional-serif` · `slab` · `mono` · `pixel`.
+
+Faces overlap families deliberately — Inter is native to `swiss` and allowed in
+`brutalist`; Poppins native to `bauhaus`, allowed in `aero`. **So the pool is
+~120 unique faces, not 160.**
+
+### 10.2 The proposed pool, by family (all OFL / Google Fonts)
+
+★ = the anchor face, the one that most defines the lineage.
+
+**bauhaus** — geometric, constructed, single-storey: **Jost ★** · Josefin Sans ★
+· League Spartan ★ · Poppins · Montserrat · Questrial · Didact Gothic ·
+Comfortaa · Urbanist · Outfit · Lexend · Hanken Grotesk · Red Hat Display ·
+Sora · Syne · Archivo · Tenor Sans · Raleway · Gantari · Nunito Sans
+
+**art-deco** — high-contrast display, geometric caps, streamlined: **Poiret One ★**
+· Limelight ★ · Italiana ★ · Cinzel · Cinzel Decorative · Playfair Display ·
+Marcellus · Gilda Display · Bodoni Moda · Julius Sans One · Prata · Forum ·
+Bellefair · Della Respira · Antic Didone · Yeseva One · Nixie One · Rozha One ·
+Cormorant · Sorts Mill Goudy
+
+**brutalist** — raw, heavy, default-looking: **Archivo Black ★** · Anton ★ ·
+Bebas Neue ★ · Space Mono · Courier Prime · Inter · Roboto · Work Sans ·
+IBM Plex Sans · IBM Plex Mono · Libre Franklin · Oswald · Chivo · Barlow ·
+Barlow Condensed · Public Sans · Unbounded · Big Shoulders Display ·
+Familjen Grotesk · Darker Grotesque
+
+**swiss** — neo-grotesque, neutral, grid: **Inter ★** · Space Grotesk ★ ·
+Manrope ★ · Roboto · Work Sans · IBM Plex Sans · Public Sans · Libre Franklin ·
+Archivo · Instrument Sans · Figtree · Hanken Grotesk · Plus Jakarta Sans ·
+Onest · Schibsted Grotesk · Karla · Mulish · Rubik · Inter Tight · Geologica
+
+**aero** — humanist rounded, optimistic: **Nunito ★** · Quicksand ★ ·
+Varela Round ★ · Baloo 2 · Comfortaa · M PLUS Rounded 1c · Fredoka · Rubik ·
+Signika · Asap · Dosis · Livvic · Catamaran · Hind · Overpass · Lexend Deca ·
+Outfit · Poppins · Sniglet · Mali
+
+**memphis** — playful, quirky, clashing: **Bungee ★** · Shrikhand ★ ·
+Rubik Mono One ★ · Fredoka One · Lilita One · Righteous · Chewy · Titan One ·
+Bowlby One · Modak · Bagel Fat One · Gluten · Kablammo · Workbench · Sixtyfour ·
+Honk · Rampart One · Climate Crisis · Bungee Shade · Sniglet
+
+**constructivist** — heavy condensed, agitational: **Oswald ★** · Fjalla One ★ ·
+Staatliches ★ · Bebas Neue · Anton · Archivo Narrow · Teko · Khand ·
+Saira Condensed · Big Shoulders Display · League Gothic · Pathway Gothic One ·
+Abril Fatface · Alfa Slab One · Ultra · Bungee Inline · Squada One · Six Caps ·
+Antonio · Archivo Condensed
+
+**editorial** — high-contrast serif, print classicism: **Playfair Display ★** ·
+Bodoni Moda ★ · Libre Baskerville ★ · Libre Bodoni · Cormorant Garamond ·
+EB Garamond · Lora · Source Serif 4 · Crimson Pro · Newsreader · Literata ·
+Spectral · PT Serif · Frank Ruhl Libre · Petrona · Faustina · Vollkorn ·
+Merriweather · Domine · Zilla Slab
+
+**The 13 already in the repo** re-file cleanly and none are wasted: Orbitron ·
+Michroma · Audiowide · Oxanium · Chakra Petch → `bauhaus`/`constructivist`
+display; Space Grotesk · Exo 2 · Rajdhani → `swiss`; Monoton → `art-deco`
+display; Press Start 2P · VT323 → `pixel` (terminal, §3.2 gap 5);
+Share Tech Mono · JetBrains Mono → `mono`.
+
+### 10.3 The weight problem, and why per-ancestor loading is the answer
+
+This is the tension with *"loads effortlessly"*, stated honestly:
+
+| form | per face | 120 faces |
+|---|---|---|
+| TTF, as shipped today | ~125 KB | **~15 MB** |
+| variable + WOFF2 + Latin subset | ~15–25 KB | ~2.4 MB |
+| **one ancestor's ~20 faces, subset** | — | **~400 KB** |
+
+- **Web:** ship WOFF2, subset to Latin, prefer variable faces (one file covers
+  every weight). Load **per ancestor**, never the whole pool.
+- **egui:** do **not** embed 15 MB in the exe. Faces load lazily from a
+  `fonts/` directory beside the binary, and only the faces a coordinate
+  actually uses get atlased. This directly fixes the 13-face startup atlas cost
+  flagged earlier.
+
+**This is the capability the matrix creates.** Because an ancestor owns
+typography (§3), a screen's coordinates tell you exactly which faces it needs —
+so per-ancestor loading is computable rather than guesswork. Without ancestors
+owning type, you would have to load all 120.
+
+### 10.4 What is not done here
+
+The 13 repo faces are all I can render. The other ~107 are OFL and free, but
+**acquiring, subsetting and converting them is a real task** — a `cargo xtask
+fonts` step that fetches, subsets to Latin, emits WOFF2 for web and TTF for
+egui, and writes the classification stub. Named so it is scheduled, not
+assumed.
+
+## 11. Open for ratification
 
 1. ✅ **RATIFIED 2026-07-31** — the grid/technical seed is **`swiss`**, not
    `frutiger`; `aero` remains its own seed.
@@ -270,3 +450,8 @@ reclassification, not a restyle.
    **every ancestor must rule on every facet value**, so eight seeds × 19 values
    = 152 rulings to author. That is the price of a matrix that cannot rot, and
    it is why the ancestral list must stay short.
+6. §10.2 — the ~120-face pool and its anchors. Red-pen before `xtask fonts`
+   fetches anything.
+7. §10.3 — per-ancestor font loading on both targets, and **no font embedding
+   in the exe** (lazy from a `fonts/` dir instead). This is the decision that
+   keeps "visually heavy" and "loads effortlessly" from contradicting.
