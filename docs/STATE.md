@@ -2,6 +2,40 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-30 — CHAT READS THE CONTENT (D1, program map
+`docs/plans/chat-operations-console.md`, plan
+`docs/plans/chat-content-seam.md`):** Chat's whole view of the platform
+was a `Route` enum; it now has a THIRD DOMAIN, `Content`, showing the
+real census (shows → episodes) and the focused episode's chapter→slide
+spine. The seam carries PLAIN DATA — the host translates `dpl_doc` and
+pushes via `observe_content*`, mirroring `observe_route`; `dpl-chat-
+window` gained NO content dependency and the gate greps for it.
+`ChatDomain::Content` is a UNIT variant so `ChatDomainStates` keeps its
+`const fn` accessors (M3 rejected `Provider(ProviderId)` for the DATA it
+carried, not for being a variant). Proof
+`docs/proof/chat-content-spine-native.png` — real exe, real spine.
+
+**⚠ THE FINDING THAT REORDERS THE PROGRAM:** the operator has 128 Claude
++ 37 Codex transcripts = **165 real chats on disk**, and a LIVE-runtime
+pilot snapshot (`chat-local-histories`, fixture `chat`) found **ZERO**
+session rows. The decoders (`ClaudeHistoryDecoder`/`CodexHistoryDecoder`)
+are complete, `local_chat_history_catalog()` (`app/src/main.rs:1162`)
+registers both roots, and `ChatWindow::new` indexes them into
+`self.histories` — which is then used in ONE place, as a COUNT in an
+unclickable label. Every session ROW comes from the LIVE registry, empty
+for history-backed providers. The chats are found, decoded, indexed, and
+shown as a number. **H1 (chats-in-one-system) is sequenced NEXT, ahead
+of D2.** It is small: `IndexedSession.summary` IS the `SessionSummary`
+the rail renders and `HistoryCatalog::page()` returns the `ChatEvent`
+the pane renders. LESSON: authored fixtures prove composition, never
+that the product works — run the LIVE fixture too. Three passes of chat
+chrome shipped before anyone asked whether the chats appear.
+
+**Landmine:** the disk hit 99% and SILENTLY failed a build (os error
+112) while `cargo … | tail` masked the exit code — never pipe cargo
+without capturing `$?`. Freed 24.3 GB via `target/debug/incremental`
+(pure cache); `deps` and both `dptools-deps` depots left alone.
+
 **2026-07-30 — THE NAMING LAW GETS A GATE (architecture.md §4 + §6):** the
 law was never wrong, it was never ENFORCED — "`dpl-` prefix; kebab ids" has
 been §4 since the doctrine pass, with nothing checking it and no exception
@@ -111,7 +145,6 @@ lightweight inventory, fabric mint from a11y streams (not screenshots),
 seeds + refuse tips; Advanced/EguiPilot is a second surface. Mock:
 `docs/ops/references/coach-operator-mock-c2c.html` (**Coach hub**).
 Pass-2 stdio / strict pinning **parked**.
-
 **2026-07-30 — THE ALIGNMENT PASS (operator: "I want my project back
 under control… getting it all aligned"):** every stray landed, one truth
 on main. (1) THE checkout is BACK ON MAIN, clean, exe fresh (23:58

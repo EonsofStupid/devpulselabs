@@ -7,8 +7,9 @@
 use dpl_chat_context::RouteContextState;
 use dpl_chat_core::{
     ActivationState, Capability, ChatDomain, ChatEvent, ChatEventContent, ChatEventId,
-    ChatSessionId, EventPresentation, ProviderAccent, ProviderId, RecoveryActionKind, SessionGroup,
-    SessionState, SessionSummary, TurnId,
+    ChatSessionId, ContentEpisode, ContentEpisodeId, ContentSpine, ContentView, EventPresentation,
+    ProviderAccent, ProviderId, RecoveryActionKind, SessionGroup, SessionState, SessionSummary,
+    TurnId,
 };
 use dpl_chat_interactions::{
     InteractionContent, InteractionId, InteractionLifecycle, InteractionPlacement,
@@ -40,7 +41,13 @@ pub const WINDOW_KEY: AppWindowKey = AppWindowKey("chat.primary");
 pub const LAUNCHER_ID: PilotId = PilotId::new("shell.window.chat");
 pub const AI_MODE_ID: PilotId = PilotId::new("chat.mode.ai");
 pub const SOCIAL_MODE_ID: PilotId = PilotId::new("chat.mode.social");
+pub const CONTENT_MODE_ID: PilotId = PilotId::new("chat.mode.content");
 pub const PROVIDER_TAB_ID: PilotId = PilotId::new("chat.mode.provider");
+pub const CONTENT_ID: PilotId = PilotId::new("chat.sidebar.content");
+/// Its OWN id, not a child of [`CONTENT_ID`] — census children are keyed by
+/// show name, and a show called "refresh" would otherwise collide with it.
+pub const CONTENT_REFRESH_ID: PilotId = PilotId::new("chat.sidebar.content.refresh");
+pub const CONTENT_BOARD_ID: PilotId = PilotId::new("chat.content.board");
 /// One slot in the title-bar tab strip. Shared by the mode buttons and by the
 /// width budget that decides when the search field must yield to them.
 const MODE_TAB_WIDTH: f32 = 112.0;
@@ -197,6 +204,7 @@ impl Default for DomainViewState {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ChatDomainStates {
     pub ai: DomainViewState,
+    pub content: DomainViewState,
     pub social: DomainViewState,
 }
 
@@ -204,6 +212,7 @@ impl ChatDomainStates {
     pub const fn get(&self, domain: ChatDomain) -> &DomainViewState {
         match domain {
             ChatDomain::Ai => &self.ai,
+            ChatDomain::Content => &self.content,
             ChatDomain::Social => &self.social,
         }
     }
@@ -211,6 +220,7 @@ impl ChatDomainStates {
     pub const fn get_mut(&mut self, domain: ChatDomain) -> &mut DomainViewState {
         match domain {
             ChatDomain::Ai => &mut self.ai,
+            ChatDomain::Content => &mut self.content,
             ChatDomain::Social => &mut self.social,
         }
     }
@@ -223,6 +233,11 @@ pub enum ChatWindowIntent {
     /// Scope the AI domain to one connected provider — the tab beside
     /// AI/Social that a provider earns once it is activated.
     SelectProviderTab(ProviderId),
+    /// Inspect one episode. The window records the focus; the host answers
+    /// with its spine.
+    SelectContentEpisode(ContentEpisodeId),
+    /// Re-read the content census from disk.
+    RefreshContent,
     SelectSession {
         provider: ProviderId,
         session: ChatSessionId,
@@ -387,6 +402,11 @@ pub enum HostIntent {
     ResolveAssistAcknowledgement {
         accepted: bool,
     },
+    /// Load one episode's chapter→slide structure. Only the requested
+    /// episode is read — never the whole library.
+    LoadContentSpine(ContentEpisodeId),
+    /// Re-read the content census.
+    RefreshContent,
     NavigateTo(Route),
     ShowMain,
     QuitApplication,
@@ -478,6 +498,12 @@ pub struct ChatWindow {
     /// The connected provider whose tab is focused. `None` means the AI
     /// tab itself — the roster and every provider's sessions.
     provider_tab: Option<ProviderId>,
+    /// The operator's content, as the host last read it. Host-pushed —
+    /// the window never reaches for a filesystem.
+    content: ContentView,
+    /// Which episode the operator is inspecting. Window-owned; the spine
+    /// itself arrives separately because loading it is the host's IO.
+    content_focus: Option<ContentEpisodeId>,
     domain_states: ChatDomainStates,
     provider_profiles: Vec<ProviderProfile>,
     provider_profile_draft: ProviderProfileDraft,
@@ -574,6 +600,8 @@ impl ChatWindow {
             composer_focus_requested: false,
             domain: ChatDomain::Ai,
             provider_tab: None,
+            content: ContentView::default(),
+            content_focus: None,
             domain_states,
             provider_profiles: Vec::new(),
             provider_profile_draft: ProviderProfileDraft::for_kind(
@@ -732,6 +760,51 @@ impl ChatWindow {
         self.route_context.observe(route);
     }
 
+    /// Receive the content census the host read. Replaces the census and
+    /// the error, and KEEPS any loaded spine — a refresh of the list must
+    /// not blank the episode the operator is reading.
+    pub fn observe_content(&mut self, view: ContentView) {
+        let spine = self.content.spine.take().or(view.spine);
+        self.content = ContentView { spine, ..view };
+        // A focus whose episode is gone falls back to the census.
+        if let Some(focus) = self.content_focus.clone() {
+            if !self
+                .content
+                .episodes
+                .iter()
+                .any(|episode| episode.id == focus)
+            {
+                self.content_focus = None;
+                self.content.spine = None;
+            }
+        }
+    }
+
+    /// Receive one episode's spine, loaded by the host on request.
+    pub fn observe_content_spine(&mut self, spine: ContentSpine) {
+        self.content_focus = Some(spine.id.clone());
+        self.content.spine = Some(spine);
+    }
+
+    /// Every census address, in rail order. The host uses this to drive a
+    /// deterministic proof state without guessing what content exists.
+    pub fn content_episode_ids(&self) -> Vec<ContentEpisodeId> {
+        self.content
+            .episodes
+            .iter()
+            .map(|episode| episode.id.clone())
+            .collect()
+    }
+
+    /// The census row the focus names, if it is still present.
+    fn content_focus_episode(&self) -> Option<&ContentEpisode> {
+        let focus = self.content_focus.as_ref()?;
+        self.content
+            .episodes
+            .iter()
+            .find(|episode| &episode.id == focus)
+    }
+
     pub fn selected_provider_id(&self) -> Option<ProviderId> {
         self.runtime.selected_provider_id()
     }
@@ -777,6 +850,15 @@ impl ChatWindow {
                 self.provider_tab = Some(provider);
                 Ok(Some(HostIntent::ProviderSelected(provider)))
             }
+            ChatWindowIntent::SelectContentEpisode(episode) => {
+                // Drop the outgoing spine before asking for the new one, so
+                // the board never shows one episode's slides under another's
+                // name while the host reads.
+                self.content.spine = None;
+                self.content_focus = Some(episode.clone());
+                Ok(Some(HostIntent::LoadContentSpine(episode)))
+            }
+            ChatWindowIntent::RefreshContent => Ok(Some(HostIntent::RefreshContent)),
             ChatWindowIntent::SelectSession { provider, session } => {
                 self.runtime.select_session(provider, session)?;
                 Ok(None)
@@ -1186,10 +1268,11 @@ impl ChatWindow {
                 ui.horizontal(|ui| {
                     // Every connected provider spends a tab's worth of the row,
                     // so the width the strip needs before the search field may
-                    // keep its place grows with them.
+                    // keep its place grows with them. The +1 is Content, which
+                    // is always in the strip.
                     let connected = self.connected_tabs();
-                    let compact =
-                        ui.available_width() < 820.0 + MODE_TAB_WIDTH * connected.len() as f32;
+                    let tabs = connected.len() + 1;
+                    let compact = ui.available_width() < 820.0 + MODE_TAB_WIDTH * tabs as f32;
                     let title = ui
                         .allocate_ui_with_layout(
                             egui::vec2(166.0, 35.0),
@@ -1244,6 +1327,16 @@ impl ChatWindow {
                         if tab.clicked() {
                             intents.push(ChatWindowIntent::SelectProviderTab(id));
                         }
+                    }
+                    if mode_button(
+                        ui,
+                        CONTENT_MODE_ID,
+                        "Content",
+                        self.domain == ChatDomain::Content,
+                    )
+                    .clicked()
+                    {
+                        intents.push(ChatWindowIntent::SelectDomain(ChatDomain::Content));
                     }
                     let social_label = if self.domain_states.social.unread > 0 {
                         format!("Social  {}", self.domain_states.social.unread)
@@ -1334,6 +1427,9 @@ impl ChatWindow {
                 }
                 match (self.domain, composition) {
                     (ChatDomain::Ai, Composition::FullRail) => self.ai_sidebar(ui, intents),
+                    (ChatDomain::Content, Composition::FullRail) => {
+                        self.content_sidebar(ui, intents)
+                    }
                     (ChatDomain::Social, Composition::FullRail) => self.social_sidebar(ui, intents),
                     (domain, Composition::PresenceRail) => self.presence_rail(ui, domain, intents),
                 }
@@ -1439,6 +1535,171 @@ impl ChatWindow {
             },
         );
         ui.advance_cursor_after_rect(available);
+    }
+
+    /// The content census: the operator's shows first, then the seed
+    /// templates, each episode one selectable row. Reading only — this rail
+    /// mints no intent that writes.
+    fn content_sidebar(&self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
+        if let Some(error) = self.content.error.as_deref() {
+            micro_heading(ui, "CONTENT");
+            ui.label(RichText::new(error).small().color(Tone::Coral.color()));
+            ui.add_space(6.0);
+        }
+        let mut shows: Vec<&str> = self
+            .content
+            .episodes
+            .iter()
+            .filter_map(|episode| episode.show.as_deref())
+            .collect();
+        shows.sort_unstable();
+        shows.dedup();
+
+        for show in shows {
+            micro_heading(ui, &show.to_uppercase());
+            for episode in self
+                .content
+                .episodes
+                .iter()
+                .filter(|episode| episode.show.as_deref() == Some(show))
+            {
+                self.content_row(ui, episode, intents);
+            }
+        }
+
+        let seeds: Vec<&ContentEpisode> = self
+            .content
+            .episodes
+            .iter()
+            .filter(|episode| episode.show.is_none())
+            .collect();
+        if !seeds.is_empty() {
+            micro_heading(ui, "SEED TEMPLATES");
+            for episode in seeds {
+                self.content_row(ui, episode, intents);
+            }
+        }
+
+        if self.content.episodes.is_empty() && self.content.error.is_none() {
+            micro_heading(ui, "CONTENT");
+            ui.label(
+                RichText::new("No episodes yet — clone a seed to start a show.")
+                    .small()
+                    .color(cl::ink::SUBTLE),
+            );
+        }
+
+        ui.add_space(2.0);
+        let refresh = sidebar_destination_button(ui, "⟳  Refresh", true);
+        let mut metadata = NodeMetadata::new(CONTENT_REFRESH_ID, Role::Button, "Refresh content");
+        metadata.description = Some("Re-read the content root from disk.".to_owned());
+        ui.pilot_track(&refresh, metadata);
+        if refresh.clicked() {
+            intents.push(ChatWindowIntent::RefreshContent);
+        }
+    }
+
+    fn content_row(
+        &self,
+        ui: &mut egui::Ui,
+        episode: &ContentEpisode,
+        intents: &mut Vec<ChatWindowIntent>,
+    ) {
+        let selected = self.content_focus.as_ref() == Some(&episode.id);
+        let response = sidebar_row(ui, &episode.title, selected);
+        // The address is "<group>/<slug>". Split it into TWO pilot keys —
+        // one key holding a slash would fake a hierarchy level that isn't
+        // there, and every path consumer would inherit the lie.
+        let (group, slug) = split_address(&episode.id);
+        let mut metadata = NodeMetadata::new(
+            CONTENT_ID
+                .child(&PilotKey::new(group))
+                .child(&PilotKey::new(slug)),
+            Role::Tab,
+            episode.title.clone(),
+        );
+        metadata.selected = Some(selected);
+        metadata.value = Some(match episode.show.as_deref() {
+            Some(show) => show.to_owned(),
+            None => "seed template".to_owned(),
+        });
+        ui.pilot_track(&response, metadata);
+        if response.clicked() {
+            intents.push(ChatWindowIntent::SelectContentEpisode(episode.id.clone()));
+        }
+    }
+
+    /// The focused episode's spine — chapters, and their slides in order.
+    fn content_board(&self, ui: &mut egui::Ui) {
+        let Some(spine) = self.content.spine.as_ref() else {
+            ui.label(
+                RichText::new(match self.content_focus.as_ref() {
+                    Some(_) => "Reading the episode…",
+                    None => "Choose an episode to see its slides.",
+                })
+                .color(cl::ink::MUTED),
+            );
+            ui.add_space(6.0);
+            ui.label(
+                RichText::new(format!(
+                    "{} episode{} in the content root",
+                    self.content.episodes.len(),
+                    if self.content.episodes.len() == 1 {
+                        ""
+                    } else {
+                        "s"
+                    }
+                ))
+                .small()
+                .color(cl::ink::SUBTLE),
+            );
+            return;
+        };
+
+        ui.label(
+            RichText::new(&spine.title)
+                .strong()
+                .size(17.0)
+                .color(cl::ink::STRONG),
+        );
+        let slides = spine.slides().count();
+        ui.label(
+            RichText::new(format!(
+                "{} chapter{} · {slides} slide{}",
+                spine.chapters.len(),
+                if spine.chapters.len() == 1 { "" } else { "s" },
+                if slides == 1 { "" } else { "s" }
+            ))
+            .small()
+            .color(cl::ink::MUTED),
+        );
+        ui.add_space(8.0);
+
+        egui::ScrollArea::vertical()
+            .id_salt("chat.content.board.scroll")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for chapter in &spine.chapters {
+                    micro_heading(ui, &chapter.title.to_uppercase());
+                    for slide in &chapter.slides {
+                        // The deck's own convention: "<chapter> · <name>".
+                        // A Slide document has no title of its own.
+                        let response =
+                            sidebar_row(ui, &format!("{} · {}", slide.chapter, slide.name), false);
+                        let (group, slug) = split_address(&spine.id);
+                        let mut metadata = NodeMetadata::new(
+                            CONTENT_BOARD_ID
+                                .child(&PilotKey::new(group))
+                                .child(&PilotKey::new(slug))
+                                .child(&PilotKey::new(slide.name.clone())),
+                            Role::Tab,
+                            slide.name.clone(),
+                        );
+                        metadata.value = Some(slide.template.clone());
+                        ui.pilot_track(&response, metadata);
+                    }
+                }
+            });
     }
 
     fn social_sidebar(&self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
@@ -1549,6 +1810,25 @@ impl ChatWindow {
                                 DomainOverlay::ProviderCatalog,
                             )));
                         }
+                    }
+                }
+                ChatDomain::Content => {
+                    // Compact: the focused episode, or the census count when
+                    // nothing is chosen. Tapping opens the full picker.
+                    let label = match self.content_focus_episode() {
+                        Some(episode) => episode.title.clone(),
+                        None => format!("{} episodes", self.content.episodes.len()),
+                    };
+                    let response = sidebar_row(ui, &label, self.content_focus.is_some());
+                    let mut metadata = NodeMetadata::new(
+                        CONTENT_ID.child(&PilotKey::new("compact")),
+                        Role::Button,
+                        "Open content",
+                    );
+                    metadata.value = Some(label);
+                    ui.pilot_track(&response, metadata);
+                    if response.clicked() {
+                        intents.push(ChatWindowIntent::SetOverlay(Some(DomainOverlay::Picker)));
                     }
                 }
                 ChatDomain::Social => {
@@ -1891,6 +2171,7 @@ impl ChatWindow {
                 ));
                 match self.domain {
                     ChatDomain::Ai => self.ai_conversation(ui, intents),
+                    ChatDomain::Content => self.content_board(ui),
                     ChatDomain::Social => self.social_conversation(ui),
                 }
             })
@@ -2240,6 +2521,9 @@ impl ChatWindow {
                                     });
                                 }
                             }
+                            // Content owns no conversation, so a keystroke has
+                            // nowhere to persist — deliberately no draft store.
+                            ChatDomain::Content => {}
                             ChatDomain::Social => {
                                 if let Some(thread) = self.social.selected() {
                                     intents.push(ChatWindowIntent::UpdateSocialDraft {
@@ -2353,6 +2637,19 @@ impl ChatWindow {
                                 }
                             }
                         }
+                        ChatDomain::Content => {
+                            const REASON: &str =
+                                "Content has no conversation — choose a provider under AI to ask about it.";
+                            let send = ui.add_enabled(
+                                false,
+                                egui::Button::new("Send").min_size(egui::vec2(86.0, 42.0)),
+                            );
+                            let send = cl::tip(send, REASON);
+                            let mut metadata =
+                                NodeMetadata::new(SEND_ID, Role::Button, "Send content message");
+                            metadata.description = Some(REASON.to_owned());
+                            ui.pilot_track(&send, metadata);
+                        }
                         ChatDomain::Social => {
                             let reason = self.social.transport().reason();
                             let send = ui.add_enabled(
@@ -2376,6 +2673,7 @@ impl ChatWindow {
                 .runtime
                 .selected_provider()
                 .map_or_else(String::new, |provider| provider.draft),
+            ChatDomain::Content => String::new(),
             ChatDomain::Social => self
                 .social
                 .selected()
@@ -2388,6 +2686,7 @@ impl ChatWindow {
     fn composer_hint(&self) -> &'static str {
         match self.domain {
             ChatDomain::Ai => "Draft for this AI session…",
+            ChatDomain::Content => "Browsing content — no conversation here",
             ChatDomain::Social => "Draft for this conversation…",
         }
     }
@@ -3317,6 +3616,7 @@ impl ChatWindow {
         }
         egui::Window::new(match self.domain {
             ChatDomain::Ai => "Choose AI provider or session",
+            ChatDomain::Content => "Choose a show or episode",
             ChatDomain::Social => "Choose person or conversation",
         })
         .id(egui::Id::new("chat.compact.picker"))
@@ -3327,6 +3627,7 @@ impl ChatWindow {
         .show(ui.ctx(), |ui| {
             match self.domain {
                 ChatDomain::Ai => self.ai_sidebar(ui, intents),
+                ChatDomain::Content => self.content_sidebar(ui, intents),
                 ChatDomain::Social => self.social_sidebar(ui, intents),
             }
             if ui.button("Close picker").clicked() {
@@ -3568,6 +3869,13 @@ impl SessionPredicate {
                 | (Self::Recent, SessionGroup::Recent)
         )
     }
+}
+
+/// Split a content address `"<group>/<slug>"` into its two parts. Total: an
+/// address without a separator is treated as a seed slug, matching how
+/// `open_episode` resolves a bare id.
+fn split_address(id: &ContentEpisodeId) -> (&str, &str) {
+    id.0.split_once('/').unwrap_or(("template", &id.0))
 }
 
 fn mode_button(
@@ -4498,6 +4806,155 @@ mod tests {
         let window = multi_provider_window();
         assert_eq!(active_session_count(&window.runtime.provider_views()), 2);
         assert_eq!(window.runtime.provider_views().len(), 2);
+    }
+
+    fn episode(address: &str, show: Option<&str>, title: &str) -> ContentEpisode {
+        ContentEpisode {
+            id: ContentEpisodeId(address.to_owned()),
+            show: show.map(str::to_owned),
+            title: title.to_owned(),
+        }
+    }
+
+    fn spine(address: &str, title: &str, slides: &[&str]) -> ContentSpine {
+        ContentSpine {
+            id: ContentEpisodeId(address.to_owned()),
+            title: title.to_owned(),
+            chapters: vec![dpl_chat_core::ContentChapter {
+                id: "main".to_owned(),
+                title: "Main".to_owned(),
+                slides: slides
+                    .iter()
+                    .enumerate()
+                    .map(|(index, name)| dpl_chat_core::ContentSlide {
+                        chapter: "main".to_owned(),
+                        name: (*name).to_owned(),
+                        template: "static/title".to_owned(),
+                        index,
+                    })
+                    .collect(),
+            }],
+        }
+    }
+
+    fn content_window() -> ChatWindow {
+        let mut window = window();
+        window.observe_content(ContentView {
+            episodes: vec![
+                episode("demo/pilot", Some("demo"), "Pilot"),
+                episode("demo/finale", Some("demo"), "Finale"),
+                episode("template/blank", None, "Blank"),
+            ],
+            spine: None,
+            error: None,
+        });
+        window
+    }
+
+    #[test]
+    fn content_is_its_own_domain_and_keeps_state() {
+        let mut window = content_window();
+        window
+            .apply(ChatWindowIntent::SelectDomain(ChatDomain::Content))
+            .expect("domain intent");
+        assert_eq!(window.domain, ChatDomain::Content);
+        window.domain_states.get_mut(ChatDomain::Content).unread = 4;
+        window
+            .apply(ChatWindowIntent::SelectDomain(ChatDomain::Ai))
+            .expect("domain intent");
+        assert_eq!(
+            window.domain_states.get(ChatDomain::Content).unread,
+            4,
+            "each domain owns its view state independently"
+        );
+        assert_eq!(window.domain_states.get(ChatDomain::Ai).unread, 0);
+    }
+
+    #[test]
+    fn selecting_an_episode_asks_the_host_for_its_spine() {
+        let mut window = content_window();
+        let address = ContentEpisodeId("demo/pilot".to_owned());
+        assert_eq!(
+            window
+                .apply(ChatWindowIntent::SelectContentEpisode(address.clone()))
+                .expect("content intent"),
+            Some(HostIntent::LoadContentSpine(address.clone()))
+        );
+        assert_eq!(window.content_focus, Some(address));
+        assert!(
+            window.content.spine.is_none(),
+            "the outgoing spine is dropped so no episode wears another's slides"
+        );
+    }
+
+    #[test]
+    fn an_observed_spine_replaces_the_previous_one() {
+        let mut window = content_window();
+        window.observe_content_spine(spine("demo/pilot", "Pilot", &["title-card"]));
+        window.observe_content_spine(spine("demo/finale", "Finale", &["wrap", "credits"]));
+        let held = window.content.spine.as_ref().expect("a spine is held");
+        assert_eq!(held.id, ContentEpisodeId("demo/finale".to_owned()));
+        assert_eq!(held.slides().count(), 2);
+        assert_eq!(
+            window.content_focus,
+            Some(ContentEpisodeId("demo/finale".to_owned())),
+            "observing a spine moves the focus with it"
+        );
+    }
+
+    #[test]
+    fn refreshing_the_census_keeps_the_open_spine() {
+        let mut window = content_window();
+        window.observe_content_spine(spine("demo/pilot", "Pilot", &["title-card"]));
+        window.observe_content(ContentView {
+            episodes: vec![episode("demo/pilot", Some("demo"), "Pilot")],
+            spine: None,
+            error: None,
+        });
+        assert!(
+            window.content.spine.is_some(),
+            "a census refresh must not blank the episode being read"
+        );
+        assert_eq!(window.content.episodes.len(), 1);
+    }
+
+    #[test]
+    fn a_vanished_episode_drops_its_focus_and_spine() {
+        let mut window = content_window();
+        window.observe_content_spine(spine("demo/pilot", "Pilot", &["title-card"]));
+        window.observe_content(ContentView {
+            episodes: vec![episode("template/blank", None, "Blank")],
+            spine: None,
+            error: None,
+        });
+        assert_eq!(window.content_focus, None);
+        assert!(window.content.spine.is_none());
+    }
+
+    #[test]
+    fn a_content_error_is_state_not_a_panic() {
+        let mut window = window();
+        window.observe_content(ContentView {
+            episodes: Vec::new(),
+            spine: None,
+            error: Some("content root not found".to_owned()),
+        });
+        assert_eq!(
+            window.content.error.as_deref(),
+            Some("content root not found")
+        );
+        assert!(window.content.episodes.is_empty());
+    }
+
+    #[test]
+    fn refresh_content_is_a_host_ask() {
+        let mut window = content_window();
+        assert_eq!(
+            window
+                .apply(ChatWindowIntent::RefreshContent)
+                .expect("refresh intent"),
+            Some(HostIntent::RefreshContent)
+        );
     }
 
     #[test]

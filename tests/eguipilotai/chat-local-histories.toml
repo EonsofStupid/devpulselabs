@@ -1,0 +1,49 @@
+id = "chat-local-histories"
+fixture = "chat"
+record = true
+
+# Does the operator's REAL local chat history actually surface in Chat?
+# `chat` is the live runtime fixture — no authored models — so the sessions
+# this asserts come from ~/.claude/projects and ~/.codex/sessions on this
+# machine, decoded by ClaudeHistoryDecoder / CodexHistoryDecoder.
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "open"
+
+[steps.expectation.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "wait"
+milliseconds = 2500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "focus-viewport"
+
+[steps.action.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.sidebar.providers/claude"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "close-viewport"
+
+[steps.action.viewport]
+key = "chat.primary"
