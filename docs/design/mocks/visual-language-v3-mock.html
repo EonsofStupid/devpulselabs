@@ -84,10 +84,26 @@
   /* RETRO (stack) -- traits.json verbatim overrides: 2px amber-700 edge / r3 /
      amber-200 ink / amber-900 wash / + the scanline element (painted hlines) */
   .retro{border:2px solid var(--amber-700);border-radius:3px;color:var(--amber-200)}
-  .retro::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  .retro::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;z-index:0;
     background:repeating-linear-gradient(0deg, rgba(0,0,0,.20) 0 1px, transparent 1px 3px),
                linear-gradient(0deg, color-mix(in oklab,var(--amber-900) 24%,transparent), transparent 70%)}
   .retro.brutal{color:var(--amber-200)}
+  /* operator redlines 2026-07-30: retro lettering +1px ACROSS THE BOARD with a BLACK
+     outline (egui: 8 offset black glyph copies under the main paint -- no stroke API
+     needed); scanlines are a SURFACE texture -- they NEVER touch buttons. */
+  .retro{text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000,-1px 0 0 #000,1px 0 0 #000,0 -1px 0 #000,0 1px 0 #000}
+  /* round-2 redlines 2026-07-30: kicker + body go WHITE (pool white) keeping the
+     black rim; one more size step; REM units -- in-app these are Fluid tokens,
+     so type auto-adjusts with the surface. Title stays amber. */
+  .panel.retro h3{font-size:1.0625rem}
+  .panel.retro .k{font-size:.75rem;color:#fff;opacity:1}
+  .panel.retro p{font-size:.9rem;color:#fff;opacity:1}
+  .chip.retro{font-size:.8125rem}
+  .retro .chiprow{position:relative;z-index:1}
+  .chip.retro::after{background:none}
+  /* redline: icons on buttons wear the BLACK border too (egui/dpl-svg: the icon
+     painted first in black at a fatter stroke, tone stroke on top) */
+  .chip.brutal svg,.iconbtn.brutal svg,.chip.retro svg{filter:drop-shadow(1px 0 0 #000) drop-shadow(-1px 0 0 #000) drop-shadow(0 1px 0 #000) drop-shadow(0 -1px 0 #000)}
 
   /* CYBER (stack) -- traits.json verbatim: 1px cyan-400 edge / cyan-100 ink /
      180deg cyan-500 wash / double glow bloom (ring falloff, blur 0) */
@@ -129,13 +145,14 @@
   .grid[data-mode="plain"] .seat{color:var(--ink)}
   .grid[data-mode="brutal"] .seat{color:var(--t-400);filter:drop-shadow(3px 3px 0 rgba(0,0,0,.9))}
   .grid[data-mode="brutal-chip"] .seat{background:var(--t-400);border:2px solid var(--t-700);border-radius:6px;color:var(--well);box-shadow:3px 3px 0 rgba(0,0,0,.9)}
+  .grid[data-mode="brutal-chip"] .seat svg,.grid[data-mode="brutal-retro"] .seat svg{filter:drop-shadow(1px 0 0 #000) drop-shadow(-1px 0 0 #000) drop-shadow(0 1px 0 #000) drop-shadow(0 -1px 0 #000)}
   .grid[data-mode="clay"] .seat{background:var(--raised);border:1px solid var(--hairline);border-radius:16px;color:var(--ink);background-image:linear-gradient(135deg,rgba(24,28,39,.42),transparent 55%);box-shadow:-4px -4px 12px rgba(238,242,249,.05),6px 6px 16px rgba(0,0,0,.59)}
   .grid[data-mode="glass"] .seat{background:rgba(24,28,39,.55);border:1px solid rgba(238,242,249,.16);border-radius:12px;color:var(--ink-strong);background-image:linear-gradient(180deg,rgba(255,255,255,.10),rgba(255,255,255,.02) 38%,transparent 60%);box-shadow:inset 0 1px 0 rgba(255,255,255,.22),0 8px 18px rgba(0,0,0,.45)}
   .grid[data-mode="brutal-retro"] .seat{background:var(--t-400);border:2px solid var(--amber-700);border-radius:3px;color:var(--amber-200);box-shadow:3px 3px 0 rgba(0,0,0,.9)}
-  .grid[data-mode="brutal-retro"] .seat::after{content:"";position:absolute;inset:0;border-radius:inherit;background:repeating-linear-gradient(0deg,rgba(0,0,0,.20) 0 1px,transparent 1px 3px)}
+  /* (redline: seats are buttons -- no scanlines on them) */
   .grid[data-mode="clay-cyber"] .seat{background:var(--raised);border:1px solid var(--cyan-400);border-radius:16px;color:var(--cyan-100);background-image:linear-gradient(180deg,color-mix(in oklab,var(--cyan-500) 14%,transparent),transparent 55%);box-shadow:-4px -4px 12px rgba(238,242,249,.05),6px 6px 16px rgba(0,0,0,.59),0 0 0 3px color-mix(in oklab,var(--cyan-400) 18%,transparent),0 0 0 8px color-mix(in oklab,var(--cyan-400) 8%,transparent)}
   .grid[data-mode="cyber-retro"] .seat{background:var(--overlay);border:2px solid var(--amber-700);border-radius:3px;color:var(--cyan-100);box-shadow:0 0 0 3px color-mix(in oklab,var(--cyan-400) 22%,transparent),0 0 0 8px color-mix(in oklab,var(--cyan-400) 10%,transparent)}
-  .grid[data-mode="cyber-retro"] .seat::after{content:"";position:absolute;inset:0;border-radius:inherit;background:repeating-linear-gradient(0deg,rgba(0,0,0,.22) 0 1px,transparent 1px 3px),linear-gradient(180deg,color-mix(in oklab,var(--cyan-500) 12%,transparent),transparent 60%)}
+  .grid[data-mode="cyber-retro"] .seat::after{content:"";position:absolute;inset:0;border-radius:inherit;background:linear-gradient(180deg,color-mix(in oklab,var(--cyan-500) 12%,transparent),transparent 60%)}
 
   /* the rail vision */
   .shellmock{display:flex;border-radius:14px;overflow:hidden;border:1px solid var(--hairline);min-height:380px}
@@ -287,7 +304,7 @@
       <div class="col panel brutal retro tone-cyan">
         <span class="badge">brutal + retro</span>
         <h3>Neubrutalist / Retro</h3><span class="k">CRT amber over a hard tone slab</span>
-        <p>The tone-400 slab and hard shadow stay; retro overrides the edge (chunky amber, r3), re-inks in amber-200, and lays scanlines + a bottom ember wash on top.</p>
+        <p>The tone-400 slab and hard shadow stay; retro overrides the edge (chunky amber, r3), keeps the TITLE in amber, sets body copy in WHITE &mdash; every letter black-rimmed &mdash; and lays scanlines + a bottom ember wash on the surface only.</p>
         <div class="chiprow">
           <span class="chip brutal retro tone-cyan"><svg><use href="#i-video"/></svg>REPLAY</span>
           <span class="chip brutal retro tone-violet"><svg><use href="#i-monitor"/></svg>CRT FULL</span>

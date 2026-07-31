@@ -99,6 +99,21 @@ away from are discarded; the count label at `session_groups` is deleted.
    explicit `--live` flag on `chat-native-proof`, leaving the safety gate
    untouched. Authored and live are honest proofs of different things.
 
+## A third defect, caught only by CI
+
+Both hosted lanes went RED on `clippy::sort_by_key` in `history_rows`
+after a LOCAL `cargo green` reported `green ✔`. The cause is not the lint
+— it is that **cargo caches clippy results per crate**, so a lint already
+recorded as clean is not re-run just because the file changed in a way
+that did not force a rebuild of that unit. The local gate was reporting a
+cached verdict.
+
+**The cure, now a habit:** before trusting a clippy pass on a crate you
+just edited, `cargo clean -p <crate>` for the touched crates and re-run.
+The hosted lanes always build cold, which is exactly why they caught it
+and the warm local gate did not. A green local gate is evidence, not
+proof — the double-green law exists for this.
+
 ## Landmines
 
 - **The Claude decoder does not recognise newer record types.** The real

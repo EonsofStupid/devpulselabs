@@ -2136,7 +2136,7 @@ impl ChatWindow {
             .collect::<Vec<_>>();
         // Most recent first: the operator is looking for what they were just
         // doing, never for their oldest transcript.
-        rows.sort_by(|(_, left), (_, right)| right.modified_millis.cmp(&left.modified_millis));
+        rows.sort_by_key(|(_, session)| std::cmp::Reverse(session.modified_millis));
         rows
     }
 
