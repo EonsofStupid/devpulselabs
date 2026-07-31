@@ -1,0 +1,148 @@
+id = "chat-content-spine"
+fixture = "chat-content"
+record = true
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "open"
+
+[steps.expectation.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "wait"
+milliseconds = 750
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "focus-viewport"
+
+[steps.action.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.overlay/interaction-1003/reject"
+
+# Content is its own tab in the strip, beside AI and Social.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.mode.content"
+
+# The AI rail is what shows before Content is chosen.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.sidebar.providers/codex"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.mode.content"
+
+# The census is real: the seed episode is read from seeds/episodes/.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.sidebar.content/template/how-ai-works"
+
+# Content replaced the AI rail — the domains do not bleed.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "count"
+value = 0
+
+[steps.expectation.target]
+id = "chat.primary/chat.sidebar.providers/codex"
+
+# Nothing chosen yet, so no spine has been asked for.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "count"
+value = 0
+
+[steps.expectation.target]
+id = "chat.primary/chat.content.board/template/how-ai-works/title"
+
+# Choose the episode: the host loads THAT episode's spine and the board
+# shows its real slides.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.sidebar.content/template/how-ai-works"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.content.board/template/how-ai-works/title"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.content.board/template/how-ai-works/terminal"
+
+# The refresh affordance is the operator's re-read.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.sidebar.content.refresh"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "close-viewport"
+
+[steps.action.viewport]
+key = "chat.primary"
