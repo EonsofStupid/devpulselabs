@@ -424,24 +424,24 @@ fn render_inner(
         // Animation policy: wall mode / step 0 = the slide entrance
         // staggering all VISIBLE blocks; later steps animate only the
         // block that just revealed.
-        let p = match step {
+        let m = match step {
             None | Some(0) => {
                 if rising {
-                    fx.at(now, t0, i)
+                    fx.sample(now, t0, i)
                 } else {
-                    1.0
+                    cl::motion::Motion::REST
                 }
             }
             Some(s) => {
                 if rp == Some(s - 1) {
-                    fx.at(now, t0, 0)
+                    fx.sample(now, t0, 0)
                 } else {
-                    1.0
+                    cl::motion::Motion::REST
                 }
             }
         };
         let px = size_of(&fluid, size).unwrap_or_else(|| fluid.fs_body());
-        let color = ink_of(ink.as_deref().unwrap_or("base"), accent).gamma_multiply(p);
+        let color = ink_of(ink.as_deref().unwrap_or("base"), accent).gamma_multiply(m.alpha);
         let galley = painter.layout(
             text.clone(),
             egui::FontId::new(px, family_of(font.as_deref().unwrap_or(""))),
@@ -454,7 +454,7 @@ fn render_inner(
         );
         map.blocks.push((id.clone(), block_rect));
         if visible {
-            let lift = fluid.sp_5() * (1.0 - p);
+            let lift = fluid.sp_5() * m.offset.y;
             painter.galley(egui::pos2(rect.min.x + pad, y + lift), galley, color);
         }
         y += heights[i] + gap;
