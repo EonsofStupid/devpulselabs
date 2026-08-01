@@ -397,10 +397,50 @@ above, with the reasoning recorded rather than silently dropped.
 | `the_shell_names_the_activated_providers` | shell | §6.5, in a unit |
 | `the_shell_says_nothing_when_no_provider_is_activated` | shell | silence, not an empty claim |
 
-### The live proof
+### The live proof — PASSED
 
 `tests/eguipilotai/platform-sees-providers.toml`, fixture `chat` (live
 runtime, no authored models), asserting `root/shell.status.providers` — the
 ROOT viewport, not `chat.primary` — is visible and its text names Claude.
 The chip cannot render unless a provider is genuinely activated, and Claude
 activates on this machine only by having transcripts on disk.
+
+Run on the Linux lane under `devpulse-cloud` (software Vulkan / lavapipe),
+all five steps green:
+
+```
+outcome: passed
+  wait 2500ms                                        ✔
+  visible  root/shell.status.providers               ✔
+  text     root/shell.status.providers ~ "Claude"    ✔
+  text     root/shell.status.providers ~ "AI ·"      ✔
+  capture  platform-sees-providers (viewport root)   ✔ "capture stabilized and written"
+```
+
+Proof shot: `docs/proof/platform-sees-providers.png` — MAIN at 1440×900 on
+the wiredFRONT hub, status bar reading **`AI · Claude Code`**. The capture
+is scoped to the `root` viewport explicitly: the `chat` fixture opens the
+peer window too, and an unscoped capture cannot know which of two live
+viewports is the evidence.
+
+The chip reads `Claude Code` alone rather than `Claude Code, Codex` — this
+machine has `~/.claude/projects` transcripts and no `~/.codex/sessions`, so
+naming only Claude is the truthful answer, not a partial one.
+
+### Regressions — pre-existing, NOT caused by this pass
+
+`chat-local-histories`, `chat-content-spine`, `chat-provider-tab`, and
+`shell-navigation` all report `failed` on this Linux box. They fail
+**identically on `origin/main` (`2459cdf`) with none of this pass's code**,
+verified by rebuilding the baseline exe from a clean checkout and running
+the same four under the same Xvfb display. `shell-navigation` fails on its
+FIRST step (`visible root/shell.rail/workbench`) and on a hover-driven
+flyout — an environment/timing characteristic of this headless lane, not
+anything a status-bar chip could touch.
+
+Recorded rather than silently skipped: this pass did not fix them and does
+not claim they are green. They need running on a lane with a real display
+(`dpl-win-laptop` / `dpl-linux`) before the PR merges, and the fact that
+`platform-sees-providers` PASSES on the same box is what makes its result
+meaningful — the harness works here; those four scenarios are separately
+unwell.
