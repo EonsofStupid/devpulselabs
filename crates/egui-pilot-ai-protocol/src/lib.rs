@@ -1149,6 +1149,12 @@ pub enum Step {
     },
 }
 
+/// The per-workspace pilot config file.
+///
+/// Named HERE because both the runner (which owns the full config) and any
+/// READER of run bundles need to agree on where it lives.
+pub const CONFIG_FILE: &str = ".eguipilotai.toml";
+
 /// Where run bundles are written, unless a project's config moves them.
 ///
 /// ONE definition. It was previously a string literal repeated in the runner's
