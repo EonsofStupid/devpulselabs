@@ -2,11 +2,15 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-07-31 — CX-cursor-01 PASS (`docs/journal/2026-07-31-cx-cursor-01.md`):**
+overlay locate on Cursor **`Search Ctrl+K`** + **`File`**; Calculator `7`
+regression green. Coach NEXT = **C2f** Operator UI (select Cursor →
+Import Process → Mount seed). Notepad after (Windows).
+
 **2026-07-31 — C2e FABRIC MINT PASS (`docs/journal/2026-07-31-c2e-fabric-mint.md`):**
 `dpl-coach-fabric` + `coach-fabric-mint`. Live Calculator **Ready · 82
 nodes · seed `7` · ~255 ms**; ChildCount-gated BFS; oversized refuse in
-unit tests. Inventory stays desktop-root-only. Coach NEXT = **C2f** wire
-Operator select → overlay paint.
+unit tests. Inventory stays desktop-root-only.
 
 **2026-07-30 — THE CHATS ARE IN ONE SYSTEM (H1, plan
 `docs/plans/chat-histories-in-one-system.md`, PR #180, `green ✔`):** the

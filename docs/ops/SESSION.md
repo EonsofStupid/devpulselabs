@@ -14,22 +14,22 @@ milestone-loop). Product truth stays in `docs/STATE.md`.
 **coach / ledger / lesson** — backlog:
 `docs/journal/2026-07-28-remaining-work.md`
 
-**NEXT:** C2f wire Operator select → overlay paint. Pass-2 stdio
-**parked**.
+**NEXT:** C2f Operator UI — select Cursor → Import → Mount seed.
+Notepad after. Pass-2 **parked**.
 
-**CLOSED:** … · **C2c** mock (#167) · **C2d** inventory (#172) · **C2e**
-fabric mint
+**CLOSED:** … · C2e (#179) · **CX-cursor-01** locate PASS
 
 ## Opens
 
 | Kind | Ref | Notes |
 |---|---|---|
-| Coach product | C2f wire to overlay | mint CLI proven |
-| Coach Advanced | C2b Pass-2 stdio | parked |
+| Coach product | C2f Cursor import UI | locate proven |
+| Coach next | Notepad (Windows) | after Cursor |
+| Coach Advanced | CX-harvest / Pass-2 | when a11y thin / parked |
 
 ## Milestone
 
-C2f → (parked Advanced) → pinning → DuckDB
+C2f Cursor → Notepad → Teacher / harvest as needed
 
 ## Signals
 
