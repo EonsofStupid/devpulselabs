@@ -148,12 +148,15 @@ pick — a freely random pick would make every proof shot flaky. The mock is
 `docs/design/mocks/providers.html`: one surface, one registry — the control
 and its bleed, the roster, the modal, the stored fact, and the four
 consumers all driven by the same provider state.
+**2026-07-31 — Fabric bridge PASS (`docs/journal/2026-07-31-cx-bridge-01.md`):**
+`dpl-coach-runtime` — Cursor mint→resolve→invoke on `Search Ctrl+K`;
+Calculator `7` regression; hub holds FabricSession; overlay Mount via
+`--window-rect`. Teacher AgencyMode uses same rails. NEXT: Notepad
+(Windows) / restore-chrome tip after Cursor invoke / Harvest when thin.
 
 **2026-07-31 — C2f Operator Import UI (`docs/journal/2026-07-31-c2f-operator-import-ui.md`):**
 `dpl-hub-coach` on the rail — pick → honesty Import → checks → Standard
-mint → guided lesson via overlay binary (Cursor seed `Search Ctrl+K`).
-Calculator stays regression. NEXT: live Cursor import→paint proof on
-release exe; Advanced harvest / Teacher / Notepad later.
+mint → lesson button (still name-spawn overlay until bridge wires).
 
 **2026-07-31 — CX-cursor-01 PASS (`docs/journal/2026-07-31-cx-cursor-01.md`):**
 overlay locate on Cursor **`Search Ctrl+K`** + **`File`**; Calculator `7`

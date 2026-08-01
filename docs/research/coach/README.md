@@ -13,10 +13,12 @@ experiment registry**, not the Operator hub UI.
 
 | ID | Status | Hypothesis (one line) | Promotion |
 |---|---|---|---|
-| *(program)* | CAPTURED | Import Process + Lab rules | mock rev → C2f |
-| CX-cursor-01 | **PASS** | Cursor mint + overlay locate (`Search Ctrl+K`, `File`) | → C2f Cursor UI |
-| CX-teacher-agency-01 | PLANNED | Teacher = same touchpoints + actor, no Pass-2 | product-adjacent |
-| CX-harvest-01 | PLANNED | Advanced Import when a11y thin (not needed Cursor this seat) | Advanced → maybe C2g |
+| *(program)* | CAPTURED | Import Process + Lab rules | → bridge |
+| CX-cursor-01 | **PASS** | Cursor overlay locate (`Search Ctrl+K`, `File`) | locate ≠ bridge |
+| C2f | CHROME | Operator Import UI; fabric discarded after mint | incomplete |
+| CX-bridge-01 | **PASS** | FabricSession resolve→invoke (viewport-independent) | hub wired |
+| CX-teacher-agency-01 | PLANNED | Teacher = same resolve/invoke/mount rails | after bridge |
+| CX-harvest-01 | PLANNED | Advanced Import when a11y thin | Advanced → maybe C2g |
 
 **Conquest ladder:** Cursor (this seat) → Notepad (Windows) · Calculator =
 regression seed only.

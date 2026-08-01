@@ -19,9 +19,10 @@ lesson execute — with typed signals from day one for later DuckDB baselines.
 |---|---|
 | Physics (locate/paint/Triggered) | PASS C2s/C2b |
 | Inventory + fabric mint CLIs | PASS C2d/C2e |
-| Operator hub UX | Mock only; C2f not started |
-| Import honesty + dual workflow | **This capture** (mock + docs) |
-| Harvest / Teacher experiments | Named below; not started |
+| Operator hub UX | C2f chrome landed — fabric still discarded after mint |
+| Fabric bridge (resolve/invoke) | **PASS** CX-bridge-01 — [`coach-bridge-fabric-runtime.md`](coach-bridge-fabric-runtime.md) |
+| Import honesty + dual workflow | Captured (mock + docs) |
+| Harvest / Teacher experiments | Teacher rails after bridge; harvest not started |
 | DuckDB | Phase 3 — stamp facts now |
 
 ## 3. Design
@@ -77,15 +78,17 @@ signals stamped, proof, visual, product promotion (`none`|`C2f`|`C2g`|…).
 
 ### 3.4 Ordered queue (ratified this capture)
 
-| Order | ID | Surface | Blocks C2f? |
+| Order | ID | Surface | Blocks bridge? |
 |---|---|---|---|
-| 0 | This program + mock rev | Docs / Lab | Unblocks |
-| 1 | **CX-cursor-01** overlay seed on Cursor (test-first) | Spike | Unblocks C2f seed |
-| 2 | **C2f** Operator import UI → Cursor lesson | Product | Spine NEXT |
-| 3 | Notepad (Windows Standard Import) | Product | After Cursor |
-| 4 | **CX-teacher-agency-01** in-app actor | Product-adjacent | No Pass-2 |
-| 5 | **CX-harvest-01** Advanced Import | Advanced | When a11y thin |
-| 6 | Pass-2 stdio / DuckDB | Parked / Phase 3 | — |
+| 0 | This program + mock rev | Docs / Lab | — |
+| 1 | **CX-cursor-01** overlay seed locate | Spike PASS | Unblocked C2f chrome |
+| 2 | **C2f** Operator import UI chrome | Product chrome | Incomplete without bridge |
+| 3 | **CX-bridge-01** mint→resolve→invoke | Spike / runtime | **Spine NEXT** |
+| 4 | Bridge wire hub + overlay Mount | Product | After CX-bridge-01 |
+| 5 | Notepad (Windows Standard Import) | Product | After Cursor bridge |
+| 6 | **CX-teacher-agency-01** same rails | Product-adjacent | After bridge |
+| 7 | **CX-harvest-01** Advanced Import | Advanced | When a11y thin |
+| 8 | Pass-2 stdio / DuckDB | Parked / Phase 3 | — |
 
 **Conquest:** Cursor first (Calculator = regression only).  
 **Harvest:** only when essential checks fail — Cursor probe 2026-07-31 was

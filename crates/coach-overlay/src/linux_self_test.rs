@@ -57,6 +57,8 @@ fn run(args: &[String]) -> Result<i32, String> {
     let mut command = "self-test".to_string();
     let mut proof_xtest = false;
     let mut debug_pointer = false;
+    // Bridge-supplied WINDOW rect — skips name-locate when set.
+    let mut window_rect_override: Option<IRect> = None;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -69,6 +71,11 @@ fn run(args: &[String]) -> Result<i32, String> {
             "--name" => {
                 i += 1;
                 name = args.get(i).cloned().ok_or("--name needs a value")?;
+            }
+            "--window-rect" => {
+                i += 1;
+                let raw = args.get(i).ok_or("--window-rect needs x,y,w,h")?;
+                window_rect_override = Some(parse_window_rect(raw)?);
             }
             "--seconds" => {
                 i += 1;
@@ -127,14 +134,19 @@ fn run(args: &[String]) -> Result<i32, String> {
             Ok(0)
         }
         "spotlight" => {
-            let located = block_on(locate_target(&app, &name))?;
+            let located = if let Some(window_rect) = window_rect_override {
+                block_on(locate_from_window_rect(&app, window_rect))?
+            } else {
+                block_on(locate_target(&app, &name))?
+            };
             let verified = block_on(stream_verify_window_hit(&app, located.window_rect, &name))?;
             println!(
-                "spotlight: screen_rect={}×{}@{},{} · stream_hit={verified:?} · {seconds}s · {message} · proof_xtest={proof_xtest}",
+                "spotlight: screen_rect={}×{}@{},{} · stream_hit={verified:?} · bridge_rect={} · {seconds}s · {message} · proof_xtest={proof_xtest}",
                 located.screen_rect.w,
                 located.screen_rect.h,
                 located.screen_rect.x,
-                located.screen_rect.y
+                located.screen_rect.y,
+                window_rect_override.is_some()
             );
             let triggered = Arc::new(AtomicBool::new(false));
             let stop_watch = Arc::new(AtomicBool::new(false));
@@ -276,6 +288,18 @@ async fn locate_target(app: &str, control_name: &str) -> Result<Located, String>
         .await
         .map_err(|e| e.to_string())?;
     let window_rect = IRect::new(x, y, w, h);
+    compose_located(app, window_rect)
+}
+
+/// Mount from a Fabric bridge WINDOW rect (no name-locate).
+async fn locate_from_window_rect(app: &str, window_rect: IRect) -> Result<Located, String> {
+    if window_rect.w <= 0 || window_rect.h <= 0 {
+        return Err("refused: degenerate --window-rect".into());
+    }
+    compose_located(app, window_rect)
+}
+
+fn compose_located(app: &str, window_rect: IRect) -> Result<Located, String> {
     let (window_id, origin, extents, outer_w, outer_h) =
         x11_window_for_class(x11_class_needle(app)).ok_or_else(|| {
             format!(
@@ -301,6 +325,24 @@ async fn locate_target(app: &str, control_name: &str) -> Result<Located, String>
         client_size: (cw, ch),
         window_id,
     })
+}
+
+fn parse_window_rect(raw: &str) -> Result<IRect, String> {
+    let parts: Vec<_> = raw.split(',').collect();
+    if parts.len() != 4 {
+        return Err(format!("--window-rect wants x,y,w,h — got {raw:?}"));
+    }
+    let parse = |s: &str| {
+        s.trim()
+            .parse::<i32>()
+            .map_err(|e| format!("--window-rect: {e}"))
+    };
+    Ok(IRect::new(
+        parse(parts[0])?,
+        parse(parts[1])?,
+        parse(parts[2])?,
+        parse(parts[3])?,
+    ))
 }
 
 /// Stream identity check: AT-SPI `GetAccessibleAtPoint` in WINDOW space at the

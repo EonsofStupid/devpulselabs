@@ -86,8 +86,12 @@ the audit, same commit, with the reason.
   fabric mint for one selected target; egui-free; may depend on
   inventory; consumed by `dpl-hub-coach` (never by `app` directly).
 - **crates/hubs/coach/** (`dpl-hub-coach`): Operator Coach Import UI
-  (C2f); depends on inventory + fabric; spawns `dpl-coach-overlay`
-  binary only (never a crate dep on overlay).
+  (C2f); depends on inventory + fabric + runtime; spawns
+  `dpl-coach-overlay` binary only (never a crate dep on overlay).
+- **crates/coach-runtime/** (`dpl-coach-runtime`): FabricGraph bridge
+  (session resolve / invoke / extents); egui-free; may depend on
+  fabric + inventory; never a dep of `app` directly; overlay remains
+  painter-only under ADR.
 
 ## 4. The laws every new crate inherits
 

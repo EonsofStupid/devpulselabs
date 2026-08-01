@@ -4,9 +4,9 @@ version.workspace = true
 edition.workspace = true
 publish.workspace = true
 
-# Operator Coach hub — Import Process UI (C2f). Depends on inventory +
-# fabric libs; never depends on dpl-coach-overlay (ADR: spawn binary only).
-# Plan: docs/plans/coach-c2f-operator-import-ui.md
+# Operator Coach hub — Import Process UI + fabric bridge lesson wire.
+# Never depends on dpl-coach-overlay (ADR: spawn binary only).
+# Plans: coach-c2f-operator-import-ui.md · coach-bridge-fabric-runtime.md
 
 [dependencies]
 egui.workspace = true
@@ -15,6 +15,7 @@ dpl-coldlight.workspace = true
 dpl-proc.workspace = true
 dpl-coach-inventory = { path = "../../coach-inventory" }
 dpl-coach-fabric = { path = "../../coach-fabric" }
+dpl-coach-runtime = { path = "../../coach-runtime" }
 
 [lints]
 workspace = true
