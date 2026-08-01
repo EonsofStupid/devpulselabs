@@ -76,9 +76,10 @@ findings shape it: presence is answered by the VENDOR'S OWN TOOL
 (`codex login status`), never by reading a cookie jar; and the operator's
 5.6–6.3s bleed is a NEW MOTION CLASS (~18× the slowest authored duration),
 so it becomes a `dwell` tier in `tokens/motion.json` with a SEEDED colour
-pick — a freely random pick would make every proof shot flaky. Mocks:
-`docs/design/mocks/providers-brain-mock.html` and
-`capability-registry-mock.html`.
+pick — a freely random pick would make every proof shot flaky. The mock is
+`docs/design/mocks/providers.html`: one surface, one registry — the control
+and its bleed, the roster, the modal, the stored fact, and the four
+consumers all driven by the same provider state.
 
 **2026-07-31 — CX-cursor-01 PASS (`docs/journal/2026-07-31-cx-cursor-01.md`):**
 overlay locate on Cursor **`Search Ctrl+K`** + **`File`**; Calculator `7`

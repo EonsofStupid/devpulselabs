@@ -479,7 +479,7 @@ async fn get_state(State(s): State<Shared>) -> Json<Value> {
         "estate": s.estate.is_some(),
         "lastComp": last_comp,
         "hubs": s.registry.hubs_json(),
-        "providers": roster_json(&s.fabric),
+        "registry": json!({ "providers": roster_json(&s.fabric) }),
     }))
 }
 
@@ -1384,7 +1384,7 @@ mod tests {
             )
             .await
             .expect("response");
-        assert_eq!(body_json(resp).await["providers"], json!([]));
+        assert_eq!(body_json(resp).await["registry"]["providers"], json!([]));
 
         fabric.publish_provider_roster(vec![dpl_fabric::ProviderCapability {
             id: dpl_fabric::ProviderId("claude"),
@@ -1406,7 +1406,7 @@ mod tests {
             .await
             .expect("response");
         let body = body_json(resp).await;
-        let provider = &body["providers"][0];
+        let provider = &body["registry"]["providers"][0];
         assert_eq!(provider["id"], json!("claude"));
         assert_eq!(provider["label"], json!("Claude Code"));
         assert_eq!(provider["activated"], json!(true));

@@ -209,8 +209,13 @@ have made them impossible.
 
 ## 7. Status
 
-- **P1** — planned (`docs/plans/chat-providers-become-platform.md`), blocked
-  on #180 merging.
-- **V1** — mock authored (`docs/design/mocks/providers-brain-mock.html`);
-  plan pending P1.
-- V2, V3, A1, A2 — not planned yet, by design.
+The mock for this whole program is `docs/design/mocks/providers.html` — one
+surface driven by one registry. Every link below is a slice of it, and a
+link is done when the real app matches that slice.
+
+- **P1** — the registry, built (`docs/plans/chat-providers-become-platform.md`).
+- **V1** — the control: `dwell` tier, two-colour ink-bleed, seeded hue pool,
+  brain icon, and the `ai` circle at the P's cap-height. Plan next.
+- **V2** — the roster popup. **V3** — the tooltip promoted to the modal with
+  live tenure.
+- A1 (presence probes) → A2 (subscription init).

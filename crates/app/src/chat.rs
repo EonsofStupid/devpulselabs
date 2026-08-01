@@ -231,20 +231,36 @@ struct StoredProviderCapability {
     capabilities: Vec<String>,
 }
 
+/// The stored envelope: when it was true, and what was true.
+///
+/// The stamp is what lets a boot tell a roster written moments ago from one
+/// left by a launch weeks back, without which "remembered" and "stale" look
+/// identical on disk. Epoch ms because that is the clock this file already
+/// keeps; the workspace has no date crate and a cosmetic string is not worth
+/// one.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct StoredRoster {
+    written_at_ms: u64,
+    providers: Vec<StoredProviderCapability>,
+}
+
 fn store_roster(estate: Option<&dpl_estate::Estate>, roster: &[ProviderCapability]) {
     let Some(estate) = estate else {
         return;
     };
-    let stored: Vec<StoredProviderCapability> = roster
-        .iter()
-        .map(|p| StoredProviderCapability {
-            id: p.id.0.to_owned(),
-            label: p.label.clone(),
-            activated: p.activated,
-            note: p.note.clone(),
-            capabilities: p.capabilities.iter().map(|c| c.slug().to_owned()).collect(),
-        })
-        .collect();
+    let stored = StoredRoster {
+        written_at_ms: now_unix_ms(),
+        providers: roster
+            .iter()
+            .map(|p| StoredProviderCapability {
+                id: p.id.0.to_owned(),
+                label: p.label.clone(),
+                activated: p.activated,
+                note: p.note.clone(),
+                capabilities: p.capabilities.iter().map(|c| c.slug().to_owned()).collect(),
+            })
+            .collect(),
+    };
     if let Err(error) = estate.put_json(dpl_estate::Tree::Agents, ROSTER_KEY, &stored) {
         // A roster that cannot be remembered is not a reason to fail a
         // launch — the live one is recomputed every boot regardless.
@@ -262,8 +278,8 @@ fn restore_roster(
     let Some(estate) = estate else {
         return Vec::new();
     };
-    let stored: Vec<StoredProviderCapability> = match estate
-        .get_json::<Vec<StoredProviderCapability>>(dpl_estate::Tree::Agents, ROSTER_KEY)
+    let stored: StoredRoster = match estate
+        .get_json::<StoredRoster>(dpl_estate::Tree::Agents, ROSTER_KEY)
     {
         Ok(Some(stored)) => stored,
         Ok(None) => return Vec::new(),
@@ -273,6 +289,7 @@ fn restore_roster(
         }
     };
     stored
+        .providers
         .into_iter()
         .filter_map(|row| {
             let id = *known.iter().find(|known| known.0 == row.id)?;
@@ -3670,13 +3687,16 @@ mod roster_tests {
     #[test]
     fn an_unknown_stored_capability_is_dropped_not_invented() {
         let estate = estate_at("unknown-capability");
-        let stored = vec![StoredProviderCapability {
-            id: "claude".into(),
-            label: "Claude Code".into(),
-            activated: true,
-            note: None,
-            capabilities: vec!["page-history".into(), "teleportation".into()],
-        }];
+        let stored = StoredRoster {
+            written_at_ms: 1,
+            providers: vec![StoredProviderCapability {
+                id: "claude".into(),
+                label: "Claude Code".into(),
+                activated: true,
+                note: None,
+                capabilities: vec!["page-history".into(), "teleportation".into()],
+            }],
+        };
         estate
             .put_json(dpl_estate::Tree::Agents, ROSTER_KEY, &stored)
             .expect("write");

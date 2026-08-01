@@ -1,14 +1,14 @@
 # P1 — the provider capability registry
 
-**AMENDED 2026-07-31, before any code, by `docs/design/adr-017-provider-
-capability-registry.md`.** The operator named what activation is FOR: it
-cross-links into the platform's configuration stores, and A2UI, workflows /
-mixture-of-experts routing, A/B duplicate runs, and Clyffy's training
-capture all bind to its shape. The original §3.1 (two booleans folded onto
-the fabric for a status chip) was a chat feature wearing a platform's
-clothes and is REPLACED below. The amendment is recorded rather than
-rewritten silently, because the first draft being wrong is the evidence for
-why the ADR was filed first.
+Governed by `docs/design/adr-017-provider-capability-registry.md`.
+Activation cross-links into the platform's configuration stores, and A2UI,
+workflows / mixture-of-experts routing, A/B duplicate runs, and Clyffy's
+training capture all bind to its shape — which is why the registry carries a
+capability SET.
+
+The mock is `docs/design/mocks/providers.html`. This pass builds the registry
+and its three projections; the surface it feeds is V1–V3 of
+`docs/plans/providers-presence-and-the-brain.md`.
 
 
 Program map: `docs/plans/chat-operations-console.md` (link P1).
@@ -267,19 +267,13 @@ via the vendor's own tool.
 **Out of scope**
 
 - Per-capability affordances in hubs.
-- ~~Persisting the roster across launches (it is derived state; recompute).~~
-  **AMENDED 2026-08-01, during execution.** This bullet survived from the
-  pre-ADR draft and directly contradicted §3.3b, which the ADR-017 amendment
-  added and which ratifies persistence as landing WITH P1. The ADR is the
-  later authority and §3.3b's reasoning holds — cheap now, expensive to
-  retrofit, and assumed by all four consumers — so persistence is IN and this
-  line is struck rather than deleted, per the program map's rule that a
-  contradiction is amended in the same commit that finds it.
+- The control, the roster popup, and the modal — V1/V2/V3 of
+  `docs/plans/providers-presence-and-the-brain.md`, against
+  `docs/design/mocks/providers.html`.
 
-  The reasoning that produced the original bullet is still half right and is
-  preserved in the implementation: the roster **is** derived state, so the
-  live projection always wins. Persistence only decides what the platform
-  shows in the gap BEFORE the first recompute lands — never what is true.
+The roster IS derived state and the live projection always wins; persistence
+decides only what the platform shows before the first recompute lands, never
+what is true.
 
 ## 6. Verification
 
@@ -359,20 +353,14 @@ nothing to fire on.
    stringify table is exactly the mirror that drifts. Pinned exhaustively by
    `every_capability_slug_round_trips_and_is_unique`.
 
-### What changed from the plan's §4, and why
+### Publishing is change-detected
 
-§4.3 says publish "after every activation-affecting host intent." Activation
-is in fact mutated from **fourteen** `set_provider_activation` call sites plus
-the provider-event drain, and any enumeration of them is one new call site
-away from being silently wrong. The publish is therefore **change-detected**
-(`republish_roster` compares the projection against the last published one)
-and called from the single funnel every frame passes through. A steady state
-costs one comparison of ~4 small rows; nothing publishes unless the answer
-actually changed. This is strictly safer than the enumeration and cannot be
-forgotten by a later pass.
-
-§5's "out of scope: persisting the roster" contradicted §3.3b and is struck
-above, with the reasoning recorded rather than silently dropped.
+Activation is mutated from **fourteen** `set_provider_activation` call sites
+plus the provider-event drain, so any enumeration of "activation-affecting"
+intents is one new call site away from being silently wrong.
+`republish_roster` compares the projection against the last published one and
+publishes only on a difference, from the single funnel every frame passes
+through. A steady state costs one comparison of ~4 small rows.
 
 ### Pins (all green)
 
