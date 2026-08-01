@@ -24,8 +24,9 @@ select-Cursor → fabric → teach, without boiling the ocean.
 ## 3. Design (spike)
 
 1. Pick seed name from fabric: prefer **`Search Ctrl+K`**, fallback **`File`**.  
-2. `dpl-coach-overlay locate --app cursor --name "<seed>"` (or equivalent
-   flags — ground-truth CLI in-session).  
+2. `dpl-coach-overlay locate --app cursor --name "<seed>"`  
+   **Known gap (probe):** overlay currently calls `ensure_calculator_running`
+   — spike must loosen that to “ensure target running” for Cursor.  
 3. Optional spotlight paint once.  
 4. Journal PASS/FAIL + extents.  
 5. **No** hub UI, **no** harvest, **no** Teacher this spike.
