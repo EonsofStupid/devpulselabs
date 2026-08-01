@@ -1160,6 +1160,46 @@ include!(concat!(env!("OUT_DIR"), "/fluid_gen.rs"));
 /// PURE function of the clock: `EFFECT.at(now, t0, index)` → 0..1 progress
 /// (index applies the authored stagger). Presenter law holds by construction
 /// — one-shot effects rest at 1, looped effects wrap, nothing stores state.
+/// The MATRIX — the faceted classification a Theme is a coordinate in
+/// (`docs/design/coldlight-matrix.md`). The vocabularies and the legality
+/// rulings are generated from `tokens/matrix.json`; `build.rs` fails if any
+/// facet value is left unclassified by any ancestor, so the matrix cannot rot
+/// as values are added.
+pub mod matrix {
+    include!(concat!(env!("OUT_DIR"), "/matrix_gen.rs"));
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// The census law, applied to the matrix: eight ancestors ruling on
+        /// every facet value, exactly once each. If this number moves without
+        /// a vocabulary change, a ruling was lost.
+        #[test]
+        fn every_ancestor_rules_on_every_facet_value() {
+            let values = STRUCTURES.len() + MATERIALS.len() + ATMOSPHERES.len();
+            assert_eq!(ANCESTORS.len(), 8, "eight seeds, ratified 2026-07-31");
+            assert_eq!(values, 21, "6 structures + 9 materials + 6 atmospheres");
+            assert_eq!(
+                RULING_COUNT,
+                ANCESTORS.len() * values,
+                "every ancestor must rule on every value"
+            );
+        }
+
+        /// The ancestral list must stay SHORT — every added seed costs a full
+        /// column of rulings, which is why atmospheres and materials are not
+        /// promoted to lineages (matrix §3.2).
+        #[test]
+        fn the_ancestral_list_stays_short() {
+            assert!(
+                ANCESTORS.len() <= 8,
+                "5-8 seeds is the workable range; 20 is not"
+            );
+        }
+    }
+}
+
 pub mod motion {
     /// Cubic-bézier ease, CSS convention: control points (x1, y1, x2, y2).
     /// y may leave [0,1] — that's how the spring eases overshoot.

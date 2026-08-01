@@ -96,6 +96,7 @@ fn main() {
     println!("cargo:rerun-if-changed=tokens/traits.json");
     println!("cargo:rerun-if-changed=tokens/icons.json");
     println!("cargo:rerun-if-changed=assets/lucide");
+    println!("cargo:rerun-if-changed=tokens/matrix.json");
     let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR");
 
     generate_ramps(&out_dir);
@@ -107,6 +108,152 @@ fn main() {
     generate_presets(&out_dir);
     generate_traits(&out_dir);
     generate_icons(&out_dir);
+    generate_matrix(&out_dir);
+}
+
+// ── the MATRIX — faceted classification (docs/design/coldlight-matrix.md) ──
+
+/// tokens/matrix.json → the facet id pools and the legality table.
+///
+/// Four checks, and each one FAILS THE BUILD rather than degrading, because
+/// a matrix that silently permits a contradiction produces mush (§5):
+///
+/// 1. **Kebab ids** — the naming law (architecture.md §4).
+/// 2. **Every font ref resolves** — the manifest⇄truth law fonts already use.
+/// 3. **Total and disjoint** — every facet value appears in EXACTLY ONE of
+///    an ancestor's `native`/`allowed`/`forbidden`, for EVERY ancestor. A
+///    value left unclassified fails; a value classified twice fails. This is
+///    what stops the matrix rotting as values are added: adding a material
+///    forces all eight ancestors to rule on it.
+/// 4. **`native` is one value per facet** — an ancestor alone must resolve
+///    to a complete look, so its natives cannot be absent or plural.
+fn generate_matrix(out_dir: &str) {
+    let raw = std::fs::read_to_string("tokens/matrix.json").expect("read matrix.json");
+    let doc: serde_json::Value = serde_json::from_str(&raw).expect("parse matrix.json");
+
+    let kebab = |s: &str| {
+        !s.is_empty()
+            && s.split('-').all(|p| {
+                !p.is_empty()
+                    && p.chars()
+                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+            })
+    };
+    let ids_of = |key: &str| -> Vec<String> {
+        doc[key]
+            .as_array()
+            .unwrap_or_else(|| panic!("matrix.json: {key}[]"))
+            .iter()
+            .map(|v| {
+                let id = v["id"].as_str().expect("facet id").to_owned();
+                assert!(kebab(&id), "matrix.json: id {id:?} is not kebab-case");
+                id
+            })
+            .collect()
+    };
+
+    let structures = ids_of("structures");
+    let materials = ids_of("materials");
+    let atmospheres = ids_of("atmospheres");
+    let ancestors = doc["ancestors"]
+        .as_array()
+        .expect("matrix.json: ancestors[]");
+
+    // The font pool is the truth an ancestor's `font` must resolve against.
+    let fonts_raw = std::fs::read_to_string("tokens/fonts.json").expect("read fonts.json");
+    let fonts_doc: serde_json::Value = serde_json::from_str(&fonts_raw).expect("parse fonts.json");
+    let font_ids: Vec<&str> = fonts_doc["fonts"]
+        .as_array()
+        .expect("fonts.json: fonts[]")
+        .iter()
+        .map(|f| f["id"].as_str().expect("font id"))
+        .collect();
+
+    let facets: [(&str, &Vec<String>); 3] = [
+        ("structure", &structures),
+        ("material", &materials),
+        ("atmosphere", &atmospheres),
+    ];
+
+    let mut rulings = 0usize;
+    for a in ancestors {
+        let aid = a["id"].as_str().expect("ancestor id");
+        assert!(
+            kebab(aid),
+            "matrix.json: ancestor {aid:?} is not kebab-case"
+        );
+        let font = a["font"].as_str().expect("ancestor font");
+        assert!(
+            font_ids.contains(&font),
+            "matrix.json: ancestor {aid:?} wears unknown font {font:?}"
+        );
+
+        for (facet, pool) in facets {
+            let native = a["native"][facet]
+                .as_str()
+                .unwrap_or_else(|| panic!("matrix.json: {aid}.native.{facet} must be ONE value"));
+            let list = |set: &str| -> Vec<String> {
+                a[set][facet]
+                    .as_array()
+                    .map(|v| {
+                        v.iter()
+                            .map(|x| x.as_str().expect("facet ref").to_owned())
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            };
+            let mut seen: Vec<String> = vec![native.to_owned()];
+            seen.extend(list("allowed"));
+            seen.extend(list("forbidden"));
+
+            for v in &seen {
+                assert!(
+                    pool.contains(v),
+                    "matrix.json: {aid}.{facet} references unknown value {v:?}"
+                );
+            }
+            for v in pool {
+                let n = seen.iter().filter(|s| *s == v).count();
+                assert!(
+                    n == 1,
+                    "matrix.json: {aid}.{facet} classifies {v:?} {n} times — every value must \
+                     appear in EXACTLY ONE of native/allowed/forbidden (matrix §5)"
+                );
+                rulings += 1;
+            }
+        }
+    }
+
+    let mut code = String::new();
+    writeln!(
+        code,
+        "// GENERATED by build.rs from tokens/matrix.json — DO NOT EDIT."
+    )
+    .unwrap();
+    for (name, pool) in [
+        ("STRUCTURES", &structures),
+        ("MATERIALS", &materials),
+        ("ATMOSPHERES", &atmospheres),
+    ] {
+        writeln!(code, "pub static {name}: &[&str] = &[").unwrap();
+        for id in pool {
+            writeln!(code, "    {id:?},").unwrap();
+        }
+        writeln!(code, "];").unwrap();
+    }
+    writeln!(code, "pub static ANCESTORS: &[&str] = &[").unwrap();
+    for a in ancestors {
+        writeln!(code, "    {:?},", a["id"].as_str().unwrap()).unwrap();
+    }
+    writeln!(code, "];").unwrap();
+    writeln!(
+        code,
+        "/// Authored legality rulings — every ancestor rules on every facet value."
+    )
+    .unwrap();
+    writeln!(code, "pub const RULING_COUNT: usize = {rulings};").unwrap();
+
+    std::fs::write(format!("{out_dir}/matrix_gen.rs"), code).expect("write matrix_gen.rs");
 }
 
 // ── icons — the 8th source: the vendored Lucide pool (ADR-015) ──────────
