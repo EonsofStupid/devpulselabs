@@ -1191,6 +1191,47 @@ pub mod motion {
         }
     }
 
+    /// The RESOLVED transform an effect is asking for at a moment in time.
+    ///
+    /// Before this existed, [`Effect::at`] handed back a bare scalar and every
+    /// call site decided for itself what the motion MEANT — `callout_card`
+    /// read `ENTER_RISE` as "fade, plus a 6-unit lift", `gauge_dial` read the
+    /// same shape as a sweep fraction, and a dozen other templates each made
+    /// their own call. That is why the pool could not grow: a new effect was a
+    /// new number somebody had to be hand-taught to interpret, not a new
+    /// motion.
+    ///
+    /// Sizes here are NORMALISED, never pixels — `offset` is a fraction of
+    /// whatever amplitude the caller chooses, so `Fluid` keeps owning size and
+    /// the effect owns shape. A caller writes `fluid.sp_6() * m.offset.y`, and
+    /// the one effect then reads correctly at every window size.
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    pub struct Motion {
+        /// 1.0 = fully opaque. Clamped — opacity outside 0..1 is not a thing.
+        pub alpha: f32,
+        /// Displacement as a fraction of the caller's amplitude. Deliberately
+        /// UNCLAMPED so a spring ease can overshoot in space.
+        pub offset: egui::Vec2,
+        /// 1.0 = natural size. Unclamped, for the same reason as `offset`.
+        pub scale: f32,
+        /// Radians.
+        pub rotation: f32,
+        /// Reveal fraction for a wipe or a stroke draw. Clamped 0..1.
+        pub clip: f32,
+    }
+
+    impl Motion {
+        /// The resting state — what every one-shot settles to, and what a
+        /// caller paints when it has no effect at all.
+        pub const REST: Motion = Motion {
+            alpha: 1.0,
+            offset: egui::Vec2::ZERO,
+            scale: 1.0,
+            rotation: 0.0,
+            clip: 1.0,
+        };
+    }
+
     /// A named motion effect: duration, authored delay, per-index stagger,
     /// ease, and whether it loops (hotspot-pulse) or rests at 1.
     #[derive(Debug, Clone, Copy)]
@@ -1216,6 +1257,26 @@ pub mod motion {
                 self.ease.apply(p.max(0.0).fract())
             } else {
                 self.ease.apply(p)
+            }
+        }
+
+        /// The RESOLVED transform this effect asks for at a moment in time.
+        ///
+        /// See [`Motion`] for why this exists. The interpretation here is the
+        /// one every call site was already applying by hand, written down
+        /// once: fade in, rise from below, reveal forward.
+        pub fn sample(&self, now: f64, t0: f64, index: usize) -> Motion {
+            let p = self.at(now, t0, index);
+            Motion {
+                alpha: p.clamp(0.0, 1.0),
+                // Unclamped on purpose: a spring ease must be able to
+                // overshoot in space, which is the whole point of authoring
+                // one. Opacity and clip cannot, so they are clamped above and
+                // below.
+                offset: egui::vec2(0.0, 1.0 - p),
+                scale: 1.0,
+                rotation: 0.0,
+                clip: p.clamp(0.0, 1.0),
             }
         }
 
@@ -1266,6 +1327,64 @@ pub mod motion {
             assert!((CHART_RISE.at(100.0, 0.0, 2) - 1.0).abs() < 0.01);
             assert!(!CHART_RISE.in_flight(100.0, 0.0, 5));
             assert!(CHART_RISE.in_flight(0.1, 0.0, 5));
+        }
+
+        /// `sample` must reproduce EXACTLY the arithmetic every call site was
+        /// doing by hand, or this refactor is a silent visual regression
+        /// across every animated slide. `callout_card` computed
+        /// `alpha = p.clamp(0,1)` and `lift = sp_6 * (1.0 - p)`; those two
+        /// lines are the contract being pinned here.
+        #[test]
+        fn sample_reproduces_the_hand_math_it_replaces() {
+            for &(now, index) in &[(0.0, 0), (0.35, 0), (0.5, 2), (100.0, 4)] {
+                let p = ENTER_RISE.at(now, 0.0, index);
+                let m = ENTER_RISE.sample(now, 0.0, index);
+                assert_eq!(m.alpha, p.clamp(0.0, 1.0), "alpha at {now}/{index}");
+                assert_eq!(m.offset.y, 1.0 - p, "lift fraction at {now}/{index}");
+                assert_eq!(m.clip, p.clamp(0.0, 1.0), "reveal at {now}/{index}");
+            }
+        }
+
+        /// A one-shot settles to the identity transform and stays there — the
+        /// presenter law is that every state is a REST state.
+        #[test]
+        fn a_finished_effect_samples_to_rest() {
+            let m = ENTER_RISE.sample(100.0, 0.0, 0);
+            assert!((m.alpha - Motion::REST.alpha).abs() < 0.001);
+            assert!(
+                m.offset.length() < 0.001,
+                "settled offset was {:?}",
+                m.offset
+            );
+            assert!((m.clip - Motion::REST.clip).abs() < 0.001);
+        }
+
+        /// Opacity is clamped, displacement is not. A spring ease overshoots
+        /// past its target in SPACE — that is the reason to author one — while
+        /// alpha stays a legal opacity throughout.
+        #[test]
+        fn a_spring_overshoots_in_space_but_never_in_opacity() {
+            let springy = Effect {
+                dur: 1.0,
+                delay: 0.0,
+                stagger: 0.0,
+                ease: EASE_SPRING_SOFT,
+                looped: false,
+            };
+            let mut overshot = false;
+            for i in 0..=40 {
+                let m = springy.sample(i as f64 / 40.0, 0.0, 0);
+                assert!(
+                    (0.0..=1.0).contains(&m.alpha),
+                    "alpha {} left 0..1",
+                    m.alpha
+                );
+                assert!((0.0..=1.0).contains(&m.clip), "clip {} left 0..1", m.clip);
+                if m.offset.y < -0.001 {
+                    overshot = true;
+                }
+            }
+            assert!(overshot, "spring-soft must carry past its target in space");
         }
 
         #[test]
