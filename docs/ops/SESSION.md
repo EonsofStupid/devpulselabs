@@ -14,23 +14,23 @@ milestone-loop). Product truth stays in `docs/STATE.md`.
 **coach / ledger / lesson** — backlog:
 `docs/journal/2026-07-28-remaining-work.md`
 
-**NEXT:** Operator look-approve mock rev (Import Process) → C2f against
-Lab program. Pass-2 stdio **parked**.
+**NEXT:** Approve CX-cursor-01 (overlay seed on Cursor) → then C2f UI
+select/import. Notepad after. Pass-2 **parked**.
 
-**CLOSED:** … · C2c base (#167) · C2d (#172) · C2e (#179) · Lab/import
-capture (docs)
+**CLOSED:** … · C2e (#179) · Lab/import capture · Cursor a11y probe
 
 ## Opens
 
 | Kind | Ref | Notes |
 |---|---|---|
-| Coach product | look-approve mock rev → C2f | Import Process |
-| Coach Lab | CX-teacher · CX-harvest | after / parallel Advanced |
-| Coach Advanced | C2b Pass-2 stdio | parked |
+| Coach spike | CX-cursor-01 | Standard mint PASS; locate next |
+| Coach product | C2f Cursor import UI | after locate |
+| Coach next | Notepad (Windows) | after Cursor |
+| Coach Advanced | CX-harvest / Pass-2 | when a11y thin / parked |
 
 ## Milestone
 
-look-approve → C2f → Lab spikes → (parked Advanced) → DuckDB
+CX-cursor-01 → C2f Cursor → Notepad → Teacher / harvest as needed
 
 ## Signals
 

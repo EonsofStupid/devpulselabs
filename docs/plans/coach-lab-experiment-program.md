@@ -80,16 +80,17 @@ signals stamped, proof, visual, product promotion (`none`|`C2f`|`C2g`|…).
 | Order | ID | Surface | Blocks C2f? |
 |---|---|---|---|
 | 0 | This program + mock rev | Docs / Lab | Unblocks |
-| 1 | **C2f** Operator import → lesson path | Product | Spine NEXT |
-| 2 | **CX-teacher-agency-01** in-app actor | Product-adjacent | No — no Pass-2 |
-| 3 | **CX-harvest-01** Advanced Import spike | Advanced | No |
-| 4 | Pass-2 stdio | Advanced only if needed | Parked |
-| 5 | DuckDB / `analytics.adapter` | Phase 3 | After volume |
+| 1 | **CX-cursor-01** overlay seed on Cursor (test-first) | Spike | Unblocks C2f seed |
+| 2 | **C2f** Operator import UI → Cursor lesson | Product | Spine NEXT |
+| 3 | Notepad (Windows Standard Import) | Product | After Cursor |
+| 4 | **CX-teacher-agency-01** in-app actor | Product-adjacent | No Pass-2 |
+| 5 | **CX-harvest-01** Advanced Import | Advanced | When a11y thin |
+| 6 | Pass-2 stdio / DuckDB | Parked / Phase 3 | — |
 
-**Harvest:** parallel Advanced spike first; promote to **C2g** only after
-journal proves safe graph + Operator-usable copy.  
-**Teacher:** in-app `CoachCommand` + `Triggered.actor` first; Pass-2 is
-transport, not Teacher.
+**Conquest:** Cursor first (Calculator = regression only).  
+**Harvest:** only when essential checks fail — Cursor probe 2026-07-31 was
+Standard Import PASS.  
+**Teacher:** in-app `CoachCommand` + actor first; Pass-2 is transport.
 
 ### 3.5 Signal / ledger (baseline fuel)
 

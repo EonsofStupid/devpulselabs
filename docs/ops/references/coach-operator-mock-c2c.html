@@ -230,21 +230,29 @@
           <h2 id="pick-h">Installed &amp; available</h2>
           <p class="hint">Lightweight list first. Import (deep work) starts only after you confirm.</p>
           <div class="list" role="listbox" aria-label="Target apps" id="app-list">
-            <button class="app sel" type="button" role="option" aria-selected="true" data-app="calc" data-a11y="ok">
+            <button class="app sel" type="button" role="option" aria-selected="true" data-app="cursor" data-a11y="ok">
+              <span class="glyph">Cu</span>
+              <span class="meta">
+                <span class="name">Cursor</span>
+                <span class="sub">cursor.desktop · Standard mint probed · seed Search Ctrl+K</span>
+              </span>
+              <span class="pill ready">Ready · medium</span>
+            </button>
+            <button class="app" type="button" role="option" aria-selected="false" data-app="calc" data-a11y="ok">
               <span class="glyph">7±</span>
               <span class="meta">
                 <span class="name">Calculator</span>
-                <span class="sub">gnome-calculator · a11y healthy · seed proven</span>
+                <span class="sub">regression seed · paint + press proven on 7</span>
               </span>
               <span class="pill ready">Ready · small</span>
             </button>
-            <button class="app" type="button" role="option" aria-selected="false" data-app="files" data-a11y="ok">
-              <span class="glyph">Fs</span>
+            <button class="app" type="button" role="option" aria-selected="false" data-app="notepad" data-a11y="ok">
+              <span class="glyph">Np</span>
               <span class="meta">
-                <span class="name">Files</span>
-                <span class="sub">nautilus · medium tree · a11y ok</span>
+                <span class="name">Notepad</span>
+                <span class="sub">Windows next · Standard Import candidate</span>
               </span>
-              <span class="pill ready">Ready · medium</span>
+              <span class="pill ready">Next · windows</span>
             </button>
             <button class="app thin" type="button" role="option" aria-selected="false" data-app="legacy" data-a11y="thin">
               <span class="glyph">Lg</span>
@@ -254,18 +262,10 @@
               </span>
               <span class="pill thin">Check · thin a11y</span>
             </button>
-            <button class="app" type="button" role="option" aria-selected="false" data-app="blender" data-a11y="deep">
-              <span class="glyph">Bl</span>
-              <span class="meta">
-                <span class="name">Blender</span>
-                <span class="sub">Tier B API later · deep / custom UI</span>
-              </span>
-              <span class="pill deep">Later · deep</span>
-            </button>
           </div>
           <div class="seed">
-            <b>Seed tip:</b> start with Calculator — paint + press proven on button <b>7</b>.
-            Thin a11y apps divert to <b>Advanced Import</b> (separate workflow), not a fake Standard mint.
+            <b>Seed tip:</b> conquer <b>Cursor</b> next (mint Ready on this box).
+            Calculator stays for regression. Thin a11y → <b>Advanced Import</b>, not a fake Standard mint.
           </div>
           <div class="actions">
             <button class="btn tone" type="button" id="btn-import">Import / analyze…</button>
@@ -323,12 +323,12 @@
 <script>
 (function () {
   const apps = {
-    calc: { name: "Calculator", eta: "About a minute — small signal map.", a11y: "ok" },
-    files: { name: "Files", eta: "A few minutes — walking menus.", a11y: "ok" },
+    cursor: { name: "Cursor", eta: "A few seconds — Standard mint probed (~400 ms / 157 nodes on this box).", a11y: "ok" },
+    calc: { name: "Calculator", eta: "About a minute — small signal map (regression seed).", a11y: "ok" },
+    notepad: { name: "Notepad", eta: "Windows seat next — Standard Import candidate.", a11y: "ok" },
     legacy: { name: "Legacy Draw", eta: "Accessibility looks thin — Advanced Import may be required.", a11y: "thin" },
-    blender: { name: "Blender", eta: "May take a while or refuse — deep / custom UI.", a11y: "deep" },
   };
-  let selected = "calc";
+  let selected = "cursor";
   let stage = "pick";
 
   const flow = document.getElementById("flow-panel");

@@ -80,15 +80,22 @@ Calculator Ready · 82 nodes · seed `7` · ~255 ms. Journal:
 
 **Done when:** met. NEXT = C2f.
 
-### 10. C2f — Operator Import Process → guided lesson + paint
+### 9b. CX-cursor-01 — Cursor seed locate (test-first)
 
-**Contract:** [`docs/plans/coach-lab-experiment-program.md`](../plans/coach-lab-experiment-program.md)
-+ mock rev Import Process. Honesty prompt → essential checks (a11y) →
-Standard Import → Mount/paint/Triggered. Advanced Import / Harvest =
-Lab spikes (CX-harvest), not a silent fake Standard mint.
+**Probe PASS** 2026-07-31 — Standard mint Ready · 157 nodes.
+Plan: `docs/plans/coach-cx-cursor-01.md`. Overlay locate on
+`Search Ctrl+K` / `File` before hub UI.
 
-**Done when:** operator picks Calculator → confirms import → checks pass
-→ sees paint → press Triggered without CLI probes; ledger stamps import facts.
+**Done when:** locate (+ optional paint) journaled on Cursor.
+
+### 10. C2f — Operator Import Process → Cursor lesson + paint
+
+**Contract:** Lab program + Import Process. Primary conquest = **Cursor**
+(Calculator = regression only). Honesty prompt → checks → Standard Import
+→ Mount seed. Notepad = Windows follow-up. Advanced Import only if checks fail.
+
+**Done when:** operator picks Cursor → import → paint → Triggered without
+CLI; ledger stamps import facts.
 
 ### 11. Strict-mode pinning (replay) — after product path or operator ask
 
