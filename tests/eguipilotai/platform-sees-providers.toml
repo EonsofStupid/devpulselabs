@@ -57,7 +57,12 @@ value = "AI ·"
 id = "root/shell.status.providers"
 
 # The proof shot is of MAIN, at a real window size — the surface outside the
-# chat crates that now knows what the platform can do.
+# chat crates that now knows what the platform can do. The viewport is named
+# explicitly: the `chat` fixture opens the peer window too, and an unscoped
+# capture cannot know which of the two live viewports is the evidence.
 [[steps]]
 kind = "capture"
 name = "platform-sees-providers"
+
+[steps.viewport]
+key = "root"
