@@ -149,6 +149,12 @@ pick — a freely random pick would make every proof shot flaky. The mock is
 and its bleed, the roster, the modal, the stored fact, and the four
 consumers all driven by the same provider state.
 
+**2026-07-31 — C2f Operator Import UI (`docs/journal/2026-07-31-c2f-operator-import-ui.md`):**
+`dpl-hub-coach` on the rail — pick → honesty Import → checks → Standard
+mint → guided lesson via overlay binary (Cursor seed `Search Ctrl+K`).
+Calculator stays regression. NEXT: live Cursor import→paint proof on
+release exe; Advanced harvest / Teacher / Notepad later.
+
 **2026-07-31 — CX-cursor-01 PASS (`docs/journal/2026-07-31-cx-cursor-01.md`):**
 overlay locate on Cursor **`Search Ctrl+K`** + **`File`**; Calculator `7`
 regression green.
