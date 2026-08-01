@@ -2,6 +2,12 @@ id = "chat-local-histories"
 fixture = "chat"
 record = true
 
+# This scenario is an ARM of an authored experiment. Declared here, not looked
+# up at run time, so the run bundle it produces is self-describing.
+[experiment]
+experiment = "chat-history-rail"
+variant = "rows"
+
 # Does the operator's REAL local chat history actually surface in Chat?
 # `chat` is the live runtime fixture — no authored models — so everything this
 # asserts comes from ~/.claude/projects and ~/.codex/sessions on THIS machine,

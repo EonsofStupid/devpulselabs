@@ -26,6 +26,32 @@ pub struct RunSummary {
     pub has_trace: bool,
     pub capture_count: usize,
     pub stderr_bytes: u64,
+    /// The experiment dimension, read from the bundle's own manifest. `None`
+    /// for an ordinary run — which is every run recorded before the field
+    /// existed, and every run that is simply not part of an experiment.
+    pub experiment: Option<String>,
+    pub variant: Option<String>,
+}
+
+/// Read the experiment dimension out of a bundle's manifest.
+///
+/// A malformed or absent manifest yields `None` rather than an error: the
+/// analyzer's job is to summarise whatever evidence exists, and a bundle
+/// that cannot say what it belongs to is still a bundle.
+fn manifest_experiment(path: &Path) -> (Option<String>, Option<String>) {
+    let Ok(text) = fs::read_to_string(path.join("manifest.json")) else {
+        return (None, None);
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return (None, None);
+    };
+    let field = |key: &str| {
+        value
+            .get(key)
+            .and_then(|value| value.as_str())
+            .map(str::to_owned)
+    };
+    (field("experiment"), field("variant"))
 }
 
 #[derive(Default)]
@@ -56,15 +82,30 @@ impl TestLab {
     }
 
     pub fn scan_runs(&mut self, root: impl AsRef<Path>) {
-        self.runs.clear();
         let root = root.as_ref();
-        let entries = match fs::read_dir(root) {
-            Ok(entries) => entries,
-            Err(error) => {
-                self.notice = Some(format!("{}: {error}", root.display()));
-                return;
+        match scan_runs(root) {
+            Ok(runs) => {
+                self.runs = runs;
+                self.notice = Some(format!("{} run bundles discovered", self.runs.len()));
             }
-        };
+            Err(error) => {
+                self.runs.clear();
+                self.notice = Some(format!("{}: {error}", root.display()));
+            }
+        }
+    }
+}
+
+/// Scan a runs root into summaries.
+///
+/// Free rather than a `TestLab` method so the Workbench Experiments surface
+/// reads the SAME summaries from the SAME walk. A second scanner is what
+/// would make experiments stop benefiting from the lab.
+pub fn scan_runs(root: impl AsRef<Path>) -> std::io::Result<Vec<RunSummary>> {
+    let root = root.as_ref();
+    let mut runs = Vec::new();
+    {
+        let entries = fs::read_dir(root)?;
         for entry in entries.flatten() {
             let path = entry.path();
             if !path.is_dir() {
@@ -79,8 +120,11 @@ impl TestLab {
                         .count()
                 })
                 .unwrap_or(0);
-            self.runs.push(RunSummary {
+            let (experiment, variant) = manifest_experiment(&path);
+            runs.push(RunSummary {
                 id: entry.file_name().to_string_lossy().into_owned(),
+                experiment,
+                variant,
                 has_manifest: path.join("manifest.json").is_file(),
                 has_trace: path.join("trace.jsonl").is_file(),
                 stderr_bytes: fs::metadata(path.join("stderr.log"))
@@ -90,10 +134,12 @@ impl TestLab {
                 path,
             });
         }
-        self.runs.sort_by(|left, right| right.id.cmp(&left.id));
-        self.notice = Some(format!("{} run bundles discovered", self.runs.len()));
     }
+    runs.sort_by(|left, right| right.id.cmp(&left.id));
+    Ok(runs)
+}
 
+impl TestLab {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.heading("EguiPilotAI Test Lab");

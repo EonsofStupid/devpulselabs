@@ -1149,11 +1149,28 @@ pub enum Step {
     },
 }
 
+/// Which experiment, and which arm of it, a scenario belongs to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExperimentRef {
+    /// The experiment document's id.
+    pub experiment: String,
+    /// The arm. Two scenarios sharing an experiment with different variants
+    /// are an A/B; one variant alone is a plain experiment.
+    pub variant: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Flow {
     pub id: ScenarioId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fixture: Option<FixtureId>,
+    /// The experiment this scenario is an arm of, if any.
+    ///
+    /// Declared HERE rather than looked up from the experiment document at
+    /// run time, so a run bundle is self-describing: evidence has to be
+    /// interpretable standing alone, without the authoring tree beside it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub experiment: Option<ExperimentRef>,
     #[serde(default)]
     pub steps: Vec<Step>,
     #[serde(default)]
@@ -2137,6 +2154,7 @@ mod tests {
         Flow {
             id: ScenarioId::new("coach"),
             fixture: None,
+            experiment: None,
             steps: vec![step],
             record: false,
         }
