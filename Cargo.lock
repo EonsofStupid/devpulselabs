@@ -2357,6 +2357,8 @@ dependencies = [
  "egui-pilot-ai",
  "egui-pilot-ai-lab",
  "egui_kittest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2671,6 +2673,7 @@ version = "0.1.0"
 dependencies = [
  "egui",
  "egui-pilot-ai-protocol",
+ "serde_json",
 ]
 
 [[package]]

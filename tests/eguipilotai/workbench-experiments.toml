@@ -1,0 +1,43 @@
+id = "workbench-experiments"
+fixture = "experiments"
+record = true
+
+# Does an experiment appear as its own domain, with its arm's REAL evidence
+# grouped under it? The runs this reads were produced by the chat-history-rail
+# arm on this machine — no authored fixture. An experiment that cannot find
+# its own bundles is the count label all over again.
+
+[[steps]]
+kind = "wait"
+milliseconds = 900
+
+# The domain. Its pilot value is how many arms it declares.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.experiments/chat-history-rail"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "1"
+
+[steps.expectation.target]
+id = "root/workbench.experiments/chat-history-rail"
+
+# The arm, and the evidence it claims. `<found>/<complete>` — a run that did
+# not satisfy the stated requirements is never quietly counted as one that did.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.experiments/chat-history-rail/rows"

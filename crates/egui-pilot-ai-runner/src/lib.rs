@@ -314,6 +314,7 @@ impl ProcessSession {
         profile_name: &str,
         fixture_name: Option<&str>,
         window: Option<WindowSize>,
+        experiment: Option<&protocol::ExperimentRef>,
     ) -> Result<Self, RunnerError> {
         let workspace = workspace.as_ref();
         let profile = config.profile(profile_name)?;
@@ -431,7 +432,14 @@ impl ProcessSession {
             handshake: None,
             trace: BufWriter::new(trace_file),
         };
-        launched.write_manifest(profile_name, fixture_name, &executable, profile, window)?;
+        launched.write_manifest(
+            profile_name,
+            fixture_name,
+            &executable,
+            profile,
+            window,
+            experiment,
+        )?;
         let result = launched
             .request(ClientCommand::Handshake(HandshakeRequest {
                 protocol: PROTOCOL_VERSION,
@@ -463,6 +471,7 @@ impl ProcessSession {
         executable: &Path,
         profile: &Profile,
         window: Option<WindowSize>,
+        experiment: Option<&protocol::ExperimentRef>,
     ) -> Result<(), RunnerError> {
         #[derive(Serialize)]
         struct Manifest<'a> {
@@ -475,6 +484,14 @@ impl ProcessSession {
             // Layout is size-dependent, so a run is only reproducible if the
             // size it ran at is on the record.
             window: Option<WindowSize>,
+            // The experiment dimension. Without it a bundle cannot say what
+            // it was evidence FOR, so grouping and comparison are impossible
+            // rather than merely unbuilt. `None` for an ordinary run, which
+            // is every run that existed before this field.
+            #[serde(skip_serializing_if = "Option::is_none")]
+            experiment: Option<&'a str>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            variant: Option<&'a str>,
         }
         let manifest = Manifest {
             protocol_version: PROTOCOL_VERSION,
@@ -484,6 +501,8 @@ impl ProcessSession {
             executable: executable.to_string_lossy().into_owned(),
             adapter_policy: profile.adapter_policy,
             window,
+            experiment: experiment.map(|reference| reference.experiment.as_str()),
+            variant: experiment.map(|reference| reference.variant.as_str()),
         };
         write_new_json(self.run_dir.join("manifest.json"), &manifest)
     }
