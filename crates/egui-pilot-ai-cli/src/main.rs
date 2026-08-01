@@ -1,7 +1,7 @@
 // spawn-audit: exempt(CLI harness — console output is the product)
 use egui_pilot_ai_protocol as protocol;
 use egui_pilot_ai_runner::{
-    load_flow, save_flow, EguiPilotConfig, ProcessSession, RunnerError, WindowSize, CONFIG_FILE,
+    load_flow, save_flow, EguiPilotConfig, ProcessSession, RunnerError, CONFIG_FILE,
 };
 use protocol::{
     CoachCommand, CoachCondition, CoachId, CoachStyle, Flow, Locator, NodeId, RunOutcome,
@@ -619,8 +619,11 @@ fn call_tool(state: &mut McpState, name: &str, arguments: Value) -> Result<Value
             let window = arguments
                 .get("window")
                 .and_then(Value::as_str)
-                .map(str::parse::<WindowSize>)
-                .transpose()?;
+                .map(str::parse::<protocol::WindowSize>)
+                .transpose()
+                // WindowSize now yields a plain message — the runner's error
+                // type is a runner concern, not the record's.
+                .map_err(CliError::Usage)?;
             let session = ProcessSession::launch(
                 &state.workspace,
                 &state.config,

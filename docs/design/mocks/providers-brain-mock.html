@@ -1,0 +1,252 @@
+<meta charset="utf-8">
+<title>Providers — the ink bleed</title>
+<style>
+:root{
+  --well:#07090e; --base:#0a0c12; --raised:#11141d; --overlay:#181c27;
+  --hairline:#232836;
+  --strong:#eef2f9; --ink:#c2c9d6; --muted:#8a93a6; --subtle:#5b6478;
+  /* the bleed pool — brand hues, authored in coldlight/tokens/hues.json */
+  --cyan:#22d3ee; --magenta:#e879f9; --amber:#fbbf24;
+  --viridian:#34d399; --electric:#818cf8;
+  --dwell: 5.9s;               /* the new duration tier: 5.6–6.3s */
+  --dwell-ease: cubic-bezier(.22,.61,.36,1);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--well);color:var(--ink);
+  font:14px/1.55 ui-sans-serif,system-ui,"Segoe UI",sans-serif;
+  padding:40px;-webkit-font-smoothing:antialiased}
+h1{font-size:15px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--muted);font-weight:600;margin:0 0 6px}
+.sub{color:var(--subtle);font-size:12.5px;margin:0 0 28px;max-width:70ch}
+.stage{background:var(--base);border:1px solid var(--hairline);
+  border-radius:10px;padding:34px 30px;max-width:980px}
+
+/* ─────────── THE CONTROL ─────────── */
+.providers{
+  display:inline-flex;align-items:center;gap:11px;
+  padding:10px 16px 10px 12px;border-radius:10px;
+  border:1px solid var(--hairline);background:var(--raised);
+  cursor:pointer;position:relative;isolation:isolate;
+  transition:border-color .2s ease;
+}
+.providers:hover{border-color:#2e3547}
+
+/* the ai circle — its diameter equals the cap-height of the P */
+.aidot{
+  width:19px;height:19px;border-radius:50%;flex:none;
+  border:1.5px solid var(--subtle);
+  display:grid;place-items:center;
+  font-size:9px;letter-spacing:.02em;font-weight:700;color:var(--subtle);
+  transition:color var(--dwell) var(--dwell-ease),
+             border-color var(--dwell) var(--dwell-ease);
+}
+.providers:hover .aidot{color:var(--c1);border-color:var(--c1)}
+
+.brainwrap{position:relative;width:26px;height:26px;flex:none}
+.brain{width:26px;height:26px;display:block}
+/* the brain starts as line-art in muted ink … */
+.brain path,.brain circle{
+  fill:none;stroke:var(--subtle);stroke-width:1.4;
+  stroke-linecap:round;stroke-linejoin:round;
+  transition:stroke var(--dwell) var(--dwell-ease);
+}
+.providers:hover .brain path,.providers:hover .brain circle{stroke:var(--c1)}
+
+.plabel{
+  font-size:16px;font-weight:600;letter-spacing:.01em;color:var(--muted);
+  transition:color var(--dwell) var(--dwell-ease);
+}
+.providers:hover .plabel{color:var(--strong)}
+
+/* THE BLEED — two colours, seeping from two origins like ink into paper.
+   Scale, not opacity: the wash spreads outward rather than fading in. */
+.bleed{position:absolute;inset:0;border-radius:10px;overflow:hidden;
+  z-index:-1;pointer-events:none}
+.bleed span{
+  position:absolute;border-radius:50%;
+  transform:scale(.04);opacity:0;
+  filter:blur(11px);
+  transition:transform var(--dwell) var(--dwell-ease),
+             opacity var(--dwell) var(--dwell-ease);
+}
+.bleed .a{left:-14%;top:-40%;width:62%;padding-bottom:62%;
+  background:radial-gradient(circle,var(--c1) 0%,transparent 68%)}
+.bleed .b{right:-16%;bottom:-46%;width:70%;padding-bottom:70%;
+  background:radial-gradient(circle,var(--c2) 0%,transparent 68%)}
+.providers:hover .bleed span{transform:scale(1);opacity:.42}
+
+.hint{color:var(--subtle);font-size:12px;margin-top:16px}
+.hint b{color:var(--muted);font-weight:600}
+
+/* ─────────── THE POPUP ─────────── */
+.pop{margin-top:26px;background:var(--overlay);border:1px solid var(--hairline);
+  border-radius:12px;padding:18px;display:none;max-width:700px}
+.pop.open{display:block}
+.poptitle{font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--muted);margin-bottom:14px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:12px}
+.card{background:var(--raised);border:1px solid var(--hairline);border-radius:9px;
+  padding:13px;cursor:pointer;position:relative;
+  transition:border-color .18s ease,transform .18s ease}
+.card:hover{border-color:#334;transform:translateY(-1px)}
+.thumb{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;
+  font-weight:700;font-size:13px;color:#08111a;margin-bottom:9px}
+.name{font-size:13px;font-weight:600;color:var(--strong)}
+.state{font-size:11.5px;margin-top:3px;display:flex;align-items:center;gap:5px}
+.dot{width:6px;height:6px;border-radius:50%;flex:none}
+.ready .dot{background:var(--viridian)} .ready{color:var(--viridian)}
+.out .dot{background:var(--amber)} .out{color:var(--amber)}
+.none .dot{background:var(--subtle)} .none{color:var(--subtle)}
+
+/* the tooltip that is itself clickable — it PROMOTES into the modal */
+.tip{position:absolute;left:50%;bottom:calc(100% + 8px);transform:translateX(-50%);
+  background:#05080d;border:1px solid var(--hairline);border-radius:7px;
+  padding:8px 11px;font-size:11.5px;color:var(--ink);white-space:nowrap;
+  opacity:0;pointer-events:none;transition:opacity .16s ease;z-index:5}
+.card:hover .tip{opacity:1;pointer-events:auto}
+.tip em{color:var(--subtle);font-style:normal;display:block;font-size:10.5px;margin-top:2px}
+
+/* ─────────── THE MODAL ─────────── */
+.scrim{position:fixed;inset:0;background:rgba(3,5,9,.72);display:none;
+  place-items:center;z-index:20}
+.scrim.open{display:grid}
+.modal{background:var(--overlay);border:1px solid var(--hairline);border-radius:14px;
+  padding:24px;width:min(460px,92vw)}
+.mhead{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.mname{font-size:18px;font-weight:600;color:var(--strong)}
+.tenure{font-variant-numeric:tabular-nums;color:var(--cyan);font-size:13px;
+  background:#0b1a20;border:1px solid #16323b;border-radius:7px;
+  padding:7px 10px;display:inline-block;margin:12px 0 4px}
+.caps{margin-top:14px;font-size:12.5px;color:var(--muted)}
+.caps span{display:inline-block;border:1px solid var(--hairline);border-radius:20px;
+  padding:2px 9px;margin:3px 5px 0 0;font-size:11.5px}
+.close{margin-top:18px;background:var(--raised);border:1px solid var(--hairline);
+  color:var(--ink);border-radius:8px;padding:8px 14px;cursor:pointer;font-size:12.5px}
+</style>
+
+<h1>Providers — the ink bleed</h1>
+<p class="sub">Hover the control and <b>wait</b>. The bleed is deliberately passive —
+about six seconds from line-art to full colour, two colours seeping from two
+origins. Every reload draws a different pair from the pool. Click it to open the
+roster; hover a card for its tooltip, then click the tooltip to promote it into
+the provider modal.</p>
+
+<div class="stage">
+  <div class="providers" id="ctl">
+    <div class="bleed"><span class="a"></span><span class="b"></span></div>
+    <div class="aidot">ai</div>
+    <div class="brainwrap">
+      <svg class="brain" viewBox="0 0 24 24">
+        <path d="M12 4.4v15.2"/>
+        <path d="M12 5.6a3 3 0 0 0-5.5 1.7A2.7 2.7 0 0 0 4.3 10a2.8 2.8 0 0 0 .8 4.3A2.9 2.9 0 0 0 7 18.6a2.9 2.9 0 0 0 5-1.2"/>
+        <path d="M12 5.6a3 3 0 0 1 5.5 1.7A2.7 2.7 0 0 1 19.7 10a2.8 2.8 0 0 1-.8 4.3A2.9 2.9 0 0 1 17 18.6a2.9 2.9 0 0 1-5-1.2"/>
+        <path d="M8.6 9.2c1 .3 1.7 1 1.9 2.1M15.4 9.2c-1 .3-1.7 1-1.9 2.1M8.1 14.4c1.1-.2 2-.1 2.6.4M15.9 14.4c-1.1-.2-2-.1-2.6.4"/>
+      </svg>
+    </div>
+    <div class="plabel">Providers</div>
+  </div>
+  <div class="hint">pool pick this load: <b id="pick"></b> — seeded, so a proof run pins it</div>
+
+  <div class="pop" id="pop">
+    <div class="poptitle">Frontier AI on this machine</div>
+    <div class="grid" id="grid"></div>
+  </div>
+</div>
+
+<div class="scrim" id="scrim">
+  <div class="modal">
+    <div class="mhead">
+      <div class="thumb" id="mthumb"></div>
+      <div><div class="mname" id="mname"></div><div class="state" id="mstate"></div></div>
+    </div>
+    <div id="mblurb" style="font-size:13px;color:var(--ink)"></div>
+    <div class="tenure" id="mten"></div>
+    <div style="font-size:11px;color:var(--subtle)">time in operation, live</div>
+    <div class="caps" id="mcaps"></div>
+    <button class="close" onclick="document.getElementById('scrim').classList.remove('open')">Close</button>
+  </div>
+</div>
+
+<script>
+const POOL = [
+  ['cyan','#22d3ee'],['magenta','#e879f9'],['amber','#fbbf24'],
+  ['viridian','#34d399'],['electric','#818cf8']
+];
+// Seeded so a proof run pins the pair. Real build: the determinism gate
+// supplies the seed; --mood 0 forces a fixed one.
+const seed = Math.floor(Math.random()*POOL.length);
+const a = POOL[seed], b = POOL[(seed + 1 + Math.floor(Math.random()*(POOL.length-1))) % POOL.length];
+const ctl = document.getElementById('ctl');
+ctl.style.setProperty('--c1', a[1]);
+ctl.style.setProperty('--c2', b[1]);
+// jitter the dwell inside the operator's 5.6–6.3s window
+ctl.style.setProperty('--dwell', (5.6 + Math.random()*0.7).toFixed(2) + 's');
+document.getElementById('pick').textContent = a[0] + ' + ' + b[0];
+
+const PROVIDERS = [
+  {n:'ChatGPT / Codex', k:'C', c:'#10a37f', s:'ready', why:'codex login status → signed in',
+   blurb:'OpenAI. Detected through the Codex CLI on this machine, which reports its own auth state.',
+   since:'2015-12-11', caps:['Live turns','Sessions','History']},
+  {n:'Claude Code', k:'A', c:'#d97757', s:'ready', why:'165 local transcripts indexed',
+   blurb:'Anthropic. Activated by the transcripts already on this machine — live turns are not qualified yet.',
+   since:'2021-01-28', caps:['Read sessions','Page history']},
+  {n:'Grok', k:'G', c:'#e5e7eb', s:'ready', why:'build subscription active',
+   blurb:'xAI. Activation coordinator reports a live runtime on this machine.',
+   since:'2023-07-12', caps:['Live turns','Sessions']},
+  {n:'Gemini', k:'G', c:'#4285f4', s:'out', why:'CLI installed, signed out',
+   blurb:'Google DeepMind. Installed but not signed in — sign-in opens your default browser.',
+   since:'2023-12-06', caps:['—']},
+  {n:'Mistral', k:'M', c:'#ff7000', s:'none', why:'not installed',
+   blurb:'Mistral AI. No local client detected on this machine.',
+   since:'2023-04-28', caps:['—']},
+  {n:'Llama', k:'L', c:'#0866ff', s:'none', why:'not installed',
+   blurb:'Meta. No local client detected on this machine.',
+   since:'2023-02-24', caps:['—']}
+];
+const LABEL = {ready:'signed in · available', out:'signed out', none:'not installed'};
+
+const grid = document.getElementById('grid');
+PROVIDERS.forEach((p,i)=>{
+  const el = document.createElement('div');
+  el.className = 'card';
+  el.innerHTML = `<div class="thumb" style="background:${p.c}">${p.k}</div>
+    <div class="name">${p.n}</div>
+    <div class="state ${p.s}"><i class="dot"></i>${LABEL[p.s]}</div>
+    <div class="tip">${p.why}<em>click for the full summary</em></div>`;
+  el.querySelector('.tip').onclick = e => { e.stopPropagation(); openModal(i); };
+  el.onclick = () => openModal(i);
+  grid.appendChild(el);
+});
+
+document.getElementById('ctl').onclick = () =>
+  document.getElementById('pop').classList.toggle('open');
+
+let ticker = null;
+function openModal(i){
+  const p = PROVIDERS[i];
+  document.getElementById('mthumb').style.background = p.c;
+  document.getElementById('mthumb').textContent = p.k;
+  document.getElementById('mname').textContent = p.n;
+  const st = document.getElementById('mstate');
+  st.className = 'state ' + p.s;
+  st.innerHTML = `<i class="dot"></i>${LABEL[p.s]} — ${p.why}`;
+  document.getElementById('mblurb').textContent = p.blurb;
+  document.getElementById('mcaps').innerHTML =
+    'Capabilities ' + p.caps.map(c=>`<span>${c}</span>`).join('');
+  const from = new Date(p.since + 'T00:00:00Z');
+  clearInterval(ticker);
+  const tick = () => {
+    const ms = Date.now() - from;
+    const d = Math.floor(ms/86400000);
+    const y = Math.floor(d/365.25), mo = Math.floor((d - y*365.25)/30.44);
+    const s = Math.floor(ms/1000)%60, mi = Math.floor(ms/60000)%60, h = Math.floor(ms/3600000)%24;
+    document.getElementById('mten').textContent =
+      `${y}y ${mo}mo · ${d.toLocaleString()} days · ${String(h).padStart(2,'0')}:${String(mi).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  };
+  tick(); ticker = setInterval(tick, 1000);
+  document.getElementById('scrim').classList.add('open');
+}
+document.getElementById('scrim').onclick = e => {
+  if (e.target.id === 'scrim') { e.target.classList.remove('open'); clearInterval(ticker); }
+};
+</script>
