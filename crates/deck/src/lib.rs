@@ -46,7 +46,7 @@ struct Marker {
 
 pub struct DeckHost {
     title: String,
-    look: dpl_doc::Look,
+    theme: dpl_doc::Theme,
     slides: Vec<DeckSlide>,
     /// Per-slide step counts, derived once — the nav math's whole world.
     steps: Vec<usize>,
@@ -73,10 +73,10 @@ impl DeckHost {
     /// Open a show from its episode folder.
     pub fn open(dir: &Path) -> Result<Self, String> {
         let ep = dpl_doc::load_episode(dir).map_err(|e| e.to_string())?;
-        let look = dpl_doc::load_look(dir)
+        let theme = dpl_doc::load_theme(dir)
             .ok()
             .flatten()
-            .unwrap_or_else(dpl_doc::Look::fallback);
+            .unwrap_or_else(dpl_doc::Theme::fallback);
         let mut slides = Vec::new();
         let mut markers: Vec<Marker> = Vec::new();
         let mut last_chapter: Option<String> = None;
@@ -109,7 +109,7 @@ impl DeckHost {
             .collect();
         Ok(Self {
             title: ep.title,
-            look,
+            theme,
             slides,
             steps,
             markers,
@@ -229,7 +229,7 @@ impl DeckHost {
                     &mut child,
                     rect,
                     slide,
-                    &self.look,
+                    &self.theme,
                     self.pos.step,
                     now,
                     t0,

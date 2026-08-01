@@ -5,7 +5,7 @@
 //! Strokes are polylines in IMAGE pixel space. Each segment is stamped
 //! as filled discs marched at half-radius spacing — round caps and
 //! joins fall out of the disc shape, matching the old canvas editor's
-//! `lineCap: round` look without a path-stroking dependency.
+//! `lineCap: round` theme without a path-stroking dependency.
 
 use std::path::Path;
 

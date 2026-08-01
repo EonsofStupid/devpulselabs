@@ -622,7 +622,7 @@ fn generate_fluid(out_dir: &str) {
 
 // ── presets — the 6th source: named bundles of refs ─────────────────────
 
-/// tokens/presets.json → LOOK_PRESETS / MOTION_PRESETS. A preset is DATA
+/// tokens/presets.json → THEME_PRESETS / MOTION_PRESETS. A preset is DATA
 /// over the other registries; every ref is cross-checked HERE against the
 /// authored sources, so an unknown font/mood/effect/ambience fails the
 /// build — the same manifest⇄truth law fonts use.
@@ -671,39 +671,39 @@ fn generate_presets(out_dir: &str) {
     )
     .unwrap();
 
-    let looks = doc["look"].as_array().expect("presets.json: look[]");
-    writeln!(code, "pub static LOOK_PRESETS: &[LookPreset] = &[").unwrap();
-    for p in looks {
-        let id = p["id"].as_str().expect("look.id");
-        let label = p["label"].as_str().expect("look.label");
-        let blurb = p["blurb"].as_str().expect("look.blurb");
-        let font = p["font"].as_str().expect("look.font");
-        let moods = p["moods"].as_array().expect("look.moods");
-        assert_eq!(moods.len(), 2, "look {id}: exactly 2 moods");
+    let themes = doc["theme"].as_array().expect("presets.json: theme[]");
+    writeln!(code, "pub static THEME_PRESETS: &[ThemePreset] = &[").unwrap();
+    for p in themes {
+        let id = p["id"].as_str().expect("theme.id");
+        let label = p["label"].as_str().expect("theme.label");
+        let blurb = p["blurb"].as_str().expect("theme.blurb");
+        let font = p["font"].as_str().expect("theme.font");
+        let moods = p["moods"].as_array().expect("theme.moods");
+        assert_eq!(moods.len(), 2, "theme {id}: exactly 2 moods");
         let (a, b) = (
             moods[0].as_str().expect("mood ref"),
             moods[1].as_str().expect("mood ref"),
         );
-        let motion = p["motion"].as_str().expect("look.motion");
+        let motion = p["motion"].as_str().expect("theme.motion");
         let ambience = p["ambience"].as_str();
         assert!(
             font_ids.iter().any(|f| f == font),
-            "look {id}: unknown font {font:?}"
+            "theme {id}: unknown font {font:?}"
         );
         for m in [a, b] {
             assert!(
                 mood_names.iter().any(|n| n == m),
-                "look {id}: unknown mood {m:?}"
+                "theme {id}: unknown mood {m:?}"
             );
         }
         assert!(
             effect_ids.iter().any(|e| e == motion),
-            "look {id}: unknown motion {motion:?}"
+            "theme {id}: unknown motion {motion:?}"
         );
         if let Some(amb) = ambience {
             assert!(
                 AMBIENCES.contains(&amb),
-                "look {id}: unknown ambience {amb:?}"
+                "theme {id}: unknown ambience {amb:?}"
             );
         }
         let amb_code = match ambience {
@@ -712,7 +712,7 @@ fn generate_presets(out_dir: &str) {
         };
         writeln!(
             code,
-            "    LookPreset {{ id: {id:?}, label: {label:?}, blurb: {blurb:?}, font: {font:?}, \
+            "    ThemePreset {{ id: {id:?}, label: {label:?}, blurb: {blurb:?}, font: {font:?}, \
              moods: ({a:?}, {b:?}), motion: {motion:?}, ambience: {amb_code} }},"
         )
         .unwrap();
@@ -720,8 +720,8 @@ fn generate_presets(out_dir: &str) {
     writeln!(code, "];").unwrap();
     writeln!(
         code,
-        "pub const LOOK_PRESET_COUNT: usize = {};",
-        looks.len()
+        "pub const THEME_PRESET_COUNT: usize = {};",
+        themes.len()
     )
     .unwrap();
 
@@ -753,7 +753,7 @@ fn generate_presets(out_dir: &str) {
     std::fs::write(Path::new(out_dir).join("presets_gen.rs"), code).expect("write presets_gen.rs");
 }
 
-// ── traits — the stackable partial looks (docs/design/doctrine.md) ───────
+// ── traits — the stackable partial themes (docs/design/doctrine.md) ───────
 
 /// tokens/traits.json → the TRAITS registry. A trait is DATA: per-axis
 /// specs whose color refs are LADDER-RELATIVE ({tone:STEP}) or fixed pool
