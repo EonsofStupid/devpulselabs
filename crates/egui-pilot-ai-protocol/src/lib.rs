@@ -1149,6 +1149,97 @@ pub enum Step {
     },
 }
 
+/// Where run bundles are written, unless a project's config moves them.
+///
+/// ONE definition. It was previously a string literal repeated in the runner's
+/// config default, the Test Lab's refresh button, and the Workbench
+/// Experiments surface — three copies of a path that must agree.
+pub const DEFAULT_ARTIFACT_ROOT: &str = "target/eguipilotai/runs";
+
+/// The window size a run was recorded at.
+///
+/// Layout is size-dependent — the rail accordion has no room to unfold in a
+/// small window — so a run is only reproducible if the size it ran at is on
+/// the record. It stays inside the "no shell strings from callers" law by
+/// being bounded and typed: a command line is rebuilt from parsed integers,
+/// so a caller's text can never become a new flag.
+///
+/// It lives HERE, not in the runner, because it is part of the manifest that
+/// the runner writes and the Test Lab reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WindowSize {
+    pub width: u32,
+    pub height: u32,
+}
+
+impl WindowSize {
+    /// Below the app's own `with_min_inner_size`, layout is out of contract.
+    pub const MIN: u32 = 320;
+    pub const MAX: u32 = 16_384;
+
+    pub fn new(width: u32, height: u32) -> Result<Self, String> {
+        for (axis, value) in [("width", width), ("height", height)] {
+            if !(Self::MIN..=Self::MAX).contains(&value) {
+                return Err(format!(
+                    "window {axis} {value} is outside {}..={}",
+                    Self::MIN,
+                    Self::MAX
+                ));
+            }
+        }
+        Ok(Self { width, height })
+    }
+
+    /// The `<width>x<height>` form the target's own flag takes.
+    pub fn argument(self) -> String {
+        format!("{}x{}", self.width, self.height)
+    }
+}
+
+impl std::str::FromStr for WindowSize {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let (width, height) = text.split_once(['x', 'X']).ok_or_else(|| {
+            format!("window size `{text}` must read <width>x<height>, as in 1280x832")
+        })?;
+        let axis = |name: &str, value: &str| {
+            value
+                .trim()
+                .parse::<u32>()
+                .map_err(|_| format!("window {name} `{value}` is not a whole number"))
+        };
+        Self::new(axis("width", width)?, axis("height", height)?)
+    }
+}
+
+/// A run bundle's `manifest.json` — the TYPED contract between the runner that
+/// writes evidence and every reader of it.
+///
+/// It was an anonymous inline struct on the write side and untyped
+/// `serde_json::Value` key lookups on the read side. Two halves of one
+/// contract with no shared type is how a field gets renamed on one side only.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunManifest {
+    pub protocol_version: ProtocolVersion,
+    pub session: String,
+    pub profile: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fixture: Option<String>,
+    pub executable: String,
+    pub adapter_policy: AdapterPolicy,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<WindowSize>,
+    /// The experiment dimension. Without it a bundle cannot say what it was
+    /// evidence FOR, so grouping and comparison are impossible rather than
+    /// merely unbuilt. `None` for an ordinary run — which is every run
+    /// recorded before this field existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub experiment: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variant: Option<String>,
+}
+
 /// Which experiment, and which arm of it, a scenario belongs to.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExperimentRef {
@@ -1927,6 +2018,74 @@ pub struct PilotError {
     pub message: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context: Option<Box<AgentSnapshot>>,
+}
+
+#[cfg(test)]
+mod manifest_contract {
+    use super::*;
+
+    fn manifest() -> RunManifest {
+        RunManifest {
+            protocol_version: PROTOCOL_VERSION,
+            session: "session-1".into(),
+            profile: "devpulse-windows".into(),
+            fixture: Some("chat".into()),
+            executable: "target/debug/devpulselabs.exe".into(),
+            adapter_policy: AdapterPolicy::default(),
+            window: Some(WindowSize::new(1300, 800).expect("a real size")),
+            experiment: Some("chat-history-rail".into()),
+            variant: Some("rows".into()),
+        }
+    }
+
+    /// The guarantee the shared type exists for: what the runner writes is
+    /// exactly what a reader gets back. Before this, the write side was an
+    /// anonymous inline struct and the read side guessed at key names.
+    #[test]
+    fn a_manifest_round_trips_through_json() {
+        let written = manifest();
+        let text = serde_json::to_string(&written).expect("serialize");
+        let read: RunManifest = serde_json::from_str(&text).expect("deserialize");
+        assert_eq!(written, read);
+    }
+
+    /// Every bundle recorded before the experiment dimension existed must
+    /// still read. Evidence is not rewritten to suit a newer schema.
+    #[test]
+    fn a_manifest_without_the_experiment_dimension_still_reads() {
+        let legacy = r#"{
+            "protocol_version": {"major":2,"minor":0},
+            "session":"session-0","profile":"devpulse-windows",
+            "executable":"x.exe","adapter_policy":"hardware-then-software"
+        }"#;
+        let read: RunManifest =
+            serde_json::from_str(legacy).expect("a pre-experiment bundle still reads");
+        assert_eq!(read.experiment, None);
+        assert_eq!(read.variant, None);
+        assert_eq!(read.fixture, None);
+    }
+
+    /// A window outside the contract is refused, and the message says which
+    /// axis — the record carries the rule, not each caller.
+    #[test]
+    fn a_window_outside_the_band_is_refused_by_axis() {
+        let error = WindowSize::new(64, 800).expect_err("64 is below the floor");
+        assert!(error.contains("width"), "{error}");
+        assert!(WindowSize::new(1300, 800).is_ok());
+        assert_eq!(
+            "1300x800"
+                .parse::<WindowSize>()
+                .map(|w| w.argument())
+                .unwrap(),
+            "1300x800"
+        );
+    }
+
+    /// The runs root has ONE definition; it was three copies that had to agree.
+    #[test]
+    fn the_artifact_root_is_named_once() {
+        assert_eq!(DEFAULT_ARTIFACT_ROOT, "target/eguipilotai/runs");
+    }
 }
 
 #[cfg(test)]

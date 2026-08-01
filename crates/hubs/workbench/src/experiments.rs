@@ -24,9 +24,9 @@ pub const EXPERIMENTS_ID: PilotId = PilotId::new("workbench.experiments");
 const EXPERIMENTS_ROOT: &str = "experiments";
 
 /// The runs root. `EguiPilotConfig.artifact_root` is the authority and
-/// defaults to this; the surface reads the default rather than re-deriving
-/// the config, and says so when the directory is simply absent.
-const RUNS_ROOT: &str = "target/eguipilotai/runs";
+/// defaults to this ONE definition — the surface no longer keeps a private
+/// copy of the path that must agree with the runner's.
+use egui_pilot_ai_lab::DEFAULT_ARTIFACT_ROOT as RUNS_ROOT;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Variant {

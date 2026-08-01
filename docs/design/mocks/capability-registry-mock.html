@@ -1,0 +1,303 @@
+<meta charset="utf-8">
+<title>ADR-017 — the capability registry, alive</title>
+<style>
+:root{
+  --well:#07090e;--base:#0a0c12;--raised:#11141d;--overlay:#181c27;--hair:#232836;
+  --strong:#eef2f9;--ink:#c2c9d6;--muted:#8a93a6;--subtle:#5b6478;
+  --cyan:#22d3ee;--viridian:#34d399;--amber:#fbbf24;--magenta:#e879f9;--electric:#818cf8;
+  --coral:#fb7185;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--well);color:var(--ink);padding:26px 22px 60px;
+  font:13.5px/1.5 ui-sans-serif,system-ui,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+h1{font-size:15px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 5px}
+.sub{color:var(--subtle);font-size:12.5px;margin:0 0 22px;max-width:96ch}
+.sub b{color:var(--ink);font-weight:600}
+.cols{display:grid;grid-template-columns:minmax(250px,1fr) minmax(280px,1.15fr) minmax(300px,1.35fr);
+  gap:16px;align-items:start}
+@media(max-width:1080px){.cols{grid-template-columns:1fr}}
+.panel{background:var(--base);border:1px solid var(--hair);border-radius:10px;padding:14px}
+.ptitle{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);
+  margin:0 0 10px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.ptitle i{font-style:normal;color:var(--subtle);letter-spacing:0;text-transform:none;font-size:11px}
+.note{font-size:11.5px;color:var(--subtle);margin:9px 0 0;line-height:1.45}
+
+/* providers */
+.prov{background:var(--raised);border:1px solid var(--hair);border-radius:8px;
+  padding:10px;margin-bottom:9px}
+.prow{display:flex;align-items:center;gap:9px}
+.badge{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;
+  font-weight:700;font-size:12px;color:#07101a;flex:none}
+.pname{font-weight:600;color:var(--strong);font-size:13px}
+.pstate{font-size:11px;color:var(--subtle)}
+.tog{margin-left:auto;border:1px solid var(--hair);background:#0c1017;color:var(--muted);
+  border-radius:20px;font-size:10.5px;padding:3px 10px;cursor:pointer}
+.tog.on{border-color:#1d5c4a;background:#0b201a;color:var(--viridian)}
+.caps{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
+.cap{font-size:10px;border:1px solid var(--hair);border-radius:20px;padding:2px 7px;
+  color:var(--subtle);cursor:pointer;user-select:none}
+.cap.on{border-color:#1d4a5c;background:#08202a;color:var(--cyan)}
+.prov.off{opacity:.5}
+.prov.off .cap{pointer-events:none}
+
+/* registry */
+pre{background:#05070c;border:1px solid var(--hair);border-radius:8px;padding:11px;
+  font:11.5px/1.55 ui-monospace,"Cascadia Code",Consolas,monospace;color:#a9b6c9;
+  overflow-x:auto;margin:0}
+pre .k{color:var(--magenta)} pre .s{color:var(--viridian)} pre .n{color:var(--amber)}
+pre .b{color:var(--electric)}
+.tabs{display:flex;gap:5px;margin-bottom:9px;flex-wrap:wrap}
+.tab{font-size:11px;border:1px solid var(--hair);border-radius:6px;padding:4px 9px;
+  color:var(--muted);cursor:pointer;background:#0c1017}
+.tab.on{border-color:#1d4a5c;color:var(--cyan);background:#08202a}
+
+/* consumers */
+.cons{background:var(--raised);border:1px solid var(--hair);border-radius:9px;
+  padding:11px;margin-bottom:10px}
+.cname{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
+  margin-bottom:7px;display:flex;align-items:center;gap:6px}
+.cname b{color:var(--cyan);font-weight:600;letter-spacing:0;text-transform:none;font-size:11.5px}
+.aff{display:inline-block;border:1px solid var(--hair);border-radius:7px;padding:5px 10px;
+  margin:3px 5px 0 0;font-size:11.5px;background:#0c1017;color:var(--ink)}
+.aff.dead{opacity:.32;text-decoration:line-through;color:var(--subtle)}
+.pill{display:inline-block;border-radius:20px;padding:2px 9px;font-size:11px;
+  margin:3px 5px 0 0;border:1px solid}
+.pill.ok{border-color:#1d5c4a;background:#0b201a;color:var(--viridian)}
+.pill.no{border-color:#3a2530;background:#1a0f14;color:var(--coral)}
+select,button.act{background:#0c1017;border:1px solid var(--hair);color:var(--ink);
+  border-radius:7px;padding:5px 9px;font-size:12px;font-family:inherit}
+button.act{cursor:pointer}
+button.act:hover{border-color:#334}
+.run{border:1px solid var(--hair);border-radius:8px;padding:9px;margin-top:7px;background:#0c1017}
+.run.pick{border-color:#1d5c4a;background:#0b1a16}
+.rhead{display:flex;align-items:center;gap:7px;font-size:11.5px}
+.rbody{font-size:11.5px;color:var(--muted);margin-top:5px}
+.cap-row{font:11px/1.5 ui-monospace,monospace;color:var(--viridian);
+  background:#06120e;border:1px solid #14352b;border-radius:6px;padding:7px;margin-top:6px;
+  overflow-x:auto;white-space:pre}
+.empty{color:var(--subtle);font-size:11.5px;font-style:italic}
+.warn{color:var(--amber)}
+</style>
+
+<h1>ADR-017 — the capability registry, alive</h1>
+<p class="sub">Toggle a provider's activation or its individual capabilities on the left.
+Everything else on this page is <b>derived</b> — the registry is one fact with one writer, and
+the four consumers only ever read it. The question this mock exists to answer:
+<b>when you flip Claude off, does the right stuff disappear?</b> If a consumer keeps offering
+something that is no longer possible, the shape is wrong.</p>
+
+<div class="cols">
+
+  <!-- ── PROVIDERS ── -->
+  <div class="panel">
+    <div class="ptitle">Providers <i>the only writer</i></div>
+    <div id="provs"></div>
+    <p class="note">Activation comes from the chat host — a vendor status probe, or (Claude)
+    transcripts already on this machine. Capability chips are what that provider
+    <em>qualified</em> for. Nothing here is a credential.</p>
+  </div>
+
+  <!-- ── THE FACT ── -->
+  <div class="panel">
+    <div class="ptitle">The one fact</div>
+    <div class="tabs">
+      <div class="tab on" data-v="reg">registry</div>
+      <div class="tab" data-v="estate">estate · Tree::Agents</div>
+      <div class="tab" data-v="seam">seam · wire JSON</div>
+    </div>
+    <pre id="fact"></pre>
+    <p class="note" id="factnote"></p>
+  </div>
+
+  <!-- ── CONSUMERS ── -->
+  <div class="panel">
+    <div class="ptitle">The four consumers <i>read-only</i></div>
+
+    <div class="cons">
+      <div class="cname">1 · <b>A2UI — the evolving UI</b></div>
+      <div id="a2ui"></div>
+      <p class="note">An affordance exists only while something can honour it. Struck-through =
+      removed from the UI, not disabled-with-an-excuse.</p>
+    </div>
+
+    <div class="cons">
+      <div class="cname">2 · <b>Workflows — mixture of experts</b></div>
+      <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap">
+        <span style="font-size:11.5px;color:var(--muted)">route beat</span>
+        <select id="beat"></select>
+      </div>
+      <div id="route" style="margin-top:7px"></div>
+    </div>
+
+    <div class="cons">
+      <div class="cname">3 · <b>A/B duplicate runs</b></div>
+      <button class="act" id="fan">Run this beat on every eligible provider</button>
+      <div id="runs"></div>
+    </div>
+
+    <div class="cons">
+      <div class="cname">4 · <b>Capture → Clyffy</b></div>
+      <div id="cap"><div class="empty">No picks yet. Run a beat, then choose the answer you'd keep.</div></div>
+      <p class="note">The pick is the label. Provider identity plus the capability set it was
+      selected for is what makes the row attributable later.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+const ALL_CAPS = ['ReadSessions','PageHistory','StreamTurns','Tools','Images','Plans'];
+const P = [
+  {id:'codex', label:'ChatGPT / Codex', k:'C', c:'#10a37f', on:true,
+   note:null, caps:['ReadSessions','PageHistory','StreamTurns','Tools','Plans']},
+  {id:'claude', label:'Claude Code', k:'A', c:'#d97757', on:true,
+   note:'Local transcripts only — live turns are not qualified yet.',
+   caps:['ReadSessions','PageHistory']},
+  {id:'grok', label:'Grok', k:'G', c:'#cbd5e1', on:true,
+   note:null, caps:['StreamTurns','Tools','Images']},
+  {id:'gemini', label:'Gemini', k:'G', c:'#4285f4', on:false,
+   note:'Installed, signed out.', caps:[]}
+];
+
+// A beat names the capability it REQUIRES. This is the whole of MoE routing.
+const BEATS = [
+  {id:'brainstorm', label:'Brainstorm', needs:'StreamTurns'},
+  {id:'research',   label:'Research prior work', needs:'ReadSessions'},
+  {id:'develop',    label:'Develop (senior, built for scale)', needs:'Tools'},
+  {id:'consistency',label:'Consistency check', needs:'Plans'},
+  {id:'visual',     label:'Visual pass', needs:'Images'}
+];
+
+let view = 'reg', picks = [], lastRuns = [];
+
+function reg(){
+  return P.map(p=>({
+    id:p.id, label:p.label, activated:p.on,
+    note:p.on ? p.note : (p.note || 'Not activated.'),
+    capabilities:[...p.caps].sort()
+  }));
+}
+const can = (p,c) => p.on && p.caps.includes(c);
+const eligible = need => P.filter(p=>can(p,need));
+
+function esc(s){return String(s).replace(/[<>&]/g,m=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[m]))}
+function j(o){ // tiny JSON colouriser
+  return esc(JSON.stringify(o,null,2))
+    .replace(/&quot;([^&]+?)&quot;:/g,'<span class="k">"$1"</span>:')
+    .replace(/: &quot;([^&]*?)&quot;/g,': <span class="s">"$1"</span>')
+    .replace(/: (true|false)/g,': <span class="b">$1</span>')
+    .replace(/: (null)/g,': <span class="b">$1</span>')
+    .replace(/^(\s*)&quot;([A-Za-z]+)&quot;(,?)$/gm,'$1<span class="s">"$2"</span>$3');
+}
+
+function renderProviders(){
+  document.getElementById('provs').innerHTML = P.map((p,i)=>`
+    <div class="prov ${p.on?'':'off'}">
+      <div class="prow">
+        <div class="badge" style="background:${p.c}">${p.k}</div>
+        <div>
+          <div class="pname">${p.label}</div>
+          <div class="pstate">${p.on ? (p.note ? 'activated · limited' : 'activated') : 'not activated'}</div>
+        </div>
+        <button class="tog ${p.on?'on':''}" data-p="${i}">${p.on?'active':'off'}</button>
+      </div>
+      <div class="caps">${ALL_CAPS.map(c=>
+        `<span class="cap ${p.caps.includes(c)?'on':''}" data-p="${i}" data-c="${c}">${c}</span>`).join('')}</div>
+    </div>`).join('');
+  document.querySelectorAll('.tog').forEach(b=>b.onclick=()=>{
+    P[+b.dataset.p].on = !P[+b.dataset.p].on; all();
+  });
+  document.querySelectorAll('.cap').forEach(el=>el.onclick=()=>{
+    const p = P[+el.dataset.p], c = el.dataset.c;
+    p.caps.includes(c) ? p.caps.splice(p.caps.indexOf(c),1) : p.caps.push(c);
+    all();
+  });
+}
+
+const NOTES = {
+  reg:'One in-memory fold, replaced wholesale by the chat host. Booleans like can_send are derived from the set — never stored, because a boolean cannot answer "who can take this beat".',
+  estate:'Written to the estate partition that already exists. Read at BOOT, before any probe runs, so the UI starts truthful instead of empty and correcting itself a second later. No live handles, no credentials.',
+  seam:'The same fact projected onto the registry an agent already reads to learn the map. An agent that cannot see which experts exist cannot route to them.'
+};
+function renderFact(){
+  const r = reg();
+  let o;
+  if (view==='reg') o = r;
+  else if (view==='estate') o = {tree:'Agents', key:'providers/roster',
+    value:{written_at:'2026-07-31T19:34:52Z', providers:r.map(x=>({id:x.id,activated:x.activated,capabilities:x.capabilities}))}};
+  else o = {registry:{providers:r.map(x=>({id:x.id,label:x.label,activated:x.activated,capabilities:x.capabilities}))}};
+  document.getElementById('fact').innerHTML = j(o);
+  document.getElementById('factnote').textContent = NOTES[view];
+}
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));
+  t.classList.add('on'); view = t.dataset.v; renderFact();
+});
+
+const AFF = [
+  {label:'Ask AI about this slide', needs:'StreamTurns'},
+  {label:'Search past sessions',    needs:'ReadSessions'},
+  {label:'Generate an image',       needs:'Images'},
+  {label:'Run a tool',              needs:'Tools'}
+];
+function renderA2UI(){
+  document.getElementById('a2ui').innerHTML = AFF.map(a=>{
+    const who = eligible(a.needs);
+    return `<span class="aff ${who.length?'':'dead'}" title="${a.needs}">${a.label}</span>`;
+  }).join('');
+}
+
+function renderRoute(){
+  const beat = BEATS.find(b=>b.id===document.getElementById('beat').value);
+  const who = eligible(beat.needs);
+  document.getElementById('route').innerHTML =
+    `<div style="font-size:11.5px;color:var(--subtle);margin-bottom:4px">needs <code style="color:var(--cyan)">${beat.needs}</code></div>` +
+    (who.length
+      ? who.map(p=>`<span class="pill ok">${p.label}</span>`).join('')
+      : `<span class="pill no">no expert available — the beat cannot run</span>`);
+}
+
+function renderRuns(){
+  const el = document.getElementById('runs');
+  if(!lastRuns.length){ el.innerHTML=''; return; }
+  el.innerHTML = lastRuns.map((r,i)=>`
+    <div class="run ${r.picked?'pick':''}">
+      <div class="rhead"><span class="badge" style="background:${r.c};width:18px;height:18px;font-size:9px">${r.k}</span>
+        <b style="color:var(--strong)">${r.label}</b>
+        <button class="act" style="margin-left:auto;font-size:10.5px;padding:3px 8px" data-r="${i}">
+          ${r.picked?'kept':'keep this'}</button></div>
+      <div class="rbody">${r.text}</div>
+    </div>`).join('');
+  el.querySelectorAll('button[data-r]').forEach(b=>b.onclick=()=>{
+    const r = lastRuns[+b.dataset.r];
+    lastRuns.forEach(x=>x.picked=false); r.picked = true;
+    picks.unshift({beat:r.beat, needs:r.needs, chose:r.id,
+      over:lastRuns.filter(x=>x.id!==r.id).map(x=>x.id),
+      caps:P.find(p=>p.id===r.id).caps.slice().sort()});
+    renderRuns(); renderCaptures();
+  });
+}
+document.getElementById('fan').onclick = ()=>{
+  const beat = BEATS.find(b=>b.id===document.getElementById('beat').value);
+  const who = eligible(beat.needs);
+  lastRuns = who.map(p=>({id:p.id,label:p.label,k:p.k,c:p.c,beat:beat.label,needs:beat.needs,
+    picked:false, text:`— ${p.label}'s answer for “${beat.label}”. Duplicate run, same beat, same inputs.`}));
+  if(!lastRuns.length) document.getElementById('runs').innerHTML =
+    `<div class="empty warn">Nothing eligible — no run to compare. That is the registry doing its job.</div>`;
+  else renderRuns();
+};
+
+function renderCaptures(){
+  const el = document.getElementById('cap');
+  if(!picks.length){ el.innerHTML = `<div class="empty">No picks yet. Run a beat, then choose the answer you'd keep.</div>`; return; }
+  el.innerHTML = picks.slice(0,4).map(p=>
+    `<div class="cap-row">beat=${p.beat}
+needs=${p.needs}
+chose=${p.chose}   over=[${p.over.join(', ')||'—'}]
+caps=[${p.caps.join(', ')}]</div>`).join('');
+}
+
+function all(){ renderProviders(); renderFact(); renderA2UI(); renderRoute(); renderRuns(); }
+document.getElementById('beat').innerHTML = BEATS.map(b=>`<option value="${b.id}">${b.label}</option>`).join('');
+document.getElementById('beat').onchange = ()=>{ lastRuns=[]; renderRuns(); renderRoute(); };
+all(); renderCaptures();
+</script>

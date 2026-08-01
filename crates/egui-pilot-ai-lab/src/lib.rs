@@ -2,8 +2,11 @@
 //! Live target control, replay, and visual approval are intentionally marked
 //! unsupported until their delivery slices land.
 
+/// Re-exported so a consumer of the run bundles reads ONE definition of where
+/// they live, rather than keeping a private copy of the path.
+pub use egui_pilot_ai_protocol::DEFAULT_ARTIFACT_ROOT;
 use egui_pilot_ai_protocol::{
-    project_snapshot, AgentSnapshot, SemanticFrame, SessionStatus, SnapshotRequest,
+    project_snapshot, AgentSnapshot, RunManifest, SemanticFrame, SessionStatus, SnapshotRequest,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -33,25 +36,15 @@ pub struct RunSummary {
     pub variant: Option<String>,
 }
 
-/// Read the experiment dimension out of a bundle's manifest.
+/// Read a bundle's manifest through the SHARED type.
 ///
 /// A malformed or absent manifest yields `None` rather than an error: the
-/// analyzer's job is to summarise whatever evidence exists, and a bundle
-/// that cannot say what it belongs to is still a bundle.
-fn manifest_experiment(path: &Path) -> (Option<String>, Option<String>) {
-    let Ok(text) = fs::read_to_string(path.join("manifest.json")) else {
-        return (None, None);
-    };
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
-        return (None, None);
-    };
-    let field = |key: &str| {
-        value
-            .get(key)
-            .and_then(|value| value.as_str())
-            .map(str::to_owned)
-    };
-    (field("experiment"), field("variant"))
+/// analyzer's job is to summarise whatever evidence exists, and a bundle that
+/// cannot say what it belongs to is still a bundle. What it no longer does is
+/// guess at key names — the contract is `protocol::RunManifest`.
+fn read_manifest(path: &Path) -> Option<RunManifest> {
+    let text = fs::read_to_string(path.join("manifest.json")).ok()?;
+    serde_json::from_str::<RunManifest>(&text).ok()
 }
 
 #[derive(Default)]
@@ -120,7 +113,11 @@ pub fn scan_runs(root: impl AsRef<Path>) -> std::io::Result<Vec<RunSummary>> {
                         .count()
                 })
                 .unwrap_or(0);
-            let (experiment, variant) = manifest_experiment(&path);
+            let manifest = read_manifest(&path);
+            let (experiment, variant) = manifest
+                .as_ref()
+                .map(|m| (m.experiment.clone(), m.variant.clone()))
+                .unwrap_or((None, None));
             runs.push(RunSummary {
                 id: entry.file_name().to_string_lossy().into_owned(),
                 experiment,
@@ -275,8 +272,11 @@ impl TestLab {
     }
 
     fn runs(&mut self, ui: &mut egui::Ui) {
-        if ui.button("Refresh target/eguipilotai/runs").clicked() {
-            self.scan_runs("target/eguipilotai/runs");
+        if ui
+            .button(format!("Refresh {}", DEFAULT_ARTIFACT_ROOT))
+            .clicked()
+        {
+            self.scan_runs(DEFAULT_ARTIFACT_ROOT);
         }
         if let Some(notice) = &self.notice {
             ui.weak(notice);
