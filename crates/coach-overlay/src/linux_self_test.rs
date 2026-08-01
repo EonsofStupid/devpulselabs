@@ -100,7 +100,7 @@ fn run(args: &[String]) -> Result<i32, String> {
         println!("dpl-coach-overlay: self-test app={app} name={name}");
     }
 
-    ensure_calculator_running(&app)?;
+    ensure_target_running(&app)?;
 
     match command.as_str() {
         "locate" => {
@@ -202,9 +202,23 @@ fn run(args: &[String]) -> Result<i32, String> {
     }
 }
 
-fn ensure_calculator_running(app: &str) -> Result<(), String> {
+/// Auto-launch is Calculator-only (known desktop id). Other apps must already
+/// be running — Coach Import does not silently spawn Electron IDEs.
+fn ensure_target_running(app: &str) -> Result<(), String> {
     if app != "gnome-calculator" {
-        return Ok(());
+        // Still require the AT-SPI app root to exist when locating.
+        let running = block_on(async {
+            match a11y_connection().await {
+                Ok(conn) => find_app_root(&conn, app).await.is_ok(),
+                Err(_) => false,
+            }
+        });
+        if running {
+            return Ok(());
+        }
+        return Err(format!(
+            "refused: AT-SPI app {app:?} not running — open it, then retry (Import Process)"
+        ));
     }
     let running = block_on(async {
         match a11y_connection().await {
@@ -263,8 +277,12 @@ async fn locate_target(app: &str, control_name: &str) -> Result<Located, String>
         .map_err(|e| e.to_string())?;
     let window_rect = IRect::new(x, y, w, h);
     let (window_id, origin, extents, outer_w, outer_h) =
-        x11_window_for_class("gnome-calculator")
-            .ok_or_else(|| "refused: no resolvable X11 window".to_string())?;
+        x11_window_for_class(x11_class_needle(app)).ok_or_else(|| {
+            format!(
+                "refused: no resolvable X11 window for app={app:?} class~={:?}",
+                x11_class_needle(app)
+            )
+        })?;
     if outer_w <= 0 || outer_h <= 0 {
         return Err("refused: degenerate X11 window".into());
     }
@@ -501,18 +519,32 @@ async fn find_named_button(
     ))
 }
 
+fn x11_class_needle(app: &str) -> &str {
+    match app {
+        "gnome-calculator" => "gnome-calculator",
+        "cursor" => "cursor",
+        other => other,
+    }
+}
+
 async fn find_button_named(
     conn: &ZbusConnection,
     node: &AccessibleProxy<'_>,
     control_name: &str,
     depth: usize,
 ) -> Result<Option<AccessibleProxy<'static>>, String> {
-    if depth > 12 {
+    // Cursor / Electron trees are deeper than Calculator (C2e mint depth 16).
+    if depth > 20 {
         return Ok(None);
     }
     let role = node.get_role().await.unwrap_or(Role::Invalid);
     let name = node.name().await.unwrap_or_default();
-    if name == control_name && matches!(role, Role::Button | Role::PushButtonMenu) {
+    if name == control_name
+        && matches!(
+            role,
+            Role::Button | Role::PushButtonMenu | Role::ToggleButton | Role::Menu | Role::MenuItem
+        )
+    {
         // Re-build as 'static via destination/path owned strings.
         let dest = node.inner().destination().to_owned();
         let path = node.inner().path().to_owned();

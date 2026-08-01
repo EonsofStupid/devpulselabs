@@ -6,22 +6,21 @@
 
 ## Goal
 
-C2f — wire Operator select → existing overlay paint (guided lesson).
+C2f — Operator UI select Cursor → Import Process → Mount `Search Ctrl+K`.
 
 ## Done
 
-- C2e: `dpl-coach-fabric` + `coach-fabric-mint`
-- Live: Calculator Ready · 82 nodes · seed `7` · ~255 ms
-- Journal: `docs/journal/2026-07-31-c2e-fabric-mint.md`
+- CX-cursor-01 PASS: locate Cursor seeds + Calculator regression
+- Journal: `docs/journal/2026-07-31-cx-cursor-01.md`
 
 ## Next
 
-1. Land C2e PR (`feat/c2e-coach-fabric`)
-2. Author/implement **C2f** Operator → overlay paint path
+1. Land spike PR `spike/cx-cursor-01`
+2. Author/implement **C2f** Coach hub import UI (Cursor primary)
+3. Notepad on Windows after
 
 ## Key files
 
-- `crates/coach-fabric/`
-- `docs/plans/coach-c2e-fabric-mint.md`
-- `docs/journal/2026-07-31-c2e-fabric-mint.md`
-- `crates/coach-overlay/` (paint physics)
+- `crates/coach-overlay/src/linux_self_test.rs`
+- `docs/journal/2026-07-31-cx-cursor-01.md`
+- `docs/plans/coach-lab-experiment-program.md`
