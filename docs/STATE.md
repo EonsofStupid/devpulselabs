@@ -2,6 +2,84 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-08-01 — WORKBENCH `/experiments` (plan
+`docs/plans/workbench-experiments.md`, journal
+`docs/journal/2026-08-01-workbench-experiments.md`, PR #185):** experiments
+are their own domain under Workbench, and they all read the SAME analyzer.
+**NO CRATE ADDED** (operator instruction — the workspace is 69 crates and
+that is already too many): one `SubId`, one `SubRoute`, one `else if`, and
+`experiments.rs` inside `crates/hubs/workbench`.
+
+THE FINDING: `manifest.json` carried no experiment and no variant, so a
+bundle could not say what it was evidence FOR — grouping and comparison
+were IMPOSSIBLE, not merely unbuilt. "Define the minimal requirements so it
+automatically starts getting captured" resolved to exactly one thing: a run
+declares its experiment + variant in its manifest. Declared on the SCENARIO,
+never looked up from the experiment document at run time — **a bundle is
+evidence, and evidence must be interpretable standing alone**. `scan_runs`
+was extracted from `TestLab` into a free function so `/experiments` and
+`test-lab` read one walk; a second scanner is what would make experiments
+stop benefiting from the lab. `requires` is a CONTRACT: an unmet one is
+reported, never silently counted.
+
+Proof `docs/proof/workbench-experiments-native.png` — the experiment, its
+hypothesis, and `rows · chat-local-histories · 1 run(s) · all complete`
+naming a bundle a drill produced minutes earlier, with no per-experiment
+capture wiring. Drill `workbench-experiments` 4/4 on the real exe.
+
+⚠ **THREE DEFECTS ONLY RUNNING IT CAUGHT.** (1) The domain node never
+minted — tracked on a `Frame::group` response, which is not a live node.
+(2) Hub pilot ids carry a `root/` prefix, unlike Chat's viewport-scoped
+ids. (3) The card was transparent over the backdrop art and genuinely
+unreadable. Writing it proved nothing; running it proved all three.
+
+⚠ **COLD CLIPPY IS NOW LAW.** `cargo clean -p` the touched crates BEFORE
+clippy. It caught four compile errors a warm run hid (a `Flow` literal in
+the protocol's own tests, three in `egui-pilot-ai-runtime`). Adding a field
+to a widely-constructed struct puts the fallout in test targets a warm gate
+never rebuilds. Second time this session — the first cost both hosted lanes
+going red after a local `green ✔`.
+
+**NEXT:** the first real A/B — a second arm on `chat-history-rail`, so two
+variants sit side by side and the difference is VISIBLE rather than
+computed. Everything it needs now exists.
+
+**2026-07-31 — ADR-017 FILED: THE PROVIDER CAPABILITY REGISTRY IS A
+PLATFORM FACT** (`docs/design/adr-017-provider-capability-registry.md`, PR
+#183). Filed BEFORE P1 was built, deliberately: P1 as planned (two booleans
+folded onto the fabric for a status chip) was a chat feature wearing a
+platform's clothes. The operator named what activation is FOR — it
+cross-links into the platform's config stores, and **A2UI, workflows /
+mixture-of-experts routing, A/B duplicate runs, and Clyffy's training
+capture all bind to its shape**. One fact, ONE writer (the chat host), four
+consumers. It carries a capability SET (routing needs skills, not
+booleans), persists to the estate's `Tree::Agents` (which already exists
+and is already "agent (chat provider) session state for the HTTP seam"), so
+a provider active last launch is known at BOOT before any probe runs; and
+it joins the seam's wire-JSON registry — "what an agent reads to learn the
+map". It never holds a credential. No new dependency edge:
+`architecture.md:65` already ratifies `dpl-fabric → dpl-chat-core`.
+P1's plan was amended in the same commit rather than rewritten silently.
+
+**2026-08-01 — D1 + H1 MERGED (`951fb2a`, PR #180 double-green).** Both
+passes landed together after main moved twice under D1 (toolchain 1.92 →
+1.97.1 in #177, coach-fabric in #179) and #178 went CONFLICTING; D1's
+commit was rebased into #180 and **#178 was CLOSED as superseded**, its
+content unchanged and re-verified on 1.97.1. LESSON: **a PR that is green
+and unmerged is not done — it is decaying.** The whole cost was incurred in
+the window between double-green and merge.
+
+**The Providers program is mapped** (`docs/plans/providers-presence-and-the-brain.md`)
+— P1 (registry) → V1 (ink-bleed preset + the brain/`ai` control) → V2
+(popup) → V3 (modal) → A1 (presence probes) → A2 (subscription init). Two
+findings shape it: presence is answered by the VENDOR'S OWN TOOL
+(`codex login status`), never by reading a cookie jar; and the operator's
+5.6–6.3s bleed is a NEW MOTION CLASS (~18× the slowest authored duration),
+so it becomes a `dwell` tier in `tokens/motion.json` with a SEEDED colour
+pick — a freely random pick would make every proof shot flaky. Mocks:
+`docs/design/mocks/providers-brain-mock.html` and
+`capability-registry-mock.html`.
+
 **2026-07-31 — CX-cursor-01 PASS (`docs/journal/2026-07-31-cx-cursor-01.md`):**
 overlay locate on Cursor **`Search Ctrl+K`** + **`File`**; Calculator `7`
 regression green. Coach NEXT = **C2f** Operator UI (select Cursor →
