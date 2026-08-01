@@ -133,6 +133,39 @@ fn activity_job_line(ev: &dpl_fabric::JobEvent) -> String {
     }
 }
 
+/// THE ROSTER, read straight off the fabric — no subscription, no history
+/// (P1 §3.2). This is the whole point of the fold: the shell asks what is
+/// available NOW and gets a true answer, including for a provider that
+/// activated by having transcripts on disk and so never published a
+/// lifecycle event at all.
+///
+/// `None` when nothing is activated: an empty chip would be noise, and a
+/// chip claiming providers it cannot name would be a lie.
+fn provider_chip(fabric: &Fabric) -> Option<status::ProviderChip> {
+    let activated: Vec<dpl_fabric::ProviderCapability> = fabric
+        .provider_roster()
+        .into_iter()
+        .filter(|p| p.activated)
+        .collect();
+    if activated.is_empty() {
+        return None;
+    }
+    let names: Vec<&str> = activated.iter().map(|p| p.label.as_str()).collect();
+    let tooltip = activated
+        .iter()
+        .map(|p| match &p.note {
+            // The truthful limitation, never hidden behind the name.
+            Some(note) => format!("{} — {note}", p.label),
+            None => p.label.clone(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    Some(status::ProviderChip {
+        summary: format!("AI · {}", names.join(", ")),
+        tooltip,
+    })
+}
+
 fn activity_provider_line(ev: &dpl_fabric::ProviderEvent) -> String {
     use dpl_fabric::ProviderEvent as E;
     match ev {
@@ -692,6 +725,7 @@ impl Shell {
                     build: self.build,
                     mood: self.backdrop.mood(),
                     working,
+                    providers: provider_chip(&self.fabric),
                 };
                 actions = status::grid(ui, &cx, &self.window_accessories);
             });
@@ -1900,6 +1934,66 @@ mod tests {
             "the panel must float INSIDE the well (content={:?} panel={:?})",
             z.content,
             z.panel
+        );
+    }
+
+    fn capability(
+        id: &'static str,
+        label: &str,
+        activated: bool,
+        note: Option<&str>,
+    ) -> dpl_fabric::ProviderCapability {
+        dpl_fabric::ProviderCapability {
+            id: dpl_fabric::ProviderId(id),
+            label: label.to_owned(),
+            activated,
+            note: note.map(str::to_owned),
+            capabilities: std::collections::BTreeSet::from([dpl_fabric::Capability::PageHistory]),
+        }
+    }
+
+    #[test]
+    fn the_shell_names_the_activated_providers() {
+        let fabric = Fabric::new();
+        fabric.publish_provider_roster(vec![
+            capability(
+                "claude",
+                "Claude Code",
+                true,
+                Some("local transcripts only"),
+            ),
+            capability("codex", "Codex", true, None),
+            capability("gemini", "Gemini", false, Some("no qualified adapter")),
+        ]);
+        let chip = provider_chip(&fabric).expect("two providers are activated");
+        assert_eq!(
+            chip.summary, "AI · Claude Code, Codex",
+            "the chip names what the PLATFORM can do — and never an unactivated provider"
+        );
+        assert!(
+            chip.tooltip
+                .contains("Claude Code — local transcripts only"),
+            "the truthful limit rides with the name, not hidden behind it: {}",
+            chip.tooltip
+        );
+        assert!(
+            !chip.tooltip.contains("Gemini"),
+            "an unactivated provider is absent entirely: {}",
+            chip.tooltip
+        );
+    }
+
+    #[test]
+    fn the_shell_says_nothing_when_no_provider_is_activated() {
+        let fabric = Fabric::new();
+        assert!(
+            provider_chip(&fabric).is_none(),
+            "an empty roster paints no chip — silence, not an empty claim"
+        );
+        fabric.publish_provider_roster(vec![capability("gemini", "Gemini", false, None)]);
+        assert!(
+            provider_chip(&fabric).is_none(),
+            "a registered-but-unactivated provider is not a capability"
         );
     }
 }

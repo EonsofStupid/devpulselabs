@@ -1,0 +1,63 @@
+id = "platform-sees-providers"
+fixture = "chat"
+record = true
+
+# P1's live proof: a surface that is NOT Chat names a provider that exists
+# only because the operator has transcripts on this machine.
+#
+# `chat` is the live runtime fixture — no authored models — so nothing here is
+# staged. Claude activates by having `~/.claude/projects` transcripts on disk
+# (H1), which means it never publishes a lifecycle event at all. Before P1 the
+# platform could not see it: `ProviderEvent` is a stream of ONE activation
+# attempt's progress, and a history-activated provider runs no attempt. The
+# roster fold is what makes the question answerable.
+#
+# The chip is asserted on the ROOT viewport, deliberately. The whole point of
+# the pass is that the answer left the chat crates.
+
+[[steps]]
+kind = "wait"
+milliseconds = 2500
+
+# The chip renders ONLY when at least one provider is activated, so its mere
+# presence is already the claim. `provider_chip` returns None on an empty
+# roster rather than painting an empty label.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/shell.status.providers"
+
+# THE OPERATOR'S SENTENCE, MECHANISED: "the providers that get activated in
+# the chat become available in the platform." A substring match on the node's
+# name — the same string the chip paints — so the assertion holds whether or
+# not Codex transcripts are also on this machine.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "Claude"
+
+[steps.expectation.target]
+id = "root/shell.status.providers"
+
+# It names the platform's AI capability, not a chat session count.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "AI ·"
+
+[steps.expectation.target]
+id = "root/shell.status.providers"
+
+# The proof shot is of MAIN, at a real window size — the surface outside the
+# chat crates that now knows what the platform can do.
+[[steps]]
+kind = "capture"
+name = "platform-sees-providers"

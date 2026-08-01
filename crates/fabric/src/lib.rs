@@ -9,8 +9,9 @@
 //! (capture, jobs, providers) land with their ports and follow this file's
 //! shape exactly.
 
-pub use dpl_chat_core::ProviderId;
+pub use dpl_chat_core::{Capability, ProviderId};
 use dpl_hub::Route;
+use std::collections::BTreeSet;
 use std::fmt;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -237,6 +238,40 @@ impl ProviderFailureClass {
             Self::Disconnect => "disconnect",
             Self::Cancelled => "cancelled",
         }
+    }
+}
+
+/// What one provider can do for the platform, right now.
+///
+/// A capability SET, not a pair of booleans: workflows route a stage to
+/// whoever can take it, A/B runs name every provider that can take the SAME
+/// beat, and training capture needs a stable subject. None of those can be
+/// expressed by `can_send` (ADR-017 §4).
+///
+/// `Capability` is carried as-is from `dpl-chat-core` rather than mirrored —
+/// the vocabulary is already provider-neutral plain data, and a second
+/// registry is exactly what drifts. `ActivationState` is deliberately NOT
+/// carried: it is a chat LIFECYCLE type with fourteen shades a platform
+/// consumer has no use for, so it flattens to `activated` plus the truthful
+/// `note`. Carry the fact, not the state machine.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderCapability {
+    pub id: ProviderId,
+    pub label: String,
+    /// Activated at all — an `Experimental` history-only provider counts.
+    pub activated: bool,
+    /// The truthful limitation when activated but partial.
+    pub note: Option<String>,
+    /// The qualified set, in `dpl_chat_core`'s existing vocabulary.
+    pub capabilities: BTreeSet<Capability>,
+}
+
+impl ProviderCapability {
+    /// Derived, never stored — the booleans are a READING of the set.
+    /// Storing the reading instead of the fact is what made P1's first
+    /// draft unable to serve routing.
+    pub fn can(&self, capability: Capability) -> bool {
+        self.activated && self.capabilities.contains(&capability)
     }
 }
 
@@ -478,6 +513,13 @@ pub struct Fabric {
     /// until resolved; resolved rows stay until acked, bounded by
     /// `RESOLVED_CAP` for publishers whose consumers never ack.
     board: Arc<std::sync::Mutex<Vec<JobRow>>>,
+    /// THE ROSTER — what every provider can do, shared by every Fabric
+    /// clone. The provider CHANNEL is a lifecycle stream (one attempt's
+    /// progress) and a broadcast has no past, so a surface that subscribes
+    /// late — or a provider that activated by having transcripts on disk and
+    /// so never ran an attempt at all — can never be learned from it. This
+    /// fold is the roster question's answer: what is available NOW.
+    roster: Arc<std::sync::Mutex<Vec<ProviderCapability>>>,
     /// The stamp state: one global sequence + the birth instant.
     seq: Arc<AtomicU64>,
     born: Instant,
@@ -513,6 +555,7 @@ impl Fabric {
             coach,
             intent,
             board: Arc::new(std::sync::Mutex::new(Vec::new())),
+            roster: Arc::new(std::sync::Mutex::new(Vec::new())),
             seq: Arc::new(AtomicU64::new(0)),
             born: Instant::now(),
             waker: Arc::new(std::sync::Mutex::new(None)),
@@ -678,6 +721,42 @@ impl Fabric {
 
     pub fn subscribe_providers(&self) -> ProviderReceiver {
         self.providers.subscribe()
+    }
+
+    /// Replace THE ROSTER wholesale, then wake the UI.
+    ///
+    /// Wholesale rather than per-row folding is the honest choice: unlike
+    /// jobs, which arrive independently, the provider set is ONE consistent
+    /// snapshot minted from one registry, and the chat host always knows the
+    /// complete truth — so there is no partial-update case to get wrong.
+    /// One publisher is what keeps this truthful.
+    pub fn publish_provider_roster(&self, roster: Vec<ProviderCapability>) {
+        *self
+            .roster
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = roster;
+        self.wake();
+    }
+
+    /// THE ROSTER, cloned — the read any surface can make with no
+    /// subscription and no history.
+    pub fn provider_roster(&self) -> Vec<ProviderCapability> {
+        self.roster
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Every activated provider that can do `capability` — the routing
+    /// question ("who can take this beat?") the capability SET exists for.
+    pub fn providers_that_can(&self, capability: Capability) -> Vec<ProviderCapability> {
+        self.roster
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .filter(|p| p.can(capability))
+            .cloned()
+            .collect()
     }
 
     /// Publish a BUILD-domain fact (slide placed / episode changed).
@@ -1090,5 +1169,111 @@ mod tests {
             },
         });
         // No panic, no Result to mishandle — the signal simply had no audience.
+    }
+
+    /// A provider activated ONLY by having transcripts on disk — H1's
+    /// `Experimental` case, and the reason the roster cannot be a fold of
+    /// the lifecycle stream (no attempt ever runs for it).
+    fn history_only() -> ProviderCapability {
+        ProviderCapability {
+            id: ProviderId("claude"),
+            label: "Claude Code".into(),
+            activated: true,
+            note: Some("local transcripts only".into()),
+            capabilities: BTreeSet::from([Capability::ReadSessions, Capability::PageHistory]),
+        }
+    }
+
+    #[test]
+    fn an_empty_roster_reads_empty() {
+        let fabric = Fabric::new();
+        assert!(
+            fabric.provider_roster().is_empty(),
+            "a fabric nobody published to has no providers to name"
+        );
+    }
+
+    #[test]
+    fn the_roster_is_readable_without_subscribing() {
+        let fabric = Fabric::new();
+        fabric.publish_provider_roster(vec![history_only()]);
+        // A CLONE that never subscribed, created AFTER the publish — the
+        // whole point: a broadcast stream has no past, a fold does.
+        let late = fabric.clone();
+        let roster = late.provider_roster();
+        assert_eq!(roster.len(), 1);
+        assert_eq!(roster[0].id, ProviderId("claude"));
+    }
+
+    #[test]
+    fn a_history_only_provider_is_in_the_roster_but_cannot_send() {
+        let p = history_only();
+        assert!(
+            p.can(Capability::PageHistory),
+            "its transcripts are readable"
+        );
+        assert!(
+            !p.can(Capability::StreamTurns),
+            "reading history is not the same as being able to send"
+        );
+    }
+
+    #[test]
+    fn an_unactivated_provider_can_nothing() {
+        let p = ProviderCapability {
+            activated: false,
+            ..history_only()
+        };
+        for capability in [
+            Capability::ReadSessions,
+            Capability::PageHistory,
+            Capability::StreamTurns,
+        ] {
+            assert!(
+                !p.can(capability),
+                "{capability:?} is qualified but the provider is not activated"
+            );
+        }
+    }
+
+    #[test]
+    fn publishing_a_roster_replaces_the_previous_one() {
+        let fabric = Fabric::new();
+        fabric.publish_provider_roster(vec![history_only()]);
+        fabric.publish_provider_roster(vec![ProviderCapability {
+            id: ProviderId("codex"),
+            label: "Codex".into(),
+            ..history_only()
+        }]);
+        let roster = fabric.provider_roster();
+        assert_eq!(
+            roster.len(),
+            1,
+            "the snapshot replaces, it never accumulates"
+        );
+        assert_eq!(roster[0].id, ProviderId("codex"));
+    }
+
+    #[test]
+    fn the_roster_answers_who_can_take_a_beat() {
+        let fabric = Fabric::new();
+        fabric.publish_provider_roster(vec![
+            history_only(),
+            ProviderCapability {
+                id: ProviderId("codex"),
+                label: "Codex".into(),
+                activated: true,
+                note: None,
+                capabilities: BTreeSet::from([Capability::PageHistory, Capability::StreamTurns]),
+            },
+        ]);
+        let senders = fabric.providers_that_can(Capability::StreamTurns);
+        assert_eq!(senders.len(), 1, "only one provider can actually send");
+        assert_eq!(senders[0].id, ProviderId("codex"));
+        assert_eq!(
+            fabric.providers_that_can(Capability::PageHistory).len(),
+            2,
+            "both can be routed a history read"
+        );
     }
 }

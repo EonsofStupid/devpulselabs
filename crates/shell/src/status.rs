@@ -51,6 +51,19 @@ pub struct StatusCtx<'a> {
     pub mood: &'static Mood,
     /// The JobBoard's "working…" truth — None = nothing running.
     pub working: Option<String>,
+    /// THE ROSTER's truth — None = no provider is activated, and the chip
+    /// says nothing at all rather than claiming an empty capability.
+    pub providers: Option<ProviderChip>,
+}
+
+/// What the platform can do, ready to paint. Built by the shell from the
+/// fabric's roster so the cell stays a painter (Law 4).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderChip {
+    /// `AI · Codex, Claude` — the activated providers, named.
+    pub summary: String,
+    /// Each provider's truthful limit, one per line.
+    pub tooltip: String,
 }
 
 /// One indicator: identity, which lane column it lives in, and its painter.
@@ -91,6 +104,11 @@ pub static CELLS: &[StatusCell] = &[
         id: "jobs",
         lane: Lane::Right,
         render: jobs,
+    },
+    StatusCell {
+        id: "providers",
+        lane: Lane::Right,
+        render: providers,
     },
     StatusCell {
         id: "build",
@@ -220,6 +238,32 @@ fn jobs(ui: &mut Ui, cx: &StatusCtx) -> Option<StatusAction> {
     }
     None
 }
+
+/// What the PLATFORM can do, named from every route (P1).
+///
+/// The operator's question — "the providers that get activated in the chat
+/// become available in the platform" — answered at a glance, on a surface
+/// that is not Chat. Read-only: naming a capability is not offering to use
+/// it (sending is D5/D6).
+fn providers(ui: &mut Ui, cx: &StatusCtx) -> Option<StatusAction> {
+    if let Some(chip) = &cx.providers {
+        let response = ui
+            .label(RichText::new(&chip.summary).small().color(cl::ink::SUBTLE))
+            .on_hover_text(&chip.tooltip);
+        ui.pilot_track(
+            &response,
+            // The node's NAME is the text the operator reads, so a scenario
+            // asserts on the same string the chip paints — not a stand-in
+            // caption that could stay true while the chip went wrong.
+            NodeMetadata::new(PROVIDERS_PILOT_ID, Role::Label, chip.summary.clone())
+                .value(chip.summary.clone()),
+        );
+    }
+    None
+}
+
+/// The pilot identity the `platform-sees-providers` scenario asserts on.
+pub const PROVIDERS_PILOT_ID: PilotId = PilotId::new("shell.status.providers");
 
 fn build(ui: &mut Ui, cx: &StatusCtx) -> Option<StatusAction> {
     if !cx.build.is_empty() {

@@ -963,6 +963,7 @@ impl App {
                 codex_activation,
                 grok_activation,
                 open_at_boot: chat_open,
+                estate: estate.clone(),
                 #[cfg(feature = "eguipilotai-devtools")]
                 proof_mode: chat_proof,
             },

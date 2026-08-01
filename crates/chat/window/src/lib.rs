@@ -25,7 +25,7 @@ use dpl_chat_social::{
 };
 use dpl_chat_store::{HistoryCatalog, HistoryIndex, HistoryLocator, HistoryPage, IndexedSession};
 use dpl_coldlight::{self as cl, Tone};
-use dpl_fabric::{AppWindowKey, ProviderEvent, Stamped};
+use dpl_fabric::{AppWindowKey, ProviderCapability, ProviderEvent, Stamped};
 use dpl_hub::Route;
 use egui::{
     Align, Align2, Color32, CornerRadius, Layout, NumExt, Rect, RichText, Sense, Stroke, UiBuilder,
@@ -866,6 +866,34 @@ impl ChatWindow {
 
     pub fn selected_provider_id(&self) -> Option<ProviderId> {
         self.runtime.selected_provider_id()
+    }
+
+    /// What every registered provider can do, as plain data the platform can
+    /// hold. The host publishes this onto the fabric's roster.
+    ///
+    /// This is the same shape D1 established with `content_episode_ids` — an
+    /// owned projection, not a handle. It does not leak `ChatRuntime` (which
+    /// stays a private field of this SURFACE) and it does no IO: it reads a
+    /// registry that is already in memory.
+    ///
+    /// `ActivationState`'s fourteen shades flatten here, deliberately: a
+    /// platform consumer needs the FACT (activated, and what's qualified),
+    /// not the chat lifecycle's state machine.
+    pub fn provider_capabilities(&self) -> Vec<ProviderCapability> {
+        self.runtime
+            .provider_views()
+            .into_iter()
+            .map(|view| {
+                let registration = &view.registration;
+                ProviderCapability {
+                    id: registration.manifest.descriptor.id,
+                    label: registration.manifest.descriptor.label.to_string(),
+                    activated: registration.activation.is_activated(),
+                    note: registration.activation.reason().map(str::to_owned),
+                    capabilities: registration.qualified_capabilities.clone(),
+                }
+            })
+            .collect()
     }
 
     pub fn replace_provider_profiles(&mut self, profiles: Vec<ProviderProfile>) {

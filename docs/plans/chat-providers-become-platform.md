@@ -267,7 +267,19 @@ via the vendor's own tool.
 **Out of scope**
 
 - Per-capability affordances in hubs.
-- Persisting the roster across launches (it is derived state; recompute).
+- ~~Persisting the roster across launches (it is derived state; recompute).~~
+  **AMENDED 2026-08-01, during execution.** This bullet survived from the
+  pre-ADR draft and directly contradicted §3.3b, which the ADR-017 amendment
+  added and which ratifies persistence as landing WITH P1. The ADR is the
+  later authority and §3.3b's reasoning holds — cheap now, expensive to
+  retrofit, and assumed by all four consumers — so persistence is IN and this
+  line is struck rather than deleted, per the program map's rule that a
+  contradiction is amended in the same commit that finds it.
+
+  The reasoning that produced the original bullet is still half right and is
+  preserved in the implementation: the roster **is** derived state, so the
+  live projection always wins. Persistence only decides what the platform
+  shows in the gap BEFORE the first recompute lands — never what is true.
 
 ## 6. Verification
 
@@ -314,6 +326,81 @@ re-read the struct before editing.
 
 ## 8. Evidence
 
-Filled during execution. §6.5 is the measure: a surface outside the chat
-crates naming a provider that exists only because the operator has
-transcripts on disk.
+§6.5 is the measure: a surface outside the chat crates naming a provider that
+exists only because the operator has transcripts on disk.
+
+### Ground truth as found (2026-08-01, `2459cdf`)
+
+The plan was ground-truthed against `989e145`; main had moved to `2459cdf`
+(#180 D1+H1, #183 ADR-017, #184, #185, #189, #190). Every anchor in §2 and
+§3 still held, with ~4 lines of drift: `board` at `fabric/src/lib.rs:480`
+(plan said 476), `publish_job` at `:572` (571), `ProviderId` import at `:12`
+as stated. **No design change was needed** — the fabric's JOBBOARD pattern
+and the ratified `dpl-fabric → dpl-chat-core` exception are exactly as §3.1
+described, so P1 added no dependency edge and the `structure` audit had
+nothing to fire on.
+
+### Two decisions the plan did not settle
+
+1. **`ProviderId` is `&'static str`** (`chat/core/src/lib.rs:47`, via
+   `static_id!`), so a persisted roster CANNOT be deserialized back into
+   one — not without leaking. Restore therefore RESOLVES stored id strings
+   against the ids this build actually registers, and drops the rest. Same
+   for capabilities: a stored slug this build does not know is dropped, never
+   invented. This is the doctor law the seam already speaks, applied to the
+   estate. Pinned by `a_provider_this_build_no_longer_knows_is_dropped_not_
+   resurrected` and `an_unknown_stored_capability_is_dropped_not_invented`.
+
+2. **`Capability` had no stable wire name** — only `label()`, a human string
+   free to be reworded. Persistence and the seam both need a name that does
+   not change when a caption does, so `Capability::slug()` / `from_slug()` /
+   `ALL` were added beside it in `dpl-chat-core`. Putting them there rather
+   than in the app crate is the §3.1 reasoning applied again: a second
+   stringify table is exactly the mirror that drifts. Pinned exhaustively by
+   `every_capability_slug_round_trips_and_is_unique`.
+
+### What changed from the plan's §4, and why
+
+§4.3 says publish "after every activation-affecting host intent." Activation
+is in fact mutated from **fourteen** `set_provider_activation` call sites plus
+the provider-event drain, and any enumeration of them is one new call site
+away from being silently wrong. The publish is therefore **change-detected**
+(`republish_roster` compares the projection against the last published one)
+and called from the single funnel every frame passes through. A steady state
+costs one comparison of ~4 small rows; nothing publishes unless the answer
+actually changed. This is strictly safer than the enumeration and cannot be
+forgotten by a later pass.
+
+§5's "out of scope: persisting the roster" contradicted §3.3b and is struck
+above, with the reasoning recorded rather than silently dropped.
+
+### Pins (all green)
+
+`cargo test -p dpl-fabric -p dpl-chat-core -p dpl-shell -p dpl-chat-window
+-p dpl-seam -p devpulselabs`
+
+| pin | crate | proves |
+|---|---|---|
+| `an_empty_roster_reads_empty` | fabric | no publish, no panic, no chip |
+| `the_roster_is_readable_without_subscribing` | fabric | §2.2 — a late CLONE reads the fold |
+| `a_history_only_provider_is_in_the_roster_but_cannot_send` | fabric | `can(PageHistory)` ✓, `can(StreamTurns)` ✗ |
+| `an_unactivated_provider_can_nothing` | fabric | qualified ≠ available |
+| `publishing_a_roster_replaces_the_previous_one` | fabric | wholesale, no accumulation |
+| `the_roster_answers_who_can_take_a_beat` | fabric | the routing question the SET exists for (ADR-017 §4) |
+| `every_capability_slug_round_trips_and_is_unique` | chat-core | the stored vocabulary is exhaustive + stable |
+| `an_unknown_capability_slug_is_dropped_not_invented` | chat-core | the label is not the wire name |
+| `the_roster_survives_a_restart` | app | ADR-017 §2 — truthful at boot, before any probe |
+| `a_provider_this_build_no_longer_knows_is_dropped_not_resurrected` | app | resolve, never leak |
+| `an_unknown_stored_capability_is_dropped_not_invented` | app | refuse by name |
+| `no_estate_is_not_an_error` | app | derived state degrades to empty, never to a failed launch |
+| `the_seam_projects_the_roster` | seam | an agent can read which experts exist (ADR-017 §3) |
+| `the_shell_names_the_activated_providers` | shell | §6.5, in a unit |
+| `the_shell_says_nothing_when_no_provider_is_activated` | shell | silence, not an empty claim |
+
+### The live proof
+
+`tests/eguipilotai/platform-sees-providers.toml`, fixture `chat` (live
+runtime, no authored models), asserting `root/shell.status.providers` — the
+ROOT viewport, not `chat.primary` — is visible and its text names Claude.
+The chip cannot render unless a provider is genuinely activated, and Claude
+activates on this machine only by having transcripts on disk.
