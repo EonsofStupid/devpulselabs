@@ -1787,6 +1787,7 @@ dependencies = [
  "dpl-fabric",
  "dpl-guide",
  "dpl-hub",
+ "dpl-hub-coach",
  "dpl-hub-home",
  "dpl-hub-present",
  "dpl-hub-shows",
@@ -2283,6 +2284,18 @@ name = "dpl-hub"
 version = "0.1.0"
 dependencies = [
  "dpl-coldlight",
+ "egui",
+]
+
+[[package]]
+name = "dpl-hub-coach"
+version = "0.1.0"
+dependencies = [
+ "dpl-coach-fabric",
+ "dpl-coach-inventory",
+ "dpl-coldlight",
+ "dpl-hub",
+ "dpl-proc",
  "egui",
 ]
 

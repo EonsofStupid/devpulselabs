@@ -60,6 +60,7 @@ dpl-hub-shows.workspace = true
 dpl-hub-present.workspace = true
 dpl-hub-workbench.workspace = true
 dpl-hub-wiredfront.workspace = true
+dpl-hub-coach.workspace = true
 egui-pilot-ai.workspace = true
 egui-pilot-ai-runtime = { workspace = true, optional = true }
 egui-pilot-ai-transport = { workspace = true, optional = true }

@@ -80,10 +80,14 @@ the audit, same commit, with the reason.
   Linux X11 backend first. Production builds must not wire it.
 - **crates/coach-inventory/** (`dpl-coach-inventory`): C2d lightweight
   target inventory (XDG cold catalog + AT-SPI desktop-root census);
-  egui-free; never deep-walks; orphan until Coach hub consumes it.
+  egui-free; never deep-walks; consumed by `dpl-hub-coach` (never by
+  `app` directly).
 - **crates/coach-fabric/** (`dpl-coach-fabric`): C2e budgeted Tier A
   fabric mint for one selected target; egui-free; may depend on
-  inventory; never a dep of `app` until Coach hub consumes it.
+  inventory; consumed by `dpl-hub-coach` (never by `app` directly).
+- **crates/hubs/coach/** (`dpl-hub-coach`): Operator Coach Import UI
+  (C2f); depends on inventory + fabric; spawns `dpl-coach-overlay`
+  binary only (never a crate dep on overlay).
 
 ## 4. The laws every new crate inherits
 
