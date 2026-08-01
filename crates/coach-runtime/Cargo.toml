@@ -15,11 +15,13 @@ workspace = true
 [dependencies]
 dpl-coach-fabric = { path = "../coach-fabric" }
 dpl-coach-inventory = { path = "../coach-inventory" }
+dpl-proc.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 async-io.workspace = true
 atspi.workspace = true
 zbus.workspace = true
+x11rb.workspace = true
 
 [[bin]]
 name = "coach-bridge-probe"

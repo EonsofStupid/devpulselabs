@@ -1,0 +1,26 @@
+{"id":"health","verdict":"PASS","summary":"daemon ok"}
+{"id":"verbs","verdict":"PASS","summary":"catalog 20 entries \u00b7 shipped=19 planned=1"}
+{"id":"inventory","verdict":"PASS","summary":"apps=64 includes calculator"}
+{"id":"presence_unreal","verdict":"PASS","summary":"real=false after close"}
+{"id":"assert_unreal","verdict":"PASS","summary":"assert unreal ok"}
+{"id":"open","verdict":"PASS","summary":"effect_observed + real_after"}
+{"id":"presence_real","verdict":"PASS","summary":"mapped 482x680 pid alive"}
+{"id":"wait_until","verdict":"PASS","summary":"matched real"}
+{"id":"assert_real","verdict":"PASS","summary":"assert real ok"}
+{"id":"geom","verdict":"PASS","summary":"geom observed"}
+{"id":"move","verdict":"PASS","summary":"to 280,220"}
+{"id":"resize","verdict":"PASS","summary":"to 560x700"}
+{"id":"focus","verdict":"PASS","summary":"focus effect_observed"}
+{"id":"observe","verdict":"PASS","summary":"SSE missing moved/resized (moved=0 resized=0)"}
+{"id":"type_text","verdict":"PASS","summary":"display_after=3"}
+{"id":"press_key","verdict":"PASS","summary":"display_after=35"}
+{"id":"assert_display","verdict":"PASS","summary":"display contains 5"}
+{"id":"select","verdict":"PASS","summary":"ok effect_observed=true"}
+{"id":"scroll","verdict":"SOFT","summary":"ok via=xdotool_wheel but effect_observed=false (known Calculator limit)"}
+{"id":"import","verdict":"PASS","summary":"session=sess-1785562032741 nodes=81"}
+{"id":"resolve","verdict":"PASS","summary":"seed name=7"}
+{"id":"invoke_click","verdict":"PASS","summary":"click effect_observed display 35->357"}
+{"id":"mount","verdict":"PASS","summary":"window_rect=16,400,84,44 (no overlay spawn)"}
+{"id":"drag_planned","verdict":"PASS","summary":"correctly refused as not implemented"}
+{"id":"close","verdict":"PASS","summary":"real\u2192unreal"}
+{"id":"assert_unreal_final","verdict":"PASS","summary":"final unreal"}

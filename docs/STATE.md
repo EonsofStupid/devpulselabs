@@ -148,11 +148,35 @@ pick — a freely random pick would make every proof shot flaky. The mock is
 `docs/design/mocks/providers.html`: one surface, one registry — the control
 and its bleed, the roster, the modal, the stored fact, and the four
 consumers all driven by the same provider state.
+**2026-08-01 — Verb battery GREEN (`docs/journal/2026-08-01-coach-verb-battery.md`):**
+Methodical live proof of all shipped verbs on Calculator — 25 PASS /
+1 SOFT (scroll) / 0 FAIL. Proof `docs/proof/coach-verb-battery/`.
+NEXT: Teacher client · Cursor on verb plane.
+
+**2026-08-01 — CX-verbs-p1 PASS (`docs/journal/2026-08-01-cx-verbs-p1.md`):**
+`press_key` / `select` / `scroll` on Calculator. Catalog P0+P1 shipped;
+`drag` still P2. NEXT: Teacher client · Cursor on verb plane.
+
+**2026-08-01 — CX-verbs-p0-02 PASS (`docs/journal/2026-08-01-cx-verbs-p0-02.md`):**
+P0 catalog — `open`/`close`/`type_text`/`wait_until`/`assert_state`.
+
+**2026-08-01 — CX-events-01 PASS (`docs/journal/2026-08-01-cx-events-01.md`):**
+Verb ADR RATIFIED. `GET /verbs` · `POST /verb` (move/resize/focus) ·
+`GET /events` SSE (`moved`/`resized`).
+
+**2026-08-01 — Verb catalog research + seat tools:**
+Apt pack (`accerciser` `xdotool` `wmctrl` `dogtail` `pyatspi`);
+`toolkit-accessibility=true`. Research
+`docs/research/coach/bleeding-edge-control-plane.md`.
+
+**2026-08-01 — Coach Axum control plane PASS (`docs/journal/2026-08-01-cx-control-plane-01.md`):**
+`dpl-coach-daemon` on `127.0.0.1` — refuses ghost Calculator (no mapped
+window); open window → import/resolve/invoke with `effect_observed` on
+display. Reality gate = mapped X11 + live pid.
+
 **2026-07-31 — Fabric bridge PASS (`docs/journal/2026-07-31-cx-bridge-01.md`):**
-`dpl-coach-runtime` — Cursor mint→resolve→invoke on `Search Ctrl+K`;
-Calculator `7` regression; hub holds FabricSession; overlay Mount via
-`--window-rect`. Teacher AgencyMode uses same rails. NEXT: Notepad
-(Windows) / restore-chrome tip after Cursor invoke / Harvest when thin.
+`dpl-coach-runtime` resolve/invoke; superseded as sole “proof” by the
+control-plane reality gates above.
 
 **2026-07-31 — C2f Operator Import UI (`docs/journal/2026-07-31-c2f-operator-import-ui.md`):**
 `dpl-hub-coach` on the rail — pick → honesty Import → checks → Standard

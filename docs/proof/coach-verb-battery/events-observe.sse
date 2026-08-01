@@ -1,0 +1,15 @@
+event: hello
+data: {"app":"gnome-calculator","kind":"observe_start","seconds":6}
+
+event: geom
+data: {"app":"gnome-calculator","geom":{"csv":"200,180,482,720","h":720,"w":482,"window_id":52428804,"x":200,"y":180},"kind":"geom"}
+
+event: moved
+data: {"after":{"csv":"320,260,482,720","h":720,"w":482,"window_id":52428804,"x":320,"y":260},"app":"gnome-calculator","before":{"csv":"200,180,482,720","h":720,"w":482,"window_id":52428804,"x":200,"y":180},"dx":120,"dy":80,"kind":"moved"}
+
+event: resized
+data: {"after":{"csv":"320,260,600,740","h":740,"w":600,"window_id":52428804,"x":320,"y":260},"app":"gnome-calculator","before":{"csv":"320,260,482,720","h":720,"w":482,"window_id":52428804,"x":320,"y":260},"dh":20,"dw":118,"kind":"resized"}
+
+event: bye
+data: {"app":"gnome-calculator","kind":"observe_end"}
+

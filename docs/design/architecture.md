@@ -89,9 +89,12 @@ the audit, same commit, with the reason.
   (C2f); depends on inventory + fabric + runtime; spawns
   `dpl-coach-overlay` binary only (never a crate dep on overlay).
 - **crates/coach-runtime/** (`dpl-coach-runtime`): FabricGraph bridge
-  (session resolve / invoke / extents); egui-free; may depend on
-  fabric + inventory; never a dep of `app` directly; overlay remains
-  painter-only under ADR.
+  (session resolve / invoke / extents + reality presence); egui-free;
+  may depend on fabric + inventory; never a dep of `app` directly.
+- **crates/coach-daemon/** (`dpl-coach-daemon`): localhost Axum Coach
+  control plane (ADR `coach-control-plane-adr.md`); never a dep of
+  `app`; agent hop = HTTP; app hop = runtime AT-SPI; overlay remains
+  painter-only under overlay ADR.
 
 ## 4. The laws every new crate inherits
 
