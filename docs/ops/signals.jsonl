@@ -33,3 +33,5 @@
 {"ts":"2026-07-30T23:59:12Z","signal":"plan.drafted","lane":"coach-ledger","detail":{"path":"docs/plans/coach-c2e-fabric-mint.md","pass":"C2e","next":"operator-approve"}}
 {"ts":"2026-07-31T06:30:00Z","signal":"journal.wrote","lane":"coach-ledger","detail":{"path":"docs/journal/2026-07-31-c2e-fabric-mint.md","closed":"C2e","verdict":"PASS","next":"C2f-wire-overlay"}}
 {"ts":"2026-07-31T16:50:00Z","signal":"journal.wrote","lane":"coach-ledger","detail":{"path":"docs/journal/2026-07-31-cx-cursor-01.md","closed":"CX-cursor-01","verdict":"PASS","seeds":["Search Ctrl+K","File"],"next":"C2f-cursor-import-ui"}}
+{"ts":"2026-08-01T01:51:28Z","signal":"pr.merged","lane":"coach-ledger","detail":{"pr":184,"verdict":"PASS","closed":"CX-cursor-01","next":"approve-C2f-plan","merge":"1c7ec64"}}
+{"ts":"2026-08-01T01:52:00Z","signal":"plan.drafted","lane":"coach-ledger","detail":{"path":"docs/plans/coach-c2f-operator-import-ui.md","pass":"C2f","next":"operator-approve"}}

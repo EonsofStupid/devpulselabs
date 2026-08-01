@@ -1,26 +1,26 @@
 # Resume pack — CURRENT
 
-**Updated:** 2026-07-31
+**Updated:** 2026-08-01
 **Lane:** coach-ledger
 **Dirty:** false
 
 ## Goal
 
-C2f — Operator UI select Cursor → Import Process → Mount `Search Ctrl+K`.
+C2f — Operator Import UI → Cursor lesson. Plan drafted; await `approve`.
 
 ## Done
 
-- CX-cursor-01 PASS: locate Cursor seeds + Calculator regression
-- Journal: `docs/journal/2026-07-31-cx-cursor-01.md`
+- CX-cursor-01 merged (#184)
+- C2f plan: `docs/plans/coach-c2f-operator-import-ui.md`
 
 ## Next
 
-1. Land spike PR `spike/cx-cursor-01`
-2. Author/implement **C2f** Coach hub import UI (Cursor primary)
+1. Operator `approve` C2f plan (or amend)
+2. Implement `feat/c2f-coach-import-ui` — hub + Import Process + Mount seed
 3. Notepad on Windows after
 
 ## Key files
 
-- `crates/coach-overlay/src/linux_self_test.rs`
-- `docs/journal/2026-07-31-cx-cursor-01.md`
-- `docs/plans/coach-lab-experiment-program.md`
+- `docs/plans/coach-c2f-operator-import-ui.md`
+- `docs/ops/references/coach-operator-mock-c2c.html`
+- `crates/coach-overlay/` · `crates/coach-fabric/` · `crates/coach-inventory/`

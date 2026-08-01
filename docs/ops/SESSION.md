@@ -1,7 +1,7 @@
 ---
 dirty: false
 active_lane: coach-ledger
-updated: 2026-07-31
+updated: 2026-08-01
 ---
 
 # Ops session ledger
@@ -14,22 +14,22 @@ milestone-loop). Product truth stays in `docs/STATE.md`.
 **coach / ledger / lesson** — backlog:
 `docs/journal/2026-07-28-remaining-work.md`
 
-**NEXT:** C2f Operator UI — select Cursor → Import → Mount seed.
-Notepad after. Pass-2 **parked**.
+**NEXT:** Operator `approve` C2f plan → implement Coach hub Import UI
+(Cursor). Pass-2 **parked**.
 
-**CLOSED:** … · C2e (#179) · **CX-cursor-01** locate PASS
+**CLOSED:** … · C2e (#179) · **CX-cursor-01** (#184)
 
 ## Opens
 
 | Kind | Ref | Notes |
 |---|---|---|
-| Coach product | C2f Cursor import UI | locate proven |
-| Coach next | Notepad (Windows) | after Cursor |
-| Coach Advanced | CX-harvest / Pass-2 | when a11y thin / parked |
+| Coach product | C2f plan → hub UI | `coach-c2f-operator-import-ui.md` |
+| Coach next | Notepad (Windows) | after C2f |
+| Coach Advanced | CX-harvest / Pass-2 | parked / when a11y thin |
 
 ## Milestone
 
-C2f Cursor → Notepad → Teacher / harvest as needed
+C2f approve → implement → Notepad → Teacher / harvest as needed
 
 ## Signals
 
