@@ -20,6 +20,9 @@ pub const PRESENCE: PresenceSpec = PresenceSpec {
     args: &["--version"],
     signed_in: &["gemini"],
     signed_out: &["not authenticated", "please sign in"],
+    // Gemini CLI is absent here; its sign-in verb is unverified, so none is
+    // declared rather than guessed.
+    login: &[],
 };
 
 const TARGETS: &[Capability] = &[

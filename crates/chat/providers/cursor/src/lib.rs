@@ -31,6 +31,7 @@ pub const PRESENCE: PresenceSpec = PresenceSpec {
     args: &["status"],
     signed_in: &["logged in", "signed in"],
     signed_out: &["not logged in", "not signed in", "run `cursor-agent login`"],
+    login: &["login"],
 };
 
 /// What Cursor's CLI advertises. Nothing here is active until a slice

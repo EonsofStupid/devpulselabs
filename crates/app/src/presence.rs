@@ -139,6 +139,70 @@ pub fn probe_all(
     receiver
 }
 
+/// How long to keep watching for a sign-in to take before giving up. The
+/// operator has to find the browser tab, pick an account, and approve — a
+/// short window would report failure while they were still typing.
+const SIGN_IN_WINDOW: std::time::Duration = std::time::Duration::from_secs(180);
+const SIGN_IN_POLL: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Hand sign-in to the vendor's own tool, then watch until it takes (A2).
+///
+/// The CLI opens the operator's DEFAULT browser itself and runs the vendor's
+/// real flow, so DevPULSE never sees a credential and never has to embed a
+/// login form. That is also why the in-app browser is not involved: these are
+/// different tools with different trust.
+///
+/// Returns a receiver that yields ONE verdict — the moment presence flips to
+/// signed in, or the last verdict when the window closes. `Err` when the
+/// provider declares no sign-in verb, which is not something to invent.
+pub fn begin_sign_in(
+    provider: ProviderId,
+    spec: PresenceSpec,
+) -> Result<std::sync::mpsc::Receiver<Vec<Presence>>, String> {
+    if spec.login.is_empty() {
+        return Err(format!("{} has no CLI sign-in", spec.program));
+    }
+    let mut command = Command::new(spec.program);
+    command
+        .args(spec.login)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    // Quiet for the same reason the probes are: no console flash on Windows.
+    let mut child = dpl_proc::quiet(&mut command)
+        .spawn()
+        .map_err(|error| format!("{} sign-in could not start: {error}", spec.program))?;
+
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    let spawned = std::thread::Builder::new()
+        .name("devpulse-provider-sign-in".to_owned())
+        .spawn(move || {
+            let started = std::time::Instant::now();
+            let mut last = Presence {
+                provider,
+                verdict: PresenceVerdict::Unknown,
+                note: None,
+            };
+            while started.elapsed() < SIGN_IN_WINDOW {
+                std::thread::sleep(SIGN_IN_POLL);
+                last = probe(provider, &spec);
+                if last.verdict == PresenceVerdict::SignedIn {
+                    break;
+                }
+            }
+            // The login process is the operator's; if it is still sitting
+            // there when the window closes, stop waiting on it rather than
+            // leaving a zombie behind.
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = sender.send(vec![last]);
+        });
+    if let Err(error) = spawned {
+        return Err(format!("the sign-in watcher could not start: {error}"));
+    }
+    Ok(receiver)
+}
+
 /// The providers that can answer for themselves, in rail order.
 pub fn specs() -> Vec<(ProviderId, PresenceSpec)> {
     vec![
@@ -158,6 +222,11 @@ const CODEX: PresenceSpec = PresenceSpec {
     args: &["login", "status"],
     signed_in: &["logged in using chatgpt", "logged in"],
     signed_out: &["not logged in"],
+    // Codex's own coordinator owns its login ceremony (device code + system
+    // browser); the roster only needs to READ its presence, so no sign-in
+    // verb is declared here and `activate_provider` keeps routing Codex to
+    // that coordinator.
+    login: &[],
 };
 
 #[cfg(test)]
@@ -175,6 +244,7 @@ mod tests {
             args: &["status"],
             signed_in: &["logged in"],
             signed_out: &["not logged in"],
+            login: &[],
         };
         let found = probe(ProviderId("ghost"), &spec);
         assert_eq!(found.verdict, PresenceVerdict::NotInstalled);
@@ -189,6 +259,7 @@ mod tests {
             args: &[],
             signed_in: &["logged in"],
             signed_out: &["not logged in"],
+            login: &[],
         };
         assert_eq!(
             probe(ProviderId("quiet"), &spec).verdict,
@@ -204,11 +275,61 @@ mod tests {
             args: &[],
             signed_in: &["logged in"],
             signed_out: &["not logged in"],
+            login: &[],
         };
         assert_eq!(
             spec.classify("You are not logged in. Run `x login` to log in."),
             PresenceVerdict::SignedOut
         );
+    }
+
+    #[test]
+    fn a_provider_with_no_cli_sign_in_is_refused_not_invented() {
+        // Gemini's sign-in verb is unknown on this machine. Guessing one and
+        // spawning it is how an operator gets a mystery process instead of a
+        // login, so the host refuses BY NAME and the UI keeps offering the
+        // install route.
+        let spec = PresenceSpec {
+            program: "true",
+            args: &[],
+            signed_in: &["x"],
+            signed_out: &[],
+            login: &[],
+        };
+        let refused = begin_sign_in(ProviderId("gemini"), spec)
+            .expect_err("a provider with no login verb must be refused");
+        assert!(refused.contains("no CLI sign-in"), "{refused}");
+    }
+
+    #[test]
+    fn sign_in_is_refused_when_the_cli_is_absent() {
+        let spec = PresenceSpec {
+            program: "dpl-definitely-not-a-real-binary",
+            args: &["status"],
+            signed_in: &["logged in"],
+            signed_out: &[],
+            login: &["login"],
+        };
+        assert!(
+            begin_sign_in(ProviderId("ghost"), spec).is_err(),
+            "a sign-in that cannot even start is an error, not a pending state"
+        );
+    }
+
+    #[test]
+    fn only_codex_defers_its_sign_in_to_a_coordinator() {
+        // Codex owns a device-code ceremony of its own. Every other probe-
+        // backed provider must carry a login verb, or its Sign in button is
+        // the dead end this pass exists to remove.
+        for (provider, spec) in specs() {
+            if provider == dpl_chat_codex::PROVIDER || provider == dpl_chat_gemini::PROVIDER {
+                continue;
+            }
+            assert!(
+                !spec.login.is_empty(),
+                "{provider} needs a sign-in verb or its button does nothing"
+            );
+        }
     }
 
     #[test]

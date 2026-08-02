@@ -220,7 +220,16 @@ link is done when the real app matches that slice.
   the control carries no design value of its own.
 - **V2** — the roster popup the control opens. **V3** — the tooltip promoted
   to the modal with live tenure.
-- A1 (presence probes) → A2 (subscription init).
+- **A1 — presence probes**, built. Each provider names a non-secret status
+  command as plain data; `crates/app/src/presence.rs` is the only place that
+  spawns. Measured live: codex/claude/grok SignedIn, cursor/gemini
+  NotInstalled.
+- **A2 — subscription init**, built. "Sign in" hands off to the vendor's own
+  CLI, which opens the operator's DEFAULT browser, and a watcher polls the
+  probe until it confirms. A provider with no declared sign-in verb is
+  refused by name rather than guessed at.
+- **Cursor** is a subscription provider (`crates/chat/providers/cursor`) —
+  its CLI carries the same login as the editor.
 
 Note for every motion link after this one: the capture harness runs under
 `MotionPolicy::Suppressed`, so it cannot photograph an animation mid-flight.

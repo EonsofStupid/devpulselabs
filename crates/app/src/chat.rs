@@ -1667,6 +1667,37 @@ fn activate_provider(shared: &Arc<Mutex<Shared>>, provider: ProviderId) {
             }
         }
         state.grok_activation.activation().clone()
+    } else if let Some((_, spec)) = crate::presence::specs()
+        .into_iter()
+        .find(|(id, _)| *id == provider)
+    {
+        // A2 — subscription initialization for every provider that answers
+        // through a presence probe rather than a bespoke coordinator. The
+        // vendor's own CLI opens the operator's DEFAULT browser and runs the
+        // real flow; we watch until the probe confirms it took.
+        match crate::presence::begin_sign_in(provider, spec) {
+            Ok(receiver) => {
+                state.presence = Some(receiver);
+                let attempt = state.fabric.mint_provider_attempt();
+                state
+                    .fabric
+                    .publish_provider(ProviderEvent::ActivationRequested { provider, attempt });
+                state
+                    .fabric
+                    .publish_provider(ProviderEvent::SystemBrowserDispatched { provider, attempt });
+                ActivationState::SigningIn
+            }
+            Err(error) => {
+                tracing::warn!(%error, %provider, "provider sign-in could not start");
+                ActivationState::SignedOut {
+                    reason: error,
+                    recovery: vec![RecoveryAction::new(
+                        RecoveryActionKind::InstallInstructions,
+                        "Install the provider's CLI",
+                    )],
+                }
+            }
+        }
     } else {
         tracing::warn!(%provider, "provider activation action is not qualified");
         return;

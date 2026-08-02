@@ -14,7 +14,7 @@ milestone-loop). Product truth stays in `docs/STATE.md`.
 **providers** — mock `docs/design/mocks/providers.html`, program
 `docs/plans/providers-presence-and-the-brain.md`.
 
-**NEXT:** land P1+V1, then author V2 (the roster popup).
+**NEXT:** land P1+V1+A1+A2, then author V2 (the roster popup).
 
 **CLOSED:** … · D1+H1 (#180) · **P1** · **V1** (`feat/p1-provider-availability`,
 green, unpushed)
@@ -25,7 +25,9 @@ green, unpushed)
 |---|---|---|
 | Providers | P1 → PR | branch green; #169 also edits `fabric/src/lib.rs` |
 | Providers | V2 popup → V3 modal | against `docs/design/mocks/providers.html` |
-| Providers | A1 probes → A2 sign-in | the capability gap; Gemini has no probe |
+| Providers | A1+A2 built | live: codex/claude/grok signed in; cursor+gemini not installed |
+| Providers | Cursor CLI | probe needles UNVERIFIED until `cursor-agent` is installed |
+| Providers | Gemini sign-in verb | unknown; no login declared rather than guessed |
 | Coach | C2f plan → hub UI | `coach-c2f-operator-import-ui.md`, awaiting `approve` (#187) |
 | Coach | Notepad (Windows) | after C2f |
 | Coach Advanced | CX-harvest / Pass-2 | parked / when a11y thin |

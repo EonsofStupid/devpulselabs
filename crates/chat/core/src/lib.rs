@@ -390,6 +390,13 @@ pub struct PresenceSpec {
     pub signed_in: &'static [&'static str],
     /// Lowercase needles that mean installed but SIGNED OUT.
     pub signed_out: &'static [&'static str],
+    /// The vendor's OWN sign-in subcommand. Empty means this provider has no
+    /// CLI sign-in and the host must not invent one.
+    ///
+    /// Sign-in is delegated to the vendor for the same reason presence is
+    /// read from it: the CLI opens the operator's default browser itself,
+    /// runs the vendor's real flow, and DevPULSE never sees a credential.
+    pub login: &'static [&'static str],
 }
 
 /// What a presence probe found. Exactly the three states a status command can

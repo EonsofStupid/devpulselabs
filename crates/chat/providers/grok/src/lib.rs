@@ -34,6 +34,7 @@ pub const PRESENCE: dpl_chat_core::PresenceSpec = dpl_chat_core::PresenceSpec {
     args: &["models"],
     signed_in: &["you are logged in with"],
     signed_out: &["not logged in", "please log in", "run `grok login`"],
+    login: &["login"],
 };
 pub const DEFAULT_PROFILE: ProviderProfileId = ProviderProfileId("grok-default");
 pub const SETUP_URL: &str = "https://docs.x.ai/build/overview";

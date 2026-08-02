@@ -21,6 +21,7 @@ pub const PRESENCE: PresenceSpec = PresenceSpec {
     args: &["auth", "status"],
     signed_in: &["\"loggedin\": true"],
     signed_out: &["\"loggedin\": false"],
+    login: &["auth", "login"],
 };
 
 const TARGETS: &[Capability] = &[
