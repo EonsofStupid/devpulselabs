@@ -6,15 +6,20 @@
 
 ## Goal
 
-V1 — the Providers control: the `dwell` duration tier, the two-colour
-ink-bleed effect, the seeded hue pool, the brain icon, and the control itself
-(brain + "Providers" + the `ai` circle at the P's cap-height).
+V2 — the Providers popup: the roster of frontier AI as thumbnails carrying
+their live state from P1's roster, with dynamic tooltips. It opens from V1's
+control, which currently does nothing on click.
 
-The mock for the whole program is `docs/design/mocks/providers.html`. V1 is
-the slice that makes its control real.
+The mock for the whole program is `docs/design/mocks/providers.html`. V2 is
+the slice below its control.
 
 ## Done
 
+- **V1 — the Providers control + the ink-bleed preset**, `green ✔`. `dwell`
+  tier + `dwell` ease + `ink-bleed` in `tokens/motion.json`, `brain` in
+  `tokens/icons.json`, and a new authored `bleed` preset kind whose hue pool
+  is build-checked against `hues.json`. Proof shots
+  `docs/proof/providers-control-{cold,full}.png`.
 - **P1 — the provider capability registry**, on
   `feat/p1-provider-availability`, `green ✔`. `ProviderCapability` folded
   onto the fabric as THE ROSTER, persisted to `Tree::Agents`, projected onto
@@ -24,11 +29,8 @@ the slice that makes its control real.
 
 ## Next
 
-1. Open the P1 PR (branch is committed, not pushed) and land it double-green.
-2. Author the V1 plan against `docs/design/mocks/providers.html` — tokens
-   first (`tokens/motion.json` `dwell` tier + `ink-bleed`, `tokens/icons.json`
-   brain), generated, never hand-written into the widget.
-3. V1 replaces the placeholder `AI · …` text chip in the status bar.
+1. Open the PR (P1+V1 committed, not pushed) and land it double-green.
+2. Author the V2 plan against the mock — the popup the control opens.
 
 ## Key files
 
@@ -36,7 +38,8 @@ the slice that makes its control real.
 - `docs/plans/providers-presence-and-the-brain.md`
 - `docs/plans/chat-providers-become-platform.md`
 - `crates/fabric/src/lib.rs` (THE ROSTER) · `crates/shell/src/status.rs`
-- `crates/coldlight/tokens/motion.json` · `tokens/icons.json` (V1)
+- `crates/shell/src/providers.rs` (the control)
+- `crates/coldlight/tokens/{motion,icons,presets}.json`
 
 ## Parked lanes
 

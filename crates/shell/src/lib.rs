@@ -21,6 +21,7 @@
 //! cell registry ([`status`]).
 //! Every navigation publishes `ShellEvent::RouteChanged` on the fabric.
 
+pub mod providers;
 pub mod status;
 
 use dpl_coldlight::{self as cl, Tone};
@@ -258,6 +259,8 @@ pub struct Shell {
     /// reload so we have variety of color") — fixed for the session, fresh
     /// every launch.
     tooltip_mood: usize,
+    /// The session's seeded ink-bleed (V1): the hue pair and the dwell.
+    bleed: providers::BleedRoll,
     /// The accordion's ONE open house (doctrine §5.2) — its subroutes
     /// unfold beneath its rail row; `None` = fully folded, icon-compact.
     open_house: Option<HubId>,
@@ -326,6 +329,10 @@ impl Shell {
             inspector_open: false,
             build: "",
             tooltip_mood: dpl_backdrop::random_mood_index(),
+            // The bleed's pair and dwell are drawn ONCE per launch, off the
+            // same boot roll the tooltip mood uses, and pinned together by
+            // `set_harness_mood` so a capture reproduces.
+            bleed: providers::BleedRoll::from_seed(dpl_backdrop::random_mood_index() as u64),
             open_house: None,
             rail_reveal_pending: false,
             last_open_rail_body: None,
@@ -384,6 +391,9 @@ impl Shell {
         let index = index % cl::MOOD_COUNT;
         self.backdrop.set_mood(index);
         self.tooltip_mood = index;
+        // The ink bleed is boot-randomized too, so it pins here or the
+        // capture of a six-second wash is a different colour every run.
+        self.bleed = providers::BleedRoll::from_seed(index as u64);
     }
 
     pub fn full_bleed(&self) -> bool {
@@ -726,6 +736,7 @@ impl Shell {
                     mood: self.backdrop.mood(),
                     working,
                     providers: provider_chip(&self.fabric),
+                    bleed: self.bleed,
                 };
                 actions = status::grid(ui, &cx, &self.window_accessories);
             });

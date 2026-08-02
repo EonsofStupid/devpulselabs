@@ -45,13 +45,14 @@ value = "Claude"
 [steps.expectation.target]
 id = "root/shell.status.providers"
 
-# It names the platform's AI capability, not a chat session count.
+# It is the Providers control, not an anonymous label — the node names the
+# surface AND the roster it stands for.
 [[steps]]
 kind = "expect"
 
 [steps.expectation]
 type = "text"
-value = "AI ·"
+value = "Providers"
 
 [steps.expectation.target]
 id = "root/shell.status.providers"

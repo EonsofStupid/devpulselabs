@@ -4,7 +4,10 @@
     "fast": 0.12,
     "base": 0.2,
     "slow": 0.32,
-    "settle": 0.3
+    "settle": 0.3,
+    "dwell": 5.9,
+    "dwell-min": 5.6,
+    "dwell-max": 6.3
   },
   "eases": {
     "standard": [
@@ -40,6 +43,12 @@
     "spring-crisp": [
       0.22,
       1.61,
+      0.36,
+      1.0
+    ],
+    "dwell": [
+      0.22,
+      0.61,
       0.36,
       1.0
     ]
@@ -136,6 +145,10 @@
       "dur": 16.0,
       "ease": "standard",
       "loop": true
+    },
+    "ink-bleed": {
+      "dur": 5.9,
+      "ease": "dwell"
     }
   }
 }

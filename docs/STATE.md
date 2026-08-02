@@ -2,6 +2,38 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-08-02 — THE PROVIDERS CONTROL AND THE INK BLEED (V1, plan
+`docs/plans/providers-v1-ink-bleed-control.md`, journal
+`docs/journal/2026-08-02-v1-providers-control.md`, `green ✔`):** the brain,
+the word **Providers**, and the `ai` circle at the P's cap-height, washing
+from muted line-art to full colour over a passive 5.6–6.3s on hover.
+
+Everything the operator named is an AUTHORED token: a **`dwell` duration
+tier** and a `dwell` ease in `tokens/motion.json` beside the new `ink-bleed`
+effect (18 → 19), `brain` in `tokens/icons.json` over the vendored Lucide
+pool, and a **third preset kind — `bleed`** — in `tokens/presets.json`.
+`MotionPreset` carries one `enter` effect and no colour, so widening it for
+one caller would have changed all three existing presets; the new kind gets
+`generate_presets` to cross-check its effect against motion.json and every
+pool hue against hues.json, so **an unknown hue fails the build**. That is
+what makes "an elaborate preset used globally" real rather than a list of
+hexes in a widget. `crates/shell/src/providers.rs` holds no duration, curve,
+hue or geometry of its own; the `ai` circle's diameter is a RATIO of the
+label size so the cap-height alignment survives a font change. The pair and
+the dwell jitter are xorshift-seeded like `random_mood_index` and pin through
+`set_harness_mood`.
+
+TWO BUGS THE PROOF CAUGHT. (1) The bleed was not animating: the animation id
+came from `ui.id()`, the status bar rebuilds its lane as a fresh child `Ui`
+each frame, and egui snaps an unseen id straight to target — a six-second
+bleed was an instant swap. Fixed with a stable `Id::new`. (2) **The capture
+harness cannot photograph any animation mid-flight**: every capture runs
+`MotionPolicy::Suppressed` (`egui-pilot-ai-runtime/src/lib.rs:1246`), and
+`Natural`/`FastForward` are unused. That is a standing limit on ALL nineteen
+effects, logged as a harness open. V1 therefore proves the two ends with
+shots (`docs/proof/providers-control-{cold,full}.png`) and the duration with
+pins on the authored token. NEXT: V2, the roster popup the control opens.
+
 **2026-08-02 — THE PLATFORM CAN SEE WHAT A PROVIDER CAN DO (P1, plan
 `docs/plans/chat-providers-become-platform.md`, ADR-017, journal
 `docs/journal/2026-08-02-p1-provider-registry.md`, branch
@@ -1996,7 +2028,13 @@ is DELETED. Memory: `chat-is-a-peer-window`.
    (docs/plans/p1-data-root.md): resolution is arg -> env -> exe-adjacent ->
    walk-up -> cwd; double-click finds the repo content root (proven);
    scattered target/release/content migrated + removed.
-4. Stale EguiPilotAI scenarios/fixtures (pre-Program-L flyout/Library refs).
+4. EguiPilotAI cannot capture an animation MID-FLIGHT: every capture runs
+   `MotionPolicy::Suppressed` (`egui-pilot-ai-runtime/src/lib.rs:1246` —
+   `animation_time = 0` + `clear_animations()`), and the `Natural` /
+   `FastForward` policies in the enum are selected by nothing. Applies to all
+   19 authored effects. Found proving V1's 5.6-6.3s bleed, where the 1.2s and
+   6.6s shots came back byte-identical.
+5. Stale EguiPilotAI scenarios/fixtures (pre-Program-L flyout/Library refs).
    Measured 2026-08-02 on the headless Linux box under Xvfb:
    `chat-local-histories`, `chat-content-spine`, `chat-provider-tab` and
    `shell-navigation` all fail, and fail identically on `2459cdf` — so this
@@ -2006,11 +2044,9 @@ is DELETED. Memory: `chat-is-a-peer-window`.
 
 ## Next
 
-1. **Providers** — land P1, then **V1**: the `dwell` duration tier, the
-   two-colour `ink-bleed` effect and the brain icon authored into
-   `crates/coldlight/tokens/*.json` and GENERATED, plus the control itself
-   (brain + "Providers" + the `ai` circle at the P's cap-height). Then V2
-   popup → V3 modal → A1 probes → A2 sign-in. Everything against
+1. **Providers** — land P1+V1, then **V2**: the roster popup the control
+   opens, thumbnails carrying live state from P1's roster with dynamic
+   tooltips. Then V3 modal → A1 probes → A2 sign-in. Everything against
    `docs/design/mocks/providers.html`.
 2. **Coach C2f** — Operator Import UI, plan drafted, awaiting `approve`.
 3. **W10b** — LandingCard Episode polish, live budget strip, activity-feed

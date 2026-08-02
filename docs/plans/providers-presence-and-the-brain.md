@@ -214,8 +214,14 @@ surface driven by one registry. Every link below is a slice of it, and a
 link is done when the real app matches that slice.
 
 - **P1** — the registry, built (`docs/plans/chat-providers-become-platform.md`).
-- **V1** — the control: `dwell` tier, two-colour ink-bleed, seeded hue pool,
-  brain icon, and the `ai` circle at the P's cap-height. Plan next.
-- **V2** — the roster popup. **V3** — the tooltip promoted to the modal with
-  live tenure.
+- **V1** — the control and the ink-bleed preset, built
+  (`docs/plans/providers-v1-ink-bleed-control.md`). The `dwell` tier, the
+  `ink-bleed` effect, the seeded hue pool and the brain are authored tokens;
+  the control carries no design value of its own.
+- **V2** — the roster popup the control opens. **V3** — the tooltip promoted
+  to the modal with live tenure.
 - A1 (presence probes) → A2 (subscription init).
+
+Note for every motion link after this one: the capture harness runs under
+`MotionPolicy::Suppressed`, so it cannot photograph an animation mid-flight.
+Prove the ends with shots and the duration with a pin on the authored token.

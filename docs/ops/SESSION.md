@@ -14,9 +14,9 @@ milestone-loop). Product truth stays in `docs/STATE.md`.
 **providers** — mock `docs/design/mocks/providers.html`, program
 `docs/plans/providers-presence-and-the-brain.md`.
 
-**NEXT:** land P1, then author V1 (the control + the ink-bleed tokens).
+**NEXT:** land P1+V1, then author V2 (the roster popup).
 
-**CLOSED:** … · D1+H1 (#180) · **P1** (`feat/p1-provider-availability`,
+**CLOSED:** … · D1+H1 (#180) · **P1** · **V1** (`feat/p1-provider-availability`,
 green, unpushed)
 
 ## Opens
@@ -24,17 +24,17 @@ green, unpushed)
 | Kind | Ref | Notes |
 |---|---|---|
 | Providers | P1 → PR | branch green; #169 also edits `fabric/src/lib.rs` |
-| Providers | V1 control | `dwell` + `ink-bleed` + brain, authored tokens |
-| Providers | V2 popup → V3 modal | after V1 |
+| Providers | V2 popup → V3 modal | against `docs/design/mocks/providers.html` |
 | Providers | A1 probes → A2 sign-in | the capability gap; Gemini has no probe |
 | Coach | C2f plan → hub UI | `coach-c2f-operator-import-ui.md`, awaiting `approve` (#187) |
 | Coach | Notepad (Windows) | after C2f |
 | Coach Advanced | CX-harvest / Pass-2 | parked / when a11y thin |
+| Harness | no mid-animation capture | every capture is `MotionPolicy::Suppressed`; `Natural`/`FastForward` unused |
 | Harness | 4 scenarios red headless | `chat-local-histories`, `chat-content-spine`, `chat-provider-tab`, `shell-navigation` — pre-date P1, need a real display |
 
 ## Milestone
 
-P1 land → V1 control → V2 popup → V3 modal → A1 probes → A2 sign-in
+P1+V1 land → V2 popup → V3 modal → A1 probes → A2 sign-in
 (coach C2f resumes on `approve`)
 
 ## Signals
