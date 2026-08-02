@@ -313,45 +313,36 @@ Branch `feat/p1-provider-availability`. One commit:
 feat(platform): activated providers become platform capabilities (P1)
 ```
 
-`gh pr list` first — #169 touches `crates/fabric/src/lib.rs` heavily
-(+210 lines at `:444`, plus `Fabric` struct and `impl` hunks), so this
-plan's §4.1 WILL conflict textually. Rebase on whichever lands first and
-re-read the struct before editing.
+Open PR #169 (`feat/ai-usage-domain`) also edits `crates/fabric/src/lib.rs`
+around the `Fabric` struct and its `impl`, so whichever lands second rebases
+and re-reads the struct before editing.
 
 ## 8. Evidence
 
 §6.5 is the measure: a surface outside the chat crates naming a provider that
 exists only because the operator has transcripts on disk.
 
-### Ground truth as found (2026-08-01, `2459cdf`)
+Built against `2459cdf`. P1 adds no dependency edge — the ratified
+`dpl-fabric → dpl-chat-core` exception already carries `ProviderId`, so
+`Capability` crosses on it and the `structure` audit has nothing to fire on.
 
-The plan was ground-truthed against `989e145`; main had moved to `2459cdf`
-(#180 D1+H1, #183 ADR-017, #184, #185, #189, #190). Every anchor in §2 and
-§3 still held, with ~4 lines of drift: `board` at `fabric/src/lib.rs:480`
-(plan said 476), `publish_job` at `:572` (571), `ProviderId` import at `:12`
-as stated. **No design change was needed** — the fabric's JOBBOARD pattern
-and the ratified `dpl-fabric → dpl-chat-core` exception are exactly as §3.1
-described, so P1 added no dependency edge and the `structure` audit had
-nothing to fire on.
+### Resolve, never resurrect
 
-### Two decisions the plan did not settle
+`ProviderId` is `&'static str` (`chat/core/src/lib.rs:47`, via `static_id!`),
+so a stored roster cannot be deserialized back into one without leaking.
+Restore RESOLVES stored id strings against the ids this build registers and
+drops the rest; a stored capability slug this build does not know is dropped
+the same way. The doctor law the seam already speaks, applied to the estate.
+Pinned by `a_provider_this_build_no_longer_knows_is_dropped_not_resurrected`
+and `an_unknown_stored_capability_is_dropped_not_invented`.
 
-1. **`ProviderId` is `&'static str`** (`chat/core/src/lib.rs:47`, via
-   `static_id!`), so a persisted roster CANNOT be deserialized back into
-   one — not without leaking. Restore therefore RESOLVES stored id strings
-   against the ids this build actually registers, and drops the rest. Same
-   for capabilities: a stored slug this build does not know is dropped, never
-   invented. This is the doctor law the seam already speaks, applied to the
-   estate. Pinned by `a_provider_this_build_no_longer_knows_is_dropped_not_
-   resurrected` and `an_unknown_stored_capability_is_dropped_not_invented`.
+### The stored vocabulary is the slug, not the label
 
-2. **`Capability` had no stable wire name** — only `label()`, a human string
-   free to be reworded. Persistence and the seam both need a name that does
-   not change when a caption does, so `Capability::slug()` / `from_slug()` /
-   `ALL` were added beside it in `dpl-chat-core`. Putting them there rather
-   than in the app crate is the §3.1 reasoning applied again: a second
-   stringify table is exactly the mirror that drifts. Pinned exhaustively by
-   `every_capability_slug_round_trips_and_is_unique`.
+`Capability::slug()` / `from_slug()` / `ALL` live in `dpl-chat-core` beside
+`label()`. Persistence and the seam need a name that does not change when a
+caption is reworded, and putting it in the app crate instead would be a
+second stringify table — the mirror that drifts. Pinned exhaustively by
+`every_capability_slug_round_trips_and_is_unique`.
 
 ### Publishing is change-detected
 
@@ -415,20 +406,13 @@ The chip reads `Claude Code` alone rather than `Claude Code, Codex` — this
 machine has `~/.claude/projects` transcripts and no `~/.codex/sessions`, so
 naming only Claude is the truthful answer, not a partial one.
 
-### Regressions — pre-existing, NOT caused by this pass
+### Regressions
 
-`chat-local-histories`, `chat-content-spine`, `chat-provider-tab`, and
-`shell-navigation` all report `failed` on this Linux box. They fail
-**identically on `origin/main` (`2459cdf`) with none of this pass's code**,
-verified by rebuilding the baseline exe from a clean checkout and running
-the same four under the same Xvfb display. `shell-navigation` fails on its
-FIRST step (`visible root/shell.rail/workbench`) and on a hover-driven
-flyout — an environment/timing characteristic of this headless lane, not
-anything a status-bar chip could touch.
-
-Recorded rather than silently skipped: this pass did not fix them and does
-not claim they are green. They need running on a lane with a real display
-(`dpl-win-laptop` / `dpl-linux`) before the PR merges, and the fact that
-`platform-sees-providers` PASSES on the same box is what makes its result
-meaningful — the harness works here; those four scenarios are separately
-unwell.
+`chat-local-histories`, `chat-content-spine`, `chat-provider-tab` and
+`shell-navigation` report `failed` under Xvfb on the headless Linux box, and
+fail identically on `2459cdf` with none of this pass's code — confirmed by
+rebuilding the baseline exe and running the same four under the same display.
+`shell-navigation` fails on its first step and on a hover-driven flyout, so
+the cause is the headless lane, not the roster. They still need a run on a
+lane with a real display. `platform-sees-providers` passing on that same box
+is what makes its result trustworthy.

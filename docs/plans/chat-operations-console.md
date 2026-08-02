@@ -135,10 +135,12 @@ never the authority the code is.
 
 ## 6. Status
 
-- **D1** — plan `docs/plans/chat-content-seam.md`. MERGED (#180, with H1;
-  #178 was closed as superseded, not abandoned).
+- **D1** — plan `docs/plans/chat-content-seam.md`. MERGED (#180).
 - **H1** — plan `docs/plans/chat-histories-in-one-system.md`. MERGED (#180).
-- **P1** — plan `docs/plans/chat-providers-become-platform.md`, amended by
-  `docs/design/adr-017-provider-capability-registry.md`. IN FLIGHT on
+- **P1** — plan `docs/plans/chat-providers-become-platform.md`, governed by
+  `docs/design/adr-017-provider-capability-registry.md`. Built and green on
   `feat/p1-provider-availability`.
+- The surface P1 feeds is V1–V3 of
+  `docs/plans/providers-presence-and-the-brain.md`, against
+  `docs/design/mocks/providers.html`.
 - D2–D6 — not planned yet, by design.

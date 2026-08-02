@@ -2,6 +2,42 @@
 
 Updated every pass. This file is the first read of every session.
 
+**2026-08-02 — THE PLATFORM CAN SEE WHAT A PROVIDER CAN DO (P1, plan
+`docs/plans/chat-providers-become-platform.md`, ADR-017, journal
+`docs/journal/2026-08-02-p1-provider-registry.md`, branch
+`feat/p1-provider-availability`, `green ✔`):** the operator's ask — *"the
+providers that get activated in the chat become available in the platform"*
+— answered by THE ROSTER, a fold on the fabric in the same shape as THE
+JOBBOARD.
+
+THE FINDING: the provider CHANNEL cannot answer the roster question by
+construction. `ProviderEvent` is fourteen variants of ONE activation
+attempt's progress, and H1's providers activate by having transcripts on
+disk — no attempt runs, so no `Ready` is ever published. A broadcast also has
+no past, so a late subscriber hears nothing about what activated before it.
+The answer had to be a FOLD, not a stream. **No new dependency edge**:
+`dpl-fabric → dpl-chat-core` is the ratified exception (`architecture.md:65`),
+so `Capability` rides an edge that already existed.
+
+A capability SET, never `can_send` (ADR-017 §4) — routing, A/B fan-out and
+capture all need "who can take this beat", which a boolean cannot answer.
+One fact, three projections: the fold → `Tree::Agents` `providers/roster`
+(`{written_at_ms, providers}`) → the seam's `/state` under
+`registry.providers`. `ProviderId` is `&'static str`, so restore RESOLVES
+stored names against what the build registers and drops the rest; stored
+capability slugs resolve the same way. `Capability::slug()`/`from_slug()`
+give the stored vocabulary a name that survives a caption being reworded.
+Publishing is change-detected — fourteen `set_provider_activation` sites plus
+the drain make any enumeration of "activation-affecting" intents wrong within
+one commit.
+
+Proof `platform-sees-providers` (fixture `chat`, live runtime) asserts
+`root/shell.status.providers` — the ROOT viewport — names Claude;
+`docs/proof/platform-sees-providers.png` shows MAIN reading `AI · Claude
+Code`. The status chip is the smallest honest consumer and a PLACEHOLDER:
+V1 of `docs/plans/providers-presence-and-the-brain.md` replaces it with the
+control `docs/design/mocks/providers.html` draws.
+
 **2026-08-01 — WORKBENCH `/experiments` (plan
 `docs/plans/workbench-experiments.md`, journal
 `docs/journal/2026-08-01-workbench-experiments.md`, PR #185):** experiments
@@ -1961,14 +1997,27 @@ is DELETED. Memory: `chat-is-a-peer-window`.
    walk-up -> cwd; double-click finds the repo content root (proven);
    scattered target/release/content migrated + removed.
 4. Stale EguiPilotAI scenarios/fixtures (pre-Program-L flyout/Library refs).
+   Measured 2026-08-02 on the headless Linux box under Xvfb:
+   `chat-local-histories`, `chat-content-spine`, `chat-provider-tab` and
+   `shell-navigation` all fail, and fail identically on `2459cdf` — so this
+   is the standing staleness, not any one pass. `shell-navigation` goes red
+   on its FIRST step and on a hover-driven flyout. `platform-sees-providers`
+   passes on the same box, so the harness itself is sound.
 
 ## Next
 
-1. **W10b** — LandingCard Episode polish, live budget strip, activity-feed
+1. **Providers** — land P1, then **V1**: the `dwell` duration tier, the
+   two-colour `ink-bleed` effect and the brain icon authored into
+   `crates/coldlight/tokens/*.json` and GENERATED, plus the control itself
+   (brain + "Providers" + the `ai` circle at the P's cap-height). Then V2
+   popup → V3 modal → A1 probes → A2 sign-in. Everything against
+   `docs/design/mocks/providers.html`.
+2. **Coach C2f** — Operator Import UI, plan drafted, awaiting `approve`.
+3. **W10b** — LandingCard Episode polish, live budget strip, activity-feed
    line, full chapters×slots compose wall (`w10-slide-association.md`).
-2. Estate deeper wire (selection/undo, Workbench session, Agents tree).
-3. Seed empty classes / animation templates (catalog follow-ons).
-4. Parallel backlog: RR1.1; AEP Phase 2; ColdLight remainder; mac-parity.
+4. Estate deeper wire (selection/undo, Workbench session, Agents tree).
+5. Seed empty classes / animation templates (catalog follow-ons).
+6. Parallel backlog: RR1.1; AEP Phase 2; ColdLight remainder; mac-parity.
    Ops: triage Dependabot PRs (#77–#86, don't blind-merge majors); bring
    `dpl-win` online for Windows nightly asset; `dpl-linux` `svc.sh install`;
    unset Cursor `CARGO_TARGET_DIR` for local green. Operator: real xAI
