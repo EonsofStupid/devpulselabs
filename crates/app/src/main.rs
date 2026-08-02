@@ -12,6 +12,7 @@ mod chat;
 mod coach_fabric;
 #[cfg(feature = "eguipilotai-devtools")]
 mod coach_signals;
+mod presence;
 
 use dpl_fabric::Fabric;
 use dpl_hub::{Hub, Route};

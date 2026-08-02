@@ -25,6 +25,16 @@ use std::sync::mpsc::{self, Receiver, TryRecvError, TrySendError};
 use std::thread::{self, JoinHandle};
 
 pub const PROVIDER: ProviderId = ProviderId("grok");
+
+/// Grok's CLI has `login`/`logout` but no `status`, so presence is read off
+/// `grok models`, which names the signed-in account before it lists them.
+/// Verified against grok 0.2.117.
+pub const PRESENCE: dpl_chat_core::PresenceSpec = dpl_chat_core::PresenceSpec {
+    program: "grok",
+    args: &["models"],
+    signed_in: &["you are logged in with"],
+    signed_out: &["not logged in", "please log in", "run `grok login`"],
+};
 pub const DEFAULT_PROFILE: ProviderProfileId = ProviderProfileId("grok-default");
 pub const SETUP_URL: &str = "https://docs.x.ai/build/overview";
 

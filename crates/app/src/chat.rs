@@ -131,6 +131,10 @@ struct Shared {
     /// THE ROSTER as last published — the comparison that makes the publish
     /// change-driven instead of per-frame chatter.
     roster: Vec<ProviderCapability>,
+    /// The one-shot presence sweep: each vendor's own tool answering whether
+    /// the operator is already signed in. Polled from the frame loop and
+    /// dropped once it lands.
+    presence: Option<std::sync::mpsc::Receiver<Vec<crate::presence::Presence>>>,
     /// Where the roster is remembered between launches (ADR-017 §2). `None`
     /// when the estate failed to open; the roster is derived, so the only
     /// cost is that the platform starts empty instead of remembered.
@@ -306,6 +310,83 @@ fn restore_roster(
             })
         })
         .collect()
+}
+
+/// Take the presence sweep the moment it lands, then never look again.
+///
+/// A non-blocking poll on the frame path: the probe runs four short-lived
+/// vendor processes on its own thread, and the egui thread only ever asks
+/// whether the answer has arrived.
+fn drain_presence(state: &mut Shared) {
+    let Some(receiver) = state.presence.as_ref() else {
+        return;
+    };
+    let found = match receiver.try_recv() {
+        Ok(found) => found,
+        Err(std::sync::mpsc::TryRecvError::Empty) => return,
+        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+            state.presence = None;
+            return;
+        }
+    };
+    state.presence = None;
+    for one in &found {
+        tracing::info!(provider = %one.provider, verdict = ?one.verdict, "provider presence");
+        apply_presence(state, one);
+    }
+}
+
+/// Fold one presence answer into the window's activation, if it has anything
+/// to add.
+///
+/// It is deliberately NON-DESTRUCTIVE. A provider that is already activated
+/// keeps whatever activated it — H1's Claude is `Experimental` off its
+/// transcripts, and Codex and Grok own full activation coordinators with
+/// launchers and runtimes. Presence's job is to fill in the providers nobody
+/// has spoken for, and to state honestly what the machine says about the
+/// rest. Overwriting a live coordinator's state from a one-shot probe is how
+/// a working provider ends up reported as signed out mid-session.
+fn apply_presence(state: &mut Shared, found: &crate::presence::Presence) {
+    use dpl_chat_core::PresenceVerdict;
+
+    let already_activated = state
+        .window
+        .provider_capabilities()
+        .iter()
+        .any(|p| p.id == found.provider && p.activated);
+    if already_activated {
+        return;
+    }
+
+    let note = found.note.clone().unwrap_or_default();
+    let activation = match found.verdict {
+        // Signed in, but nothing here qualifies a live turn transport yet —
+        // say exactly that rather than claiming Ready.
+        PresenceVerdict::SignedIn => ActivationState::Experimental {
+            reason: "Signed in on this machine. Live turns are not qualified yet.".to_owned(),
+            recovery: Vec::new(),
+        },
+        PresenceVerdict::SignedOut => ActivationState::SignedOut {
+            reason: note,
+            recovery: vec![RecoveryAction::new(
+                RecoveryActionKind::SignIn,
+                "Sign in with your browser",
+            )],
+        },
+        PresenceVerdict::NotInstalled => ActivationState::NotInstalled {
+            reason: note,
+            recovery: Vec::new(),
+        },
+        // An answer nobody taught us to read is not evidence of anything.
+        PresenceVerdict::Unknown => return,
+    };
+
+    if let Err(error) = state
+        .window
+        .set_provider_activation(found.provider, activation)
+    {
+        tracing::warn!(%error, provider = %found.provider, "presence could not be applied");
+    }
 }
 
 /// Publish THE ROSTER when — and only when — it changed.
@@ -692,6 +773,7 @@ impl ChatWindowCoordinator {
             primary_monitor,
             fabric: fabric.clone(),
             roster: Vec::new(),
+            presence: Some(crate::presence::probe_all(crate::presence::specs())),
             estate,
             determinism: dpl_intent::DeterminismGate::default(),
             #[cfg(feature = "eguipilotai-devtools")]
@@ -839,6 +921,7 @@ impl ChatWindowCoordinator {
             let mut shared = lock(&self.shared);
             shared.window.observe_route(current_route);
             drain_provider_facts(&mut shared);
+            drain_presence(&mut shared);
             // Every activation change — from the drain above or from any of
             // the host intents applied last frame — reaches the platform
             // here. Publishing is change-gated, so a steady state costs one

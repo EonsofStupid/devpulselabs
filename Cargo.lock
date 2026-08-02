@@ -1766,6 +1766,7 @@ dependencies = [
  "dpl-chat-claude",
  "dpl-chat-codex",
  "dpl-chat-core",
+ "dpl-chat-cursor",
  "dpl-chat-gemini",
  "dpl-chat-grok",
  "dpl-chat-imagine",
@@ -1794,6 +1795,7 @@ dependencies = [
  "dpl-hub-workbench",
  "dpl-intent",
  "dpl-ledger",
+ "dpl-proc",
  "dpl-seam",
  "dpl-shell",
  "dpl-tools-deps",
@@ -1948,6 +1950,13 @@ dependencies = [
 [[package]]
 name = "dpl-chat-core"
 version = "0.1.0"
+
+[[package]]
+name = "dpl-chat-cursor"
+version = "0.1.0"
+dependencies = [
+ "dpl-chat-core",
+]
 
 [[package]]
 name = "dpl-chat-extensions"
