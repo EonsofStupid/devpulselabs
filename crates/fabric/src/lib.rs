@@ -264,6 +264,45 @@ pub struct ProviderCapability {
     pub note: Option<String>,
     /// The qualified set, in `dpl_chat_core`'s existing vocabulary.
     pub capabilities: BTreeSet<Capability>,
+    /// Which of the states a probe can actually DISTINGUISH this provider is
+    /// in. `activated` answers "can the platform use it"; this answers "what
+    /// should the operator be told", and they are different questions —
+    /// not-installed and signed-out are both `activated: false` and have
+    /// completely different fixes.
+    pub presence: ProviderPresence,
+}
+
+/// The states the Providers surface is allowed to show.
+///
+/// Deliberately NOT the whole of `ActivationState`: a platform consumer has
+/// no use for fourteen lifecycle shades, but it does need the three a vendor
+/// status probe can genuinely tell apart, plus the in-flight one so a
+/// sign-in the operator just started does not read as failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ProviderPresence {
+    /// Signed in and usable, whatever its capability set.
+    Ready,
+    /// Installed, not signed in. Fixable by signing in.
+    SignedOut,
+    /// Not on this machine. Fixable by installing — a different problem.
+    NotInstalled,
+    /// A sign-in is in flight right now.
+    SigningIn,
+    /// Present but unusable for a stated reason (version, block, failure).
+    #[default]
+    Unavailable,
+}
+
+impl ProviderPresence {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Ready => "signed in",
+            Self::SignedOut => "signed out",
+            Self::NotInstalled => "not installed",
+            Self::SigningIn => "signing in…",
+            Self::Unavailable => "unavailable",
+        }
+    }
 }
 
 impl ProviderCapability {
@@ -1181,6 +1220,7 @@ mod tests {
             activated: true,
             note: Some("local transcripts only".into()),
             capabilities: BTreeSet::from([Capability::ReadSessions, Capability::PageHistory]),
+            presence: ProviderPresence::Ready,
         }
     }
 
@@ -1265,6 +1305,7 @@ mod tests {
                 activated: true,
                 note: None,
                 capabilities: BTreeSet::from([Capability::PageHistory, Capability::StreamTurns]),
+                presence: ProviderPresence::Ready,
             },
         ]);
         let senders = fabric.providers_that_can(Capability::StreamTurns);

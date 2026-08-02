@@ -302,6 +302,15 @@ fn restore_roster(
                 label: row.label,
                 activated: row.activated,
                 note: row.note,
+                // The remembered roster records what was TRUE, not which of
+                // the probe's states produced it, and the live sweep replaces
+                // this within a second of boot. Claiming SignedOut here would
+                // be inventing a reason the disk never carried.
+                presence: if row.activated {
+                    dpl_fabric::ProviderPresence::Ready
+                } else {
+                    dpl_fabric::ProviderPresence::Unavailable
+                },
                 capabilities: row
                     .capabilities
                     .iter()
@@ -3750,6 +3759,7 @@ mod roster_tests {
             label: "Claude Code".into(),
             activated: true,
             note: Some("local transcripts only".into()),
+            presence: dpl_fabric::ProviderPresence::Ready,
             capabilities: BTreeSet::from([Capability::ReadSessions, Capability::PageHistory]),
         }
     }

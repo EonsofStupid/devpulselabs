@@ -27,6 +27,8 @@ pub enum StatusAction {
     Snip,
     /// Ask the app owner to open, restore, and focus a native window.
     Window(AppWindowKey),
+    /// Toggle the Providers roster popup (V2).
+    ToggleProviders,
 }
 
 /// Data-only description of an app-owned window accessory.
@@ -270,6 +272,9 @@ fn providers(ui: &mut Ui, cx: &StatusCtx) -> Option<StatusAction> {
             )
             .value(chip.summary.clone()),
         );
+        if response.clicked() {
+            return Some(StatusAction::ToggleProviders);
+        }
     }
     None
 }

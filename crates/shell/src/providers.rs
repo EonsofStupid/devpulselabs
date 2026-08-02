@@ -19,6 +19,7 @@
 
 use dpl_coldlight::{self as cl, BleedPreset};
 use egui::{Color32, Rect, Response, Sense, Ui};
+use egui_pilot_ai::{protocol::Role, NodeMetadata, PilotKey, UiPilotExt};
 
 /// The authored bleed this control is the origin of.
 pub const BLEED: &str = "providers-ink";
@@ -164,6 +165,140 @@ impl ProvidersControl<'_> {
     }
 }
 
+/// The roster popup the control opens (V2).
+///
+/// Thumbnails for the frontier AI, each carrying its live state from the
+/// registry — never a static list. A provider is shown whether or not it is
+/// usable, because "Gemini is not installed" is an answer the operator wants
+/// and an empty grid is not.
+///
+/// The tooltip is deliberately its own hoverable surface: V3 promotes it into
+/// the provider modal, so it has to be a thing the pointer can reach rather
+/// than a transient hint.
+pub struct ProvidersPopup<'a> {
+    pub providers: &'a [dpl_fabric::ProviderCapability],
+}
+
+/// What the popup asks the shell to do. The popup paints; the shell acts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PopupAction {
+    /// Open this provider's full summary — V3's modal.
+    Inspect(dpl_fabric::ProviderId),
+}
+
+/// The dot colour for each state. Green/amber/grey is the same vocabulary the
+/// mock uses, resolved through the authored pool rather than hex literals.
+fn presence_tone(presence: dpl_fabric::ProviderPresence) -> Color32 {
+    use dpl_fabric::ProviderPresence as P;
+    let hue = match presence {
+        P::Ready => "viridian",
+        P::SigningIn | P::SignedOut => "amber",
+        P::NotInstalled | P::Unavailable => return cl::ink::SUBTLE,
+    };
+    // Through the authored ladder, never a hex literal in a widget.
+    cl::ramp(hue)
+        .zip(cl::step_index(cl::BLEED_STEP))
+        .map_or(cl::ink::SUBTLE, |(ramp, step)| ramp.steps[step])
+}
+
+impl ProvidersPopup<'_> {
+    pub fn show(&self, ui: &mut Ui) -> Option<PopupAction> {
+        let mut action = None;
+        ui.label(
+            egui::RichText::new("FRONTIER AI ON THIS MACHINE")
+                .size(10.5)
+                .color(cl::ink::MUTED),
+        );
+        ui.add_space(cl::space::S3);
+        for provider in self.providers {
+            let card = ui.push_id(provider.id.0, |ui| self.card(ui, provider));
+            if let Some(found) = card.inner {
+                action = Some(found);
+            }
+            ui.add_space(cl::space::S2);
+        }
+        if self.providers.is_empty() {
+            ui.label(
+                egui::RichText::new("No providers registered.")
+                    .small()
+                    .color(cl::ink::SUBTLE),
+            );
+        }
+        action
+    }
+
+    fn card(&self, ui: &mut Ui, provider: &dpl_fabric::ProviderCapability) -> Option<PopupAction> {
+        let tone = presence_tone(provider.presence);
+        let response = egui::Frame::new()
+            .fill(cl::surface::RAISED)
+            .corner_radius(egui::CornerRadius::same(cl::RADIUS_SM))
+            .inner_margin(egui::Margin::symmetric(10, 8))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    let (dot, _) = ui.allocate_exact_size(egui::vec2(7.0, 7.0), Sense::hover());
+                    ui.painter().circle_filled(dot.center(), 3.5, tone);
+                    ui.label(
+                        egui::RichText::new(&provider.label)
+                            .size(13.0)
+                            .color(cl::ink::STRONG),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(
+                            egui::RichText::new(provider.presence.label())
+                                .size(11.0)
+                                .color(tone),
+                        );
+                    });
+                });
+                // What it can DO — the capability set, not a boolean. Absent
+                // rather than empty when the provider cannot do anything yet.
+                let caps = capability_line(provider);
+                if !caps.is_empty() {
+                    ui.label(egui::RichText::new(caps).size(10.5).color(cl::ink::SUBTLE));
+                }
+            })
+            .response
+            .interact(Sense::click());
+
+        let tip = provider
+            .note
+            .clone()
+            .unwrap_or_else(|| match provider.presence {
+                dpl_fabric::ProviderPresence::Ready => {
+                    format!("{} is signed in on this machine.", provider.label)
+                }
+                _ => provider.presence.label().to_owned(),
+            });
+        let response = response.on_hover_text(format!("{tip}\n\nClick for the full summary."));
+
+        ui.pilot_track(
+            &response,
+            NodeMetadata::new(
+                crate::status::PROVIDERS_PILOT_ID.child(&PilotKey::new(provider.id.0)),
+                Role::Button,
+                provider.label.clone(),
+            )
+            .value(provider.presence.label()),
+        );
+        response
+            .clicked()
+            .then_some(PopupAction::Inspect(provider.id))
+    }
+}
+
+/// The capability set as one readable line, in the stored vocabulary.
+fn capability_line(provider: &dpl_fabric::ProviderCapability) -> String {
+    if !provider.activated || provider.capabilities.is_empty() {
+        return String::new();
+    }
+    provider
+        .capabilities
+        .iter()
+        .map(|c| c.slug())
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
+
 /// One origin of the bleed: a soft radial wash whose RADIUS grows with `t`.
 ///
 /// egui has no blur, so the softness is built the way the rest of the shell
@@ -227,6 +362,45 @@ mod tests {
             );
             assert_ne!(r.a, r.b, "a two-colour bleed needs two colours");
         }
+    }
+
+    fn cap(
+        id: &'static str,
+        presence: dpl_fabric::ProviderPresence,
+        activated: bool,
+    ) -> dpl_fabric::ProviderCapability {
+        dpl_fabric::ProviderCapability {
+            id: dpl_fabric::ProviderId(id),
+            label: id.to_owned(),
+            activated,
+            note: None,
+            capabilities: std::collections::BTreeSet::from([dpl_fabric::Capability::PageHistory]),
+            presence,
+        }
+    }
+
+    #[test]
+    fn the_popup_keeps_not_installed_and_signed_out_apart() {
+        use dpl_fabric::ProviderPresence as P;
+        // Different problems, different fixes. A shared grey dot would tell
+        // the operator to sign in to something they never installed.
+        assert_ne!(presence_tone(P::SignedOut), presence_tone(P::NotInstalled));
+        assert_eq!(P::SignedOut.label(), "signed out");
+        assert_eq!(P::NotInstalled.label(), "not installed");
+        assert_ne!(presence_tone(P::Ready), presence_tone(P::SignedOut));
+    }
+
+    #[test]
+    fn an_unusable_provider_advertises_no_capabilities() {
+        use dpl_fabric::ProviderPresence as P;
+        // A qualified set on a provider that is not activated would be a
+        // promise the platform cannot keep.
+        assert!(capability_line(&cap("gemini", P::NotInstalled, false)).is_empty());
+        assert_eq!(
+            capability_line(&cap("claude", P::Ready, true)),
+            "page-history",
+            "an activated provider names what it can do, in the stored vocabulary"
+        );
     }
 
     #[test]

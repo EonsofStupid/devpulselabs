@@ -25,7 +25,7 @@ use dpl_chat_social::{
 };
 use dpl_chat_store::{HistoryCatalog, HistoryIndex, HistoryLocator, HistoryPage, IndexedSession};
 use dpl_coldlight::{self as cl, Tone};
-use dpl_fabric::{AppWindowKey, ProviderCapability, ProviderEvent, Stamped};
+use dpl_fabric::{AppWindowKey, ProviderCapability, ProviderEvent, ProviderPresence, Stamped};
 use dpl_hub::Route;
 use egui::{
     Align, Align2, Color32, CornerRadius, Layout, NumExt, Rect, RichText, Sense, Stroke, UiBuilder,
@@ -930,6 +930,22 @@ impl ChatWindow {
                     activated: registration.activation.is_activated(),
                     note: registration.activation.reason().map(str::to_owned),
                     capabilities: registration.qualified_capabilities.clone(),
+                    // The lifecycle collapses to the states the Providers
+                    // surface may show — and only those.
+                    presence: match &registration.activation {
+                        ActivationState::Ready
+                        | ActivationState::Experimental { .. }
+                        | ActivationState::Degraded { .. } => ProviderPresence::Ready,
+                        ActivationState::SignedOut { .. } => ProviderPresence::SignedOut,
+                        ActivationState::NotInstalled { .. } => ProviderPresence::NotInstalled,
+                        ActivationState::SigningIn
+                        | ActivationState::AwaitingAuthorization(_)
+                        | ActivationState::Verifying => ProviderPresence::SigningIn,
+                        ActivationState::VersionUnsupported { .. }
+                        | ActivationState::Blocked { .. }
+                        | ActivationState::Failed { .. }
+                        | ActivationState::Disabled { .. } => ProviderPresence::Unavailable,
+                    },
                 }
             })
             .collect()

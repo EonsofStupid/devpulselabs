@@ -1395,6 +1395,7 @@ mod tests {
                 dpl_fabric::Capability::ReadSessions,
                 dpl_fabric::Capability::PageHistory,
             ]),
+            presence: dpl_fabric::ProviderPresence::Ready,
         }]);
         let resp = router(state)
             .oneshot(

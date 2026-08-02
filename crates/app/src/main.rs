@@ -784,6 +784,7 @@ impl App {
                         codex_activation.activation_capability_qualified(),
                     ),
                     dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_claude::MANIFEST),
+                    dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_cursor::MANIFEST),
                     dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_gemini::MANIFEST),
                     activation_registration(
                         dpl_chat_grok::MANIFEST,
@@ -805,6 +806,7 @@ impl App {
                 codex_activation.activation_capability_qualified(),
             ),
             dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_claude::MANIFEST),
+            dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_cursor::MANIFEST),
             dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_gemini::MANIFEST),
             activation_registration(
                 dpl_chat_grok::MANIFEST,

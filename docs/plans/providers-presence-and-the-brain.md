@@ -218,8 +218,11 @@ link is done when the real app matches that slice.
   (`docs/plans/providers-v1-ink-bleed-control.md`). The `dwell` tier, the
   `ink-bleed` effect, the seeded hue pool and the brain are authored tokens;
   the control carries no design value of its own.
-- **V2** — the roster popup the control opens. **V3** — the tooltip promoted
-  to the modal with live tenure.
+- **V2** — the roster popup, built. Cards carry LIVE state from P1's roster
+  (`shell/src/providers.rs::ProvidersPopup`); proof
+  `tests/eguipilotai/providers-popup.toml`, shot
+  `docs/proof/providers-popup.png`.
+- **V3** — the tooltip promoted to the modal with live tenure. Next.
 - **A1 — presence probes**, built. Each provider names a non-secret status
   command as plain data; `crates/app/src/presence.rs` is the only place that
   spawns. Measured live: codex/claude/grok SignedIn, cursor/gemini

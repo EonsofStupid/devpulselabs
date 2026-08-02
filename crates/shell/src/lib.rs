@@ -134,6 +134,52 @@ fn activity_job_line(ev: &dpl_fabric::JobEvent) -> String {
     }
 }
 
+impl Shell {
+    /// Paint the Providers roster popup above the status bar (V2).
+    ///
+    /// An `egui::Area` rather than a panel: it floats over the content the
+    /// way the mock draws it, and it must not reflow the surface underneath —
+    /// opening a roster should never move the operator's work.
+    fn providers_popup(&mut self, ui: &mut egui::Ui, status: Rect, just_toggled: bool) {
+        if !self.providers_open {
+            return;
+        }
+        let roster = self.fabric.provider_roster();
+        let width = 320.0;
+        let area = egui::Area::new(egui::Id::new("dpl_providers_popup"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(egui::pos2(
+                (status.max.x - width - cl::space::S4).max(status.min.x),
+                status.min.y - 12.0,
+            ))
+            .pivot(egui::Align2::LEFT_BOTTOM);
+        let response = area.show(ui.ctx(), |ui| {
+            ui.set_width(width);
+            egui::Frame::new()
+                .fill(cl::surface::OVERLAY)
+                .corner_radius(egui::CornerRadius::same(cl::RADIUS_LG))
+                .inner_margin(egui::Margin::same(14))
+                .stroke(egui::Stroke::new(1.0, cl::surface::RAISED))
+                .show(ui, |ui| {
+                    providers::ProvidersPopup { providers: &roster }.show(ui)
+                })
+                .inner
+        });
+        // V3 promotes a card into the provider modal. Until then the click is
+        // inert BY DESIGN, and the card's tooltip already carries the summary
+        // so the operator is not left staring at a dead control.
+        let _ = response.inner;
+        // Click anywhere outside closes it, the way every menu in the app does.
+        if !just_toggled && response.response.clicked_elsewhere() {
+            self.providers_open = false;
+        }
+        // Esc closes it too — the keyboard has to be able to leave.
+        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.providers_open = false;
+        }
+    }
+}
+
 /// THE ROSTER, read straight off the fabric — no subscription, no history
 /// (P1 §3.2). This is the whole point of the fold: the shell asks what is
 /// available NOW and gets a true answer, including for a provider that
@@ -261,6 +307,8 @@ pub struct Shell {
     tooltip_mood: usize,
     /// The session's seeded ink-bleed (V1): the hue pair and the dwell.
     bleed: providers::BleedRoll,
+    /// Is the Providers roster popup open (V2)?
+    providers_open: bool,
     /// The accordion's ONE open house (doctrine §5.2) — its subroutes
     /// unfold beneath its rail row; `None` = fully folded, icon-compact.
     open_house: Option<HubId>,
@@ -333,6 +381,7 @@ impl Shell {
             // same boot roll the tooltip mood uses, and pinned together by
             // `set_harness_mood` so a capture reproduces.
             bleed: providers::BleedRoll::from_seed(dpl_backdrop::random_mood_index() as u64),
+            providers_open: false,
             open_house: None,
             rail_reveal_pending: false,
             last_open_rail_body: None,
@@ -567,6 +616,10 @@ impl Shell {
             self.inspector_open = !self.inspector_open;
         }
         let (status_rect, actions) = self.status_bar(ui, &fl);
+        // The click that OPENS the roster is itself "elsewhere" as far as an
+        // area that did not exist yet is concerned, so the dismiss check has
+        // to sit out the frame that opened it or the popup shuts instantly.
+        let mut just_toggled = false;
         for action in actions {
             match action {
                 status::StatusAction::Snip => self.summon_viziwiz(),
@@ -577,8 +630,13 @@ impl Shell {
                         action: AppWindowAction::OpenOrFocus,
                     });
                 }
+                status::StatusAction::ToggleProviders => {
+                    self.providers_open = !self.providers_open;
+                    just_toggled = true;
+                }
             }
         }
+        self.providers_popup(ui, status_rect, just_toggled);
         let (rail, clicked) = self.rail(ui, &fl);
         if let Some(route) = clicked {
             self.navigate(route);
@@ -1960,6 +2018,11 @@ mod tests {
             activated,
             note: note.map(str::to_owned),
             capabilities: std::collections::BTreeSet::from([dpl_fabric::Capability::PageHistory]),
+            presence: if activated {
+                dpl_fabric::ProviderPresence::Ready
+            } else {
+                dpl_fabric::ProviderPresence::SignedOut
+            },
         }
     }
 
