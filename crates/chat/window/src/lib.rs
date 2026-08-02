@@ -85,6 +85,45 @@ pub const SOCIAL_THREADS_ID: PilotId = PilotId::new("chat.sidebar.social");
 pub const CONVERSATION_ID: PilotId = PilotId::new("chat.conversation");
 pub const COMPOSER_ID: PilotId = PilotId::new("chat.composer");
 pub const SEND_ID: PilotId = PilotId::new("chat.composer.send");
+
+/// The composer's keyboard contract, announced on the node itself so an
+/// assistive client or an agent reading the tree learns it — a shortcut that
+/// only exists in a hint string is folklore, not an affordance.
+pub const COMPOSER_KEYS: &str =
+    "Enter sends. Shift+Enter inserts a new line. Ctrl+Enter (Cmd+Enter) also sends.";
+
+/// Take an Enter that means SEND, leaving one that means NEWLINE alone.
+///
+/// The event is scanned by hand rather than through `consume_key`, because
+/// `consume_key` deliberately IGNORES shift when matching — so
+/// `Modifiers::NONE` happily matches Shift+Enter and would swallow the one
+/// keystroke that has to survive. Pinned by
+/// `enter_sends_and_shift_enter_makes_a_new_line`, which caught exactly that.
+///
+/// Consuming is what keeps a send from also inserting a newline, and it must
+/// happen BEFORE the `TextEdit` runs — afterwards the newline is already in
+/// the buffer. Shift+Enter (and Alt+Enter) are left in the queue and reach
+/// the widget as an ordinary new line.
+fn take_composer_submit(input: &mut egui::InputState) -> bool {
+    let mut submit = false;
+    input.events.retain(|event| {
+        let egui::Event::Key {
+            key: egui::Key::Enter,
+            pressed: true,
+            modifiers,
+            ..
+        } = event
+        else {
+            return true;
+        };
+        if modifiers.shift || modifiers.alt {
+            return true;
+        }
+        submit = true;
+        false
+    });
+    submit
+}
 pub const STOP_ID: PilotId = PilotId::new("chat.composer.stop");
 pub const NEW_CHAT_ID: PilotId = PilotId::new("chat.provider.new-chat");
 pub const ATTACHMENT_ID: PilotId = PilotId::new("chat.composer.attachment");
@@ -2735,16 +2774,41 @@ impl ChatWindow {
                 });
                 ui.horizontal(|ui| {
                     let mut draft = self.current_draft();
+                    // SUBMIT ON ENTER — the convention every chat client the
+                    // operator uses already obeys.
+                    //
+                    // The key must be consumed BEFORE the TextEdit runs, or
+                    // the widget has already inserted the newline by the time
+                    // we could look. Focus therefore comes from memory (last
+                    // frame's truth) against an explicit id, which is also
+                    // what lets the editor keep focus across a send.
+                    //
+                    // Enter and Ctrl/Cmd+Enter submit; SHIFT+Enter is left
+                    // alone and falls through as a newline, so a multi-line
+                    // message is still typeable.
+                    let editor_id = egui::Id::new("dpl_chat_composer");
+                    let composer_focused = ui.memory(|m| m.has_focus(editor_id));
+                    let submit_key = composer_focused && ui.input_mut(take_composer_submit);
                     let editor = ui.add_sized(
                         [(ui.available_width() - 104.0).max(160.0), 52.0],
                         egui::TextEdit::multiline(&mut draft)
+                            .id(editor_id)
                             .hint_text(self.composer_hint())
                             .desired_rows(2),
                     );
                     let mut metadata =
                         NodeMetadata::new(COMPOSER_ID, Role::TextInput, "Message composer");
                     metadata.editable = true;
-                    metadata.value = (!draft.is_empty()).then(|| draft.clone());
+                    // ALWAYS report the value, empty included. A text field
+                    // that is empty has a value of "" — it does not stop
+                    // having one, and reporting `None` makes "the composer
+                    // cleared" unassertable and reads to an assistive client
+                    // as a field with no content rather than an empty one.
+                    metadata.value = Some(draft.clone());
+                    // The keys are part of the control's contract, so they are
+                    // announced rather than hidden in a hint an agent or a
+                    // screen reader never sees.
+                    metadata.description = Some(COMPOSER_KEYS.to_owned());
                     ui.pilot_track(&editor, metadata);
                     if self.composer_focus_requested && editor.enabled() {
                         editor.request_focus();
@@ -2853,7 +2917,17 @@ impl ChatWindow {
                                     NodeMetadata::new(SEND_ID, Role::Button, "Send message");
                                 metadata.description = Some(reason.to_owned());
                                 ui.pilot_track(&send, metadata);
-                                if send.clicked() {
+                                // Enter submits through the SAME branch the
+                                // button does — one submit path, so the slash
+                                // handling and every `enabled` rule above
+                                // cannot drift between mouse and keyboard.
+                                let submitted = send.clicked() || (submit_key && enabled);
+                                if submitted {
+                                    // Keep the caret where the operator is
+                                    // typing; a send should not cost focus.
+                                    self.composer_focus_requested = true;
+                                }
+                                if submitted {
                                     if let Some(command) = slash {
                                         // Provenance law: recognize at the
                                         // operator's input-submit event, from
@@ -2935,9 +3009,9 @@ impl ChatWindow {
             return "Past transcript — read-only";
         }
         match self.domain {
-            ChatDomain::Ai => "Draft for this AI session…",
+            ChatDomain::Ai => "Message… — Enter sends, Shift+Enter new line",
             ChatDomain::Content => "Browsing content — no conversation here",
-            ChatDomain::Social => "Draft for this conversation…",
+            ChatDomain::Social => "Message… — Enter sends, Shift+Enter new line",
         }
     }
 
@@ -5793,7 +5867,11 @@ mod tests {
         let providers = window.runtime.provider_views();
         let locator = window.history_rows(&providers)[0].1.locator;
 
-        assert_eq!(window.composer_hint(), "Draft for this AI session…");
+        assert_eq!(
+            window.composer_hint(),
+            "Message… — Enter sends, Shift+Enter new line",
+            "the composer advertises its keys where the operator is typing"
+        );
         window
             .apply(ChatWindowIntent::SelectHistorySession {
                 provider: PROVIDER,
@@ -5869,5 +5947,65 @@ mod tests {
     fn slash_commands_name_their_audit_action() {
         assert_eq!(OperatorSlashCommand::Strict.as_str(), "strict");
         assert_eq!(OperatorSlashCommand::Behavioral.as_str(), "behavioral");
+    }
+
+    /// Drive a real `InputState` with one Enter press carrying `modifiers`,
+    /// and report whether the composer would take it as a SEND and whether
+    /// the key survived for the `TextEdit` to turn into a newline.
+    fn enter_with(modifiers: egui::Modifiers) -> (bool, bool) {
+        let ctx = egui::Context::default();
+        let mut input = egui::RawInput::default();
+        input.events.push(egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        });
+        let _ = ctx.run_ui(input, |_| {});
+        let submitted = ctx.input_mut(take_composer_submit);
+        // Whatever is left is what the text widget would act on.
+        let survives = ctx.input(|i| {
+            i.events.iter().any(|e| {
+                matches!(
+                    e,
+                    egui::Event::Key {
+                        key: egui::Key::Enter,
+                        pressed: true,
+                        ..
+                    }
+                )
+            })
+        });
+        (submitted, survives)
+    }
+
+    #[test]
+    fn enter_sends_and_shift_enter_makes_a_new_line() {
+        let (submitted, survives) = enter_with(egui::Modifiers::NONE);
+        assert!(submitted, "bare Enter must SEND — the whole point");
+        assert!(
+            !survives,
+            "a sending Enter must be consumed, or it sends AND inserts a newline"
+        );
+
+        let (submitted, survives) = enter_with(egui::Modifiers::SHIFT);
+        assert!(
+            !submitted,
+            "Shift+Enter must NOT send — it is how a multi-line message is typed"
+        );
+        assert!(
+            survives,
+            "Shift+Enter must reach the TextEdit so it becomes a new line"
+        );
+    }
+
+    #[test]
+    fn ctrl_enter_also_sends() {
+        // The operator asked for it by name, and several clients use it as
+        // the primary submit.
+        let (submitted, survives) = enter_with(egui::Modifiers::COMMAND);
+        assert!(submitted, "Ctrl/Cmd+Enter must send");
+        assert!(!survives, "and must not also leave a newline behind");
     }
 }
