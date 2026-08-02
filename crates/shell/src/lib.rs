@@ -135,6 +135,24 @@ fn activity_job_line(ev: &dpl_fabric::JobEvent) -> String {
 }
 
 impl Shell {
+    /// Paint the provider summary modal (V3), if a card asked for one.
+    fn provider_summary(&mut self, ctx: &egui::Context) {
+        let Some(id) = self.provider_modal else {
+            return;
+        };
+        let roster = self.fabric.provider_roster();
+        let Some(provider) = roster.iter().find(|p| p.id == id) else {
+            // The roster is live; a provider that vanished takes its modal
+            // with it rather than leaving a summary of nothing.
+            self.provider_modal = None;
+            return;
+        };
+        let summary = provider.summary.clone();
+        if !providers::provider_modal(ctx, provider, &summary) {
+            self.provider_modal = None;
+        }
+    }
+
     /// Paint the Providers roster popup above the status bar (V2).
     ///
     /// An `egui::Area` rather than a panel: it floats over the content the
@@ -165,16 +183,22 @@ impl Shell {
                 })
                 .inner
         });
-        // V3 promotes a card into the provider modal. Until then the click is
-        // inert BY DESIGN, and the card's tooltip already carries the summary
-        // so the operator is not left staring at a dead control.
-        let _ = response.inner;
-        // Click anywhere outside closes it, the way every menu in the app does.
-        if !just_toggled && response.response.clicked_elsewhere() {
+        if let Some(providers::PopupAction::Inspect(provider)) = response.inner {
+            // The tooltip GROWS into the modal, exactly as the mock draws it.
+            self.provider_modal = Some(provider);
+        }
+        // Click anywhere outside closes it, the way every menu in the app
+        // does — but NOT while a summary modal is up. The modal sits over the
+        // roster, so every click in it reads as "elsewhere", and closing the
+        // roster underneath would dump the operator out of the surface they
+        // opened the summary from.
+        let modal_up = self.provider_modal.is_some();
+        if !just_toggled && !modal_up && response.response.clicked_elsewhere() {
             self.providers_open = false;
         }
-        // Esc closes it too — the keyboard has to be able to leave.
-        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        // Esc closes it too — the keyboard has to be able to leave. The modal
+        // gets first refusal on Esc for the same reason.
+        if !modal_up && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
             self.providers_open = false;
         }
     }
@@ -309,6 +333,8 @@ pub struct Shell {
     bleed: providers::BleedRoll,
     /// Is the Providers roster popup open (V2)?
     providers_open: bool,
+    /// Which provider's summary modal is open (V3), if any.
+    provider_modal: Option<dpl_fabric::ProviderId>,
     /// The accordion's ONE open house (doctrine §5.2) — its subroutes
     /// unfold beneath its rail row; `None` = fully folded, icon-compact.
     open_house: Option<HubId>,
@@ -382,6 +408,7 @@ impl Shell {
             // `set_harness_mood` so a capture reproduces.
             bleed: providers::BleedRoll::from_seed(dpl_backdrop::random_mood_index() as u64),
             providers_open: false,
+            provider_modal: None,
             open_house: None,
             rail_reveal_pending: false,
             last_open_rail_body: None,
@@ -637,6 +664,7 @@ impl Shell {
             }
         }
         self.providers_popup(ui, status_rect, just_toggled);
+        self.provider_summary(ui.ctx());
         let (rail, clicked) = self.rail(ui, &fl);
         if let Some(route) = clicked {
             self.navigate(route);
@@ -2018,6 +2046,8 @@ mod tests {
             activated,
             note: note.map(str::to_owned),
             capabilities: std::collections::BTreeSet::from([dpl_fabric::Capability::PageHistory]),
+            summary: String::new(),
+            since: "2021-01-28".into(),
             presence: if activated {
                 dpl_fabric::ProviderPresence::Ready
             } else {

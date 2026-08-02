@@ -6,15 +6,20 @@
 
 ## Goal
 
-V3 — the provider modal: a card promoted into a summary with the live-ticking
-"how long they have been in business" figure. V2's cards are the thing it
-grows from.
+The Providers program is COMPLETE — P1, V1, V2, V3, A1, A2 all built and
+green on `feat/p1-provider-availability` (PR #192).
+
+What is left is qualification rather than surface: Cursor's live turn
+transport, and Gemini's probe + sign-in verb once its CLI exists on a machine
+to read them off. Both are marked UNVERIFIED in their provider crates.
 
 The mock for the whole program is `docs/design/mocks/providers.html`. V2 is
 the slice below its control.
 
 ## Done
 
+- **V3 — the provider modal**, `green ✔`. Live-ticking tenure from an
+  authored per-vendor date; the roster stays open behind the scrim.
 - **V2 — the roster popup**, `green ✔`. Cards carry live presence from the
   registry; not-installed and signed-out stay distinct. Cursor is registered
   as a provider, so it appears as a real row.
@@ -33,7 +38,7 @@ the slice below its control.
 ## Next
 
 1. Open the PR (P1+V1 committed, not pushed) and land it double-green.
-2. Author the V3 plan against the mock — the tooltip that becomes a modal.
+2. After the merge: Cursor live transport, or Gemini's probe when installed.
 
 ## Key files
 

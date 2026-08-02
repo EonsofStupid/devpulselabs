@@ -43,6 +43,7 @@ pub const FIXTURE_MANIFEST: ProviderManifest = ProviderManifest {
         glyph: "F",
         accent: ProviderAccent::Lime,
         summary: "Deterministic in-memory Chat provider.",
+        since: "2000-01-01",
     },
     profile: ProviderProfileId("fixture-default"),
     target_capabilities: CAPABILITIES,

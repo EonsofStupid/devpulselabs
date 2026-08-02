@@ -264,6 +264,10 @@ pub struct ProviderCapability {
     pub note: Option<String>,
     /// The qualified set, in `dpl_chat_core`'s existing vocabulary.
     pub capabilities: BTreeSet<Capability>,
+    /// One line on who the vendor is — the modal's blurb.
+    pub summary: String,
+    /// `YYYY-MM-DD` the vendor started — the tenure figure counts from here.
+    pub since: String,
     /// Which of the states a probe can actually DISTINGUISH this provider is
     /// in. `activated` answers "can the platform use it"; this answers "what
     /// should the operator be told", and they are different questions —
@@ -1220,6 +1224,8 @@ mod tests {
             activated: true,
             note: Some("local transcripts only".into()),
             capabilities: BTreeSet::from([Capability::ReadSessions, Capability::PageHistory]),
+            summary: "Anthropic.".into(),
+            since: "2021-01-28".into(),
             presence: ProviderPresence::Ready,
         }
     }
@@ -1305,6 +1311,8 @@ mod tests {
                 activated: true,
                 note: None,
                 capabilities: BTreeSet::from([Capability::PageHistory, Capability::StreamTurns]),
+                summary: "OpenAI.".into(),
+                since: "2015-12-11".into(),
                 presence: ProviderPresence::Ready,
             },
         ]);

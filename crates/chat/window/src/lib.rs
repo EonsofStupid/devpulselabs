@@ -930,6 +930,8 @@ impl ChatWindow {
                     activated: registration.activation.is_activated(),
                     note: registration.activation.reason().map(str::to_owned),
                     capabilities: registration.qualified_capabilities.clone(),
+                    summary: registration.manifest.descriptor.summary.to_owned(),
+                    since: registration.manifest.descriptor.since.to_owned(),
                     // The lifecycle collapses to the states the Providers
                     // surface may show — and only those.
                     presence: match &registration.activation {
@@ -4905,6 +4907,7 @@ mod tests {
             glyph: "F",
             accent: ProviderAccent::Cyan,
             summary: "deterministic fixture",
+            since: "2000-01-01",
         },
         profile: ProviderProfileId("fixture"),
         target_capabilities: CAPABILITIES,
@@ -4924,6 +4927,7 @@ mod tests {
             glyph: "S",
             accent: ProviderAccent::Amber,
             summary: "second deterministic fixture",
+            since: "2000-01-01",
         },
         profile: ProviderProfileId("second"),
         target_capabilities: CAPABILITIES,

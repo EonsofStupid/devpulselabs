@@ -71,6 +71,8 @@ pub const MANIFEST: ProviderManifest = ProviderManifest {
         glyph: "X",
         accent: ProviderAccent::Magenta,
         summary: "xAI coding agent through Grok Build's documented ACP mode.",
+        // xAI announced 12 July 2023.
+        since: "2023-07-12",
     },
     profile: DEFAULT_PROFILE,
     target_capabilities: TARGETS,

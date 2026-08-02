@@ -222,7 +222,14 @@ link is done when the real app matches that slice.
   (`shell/src/providers.rs::ProvidersPopup`); proof
   `tests/eguipilotai/providers-popup.toml`, shot
   `docs/proof/providers-popup.png`.
-- **V3** — the tooltip promoted to the modal with live tenure. Next.
+- **V3** — the modal, built. A card promotes into a summary carrying the
+  live-ticking "how long they have been in business" figure; the roster stays
+  up behind it. Proof `tests/eguipilotai/providers-modal.toml`, shot
+  `docs/proof/providers-modal.png`.
+
+**Every link in this program is now built.** What remains is qualification,
+not surface: live turn transport for Cursor, and Gemini's probe + sign-in
+verb once its CLI is on a machine to read them off.
 - **A1 — presence probes**, built. Each provider names a non-secret status
   command as plain data; `crates/app/src/presence.rs` is the only place that
   spawns. Measured live: codex/claude/grok SignedIn, cursor/gemini

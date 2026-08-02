@@ -52,6 +52,8 @@ pub const MANIFEST: ProviderManifest = ProviderManifest {
         glyph: "A",
         accent: ProviderAccent::Amber,
         summary: "Anthropic coding agent through its documented structured CLI stream.",
+        // Anthropic founded 2021.
+        since: "2021-01-28",
     },
     profile: DEFAULT_PROFILE,
     target_capabilities: TARGETS,

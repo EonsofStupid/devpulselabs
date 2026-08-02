@@ -1395,6 +1395,8 @@ mod tests {
                 dpl_fabric::Capability::ReadSessions,
                 dpl_fabric::Capability::PageHistory,
             ]),
+            summary: String::new(),
+            since: "2021-01-28".into(),
             presence: dpl_fabric::ProviderPresence::Ready,
         }]);
         let resp = router(state)

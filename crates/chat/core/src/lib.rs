@@ -248,6 +248,14 @@ pub struct ProviderDescriptor {
     pub glyph: &'static str,
     pub accent: ProviderAccent,
     pub summary: &'static str,
+    /// `YYYY-MM-DD` the vendor started — what the operator's "how long they
+    /// have been in business" figure counts from.
+    ///
+    /// AUTHORED, and approximate by nature: for some vendors the meaningful
+    /// date is the company's founding and for others it is the product's
+    /// launch. Each provider crate states which it chose, so a wrong one is
+    /// corrected in one obvious place rather than argued about in a widget.
+    pub since: &'static str,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]

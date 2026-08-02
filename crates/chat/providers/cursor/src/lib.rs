@@ -58,6 +58,9 @@ pub const MANIFEST: ProviderManifest = ProviderManifest {
         glyph: "▮",
         accent: ProviderAccent::Cyan,
         summary: "Cursor's agent CLI, carrying the same subscription as the editor.",
+        // Anysphere, Cursor's maker, founded 2022 — day unknown, so the
+        // year's start is used rather than a precise-looking invention.
+        since: "2022-01-01",
     },
     profile: DEFAULT_PROFILE,
     target_capabilities: TARGETS,

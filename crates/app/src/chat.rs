@@ -233,6 +233,8 @@ struct StoredProviderCapability {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     note: Option<String>,
     capabilities: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    since: Option<String>,
 }
 
 /// The stored envelope: when it was true, and what was true.
@@ -262,6 +264,7 @@ fn store_roster(estate: Option<&dpl_estate::Estate>, roster: &[ProviderCapabilit
                 activated: p.activated,
                 note: p.note.clone(),
                 capabilities: p.capabilities.iter().map(|c| c.slug().to_owned()).collect(),
+                since: Some(p.since.clone()),
             })
             .collect(),
     };
@@ -302,6 +305,8 @@ fn restore_roster(
                 label: row.label,
                 activated: row.activated,
                 note: row.note,
+                summary: String::new(),
+                since: row.since.unwrap_or_default(),
                 // The remembered roster records what was TRUE, not which of
                 // the probe's states produced it, and the live sweep replaces
                 // this within a second of boot. Claiming SignedOut here would
@@ -3759,6 +3764,8 @@ mod roster_tests {
             label: "Claude Code".into(),
             activated: true,
             note: Some("local transcripts only".into()),
+            summary: String::new(),
+            since: "2021-01-28".into(),
             presence: dpl_fabric::ProviderPresence::Ready,
             capabilities: BTreeSet::from([Capability::ReadSessions, Capability::PageHistory]),
         }
@@ -3819,6 +3826,7 @@ mod roster_tests {
                 activated: true,
                 note: None,
                 capabilities: vec!["page-history".into(), "teleportation".into()],
+                since: None,
             }],
         };
         estate

@@ -50,6 +50,8 @@ pub const MANIFEST: ProviderManifest = ProviderManifest {
         glyph: "G",
         accent: ProviderAccent::Violet,
         summary: "Google coding agent through Gemini CLI's official ACP mode.",
+        // Gemini's public launch; Google DeepMind itself is far older.
+        since: "2023-12-06",
     },
     profile: DEFAULT_PROFILE,
     target_capabilities: TARGETS,

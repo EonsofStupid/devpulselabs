@@ -14,7 +14,8 @@ milestone-loop). Product truth stays in `docs/STATE.md`.
 **providers** — mock `docs/design/mocks/providers.html`, program
 `docs/plans/providers-presence-and-the-brain.md`.
 
-**NEXT:** land P1+V1+A1+A2, then author V2 (the roster popup).
+**NEXT:** land PR #192 (the whole Providers program). Then Cursor live
+transport / Gemini probe — qualification, not surface.
 
 **CLOSED:** … · D1+H1 (#180) · **P1** · **V1** (`feat/p1-provider-availability`,
 green, unpushed)
@@ -24,7 +25,7 @@ green, unpushed)
 | Kind | Ref | Notes |
 |---|---|---|
 | Providers | P1 → PR | branch green; #169 also edits `fabric/src/lib.rs` |
-| Providers | V2 popup → V3 modal | against `docs/design/mocks/providers.html` |
+| Providers | V2+V3 built | roster popup + modal with live tenure |
 | Providers | A1+A2 built | live: codex/claude/grok signed in; cursor+gemini not installed |
 | Providers | Cursor CLI | probe needles UNVERIFIED until `cursor-agent` is installed |
 | Providers | Gemini sign-in verb | unknown; no login declared rather than guessed |
