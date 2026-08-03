@@ -897,6 +897,68 @@ fn generate_presets(out_dir: &str) {
     )
     .unwrap();
 
+    // BLEED presets — a hover wash over a PAIR of hues drawn from a pool.
+    // Its own kind because `MotionPreset` carries one `enter` effect and no
+    // colour, and widening that for one caller would change every existing
+    // motion preset. The pool is AUTHORED: an unknown hue fails the build
+    // here, which is what stops a widget carrying a list of hexes.
+    let hues_doc: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string("tokens/hues.json").expect("read hues.json"))
+            .expect("parse hues.json");
+    let mut hue_ids: Vec<String> = Vec::new();
+    for group in hues_doc["groups"]
+        .as_object()
+        .expect("hues.json: groups")
+        .values()
+    {
+        if let Some(hues) = group.get("hues").and_then(|h| h.as_array()) {
+            hue_ids.extend(
+                hues.iter()
+                    .filter_map(|h| h["id"].as_str().map(str::to_owned)),
+            );
+        }
+    }
+
+    let bleeds = doc["bleed"].as_array().expect("presets.json: bleed[]");
+    writeln!(code, "pub static BLEED_PRESETS: &[BleedPreset] = &[").unwrap();
+    for p in bleeds {
+        let id = p["id"].as_str().expect("bleed.id");
+        let label = p["label"].as_str().expect("bleed.label");
+        let blurb = p["blurb"].as_str().expect("bleed.blurb");
+        let effect = p["effect"].as_str().expect("bleed.effect");
+        assert!(
+            effect_ids.iter().any(|e| e == effect),
+            "bleed preset {id}: unknown effect {effect:?}"
+        );
+        let hues = p["hues"].as_array().expect("bleed.hues");
+        assert!(
+            hues.len() >= 2,
+            "bleed preset {id}: a two-colour bleed needs a pool of at least 2"
+        );
+        let mut hue_code = String::new();
+        for h in hues {
+            let h = h.as_str().expect("bleed.hue ref");
+            assert!(
+                hue_ids.iter().any(|k| k == h),
+                "bleed preset {id}: unknown hue {h:?}"
+            );
+            write!(hue_code, "{h:?},").unwrap();
+        }
+        writeln!(
+            code,
+            "    BleedPreset {{ id: {id:?}, label: {label:?}, blurb: {blurb:?}, \
+             effect: {effect:?}, hues: &[{hue_code}] }},"
+        )
+        .unwrap();
+    }
+    writeln!(code, "];").unwrap();
+    writeln!(
+        code,
+        "pub const BLEED_PRESET_COUNT: usize = {};",
+        bleeds.len()
+    )
+    .unwrap();
+
     std::fs::write(Path::new(out_dir).join("presets_gen.rs"), code).expect("write presets_gen.rs");
 }
 

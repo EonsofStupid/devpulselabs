@@ -135,7 +135,12 @@ never the authority the code is.
 
 ## 6. Status
 
-- **D1** — plan `docs/plans/chat-content-seam.md`. MERGED (PR #178, double-green).
-- **H1** — plan `docs/plans/chat-histories-in-one-system.md`. IN FLIGHT.
-- **P1** — planned after H1 (the operator's 2026-07-30 directive).
+- **D1** — plan `docs/plans/chat-content-seam.md`. MERGED (#180).
+- **H1** — plan `docs/plans/chat-histories-in-one-system.md`. MERGED (#180).
+- **P1** — plan `docs/plans/chat-providers-become-platform.md`, governed by
+  `docs/design/adr-017-provider-capability-registry.md`. Built and green on
+  `feat/p1-provider-availability`.
+- The surface P1 feeds is V1–V3 of
+  `docs/plans/providers-presence-and-the-brain.md`, against
+  `docs/design/mocks/providers.html`.
 - D2–D6 — not planned yet, by design.

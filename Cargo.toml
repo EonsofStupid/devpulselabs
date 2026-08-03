@@ -25,7 +25,8 @@ members = [
     "crates/chat/windows",
     "crates/chat/providers/codex",
     "crates/chat/providers/claude",
-    "crates/chat/providers/gemini",
+    "crates/chat/providers/cursor",
+  "crates/chat/providers/gemini",
     "crates/chat/providers/grok",
     "crates/tools-deps",
     "crates/hub",
@@ -175,6 +176,7 @@ dpl-chat-window = { path = "crates/chat/window" }
 dpl-chat-windows = { path = "crates/chat/windows" }
 dpl-chat-codex = { path = "crates/chat/providers/codex" }
 dpl-chat-claude = { path = "crates/chat/providers/claude" }
+dpl-chat-cursor = { path = "crates/chat/providers/cursor" }
 dpl-chat-gemini = { path = "crates/chat/providers/gemini" }
 dpl-chat-grok = { path = "crates/chat/providers/grok" }
 dpl-tools-deps = { path = "crates/tools-deps" }

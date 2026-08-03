@@ -1,14 +1,14 @@
 # P1 — the provider capability registry
 
-**AMENDED 2026-07-31, before any code, by `docs/design/adr-017-provider-
-capability-registry.md`.** The operator named what activation is FOR: it
-cross-links into the platform's configuration stores, and A2UI, workflows /
-mixture-of-experts routing, A/B duplicate runs, and Clyffy's training
-capture all bind to its shape. The original §3.1 (two booleans folded onto
-the fabric for a status chip) was a chat feature wearing a platform's
-clothes and is REPLACED below. The amendment is recorded rather than
-rewritten silently, because the first draft being wrong is the evidence for
-why the ADR was filed first.
+Governed by `docs/design/adr-017-provider-capability-registry.md`.
+Activation cross-links into the platform's configuration stores, and A2UI,
+workflows / mixture-of-experts routing, A/B duplicate runs, and Clyffy's
+training capture all bind to its shape — which is why the registry carries a
+capability SET.
+
+The mock is `docs/design/mocks/providers.html`. This pass builds the registry
+and its three projections; the surface it feeds is V1–V3 of
+`docs/plans/providers-presence-and-the-brain.md`.
 
 
 Program map: `docs/plans/chat-operations-console.md` (link P1).
@@ -267,7 +267,13 @@ via the vendor's own tool.
 **Out of scope**
 
 - Per-capability affordances in hubs.
-- Persisting the roster across launches (it is derived state; recompute).
+- The control, the roster popup, and the modal — V1/V2/V3 of
+  `docs/plans/providers-presence-and-the-brain.md`, against
+  `docs/design/mocks/providers.html`.
+
+The roster IS derived state and the live projection always wins; persistence
+decides only what the platform shows before the first recompute lands, never
+what is true.
 
 ## 6. Verification
 
@@ -307,13 +313,106 @@ Branch `feat/p1-provider-availability`. One commit:
 feat(platform): activated providers become platform capabilities (P1)
 ```
 
-`gh pr list` first — #169 touches `crates/fabric/src/lib.rs` heavily
-(+210 lines at `:444`, plus `Fabric` struct and `impl` hunks), so this
-plan's §4.1 WILL conflict textually. Rebase on whichever lands first and
-re-read the struct before editing.
+Open PR #169 (`feat/ai-usage-domain`) also edits `crates/fabric/src/lib.rs`
+around the `Fabric` struct and its `impl`, so whichever lands second rebases
+and re-reads the struct before editing.
 
 ## 8. Evidence
 
-Filled during execution. §6.5 is the measure: a surface outside the chat
-crates naming a provider that exists only because the operator has
-transcripts on disk.
+§6.5 is the measure: a surface outside the chat crates naming a provider that
+exists only because the operator has transcripts on disk.
+
+Built against `2459cdf`. P1 adds no dependency edge — the ratified
+`dpl-fabric → dpl-chat-core` exception already carries `ProviderId`, so
+`Capability` crosses on it and the `structure` audit has nothing to fire on.
+
+### Resolve, never resurrect
+
+`ProviderId` is `&'static str` (`chat/core/src/lib.rs:47`, via `static_id!`),
+so a stored roster cannot be deserialized back into one without leaking.
+Restore RESOLVES stored id strings against the ids this build registers and
+drops the rest; a stored capability slug this build does not know is dropped
+the same way. The doctor law the seam already speaks, applied to the estate.
+Pinned by `a_provider_this_build_no_longer_knows_is_dropped_not_resurrected`
+and `an_unknown_stored_capability_is_dropped_not_invented`.
+
+### The stored vocabulary is the slug, not the label
+
+`Capability::slug()` / `from_slug()` / `ALL` live in `dpl-chat-core` beside
+`label()`. Persistence and the seam need a name that does not change when a
+caption is reworded, and putting it in the app crate instead would be a
+second stringify table — the mirror that drifts. Pinned exhaustively by
+`every_capability_slug_round_trips_and_is_unique`.
+
+### Publishing is change-detected
+
+Activation is mutated from **fourteen** `set_provider_activation` call sites
+plus the provider-event drain, so any enumeration of "activation-affecting"
+intents is one new call site away from being silently wrong.
+`republish_roster` compares the projection against the last published one and
+publishes only on a difference, from the single funnel every frame passes
+through. A steady state costs one comparison of ~4 small rows.
+
+### Pins (all green)
+
+`cargo test -p dpl-fabric -p dpl-chat-core -p dpl-shell -p dpl-chat-window
+-p dpl-seam -p devpulselabs`
+
+| pin | crate | proves |
+|---|---|---|
+| `an_empty_roster_reads_empty` | fabric | no publish, no panic, no chip |
+| `the_roster_is_readable_without_subscribing` | fabric | §2.2 — a late CLONE reads the fold |
+| `a_history_only_provider_is_in_the_roster_but_cannot_send` | fabric | `can(PageHistory)` ✓, `can(StreamTurns)` ✗ |
+| `an_unactivated_provider_can_nothing` | fabric | qualified ≠ available |
+| `publishing_a_roster_replaces_the_previous_one` | fabric | wholesale, no accumulation |
+| `the_roster_answers_who_can_take_a_beat` | fabric | the routing question the SET exists for (ADR-017 §4) |
+| `every_capability_slug_round_trips_and_is_unique` | chat-core | the stored vocabulary is exhaustive + stable |
+| `an_unknown_capability_slug_is_dropped_not_invented` | chat-core | the label is not the wire name |
+| `the_roster_survives_a_restart` | app | ADR-017 §2 — truthful at boot, before any probe |
+| `a_provider_this_build_no_longer_knows_is_dropped_not_resurrected` | app | resolve, never leak |
+| `an_unknown_stored_capability_is_dropped_not_invented` | app | refuse by name |
+| `no_estate_is_not_an_error` | app | derived state degrades to empty, never to a failed launch |
+| `the_seam_projects_the_roster` | seam | an agent can read which experts exist (ADR-017 §3) |
+| `the_shell_names_the_activated_providers` | shell | §6.5, in a unit |
+| `the_shell_says_nothing_when_no_provider_is_activated` | shell | silence, not an empty claim |
+
+### The live proof — PASSED
+
+`tests/eguipilotai/platform-sees-providers.toml`, fixture `chat` (live
+runtime, no authored models), asserting `root/shell.status.providers` — the
+ROOT viewport, not `chat.primary` — is visible and its text names Claude.
+The chip cannot render unless a provider is genuinely activated, and Claude
+activates on this machine only by having transcripts on disk.
+
+Run on the Linux lane under `devpulse-cloud` (software Vulkan / lavapipe),
+all five steps green:
+
+```
+outcome: passed
+  wait 2500ms                                        ✔
+  visible  root/shell.status.providers               ✔
+  text     root/shell.status.providers ~ "Claude"    ✔
+  text     root/shell.status.providers ~ "AI ·"      ✔
+  capture  platform-sees-providers (viewport root)   ✔ "capture stabilized and written"
+```
+
+Proof shot: `docs/proof/platform-sees-providers.png` — MAIN at 1440×900 on
+the wiredFRONT hub, status bar reading **`AI · Claude Code`**. The capture
+is scoped to the `root` viewport explicitly: the `chat` fixture opens the
+peer window too, and an unscoped capture cannot know which of two live
+viewports is the evidence.
+
+The chip reads `Claude Code` alone rather than `Claude Code, Codex` — this
+machine has `~/.claude/projects` transcripts and no `~/.codex/sessions`, so
+naming only Claude is the truthful answer, not a partial one.
+
+### Regressions
+
+`chat-local-histories`, `chat-content-spine`, `chat-provider-tab` and
+`shell-navigation` report `failed` under Xvfb on the headless Linux box, and
+fail identically on `2459cdf` with none of this pass's code — confirmed by
+rebuilding the baseline exe and running the same four under the same display.
+`shell-navigation` fails on its first step and on a hover-driven flyout, so
+the cause is the headless lane, not the roster. They still need a run on a
+lane with a real display. `platform-sees-providers` passing on that same box
+is what makes its result trustworthy.

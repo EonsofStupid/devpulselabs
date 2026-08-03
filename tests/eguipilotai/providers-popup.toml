@@ -1,0 +1,73 @@
+id = "providers-popup"
+fixture = "chat"
+record = true
+
+# V2 — the roster the control opens.
+#
+# Every card carries its LIVE state from P1's roster, so this scenario is only
+# meaningful because A1's probes ran: on this machine Claude, Codex and Grok
+# answer signed in, and Cursor and Gemini answer not installed. A static list
+# would pass this too, which is why the assertions below are on the states
+# rather than merely on the names.
+
+[[steps]]
+kind = "wait"
+milliseconds = 2500
+
+# Closed to begin with: the cards are not merely invisible, they are not in
+# the tree at all — the roster costs nothing until it is asked for. (`hidden`
+# would require the node to exist, so absence is asserted by the click below
+# being what brings them into being.)
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/shell.status.providers"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+# A provider that is signed in ONLY because its transcripts are on this disk.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "signed in"
+
+[steps.expectation.target]
+id = "root/shell.status.providers/claude"
+
+# THE DISTINCTION THAT MATTERS: not-installed is its own state, never folded
+# into signed-out. Different problem, different fix.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "not installed"
+
+[steps.expectation.target]
+id = "root/shell.status.providers/cursor"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "signed in"
+
+[steps.expectation.target]
+id = "root/shell.status.providers/grok"
+
+[[steps]]
+kind = "capture"
+name = "providers-popup"
+
+[steps.viewport]
+key = "root"

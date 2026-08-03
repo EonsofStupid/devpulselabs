@@ -258,6 +258,22 @@ pub struct MotionPreset {
     pub enter: &'static str,
 }
 
+/// A two-colour hover wash: an effect plus the POOL its pair is drawn from.
+///
+/// Its own kind rather than a wider [`MotionPreset`], which carries one
+/// `enter` effect and no colour. The pool is authored in
+/// `tokens/presets.json` and every hue id in it is checked against
+/// `tokens/hues.json` at BUILD time — the reason a bleed can be reused
+/// globally without any widget holding a list of hexes.
+#[derive(Debug, Clone, Copy)]
+pub struct BleedPreset {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub blurb: &'static str,
+    pub effect: &'static str,
+    pub hues: &'static [&'static str],
+}
+
 include!(concat!(env!("OUT_DIR"), "/presets_gen.rs"));
 
 pub fn theme_preset(id: &str) -> Option<&'static ThemePreset> {
@@ -266,6 +282,43 @@ pub fn theme_preset(id: &str) -> Option<&'static ThemePreset> {
 
 pub fn motion_preset(id: &str) -> Option<&'static MotionPreset> {
     MOTION_PRESETS.iter().find(|p| p.id == id)
+}
+
+pub fn bleed_preset(id: &str) -> Option<&'static BleedPreset> {
+    BLEED_PRESETS.iter().find(|p| p.id == id)
+}
+
+/// The ladder step a bleed wash is drawn at — vivid enough to read as ink
+/// on the dark surface, short of the near-white top of the ladder.
+pub const BLEED_STEP: u32 = 400;
+
+impl BleedPreset {
+    /// Two DISTINCT hues from the pool, chosen by `seed`.
+    ///
+    /// The same xorshift discipline `dpl_backdrop::random_mood_index` uses —
+    /// no RNG dependency, and deterministic in the seed so a proof shot
+    /// reproduces. The second pick walks a coprime-ish stride from the first
+    /// so the pair is never the same hue twice.
+    pub fn pair(&self, seed: u64) -> (Color32, Color32) {
+        let (a, b) = self.pair_ids(seed);
+        (step_on(a, BLEED_STEP), step_on(b, BLEED_STEP))
+    }
+
+    /// The chosen hue IDS — what a test can assert on without comparing
+    /// colours.
+    pub fn pair_ids(&self, seed: u64) -> (&'static str, &'static str) {
+        let n = self.hues.len();
+        debug_assert!(n >= 2, "a two-colour bleed needs a pool of at least 2");
+        let mut x = seed | 1;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        let x = x.wrapping_mul(0x2545_F491_4F6C_DD1D);
+        let first = (x % n as u64) as usize;
+        // 1..n keeps the offset off zero, so the second is never the first.
+        let step = 1 + ((x >> 32) % (n as u64 - 1)) as usize;
+        (self.hues[first], self.hues[(first + step) % n])
+    }
 }
 
 // ── THE TRAIT SYSTEM (docs/design/doctrine.md) ──────────────────────────
@@ -1429,7 +1482,7 @@ pub mod motion {
 
         #[test]
         fn the_vocabulary_is_generated_and_complete() {
-            assert_eq!(EFFECT_COUNT, 18, "motion.json ships 18 named effects");
+            assert_eq!(EFFECT_COUNT, 19, "motion.json ships 19 named effects");
             assert!(
                 effect("enter-rise").is_some(),
                 "the entrance law is authored"
@@ -1934,5 +1987,102 @@ mod tests {
                 }
             });
         });
+    }
+
+    // ── V1: the dwell tier, the ink-bleed, and the brain ────────────────
+
+    #[test]
+    fn the_dwell_tier_is_authored_in_the_window_the_operator_named() {
+        // Bound to locals so this reads the AUTHORED values as data — the
+        // point is that motion.json says this, not that a literal does.
+        let (dwell, lo, hi, slow) = (
+            motion::DUR_DWELL,
+            motion::DUR_DWELL_MIN,
+            motion::DUR_DWELL_MAX,
+            motion::DUR_SLOW,
+        );
+        assert!(
+            (5.6..=6.3).contains(&dwell),
+            "the dwell tier must sit in the operator's 5.6-6.3s window, got {dwell}"
+        );
+        assert!(lo < hi, "the jitter window is a range, got {lo}..{hi}");
+        assert!(
+            lo >= 5.6 && hi <= 6.3,
+            "the authored bounds are the window itself, got {lo}..{hi}"
+        );
+        assert!(
+            dwell > slow * 10.0,
+            "dwell is a different CLASS of motion, not a longer `slow` ({dwell} vs {slow})"
+        );
+    }
+
+    #[test]
+    fn the_ink_bleed_effect_resolves_and_is_not_a_loop() {
+        let fx = motion::effect("ink-bleed").expect("ink-bleed is authored in motion.json");
+        assert!(
+            !fx.looped,
+            "the bleed settles at full colour; it does not cycle"
+        );
+        assert!(
+            (5.6..=6.3).contains(&fx.dur),
+            "the effect carries the dwell duration, got {}",
+            fx.dur
+        );
+    }
+
+    #[test]
+    fn the_brain_icon_is_tessellated() {
+        let def = icon_def("brain").expect("brain is authored in icons.json");
+        assert!(
+            !def.vertices.is_empty() && !def.indices.is_empty(),
+            "the vendored brain.svg must tessellate to real geometry"
+        );
+        assert_eq!(def.label, "Providers");
+    }
+
+    #[test]
+    fn the_bleed_pool_is_known_hues() {
+        let p = bleed_preset("providers-ink").expect("the providers bleed is authored");
+        assert!(p.hues.len() >= 4, "the operator asked for a pool of 4-5");
+        for hue in p.hues {
+            assert!(ramp(hue).is_some(), "{hue} must exist in the authored pool");
+        }
+        assert_eq!(p.effect, "ink-bleed");
+    }
+
+    #[test]
+    fn a_bleed_pair_is_always_two_different_hues() {
+        let p = bleed_preset("providers-ink").expect("preset");
+        for seed in 0..512u64 {
+            let (a, b) = p.pair_ids(seed);
+            assert_ne!(
+                a, b,
+                "seed {seed} drew the same hue twice — that is one colour, not a bleed"
+            );
+        }
+    }
+
+    #[test]
+    fn the_same_seed_gives_the_same_pair() {
+        // The proof-shot guarantee: a freely random pick would make every
+        // capture of the bleed flaky.
+        let p = bleed_preset("providers-ink").expect("preset");
+        for seed in [0u64, 1, 7, 99, 12_345] {
+            assert_eq!(p.pair_ids(seed), p.pair_ids(seed));
+            assert_eq!(p.pair(seed), p.pair(seed));
+        }
+    }
+
+    #[test]
+    fn the_pool_is_actually_drawn_from() {
+        // A pick that always returned the same pair would pass every test
+        // above and still be wrong.
+        let p = bleed_preset("providers-ink").expect("preset");
+        let seen: std::collections::BTreeSet<_> = (0..256u64).map(|s| p.pair_ids(s)).collect();
+        assert!(
+            seen.len() > 4,
+            "the seed must actually range over the pool, saw {} pairs",
+            seen.len()
+        );
     }
 }
