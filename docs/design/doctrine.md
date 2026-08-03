@@ -1,4 +1,7 @@
-# Design doctrine — the composable patch system (ColdLight, ported)
+# Design doctrine — composition metal of ColdLight Design OS (S2)
+
+**Parents:** [`coldlight-design-os.md`](coldlight-design-os.md) ·
+[`theme-vocabulary-law.md`](theme-vocabulary-law.md) (Theme face; Looks forbidden).
 
 This is the contract the first app carried in feel. It is no longer a two-word
 invention: it is the original's **stackable patch system** faithfully ported to

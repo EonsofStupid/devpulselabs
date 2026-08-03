@@ -49,7 +49,7 @@ are stale and can be pruned by whoever owns them.
    into `elements_wall` + an honest-empty `blocks_wall`. New seam
    `--lib-section <slug>` (because `--focus` pins TEMPLATES).
 2. **Plain words** (same PR). `slug()` = machine id, `label()` = what is drawn.
-   **Starters · Layouts · Combos · Pieces · Looks · Colors · Styles · Type ·
+   **Starters · Layouts · Combos · Pieces · Themes · Colors · Styles · Type ·
    Moods**; Eyebrow→Small label, Stat→Big number, Badge→Tag, Bar→Progress bar,
    Divider→Line, Media→Picture. Guarded by `no_chip_speaks_engineering` and
    `no_piece_speaks_engineering`.

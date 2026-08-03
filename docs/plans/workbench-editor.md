@@ -68,7 +68,7 @@ pass would delete a crate — that was wrong; the crate is load-bearing.)
 | Layouts | `templates` |
 | Combos | `blocks` |
 | Pieces | `elements` |
-| Looks | `traits` |
+| Themes | `frame-patches` |
 | Interactions | `recipes` |
 
 The ratified mock (`authoring-surface-mock.html:194-199`) says the drawn

@@ -80,7 +80,7 @@ Each row: what landed, and where the evidence is.
 
 | Pass | PR | Plan | What it bought |
 |---|---|---|---|
-| Ingredient ladder (DS3) | #135 | `ds3-ingredient-ladder.md` | `elements/` (six atoms) + an empty-by-design `blocks/` chunk tier, census-tested. Plain words: Starters · Layouts · Combos · Pieces · Looks. Seam `--lib-section`. |
+| Ingredient ladder (DS3) | #135 | `ds3-ingredient-ladder.md` | `elements/` (six atoms) + an empty-by-design `blocks/` chunk tier, census-tested. Plain words: Starters · Layouts · Combos · Pieces · Themes. Seam `--lib-section`. |
 | The carousel | #136 | — | Shelf picker over one lane of large sweepable cards, all census-driven. Endless-scroll as a checkbox. Fit-guarded both axes. |
 | Overlay editor | #141 | — | Scrim modal, seven plain-word tabs; **Words** is the real `dpl_editor::Editor` over the card's own `slide.json`. Seam `--author-editor`. |
 | Container filmstrip | #146 | `author-filmstrip.md` | `containers.rs` census (4 kinds), the container bar, the band labelled by what is loaded. `start_card` as the ONE authoring path. Seams `--author-container`, `--author-draft`. |

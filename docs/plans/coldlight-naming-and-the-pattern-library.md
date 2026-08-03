@@ -1,4 +1,9 @@
-# ColdLight naming, and the pattern library law
+# ColdLight naming, and the pattern library law (S1)
+
+**Rank:** S1 · **Parents:** [`docs/design/coldlight-design-os.md`](../design/coldlight-design-os.md) (OS),
+[`docs/design/theme-vocabulary-law.md`](../design/theme-vocabulary-law.md) (S0 Theme face).
+Product face is **Theme / Themes / ThemePreset** (S0). **Looks is forbidden.**
+This file owns engineering rename (trait → FramePatch) and pattern→catalog duty.
 
 Two operator corrections from 2026-08-03, ground-truthed against egui 0.35
 and the code as it stands. Both are LAWS, not preferences.
@@ -15,10 +20,10 @@ and the code as it stands. Both are LAWS, not preferences.
 `traits_gen.rs` → `TraitDef` collides with the language's most loaded term
 inside a file that is nothing to do with Rust traits.
 
-The system already knows better: `compose()` returns **`ResolvedStyle`**
+The system already knows better: `compose()` returns **`FrameStyle`**
 (`crates/coldlight/src/lib.rs:463`). Only the input is misnamed.
 
-### 1.2 egui has NO term for a stackable partial look
+### 1.2 egui has NO term for a stackable partial Frame
 
 This has to be said plainly, because the fix is not "find the egui word."
 egui 0.35 ships:
@@ -32,7 +37,7 @@ egui 0.35 ships:
 | `Frame` | the painted container: `fill` `stroke` `corner_radius` `shadow` `inner_margin` `outer_margin` |
 | `override_text_style` · `override_font_id` · `override_text_color` | egui's own idiom for PARTIAL application |
 
-A partial look that STACKS is a ColdLight invention on top of these.
+A stackable partial Frame that STACKS is a ColdLight invention on top of these.
 Adopting an "egui word" for it would be inventing one again.
 
 **The rule an egui developer follows instead: name it for the egui type it

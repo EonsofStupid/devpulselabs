@@ -2,8 +2,7 @@
 
 **Status: RATIFIED 2026-07-27** (operator, with §6 decisions settled). The
 overarching contract for the catalog: how UI is *built*, not just how it looks.
-The look/treatment layer is owned by [`doctrine.md`](doctrine.md) (the ColdLight
-trait compositor) and is **not re-specified here** — this document defines the
+Composition metal is owned by [`doctrine.md`](doctrine.md) (FramePatch compositor; Theme face is S0) and is **not re-specified here** — this document defines the
 layers around it and how they compose. Supersedes the ad-hoc "hand-painted
 template" model (the W-series `title_card`/`quote`/… monoliths were a stopgap,
 re-authored onto this in the §7.6 pass).
@@ -102,13 +101,13 @@ today; re-point the binding once and every `danger` element in the app moves.
 composites. This keeps intent decoupled from look — the whole reason semantic
 tokens exist.
 
-**Schema** (`tokens/treatments.json`, generated like traits):
+**Schema** (`tokens/treatments.json`, generated like FramePatches):
 ```
 { "id": "danger", "kind": "semantic",
   "base": "neubrutalist", "stack": [], "tone": "coral",
   "on": { "hover": "lift", "press": "inset" } }   // state behavior ref
 ```
-Composites stay in `traits.json`; semantics are the new binding layer that
+Composites stay in `frame-patches.json`; semantics are the new binding layer that
 *names* combinations of them.
 
 ---
@@ -222,7 +221,7 @@ Template { category, layout, slots: [ Slot { element, treatment, recipe?, props 
 2. **Where treatments+recipes live as data — SETTLED (proposal stands).**
    `tokens/treatments.json` (semantic bindings) + a `recipes` registry in
    `dpl-slides` (code-authored state machines, params as data), both
-   generated/registered like `traits.json`.
+   generated/registered like `frame-patches.json`.
 3. **Migration appetite — SETTLED: BIG-BANG.** Once the system stands
    (elements → treatments → recipes → fidelity + the composed renderer), the
    catalog is re-authored onto it in ONE concentrated consistency pass (§7.6),
@@ -237,7 +236,7 @@ Template { category, layout, slots: [ Slot { element, treatment, recipe?, props 
 2. **Element library** — reorganize `blocks/` into categories, add the census +
    render gate + `cost_tier` field; make each standalone-usable in the Library.
 3. **Treatment layer** — `tokens/treatments.json` semantic bindings over the
-   existing composite `traits.json`; the `treated`/`compose` paint API already
+   existing composite `frame-patches.json`; the `treated`/`compose` paint API already
    exists. Expand ColdLight bases/stacks here (still clay/brutalist default).
 4. **Recipe layer** — the `Recipe` trait + registry; lift `advance`/`toggle`/
    `flip`/`match`/`poll` out of the interactive templates.

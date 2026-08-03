@@ -186,7 +186,7 @@ preset, and the click lands with the surface it opens.
 
 ⚠️ **Ask first**
 
-- Any change to `LookPreset` / `MotionPreset` shape (three presets depend on
+- Any change to `ThemePreset` / `MotionPreset` shape (three presets depend on
   them).
 - Making the control do anything on click (that is V2).
 

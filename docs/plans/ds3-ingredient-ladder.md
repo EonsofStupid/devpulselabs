@@ -6,12 +6,15 @@ Ratified inputs (operator, 2026-07-28, authoring-mock red-pen session):
 
 > Q1 — "Rename folder → `elements/`, open new `blocks/`."
 > Q2 — "Split into two buckets: Looks + Interactions."
+> **SUPERSEDED (2026-08-03):** product face for that tier is **Themes**
+> (`docs/design/theme-vocabulary-law.md`). Looks is forbidden. Rewrite all
+> operator-facing copy to Themes; do not keep Looks as an alias.
 > "…aligned with the overlay concepts we use blocks elements and templates
 > for the user facing UI while keeping it aligned platform industry code and
 > folder structure."
 
 Reference surface: the Author mock (artifact `a3db4aee`), whose bucket row is
-`Elements · Blocks · Looks · Interactions · Templates`.
+`Elements · Blocks · Themes · Interactions · Templates` (was Looks; S0).
 
 ## 1. Context — why this pass exists
 
@@ -120,13 +123,13 @@ declared, honestly empty, waiting for promotion.
 | `Elements` | `elements` | `elements_wall` (renamed from `blocks_wall`) | `elements::elements()` |
 | `Blocks` | `blocks` | `blocks_wall` (NEW) | `blocks::blocks()` → honest-empty copy |
 
-Chip order becomes `Seeds · Templates · Blocks · Elements · Looks · Colors ·
+Chip order becomes `Seeds · Templates · Blocks · Elements · Themes · Colors ·
 Presets · Fonts · Moods` — ladder order, coarse to fine. The stale `lib.rs` l.8
 note ("Elements sections join later") is deleted, because they no longer do.
 
-### 3d. `Traits` → `Looks` (flagged — see §4)
+### 3d. `Traits` → `Themes` (S0; was briefly Looks)
 
-Per the Q2 ruling, the user-facing word for the treatment tier is **Looks**.
+Per S0, the user-facing word for the treatment tier is **Themes**.
 `LibSection::Traits` is the only surface still saying "traits" to the operator.
 Renaming the variant + slug + blurb is 3 lines and keeps ONE vocabulary across
 Library and Author. The authored data (`tokens/frame-patches.json`) and the internal
@@ -143,7 +146,7 @@ the correct operator word, exactly as `Slide`/"card" already splits.
 3. `LibSection::Elements` added; `blocks_wall` → `elements_wall`; new
    `blocks_wall` painting the honest-empty chunk shelf; chip order; stale note
    deleted.
-4. `LibSection::Traits` → `Looks` (variant, slug, blurb only).
+4. `LibSection::Traits` → `Themes` (variant, slug `themes`, label Themes only).
 
 **Out — each its own pass:**
 - **Promoting any actual block.** Needs a recurrence audit across the 20
@@ -155,10 +158,7 @@ the correct operator word, exactly as `Slide`/"card" already splits.
 - Any physical re-categorisation of elements into subdirs — DS2 §3e reading
   (A) still stands **within** `elements/`; category remains data.
 
-**Flagged for your strike-through:** item 4 (`Traits` → `Looks`) extends the Q2
-ruling from the Author gallery to the Library wall. It is the one item here not
-literally covered by what you approved. Say the word and I drop it; the rest of
-the pass is unaffected.
+Item 4 is required by S0 (Theme vocabulary law), not optional.
 
 ## 5. Work plan (atomic, in order)
 
@@ -178,7 +178,7 @@ the pass is unaffected.
 5. `library.rs`: add `LibSection::Elements`, reorder `ALL`, rename
    `blocks_wall` → `elements_wall`, write the new `blocks_wall` (honest-empty
    copy reusing the existing empty-shelf phrasing), delete the stale l.8 note.
-6. `library.rs`: `Traits` → `Looks` (variant + slug + blurb).
+6. `library.rs`: `Traits` → `Themes` (variant + slug `themes` + blurb).
 7. Tests: extend the census tests to cover the block census (empty is a valid
    assertion — count 0, ids unique, no panic); add a test asserting
    `LibSection::ALL` slugs are unique and the two walls read different censuses.

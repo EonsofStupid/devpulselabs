@@ -1,4 +1,4 @@
-# W3b — episode looks: the cascade + the folder contract
+# W3b — episode Theme: the cascade + the folder contract
 
 Parent: docs/plans/authoring-architecture.md (layer 3) and roadmap.md.
 Runs BEFORE D2 so the DeckHost is built over the final document shape.
@@ -202,7 +202,7 @@ const LOOK_FILE: &str = "theme.json";
 /// The show-level styling trait — `<episode-dir>/theme.json`. Refs only,
 /// like every document. Slides inherit these unless they override.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Look {
+pub struct Theme {
     pub v: u32,
     /// Default font pool id for every text block.
     pub font: String,
@@ -369,10 +369,10 @@ pub fn render_traced(ui: &mut Ui, rect: Rect, slide: &dpl_doc::Slide,
 - `DocSlide` carries the look:
 
 ```rust
-pub struct DocSlide { pub slide: dpl_doc::Slide, look: dpl_doc::Look, clock: Clock }
+pub struct DocSlide { pub slide: dpl_doc::Slide, look: dpl_doc::Theme, clock: Clock }
 impl DocSlide {
-    pub fn new(slide: dpl_doc::Slide) -> Self { Self::with_look(slide, dpl_doc::Look::fallback()) }
-    pub fn with_look(slide: dpl_doc::Slide, look: dpl_doc::Look) -> Self { ... }
+    pub fn new(slide: dpl_doc::Slide) -> Self { Self::with_look(slide, dpl_doc::Theme::fallback()) }
+    pub fn with_look(slide: dpl_doc::Slide, look: dpl_doc::Theme) -> Self { ... }
     // ui() passes &self.look through to render.
 }
 ```
@@ -384,7 +384,7 @@ impl DocSlide {
 
 ### Step 3 — `crates/editor/src/lib.rs` (edit)
 
-- `Editor` gains `look: dpl_doc::Look`; `open` sets
+- `Editor` gains `look: dpl_doc::Theme`; `open` sets
   `look: dpl_doc::theme_for_slide(dir)` — a slide inside an episode
   folder automatically edits against its show's look; a standalone seed
   gets the fallback. Render call passes `&self.look`.
@@ -510,7 +510,7 @@ disagree.
 One commit on main, then a backgrounded push:
 
 ```
-feat(doc): W3b — episode looks: the two-level cascade + the folder contract
+feat(doc): W3b — episode Theme: the two-level cascade + the folder contract
 
 An episode now carries an authored theme.json (the show's trait — refs
 only); slides state only their deliberate overrides. resolve() is the

@@ -418,7 +418,7 @@
        Layouts       templates/ (+ infographics/)
        Combos        blocks/          — the chunk tier
        Pieces        elements/        — the six atoms
-       Looks         tokens/traits.json
+       Themes         tokens/frame-patches.json
        Interactions  presets.json :: interaction (recipes)
 
        Small label   eyebrow      Progress bar  bar
@@ -459,7 +459,7 @@
     {id:"layouts",     name:"Layouts",      sub:"whole cards"},
     {id:"combos",      name:"Combos",       sub:"a few pieces together"},
     {id:"pieces",      name:"Pieces",       sub:"the small stuff"},
-    {id:"looks",       name:"Looks",        sub:"how it's dressed"},
+    {id:"themes",       name:"Themes",        sub:"how it's dressed"},
     {id:"interactions",name:"Interactions", sub:"what a tap does"}
   ];
 
@@ -481,7 +481,7 @@
     {k:"divider",name:"Line",         d:"a rule that separates two things"},
     {k:"media",  name:"Picture",      d:"an image or a video, dropped in"}
   ];
-  const LOOKS=[
+  const THEMES=[
     {k:"neubrutal",name:"Bold edges",  d:"hard outlines, offset shadow",       base:true},
     {k:"clay",     name:"Soft clay",   d:"rounded, pressed into the surface",  base:true},
     {k:"cyber",    name:"Neon glow",   d:"a lit edge — stacks on the others",  base:false},
@@ -561,7 +561,7 @@
       return c;}
     return el("div","r-eyebrow","piece");
   }
-  function lookR(k){
+  function themeR(k){
     const d=el("div");d.style.cssText="display:flex;align-items:center;justify-content:center";
     const s=el("div","swatch"+(k==="clay"?" clay":""));
     if(k==="cyber")s.style.boxShadow="0 0 16px var(--tone),4px 4px 0 rgba(0,0,0,.5)";
@@ -573,7 +573,7 @@
   function renderItem(it,v){
     v=v||{};
     if(it.shelf==="pieces")return pieceR(it.k,v);
-    if(it.shelf==="looks")return lookR(it.k);
+    if(it.shelf==="themes")return themeR(it.k);
     if(it.shelf==="interactions")return interR();
     return layoutR(it.k,v);
   }
@@ -584,14 +584,14 @@
     if(id==="layouts")return tag(LAYOUTS);
     if(id==="combos")return [];
     if(id==="pieces")return tag(PIECES);
-    if(id==="looks")return tag(LOOKS);
+    if(id==="themes")return tag(THEMES);
     return tag(INTERACTIONS);
   }
 
   /* ── state ── */
   const S={screen:"dashboard",container:null,intent:"",shelf:"starters",endless:true,
            cards:[],signals:0,tier:null,mix:{base:"neubrutal",stack:[],from:[]},
-           lib:{pieces:PIECES.length,combos:0,looks:LOOKS.length,interactions:INTERACTIONS.length,layouts:28}};
+           lib:{pieces:PIECES.length,combos:0,themes:THEMES.length,interactions:INTERACTIONS.length,layouts:28}};
 
   function signal(name,detail){
     S.signals++;
@@ -884,7 +884,7 @@
     const b=el("button","pick");b.type="button";b.setAttribute("role","listitem");
     b.style.setProperty("--tone",TONES[tone]);
     b.style.setProperty("--tone-glow",hexA(TONES[tone],.22));
-    const applies=(it.shelf==="looks"||it.shelf==="interactions");
+    const applies=(it.shelf==="themes"||it.shelf==="interactions");
     b.setAttribute("aria-label",(applies?"Apply ":"Add ")+it.name);
     const stage=el("div","stage");
     stage.appendChild(renderItem(it,{tone}));
@@ -897,7 +897,7 @@
       if(applies){
         if(!S.cards.length){toast("Add a card first, then tap "+it.name+" to use it");return;}
         const last=S.cards[S.cards.length-1];
-        if(it.shelf==="looks")last.look=it.k;else last.recipe=it.k;
+        if(it.shelf==="themes")last.theme=it.k;else last.recipe=it.k;
         renderStrip();toast(it.name+" — used on "+last.base);
       } else insertCard(it,tone);
     });
@@ -1024,7 +1024,7 @@
 
     const r1=el("div","mixrow");
     r1.appendChild(el("span","mixlab","Start from one of these"));
-    LOOKS.filter(l=>l.base).forEach(l=>{
+    THEMES.filter(l=>l.base).forEach(l=>{
       const b=el("button","mix");b.type="button";b.textContent=l.name;
       b.setAttribute("aria-pressed",String(S.mix.base===l.k));
       b.addEventListener("click",()=>{S.mix.base=l.k;refreshComposer();});
@@ -1034,7 +1034,7 @@
 
     const r2=el("div","mixrow");
     r2.appendChild(el("span","mixlab","Add on top — as many as you like"));
-    LOOKS.filter(l=>!l.base).forEach(l=>{
+    THEMES.filter(l=>!l.base).forEach(l=>{
       const b=el("button","mix");b.type="button";b.textContent=l.name;
       b.setAttribute("aria-pressed",String(S.mix.stack.includes(l.k)));
       b.addEventListener("click",()=>{
@@ -1081,13 +1081,13 @@
     const names=S.mix.from.map(k=>(PIECES.find(p=>p.k===k)||{}).name).filter(Boolean);
     if(S.tier==="layout"||S.tier==="combo"){
       if(missing)steps.push({t:"Say what it's made of",e:"nothing picked yet — it can't be made of nothing",b:"wait"});
-      else if(novel)steps.push({t:"Make the new pieces first",e:`your two extra looks changed these enough to need their own: ${names.join(" · ")}`,b:"auto"});
+      else if(novel)steps.push({t:"Make the new pieces first",e:`your two extra themes changed these enough to need their own: ${names.join(" · ")}`,b:"auto"});
       else steps.push({t:"Use the pieces you already have",e:names.join(" · "),b:"done"});
     }
     if(S.tier==="layout")steps.push({t:"Add the layout",e:"shows up in Layouts the same day",b:missing?"wait":"auto"});
     if(S.tier==="combo")steps.push({t:"Add the combo",e:"shows up in Combos the same day",b:missing?"wait":"auto"});
     if(S.tier==="piece")steps.push({t:"Add the piece",e:"filed under the right shelf automatically",b:"auto"});
-    if(S.tier==="look")steps.push({t:"Add the look",e:"every surface can use it straight away",b:"auto"});
+    if(S.tier==="theme")steps.push({t:"Add the look",e:"every surface can use it straight away",b:"auto"});
     if(S.tier==="interaction")steps.push({t:"Add the interaction",e:"made properly on its own before anything uses it",b:"auto"});
     if(novel&&(S.tier==="layout"||S.tier==="combo"))
       steps.push({t:"Make the variations",e:"one per starting look, so your mix works everywhere",b:"auto"});
@@ -1137,7 +1137,7 @@
     if(comp){const old=comp.querySelector(".ladder");if(old)old.replaceWith(buildLadder());}
     document.querySelectorAll(".mix").forEach(b=>{
       const t=b.textContent;
-      const lk=LOOKS.find(l=>l.name===t),pc=PIECES.find(p=>p.name===t);
+      const lk=THEMES.find(l=>l.name===t),pc=PIECES.find(p=>p.name===t);
       if(lk)b.setAttribute("aria-pressed",String(lk.base?S.mix.base===lk.k:S.mix.stack.includes(lk.k)));
       if(pc)b.setAttribute("aria-pressed",String(S.mix.from.includes(pc.k)));
     });
@@ -1152,7 +1152,7 @@
       setTimeout(()=>{r.classList.remove("run");r.classList.add("done");},260);
       if(i===rungs.length-1){
         const T=TIERS.find(t=>t.id===S.tier);
-        const key=S.tier==="piece"?"pieces":S.tier==="combo"?"combos":S.tier==="look"?"looks":S.tier==="interaction"?"interactions":"layouts";
+        const key=S.tier==="piece"?"pieces":S.tier==="combo"?"combos":S.tier==="theme"?"themes":S.tier==="interaction"?"interactions":"layouts";
         const novel=S.mix.stack.length>=2&&(S.tier==="layout"||S.tier==="combo");
         if(novel)S.lib.pieces+=S.mix.from.length;
         S.lib[key]++;
@@ -1209,7 +1209,7 @@
       ? (editing.bg.none?"var(--ground)":`linear-gradient(135deg,${moodColor(editing.bg.a,editing.bg.deep)},${moodColor(editing.bg.b,editing.bg.deep)})`)
       : "var(--ground)";
     box.appendChild(renderItem({shelf:editing.shelf,k:editing.k},Object.assign({},editing.values,{tone:tn})));
-    if(editing.look==="retro"){
+    if(editing.theme==="retro"){
       const sc=el("div");
       sc.style.cssText="position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(40,224,208,.1) 0 1px,transparent 1px 4px)";
       box.appendChild(sc);
@@ -1219,7 +1219,7 @@
       const bits=[];
       if(editing.bg)bits.push("Background · "+editing.bg.name);
       if(editing.motion)bits.push("Movement · "+editing.motion.name);
-      if(editing.look)bits.push("Look · "+(LOOKS.find(l=>l.k===editing.look)||{}).name);
+      if(editing.theme)bits.push("Theme · "+(THEMES.find(l=>l.k===editing.theme)||{}).name);
       if(editing.recipe)bits.push("On tap · "+(INTERACTIONS.find(r=>r.k===editing.recipe)||{}).name);
       meta.innerHTML=bits.length?bits.map(b=>`<div>${esc(b)}</div>`).join("")
         :'<div style="color:var(--ink-muted)">nothing added yet</div>';

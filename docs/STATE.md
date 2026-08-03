@@ -707,7 +707,7 @@ elements looks…` with "Eyebrow — Mono uppercase micro-label, the tracked
 kicker over a title" under it. Operator: *"elements the eyebrow would be
 confusing"*. Two vocabularies now split — `slug()` is the machine id
 (harness arg, pilot key, never drawn), `label()` is what the operator
-reads. Drawn: **Starters · Layouts · Combos · Pieces · Looks · Colors ·
+reads. Drawn: **Starters · Layouts · Combos · Pieces · Themes · Colors ·
 Styles · Type · Moods**. Pieces: Eyebrow→**Small label**, Stat→**Big
 number**, Badge→**Tag**, Bar→**Progress bar**, Divider→**Line**, Media→
 **Picture**; `ElementCategory` type/mark/meter→Words/Tags/Levels. Every
@@ -716,7 +716,7 @@ blurb rewritten from the reader's side. Two tests hold the line:
 
 **The carousel (#136).** Operator: *"you still have never made the
 carousel … easily able to select from premades"*. A shelf picker over ONE
-carousel of large cards — Starters · Layouts · Combos · Pieces · Looks ·
+carousel of large cards — Starters · Layouts · Combos · Pieces · Themes ·
 Interactions — every card drawn LIVE from the real registries (seeds via
 `DocSlide`, the Library's own paint path). Tap inserts through the SAME
 mint path as the blank-card button, so a carousel card is the same real

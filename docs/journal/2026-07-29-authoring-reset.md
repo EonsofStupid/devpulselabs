@@ -19,7 +19,7 @@ corrections cut underneath what those branches had built:
 
 Two further rulings landed after those branches were written:
 
-- **Effects splits** into Looks (traits) and Interactions (recipes) — one
+- **Effects splits** into Themes (FramePatches / was traits) and Interactions (recipes) — one
   bucket in B/C maps to two unrelated tiers with different storage and
   lifecycles.
 - **The container is configurable** — lesson · guide · episode · deck, loaded

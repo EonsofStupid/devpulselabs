@@ -38,7 +38,7 @@ template must be hand-taught to interpret. That is the ceiling, and no amount of
 authoring gets past it.
 
 **Nowhere to see them either.** `LibSection` has ten shelves — Seeds, Templates,
-Blocks, Elements, Looks, Colors, Presets, Fonts, Icons, Moods. **Effects is not
+Blocks, Elements, Themes, Colors, Presets, Fonts, Icons, Moods. **Effects is not
 one of them.** All 18 are referenced only by `build.rs`, `coldlight/src/lib.rs`
 and the composer. The pool has never been visible in the app.
 

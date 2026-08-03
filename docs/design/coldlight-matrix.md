@@ -1,6 +1,6 @@
-# The ColdLight MATRIX — a faceted classification for the look system
+# The ColdLight MATRIX — a faceted classification for the theme system
 
-**Status: DEFINITION DRAFT, 2026-07-31.** The operator's model, written down so
+**Status: DEFINITION DRAFT, 2026-07-31.** Theme face (S0); Looks forbidden. OS: coldlight-design-os.md. The operator's model, written down so
 it can be schema'd. Parent: `doctrine.md` (the treatment mechanics) +
 `architecture.md` §4 (the census law). Consumed by
 `docs/plans/workbench-editor.md` §3.1 (presets).
@@ -15,28 +15,28 @@ classification**. A thing is not filed at one place in one tree; it is a
 categories are **PMEST**: Personality · Matter · Energy · Space · Time.
 
 That is exactly the operator's ask: *"we take the complexity to the
-background."* A hierarchy of hand-authored looks grows linearly with effort. A
+background."* A hierarchy of hand-authored Themes grows linearly with effort. A
 matrix grows **multiplicatively** from a small authored vocabulary — and the
-person picking never sees the axes, only a coordinate that already looks right.
+person picking never sees the axes, only a coordinate that already reads as a correct Theme.
 
 > **~22 authored facet values → ~900 valid coordinates.**
-> Nobody authors 900 looks. Nobody browses 900 looks. The matrix holds them and
+> Nobody authors 900 Themes. Nobody browses 900 Themes. The matrix holds them and
 > the presets name the good ones.
 
 ## 1. What already exists (ground truth, do not rebuild)
 
 `crates/coldlight/src/lib.rs:455` —
-`compose(tone: Tone, base: &str, stack: &[&str], state: TraitState)`. It
+`compose(tone: Tone, base: &str, stack: &[&str], state: WidgetState)`. It
 already resolves **per-axis**, and the axis rules are already right:
 
 | axis kind | axes | rule |
 |---|---|---|
-| override | `fill` `edge` `radius` `ink` `font` | last trait that names it wins |
-| additive | `shadows` `back_glow` `tints` `anim` | every trait's contribution concatenates |
+| override | `fill` `edge` `radius` `ink` `font` | last patch that names it wins |
+| additive | `shadows` `back_glow` `tints` `anim` | every patch's contribution concatenates |
 
-`traits.json` has four traits carrying a crude two-value facet, `role`:
+`frame-patches.json` has four FramePatches carrying a crude two-value facet, `role`:
 
-| trait | role | what it really is under the matrix |
+| patch | role | what it really is under the matrix |
 |---|---|---|
 | `neubrutalist` | base | the **Brutalist** ancestor |
 | `claymorphic` | base | a **material** (soft extruded plane) — never an ancestor |
@@ -68,7 +68,7 @@ that already works*.
 ## 3. ANCESTOR — the seeds (Personality)
 
 Five lineages. Each sets typography and a **native default** for the other
-three facets, so an ancestor alone is already a complete, correct look.
+three facets, so an ancestor alone is already a complete, correct Theme.
 
 | id | name | period | structural instinct | material instinct | atmospheric instinct |
 |---|---|---|---|---|---|
@@ -83,7 +83,7 @@ lineage — so it is `swiss` (International Typographic Style: Müller-Brockmann
 Hofmann, Univers/Helvetica, the mathematical grid), **not** `frutiger`. Adrian
 Frutiger is a typographer *inside* that movement; naming the seed after him
 would file a movement under a person. `aero` stays its own seed — it is the
-glossy 2000s look, unrelated to Swiss clarity despite sharing his name.
+glossy 2000s lineage, unrelated to Swiss clarity despite sharing his name.
 
 **Typography is the ancestor's, always.** It is the most identity-carrying
 choice a movement makes, so `font` is owned by ANCESTOR and is not a free knob
@@ -111,7 +111,7 @@ by how much genuinely new ground each opens:
 | 2 | **Constructivist** (Rodchenko, El Lissitzky, 1917–30s) | the **diagonal, agitational** register — dynamic diagonals, photomontage, red/black, urgency. Bauhaus is orthogonal and calm; Constructivism is tilted and loud. | **strong.** The best ancestor for anything that must feel urgent. |
 | 3 | **Editorial / Didone** (Bodoni, Didot; fashion-press classicism) | **serif.** All five of your seeds are sans-serif lineages — the matrix as it stands cannot produce a serif voice at all. | **structural hole**, easy to miss because it is an absence. |
 | 4 | **Art Nouveau / Arts & Crafts** (1890–1910) | the **organic, curvilinear** register — botanical, hand-drawn, asymmetric curves. Every one of your five is geometric. | real, but furthest from this product. |
-| 5 | **Terminal / teletype** | the monospace grid, box-drawing, no-antialias structural language. | defensible for a dev-tools product; `scanline` covers the *look*, not the *structure*. |
+| 5 | **Terminal / teletype** | the monospace grid, box-drawing, no-antialias structural language. | defensible for a dev-tools product; `scanline` covers atmosphere, not the *structure*. |
 
 **What is NOT a gap** — worth saying, because the instinct to add them is
 strong and wrong: `cyber`, `retro`, vaporwave, Y2K chrome, neumorphism. Those
@@ -230,7 +230,7 @@ pub struct Coordinate {
 
 /// Replaces `compose(tone, base, stack: &[&str], state)`. One value per facet,
 /// exactly — the untyped stack, and the two-contradictory-bases bug, are gone.
-pub fn resolve(c: &Coordinate, state: TraitState) -> ResolvedStyle;
+pub fn resolve(c: &Coordinate, state: WidgetState) -> FrameStyle;
 ```
 
 Resolution order — ancestor first, then the three facets against the existing
@@ -242,7 +242,7 @@ generators. Build-time checks: total-and-disjoint axis partition · every facet
 value classified by every ancestor · no coordinate referencing a forbidden
 value · every `id` kebab (the naming law, `architecture.md` §4).
 
-## 8. Migration from the four traits
+## 8. Migration from the four FramePatches
 
 No behaviour change, so it lands quietly:
 
@@ -254,7 +254,7 @@ No behaviour change, so it lands quietly:
 | `compose(tone,base,&["retro"],s)` | `… atmosphere:scanline` |
 
 A test pins each of the four legacy calls against its coordinate and asserts
-the `ResolvedStyle` is **byte-identical** — so the matrix is proven to be a
+the `FrameStyle` is **byte-identical** — so the matrix is proven to be a
 reclassification, not a restyle.
 
 ## 9. TARGETS — egui is one consumer, not the owner
@@ -300,7 +300,7 @@ facet value and preset id in the generated Rust appears in the JSON.
 | additive axes, concatenate | `Vec`/`&'static [..]` | comma lists: `box-shadow: a, b, c` |
 | a `Coordinate` | packed enum key → memo table | one class per coordinate, or 4 data-attrs |
 | `Tone` | runtime arg | a custom property, `--tone` |
-| `STATE` (idle/hover/active) | `TraitState` | `:hover` / `:active` |
+| `STATE` (idle/hover/active) | `WidgetState` | `:hover` / `:active` |
 
 The one asymmetry worth naming: the **memoized integer key** (§ the
 optimization that removes per-frame allocation) is a Rust-side implementation

@@ -1,28 +1,17 @@
 # Resume pack — CURRENT
 
-**Updated:** 2026-08-03 (N1 landed; C1 planned)
+**Updated:** 2026-08-03 (OS + Theme S0; Looks→Themes docs)
 **Lane:** providers
 **Dirty:** false
 
-## READ THESE FOUR FIRST — in this order
+## READ THESE FIRST — in this order
 
-1. `docs/plans/coldlight-naming-and-the-pattern-library.md` — **two laws that
-   gate everything else.** No invented term where egui has one (`trait` →
-   `FramePatch`, and the axes onto `egui::Frame`), and every pattern owes the
-   slide catalog a generic item in the SAME pass. N1/N2 run BEFORE the
-   providers links, or the new items get authored in the old vocabulary and
-   renamed twice.
-2. `docs/plans/chat-surface-map.md` — **what the chat ACTUALLY is today.**
-   Crates, the 14 painted surfaces, the 24 `HostIntent` variants, the 51
-   pilot ids, and a real/not-real table. Written because a pass was built
-   against the wrong mock; do not skip it.
-3. `docs/plans/providers-carousel-and-the-matrix.md` — **what changes next**,
-   in the operator's words plus the platform terms for them.
-   Then `docs/plans/c1-providers-carousel.md` — the BUILD plan, with the four
-   operator decisions of 2026-08-03 settled and the egui mechanics
-   ground-truthed (the transform/hit-box trap, AccessKit's real state).
-4. `docs/plans/pulse-program.md` — how updates get pushed from the base of
-   operations. PU1–PU5.
+1. `docs/design/coldlight-design-os.md` — ColdLight Design OS (seeds · entities · presets · Themes).
+2. `docs/design/theme-vocabulary-law.md` — S0 Theme face · FramePatch metal · Looks forbidden.
+3. `docs/plans/coldlight-naming-and-the-pattern-library.md` — S1 engineering rename + pattern catalog law.
+4. `docs/plans/chat-surface-map.md` — what chat is today.
+5. `docs/plans/providers-carousel-and-the-matrix.md` / `docs/plans/c1-providers-carousel.md` — next surface work.
+6. `docs/plans/pulse-program.md` — PU1–PU5.
 
 ## The chat mock EXISTS now — and it is grounded
 

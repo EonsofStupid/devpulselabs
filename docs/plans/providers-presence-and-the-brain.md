@@ -126,7 +126,7 @@ same discipline `tooltip_mood: random_mood_index()` already lives under.
 | Gemini | **`planned` only** — no probe, no source | `providers/gemini` |
 | Provider roster readable by the platform | **PLANNED (P1)** | `docs/plans/chat-providers-become-platform.md` |
 | Hue pool (12 brand + 25 accent named hues) | **BUILT** | `coldlight/tokens/hues.json` |
-| `LookPreset` / `MotionPreset`, generated from tokens | **BUILT** | `coldlight/src/lib.rs:242`, `tokens/presets.json` |
+| `ThemePreset` / `MotionPreset`, generated from tokens | **BUILT** | `coldlight/src/lib.rs:242`, `tokens/presets.json` |
 | Icon vocabulary (`draw_icon`, `icon_label`) | **BUILT** | `coldlight/src/lib.rs:156-240` — a **brain** icon must be authored into `tokens/icons.json` |
 | A `dwell` duration tier / ink-bleed effect | **MISSING** | this program |
 

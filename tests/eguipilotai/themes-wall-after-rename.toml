@@ -1,7 +1,7 @@
-# N1 proof: the Looks wall still paints every frame patch LIVE through the
+# N1 proof: the Themes wall still paints every frame patch LIVE through the
 # compositor after `trait` → `FramePatch` and the axes moved onto egui::Frame.
 # A rename that leaves the wall blank is a rename that broke the generator.
-id = "looks-wall-after-rename"
+id = "themes-wall-after-rename"
 fixture = "library-wall"
 record = true
 
@@ -16,7 +16,7 @@ kind = "action"
 type = "click"
 
 [steps.action.target]
-id = "root/workbench.library.section/looks"
+id = "root/workbench.library.section/themes"
 
 [[steps]]
 kind = "wait"
@@ -24,7 +24,7 @@ milliseconds = 500
 
 [[steps]]
 kind = "capture"
-name = "looks-wall-frame-patches"
+name = "themes-wall-frame-patches"
 
 [steps.viewport]
 key = "root"
