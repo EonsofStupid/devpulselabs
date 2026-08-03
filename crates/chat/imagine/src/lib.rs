@@ -251,25 +251,30 @@ pub fn parse_image_response(body: &str) -> Result<Vec<u8>, String> {
 
 impl ImagineClient for SystemImagineClient {
     fn generate_image(&self, api_key: &str, prompt: &str) -> Result<Vec<u8>, String> {
-        let agent = ureq::AgentBuilder::new().timeout(REQUEST_TIMEOUT).build();
+        // ureq 3: AgentBuilder/timeout/send_string/Error::Status|Transport
+        // are gone. config_builder + send + StatusCode preserve the same
+        // operator-facing strings (no key ever lands in an error path).
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .timeout_global(Some(REQUEST_TIMEOUT))
+            .build()
+            .into();
         let response = agent
             .post(IMAGES_ENDPOINT)
-            .set("Authorization", &format!("Bearer {api_key}"))
-            .set("Content-Type", "application/json")
-            .send_string(&image_request_json(prompt).to_string());
-        // Error strings are rebuilt from bounded parts; the key can never
-        // appear because it is never part of a URL or a parsed body.
-        let response = match response {
+            .header("Authorization", &format!("Bearer {api_key}"))
+            .header("Content-Type", "application/json")
+            .send(image_request_json(prompt).to_string());
+        let mut response = match response {
             Ok(response) => response,
-            Err(ureq::Error::Status(code, _)) => {
+            Err(ureq::Error::StatusCode(code)) => {
                 return Err(format!("the generation service answered HTTP {code}"));
             }
-            Err(ureq::Error::Transport(_)) => {
+            Err(_) => {
                 return Err("the generation service could not be reached".to_owned());
             }
         };
         let body = response
-            .into_string()
+            .body_mut()
+            .read_to_string()
             .map_err(|_| "the generation response could not be read".to_owned())?;
         parse_image_response(&body)
     }

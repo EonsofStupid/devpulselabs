@@ -5,7 +5,7 @@
 
 use dpl_chat_core::{
     Capability, PresenceSpec, ProviderAccent, ProviderDescriptor, ProviderId, ProviderManifest,
-    ProviderProfileId,
+    ProviderProfileId, TokenUsage,
 };
 use dpl_chat_store::{ProviderUsage, UsageReporting};
 

@@ -454,7 +454,7 @@ dependencies = [
  "ahash",
  "arrow-buffer",
  "arrow-data",
- "arrow-schema 59.1.0",
+ "arrow-schema",
  "chrono",
  "half",
  "hashbrown 0.17.1",
@@ -482,7 +482,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b38fe43e2e8704360f1464e6e8cc4fc381ef02cc4fb0192afa8df1aaa0115c66"
 dependencies = [
  "arrow-buffer",
- "arrow-schema 59.1.0",
+ "arrow-schema",
  "half",
  "num-integer",
  "num-traits",
@@ -497,16 +497,10 @@ dependencies = [
  "arrow-array",
  "arrow-buffer",
  "arrow-data",
- "arrow-schema 59.1.0",
+ "arrow-schema",
  "arrow-select",
  "flatbuffers",
 ]
-
-[[package]]
-name = "arrow-schema"
-version = "55.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af7686986a3bf2254c9fb130c623cdcb2f8e1f15763e7c71c310f0834da3d292"
 
 [[package]]
 name = "arrow-schema"
@@ -524,7 +518,7 @@ dependencies = [
  "arrow-array",
  "arrow-buffer",
  "arrow-data",
- "arrow-schema 59.1.0",
+ "arrow-schema",
  "num-traits",
 ]
 
@@ -2422,7 +2416,7 @@ name = "dpl-ledger"
 version = "0.1.0"
 dependencies = [
  "arrow-array",
- "arrow-schema 55.2.0",
+ "arrow-schema",
  "dpl-fabric",
  "dpl-intent",
  "parquet",
@@ -5740,7 +5734,7 @@ dependencies = [
  "arrow-buffer",
  "arrow-data",
  "arrow-ipc",
- "arrow-schema 59.1.0",
+ "arrow-schema",
  "arrow-select",
  "base64",
  "bytes",

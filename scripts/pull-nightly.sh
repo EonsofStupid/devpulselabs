@@ -14,9 +14,10 @@ case "${OS}-${ARCH}" in
     PATTERN="devpulselabs-linux-x64.zip"
     ;;
   Linux-aarch64|Linux-arm64)
-    echo "error: nightly publishes linux-x64 (hosted ubuntu-latest). The ARM64 asset ended when the" >&2
-    echo "       self-hosted dpl-linux runners were deregistered on 2026-07-30." >&2
-    exit 1
+    # Hosted ubuntu-24.04-arm publishes this after the 2026-07-30 estate
+    # runners were deregistered (self-hosted ARM asset was retired; hosted
+    # ARM restored so aarch64 boxes can pull again).
+    PATTERN="devpulselabs-linux-aarch64.zip"
     ;;
   Darwin-*)
     echo "error: macOS nightly not published yet (dpl-mac staged)." >&2

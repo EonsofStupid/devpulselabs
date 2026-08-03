@@ -5,7 +5,11 @@
 
 use dpl_chat_core::{
     BoundedNativePayload, Capability, ChatEventContent, PresenceSpec, ProviderAccent,
-    ProviderDescriptor, ProviderId, ProviderManifest, ProviderProfileId,
+    ProviderDescriptor, ProviderId, ProviderManifest, ProviderProfileId, TokenUsage,
+};
+use dpl_chat_store::{
+    DecodeOutcome, DecodedHistoryEvent, HistoryDecoder, HistoryIndexMetadata, ProviderUsage,
+    UsageReporting,
 };
 use serde_json::Value;
 use std::path::Path;

@@ -2,7 +2,8 @@ use dpl_chat_accounts::ActivationLedger;
 use dpl_chat_browser_auth::{BrowserAuthCoordinator, BrowserAuthError, BrowserAuthEvent};
 use dpl_chat_core::{
     ActivationState, BoundedNativePayload, Capability, ChatEvent, ChatEventContent, ChatEventId,
-    ChatSessionId, ProviderId, ProviderSessionId, RecoveryAction, RecoveryActionKind, SessionGroup,
+    ChatSessionId, ContentChapter, ContentEpisode, ContentEpisodeId, ContentSlide, ContentSpine,
+    ContentView, ProviderId, ProviderSessionId, RecoveryAction, RecoveryActionKind, SessionGroup,
     SessionState, SessionSummary, TokenUsage, TurnId,
 };
 #[cfg(feature = "eguipilotai-devtools")]
@@ -25,9 +26,9 @@ use dpl_chat_windows::{
     WindowGeometry, WindowKind, WindowLifecycle,
 };
 use dpl_fabric::{
-    ActivationAttemptId, AppWindowAction, CaptureEvent, Fabric, IntentEvent, JobEvent, JobId,
-    ProviderActivationStage, ProviderCapability, ProviderEvent, ProviderFailureClass,
-    ProviderReceiver, ShellEvent, ShellReceiver,
+    ActivationAttemptId, AiEvent, AiFailureClass, AiOutcome, AppWindowAction, CallId, CaptureEvent,
+    Fabric, IntentEvent, JobEvent, JobId, Origin, ProviderActivationStage, ProviderCapability,
+    ProviderEvent, ProviderFailureClass, ProviderReceiver, ShellEvent, ShellReceiver,
 };
 use dpl_hub::Route;
 use egui_pilot_ai::{
