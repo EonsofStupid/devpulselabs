@@ -1,0 +1,60 @@
+# GROUND TRUTH for the providers respec: what the chat peer window ACTUALLY
+# paints today, captured rather than described. The carousel plan is drawn
+# over these frames, so they have to come from the exe and not from a reading
+# of the source.
+id = "chat-surface-capture"
+fixture = "chat-authored"
+record = true
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "open"
+
+[steps.expectation.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "wait"
+milliseconds = 900
+
+# The rail as it stands: the AI PROVIDERS micro-heading, the provider rows,
+# "More providers…", the session groups under it, and the footer.
+[[steps]]
+kind = "capture"
+name = "chat-rail-at-rest"
+
+[steps.viewport]
+key = "chat.primary"
+
+# The catalog overlay — the surface the carousel would sit beside.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.sidebar.providers"
+
+[[steps]]
+kind = "wait"
+milliseconds = 450
+
+[[steps]]
+kind = "capture"
+name = "chat-provider-catalog"
+
+[steps.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "close-viewport"
+
+[steps.action.viewport]
+key = "chat.primary"
