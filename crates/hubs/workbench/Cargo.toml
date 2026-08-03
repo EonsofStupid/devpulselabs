@@ -22,6 +22,8 @@ dpl-editor.workspace = true
 dpl-engine-capture.workspace = true
 egui-pilot-ai.workspace = true
 egui-pilot-ai-lab.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 # Drives the Background tab headlessly — a tapped colour has to reach the

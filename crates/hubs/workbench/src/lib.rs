@@ -10,6 +10,7 @@ mod author;
 mod backgrounds;
 mod containers;
 mod controls;
+mod experiments;
 mod library;
 mod pictures;
 mod studio;
@@ -33,6 +34,7 @@ pub const EPISODES: SubId = SubId("episodes");
 pub const EDITOR: SubId = SubId("editor");
 pub const STUDIO: SubId = SubId("studio");
 pub const TEST_LAB: SubId = SubId("test-lab");
+pub const EXPERIMENTS: SubId = SubId("experiments");
 
 pub(crate) static SPEC: HubSpec = HubSpec {
     id: HUB,
@@ -64,6 +66,11 @@ pub(crate) static SPEC: HubSpec = HubSpec {
             id: STUDIO,
             label: "Studio",
             blurb: "Compose episodes: blocks → elements → templates → effects, onto sequenced slides.",
+        },
+        SubRoute {
+            id: EXPERIMENTS,
+            label: "Experiments",
+            blurb: "Each experiment its own domain — hypothesis, minimal requirements, and its arms' runs grouped from the evidence on disk.",
         },
         SubRoute {
             id: TEST_LAB,
@@ -114,6 +121,7 @@ pub struct WorkbenchHub {
     /// signal-first.
     author: AuthorSurface,
     test_lab: egui_pilot_ai_lab::TestLab,
+    experiments: experiments::Experiments,
 }
 
 /// The clone-a-seed form: names a show category + episode (kebab law),
@@ -399,6 +407,8 @@ impl Hub for WorkbenchHub {
             self.episodes_surface(ui);
         } else if route.sub == STUDIO {
             self.studio.ui(ui, &self.fabric);
+        } else if route.sub == EXPERIMENTS {
+            self.experiments.ui(ui);
         } else if route.sub == TEST_LAB {
             self.test_lab.ui(ui);
         } else if let Some(go) = dpl_hub::placeholder::surface(

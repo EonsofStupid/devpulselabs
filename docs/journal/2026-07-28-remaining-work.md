@@ -74,17 +74,28 @@ AT-SPI desktop-root census. Calculator seed RUNNING. No deep walk.
 
 ### 9. C2e — fabric mint for selected Calculator
 
-Budgeted deep walk on **one** selected target; progress + ETA; refuse tips;
-seed lesson (e.g. button `7`).
+**PASS** 2026-07-31 — `dpl-coach-fabric` + `coach-fabric-mint`. Live
+Calculator Ready · 82 nodes · seed `7` · ~255 ms. Journal:
+`docs/journal/2026-07-31-c2e-fabric-mint.md`.
 
-**Done when:** mint journal + `FabricEvent`/progress proof; no screenshot loop.
+**Done when:** met. NEXT = CX-cursor-01 then C2f.
 
-### 10. C2f — wire Operator select → overlay paint
+### 9b. CX-cursor-01 — Cursor seed locate (test-first)
 
-Guided path reuses C2b physics; Advanced keeps CLI/self-test.
+**PASS** 2026-07-31 — locate `Search Ctrl+K` + `File` on Cursor;
+Calculator `7` regression green. Journal:
+`docs/journal/2026-07-31-cx-cursor-01.md`.
 
-**Done when:** operator picks Calculator → sees paint → press Triggered
-without invoking probes by hand.
+**Done when:** met. NEXT = C2f.
+
+### 10. C2f — Operator Import Process → Cursor lesson + paint
+
+**Contract:** Lab program + Import Process. Primary conquest = **Cursor**
+(Calculator = regression only). Honesty prompt → checks → Standard Import
+→ Mount `Search Ctrl+K`. Notepad = Windows follow-up.
+
+**Done when:** operator picks Cursor → import → paint → Triggered without
+CLI; ledger stamps import facts.
 
 ### 11. Strict-mode pinning (replay) — after product path or operator ask
 

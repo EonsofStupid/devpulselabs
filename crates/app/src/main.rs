@@ -763,6 +763,11 @@ impl App {
             dpl_chat_codex::CodexActivationCoordinator::discover(&provider_working_directory);
         let grok_activation =
             dpl_chat_grok::GrokActivationCoordinator::discover(&provider_working_directory);
+        // One census, read BEFORE the registrations so activation can be
+        // derived from what is actually on this machine (H1 §3.1). The same
+        // value is threaded into the chat window config below — the roots are
+        // never walked twice.
+        let history_catalog = local_chat_history_catalog();
         // Chat providers register as data. The peer-window UI never names one;
         // only independently qualified subscription activation is projected.
         // Conversation transport remains visibly blocked.
@@ -785,11 +790,14 @@ impl App {
                         grok_activation.activation_capability_qualified(),
                     ),
                 ]
+                .into_iter()
+                .map(|registration| with_local_history(registration, &history_catalog))
+                .collect()
             },
             |fixture| fixture.providers.clone(),
         );
         #[cfg(not(feature = "eguipilotai-devtools"))]
-        let chat_registrations = vec![
+        let chat_registrations: Vec<dpl_chat_runtime::ProviderRegistration> = vec![
             activation_registration(
                 dpl_chat_codex::MANIFEST,
                 codex_activation.activation().clone(),
@@ -802,7 +810,10 @@ impl App {
                 grok_activation.activation().clone(),
                 grok_activation.activation_capability_qualified(),
             ),
-        ];
+        ]
+        .into_iter()
+        .map(|registration| with_local_history(registration, &history_catalog))
+        .collect();
         // Read the registered providers before the registrations are moved —
         // the coach catalog names them so an agent can wait for one provider's
         // activation rather than any provider's.
@@ -937,7 +948,7 @@ impl App {
             chat_runtime,
             chat::ChatWindowConfig {
                 initial_route: shell.route(),
-                catalog: local_chat_history_catalog(),
+                catalog: history_catalog,
                 routes: chat_routes,
                 authored_models: {
                     #[cfg(feature = "eguipilotai-devtools")]
@@ -1169,6 +1180,40 @@ fn activation_registration(
         registration
             .qualified_capabilities
             .insert(dpl_chat_core::Capability::SubscriptionAuth);
+    }
+    registration
+}
+
+/// Local transcripts are a real, working capability — not a consolation
+/// prize for a missing live adapter. A provider whose history root exists on
+/// this machine is ACTIVATED for what it can actually do: read and page its
+/// own past sessions. `can_send` stays false because it never gains
+/// `StreamTurns`, so the composer disables itself with no new gate, and
+/// `Experimental`'s reason string never over-claims what is wired.
+///
+/// The `is_activated` guard is what keeps this safe for Codex and Grok: a
+/// provider that already activated LIVE keeps its own state and merely gains
+/// the two history capabilities it genuinely has.
+fn with_local_history(
+    mut registration: dpl_chat_runtime::ProviderRegistration,
+    catalog: &dpl_chat_store::HistoryCatalog,
+) -> dpl_chat_runtime::ProviderRegistration {
+    if !catalog.has_source(registration.manifest.descriptor.id) {
+        return registration;
+    }
+    registration
+        .qualified_capabilities
+        .insert(dpl_chat_core::Capability::ReadSessions);
+    registration
+        .qualified_capabilities
+        .insert(dpl_chat_core::Capability::PageHistory);
+    if !registration.activation.is_activated() {
+        registration.activation = dpl_chat_core::ActivationState::Experimental {
+            reason: "Local transcripts only — live turns are not qualified yet.".to_owned(),
+            // No recovery action: nothing is broken and there is nothing for
+            // the operator to fix. The live adapter simply is not built yet.
+            recovery: Vec::new(),
+        };
     }
     registration
 }
@@ -1607,5 +1652,74 @@ impl eframe::App for App {
                 ctx.request_repaint_after(std::time::Duration::from_millis(1));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::with_local_history;
+    use dpl_chat_core::{ActivationState, Capability};
+    use dpl_chat_runtime::ProviderRegistration;
+    use dpl_chat_store::{HistoryCatalog, HistoryLimits, JsonlHistorySource};
+
+    /// A catalog holding a Claude source and nothing else. The root is this
+    /// crate's own directory: `has_source` keys on the DECODER's provider id,
+    /// never on what the root contains, so no transcript fixture is needed
+    /// and the test cannot depend on the operator's real machine.
+    fn claude_catalog() -> HistoryCatalog {
+        let mut catalog = HistoryCatalog::default();
+        let source = JsonlHistorySource::open(
+            env!("CARGO_MANIFEST_DIR"),
+            dpl_chat_claude::ClaudeHistoryDecoder,
+            HistoryLimits::default(),
+        )
+        .expect("this crate's own directory is a readable root");
+        catalog.register(source).expect("the catalog is empty");
+        catalog
+    }
+
+    #[test]
+    fn local_transcripts_activate_a_planned_provider() {
+        let registration = with_local_history(
+            ProviderRegistration::planned(dpl_chat_claude::MANIFEST),
+            &claude_catalog(),
+        );
+        assert!(
+            registration.activation.is_activated(),
+            "transcripts on disk are a real capability, so the provider is activated"
+        );
+        assert!(registration.has_capability(Capability::ReadSessions));
+        assert!(registration.has_capability(Capability::PageHistory));
+    }
+
+    #[test]
+    fn a_history_activated_provider_still_cannot_send() {
+        let registration = with_local_history(
+            ProviderRegistration::planned(dpl_chat_claude::MANIFEST),
+            &claude_catalog(),
+        );
+        assert!(
+            !registration.can_send(),
+            "reading a past transcript never implies a live turn transport"
+        );
+    }
+
+    #[test]
+    fn a_live_activation_is_never_downgraded_by_history() {
+        let mut live = ProviderRegistration::planned(dpl_chat_claude::MANIFEST);
+        live.activation = ActivationState::Ready;
+        let registration = with_local_history(live, &claude_catalog());
+        assert_eq!(registration.activation, ActivationState::Ready);
+        assert!(registration.has_capability(Capability::ReadSessions));
+    }
+
+    #[test]
+    fn a_provider_without_transcripts_is_untouched() {
+        let registration = with_local_history(
+            ProviderRegistration::planned(dpl_chat_gemini::MANIFEST),
+            &claude_catalog(),
+        );
+        assert!(!registration.activation.is_activated());
+        assert!(!registration.has_capability(Capability::ReadSessions));
     }
 }

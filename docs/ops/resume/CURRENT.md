@@ -1,26 +1,26 @@
 # Resume pack — CURRENT
 
-**Updated:** 2026-07-30
+**Updated:** 2026-08-01
 **Lane:** coach-ledger
 **Dirty:** false
 
 ## Goal
 
-C2e fabric mint for selected Calculator after C2d inventory PASS.
+C2f — Operator Import UI → Cursor lesson. Plan drafted; await `approve`.
 
 ## Done
 
-- C2d: `dpl-coach-inventory` + `coach-inventory-list`
-- Live: Calculator small RUNNING + seed tip (~20 ms)
-- Journal: `docs/journal/2026-07-30-c2d-inventory.md`
+- CX-cursor-01 merged (#184)
+- C2f plan: `docs/plans/coach-c2f-operator-import-ui.md`
 
 ## Next
 
-1. Land C2d PR (`feat/c2d-coach-inventory`)
-2. Author/implement **C2e** fabric mint plan
+1. Operator `approve` C2f plan (or amend)
+2. Implement `feat/c2f-coach-import-ui` — hub + Import Process + Mount seed
+3. Notepad on Windows after
 
 ## Key files
 
-- `crates/coach-inventory/`
-- `docs/plans/coach-c2d-lightweight-inventory.md`
-- `docs/journal/2026-07-30-c2d-inventory.md`
+- `docs/plans/coach-c2f-operator-import-ui.md`
+- `docs/ops/references/coach-operator-mock-c2c.html`
+- `crates/coach-overlay/` · `crates/coach-fabric/` · `crates/coach-inventory/`

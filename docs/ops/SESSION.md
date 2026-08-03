@@ -1,7 +1,7 @@
 ---
 dirty: false
 active_lane: coach-ledger
-updated: 2026-07-30
+updated: 2026-08-01
 ---
 
 # Ops session ledger
@@ -14,21 +14,22 @@ milestone-loop). Product truth stays in `docs/STATE.md`.
 **coach / ledger / lesson** — backlog:
 `docs/journal/2026-07-28-remaining-work.md`
 
-**NEXT:** C2e fabric mint for selected Calculator (budgeted deep walk +
-progress + refuse tips). Pass-2 stdio **parked**.
+**NEXT:** Operator `approve` C2f plan → implement Coach hub Import UI
+(Cursor). Pass-2 **parked**.
 
-**CLOSED:** … · **C2c** mock (#167) · **C2d** inventory (Phase 0+1)
+**CLOSED:** … · C2e (#179) · **CX-cursor-01** (#184)
 
 ## Opens
 
 | Kind | Ref | Notes |
 |---|---|---|
-| Coach product | C2e mint → C2f wire to overlay | inventory CLI proven |
-| Coach Advanced | C2b Pass-2 stdio | parked |
+| Coach product | C2f plan → hub UI | `coach-c2f-operator-import-ui.md` |
+| Coach next | Notepad (Windows) | after C2f |
+| Coach Advanced | CX-harvest / Pass-2 | parked / when a11y thin |
 
 ## Milestone
 
-C2e → C2f → (parked Advanced) → pinning → DuckDB
+C2f approve → implement → Notepad → Teacher / harvest as needed
 
 ## Signals
 

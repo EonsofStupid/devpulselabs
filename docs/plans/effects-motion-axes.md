@@ -1,10 +1,6 @@
 # Pass — effects get motion axes, and the pool becomes generated
 
-**Parent:** `docs/plans/workbench-editor.md` — this is the MOTION layer under
-its §3.4 `Bucket::Effects`, whose catalog source is *"`cl::TREATMENTS` +
-recipes + motion"*. Treatments and recipes are that plan's; the motion third is
-this one's. Its §2.4 ("everything is an ENTITY; presets are entity-scoped") and
-§2.2 ("a preset is a REF, not a bake") are RATIFIED and are not reopened here.
+**Scaffold:** `docs/plans/entity-inspector-scaffold.md` §5 step 1.
 **Operator target:** *"I need like 300 total eventually"* — and *"I am copying
 all of my effects from After Effects."*
 **Sibling law:** `hues.json` L4 — *"a large pool. Adding a palette costs one
