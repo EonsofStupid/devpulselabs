@@ -27,6 +27,8 @@ pub enum StatusAction {
     Snip,
     /// Ask the app owner to open, restore, and focus a native window.
     Window(AppWindowKey),
+    /// Toggle the Providers roster popup (V2).
+    ToggleProviders,
 }
 
 /// Data-only description of an app-owned window accessory.
@@ -51,6 +53,23 @@ pub struct StatusCtx<'a> {
     pub mood: &'static Mood,
     /// The JobBoard's "working…" truth — None = nothing running.
     pub working: Option<String>,
+    /// THE ROSTER's truth — None = no provider is activated, and the control
+    /// is absent rather than claiming an empty capability.
+    pub providers: Option<ProviderChip>,
+    /// The session's seeded ink-bleed: which pair of hues this launch drew
+    /// and how long its dwell runs. Rolled once by the shell, never here — a
+    /// cell paints, it does not decide.
+    pub bleed: crate::providers::BleedRoll,
+}
+
+/// What the platform can do, ready to paint. Built by the shell from the
+/// fabric's roster so the cell stays a painter (Law 4).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderChip {
+    /// `Codex, Claude Code` — the activated providers, named.
+    pub summary: String,
+    /// Each provider's truthful limit, one per line.
+    pub tooltip: String,
 }
 
 /// One indicator: identity, which lane column it lives in, and its painter.
@@ -91,6 +110,11 @@ pub static CELLS: &[StatusCell] = &[
         id: "jobs",
         lane: Lane::Right,
         render: jobs,
+    },
+    StatusCell {
+        id: "providers",
+        lane: Lane::Right,
+        render: providers,
     },
     StatusCell {
         id: "build",
@@ -220,6 +244,43 @@ fn jobs(ui: &mut Ui, cx: &StatusCtx) -> Option<StatusAction> {
     }
     None
 }
+
+/// The PROVIDERS control (V1) — brain + "Providers" + the `ai` circle, the
+/// ink bleed running on hover over the seeded dwell.
+///
+/// It answers the operator's question — "the providers that get activated in
+/// the chat become available in the platform" — on a surface that is not
+/// Chat. Absent entirely when nothing is activated: silence, never an empty
+/// claim. Read-only; the click opens V2's popup and does nothing yet.
+fn providers(ui: &mut Ui, cx: &StatusCtx) -> Option<StatusAction> {
+    if let Some(chip) = &cx.providers {
+        let response = crate::providers::ProvidersControl {
+            names: &chip.summary,
+            tooltip: &chip.tooltip,
+            roll: cx.bleed,
+        }
+        .show(ui);
+        ui.pilot_track(
+            &response,
+            // The name is the control AND what it stands for: "Providers"
+            // is painted, the roster is what it means. An agent reading the
+            // tree learns both, and a scenario can assert on either.
+            NodeMetadata::new(
+                PROVIDERS_PILOT_ID,
+                Role::Button,
+                format!("Providers — {}", chip.summary),
+            )
+            .value(chip.summary.clone()),
+        );
+        if response.clicked() {
+            return Some(StatusAction::ToggleProviders);
+        }
+    }
+    None
+}
+
+/// The pilot identity the `platform-sees-providers` scenario asserts on.
+pub const PROVIDERS_PILOT_ID: PilotId = PilotId::new("shell.status.providers");
 
 fn build(ui: &mut Ui, cx: &StatusCtx) -> Option<StatusAction> {
     if !cx.build.is_empty() {

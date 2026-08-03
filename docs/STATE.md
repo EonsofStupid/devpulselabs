@@ -2,11 +2,152 @@
 
 Updated every pass. This file is the first read of every session.
 
-**2026-07-31 — C2f Operator Import UI (`docs/journal/2026-07-31-c2f-operator-import-ui.md`):**
-`dpl-hub-coach` on the rail — pick → honesty Import → checks → Standard
-mint → guided lesson via overlay binary (Cursor seed `Search Ctrl+K`).
-Calculator stays regression. NEXT: live Cursor import→paint proof on
-release exe; Advanced harvest / Teacher / Notepad later.
+**2026-08-02 — THE PROVIDERS CONTROL AND THE INK BLEED (V1, plan
+`docs/plans/providers-v1-ink-bleed-control.md`, journal
+`docs/journal/2026-08-02-v1-providers-control.md`, `green ✔`):** the brain,
+the word **Providers**, and the `ai` circle at the P's cap-height, washing
+from muted line-art to full colour over a passive 5.6–6.3s on hover.
+
+Everything the operator named is an AUTHORED token: a **`dwell` duration
+tier** and a `dwell` ease in `tokens/motion.json` beside the new `ink-bleed`
+effect (18 → 19), `brain` in `tokens/icons.json` over the vendored Lucide
+pool, and a **third preset kind — `bleed`** — in `tokens/presets.json`.
+`MotionPreset` carries one `enter` effect and no colour, so widening it for
+one caller would have changed all three existing presets; the new kind gets
+`generate_presets` to cross-check its effect against motion.json and every
+pool hue against hues.json, so **an unknown hue fails the build**. That is
+what makes "an elaborate preset used globally" real rather than a list of
+hexes in a widget. `crates/shell/src/providers.rs` holds no duration, curve,
+hue or geometry of its own; the `ai` circle's diameter is a RATIO of the
+label size so the cap-height alignment survives a font change. The pair and
+the dwell jitter are xorshift-seeded like `random_mood_index` and pin through
+`set_harness_mood`.
+
+TWO BUGS THE PROOF CAUGHT. (1) The bleed was not animating: the animation id
+came from `ui.id()`, the status bar rebuilds its lane as a fresh child `Ui`
+each frame, and egui snaps an unseen id straight to target — a six-second
+bleed was an instant swap. Fixed with a stable `Id::new`. (2) **The capture
+harness cannot photograph any animation mid-flight**: every capture runs
+`MotionPolicy::Suppressed` (`egui-pilot-ai-runtime/src/lib.rs:1246`), and
+`Natural`/`FastForward` are unused. That is a standing limit on ALL nineteen
+effects, logged as a harness open. V1 therefore proves the two ends with
+shots (`docs/proof/providers-control-{cold,full}.png`) and the duration with
+pins on the authored token. NEXT: V2, the roster popup the control opens.
+
+**2026-08-02 — THE PLATFORM CAN SEE WHAT A PROVIDER CAN DO (P1, plan
+`docs/plans/chat-providers-become-platform.md`, ADR-017, journal
+`docs/journal/2026-08-02-p1-provider-registry.md`, branch
+`feat/p1-provider-availability`, `green ✔`):** the operator's ask — *"the
+providers that get activated in the chat become available in the platform"*
+— answered by THE ROSTER, a fold on the fabric in the same shape as THE
+JOBBOARD.
+
+THE FINDING: the provider CHANNEL cannot answer the roster question by
+construction. `ProviderEvent` is fourteen variants of ONE activation
+attempt's progress, and H1's providers activate by having transcripts on
+disk — no attempt runs, so no `Ready` is ever published. A broadcast also has
+no past, so a late subscriber hears nothing about what activated before it.
+The answer had to be a FOLD, not a stream. **No new dependency edge**:
+`dpl-fabric → dpl-chat-core` is the ratified exception (`architecture.md:65`),
+so `Capability` rides an edge that already existed.
+
+A capability SET, never `can_send` (ADR-017 §4) — routing, A/B fan-out and
+capture all need "who can take this beat", which a boolean cannot answer.
+One fact, three projections: the fold → `Tree::Agents` `providers/roster`
+(`{written_at_ms, providers}`) → the seam's `/state` under
+`registry.providers`. `ProviderId` is `&'static str`, so restore RESOLVES
+stored names against what the build registers and drops the rest; stored
+capability slugs resolve the same way. `Capability::slug()`/`from_slug()`
+give the stored vocabulary a name that survives a caption being reworded.
+Publishing is change-detected — fourteen `set_provider_activation` sites plus
+the drain make any enumeration of "activation-affecting" intents wrong within
+one commit.
+
+Proof `platform-sees-providers` (fixture `chat`, live runtime) asserts
+`root/shell.status.providers` — the ROOT viewport — names Claude;
+`docs/proof/platform-sees-providers.png` shows MAIN reading `AI · Claude
+Code`. The status chip is the smallest honest consumer and a PLACEHOLDER:
+V1 of `docs/plans/providers-presence-and-the-brain.md` replaces it with the
+control `docs/design/mocks/providers.html` draws.
+
+**2026-08-01 — WORKBENCH `/experiments` (plan
+`docs/plans/workbench-experiments.md`, journal
+`docs/journal/2026-08-01-workbench-experiments.md`, PR #185):** experiments
+are their own domain under Workbench, and they all read the SAME analyzer.
+**NO CRATE ADDED** (operator instruction — the workspace is 69 crates and
+that is already too many): one `SubId`, one `SubRoute`, one `else if`, and
+`experiments.rs` inside `crates/hubs/workbench`.
+
+THE FINDING: `manifest.json` carried no experiment and no variant, so a
+bundle could not say what it was evidence FOR — grouping and comparison
+were IMPOSSIBLE, not merely unbuilt. "Define the minimal requirements so it
+automatically starts getting captured" resolved to exactly one thing: a run
+declares its experiment + variant in its manifest. Declared on the SCENARIO,
+never looked up from the experiment document at run time — **a bundle is
+evidence, and evidence must be interpretable standing alone**. `scan_runs`
+was extracted from `TestLab` into a free function so `/experiments` and
+`test-lab` read one walk; a second scanner is what would make experiments
+stop benefiting from the lab. `requires` is a CONTRACT: an unmet one is
+reported, never silently counted.
+
+Proof `docs/proof/workbench-experiments-native.png` — the experiment, its
+hypothesis, and `rows · chat-local-histories · 1 run(s) · all complete`
+naming a bundle a drill produced minutes earlier, with no per-experiment
+capture wiring. Drill `workbench-experiments` 4/4 on the real exe.
+
+⚠ **THREE DEFECTS ONLY RUNNING IT CAUGHT.** (1) The domain node never
+minted — tracked on a `Frame::group` response, which is not a live node.
+(2) Hub pilot ids carry a `root/` prefix, unlike Chat's viewport-scoped
+ids. (3) The card was transparent over the backdrop art and genuinely
+unreadable. Writing it proved nothing; running it proved all three.
+
+⚠ **COLD CLIPPY IS NOW LAW.** `cargo clean -p` the touched crates BEFORE
+clippy. It caught four compile errors a warm run hid (a `Flow` literal in
+the protocol's own tests, three in `egui-pilot-ai-runtime`). Adding a field
+to a widely-constructed struct puts the fallout in test targets a warm gate
+never rebuilds. Second time this session — the first cost both hosted lanes
+going red after a local `green ✔`.
+
+**NEXT:** the first real A/B — a second arm on `chat-history-rail`, so two
+variants sit side by side and the difference is VISIBLE rather than
+computed. Everything it needs now exists.
+
+**2026-07-31 — ADR-017 FILED: THE PROVIDER CAPABILITY REGISTRY IS A
+PLATFORM FACT** (`docs/design/adr-017-provider-capability-registry.md`, PR
+#183). Filed BEFORE P1 was built, deliberately: P1 as planned (two booleans
+folded onto the fabric for a status chip) was a chat feature wearing a
+platform's clothes. The operator named what activation is FOR — it
+cross-links into the platform's config stores, and **A2UI, workflows /
+mixture-of-experts routing, A/B duplicate runs, and Clyffy's training
+capture all bind to its shape**. One fact, ONE writer (the chat host), four
+consumers. It carries a capability SET (routing needs skills, not
+booleans), persists to the estate's `Tree::Agents` (which already exists
+and is already "agent (chat provider) session state for the HTTP seam"), so
+a provider active last launch is known at BOOT before any probe runs; and
+it joins the seam's wire-JSON registry — "what an agent reads to learn the
+map". It never holds a credential. No new dependency edge:
+`architecture.md:65` already ratifies `dpl-fabric → dpl-chat-core`.
+P1's plan was amended in the same commit rather than rewritten silently.
+
+**2026-08-01 — D1 + H1 MERGED (`951fb2a`, PR #180 double-green).** Both
+passes landed together after main moved twice under D1 (toolchain 1.92 →
+1.97.1 in #177, coach-fabric in #179) and #178 went CONFLICTING; D1's
+commit was rebased into #180 and **#178 was CLOSED as superseded**, its
+content unchanged and re-verified on 1.97.1. LESSON: **a PR that is green
+and unmerged is not done — it is decaying.** The whole cost was incurred in
+the window between double-green and merge.
+
+**The Providers program is mapped** (`docs/plans/providers-presence-and-the-brain.md`)
+— P1 (registry) → V1 (ink-bleed preset + the brain/`ai` control) → V2
+(popup) → V3 (modal) → A1 (presence probes) → A2 (subscription init). Two
+findings shape it: presence is answered by the VENDOR'S OWN TOOL
+(`codex login status`), never by reading a cookie jar; and the operator's
+5.6–6.3s bleed is a NEW MOTION CLASS (~18× the slowest authored duration),
+so it becomes a `dwell` tier in `tokens/motion.json` with a SEEDED colour
+pick — a freely random pick would make every proof shot flaky. The mock is
+`docs/design/mocks/providers.html`: one surface, one registry — the control
+and its bleed, the roster, the modal, the stored fact, and the four
+consumers all driven by the same provider state.
 
 **2026-07-31 — CX-cursor-01 PASS (`docs/journal/2026-07-31-cx-cursor-01.md`):**
 overlay locate on Cursor **`Search Ctrl+K`** + **`File`**; Calculator `7`
@@ -1886,15 +2027,32 @@ is DELETED. Memory: `chat-is-a-peer-window`.
    (docs/plans/p1-data-root.md): resolution is arg -> env -> exe-adjacent ->
    walk-up -> cwd; double-click finds the repo content root (proven);
    scattered target/release/content migrated + removed.
-4. Stale EguiPilotAI scenarios/fixtures (pre-Program-L flyout/Library refs).
+4. EguiPilotAI cannot capture an animation MID-FLIGHT: every capture runs
+   `MotionPolicy::Suppressed` (`egui-pilot-ai-runtime/src/lib.rs:1246` —
+   `animation_time = 0` + `clear_animations()`), and the `Natural` /
+   `FastForward` policies in the enum are selected by nothing. Applies to all
+   19 authored effects. Found proving V1's 5.6-6.3s bleed, where the 1.2s and
+   6.6s shots came back byte-identical.
+5. Stale EguiPilotAI scenarios/fixtures (pre-Program-L flyout/Library refs).
+   Measured 2026-08-02 on the headless Linux box under Xvfb:
+   `chat-local-histories`, `chat-content-spine`, `chat-provider-tab` and
+   `shell-navigation` all fail, and fail identically on `2459cdf` — so this
+   is the standing staleness, not any one pass. `shell-navigation` goes red
+   on its FIRST step and on a hover-driven flyout. `platform-sees-providers`
+   passes on the same box, so the harness itself is sound.
 
 ## Next
 
-1. **W10b** — LandingCard Episode polish, live budget strip, activity-feed
+1. **Providers** — land P1+V1, then **V2**: the roster popup the control
+   opens, thumbnails carrying live state from P1's roster with dynamic
+   tooltips. Then V3 modal → A1 probes → A2 sign-in. Everything against
+   `docs/design/mocks/providers.html`.
+2. **Coach C2f** — Operator Import UI, plan drafted, awaiting `approve`.
+3. **W10b** — LandingCard Episode polish, live budget strip, activity-feed
    line, full chapters×slots compose wall (`w10-slide-association.md`).
-2. Estate deeper wire (selection/undo, Workbench session, Agents tree).
-3. Seed empty classes / animation templates (catalog follow-ons).
-4. Parallel backlog: RR1.1; AEP Phase 2; ColdLight remainder; mac-parity.
+4. Estate deeper wire (selection/undo, Workbench session, Agents tree).
+5. Seed empty classes / animation templates (catalog follow-ons).
+6. Parallel backlog: RR1.1; AEP Phase 2; ColdLight remainder; mac-parity.
    Ops: triage Dependabot PRs (#77–#86, don't blind-merge majors); bring
    `dpl-win` online for Windows nightly asset; `dpl-linux` `svc.sh install`;
    unset Cursor `CARGO_TARGET_DIR` for local green. Operator: real xAI

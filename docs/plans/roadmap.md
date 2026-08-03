@@ -104,7 +104,7 @@ the deck track in session capture. Original charter follows.
   2026-07-23): `content/<show-name>/<episode-name>/` — the show name IS
   the stream category (e.g. `content/devpulse-news/<episode>`); episode
   folders carry the SAME doctor-enforced contract as seeds (episode.json
-  + look.json + slide folders) plus a reserved episode-level `assets/`
+  + theme.json + slide folders) plus a reserved episode-level `assets/`
   for kept artifacts. Seeds stay pristine templates; "new show" copies a
   seed into content; episode listings union both roots. EPISODES ARE NOT
   GUIDES (operator's emphasis): the Steps/guide system files through the

@@ -48,7 +48,7 @@ fn find_on_path(bin: &str) -> Option<PathBuf> {
     })
 }
 
-/// Every place we look, in order, tagged with a source label for honest
+/// Every place we theme, in order, tagged with a source label for honest
 /// logs and honest errors.
 pub fn candidates() -> Vec<(PathBuf, &'static str)> {
     let mut c: Vec<(PathBuf, &'static str)> = Vec::new();

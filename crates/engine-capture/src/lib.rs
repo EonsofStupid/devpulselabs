@@ -1218,7 +1218,7 @@ pub fn list_audio_devices() -> Vec<String> {
 pub fn list_audio_devices() -> Vec<String> {
     // The bundled ffmpeg enumerates PulseAudio sources itself (`-sources pulse`)
     // so the app never shells out to pactl — the last PATH dependency is gone.
-    // Output lines look like:  "alsa_output.pci-….monitor [Monitor of Built-in] (monitor)"
+    // Output lines theme like:  "alsa_output.pci-….monitor [Monitor of Built-in] (monitor)"
     // and may land on stdout or stderr depending on the build; scan both.
     let out = ffmpeg_cmd()
         .args(["-hide_banner", "-sources", "pulse"])

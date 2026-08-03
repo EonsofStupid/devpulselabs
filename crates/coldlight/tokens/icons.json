@@ -1,29 +1,155 @@
 {
-  "$comment": "The 8th authored source (ADR-015): semantic icon ids resolved from the vendored Lucide 1.27.0 pool (assets/lucide/icons). One entry per MEANING — the same law the old glyph consts carried. An entry whose SVG is missing fails the build.",
+  "$comment": "The 8th authored source (ADR-015): semantic icon ids resolved from the vendored Lucide 1.27.0 pool (assets/lucide/icons). One entry per MEANING \u2014 the same law the old glyph consts carried. An entry whose SVG is missing fails the build.",
   "icons": [
-    { "id": "home", "lucide": "house", "label": "Home", "blurb": "the start page" },
-    { "id": "workbench", "lucide": "hammer", "label": "Workbench", "blurb": "where slides get built" },
-    { "id": "library", "lucide": "layout-grid", "label": "Library", "blurb": "every ingredient, browsable" },
-    { "id": "wiredfront", "lucide": "clapperboard", "label": "WiredFRONT", "blurb": "the video editor" },
-    { "id": "shows", "lucide": "layout-grid", "label": "Shows", "blurb": "your content, by category" },
-    { "id": "bot", "lucide": "bot", "label": "Assistant", "blurb": "the AI seat" },
-    { "id": "present", "lucide": "monitor-play", "label": "Present", "blurb": "the show machine" },
-    { "id": "snip", "lucide": "camera", "label": "Snip", "blurb": "take a capture" },
-    { "id": "dock", "lucide": "chevron-up", "label": "Dock", "blurb": "tuck the palette away" },
-    { "id": "fullbleed", "lucide": "maximize-2", "label": "Full bleed", "blurb": "hide the chrome, keep the content" },
-    { "id": "fullbleed-exit", "lucide": "minimize-2", "label": "Exit full bleed", "blurb": "bring the chrome back" },
-    { "id": "close", "lucide": "x", "label": "Close", "blurb": "dismiss this" },
-    { "id": "back", "lucide": "chevron-left", "label": "Back", "blurb": "one step up" },
-    { "id": "img", "lucide": "camera", "label": "Image", "blurb": "a still capture" },
-    { "id": "video", "lucide": "video", "label": "Video", "blurb": "a moving capture" },
-    { "id": "session", "lucide": "monitor-play", "label": "Session", "blurb": "a recorded working session" },
-    { "id": "steps", "lucide": "footprints", "label": "Steps", "blurb": "a click-by-click walkthrough" },
-    { "id": "rec", "lucide": "circle-dot", "label": "Record", "blurb": "start recording" },
-    { "id": "stop", "lucide": "square", "label": "Stop", "blurb": "stop recording" },
-    { "id": "mark", "lucide": "footprints", "label": "Mark", "blurb": "drop a step marker" },
-    { "id": "region", "lucide": "scan", "label": "Region", "blurb": "capture a drawn region" },
-    { "id": "window", "lucide": "app-window", "label": "Window", "blurb": "capture one window" },
-    { "id": "full", "lucide": "monitor", "label": "Full screen", "blurb": "capture the whole display" },
-    { "id": "free", "lucide": "lasso", "label": "Freeform", "blurb": "capture a freehand shape" }
+    {
+      "id": "home",
+      "lucide": "house",
+      "label": "Home",
+      "blurb": "the start page"
+    },
+    {
+      "id": "workbench",
+      "lucide": "hammer",
+      "label": "Workbench",
+      "blurb": "where slides get built"
+    },
+    {
+      "id": "library",
+      "lucide": "layout-grid",
+      "label": "Library",
+      "blurb": "every ingredient, browsable"
+    },
+    {
+      "id": "wiredfront",
+      "lucide": "clapperboard",
+      "label": "WiredFRONT",
+      "blurb": "the video editor"
+    },
+    {
+      "id": "shows",
+      "lucide": "layout-grid",
+      "label": "Shows",
+      "blurb": "your content, by category"
+    },
+    {
+      "id": "bot",
+      "lucide": "bot",
+      "label": "Assistant",
+      "blurb": "the AI seat"
+    },
+    {
+      "id": "present",
+      "lucide": "monitor-play",
+      "label": "Present",
+      "blurb": "the show machine"
+    },
+    {
+      "id": "snip",
+      "lucide": "camera",
+      "label": "Snip",
+      "blurb": "take a capture"
+    },
+    {
+      "id": "dock",
+      "lucide": "chevron-up",
+      "label": "Dock",
+      "blurb": "tuck the palette away"
+    },
+    {
+      "id": "fullbleed",
+      "lucide": "maximize-2",
+      "label": "Full bleed",
+      "blurb": "hide the chrome, keep the content"
+    },
+    {
+      "id": "fullbleed-exit",
+      "lucide": "minimize-2",
+      "label": "Exit full bleed",
+      "blurb": "bring the chrome back"
+    },
+    {
+      "id": "close",
+      "lucide": "x",
+      "label": "Close",
+      "blurb": "dismiss this"
+    },
+    {
+      "id": "back",
+      "lucide": "chevron-left",
+      "label": "Back",
+      "blurb": "one step up"
+    },
+    {
+      "id": "img",
+      "lucide": "camera",
+      "label": "Image",
+      "blurb": "a still capture"
+    },
+    {
+      "id": "video",
+      "lucide": "video",
+      "label": "Video",
+      "blurb": "a moving capture"
+    },
+    {
+      "id": "session",
+      "lucide": "monitor-play",
+      "label": "Session",
+      "blurb": "a recorded working session"
+    },
+    {
+      "id": "steps",
+      "lucide": "footprints",
+      "label": "Steps",
+      "blurb": "a click-by-click walkthrough"
+    },
+    {
+      "id": "rec",
+      "lucide": "circle-dot",
+      "label": "Record",
+      "blurb": "start recording"
+    },
+    {
+      "id": "stop",
+      "lucide": "square",
+      "label": "Stop",
+      "blurb": "stop recording"
+    },
+    {
+      "id": "mark",
+      "lucide": "footprints",
+      "label": "Mark",
+      "blurb": "drop a step marker"
+    },
+    {
+      "id": "region",
+      "lucide": "scan",
+      "label": "Region",
+      "blurb": "capture a drawn region"
+    },
+    {
+      "id": "window",
+      "lucide": "app-window",
+      "label": "Window",
+      "blurb": "capture one window"
+    },
+    {
+      "id": "full",
+      "lucide": "monitor",
+      "label": "Full screen",
+      "blurb": "capture the whole display"
+    },
+    {
+      "id": "free",
+      "lucide": "lasso",
+      "label": "Freeform",
+      "blurb": "capture a freehand shape"
+    },
+    {
+      "id": "brain",
+      "lucide": "brain",
+      "label": "Providers",
+      "blurb": "the frontier AI on this machine"
+    }
   ]
 }

@@ -12,6 +12,7 @@ mod chat;
 mod coach_fabric;
 #[cfg(feature = "eguipilotai-devtools")]
 mod coach_signals;
+mod presence;
 
 use dpl_fabric::Fabric;
 use dpl_hub::{Hub, Route};
@@ -86,7 +87,7 @@ fn main() -> eframe::Result {
         .and_then(|i| args.get(i + 1))
         .cloned();
     // `--lib-section <slug>` — boot the Workbench Library on ONE section by
-    // its chip slug (seeds/templates/blocks/elements/looks/colors/presets/
+    // its chip slug (seeds/templates/blocks/elements/themes/colors/presets/
     // fonts/moods), so every wall is provable on the real exe, not just
     // templates.
     let lib_section: Option<String> = args
@@ -783,6 +784,7 @@ impl App {
                         codex_activation.activation_capability_qualified(),
                     ),
                     dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_claude::MANIFEST),
+                    dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_cursor::MANIFEST),
                     dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_gemini::MANIFEST),
                     activation_registration(
                         dpl_chat_grok::MANIFEST,
@@ -804,6 +806,7 @@ impl App {
                 codex_activation.activation_capability_qualified(),
             ),
             dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_claude::MANIFEST),
+            dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_cursor::MANIFEST),
             dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_gemini::MANIFEST),
             activation_registration(
                 dpl_chat_grok::MANIFEST,
@@ -964,6 +967,7 @@ impl App {
                 codex_activation,
                 grok_activation,
                 open_at_boot: chat_open,
+                estate: estate.clone(),
                 #[cfg(feature = "eguipilotai-devtools")]
                 proof_mode: chat_proof,
             },

@@ -1,8 +1,6 @@
 // spawn-audit: exempt(CLI harness — console output is the product)
 use egui_pilot_ai_protocol as protocol;
-use egui_pilot_ai_runner::{
-    load_flow, save_flow, EguiPilotConfig, ProcessSession, RunnerError, WindowSize, CONFIG_FILE,
-};
+use egui_pilot_ai_runner::{load_flow, save_flow, EguiPilotConfig, ProcessSession, RunnerError};
 use protocol::{
     CoachCommand, CoachCondition, CoachId, CoachStyle, Flow, Locator, NodeId, RunOutcome,
     SnapshotRequest, Touchpoint, TriggerKind,
@@ -102,7 +100,7 @@ fn doctor(workspace: &Path) -> Result<(), CliError> {
         "{}",
         serde_json::to_string_pretty(&json!({
             "ok": profiles.iter().all(|profile| profile["exists"] == true),
-            "config": workspace.join(CONFIG_FILE),
+            "config": workspace.join(protocol::CONFIG_FILE),
             "profiles": profiles,
             "fixtures": config.fixtures.keys().collect::<Vec<_>>(),
             "capabilities": egui_pilot_ai_protocol::capability_catalog(),
@@ -121,7 +119,16 @@ fn test(
     let flow = load_flow(scenario)?;
     let declared_fixture = flow.fixture.as_ref().map(|fixture| fixture.0.as_str());
     let fixture = fixture.or(declared_fixture);
-    let mut session = ProcessSession::launch(workspace, &config, profile, fixture, None)?;
+    // The flow is loaded before launch, so the experiment dimension reaches
+    // the manifest without a second write or a post-hoc amendment.
+    let mut session = ProcessSession::launch(
+        workspace,
+        &config,
+        profile,
+        fixture,
+        None,
+        flow.experiment.as_ref(),
+    )?;
     let result = session.run(flow)?;
     let run_dir = session.run_dir.clone();
     session.stop()?;
@@ -155,7 +162,7 @@ fn require_passing_outcome(
 
 fn inspect(workspace: &Path, profile: &str, fixture: Option<&str>) -> Result<(), CliError> {
     let config = EguiPilotConfig::load(workspace)?;
-    let mut session = ProcessSession::launch(workspace, &config, profile, fixture, None)?;
+    let mut session = ProcessSession::launch(workspace, &config, profile, fixture, None, None)?;
     let snapshot = session.snapshot(SnapshotRequest::default())?;
     // The signal catalog rides with the semantic inventory because the two
     // answer the same question: what can a touchpoint be aimed at, and what
@@ -257,6 +264,7 @@ fn coach(
         &config,
         profile,
         options.fixture.as_deref(),
+        None,
         None,
     )?;
     let mounted = session.coach(CoachCommand::Mount {
@@ -609,10 +617,19 @@ fn call_tool(state: &mut McpState, name: &str, arguments: Value) -> Result<Value
             let window = arguments
                 .get("window")
                 .and_then(Value::as_str)
-                .map(str::parse::<WindowSize>)
-                .transpose()?;
-            let session =
-                ProcessSession::launch(&state.workspace, &state.config, profile, fixture, window)?;
+                .map(str::parse::<protocol::WindowSize>)
+                .transpose()
+                // WindowSize now yields a plain message — the runner's error
+                // type is a runner concern, not the record's.
+                .map_err(CliError::Usage)?;
+            let session = ProcessSession::launch(
+                &state.workspace,
+                &state.config,
+                profile,
+                fixture,
+                window,
+                None,
+            )?;
             let result = json!({
                 "session": session.session,
                 "run_directory": session.run_dir,

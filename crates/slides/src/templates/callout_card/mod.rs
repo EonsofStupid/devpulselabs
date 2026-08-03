@@ -62,12 +62,14 @@ impl SlideTemplate for CalloutCard {
         }
         let painter = ui.painter();
 
-        let p = cl::motion::ENTER_RISE.at(now, t0, 0);
+        let m = cl::motion::ENTER_RISE.sample(now, t0, 0);
         if cl::motion::ENTER_RISE.in_flight(now, t0, 1) {
             ui.ctx().request_repaint();
         }
-        let alpha = p.clamp(0.0, 1.0);
-        let lift = fluid.sp_6() * (1.0 - p);
+        let alpha = m.alpha;
+        // The effect says HOW FAR as a fraction; Fluid says how far that is in
+        // this window. Neither one owns both.
+        let lift = fluid.sp_6() * m.offset.y;
 
         let card_h = (stage.rect.height() * 0.55).max(fluid.sp_8() * 3.0);
         let card = Rect::from_center_size(

@@ -1,0 +1,100 @@
+id = "providers-modal"
+fixture = "chat"
+record = true
+
+# V3 — a card promoted into the provider summary.
+#
+# The operator's sequence, end to end and with no mouse anywhere but the two
+# clicks: the control opens the roster, a card opens the modal, and the modal
+# carries the live "how long they have been in business" figure.
+#
+# The tenure is a LIVE clock, so the shot differs every run by design. The
+# figure's arithmetic is pinned in units instead
+# (`the_tenure_counts_from_the_authored_date`, `the_tenure_ticks`); what this
+# scenario proves is that the promotion happens and the modal is real.
+
+[[steps]]
+kind = "wait"
+milliseconds = 2500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/shell.status.providers"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+# The card exists and knows its own state.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "signed in"
+
+[steps.expectation.target]
+id = "root/shell.status.providers/claude"
+
+# THE PROMOTION: the card becomes the modal.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/shell.status.providers/claude"
+
+[[steps]]
+kind = "wait"
+milliseconds = 500
+
+# The modal is up — its Close button only exists while it is open.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/shell.status.providers/modal.close"
+
+[[steps]]
+kind = "capture"
+name = "providers-modal"
+
+[steps.viewport]
+key = "root"
+
+# And it closes on its own control, rather than trapping the operator.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/shell.status.providers/modal.close"
+
+[[steps]]
+kind = "wait"
+milliseconds = 300
+
+# Closed: the modal is gone from the tree entirely (`hidden` would require it
+# to still exist), and the operator is back on the roster rather than dumped
+# out of the surface they came from.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "signed in"
+
+[steps.expectation.target]
+id = "root/shell.status.providers/claude"

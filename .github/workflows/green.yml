@@ -23,6 +23,10 @@ name: green
 # The toolchain is pinned by `rust-toolchain.toml` (1.92.0 + clippy/rustfmt),
 # so the hosted image's preinstalled Rust is overridden automatically — the
 # lane cannot silently drift onto a newer compiler.
+#
+# The Windows lane also PUBLISHES its exe (see `upload the windows exe`). The
+# gate's release build was already happening and being discarded; keeping it
+# means a green commit on main is a downloadable build, not just a green tick.
 
 on:
   workflow_dispatch:
@@ -32,13 +36,25 @@ on:
       - "docs/**"
       - "**.md"
       - ".claude/**"
+  # Every commit that reaches main builds, so every commit on main HAS a
+  # downloadable Windows exe (see the upload step). Deliberately WITHOUT
+  # `paths-ignore`: a docs-only merge produces a byte-identical exe, but it
+  # produces one stamped with the new tip SHA, so "grab the artifact for the
+  # current main" is always a question with an answer. On a public repo the
+  # minutes are free; an operator unable to tell which commit they are running
+  # is not.
+  push:
+    branches: [main]
 
 # A new push supersedes an in-flight run for the same PR. On self-hosted this
 # had to be done by hand — stale runs sat in the queue holding the only
 # Windows slot.
 concurrency:
   group: green-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # ...but NEVER cancel a main build. On a PR the newest push is the only one
+  # that matters; on main a cancelled run is a commit with no exe, which is
+  # exactly the gap this workflow exists to close.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -67,6 +83,36 @@ jobs:
           cache-all-crates: "true"
       - name: cargo green (the xtask gate)
         run: cargo green
+
+      # THE EXE THE OPERATOR DOUBLE-CLICKS.
+      #
+      # `cargo green` already ends in `cargo build --workspace --release`, so
+      # by this point both binaries exist — this step costs a zip, not a
+      # build. Until now CI compiled them on windows-latest and threw them
+      # away, which meant devpulselabs.exe existed in exactly one place on
+      # earth: whatever the operator's own machine last built. Work could sit
+      # merged on main for days while the running exe predated it, with no way
+      # to tell from the app itself.
+      #
+      # No `if:` — the default is "only on success", and that is the point: an
+      # artifact exists ONLY for a commit that passed the gate on this OS.
+      #
+      # `dpl-lottie-render.exe` ships BESIDE the app, not inside it (ADR-009:
+      # the façade spawns it). Shipping the pair keeps the download a working
+      # install rather than an app with a missing helper.
+      - name: upload the windows exe
+        uses: actions/upload-artifact@v7
+        with:
+          # The SHA is in the NAME so the download answers "which commit is
+          # this?" without opening it.
+          name: devpulselabs-windows-${{ github.sha }}
+          path: |
+            target/release/devpulselabs.exe
+            target/release/dpl-lottie-render.exe
+          # A silent empty artifact would be worse than none — it would look
+          # like a delivered build.
+          if-no-files-found: error
+          retention-days: 30
 
   green-linux:
     runs-on: ubuntu-latest

@@ -3220,6 +3220,7 @@ mod tests {
                 command: ClientCommand::Run {
                     run_id: RunId::new("run"),
                     flow: Flow {
+                        experiment: None,
                         id: protocol::ScenarioId::new("empty"),
                         fixture: None,
                         steps: vec![],
@@ -3269,6 +3270,7 @@ mod tests {
                 command: ClientCommand::Run {
                     run_id: RunId::new("run"),
                     flow: Flow {
+                        experiment: None,
                         id: protocol::ScenarioId::new("waiting"),
                         fixture: None,
                         steps: vec![Step::Wait {
@@ -3431,6 +3433,7 @@ mod tests {
                 command: ClientCommand::Run {
                     run_id: RunId::new("run"),
                     flow: Flow {
+                        experiment: None,
                         id: protocol::ScenarioId::new("unsupported"),
                         fixture: None,
                         steps: vec![Step::Action {

@@ -22,7 +22,7 @@ today are Phosphor font glyphs styled by color only; the operator wants a
 styled icon LANGUAGE (neubrutalist + clay variants) and, eventually, their
 own SVGs flowing through it. This pass builds the pipeline once — Lucide
 first through it, operator SVGs later through the SAME seam — per
-`docs/design/adr-015-icon-language.md` (rides this PR).
+`docs/design/adr-016-icon-language.md` (rides this PR).
 
 Note: `cl::icon`'s doc-header says the Phosphor codepoints sit "under the
 OLD lucide inventory's semantic names" — Lucide is the original app's
@@ -498,7 +498,7 @@ mod icon_language_tests {
 }
 ```
 
-**Step 7 — docs.** `docs/design/adr-015-icon-language.md` (already
+**Step 7 — docs.** `docs/design/adr-016-icon-language.md` (already
 authored, rides this PR); POAM V3 amendment (already applied); STATE.md
 entry at session end.
 
@@ -538,7 +538,7 @@ sizes) is V3b's evidence gate by design — stated honestly, not skipped.
 ## 7. Commit plan
 
 - Branch: `feat/v3a-icon-language` off `origin/main`.
-- `git add`: `docs/design/adr-015-icon-language.md`,
+- `git add`: `docs/design/adr-016-icon-language.md`,
   `docs/plans/icon-language-v3a.md`, `docs/plans/poam-visual-experience.md`,
   `crates/coldlight/tokens/icons.json`, `crates/coldlight/assets/icons/`,
   `crates/coldlight/Cargo.toml`, `Cargo.lock`, `crates/coldlight/build.rs`,
