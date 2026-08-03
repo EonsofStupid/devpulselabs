@@ -18,7 +18,7 @@
 //! | Layouts | `templates/` + `infographics/` |
 //! | Combos | `blocks/` |
 //! | Pieces | `elements/` |
-//! | Looks | `tokens/traits.json` |
+//! | Themes | `tokens/traits.json` |
 //! | Styles | `presets.json` |
 //!
 //! Same split as "card" for `dpl_doc::Slide`. The stack is invisible — a
@@ -40,7 +40,7 @@ pub(crate) enum LibSection {
     Templates,
     Blocks,
     Elements,
-    Looks,
+    Themes,
     Colors,
     Presets,
     Fonts,
@@ -57,7 +57,7 @@ impl LibSection {
         LibSection::Templates,
         LibSection::Blocks,
         LibSection::Elements,
-        LibSection::Looks,
+        LibSection::Themes,
         LibSection::Colors,
         LibSection::Presets,
         LibSection::Fonts,
@@ -75,7 +75,7 @@ impl LibSection {
             LibSection::Templates => "templates",
             LibSection::Blocks => "blocks",
             LibSection::Elements => "elements",
-            LibSection::Looks => "looks",
+            LibSection::Themes => "themes",
             LibSection::Colors => "colors",
             LibSection::Presets => "presets",
             LibSection::Fonts => "fonts",
@@ -94,7 +94,7 @@ impl LibSection {
             LibSection::Templates => "Layouts",
             LibSection::Blocks => "Combos",
             LibSection::Elements => "Pieces",
-            LibSection::Looks => "Looks",
+            LibSection::Themes => "Themes",
             LibSection::Colors => "Colors",
             LibSection::Presets => "Styles",
             LibSection::Fonts => "Type",
@@ -112,7 +112,7 @@ impl LibSection {
             }
             LibSection::Blocks => "A few pieces that keep turning up together",
             LibSection::Elements => "The smallest things everything else is built from",
-            LibSection::Looks => "How a card is dressed — pick one, stack more on top",
+            LibSection::Themes => "How a card is dressed — pick one, stack more on top",
             LibSection::Colors => "Every color the app draws from",
             LibSection::Presets => "Saved combinations — one tap dresses the whole card",
             LibSection::Fonts => "Every typeface you have, each shown in itself",
@@ -135,7 +135,7 @@ const TEMPLATE_CLASSES: [TemplateClass; 4] = [
 /// two-libraries law: ColdLight ingredients belong to WORKBENCH).
 ///
 /// Named `traits_wall` because `tokens/traits.json` is what it reads; the
-/// operator only ever sees the word "Looks".
+/// operator only ever sees the word "Themes".
 pub(crate) fn traits_wall(ui: &mut egui::Ui) {
     ui.label(
         RichText::new(format!(
@@ -614,14 +614,14 @@ pub(crate) fn pool_wall(ui: &mut egui::Ui) {
 }
 
 /// The presets wall — every authored preset (tokens/presets.json, the 6th
-/// source) renders as itself: a look card paints ITS mood blend and sets
+/// source) renders as itself: a theme card paints ITS mood blend and sets
 /// ITS label in ITS font; motion presets list their entrance effect. The
 /// gallery gate for bundles-of-refs — W4's trays offer exactly these.
 pub(crate) fn presets_wall(ui: &mut egui::Ui) {
     ui.label(
         RichText::new(format!(
-            "PRESETS — {} looks · {} motions · named bundles of refs, editable in tokens/presets.json",
-            cl::LOOK_PRESET_COUNT,
+            "PRESETS — {} themes · {} motions · named bundles of refs, editable in tokens/presets.json",
+            cl::THEME_PRESET_COUNT,
             cl::MOTION_PRESET_COUNT
         ))
         .small()
@@ -636,7 +636,7 @@ pub(crate) fn presets_wall(ui: &mut egui::Ui) {
             ui.add_space(cl::space::S1);
             let card = egui::vec2(320.0, 170.0);
             ui.horizontal_wrapped(|ui| {
-                for p in cl::LOOK_PRESETS.iter() {
+                for p in cl::THEME_PRESETS.iter() {
                     let (rect, _) = ui.allocate_exact_size(card, egui::Sense::hover());
                     let painter = ui.painter_at(rect);
                     let find = |n: &str| cl::MOODS.iter().find(|m| m.name == n);

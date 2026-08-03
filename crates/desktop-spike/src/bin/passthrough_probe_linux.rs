@@ -337,7 +337,7 @@ impl eframe::App for Overlay {
         let rect = ui.max_rect();
 
         // Control runs must own opaque pixels under the click, or a
-        // compositor that routes by alpha will look like "passthrough
+        // compositor that routes by alpha will theme like "passthrough
         // always works". The ring alone leaves a hollow center.
         if !self.options.passthrough {
             ui.painter().rect_filled(

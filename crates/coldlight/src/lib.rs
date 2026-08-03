@@ -239,7 +239,7 @@ pub fn icon_label(ui: &mut egui::Ui, id: &str, size: f32, color: Color32) -> egu
 /// optional ambience) from tokens/presets.json, the 6th source. Applying
 /// one is swapping refs on a document; presets are never new code.
 #[derive(Debug, Clone, Copy)]
-pub struct LookPreset {
+pub struct ThemePreset {
     pub id: &'static str,
     pub label: &'static str,
     pub blurb: &'static str,
@@ -260,8 +260,8 @@ pub struct MotionPreset {
 
 include!(concat!(env!("OUT_DIR"), "/presets_gen.rs"));
 
-pub fn look_preset(id: &str) -> Option<&'static LookPreset> {
-    LOOK_PRESETS.iter().find(|p| p.id == id)
+pub fn theme_preset(id: &str) -> Option<&'static ThemePreset> {
+    THEME_PRESETS.iter().find(|p| p.id == id)
 }
 
 pub fn motion_preset(id: &str) -> Option<&'static MotionPreset> {
@@ -270,7 +270,7 @@ pub fn motion_preset(id: &str) -> Option<&'static MotionPreset> {
 
 // ── THE TRAIT SYSTEM (docs/design/doctrine.md) ──────────────────────────
 //
-// A trait is a STACKABLE partial look, authored in tokens/traits.json,
+// A trait is a STACKABLE partial theme, authored in tokens/traits.json,
 // generated to traits_gen.rs, and resolved per-axis against a runtime Tone
 // by `compose`. Additive axes (shadows/back_glow/tints/anim) concatenate
 // across the stack; override axes (fill/edge/radius/ink/font) last-wins.
@@ -804,7 +804,7 @@ pub mod icon {
 }
 
 /// The scatter card: solid raised fill, crisp hairline edge, and the black
-/// diffusion — a dark shadow bleeding down and out. This is the house look.
+/// diffusion — a dark shadow bleeding down and out. This is the house theme.
 pub fn scatter_frame(tone: Tone) -> egui::Frame {
     egui::Frame::new()
         .fill(surface::RAISED)
@@ -1160,6 +1160,46 @@ include!(concat!(env!("OUT_DIR"), "/fluid_gen.rs"));
 /// PURE function of the clock: `EFFECT.at(now, t0, index)` → 0..1 progress
 /// (index applies the authored stagger). Presenter law holds by construction
 /// — one-shot effects rest at 1, looped effects wrap, nothing stores state.
+/// The MATRIX — the faceted classification a Theme is a coordinate in
+/// (`docs/design/coldlight-matrix.md`). The vocabularies and the legality
+/// rulings are generated from `tokens/matrix.json`; `build.rs` fails if any
+/// facet value is left unclassified by any ancestor, so the matrix cannot rot
+/// as values are added.
+pub mod matrix {
+    include!(concat!(env!("OUT_DIR"), "/matrix_gen.rs"));
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// The census law, applied to the matrix: eight ancestors ruling on
+        /// every facet value, exactly once each. If this number moves without
+        /// a vocabulary change, a ruling was lost.
+        #[test]
+        fn every_ancestor_rules_on_every_facet_value() {
+            let values = STRUCTURES.len() + MATERIALS.len() + ATMOSPHERES.len();
+            assert_eq!(ANCESTORS.len(), 8, "eight seeds, ratified 2026-07-31");
+            assert_eq!(values, 21, "6 structures + 9 materials + 6 atmospheres");
+            assert_eq!(
+                RULING_COUNT,
+                ANCESTORS.len() * values,
+                "every ancestor must rule on every value"
+            );
+        }
+
+        /// The ancestral list must stay SHORT — every added seed costs a full
+        /// column of rulings, which is why atmospheres and materials are not
+        /// promoted to lineages (matrix §3.2).
+        #[test]
+        fn the_ancestral_list_stays_short() {
+            assert!(
+                ANCESTORS.len() <= 8,
+                "5-8 seeds is the workable range; 20 is not"
+            );
+        }
+    }
+}
+
 pub mod motion {
     /// Cubic-bézier ease, CSS convention: control points (x1, y1, x2, y2).
     /// y may leave [0,1] — that's how the spring eases overshoot.
@@ -1452,7 +1492,7 @@ fn quad(painter: &egui::Painter, rect: Rect, c: [Color32; 4]) {
 }
 
 /// The gradient tint a chrome plate wears: a faint sheen from its top edge,
-/// dying out by the midline. Solid color + gradient tint — the sprite look.
+/// dying out by the midline. Solid color + gradient tint — the sprite theme.
 pub fn sheen(painter: &egui::Painter, rect: Rect) {
     let lit = Color32::from_rgba_unmultiplied(0xff, 0xff, 0xff, 7);
     let band = Rect::from_min_max(
@@ -1838,15 +1878,15 @@ mod tests {
 
     #[test]
     fn preset_refs_all_resolve_through_the_live_registries() {
-        assert_eq!(LOOK_PRESETS.len(), LOOK_PRESET_COUNT);
+        assert_eq!(THEME_PRESETS.len(), THEME_PRESET_COUNT);
         assert_eq!(MOTION_PRESETS.len(), MOTION_PRESET_COUNT);
-        let mut ids: Vec<&str> = LOOK_PRESETS.iter().map(|p| p.id).collect();
+        let mut ids: Vec<&str> = THEME_PRESETS.iter().map(|p| p.id).collect();
         ids.extend(MOTION_PRESETS.iter().map(|p| p.id));
         let n = ids.len();
         ids.sort_unstable();
         ids.dedup();
         assert_eq!(ids.len(), n, "duplicate preset id");
-        for p in LOOK_PRESETS {
+        for p in THEME_PRESETS {
             assert!(FONTS.iter().any(|f| f.id == p.font), "{}: font", p.id);
             for m in [p.moods.0, p.moods.1] {
                 assert!(MOODS.iter().any(|x| x.name == m), "{}: mood {m}", p.id);
@@ -1863,8 +1903,8 @@ mod tests {
         for p in MOTION_PRESETS {
             assert!(motion::effect(p.enter).is_some(), "{}: enter", p.id);
         }
-        assert!(look_preset("neon-intro").is_some());
-        assert!(look_preset("ghost").is_none());
+        assert!(theme_preset("neon-intro").is_some());
+        assert!(theme_preset("ghost").is_none());
     }
 
     #[test]

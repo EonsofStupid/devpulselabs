@@ -230,7 +230,7 @@ impl WorkbenchHub {
             }
             LibSection::Blocks => library::blocks_wall(ui),
             LibSection::Elements => library::elements_wall(ui),
-            LibSection::Looks => library::traits_wall(ui),
+            LibSection::Themes => library::traits_wall(ui),
             LibSection::Colors => library::pool_wall(ui),
             LibSection::Presets => library::presets_wall(ui),
             LibSection::Fonts => library::fonts_wall(ui),
@@ -446,18 +446,18 @@ impl EpisodeView {
     fn open(dir: &std::path::Path, id: String) -> Result<Self, String> {
         let ep = dpl_doc::load_episode(dir).map_err(|e| e.to_string())?;
         let issues = dpl_doc::validate_episode(dir, &ep);
-        // The show's authored look (W3b) — every slide resolves through it.
-        let look = dpl_doc::load_look(dir)
+        // The show's authored theme (W3b) — every slide resolves through it.
+        let theme = dpl_doc::load_theme(dir)
             .ok()
             .flatten()
-            .unwrap_or_else(dpl_doc::Look::fallback);
+            .unwrap_or_else(dpl_doc::Theme::fallback);
         let mut rows = Vec::new();
         for chapter in &ep.chapters {
             for (i, name) in chapter.slides.iter().enumerate() {
                 let head = (i == 0).then(|| chapter.title.clone());
                 let slide_dir = dir.join(name);
                 let doc = dpl_doc::load(&slide_dir)
-                    .map(|s| DocSlide::with_look(s, look.clone()))
+                    .map(|s| DocSlide::with_look(s, theme.clone()))
                     .map_err(|e| e.to_string())?;
                 let script = dpl_doc::script::load_script(&slide_dir)
                     .ok()
@@ -807,7 +807,7 @@ impl WorkbenchHub {
                     picker_card(ui, &format!("{} · {}", s.class, s.id), &mut open, s.dir);
                 }
                 // The shows (W3b/X3): the seeds+content UNION — episode
-                // slides edit against their show's look (the editor
+                // slides edit against their show's theme (the editor
                 // detects it from the parent folder), content first.
                 for entry in dpl_doc::all_episodes(&dpl_engine_capture::content_root()) {
                     let Ok(ep) = dpl_doc::load_episode(&entry.dir) else {

@@ -7,7 +7,7 @@ Worktree: `C:\localdev\dpl-main` on main.
 
 ```
 content/<show-name>/<episode-name>/     the operator's REAL shows
-  episode.json · look.json · <slide>/   the SAME doctor-enforced
+  episode.json · theme.json · <slide>/   the SAME doctor-enforced
   assets/                               contract as seeds, plus the
                                         episode-level assets home
 ```
@@ -28,7 +28,7 @@ content/<show-name>/<episode-name>/     the operator's REAL shows
 
 - `dpl_doc`: `seeds_root()/list_seeds()/episodes_root()/list_episodes()`
   find `seeds/*` via `find_upward`; the folder contract knows
-  `EPISODE_RESERVED = [episode.json, look.json]` (no assets yet).
+  `EPISODE_RESERVED = [episode.json, theme.json]` (no assets yet).
   Present + Workbench pickers list `list_episodes()` only.
 - `dpl_index` (X1/X2): Record/upsert/rekey/soft_clear/dump + the inbox
   jail; sidecars; `cap::content_root()` = `./content`.
@@ -49,7 +49,7 @@ content/<show-name>/<episode-name>/     the operator's REAL shows
   (labelled as templates) + content shows.
 - `clone_episode(seed_dir, content_root, show, episode) ->
   Result<PathBuf, String>` — the "new show from a seed" engine: copies
-  episode.json + look.json + slide folders (copy, never move; refuses
+  episode.json + theme.json + slide folders (copy, never move; refuses
   an existing destination), creates `assets/`.
 
 **`dpl_index` grows `keep`:**

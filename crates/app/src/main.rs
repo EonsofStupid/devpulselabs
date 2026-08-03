@@ -86,7 +86,7 @@ fn main() -> eframe::Result {
         .and_then(|i| args.get(i + 1))
         .cloned();
     // `--lib-section <slug>` — boot the Workbench Library on ONE section by
-    // its chip slug (seeds/templates/blocks/elements/looks/colors/presets/
+    // its chip slug (seeds/templates/blocks/elements/themes/colors/presets/
     // fonts/moods), so every wall is provable on the real exe, not just
     // templates.
     let lib_section: Option<String> = args

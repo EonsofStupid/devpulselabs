@@ -76,7 +76,7 @@ pub trait Hub {
 }
 
 /// P0-ONLY shared surface. Every hub renders through this until its real
-/// surface lands, so the placeholder look lives in ONE place instead of five.
+/// surface lands, so the placeholder theme lives in ONE place instead of five.
 /// Delete this module hub-by-hub as real surfaces arrive — never extend it.
 pub mod placeholder {
     use super::{HubSpec, Route};
