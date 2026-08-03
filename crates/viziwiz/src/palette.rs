@@ -704,8 +704,8 @@ pub(crate) fn rec_pill(ui: &mut egui::Ui, count: u32, actions: &mut PaletteActio
 }
 
 /// A neubrutalist palette chip, painted from the ColdLight trait system
-/// (`compose` → `ResolvedStyle`) — zero magic numbers, all of fill / edge /
-/// hard-offset-shadow / ink sourced from `tokens/traits.json`. Compact
+/// (`compose` → `FrameStyle`) — zero magic numbers, all of fill / edge /
+/// hard-offset-shadow / ink sourced from `tokens/frame-patches.json`. Compact
 /// toolbar sizing is preserved; the authored hover/active states supply the
 /// depth and the press (`[3,3]` → `[1,1]`). The back-glow is deliberately
 /// omitted for these dense chips — its spread would bleed into neighbours
@@ -730,14 +730,14 @@ fn pilot_chip(
     let (slot, resp) =
         ui.allocate_exact_size(egui::vec2(galley.size().x + 24.0, 30.0), Sense::click());
     let state = if resp.is_pointer_button_down_on() {
-        cl::TraitState::Active
+        cl::WidgetState::Active
     } else if resp.hovered() {
-        cl::TraitState::Hover
+        cl::WidgetState::Hovered
     } else {
-        cl::TraitState::Idle
+        cl::WidgetState::Inactive
     };
     let style = cl::compose(tone, "neubrutalist", &[], state);
-    let cr = CornerRadius::same(style.radius);
+    let cr = CornerRadius::same(style.corner_radius);
     let painter = ui.painter();
     // The hard offset shadow (a shape, never a blur) — the primary shadow the
     // trait authors; behind_shapes' glow is skipped here (dense-row bleed).
@@ -745,15 +745,15 @@ fn pilot_chip(
         painter.add(egui::Shape::from(shadow.as_shape(slot, cr)));
     }
     painter.rect_filled(slot, cr, style.fill);
-    if style.edge.width > 0.0 {
-        painter.rect_stroke(slot, cr, style.edge, StrokeKind::Inside);
+    if style.stroke.width > 0.0 {
+        painter.rect_stroke(slot, cr, style.stroke, StrokeKind::Inside);
     }
     painter.text(
         slot.center(),
         Align2::CENTER_CENTER,
         text,
         FontId::proportional(13.0),
-        style.ink,
+        style.override_text_color,
     );
     ui.pilot_track(
         &resp,

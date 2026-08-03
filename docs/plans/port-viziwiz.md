@@ -89,7 +89,7 @@ ABSENT**. Those two are net-new here.
   `traits.json` (neubrutalist saturated fill tone@400 + tone@700 edge + `[3,3]`
   hard shadow + tone@300 back-glow + WELL ink, with authored hover/active;
   claymorphic RAISED plane, radius 16, directional double-shadow) → generated
-  `traits_gen.rs` → `compose(tone, base, stack, state) -> ResolvedStyle` →
+  `frame_patches_gen.rs` → `compose(tone, base, stack, state) -> FrameStyle` →
   `cl::treated`/`brutal`/`clay` paint API. Migrating a surface onto it is the
   W-CAP claymorphism job.
 
@@ -132,7 +132,7 @@ untouched). Remaining W-CAP work:
   `allocate_exact_size` sizing (galley + 24px, 30px height) so the toolbar layout
   is preserved. State drives the authored overlays: hover → `Hover`, pressed →
   `Active` (the authored `[1,1]` press). Paint fill/edge/primary-shadow/ink from
-  the `ResolvedStyle`; **omit the back-glow for these compact chips** (its spread
+  the `FrameStyle`; **omit the back-glow for these compact chips** (its spread
   bleeds into neighbours in dense rows — the glow is a hero-surface move). Zero
   magic numbers survive. This is a visible change from the current dark-brutal
   chips to **saturated Magenta neubrutalist** chips (dark WELL ink) — on-brand for

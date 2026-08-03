@@ -44,12 +44,12 @@ indent, and WiredFRONT's subroute is still named "Composer" with no Library.
   - Helpers `chip`/`small_btn`/`plate`/`tab_stub`/`fit_aspect`/
     `painter_label`; `Act` enum; 6 tests.
 - `crates/coldlight/src/lib.rs` — generated registries this pass reads:
-  `TRAITS: &[TraitDef{id,role,label,blurb,…}]`, `THEME_PRESETS: &[ThemePreset]`,
+  `FRAME_PATCHES: &[FramePatch{id,role,label,blurb,…}]`, `THEME_PRESETS: &[ThemePreset]`,
   `MOTION_PRESETS: &[MotionPreset]`, `FONTS: &[FontDef{id,label,class,blurb}]`,
   `MOODS: &[Mood{name,stops,scrim,accent}]` (+ `Mood::at`), `compose(tone,
-  base, stack, state) -> ResolvedStyle` (stack is NON-static — usable for
-  runtime swatches), `ResolvedStyle::behind_shapes`, `font_family(id)`,
-  `treated(...)/.margin()/.show()`, `TraitState::{Idle,Hover,Active}`.
+  base, stack, state) -> FrameStyle` (stack is NON-static — usable for
+  runtime swatches), `FrameStyle::behind_shapes`, `font_family(id)`,
+  `treated(...)/.margin()/.show()`, `WidgetState::{Idle,Hover,Active}`.
 
 ## 3. Target design
 
@@ -90,7 +90,7 @@ indent, and WiredFRONT's subroute is still named "Composer" with no Library.
 3. `crates/composer/src/lib.rs` — add `mod library; pub use library::library_ui;`;
    add `Tool` enum (Select/Arrow/Callout/Box/Spotlight/Text, ALL/label/blurb)
    + `tool: Tool` field (+ Default) + `Act::Tool(Tool)` + apply arm; new
-   `tool_rail()` (vertical strip, active state via `TraitState::Active`,
+   `tool_rail()` (vertical strip, active state via `WidgetState::Active`,
    tipped, pilot-tracked); rework `edit_tab()` rects: `toolbar` full-width at
    BOTTOM (h 44), tool strip LEFT (w 64, top→timeline), timeline above the
    toolbar (right of the strip), preview/inspector fill the rest; rework

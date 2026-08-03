@@ -1,0 +1,103 @@
+{
+	"$description": "AUTHORED — frame patches: stackable PARTIAL egui::Frame values, resolved per-axis against a runtime Tone. Generated to frame_patches_gen.rs; hue/step refs are cross-validated at build (unknown → build fails). Composition (docs/design/doctrine.md): additive axes (shadows, back_glow, tints, anim) concatenate across the stack; override axes (fill, stroke, corner_radius, override_text_color, override_font_id) last-wins. A hovered/active/open block overlays that patch's axes for the state. Color refs: {tone:STEP} = the surface Tone's ladder at STEP; {hue:ID,step:STEP} = a fixed pool hue; {surface:SLOT} / {ink:SLOT} = a named slot; {black:true}; optional alpha (0-255, default 255). role: base = neubrutalist/claymorphic (one per surface); overlay = cyber/retro (ride on top). NOTE: cyber/retro animation (hue-drift/crt-flicker) is deferred until motion.json carries the effects + a cheap painter — anim is empty for now.",
+
+	"$naming": "egui 0.35 has NO concept of a stackable partial look, so there is no egui term to adopt for one — inventing a word here is exactly what produced 'trait', a Rust KEYWORD that means something else entirely. The rule instead: name every axis for the egui field it lands on. The destination is egui::Frame (see paint_treated in src/lib.rs — .fill / .stroke / .corner_radius), never style::WidgetVisuals. Law: docs/plans/coldlight-naming-and-the-pattern-library.md.",
+
+	"$axes": {
+		"fill": "egui::Frame::fill",
+		"stroke": "egui::Frame::stroke",
+		"corner_radius": "egui::Frame::corner_radius",
+		"shadows": "epaint::Shadow — egui::Frame::shadow is SINGULAR, so stacking is a ColdLight extension of it",
+		"override_text_color": "egui::Visuals::override_text_color",
+		"override_font_id": "egui::Style::override_font_id",
+		"back_glow": "$extension — no egui equivalent",
+		"tints": "$extension — no egui equivalent",
+		"anim": "$extension — no egui equivalent"
+	},
+
+	"$states": "egui::style::Widgets slot names, exactly: the patch itself is the INACTIVE state; hovered · active · open overlay it. `open` is admitted by the schema and authored by nothing yet — egui has it, so the axis exists rather than being discovered missing later.",
+
+	"$lineages": "The five seed ancestrals — bauhaus · art-deco · swiss · aero · brutalist. PROVENANCE, never composable entries: a lineage records what a patch descends from, so a new patch is derived from ancestry instead of invented. Cross-validated at build against this list.",
+
+	"patches": [
+		{
+			"id": "neubrutalist",
+			"role": "base",
+			"label": "Neubrutalist",
+			"lineage": ["brutalist", "bauhaus"],
+			"blurb": "Flat saturated surface, crisp hard edge, hard offset shadow, lit-from-behind glow. Loud, honest, tappable — and cheap.",
+			"fill": { "tone": 400 },
+			"stroke": { "width": 2.0, "color": { "tone": 700 } },
+			"corner_radius": 6,
+			"override_text_color": { "surface": "WELL" },
+			"shadows": [
+				{ "offset": [3, 3], "blur": 0, "spread": 0, "color": { "black": true, "alpha": 230 } }
+			],
+			"back_glow": [
+				{ "color": { "tone": 300, "alpha": 60 }, "spread": 18.0 }
+			],
+			"hovered": {
+				"shadows": [
+					{ "offset": [4, 4], "blur": 0, "spread": 0, "color": { "black": true, "alpha": 235 } }
+				],
+				"back_glow": [
+					{ "color": { "tone": 300, "alpha": 95 }, "spread": 24.0 }
+				]
+			},
+			"active": {
+				"fill": { "tone": 500, "alpha": 90 },
+				"shadows": [
+					{ "offset": [1, 1], "blur": 0, "spread": 0, "color": { "black": true, "alpha": 230 } }
+				]
+			}
+		},
+		{
+			"id": "claymorphic",
+			"role": "base",
+			"label": "Claymorphic",
+			"lineage": ["aero", "bauhaus"],
+			"blurb": "Soft extruded plane — directional light top-left, shadow bottom-right, generous radius. Content sits in it; it is never a button.",
+			"fill": { "surface": "RAISED" },
+			"stroke": { "width": 1.0, "color": { "surface": "HAIRLINE" } },
+			"corner_radius": 16,
+			"override_text_color": { "ink": "BASE" },
+			"shadows": [
+				{ "offset": [-4, -4], "blur": 12, "spread": 0, "color": { "ink": "STRONG", "alpha": 12 } },
+				{ "offset": [6, 6], "blur": 16, "spread": 0, "color": { "black": true, "alpha": 150 } }
+			],
+			"tints": [
+				{ "color": { "surface": "OVERLAY", "alpha": 90 }, "dir": 135.0 }
+			]
+		},
+		{
+			"id": "cyber",
+			"role": "overlay",
+			"label": "Cyber",
+			"lineage": ["aero", "swiss"],
+			"blurb": "Cyan neon — a glow bloom, a top wash, a bright thin edge. Rides on top of a base.",
+			"stroke": { "width": 1.0, "color": { "hue": "cyan", "step": 400 } },
+			"corner_radius": 6,
+			"override_text_color": { "hue": "cyan", "step": 100 },
+			"tints": [
+				{ "color": { "hue": "cyan", "step": 500, "alpha": 36 }, "dir": 180.0 }
+			],
+			"back_glow": [
+				{ "color": { "hue": "cyan", "step": 400, "alpha": 120 }, "spread": 14.0 },
+				{ "color": { "hue": "cyan", "step": 600, "alpha": 80 }, "spread": 28.0 }
+			]
+		},
+		{
+			"id": "retro",
+			"role": "overlay",
+			"label": "Retro",
+			"lineage": ["art-deco", "brutalist"],
+			"blurb": "CRT amber — sharp corners, a chunky amber edge, a scanline wash. Rides on top of a base.",
+			"stroke": { "width": 2.0, "color": { "hue": "amber", "step": 700 } },
+			"corner_radius": 3,
+			"override_text_color": { "hue": "amber", "step": 200 },
+			"tints": [
+				{ "color": { "hue": "amber", "step": 900, "alpha": 60 }, "dir": 0.0 }
+			]
+		}
+	]
+}

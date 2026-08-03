@@ -18,7 +18,7 @@
 //! | Layouts | `templates/` + `infographics/` |
 //! | Combos | `blocks/` |
 //! | Pieces | `elements/` |
-//! | Themes | `tokens/traits.json` |
+//! | Themes | `tokens/frame-patches.json` |
 //! | Styles | `presets.json` |
 //!
 //! Same split as "card" for `dpl_doc::Slide`. The stack is invisible — a
@@ -130,18 +130,18 @@ const TEMPLATE_CLASSES: [TemplateClass; 4] = [
     TemplateClass::Interactive,
 ];
 
-/// The LOOKS wall — every generated trait rendered LIVE through the
+/// The LOOKS wall — every generated frame patch rendered LIVE through the
 /// compositor (moved here from the WiredFRONT composer under the
 /// two-libraries law: ColdLight ingredients belong to WORKBENCH).
 ///
-/// Named `traits_wall` because `tokens/traits.json` is what it reads; the
+/// Named `frame_patches_wall` because `tokens/frame-patches.json` is what it reads; the
 /// operator only ever sees the word "Themes".
-pub(crate) fn traits_wall(ui: &mut egui::Ui) {
+pub(crate) fn frame_patches_wall(ui: &mut egui::Ui) {
     ui.label(
         RichText::new(format!(
             "{} ways to dress a card. The first two stand on their own; the rest \
              stack on top of them — which is how they are shown here.",
-            cl::TRAITS.len()
+            cl::FRAME_PATCHES.len()
         ))
         .small()
         .color(cl::ink::SUBTLE),
@@ -151,23 +151,23 @@ pub(crate) fn traits_wall(ui: &mut egui::Ui) {
         .auto_shrink([false, false])
         .show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
-                for def in cl::TRAITS {
-                    trait_swatch(ui, def);
+                for def in cl::FRAME_PATCHES {
+                    patch_swatch(ui, def);
                     ui.add_space(cl::space::S2);
                 }
             });
         });
 }
 
-/// One trait, rendered LIVE through the compositor — base traits stand
-/// alone; stack traits ride the neubrutalist base (their real use).
-fn trait_swatch(ui: &mut egui::Ui, def: &cl::TraitDef) {
+/// One patch, rendered LIVE through the compositor — base patches stand
+/// alone; overlay patches ride the neubrutalist base (their real use).
+fn patch_swatch(ui: &mut egui::Ui, def: &cl::FramePatch) {
     let (base, stack): (&str, &[&str]) = if def.role == "base" {
         (def.id, &[])
     } else {
         ("neubrutalist", std::slice::from_ref(&def.id))
     };
-    let style = cl::compose(Tone::Magenta, base, stack, cl::TraitState::Idle);
+    let style = cl::compose(Tone::Magenta, base, stack, cl::WidgetState::Inactive);
     // The swatch leaves room for the hard offset shadow on its right/bottom.
     let (slot, resp) = ui.allocate_exact_size(egui::vec2(136.0, 52.0), egui::Sense::hover());
     let rect = egui::Rect::from_min_size(slot.min, slot.size() - egui::vec2(4.0, 4.0));
@@ -178,15 +178,19 @@ fn trait_swatch(ui: &mut egui::Ui, def: &cl::TraitDef) {
     for sh in &style.shadows {
         painter.rect_filled(
             rect.translate(egui::vec2(sh.offset[0] as f32, sh.offset[1] as f32)),
-            egui::CornerRadius::same(style.radius),
+            egui::CornerRadius::same(style.corner_radius),
             sh.color,
         );
     }
-    painter.rect_filled(rect, egui::CornerRadius::same(style.radius), style.fill);
+    painter.rect_filled(
+        rect,
+        egui::CornerRadius::same(style.corner_radius),
+        style.fill,
+    );
     painter.rect_stroke(
         rect,
-        egui::CornerRadius::same(style.radius),
-        style.edge,
+        egui::CornerRadius::same(style.corner_radius),
+        style.stroke,
         egui::StrokeKind::Inside,
     );
     painter.text(
@@ -194,7 +198,7 @@ fn trait_swatch(ui: &mut egui::Ui, def: &cl::TraitDef) {
         egui::Align2::CENTER_CENTER,
         def.label,
         egui::FontId::proportional(13.0),
-        style.ink,
+        style.override_text_color,
     );
     cl::tip(resp, def.blurb);
 }
@@ -940,8 +944,14 @@ mod tests {
     /// these tiers — folders, types, token files. None may reach a label.
     #[test]
     fn no_chip_speaks_engineering() {
-        const CODE_WORDS: [&str; 6] =
-            ["blocks", "elements", "traits", "presets", "seeds", "tokens"];
+        const CODE_WORDS: [&str; 6] = [
+            "blocks",
+            "elements",
+            "frame-patches",
+            "presets",
+            "seeds",
+            "tokens",
+        ];
         for section in LibSection::ALL {
             let label = section.label().to_lowercase();
             for word in CODE_WORDS {

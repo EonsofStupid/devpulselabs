@@ -59,7 +59,7 @@ tier the current `crates/slides/src/blocks/` holds (`eyebrow`, `badge`, `stat`,
   global state (carried from the blocks doctrine). It is usable on its own and
   inside any template.
 - **Data in, paint out.** `element(ui/painter, Fluid, props, treatment,
-  fidelity)`. It never hand-rolls a treatment — it *receives* a `ResolvedStyle`
+  fidelity)`. It never hand-rolls a treatment — it *receives* a `FrameStyle`
   (or a treatment handle) and paints through it.
 - **Categorized.** Elements live in named categories so the Library can shelve
   them: `type` (eyebrow/heading/body/mono), `mark` (badge/chip/tag/avatar/
@@ -80,7 +80,7 @@ paints every element at rest + mid-state without panicking.
 ## 2. Treatments — semantic vs composite
 
 A **treatment** is the dressing an element wears. It always resolves to a
-`ResolvedStyle` (doctrine.md's axis contract) — the two *kinds* differ only in
+`FrameStyle` (doctrine.md's axis contract) — the two *kinds* differ only in
 how they're named and chosen:
 
 ### 2a. Composite treatment (the explicit form)
@@ -208,7 +208,7 @@ Template { category, layout, slots: [ Slot { element, treatment, recipe?, props 
   never the answer at any tier; higher tiers add *more cheap shapes*, not
   feathering.
 - **Budget, not guesswork.** A tier has a per-frame shape/mesh budget; the
-  compositor caches `ResolvedStyle` by (tone, base, stack, state, tier) so
+  compositor caches `FrameStyle` by (tone, base, stack, state, tier) so
   resolution is free after first paint.
 
 ---

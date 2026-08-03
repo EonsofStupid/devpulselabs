@@ -5206,9 +5206,9 @@ fn chip(
 fn tool_btn(ui: &mut egui::Ui, label: &'static str, active: bool) -> egui::Response {
     let tone = if active { Tone::Magenta } else { Tone::Cyan };
     let state = if active {
-        cl::TraitState::Active
+        cl::WidgetState::Active
     } else {
-        cl::TraitState::Idle
+        cl::WidgetState::Inactive
     };
     let inner = cl::treated(tone, "neubrutalist", &[], state)
         .margin(egui::Margin::symmetric(8, 5))
@@ -5246,9 +5246,9 @@ fn small_btn(
 fn tag_chip(ui: &mut egui::Ui, label: &str, active: bool, key: &str) -> egui::Response {
     let tone = if active { Tone::Magenta } else { Tone::Cyan };
     let state = if active {
-        cl::TraitState::Active
+        cl::WidgetState::Active
     } else {
-        cl::TraitState::Idle
+        cl::WidgetState::Inactive
     };
     let inner = cl::treated(tone, "neubrutalist", &[], state)
         .margin(egui::Margin::symmetric(6, 2))

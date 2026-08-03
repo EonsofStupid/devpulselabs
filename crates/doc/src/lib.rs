@@ -688,12 +688,12 @@ pub fn validate_episode(dir: &Path, ep: &Episode) -> Vec<Issue> {
     issues
 }
 
-// ── the LOOK tier (W3b) — the show's authored trait ─────────────────────
+// ── the LOOK tier (W3b) — the show's authored patch stack ───────────────
 
 const THEME_FILE: &str = "theme.json";
 
-/// The show-level styling trait — `<episode-dir>/theme.json`. Refs only,
-/// like every document: a theme names registry ids, never values. Slides
+/// The show-level styling patch stack — `<episode-dir>/look.json`. Refs only,
+/// like every document: a look names registry ids, never values. Slides
 /// inherit these unless they carry an explicit override; [`resolve`] is
 /// the whole cascade (exactly two levels — this is the slide-master
 /// pattern, deliberately without a third tier).

@@ -139,4 +139,4 @@ with zero dependencies.
 - **The clay ruling** (operator, 2026-07-30, doctrine.md): *"clay IS a
   button"* — actionable clay (deep extrusion, top rim light, NEON-INK
   painted bloom) joins the icon treatment vocabulary once its
-  hover/active trait data lands in `tokens/traits.json`.
+  hover/active trait data lands in `tokens/frame-patches.json`.

@@ -230,7 +230,7 @@ impl WorkbenchHub {
             }
             LibSection::Blocks => library::blocks_wall(ui),
             LibSection::Elements => library::elements_wall(ui),
-            LibSection::Themes => library::traits_wall(ui),
+            LibSection::Themes => library::frame_patches_wall(ui),
             LibSection::Colors => library::pool_wall(ui),
             LibSection::Presets => library::presets_wall(ui),
             LibSection::Fonts => library::fonts_wall(ui),

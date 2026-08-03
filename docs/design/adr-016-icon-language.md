@@ -63,7 +63,7 @@ gated everything on.
    (plain, tintable), `icons::paint_brutal` (the neubrutalist hard-offset
    shadow axis at icon scale), clay = the icon sitting IN `cl::clay()`
    (doctrine: content sits in it; clay is never a button). Trait data in
-   `tokens/traits.json` stays the single styling truth.
+   `tokens/frame-patches.json` stays the single styling truth.
 5. **The operator-SVG future is the same pipe.** Their library lands as a
    sibling source dir + `icons.json` entries through the SAME generator;
    the registry API does not change. Curating/normalizing that set is its

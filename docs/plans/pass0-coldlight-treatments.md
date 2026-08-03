@@ -54,7 +54,7 @@ edges, hard offset shadow, a painted "lit-from-behind" glow — loud but cheap.
 
 ### 3a. The axis contract (egui-resolved struct, not CSS vars)
 
-`ResolvedStyle` — the concrete struct the compositor produces and paint fns read.
+`FrameStyle` — the concrete struct the compositor produces and paint fns read.
 Each field is one axis, classed additive or override:
 
 | Axis | Type | Class | Notes |
@@ -74,7 +74,7 @@ mirroring the original's `ADDITIVE_AXES`). Everything else = override, last-wins
 
 ### 3b. The compositor
 
-`compose(base: TraitId, stack: &[TraitId], overrides: &StyleOverrides) -> ResolvedStyle`
+`compose(base: TraitId, stack: &[TraitId], overrides: &StyleOverrides) -> FrameStyle`
 — a **pure fn**: start from `base`, fold each `stack` trait in order (additive Vecs
 extend; override scalars replace if the trait defines that axis), then apply
 per-instance `overrides` (an editor hue/font pick) last. Pure ⇒ unit-tested +
@@ -83,7 +83,7 @@ strong"). Interaction states (`hover`/`active`/`selected`) select a state-varian
 of each trait's axis map, resolved in EVERY state (fix the original's B1 defect —
 all axes resolve in every state branch).
 
-### 3c. The treatments as authored data (`tokens/traits.json`, generated → Rust)
+### 3c. The treatments as authored data (`tokens/frame-patches.json`, generated → Rust)
 
 Proposed specs — **grounded in the original recipes + the egui paint vocabulary,
 for the operator's eye.** Values are the ratification target.
@@ -128,10 +128,10 @@ This closes the gate CLAUDE.md/doctrine.md require.
 
 1. Rewrite `docs/design/doctrine.md` from the thin BRUTAL/CLAY to the ratified
    trait doctrine (§3), pointing at this plan.
-2. Author `tokens/traits.json` (the 4 treatments, §3c) + extend `build.rs` to
-   generate `traits_gen.rs` (with axis-presence + additive tables) and validate
+2. Author `tokens/frame-patches.json` (the 4 treatments, §3c) + extend `build.rs` to
+   generate `frame_patches_gen.rs` (with axis-presence + additive tables) and validate
    refs (unknown hue/motion fails the build).
-3. Add the axis enum + `ResolvedStyle` + `compose(...)` in `crates/coldlight`
+3. Add the axis enum + `FrameStyle` + `compose(...)` in `crates/coldlight`
    (pure, unit-tested); migrate `brutal_frame`/`clay_frame` callers onto it;
    retire the bespoke helpers (no shim, pre-release).
 4. Emit `manifest_gen.rs`; expose the manifest read API for the Workbench editor.
@@ -173,12 +173,12 @@ core) on branch `design/coldlight-traits`:
   BRUTAL/CLAY to the composable trait system (concept, treatments, per-axis law,
   laws, category/tag orthogonality). `dpl-style` skill removed; `coldlight-system`
   + `slide-catalog-pass` skills authored; STATE.md KNOWN-BROKEN #5 recorded.
-- **Step 2 — traits as data + generator.** `crates/coldlight/tokens/traits.json`
+- **Step 2 — traits as data + generator.** `crates/coldlight/tokens/frame-patches.json`
   authored (neubrutalist/claymorphic base + cyber/retro stack; ladder-relative
-  color refs). `build.rs::generate_traits` emits `traits_gen.rs`, cross-validating
+  color refs). `build.rs::generate_traits` emits `frame_patches_gen.rs`, cross-validating
   every hue/step ref against the pool + `LADDER_STEPS` (unknown → build fails).
 - **Step 3 core — compositor.** `ColorRef`/`EdgeSpec`/`ShadowSpec`/`GlowSpec`/
-  `TintSpec`/`Axes`/`TraitDef`/`TraitState`/`ResolvedStyle` + the pure
+  `TintSpec`/`Axes`/`FramePatch`/`WidgetState`/`FrameStyle` + the pure
   `compose(tone, base, &[stack], state)` in `crates/coldlight/src/lib.rs`.
   Additive axes concatenate, override axes last-wins, per-trait state overlay.
 
@@ -196,7 +196,7 @@ DEVIATIONS from §3 (corrections law):
 - **Paint application API.** `Treated` + `cl::treated(tone, base, &[stack], state)`
   and the `brutal(tone)` / `clay()` shortcuts. `Treated::show` paints fill/edge/
   radius/primary-shadow via egui's proven `Frame` background, with the back-glow +
-  directional shadows in a slot reserved BEHIND it (`ResolvedStyle::behind_shapes`,
+  directional shadows in a slot reserved BEHIND it (`FrameStyle::behind_shapes`,
   a cheap concentric falloff — no blur). Returns the content `InnerResponse` so
   call sites keep `.response`.
 - **Migrated all 9 callers, retired the helpers.** `brutal_frame`/`clay_frame`

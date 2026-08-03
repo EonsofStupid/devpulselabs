@@ -201,7 +201,7 @@ pub enum Stage {
 }
 
 /// Render a document into `rect`. The ONE path — every surface calls this.
-/// `theme` is the show's trait (W3b): the slide's absent styling fields
+/// `look` is the show's patch stack (W3b): the slide's absent styling fields
 /// inherit from it via `dpl_doc::resolve`; standalone slides pass
 /// `&dpl_doc::Theme::fallback()`.
 pub fn render(

@@ -129,7 +129,7 @@ note ("Elements sections join later") is deleted, because they no longer do.
 Per the Q2 ruling, the user-facing word for the treatment tier is **Looks**.
 `LibSection::Traits` is the only surface still saying "traits" to the operator.
 Renaming the variant + slug + blurb is 3 lines and keeps ONE vocabulary across
-Library and Author. The authored data (`tokens/traits.json`) and the internal
+Library and Author. The authored data (`tokens/frame-patches.json`) and the internal
 type names are **untouched** — trait is the correct engineering word, Look is
 the correct operator word, exactly as `Slide`/"card" already splits.
 
@@ -150,7 +150,7 @@ the correct operator word, exactly as `Slide`/"card" already splits.
   templates first (which composites genuinely recur ≥ 2×). That audit is DS4.
 - Author surface Pass B/C (the four-bucket gallery, filmstrip, overlay editor).
 - Recipes / interaction presets as a registered tier (`presets.json`).
-- `ResolvedStyle` / treatment threading (DS build order §3).
+- `FrameStyle` / treatment threading (DS build order §3).
 - The `Caps→Tier` fidelity probe honoring `cost_tier` (§5).
 - Any physical re-categorisation of elements into subdirs — DS2 §3e reading
   (A) still stands **within** `elements/`; category remains data.

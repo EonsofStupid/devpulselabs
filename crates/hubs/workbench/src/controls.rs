@@ -16,7 +16,7 @@
 //! IN. A button is actionable, so a button is neubrutalist.
 //!
 //! Everything here paints through `cl::compose`, so a control picks up hover
-//! and pressed states from the trait system rather than inventing them, and
+//! and pressed states from the frame-patch system rather than inventing them, and
 //! the tap target comes from the `tap-min` token rather than a magic pixel
 //! count.
 
@@ -58,16 +58,16 @@ pub(crate) fn control(
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, h), Sense::click());
 
     let state = if resp.is_pointer_button_down_on() {
-        cl::TraitState::Active
+        cl::WidgetState::Active
     } else if resp.hovered() {
-        cl::TraitState::Hover
+        cl::WidgetState::Hovered
     } else {
-        cl::TraitState::Idle
+        cl::WidgetState::Inactive
     };
     // Actionable == neubrutalist (doctrine). The stack is empty: a control
     // wears the base treatment, not a theme the operator picked for a card.
     let style = cl::compose(tone, "neubrutalist", &[], state);
-    let radius = egui::CornerRadius::same(style.radius);
+    let radius = egui::CornerRadius::same(style.corner_radius);
     let painter = ui.painter();
 
     // The hard offset shadow IS the affordance — it reads as a thing sitting
@@ -83,7 +83,7 @@ pub(crate) fn control(
     let edge = if selected || weight == Weight::Loud {
         egui::Stroke::new(2.0, tone.color())
     } else {
-        style.edge
+        style.stroke
     };
     painter.rect_stroke(rect, radius, edge, egui::StrokeKind::Inside);
     painter.galley(
@@ -95,7 +95,7 @@ pub(crate) fn control(
         if selected || weight == Weight::Loud {
             tone.color()
         } else {
-            style.ink
+            style.override_text_color
         },
     );
 
@@ -140,14 +140,14 @@ pub(crate) fn stacked_control(
 
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, h), Sense::click());
     let state = if resp.is_pointer_button_down_on() {
-        cl::TraitState::Active
+        cl::WidgetState::Active
     } else if resp.hovered() {
-        cl::TraitState::Hover
+        cl::WidgetState::Hovered
     } else {
-        cl::TraitState::Idle
+        cl::WidgetState::Inactive
     };
     let style = cl::compose(tone, "neubrutalist", &[], state);
-    let radius = egui::CornerRadius::same(style.radius);
+    let radius = egui::CornerRadius::same(style.corner_radius);
     let painter = ui.painter();
     for sh in &style.shadows {
         painter.rect_filled(
@@ -163,7 +163,7 @@ pub(crate) fn stacked_control(
         if selected {
             egui::Stroke::new(2.0, tone.color())
         } else {
-            style.edge
+            style.stroke
         },
         egui::StrokeKind::Inside,
     );

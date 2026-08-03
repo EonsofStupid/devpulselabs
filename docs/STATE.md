@@ -935,7 +935,7 @@ stale: `bar`/`divider` shipped but never showed); a new element now appears the
 day it registers, and nothing enumerates elements by hand (Census-law
 compliance). Elements stay ergonomic free fns; a stateless demo wraps each,
 centralized in the census module (zero element files touched). OUT-OF-SCOPE,
-each its own build-order step: treatments/`ResolvedStyle` threading (§3),
+each its own build-order step: treatments/`FrameStyle` threading (§3),
 recipes (§4), the probe honoring `cost_tier` (§5), template migration (§6).
 Gate: full `cargo green` GREEN on the Linux worktree (fmt · spawn+structure
 audits · clippy -D warnings · workspace tests incl. the 2 new census tests ·
@@ -1228,7 +1228,7 @@ interaction is a RECIPE; all of it paints through one 2D pipeline under a
 FIDELITY budget.* Nothing hand-painted that could be composed. Layers map 1:1
 to industry practice (design tokens → primitives/atoms → components → variant
 recipes → progressive-enhancement graphics tiers). Treatment MECHANICS stay in
-`doctrine.md` (compose→ResolvedStyle→paint, additive/override axes, the
+`doctrine.md` (compose→FrameStyle→paint, additive/override axes, the
 no-blur/hard-shadow+back-glow law = the cheap-2D anchor); the spec adds the
 layers around it: an organized ELEMENT library (today's `blocks/`, elevated);
 SEMANTIC treatments (intent aliases `primary/danger/…` bound to composites —

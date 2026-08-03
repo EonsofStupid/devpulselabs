@@ -36,7 +36,7 @@ actual icon family. Port fidelity, not a new direction.
   wiredfront/present) — all keep compiling untouched; this pass is additive.
 - `crates/coldlight/src/lib.rs:16-1146` — eight `include!(OUT_DIR/…_gen.rs)`
   sites; the trait compositor `compose(tone, base, stack, state) →
-  ResolvedStyle` (line 368); `treated`/`brutal`/`clay` `Treated` surface API
+  FrameStyle` (line 368); `treated`/`brutal`/`clay` `Treated` surface API
   (lines 470-533); inline `mod trait_tests` (line 536) and `mod tests`
   (line 1373).
 - `crates/coldlight/build.rs` — `main()` (lines 88-107): rerun-if-changed
@@ -45,7 +45,7 @@ actual icon family. Port fidelity, not a new direction.
 - `crates/coldlight/Cargo.toml` — deps: `egui`; build-deps: `serde_json`,
   `palette`. `crates/coldlight/assets/` holds `Phosphor.ttf` +
   `Phosphor-LICENSE-MIT.txt` (the vendoring precedent).
-- `crates/coldlight/tokens/traits.json` — neubrutalist shadow axis
+- `crates/coldlight/tokens/frame-patches.json` — neubrutalist shadow axis
   `offset [3,3], blur 0, black alpha 230`; claymorphic = content-plane.
 - `crates/hub/src/lib.rs:51` — `HubSpec.icon: &'static str` ("until the
   sprite atlas lands") — NOT touched this pass.
@@ -188,7 +188,7 @@ kurbo = "0.11"
 ```
 
 **Step 4 — edit `crates/coldlight/build.rs`.** In `main()` after
-`println!("cargo:rerun-if-changed=tokens/traits.json");` add:
+`println!("cargo:rerun-if-changed=tokens/frame-patches.json");` add:
 
 ```rust
     println!("cargo:rerun-if-changed=tokens/icons.json");
@@ -408,7 +408,7 @@ pub mod icons {
     }
 
     /// The NEUBRUTALIST icon: the trait's hard offset shadow axis
-    /// ([3,3], blur 0 — tokens/traits.json) as a black under-copy at
+    /// ([3,3], blur 0 — tokens/frame-patches.json) as a black under-copy at
     /// icon scale, the tone's stroke on top. For bare glyph seats.
     pub fn paint_brutal(
         painter: &egui::Painter,
@@ -438,7 +438,7 @@ pub mod icons {
         tip: &str,
     ) -> egui::Response {
         let ink =
-            super::compose(super::Tone::Cyan, "claymorphic", &[], super::TraitState::Idle).ink;
+            super::compose(super::Tone::Cyan, "claymorphic", &[], super::WidgetState::Idle).ink;
         let inner = super::clay().margin(egui::Margin::same(6)).show(ui, |ui| {
             let (rect, _) =
                 ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());

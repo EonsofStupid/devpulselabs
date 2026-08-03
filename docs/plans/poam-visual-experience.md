@@ -139,7 +139,7 @@ tone wants them. Everything painted — no blur, no textures fetched, no
 load spinners: first frame is the finished look.
 **Deliverables:** Home composed from V2 card backgrounds + V3 icons + V4
 buttons; any missing trait variants authored as trait DATA in
-`tokens/traits.json` and regenerated — never hand-rolled.
+`tokens/frame-patches.json` and regenerated — never hand-rolled.
 **Evidence gate:** cold-start proof (launch → first frame shot at
 `--shot-frame` low N shows the full look, nothing popping in late);
 maximized AND 1100x700 shots; the operator's feel bar.

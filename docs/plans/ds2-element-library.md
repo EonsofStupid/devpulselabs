@@ -156,7 +156,7 @@ ever outgrows a flat dir. Flagging because the spec's wording admits B.
 census-driven; the empty Container/Control shelves.
 
 **Out (explicitly deferred to their own steps):**
-- Treatments / `ResolvedStyle` threading into elements — **step ③** (elements
+- Treatments / `FrameStyle` threading into elements — **step ③** (elements
   keep their current `Tone`/`Color32` args this pass; the census doesn't force
   the treatment API yet).
 - Recipes / interaction — **step ④** (Control category stays empty).
@@ -199,7 +199,7 @@ working byte-for-byte.
   the ≥2-template promotion rule already governs what *is* an element.
 - **Decision A vs B churn** (§3e) — resolved by ratifying A up front; picking B
   later is a mechanical move-pass, not a redesign.
-- **Scope creep toward treatments.** The census tempts threading `ResolvedStyle`
+- **Scope creep toward treatments.** The census tempts threading `FrameStyle`
   now; §4 forbids it — elements keep current args, step ③ owns that seam.
 
 ## 7. Verification / acceptance

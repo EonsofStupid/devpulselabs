@@ -93,7 +93,7 @@ fn main() {
     println!("cargo:rerun-if-changed=tokens/fonts.json");
     println!("cargo:rerun-if-changed=assets/fonts");
     println!("cargo:rerun-if-changed=tokens/presets.json");
-    println!("cargo:rerun-if-changed=tokens/traits.json");
+    println!("cargo:rerun-if-changed=tokens/frame-patches.json");
     println!("cargo:rerun-if-changed=tokens/icons.json");
     println!("cargo:rerun-if-changed=assets/lucide");
     println!("cargo:rerun-if-changed=tokens/matrix.json");
@@ -106,7 +106,7 @@ fn main() {
     generate_moods(&out_dir);
     generate_fonts(&out_dir);
     generate_presets(&out_dir);
-    generate_traits(&out_dir);
+    generate_frame_patches(&out_dir);
     generate_icons(&out_dir);
     generate_matrix(&out_dir);
 }
@@ -962,20 +962,33 @@ fn generate_presets(out_dir: &str) {
     std::fs::write(Path::new(out_dir).join("presets_gen.rs"), code).expect("write presets_gen.rs");
 }
 
-// ── traits — the stackable partial themes (docs/design/doctrine.md) ───────
+// ── frame patches — stackable PARTIAL egui::Frame values ─────────────────
 
-/// tokens/traits.json → the TRAITS registry. A trait is DATA: per-axis
-/// specs whose color refs are LADDER-RELATIVE ({tone:STEP}) or fixed pool
-/// refs ({hue:ID,step:STEP}) or slots — resolved against a runtime Tone by
-/// the compositor in src. Hue/step refs are cross-validated HERE against the
-/// generated pool + LADDER_STEPS (unknown → build fails), the same
-/// manifest⇄truth law fonts/presets use. NOTE: `anim` refs are carried
-/// verbatim (deferred vocabulary) and not yet cross-checked against motion.
-fn generate_traits(out_dir: &str) {
-    let raw = std::fs::read_to_string("tokens/traits.json").expect("read traits.json");
-    let doc: serde_json::Value = serde_json::from_str(&raw).expect("parse traits.json");
-    let traits = doc["traits"].as_array().expect("traits.json: traits[]");
-    assert!(!traits.is_empty(), "traits.json: empty");
+/// tokens/frame-patches.json → the FRAME_PATCHES registry. A patch is DATA:
+/// per-axis specs whose color refs are LADDER-RELATIVE ({tone:STEP}) or fixed
+/// pool refs ({hue:ID,step:STEP}) or slots — resolved against a runtime Tone
+/// by the compositor in src. Hue/step refs are cross-validated HERE against
+/// the generated pool + LADDER_STEPS (unknown → build fails), the same
+/// manifest⇄truth law fonts/presets use, and so are `lineage` entries.
+///
+/// Every axis is named for the egui field it lands on (`egui::Frame::fill`,
+/// `::stroke`, `::corner_radius`), and the three that have NO egui
+/// equivalent — back_glow, tints, anim — are declared as extensions in the
+/// token file rather than left to look like they map somewhere.
+/// NOTE: `anim` refs are carried verbatim (deferred vocabulary) and not yet
+/// cross-checked against motion.
+fn generate_frame_patches(out_dir: &str) {
+    let raw =
+        std::fs::read_to_string("tokens/frame-patches.json").expect("read frame-patches.json");
+    let doc: serde_json::Value = serde_json::from_str(&raw).expect("parse frame-patches.json");
+    let patches = doc["patches"]
+        .as_array()
+        .expect("frame-patches.json: patches[]");
+    assert!(!patches.is_empty(), "frame-patches.json: empty");
+
+    /// The five seed ancestrals. A patch declares what it DESCENDS from;
+    /// lineages are never composable entries in the patch list.
+    const LINEAGES: [&str; 5] = ["bauhaus", "art-deco", "swiss", "aero", "brutalist"];
 
     // Valid hue ids — collected from the same source generate_ramps reads.
     let hues_doc: serde_json::Value =
@@ -1047,19 +1060,19 @@ fn generate_traits(out_dir: &str) {
             Some(v) => format!("Some({})", color_ref(v, &format!("{ctx}.{key}"))),
             None => "None".to_string(),
         };
-        let edge = match o.get("edge") {
+        let stroke = match o.get("stroke") {
             Some(e) => format!(
-                "Some(EdgeSpec {{ width: {}, color: {} }})",
-                f32_lit(e["width"].as_f64().expect("edge.width")),
-                color_ref(&e["color"], &format!("{ctx}.edge"))
+                "Some(StrokeSpec {{ width: {}, color: {} }})",
+                f32_lit(e["width"].as_f64().expect("stroke.width")),
+                color_ref(&e["color"], &format!("{ctx}.stroke"))
             ),
             None => "None".to_string(),
         };
-        let radius = match o.get("radius").and_then(|r| r.as_u64()) {
+        let corner_radius = match o.get("corner_radius").and_then(|r| r.as_u64()) {
             Some(r) => format!("Some({r})"),
             None => "None".to_string(),
         };
-        let font = match o.get("font").and_then(|f| f.as_str()) {
+        let override_font_id = match o.get("override_font_id").and_then(|f| f.as_str()) {
             Some(f) => format!("Some({f:?})"),
             None => "None".to_string(),
         };
@@ -1126,47 +1139,79 @@ fn generate_traits(out_dir: &str) {
             None => "None".to_string(),
         };
         format!(
-            "Axes {{ fill: {}, edge: {edge}, radius: {radius}, ink: {}, font: {font}, \
+            "Axes {{ fill: {}, stroke: {stroke}, corner_radius: {corner_radius}, \
+             override_text_color: {}, override_font_id: {override_font_id}, \
              shadows: {shadows}, back_glow: {back_glow}, tints: {tints}, anim: {anim} }}",
             opt_color("fill"),
-            opt_color("ink")
+            opt_color("override_text_color")
         )
     };
 
     let mut code = String::new();
     writeln!(
         code,
-        "// GENERATED by build.rs from tokens/traits.json — DO NOT EDIT."
+        "// GENERATED by build.rs from tokens/frame-patches.json — DO NOT EDIT."
     )
     .unwrap();
-    writeln!(code, "pub static TRAITS: &[TraitDef] = &[").unwrap();
-    for t in traits {
-        let id = t["id"].as_str().expect("trait.id");
-        let role = t["role"].as_str().expect("trait.role");
+    writeln!(code, "pub static FRAME_PATCHES: &[FramePatch] = &[").unwrap();
+    for t in patches {
+        let id = t["id"].as_str().expect("patch.id");
+        let role = t["role"].as_str().expect("patch.role");
         assert!(
-            matches!(role, "base" | "stack"),
-            "trait {id}: role must be base|stack, got {role:?}"
+            matches!(role, "base" | "overlay"),
+            "patch {id}: role must be base|overlay, got {role:?}"
         );
-        let label = t["label"].as_str().expect("trait.label");
-        let blurb = t["blurb"].as_str().expect("trait.blurb");
-        let base = axes(t, &format!("trait[{id}]"));
-        let hover = match t.get("hover") {
-            Some(h) => format!("Some({})", axes(h, &format!("trait[{id}].hover"))),
+        let label = t["label"].as_str().expect("patch.label");
+        let blurb = t["blurb"].as_str().expect("patch.blurb");
+        // Provenance, cross-validated like every other manifest⇄truth edge:
+        // an ancestral that is not one of the five fails the build rather
+        // than quietly becoming a new one.
+        let lineage: Vec<String> = t
+            .get("lineage")
+            .and_then(|l| l.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .map(|l| {
+                        let name = l.as_str().expect("patch.lineage entry");
+                        assert!(
+                            LINEAGES.contains(&name),
+                            "patch {id}: unknown lineage {name:?} — the five seed ancestrals are {LINEAGES:?}"
+                        );
+                        format!("{name:?}")
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let base = axes(t, &format!("patch[{id}]"));
+        // egui's own state slots. The patch itself IS the inactive state.
+        let hovered = match t.get("hovered") {
+            Some(h) => format!("Some({})", axes(h, &format!("patch[{id}].hovered"))),
             None => "None".to_string(),
         };
         let active = match t.get("active") {
-            Some(a) => format!("Some({})", axes(a, &format!("trait[{id}].active"))),
+            Some(a) => format!("Some({})", axes(a, &format!("patch[{id}].active"))),
+            None => "None".to_string(),
+        };
+        let open = match t.get("open") {
+            Some(o) => format!("Some({})", axes(o, &format!("patch[{id}].open"))),
             None => "None".to_string(),
         };
         writeln!(
             code,
-            "    TraitDef {{ id: {id:?}, role: {role:?}, label: {label:?}, blurb: {blurb:?}, \
-             base: {base}, hover: {hover}, active: {active} }},"
+            "    FramePatch {{ id: {id:?}, role: {role:?}, label: {label:?}, blurb: {blurb:?}, \
+             lineage: &[{}], base: {base}, hovered: {hovered}, active: {active}, open: {open} }},",
+            lineage.join(", ")
         )
         .unwrap();
     }
     writeln!(code, "];").unwrap();
-    writeln!(code, "pub const TRAIT_COUNT: usize = {};", traits.len()).unwrap();
+    writeln!(
+        code,
+        "pub const FRAME_PATCH_COUNT: usize = {};",
+        patches.len()
+    )
+    .unwrap();
 
-    std::fs::write(Path::new(out_dir).join("traits_gen.rs"), code).expect("write traits_gen.rs");
+    std::fs::write(Path::new(out_dir).join("frame_patches_gen.rs"), code)
+        .expect("write frame_patches_gen.rs");
 }

@@ -11,7 +11,7 @@
 //! thumb-sized on the 75" prop.
 //!
 //! Every shelf is drawn LIVE from the real registries (`demos()`,
-//! `elements()`, `blocks()`, `cl::TRAITS`, `list_seeds()`) — the Census law.
+//! `elements()`, `blocks()`, `cl::FRAME_PATCHES`, `list_seeds()`) — the Census law.
 //! Nothing is hand-listed, so a piece shows up the day it registers, and a
 //! shelf with nothing on it says why rather than looking broken.
 //!
@@ -63,9 +63,9 @@ fn film_tile(
         "claymorphic",
         &[],
         if resp.hovered() {
-            cl::TraitState::Hover
+            cl::WidgetState::Hovered
         } else {
-            cl::TraitState::Idle
+            cl::WidgetState::Inactive
         },
     );
     let fluid = cl::Fluid::of(rect);
@@ -74,15 +74,19 @@ fn film_tile(
     for sh in &style.shadows {
         painter.rect_filled(
             rect.translate(egui::vec2(sh.offset[0] as f32, sh.offset[1] as f32)),
-            egui::CornerRadius::same(style.radius),
+            egui::CornerRadius::same(style.corner_radius),
             sh.color,
         );
     }
-    painter.rect_filled(rect, egui::CornerRadius::same(style.radius), style.fill);
+    painter.rect_filled(
+        rect,
+        egui::CornerRadius::same(style.corner_radius),
+        style.fill,
+    );
 
     // The picture on top, the name under it — the mock's film card.
     let caption_h = fluid.fs_body_sm() + cl::space::S2;
-    let inset = style.edge.width + 1.0;
+    let inset = style.stroke.width + 1.0;
     let stage = egui::Rect::from_min_max(
         rect.min + egui::vec2(inset, inset),
         egui::pos2(rect.max.x - inset, rect.max.y - caption_h),
@@ -102,13 +106,13 @@ fn film_tile(
         if resp.hovered() {
             tone.color()
         } else {
-            style.ink
+            style.override_text_color
         },
     );
     painter.rect_stroke(
         rect,
-        egui::CornerRadius::same(style.radius),
-        style.edge,
+        egui::CornerRadius::same(style.corner_radius),
+        style.stroke,
         egui::StrokeKind::Inside,
     );
     resp
@@ -886,7 +890,7 @@ impl Shelf {
             Shelf::Layouts => "templates",
             Shelf::Combos => "blocks",
             Shelf::Pieces => "elements",
-            Shelf::Themes => "traits",
+            Shelf::Themes => "frame-patches",
             Shelf::Interactions => "recipes",
         }
     }
@@ -1205,7 +1209,7 @@ impl AuthorSurface {
             + self.seeds.len()
             + dpl_slides::elements::elements().len()
             + dpl_slides::blocks::blocks().len()
-            + cl::TRAITS.len()
+            + cl::FRAME_PATCHES.len()
     }
 
     /// Every container the operator has, across every kind, newest first.
@@ -2390,24 +2394,28 @@ impl AuthorSurface {
             "claymorphic",
             &[],
             if live && resp.hovered() {
-                cl::TraitState::Hover
+                cl::WidgetState::Hovered
             } else {
-                cl::TraitState::Idle
+                cl::WidgetState::Inactive
             },
         );
         let painter = ui.painter();
         for sh in &style.shadows {
             painter.rect_filled(
                 rect.translate(egui::vec2(sh.offset[0] as f32, sh.offset[1] as f32)),
-                egui::CornerRadius::same(style.radius),
+                egui::CornerRadius::same(style.corner_radius),
                 sh.color,
             );
         }
-        painter.rect_filled(rect, egui::CornerRadius::same(style.radius), style.fill);
+        painter.rect_filled(
+            rect,
+            egui::CornerRadius::same(style.corner_radius),
+            style.fill,
+        );
         painter.rect_stroke(
             rect,
-            egui::CornerRadius::same(style.radius),
-            style.edge,
+            egui::CornerRadius::same(style.corner_radius),
+            style.stroke,
             egui::StrokeKind::Inside,
         );
         painter.text(
@@ -2415,7 +2423,11 @@ impl AuthorSurface {
             egui::Align2::CENTER_CENTER,
             glyph,
             egui::FontId::proportional(cl::Fluid::of(rect).fs_h3()),
-            if live { style.ink } else { cl::ink::MUTED },
+            if live {
+                style.override_text_color
+            } else {
+                cl::ink::MUTED
+            },
         );
         let resp = cl::tip(
             resp,
@@ -2445,9 +2457,9 @@ impl AuthorSurface {
             "neubrutalist",
             &[],
             if resp.hovered() {
-                cl::TraitState::Hover
+                cl::WidgetState::Hovered
             } else {
-                cl::TraitState::Idle
+                cl::WidgetState::Inactive
             },
         );
         {
@@ -2455,15 +2467,19 @@ impl AuthorSurface {
             for sh in &style.shadows {
                 painter.rect_filled(
                     rect.translate(egui::vec2(sh.offset[0] as f32, sh.offset[1] as f32)),
-                    egui::CornerRadius::same(style.radius),
+                    egui::CornerRadius::same(style.corner_radius),
                     sh.color,
                 );
             }
-            painter.rect_filled(rect, egui::CornerRadius::same(style.radius), style.fill);
+            painter.rect_filled(
+                rect,
+                egui::CornerRadius::same(style.corner_radius),
+                style.fill,
+            );
             painter.rect_stroke(
                 rect,
-                egui::CornerRadius::same(style.radius),
-                style.edge,
+                egui::CornerRadius::same(style.corner_radius),
+                style.stroke,
                 egui::StrokeKind::Inside,
             );
         }
@@ -2619,7 +2635,7 @@ impl AuthorSurface {
                     }
                 })
                 .collect(),
-            Shelf::Themes => cl::TRAITS
+            Shelf::Themes => cl::FRAME_PATCHES
                 .iter()
                 .map(|t| ShelfItem {
                     id: t.id.to_string(),
@@ -2670,10 +2686,10 @@ impl AuthorSurface {
                 }
             }
             Shelf::Themes => {
-                // A theme has nothing of its own to show, so it dresses a plate:
-                // base treatments stand alone, stack traits ride the
+                // A look has nothing of its own to show, so it dresses a plate:
+                // base treatments stand alone, overlay patches ride the
                 // neubrutalist base — the way they are actually used.
-                let def = cl::TRAITS.iter().find(|t| t.id == item.id);
+                let def = cl::FRAME_PATCHES.iter().find(|t| t.id == item.id);
                 let (base, stack): (&str, &[&str]) = match def {
                     Some(d) if d.role == "base" => (d.id, &[]),
                     Some(d) => ("neubrutalist", std::slice::from_ref(&d.id)),
@@ -2682,7 +2698,7 @@ impl AuthorSurface {
                 // Vary the tone down the shelf so a sweep reads as motion, not
                 // a row of photocopies.
                 let tone = TONE_CYCLE[ix % TONE_CYCLE.len()];
-                let style = cl::compose(tone, base, stack, cl::TraitState::Idle);
+                let style = cl::compose(tone, base, stack, cl::WidgetState::Inactive);
                 let plate = rect.shrink(cl::space::S3);
                 let painter = ui.painter();
                 for shape in style.behind_shapes(plate) {
@@ -2691,15 +2707,19 @@ impl AuthorSurface {
                 for sh in &style.shadows {
                     painter.rect_filled(
                         plate.translate(egui::vec2(sh.offset[0] as f32, sh.offset[1] as f32)),
-                        egui::CornerRadius::same(style.radius),
+                        egui::CornerRadius::same(style.corner_radius),
                         sh.color,
                     );
                 }
-                painter.rect_filled(plate, egui::CornerRadius::same(style.radius), style.fill);
+                painter.rect_filled(
+                    plate,
+                    egui::CornerRadius::same(style.corner_radius),
+                    style.fill,
+                );
                 painter.rect_stroke(
                     plate,
-                    egui::CornerRadius::same(style.radius),
-                    style.edge,
+                    egui::CornerRadius::same(style.corner_radius),
+                    style.stroke,
                     egui::StrokeKind::Inside,
                 );
             }
@@ -3566,7 +3586,7 @@ mod dashboard_tests {
             + s.seeds.len()
             + dpl_slides::elements::elements().len()
             + dpl_slides::blocks::blocks().len()
-            + cl::TRAITS.len();
+            + cl::FRAME_PATCHES.len();
         assert_eq!(s.to_build_with(), expected);
         assert!(expected > 0, "the kit is not empty");
     }

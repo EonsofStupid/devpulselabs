@@ -1,6 +1,6 @@
 ---
 name: coldlight-system
-description: The DevPULSE Labs visual-language gate AND the composable-ingredients foundation. Invoke before ANY pass that adds/edits UI or builds a slide, element, block, or template. Ensures the stackable ColdLight ingredients (traits, elements, blocks, templates) already exist as generated egui code ready to colocate, and holds every surface to the trait doctrine — neubrutalism/claymorphism base + cyber/retro stack, tooltip law, generated-tokens-only, any-shape proofs. Replaces the old dpl-style gate.
+description: The DevPULSE Labs visual-language gate AND the composable-ingredients foundation. Invoke before ANY pass that adds/edits UI or builds a slide, element, block, or template. Ensures the stackable ColdLight ingredients (patches, elements, blocks, templates) already exist as generated egui code ready to colocate, and holds every surface to the patch doctrine — neubrutalism/claymorphism base + cyber/retro stack, tooltip law, generated-tokens-only, any-shape proofs. Replaces the old dpl-style gate.
 ---
 
 # ColdLight — the composable styling system + the gate
@@ -24,23 +24,23 @@ tokens/*.json (AUTHORED — the only thing you touch)
         ▼
 generated *_gen.rs  (NEVER hand-edit — carries "GENERATED … DO NOT EDIT")
         │
-compose(base, &[trait_id], overrides) -> ResolvedStyle   (pure fn, per frame, cacheable)
+compose(base, &[trait_id], overrides) -> FrameStyle   (pure fn, per frame, cacheable)
         │
-paint fns take ResolvedStyle → egui::Frame + painter ops
+paint fns take FrameStyle → egui::Frame + painter ops
         │
 manifest (generated) ← the Workbench editor reads THIS ("only show what exists")
 ```
 
 **Two orthogonal axes — never conflate them:**
-- **Styling ingredients** = `traits · elements · blocks · templates` (what dresses a surface).
+- **Styling ingredients** = `patches · elements · blocks · templates` (what dresses a surface).
 - **Slide categories** = `static · animation · interactive · split · infographics`
   (what KIND of slide) — a `category` field + registry key, plus open stackable
   `tags` (`topic:*`, `episode:*`, …). Independent of styling.
 
-## The treatments (traits — authored in `tokens/traits.json`, composed per-axis)
+## The treatments (patches — authored in `tokens/frame-patches.json`, composed per-axis)
 
-Two BASE treatments + two STACKABLE traits (operator-ratified). Never hand-roll
-any of them; if a variant is missing, author the trait data and regenerate.
+Two BASE treatments + two STACKABLE patches (operator-ratified). Never hand-roll
+any of them; if a variant is missing, author the patch data and regenerate.
 
 - **NEUBRUTALIST** (base, actionable) — the egui-native strength move. Flat
   saturated fill, crisp 2px hard edge, HARD offset shadow `[3,3]` zero blur
@@ -55,18 +55,18 @@ any of them; if a variant is missing, author the trait data and regenerate.
 
 **Composition law (per-axis, from the resolved-struct compositor):**
 - **Additive axes** — `shadows`, `tint/gradient layers`, `back-glow`, `animation`
-  — every trait's contribution CONCATENATES (retro scanline AND cyber glow both paint).
-- **Override axes** — `fill`, `edge`, `radius`, `ink`, `font` — last trait in the
+  — every patch's contribution CONCATENATES (retro scanline AND cyber glow both paint).
+- **Override axes** — `fill`, `stroke`, `corner_radius`, `override_text_color`, `override_font_id` — last patch in the
   stack wins. The additive/override split is a static table beside the axis enum.
 
 ## Foundation gate — run BEFORE any slide/UI is built
 
 The pass is not ready to build until, for every ingredient it needs:
-1. The **trait** exists in `tokens/traits.json` and regenerates cleanly.
+1. The **patch** exists in `tokens/frame-patches.json` and regenerates cleanly.
 2. The **element/block/template** exists in `crates/slides` and paints ONLY via
    `compose(...)` + coldlight paint fns — never ad-hoc `Color32::from_rgb`, never
    a bespoke `*_frame` helper (the old `brutal_frame`/`clay_frame` are legacy;
-   migrate them into the trait system, do not extend them).
+   migrate them into the patch system, do not extend them).
 3. The ingredient appears in the generated **manifest** (so the Workbench editor
    can offer it). An ingredient no surface/manifest exposes is a gallery-gate
    violation.

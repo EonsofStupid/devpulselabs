@@ -211,7 +211,7 @@ pub fn draw_icon(painter: &egui::Painter, id: &str, rect: egui::Rect, color: Col
 
 /// The brutal rendition: the icon's own mesh re-drawn offset as a hard
 /// shadow SHAPE under the tinted pass — doctrine's neubrutalist pop,
-/// never a blur. The offset tracks icon size and lands on the trait
+/// never a blur. The offset tracks icon size and lands on the patch
 /// system's [3, 3] at chrome sizes.
 pub fn draw_icon_brutal(
     painter: &egui::Painter,
@@ -323,14 +323,15 @@ impl BleedPreset {
 
 // ── THE TRAIT SYSTEM (docs/design/doctrine.md) ──────────────────────────
 //
-// A trait is a STACKABLE partial theme, authored in tokens/traits.json,
-// generated to traits_gen.rs, and resolved per-axis against a runtime Tone
+// A frame patch is a STACKABLE PARTIAL egui::Frame, authored in
+// tokens/frame-patches.json, generated to frame_patches_gen.rs, and resolved
+// per-axis against a runtime Tone
 // by `compose`. Additive axes (shadows/back_glow/tints/anim) concatenate
 // across the stack; override axes (fill/edge/radius/ink/font) last-wins.
-// This is the original ColdLight trait compositor, ported: one pure fn →
-// a concrete `ResolvedStyle`, which the paint layer consumes.
+// This is the original ColdLight compositor, ported: one pure fn →
+// a concrete `FrameStyle`, which the paint layer consumes.
 
-/// The base of a trait color ref, resolved at compose-time.
+/// The base of a patch color ref, resolved at compose-time.
 #[derive(Debug, Clone, Copy)]
 pub enum ColorBase {
     /// The surface Tone's ladder at this step (e.g. 400 fill, 700 edge).
@@ -341,7 +342,7 @@ pub enum ColorBase {
     Fixed(Color32),
 }
 
-/// A trait color ref: a ladder-relative or fixed base, plus an alpha.
+/// A patch color ref: a ladder-relative or fixed base, plus an alpha.
 #[derive(Debug, Clone, Copy)]
 pub struct ColorRef {
     pub base: ColorBase,
@@ -353,7 +354,7 @@ fn step_on(hue: &str, step: u32) -> Color32 {
     match (ramp(hue), step_index(step)) {
         (Some(r), Some(i)) => r.steps[i],
         _ => {
-            debug_assert!(false, "trait ref missing from pool: {hue}@{step}");
+            debug_assert!(false, "patch ref missing from pool: {hue}@{step}");
             Color32::GRAY
         }
     }
@@ -377,7 +378,7 @@ impl ColorRef {
 
 /// A tone edge: a width + a color ref (override axis).
 #[derive(Debug, Clone, Copy)]
-pub struct EdgeSpec {
+pub struct StrokeSpec {
     pub width: f32,
     pub color: ColorRef,
 }
@@ -405,42 +406,54 @@ pub struct TintSpec {
     pub dir: f32,
 }
 
-/// The per-axis map of a trait (or a state overlay). Every field is Option:
-/// `None` means "this trait does not touch this axis".
+/// The per-axis map of a patch (or a state overlay). Every axis is named
+/// for the `egui::Frame` field it lands on; back_glow/tints/anim have NO egui
+/// equivalent and are ColdLight extensions. Every field is Option: `None`
+/// means "this patch does not touch this axis".
 #[derive(Debug, Clone, Copy)]
 pub struct Axes {
     pub fill: Option<ColorRef>,
-    pub edge: Option<EdgeSpec>,
-    pub radius: Option<u8>,
-    pub ink: Option<ColorRef>,
-    pub font: Option<&'static str>,
+    pub stroke: Option<StrokeSpec>,
+    pub corner_radius: Option<u8>,
+    pub override_text_color: Option<ColorRef>,
+    pub override_font_id: Option<&'static str>,
     pub shadows: Option<&'static [ShadowSpec]>,
     pub back_glow: Option<&'static [GlowSpec]>,
     pub tints: Option<&'static [TintSpec]>,
     pub anim: Option<&'static [&'static str]>,
 }
 
-/// A stackable trait: its base axes + optional hover/active state overlays.
+/// A stackable partial Frame: its axes + optional egui-state overlays.
 #[derive(Debug, Clone, Copy)]
-pub struct TraitDef {
+pub struct FramePatch {
     pub id: &'static str,
-    /// base = neubrutalist/claymorphic (one per surface); stack = cyber/retro.
+    /// base = neubrutalist/claymorphic (one per surface); overlay = cyber/retro.
     pub role: &'static str,
     pub label: &'static str,
     pub blurb: &'static str,
+    /// The seed ancestrals this patch descends from — PROVENANCE, so a new
+    /// patch can be derived from lineage rather than invented. Never
+    /// composable: a lineage is not a patch and cannot enter a stack.
+    /// Cross-validated at build against the five.
+    pub lineage: &'static [&'static str],
+    /// The patch itself — egui's `inactive` state.
     pub base: Axes,
-    pub hover: Option<Axes>,
+    pub hovered: Option<Axes>,
     pub active: Option<Axes>,
+    /// egui has this slot (`style::Widgets::open`); nothing authors it yet.
+    pub open: Option<Axes>,
 }
 
-include!(concat!(env!("OUT_DIR"), "/traits_gen.rs"));
+include!(concat!(env!("OUT_DIR"), "/frame_patches_gen.rs"));
 
 /// The interaction state a surface is resolved in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TraitState {
-    Idle,
-    Hover,
+pub enum WidgetState {
+    /// The patch itself — egui `style::Widgets::inactive`.
+    Inactive,
+    Hovered,
     Active,
+    Open,
 }
 
 /// A resolved back-glow (color already carries alpha; painter draws behind).
@@ -460,73 +473,76 @@ pub struct Tint {
 /// The concrete style a paint fn consumes — the compositor's output. Pure
 /// input → pure output, so it is cacheable by (tone, base, stack, state).
 #[derive(Debug, Clone, Default)]
-pub struct ResolvedStyle {
+pub struct FrameStyle {
     pub fill: Color32,
-    pub edge: Stroke,
-    pub radius: u8,
-    pub ink: Color32,
-    pub font: Option<&'static str>,
+    pub stroke: Stroke,
+    pub corner_radius: u8,
+    pub override_text_color: Color32,
+    pub override_font_id: Option<&'static str>,
     pub shadows: Vec<Shadow>,
     pub back_glow: Vec<Glow>,
     pub tints: Vec<Tint>,
     pub anim: Vec<&'static str>,
 }
 
-/// A trait by id, or None (unknown → degrade, never panic).
-pub fn trait_def(id: &str) -> Option<&'static TraitDef> {
-    TRAITS.iter().find(|t| t.id == id)
+/// A patch by id, or None (unknown → degrade, never panic).
+pub fn frame_patch(id: &str) -> Option<&'static FramePatch> {
+    FRAME_PATCHES.iter().find(|t| t.id == id)
 }
 
-/// A trait's axes for a state: the base overlaid by the state patch, where
-/// the patch REPLACES an axis it names (additive axes included) — so a
-/// hover shadow replaces the idle shadow rather than stacking on itself.
-fn merged(def: &TraitDef, state: TraitState) -> Axes {
-    let patch = match state {
-        TraitState::Idle => None,
-        TraitState::Hover => def.hover,
-        TraitState::Active => def.active,
+/// A patch's axes for a state: the base overlaid by the state's own axes,
+/// where the state REPLACES an axis it names (additive axes included) — so a
+/// hovered shadow replaces the inactive shadow rather than stacking on it.
+///
+/// The patch itself is the INACTIVE state, which is why that arm is `None`.
+fn merged(patch: &FramePatch, state: WidgetState) -> Axes {
+    let overlay = match state {
+        WidgetState::Inactive => None,
+        WidgetState::Hovered => patch.hovered,
+        WidgetState::Active => patch.active,
+        WidgetState::Open => patch.open,
     };
-    match patch {
-        None => def.base,
+    match overlay {
+        None => patch.base,
         Some(p) => Axes {
-            fill: p.fill.or(def.base.fill),
-            edge: p.edge.or(def.base.edge),
-            radius: p.radius.or(def.base.radius),
-            ink: p.ink.or(def.base.ink),
-            font: p.font.or(def.base.font),
-            shadows: p.shadows.or(def.base.shadows),
-            back_glow: p.back_glow.or(def.base.back_glow),
-            tints: p.tints.or(def.base.tints),
-            anim: p.anim.or(def.base.anim),
+            fill: p.fill.or(patch.base.fill),
+            stroke: p.stroke.or(patch.base.stroke),
+            corner_radius: p.corner_radius.or(patch.base.corner_radius),
+            override_text_color: p.override_text_color.or(patch.base.override_text_color),
+            override_font_id: p.override_font_id.or(patch.base.override_font_id),
+            shadows: p.shadows.or(patch.base.shadows),
+            back_glow: p.back_glow.or(patch.base.back_glow),
+            tints: p.tints.or(patch.base.tints),
+            anim: p.anim.or(patch.base.anim),
         },
     }
 }
 
-/// Compose a base trait + a stack of traits into a `ResolvedStyle`, resolved
-/// against `tone` and `state`. Override axes take the last trait that names
-/// them; additive axes concatenate every trait's contribution. Pure.
-pub fn compose(tone: Tone, base: &str, stack: &[&str], state: TraitState) -> ResolvedStyle {
-    let mut rs = ResolvedStyle::default();
-    for id in std::iter::once(base).chain(stack.iter().copied()) {
-        let Some(def) = trait_def(id) else {
-            debug_assert!(false, "unknown trait in stack: {id}");
+/// Compose a base patch + a stack of overlays into a `FrameStyle`, resolved
+/// against `tone` and `state`. Override axes take the last patch that names
+/// them; additive axes concatenate every patch's contribution. Pure.
+pub fn compose(tone: Tone, base: &str, overlays: &[&str], state: WidgetState) -> FrameStyle {
+    let mut rs = FrameStyle::default();
+    for id in std::iter::once(base).chain(overlays.iter().copied()) {
+        let Some(patch) = frame_patch(id) else {
+            debug_assert!(false, "unknown frame patch in stack: {id}");
             continue;
         };
-        let ax = merged(def, state);
+        let ax = merged(patch, state);
         if let Some(c) = ax.fill {
             rs.fill = c.resolve(tone);
         }
-        if let Some(e) = ax.edge {
-            rs.edge = Stroke::new(e.width, e.color.resolve(tone));
+        if let Some(e) = ax.stroke {
+            rs.stroke = Stroke::new(e.width, e.color.resolve(tone));
         }
-        if let Some(r) = ax.radius {
-            rs.radius = r;
+        if let Some(r) = ax.corner_radius {
+            rs.corner_radius = r;
         }
-        if let Some(c) = ax.ink {
-            rs.ink = c.resolve(tone);
+        if let Some(c) = ax.override_text_color {
+            rs.override_text_color = c.resolve(tone);
         }
-        if let Some(f) = ax.font {
-            rs.font = Some(f);
+        if let Some(f) = ax.override_font_id {
+            rs.override_font_id = Some(f);
         }
         if let Some(shadows) = ax.shadows {
             rs.shadows.extend(shadows.iter().map(|s| Shadow {
@@ -555,14 +571,14 @@ pub fn compose(tone: Tone, base: &str, stack: &[&str], state: TraitState) -> Res
     rs
 }
 
-impl ResolvedStyle {
+impl FrameStyle {
     /// The shapes painted BEHIND the frame: the back-glow (a cheap concentric
     /// falloff — no blur, doctrine — so a saturated surface reads as "lit from
     /// directly behind"), plus any directional shadows beyond the first (the
     /// frame itself paints fill/edge/radius/primary-shadow). Pure + testable.
     pub fn behind_shapes(&self, rect: Rect) -> Vec<egui::Shape> {
         const GLOW_STEPS: usize = 5;
-        let cr = CornerRadius::same(self.radius);
+        let cr = CornerRadius::same(self.corner_radius);
         let mut shapes: Vec<egui::Shape> = Vec::new();
         for glow in &self.back_glow {
             // Faintest, widest ring first; strongest ring hugs the rect last.
@@ -581,7 +597,7 @@ impl ResolvedStyle {
                 let expand = glow.spread * t;
                 shapes.push(egui::Shape::rect_filled(
                     rect.expand(expand),
-                    CornerRadius::same(self.radius.saturating_add(expand as u8)),
+                    CornerRadius::same(self.corner_radius.saturating_add(expand as u8)),
                     c,
                 ));
             }
@@ -594,23 +610,23 @@ impl ResolvedStyle {
     }
 }
 
-/// A treated surface: resolves a trait stack and paints the FULL treatment
+/// A treated surface: resolves a patch stack and paints the FULL treatment
 /// (back-glow + shadows + fill + edge + tints) behind its content. The
 /// drop-in successor to `brutal_frame`/`clay_frame` — `.show(ui, |ui| …)`.
 pub struct Treated {
     tone: Tone,
     base: &'static str,
     stack: &'static [&'static str],
-    state: TraitState,
+    state: WidgetState,
     margin: egui::Margin,
 }
 
-/// Begin a treated surface with an explicit trait stack + state.
+/// Begin a treated surface with an explicit patch stack + state.
 pub fn treated(
     tone: Tone,
     base: &'static str,
     stack: &'static [&'static str],
-    state: TraitState,
+    state: WidgetState,
 ) -> Treated {
     let margin = if base == "claymorphic" {
         egui::Margin::same(16)
@@ -628,13 +644,13 @@ pub fn treated(
 
 /// The neubrutalist actionable surface (idle). Successor to `brutal_frame`.
 pub fn brutal(tone: Tone) -> Treated {
-    treated(tone, "neubrutalist", &[], TraitState::Idle)
+    treated(tone, "neubrutalist", &[], WidgetState::Inactive)
 }
 
 /// The claymorphic passive plane. Successor to `clay_frame`. Claymorphic
 /// uses only fixed surface/ink refs, so the tone is inert here.
 pub fn clay() -> Treated {
-    treated(Tone::Cyan, "claymorphic", &[], TraitState::Idle)
+    treated(Tone::Cyan, "claymorphic", &[], WidgetState::Inactive)
 }
 
 impl Treated {
@@ -657,8 +673,8 @@ impl Treated {
         let behind = ui.painter().add(egui::Shape::Noop);
         let mut frame = egui::Frame::new()
             .fill(style.fill)
-            .stroke(style.edge)
-            .corner_radius(CornerRadius::same(style.radius))
+            .stroke(style.stroke)
+            .corner_radius(CornerRadius::same(style.corner_radius))
             .inner_margin(self.margin);
         if let Some(shadow) = style.shadows.first() {
             frame = frame.shadow(*shadow);
@@ -673,17 +689,43 @@ impl Treated {
 }
 
 #[cfg(test)]
-mod trait_tests {
+mod frame_patch_tests {
     use super::*;
 
     #[test]
-    fn every_trait_paints_something_in_every_state() {
-        for def in TRAITS {
-            for state in [TraitState::Idle, TraitState::Hover, TraitState::Active] {
+    fn every_patch_paints_something_in_every_state() {
+        for def in FRAME_PATCHES {
+            for state in [
+                WidgetState::Inactive,
+                WidgetState::Hovered,
+                WidgetState::Active,
+                WidgetState::Open,
+            ] {
                 let rs = compose(Tone::Lime, def.id, &[], state);
                 assert!(
-                    rs.edge.width > 0.0 || rs.fill.a() > 0,
-                    "trait {} state {state:?} paints nothing",
+                    rs.stroke.width > 0.0 || rs.fill.a() > 0,
+                    "patch {} state {state:?} paints nothing",
+                    def.id
+                );
+            }
+        }
+    }
+
+    /// Lineage is PROVENANCE and the build cross-validates it, but a field
+    /// nothing reads is a claim with no check behind it. This is the check.
+    #[test]
+    fn every_patch_declares_where_it_descends_from() {
+        const SEEDS: [&str; 5] = ["bauhaus", "art-deco", "swiss", "aero", "brutalist"];
+        for def in FRAME_PATCHES {
+            assert!(
+                !def.lineage.is_empty(),
+                "patch {}: a patch with no lineage was invented, not derived",
+                def.id
+            );
+            for seed in def.lineage {
+                assert!(
+                    SEEDS.contains(seed),
+                    "patch {}: {seed:?} is not one of the five seed ancestrals",
                     def.id
                 );
             }
@@ -693,38 +735,48 @@ mod trait_tests {
     #[test]
     fn additive_axes_concatenate_across_the_stack() {
         // neubrutalist has 1 back-glow; cyber adds 2 → 3 total.
-        let base = compose(Tone::Cyan, "neubrutalist", &[], TraitState::Idle);
-        let stacked = compose(Tone::Cyan, "neubrutalist", &["cyber"], TraitState::Idle);
+        let base = compose(Tone::Cyan, "neubrutalist", &[], WidgetState::Inactive);
+        let stacked = compose(
+            Tone::Cyan,
+            "neubrutalist",
+            &["cyber"],
+            WidgetState::Inactive,
+        );
         assert_eq!(base.back_glow.len(), 1);
         assert_eq!(stacked.back_glow.len(), 3);
     }
 
     #[test]
     fn override_axes_last_in_the_stack_wins() {
-        // cyber overrides the edge → stacked edge is cyan@400, not tone@700.
-        let stacked = compose(Tone::Lime, "neubrutalist", &["cyber"], TraitState::Idle);
-        assert_eq!(stacked.edge.color, step_on("cyan", 400));
+        // cyber overrides the stroke → stacked stroke is cyan@400, not tone@700.
+        let stacked = compose(
+            Tone::Lime,
+            "neubrutalist",
+            &["cyber"],
+            WidgetState::Inactive,
+        );
+        assert_eq!(stacked.stroke.color, step_on("cyan", 400));
     }
 
     #[test]
-    fn state_overlay_replaces_within_the_trait() {
-        let idle = compose(Tone::Amber, "neubrutalist", &[], TraitState::Idle);
-        let active = compose(Tone::Amber, "neubrutalist", &[], TraitState::Active);
-        assert_eq!(idle.shadows[0].offset, [3, 3]);
+    fn state_overlay_replaces_within_the_patch() {
+        let inactive = compose(Tone::Amber, "neubrutalist", &[], WidgetState::Inactive);
+        let active = compose(Tone::Amber, "neubrutalist", &[], WidgetState::Active);
+        assert_eq!(inactive.shadows[0].offset, [3, 3]);
         assert_eq!(active.shadows[0].offset, [1, 1]);
     }
 
     #[test]
     fn tone_relative_fill_tracks_the_surface_tone() {
-        let lime = compose(Tone::Lime, "neubrutalist", &[], TraitState::Idle);
-        let cyan = compose(Tone::Cyan, "neubrutalist", &[], TraitState::Idle);
+        let lime = compose(Tone::Lime, "neubrutalist", &[], WidgetState::Inactive);
+        let cyan = compose(Tone::Cyan, "neubrutalist", &[], WidgetState::Inactive);
         assert_ne!(lime.fill, cyan.fill);
         assert_eq!(lime.fill, step_on("lime", 400));
     }
 
     #[test]
     fn neubrutalist_paints_a_back_glow() {
-        let s = compose(Tone::Lime, "neubrutalist", &[], TraitState::Idle);
+        let s = compose(Tone::Lime, "neubrutalist", &[], WidgetState::Inactive);
         let rect = Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(100.0, 40.0));
         // neubrutalist authors one back-glow → concentric rings behind.
         assert!(
