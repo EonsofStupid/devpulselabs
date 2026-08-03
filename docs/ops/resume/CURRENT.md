@@ -73,7 +73,8 @@ installed**.
 ## Next
 
 1. Land PR #192, or rebase it — #169 also edits `crates/fabric/src/lib.rs`.
-2. Mock the carousel overlay, then plan it. Mock-gate first, no code.
+2. **Build C1** — `docs/plans/c1-providers-carousel.md`. Mock is done
+   (artifact, A/B against the real capture) and the plan is settled.
 3. PU1 — the `.pulse` container + verifier. **Signing is the real
    guarantee; encryption is obfuscation** — `pulse-program.md` §2.1 says why,
    and that section must not be softened.
@@ -85,8 +86,9 @@ installed**.
 - Cursor's probe needles are DOCUMENTED, not measured — `cursor-agent` is not
   installed here. Antigravity (`agy`) exposes no non-interactive auth status
   at all, so it can prove installed and not signed-in.
-- The trait matrix has 4 traits and **no seed lineages**. The operator's five
-  ancestrals — Bauhaus, Art Deco, Swiss, Aero, Brutalist — are not in it yet.
+- The patch matrix has 4 patches, each now declaring its `lineage` (N1). The
+  five ancestrals exist as PROVENANCE only — no patch has yet been DERIVED
+  from a lineage, which is the point of having them.
 - `tokens/motion.json` has 19 effects and **no terminal 2D burst**.
 
 ## Key files
@@ -94,7 +96,7 @@ installed**.
 - `crates/chat/window/src/lib.rs` — 6031 loc, the whole painted surface
 - `crates/shell/src/providers.rs` — the control, popup, modal
 - `crates/app/src/presence.rs` · `crates/app/src/pulse.rs`
-- `crates/coldlight/tokens/{motion,icons,presets,traits,hues}.json`
+- `crates/coldlight/tokens/{motion,icons,presets,frame-patches,hues}.json`
 
 ## Parked lanes
 
