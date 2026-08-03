@@ -248,14 +248,16 @@ pub struct MountSpec {
 }
 
 /// Platform-opaque live accessible after resolve.
+///
+/// `#[non_exhaustive]` so external crates cannot construct handles — only
+/// the resolve path mints them (and on Linux they carry the AT-SPI live ref).
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct LiveHandle {
     pub node: NodeRef,
     pub atspi_name: String,
     #[cfg(target_os = "linux")]
     pub(crate) linux: linux::LinuxLive,
-    #[cfg(not(target_os = "linux"))]
-    pub(crate) _seal: (),
 }
 
 /// Resolve a fabric address to a live accessible (reality-gated).
