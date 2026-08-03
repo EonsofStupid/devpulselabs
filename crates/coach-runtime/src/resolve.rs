@@ -19,6 +19,13 @@ pub fn path_indices(path: &str) -> Result<Vec<u32>, Refused> {
                 tip: "Re-import the app — the signal map path is corrupt.".into(),
             });
         };
+        // Child indices feed AT-SPI's i32 API; refuse absurd segments here.
+        if n > i32::MAX as u32 {
+            return Err(Refused {
+                reason: format!("fabric path segment {n} out of range in {path:?}"),
+                tip: "Re-import the app — the signal map path is corrupt.".into(),
+            });
+        }
         if i == 0 {
             if n != 0 {
                 return Err(Refused {

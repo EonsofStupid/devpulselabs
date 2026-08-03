@@ -510,7 +510,12 @@ async fn resolve_live_async(
     for (step, idx) in indices.iter().enumerate() {
         parent_for_search = Some(key_of(&current));
         let count = current.child_count().await.unwrap_or(0);
-        if *idx as i32 >= count {
+        // AT-SPI takes i32; refuse before a wrapping cast can bypass bounds.
+        let idx_i32 = i32::try_from(*idx).map_err(|_| Refused {
+            reason: format!("fabric path index {idx} does not fit AT-SPI child index"),
+            tip: "Re-import the app — the signal map path is corrupt.".into(),
+        })?;
+        if idx_i32 >= count {
             return recover_under_parent(
                 &conn,
                 parent_for_search.as_ref(),
@@ -521,7 +526,7 @@ async fn resolve_live_async(
             .await;
         }
         let child = current
-            .get_child_at_index(*idx as i32)
+            .get_child_at_index(idx_i32)
             .await
             .map_err(|e| Refused {
                 reason: format!("get_child_at_index({idx}) failed: {e}"),

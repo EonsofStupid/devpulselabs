@@ -2149,7 +2149,7 @@ dependencies = [
  "dpl-coach-fabric",
  "dpl-coach-inventory",
  "dpl-proc",
- "x11rb",
+ "x11rb 0.14.0",
  "zbus",
 ]
 
