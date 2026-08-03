@@ -1,17 +1,17 @@
 # Coach operator experience — product spine (frictionless vision)
 
-**Status:** LOOK-APPROVED 2026-07-30 — C2c mock locked; C2d (#172) + C2e
-fabric mint PASS; **NEXT = C2f** wire Operator select → overlay paint  
-
- 
+**Status:** C2c LOOK-APPROVED 2026-07-30; mock **rev 2026-07-31** (Import
+Process) awaiting look-approve; C2d/C2e PASS; **NEXT = look-approve mock
+rev → C2f** against Import Process  
 **Lane:** coach-ledger  
 **Mock:** [`../ops/references/coach-operator-mock-c2c.html`](../ops/references/coach-operator-mock-c2c.html)  
 **Mock plan:** [`coach-c2c-operator-mock.md`](coach-c2c-operator-mock.md)  
+**Lab program:** [`coach-lab-experiment-program.md`](coach-lab-experiment-program.md)  
 **Home (ratified provisional):** shell **Coach hub** (not chat peer window)  
 **Canvas:** `coach-vision-alignment.canvas.tsx` (Cursor; not repo truth)  
-**Physics evidence:** C2s live Triggered · C2a ADR · C2b #158  
+**Physics evidence:** C2s live Triggered · C2a ADR · C2b #158 · C2e mint  
 **Program map:** [`operator-coach-a2ui.md`](operator-coach-a2ui.md)  
-**Alignment journal:** [`../journal/2026-07-30-coach-product-spine.md`](../journal/2026-07-30-coach-product-spine.md)
+**Capture journal:** [`../journal/2026-07-31-coach-import-lab-capture.md`](../journal/2026-07-31-coach-import-lab-capture.md)
 
 ## 1. Goal
 
@@ -30,10 +30,10 @@ refusals teach with tips. Advanced / EguiPilot remains a second surface.
 | Foreign locate + compose + paint + Triggered | **PASS** (C2s) |
 | Overlay process exception + self-test binary | **PASS** (C2a + C2b #158) |
 | Stdio coach loop on overlay | Deferred (Advanced plumbing) |
-| **Operator picker / mint / tip UX** | **MISSING — this is NEXT** |
+| **Operator picker / import / tip UX** | Mock rev Import Process — look-approve |
 | Lightweight installed-app inventory | **PASS** C2d (#172) |
 | Fabric mint progress + ETA | **PASS** C2e (`dpl-coach-fabric`) |
-| Doc NEXT pointers | C2f wire Operator → overlay |
+| Doc NEXT pointers | look-approve mock rev → C2f Import Process |
 
 ## 3. Design
 
@@ -98,7 +98,8 @@ at startup.
 | **C2c** | This spine + living-doc tip + UI mock approve | Operator signs mock |
 | **C2d** | Lightweight inventory (Phase 0+1) spike/plan+code | List without freeze; unit + live |
 | **C2e** | Fabric mint for selected Calculator | Progress + refuse tips; journal |
-| **C2f** | Wire Operator select → existing overlay paint | One guided lesson path |
+| **C2f** | Operator Import Process → guided lesson + paint | Honesty prompt + checks + Standard import + Triggered |
+| **Lab** | [`coach-lab-experiment-program.md`](coach-lab-experiment-program.md) | CX-teacher / CX-harvest spikes |
 | *(parked)* | C2b Pass-2 stdio · strict pinning · DuckDB | Advanced / later spine |
 
 ## 4. Changes (this alignment pass — docs only)
