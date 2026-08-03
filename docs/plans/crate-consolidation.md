@@ -37,24 +37,71 @@ Anything failing one of these stays. Every merge amends
 `docs/design/architecture.md` and the `xtask` audit tables **in the same
 commit** — that rule already exists and this pass obeys it.
 
-## 2. DELETE — verified dead, not merged
+## 2. ABSORB — nothing is deleted
 
-Two crates appear **only in their own `Cargo.toml`**. No `use`, no
-dependency edge, no test. Checked by scanning every manifest and every `.rs`
-in the workspace.
+> "ANYTHING CONSIDERED DEAD NEEDS TO BE MERGED INTO MY PROPERLY ORGANIZED
+> CRATES … WE ARE GETTING THIS ALL PROPERLY ABSORBED" — the operator
 
-| crate | loc | status |
-|---|---:|---|
-| `dpl-chat-renderers` | 419 | zero consumers, zero imports |
-| `dpl-chat-extensions` | 254 | zero consumers, zero imports |
+An earlier draft of this plan proposed deleting the two unreferenced chat
+crates. **That was wrong, and reading them is what proves it.** Neither is
+abandoned work. Both are *finished, correct* implementations that were never
+wired to a caller — and in one case the wired code is the WORSE of the two.
 
-**673 lines compiled on every build for nothing.** They were also written up
-in `docs/plans/chat-surface-map.md` as live surfaces, which was wrong — that
-document is corrected by this pass.
+### 2.1 `dpl-chat-renderers` (419) → a module in `dpl-chat-window`
 
-Pre-release law: **deleted, not deprecated.** If the Extensions concept is
-wanted later it is re-authored against the surface as it stands then, not
-resurrected from a crate nothing ever called.
+A **census registry** (`architecture.md` §4) over `ChatEventKind`, with nine
+dedicated render fns and two errors that make drift impossible:
+
+```rust
+RendererRegistryError::DuplicateKind(kind)  // two renderers for one kind
+RendererRegistryError::MissingKind(kind)    // a kind with no renderer
+```
+
+What the window paints with instead — `event_row`, `lib.rs:4840`:
+
+```rust
+match content {
+    ChatEventContent::UserMessage(body)      => { … }
+    ChatEventContent::AssistantMessage(body) => { … }
+    _ => {}                                  // ← a new kind renders as NOTHING
+}
+```
+
+**The wired implementation has a silent fallthrough; the unwired one fails
+construction.** Adding a `ChatEventContent` variant today paints an empty row
+and no test notices. Absorbing the registry closes that, and it is the census
+law the architecture already mandates everywhere else.
+
+So this absorption is not tidying — it is adopting the correct implementation
+and retiring the ad-hoc one. `event_row` and its helpers fold into the
+registry's render fns; nothing painted today stops being painted.
+
+### 2.2 `dpl-chat-extensions` (254) → `dpl-chat-interactions`
+
+A route-predicated, capability-gated **placement** registry: eight surfaces
+(`ProviderBarAction`, `SessionRailSection`, `ConversationRenderer`,
+`ComposerAction`, `ContextInspectorSection`, `Overlay`, `StatusDock`,
+`AttachedWindow`), `active_for(route, capabilities)`, and pin / dismiss /
+restore.
+
+Its header states the discipline plainly: *"exposes no egui callback, provider
+handle, filesystem handle, or shell API."* Pure, egui-free, typed.
+
+`dpl-chat-interactions` is the same concern one layer over — governed
+interaction contracts, egui-free, `dpl-chat-core` only. Together they become
+**one crate answering one question: what may appear, where, and under what
+governance.** That is cohesion, not accumulation.
+
+And it is directly load-bearing for the vision: `RoutePredicate` +
+`Capability` gating is the surface-level form of *"context is only available
+when I want it to be"*, and `ChatSurface::ConversationRenderer` shows the two
+crates were designed as one and split for no reason.
+
+### 2.3 The rule this establishes
+
+**Unreferenced is not dead.** Before anything is called dead it gets read, and
+the finding is recorded: was it abandoned, superseded, or simply never wired?
+Here both were never wired, and one is better than what shipped.
 
 ## 3. MERGE — the chat tree
 
@@ -118,8 +165,8 @@ separate defect and this becomes its own pass.
 | `dpl-chat-windows` | 624 | viewport lifecycle, distinct from painting |
 | `dpl-chat-window` | 6306 | the surface. **See §5** |
 
-**Net for the chat tree: 20 → 14 crates**, 673 loc deleted, four manifests
-removed.
+**Net for the chat tree: 20 → 14 crates.** 673 loc ABSORBED, not lost; four
+manifests removed.
 
 ## 4. Outside chat — candidates needing one more pass
 
@@ -158,7 +205,7 @@ under an in-flight rewrite means merging the same code twice.
 
 | link | what | risk |
 |---|---|---|
-| **X1** | Delete `chat-renderers` + `chat-extensions`. Correct `chat-surface-map.md`. | none — nothing references them |
+| **X1** | **Absorb** `chat-renderers` into the window (retiring `event_row`'s fallthrough) and `chat-extensions` into `chat-interactions`. Correct `chat-surface-map.md`. | medium — it changes what paints |
 | **X2** | `chat-context` → `chat-core`; amend the architecture + audit tables | low |
 | **X3** | The five adapters → `dpl-chat-providers` | **highest value, highest churn** — one crate, five modules, registry unchanged |
 | **X4** | `chat-testkit` to `[dev-dependencies]` | verify first |
@@ -166,12 +213,14 @@ under an in-flight rewrite means merging the same code twice.
 | **X6** | Split `chat/window/src/lib.rs` into modules — **after F1** | mechanical |
 
 Each link is one commit, `cargo green`, and amends the doctrine tables in the
-same commit. X1 first because deleting dead code before moving live code
-means less to move.
+same commit. X1 first because the registry it absorbs is the correct painter,
+and every later link paints through it.
 
 ## 7. What this pass will NOT do
 
 - **No new crates.** Consolidation that mints a crate has failed.
+- **Nothing is deleted.** Every line lands somewhere it belongs, or the pass
+  has not understood it yet.
 - **No layer changes.** If a merge needs the stack rearranged, the merge is
   wrong.
 - **No ceiling removed silently.** Every one that changes is amended in

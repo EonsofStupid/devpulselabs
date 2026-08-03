@@ -18,11 +18,11 @@ this repo.
 | `chat/window` | **6031** | the whole painted surface — every rail, pane and overlay |
 | `chat/windows` | 624 | peer/utility window lifecycle (open, geometry, close policy) |
 | `chat/store` | 939 | bounded read-only transcript discovery + paging |
-| ~~`chat/renderers`~~ | 419 | **DEAD — zero consumers.** Deleted by X1 (`crate-consolidation.md`) |
+| `chat/renderers` | 419 | census registry over `ChatEventKind` — **built, correct, never wired.** Absorbed into the window by X1; it is the CORRECT painter, `event_row` has a silent fallthrough |
 | `chat/social` | 419 | Social-domain state — **no live transport** |
 | `chat/context` | 153 | route-context offers and per-provider attachments |
 | `chat/interactions` | 396 | governed interaction contracts (approvals, A2UI) |
-| ~~`chat/extensions`~~ | 254 | **DEAD — zero consumers.** Deleted by X1 (`crate-consolidation.md`) |
+| `chat/extensions` | 254 | route+capability placement registry — **built, never wired.** Absorbed into `chat/interactions` by X1 |
 | `chat/profiles` | 556 | operator-authored provider profiles |
 | `chat/accounts` | 401 | activation evidence in local **Turso** |
 | `chat/imagine` | 385 | the Imagine generation adapter (ADR-011) |
