@@ -1,6 +1,6 @@
 {
   "$description": "AUTHORED \u2014 presets, the 6th token source. A preset is a NAMED BUNDLE OF REFS into the other registries (fonts/moods/motion) \u2014 data composed FROM the generated styling, zero new code per preset. Cross-validated at build: an unknown ref fails the build. look = one-tap slide looks (W4 trays); motion = entrance choices. The editor's Save-as-preset appends here (data in the authored format, never generated output).",
-  "look": [
+  "theme": [
     {
       "id": "neon-intro",
       "label": "Neon intro",
@@ -78,21 +78,6 @@
       "label": "Bloom in",
       "enter": "enter-bloom",
       "blurb": "A spring-soft bloom \u2014 for reveals that deserve drama."
-    }
-  ],
-  "bleed": [
-    {
-      "id": "providers-ink",
-      "label": "Providers ink",
-      "effect": "ink-bleed",
-      "hues": [
-        "cyan",
-        "magenta",
-        "amber",
-        "viridian",
-        "electric"
-      ],
-      "blurb": "Two colours seeping from two origins, ink into paper."
     }
   ]
 }

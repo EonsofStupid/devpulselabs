@@ -12,7 +12,7 @@ use protocol::{
     CommandEnvelope, CommandResult, Flow, Handshake, HandshakeRequest, PilotError, Project,
     RendererIdentity, RequestId, ResponseOutcome, RunId, RunResult, RuntimeEvent,
     RuntimeEventEnvelope, ServerMessage, SessionId, SnapshotRequest, ViewportSelector, WindowSize,
-    PROTOCOL_VERSION,
+    CONFIG_FILE, PROTOCOL_VERSION,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
@@ -23,8 +23,6 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-
-pub const CONFIG_FILE: &str = ".eguipilotai.toml";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

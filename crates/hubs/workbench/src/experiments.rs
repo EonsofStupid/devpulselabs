@@ -14,7 +14,9 @@ use egui_pilot_ai::protocol::Role;
 use egui_pilot_ai::{NodeMetadata, PilotId, PilotKey, UiPilotExt};
 use egui_pilot_ai_lab::RunSummary;
 use serde::Deserialize;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(test)]
+use std::path::PathBuf;
 
 /// The experiment domain list — one tracked node per experiment, and one per
 /// arm, so a drill can assert the grouping rather than a screenshot of it.
@@ -23,10 +25,7 @@ pub const EXPERIMENTS_ID: PilotId = PilotId::new("workbench.experiments");
 /// Where authored experiments live, beside the seeds they resemble.
 const EXPERIMENTS_ROOT: &str = "experiments";
 
-/// The runs root. `EguiPilotConfig.artifact_root` is the authority and
-/// defaults to this ONE definition — the surface no longer keeps a private
-/// copy of the path that must agree with the runner's.
-use egui_pilot_ai_lab::DEFAULT_ARTIFACT_ROOT as RUNS_ROOT;
+use egui_pilot_ai_lab::configured_artifact_root;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Variant {
@@ -119,14 +118,18 @@ impl Experiments {
                 self.notice = Some(error);
             }
         }
-        match egui_pilot_ai_lab::scan_runs(PathBuf::from(RUNS_ROOT)) {
+        // Ask the workspace where its bundles live rather than assuming the
+        // default: a project that moved its artifact root would otherwise see
+        // an empty list reported as "no runs".
+        let root = configured_artifact_root(Path::new("."));
+        match egui_pilot_ai_lab::scan_runs(&root) {
             Ok(runs) => {
                 self.runs_notice = None;
                 self.runs = runs;
             }
             Err(error) => {
                 self.runs.clear();
-                self.runs_notice = Some(format!("{RUNS_ROOT}: {error}"));
+                self.runs_notice = Some(format!("{}: {error}", root.display()));
             }
         }
     }

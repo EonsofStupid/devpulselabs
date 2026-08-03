@@ -1,8 +1,6 @@
 // spawn-audit: exempt(CLI harness — console output is the product)
 use egui_pilot_ai_protocol as protocol;
-use egui_pilot_ai_runner::{
-    load_flow, save_flow, EguiPilotConfig, ProcessSession, RunnerError, CONFIG_FILE,
-};
+use egui_pilot_ai_runner::{load_flow, save_flow, EguiPilotConfig, ProcessSession, RunnerError};
 use protocol::{
     CoachCommand, CoachCondition, CoachId, CoachStyle, Flow, Locator, NodeId, RunOutcome,
     SnapshotRequest, Touchpoint, TriggerKind,
@@ -102,7 +100,7 @@ fn doctor(workspace: &Path) -> Result<(), CliError> {
         "{}",
         serde_json::to_string_pretty(&json!({
             "ok": profiles.iter().all(|profile| profile["exists"] == true),
-            "config": workspace.join(CONFIG_FILE),
+            "config": workspace.join(protocol::CONFIG_FILE),
             "profiles": profiles,
             "fixtures": config.fixtures.keys().collect::<Vec<_>>(),
             "capabilities": egui_pilot_ai_protocol::capability_catalog(),

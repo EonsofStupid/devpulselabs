@@ -5,6 +5,29 @@
 /// Re-exported so a consumer of the run bundles reads ONE definition of where
 /// they live, rather than keeping a private copy of the path.
 pub use egui_pilot_ai_protocol::DEFAULT_ARTIFACT_ROOT;
+
+/// The artifact root this workspace actually uses.
+///
+/// A surface that lists run bundles must not assume the default: a project is
+/// free to move its root, and a reader that hard-codes the default would show
+/// an empty list and call it "no runs". Reads only the ONE field it needs, so
+/// it never mirrors the runner's full config vocabulary — and an unreadable or
+/// partial config falls back to the default, because a missing config means
+/// nobody moved it.
+///
+/// It lives in the LAB, not the protocol crate: protocol carries names and
+/// types, and this touches the filesystem.
+pub fn configured_artifact_root(workspace: &Path) -> PathBuf {
+    #[derive(serde::Deserialize)]
+    struct RootOnly {
+        artifact_root: Option<PathBuf>,
+    }
+    fs::read_to_string(workspace.join(egui_pilot_ai_protocol::CONFIG_FILE))
+        .ok()
+        .and_then(|text| toml::from_str::<RootOnly>(&text).ok())
+        .and_then(|config| config.artifact_root)
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_ARTIFACT_ROOT))
+}
 use egui_pilot_ai_protocol::{
     project_snapshot, AgentSnapshot, RunManifest, SemanticFrame, SessionStatus, SnapshotRequest,
 };
@@ -359,5 +382,68 @@ mod tests {
         let lab = TestLab::default();
         assert!(lab.status.is_none());
         assert!(lab.full_frame.is_none());
+    }
+}
+
+#[cfg(test)]
+mod artifact_root_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    fn workspace(config: Option<&str>) -> PathBuf {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        let id = NEXT.fetch_add(1, Ordering::Relaxed);
+        let root =
+            std::env::temp_dir().join(format!("devpulse-lab-root-{}-{id}", std::process::id()));
+        fs::create_dir_all(&root).expect("create workspace");
+        if let Some(text) = config {
+            fs::write(root.join(egui_pilot_ai_protocol::CONFIG_FILE), text).expect("write config");
+        }
+        root
+    }
+
+    /// The point of the whole change: a project that MOVED its root is
+    /// honoured, instead of the surface reading the default, finding nothing,
+    /// and reporting "no runs".
+    #[test]
+    fn a_moved_artifact_root_is_honoured() {
+        let ws = workspace(Some("artifact_root = \"build/evidence\"\n"));
+        assert_eq!(
+            configured_artifact_root(&ws),
+            PathBuf::from("build/evidence")
+        );
+        let _ = fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn a_config_without_the_key_falls_back_to_the_default() {
+        let ws = workspace(Some("[profiles.x]\narguments = []\n"));
+        assert_eq!(
+            configured_artifact_root(&ws),
+            PathBuf::from(DEFAULT_ARTIFACT_ROOT)
+        );
+        let _ = fs::remove_dir_all(&ws);
+    }
+
+    /// No config at all means nobody moved it — a fallback, never an error.
+    #[test]
+    fn a_missing_config_means_nobody_moved_it() {
+        let ws = workspace(None);
+        assert_eq!(
+            configured_artifact_root(&ws),
+            PathBuf::from(DEFAULT_ARTIFACT_ROOT)
+        );
+        let _ = fs::remove_dir_all(&ws);
+    }
+
+    /// A malformed config must not take the surface down with it.
+    #[test]
+    fn an_unreadable_config_falls_back_rather_than_failing() {
+        let ws = workspace(Some("artifact_root = [ this is not toml"));
+        assert_eq!(
+            configured_artifact_root(&ws),
+            PathBuf::from(DEFAULT_ARTIFACT_ROOT)
+        );
+        let _ = fs::remove_dir_all(&ws);
     }
 }
