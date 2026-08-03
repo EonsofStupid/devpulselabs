@@ -65,7 +65,7 @@ pub(crate) fn control(
         cl::TraitState::Idle
     };
     // Actionable == neubrutalist (doctrine). The stack is empty: a control
-    // wears the base treatment, not a look the operator picked for a card.
+    // wears the base treatment, not a theme the operator picked for a card.
     let style = cl::compose(tone, "neubrutalist", &[], state);
     let radius = egui::CornerRadius::same(style.radius);
     let painter = ui.painter();

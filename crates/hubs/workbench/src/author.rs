@@ -15,7 +15,7 @@
 //! Nothing is hand-listed, so a piece shows up the day it registers, and a
 //! shelf with nothing on it says why rather than looking broken.
 //!
-//! Vocabulary: the shelves read Starters · Layouts · Combos · Pieces · Looks ·
+//! Vocabulary: the shelves read Starters · Layouts · Combos · Pieces · Themes ·
 //! Interactions. What the code files those under lives in [`Shelf::slug`] and
 //! appears nowhere on screen (the UI law, DS3).
 //!
@@ -34,7 +34,7 @@ use egui_pilot_ai::{NodeMetadata, PilotId, PilotKey, UiPilotExt};
 /// How many extra cards one sweep adds when the shelf is set to keep going.
 const PAGE: usize = 6;
 
-/// Tones a look-plate cycles through down the shelf, so a sweep reads as
+/// Tones a theme-plate cycles through down the shelf, so a sweep reads as
 /// motion rather than a row of photocopies.
 const TONE_CYCLE: [Tone; 4] = [Tone::Cyan, Tone::Amber, Tone::Magenta, Tone::Coral];
 
@@ -45,7 +45,7 @@ const TONE_CYCLE: [Tone; 4] = [Tone::Cyan, Tone::Amber, Tone::Magenta, Tone::Cor
 /// thumb-sized stage cropped — the ramp has a floor. `DocSlide::thumbnail_ui`
 /// removed that, so the tile now shows the real document.
 ///
-/// It keeps the NAME as well as the picture. Three freshly-started cards look
+/// It keeps the NAME as well as the picture. Three freshly-started cards theme
 /// alike as pictures — the caption is what tells them apart, which is why the
 /// ratified mock's film card carries both. A card whose document will not
 /// load keeps the caption and shows an empty stage rather than pretending.
@@ -199,7 +199,7 @@ fn live_pane(ui: &mut egui::Ui, ed: &mut CardEditor) {
             &mut inner,
             inner_rect,
             ed.editor.slide(),
-            ed.editor.look(),
+            ed.editor.theme(),
             now,
             t0,
         );
@@ -865,7 +865,7 @@ pub(crate) enum Shelf {
     Layouts,
     Combos,
     Pieces,
-    Looks,
+    Themes,
     Interactions,
 }
 
@@ -875,7 +875,7 @@ impl Shelf {
         Shelf::Layouts,
         Shelf::Combos,
         Shelf::Pieces,
-        Shelf::Looks,
+        Shelf::Themes,
         Shelf::Interactions,
     ];
 
@@ -886,7 +886,7 @@ impl Shelf {
             Shelf::Layouts => "templates",
             Shelf::Combos => "blocks",
             Shelf::Pieces => "elements",
-            Shelf::Looks => "traits",
+            Shelf::Themes => "traits",
             Shelf::Interactions => "recipes",
         }
     }
@@ -898,7 +898,7 @@ impl Shelf {
             Shelf::Layouts => "Layouts",
             Shelf::Combos => "Combos",
             Shelf::Pieces => "Pieces",
-            Shelf::Looks => "Looks",
+            Shelf::Themes => "Themes",
             Shelf::Interactions => "Interactions",
         }
     }
@@ -910,7 +910,7 @@ impl Shelf {
             Shelf::Layouts => "whole cards",
             Shelf::Combos => "a few pieces together",
             Shelf::Pieces => "the small stuff",
-            Shelf::Looks => "how it's dressed",
+            Shelf::Themes => "how it's dressed",
             Shelf::Interactions => "what a tap does",
         }
     }
@@ -922,7 +922,7 @@ impl Shelf {
             Shelf::Layouts => "Every card design you have, running live",
             Shelf::Combos => "A few pieces that keep turning up together",
             Shelf::Pieces => "The smallest things everything else is built from",
-            Shelf::Looks => "How a card is dressed — pick one, stack more on top",
+            Shelf::Themes => "How a card is dressed — pick one, stack more on top",
             Shelf::Interactions => "What happens when someone taps the card",
         }
     }
@@ -1291,7 +1291,7 @@ impl AuthorSurface {
                 (
                     Tone::Magenta,
                     "Build a new piece",
-                    "Add to what you can build WITH — a piece, a combo, a look, a whole \
+                    "Add to what you can build WITH — a piece, a combo, a theme, a whole \
                      layout. One kit, mixed and matched.",
                     format!("{} to build with", self.to_build_with()),
                 ),
@@ -2619,7 +2619,7 @@ impl AuthorSurface {
                     }
                 })
                 .collect(),
-            Shelf::Looks => cl::TRAITS
+            Shelf::Themes => cl::TRAITS
                 .iter()
                 .map(|t| ShelfItem {
                     id: t.id.to_string(),
@@ -2669,8 +2669,8 @@ impl AuthorSurface {
                     e.paint(ui);
                 }
             }
-            Shelf::Looks => {
-                // A look has nothing of its own to show, so it dresses a plate:
+            Shelf::Themes => {
+                // A theme has nothing of its own to show, so it dresses a plate:
                 // base treatments stand alone, stack traits ride the
                 // neubrutalist base — the way they are actually used.
                 let def = cl::TRAITS.iter().find(|t| t.id == item.id);

@@ -390,7 +390,7 @@ dependencies = [
  "parking_lot",
  "percent-encoding",
  "windows-sys 0.60.2",
- "x11rb",
+ "x11rb 0.13.2",
 ]
 
 [[package]]
@@ -452,13 +452,31 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "70732f04d285d49054a48b72c54f791bb3424abae92d27aafdf776c98af161c8"
 dependencies = [
  "ahash",
- "arrow-buffer",
- "arrow-data",
+ "arrow-buffer 55.2.0",
+ "arrow-data 55.2.0",
  "arrow-schema 55.2.0",
  "chrono",
  "half",
  "hashbrown 0.15.5",
  "num",
+]
+
+[[package]]
+name = "arrow-array"
+version = "59.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9486151b2f0785bafc6fa04fc5c99fcb4495455662e58787ea32eaaed33c4192"
+dependencies = [
+ "ahash",
+ "arrow-buffer 59.1.0",
+ "arrow-data 59.1.0",
+ "arrow-schema 59.1.0",
+ "chrono",
+ "half",
+ "hashbrown 0.17.1",
+ "num-complex",
+ "num-integer",
+ "num-traits",
 ]
 
 [[package]]
@@ -473,14 +491,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "arrow-buffer"
+version = "59.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4776577a87794bfdf0b4e90e2ea12454fa7738ea2823c4be5b9d1851da7b434"
+dependencies = [
+ "bytes",
+ "half",
+ "num-bigint",
+ "num-traits",
+]
+
+[[package]]
 name = "arrow-cast"
 version = "55.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4f12eccc3e1c05a766cafb31f6a60a46c2f8efec9b74c6e0648766d30686af8"
 dependencies = [
- "arrow-array",
- "arrow-buffer",
- "arrow-data",
+ "arrow-array 55.2.0",
+ "arrow-buffer 55.2.0",
+ "arrow-data 55.2.0",
  "arrow-schema 55.2.0",
  "arrow-select",
  "atoi",
@@ -498,10 +528,23 @@ version = "55.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8de1ce212d803199684b658fc4ba55fb2d7e87b213de5af415308d2fee3619c2"
 dependencies = [
- "arrow-buffer",
+ "arrow-buffer 55.2.0",
  "arrow-schema 55.2.0",
  "half",
  "num",
+]
+
+[[package]]
+name = "arrow-data"
+version = "59.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b38fe43e2e8704360f1464e6e8cc4fc381ef02cc4fb0192afa8df1aaa0115c66"
+dependencies = [
+ "arrow-buffer 59.1.0",
+ "arrow-schema 59.1.0",
+ "half",
+ "num-integer",
+ "num-traits",
 ]
 
 [[package]]
@@ -510,9 +553,9 @@ version = "55.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9ea5967e8b2af39aff5d9de2197df16e305f47f404781d3230b2dc672da5d92"
 dependencies = [
- "arrow-array",
- "arrow-buffer",
- "arrow-data",
+ "arrow-array 55.2.0",
+ "arrow-buffer 55.2.0",
+ "arrow-data 55.2.0",
  "arrow-schema 55.2.0",
  "flatbuffers",
 ]
@@ -536,9 +579,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd2b45757d6a2373faa3352d02ff5b54b098f5e21dccebc45a21806bc34501e5"
 dependencies = [
  "ahash",
- "arrow-array",
- "arrow-buffer",
- "arrow-data",
+ "arrow-array 55.2.0",
+ "arrow-buffer 55.2.0",
+ "arrow-data 55.2.0",
  "arrow-schema 55.2.0",
  "num",
 ]
@@ -1772,6 +1815,7 @@ dependencies = [
  "dpl-chat-claude",
  "dpl-chat-codex",
  "dpl-chat-core",
+ "dpl-chat-cursor",
  "dpl-chat-gemini",
  "dpl-chat-grok",
  "dpl-chat-imagine",
@@ -1793,6 +1837,7 @@ dependencies = [
  "dpl-fabric",
  "dpl-guide",
  "dpl-hub",
+ "dpl-hub-coach",
  "dpl-hub-home",
  "dpl-hub-present",
  "dpl-hub-shows",
@@ -1800,6 +1845,7 @@ dependencies = [
  "dpl-hub-workbench",
  "dpl-intent",
  "dpl-ledger",
+ "dpl-proc",
  "dpl-seam",
  "dpl-shell",
  "dpl-tools-deps",
@@ -1956,6 +2002,13 @@ name = "dpl-chat-core"
 version = "0.1.0"
 
 [[package]]
+name = "dpl-chat-cursor"
+version = "0.1.0"
+dependencies = [
+ "dpl-chat-core",
+]
+
+[[package]]
 name = "dpl-chat-extensions"
 version = "0.1.0"
 dependencies = [
@@ -1968,6 +2021,7 @@ name = "dpl-chat-gemini"
 version = "0.1.0"
 dependencies = [
  "dpl-chat-core",
+ "dpl-chat-store",
 ]
 
 [[package]]
@@ -1979,6 +2033,7 @@ dependencies = [
  "async-io",
  "async-process",
  "dpl-chat-core",
+ "dpl-chat-store",
  "dpl-proc",
  "dpl-tools-deps",
  "futures-lite",
@@ -2110,7 +2165,7 @@ dependencies = [
  "atspi",
  "eframe",
  "egui",
- "x11rb",
+ "x11rb 0.14.0",
  "zbus",
 ]
 
@@ -2178,7 +2233,7 @@ dependencies = [
  "atspi",
  "eframe",
  "egui",
- "x11rb",
+ "x11rb 0.14.0",
  "zbus",
 ]
 
@@ -2293,6 +2348,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "dpl-hub-coach"
+version = "0.1.0"
+dependencies = [
+ "dpl-coach-fabric",
+ "dpl-coach-inventory",
+ "dpl-coldlight",
+ "dpl-hub",
+ "dpl-proc",
+ "egui",
+]
+
+[[package]]
 name = "dpl-hub-home"
 version = "0.1.0"
 dependencies = [
@@ -2394,8 +2461,8 @@ dependencies = [
 name = "dpl-ledger"
 version = "0.1.0"
 dependencies = [
- "arrow-array",
- "arrow-schema 59.1.0",
+ "arrow-array 59.1.0",
+ "arrow-schema 55.2.0",
  "dpl-fabric",
  "dpl-intent",
  "parquet",
@@ -2437,6 +2504,7 @@ dependencies = [
  "dpl-hub",
  "dpl-index",
  "dpl-intent",
+ "dpl-ledger",
  "serde",
  "serde_json",
  "tokio",
@@ -5778,10 +5846,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b17da4150748086bd43352bc77372efa9b6e3dbd06a04831d2a98c041c225cfa"
 dependencies = [
  "ahash",
- "arrow-array",
- "arrow-buffer",
+ "arrow-array 55.2.0",
+ "arrow-buffer 55.2.0",
  "arrow-cast",
- "arrow-data",
+ "arrow-data 55.2.0",
  "arrow-ipc",
  "arrow-schema 55.2.0",
  "arrow-select",
@@ -9280,7 +9348,7 @@ dependencies = [
  "web-time",
  "windows-sys 0.52.0",
  "x11-dl",
- "x11rb",
+ "x11rb 0.13.2",
  "xkbcommon-dl",
 ]
 
@@ -9353,7 +9421,20 @@ dependencies = [
  "libloading",
  "once_cell",
  "rustix 1.1.4",
- "x11rb-protocol",
+ "x11rb-protocol 0.13.2",
+]
+
+[[package]]
+name = "x11rb"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a8885a854a8bfdf87a301e53e41b17c5f8f33639903131338b997b1eb614f44"
+dependencies = [
+ "as-raw-xcb-connection",
+ "gethostname",
+ "libc",
+ "rustix 1.1.4",
+ "x11rb-protocol 0.14.0",
 ]
 
 [[package]]
@@ -9361,6 +9442,12 @@ name = "x11rb-protocol"
 version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ea6fc2961e4ef194dcbfe56bb845534d0dc8098940c7e5c012a258bfec6701bd"
+
+[[package]]
+name = "x11rb-protocol"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "acf4d1bc32aa46eec18caa634ec3cf4c05bfa151f12b93b510b15190f69a1ca8"
 
 [[package]]
 name = "xcap"

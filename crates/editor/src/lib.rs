@@ -31,10 +31,10 @@ enum Selection {
 pub struct Editor {
     dir: PathBuf,
     slide: dpl_doc::Slide,
-    /// The show's look (W3b) — auto-detected from the parent episode
+    /// The show's theme (W3b) — auto-detected from the parent episode
     /// folder, else the fallback. Trays show RESOLVED values; tapping a
-    /// card writes an override; "Show look" clears one.
-    look: dpl_doc::Look,
+    /// card writes an override; "Show theme" clears one.
+    theme: dpl_doc::Theme,
     clock: dpl_slides::motion::Clock,
     selection: Selection,
     /// Snapshots for Undo — the doc is a small value, snapshot per edit.
@@ -43,8 +43,8 @@ pub struct Editor {
     saved: Result<(), String>,
 }
 
-/// A text block's tray view: values resolved through the show look, with
-/// the override flags that drive the "Show look" chips.
+/// A text block's tray view: values resolved through the show theme, with
+/// the override flags that drive the "Show theme" chips.
 struct TextFields {
     text: String,
     font: String,
@@ -77,7 +77,7 @@ impl Editor {
         Ok(Self {
             dir: dir.to_path_buf(),
             slide,
-            look: dpl_doc::look_for_slide(dir),
+            theme: dpl_doc::theme_for_slide(dir),
             clock: dpl_slides::motion::Clock::default(),
             selection: Selection::None,
             undo: Vec::new(),
@@ -89,7 +89,7 @@ impl Editor {
         &self.slide
     }
 
-    /// Set what sits behind the words, or `None` to inherit the show's look.
+    /// Set what sits behind the words, or `None` to inherit the show's theme.
     ///
     /// The authoring surface's Background tab is a VIEW over this document,
     /// so it asks the editor to change the slide rather than writing the file
@@ -99,18 +99,18 @@ impl Editor {
         self.mutate(|slide| slide.background = background);
     }
 
-    /// The show's look this slide resolves against. A preview drawn beside
+    /// The show's theme this slide resolves against. A preview drawn beside
     /// the editor has to cascade the same way the card does, or it shows
     /// something the deck never will.
-    pub fn look(&self) -> &dpl_doc::Look {
-        &self.look
+    pub fn theme(&self) -> &dpl_doc::Theme {
+        &self.theme
     }
 
-    /// What the show's look says the entrance is — what "follow the show"
+    /// What the show's theme says the entrance is — what "follow the show"
     /// resolves to, so a picker can name it instead of showing an invisible
     /// default.
     pub fn look_enter(&self) -> Option<String> {
-        self.look.enter.clone()
+        self.theme.enter.clone()
     }
 
     /// The three lines of a quote, in convention order — empty where the card
@@ -218,7 +218,7 @@ impl Editor {
         });
     }
 
-    /// Set how the words arrive, or `None` to follow the show's look.
+    /// Set how the words arrive, or `None` to follow the show's theme.
     ///
     /// Restarts the clock so the entrance actually plays: a movement picker
     /// whose preview does not move is a contradiction.
@@ -277,7 +277,7 @@ impl Editor {
                 &mut child,
                 stage.shrink(2.0),
                 &self.slide,
-                &self.look,
+                &self.theme,
                 now,
                 t0,
             )
@@ -373,12 +373,12 @@ impl Editor {
 
     /// Nothing selected → the LOOK presets (W3), applied whole.
     fn look_tray(&mut self, ui: &mut Ui) {
-        ui.label(tray_title("Looks — tap to restyle the whole slide"));
+        ui.label(tray_title("Themes — tap to restyle the whole slide"));
         egui::ScrollArea::horizontal()
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    for p in cl::LOOK_PRESETS.iter() {
+                    for p in cl::THEME_PRESETS.iter() {
                         let (rect, resp) =
                             ui.allocate_exact_size(egui::vec2(150.0, 84.0), Sense::click());
                         let painter = ui.painter_at(rect);
@@ -403,12 +403,12 @@ impl Editor {
     }
 
     /// Background selected → Colours (mood A/B) + Ambience. Shows the
-    /// RESOLVED background; "Show look" clears the slide's override.
+    /// RESOLVED background; "Show theme" clears the slide's override.
     fn background_tray(&mut self, ui: &mut Ui) {
         let overridden = self.slide.background.is_some();
         ui.horizontal(|ui| {
             ui.label(tray_title("Background"));
-            if chip(ui, "Show look", !overridden) && overridden {
+            if chip(ui, "Show theme", !overridden) && overridden {
                 self.mutate(|s| s.background = None);
             }
         });
@@ -416,7 +416,7 @@ impl Editor {
             .slide
             .background
             .clone()
-            .unwrap_or_else(|| self.look.background.clone());
+            .unwrap_or_else(|| self.theme.background.clone());
         let (cur_a, cur_b, cur_amb) = match &resolved {
             dpl_doc::Background::MoodBlend {
                 moods, ambience, ..
@@ -466,7 +466,7 @@ impl Editor {
     }
 
     /// Text block selected → Font / Size / Ink / Text. Font and ink show
-    /// the RESOLVED value; "Show look" clears an override back to the show.
+    /// the RESOLVED value; "Show theme" clears an override back to the show.
     fn text_tray(&mut self, ui: &mut Ui, id: &str) {
         let Some(tf) = self.text_fields(id) else {
             return;
@@ -523,7 +523,7 @@ impl Editor {
                         }
                     }
                     // Lit = following the show; tap while overridden = go back.
-                    if chip(ui, "Show look", !tf.font_overridden) && tf.font_overridden {
+                    if chip(ui, "Show theme", !tf.font_overridden) && tf.font_overridden {
                         self.clear_font(id);
                     }
                 });
@@ -552,7 +552,7 @@ impl Editor {
                             self.mutate(|s| set_text(s, &id, |b| b.3 = name.clone()));
                         }
                     }
-                    if chip(ui, "Show look", !tf.ink_overridden) && tf.ink_overridden {
+                    if chip(ui, "Show theme", !tf.ink_overridden) && tf.ink_overridden {
                         self.clear_ink(id);
                     }
                 });
@@ -562,7 +562,7 @@ impl Editor {
 
     // ── mutation helpers ────────────────────────────────────────────────
 
-    /// A block's fields RESOLVED through the look, plus whether font/ink
+    /// A block's fields RESOLVED through the theme, plus whether font/ink
     /// are slide-level overrides (vs inherited from the show).
     fn text_fields(&self, id: &str) -> Option<TextFields> {
         self.slide.blocks.iter().find_map(|b| {
@@ -578,16 +578,16 @@ impl Editor {
             };
             (bid == id).then(|| TextFields {
                 text: text.clone(),
-                font: font.clone().unwrap_or_else(|| self.look.font.clone()),
+                font: font.clone().unwrap_or_else(|| self.theme.font.clone()),
                 size: size.clone(),
-                ink: ink.clone().unwrap_or_else(|| self.look.ink.clone()),
+                ink: ink.clone().unwrap_or_else(|| self.theme.ink.clone()),
                 font_overridden: font.is_some(),
                 ink_overridden: ink.is_some(),
             })
         })
     }
 
-    /// Clear a block's font override — back to the show look.
+    /// Clear a block's font override — back to the show theme.
     fn clear_font(&mut self, id: &str) {
         let id = id.to_string();
         self.mutate(move |s| {
@@ -602,7 +602,7 @@ impl Editor {
         });
     }
 
-    /// Clear a block's ink override — back to the show look.
+    /// Clear a block's ink override — back to the show theme.
     fn clear_ink(&mut self, id: &str) {
         let id = id.to_string();
         self.mutate(move |s| {
@@ -618,13 +618,13 @@ impl Editor {
     }
 
     fn set_blend_mood(&mut self, slot: usize, pick: String) {
-        // Editing an INHERITED background starts from the look's values —
+        // Editing an INHERITED background starts from the theme's values —
         // the first touch materializes an override with the show as base.
         let base = self
             .slide
             .background
             .clone()
-            .unwrap_or_else(|| self.look.background.clone());
+            .unwrap_or_else(|| self.theme.background.clone());
         self.mutate(move |s| {
             let (mut a, mut b, motion, ambience) = match &base {
                 dpl_doc::Background::MoodBlend {
@@ -662,7 +662,7 @@ impl Editor {
             .slide
             .background
             .clone()
-            .unwrap_or_else(|| self.look.background.clone());
+            .unwrap_or_else(|| self.theme.background.clone());
         self.mutate(move |s| {
             let mut bg = base;
             if let dpl_doc::Background::MoodBlend { ambience, .. } = &mut bg {
@@ -677,7 +677,7 @@ impl Editor {
 
 /// Applying a preset to a slide is an explicit whole-slide OVERRIDE —
 /// every write is `Some`, deliberately.
-fn apply_look(s: &mut dpl_doc::Slide, p: &cl::LookPreset) {
+fn apply_look(s: &mut dpl_doc::Slide, p: &cl::ThemePreset) {
     s.background = Some(dpl_doc::Background::MoodBlend {
         moods: vec![p.moods.0.to_string(), p.moods.1.to_string()],
         motion: p.motion.to_string(),
@@ -899,7 +899,7 @@ mod tests {
         }
     }
 
-    /// Styling-free — everything inherits the look.
+    /// Styling-free — everything inherits the theme.
     fn sparse_seed() -> dpl_doc::Slide {
         dpl_doc::Slide {
             v: dpl_doc::SCHEMA_V,
@@ -966,10 +966,10 @@ mod tests {
 
     #[test]
     fn applying_a_look_sets_every_text_font_and_the_background() {
-        let dir = scratch("look");
+        let dir = scratch("theme");
         dpl_doc::save(&dir, &seed()).unwrap();
         let mut ed = Editor::open(&dir).unwrap();
-        let p = cl::LOOK_PRESETS[0];
+        let p = cl::THEME_PRESETS[0];
         ed.mutate(|s| apply_look(s, &p));
         let on_disk = dpl_doc::load(&dir).unwrap();
         let dpl_doc::Block::Text { font, .. } = &on_disk.blocks[0] else {
@@ -979,7 +979,7 @@ mod tests {
         if let Some(dpl_doc::Background::MoodBlend { moods, .. }) = &on_disk.background {
             assert_eq!(moods, &vec![p.moods.0.to_string(), p.moods.1.to_string()]);
         } else {
-            panic!("look must set a mood-blend background");
+            panic!("theme must set a mood-blend background");
         }
         assert!(dpl_doc::validate(&on_disk).is_empty());
     }
@@ -1017,7 +1017,7 @@ mod tests {
 
     #[test]
     fn show_look_clears_the_override_on_disk() {
-        let dir = scratch("show-look");
+        let dir = scratch("show-theme");
         dpl_doc::save(&dir, &sparse_seed()).unwrap();
         let mut ed = Editor::open(&dir).unwrap();
         // Override the font, then put it back to the show.
@@ -1027,9 +1027,9 @@ mod tests {
         ed.clear_font("title");
         let raw = std::fs::read_to_string(dir.join("slide.json")).unwrap();
         assert!(!raw.contains("\"font\""), "override cleared on disk: {raw}");
-        // The tray resolves back to the look's font.
+        // The tray resolves back to the theme's font.
         let tf = ed.text_fields("title").unwrap();
-        assert_eq!(tf.font, dpl_doc::Look::fallback().font);
+        assert_eq!(tf.font, dpl_doc::Theme::fallback().font);
         assert!(!tf.font_overridden);
     }
 }

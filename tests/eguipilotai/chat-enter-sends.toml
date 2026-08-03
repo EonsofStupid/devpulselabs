@@ -1,0 +1,85 @@
+id = "chat-enter-sends"
+fixture = "chat"
+record = true
+
+# Enter submits the composer — the convention every chat client the operator
+# uses already obeys, and which this one did not: before this pass the ONLY
+# way to send was clicking the Send button.
+#
+# The probe is an operator slash command, because it is the one submit that
+# does not depend on a provider having a qualified live-turn transport. The
+# submit path clears the draft, so the composer's own pilot VALUE going from
+# "/strict" to empty is proof the keypress reached the same branch the button
+# uses. (Under the pilot the strict escalation is then refused as synthetic
+# input — that refusal is correct and is pinned separately in the app crate;
+# what this scenario proves is that the KEY submitted at all.)
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "open"
+
+[steps.expectation.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "wait"
+milliseconds = 2500
+
+# NOTE: no `focus-viewport` step — it cannot succeed on a headless lane with
+# no window manager, and the composer is addressed by node id anyway.
+
+# Type into the composer.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "fill"
+text = "/strict"
+
+[steps.action.target]
+id = "chat.primary/chat.composer"
+
+[[steps]]
+kind = "wait"
+milliseconds = 300
+
+# The draft is really in the composer.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "/strict"
+
+[steps.expectation.target]
+id = "chat.primary/chat.composer"
+
+# THE KEY. No click anywhere.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "press"
+key = "Enter"
+
+[steps.action.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "wait"
+milliseconds = 500
+
+# Submitted: the draft is gone. Before this pass the text would still be
+# sitting there with a newline appended.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = ""
+
+[steps.expectation.target]
+id = "chat.primary/chat.composer"

@@ -7,15 +7,70 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod ai_backfill;
+mod ai_usage;
 mod chat;
 #[cfg(feature = "eguipilotai-devtools")]
 mod coach_fabric;
 #[cfg(feature = "eguipilotai-devtools")]
 mod coach_signals;
+mod presence;
 
 use dpl_fabric::Fabric;
 use dpl_hub::{Hub, Route};
 use dpl_shell::Shell;
+
+/// Recover AI cost from sessions already on disk (Phase 3 §3.2c).
+///
+/// Only providers DECLARING `history_backfill` are walked, so a live-only
+/// transport is excluded structurally rather than by a special case. A
+/// missing history root is not an error — the operator simply has not run
+/// that provider here.
+fn run_ai_backfill(fabric: &dpl_fabric::Fabric, analytics_root: &std::path::Path) {
+    use dpl_chat_store::{HistoryLimits, JsonlHistorySource};
+
+    let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) else {
+        tracing::warn!("AI backfill: no HOME — cannot locate provider sessions");
+        return;
+    };
+    // Each provider stores its sessions in its own well-known place.
+    let codex_root = home.join(".codex/sessions");
+    let claude_root = home.join(".claude/projects");
+
+    let mut sources = Vec::new();
+    let codex = codex_root.exists().then(|| {
+        JsonlHistorySource::open(
+            &codex_root,
+            dpl_chat_codex::CodexHistoryDecoder,
+            HistoryLimits::default(),
+        )
+    });
+    let claude = claude_root.exists().then(|| {
+        JsonlHistorySource::open(
+            &claude_root,
+            dpl_chat_claude::ClaudeHistoryDecoder,
+            HistoryLimits::default(),
+        )
+    });
+    if let Some(Ok(source)) = codex.as_ref() {
+        if let Some(usage) = ai_usage::usage_for(dpl_chat_codex::PROVIDER) {
+            sources.push((source, usage));
+        }
+    }
+    if let Some(Ok(source)) = claude.as_ref() {
+        if let Some(usage) = ai_usage::usage_for(dpl_chat_claude::PROVIDER) {
+            sources.push((source, usage));
+        }
+    }
+    if sources.is_empty() {
+        tracing::info!("AI backfill: no provider sessions found on this machine");
+        return;
+    }
+    match ai_backfill::run(fabric, analytics_root, &sources) {
+        Ok(report) => tracing::info!(?report, "AI backfill complete"),
+        Err(error) => tracing::warn!(%error, "AI backfill did not complete"),
+    }
+}
 
 fn main() -> eframe::Result {
     // Structured logs: `RUST_LOG=debug devpulselabs` — info by default.
@@ -54,6 +109,10 @@ fn main() -> eframe::Result {
             ),
             Err(e) => tracing::warn!(error = %e, "three-ring root could not be created"),
         }
+        // Same honesty law, applied to AI accounting: name which providers
+        // report usage and which do not, so an empty cost column is
+        // explained rather than mysterious.
+        crate::ai_usage::log_census();
     }
     // Managed ffmpeg (the original's tools.rs law, ported): resolve ONE
     // absolute binary at boot and inject it into every engine seam, so a
@@ -86,7 +145,7 @@ fn main() -> eframe::Result {
         .and_then(|i| args.get(i + 1))
         .cloned();
     // `--lib-section <slug>` — boot the Workbench Library on ONE section by
-    // its chip slug (seeds/templates/blocks/elements/looks/colors/presets/
+    // its chip slug (seeds/templates/blocks/elements/themes/colors/presets/
     // fonts/moods), so every wall is provable on the real exe, not just
     // templates.
     let lib_section: Option<String> = args
@@ -320,6 +379,11 @@ fn main() -> eframe::Result {
     // starts the Parquet writer under `.userdata/analytics/`.
     let ledger = args.iter().any(|a| a == "--ledger")
         || std::env::var_os("DPL_LEDGER").is_some_and(|v| v != "0" && v != "false");
+    // `--ai-backfill` — the PIGGYBACK pass: walk provider sessions already
+    // on disk and recover the cost they already record. Off by default,
+    // idempotent, and it only runs when the ledger is on — there is no
+    // point recovering facts with nowhere to write them.
+    let ai_backfill_on = args.iter().any(|a| a == "--ai-backfill");
     // `--clone-seed <seed-id> <show> <episode>` — the headless clone
     // drill (X3): copy a seed into the real content tree through the
     // engine (`dpl_doc::clone_episode`) and exit; no window boots.
@@ -461,6 +525,7 @@ fn main() -> eframe::Result {
                 run_workflow,
                 seam_port,
                 ledger,
+                ai_backfill: ai_backfill_on,
             });
             #[cfg(feature = "eguipilotai-devtools")]
             let app = {
@@ -517,6 +582,8 @@ struct Boot {
     seam_port: Option<u16>,
     /// Signal ledger (Phase 2) — Parquet writer under `.userdata/analytics/`.
     ledger: bool,
+    /// The piggyback pass — recover cost from sessions already on disk.
+    ai_backfill: bool,
 }
 
 struct App {
@@ -607,6 +674,7 @@ impl App {
             run_workflow,
             seam_port,
             ledger: ledger_on,
+            ai_backfill: ai_backfill_on,
         } = boot;
         let mut workbench = dpl_hub_workbench::WorkbenchHub::default();
         if let Some(id) = focus {
@@ -652,6 +720,9 @@ impl App {
             match dpl_ledger::LedgerTap::open(&fabric, root.clone()) {
                 Ok(tap) => {
                     tracing::info!(root = %root.display(), "signal ledger writing");
+                    if ai_backfill_on {
+                        run_ai_backfill(&fabric, &root);
+                    }
                     Some(tap)
                 }
                 Err(e) => {
@@ -783,6 +854,7 @@ impl App {
                         codex_activation.activation_capability_qualified(),
                     ),
                     dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_claude::MANIFEST),
+                    dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_cursor::MANIFEST),
                     dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_gemini::MANIFEST),
                     activation_registration(
                         dpl_chat_grok::MANIFEST,
@@ -804,6 +876,7 @@ impl App {
                 codex_activation.activation_capability_qualified(),
             ),
             dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_claude::MANIFEST),
+            dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_cursor::MANIFEST),
             dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_gemini::MANIFEST),
             activation_registration(
                 dpl_chat_grok::MANIFEST,
@@ -837,6 +910,7 @@ impl App {
             Box::new(present_hub),
             Box::new(workbench),
             Box::new(wiredfront),
+            Box::new(dpl_hub_coach::CoachHub::new()),
         ];
         // The lite route launcher's targets: each registered hub's label and
         // its home route (HubSpec::default_route → first subroute). Built here,
@@ -963,6 +1037,7 @@ impl App {
                 codex_activation,
                 grok_activation,
                 open_at_boot: chat_open,
+                estate: estate.clone(),
                 #[cfg(feature = "eguipilotai-devtools")]
                 proof_mode: chat_proof,
             },

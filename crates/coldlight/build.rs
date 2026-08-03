@@ -96,6 +96,7 @@ fn main() {
     println!("cargo:rerun-if-changed=tokens/traits.json");
     println!("cargo:rerun-if-changed=tokens/icons.json");
     println!("cargo:rerun-if-changed=assets/lucide");
+    println!("cargo:rerun-if-changed=tokens/matrix.json");
     let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR");
 
     generate_ramps(&out_dir);
@@ -107,6 +108,152 @@ fn main() {
     generate_presets(&out_dir);
     generate_traits(&out_dir);
     generate_icons(&out_dir);
+    generate_matrix(&out_dir);
+}
+
+// ── the MATRIX — faceted classification (docs/design/coldlight-matrix.md) ──
+
+/// tokens/matrix.json → the facet id pools and the legality table.
+///
+/// Four checks, and each one FAILS THE BUILD rather than degrading, because
+/// a matrix that silently permits a contradiction produces mush (§5):
+///
+/// 1. **Kebab ids** — the naming law (architecture.md §4).
+/// 2. **Every font ref resolves** — the manifest⇄truth law fonts already use.
+/// 3. **Total and disjoint** — every facet value appears in EXACTLY ONE of
+///    an ancestor's `native`/`allowed`/`forbidden`, for EVERY ancestor. A
+///    value left unclassified fails; a value classified twice fails. This is
+///    what stops the matrix rotting as values are added: adding a material
+///    forces all eight ancestors to rule on it.
+/// 4. **`native` is one value per facet** — an ancestor alone must resolve
+///    to a complete look, so its natives cannot be absent or plural.
+fn generate_matrix(out_dir: &str) {
+    let raw = std::fs::read_to_string("tokens/matrix.json").expect("read matrix.json");
+    let doc: serde_json::Value = serde_json::from_str(&raw).expect("parse matrix.json");
+
+    let kebab = |s: &str| {
+        !s.is_empty()
+            && s.split('-').all(|p| {
+                !p.is_empty()
+                    && p.chars()
+                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+            })
+    };
+    let ids_of = |key: &str| -> Vec<String> {
+        doc[key]
+            .as_array()
+            .unwrap_or_else(|| panic!("matrix.json: {key}[]"))
+            .iter()
+            .map(|v| {
+                let id = v["id"].as_str().expect("facet id").to_owned();
+                assert!(kebab(&id), "matrix.json: id {id:?} is not kebab-case");
+                id
+            })
+            .collect()
+    };
+
+    let structures = ids_of("structures");
+    let materials = ids_of("materials");
+    let atmospheres = ids_of("atmospheres");
+    let ancestors = doc["ancestors"]
+        .as_array()
+        .expect("matrix.json: ancestors[]");
+
+    // The font pool is the truth an ancestor's `font` must resolve against.
+    let fonts_raw = std::fs::read_to_string("tokens/fonts.json").expect("read fonts.json");
+    let fonts_doc: serde_json::Value = serde_json::from_str(&fonts_raw).expect("parse fonts.json");
+    let font_ids: Vec<&str> = fonts_doc["fonts"]
+        .as_array()
+        .expect("fonts.json: fonts[]")
+        .iter()
+        .map(|f| f["id"].as_str().expect("font id"))
+        .collect();
+
+    let facets: [(&str, &Vec<String>); 3] = [
+        ("structure", &structures),
+        ("material", &materials),
+        ("atmosphere", &atmospheres),
+    ];
+
+    let mut rulings = 0usize;
+    for a in ancestors {
+        let aid = a["id"].as_str().expect("ancestor id");
+        assert!(
+            kebab(aid),
+            "matrix.json: ancestor {aid:?} is not kebab-case"
+        );
+        let font = a["font"].as_str().expect("ancestor font");
+        assert!(
+            font_ids.contains(&font),
+            "matrix.json: ancestor {aid:?} wears unknown font {font:?}"
+        );
+
+        for (facet, pool) in facets {
+            let native = a["native"][facet]
+                .as_str()
+                .unwrap_or_else(|| panic!("matrix.json: {aid}.native.{facet} must be ONE value"));
+            let list = |set: &str| -> Vec<String> {
+                a[set][facet]
+                    .as_array()
+                    .map(|v| {
+                        v.iter()
+                            .map(|x| x.as_str().expect("facet ref").to_owned())
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            };
+            let mut seen: Vec<String> = vec![native.to_owned()];
+            seen.extend(list("allowed"));
+            seen.extend(list("forbidden"));
+
+            for v in &seen {
+                assert!(
+                    pool.contains(v),
+                    "matrix.json: {aid}.{facet} references unknown value {v:?}"
+                );
+            }
+            for v in pool {
+                let n = seen.iter().filter(|s| *s == v).count();
+                assert!(
+                    n == 1,
+                    "matrix.json: {aid}.{facet} classifies {v:?} {n} times — every value must \
+                     appear in EXACTLY ONE of native/allowed/forbidden (matrix §5)"
+                );
+                rulings += 1;
+            }
+        }
+    }
+
+    let mut code = String::new();
+    writeln!(
+        code,
+        "// GENERATED by build.rs from tokens/matrix.json — DO NOT EDIT."
+    )
+    .unwrap();
+    for (name, pool) in [
+        ("STRUCTURES", &structures),
+        ("MATERIALS", &materials),
+        ("ATMOSPHERES", &atmospheres),
+    ] {
+        writeln!(code, "pub static {name}: &[&str] = &[").unwrap();
+        for id in pool {
+            writeln!(code, "    {id:?},").unwrap();
+        }
+        writeln!(code, "];").unwrap();
+    }
+    writeln!(code, "pub static ANCESTORS: &[&str] = &[").unwrap();
+    for a in ancestors {
+        writeln!(code, "    {:?},", a["id"].as_str().unwrap()).unwrap();
+    }
+    writeln!(code, "];").unwrap();
+    writeln!(
+        code,
+        "/// Authored legality rulings — every ancestor rules on every facet value."
+    )
+    .unwrap();
+    writeln!(code, "pub const RULING_COUNT: usize = {rulings};").unwrap();
+
+    std::fs::write(format!("{out_dir}/matrix_gen.rs"), code).expect("write matrix_gen.rs");
 }
 
 // ── icons — the 8th source: the vendored Lucide pool (ADR-015) ──────────
@@ -622,7 +769,7 @@ fn generate_fluid(out_dir: &str) {
 
 // ── presets — the 6th source: named bundles of refs ─────────────────────
 
-/// tokens/presets.json → LOOK_PRESETS / MOTION_PRESETS. A preset is DATA
+/// tokens/presets.json → THEME_PRESETS / MOTION_PRESETS. A preset is DATA
 /// over the other registries; every ref is cross-checked HERE against the
 /// authored sources, so an unknown font/mood/effect/ambience fails the
 /// build — the same manifest⇄truth law fonts use.
@@ -671,39 +818,39 @@ fn generate_presets(out_dir: &str) {
     )
     .unwrap();
 
-    let looks = doc["look"].as_array().expect("presets.json: look[]");
-    writeln!(code, "pub static LOOK_PRESETS: &[LookPreset] = &[").unwrap();
-    for p in looks {
-        let id = p["id"].as_str().expect("look.id");
-        let label = p["label"].as_str().expect("look.label");
-        let blurb = p["blurb"].as_str().expect("look.blurb");
-        let font = p["font"].as_str().expect("look.font");
-        let moods = p["moods"].as_array().expect("look.moods");
-        assert_eq!(moods.len(), 2, "look {id}: exactly 2 moods");
+    let themes = doc["theme"].as_array().expect("presets.json: theme[]");
+    writeln!(code, "pub static THEME_PRESETS: &[ThemePreset] = &[").unwrap();
+    for p in themes {
+        let id = p["id"].as_str().expect("theme.id");
+        let label = p["label"].as_str().expect("theme.label");
+        let blurb = p["blurb"].as_str().expect("theme.blurb");
+        let font = p["font"].as_str().expect("theme.font");
+        let moods = p["moods"].as_array().expect("theme.moods");
+        assert_eq!(moods.len(), 2, "theme {id}: exactly 2 moods");
         let (a, b) = (
             moods[0].as_str().expect("mood ref"),
             moods[1].as_str().expect("mood ref"),
         );
-        let motion = p["motion"].as_str().expect("look.motion");
+        let motion = p["motion"].as_str().expect("theme.motion");
         let ambience = p["ambience"].as_str();
         assert!(
             font_ids.iter().any(|f| f == font),
-            "look {id}: unknown font {font:?}"
+            "theme {id}: unknown font {font:?}"
         );
         for m in [a, b] {
             assert!(
                 mood_names.iter().any(|n| n == m),
-                "look {id}: unknown mood {m:?}"
+                "theme {id}: unknown mood {m:?}"
             );
         }
         assert!(
             effect_ids.iter().any(|e| e == motion),
-            "look {id}: unknown motion {motion:?}"
+            "theme {id}: unknown motion {motion:?}"
         );
         if let Some(amb) = ambience {
             assert!(
                 AMBIENCES.contains(&amb),
-                "look {id}: unknown ambience {amb:?}"
+                "theme {id}: unknown ambience {amb:?}"
             );
         }
         let amb_code = match ambience {
@@ -712,7 +859,7 @@ fn generate_presets(out_dir: &str) {
         };
         writeln!(
             code,
-            "    LookPreset {{ id: {id:?}, label: {label:?}, blurb: {blurb:?}, font: {font:?}, \
+            "    ThemePreset {{ id: {id:?}, label: {label:?}, blurb: {blurb:?}, font: {font:?}, \
              moods: ({a:?}, {b:?}), motion: {motion:?}, ambience: {amb_code} }},"
         )
         .unwrap();
@@ -720,8 +867,8 @@ fn generate_presets(out_dir: &str) {
     writeln!(code, "];").unwrap();
     writeln!(
         code,
-        "pub const LOOK_PRESET_COUNT: usize = {};",
-        looks.len()
+        "pub const THEME_PRESET_COUNT: usize = {};",
+        themes.len()
     )
     .unwrap();
 
@@ -750,10 +897,72 @@ fn generate_presets(out_dir: &str) {
     )
     .unwrap();
 
+    // BLEED presets — a hover wash over a PAIR of hues drawn from a pool.
+    // Its own kind because `MotionPreset` carries one `enter` effect and no
+    // colour, and widening that for one caller would change every existing
+    // motion preset. The pool is AUTHORED: an unknown hue fails the build
+    // here, which is what stops a widget carrying a list of hexes.
+    let hues_doc: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string("tokens/hues.json").expect("read hues.json"))
+            .expect("parse hues.json");
+    let mut hue_ids: Vec<String> = Vec::new();
+    for group in hues_doc["groups"]
+        .as_object()
+        .expect("hues.json: groups")
+        .values()
+    {
+        if let Some(hues) = group.get("hues").and_then(|h| h.as_array()) {
+            hue_ids.extend(
+                hues.iter()
+                    .filter_map(|h| h["id"].as_str().map(str::to_owned)),
+            );
+        }
+    }
+
+    let bleeds = doc["bleed"].as_array().expect("presets.json: bleed[]");
+    writeln!(code, "pub static BLEED_PRESETS: &[BleedPreset] = &[").unwrap();
+    for p in bleeds {
+        let id = p["id"].as_str().expect("bleed.id");
+        let label = p["label"].as_str().expect("bleed.label");
+        let blurb = p["blurb"].as_str().expect("bleed.blurb");
+        let effect = p["effect"].as_str().expect("bleed.effect");
+        assert!(
+            effect_ids.iter().any(|e| e == effect),
+            "bleed preset {id}: unknown effect {effect:?}"
+        );
+        let hues = p["hues"].as_array().expect("bleed.hues");
+        assert!(
+            hues.len() >= 2,
+            "bleed preset {id}: a two-colour bleed needs a pool of at least 2"
+        );
+        let mut hue_code = String::new();
+        for h in hues {
+            let h = h.as_str().expect("bleed.hue ref");
+            assert!(
+                hue_ids.iter().any(|k| k == h),
+                "bleed preset {id}: unknown hue {h:?}"
+            );
+            write!(hue_code, "{h:?},").unwrap();
+        }
+        writeln!(
+            code,
+            "    BleedPreset {{ id: {id:?}, label: {label:?}, blurb: {blurb:?}, \
+             effect: {effect:?}, hues: &[{hue_code}] }},"
+        )
+        .unwrap();
+    }
+    writeln!(code, "];").unwrap();
+    writeln!(
+        code,
+        "pub const BLEED_PRESET_COUNT: usize = {};",
+        bleeds.len()
+    )
+    .unwrap();
+
     std::fs::write(Path::new(out_dir).join("presets_gen.rs"), code).expect("write presets_gen.rs");
 }
 
-// ── traits — the stackable partial looks (docs/design/doctrine.md) ───────
+// ── traits — the stackable partial themes (docs/design/doctrine.md) ───────
 
 /// tokens/traits.json → the TRAITS registry. A trait is DATA: per-axis
 /// specs whose color refs are LADDER-RELATIVE ({tone:STEP}) or fixed pool

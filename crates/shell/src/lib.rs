@@ -21,6 +21,7 @@
 //! cell registry ([`status`]).
 //! Every navigation publishes `ShellEvent::RouteChanged` on the fabric.
 
+pub mod providers;
 pub mod status;
 
 use dpl_coldlight::{self as cl, Tone};
@@ -133,6 +134,109 @@ fn activity_job_line(ev: &dpl_fabric::JobEvent) -> String {
     }
 }
 
+impl Shell {
+    /// Paint the provider summary modal (V3), if a card asked for one.
+    fn provider_summary(&mut self, ctx: &egui::Context) {
+        let Some(id) = self.provider_modal else {
+            return;
+        };
+        let roster = self.fabric.provider_roster();
+        let Some(provider) = roster.iter().find(|p| p.id == id) else {
+            // The roster is live; a provider that vanished takes its modal
+            // with it rather than leaving a summary of nothing.
+            self.provider_modal = None;
+            return;
+        };
+        let summary = provider.summary.clone();
+        if !providers::provider_modal(ctx, provider, &summary) {
+            self.provider_modal = None;
+        }
+    }
+
+    /// Paint the Providers roster popup above the status bar (V2).
+    ///
+    /// An `egui::Area` rather than a panel: it floats over the content the
+    /// way the mock draws it, and it must not reflow the surface underneath —
+    /// opening a roster should never move the operator's work.
+    fn providers_popup(&mut self, ui: &mut egui::Ui, status: Rect, just_toggled: bool) {
+        if !self.providers_open {
+            return;
+        }
+        let roster = self.fabric.provider_roster();
+        let width = 320.0;
+        let area = egui::Area::new(egui::Id::new("dpl_providers_popup"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(egui::pos2(
+                (status.max.x - width - cl::space::S4).max(status.min.x),
+                status.min.y - 12.0,
+            ))
+            .pivot(egui::Align2::LEFT_BOTTOM);
+        let response = area.show(ui.ctx(), |ui| {
+            ui.set_width(width);
+            egui::Frame::new()
+                .fill(cl::surface::OVERLAY)
+                .corner_radius(egui::CornerRadius::same(cl::RADIUS_LG))
+                .inner_margin(egui::Margin::same(14))
+                .stroke(egui::Stroke::new(1.0, cl::surface::RAISED))
+                .show(ui, |ui| {
+                    providers::ProvidersPopup { providers: &roster }.show(ui)
+                })
+                .inner
+        });
+        if let Some(providers::PopupAction::Inspect(provider)) = response.inner {
+            // The tooltip GROWS into the modal, exactly as the mock draws it.
+            self.provider_modal = Some(provider);
+        }
+        // Click anywhere outside closes it, the way every menu in the app
+        // does — but NOT while a summary modal is up. The modal sits over the
+        // roster, so every click in it reads as "elsewhere", and closing the
+        // roster underneath would dump the operator out of the surface they
+        // opened the summary from.
+        let modal_up = self.provider_modal.is_some();
+        if !just_toggled && !modal_up && response.response.clicked_elsewhere() {
+            self.providers_open = false;
+        }
+        // Esc closes it too — the keyboard has to be able to leave. The modal
+        // gets first refusal on Esc for the same reason.
+        if !modal_up && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.providers_open = false;
+        }
+    }
+}
+
+/// THE ROSTER, read straight off the fabric — no subscription, no history
+/// (P1 §3.2). This is the whole point of the fold: the shell asks what is
+/// available NOW and gets a true answer, including for a provider that
+/// activated by having transcripts on disk and so never published a
+/// lifecycle event at all.
+///
+/// `None` when nothing is activated: an empty chip would be noise, and a
+/// chip claiming providers it cannot name would be a lie.
+fn provider_chip(fabric: &Fabric) -> Option<status::ProviderChip> {
+    let activated: Vec<dpl_fabric::ProviderCapability> = fabric
+        .provider_roster()
+        .into_iter()
+        .filter(|p| p.activated)
+        .collect();
+    if activated.is_empty() {
+        return None;
+    }
+    let names: Vec<&str> = activated.iter().map(|p| p.label.as_str()).collect();
+    let tooltip = activated
+        .iter()
+        .map(|p| match &p.note {
+            // The truthful limitation, never hidden behind the name.
+            Some(note) => format!("{} — {note}", p.label),
+            None => p.label.clone(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    Some(status::ProviderChip {
+        summary: format!("AI · {}", names.join(", ")),
+        tooltip,
+    })
+}
+
 fn activity_provider_line(ev: &dpl_fabric::ProviderEvent) -> String {
     use dpl_fabric::ProviderEvent as E;
     match ev {
@@ -225,6 +329,12 @@ pub struct Shell {
     /// reload so we have variety of color") — fixed for the session, fresh
     /// every launch.
     tooltip_mood: usize,
+    /// The session's seeded ink-bleed (V1): the hue pair and the dwell.
+    bleed: providers::BleedRoll,
+    /// Is the Providers roster popup open (V2)?
+    providers_open: bool,
+    /// Which provider's summary modal is open (V3), if any.
+    provider_modal: Option<dpl_fabric::ProviderId>,
     /// The accordion's ONE open house (doctrine §5.2) — its subroutes
     /// unfold beneath its rail row; `None` = fully folded, icon-compact.
     open_house: Option<HubId>,
@@ -293,6 +403,12 @@ impl Shell {
             inspector_open: false,
             build: "",
             tooltip_mood: dpl_backdrop::random_mood_index(),
+            // The bleed's pair and dwell are drawn ONCE per launch, off the
+            // same boot roll the tooltip mood uses, and pinned together by
+            // `set_harness_mood` so a capture reproduces.
+            bleed: providers::BleedRoll::from_seed(dpl_backdrop::random_mood_index() as u64),
+            providers_open: false,
+            provider_modal: None,
             open_house: None,
             rail_reveal_pending: false,
             last_open_rail_body: None,
@@ -351,6 +467,9 @@ impl Shell {
         let index = index % cl::MOOD_COUNT;
         self.backdrop.set_mood(index);
         self.tooltip_mood = index;
+        // The ink bleed is boot-randomized too, so it pins here or the
+        // capture of a six-second wash is a different colour every run.
+        self.bleed = providers::BleedRoll::from_seed(index as u64);
     }
 
     pub fn full_bleed(&self) -> bool {
@@ -524,6 +643,10 @@ impl Shell {
             self.inspector_open = !self.inspector_open;
         }
         let (status_rect, actions) = self.status_bar(ui, &fl);
+        // The click that OPENS the roster is itself "elsewhere" as far as an
+        // area that did not exist yet is concerned, so the dismiss check has
+        // to sit out the frame that opened it or the popup shuts instantly.
+        let mut just_toggled = false;
         for action in actions {
             match action {
                 status::StatusAction::Snip => self.summon_viziwiz(),
@@ -534,8 +657,14 @@ impl Shell {
                         action: AppWindowAction::OpenOrFocus,
                     });
                 }
+                status::StatusAction::ToggleProviders => {
+                    self.providers_open = !self.providers_open;
+                    just_toggled = true;
+                }
             }
         }
+        self.providers_popup(ui, status_rect, just_toggled);
+        self.provider_summary(ui.ctx());
         let (rail, clicked) = self.rail(ui, &fl);
         if let Some(route) = clicked {
             self.navigate(route);
@@ -692,6 +821,8 @@ impl Shell {
                     build: self.build,
                     mood: self.backdrop.mood(),
                     working,
+                    providers: provider_chip(&self.fabric),
+                    bleed: self.bleed,
                 };
                 actions = status::grid(ui, &cx, &self.window_accessories);
             });
@@ -1900,6 +2031,73 @@ mod tests {
             "the panel must float INSIDE the well (content={:?} panel={:?})",
             z.content,
             z.panel
+        );
+    }
+
+    fn capability(
+        id: &'static str,
+        label: &str,
+        activated: bool,
+        note: Option<&str>,
+    ) -> dpl_fabric::ProviderCapability {
+        dpl_fabric::ProviderCapability {
+            id: dpl_fabric::ProviderId(id),
+            label: label.to_owned(),
+            activated,
+            note: note.map(str::to_owned),
+            capabilities: std::collections::BTreeSet::from([dpl_fabric::Capability::PageHistory]),
+            summary: String::new(),
+            since: "2021-01-28".into(),
+            presence: if activated {
+                dpl_fabric::ProviderPresence::Ready
+            } else {
+                dpl_fabric::ProviderPresence::SignedOut
+            },
+        }
+    }
+
+    #[test]
+    fn the_shell_names_the_activated_providers() {
+        let fabric = Fabric::new();
+        fabric.publish_provider_roster(vec![
+            capability(
+                "claude",
+                "Claude Code",
+                true,
+                Some("local transcripts only"),
+            ),
+            capability("codex", "Codex", true, None),
+            capability("gemini", "Gemini", false, Some("no qualified adapter")),
+        ]);
+        let chip = provider_chip(&fabric).expect("two providers are activated");
+        assert_eq!(
+            chip.summary, "AI · Claude Code, Codex",
+            "the chip names what the PLATFORM can do — and never an unactivated provider"
+        );
+        assert!(
+            chip.tooltip
+                .contains("Claude Code — local transcripts only"),
+            "the truthful limit rides with the name, not hidden behind it: {}",
+            chip.tooltip
+        );
+        assert!(
+            !chip.tooltip.contains("Gemini"),
+            "an unactivated provider is absent entirely: {}",
+            chip.tooltip
+        );
+    }
+
+    #[test]
+    fn the_shell_says_nothing_when_no_provider_is_activated() {
+        let fabric = Fabric::new();
+        assert!(
+            provider_chip(&fabric).is_none(),
+            "an empty roster paints no chip — silence, not an empty claim"
+        );
+        fabric.publish_provider_roster(vec![capability("gemini", "Gemini", false, None)]);
+        assert!(
+            provider_chip(&fabric).is_none(),
+            "a registered-but-unactivated provider is not a capability"
         );
     }
 }

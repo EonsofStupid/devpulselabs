@@ -1,0 +1,448 @@
+<style>
+:root{
+ --ground: oklch(0.130 0.014 260); --panel: oklch(0.165 0.014 260);
+ --panel-2: oklch(0.200 0.014 260); --line: oklch(0.265 0.014 260);
+ --ink: oklch(0.955 0.006 260); --ink-2: oklch(0.740 0.010 260); --ink-3: oklch(0.560 0.012 260);
+ --cyan: oklch(0.720 0.150 210); --amber: oklch(0.720 0.170 75);
+ --magenta: oklch(0.720 0.220 340); --coral: oklch(0.720 0.200 25);
+ --shadow: oklch(0 0 0 / .92);
+ --r: 6px;
+}
+@media (prefers-color-scheme: light){
+ :root{ --ground: oklch(0.965 0.006 260); --panel: oklch(0.995 0.003 260);
+  --panel-2: oklch(0.930 0.008 260); --line: oklch(0.800 0.012 260);
+  --ink: oklch(0.220 0.014 260); --ink-2: oklch(0.420 0.012 260); --ink-3: oklch(0.560 0.012 260);
+  --shadow: oklch(0.220 0.014 260 / .32); }
+}
+:root[data-theme="light"]{ --ground: oklch(0.965 0.006 260); --panel: oklch(0.995 0.003 260);
+ --panel-2: oklch(0.930 0.008 260); --line: oklch(0.800 0.012 260);
+ --ink: oklch(0.220 0.014 260); --ink-2: oklch(0.420 0.012 260); --ink-3: oklch(0.560 0.012 260);
+ --shadow: oklch(0.220 0.014 260 / .32); }
+:root[data-theme="dark"]{ --ground: oklch(0.130 0.014 260); --panel: oklch(0.165 0.014 260);
+ --panel-2: oklch(0.200 0.014 260); --line: oklch(0.265 0.014 260);
+ --ink: oklch(0.955 0.006 260); --ink-2: oklch(0.740 0.010 260); --ink-3: oklch(0.560 0.012 260);
+ --shadow: oklch(0 0 0 / .92); }
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);
+ font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
+ font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:40px 22px 90px}
+code,.mono,.pid,.ref,.chip{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+
+header.top{border-bottom:2px solid var(--line);padding-bottom:26px;margin-bottom:34px}
+.eyebrow{font-size:11px;letter-spacing:.20em;text-transform:uppercase;color:var(--ink-3);
+ font-family:ui-monospace,monospace;margin:0 0 12px}
+h1{font-size:clamp(28px,4.6vw,44px);line-height:1.06;margin:0 0 14px;font-weight:800;
+ letter-spacing:-.022em;text-wrap:balance}
+.lede{max-width:66ch;color:var(--ink-2);margin:0 0 18px}
+.lede b{color:var(--ink);font-weight:650}
+
+.law{display:flex;gap:12px;flex-wrap:wrap;margin-top:20px}
+.law div{border:2px solid var(--line);border-radius:var(--r);padding:9px 13px;background:var(--panel);
+ font-size:12.5px;color:var(--ink-2)}
+.law b{color:var(--ink);font-weight:700}
+
+.note{border:2px solid var(--amber);border-radius:var(--r);background:var(--panel);
+ padding:13px 16px;margin:26px 0 0;font-size:13.5px;color:var(--ink-2);max-width:78ch}
+.note b{color:var(--amber)}
+
+section{margin-top:52px}
+.shead{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;
+ border-bottom:2px solid var(--line);padding-bottom:11px;margin-bottom:8px}
+.shead h2{font-size:21px;margin:0;font-weight:800;letter-spacing:-.01em}
+.shead .n{font-family:ui-monospace,monospace;font-size:12px;color:var(--ink-3);
+ border:1px solid var(--line);border-radius:3px;padding:2px 7px}
+.shead .knobs{margin-left:auto;font-size:12px;color:var(--ink-3);font-family:ui-monospace,monospace}
+.sdesc{color:var(--ink-2);font-size:13.5px;margin:0 0 20px;max-width:74ch}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(252px,1fr));gap:16px}
+.tile{background:var(--panel);border:2px solid var(--line);border-radius:var(--r);
+ padding:0 13px 13px;box-shadow:3px 3px 0 var(--shadow);display:flex;flex-direction:column;gap:8px}
+.tile header{display:flex;align-items:center;gap:8px;margin-top:2px}
+.tile h3{font-size:14.5px;margin:0;font-weight:700;letter-spacing:-.005em}
+.stat{font-family:ui-monospace,monospace;font-size:9.5px;text-transform:uppercase;letter-spacing:.09em;
+ padding:2px 6px;border-radius:3px;margin-left:auto;border:1px solid}
+.stat.new{color:var(--tone);border-color:var(--tone)}
+.stat.keep{color:var(--ink-3);border-color:var(--line)}
+
+.spec{height:88px;margin:13px -13px 0;border-bottom:2px solid var(--line);position:relative;
+ display:flex;align-items:center;justify-content:center;overflow:hidden}
+.card-spec .spec-b{position:absolute;right:0;top:0;bottom:0;width:44%;
+ clip-path:polygon(28% 0,100% 0,100% 100%,0 100%)}
+.type-spec{background:var(--panel-2)}
+.type-spec span:first-child{line-height:1;font-weight:700}
+.type-spec.q span:first-child{font-size:56px!important;line-height:.7}
+.pic-spec{background:var(--panel-2)}
+.pic-spec .frame{position:absolute;background:
+ repeating-linear-gradient(45deg,var(--line) 0 6px,transparent 6px 12px);border:2px solid var(--tone)}
+.t-claymorphic{border-radius:12px}
+.t-cyber{box-shadow:0 0 0 2px var(--tone),0 0 18px var(--tone)}
+.t-retro{border-style:double;border-width:4px}
+.sz{position:absolute;right:7px;bottom:5px;font-family:ui-monospace,monospace;font-size:9.5px;
+ color:var(--ink-3);letter-spacing:.04em}
+
+.pid{font-size:11.5px;color:var(--tone);letter-spacing:.01em}
+.refs{display:flex;flex-direction:column;gap:3px}
+.ref{font-size:10.5px;color:var(--ink-2);display:flex;gap:6px}
+.ref i{color:var(--ink-3);font-style:normal;min-width:66px;display:inline-block}
+.ref.off{color:var(--ink-3);opacity:.62}
+.exp{border-top:1px dashed var(--line);padding-top:8px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-top:auto}
+.expl{font-family:ui-monospace,monospace;font-size:9.5px;text-transform:uppercase;letter-spacing:.10em;
+ color:var(--ink-3);width:100%;margin-bottom:3px}
+.chip{font-size:10.5px;padding:2.5px 7px;border:1px solid var(--line);border-radius:3px;color:var(--ink-2)}
+.chip-lock{border-color:var(--tone);color:var(--tone);font-weight:600}
+
+table{border-collapse:collapse;width:100%;font-size:13px;margin-top:8px}
+th,td{text-align:left;padding:8px 11px;border-bottom:1px solid var(--line)}
+th{font-family:ui-monospace,monospace;font-size:10.5px;text-transform:uppercase;letter-spacing:.10em;
+ color:var(--ink-3);font-weight:600}
+td code{font-size:11.5px;color:var(--ink)}
+.scroll{overflow-x:auto}
+footer{margin-top:60px;padding-top:22px;border-top:2px solid var(--line);color:var(--ink-3);font-size:12.5px}
+@media (prefers-reduced-motion:no-preference){.tile{transition:transform .12s,box-shadow .12s}
+ .tile:hover{transform:translate(-1px,-1px);box-shadow:4px 4px 0 var(--shadow)}}
+</style>
+<div class="wrap">
+<header class="top">
+ <p class="eyebrow">DevPULSE Labs · Workbench Editor · preset proposal</p>
+ <h1>Four preset sets, one rule: pick one, and there are only 4&ndash;7 things left to touch.</h1>
+ <p class="lede">Every preset below is a <b>named bundle of refs</b> into the registries that already exist &mdash;
+ 13 fonts, 10 moods, the fluid ramp, the motion effects. Zero new styling code. What is new is the
+ <code>exposes</code> list: the traits a preset hands you. <b>Everything not in that list is decided for you
+ and cannot be reached from the overlay at all.</b></p>
+ <div class="law">
+  <div><b>4 &le; exposes &le; 7</b> &mdash; or the build fails</div>
+  <div><b>colour always exposed</b> &mdash; or the build fails</div>
+  <div><b>only knobs its entity has</b> &mdash; a text preset exposing <code>ambience</code> fails the build</div>
+ </div>
+ <div class="note"><b>What is real here and what is not.</b> Every colour on this page is computed from
+ <code>hues.json</code> and <code>moods.json</code> through the real OKLCH ramp &mdash; the gradients are the
+ actual moods. The <b>typefaces are not</b>: the 13 real faces ship as TTFs in the repo and cannot be loaded
+ here, so type specimens use a stand-in and the true face is named as data on every tile. Judge the colour and
+ the knob sets; take the letterforms on trust until it is on the exe.</div>
+</header>
+
+<section>
+ <div class="shead"><h2>CARD presets &mdash; the stage</h2><span class="n">12 proposed</span>
+  <span class="knobs">has: colour &middot; background &middot; ambience &middot; drift &middot; motion &middot; treatment</span></div>
+ <p class="sdesc">Your five existing presets are card presets &mdash; they carry moods and ambience, which only the
+ stage has. They are kept as-is and seven join them.</p>
+ <div class="grid" id="g-card"><article class="tile" style="--tone:oklch(0.720 0.2200 340)">
+ <div class="spec card-spec" style="background:linear-gradient(160deg, oklch(0.180 0.0975 20) 0%, oklch(0.520 0.1360 30) 33%, oklch(0.600 0.1710 45) 66%, oklch(0.790 0.1330 85) 100%)"><span class="spec-b" style="background:linear-gradient(20deg, oklch(0.140 0.0400 260) 0%, oklch(0.420 0.1275 230) 33%, oklch(0.620 0.1450 190) 66%, oklch(0.820 0.1100 165) 100%)"></span></div>
+ <header><h3>Neon intro</h3><span class="stat keep">exists</span></header>
+ <code class="pid">neon-intro</code>
+ <div class="refs"><span class="ref"><i>moods</i>ember-drift + deep-lagoon</span><span class="ref"><i>drift</i>blend-drift</span><span class="ref"><i>ambience</i>pulse</span><span class="ref"><i>tone</i>magenta</span></div>
+ <div class="exp"><span class="expl">exposes 4</span><span class="chip chip-lock">colour</span><span class="chip">background</span><span class="chip">ambience</span><span class="chip">motion</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.1500 210)">
+ <div class="spec card-spec" style="background:linear-gradient(160deg, oklch(0.180 0.0400 260) 0%, oklch(0.520 0.1620 250) 33%, oklch(0.820 0.1400 220) 66%, oklch(1 0 0) 100%)"><span class="spec-b" style="background:linear-gradient(20deg, oklch(0.130 0.0100 220) 0%, oklch(0.260 0.1700 265) 33%, oklch(0.620 0.2000 290) 66%, oklch(0.860 0.0850 295) 100%)"></span></div>
+ <header><h3>Glacier stat</h3><span class="stat keep">exists</span></header>
+ <code class="pid">glacier-stat</code>
+ <div class="refs"><span class="ref"><i>moods</i>glacier-signal + violet-static</span><span class="ref"><i>drift</i>blend-drift</span><span class="ref off"><i>ambience</i>none</span><span class="ref"><i>tone</i>cyan</span></div>
+ <div class="exp"><span class="expl">exposes 4</span><span class="chip chip-lock">colour</span><span class="chip">background</span><span class="chip">drift</span><span class="chip">motion</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.1700 75)">
+ <div class="spec card-spec" style="background:linear-gradient(160deg, oklch(0.130 0.0140 260) 0%, oklch(0.420 0.0910 140) 33%, oklch(0.480 0.1600 150) 66%, oklch(0.820 0.2000 115) 100%)"><span class="spec-b" style="background:linear-gradient(20deg, oklch(0.130 0.0120 60) 0%, oklch(0.520 0.1440 155) 33%, oklch(0.720 0.1200 165) 66%, oklch(0.860 0.1248 230) 100%)"></span></div>
+ <header><h3>Arcade flash</h3><span class="stat keep">exists</span></header>
+ <code class="pid">arcade-flash</code>
+ <div class="refs"><span class="ref"><i>moods</i>botanical-night + jade-current</span><span class="ref"><i>drift</i>blend-drift</span><span class="ref"><i>ambience</i>drift</span><span class="ref"><i>tone</i>amber</span></div>
+ <div class="exp"><span class="expl">exposes 4</span><span class="chip chip-lock">colour</span><span class="chip">background</span><span class="chip">ambience</span><span class="chip">motion</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.2000 25)">
+ <div class="spec card-spec" style="background:linear-gradient(160deg, oklch(0.160 0.0200 40) 0%, oklch(0.620 0.1235 40) 33%, oklch(0.790 0.1900 25) 66%, oklch(0.900 0.0935 65) 100%)"><span class="spec-b" style="background:linear-gradient(20deg, oklch(0.140 0.0630 20) 0%, oklch(0.360 0.1980 20) 33%, oklch(0.720 0.1800 50) 66%, oklch(0.840 0.1360 65) 100%)"></span></div>
+ <header><h3>Warm editorial</h3><span class="stat keep">exists</span></header>
+ <code class="pid">warm-editorial</code>
+ <div class="refs"><span class="ref"><i>moods</i>terracotta-dusk + solar-flare</span><span class="ref"><i>drift</i>blend-drift</span><span class="ref off"><i>ambience</i>none</span><span class="ref"><i>tone</i>coral</span></div>
+ <div class="exp"><span class="expl">exposes 4</span><span class="chip chip-lock">colour</span><span class="chip">background</span><span class="chip">motion</span><span class="chip">treatment</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.2200 340)">
+ <div class="spec card-spec" style="background:linear-gradient(160deg, oklch(0.140 0.0420 320) 0%, oklch(0.360 0.1190 325) 25%, oklch(0.780 0.2280 345) 50%, oklch(0.840 0.1020 355) 75%, oklch(0.900 0.0980 85) 100%)"><span class="spec-b" style="background:linear-gradient(20deg, oklch(0.180 0.0650 320) 0%, oklch(0.520 0.1980 295) 33%, oklch(0.720 0.1900 320) 66%, oklch(0.790 0.1615 10) 100%)"></span></div>
+ <header><h3>Fuchsia signal</h3><span class="stat keep">exists</span></header>
+ <code class="pid">fuchsia-signal</code>
+ <div class="refs"><span class="ref"><i>moods</i>fuchsia-arc + orchid-haze</span><span class="ref"><i>drift</i>blend-drift</span><span class="ref"><i>ambience</i>rings</span><span class="ref"><i>tone</i>magenta</span></div>
+ <div class="exp"><span class="expl">exposes 4</span><span class="chip chip-lock">colour</span><span class="chip">background</span><span class="chip">ambience</span><span class="chip">motion</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.1500 210)">
+ <div class="spec card-spec" style="background:linear-gradient(160deg, oklch(0.140 0.0400 260) 0%, oklch(0.420 0.1275 230) 33%, oklch(0.620 0.1450 190) 66%, oklch(0.820 0.1100 165) 100%)"><span class="spec-b" style="background:linear-gradient(20deg, oklch(0.130 0.0100 220) 0%, oklch(0.260 0.1700 265) 33%, oklch(0.620 0.2000 290) 66%, oklch(0.860 0.0850 295) 100%)"></span></div>
+ <header><h3>Midnight brief</h3><span class="stat new">new</span></header>
+ <code class="pid">midnight-brief</code>
+ <div class="refs"><span class="ref"><i>moods</i>deep-lagoon + violet-static</span><span class="ref"><i>drift</i>blend-drift</span><span class="ref off"><i>ambience</i>none</span><span class="ref"><i>tone</i>cyan</span></div>
+ <div class="exp"><span class="expl">exposes 4</span><span class="chip chip-lock">colour</span><span class="chip">background</span><span class="chip">motion</span><span class="chip">treatment</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.1700 75)">
+ <div class="spec card-spec" style="background:linear-gradient(160deg, oklch(0.180 0.0975 20) 0%, oklch(0.520 0.1360 30) 33%, oklch(0.600 0.1710 45) 66%, oklch(0.790 0.1330 85) 100%)"><span class="spec-b" style="background:linear-gradient(20deg, oklch(0.140 0.0630 20) 0%, oklch(0.360 0.1980 20) 33%, oklch(0.720 0.1800 50) 66%, oklch(0.840 0.1360 65) 100%)"></span></div>
+ <header><h3>Ember headline</h3><span class="stat new">new</span></header>
+ <code class="pid">ember-headline</code>
+ <div class="refs"><span class="ref"><i>moods</i>ember-drift + solar-flare</span><span class="ref"><i>drift</i>blend-drift</span><span class="ref"><i>ambience</i>pulse</span><span class="ref"><i>tone</i>amber</span></div>
+ <div class="exp"><span class="expl">exposes 5</span><span class="chip chip-lock">colour</span><span class="chip">background</span><span class="chip">ambience</span><span class="chip">drift</span><span class="chip">motion</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.1500 210)">
+ <div class="spec card-spec" style="background:linear-gradient(160deg, oklch(0.130 0.0120 60) 0%, oklch(0.520 0.1440 155) 33%, oklch(0.720 0.1200 165) 66%, oklch(0.860 0.1248 230) 100%)"><span class="spec-b" style="background:linear-gradient(20deg, oklch(0.130 0.0140 260) 0%, oklch(0.420 0.0910 140) 33%, oklch(0.480 0.1600 150) 66%, oklch(0.820 0.2000 115) 100%)"></span></div>
+ <header><h3>Jade terminal</h3><span class="stat new">new</span></header>
+ <code class="pid">jade-terminal</code>
+ <div class="refs"><span class="ref"><i>moods</i>jade-current + botanical-night</span><span class="ref"><i>drift</i>blend-drift</span><span class="ref off"><i>ambience</i>none</span><span class="ref"><i>tone</i>cyan</span></div>
+ <div class="exp"><span class="expl">exposes 4</span><span class="chip chip-lock">colour</span><span class="chip">background</span><span class="chip">motion</span><span class="chip">treatment</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.2200 340)">
+ <div class="spec card-spec" style="background:linear-gradient(160deg, oklch(0.180 0.0650 320) 0%, oklch(0.520 0.1980 295) 33%, oklch(0.720 0.1900 320) 66%, oklch(0.790 0.1615 10) 100%)"><span class="spec-b" style="background:linear-gradient(20deg, oklch(0.140 0.0420 320) 0%, oklch(0.360 0.1190 325) 25%, oklch(0.780 0.2280 345) 50%, oklch(0.840 0.1020 355) 75%, oklch(0.900 0.0980 85) 100%)"></span></div>
+ <header><h3>Orchid reveal</h3><span class="stat new">new</span></header>
+ <code class="pid">orchid-reveal</code>
+ <div class="refs"><span class="ref"><i>moods</i>orchid-haze + fuchsia-arc</span><span class="ref"><i>drift</i>blend-drift</span><span class="ref"><i>ambience</i>rings</span><span class="ref"><i>tone</i>magenta</span></div>
+ <div class="exp"><span class="expl">exposes 4</span><span class="chip chip-lock">colour</span><span class="chip">background</span><span class="chip">ambience</span><span class="chip">motion</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.2000 25)">
+ <div class="spec card-spec" style="background:linear-gradient(160deg, oklch(0.160 0.0200 40) 0%, oklch(0.620 0.1235 40) 33%, oklch(0.790 0.1900 25) 66%, oklch(0.900 0.0935 65) 100%)"><span class="spec-b" style="background:linear-gradient(20deg, oklch(0.180 0.0975 20) 0%, oklch(0.520 0.1360 30) 33%, oklch(0.600 0.1710 45) 66%, oklch(0.790 0.1330 85) 100%)"></span></div>
+ <header><h3>Dusk report</h3><span class="stat new">new</span></header>
+ <code class="pid">dusk-report</code>
+ <div class="refs"><span class="ref"><i>moods</i>terracotta-dusk + ember-drift</span><span class="ref"><i>drift</i>blend-drift</span><span class="ref off"><i>ambience</i>none</span><span class="ref"><i>tone</i>coral</span></div>
+ <div class="exp"><span class="expl">exposes 4</span><span class="chip chip-lock">colour</span><span class="chip">background</span><span class="chip">motion</span><span class="chip">treatment</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.2200 340)">
+ <div class="spec card-spec" style="background:linear-gradient(160deg, oklch(0.130 0.0100 220) 0%, oklch(0.260 0.1700 265) 33%, oklch(0.620 0.2000 290) 66%, oklch(0.860 0.0850 295) 100%)"><span class="spec-b" style="background:linear-gradient(20deg, oklch(0.180 0.0400 260) 0%, oklch(0.520 0.1620 250) 33%, oklch(0.820 0.1400 220) 66%, oklch(1 0 0) 100%)"></span></div>
+ <header><h3>Static lab</h3><span class="stat new">new</span></header>
+ <code class="pid">static-lab</code>
+ <div class="refs"><span class="ref"><i>moods</i>violet-static + glacier-signal</span><span class="ref"><i>drift</i>blend-drift</span><span class="ref"><i>ambience</i>drift</span><span class="ref"><i>tone</i>magenta</span></div>
+ <div class="exp"><span class="expl">exposes 5</span><span class="chip chip-lock">colour</span><span class="chip">background</span><span class="chip">ambience</span><span class="chip">drift</span><span class="chip">motion</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.1700 75)">
+ <div class="spec card-spec" style="background:linear-gradient(160deg, oklch(0.140 0.0630 20) 0%, oklch(0.360 0.1980 20) 33%, oklch(0.720 0.1800 50) 66%, oklch(0.840 0.1360 65) 100%)"><span class="spec-b" style="background:linear-gradient(20deg, oklch(0.160 0.0200 40) 0%, oklch(0.620 0.1235 40) 33%, oklch(0.790 0.1900 25) 66%, oklch(0.900 0.0935 65) 100%)"></span></div>
+ <header><h3>Solar alert</h3><span class="stat new">new</span></header>
+ <code class="pid">solar-alert</code>
+ <div class="refs"><span class="ref"><i>moods</i>solar-flare + terracotta-dusk</span><span class="ref"><i>drift</i>blend-drift</span><span class="ref"><i>ambience</i>pulse</span><span class="ref"><i>tone</i>amber</span></div>
+ <div class="exp"><span class="expl">exposes 4</span><span class="chip chip-lock">colour</span><span class="chip">background</span><span class="chip">ambience</span><span class="chip">motion</span></div>
+</article></div>
+</section>
+
+<section>
+ <div class="shead"><h2>TEXT presets</h2><span class="n">13 proposed</span>
+  <span class="knobs">has: colour &middot; font &middot; size &middot; ink &middot; motion &middot; treatment</span></div>
+ <p class="sdesc">One per registered face, so every font in the pool is reachable through a preset rather than a
+ font list. Add text, select it, pick one of these.</p>
+ <div class="grid" id="g-text"><article class="tile" style="--tone:oklch(0.720 0.1500 210)">
+ <div class="spec type-spec"><span style="font-family:system-ui;font-size:34px;opacity:1.0;color:oklch(0.720 0.1500 210)">Ag</span><span class="sz">display</span></div>
+ <header><h3>Neon headline</h3></header>
+ <code class="pid">neon-headline</code>
+ <div class="refs"><span class="ref"><i>font</i>orbitron</span><span class="ref"><i>size</i>display</span><span class="ref"><i>ink</i>strong</span><span class="ref"><i>tone</i>cyan</span><span class="ref"><i>enter</i>enter-rise</span></div>
+ <div class="exp"><span class="expl">exposes 4</span><span class="chip chip-lock">colour</span><span class="chip">font</span><span class="chip">size</span><span class="chip">ink</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.2200 340)">
+ <div class="spec type-spec"><span style="font-family:system-ui;font-size:30px;opacity:1.0;color:oklch(0.720 0.2200 340)">Ag</span><span class="sz">h1</span></div>
+ <header><h3>Broadcast title</h3></header>
+ <code class="pid">broadcast-title</code>
+ <div class="refs"><span class="ref"><i>font</i>michroma</span><span class="ref"><i>size</i>h1</span><span class="ref"><i>ink</i>strong</span><span class="ref"><i>tone</i>magenta</span><span class="ref"><i>enter</i>enter-rise</span></div>
+ <div class="exp"><span class="expl">exposes 5</span><span class="chip chip-lock">colour</span><span class="chip">font</span><span class="chip">size</span><span class="chip">ink</span><span class="chip">motion</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.1700 75)">
+ <div class="spec type-spec"><span style="font-family:ui-monospace;font-size:13px;opacity:0.86;color:oklch(0.720 0.1700 75)">Ag</span><span class="sz">body-sm</span></div>
+ <header><h3>Arcade caption</h3></header>
+ <code class="pid">arcade-caption</code>
+ <div class="refs"><span class="ref"><i>font</i>pressstart2p</span><span class="ref"><i>size</i>body-sm</span><span class="ref"><i>ink</i>base</span><span class="ref"><i>tone</i>amber</span><span class="ref"><i>enter</i>reveal-pop</span></div>
+ <div class="exp"><span class="expl">exposes 4</span><span class="chip chip-lock">colour</span><span class="chip">font</span><span class="chip">size</span><span class="chip">motion</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.1500 210)">
+ <div class="spec type-spec"><span style="font-family:ui-monospace;font-size:15px;opacity:0.86;color:oklch(0.720 0.1500 210)">Ag</span><span class="sz">body</span></div>
+ <header><h3>Terminal line</h3></header>
+ <code class="pid">terminal-line</code>
+ <div class="refs"><span class="ref"><i>font</i>sharetechmono</span><span class="ref"><i>size</i>body</span><span class="ref"><i>ink</i>base</span><span class="ref"><i>tone</i>cyan</span><span class="ref"><i>enter</i>enter-fade</span></div>
+ <div class="exp"><span class="expl">exposes 4</span><span class="chip chip-lock">colour</span><span class="chip">font</span><span class="chip">size</span><span class="chip">ink</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.1500 210)">
+ <div class="spec type-spec"><span style="font-family:ui-monospace;font-size:17px;opacity:0.86;color:oklch(0.720 0.1500 210)">Ag</span><span class="sz">body-lg</span></div>
+ <header><h3>CRT body</h3></header>
+ <code class="pid">crt-body</code>
+ <div class="refs"><span class="ref"><i>font</i>vt323</span><span class="ref"><i>size</i>body-lg</span><span class="ref"><i>ink</i>base</span><span class="ref"><i>tone</i>cyan</span><span class="ref"><i>enter</i>enter-fade</span></div>
+ <div class="exp"><span class="expl">exposes 5</span><span class="chip chip-lock">colour</span><span class="chip">font</span><span class="chip">size</span><span class="chip">ink</span><span class="chip">motion</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.2200 340)">
+ <div class="spec type-spec"><span style="font-family:system-ui;font-size:26px;opacity:1.0;color:oklch(0.720 0.2200 340)">Ag</span><span class="sz">h2</span></div>
+ <header><h3>Wide statement</h3></header>
+ <code class="pid">wide-statement</code>
+ <div class="refs"><span class="ref"><i>font</i>audiowide</span><span class="ref"><i>size</i>h2</span><span class="ref"><i>ink</i>strong</span><span class="ref"><i>tone</i>magenta</span><span class="ref"><i>enter</i>enter-bloom</span></div>
+ <div class="exp"><span class="expl">exposes 5</span><span class="chip chip-lock">colour</span><span class="chip">font</span><span class="chip">size</span><span class="chip">ink</span><span class="chip">motion</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.2000 25)">
+ <div class="spec type-spec"><span style="font-family:cursive;font-size:40px;opacity:1.0;color:oklch(0.720 0.2000 25)">Ag</span><span class="sz">display-xl</span></div>
+ <header><h3>Neon marquee</h3></header>
+ <code class="pid">neon-marquee</code>
+ <div class="refs"><span class="ref"><i>font</i>monoton</span><span class="ref"><i>size</i>display-xl</span><span class="ref"><i>ink</i>strong</span><span class="ref"><i>tone</i>coral</span><span class="ref"><i>enter</i>enter-bloom</span></div>
+ <div class="exp"><span class="expl">exposes 5</span><span class="chip chip-lock">colour</span><span class="chip">font</span><span class="chip">size</span><span class="chip">motion</span><span class="chip">treatment</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.1500 210)">
+ <div class="spec type-spec"><span style="font-family:system-ui;font-size:15px;opacity:0.86;color:oklch(0.720 0.1500 210)">Ag</span><span class="sz">body</span></div>
+ <header><h3>Clean body</h3></header>
+ <code class="pid">clean-body</code>
+ <div class="refs"><span class="ref"><i>font</i>spacegrotesk</span><span class="ref"><i>size</i>body</span><span class="ref"><i>ink</i>base</span><span class="ref"><i>tone</i>cyan</span><span class="ref"><i>enter</i>enter-fade</span></div>
+ <div class="exp"><span class="expl">exposes 4</span><span class="chip chip-lock">colour</span><span class="chip">font</span><span class="chip">size</span><span class="chip">ink</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.1700 75)">
+ <div class="spec type-spec"><span style="font-family:ui-monospace;font-size:11px;opacity:0.62;color:oklch(0.720 0.1700 75)">Ag</span><span class="sz">eyebrow</span></div>
+ <header><h3>Data label</h3></header>
+ <code class="pid">data-label</code>
+ <div class="refs"><span class="ref"><i>font</i>jetbrainsmono</span><span class="ref"><i>size</i>eyebrow</span><span class="ref"><i>ink</i>muted</span><span class="ref"><i>tone</i>amber</span><span class="ref"><i>enter</i>enter-fade</span></div>
+ <div class="exp"><span class="expl">exposes 4</span><span class="chip chip-lock">colour</span><span class="chip">font</span><span class="chip">size</span><span class="chip">ink</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.2000 25)">
+ <div class="spec type-spec"><span style="font-family:system-ui;font-size:26px;opacity:1.0;color:oklch(0.720 0.2000 25)">Ag</span><span class="sz">h2</span></div>
+ <header><h3>Sport header</h3></header>
+ <code class="pid">sport-header</code>
+ <div class="refs"><span class="ref"><i>font</i>rajdhani</span><span class="ref"><i>size</i>h2</span><span class="ref"><i>ink</i>strong</span><span class="ref"><i>tone</i>coral</span><span class="ref"><i>enter</i>enter-rise</span></div>
+ <div class="exp"><span class="expl">exposes 5</span><span class="chip chip-lock">colour</span><span class="chip">font</span><span class="chip">size</span><span class="chip">ink</span><span class="chip">motion</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.1500 210)">
+ <div class="spec type-spec"><span style="font-family:system-ui;font-size:22px;opacity:0.62;color:oklch(0.720 0.1500 210)">Ag</span><span class="sz">h3</span></div>
+ <header><h3>Tech sub</h3></header>
+ <code class="pid">tech-sub</code>
+ <div class="refs"><span class="ref"><i>font</i>chakrapetch</span><span class="ref"><i>size</i>h3</span><span class="ref"><i>ink</i>muted</span><span class="ref"><i>tone</i>cyan</span><span class="ref"><i>enter</i>enter-fade</span></div>
+ <div class="exp"><span class="expl">exposes 4</span><span class="chip chip-lock">colour</span><span class="chip">font</span><span class="chip">size</span><span class="chip">ink</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.1700 75)">
+ <div class="spec type-spec"><span style="font-family:system-ui;font-size:11px;opacity:0.44;color:oklch(0.720 0.1700 75)">Ag</span><span class="sz">eyebrow</span></div>
+ <header><h3>Edge eyebrow</h3></header>
+ <code class="pid">edge-eyebrow</code>
+ <div class="refs"><span class="ref"><i>font</i>oxanium</span><span class="ref"><i>size</i>eyebrow</span><span class="ref"><i>ink</i>subtle</span><span class="ref"><i>tone</i>amber</span><span class="ref"><i>enter</i>enter-fade</span></div>
+ <div class="exp"><span class="expl">exposes 4</span><span class="chip chip-lock">colour</span><span class="chip">font</span><span class="chip">size</span><span class="chip">ink</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.2200 340)">
+ <div class="spec type-spec"><span style="font-family:system-ui;font-size:13px;opacity:0.44;color:oklch(0.720 0.2200 340)">Ag</span><span class="sz">body-sm</span></div>
+ <header><h3>Soft note</h3></header>
+ <code class="pid">soft-note</code>
+ <div class="refs"><span class="ref"><i>font</i>exo2</span><span class="ref"><i>size</i>body-sm</span><span class="ref"><i>ink</i>subtle</span><span class="ref"><i>tone</i>magenta</span><span class="ref"><i>enter</i>enter-fade</span></div>
+ <div class="exp"><span class="expl">exposes 4</span><span class="chip chip-lock">colour</span><span class="chip">font</span><span class="chip">size</span><span class="chip">ink</span></div>
+</article></div>
+</section>
+
+<section>
+ <div class="shead"><h2>PICTURE presets</h2><span class="n">10 proposed</span>
+  <span class="knobs">has: colour &middot; fit &middot; motion &middot; treatment</span></div>
+ <p class="sdesc">A picture has exactly four knobs, so every picture preset exposes all four &mdash; it sits on the
+ floor of the 4&ndash;7 rule. If you want picture presets to differ in what they expose, the entity needs a fifth
+ knob; the honest candidates are <code>radius</code> and <code>poster</code>.</p>
+ <div class="grid" id="g-picture"><article class="tile" style="--tone:oklch(0.720 0.1500 210)">
+ <div class="spec pic-spec"><span class="frame t-neubrutalist" style="inset:0"></span><span class="sz">cover</span></div>
+ <header><h3>Full bleed</h3></header>
+ <code class="pid">full-bleed</code>
+ <div class="refs"><span class="ref"><i>fit</i>cover</span><span class="ref"><i>treatment</i>neubrutalist</span><span class="ref"><i>tone</i>cyan</span><span class="ref"><i>enter</i>enter-fade</span></div>
+ <div class="exp"><span class="expl">exposes 4 · the minimum</span><span class="chip chip-lock">colour</span><span class="chip">treatment</span><span class="chip">motion</span><span class="chip">fit</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.1700 75)">
+ <div class="spec pic-spec"><span class="frame t-neubrutalist" style="inset:14% 20%"></span><span class="sz">contain</span></div>
+ <header><h3>Framed still</h3></header>
+ <code class="pid">framed-still</code>
+ <div class="refs"><span class="ref"><i>fit</i>contain</span><span class="ref"><i>treatment</i>neubrutalist</span><span class="ref"><i>tone</i>amber</span><span class="ref"><i>enter</i>enter-rise</span></div>
+ <div class="exp"><span class="expl">exposes 4 · the minimum</span><span class="chip chip-lock">colour</span><span class="chip">treatment</span><span class="chip">motion</span><span class="chip">fit</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.2200 340)">
+ <div class="spec pic-spec"><span class="frame t-claymorphic" style="inset:14% 20%"></span><span class="sz">contain</span></div>
+ <header><h3>Clay plate</h3></header>
+ <code class="pid">clay-plate</code>
+ <div class="refs"><span class="ref"><i>fit</i>contain</span><span class="ref"><i>treatment</i>claymorphic</span><span class="ref"><i>tone</i>magenta</span><span class="ref"><i>enter</i>enter-bloom</span></div>
+ <div class="exp"><span class="expl">exposes 4 · the minimum</span><span class="chip chip-lock">colour</span><span class="chip">treatment</span><span class="chip">motion</span><span class="chip">fit</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.1500 210)">
+ <div class="spec pic-spec"><span class="frame t-cyber" style="inset:0"></span><span class="sz">cover</span></div>
+ <header><h3>Cyber panel</h3></header>
+ <code class="pid">cyber-panel</code>
+ <div class="refs"><span class="ref"><i>fit</i>cover</span><span class="ref"><i>treatment</i>cyber</span><span class="ref"><i>tone</i>cyan</span><span class="ref"><i>enter</i>enter-rise</span></div>
+ <div class="exp"><span class="expl">exposes 4 · the minimum</span><span class="chip chip-lock">colour</span><span class="chip">treatment</span><span class="chip">motion</span><span class="chip">fit</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.2000 25)">
+ <div class="spec pic-spec"><span class="frame t-retro" style="inset:0"></span><span class="sz">cover</span></div>
+ <header><h3>Retro scan</h3></header>
+ <code class="pid">retro-scan</code>
+ <div class="refs"><span class="ref"><i>fit</i>cover</span><span class="ref"><i>treatment</i>retro</span><span class="ref"><i>tone</i>coral</span><span class="ref"><i>enter</i>enter-fade</span></div>
+ <div class="exp"><span class="expl">exposes 4 · the minimum</span><span class="chip chip-lock">colour</span><span class="chip">treatment</span><span class="chip">motion</span><span class="chip">fit</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.2200 340)">
+ <div class="spec pic-spec"><span class="frame t-cyber" style="inset:0"></span><span class="sz">cover</span></div>
+ <header><h3>Poster hero</h3></header>
+ <code class="pid">poster-hero</code>
+ <div class="refs"><span class="ref"><i>fit</i>cover</span><span class="ref"><i>treatment</i>cyber</span><span class="ref"><i>tone</i>magenta</span><span class="ref"><i>enter</i>enter-bloom</span></div>
+ <div class="exp"><span class="expl">exposes 4 · the minimum</span><span class="chip chip-lock">colour</span><span class="chip">treatment</span><span class="chip">motion</span><span class="chip">fit</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.1700 75)">
+ <div class="spec pic-spec"><span class="frame t-neubrutalist" style="inset:14% 20%"></span><span class="sz">contain</span></div>
+ <header><h3>Contact sheet</h3></header>
+ <code class="pid">contact-sheet</code>
+ <div class="refs"><span class="ref"><i>fit</i>contain</span><span class="ref"><i>treatment</i>neubrutalist</span><span class="ref"><i>tone</i>amber</span><span class="ref"><i>enter</i>enter-fade</span></div>
+ <div class="exp"><span class="expl">exposes 4 · the minimum</span><span class="chip chip-lock">colour</span><span class="chip">treatment</span><span class="chip">motion</span><span class="chip">fit</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.1500 210)">
+ <div class="spec pic-spec"><span class="frame t-claymorphic" style="inset:14% 20%"></span><span class="sz">contain</span></div>
+ <header><h3>Soft inset</h3></header>
+ <code class="pid">soft-inset</code>
+ <div class="refs"><span class="ref"><i>fit</i>contain</span><span class="ref"><i>treatment</i>claymorphic</span><span class="ref"><i>tone</i>cyan</span><span class="ref"><i>enter</i>enter-fade</span></div>
+ <div class="exp"><span class="expl">exposes 4 · the minimum</span><span class="chip chip-lock">colour</span><span class="chip">treatment</span><span class="chip">motion</span><span class="chip">fit</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.2000 25)">
+ <div class="spec pic-spec"><span class="frame t-neubrutalist" style="inset:0"></span><span class="sz">cover</span></div>
+ <header><h3>Hard cut</h3></header>
+ <code class="pid">hard-cut</code>
+ <div class="refs"><span class="ref"><i>fit</i>cover</span><span class="ref"><i>treatment</i>neubrutalist</span><span class="ref"><i>tone</i>coral</span><span class="ref"><i>enter</i>reveal-pop</span></div>
+ <div class="exp"><span class="expl">exposes 4 · the minimum</span><span class="chip chip-lock">colour</span><span class="chip">treatment</span><span class="chip">motion</span><span class="chip">fit</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.2200 340)">
+ <div class="spec pic-spec"><span class="frame t-cyber" style="inset:0"></span><span class="sz">cover</span></div>
+ <header><h3>Glow still</h3></header>
+ <code class="pid">glow-still</code>
+ <div class="refs"><span class="ref"><i>fit</i>cover</span><span class="ref"><i>treatment</i>cyber</span><span class="ref"><i>tone</i>magenta</span><span class="ref"><i>enter</i>enter-bloom</span></div>
+ <div class="exp"><span class="expl">exposes 4 · the minimum</span><span class="chip chip-lock">colour</span><span class="chip">treatment</span><span class="chip">motion</span><span class="chip">fit</span></div>
+</article></div>
+</section>
+
+<section>
+ <div class="shead"><h2>QUOTE presets</h2><span class="n">10 proposed</span>
+  <span class="knobs">has: colour &middot; font &middot; size &middot; ink &middot; motion &middot; treatment</span></div>
+ <p class="sdesc">Quote becomes a real block kind this pass &mdash; text plus <code>attribution</code> and an optional
+ <code>source</code> URL. These style the quotation; the attribution follows it one step down the ramp.</p>
+ <div class="grid" id="g-quote"><article class="tile" style="--tone:oklch(0.720 0.1500 210)">
+ <div class="spec type-spec q"><span style="font-family:system-ui;font-size:26px;opacity:1.0;color:oklch(0.720 0.1500 210)">&ldquo;</span><span class="sz">h2</span></div>
+ <header><h3>Pull quote</h3></header>
+ <code class="pid">pull-quote</code>
+ <div class="refs"><span class="ref"><i>font</i>michroma</span><span class="ref"><i>size</i>h2</span><span class="ref"><i>ink</i>strong</span><span class="ref"><i>tone</i>cyan</span></div>
+ <div class="exp"><span class="expl">exposes 4</span><span class="chip chip-lock">colour</span><span class="chip">font</span><span class="chip">size</span><span class="chip">ink</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.1500 210)">
+ <div class="spec type-spec q"><span style="font-family:ui-monospace;font-size:17px;opacity:0.86;color:oklch(0.720 0.1500 210)">&ldquo;</span><span class="sz">body-lg</span></div>
+ <header><h3>Terminal quote</h3></header>
+ <code class="pid">terminal-quote</code>
+ <div class="refs"><span class="ref"><i>font</i>sharetechmono</span><span class="ref"><i>size</i>body-lg</span><span class="ref"><i>ink</i>base</span><span class="ref"><i>tone</i>cyan</span></div>
+ <div class="exp"><span class="expl">exposes 4</span><span class="chip chip-lock">colour</span><span class="chip">font</span><span class="chip">size</span><span class="chip">ink</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.2200 340)">
+ <div class="spec type-spec q"><span style="font-family:system-ui;font-size:30px;opacity:1.0;color:oklch(0.720 0.2200 340)">&ldquo;</span><span class="sz">h1</span></div>
+ <header><h3>Neon pull</h3></header>
+ <code class="pid">neon-pull</code>
+ <div class="refs"><span class="ref"><i>font</i>orbitron</span><span class="ref"><i>size</i>h1</span><span class="ref"><i>ink</i>strong</span><span class="ref"><i>tone</i>magenta</span></div>
+ <div class="exp"><span class="expl">exposes 5</span><span class="chip chip-lock">colour</span><span class="chip">font</span><span class="chip">size</span><span class="chip">ink</span><span class="chip">motion</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.1700 75)">
+ <div class="spec type-spec q"><span style="font-family:system-ui;font-size:22px;opacity:0.86;color:oklch(0.720 0.1700 75)">&ldquo;</span><span class="sz">h3</span></div>
+ <header><h3>Editorial quote</h3></header>
+ <code class="pid">editorial-quote</code>
+ <div class="refs"><span class="ref"><i>font</i>spacegrotesk</span><span class="ref"><i>size</i>h3</span><span class="ref"><i>ink</i>base</span><span class="ref"><i>tone</i>amber</span></div>
+ <div class="exp"><span class="expl">exposes 4</span><span class="chip chip-lock">colour</span><span class="chip">font</span><span class="chip">size</span><span class="chip">ink</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.2000 25)">
+ <div class="spec type-spec q"><span style="font-family:ui-monospace;font-size:15px;opacity:0.86;color:oklch(0.720 0.2000 25)">&ldquo;</span><span class="sz">body</span></div>
+ <header><h3>Arcade quote</h3></header>
+ <code class="pid">arcade-quote</code>
+ <div class="refs"><span class="ref"><i>font</i>pressstart2p</span><span class="ref"><i>size</i>body</span><span class="ref"><i>ink</i>base</span><span class="ref"><i>tone</i>coral</span></div>
+ <div class="exp"><span class="expl">exposes 4</span><span class="chip chip-lock">colour</span><span class="chip">font</span><span class="chip">size</span><span class="chip">motion</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.1500 210)">
+ <div class="spec type-spec q"><span style="font-family:ui-monospace;font-size:26px;opacity:0.86;color:oklch(0.720 0.1500 210)">&ldquo;</span><span class="sz">h2</span></div>
+ <header><h3>CRT quote</h3></header>
+ <code class="pid">crt-quote</code>
+ <div class="refs"><span class="ref"><i>font</i>vt323</span><span class="ref"><i>size</i>h2</span><span class="ref"><i>ink</i>base</span><span class="ref"><i>tone</i>cyan</span></div>
+ <div class="exp"><span class="expl">exposes 4</span><span class="chip chip-lock">colour</span><span class="chip">font</span><span class="chip">size</span><span class="chip">ink</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.2200 340)">
+ <div class="spec type-spec q"><span style="font-family:system-ui;font-size:22px;opacity:1.0;color:oklch(0.720 0.2200 340)">&ldquo;</span><span class="sz">h3</span></div>
+ <header><h3>Wide quote</h3></header>
+ <code class="pid">wide-quote</code>
+ <div class="refs"><span class="ref"><i>font</i>audiowide</span><span class="ref"><i>size</i>h3</span><span class="ref"><i>ink</i>strong</span><span class="ref"><i>tone</i>magenta</span></div>
+ <div class="exp"><span class="expl">exposes 5</span><span class="chip chip-lock">colour</span><span class="chip">font</span><span class="chip">size</span><span class="chip">ink</span><span class="chip">motion</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.2000 25)">
+ <div class="spec type-spec q"><span style="font-family:system-ui;font-size:26px;opacity:1.0;color:oklch(0.720 0.2000 25)">&ldquo;</span><span class="sz">h2</span></div>
+ <header><h3>Sport quote</h3></header>
+ <code class="pid">sport-quote</code>
+ <div class="refs"><span class="ref"><i>font</i>rajdhani</span><span class="ref"><i>size</i>h2</span><span class="ref"><i>ink</i>strong</span><span class="ref"><i>tone</i>coral</span></div>
+ <div class="exp"><span class="expl">exposes 4</span><span class="chip chip-lock">colour</span><span class="chip">font</span><span class="chip">size</span><span class="chip">ink</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.1700 75)">
+ <div class="spec type-spec q"><span style="font-family:ui-monospace;font-size:15px;opacity:0.62;color:oklch(0.720 0.1700 75)">&ldquo;</span><span class="sz">body</span></div>
+ <header><h3>Mono cite</h3></header>
+ <code class="pid">mono-cite</code>
+ <div class="refs"><span class="ref"><i>font</i>jetbrainsmono</span><span class="ref"><i>size</i>body</span><span class="ref"><i>ink</i>muted</span><span class="ref"><i>tone</i>amber</span></div>
+ <div class="exp"><span class="expl">exposes 4</span><span class="chip chip-lock">colour</span><span class="chip">font</span><span class="chip">size</span><span class="chip">ink</span></div>
+</article><article class="tile" style="--tone:oklch(0.720 0.2200 340)">
+ <div class="spec type-spec q"><span style="font-family:system-ui;font-size:17px;opacity:0.44;color:oklch(0.720 0.2200 340)">&ldquo;</span><span class="sz">body-lg</span></div>
+ <header><h3>Soft quote</h3></header>
+ <code class="pid">soft-quote</code>
+ <div class="refs"><span class="ref"><i>font</i>exo2</span><span class="ref"><i>size</i>body-lg</span><span class="ref"><i>ink</i>subtle</span><span class="ref"><i>tone</i>magenta</span></div>
+ <div class="exp"><span class="expl">exposes 4</span><span class="chip chip-lock">colour</span><span class="chip">font</span><span class="chip">size</span><span class="chip">ink</span></div>
+</article></div>
+</section>
+
+<section>
+ <div class="shead"><h2>The knob registry</h2><span class="n">9 knobs</span></div>
+ <p class="sdesc">The right-hand column is what makes the per-entity build check decidable.</p>
+ <div class="scroll"><table>
+ <tr><th>knob</th><th>what it swaps</th><th>source</th><th>entities that have it</th></tr>
+ <tr><td><code>colour</code></td><td>the tone</td><td>4 tones</td><td><b>all &mdash; always exposed</b></td></tr>
+ <tr><td><code>motion</code></td><td>how it arrives</td><td><code>enter-*</code> effects</td><td>all</td></tr>
+ <tr><td><code>treatment</code></td><td>flat / soft / glow / retro</td><td><code>traits.json</code> (4)</td><td>all</td></tr>
+ <tr><td><code>font</code></td><td>the typeface</td><td><code>fonts.json</code> (13)</td><td>text &middot; quote</td></tr>
+ <tr><td><code>size</code></td><td>the fluid step</td><td>10-step type ramp</td><td>text &middot; quote</td></tr>
+ <tr><td><code>ink</code></td><td>weight / emphasis</td><td>strong &middot; base &middot; muted &middot; subtle &middot; tone</td><td>text &middot; quote</td></tr>
+ <tr><td><code>background</code></td><td>the mood pair</td><td><code>moods.json</code> (10)</td><td>card</td></tr>
+ <tr><td><code>ambience</code></td><td>the ambient loop</td><td>none &middot; pulse &middot; drift &middot; rings</td><td>card</td></tr>
+ <tr><td><code>drift</code></td><td>how the moods pan</td><td>was <code>Background.motion</code></td><td>card</td></tr>
+ </table></div>
+</section>
+
+<footer>45 presets &middot; every ref a real registry id &middot; nothing here is written to
+<code>presets.json</code> until you have red-penned it. Red-pen the names, the pairings, and the exposes lists.</footer>
+</div>

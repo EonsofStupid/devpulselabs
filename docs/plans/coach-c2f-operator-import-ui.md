@@ -1,6 +1,6 @@
 # C2f — Operator Import UI → Cursor lesson + paint
 
-**Status:** PLAN DRAFT 2026-07-31 — awaiting operator `approve` after #184 lands  
+**Status:** PASS 2026-07-31 — hub + Import UI + overlay lesson spawn; proof `docs/proof/c2f-coach-hub.png`  
 **Spine:** [`coach-operator-experience.md`](coach-operator-experience.md)  
 **Lab / Import Process:** [`coach-lab-experiment-program.md`](coach-lab-experiment-program.md)  
 **Mock:** [`../ops/references/coach-operator-mock-c2c.html`](../ops/references/coach-operator-mock-c2c.html)  

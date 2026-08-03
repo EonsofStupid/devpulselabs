@@ -27,8 +27,8 @@ use axum::{Json, Router};
 use dpl_comp::Composition;
 use dpl_estate::{Estate, Tree, KEY_SHELL_ROUTE, KEY_WIREDFRONT_LAST_COMP};
 use dpl_fabric::{
-    BuildEvent, CaptureEvent, CoachActor, CoachEvent, Fabric, IntentEvent, JobEvent, ProviderEvent,
-    ShellEvent, Stamped,
+    AiEvent, BuildEvent, CaptureEvent, CoachActor, CoachEvent, Fabric, IntentEvent, JobEvent,
+    ProviderEvent, ShellEvent, Stamped,
 };
 use dpl_hub::{HubSpec, Route};
 use serde_json::{json, Value};
@@ -355,6 +355,75 @@ pub fn intent_json(st: &Stamped<IntentEvent>) -> Value {
     v
 }
 
+/// The AI domain's envelope.
+///
+/// Doctrine law 4 — ONE envelope: the body fields here are the same set
+/// `dpl_ledger::row_ai` writes to Parquet, so an agent watching `/signals`
+/// and a query over the ledger see the same facts under the same names.
+/// `call` rides every row so the four facts of one call join without a
+/// self-join. Message content is absent by construction.
+pub fn ai_json(st: &Stamped<AiEvent>) -> Value {
+    let call = st.ev.call().0;
+    let mut v = match &st.ev {
+        AiEvent::CallStarted {
+            provider,
+            model,
+            origin,
+            observation,
+            ..
+        } => json!({
+            "type": "callStarted",
+            "observation": observation.label(),
+            "provider": provider.0,
+            "model": model,
+            "surface": origin.surface,
+            "hub": origin.route.map(|r| r.hub.0),
+            "sub": origin.route.map(|r| r.sub.0),
+            "subject": origin.subject,
+        }),
+        AiEvent::FirstToken { ttft_ms, .. } => json!({
+            "type": "firstToken",
+            "ttft_ms": ttft_ms,
+        }),
+        AiEvent::CallFinished {
+            tokens_in,
+            cache_read,
+            cache_write,
+            tokens_out,
+            total_tokens,
+            context_used,
+            context_size,
+            cost_micros,
+            duration_ms,
+            outcome,
+            ..
+        } => json!({
+            "type": "callFinished",
+            "tokens_in": tokens_in,
+            "cache_read": cache_read,
+            "cache_write": cache_write,
+            "tokens_out": tokens_out,
+            "total_tokens": total_tokens,
+            "context_used": context_used,
+            "context_size": context_size,
+            "cost_micros": cost_micros,
+            "duration_ms": duration_ms,
+            "outcome": outcome.label(),
+            "failure": outcome.failure().map(|f| f.label()),
+        }),
+        AiEvent::Disposition { kept, target, .. } => json!({
+            "type": "disposition",
+            "kept": kept,
+            "target": target,
+        }),
+    };
+    v["call"] = json!(call);
+    v["domain"] = json!("ai");
+    v["seq"] = json!(st.seq);
+    v["ms"] = json!(st.ms);
+    v
+}
+
 /// The seam's shared state: the one fabric, the registry, the last route
 /// the seam HEARD arrive (RouteChanged is the truth of arrival), the
 /// content root every rel dir is JAILED inside, the optional estate
@@ -479,7 +548,38 @@ async fn get_state(State(s): State<Shared>) -> Json<Value> {
         "estate": s.estate.is_some(),
         "lastComp": last_comp,
         "hubs": s.registry.hubs_json(),
+        "registry": json!({ "providers": roster_json(&s.fabric) }),
     }))
+}
+
+/// THE ROSTER as wire JSON — what an agent reads to learn which experts
+/// exist. An agent that cannot see the capability registry cannot route to
+/// it (ADR-017 §3).
+///
+/// Hand-written rather than derived, exactly like `hubs_json` and
+/// `event_json`: the fabric stays serde-free by design (this file's own
+/// header), so the wire shape is owned HERE and the fabric owes it nothing.
+/// Capabilities go out as stable slugs, never the human label.
+fn roster_json(fabric: &Fabric) -> Value {
+    Value::Array(
+        fabric
+            .provider_roster()
+            .iter()
+            .map(|p| {
+                json!({
+                    "id": p.id.0,
+                    "label": p.label,
+                    "activated": p.activated,
+                    "note": p.note,
+                    "capabilities": p
+                        .capabilities
+                        .iter()
+                        .map(|c| c.slug())
+                        .collect::<Vec<_>>(),
+                })
+            })
+            .collect(),
+    )
 }
 
 /// The validated command door. Refusals are 422 with the issues NAMED —
@@ -813,8 +913,13 @@ async fn get_signals(
         ev.ok()
             .map(|st| Ok(Event::default().data(intent_json(&st).to_string())))
     });
-    let stream =
-        shell.merge(capture.merge(jobs.merge(providers.merge(build.merge(coach.merge(intent))))));
+    let ai = BroadcastStream::new(s.fabric.subscribe_ai()).filter_map(|ev| {
+        ev.ok()
+            .map(|st| Ok(Event::default().data(ai_json(&st).to_string())))
+    });
+    let stream = shell.merge(
+        capture.merge(jobs.merge(providers.merge(build.merge(coach.merge(intent.merge(ai)))))),
+    );
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
@@ -1097,6 +1202,110 @@ mod envelope_tests {
     }
 
     #[test]
+    fn ai_envelopes_are_pinned_and_carry_no_message_content() {
+        let started = ai_json(&Stamped {
+            seq: 40,
+            ms: 5000,
+            ev: AiEvent::CallStarted {
+                call: dpl_fabric::CallId(39),
+                provider: dpl_fabric::ProviderId("claude"),
+                model: "claude-opus-5".into(),
+                origin: dpl_fabric::Origin {
+                    route: Some(Route {
+                        hub: dpl_hub::HubId("workbench"),
+                        sub: dpl_hub::SubId("author"),
+                    }),
+                    surface: "author-editor",
+                    subject: Some("slide-7".into()),
+                },
+                observation: dpl_fabric::Observation::Live,
+            },
+        });
+        assert_eq!(
+            started,
+            json!({
+                "domain": "ai", "seq": 40, "ms": 5000, "call": 39,
+                "type": "callStarted", "provider": "claude",
+                "observation": "live",
+                "model": "claude-opus-5", "surface": "author-editor",
+                "hub": "workbench", "sub": "author", "subject": "slide-7",
+            })
+        );
+
+        let finished = ai_json(&Stamped {
+            seq: 41,
+            ms: 5100,
+            ev: AiEvent::CallFinished {
+                call: dpl_fabric::CallId(39),
+                tokens_in: Some(1200),
+                cache_read: Some(800),
+                cache_write: None,
+                tokens_out: Some(450),
+                total_tokens: Some(1650),
+                context_used: None,
+                context_size: None,
+                cost_micros: None,
+                duration_ms: 2_100,
+                outcome: dpl_fabric::AiOutcome::Error(dpl_fabric::AiFailureClass::RateLimit),
+            },
+        });
+        assert_eq!(
+            finished,
+            json!({
+                "domain": "ai", "seq": 41, "ms": 5100, "call": 39,
+                "type": "callFinished", "tokens_in": 1200,
+                "cache_read": 800, "cache_write": null, "tokens_out": 450,
+                "total_tokens": 1650, "context_used": null, "context_size": null,
+                "cost_micros": null, "duration_ms": 2100,
+                "outcome": "error", "failure": "rate-limit",
+            })
+        );
+
+        // Law 4 — ONE envelope: the seam's field names are exactly the
+        // ledger's, so `/signals` and a ledger query never disagree.
+        let row = dpl_ledger::row_ai(&Stamped {
+            seq: 41,
+            ms: 5100,
+            ev: AiEvent::CallFinished {
+                call: dpl_fabric::CallId(39),
+                tokens_in: Some(1200),
+                cache_read: Some(800),
+                cache_write: None,
+                tokens_out: Some(450),
+                total_tokens: Some(1650),
+                context_used: None,
+                context_size: None,
+                cost_micros: None,
+                duration_ms: 2_100,
+                outcome: dpl_fabric::AiOutcome::Error(dpl_fabric::AiFailureClass::RateLimit),
+            },
+        });
+        let body: Value = serde_json::from_str(&row.body).unwrap();
+        for key in [
+            "call",
+            "tokens_in",
+            "cache_read",
+            "cache_write",
+            "tokens_out",
+            "total_tokens",
+            "context_used",
+            "context_size",
+            "cost_micros",
+            "duration_ms",
+            "outcome",
+            "failure",
+        ] {
+            assert_eq!(
+                body.get(key),
+                finished.get(key),
+                "ledger row and seam envelope disagree on `{key}`"
+            );
+        }
+        assert_eq!(row.domain, finished["domain"].as_str().unwrap());
+        assert_eq!(row.type_name, finished["type"].as_str().unwrap());
+    }
+
+    #[test]
     fn provider_envelopes_are_redacted_and_pinned() {
         let st = Stamped {
             seq: 14,
@@ -1337,6 +1546,58 @@ mod tests {
             .await
             .expect("response");
         assert_eq!(body_json(resp).await["route"], json!("wiredfront/editor"));
+    }
+
+    #[tokio::test]
+    async fn the_seam_projects_the_roster() {
+        let (fabric, state) = test_state();
+        // An agent reading before anything is activated sees an empty list —
+        // present and honest, never a missing key it has to guess about.
+        let resp = router(Arc::clone(&state))
+            .oneshot(
+                Request::builder()
+                    .uri("/state")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(body_json(resp).await["registry"]["providers"], json!([]));
+
+        fabric.publish_provider_roster(vec![dpl_fabric::ProviderCapability {
+            id: dpl_fabric::ProviderId("claude"),
+            label: "Claude Code".into(),
+            activated: true,
+            note: Some("local transcripts only".into()),
+            capabilities: std::collections::BTreeSet::from([
+                dpl_fabric::Capability::ReadSessions,
+                dpl_fabric::Capability::PageHistory,
+            ]),
+            summary: String::new(),
+            since: "2021-01-28".into(),
+            presence: dpl_fabric::ProviderPresence::Ready,
+        }]);
+        let resp = router(state)
+            .oneshot(
+                Request::builder()
+                    .uri("/state")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        let body = body_json(resp).await;
+        let provider = &body["registry"]["providers"][0];
+        assert_eq!(provider["id"], json!("claude"));
+        assert_eq!(provider["label"], json!("Claude Code"));
+        assert_eq!(provider["activated"], json!(true));
+        assert_eq!(provider["note"], json!("local transcripts only"));
+        // STABLE slugs, never the human label — an agent routes on these.
+        assert_eq!(
+            provider["capabilities"],
+            json!(["read-sessions", "page-history"]),
+            "the capability SET crosses the wire, in the vocabulary that is stored"
+        );
     }
 
     #[test]

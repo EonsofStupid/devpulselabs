@@ -190,7 +190,9 @@ pub fn request_from_inventory_name(name_or_id: &str) -> Result<MintRequest, Refu
     };
     let seed_name = {
         let blob = format!("{} {}", item.id.as_str(), item.display_name).to_lowercase();
-        if blob.contains("calculator") {
+        if blob.contains("cursor") {
+            Some("Search Ctrl+K".into())
+        } else if blob.contains("calculator") {
             Some("7".into())
         } else {
             None

@@ -13,9 +13,12 @@ pub use activation::{
 
 use dpl_chat_core::{
     BoundedNativePayload, Capability, ChatEventContent, ProviderAccent, ProviderDescriptor,
-    ProviderId, ProviderManifest, ProviderProfileId,
+    ProviderId, ProviderManifest, ProviderProfileId, TokenUsage,
 };
-use dpl_chat_store::{DecodeOutcome, DecodedHistoryEvent, HistoryDecoder, HistoryIndexMetadata};
+use dpl_chat_store::{
+    DecodeOutcome, DecodedHistoryEvent, HistoryDecoder, HistoryIndexMetadata, ProviderUsage,
+    UsageReporting,
+};
 use serde_json::Value;
 use std::path::Path;
 
@@ -54,6 +57,8 @@ pub const MANIFEST: ProviderManifest = ProviderManifest {
         glyph: "C",
         accent: ProviderAccent::Cyan,
         summary: "OpenAI coding agent through the official app-server client protocol.",
+        // OpenAI founded 11 December 2015.
+        since: "2015-12-11",
     },
     profile: DEFAULT_PROFILE,
     target_capabilities: TARGETS,
@@ -192,9 +197,27 @@ fn decode_event_message(payload: &Value) -> DecodeOutcome {
         "task_started" => event(ChatEventContent::SessionStarted),
         "task_complete" => event(ChatEventContent::TurnCompleted),
         "turn_aborted" => event(ChatEventContent::TurnInterrupted),
-        "token_count" => event(ChatEventContent::UsageUpdated {
-            summary: "Codex token usage updated".into(),
-        }),
+        "token_count" => {
+            let usage = codex_token_usage(payload);
+            let summary = match (usage.input_tokens, usage.output_tokens) {
+                (Some(input), Some(output)) => {
+                    format!("Codex tokens · {input} in · {output} out")
+                }
+                _ => usage.total_tokens.map_or_else(
+                    || "Codex token usage updated".to_owned(),
+                    |total| format!("Codex tokens · {total} total"),
+                ),
+            };
+            event(ChatEventContent::UsageUpdated { summary, usage })
+        }
+        // The provider naming its own model — previously fell through to
+        // `unknown`, which is why nothing downstream could price a call.
+        "session_configured" => string_at(payload, &["model"])
+            .map(|model| ChatEventContent::ModelSelected { model })
+            .map_or_else(
+                || unknown("codex.event_msg.session_configured", "no model field"),
+                event,
+            ),
         "plan_update" => {
             let summary =
                 string_at(payload, &["explanation"]).unwrap_or_else(|| "Codex plan updated".into());
@@ -285,6 +308,86 @@ fn string_at(value: &Value, path: &[&str]) -> Option<String> {
         current = current.get(*segment)?;
     }
     current.as_str().map(str::to_owned)
+}
+
+/// Codex's usage dialect.
+///
+/// Codex reports a full input/output split plus a combined total and the
+/// model context window, and names its model in `session_configured`. It
+/// does not price its own calls.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CodexUsage;
+
+impl ProviderUsage for CodexUsage {
+    fn provider_id(&self) -> ProviderId {
+        PROVIDER
+    }
+
+    fn reports(&self) -> UsageReporting {
+        UsageReporting {
+            input_output_split: true,
+            total_tokens: true,
+            context_window: true,
+            provider_priced: false,
+            model: true,
+            // `total_token_usage` restates the running total each time.
+            counts_are_cumulative: true,
+            history_backfill: true,
+        }
+    }
+
+    fn usage_from_line(&self, line: &str) -> Option<TokenUsage> {
+        let value: Value = serde_json::from_str(line).ok()?;
+        let payload = value.get("payload")?;
+        if payload.get("type").and_then(Value::as_str)? != "token_count" {
+            return None;
+        }
+        let usage = codex_token_usage(payload);
+        (!usage.is_empty()).then_some(usage)
+    }
+
+    fn model_from_line(&self, line: &str) -> Option<String> {
+        let value: Value = serde_json::from_str(line).ok()?;
+        let payload = value.get("payload")?;
+        if payload.get("type").and_then(Value::as_str)? != "session_configured" {
+            return None;
+        }
+        string_at(payload, &["model"])
+    }
+}
+
+fn u64_at(value: &Value, path: &[&str]) -> Option<u64> {
+    let mut current = value;
+    for segment in path {
+        current = current.get(*segment)?;
+    }
+    current.as_u64()
+}
+
+/// Codex's `token_count` accounting.
+///
+/// Read DEFENSIVELY: each field is looked up independently and a missing
+/// one stays `None`. If Codex reshapes this payload we lose a field, not
+/// correctness — a wrong number priced as real would be worse than an
+/// absent one. `total_token_usage` is the cumulative turn total, which is
+/// what cost is computed from.
+fn codex_token_usage(payload: &Value) -> TokenUsage {
+    let at = |leaf: &str| {
+        u64_at(payload, &["info", "total_token_usage", leaf])
+            .or_else(|| u64_at(payload, &["total_token_usage", leaf]))
+    };
+    TokenUsage {
+        input_tokens: at("input_tokens"),
+        // Codex reports cached input separately too — kept separate for
+        // the same reason: it bills at a different rate.
+        cache_read_tokens: at("cached_input_tokens"),
+        cache_write_tokens: None,
+        output_tokens: at("output_tokens"),
+        total_tokens: at("total_tokens"),
+        context_used: None,
+        context_size: u64_at(payload, &["info", "model_context_window"])
+            .or_else(|| u64_at(payload, &["model_context_window"])),
+    }
 }
 
 fn codex_id_from_path(path: &Path) -> Option<String> {
@@ -421,5 +524,60 @@ mod tests {
         let outcome = CodexHistoryDecoder
             .decode_line("{\"type\":\"event_msg\",\"payload\":{\"type\":\"world_state\"}}");
         assert_eq!(outcome, DecodeOutcome::IgnoreKnown);
+    }
+
+    #[test]
+    fn token_count_yields_real_numbers_not_prose() {
+        let line = r#"{"type":"event_msg","payload":{"type":"token_count","info":{
+            "total_token_usage":{"input_tokens":1200,"cached_input_tokens":800,
+            "output_tokens":450,"reasoning_output_tokens":100,"total_tokens":1650},
+            "model_context_window":272000}}}"#;
+        let DecodeOutcome::Event(decoded) = CodexHistoryDecoder.decode_line(line) else {
+            panic!("token_count should decode to an event");
+        };
+        let ChatEventContent::UsageUpdated { summary, usage } = decoded.content else {
+            panic!("token_count should decode to UsageUpdated");
+        };
+        // The counts are EXTRACTED, not summarized away. This payload used
+        // to be discarded entirely in favour of a fixed sentence.
+        assert_eq!(usage.input_tokens, Some(1200));
+        assert_eq!(usage.output_tokens, Some(450));
+        assert_eq!(usage.total_tokens, Some(1650));
+        assert_eq!(usage.context_size, Some(272_000));
+        assert!(!usage.is_empty());
+        // The human line still reads well for the activity feed.
+        assert_eq!(summary, "Codex tokens · 1200 in · 450 out");
+    }
+
+    #[test]
+    fn a_reshaped_token_payload_loses_fields_not_correctness() {
+        // If Codex moves these fields, each lookup independently returns
+        // None. A missing count must never silently become zero — zero is
+        // a measurement, absent is not, and cost is computed from these.
+        let line = r#"{"type":"event_msg","payload":{"type":"token_count","info":{}}}"#;
+        let DecodeOutcome::Event(decoded) = CodexHistoryDecoder.decode_line(line) else {
+            panic!("token_count should still decode");
+        };
+        let ChatEventContent::UsageUpdated { summary, usage } = decoded.content else {
+            panic!("expected UsageUpdated");
+        };
+        assert!(usage.is_empty(), "absent counts stay absent, never zero");
+        assert_eq!(summary, "Codex token usage updated");
+    }
+
+    #[test]
+    fn session_configured_names_the_model() {
+        let line = r#"{"type":"event_msg","payload":{"type":"session_configured",
+            "model":"gpt-5-codex","session_id":"abc"}}"#;
+        let DecodeOutcome::Event(decoded) = CodexHistoryDecoder.decode_line(line) else {
+            panic!("session_configured should decode to an event");
+        };
+        assert_eq!(
+            decoded.content,
+            ChatEventContent::ModelSelected {
+                model: "gpt-5-codex".into()
+            },
+            "the model the provider is actually running — previously lost to `unknown`"
+        );
     }
 }

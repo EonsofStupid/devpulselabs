@@ -209,8 +209,38 @@ have made them impossible.
 
 ## 7. Status
 
-- **P1** — planned (`docs/plans/chat-providers-become-platform.md`), blocked
-  on #180 merging.
-- **V1** — mock authored (`docs/design/mocks/providers-brain-mock.html`);
-  plan pending P1.
-- V2, V3, A1, A2 — not planned yet, by design.
+The mock for this whole program is `docs/design/mocks/providers.html` — one
+surface driven by one registry. Every link below is a slice of it, and a
+link is done when the real app matches that slice.
+
+- **P1** — the registry, built (`docs/plans/chat-providers-become-platform.md`).
+- **V1** — the control and the ink-bleed preset, built
+  (`docs/plans/providers-v1-ink-bleed-control.md`). The `dwell` tier, the
+  `ink-bleed` effect, the seeded hue pool and the brain are authored tokens;
+  the control carries no design value of its own.
+- **V2** — the roster popup, built. Cards carry LIVE state from P1's roster
+  (`shell/src/providers.rs::ProvidersPopup`); proof
+  `tests/eguipilotai/providers-popup.toml`, shot
+  `docs/proof/providers-popup.png`.
+- **V3** — the modal, built. A card promotes into a summary carrying the
+  live-ticking "how long they have been in business" figure; the roster stays
+  up behind it. Proof `tests/eguipilotai/providers-modal.toml`, shot
+  `docs/proof/providers-modal.png`.
+
+**Every link in this program is now built.** What remains is qualification,
+not surface: live turn transport for Cursor, and Gemini's probe + sign-in
+verb once its CLI is on a machine to read them off.
+- **A1 — presence probes**, built. Each provider names a non-secret status
+  command as plain data; `crates/app/src/presence.rs` is the only place that
+  spawns. Measured live: codex/claude/grok SignedIn, cursor/gemini
+  NotInstalled.
+- **A2 — subscription init**, built. "Sign in" hands off to the vendor's own
+  CLI, which opens the operator's DEFAULT browser, and a watcher polls the
+  probe until it confirms. A provider with no declared sign-in verb is
+  refused by name rather than guessed at.
+- **Cursor** is a subscription provider (`crates/chat/providers/cursor`) —
+  its CLI carries the same login as the editor.
+
+Note for every motion link after this one: the capture harness runs under
+`MotionPolicy::Suppressed`, so it cannot photograph an animation mid-flight.
+Prove the ends with shots and the duration with a pin on the authored token.

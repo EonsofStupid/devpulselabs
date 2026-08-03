@@ -722,8 +722,8 @@ fn structure_audit() -> Result<(), String> {
     const ORPHAN_ALLOWED: &[&str] = &[
         "desktop-spike",
         "coach-overlay",
-        "coach-inventory",
-        "coach-fabric",
+        // coach-inventory + coach-fabric are workspace members consumed by
+        // dpl-hub-coach (C2f) — not orphans.
     ];
 
     let output = Command::new("cargo")

@@ -12,8 +12,8 @@ serde_json.workspace = true
 # Pure-Rust Parquet write path (ADR-009): no zstd-sys. `snap` is the
 # pure-Rust snappy crate; `arrow` is the RecordBatch writer surface.
 parquet = { version = "55", default-features = false, features = ["arrow", "snap"] }
-arrow-array = "55"
-arrow-schema = "59"
+arrow-array = "59"
+arrow-schema = "55"
 
 [lints]
 workspace = true
