@@ -5,16 +5,15 @@ name: nightly
 # Self-hosted until 2026-07-30: the estate runners were deregistered when the
 # repo went public (green moved to hosted in #168) and this workflow was left
 # behind, so every scheduled run queued forever against labels nothing
-# answers. Both lanes are hosted now — same images as the green gate.
+# answers. Lanes are hosted now — windows-latest, ubuntu-latest (x64), and
+# ubuntu-24.04-arm (aarch64). Soft lane: each platform publishes its own
+# asset independently so one failing lane cannot block another's Release.
 #
 # The zip ships BOTH shipped binaries: `devpulselabs` and the
 # `dpl-lottie-render` helper that must live BESIDE the exe (ADR-009 — the
 # façade spawns it, so an app-only zip is a broken nightly for every Lottie
 # surface). No /content, no invented dptools-deps: the operator stages
 # private tools via `cargo xtask stage-tool-deps`.
-#
-# Soft lane: each platform publishes its own asset independently so one
-# failing lane cannot block the other lane's Release.
 
 on:
   schedule:
@@ -174,6 +173,91 @@ jobs:
               --latest=false
           fi
           {
-            echo "### Linux nightly"
+            echo "### Linux x64 nightly"
+            echo "- uploaded: \`$ASSET\` (\`${SHORT}\`)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ARM64 Linux — hosted GitHub ARM runners (public repos). Replaces the
+  # retired self-hosted dpl-linux estate box that published the same asset
+  # name through 2026-07-30. Same apt set and stage layout as x64.
+  nightly-linux-arm64:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            build-essential cmake pkg-config ffmpeg libssl-dev \
+            libegl1-mesa-dev libgl1-mesa-dev libwayland-dev libxkbcommon-dev \
+            libxkbcommon-x11-dev libx11-dev libxcursor-dev libxrandr-dev \
+            libxi-dev libxtst-dev libxdo-dev libudev-dev libevdev-dev \
+            libasound2-dev libpipewire-0.3-dev libdbus-1-dev libgtk-3-dev \
+            libgbm-dev libxcb1-dev \
+            libpango1.0-dev libcairo2-dev libglib2.0-dev libv4l-dev \
+            clang libclang-dev llvm-dev zip
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: nightly-linux-arm64
+          cache-all-crates: "true"
+      - name: release build
+        run: cargo build --release -p devpulselabs -p dpl-lottie-render
+      - name: stage + zip
+        run: |
+          set -euo pipefail
+          SHA="${{ github.sha }}"
+          DATE="$(date -u +%Y-%m-%d)"
+          STAGE=dist/nightly-linux-arm64
+          mkdir -p "$STAGE"
+          cp target/release/devpulselabs "$STAGE/devpulselabs"
+          cp target/release/dpl-lottie-render "$STAGE/dpl-lottie-render"
+          chmod +x "$STAGE/devpulselabs" "$STAGE/dpl-lottie-render"
+          cat > "$STAGE/NIGHTLY.md" <<EOF
+          # DevPULSE Labs nightly (Linux aarch64)
+
+          - Commit: ${SHA}
+          - Built: ${DATE}Z
+          - Runner: hosted ubuntu-24.04-arm
+
+          App exe + the dpl-lottie-render helper beside it (ADR-009).
+          Stage private tools with \`cargo xtask stage-tool-deps <release-root>\`.
+          Pull: \`./scripts/pull-nightly.sh\`
+          EOF
+          rm -f "$GITHUB_WORKSPACE/devpulselabs-linux-aarch64.zip"
+          (cd "$STAGE" && zip -r "$GITHUB_WORKSPACE/devpulselabs-linux-aarch64.zip" .)
+      - name: publish asset to Release nightly
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          DATE="$(date -u +%Y-%m-%d)"
+          SHA="${{ github.sha }}"
+          SHORT="${SHA:0:7}"
+          ASSET=devpulselabs-linux-aarch64.zip
+          NOTES="$(mktemp)"
+          {
+            echo "## Nightly ${DATE}"
+            echo
+            echo "- Commit: \`${SHA}\` (\`${SHORT}\`)"
+            echo "- Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo
+            echo "App + lottie-render helper — private tools staged via \`cargo xtask stage-tool-deps\`."
+            echo "Pull: \`./scripts/pull-nightly.sh\` or \`.\\scripts\\pull-nightly.ps1\`."
+          } > "$NOTES"
+          if gh release view nightly >/dev/null 2>&1; then
+            gh release edit nightly --title "Nightly ${DATE}" --notes-file "$NOTES" --latest=false
+            gh release delete-asset nightly "$ASSET" --yes 2>/dev/null || true
+            gh release upload nightly "$ASSET" --clobber
+          else
+            gh release create nightly "$ASSET" \
+              --title "Nightly ${DATE}" \
+              --notes-file "$NOTES" \
+              --latest=false
+          fi
+          {
+            echo "### Linux aarch64 nightly"
             echo "- uploaded: \`$ASSET\` (\`${SHORT}\`)"
           } >> "$GITHUB_STEP_SUMMARY"

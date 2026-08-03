@@ -13,7 +13,9 @@ serde_json.workspace = true
 # pure-Rust snappy crate; `arrow` is the RecordBatch writer surface.
 parquet = { version = "59", default-features = false, features = ["arrow", "snap"] }
 arrow-array = "59"
-arrow-schema = "55"
+# Must track parquet/arrow-array major: dual arrow-schema versions fail RecordBatch
+# construction with a type mismatch (dependabot #197/#198 left this at 55).
+arrow-schema = "59"
 
 [lints]
 workspace = true
