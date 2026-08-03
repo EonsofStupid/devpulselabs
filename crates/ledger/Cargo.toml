@@ -13,7 +13,7 @@ serde_json.workspace = true
 # pure-Rust snappy crate; `arrow` is the RecordBatch writer surface.
 parquet = { version = "55", default-features = false, features = ["arrow", "snap"] }
 arrow-array = "55"
-arrow-schema = "55"
+arrow-schema = "59"
 
 [lints]
 workspace = true
