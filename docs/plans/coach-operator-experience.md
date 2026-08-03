@@ -1,8 +1,7 @@
 # Coach operator experience — product spine (frictionless vision)
 
-**Status:** C2c LOOK-APPROVED 2026-07-30; mock **rev 2026-07-31** (Import
-Process) awaiting look-approve; C2d/C2e PASS; **NEXT = look-approve mock
-rev → C2f** against Import Process  
+**Status:** C2c LOOK-APPROVED 2026-07-30; Import Process mock rev + C2d/C2e/C2f chrome PASS; **NEXT =
+fabric bridge** ([`coach-bridge-fabric-runtime.md`](coach-bridge-fabric-runtime.md))  
 **Lane:** coach-ledger  
 **Mock:** [`../ops/references/coach-operator-mock-c2c.html`](../ops/references/coach-operator-mock-c2c.html)  
 **Mock plan:** [`coach-c2c-operator-mock.md`](coach-c2c-operator-mock.md)  
@@ -30,10 +29,11 @@ refusals teach with tips. Advanced / EguiPilot remains a second surface.
 | Foreign locate + compose + paint + Triggered | **PASS** (C2s) |
 | Overlay process exception + self-test binary | **PASS** (C2a + C2b #158) |
 | Stdio coach loop on overlay | Deferred (Advanced plumbing) |
-| **Operator picker / import / tip UX** | Mock rev Import Process — look-approve |
+| **Operator picker / import / tip UX** | **PASS chrome** C2f (hub); Import Process mock rev in #181 |
 | Lightweight installed-app inventory | **PASS** C2d (#172) |
 | Fabric mint progress + ETA | **PASS** C2e (`dpl-coach-fabric`) |
-| Doc NEXT pointers | look-approve mock rev → C2f Import Process |
+| Fabric bridge resolve/invoke | **MISSING — NEXT** |
+| Doc NEXT pointers | CX-bridge-01 / `dpl-coach-runtime` |
 
 ## 3. Design
 
@@ -99,6 +99,7 @@ at startup.
 | **C2d** | Lightweight inventory (Phase 0+1) spike/plan+code | List without freeze; unit + live |
 | **C2e** | Fabric mint for selected Calculator | Progress + refuse tips; journal |
 | **C2f** | Operator Import Process → guided lesson + paint | Honesty prompt + checks + Standard import + Triggered |
+| **CX-bridge-01** | FabricSession resolve→invoke | Cursor conquest; Calculator regression |
 | **Lab** | [`coach-lab-experiment-program.md`](coach-lab-experiment-program.md) | CX-teacher / CX-harvest spikes |
 | *(parked)* | C2b Pass-2 stdio · strict pinning · DuckDB | Advanced / later spine |
 

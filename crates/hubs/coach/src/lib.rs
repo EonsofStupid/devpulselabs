@@ -1,12 +1,14 @@
-//! Coach hub — Operator Import Process (pick → check → Standard mint → lesson).
+//! Coach hub — Operator Import Process + fabric bridge lesson wire.
 //!
-//! Foreign paint uses the `dpl-coach-overlay` **binary** beside the exe
-//! (ADR), never a crate dep. Plan: `docs/plans/coach-c2f-operator-import-ui.md`.
+//! Lessons address apps via `dpl-coach-runtime` (resolve / invoke / Mount
+//! spec). Foreign paint uses the `dpl-coach-overlay` **binary** only (ADR).
+//! Plans: `coach-c2f-operator-import-ui.md` · `coach-bridge-fabric-runtime.md`.
 
 #![forbid(unsafe_code)]
 
 use dpl_coach_fabric::{eta_hint, mint, MintOutcome, MintProgress, MintRequest};
 use dpl_coach_inventory::{inventory, Complexity, InventoryItem};
+use dpl_coach_runtime::{invoke, mount_spec, resolve_seed, AgencyMode, FabricSession};
 use dpl_coldlight::{self as cl, Tone};
 use dpl_hub::{Hub, HubId, HubSpec, Route, SubId, SubRoute};
 use egui::RichText;
@@ -65,13 +67,6 @@ fn mint_seed_name(item: &InventoryItem) -> Option<String> {
     } else {
         None
     }
-}
-
-fn atspi_app_name(item: &InventoryItem) -> String {
-    item.live
-        .as_ref()
-        .map(|l| l.atspi_name.clone())
-        .unwrap_or_else(|| item.exec_hint.clone())
 }
 
 fn overlay_bin() -> PathBuf {
@@ -134,6 +129,9 @@ pub struct CoachHub {
     status: String,
     mint_rx: Option<Receiver<MintMsg>>,
     last_refresh_err: Option<String>,
+    /// Session fabric after Standard Import — bridge address space.
+    session: Option<FabricSession>,
+    agency: AgencyMode,
 }
 
 impl Default for CoachHub {
@@ -145,6 +143,8 @@ impl Default for CoachHub {
             status: String::new(),
             mint_rx: None,
             last_refresh_err: None,
+            session: None,
+            agency: AgencyMode::Coach,
         };
         hub.refresh_inventory();
         hub
@@ -245,24 +245,23 @@ impl CoachHub {
                                 .map(seed_control_for)
                                 .unwrap_or("File")
                                 .to_string();
-                            self.phase = Phase::Ready {
-                                nodes: f.nodes.len() as u32,
-                                ms: f.minted_ms,
-                                seed,
-                            };
+                            let nodes = f.nodes.len() as u32;
+                            let ms = f.minted_ms;
+                            self.session = Some(FabricSession::new(f, self.agency));
+                            self.phase = Phase::Ready { nodes, ms, seed };
                             self.status = format!(
-                                "Fabric ready · {} nodes · {} ms",
-                                f.nodes.len(),
-                                f.minted_ms
+                                "Fabric ready · {nodes} nodes · {ms} ms · bridge session held"
                             );
                         }
                         MintOutcome::Refused(r) => {
+                            self.session = None;
                             self.phase = Phase::Refused {
                                 reason: r.reason,
                                 tip: r.tip,
                             };
                         }
                         MintOutcome::Cancelled => {
+                            self.session = None;
                             self.phase = Phase::Refused {
                                 reason: "mint cancelled".into(),
                                 tip: "Import again when ready.".into(),
@@ -281,45 +280,105 @@ impl CoachHub {
     }
 
     fn launch_lesson(&mut self) {
-        let Some(item) = self.selected_item().cloned() else {
+        let Some(session) = self.session.as_ref() else {
+            self.phase = Phase::Refused {
+                reason: "no fabric session — Import first".into(),
+                tip: "Run Standard Import, then Start guided lesson.".into(),
+            };
             return;
         };
-        let app = atspi_app_name(&item);
-        let seed = seed_control_for(&item);
+        // Sync agency onto a clone for this launch.
+        let mut session = session.clone();
+        session.agency = self.agency;
+
+        let handle = match resolve_seed(&session) {
+            Ok(h) => h,
+            Err(r) => {
+                self.phase = Phase::Refused {
+                    reason: format!("bridge resolve: {}", r.reason),
+                    tip: r.tip,
+                };
+                return;
+            }
+        };
+
+        let mut detail = format!(
+            "Resolved {:?} via fabric path {} (agency={})",
+            handle.node.name,
+            handle.node.path,
+            self.agency.as_str()
+        );
+
+        // Teacher may execute; Coach Mounts paint + observe.
+        if self.agency == AgencyMode::Teacher {
+            match invoke(&handle, "click", self.agency) {
+                Ok(effect) => {
+                    detail.push_str(&format!(" · INVOKED {}", effect.action));
+                }
+                Err(r) => {
+                    self.phase = Phase::Refused {
+                        reason: format!("Teacher invoke: {}", r.reason),
+                        tip: r.tip,
+                    };
+                    return;
+                }
+            }
+        }
+
+        let spec = match mount_spec(&session, &handle) {
+            Ok(s) => s,
+            Err(r) => {
+                // Invoke-only success still counts for Teacher; Coach needs paint.
+                if self.agency == AgencyMode::Teacher {
+                    self.phase = Phase::LessonLaunched {
+                        detail: format!("{detail} · Mount paint skipped: {}", r.reason),
+                    };
+                    self.status = "Teacher invoke done (no Mount paint)".into();
+                    return;
+                }
+                self.phase = Phase::Refused {
+                    reason: format!("Mount extents: {}", r.reason),
+                    tip: r.tip,
+                };
+                return;
+            }
+        };
+
         let bin = overlay_bin();
+        let rect = spec.window_rect.as_csv();
         let mut cmd = Command::new(&bin);
         dpl_proc::quiet(&mut cmd);
-        // spawn-audit: quiet() — ADR overlay painter; CREATE_NO_WINDOW only
+        // spawn-audit: quiet() — ADR overlay painter from bridge MountSpec
         let result = cmd
             .args([
                 "spotlight",
                 "--app",
-                &app,
+                &spec.atspi_name,
                 "--name",
-                seed,
+                &spec.expected_name,
+                "--window-rect",
+                &rect,
                 "--seconds",
                 "20",
                 "--message",
-                &format!("Press {seed}"),
+                &format!("Press {}", spec.expected_name),
             ])
             .spawn();
         match result {
             Ok(_) => {
-                self.phase = Phase::LessonLaunched {
-                    detail: format!(
-                        "Overlay spotlight on {app:?} · {seed:?} (20s). Press the control to advance."
-                    ),
-                };
-                self.status = "Lesson running — watch the foreign window".into();
+                detail.push_str(&format!(
+                    " · Mount window_rect={} (bridge, not name-locate)",
+                    rect
+                ));
+                self.phase = Phase::LessonLaunched { detail };
+                self.status = "Lesson running — fabric bridge Mount".into();
             }
             Err(e) => {
                 self.phase = Phase::Refused {
                     reason: format!("could not start overlay painter: {e}"),
                     tip: format!(
-                        "Build and place `dpl-coach-overlay` beside the exe (or set DPL_COACH_OVERLAY). CLI: {} spotlight --app {} --name {:?}",
-                        bin.display(),
-                        app,
-                        seed
+                        "Build `dpl-coach-overlay` beside the exe. Bridge resolved {:?} at {}.",
+                        spec.expected_name, rect
                     ),
                 };
             }
@@ -383,6 +442,7 @@ impl Hub for CoachHub {
                 .clicked()
                 {
                     self.refresh_inventory();
+                    self.session = None;
                     self.phase = Phase::Pick;
                 }
                 ui.label(
@@ -552,15 +612,43 @@ impl CoachHub {
                         .strong()
                         .color(cl::Tone::Lime.color()),
                 );
-                ui.label(format!("Fabric ready · {nodes} nodes · {ms} ms"));
+                ui.label(format!(
+                    "Fabric ready · {nodes} nodes · {ms} ms · session held"
+                ));
                 ui.label(
                     RichText::new(format!("Seed control: {seed}"))
                         .monospace()
                         .color(SPEC.tone.color()),
                 );
+                ui.horizontal(|ui| {
+                    ui.label("Agency");
+                    let coach = self.agency == AgencyMode::Coach;
+                    if cl::tip(
+                        ui.selectable_label(coach, "Coach"),
+                        "Operator leads — Mount paint + observe (no auto-invoke).",
+                    )
+                    .clicked()
+                    {
+                        self.agency = AgencyMode::Coach;
+                        if let Some(s) = self.session.as_mut() {
+                            s.agency = AgencyMode::Coach;
+                        }
+                    }
+                    if cl::tip(
+                        ui.selectable_label(!coach, "Teacher"),
+                        "Same resolve/invoke/mount rails — AI may invoke the seed via fabric.",
+                    )
+                    .clicked()
+                    {
+                        self.agency = AgencyMode::Teacher;
+                        if let Some(s) = self.session.as_mut() {
+                            s.agency = AgencyMode::Teacher;
+                        }
+                    }
+                });
                 if cl::tip(
                     ui.button("Start guided lesson"),
-                    "Paints the seed on the foreign app via dpl-coach-overlay (operator gesture).",
+                    "Bridge: resolve fabric seed → (Teacher: invoke) → Mount overlay with --window-rect.",
                 )
                 .clicked()
                 {
@@ -575,6 +663,7 @@ impl CoachHub {
                 );
                 ui.label(detail);
                 if cl::tip(ui.button("Back to pick"), "Return to the app list.").clicked() {
+                    self.session = None;
                     self.phase = Phase::Pick;
                 }
             }

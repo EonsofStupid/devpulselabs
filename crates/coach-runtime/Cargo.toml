@@ -1,0 +1,28 @@
+[package]
+name = "dpl-coach-runtime"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+autobins = false
+
+# FabricGraph bridge — session resolve / invoke / extents (CX-bridge-01).
+# Egui-free. Never a dep of overlay; hub may depend. Plan:
+# docs/plans/coach-bridge-fabric-runtime.md
+
+[lints]
+workspace = true
+
+[dependencies]
+dpl-coach-fabric = { path = "../coach-fabric" }
+dpl-coach-inventory = { path = "../coach-inventory" }
+dpl-proc.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+async-io.workspace = true
+atspi.workspace = true
+zbus.workspace = true
+x11rb.workspace = true
+
+[[bin]]
+name = "coach-bridge-probe"
+path = "src/bin/coach_bridge_probe.rs"

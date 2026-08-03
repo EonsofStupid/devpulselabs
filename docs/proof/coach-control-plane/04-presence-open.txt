@@ -1,0 +1,1 @@
+{"app":"gnome-calculator","atspi_listed":true,"mapped_window":true,"window_id":52428804,"outer_w":482,"outer_h":613,"pid":3799737,"pid_alive":true,"real":true}

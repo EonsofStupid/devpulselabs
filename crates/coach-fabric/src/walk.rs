@@ -213,7 +213,9 @@ where
             None => {
                 return MintOutcome::Refused(Refused {
                     reason: format!("seed control {seed:?} not found in fabric"),
-                    tip: "Open the basic keypad view, then retry.".into(),
+                    tip: format!(
+                        "Bring {seed:?} into view (Calculator: basic keypad; Cursor: dismiss palettes), then re-import."
+                    ),
                 });
             }
         }

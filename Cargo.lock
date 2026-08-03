@@ -2093,6 +2093,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "dpl-coach-daemon"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "dpl-coach-fabric",
+ "dpl-coach-inventory",
+ "dpl-coach-runtime",
+ "dpl-proc",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "dpl-coach-fabric"
 version = "0.1.0"
 dependencies = [
@@ -2119,6 +2136,19 @@ dependencies = [
  "atspi 0.30.0",
  "eframe",
  "egui",
+ "x11rb 0.14.0",
+ "zbus",
+]
+
+[[package]]
+name = "dpl-coach-runtime"
+version = "0.1.0"
+dependencies = [
+ "async-io",
+ "atspi",
+ "dpl-coach-fabric",
+ "dpl-coach-inventory",
+ "dpl-proc",
  "x11rb 0.14.0",
  "zbus",
 ]
@@ -2307,6 +2337,7 @@ version = "0.1.0"
 dependencies = [
  "dpl-coach-fabric",
  "dpl-coach-inventory",
+ "dpl-coach-runtime",
  "dpl-coldlight",
  "dpl-hub",
  "dpl-proc",
@@ -7684,6 +7715,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",
