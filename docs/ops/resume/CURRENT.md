@@ -1,6 +1,6 @@
 # Resume pack — CURRENT
 
-**Updated:** 2026-08-03
+**Updated:** 2026-08-03 (N1 landed; C1 planned)
 **Lane:** providers
 **Dirty:** false
 
@@ -18,6 +18,9 @@
    against the wrong mock; do not skip it.
 3. `docs/plans/providers-carousel-and-the-matrix.md` — **what changes next**,
    in the operator's words plus the platform terms for them.
+   Then `docs/plans/c1-providers-carousel.md` — the BUILD plan, with the four
+   operator decisions of 2026-08-03 settled and the egui mechanics
+   ground-truthed (the transform/hit-box trap, AccessKit's real state).
 4. `docs/plans/pulse-program.md` — how updates get pushed from the base of
    operations. PU1–PU5.
 
