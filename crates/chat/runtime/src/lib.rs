@@ -503,6 +503,7 @@ mod tests {
             glyph: "T",
             accent: ProviderAccent::Cyan,
             summary: "test provider",
+            since: "2000-01-01",
         },
         profile: ProviderProfileId("default"),
         target_capabilities: CAPABILITIES,
@@ -538,6 +539,7 @@ mod tests {
                 glyph: "O",
                 accent: ProviderAccent::Amber,
                 summary: "other provider",
+                since: "2000-01-01",
             },
             ..MANIFEST
         };
@@ -641,6 +643,7 @@ mod tests {
                 glyph: "O",
                 accent: ProviderAccent::Amber,
                 summary: "other provider",
+                since: "2000-01-01",
             },
             ..MANIFEST
         };

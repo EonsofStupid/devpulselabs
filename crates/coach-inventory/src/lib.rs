@@ -223,6 +223,13 @@ fn is_system_live_noise(name: &str) -> bool {
 
 fn seed_tip_for(cold: &ColdEntry, running: bool) -> Option<String> {
     let blob = format!("{} {}", cold.id.as_str(), cold.display_name).to_lowercase();
+    if blob.contains("cursor") {
+        return Some(if running {
+            "Cursor conquest — Import maps Search Ctrl+K, then paint the seed.".into()
+        } else {
+            "Open Cursor, then Import — first Operator Coach conquest.".into()
+        });
+    }
     if blob.contains("calculator") {
         return Some(if running {
             "Seed proven on this box — try button 7 after mint (C2e).".into()

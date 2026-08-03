@@ -1,7 +1,7 @@
 ---
 dirty: false
-active_lane: coach-ledger
-updated: 2026-07-31
+active_lane: providers
+updated: 2026-08-02
 ---
 
 # Ops session ledger
@@ -11,26 +11,34 @@ milestone-loop). Product truth stays in `docs/STATE.md`.
 
 ## Active lane
 
-**coach / ledger / lesson** — backlog:
-`docs/journal/2026-07-28-remaining-work.md`
+**providers** — mock `docs/design/mocks/providers.html`, program
+`docs/plans/providers-presence-and-the-brain.md`.
 
-**NEXT:** Approve CX-cursor-01 (overlay seed on Cursor) → then C2f UI
-select/import. Notepad after. Pass-2 **parked**.
+**NEXT:** land PR #192 (the whole Providers program). Then Cursor live
+transport / Gemini probe — qualification, not surface.
 
-**CLOSED:** … · C2e (#179) · Lab/import capture · Cursor a11y probe
+**CLOSED:** … · D1+H1 (#180) · **P1** · **V1** (`feat/p1-provider-availability`,
+green, unpushed)
 
 ## Opens
 
 | Kind | Ref | Notes |
 |---|---|---|
-| Coach spike | CX-cursor-01 | Standard mint PASS; locate next |
-| Coach product | C2f Cursor import UI | after locate |
-| Coach next | Notepad (Windows) | after Cursor |
-| Coach Advanced | CX-harvest / Pass-2 | when a11y thin / parked |
+| Providers | P1 → PR | branch green; #169 also edits `fabric/src/lib.rs` |
+| Providers | V2+V3 built | roster popup + modal with live tenure |
+| Providers | A1+A2 built | live: codex/claude/grok signed in; cursor+gemini not installed |
+| Providers | Cursor CLI | probe needles UNVERIFIED until `cursor-agent` is installed |
+| Providers | Gemini sign-in verb | unknown; no login declared rather than guessed |
+| Coach | C2f plan → hub UI | `coach-c2f-operator-import-ui.md`, awaiting `approve` (#187) |
+| Coach | Notepad (Windows) | after C2f |
+| Coach Advanced | CX-harvest / Pass-2 | parked / when a11y thin |
+| Harness | no mid-animation capture | every capture is `MotionPolicy::Suppressed`; `Natural`/`FastForward` unused |
+| Harness | 4 scenarios red headless | `chat-local-histories`, `chat-content-spine`, `chat-provider-tab`, `shell-navigation` — pre-date P1, need a real display |
 
 ## Milestone
 
-CX-cursor-01 → C2f Cursor → Notepad → Teacher / harvest as needed
+P1+V1 land → V2 popup → V3 modal → A1 probes → A2 sign-in
+(coach C2f resumes on `approve`)
 
 ## Signals
 

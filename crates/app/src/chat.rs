@@ -3,7 +3,7 @@ use dpl_chat_browser_auth::{BrowserAuthCoordinator, BrowserAuthError, BrowserAut
 use dpl_chat_core::{
     ActivationState, BoundedNativePayload, Capability, ChatEvent, ChatEventContent, ChatEventId,
     ChatSessionId, ProviderId, ProviderSessionId, RecoveryAction, RecoveryActionKind, SessionGroup,
-    SessionState, SessionSummary, TurnId,
+    SessionState, SessionSummary, TokenUsage, TurnId,
 };
 #[cfg(feature = "eguipilotai-devtools")]
 use dpl_chat_core::{ChatDomain, DeviceAuthorizationPrompt, GuidedValue, GuidedValueSensitivity};
@@ -26,8 +26,8 @@ use dpl_chat_windows::{
 };
 use dpl_fabric::{
     ActivationAttemptId, AppWindowAction, CaptureEvent, Fabric, IntentEvent, JobEvent, JobId,
-    ProviderActivationStage, ProviderEvent, ProviderFailureClass, ProviderReceiver, ShellEvent,
-    ShellReceiver,
+    ProviderActivationStage, ProviderCapability, ProviderEvent, ProviderFailureClass,
+    ProviderReceiver, ShellEvent, ShellReceiver,
 };
 use dpl_hub::Route;
 use egui_pilot_ai::{
@@ -59,6 +59,10 @@ pub enum ChatProofMode {
     Snapped,
     /// The blanket assist acknowledgement, open — the visual proof state.
     Assist,
+    /// The Content domain with a real episode spine loaded (D1).
+    Content,
+    /// A REAL local transcript open in the conversation pane (H1).
+    History,
 }
 
 #[cfg(feature = "eguipilotai-devtools")]
@@ -77,6 +81,8 @@ impl ChatProofMode {
             "compact" => Some(Self::Compact),
             "snapped" => Some(Self::Snapped),
             "assist" => Some(Self::Assist),
+            "content" => Some(Self::Content),
+            "history" => Some(Self::History),
             _ => None,
         }
     }
@@ -90,6 +96,10 @@ struct Shared {
     registry: ChatWindowRegistry,
     lifetime: PeerLifetime,
     window: ChatWindow,
+    /// The transcript catalog lives HERE, not in the window: paging a past
+    /// session is IO, and the host owns IO. The window borrowed it once to
+    /// build its index (H1 §3.2).
+    catalog: HistoryCatalog,
     codex_activation: dpl_chat_codex::CodexActivationCoordinator,
     grok_activation: dpl_chat_grok::GrokActivationCoordinator,
     grok_runtime: Option<dpl_chat_grok::GrokAcpRuntime>,
@@ -99,6 +109,9 @@ struct Shared {
     grok_sessions: BTreeMap<String, ChatSessionId>,
     grok_turns: BTreeMap<String, TurnId>,
     grok_permissions: BTreeMap<u64, PendingGrokPermission>,
+    /// In-flight AI calls keyed by provider session id — the AI domain's
+    /// correlation state. Mint at dispatch, first-token once, finish once.
+    ai_calls: BTreeMap<String, AiCall>,
     grok_attempt: Option<ActivationAttemptId>,
     codex_attempt: Option<ActivationAttemptId>,
     imagine: ImagineState,
@@ -117,6 +130,17 @@ struct Shared {
     /// The coordinator publishes `ShellEvent::NavigateRequest`; the shell
     /// drains it and navigates the main window.
     fabric: Fabric,
+    /// THE ROSTER as last published — the comparison that makes the publish
+    /// change-driven instead of per-frame chatter.
+    roster: Vec<ProviderCapability>,
+    /// The one-shot presence sweep: each vendor's own tool answering whether
+    /// the operator is already signed in. Polled from the frame loop and
+    /// dropped once it lands.
+    presence: Option<std::sync::mpsc::Receiver<Vec<crate::presence::Presence>>>,
+    /// Where the roster is remembered between launches (ADR-017 §2). `None`
+    /// when the estate failed to open; the roster is derived, so the only
+    /// cost is that the platform starts empty instead of remembered.
+    estate: Option<Arc<dpl_estate::Estate>>,
     /// The session's determinism gate — slash mint site and UI channel
     /// share one state machine (determinism-intent-gate plan).
     determinism: dpl_intent::DeterminismGate,
@@ -186,6 +210,219 @@ fn now_unix_ms() -> u64 {
         .unwrap_or_default()
 }
 
+/// The estate key THE ROSTER is stored under (ADR-017 §2). `Tree::Agents`
+/// already exists for "agent (chat provider) session state" — the capability
+/// registry is exactly that.
+const ROSTER_KEY: &str = "providers/roster";
+
+/// THE ROSTER on disk.
+///
+/// A separate type from [`ProviderCapability`] on purpose: the in-memory
+/// fact holds `ProviderId(&'static str)` and a live `Capability` set, and
+/// NEITHER can be deserialized straight back — a `&'static str` cannot be
+/// minted from disk bytes without leaking, and a capability this build no
+/// longer has must not be resurrected. So the stored form speaks strings,
+/// and restore RESOLVES them against what this build actually knows.
+/// Unknown names are dropped, never invented (the doctor law).
+///
+/// Live process handles are deliberately unrepresentable here: this records
+/// what was TRUE and is cheap to re-verify, never a connection.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct StoredProviderCapability {
+    id: String,
+    label: String,
+    activated: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    note: Option<String>,
+    capabilities: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    since: Option<String>,
+}
+
+/// The stored envelope: when it was true, and what was true.
+///
+/// The stamp is what lets a boot tell a roster written moments ago from one
+/// left by a launch weeks back, without which "remembered" and "stale" look
+/// identical on disk. Epoch ms because that is the clock this file already
+/// keeps; the workspace has no date crate and a cosmetic string is not worth
+/// one.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct StoredRoster {
+    written_at_ms: u64,
+    providers: Vec<StoredProviderCapability>,
+}
+
+fn store_roster(estate: Option<&dpl_estate::Estate>, roster: &[ProviderCapability]) {
+    let Some(estate) = estate else {
+        return;
+    };
+    let stored = StoredRoster {
+        written_at_ms: now_unix_ms(),
+        providers: roster
+            .iter()
+            .map(|p| StoredProviderCapability {
+                id: p.id.0.to_owned(),
+                label: p.label.clone(),
+                activated: p.activated,
+                note: p.note.clone(),
+                capabilities: p.capabilities.iter().map(|c| c.slug().to_owned()).collect(),
+                since: Some(p.since.clone()),
+            })
+            .collect(),
+    };
+    if let Err(error) = estate.put_json(dpl_estate::Tree::Agents, ROSTER_KEY, &stored) {
+        // A roster that cannot be remembered is not a reason to fail a
+        // launch — the live one is recomputed every boot regardless.
+        tracing::warn!(%error, "the provider roster could not be persisted");
+    }
+}
+
+/// Read the remembered roster, resolving every stored name against what this
+/// build knows. `known` is the live registry's ids — a provider that no
+/// longer exists is dropped rather than resurrected with a leaked id.
+fn restore_roster(
+    estate: Option<&dpl_estate::Estate>,
+    known: &[ProviderId],
+) -> Vec<ProviderCapability> {
+    let Some(estate) = estate else {
+        return Vec::new();
+    };
+    let stored: StoredRoster = match estate
+        .get_json::<StoredRoster>(dpl_estate::Tree::Agents, ROSTER_KEY)
+    {
+        Ok(Some(stored)) => stored,
+        Ok(None) => return Vec::new(),
+        Err(error) => {
+            tracing::warn!(%error, "the remembered provider roster is unreadable — starting empty");
+            return Vec::new();
+        }
+    };
+    stored
+        .providers
+        .into_iter()
+        .filter_map(|row| {
+            let id = *known.iter().find(|known| known.0 == row.id)?;
+            Some(ProviderCapability {
+                id,
+                label: row.label,
+                activated: row.activated,
+                note: row.note,
+                summary: String::new(),
+                since: row.since.unwrap_or_default(),
+                // The remembered roster records what was TRUE, not which of
+                // the probe's states produced it, and the live sweep replaces
+                // this within a second of boot. Claiming SignedOut here would
+                // be inventing a reason the disk never carried.
+                presence: if row.activated {
+                    dpl_fabric::ProviderPresence::Ready
+                } else {
+                    dpl_fabric::ProviderPresence::Unavailable
+                },
+                capabilities: row
+                    .capabilities
+                    .iter()
+                    .filter_map(|slug| Capability::from_slug(slug))
+                    .collect(),
+            })
+        })
+        .collect()
+}
+
+/// Take the presence sweep the moment it lands, then never look again.
+///
+/// A non-blocking poll on the frame path: the probe runs four short-lived
+/// vendor processes on its own thread, and the egui thread only ever asks
+/// whether the answer has arrived.
+fn drain_presence(state: &mut Shared) {
+    let Some(receiver) = state.presence.as_ref() else {
+        return;
+    };
+    let found = match receiver.try_recv() {
+        Ok(found) => found,
+        Err(std::sync::mpsc::TryRecvError::Empty) => return,
+        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+            state.presence = None;
+            return;
+        }
+    };
+    state.presence = None;
+    for one in &found {
+        tracing::info!(provider = %one.provider, verdict = ?one.verdict, "provider presence");
+        apply_presence(state, one);
+    }
+}
+
+/// Fold one presence answer into the window's activation, if it has anything
+/// to add.
+///
+/// It is deliberately NON-DESTRUCTIVE. A provider that is already activated
+/// keeps whatever activated it — H1's Claude is `Experimental` off its
+/// transcripts, and Codex and Grok own full activation coordinators with
+/// launchers and runtimes. Presence's job is to fill in the providers nobody
+/// has spoken for, and to state honestly what the machine says about the
+/// rest. Overwriting a live coordinator's state from a one-shot probe is how
+/// a working provider ends up reported as signed out mid-session.
+fn apply_presence(state: &mut Shared, found: &crate::presence::Presence) {
+    use dpl_chat_core::PresenceVerdict;
+
+    let already_activated = state
+        .window
+        .provider_capabilities()
+        .iter()
+        .any(|p| p.id == found.provider && p.activated);
+    if already_activated {
+        return;
+    }
+
+    let note = found.note.clone().unwrap_or_default();
+    let activation = match found.verdict {
+        // Signed in, but nothing here qualifies a live turn transport yet —
+        // say exactly that rather than claiming Ready.
+        PresenceVerdict::SignedIn => ActivationState::Experimental {
+            reason: "Signed in on this machine. Live turns are not qualified yet.".to_owned(),
+            recovery: Vec::new(),
+        },
+        PresenceVerdict::SignedOut => ActivationState::SignedOut {
+            reason: note,
+            recovery: vec![RecoveryAction::new(
+                RecoveryActionKind::SignIn,
+                "Sign in with your browser",
+            )],
+        },
+        PresenceVerdict::NotInstalled => ActivationState::NotInstalled {
+            reason: note,
+            recovery: Vec::new(),
+        },
+        // An answer nobody taught us to read is not evidence of anything.
+        PresenceVerdict::Unknown => return,
+    };
+
+    if let Err(error) = state
+        .window
+        .set_provider_activation(found.provider, activation)
+    {
+        tracing::warn!(%error, provider = %found.provider, "presence could not be applied");
+    }
+}
+
+/// Publish THE ROSTER when — and only when — it changed.
+///
+/// Change-detection rather than a list of "activation-affecting" intents:
+/// activation is mutated from fourteen `set_provider_activation` sites plus
+/// the provider-event drain, and any enumeration of them is one new call
+/// site away from being silently wrong. Comparing the projection cannot be
+/// forgotten. The cost is building a handful of small rows per frame, which
+/// is far below the threshold law 6 protects.
+fn republish_roster(state: &mut Shared) {
+    let roster = state.window.provider_capabilities();
+    if roster == state.roster {
+        return;
+    }
+    state.fabric.publish_provider_roster(roster.clone());
+    store_roster(state.estate.as_deref(), &roster);
+    state.roster = roster;
+}
+
 /// The sole owner of primary Chat viewport creation and peer lifetime policy.
 pub struct ChatWindowCoordinator {
     shared: Arc<Mutex<Shared>>,
@@ -200,6 +437,10 @@ pub struct ChatWindowConfig {
     pub codex_activation: dpl_chat_codex::CodexActivationCoordinator,
     pub grok_activation: dpl_chat_grok::GrokActivationCoordinator,
     pub open_at_boot: bool,
+    /// The Ring-0 estate, when it opened. THE ROSTER is remembered here so
+    /// the platform knows what was activated last launch before any probe
+    /// runs (ADR-017 §2).
+    pub estate: Option<Arc<dpl_estate::Estate>>,
     #[cfg(feature = "eguipilotai-devtools")]
     pub proof_mode: Option<ChatProofMode>,
 }
@@ -214,6 +455,7 @@ impl ChatWindowCoordinator {
             codex_activation,
             grok_activation,
             open_at_boot,
+            estate,
             #[cfg(feature = "eguipilotai-devtools")]
             proof_mode,
         } = config;
@@ -253,14 +495,19 @@ impl ChatWindowCoordinator {
             Some((social, interactions)) => ChatWindow::with_models(
                 runtime,
                 initial_route,
-                catalog,
+                &catalog,
                 routes,
                 social,
                 interactions,
             ),
-            None => ChatWindow::new(runtime, initial_route, catalog, routes),
+            None => ChatWindow::new(runtime, initial_route, &catalog, routes),
         };
         window.replace_provider_profiles(provider_profiles);
+        // Trigger 0 of the content refresh policy (D1 plan §3.4): seed the
+        // census at CONSTRUCTION. The window has more than one way to be
+        // opened — `--chat-open` never raises a WindowRequest — so the open
+        // path is a refresh, never the only read.
+        window.observe_content(read_content_view());
         #[cfg(feature = "eguipilotai-devtools")]
         if let Some(mode) = proof_mode {
             if mode != ChatProofMode::Approval {
@@ -277,6 +524,36 @@ impl ChatWindowCoordinator {
                             ChatDomain::Social,
                         ))
                         .expect("the authored Social domain is valid");
+                }
+                ChatProofMode::Content => {
+                    window
+                        .apply(dpl_chat_window::ChatWindowIntent::SelectDomain(
+                            ChatDomain::Content,
+                        ))
+                        .expect("the Content domain is valid");
+                    // Load a REAL spine so the proof shows slides, not an
+                    // empty board: the first census row, whatever it is.
+                    if let Some(first) = window.content_episode_ids().first().cloned() {
+                        if let Some(spine) = read_content_spine(&first) {
+                            window.observe_content_spine(spine);
+                        }
+                    }
+                }
+                ChatProofMode::History => {
+                    // Open the operator's OWN newest transcript. If the rail
+                    // found nothing the proof shot shows exactly that, which
+                    // is the failure worth seeing.
+                    if let Some((provider, locator)) = window.first_history_session() {
+                        window
+                            .apply(dpl_chat_window::ChatWindowIntent::SelectHistorySession {
+                                provider,
+                                locator,
+                            })
+                            .expect("the selected transcript is registered");
+                        if let Ok(page) = catalog.page(provider, locator, None) {
+                            window.observe_history_page(page);
+                        }
+                    }
                 }
                 ChatProofMode::ProviderHover => {
                     window
@@ -486,6 +763,7 @@ impl ChatWindowCoordinator {
             registry,
             lifetime: PeerLifetime::default(),
             window,
+            catalog,
             codex_activation,
             grok_activation,
             grok_runtime: None,
@@ -494,6 +772,7 @@ impl ChatWindowCoordinator {
             grok_runtime_ready: false,
             grok_sessions: BTreeMap::new(),
             grok_turns: BTreeMap::new(),
+            ai_calls: BTreeMap::new(),
             grok_permissions: BTreeMap::new(),
             grok_attempt: None,
             codex_attempt: None,
@@ -510,6 +789,9 @@ impl ChatWindowCoordinator {
             next_interaction_id: 2_000_000_000,
             primary_monitor,
             fabric: fabric.clone(),
+            roster: Vec::new(),
+            presence: Some(crate::presence::probe_all(crate::presence::specs())),
+            estate,
             determinism: dpl_intent::DeterminismGate::default(),
             #[cfg(feature = "eguipilotai-devtools")]
             pilot_runtime: None,
@@ -592,6 +874,29 @@ impl ChatWindowCoordinator {
                 }
             }
         }
+        // Trigger 0 for THE ROSTER, the same lesson D1's census learned: the
+        // window has more than one way to be opened, so the platform's view
+        // of what providers can do is seeded at CONSTRUCTION, never only on
+        // the open path.
+        //
+        // The remembered roster is published FIRST so a consumer reading in
+        // the gap sees what was true last launch rather than nothing at all
+        // (ADR-017 §2); the live projection immediately follows and wins
+        // wherever the two disagree. Recomputing is always the authority —
+        // persistence only decides what is shown before it lands.
+        let known: Vec<ProviderId> = shared
+            .window
+            .provider_capabilities()
+            .into_iter()
+            .map(|p| p.id)
+            .collect();
+        let remembered = restore_roster(shared.estate.as_deref(), &known);
+        if !remembered.is_empty() {
+            shared.fabric.publish_provider_roster(remembered.clone());
+            shared.roster = remembered;
+        }
+        republish_roster(&mut shared);
+
         Self {
             shared: Arc::new(Mutex::new(shared)),
             events: fabric.subscribe_shell(),
@@ -633,6 +938,12 @@ impl ChatWindowCoordinator {
             let mut shared = lock(&self.shared);
             shared.window.observe_route(current_route);
             drain_provider_facts(&mut shared);
+            drain_presence(&mut shared);
+            // Every activation change — from the drain above or from any of
+            // the host intents applied last frame — reaches the platform
+            // here. Publishing is change-gated, so a steady state costs one
+            // comparison.
+            republish_roster(&mut shared);
             while let Ok(event) = self.events.try_recv() {
                 match event {
                     ShellEvent::RouteChanged { route } => shared.window.observe_route(route),
@@ -648,6 +959,11 @@ impl ChatWindowCoordinator {
             }
         }
         if open_requested {
+            // Trigger 1 of the content refresh policy (D1 plan §3.4): read the
+            // census when the window opens. NEVER on the frame path — this
+            // function runs every frame and the census is a directory walk.
+            let view = read_content_view();
+            lock(&self.shared).window.observe_content(view);
             self.open_or_focus(ctx);
         }
 
@@ -876,6 +1192,94 @@ fn viewport_geometry(viewport: &egui::ViewportInfo) -> Option<(Option<[i32; 2]>,
     Some((position, [width as u32, height as u32]))
 }
 
+/// The address grammar the Workbench's `open_episode` already accepts:
+/// `"<show>/<episode>"` for operator content, `"template/<episode>"` for a
+/// seed. Minted here so Chat's addresses ARE the harness's addresses.
+fn content_address(entry: &dpl_doc::EpisodeEntry) -> ContentEpisodeId {
+    ContentEpisodeId(match entry.show.as_deref() {
+        Some(show) => format!("{show}/{}", entry.id),
+        None => format!("template/{}", entry.id),
+    })
+}
+
+/// Resolve an address back to its entry — the inverse of [`content_address`],
+/// matching `dpl_hub_workbench::open_episode`'s resolution exactly.
+fn find_content_entry(id: &ContentEpisodeId) -> Option<dpl_doc::EpisodeEntry> {
+    let union = dpl_doc::all_episodes(&dpl_engine_capture::content_root());
+    match id.0.split_once('/') {
+        Some(("template", ep)) => union.into_iter().find(|e| e.show.is_none() && e.id == ep),
+        Some((show, ep)) => union
+            .into_iter()
+            .find(|e| e.show.as_deref() == Some(show) && e.id == ep),
+        None => union.into_iter().find(|e| e.id == id.0),
+    }
+}
+
+/// The content census — a directory walk, never a full library load. Called
+/// on the triggers named in the D1 plan §3.4, NEVER from the frame path.
+fn read_content_view() -> ContentView {
+    let root = dpl_engine_capture::content_root();
+    // A missing content root is a NOTE, never an early return: `all_episodes`
+    // unions the root with `seeds/episodes/`, which lives outside it, so the
+    // seed templates are still real census rows and must still be listed.
+    let error = (!root.exists())
+        .then(|| format!("No content root yet at {} — showing seeds.", root.display()));
+    let episodes = dpl_doc::all_episodes(&root)
+        .into_iter()
+        .map(|entry| {
+            // A title needs the episode document; an unreadable one is a row
+            // with a fallback name, never a missing row.
+            let title = dpl_doc::load_episode(&entry.dir)
+                .map(|ep| ep.title)
+                .unwrap_or_else(|_| entry.id.clone());
+            ContentEpisode {
+                id: content_address(&entry),
+                show: entry.show.clone(),
+                title,
+            }
+        })
+        .collect();
+    ContentView {
+        episodes,
+        spine: None,
+        error,
+    }
+}
+
+/// One episode's chapter→slide structure. Only this episode is read.
+fn read_content_spine(id: &ContentEpisodeId) -> Option<ContentSpine> {
+    let entry = find_content_entry(id)?;
+    let episode = dpl_doc::load_episode(&entry.dir).ok()?;
+    let refs = dpl_doc::episode_slides(&entry.dir, &episode);
+    let chapters = episode
+        .chapters
+        .iter()
+        .map(|chapter| ContentChapter {
+            id: chapter.id.clone(),
+            title: chapter.title.clone(),
+            slides: refs
+                .iter()
+                .filter(|slide_ref| slide_ref.chapter == chapter.id)
+                .map(|slide_ref| ContentSlide {
+                    chapter: slide_ref.chapter.clone(),
+                    name: slide_ref.name.clone(),
+                    // A slide folder that does not parse is a displayable
+                    // fact, never a failed episode.
+                    template: dpl_doc::load(&slide_ref.dir)
+                        .map(|slide| slide.template)
+                        .unwrap_or_else(|_| "unknown".to_owned()),
+                    index: slide_ref.index,
+                })
+                .collect(),
+        })
+        .collect();
+    Some(ContentSpine {
+        id: id.clone(),
+        title: episode.title,
+        chapters,
+    })
+}
+
 fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: HostIntent) {
     match intent {
         HostIntent::OpenUtility {
@@ -884,6 +1288,20 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
         } => open_utility(ctx, shared, interaction_id, placement),
         HostIntent::ActivateProvider(provider) => {
             activate_provider(shared, provider);
+            ctx.request_repaint();
+        }
+        HostIntent::LoadHistoryPage { provider, locator } => {
+            // The host owns the catalog because reading a transcript is IO.
+            // A failed read is reported to the operator, never swallowed —
+            // an empty pane with no reason is how the count label happened.
+            let mut state = lock(shared);
+            match state.catalog.page(provider, locator, None) {
+                Ok(page) => state.window.observe_history_page(page),
+                Err(error) => {
+                    tracing::warn!(%error, %provider, "chat transcript page unavailable");
+                }
+            }
+            drop(state);
             ctx.request_repaint();
         }
         HostIntent::ProviderSelected(provider) => {
@@ -1067,6 +1485,15 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
             let mut state = lock(shared);
             resolve_assist_acknowledgement(&mut state, accepted);
             ctx.request_repaint();
+        }
+        HostIntent::RefreshContent => {
+            let view = read_content_view();
+            lock(shared).window.observe_content(view);
+        }
+        HostIntent::LoadContentSpine(episode) => {
+            if let Some(spine) = read_content_spine(&episode) {
+                lock(shared).window.observe_content_spine(spine);
+            }
         }
         HostIntent::NavigateTo(route) => {
             // Route loading lives in the MAIN app: publish the ask and let the
@@ -1257,6 +1684,37 @@ fn activate_provider(shared: &Arc<Mutex<Shared>>, provider: ProviderId) {
             }
         }
         state.grok_activation.activation().clone()
+    } else if let Some((_, spec)) = crate::presence::specs()
+        .into_iter()
+        .find(|(id, _)| *id == provider)
+    {
+        // A2 — subscription initialization for every provider that answers
+        // through a presence probe rather than a bespoke coordinator. The
+        // vendor's own CLI opens the operator's DEFAULT browser and runs the
+        // real flow; we watch until the probe confirms it took.
+        match crate::presence::begin_sign_in(provider, spec) {
+            Ok(receiver) => {
+                state.presence = Some(receiver);
+                let attempt = state.fabric.mint_provider_attempt();
+                state
+                    .fabric
+                    .publish_provider(ProviderEvent::ActivationRequested { provider, attempt });
+                state
+                    .fabric
+                    .publish_provider(ProviderEvent::SystemBrowserDispatched { provider, attempt });
+                ActivationState::SigningIn
+            }
+            Err(error) => {
+                tracing::warn!(%error, %provider, "provider sign-in could not start");
+                ActivationState::SignedOut {
+                    reason: error,
+                    recovery: vec![RecoveryAction::new(
+                        RecoveryActionKind::InstallInstructions,
+                        "Install the provider's CLI",
+                    )],
+                }
+            }
+        }
     } else {
         tracing::warn!(%provider, "provider activation action is not qualified");
         return;
@@ -2283,6 +2741,7 @@ fn poll_grok_runtime(state: &mut Shared) -> bool {
                 stop_reason: _,
             } => {
                 append_grok_event(state, &provider_session_id, ChatEventContent::TurnCompleted);
+                ai_call_finished(state, &provider_session_id, AiOutcome::Ok);
                 set_grok_session_idle(state, &provider_session_id);
                 state.grok_turns.remove(&provider_session_id);
             }
@@ -2294,6 +2753,11 @@ fn poll_grok_runtime(state: &mut Shared) -> bool {
                         ChatEventContent::TurnFailed {
                             message: failure.reason,
                         },
+                    );
+                    ai_call_finished(
+                        state,
+                        &provider_session_id,
+                        AiOutcome::Error(AiFailureClass::Runtime),
                     );
                     set_grok_session_idle(state, &provider_session_id);
                     state.grok_turns.remove(&provider_session_id);
@@ -2411,6 +2875,112 @@ fn provider_session_id(state: &Shared, session: ChatSessionId) -> Option<String>
         .map(|id| id.0)
 }
 
+/// One in-flight AI call. Providers speak their own dialects; this is the
+/// single shape the AI domain is minted from.
+struct AiCall {
+    call: CallId,
+    /// Kept so the drift check knows whose dialect to hold to account.
+    provider: ProviderId,
+    started: Instant,
+    /// TTFT fires exactly once per call, on the first content chunk.
+    first_token_seen: bool,
+    /// Accumulated across the turn — providers report usage in pieces,
+    /// and later reports supersede earlier ones field-by-field.
+    usage: TokenUsage,
+}
+
+/// THE CHAT → AI BRIDGE.
+///
+/// Provider crates stay fabric-free (their ceilings forbid it); the app
+/// owns the translation, exactly like the `publish_provider` sites above.
+/// These four functions are the ONLY place `AiEvent` is minted, so the
+/// correlation invariant — one `CallId`, one start, one finish — is
+/// enforced in one readable place rather than scattered per provider.
+fn ai_call_started(
+    state: &mut Shared,
+    provider: dpl_chat_core::ProviderId,
+    provider_session_id: &str,
+    model: &str,
+) {
+    let call = state.fabric.mint_ai_call();
+    state.ai_calls.insert(
+        provider_session_id.to_owned(),
+        AiCall {
+            call,
+            provider,
+            started: Instant::now(),
+            first_token_seen: false,
+            usage: TokenUsage::default(),
+        },
+    );
+    state.fabric.publish_ai(AiEvent::CallStarted {
+        call,
+        provider,
+        model: model.to_owned(),
+        // The chat window is its own OS surface and does not own the main
+        // window's route; `observe_route` feeds the projection, not this.
+        // Route-bearing origins arrive with the editor surface (PR 3) —
+        // an absent route is honest, a guessed one would poison the join.
+        origin: Origin::surface("chat"),
+        // Witnessed as it happens — the backfill pass is the only
+        // producer of the other kind.
+        observation: dpl_fabric::Observation::Live,
+    });
+}
+
+/// The latency operators actually feel. Idempotent per call.
+fn ai_first_token(state: &mut Shared, provider_session_id: &str) {
+    let Some(entry) = state.ai_calls.get_mut(provider_session_id) else {
+        return;
+    };
+    if entry.first_token_seen {
+        return;
+    }
+    entry.first_token_seen = true;
+    let (call, ttft_ms) = (entry.call, entry.started.elapsed().as_millis() as u32);
+    state
+        .fabric
+        .publish_ai(AiEvent::FirstToken { call, ttft_ms });
+}
+
+/// Closes the call and RETIRES the correlation entry, so a late duplicate
+/// finish cannot publish a second `CallFinished` for the same id.
+fn ai_call_finished(state: &mut Shared, provider_session_id: &str, outcome: AiOutcome) {
+    let Some(entry) = state.ai_calls.remove(provider_session_id) else {
+        return;
+    };
+    let usage = entry.usage;
+    // A provider that DECLARED it reports usage and then delivered none
+    // for a whole call has likely changed its payload shape — surface the
+    // drift instead of recording a silent zero.
+    crate::ai_usage::note_usage_drift(entry.provider, usage);
+    state.fabric.publish_ai(AiEvent::CallFinished {
+        call: entry.call,
+        tokens_in: usage.input_tokens,
+        cache_read: usage.cache_read_tokens,
+        cache_write: usage.cache_write_tokens,
+        tokens_out: usage.output_tokens,
+        total_tokens: usage.total_tokens,
+        context_used: usage.context_used,
+        context_size: usage.context_size,
+        // Cost stays unpriced HERE: the versioned price table (PR 2) is
+        // what turns tokens into money, and it needs the model id. The
+        // token counts above are the truth cost is recomputed from.
+        cost_micros: None,
+        duration_ms: entry.started.elapsed().as_millis() as u32,
+        outcome,
+    });
+}
+
+/// A provider reported token accounting mid-turn. MERGED, not replaced —
+/// Codex reports an input/output split, Grok reports context occupancy,
+/// and a turn may carry several reports before it ends.
+fn ai_usage_observed(state: &mut Shared, provider_session_id: &str, usage: TokenUsage) {
+    if let Some(entry) = state.ai_calls.get_mut(provider_session_id) {
+        entry.usage = entry.usage.merge(usage);
+    }
+}
+
 fn send_grok_turn(state: &mut Shared, session: ChatSessionId, text: String) {
     let Some(provider_session_id) = provider_session_id(state, session) else {
         tracing::warn!(%session, "Grok session binding is missing");
@@ -2432,6 +3002,14 @@ fn send_grok_turn(state: &mut Shared, session: ChatSessionId, text: String) {
     if !send_grok_command(state, command) {
         return;
     }
+    // The call is airborne — mint its correlation id before any chunk
+    // can arrive, so TTFT has something to attach to.
+    // Model is EMPTY here on purpose: the Grok ACP runtime does not
+    // surface a model id at this layer. Model resolution lands with the
+    // price table (PR 2) — the two are inseparable, since pricing is
+    // per-model. An empty model reads as "not yet known", never as a
+    // wrong model quietly priced.
+    ai_call_started(state, dpl_chat_grok::PROVIDER, &provider_session_id, "");
     state.grok_turns.insert(provider_session_id, turn);
     if let Err(error) = state
         .window
@@ -2453,6 +3031,7 @@ fn project_grok_update(
             // the composer clears atomically with a successful enqueue.
         }
         dpl_chat_grok::GrokSessionUpdate::AssistantText(chunk) => {
+            ai_first_token(state, provider_session_id);
             let Some(session) = state.grok_sessions.get(provider_session_id).copied() else {
                 return;
             };
@@ -2512,13 +3091,24 @@ fn project_grok_update(
             provider_session_id,
             ChatEventContent::StatusUpdated(format!("{count} provider commands available")),
         ),
-        dpl_chat_grok::GrokSessionUpdate::Usage { used, size } => append_grok_event(
-            state,
-            provider_session_id,
-            ChatEventContent::UsageUpdated {
-                summary: format!("{used} of {size} context tokens"),
-            },
-        ),
+        dpl_chat_grok::GrokSessionUpdate::Usage { used, size } => {
+            // The dialect lives in GROK'S crate, not here — one adapter
+            // per provider (Phase 3 §3.2b), so a Grok release changes one
+            // file and touches no other provider.
+            let usage = dpl_chat_grok::GrokUsage::usage_from_update(
+                &dpl_chat_grok::GrokSessionUpdate::Usage { used, size },
+            )
+            .unwrap_or_default();
+            ai_usage_observed(state, provider_session_id, usage);
+            append_grok_event(
+                state,
+                provider_session_id,
+                ChatEventContent::UsageUpdated {
+                    summary: format!("{used} of {size} context tokens"),
+                    usage,
+                },
+            );
+        }
         dpl_chat_grok::GrokSessionUpdate::Other(summary) => append_grok_event(
             state,
             provider_session_id,
@@ -3291,6 +3881,108 @@ fn lock<T>(value: &Mutex<T>) -> MutexGuard<'_, T> {
     value
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+#[cfg(test)]
+mod roster_tests {
+    use super::*;
+
+    fn estate_at(tag: &str) -> dpl_estate::Estate {
+        let dir = std::env::temp_dir().join(format!("dpl-roster-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dpl_estate::Estate::open(&dir).expect("estate open")
+    }
+
+    fn claude() -> ProviderCapability {
+        ProviderCapability {
+            id: ProviderId("claude"),
+            label: "Claude Code".into(),
+            activated: true,
+            note: Some("local transcripts only".into()),
+            summary: String::new(),
+            since: "2021-01-28".into(),
+            presence: dpl_fabric::ProviderPresence::Ready,
+            capabilities: BTreeSet::from([Capability::ReadSessions, Capability::PageHistory]),
+        }
+    }
+
+    #[test]
+    fn the_roster_survives_a_restart() {
+        let estate = estate_at("restart");
+        let roster = vec![claude()];
+        store_roster(Some(&estate), &roster);
+        estate.persist().expect("estate persist");
+
+        // Reopened as a NEW launch would: the ids this build knows are what
+        // the stored names resolve against.
+        let restored = restore_roster(Some(&estate), &[ProviderId("claude")]);
+        assert_eq!(
+            restored, roster,
+            "what was activated last launch is known before any probe runs"
+        );
+        assert!(
+            restored[0].can(Capability::PageHistory),
+            "the capability SET round-trips, not just the fact of activation"
+        );
+    }
+
+    #[test]
+    fn a_provider_this_build_no_longer_knows_is_dropped_not_resurrected() {
+        let estate = estate_at("unknown-provider");
+        store_roster(
+            Some(&estate),
+            &[
+                claude(),
+                ProviderCapability {
+                    id: ProviderId("retired"),
+                    label: "Retired".into(),
+                    ..claude()
+                },
+            ],
+        );
+        estate.persist().expect("estate persist");
+        let restored = restore_roster(Some(&estate), &[ProviderId("claude")]);
+        assert_eq!(
+            restored.len(),
+            1,
+            "only what this build registers comes back"
+        );
+        assert_eq!(restored[0].id, ProviderId("claude"));
+    }
+
+    #[test]
+    fn an_unknown_stored_capability_is_dropped_not_invented() {
+        let estate = estate_at("unknown-capability");
+        let stored = StoredRoster {
+            written_at_ms: 1,
+            providers: vec![StoredProviderCapability {
+                id: "claude".into(),
+                label: "Claude Code".into(),
+                activated: true,
+                note: None,
+                capabilities: vec!["page-history".into(), "teleportation".into()],
+                since: None,
+            }],
+        };
+        estate
+            .put_json(dpl_estate::Tree::Agents, ROSTER_KEY, &stored)
+            .expect("write");
+        estate.persist().expect("estate persist");
+        let restored = restore_roster(Some(&estate), &[ProviderId("claude")]);
+        assert_eq!(
+            restored[0].capabilities,
+            BTreeSet::from([Capability::PageHistory]),
+            "a capability this build does not have is refused by name"
+        );
+    }
+
+    #[test]
+    fn no_estate_is_not_an_error() {
+        // The roster is derived; a failed estate open costs a remembered
+        // start, never a launch.
+        store_roster(None, &[claude()]);
+        assert!(restore_roster(None, &[ProviderId("claude")]).is_empty());
+    }
 }
 
 #[cfg(test)]

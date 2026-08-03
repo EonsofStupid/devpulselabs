@@ -68,7 +68,7 @@ other worktree. The operator double-clicks `target\release\devpulselabs.exe`
   --inspector
   --fx-drill <clip-rel> <fx-rel> --l4-drill
   --run-workflow <id> --chat-open --chat-authored --chat-proof <mode>
-  --seam-port <n> --no-seam --ledger --content-root <path>` (also honored as the
+  --seam-port <n> --no-seam --ledger --ai-backfill --content-root <path>` (also honored as the
   `CONTENT_ROOT` env; drill scratch roots use either; `DPL_LEDGER=1` also
   enables the signal ledger)
 - EguiPilotAI: `cargo build --release -p egui-pilot-ai-cli` + devtools exe

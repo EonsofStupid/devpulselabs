@@ -1,0 +1,87 @@
+id = "providers-control"
+fixture = "chat"
+record = true
+
+# V1's proof: the Providers control — brain + "Providers" + the `ai` circle —
+# at BOTH ends of the ink bleed, cold and full colour.
+#
+# WHY THERE IS NO MID-BLEED FRAME. Every capture runs under
+# `MotionPolicy::Suppressed` (`egui-pilot-ai-runtime/src/lib.rs:1246`), which
+# sets `animation_time = 0` and clears animations so a shot is reproducible —
+# the protocol calls it a "motion-suppressed stable capture". So the harness
+# cannot photograph an animation part-way through, by design: any hovered
+# capture lands at the settled end state no matter how long the scenario
+# waits. Proving that first cost a run where the 1.2s and 6.6s shots came back
+# byte-identical.
+#
+# The DURATION is therefore pinned where it can be: `the_dwell_tier_is_
+# authored_in_the_window_the_operator_named` and `the_roll_is_seeded_and_
+# lands_inside_the_authored_window` assert the 5.6-6.3s window on the authored
+# token and on the seeded roll the widget actually uses. These two shots prove
+# what the bleed LOOKS like at each end; the pins prove how long it takes.
+#
+# The `chat` fixture passes `--mood 0`, which pins the seeded hue pair and the
+# dwell through `set_harness_mood` — without it the pair re-draws every launch
+# and neither shot reproduces.
+
+[[steps]]
+kind = "wait"
+milliseconds = 2500
+
+# The control renders only when the roster holds an activated provider, so its
+# presence carries P1's claim forward.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/shell.status.providers"
+
+# It names the surface AND the roster it stands for.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "Providers"
+
+[steps.expectation.target]
+id = "root/shell.status.providers"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "Claude"
+
+[steps.expectation.target]
+id = "root/shell.status.providers"
+
+# COLD — line-art in muted ink, before the pointer reaches it.
+[[steps]]
+kind = "capture"
+name = "providers-control-cold"
+
+[steps.viewport]
+key = "root"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "hover"
+
+[steps.action.target]
+id = "root/shell.status.providers"
+
+# FULL COLOUR — the two-colour wash behind the control, the brain and the
+# `ai` circle carrying the first bleed hue, the word at full strength.
+[[steps]]
+kind = "capture"
+name = "providers-control-full"
+
+[steps.viewport]
+key = "root"

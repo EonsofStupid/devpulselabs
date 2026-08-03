@@ -5,7 +5,7 @@
 
 use dpl_chat_core::{
     BoundedNativePayload, ChatEvent, ChatEventContent, ChatEventId, ChatSessionId, ProviderId,
-    ProviderSessionId, SessionState, SessionSummary, TurnId,
+    ProviderSessionId, SessionState, SessionSummary, TokenUsage, TurnId,
 };
 use std::collections::HashSet;
 use std::fmt;
@@ -70,10 +70,118 @@ pub enum DecodeOutcome {
     IgnoreKnown,
 }
 
-pub trait HistoryDecoder {
+/// `Send` is a genuine requirement, not a formality: the HOST owns the
+/// catalog (H1 §3.2) and the host's shared state must be `Send`. A decoder is
+/// a pure function over lines and a source is a path plus a decoder, so
+/// nothing here is legitimately thread-bound.
+pub trait HistoryDecoder: Send {
     fn provider_id(&self) -> ProviderId;
     fn index_metadata(&self, path: &Path, prefix: &str) -> Option<HistoryIndexMetadata>;
     fn decode_line(&self, line: &str) -> DecodeOutcome;
+}
+
+/// What a provider is ABLE to report about token usage.
+///
+/// Declared, never discovered. This is the honesty mechanism: a surface
+/// can say "Grok does not report an input/output split" instead of
+/// rendering a silent zero, and a half-implemented provider stays legible
+/// instead of looking broken.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct UsageReporting {
+    /// Separate prompt and completion counts.
+    pub input_output_split: bool,
+    /// A single combined total.
+    pub total_tokens: bool,
+    /// Context-window occupancy (used / size).
+    pub context_window: bool,
+    /// The provider computes real money itself — trusted over our table.
+    pub provider_priced: bool,
+    /// The provider names the model it is running.
+    pub model: bool,
+    /// Counts are CUMULATIVE — each report restates the running total for
+    /// the session (Codex's `total_token_usage`), so the last report is
+    /// the whole picture and reports must NOT be summed. When false, each
+    /// report covers one turn (Claude's per-message `usage`) and a
+    /// session total is the SUM. Getting this backwards silently
+    /// under- or over-counts real spend.
+    pub counts_are_cumulative: bool,
+    /// Usage can be recovered from ALREADY-STORED sessions, so the
+    /// backfill pass can walk this provider's history and recover cost
+    /// the operator has already spent. False for live-only transports
+    /// (Grok's ACP), where usage exists on the wire and nowhere else.
+    pub history_backfill: bool,
+}
+
+impl UsageReporting {
+    /// A provider that reports nothing yet. A truthful state, not a bug —
+    /// it makes "not implemented" legible and turns adding support into
+    /// filling in one file rather than discovering an absence.
+    pub const NOTHING: Self = Self {
+        input_output_split: false,
+        total_tokens: false,
+        context_window: false,
+        provider_priced: false,
+        model: false,
+        counts_are_cumulative: false,
+        history_backfill: false,
+    };
+
+    pub const fn reports_anything(self) -> bool {
+        self.input_output_split || self.total_tokens || self.context_window
+    }
+}
+
+/// ONE provider's usage dialect.
+///
+/// Providers report different things, in different shapes, and CHANGE
+/// them between releases. Each adapter owns its own dialect so a new
+/// provider — or a new release of an existing one — extends HERE without
+/// touching any other provider's code.
+///
+/// Follows `HistoryDecoder`'s discipline exactly: `&str` in, typed out,
+/// so this crate and `dpl-chat-core` stay dependency-free and every
+/// provider keeps parsing its native format with its own serde.
+pub trait ProviderUsage: Send + Sync {
+    fn provider_id(&self) -> ProviderId;
+
+    /// What this provider can report. Callers consult this BEFORE
+    /// treating an absent number as meaningful.
+    fn reports(&self) -> UsageReporting;
+
+    /// Token accounting carried by one native record, if any.
+    fn usage_from_line(&self, line: &str) -> Option<TokenUsage>;
+
+    /// The model named by one native record, if any.
+    fn model_from_line(&self, _line: &str) -> Option<String> {
+        None
+    }
+
+    /// Cost the PROVIDER itself computed, in micros. When a provider
+    /// reports real money (Claude does), it is authoritative over any
+    /// price table of ours — it knows its own billing, we infer it.
+    fn cost_micros_from_line(&self, _line: &str) -> Option<u64> {
+        None
+    }
+}
+
+/// One stored session's recovered accounting (the piggyback result).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionUsage {
+    pub native_id: ProviderSessionId,
+    /// Merged across every record that carried accounting.
+    pub usage: TokenUsage,
+    pub model: Option<String>,
+    /// Provider-reported money, when the provider prices itself.
+    pub cost_micros: Option<u64>,
+    /// How many records carried accounting — zero means this session had
+    /// nothing to recover, which is a fact, not a failure.
+    pub records: usize,
+}
+
+impl SessionUsage {
+    pub const fn is_empty(&self) -> bool {
+        self.records == 0
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -219,7 +327,7 @@ impl fmt::Display for StoreError {
 
 impl std::error::Error for StoreError {}
 
-pub trait HistorySource {
+pub trait HistorySource: Send {
     fn provider_id(&self) -> ProviderId;
     fn list(&self, workspace_filter: Option<&str>) -> Result<HistoryIndex, StoreError>;
     fn page(
@@ -353,6 +461,74 @@ impl JsonlHistorySource {
         Ok(self
             .decoder
             .index_metadata(path, &String::from_utf8_lossy(&prefix)))
+    }
+
+    /// Recover one stored session's accounting — the PIGGYBACK path.
+    ///
+    /// Walks records already on disk through the provider's own usage
+    /// dialect, inside this source's jail, so past cost the operator has
+    /// already spent becomes queryable without re-running anything.
+    ///
+    /// Merges field-by-field across the session: providers report usage
+    /// in pieces, and the last word on each field wins.
+    pub fn scan_usage(
+        &self,
+        locator: HistoryLocator,
+        usage: &dyn ProviderUsage,
+    ) -> Result<SessionUsage, StoreError> {
+        let cumulative = usage.reports().counts_are_cumulative;
+        let (path, metadata) = self.resolve(locator)?;
+        let mut file = File::open(&path).map_err(|error| StoreError::Io {
+            operation: "open history file for usage scan",
+            message: error.to_string(),
+        })?;
+        let mut raw = String::new();
+        file.read_to_string(&mut raw)
+            .map_err(|error| StoreError::Io {
+                operation: "read history file for usage scan",
+                message: error.to_string(),
+            })?;
+
+        let mut out = SessionUsage {
+            native_id: metadata.native_id,
+            usage: TokenUsage::default(),
+            model: None,
+            cost_micros: None,
+            records: 0,
+        };
+        for line in raw.lines() {
+            // The same ceiling the paging path honours — one pathological
+            // line never becomes unbounded work.
+            if line.len() > self.limits.max_line_bytes {
+                continue;
+            }
+            let mut carried = false;
+            if let Some(found) = usage.usage_from_line(line) {
+                out.usage = if cumulative {
+                    // Each report restates the running total — the last
+                    // word is the whole session.
+                    out.usage.merge(found)
+                } else {
+                    // Each report covers one turn — the session is the sum.
+                    out.usage.accumulate(found)
+                };
+                carried = true;
+            }
+            if let Some(model) = usage.model_from_line(line) {
+                out.model = Some(model);
+                carried = true;
+            }
+            // Provider-reported money is cumulative per session; the last
+            // statement is the whole bill, not one to sum.
+            if let Some(cost) = usage.cost_micros_from_line(line) {
+                out.cost_micros = Some(cost);
+                carried = true;
+            }
+            if carried {
+                out.records += 1;
+            }
+        }
+        Ok(out)
     }
 
     fn resolve(

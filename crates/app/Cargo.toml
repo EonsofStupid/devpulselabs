@@ -51,6 +51,8 @@ dpl-chat-window.workspace = true
 dpl-chat-windows.workspace = true
 dpl-chat-codex.workspace = true
 dpl-chat-claude.workspace = true
+dpl-proc.workspace = true
+dpl-chat-cursor.workspace = true
 dpl-chat-gemini.workspace = true
 dpl-chat-grok.workspace = true
 dpl-chat-imagine.workspace = true
@@ -60,6 +62,7 @@ dpl-hub-shows.workspace = true
 dpl-hub-present.workspace = true
 dpl-hub-workbench.workspace = true
 dpl-hub-wiredfront.workspace = true
+dpl-hub-coach.workspace = true
 egui-pilot-ai.workspace = true
 egui-pilot-ai-runtime = { workspace = true, optional = true }
 egui-pilot-ai-transport = { workspace = true, optional = true }

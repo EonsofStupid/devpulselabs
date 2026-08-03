@@ -23,7 +23,7 @@ colocated slide.json. Presets (W3) feed one of its trays.
   document but returns NOTHING — the editor needs the block rects to
   hit-test. `DocSlide` wraps a Slide + Clock.
 - `cl::FONTS` (13, drawn in themselves on the fonts wall), `cl::MOODS`
-  (10, gradient cards), `cl::LOOK_PRESETS` (5), ambience set
+  (10, gradient cards), `cl::THEME_PRESETS` (5), ambience set
   {pulse,drift,rings}, ink set {strong,base,muted,subtle,tone}, fluid
   size ramp — all enumerable, all with existing "render as itself" wall
   code to reuse as pickers.

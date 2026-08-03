@@ -1,6 +1,8 @@
 # CX-cursor-01 — Cursor Standard Import seed (test before hub UI)
 
-**Status:** PLAN DRAFT 2026-07-31 — probe PASS; awaiting operator `approve`  
+**Status:** PASS 2026-07-31 — operator `go`; locate on Cursor seeds green  
+**Evidence journal:** [`../journal/2026-07-31-cx-cursor-01.md`](../journal/2026-07-31-cx-cursor-01.md)  
+
 **Probe journal:** [`../journal/2026-07-31-cursor-a11y-probe.md`](../journal/2026-07-31-cursor-a11y-probe.md)  
 **Lab:** [`coach-lab-experiment-program.md`](coach-lab-experiment-program.md)  
 **Import:** Standard Import works on this box (157 nodes · ~400 ms)

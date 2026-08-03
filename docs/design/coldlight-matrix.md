@@ -441,11 +441,23 @@ assumed.
 
 1. ✅ **RATIFIED 2026-07-31** — the grid/technical seed is **`swiss`**, not
    `frutiger`; `aero` remains its own seed.
-2. §3.1 — `aero` rendered **no-blur** (recommended), or a doctrine exception?
-3. §3.2 — take the three named gaps (`memphis` · `constructivist` ·
-   `editorial`) to eight seeds, or ship five and revisit?
-4. §4 — the facet vocabularies: 6 structures, 7 materials, 6 atmospheres.
-   Add, cut, or rename before any of it is written.
+2. ✅ **RATIFIED 2026-07-31 — EIGHT SEEDS.** Operator: *"we have to do them all
+   eventually."* `memphis` · `constructivist` · `editorial` join. The list
+   closes at eight — anything further is an atmosphere or a material (§3.2).
+3. ✅ **APPROVED 2026-07-31 — the type pool is a STARTING POINT, approved.**
+   Operator, verbatim: *"i said the pool was a starting point and approved."*
+   §10.2 stands as authored. Faces are cut and added as the work proves what is
+   missing; the pool is not perfected up front. **`xtask fonts` is unblocked.**
+4. ⬜ §3.1 — `aero` no-blur. **Taking the recommendation** (gloss via banded
+   gradients and hard specular bands, one law kept) unless corrected.
+5. §4 — the facet vocabularies: 6 structures, 7 materials, 6 atmospheres. Same
+   standing as the pool: a starting point, extended as the work proves gaps.
+
+**The working rule this establishes:** a vocabulary — seeds, faces, facet
+values, slide types — is **approved as a starting point and revised in
+flight**. It does not need to be perfect before work begins. Only *structural*
+decisions (the axis partition, preset-by-reference, legality-as-data) need
+ratifying up front, because those are expensive to change later.
 5. §5 — native/allowed/forbidden as the legality law. Note the cost, honestly:
    **every ancestor must rule on every facet value**, so eight seeds × 19 values
    = 152 rulings to author. That is the price of a matrix that cannot rot, and

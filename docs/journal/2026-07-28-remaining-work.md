@@ -78,21 +78,21 @@ AT-SPI desktop-root census. Calculator seed RUNNING. No deep walk.
 Calculator Ready · 82 nodes · seed `7` · ~255 ms. Journal:
 `docs/journal/2026-07-31-c2e-fabric-mint.md`.
 
-**Done when:** met. NEXT = C2f.
+**Done when:** met. NEXT = CX-cursor-01 then C2f.
 
 ### 9b. CX-cursor-01 — Cursor seed locate (test-first)
 
-**Probe PASS** 2026-07-31 — Standard mint Ready · 157 nodes.
-Plan: `docs/plans/coach-cx-cursor-01.md`. Overlay locate on
-`Search Ctrl+K` / `File` before hub UI.
+**PASS** 2026-07-31 — locate `Search Ctrl+K` + `File` on Cursor;
+Calculator `7` regression green. Journal:
+`docs/journal/2026-07-31-cx-cursor-01.md`.
 
-**Done when:** locate (+ optional paint) journaled on Cursor.
+**Done when:** met. NEXT = C2f.
 
 ### 10. C2f — Operator Import Process → Cursor lesson + paint
 
 **Contract:** Lab program + Import Process. Primary conquest = **Cursor**
 (Calculator = regression only). Honesty prompt → checks → Standard Import
-→ Mount seed. Notepad = Windows follow-up. Advanced Import only if checks fail.
+→ Mount `Search Ctrl+K`. Notepad = Windows follow-up.
 
 **Done when:** operator picks Cursor → import → paint → Triggered without
 CLI; ledger stamps import facts.

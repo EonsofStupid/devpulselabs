@@ -121,6 +121,11 @@ const BUILT_IN_RENDERERS: &[EventRendererRegistration] = &[
         render_approval,
     ),
     registration("usage", ChatEventKind::UsageUpdated, render_detail),
+    registration(
+        "model-selected",
+        ChatEventKind::ModelSelected,
+        render_detail,
+    ),
     registration("turn-complete", ChatEventKind::TurnCompleted, render_turn),
     registration(
         "turn-interrupt",
@@ -151,6 +156,7 @@ const fn registration(
 pub fn semantic_label(content: &ChatEventContent) -> String {
     match content {
         ChatEventContent::SessionStarted => "Session started".into(),
+        ChatEventContent::ModelSelected { model } => format!("Model: {model}"),
         ChatEventContent::UserMessage(text) => format!("You: {}", preview(text, 160)),
         ChatEventContent::AssistantMessage(text) => format!("Agent: {}", preview(text, 160)),
         ChatEventContent::PlanUpdated(text) => format!("Plan: {}", preview(text, 160)),
@@ -168,7 +174,9 @@ pub fn semantic_label(content: &ChatEventContent) -> String {
             "Approval {}",
             if *accepted { "accepted" } else { "declined" }
         ),
-        ChatEventContent::UsageUpdated { summary } => format!("Usage: {}", preview(summary, 160)),
+        ChatEventContent::UsageUpdated { summary, .. } => {
+            format!("Usage: {}", preview(summary, 160))
+        }
         ChatEventContent::TurnCompleted => "Turn completed".into(),
         ChatEventContent::TurnInterrupted => "Turn interrupted".into(),
         ChatEventContent::TurnFailed { message } => {
@@ -216,7 +224,7 @@ fn render_detail(
         ChatEventContent::PlanUpdated(text) => card(ui, "PLAN", text, Tone::Amber),
         ChatEventContent::StatusUpdated(text) => card(ui, "STATUS", text, Tone::Cyan),
         ChatEventContent::DiffUpdated(text) => card(ui, "DIFF", text, Tone::Cyan),
-        ChatEventContent::UsageUpdated { summary } => card(ui, "USAGE", summary, Tone::Violet),
+        ChatEventContent::UsageUpdated { summary, .. } => card(ui, "USAGE", summary, Tone::Violet),
         _ => render_mismatch(ui, content),
     }
 }
@@ -357,7 +365,7 @@ mod tests {
     #[test]
     fn built_in_registry_covers_every_kind_once() {
         let registry = EventRendererRegistry::built_in();
-        assert_eq!(registry.len(), 16);
+        assert_eq!(registry.len(), 17);
         for content in [
             ChatEventContent::SessionStarted,
             ChatEventContent::UserMessage("u".into()),
@@ -376,7 +384,9 @@ mod tests {
             ChatEventContent::ApprovalResolved { accepted: true },
             ChatEventContent::UsageUpdated {
                 summary: "u".into(),
+                usage: dpl_chat_core::TokenUsage::default(),
             },
+            ChatEventContent::ModelSelected { model: "m".into() },
             ChatEventContent::TurnCompleted,
             ChatEventContent::TurnInterrupted,
             ChatEventContent::TurnFailed {

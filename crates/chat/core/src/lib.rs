@@ -13,6 +13,11 @@ pub const MAX_NATIVE_PAYLOAD_BYTES: usize = 8 * 1024;
 pub enum ChatDomain {
     #[default]
     Ai,
+    /// The operator's content — shows, episodes, and their slide spines.
+    /// Its own domain because it is neither AI's nor Social's: Chat is the
+    /// point of operations for the content, not a place content is filed
+    /// under a provider.
+    Content,
     Social,
 }
 
@@ -20,6 +25,7 @@ impl ChatDomain {
     pub const fn label(self) -> &'static str {
         match self {
             Self::Ai => "AI",
+            Self::Content => "Content",
             Self::Social => "Social",
         }
     }
@@ -40,6 +46,74 @@ macro_rules! static_id {
 
 static_id!(ProviderId);
 static_id!(ProviderProfileId);
+
+/// The address of one episode in the seeds+content union.
+///
+/// The grammar is the harness grammar the Workbench already accepts:
+/// `"<show>/<episode>"` for operator content, `"template/<episode>"` for
+/// a seed. A runtime value, so NOT a [`static_id`] — those mint
+/// `&'static str` identities.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ContentEpisodeId(pub String);
+
+impl fmt::Display for ContentEpisodeId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// One episode as Chat sees it — a census row, no spine loaded yet.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContentEpisode {
+    pub id: ContentEpisodeId,
+    /// `None` = a seed template rather than operator content.
+    pub show: Option<String>,
+    pub title: String,
+}
+
+/// One slide inside a loaded spine. A `Slide` document has no title of
+/// its own, so `name` is its folder — the deck's own convention.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContentSlide {
+    pub chapter: String,
+    pub name: String,
+    pub template: String,
+    pub index: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContentChapter {
+    pub id: String,
+    pub title: String,
+    pub slides: Vec<ContentSlide>,
+}
+
+/// One episode opened for inspection — the chapter→slide structure.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContentSpine {
+    pub id: ContentEpisodeId,
+    pub title: String,
+    pub chapters: Vec<ContentChapter>,
+}
+
+impl ContentSpine {
+    /// Every slide in chapter order — the flat walk, for counting and for
+    /// surfaces that do not group.
+    pub fn slides(&self) -> impl Iterator<Item = &ContentSlide> {
+        self.chapters.iter().flat_map(|chapter| &chapter.slides)
+    }
+}
+
+/// Everything Chat knows about the operator's content.
+///
+/// `error` is a FIELD, not a panic path: an unreadable content root is a
+/// truthful state Chat displays, exactly as an unavailable provider is.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ContentView {
+    pub episodes: Vec<ContentEpisode>,
+    pub spine: Option<ContentSpine>,
+    pub error: Option<String>,
+}
 
 /// Where a guided value came from. The source is retained so authored UI can
 /// distinguish provider truth from operator input or an AI suggestion.
@@ -174,6 +248,14 @@ pub struct ProviderDescriptor {
     pub glyph: &'static str,
     pub accent: ProviderAccent,
     pub summary: &'static str,
+    /// `YYYY-MM-DD` the vendor started — what the operator's "how long they
+    /// have been in business" figure counts from.
+    ///
+    /// AUTHORED, and approximate by nature: for some vendors the meaningful
+    /// date is the company's founding and for others it is the product's
+    /// launch. Each provider crate states which it chose, so a wrong one is
+    /// corrected in one obvious place rather than argued about in a widget.
+    pub since: &'static str,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -228,6 +310,138 @@ impl Capability {
             Self::DeviceCodeAuth => "device-code auth",
             Self::Headless => "headless",
         }
+    }
+
+    /// Every capability in the vocabulary. Exhaustive by construction —
+    /// `slug`'s match fails to compile if a variant is added without one,
+    /// and this array is what proves the round-trip covers them all.
+    pub const ALL: [Self; 22] = [
+        Self::ReadSessions,
+        Self::PageHistory,
+        Self::LiveTail,
+        Self::StartSession,
+        Self::ResumeSession,
+        Self::ForkSession,
+        Self::StreamTurns,
+        Self::InterruptTurn,
+        Self::SteerTurn,
+        Self::Approvals,
+        Self::Tools,
+        Self::Diffs,
+        Self::Plans,
+        Self::Attachments,
+        Self::Images,
+        Self::Video,
+        Self::Models,
+        Self::Modes,
+        Self::RateLimits,
+        Self::SubscriptionAuth,
+        Self::DeviceCodeAuth,
+        Self::Headless,
+    ];
+
+    /// The STABLE wire name — what persistence and the agent seam speak.
+    ///
+    /// Deliberately not `label`: that is a human string free to be reworded,
+    /// and a stored value must not change when a caption does.
+    pub const fn slug(self) -> &'static str {
+        match self {
+            Self::ReadSessions => "read-sessions",
+            Self::PageHistory => "page-history",
+            Self::LiveTail => "live-tail",
+            Self::StartSession => "start-session",
+            Self::ResumeSession => "resume-session",
+            Self::ForkSession => "fork-session",
+            Self::StreamTurns => "stream-turns",
+            Self::InterruptTurn => "interrupt-turn",
+            Self::SteerTurn => "steer-turn",
+            Self::Approvals => "approvals",
+            Self::Tools => "tools",
+            Self::Diffs => "diffs",
+            Self::Plans => "plans",
+            Self::Attachments => "attachments",
+            Self::Images => "images",
+            Self::Video => "video",
+            Self::Models => "models",
+            Self::Modes => "modes",
+            Self::RateLimits => "rate-limits",
+            Self::SubscriptionAuth => "subscription-auth",
+            Self::DeviceCodeAuth => "device-code-auth",
+            Self::Headless => "headless",
+        }
+    }
+
+    /// Resolve a stored slug. Unknown returns `None` — a capability this
+    /// build does not have is DROPPED, never invented (the doctor law).
+    pub fn from_slug(slug: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|c| c.slug() == slug)
+    }
+}
+
+/// How to ask a provider's OWN tool whether the operator is signed in.
+///
+/// Plain data, deliberately: this crate spawns nothing and knows nothing
+/// about processes (see the module header). The host runs the command on a
+/// worker and classifies the output with [`PresenceSpec::classify`].
+///
+/// Presence is answered by the vendor, never by reading its cookie jar or
+/// credential store — that path is encrypted per-OS, breaks on every vendor
+/// update, and is credential handling this project does not do. A status
+/// subcommand is how the vendor intends to be asked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PresenceSpec {
+    /// The CLI as it appears on PATH.
+    pub program: &'static str,
+    /// The NON-SECRET status subcommand. It must never print a token.
+    pub args: &'static [&'static str],
+    /// Lowercase needles that mean SIGNED IN.
+    pub signed_in: &'static [&'static str],
+    /// Lowercase needles that mean installed but SIGNED OUT.
+    pub signed_out: &'static [&'static str],
+    /// The vendor's OWN sign-in subcommand. Empty means this provider has no
+    /// CLI sign-in and the host must not invent one.
+    ///
+    /// Sign-in is delegated to the vendor for the same reason presence is
+    /// read from it: the CLI opens the operator's default browser itself,
+    /// runs the vendor's real flow, and DevPULSE never sees a credential.
+    pub login: &'static [&'static str],
+}
+
+/// What a presence probe found. Exactly the three states a status command can
+/// actually distinguish, plus the honest fourth for output nobody taught it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PresenceVerdict {
+    SignedIn,
+    SignedOut,
+    NotInstalled,
+    /// The tool ran and said something unrecognized. Never guessed into one
+    /// of the others — an unreadable answer is its own fact.
+    Unknown,
+}
+
+impl PresenceSpec {
+    /// Classify a tool's combined stdout/stderr.
+    ///
+    /// SIGNED OUT is checked first: a signed-out message often still contains
+    /// the words a signed-in one does ("run `x login` to log in"), so the
+    /// narrower negative has to win.
+    pub fn classify(&self, output: &str) -> PresenceVerdict {
+        let haystack = output.to_ascii_lowercase();
+        if self
+            .signed_out
+            .iter()
+            .any(|needle| haystack.contains(needle))
+        {
+            return PresenceVerdict::SignedOut;
+        }
+        if self
+            .signed_in
+            .iter()
+            .any(|needle| haystack.contains(needle))
+        {
+            return PresenceVerdict::SignedIn;
+        }
+        PresenceVerdict::Unknown
     }
 }
 
@@ -439,22 +653,120 @@ impl BoundedNativePayload {
     }
 }
 
+/// Structured token accounting from a provider's usage report.
+///
+/// Every field is optional because providers report DIFFERENT things:
+/// Codex reports an input/output split, Grok reports context-window
+/// occupancy. A `None` means "this provider did not say", never zero —
+/// the distinction matters, because zero is a measurement and absent is
+/// not, and cost computed from a guessed zero would be a lie.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TokenUsage {
+    /// FRESH input — tokens the provider actually processed anew.
+    pub input_tokens: Option<u64>,
+    /// Tokens served from cache. Billed at a small fraction of fresh
+    /// input, so they MUST stay separate: folding them into `input`
+    /// makes cost an overestimate, and the split cannot be recovered
+    /// afterwards from a folded number.
+    pub cache_read_tokens: Option<u64>,
+    /// Tokens written INTO the cache — billed above fresh input.
+    pub cache_write_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+    pub total_tokens: Option<u64>,
+    /// Context-window occupancy, when the provider reports it that way.
+    pub context_used: Option<u64>,
+    pub context_size: Option<u64>,
+}
+
+impl TokenUsage {
+    pub const fn is_empty(self) -> bool {
+        self.input_tokens.is_none()
+            && self.cache_read_tokens.is_none()
+            && self.cache_write_tokens.is_none()
+            && self.output_tokens.is_none()
+            && self.total_tokens.is_none()
+            && self.context_used.is_none()
+            && self.context_size.is_none()
+    }
+
+    /// Accumulate per-turn reports into a session total. Absent stays
+    /// absent; a present value adds to whatever came before, so summing
+    /// never invents a number out of two absences.
+    pub fn accumulate(self, turn: Self) -> Self {
+        fn plus(a: Option<u64>, b: Option<u64>) -> Option<u64> {
+            match (a, b) {
+                (Some(a), Some(b)) => Some(a.saturating_add(b)),
+                (Some(v), None) | (None, Some(v)) => Some(v),
+                (None, None) => None,
+            }
+        }
+        Self {
+            input_tokens: plus(self.input_tokens, turn.input_tokens),
+            cache_read_tokens: plus(self.cache_read_tokens, turn.cache_read_tokens),
+            cache_write_tokens: plus(self.cache_write_tokens, turn.cache_write_tokens),
+            output_tokens: plus(self.output_tokens, turn.output_tokens),
+            total_tokens: plus(self.total_tokens, turn.total_tokens),
+            // Context occupancy is a LEVEL, never a sum — the latest
+            // reading is the truth, adding them would be meaningless.
+            context_used: turn.context_used.or(self.context_used),
+            context_size: turn.context_size.or(self.context_size),
+        }
+    }
+
+    /// Later reports supersede earlier ones field-by-field, so a provider
+    /// that reports input now and output later still yields one whole
+    /// picture at the end of the turn.
+    pub fn merge(self, newer: Self) -> Self {
+        Self {
+            input_tokens: newer.input_tokens.or(self.input_tokens),
+            cache_read_tokens: newer.cache_read_tokens.or(self.cache_read_tokens),
+            cache_write_tokens: newer.cache_write_tokens.or(self.cache_write_tokens),
+            output_tokens: newer.output_tokens.or(self.output_tokens),
+            total_tokens: newer.total_tokens.or(self.total_tokens),
+            context_used: newer.context_used.or(self.context_used),
+            context_size: newer.context_size.or(self.context_size),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChatEventContent {
     SessionStarted,
+    /// The provider named the model it is actually running. Emitted from
+    /// the provider's own session-configured fact — never guessed.
+    ModelSelected {
+        model: String,
+    },
     UserMessage(String),
     AssistantMessage(String),
     PlanUpdated(String),
     StatusUpdated(String),
-    ToolStarted { label: String },
-    ToolCompleted { label: String, succeeded: bool },
+    ToolStarted {
+        label: String,
+    },
+    ToolCompleted {
+        label: String,
+        succeeded: bool,
+    },
     DiffUpdated(String),
-    ApprovalRequested { summary: String },
-    ApprovalResolved { accepted: bool },
-    UsageUpdated { summary: String },
+    ApprovalRequested {
+        summary: String,
+    },
+    ApprovalResolved {
+        accepted: bool,
+    },
+    /// `summary` is the human line the activity feed shows; `usage` is the
+    /// machine truth the AI domain records. Prose was all this carried
+    /// before — you cannot aggregate a sentence.
+    UsageUpdated {
+        summary: String,
+        usage: TokenUsage,
+    },
     TurnCompleted,
     TurnInterrupted,
-    TurnFailed { message: String },
+    TurnFailed {
+        message: String,
+    },
     ProviderWarning(String),
     Unknown(BoundedNativePayload),
 }
@@ -462,6 +774,7 @@ pub enum ChatEventContent {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ChatEventKind {
     SessionStarted,
+    ModelSelected,
     UserMessage,
     AssistantMessage,
     PlanUpdated,
@@ -494,6 +807,7 @@ impl ChatEventContent {
     pub const fn kind(&self) -> ChatEventKind {
         match self {
             Self::SessionStarted => ChatEventKind::SessionStarted,
+            Self::ModelSelected { .. } => ChatEventKind::ModelSelected,
             Self::UserMessage(_) => ChatEventKind::UserMessage,
             Self::AssistantMessage(_) => ChatEventKind::AssistantMessage,
             Self::PlanUpdated(_) => ChatEventKind::PlanUpdated,
@@ -515,6 +829,7 @@ impl ChatEventContent {
     pub const fn presentation(&self) -> EventPresentation {
         match self {
             Self::SessionStarted
+            | Self::ModelSelected { .. }
             | Self::StatusUpdated(_)
             | Self::TurnCompleted
             | Self::TurnInterrupted => EventPresentation::Activity,
@@ -556,6 +871,51 @@ mod tests {
     fn ai_is_the_default_chat_domain() {
         assert_eq!(ChatDomain::default(), ChatDomain::Ai);
         assert_eq!(ChatDomain::Social.label(), "Social");
+    }
+
+    #[test]
+    fn content_is_a_domain_with_its_own_label() {
+        assert_eq!(ChatDomain::Content.label(), "Content");
+        assert_ne!(ChatDomain::Content, ChatDomain::Ai);
+    }
+
+    #[test]
+    fn a_spine_walks_its_slides_in_chapter_order() {
+        let slide = |chapter: &str, name: &str, index| ContentSlide {
+            chapter: chapter.to_owned(),
+            name: name.to_owned(),
+            template: "static/title".to_owned(),
+            index,
+        };
+        let spine = ContentSpine {
+            id: ContentEpisodeId("demo/pilot".to_owned()),
+            title: "Pilot".to_owned(),
+            chapters: vec![
+                ContentChapter {
+                    id: "open".to_owned(),
+                    title: "Opening".to_owned(),
+                    slides: vec![slide("open", "title-card", 0), slide("open", "problem", 1)],
+                },
+                ContentChapter {
+                    id: "close".to_owned(),
+                    title: "Closing".to_owned(),
+                    slides: vec![slide("close", "wrap", 2)],
+                },
+            ],
+        };
+        let walked: Vec<usize> = spine.slides().map(|slide| slide.index).collect();
+        assert_eq!(walked, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn an_unreadable_content_root_is_state_not_a_panic() {
+        let view = ContentView {
+            error: Some("content root is unreadable".to_owned()),
+            ..ContentView::default()
+        };
+        assert!(view.episodes.is_empty());
+        assert!(view.spine.is_none());
+        assert_eq!(view.error.as_deref(), Some("content root is unreadable"));
     }
 
     #[test]
@@ -638,5 +998,37 @@ mod tests {
         assert_eq!(payload.redacted_summary, "éé");
         assert_eq!(payload.original_bytes, 6);
         assert!(payload.truncated);
+    }
+
+    #[test]
+    fn every_capability_slug_round_trips_and_is_unique() {
+        let mut seen = std::collections::BTreeSet::new();
+        for capability in Capability::ALL {
+            let slug = capability.slug();
+            assert!(
+                seen.insert(slug),
+                "{slug} is used by two capabilities — a stored set would be ambiguous"
+            );
+            assert_eq!(
+                Capability::from_slug(slug),
+                Some(capability),
+                "{slug} must resolve back to the capability that wrote it"
+            );
+        }
+        assert_eq!(
+            seen.len(),
+            Capability::ALL.len(),
+            "ALL must list every variant — it is what makes this proof exhaustive"
+        );
+    }
+
+    #[test]
+    fn an_unknown_capability_slug_is_dropped_not_invented() {
+        assert_eq!(Capability::from_slug("teleportation"), None);
+        assert_eq!(
+            Capability::from_slug("read sessions"),
+            None,
+            "the human label is not the wire name — only the slug resolves"
+        );
     }
 }

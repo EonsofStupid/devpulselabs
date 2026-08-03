@@ -14,7 +14,7 @@ experiment registry**, not the Operator hub UI.
 | ID | Status | Hypothesis (one line) | Promotion |
 |---|---|---|---|
 | *(program)* | CAPTURED | Import Process + Lab rules | mock rev → C2f |
-| CX-cursor-01 | PROBED / plan draft | Cursor Standard mint works; overlay seed locate next | → C2f Cursor path |
+| CX-cursor-01 | **PASS** | Cursor mint + overlay locate (`Search Ctrl+K`, `File`) | → C2f Cursor UI |
 | CX-teacher-agency-01 | PLANNED | Teacher = same touchpoints + actor, no Pass-2 | product-adjacent |
 | CX-harvest-01 | PLANNED | Advanced Import when a11y thin (not needed Cursor this seat) | Advanced → maybe C2g |
 

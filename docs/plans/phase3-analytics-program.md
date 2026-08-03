@@ -214,6 +214,99 @@ translates chat events → `AiEvent`, exactly like today's
 provider-native usage payloads (`codex:"token_count"`,
 `claude:"rate_limit_event"`, `grok: Usage{used,size}`).
 
+### 3.2b Per-provider usage adapters — individuals that grow
+
+Operator ruling (2026-07-30): *"build them clearly as individuals please
+so we can grow/extend as the releases come out… one for grok one for
+gemini one for each major… there is way more providers but I am assuming
+the major ones first and then expanding."*
+
+The four providers are in four DIFFERENT states today, which is precisely
+why they need one uniform seam rather than four ad-hoc paths:
+
+| provider | history decoder | usage today | live runtime |
+|---|---|---|---|
+| codex | ✅ | input/output/total + context window (landed) | ✗ (activation only) |
+| claude | ✅ | **stub** — `rate_limit_event`, no numbers | ✗ |
+| grok | ✗ | context used/size, but mapped **in `crates/app`** | ✅ ACP |
+| gemini | ✗ | none — 43-line descriptor only | ✗ |
+
+**The seam: `ProviderUsage` in `dpl-chat-store`**, beside `HistoryDecoder`
+which providers already implement. It follows that trait's discipline
+exactly — `&str` in, typed out — so `chat-store` and `chat-core` stay
+dependency-free and every provider keeps parsing its own dialect with its
+own serde.
+
+```rust
+pub trait ProviderUsage {
+    fn provider_id(&self) -> ProviderId;
+    /// What this provider CAN report — declared, not discovered.
+    fn reports(&self) -> UsageReporting;
+    fn usage_from_line(&self, line: &str) -> Option<TokenUsage>;
+    fn model_from_line(&self, line: &str) -> Option<String>;
+    /// Cost the PROVIDER itself computed (Claude reports real money).
+    /// Trusted over our price table when present.
+    fn cost_micros_from_line(&self, _line: &str) -> Option<u64> { None }
+}
+
+pub struct UsageReporting {
+    pub input_output_split: bool,
+    pub total_tokens: bool,
+    pub context_window: bool,
+    pub provider_priced: bool,
+}
+```
+
+**`reports()` is the honesty mechanism.** It lets a surface say *"Grok
+does not report an input/output split"* instead of rendering a silent
+zero, and it makes a half-implemented provider legible rather than
+broken. Gemini ships an adapter that declares it reports NOTHING — that
+is a truthful state, and it means adding Gemini usage later is filling in
+one file, not discovering an absence.
+
+**Registry + census law.** `usage_adapters()` enumerates them, and a
+census test fails when a provider exists in the manifest registry without
+a usage adapter. Adding the next provider is: implement the trait,
+register it, census passes. That is the "grow as releases come out"
+property, enforced rather than hoped for.
+
+**Grok's mapping moves out of `crates/app`** into its own crate, where
+every other provider's dialect already lives.
+
+### 3.2c Piggyback — backfill from sessions that already exist
+
+Operator ruling: *"technically if the user already has active sessions we
+should be able to piggly back off them."*
+
+Correct, and it is the difference between analytics that start empty and
+analytics that start useful. Codex and Claude both keep session JSONL on
+disk and both already have a `HistoryDecoder`; those files contain the
+token counts for every turn the operator has ever run. Grok's ACP
+declares `list_sessions` / `load_session`.
+
+So: a backfill pass walks existing sessions through each provider's
+decoder and emits AI facts into the ledger, giving DuckDB months of
+history on day one instead of an empty warehouse.
+
+**Backfilled facts MUST be distinguishable from live ones.** A history
+file cannot yield time-to-first-token, and its ordering against other
+domains is synthetic — the global `seq` was never real for those events.
+Recording them as live would silently corrupt every latency percentile
+and every cross-domain join.
+
+```rust
+pub enum Observation { Live, Backfilled }
+```
+
+carried on `AiEvent::CallStarted`. Backfill emits `CallStarted` +
+`CallFinished` only — never `FirstToken`, because that number does not
+exist in a log. Queries filter on it; a latency percentile over
+backfilled rows is refused, not approximated.
+
+Backfill is idempotent: a content hash of (provider, session, turn)
+dedupes re-runs, so pointing it at the same sessions twice does not
+double-count cost.
+
 ### 3.3 The price table
 
 Model pricing is authored data that goes stale — it needs the document
@@ -389,7 +482,9 @@ Each row is one landable PR. Instrumentation first, per ratification.
 | # | PR | Delivers | Gate / law risk |
 |---|---|---|---|
 | 1 | `feat(fabric): the AI usage domain` | `AiEvent`, `CallId`, `Origin`, `AiOutcome`; app-side chat→AI adapter; ledger records it | fabric ceiling + architecture.md §3 |
-| 2 | `feat(analytics): the versioned price table` | `pricing.v1.json` (document law), cost derivation + recompute | census law (new authored data) |
+| 1b | `feat(chat): per-provider usage adapters` | `ProviderUsage` + `UsageReporting` in chat-store; one adapter per major (codex/claude/grok/gemini); registry + census test; grok's mapping moves out of `crates/app` | census law (registry ↔ manifests) |
+| 1c | `feat(analytics): backfill from existing sessions` | `Observation::{Live,Backfilled}`; walk existing session JSONL through each decoder; idempotent by turn hash | honesty — no TTFT from logs |
+| 2 | `feat(analytics): the versioned price table` | `pricing.v1.json` (document law), cost derivation + recompute; provider-reported cost wins when present | census law (new authored data) |
 | 3 | `feat(fabric): the editor domain` | `EditorEvent`; wired at the authoring/overlay editor first | — |
 | 4 | `feat(analytics): the port + ParquetScan` | `dpl-analytics`, typed `Query`, `ResultSet`, adapter selection | +1 egui-free member |
 | 5 | `feat(analytics): the DuckDB sidecar` | `dpl-analytics-duckdb`, NDJSON `serve`, `DuckdbSidecar` client | **2nd FFI leaf** — `SYS_ALLOWED`, `LINTS_OVERRIDE_ALLOWED`, architecture.md §1/§3, SAME commit |
