@@ -1,57 +1,129 @@
 # Resume pack — CURRENT
 
-**Updated:** 2026-08-02
-**Lane:** providers
-**Dirty:** false
+**Updated:** 2026-08-03
+**Lane:** ai-layer (the Providers lane is CLOSED — see Done)
+**Dirty:** true — provider runtime seam built, uncommitted (see Next §1)
 
 ## Goal
 
-The Providers program is COMPLETE — P1, V1, V2, V3, A1, A2 all built and
-green on `feat/p1-provider-availability` (PR #192).
+Build the **AI layer**: the persona (Clyffy), the session primitive, and the
+one typed funnel every frontier provider is forced through. The Providers
+program that preceded it is complete and merged.
 
-What is left is qualification rather than surface: Cursor's live turn
-transport, and Gemini's probe + sign-in verb once its CLI exists on a machine
-to read them off. Both are marked UNVERIFIED in their provider crates.
+Program map: `docs/plans/providers-presence-and-the-brain.md` — §7 Clyffy,
+§8 cockpit + group chat, §9 the research council. ADRs: 014 (analytics),
+017 (capability registry, amended).
 
-The mock for the whole program is `docs/design/mocks/providers.html`. V2 is
-the slice below its control.
+## The rulings that govern this lane (operator, 2026-08-03)
 
-## Done
+1. **Chat owns its store.** A bounded context owns its datastore. Chat's
+   data is currently split — `chat/provider-profiles.db` (turso, its own
+   tokio runtime) AND the shared estate's `Tree::Agents`. It converges on
+   ONE chat store; the platform reads the PUBLISHED fact via
+   `fabric.provider_roster()`, never chat's store.
+   **ADR-017 §2 is superseded** — the `Tree::Agents` persistence it
+   specified was wrong, and any doc still claiming it is stale.
+2. **Analytics is Arrow/DataFusion over Parquet, not DuckDB.** ADR-014
+   amended. `dpl-ledger` already writes Parquet via Arrow; nothing in
+   `crates/` ever linked DuckDB.
+3. **Clyffy is the global/per-session face of the AI, and is ABSENT from
+   group chat.** The provider backing him is VISIBLE — his font, his symbol
+   carrying the provider's mark, the chat's typeface. Deliberately the
+   opposite of every gateway pattern, because hiding who answered destroys
+   the label the tuning loop runs on.
+4. **Round-robin IS group chat** — one shared transcript, participants take
+   turns, the operator in the ring. Fan-out is the research council, which
+   is a different thing.
+5. **The research council** — each selected provider deep-researches in its
+   OWN isolated session (10–15 min); a default provider synthesises. Staging
+   surfaces **disagreement FIRST** (agreement is coverage, not truth), and
+   results are disclosed **as each lands**, never held for the slowest.
+6. **Passes law:** every pass names the existing boundary it aligns to, and
+   STOPS for the operator when it creates a new one.
+7. **Method:** locate with tools, then READ THE FILE IN FULL before editing
+   it. Editing around a grep hit is how drift gets introduced — it happened
+   twice this session and was caught both times by reading first.
 
-- **V3 — the provider modal**, `green ✔`. Live-ticking tenure from an
-  authored per-vendor date; the roster stays open behind the scrim.
-- **V2 — the roster popup**, `green ✔`. Cards carry live presence from the
-  registry; not-installed and signed-out stay distinct. Cursor is registered
-  as a provider, so it appears as a real row.
-- **V1 — the Providers control + the ink-bleed preset**, `green ✔`. `dwell`
-  tier + `dwell` ease + `ink-bleed` in `tokens/motion.json`, `brain` in
-  `tokens/icons.json`, and a new authored `bleed` preset kind whose hue pool
-  is build-checked against `hues.json`. Proof shots
-  `docs/proof/providers-control-{cold,full}.png`.
-- **P1 — the provider capability registry**, on
-  `feat/p1-provider-availability`, `green ✔`. `ProviderCapability` folded
-  onto the fabric as THE ROSTER, persisted to `Tree::Agents`, projected onto
-  the seam under `registry.providers`, read by a first consumer outside the
-  chat crates. Live proof `platform-sees-providers` passes; shot at
-  `docs/proof/platform-sees-providers.png`.
+## Done — closed, nothing elided
+
+- **The Providers program, all six links, merged.**
+  - **P1** capability registry — `ProviderCapability` folded onto the fabric
+    as THE ROSTER, projected onto the seam under `registry.providers`, read
+    by a consumer outside the chat crates. *(Its persistence is amended per
+    ruling 1 above — the `Tree::Agents` write is superseded, not the model.)*
+  - **V1** Providers control + ink-bleed preset — `dwell` tier + ease +
+    `ink-bleed` in `tokens/motion.json`, `brain` in `tokens/icons.json`,
+    authored `bleed` preset with a build-checked hue pool.
+  - **V2** roster popup — live presence per card; not-installed and
+    signed-out stay distinct.
+  - **V3** provider modal — live-ticking tenure; roster stays up behind it.
+  - **A1** presence probes — `crates/app/src/presence.rs` is the only place
+    that spawns. Measured live: codex/claude/grok SignedIn, cursor/gemini
+    NotInstalled.
+  - **A2** subscription sign-in — hands off to the vendor's own CLI, which
+    opens the operator's DEFAULT browser; a watcher polls until the probe
+    confirms. A provider with no declared sign-in verb is refused by name.
+- **D1 + H1** (#180) — chat reads the episode spine; 165 local transcripts
+  became real activation and clickable, readable rows.
+- **`/experiments`** (#185) — experiments as domains under Workbench, one
+  analyzer, no new crate. Run bundles carry an experiment/variant dimension.
+- **Run-bundle contract typed** (#190) — `RunManifest` in the protocol
+  crate; `WindowSize` moved there; no re-export shim.
+- **Configured artifact root honoured** (#191).
+- **Enter sends / Shift+Enter newlines** — built.
+- **The provider RUNTIME seam** — `crates/chat/runtime/src/seam.rs`.
+  `ProviderRuntime` (provider · try_send · try_event · capabilities) plus
+  the neutral vocabulary; Grok aligned by translation via
+  `grok/src/seam.rs`, its ACP transport untouched. 30 tests green.
+  **BUILT, NOT COMMITTED.**
 
 ## Next
 
-1. Open the PR (P1+V1 committed, not pushed) and land it double-green.
-2. After the merge: Cursor live transport, or Gemini's probe when installed.
+1. **Commit + land the provider runtime seam** (uncommitted in the tree).
+2. **Land `docs/align-store-and-analytics`** — ADR-014, ADR-017 amendment,
+   program map §7–§9. Committed as `ec805f9`, not pushed.
+3. **Land #206** — a harness `--route` must never become the operator's
+   persisted landing route. My own drills wrote `workbench/experiments` into
+   the operator's estate; the fix stops new corruption, and one navigation
+   clears the stale value.
+4. **Codex conversation transport** — THE gap. `providers/codex` has
+   `activation.rs` only: it detects the ChatGPT login and has no runtime, so
+   nothing qualifies `StreamTurns` for it. Grok's `runtime.rs` is the
+   template and the seam is now the target shape.
+5. **The folder/layer restructure** — operator is doing this themselves.
+   Finding: §4's naming law already mandates grouped folders past ~3 crates,
+   and **45 crates sit flat** across four layers that each exceed it.
+   `chat/*` and `hubs/*` complied; the rest predate the law. Recommendation
+   is one layer per pass, smallest first (`support` → `document` →
+   `surface` → `engine`), each amending architecture.md AND the xtask audit
+   in the same commit.
 
 ## Key files
 
-- `docs/design/mocks/providers.html`
-- `docs/plans/providers-presence-and-the-brain.md`
-- `docs/plans/chat-providers-become-platform.md`
-- `crates/fabric/src/lib.rs` (THE ROSTER) · `crates/shell/src/status.rs`
-- `crates/shell/src/providers.rs` (the control)
-- `crates/coldlight/tokens/{motion,icons,presets}.json`
+- `docs/plans/providers-presence-and-the-brain.md` — §7 Clyffy, §8 group
+  chat, §9 research council
+- `docs/design/adr-014-three-ring-root.md` · `adr-017-provider-capability-registry.md`
+- `docs/design/architecture.md` — the layer law, gate-enforced
+- `crates/chat/runtime/src/seam.rs` · `crates/chat/providers/grok/src/seam.rs`
+- `crates/fabric/src/lib.rs` (THE ROSTER) · `crates/seam/src/lib.rs` (`/command`)
+- `crates/app/src/ai_usage.rs` (usage + cost, #169)
+
+## Known stale / deprecated — do not trust
+
+- Any doc claiming the roster persists to `Tree::Agents` (superseded).
+- Any doc naming **DuckDB** for analytics (superseded).
+- `docs/plans/coach-lab-experiment-program.md` names "DuckDB baselines" —
+  another workstream owns it; flagged, not edited.
+- `docs/STATE.md` is 2098 lines and last updated 2026-08-01; it is an
+  append-only ledger, not the resume truth. THIS file is.
 
 ## Parked lanes
 
-- **coach-ledger** — C2f Operator Import UI. Plan
-  `docs/plans/coach-c2f-operator-import-ui.md` drafted, awaiting `approve`;
-  branch `feat/c2f-coach-import-ui` (#187, conflicting). Notepad on Windows
+- **coach-ledger** — C2f Operator Import UI (#187). Notepad on Windows
   after. CX-harvest / Pass-2 parked.
+- **`chat-renderers` is dead and duplicated** — a full `EventRendererRegistry`
+  nobody calls, while `chat/window::event_row` is a second exhaustive
+  implementation. #169 merged MORE into the dead crate. Unresolved.
+- **`chat-extensions`** — zero references.
+- **Claude decoder** emits `UNKNOWN` for `last-prompt` / `ai-title` / `mode`
+  / `permission-mode`, so real transcripts read noisily.
