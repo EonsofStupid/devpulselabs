@@ -77,6 +77,8 @@ impl Tone {
 
 /// Surfaces — the dark stack. The WELL is the recessed content plane; chrome
 /// plates (bars, rails) sit on RAISED above it and cast diffusion into it.
+pub mod patterns;
+
 pub mod surface {
     use egui::Color32;
     /// The recessed content plane — everything is framed against this.

@@ -1565,12 +1565,35 @@ impl UiPilotExt for egui::Ui {
         response
     }
 
+    /// Track a node for the pilot AND for platform accessibility.
+    ///
+    /// These are the SAME tree, not two: `widget_info` is what egui hands to
+    /// AccessKit, so every pilot id is also a screen-reader node. That means
+    /// state a scenario can assert on must be state a screen reader can hear
+    /// — otherwise the two drift and only one of them gets tested.
+    ///
+    /// Selected-ness is the case that matters. Provider rows, session rows,
+    /// content rows and every mode tab set `metadata.selected`; before this
+    /// it reached the pilot tree and stopped there, so a screen reader was
+    /// told "Codex, tab" with no way to learn it was the ACTIVE one.
+    /// `WidgetInfo::labeled` has no field for it; `WidgetInfo::selected`
+    /// does.
     #[track_caller]
     fn pilot_track(&mut self, response: &egui::Response, metadata: NodeMetadata) {
         let role = metadata.role;
         let name = metadata.name.clone();
-        response.widget_info(|| {
-            egui::WidgetInfo::labeled(widget_type(role), response.enabled(), name.clone())
+        // `checked` wins over `selected` when both are set: a checkbox that
+        // is also "selected" is announced by its checked state, which is the
+        // one the operator is actually toggling.
+        let state = metadata.checked.or(metadata.selected);
+        response.widget_info(|| match state {
+            Some(state) => egui::WidgetInfo::selected(
+                widget_type(role),
+                response.enabled(),
+                state,
+                name.clone(),
+            ),
+            None => egui::WidgetInfo::labeled(widget_type(role), response.enabled(), name.clone()),
         });
         self.ctx().with_plugin::<EguiPilotPlugin, _>(|plugin| {
             plugin.register(self, response, metadata);

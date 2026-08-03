@@ -1,0 +1,132 @@
+# C1 proof: the rail cross-link opens the carousel, both populations are
+# there, and selecting a tile hands the provider to the conversation pane.
+#
+# The pilot CANNOT screenshot this — `chat.primary` is a deferred viewport and
+# eframe 0.35 never delivers a queued screenshot for one. It drives and
+# asserts; the pixels come from `Xvfb` + `ffmpeg -f x11grab` during the long
+# wait below (docs/plans/chat-surface-map.md §7).
+id = "chat-providers-carousel"
+fixture = "chat"
+record = true
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "open"
+
+[steps.expectation.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "wait"
+milliseconds = 900
+
+# The rail carries the cross-link, and it names how many are activated.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.sidebar.providers"
+
+# The composer's second trigger exists.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.composer.add-provider"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.sidebar.providers"
+
+[[steps]]
+kind = "wait"
+milliseconds = 600
+
+# SUBSCRIPTIONS — every registered provider is a tile, whether or not it is
+# usable. "Gemini is not installed" is an answer; an empty grid is not.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.provider.catalog/codex"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.provider.catalog/antigravity"
+
+# API — with no profiles authored, the ways IN are the section's honest first
+# state rather than a void.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.provider.catalog/local"
+
+# Long enough for the X11 grab to land while the overlay is up.
+[[steps]]
+kind = "wait"
+milliseconds = 12000
+
+# Selecting hands the provider over; the overlay dismisses itself.
+#
+# Claude and not Grok: with six tiles at 168px the row overflows, so Grok
+# starts scrolled past the right edge. It is IN the tree and focusable — the
+# pilot reports it "not-visible", not "missing" — and `lift_tile` scrolls a
+# tile into view when it gains focus, so the keyboard reaches it. A pointer
+# click on an off-screen tile is the one thing that legitimately cannot work,
+# and asserting it would be asserting a lie.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.provider.catalog/claude"
+
+[[steps]]
+kind = "wait"
+milliseconds = 600
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.composer"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "close-viewport"
+
+[steps.action.viewport]
+key = "chat.primary"
