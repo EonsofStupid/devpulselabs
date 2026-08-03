@@ -122,7 +122,7 @@ zip = { version = "8", default-features = false, features = ["deflate"] }
 # The AEP orchestrator's capability probe (operator-ratified): read total
 # RAM cross-platform so the aerender tuning scales 16GB→128GB. "system"
 # feature only — no disk/network/component probing.
-sysinfo = { version = "0.38", default-features = false, features = ["system"] }
+sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 # ThorVG (C++, vendored) — the native Lottie engine, linked ONLY by the
 # dpl-lottie-render subprocess helper (ADR-009 FFI leaf), never by the app.
 thorvg-sys = "0.3"
