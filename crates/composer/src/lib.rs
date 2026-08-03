@@ -3036,7 +3036,7 @@ impl Composer {
             }
             let (rlabel, rtip) = if self.prefer_reference {
                 (
-                    "⌁ in place",
+                    "in place",
                     "Reference mode ON — pulled files are SYMLINKED where they live, so your \
                      paid AE presets / image folders are used without copying them into the app. \
                      Tap to switch back to copy.",
