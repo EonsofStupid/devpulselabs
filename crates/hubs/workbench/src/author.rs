@@ -15,7 +15,7 @@
 //! Nothing is hand-listed, so a piece shows up the day it registers, and a
 //! shelf with nothing on it says why rather than looking broken.
 //!
-//! Vocabulary: the shelves read Starters · Layouts · Combos · Pieces · Looks ·
+//! Vocabulary: the shelves read Starters · Layouts · Combos · Pieces · Themes ·
 //! Interactions. What the code files those under lives in [`Shelf::slug`] and
 //! appears nowhere on screen (the UI law, DS3).
 //!
@@ -24,6 +24,7 @@
 //! so AI/coach overlays react without the surface self-triggering.
 
 use crate::containers::{containers, Container, ContainerKind};
+use crate::controls::{control, stacked_control, Weight};
 use crate::words::pretty;
 use dpl_coldlight::{self as cl, Tone};
 use dpl_slides::SlideTemplate;
@@ -33,7 +34,7 @@ use egui_pilot_ai::{NodeMetadata, PilotId, PilotKey, UiPilotExt};
 /// How many extra cards one sweep adds when the shelf is set to keep going.
 const PAGE: usize = 6;
 
-/// Tones a look-plate cycles through down the shelf, so a sweep reads as
+/// Tones a theme-plate cycles through down the shelf, so a sweep reads as
 /// motion rather than a row of photocopies.
 const TONE_CYCLE: [Tone; 4] = [Tone::Cyan, Tone::Amber, Tone::Magenta, Tone::Coral];
 
@@ -44,7 +45,7 @@ const TONE_CYCLE: [Tone; 4] = [Tone::Cyan, Tone::Amber, Tone::Magenta, Tone::Cor
 /// thumb-sized stage cropped — the ramp has a floor. `DocSlide::thumbnail_ui`
 /// removed that, so the tile now shows the real document.
 ///
-/// It keeps the NAME as well as the picture. Three freshly-started cards look
+/// It keeps the NAME as well as the picture. Three freshly-started cards theme
 /// alike as pictures — the caption is what tells them apart, which is why the
 /// ratified mock's film card carries both. A card whose document will not
 /// load keeps the caption and shows an empty stage rather than pretending.
@@ -131,15 +132,7 @@ fn newest_draft() -> Option<std::path::PathBuf> {
 /// key or the selected styling can never drift between them.
 fn tab_chip(ui: &mut egui::Ui, ed: &mut CardEditor, t: CardTab, tone: Tone) {
     let active = ed.tab == t;
-    let chip = cl::tip(
-        ui.label(RichText::new(t.label()).strong().color(if active {
-            tone.color()
-        } else {
-            cl::ink::MUTED
-        }))
-        .interact(egui::Sense::click()),
-        t.tip(),
-    );
+    let chip = cl::tip(control(ui, t.label(), active, tone, Weight::Quiet), t.tip());
     ui.pilot_track(
         &chip,
         NodeMetadata::new(
@@ -206,7 +199,7 @@ fn live_pane(ui: &mut egui::Ui, ed: &mut CardEditor) {
             &mut inner,
             inner_rect,
             ed.editor.slide(),
-            ed.editor.look(),
+            ed.editor.theme(),
             now,
             t0,
         );
@@ -872,7 +865,7 @@ pub(crate) enum Shelf {
     Layouts,
     Combos,
     Pieces,
-    Looks,
+    Themes,
     Interactions,
 }
 
@@ -882,7 +875,7 @@ impl Shelf {
         Shelf::Layouts,
         Shelf::Combos,
         Shelf::Pieces,
-        Shelf::Looks,
+        Shelf::Themes,
         Shelf::Interactions,
     ];
 
@@ -893,7 +886,7 @@ impl Shelf {
             Shelf::Layouts => "templates",
             Shelf::Combos => "blocks",
             Shelf::Pieces => "elements",
-            Shelf::Looks => "traits",
+            Shelf::Themes => "traits",
             Shelf::Interactions => "recipes",
         }
     }
@@ -905,7 +898,7 @@ impl Shelf {
             Shelf::Layouts => "Layouts",
             Shelf::Combos => "Combos",
             Shelf::Pieces => "Pieces",
-            Shelf::Looks => "Looks",
+            Shelf::Themes => "Themes",
             Shelf::Interactions => "Interactions",
         }
     }
@@ -917,7 +910,7 @@ impl Shelf {
             Shelf::Layouts => "whole cards",
             Shelf::Combos => "a few pieces together",
             Shelf::Pieces => "the small stuff",
-            Shelf::Looks => "how it's dressed",
+            Shelf::Themes => "how it's dressed",
             Shelf::Interactions => "what a tap does",
         }
     }
@@ -929,7 +922,7 @@ impl Shelf {
             Shelf::Layouts => "Every card design you have, running live",
             Shelf::Combos => "A few pieces that keep turning up together",
             Shelf::Pieces => "The smallest things everything else is built from",
-            Shelf::Looks => "How a card is dressed — pick one, stack more on top",
+            Shelf::Themes => "How a card is dressed — pick one, stack more on top",
             Shelf::Interactions => "What happens when someone taps the card",
         }
     }
@@ -1230,7 +1223,9 @@ impl AuthorSurface {
                 (c, when)
             })
             .collect();
-        all.sort_by(|a, b| b.1.cmp(&a.1));
+        // Newest first. `None` (no readable mtime) sorts last, exactly as the
+        // hand-rolled descending comparator did.
+        all.sort_by_key(|(_, when)| std::cmp::Reverse(*when));
         all
     }
 
@@ -1296,51 +1291,30 @@ impl AuthorSurface {
                 (
                     Tone::Magenta,
                     "Build a new piece",
-                    "Add to what you can build WITH — a piece, a combo, a look, a whole \
+                    "Add to what you can build WITH — a piece, a combo, a theme, a whole \
                      layout. One kit, mixed and matched.",
                     format!("{} to build with", self.to_build_with()),
                 ),
             ];
             for (ix, (tone, title, blurb, foot)) in lanes.into_iter().enumerate() {
                 let w = (ui.available_width() / 3.0 - cl::space::S4).max(fluid.panel_width() * 0.6);
-                ui.allocate_ui(egui::vec2(w, fluid.panel_width() * 0.5), |ui| {
-                    ui.vertical(|ui| {
-                        let hit = cl::tip(
-                            ui.label(
-                                RichText::new(title)
-                                    .size(fluid.fs_h4())
-                                    .strong()
-                                    .color(tone.color()),
-                            )
-                            .interact(egui::Sense::click()),
-                            match ix {
-                                0 => "Choose what to build into, then start cards",
-                                1 => "Straight back into the last thing you touched",
-                                _ => "Everything you can build with, on one wall",
-                            },
-                        );
-                        ui.label(
-                            RichText::new(blurb)
-                                .size(fluid.fs_body_sm())
-                                .color(cl::ink::BASE),
-                        );
-                        ui.label(
-                            RichText::new(&foot)
-                                .size(fluid.fs_body_sm())
-                                .color(cl::ink::SUBTLE),
-                        );
-                        if hit.clicked() {
-                            // Lane 3 belongs to M9's platform lane, which does
-                            // not exist. The Library IS "what you can build
-                            // with", so it goes there rather than nowhere —
-                            // and the tooltip says that is what it is.
-                            go = Some(match ix {
-                                1 => Some(0),
-                                _ => None,
-                            });
-                        }
+                let hit = cl::tip(
+                    stacked_control(ui, title, blurb, &foot, false, tone, w),
+                    match ix {
+                        0 => "Choose what to build into, then start cards",
+                        1 => "Straight back into the last thing you touched",
+                        _ => "Everything you can build with, on one wall",
+                    },
+                );
+                if hit.clicked() {
+                    // Lane 3 belongs to M9's platform lane, which does not
+                    // exist. The Library IS "what you can build with", so it
+                    // goes there rather than nowhere.
+                    go = Some(match ix {
+                        1 => Some(0),
+                        _ => None,
                     });
-                });
+                }
                 ui.add_space(cl::space::S4);
             }
         });
@@ -1370,19 +1344,20 @@ impl AuthorSurface {
         ui.horizontal_wrapped(|ui| {
             for (ix, (c, when)) in open.iter().enumerate() {
                 let hit = cl::tip(
-                    ui.label(
-                        RichText::new(format!(
-                            "{}  ·  {}  ·  {} {} · {}",
+                    control(
+                        ui,
+                        &format!(
+                            "{} · {} · {} {} · {}",
                             c.kind.label(),
                             c.label,
                             c.count,
                             c.kind.unit(),
                             coarse_when(*when),
-                        ))
-                        .size(fluid.fs_body_sm())
-                        .color(c.kind.tone().color()),
-                    )
-                    .interact(egui::Sense::click()),
+                        ),
+                        false,
+                        c.kind.tone(),
+                        Weight::Quiet,
+                    ),
                     "Go straight into this one",
                 );
                 if hit.clicked() {
@@ -1458,12 +1433,7 @@ impl AuthorSurface {
 
         ui.add_space(cl::space::S3);
         let seed = cl::tip(
-            ui.label(
-                RichText::new("+ Start a blank card")
-                    .strong()
-                    .color(Tone::Amber.color()),
-            )
-            .interact(egui::Sense::click()),
+            control(ui, "+ Start a blank card", false, Tone::Amber, Weight::Loud),
             "Make a card with nothing on it but your words, and add to it from there.",
         );
 
@@ -1712,8 +1682,7 @@ impl AuthorSurface {
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if cl::tip(
-                            ui.label(RichText::new("Done").strong().color(tone.color()))
-                                .interact(egui::Sense::click()),
+                            control(ui, "Done", false, tone, Weight::Loud),
                             "Close this — your card is already saved.",
                         )
                         .clicked()
@@ -1844,17 +1813,7 @@ impl AuthorSurface {
                 // the tooltip and in the carousel header, not doubled across a
                 // row that then wraps onto two lines.
                 let chip = cl::tip(
-                    ui.label(
-                        RichText::new(shelf.label())
-                            .size(cl::Fluid::of(ui.max_rect()).fs_body_lg())
-                            .strong()
-                            .color(if active {
-                                super::SPEC.tone.color()
-                            } else {
-                                cl::ink::MUTED
-                            }),
-                    )
-                    .interact(egui::Sense::click()),
+                    control(ui, shelf.label(), active, super::SPEC.tone, Weight::Quiet),
                     shelf.tip(),
                 );
                 ui.pilot_track(
@@ -2129,13 +2088,13 @@ impl AuthorSurface {
                             // One chapter is not a decision.
                             Some([(id, _)]) => {
                                 if cl::tip(
-                                    ui.label(
-                                        RichText::new("Put them in")
-                                            .size(fluid.fs_body_sm())
-                                            .strong()
-                                            .color(super::SPEC.tone.color()),
-                                    )
-                                    .interact(egui::Sense::click()),
+                                    control(
+                                        ui,
+                                        "Put them in",
+                                        false,
+                                        super::SPEC.tone,
+                                        Weight::Loud,
+                                    ),
                                     "Copy every card you started into this one. Your \
                                      originals stay where they are.",
                                 )
@@ -2153,13 +2112,7 @@ impl AuthorSurface {
                                 );
                                 for (id, title) in many {
                                     if cl::tip(
-                                        ui.label(
-                                            RichText::new(title)
-                                                .size(fluid.fs_body_sm())
-                                                .strong()
-                                                .color(super::SPEC.tone.color()),
-                                        )
-                                        .interact(egui::Sense::click()),
+                                        control(ui, title, false, super::SPEC.tone, Weight::Loud),
                                         "Copy every card you started into this chapter",
                                     )
                                     .clicked()
@@ -2666,7 +2619,7 @@ impl AuthorSurface {
                     }
                 })
                 .collect(),
-            Shelf::Looks => cl::TRAITS
+            Shelf::Themes => cl::TRAITS
                 .iter()
                 .map(|t| ShelfItem {
                     id: t.id.to_string(),
@@ -2716,8 +2669,8 @@ impl AuthorSurface {
                     e.paint(ui);
                 }
             }
-            Shelf::Looks => {
-                // A look has nothing of its own to show, so it dresses a plate:
+            Shelf::Themes => {
+                // A theme has nothing of its own to show, so it dresses a plate:
                 // base treatments stand alone, stack traits ride the
                 // neubrutalist base — the way they are actually used.
                 let def = cl::TRAITS.iter().find(|t| t.id == item.id);

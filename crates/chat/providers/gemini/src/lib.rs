@@ -4,13 +4,27 @@
 //! blocked on the provider runtime ADR.
 
 use dpl_chat_core::{
-    Capability, ProviderAccent, ProviderDescriptor, ProviderId, ProviderManifest,
-    ProviderProfileId, TokenUsage,
+    Capability, PresenceSpec, ProviderAccent, ProviderDescriptor, ProviderId, ProviderManifest,
+    ProviderProfileId,
 };
 use dpl_chat_store::{ProviderUsage, UsageReporting};
 
 pub const PROVIDER: ProviderId = ProviderId("gemini");
 pub const DEFAULT_PROFILE: ProviderProfileId = ProviderProfileId("gemini-default");
+
+/// Gemini CLI is not installed on the operator's machine, so these needles
+/// are UNVERIFIED against a real signed-in run — the probe reports
+/// `NotInstalled` today, which is the honest answer, and the needles are
+/// confirmed the first time the CLI is present.
+pub const PRESENCE: PresenceSpec = PresenceSpec {
+    program: "gemini",
+    args: &["--version"],
+    signed_in: &["gemini"],
+    signed_out: &["not authenticated", "please sign in"],
+    // Gemini CLI is absent here; its sign-in verb is unverified, so none is
+    // declared rather than guessed.
+    login: &[],
+};
 
 const TARGETS: &[Capability] = &[
     Capability::ReadSessions,
@@ -37,6 +51,8 @@ pub const MANIFEST: ProviderManifest = ProviderManifest {
         glyph: "G",
         accent: ProviderAccent::Violet,
         summary: "Google coding agent through Gemini CLI's official ACP mode.",
+        // Gemini's public launch; Google DeepMind itself is far older.
+        since: "2023-12-06",
     },
     profile: DEFAULT_PROFILE,
     target_capabilities: TARGETS,

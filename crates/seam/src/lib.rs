@@ -548,7 +548,38 @@ async fn get_state(State(s): State<Shared>) -> Json<Value> {
         "estate": s.estate.is_some(),
         "lastComp": last_comp,
         "hubs": s.registry.hubs_json(),
+        "registry": json!({ "providers": roster_json(&s.fabric) }),
     }))
+}
+
+/// THE ROSTER as wire JSON — what an agent reads to learn which experts
+/// exist. An agent that cannot see the capability registry cannot route to
+/// it (ADR-017 §3).
+///
+/// Hand-written rather than derived, exactly like `hubs_json` and
+/// `event_json`: the fabric stays serde-free by design (this file's own
+/// header), so the wire shape is owned HERE and the fabric owes it nothing.
+/// Capabilities go out as stable slugs, never the human label.
+fn roster_json(fabric: &Fabric) -> Value {
+    Value::Array(
+        fabric
+            .provider_roster()
+            .iter()
+            .map(|p| {
+                json!({
+                    "id": p.id.0,
+                    "label": p.label,
+                    "activated": p.activated,
+                    "note": p.note,
+                    "capabilities": p
+                        .capabilities
+                        .iter()
+                        .map(|c| c.slug())
+                        .collect::<Vec<_>>(),
+                })
+            })
+            .collect(),
+    )
 }
 
 /// The validated command door. Refusals are 422 with the issues NAMED —
@@ -1515,6 +1546,58 @@ mod tests {
             .await
             .expect("response");
         assert_eq!(body_json(resp).await["route"], json!("wiredfront/editor"));
+    }
+
+    #[tokio::test]
+    async fn the_seam_projects_the_roster() {
+        let (fabric, state) = test_state();
+        // An agent reading before anything is activated sees an empty list —
+        // present and honest, never a missing key it has to guess about.
+        let resp = router(Arc::clone(&state))
+            .oneshot(
+                Request::builder()
+                    .uri("/state")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(body_json(resp).await["registry"]["providers"], json!([]));
+
+        fabric.publish_provider_roster(vec![dpl_fabric::ProviderCapability {
+            id: dpl_fabric::ProviderId("claude"),
+            label: "Claude Code".into(),
+            activated: true,
+            note: Some("local transcripts only".into()),
+            capabilities: std::collections::BTreeSet::from([
+                dpl_fabric::Capability::ReadSessions,
+                dpl_fabric::Capability::PageHistory,
+            ]),
+            summary: String::new(),
+            since: "2021-01-28".into(),
+            presence: dpl_fabric::ProviderPresence::Ready,
+        }]);
+        let resp = router(state)
+            .oneshot(
+                Request::builder()
+                    .uri("/state")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        let body = body_json(resp).await;
+        let provider = &body["registry"]["providers"][0];
+        assert_eq!(provider["id"], json!("claude"));
+        assert_eq!(provider["label"], json!("Claude Code"));
+        assert_eq!(provider["activated"], json!(true));
+        assert_eq!(provider["note"], json!("local transcripts only"));
+        // STABLE slugs, never the human label — an agent routes on these.
+        assert_eq!(
+            provider["capabilities"],
+            json!(["read-sessions", "page-history"]),
+            "the capability SET crosses the wire, in the vocabulary that is stored"
+        );
     }
 
     #[test]

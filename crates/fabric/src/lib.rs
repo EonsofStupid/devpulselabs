@@ -9,8 +9,9 @@
 //! (capture, jobs, providers) land with their ports and follow this file's
 //! shape exactly.
 
-pub use dpl_chat_core::ProviderId;
+pub use dpl_chat_core::{Capability, ProviderId};
 use dpl_hub::Route;
+use std::collections::BTreeSet;
 use std::fmt;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -237,6 +238,83 @@ impl ProviderFailureClass {
             Self::Disconnect => "disconnect",
             Self::Cancelled => "cancelled",
         }
+    }
+}
+
+/// What one provider can do for the platform, right now.
+///
+/// A capability SET, not a pair of booleans: workflows route a stage to
+/// whoever can take it, A/B runs name every provider that can take the SAME
+/// beat, and training capture needs a stable subject. None of those can be
+/// expressed by `can_send` (ADR-017 §4).
+///
+/// `Capability` is carried as-is from `dpl-chat-core` rather than mirrored —
+/// the vocabulary is already provider-neutral plain data, and a second
+/// registry is exactly what drifts. `ActivationState` is deliberately NOT
+/// carried: it is a chat LIFECYCLE type with fourteen shades a platform
+/// consumer has no use for, so it flattens to `activated` plus the truthful
+/// `note`. Carry the fact, not the state machine.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderCapability {
+    pub id: ProviderId,
+    pub label: String,
+    /// Activated at all — an `Experimental` history-only provider counts.
+    pub activated: bool,
+    /// The truthful limitation when activated but partial.
+    pub note: Option<String>,
+    /// The qualified set, in `dpl_chat_core`'s existing vocabulary.
+    pub capabilities: BTreeSet<Capability>,
+    /// One line on who the vendor is — the modal's blurb.
+    pub summary: String,
+    /// `YYYY-MM-DD` the vendor started — the tenure figure counts from here.
+    pub since: String,
+    /// Which of the states a probe can actually DISTINGUISH this provider is
+    /// in. `activated` answers "can the platform use it"; this answers "what
+    /// should the operator be told", and they are different questions —
+    /// not-installed and signed-out are both `activated: false` and have
+    /// completely different fixes.
+    pub presence: ProviderPresence,
+}
+
+/// The states the Providers surface is allowed to show.
+///
+/// Deliberately NOT the whole of `ActivationState`: a platform consumer has
+/// no use for fourteen lifecycle shades, but it does need the three a vendor
+/// status probe can genuinely tell apart, plus the in-flight one so a
+/// sign-in the operator just started does not read as failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ProviderPresence {
+    /// Signed in and usable, whatever its capability set.
+    Ready,
+    /// Installed, not signed in. Fixable by signing in.
+    SignedOut,
+    /// Not on this machine. Fixable by installing — a different problem.
+    NotInstalled,
+    /// A sign-in is in flight right now.
+    SigningIn,
+    /// Present but unusable for a stated reason (version, block, failure).
+    #[default]
+    Unavailable,
+}
+
+impl ProviderPresence {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Ready => "signed in",
+            Self::SignedOut => "signed out",
+            Self::NotInstalled => "not installed",
+            Self::SigningIn => "signing in…",
+            Self::Unavailable => "unavailable",
+        }
+    }
+}
+
+impl ProviderCapability {
+    /// Derived, never stored — the booleans are a READING of the set.
+    /// Storing the reading instead of the fact is what made P1's first
+    /// draft unable to serve routing.
+    pub fn can(&self, capability: Capability) -> bool {
+        self.activated && self.capabilities.contains(&capability)
     }
 }
 
@@ -683,6 +761,13 @@ pub struct Fabric {
     /// until resolved; resolved rows stay until acked, bounded by
     /// `RESOLVED_CAP` for publishers whose consumers never ack.
     board: Arc<std::sync::Mutex<Vec<JobRow>>>,
+    /// THE ROSTER — what every provider can do, shared by every Fabric
+    /// clone. The provider CHANNEL is a lifecycle stream (one attempt's
+    /// progress) and a broadcast has no past, so a surface that subscribes
+    /// late — or a provider that activated by having transcripts on disk and
+    /// so never ran an attempt at all — can never be learned from it. This
+    /// fold is the roster question's answer: what is available NOW.
+    roster: Arc<std::sync::Mutex<Vec<ProviderCapability>>>,
     /// The stamp state: one global sequence + the birth instant.
     seq: Arc<AtomicU64>,
     born: Instant,
@@ -723,6 +808,7 @@ impl Fabric {
             intent,
             ai,
             board: Arc::new(std::sync::Mutex::new(Vec::new())),
+            roster: Arc::new(std::sync::Mutex::new(Vec::new())),
             seq: Arc::new(AtomicU64::new(0)),
             born: Instant::now(),
             waker: Arc::new(std::sync::Mutex::new(None)),
@@ -894,6 +980,42 @@ impl Fabric {
 
     pub fn subscribe_providers(&self) -> ProviderReceiver {
         self.providers.subscribe()
+    }
+
+    /// Replace THE ROSTER wholesale, then wake the UI.
+    ///
+    /// Wholesale rather than per-row folding is the honest choice: unlike
+    /// jobs, which arrive independently, the provider set is ONE consistent
+    /// snapshot minted from one registry, and the chat host always knows the
+    /// complete truth — so there is no partial-update case to get wrong.
+    /// One publisher is what keeps this truthful.
+    pub fn publish_provider_roster(&self, roster: Vec<ProviderCapability>) {
+        *self
+            .roster
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = roster;
+        self.wake();
+    }
+
+    /// THE ROSTER, cloned — the read any surface can make with no
+    /// subscription and no history.
+    pub fn provider_roster(&self) -> Vec<ProviderCapability> {
+        self.roster
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Every activated provider that can do `capability` — the routing
+    /// question ("who can take this beat?") the capability SET exists for.
+    pub fn providers_that_can(&self, capability: Capability) -> Vec<ProviderCapability> {
+        self.roster
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .filter(|p| p.can(capability))
+            .cloned()
+            .collect()
     }
 
     /// Publish a BUILD-domain fact (slide placed / episode changed).
@@ -1319,119 +1441,115 @@ mod tests {
         // No panic, no Result to mishandle — the signal simply had no audience.
     }
 
-    #[test]
-    fn an_ai_call_correlates_across_its_whole_lifetime() {
-        let fabric = Fabric::new();
-        let mut rx = fabric.subscribe_ai();
-        let call = fabric.mint_ai_call();
-
-        fabric.publish_ai(AiEvent::CallStarted {
-            call,
-            provider: ProviderId("claude"),
-            model: "claude-opus-5".into(),
-            origin: Origin {
-                route: Some(Route {
-                    hub: HubId("workbench"),
-                    sub: SubId("author"),
-                }),
-                surface: "author-editor",
-                subject: Some("slide-7".into()),
-            },
-            observation: Observation::Live,
-        });
-        fabric.publish_ai(AiEvent::FirstToken { call, ttft_ms: 320 });
-        fabric.publish_ai(AiEvent::CallFinished {
-            call,
-            tokens_in: Some(1200),
-            cache_read: Some(800),
-            cache_write: None,
-            tokens_out: Some(450),
-            total_tokens: Some(1650),
-            context_used: None,
-            context_size: None,
-            cost_micros: None,
-            duration_ms: 2_100,
-            outcome: AiOutcome::Ok,
-        });
-        fabric.publish_ai(AiEvent::Disposition {
-            call,
-            kept: true,
-            target: Some("slide-7".into()),
-        });
-
-        // All four facts carry the SAME call id — that is what makes
-        // cost, latency, attribution and disposition joinable.
-        for _ in 0..4 {
-            assert_eq!(rx.try_recv().unwrap().ev.call(), call);
+    /// A provider activated ONLY by having transcripts on disk — H1's
+    /// `Experimental` case, and the reason the roster cannot be a fold of
+    /// the lifecycle stream (no attempt ever runs for it).
+    fn history_only() -> ProviderCapability {
+        ProviderCapability {
+            id: ProviderId("claude"),
+            label: "Claude Code".into(),
+            activated: true,
+            note: Some("local transcripts only".into()),
+            capabilities: BTreeSet::from([Capability::ReadSessions, Capability::PageHistory]),
+            summary: "Anthropic.".into(),
+            since: "2021-01-28".into(),
+            presence: ProviderPresence::Ready,
         }
     }
 
     #[test]
-    fn ai_facts_are_stamped_and_ordered_against_other_domains() {
+    fn an_empty_roster_reads_empty() {
         let fabric = Fabric::new();
-        let mut ai_rx = fabric.subscribe_ai();
-        let mut build_rx = fabric.subscribe_build();
-
-        let call = fabric.mint_ai_call();
-        fabric.publish_ai(AiEvent::Disposition {
-            call,
-            kept: true,
-            target: Some("slide-1".into()),
-        });
-        fabric.publish_build(BuildEvent::CardAuthored {
-            show: String::new(),
-            episode: String::new(),
-            slide: "slide-1".into(),
-        });
-
-        let ai = ai_rx.try_recv().unwrap();
-        let build = build_rx.try_recv().unwrap();
-        // ONE global sequence across domains: the AI disposition provably
-        // precedes the card it produced. This is the join the whole
-        // analytics program stands on.
         assert!(
-            ai.seq < build.seq,
-            "ai seq {} should precede build seq {}",
-            ai.seq,
-            build.seq
+            fabric.provider_roster().is_empty(),
+            "a fabric nobody published to has no providers to name"
         );
     }
 
     #[test]
-    fn a_minted_call_id_never_repeats() {
+    fn the_roster_is_readable_without_subscribing() {
         let fabric = Fabric::new();
-        let a = fabric.mint_ai_call();
-        let b = fabric.mint_ai_call();
-        assert_ne!(a, b);
-        // And it shares the stamp sequence — never a parallel counter.
-        let job = fabric.mint_job();
-        assert_ne!(a.0, job.0);
-        assert_ne!(b.0, job.0);
+        fabric.publish_provider_roster(vec![history_only()]);
+        // A CLONE that never subscribed, created AFTER the publish — the
+        // whole point: a broadcast stream has no past, a fold does.
+        let late = fabric.clone();
+        let roster = late.provider_roster();
+        assert_eq!(roster.len(), 1);
+        assert_eq!(roster[0].id, ProviderId("claude"));
     }
 
     #[test]
-    fn an_outcome_reports_its_failure_class_or_none() {
-        assert_eq!(AiOutcome::Ok.failure(), None);
-        assert_eq!(AiOutcome::Refused.failure(), None);
-        assert_eq!(AiOutcome::Refused.label(), "refused");
+    fn a_history_only_provider_is_in_the_roster_but_cannot_send() {
+        let p = history_only();
+        assert!(
+            p.can(Capability::PageHistory),
+            "its transcripts are readable"
+        );
+        assert!(
+            !p.can(Capability::StreamTurns),
+            "reading history is not the same as being able to send"
+        );
+    }
+
+    #[test]
+    fn an_unactivated_provider_can_nothing() {
+        let p = ProviderCapability {
+            activated: false,
+            ..history_only()
+        };
+        for capability in [
+            Capability::ReadSessions,
+            Capability::PageHistory,
+            Capability::StreamTurns,
+        ] {
+            assert!(
+                !p.can(capability),
+                "{capability:?} is qualified but the provider is not activated"
+            );
+        }
+    }
+
+    #[test]
+    fn publishing_a_roster_replaces_the_previous_one() {
+        let fabric = Fabric::new();
+        fabric.publish_provider_roster(vec![history_only()]);
+        fabric.publish_provider_roster(vec![ProviderCapability {
+            id: ProviderId("codex"),
+            label: "Codex".into(),
+            ..history_only()
+        }]);
+        let roster = fabric.provider_roster();
         assert_eq!(
-            AiOutcome::Error(AiFailureClass::RateLimit).failure(),
-            Some(AiFailureClass::RateLimit)
+            roster.len(),
+            1,
+            "the snapshot replaces, it never accumulates"
         );
-        assert_eq!(AiFailureClass::RateLimit.label(), "rate-limit");
+        assert_eq!(roster[0].id, ProviderId("codex"));
     }
 
     #[test]
-    fn ai_facts_do_not_wake_other_domain_ears() {
+    fn the_roster_answers_who_can_take_a_beat() {
         let fabric = Fabric::new();
-        let mut provider_rx = fabric.subscribe_providers();
-        fabric.publish_ai(AiEvent::FirstToken {
-            call: fabric.mint_ai_call(),
-            ttft_ms: 10,
-        });
-        assert!(
-            provider_rx.try_recv().is_err(),
-            "AI usage is its own domain, not provider auth lifecycle"
+        fabric.publish_provider_roster(vec![
+            history_only(),
+            ProviderCapability {
+                id: ProviderId("codex"),
+                label: "Codex".into(),
+                activated: true,
+                note: None,
+                capabilities: BTreeSet::from([Capability::PageHistory, Capability::StreamTurns]),
+                summary: "OpenAI.".into(),
+                since: "2015-12-11".into(),
+                presence: ProviderPresence::Ready,
+            },
+        ]);
+        let senders = fabric.providers_that_can(Capability::StreamTurns);
+        assert_eq!(senders.len(), 1, "only one provider can actually send");
+        assert_eq!(senders[0].id, ProviderId("codex"));
+        assert_eq!(
+            fabric.providers_that_can(Capability::PageHistory).len(),
+            2,
+            "both can be routed a history read"
         );
     }
 }

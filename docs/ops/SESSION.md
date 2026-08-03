@@ -1,7 +1,7 @@
 ---
 dirty: false
-active_lane: coach-ledger
-updated: 2026-07-30
+active_lane: providers
+updated: 2026-08-02
 ---
 
 # Ops session ledger
@@ -11,31 +11,35 @@ milestone-loop). Product truth stays in `docs/STATE.md`.
 
 ## Active lane
 
-**coach / ledger / lesson** — ordered backlog:
-`docs/journal/2026-07-28-remaining-work.md`  
-**Product spine:** `docs/plans/coach-operator-experience.md`  
-**Mock:** `docs/ops/references/coach-operator-mock-c2c.html` (look-approved)
+**providers** — mock `docs/design/mocks/providers.html`, program
+`docs/plans/providers-presence-and-the-brain.md`.
 
-**NEXT:** C2d lightweight target inventory (Phase 0+1). Pass-2 stdio /
-strict pinning **parked**.
+**NEXT:** land PR #192 (the whole Providers program). Then Cursor live
+transport / Gemini probe — qualification, not surface.
 
-**CLOSED:** p6 · `/strict` · **p2b** · **p4** · **C2s** · **C2a** ·
-**C2b** (#158) · doc alignment · **C2c mock look-approved**
+**CLOSED:** … · D1+H1 (#180) · **P1** · **V1** (`feat/p1-provider-availability`,
+green, unpushed)
 
 ## Opens
 
 | Kind | Ref | Notes |
 |---|---|---|
-| Coach product | C2d inventory → C2e mint → C2f wire | home = Coach hub |
-| Coach Advanced | C2b Pass-2 stdio | parked; ADR launch gates |
-| Authoring | own POA&M | do not steal |
-| Parallel | chat / L4 / workflows | do not steal |
+| Providers | P1 → PR | branch green; #169 also edits `fabric/src/lib.rs` |
+| Providers | V2+V3 built | roster popup + modal with live tenure |
+| Providers | A1+A2 built | live: codex/claude/grok signed in; cursor+gemini not installed |
+| Providers | Cursor CLI | probe needles UNVERIFIED until `cursor-agent` is installed |
+| Providers | Gemini sign-in verb | unknown; no login declared rather than guessed |
+| Coach | C2f plan → hub UI | `coach-c2f-operator-import-ui.md`, awaiting `approve` (#187) |
+| Coach | Notepad (Windows) | after C2f |
+| Coach Advanced | CX-harvest / Pass-2 | parked / when a11y thin |
+| Harness | no mid-animation capture | every capture is `MotionPolicy::Suppressed`; `Natural`/`FastForward` unused |
+| Harness | 4 scenarios red headless | `chat-local-histories`, `chat-content-spine`, `chat-provider-tab`, `shell-navigation` — pre-date P1, need a real display |
 
 ## Milestone
 
-C2d → C2e → C2f → (parked Advanced) → pinning → DuckDB
+P1+V1 land → V2 popup → V3 modal → A1 probes → A2 sign-in
+(coach C2f resumes on `approve`)
 
 ## Signals
 
 - Cursor/ops: `docs/ops/signals.jsonl`
-- Claude telemetry: `.claude/ledger/ledger.jsonl` (gitignored)

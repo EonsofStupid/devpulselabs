@@ -70,7 +70,11 @@ pub enum DecodeOutcome {
     IgnoreKnown,
 }
 
-pub trait HistoryDecoder {
+/// `Send` is a genuine requirement, not a formality: the HOST owns the
+/// catalog (H1 §3.2) and the host's shared state must be `Send`. A decoder is
+/// a pure function over lines and a source is a path plus a decoder, so
+/// nothing here is legitimately thread-bound.
+pub trait HistoryDecoder: Send {
     fn provider_id(&self) -> ProviderId;
     fn index_metadata(&self, path: &Path, prefix: &str) -> Option<HistoryIndexMetadata>;
     fn decode_line(&self, line: &str) -> DecodeOutcome;
@@ -323,7 +327,7 @@ impl fmt::Display for StoreError {
 
 impl std::error::Error for StoreError {}
 
-pub trait HistorySource {
+pub trait HistorySource: Send {
     fn provider_id(&self) -> ProviderId;
     fn list(&self, workspace_filter: Option<&str>) -> Result<HistoryIndex, StoreError>;
     fn page(
@@ -631,7 +635,9 @@ impl HistorySource for JsonlHistorySource {
                 break;
             }
         }
-        sessions.sort_by(|left, right| right.modified_millis.cmp(&left.modified_millis));
+        // Newest first — `Reverse` says descending in the signature rather
+        // than by which side of `cmp` the arguments landed on.
+        sessions.sort_by_key(|s| std::cmp::Reverse(s.modified_millis));
         Ok(HistoryIndex {
             provider_id: self.provider_id(),
             sessions,

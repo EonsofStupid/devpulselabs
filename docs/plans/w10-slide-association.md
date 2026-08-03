@@ -33,7 +33,7 @@ compose surface.
 - **Episode model**: `Episode { v, id, title, chapters: Vec<Chapter> }`;
   `Chapter { id, title, slides: Vec<String> }` — each string is a slide
   SUBFOLDER NAME — `doc/src/lib.rs:337-351`. Content tree
-  `content/<show>/<episode>/` (episode.json · look.json · assets · slide
+  `content/<show>/<episode>/` (episode.json · theme.json · assets · slide
   folders) — `doc/src/lib.rs:786-792`, `x3-keep-associate.md:8-13`.
 - **"Presentation" is not a distinct type** — a presentation = an episode
   run through the Present hub's deck (`DeckEvent::Beat`,

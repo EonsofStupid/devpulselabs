@@ -1,0 +1,20 @@
+[package]
+name = "dpl-hub-coach"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# Operator Coach hub — Import Process UI (C2f). Depends on inventory +
+# fabric libs; never depends on dpl-coach-overlay (ADR: spawn binary only).
+# Plan: docs/plans/coach-c2f-operator-import-ui.md
+
+[dependencies]
+egui.workspace = true
+dpl-hub.workspace = true
+dpl-coldlight.workspace = true
+dpl-proc.workspace = true
+dpl-coach-inventory = { path = "../../coach-inventory" }
+dpl-coach-fabric = { path = "../../coach-fabric" }
+
+[lints]
+workspace = true

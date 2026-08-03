@@ -25,7 +25,8 @@ members = [
     "crates/chat/windows",
     "crates/chat/providers/codex",
     "crates/chat/providers/claude",
-    "crates/chat/providers/gemini",
+    "crates/chat/providers/cursor",
+  "crates/chat/providers/gemini",
     "crates/chat/providers/grok",
     "crates/tools-deps",
     "crates/hub",
@@ -64,9 +65,12 @@ members = [
     "crates/hubs/present",
     "crates/hubs/workbench",
     "crates/hubs/wiredfront",
+    "crates/hubs/coach",
     "crates/app",
     "crates/desktop-spike",
     "crates/coach-overlay",
+    "crates/coach-inventory",
+    "crates/coach-fabric",
     "crates/xtask",
 ]
 
@@ -107,7 +111,7 @@ ureq = "2"
 data-encoding = "2"
 # The per-project estate: Fjall = embedded LSM KV (persistence), Moka =
 # concurrent in-process cache (the hot-read layer). Pure Rust, no server.
-fjall = "2"
+fjall = "3.1.8"
 moka = { version = "0.12", features = ["sync"] }
 sha2 = "0.11"
 agent-client-protocol = "=2.0.0"
@@ -120,7 +124,7 @@ zip = { version = "8", default-features = false, features = ["deflate"] }
 # The AEP orchestrator's capability probe (operator-ratified): read total
 # RAM cross-platform so the aerender tuning scales 16GB→128GB. "system"
 # feature only — no disk/network/component probing.
-sysinfo = { version = "0.33", default-features = false, features = ["system"] }
+sysinfo = { version = "0.38", default-features = false, features = ["system"] }
 # ThorVG (C++, vendored) — the native Lottie engine, linked ONLY by the
 # dpl-lottie-render subprocess helper (ADR-009 FFI leaf), never by the app.
 thorvg-sys = "0.3"
@@ -131,7 +135,7 @@ tungstenite = { version = "0.30", default-features = false, features = ["handsha
 # versions promoted to direct deps — no new third-party tree.
 atspi = { version = "0.29", default-features = false, features = ["proxies", "zbus"] }
 zbus = { version = "5", default-features = false, features = ["async-io"] }
-x11rb = { version = "0.13", default-features = false, features = ["allow-unsafe-code", "xtest"] }
+x11rb = { version = "0.14", default-features = false, features = ["allow-unsafe-code", "xtest"] }
 toml = "1.1"
 tokio = { version = "1", default-features = false, features = ["sync"] }
 turso = "0.7"
@@ -173,6 +177,7 @@ dpl-chat-window = { path = "crates/chat/window" }
 dpl-chat-windows = { path = "crates/chat/windows" }
 dpl-chat-codex = { path = "crates/chat/providers/codex" }
 dpl-chat-claude = { path = "crates/chat/providers/claude" }
+dpl-chat-cursor = { path = "crates/chat/providers/cursor" }
 dpl-chat-gemini = { path = "crates/chat/providers/gemini" }
 dpl-chat-grok = { path = "crates/chat/providers/grok" }
 dpl-tools-deps = { path = "crates/tools-deps" }
@@ -213,6 +218,7 @@ dpl-hub-shows = { path = "crates/hubs/shows" }
 dpl-hub-present = { path = "crates/hubs/present" }
 dpl-hub-workbench = { path = "crates/hubs/workbench" }
 dpl-hub-wiredfront = { path = "crates/hubs/wiredfront" }
+dpl-hub-coach = { path = "crates/hubs/coach" }
 
 # The Windows MSVC linker otherwise exhausts its PDB record limit while
 # linking the workspace test graph (notably the ACP-backed provider tests).

@@ -107,6 +107,40 @@ fn exe_mtime(path: &Path) -> Option<SystemTime> {
     std::fs::metadata(path).and_then(|m| m.modified()).ok()
 }
 
+/// Where cargo actually puts artifacts. NOT hardcoded `target/`: a shared
+/// build cache, a CI image redirecting output to a fast volume, or a plain
+/// `CARGO_TARGET_DIR` in the environment all move it — and the gate would
+/// then build the exe successfully and declare it missing, which is exactly
+/// what happened on a Linux clone 2026-07-30. `CARGO_TARGET_DIR` wins;
+/// otherwise `cargo metadata` is authoritative (it also honours
+/// `build.target-dir` from a config file, which the env var does not).
+fn target_dir() -> PathBuf {
+    if let Some(dir) = std::env::var_os("CARGO_TARGET_DIR").filter(|d| !d.is_empty()) {
+        return PathBuf::from(dir);
+    }
+    Command::new("cargo")
+        .args(["metadata", "--format-version", "1", "--no-deps"])
+        .stderr(Stdio::null())
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .and_then(|out| serde_json::from_slice::<serde_json::Value>(&out.stdout).ok())
+        .and_then(|meta| {
+            meta["target_directory"]
+                .as_str()
+                .map(PathBuf::from)
+                .filter(|p| !p.as_os_str().is_empty())
+        })
+        .unwrap_or_else(|| PathBuf::from("target"))
+}
+
+/// The release exe the gate asserts on, wherever cargo put it.
+fn release_exe() -> PathBuf {
+    target_dir()
+        .join("release")
+        .join(format!("devpulselabs{}", std::env::consts::EXE_SUFFIX))
+}
+
 fn green() -> Result<(), String> {
     run("fmt", &["fmt", "--all", "--", "--check"])?;
     docs_status()?;
@@ -125,8 +159,7 @@ fn green() -> Result<(), String> {
     )?;
     run_workspace_tests()?;
 
-    let exe_name = format!("devpulselabs{}", std::env::consts::EXE_SUFFIX);
-    let exe = Path::new("target/release").join(exe_name);
+    let exe = release_exe();
     let before = exe_mtime(&exe);
     // `cargo green` itself is the release-mode `xtask.exe` on Windows. A
     // workspace release build must not try to replace that running file.
@@ -686,7 +719,12 @@ fn structure_audit() -> Result<(), String> {
     const SYS_ALLOWED: &[&str] = &["dpl-lottie-render"];
     // Orphan crate folders outside the workspace, named and tolerated
     // (architecture.md §3); anything NEW fails.
-    const ORPHAN_ALLOWED: &[&str] = &["desktop-spike", "coach-overlay"];
+    const ORPHAN_ALLOWED: &[&str] = &[
+        "desktop-spike",
+        "coach-overlay",
+        // coach-inventory + coach-fabric are workspace members consumed by
+        // dpl-hub-coach (C2f) — not orphans.
+    ];
 
     let output = Command::new("cargo")
         .args(["metadata", "--format-version", "1", "--no-deps"])
@@ -817,6 +855,67 @@ fn structure_audit() -> Result<(), String> {
         }
     }
 
+    // Naming law (architecture.md §4): a crate is `dpl-` + its folder, a
+    // BINARY is kebab-case, and a `src/bin/*.rs` file is snake_case with its
+    // binary name DECLARED. The declaration matters — cargo auto-discovers an
+    // undeclared file and the FILENAME becomes the shipped binary name, which
+    // is exactly how `browser_cli` shipped underscored while every sibling CLI
+    // was kebab. The exceptions are RATIFIED, not drift: the exe, cargo's own
+    // `xtask` convention, and the `egui-pilot-ai*` family, which stays
+    // unprefixed as its own product surface (operator ruling 2026-07-30).
+    let mut binaries = 0usize;
+    const NAME_EXCEPT: &[&str] = &["devpulselabs", "xtask"];
+    const NAME_EXCEPT_PREFIX: &[&str] = &["egui-pilot-ai"];
+    for package in packages {
+        let name = package["name"].as_str().unwrap_or_default();
+        let Some(manifest) = package["manifest_path"].as_str() else {
+            continue;
+        };
+        let excepted =
+            NAME_EXCEPT.contains(&name) || NAME_EXCEPT_PREFIX.iter().any(|p| name.starts_with(p));
+        if !excepted {
+            let folder = Path::new(manifest)
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .unwrap_or_default();
+            if !name.starts_with("dpl-") || !name.ends_with(folder) {
+                failures.push(format!(
+                    "{name}: crate name is not `dpl-…{folder}` (naming law: architecture.md §4 — \
+                     ratify an exception in the doc AND this table together if deliberate)"
+                ));
+            }
+        }
+        for target in package["targets"].as_array().into_iter().flatten() {
+            let is_bin = target["kind"]
+                .as_array()
+                .is_some_and(|kinds| kinds.iter().any(|k| k == "bin"));
+            if !is_bin {
+                continue;
+            }
+            binaries += 1;
+            let bin = target["name"].as_str().unwrap_or_default();
+            if bin.contains('_') {
+                failures.push(format!(
+                    "{name}: binary `{bin}` is not kebab-case — declare `[[bin]] name = \"{}\"` \
+                     with an explicit path (naming law: architecture.md §4)",
+                    bin.replace('_', "-")
+                ));
+            }
+            let src = target["src_path"].as_str().unwrap_or_default();
+            if src.replace('\\', "/").contains("/src/bin/") {
+                if let Some(stem) = Path::new(src).file_stem().and_then(|s| s.to_str()) {
+                    if stem.contains('-') {
+                        failures.push(format!(
+                            "{name}: bin source `{stem}.rs` is kebab — snake the file and declare \
+                             the binary name (naming law: architecture.md §4)"
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
     // Harness-flag census: the flags the app parses ⇔ the flags CLAUDE.md
     // documents, both directions. `--content-root` is parsed inside
     // engine-capture (the ring resolver), hence the one addition.
@@ -872,11 +971,14 @@ fn structure_audit() -> Result<(), String> {
 
     if failures.is_empty() {
         println!(
-            "structure: {} ceilings · {} egui-free · {} members hygienic · {} flags in census",
+            "structure: {} ceilings · {} egui-free · {} members hygienic · {} flags in census \
+             · {} crates + {} binaries named",
             CEILINGS.len(),
             EGUI_FREE.len(),
             manifests.len(),
-            parsed.len()
+            parsed.len(),
+            manifests.len(),
+            binaries
         );
         Ok(())
     } else {
@@ -937,11 +1039,10 @@ fn sweep(args: &[String]) -> Result<(), String> {
     let outdir = args
         .first()
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("target/sweep"));
+        .unwrap_or_else(|| target_dir().join("sweep"));
     fs::create_dir_all(&outdir).map_err(|e| format!("create {}: {e}", outdir.display()))?;
 
-    let exe_name = format!("devpulselabs{}", std::env::consts::EXE_SUFFIX);
-    let exe = Path::new("target/release").join(&exe_name);
+    let exe = release_exe();
     if !exe.exists() {
         return Err(format!(
             "release exe missing: {} — run `cargo build --release -p devpulselabs` first",

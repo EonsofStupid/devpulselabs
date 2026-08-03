@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "id": "chat-history-rail",
+  "label": "Does the history rail actually surface the operator's chats?",
+  "hypothesis": "Rows beat a count. Before H1 the rail rendered 165 transcripts as a number in an unclickable label; the arm that renders rows should find them, and the drill should be able to say so without a human reading a screenshot.",
+  "requires": ["manifest", "trace"],
+  "variants": [
+    { "id": "rows", "scenario": "chat-local-histories" }
+  ]
+}

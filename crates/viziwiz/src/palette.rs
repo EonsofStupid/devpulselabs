@@ -304,7 +304,7 @@ pub(crate) fn palette(
                     }
                     if cl::tip(
                         ui.pilot_button(REFRESH_WINDOWS, "↻"),
-                        "Look for windows again",
+                        "Theme for windows again",
                     )
                     .clicked()
                     {
@@ -409,7 +409,8 @@ pub(crate) fn palette(
                                         }
                                     }
                                 });
-                            if cl::tip(ui.button("↻"), "Look for audio devices again").clicked() {
+                            if cl::tip(ui.button("↻"), "Theme for audio devices again").clicked()
+                            {
                                 actions.refresh_audio = true;
                             }
                         });

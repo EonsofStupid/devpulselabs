@@ -1,9 +1,9 @@
 //! Manual proof + operator CLI for the headless-browser driver (DEMO-B):
 //!
 //! ```text
-//! browser_cli shot <url> [out.png] [--job <job>] [--name <stem>]
+//! browser-cli shot <url> [out.png] [--job <job>] [--name <stem>]
 //!                        [--window WxH] [--profile <name|dir>]
-//! browser_cli login <profile-name|dir> [start-url]
+//! browser-cli login <profile-name|dir> [start-url]
 //! ```
 //!
 //! The frictionless law (ADR-014): with no explicit `out.png`, a shot
@@ -26,7 +26,7 @@ fn main() -> ExitCode {
     match run(&args) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("browser_cli: {e}");
+            eprintln!("browser-cli: {e}");
             ExitCode::FAILURE
         }
     }
@@ -54,9 +54,9 @@ fn no_clobber_png(dir: &Path, stem: &str) -> PathBuf {
         .expect("unbounded range")
 }
 
-const USAGE: &str = "usage: browser_cli shot <url> [out.png] [--job <job>] [--name <stem>] \
+const USAGE: &str = "usage: browser-cli shot <url> [out.png] [--job <job>] [--name <stem>] \
                      [--window WxH] [--profile <name|dir>]\n       \
-                     browser_cli login <profile-name|dir> [start-url]";
+                     browser-cli login <profile-name|dir> [start-url]";
 
 fn run(args: &[String]) -> Result<(), String> {
     match args.first().map(String::as_str) {
@@ -103,7 +103,7 @@ fn run(args: &[String]) -> Result<(), String> {
                 headless: true,
             })?;
             let (bin, source) = browser.binary();
-            eprintln!("browser_cli: driving {} ({source})", bin.display());
+            eprintln!("browser-cli: driving {} ({source})", bin.display());
             let bytes = {
                 let mut page = browser.new_page()?;
                 page.set_viewport(window.0, window.1)?;
@@ -127,13 +127,13 @@ fn run(args: &[String]) -> Result<(), String> {
                 headless: false,
             })?;
             let (bin, source) = browser.binary();
-            eprintln!("browser_cli: opened {} ({source})", bin.display());
+            eprintln!("browser-cli: opened {} ({source})", bin.display());
             {
                 let mut page = browser.new_page()?;
                 page.navigate(url)?;
             }
             eprintln!(
-                "browser_cli: sign in in the window, then CLOSE the browser \
+                "browser-cli: sign in in the window, then CLOSE the browser \
                  to finish. Sessions persist in {}",
                 profile.display()
             );

@@ -1,0 +1,25 @@
+[package]
+name = "dpl-coach-fabric"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+autobins = false
+
+# Budgeted Tier A fabric mint (C2e). Egui-free. Never a dep of
+# `crates/app` until the Coach hub lands. Plan:
+# docs/plans/coach-c2e-fabric-mint.md
+
+[lints]
+workspace = true
+
+[dependencies]
+dpl-coach-inventory = { path = "../coach-inventory" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+async-io.workspace = true
+atspi.workspace = true
+zbus.workspace = true
+
+[[bin]]
+name = "coach-fabric-mint"
+path = "src/bin/coach_fabric_mint.rs"

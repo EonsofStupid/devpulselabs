@@ -45,6 +45,9 @@ EGUIPILOTAI_ADAPTER_POLICY = "hardware-required"
 [fixtures.test-lab]
 arguments = ["--route", "workbench/test-lab", "--mood", "0"]
 
+[fixtures.experiments]
+arguments = ["--route", "workbench/experiments", "--mood", "0"]
+
 [fixtures.library]
 arguments = ["--route", "workbench/library", "--focus", "title", "--mood", "0"]
 
@@ -64,6 +67,16 @@ arguments = ["--chat-open", "--mood", "0"]
 
 [fixtures.chat-authored]
 arguments = ["--chat-open", "--chat-authored", "--mood", "0"]
+
+# D1 content seam: the Content domain over a SCRATCH content root, so the
+# drill never opens the operator's `/content`. The census is still real —
+# `all_episodes` unions the content root with `seeds/episodes/`, which is
+# repo truth, so the seed templates populate the rail either way.
+[fixtures.chat-content]
+arguments = ["--chat-open", "--chat-authored", "--mood", "0"]
+
+[fixtures.chat-content.environment]
+CONTENT_ROOT = "target/eguipilotai/content-seam/content"
 
 [fixtures.chat-grok-auth]
 arguments = ["--chat-open", "--chat-authored", "--chat-proof", "grok-auth", "--mood", "0"]

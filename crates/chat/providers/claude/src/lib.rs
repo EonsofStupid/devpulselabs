@@ -4,18 +4,24 @@
 //! ratified, but process launch stays fail-closed on the ADR launch gates.
 
 use dpl_chat_core::{
-    BoundedNativePayload, Capability, ChatEventContent, ProviderAccent, ProviderDescriptor,
-    ProviderId, ProviderManifest, ProviderProfileId, TokenUsage,
-};
-use dpl_chat_store::{
-    DecodeOutcome, DecodedHistoryEvent, HistoryDecoder, HistoryIndexMetadata, ProviderUsage,
-    UsageReporting,
+    BoundedNativePayload, Capability, ChatEventContent, PresenceSpec, ProviderAccent,
+    ProviderDescriptor, ProviderId, ProviderManifest, ProviderProfileId,
 };
 use serde_json::Value;
 use std::path::Path;
 
 pub const PROVIDER: ProviderId = ProviderId("claude");
 pub const DEFAULT_PROFILE: ProviderProfileId = ProviderProfileId("claude-default");
+
+/// `claude auth status` prints JSON — `loggedIn`, `authMethod`, and the
+/// subscription tier. Verified against Claude Code 2.1.220.
+pub const PRESENCE: PresenceSpec = PresenceSpec {
+    program: "claude",
+    args: &["auth", "status"],
+    signed_in: &["\"loggedin\": true"],
+    signed_out: &["\"loggedin\": false"],
+    login: &["auth", "login"],
+};
 
 const TARGETS: &[Capability] = &[
     Capability::ReadSessions,
@@ -45,6 +51,8 @@ pub const MANIFEST: ProviderManifest = ProviderManifest {
         glyph: "A",
         accent: ProviderAccent::Amber,
         summary: "Anthropic coding agent through its documented structured CLI stream.",
+        // Anthropic founded 2021.
+        since: "2021-01-28",
     },
     profile: DEFAULT_PROFILE,
     target_capabilities: TARGETS,

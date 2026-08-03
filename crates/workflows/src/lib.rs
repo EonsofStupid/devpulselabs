@@ -286,7 +286,7 @@ pub fn workflows() -> Vec<WorkflowDoc> {
     vec![storyboard()]
 }
 
-/// Look one up by id — the `--run-workflow` and panel entry.
+/// Theme one up by id — the `--run-workflow` and panel entry.
 pub fn find(id: &str) -> Option<WorkflowDoc> {
     workflows().into_iter().find(|w| w.id == id)
 }

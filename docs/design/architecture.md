@@ -78,13 +78,35 @@ the audit, same commit, with the reason.
 - **crates/coach-overlay/** (`dpl-coach-overlay`): ratified **devtools-only**
   overlay process (ADR `coach-overlay-adr.md`); never a dep of `app`;
   Linux X11 backend first. Production builds must not wire it.
+- **crates/coach-inventory/** (`dpl-coach-inventory`): C2d lightweight
+  target inventory (XDG cold catalog + AT-SPI desktop-root census);
+  egui-free; never deep-walks; consumed by `dpl-hub-coach` (never by
+  `app` directly).
+- **crates/coach-fabric/** (`dpl-coach-fabric`): C2e budgeted Tier A
+  fabric mint for one selected target; egui-free; may depend on
+  inventory; consumed by `dpl-hub-coach` (never by `app` directly).
+- **crates/hubs/coach/** (`dpl-hub-coach`): Operator Coach Import UI
+  (C2f); depends on inventory + fabric; spawns `dpl-coach-overlay`
+  binary only (never a crate dep on overlay).
 
 ## 4. The laws every new crate inherits
 
 - **One concern.** The lib.rs doc-header names it in one sentence; if the
   sentence needs "and", it is two crates.
 - **Naming**: `dpl-` prefix; kebab ids; grouped folders (`chat/*`,
-  `hubs/*`) when a family exceeds ~3 crates.
+  `hubs/*`) when a family exceeds ~3 crates. Stated exactly, because this
+  law was prose-only until 2026-07-30 and drifted where nobody looked: a
+  crate is `dpl-` + its folder; a BINARY is kebab-case; a `src/bin/*.rs`
+  file is snake_case with its binary name DECLARED (`[[bin]] name` +
+  `path`). The declaration is not ceremony — cargo auto-discovers an
+  undeclared file and the FILENAME becomes the shipped binary name, which
+  is how `browser_cli` shipped underscored while every sibling was kebab.
+  RATIFIED exceptions, listed beside the audit that enforces this:
+  `devpulselabs` (the exe), `xtask` (cargo's own convention), and the
+  `egui-pilot-ai*` family, which stays unprefixed as its own product
+  surface (operator ruling 2026-07-30 — "not everything has to be dpl-").
+  A new exception amends this bullet and the audit table in the SAME
+  commit.
 - **Census law**: anywhere a LIST of things exists (templates, workflows,
   stages, coach ids, harness flags), ONE registry function enumerates it
   and a census test (or the structure audit) fails when reality and the
@@ -120,7 +142,8 @@ audit): ceiling exact-sets (§2) · egui-free census · no lateral hub deps ·
 `-sys` only in dpl-lottie-render · manifest hygiene (lints + publish) ·
 no orphan crate folders (allowlist §3) · harness-flag census (flags
 parsed in `crates/app/src/main.rs` + `--content-root` ⇔ CLAUDE.md's
-list, both directions).
+list, both directions) · the naming law (crate = `dpl-` + folder · kebab
+binaries · snake `src/bin` sources, with §4's ratified exceptions).
 
 Sibling laws: `doctrine.md` (treatments/paint) · `design-system.md`
 (composable UI model) · `signal-doctrine.md` (facts) · ADR-009

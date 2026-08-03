@@ -57,6 +57,8 @@ pub const MANIFEST: ProviderManifest = ProviderManifest {
         glyph: "C",
         accent: ProviderAccent::Cyan,
         summary: "OpenAI coding agent through the official app-server client protocol.",
+        // OpenAI founded 11 December 2015.
+        since: "2015-12-11",
     },
     profile: DEFAULT_PROFILE,
     target_capabilities: TARGETS,
