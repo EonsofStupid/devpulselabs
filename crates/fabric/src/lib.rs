@@ -522,6 +522,210 @@ pub enum IntentEvent {
 
 pub type IntentReceiver = broadcast::Receiver<Stamped<IntentEvent>>;
 
+/// One AI call, correlated across its lifetime (dispatch → first token →
+/// finish → disposition). Minted from the SAME sequence space as stamps
+/// and job ids, so a call is causally ordered against every other signal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct CallId(pub u64);
+
+impl fmt::Display for CallId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "call-{}", self.0)
+    }
+}
+
+/// WHERE an AI call came from — the attribution key.
+///
+/// Without this, "is the AI earning its keep in the authoring loop?" is
+/// unanswerable: cost and latency alone cannot say which surface spent
+/// the tokens or what the call was working on.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Origin {
+    /// Where the operator was standing when the call was dispatched.
+    pub route: Option<Route>,
+    /// The surface that dispatched it (`"chat"`, `"author-editor"`, …).
+    /// A static str: surfaces are code, not operator data.
+    pub surface: &'static str,
+    /// What it was working on — slide/comp/episode id when there is one.
+    pub subject: Option<String>,
+}
+
+impl Origin {
+    /// The common case: a surface with no route or subject context.
+    pub const fn surface(surface: &'static str) -> Self {
+        Self {
+            route: None,
+            surface,
+            subject: None,
+        }
+    }
+}
+
+/// Why an AI call did not return a usable answer. Distinct from
+/// `AiOutcome::Refused` — a refusal is a valid answer the model chose to
+/// give; these are failures of the call itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AiFailureClass {
+    Auth,
+    RateLimit,
+    Timeout,
+    Transport,
+    Protocol,
+    /// The provider's local runtime broke (parity with
+    /// `ProviderFailureClass::Runtime`).
+    Runtime,
+    Server,
+    Unknown,
+}
+
+impl AiFailureClass {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Auth => "auth",
+            Self::RateLimit => "rate-limit",
+            Self::Timeout => "timeout",
+            Self::Transport => "transport",
+            Self::Protocol => "protocol",
+            Self::Runtime => "runtime",
+            Self::Server => "server",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+/// How an AI call ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AiOutcome {
+    Ok,
+    /// The model answered by declining — a real answer, not a failure.
+    Refused,
+    Cancelled,
+    Error(AiFailureClass),
+}
+
+impl AiOutcome {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::Refused => "refused",
+            Self::Cancelled => "cancelled",
+            Self::Error(_) => "error",
+        }
+    }
+
+    /// The failure class when this outcome is an error.
+    pub const fn failure(self) -> Option<AiFailureClass> {
+        match self {
+            Self::Error(class) => Some(class),
+            _ => None,
+        }
+    }
+}
+
+/// Was this fact WITNESSED live, or recovered from records already on
+/// disk?
+///
+/// The distinction is load-bearing, not bookkeeping. A history file
+/// cannot yield time-to-first-token, and a backfilled event's `seq` is
+/// synthetic — it was never ordered against the captures and cards it
+/// now sits beside. Recording recovered facts as live would silently
+/// corrupt every latency percentile and every cross-domain join, which
+/// is exactly the kind of quiet wrongness analytics must not have.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Observation {
+    /// Witnessed as it happened. Latency is real; ordering is real.
+    #[default]
+    Live,
+    /// Recovered from a stored session. Never carries `FirstToken`, and
+    /// queries must exclude it from any latency or ordering question.
+    Backfilled,
+}
+
+impl Observation {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Live => "live",
+            Self::Backfilled => "backfilled",
+        }
+    }
+
+    /// Whether timing derived from this fact means anything.
+    pub const fn timing_is_real(self) -> bool {
+        matches!(self, Self::Live)
+    }
+}
+
+/// AI-domain facts — what the AI cost, how fast it was, what it was
+/// doing, and whether the operator kept the result.
+///
+/// Message CONTENT is deliberately absent from this type: prompts and
+/// responses are segregated into their own opt-in, credential-scrubbed
+/// store and joined by hash (Phase 3 §3.6). Events stay small and fast.
+///
+/// `cost_micros` is DERIVED from a versioned price table; `tokens_in`,
+/// `tokens_out` and `model` are the truth and are always carried, so
+/// cost can be recomputed when the table was wrong or prices moved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AiEvent {
+    /// A call was dispatched to a provider.
+    CallStarted {
+        call: CallId,
+        provider: ProviderId,
+        model: String,
+        origin: Origin,
+        /// Live, or recovered from a stored session. See `Observation`.
+        observation: Observation,
+    },
+    /// First token arrived — time-to-first-token, the latency operators
+    /// actually feel.
+    FirstToken { call: CallId, ttft_ms: u32 },
+    /// The call ended, however it ended.
+    ///
+    /// Every count is OPTIONAL because providers report different things:
+    /// Codex gives an input/output split, Grok gives context-window
+    /// occupancy. `None` means "the provider did not say" — which is not
+    /// zero, and must never be priced as zero.
+    CallFinished {
+        call: CallId,
+        tokens_in: Option<u64>,
+        /// Served from cache — bills at a fraction of fresh input, so it
+        /// is never folded into `tokens_in`.
+        cache_read: Option<u64>,
+        /// Written into the cache — bills above fresh input.
+        cache_write: Option<u64>,
+        tokens_out: Option<u64>,
+        total_tokens: Option<u64>,
+        context_used: Option<u64>,
+        context_size: Option<u64>,
+        /// `None` until the price table prices it (Phase 3 PR 2). Derived,
+        /// never authoritative — recomputed from the counts above.
+        cost_micros: Option<u64>,
+        duration_ms: u32,
+        outcome: AiOutcome,
+    },
+    /// The attribution payoff: did the operator KEEP what the AI made?
+    /// `target` names what it became when kept (slide/comp id).
+    Disposition {
+        call: CallId,
+        kept: bool,
+        target: Option<String>,
+    },
+}
+
+impl AiEvent {
+    /// Every AI fact belongs to exactly one call — the correlation key.
+    pub const fn call(&self) -> CallId {
+        match self {
+            Self::CallStarted { call, .. }
+            | Self::FirstToken { call, .. }
+            | Self::CallFinished { call, .. }
+            | Self::Disposition { call, .. } => *call,
+        }
+    }
+}
+
+pub type AiReceiver = broadcast::Receiver<Stamped<AiEvent>>;
+
 /// The installed UI waker callback (doctrine law 6).
 pub type Waker = Arc<dyn Fn() + Send + Sync>;
 
@@ -551,6 +755,7 @@ pub struct Fabric {
     build: broadcast::Sender<Stamped<BuildEvent>>,
     coach: broadcast::Sender<Stamped<CoachEvent>>,
     intent: broadcast::Sender<Stamped<IntentEvent>>,
+    ai: broadcast::Sender<Stamped<AiEvent>>,
     /// THE JOBBOARD — the fold of the jobs stream (+ each row's latest-wins
     /// progress counter), shared by every Fabric clone. Running rows stay
     /// until resolved; resolved rows stay until acked, bounded by
@@ -588,6 +793,10 @@ impl Fabric {
         let (build, _) = broadcast::channel(64);
         let (coach, _) = broadcast::channel(128);
         let (intent, _) = broadcast::channel(64);
+        // AI facts arrive up to 4 per call (start/first-token/finish/
+        // disposition) across concurrent provider calls — sized like the
+        // provider lane, not the chatty capture lane.
+        let (ai, _) = broadcast::channel(128);
         Self {
             shell,
             deck,
@@ -597,6 +806,7 @@ impl Fabric {
             build,
             coach,
             intent,
+            ai,
             board: Arc::new(std::sync::Mutex::new(Vec::new())),
             roster: Arc::new(std::sync::Mutex::new(Vec::new())),
             seq: Arc::new(AtomicU64::new(0)),
@@ -640,6 +850,12 @@ impl Fabric {
 
     pub fn mint_provider_attempt(&self) -> ActivationAttemptId {
         ActivationAttemptId(self.seq.fetch_add(1, Ordering::Relaxed))
+    }
+
+    /// Mint a process-unique AI call id (same sequence space as stamps —
+    /// a CallId is causally ordered against every signal).
+    pub fn mint_ai_call(&self) -> CallId {
+        CallId(self.seq.fetch_add(1, Ordering::Relaxed))
     }
 
     /// Publish a capture signal — stamped, waking the UI.
@@ -830,6 +1046,17 @@ impl Fabric {
 
     pub fn subscribe_intent(&self) -> IntentReceiver {
         self.intent.subscribe()
+    }
+
+    /// Publish an AI-domain fact (cost, latency, attribution, disposition).
+    /// Message content never rides this channel — see `AiEvent`.
+    pub fn publish_ai(&self, event: AiEvent) {
+        let _ = self.ai.send(self.stamp(event));
+        self.wake();
+    }
+
+    pub fn subscribe_ai(&self) -> AiReceiver {
+        self.ai.subscribe()
     }
 
     /// Publish, ignoring "no subscribers yet" — a signal with no listeners

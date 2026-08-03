@@ -1972,6 +1972,7 @@ name = "dpl-chat-gemini"
 version = "0.1.0"
 dependencies = [
  "dpl-chat-core",
+ "dpl-chat-store",
 ]
 
 [[package]]
@@ -1983,6 +1984,7 @@ dependencies = [
  "async-io",
  "async-process",
  "dpl-chat-core",
+ "dpl-chat-store",
  "dpl-proc",
  "dpl-tools-deps",
  "futures-lite",
@@ -2453,6 +2455,7 @@ dependencies = [
  "dpl-hub",
  "dpl-index",
  "dpl-intent",
+ "dpl-ledger",
  "serde",
  "serde_json",
  "tokio",

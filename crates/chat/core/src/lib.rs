@@ -653,22 +653,120 @@ impl BoundedNativePayload {
     }
 }
 
+/// Structured token accounting from a provider's usage report.
+///
+/// Every field is optional because providers report DIFFERENT things:
+/// Codex reports an input/output split, Grok reports context-window
+/// occupancy. A `None` means "this provider did not say", never zero —
+/// the distinction matters, because zero is a measurement and absent is
+/// not, and cost computed from a guessed zero would be a lie.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TokenUsage {
+    /// FRESH input — tokens the provider actually processed anew.
+    pub input_tokens: Option<u64>,
+    /// Tokens served from cache. Billed at a small fraction of fresh
+    /// input, so they MUST stay separate: folding them into `input`
+    /// makes cost an overestimate, and the split cannot be recovered
+    /// afterwards from a folded number.
+    pub cache_read_tokens: Option<u64>,
+    /// Tokens written INTO the cache — billed above fresh input.
+    pub cache_write_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+    pub total_tokens: Option<u64>,
+    /// Context-window occupancy, when the provider reports it that way.
+    pub context_used: Option<u64>,
+    pub context_size: Option<u64>,
+}
+
+impl TokenUsage {
+    pub const fn is_empty(self) -> bool {
+        self.input_tokens.is_none()
+            && self.cache_read_tokens.is_none()
+            && self.cache_write_tokens.is_none()
+            && self.output_tokens.is_none()
+            && self.total_tokens.is_none()
+            && self.context_used.is_none()
+            && self.context_size.is_none()
+    }
+
+    /// Accumulate per-turn reports into a session total. Absent stays
+    /// absent; a present value adds to whatever came before, so summing
+    /// never invents a number out of two absences.
+    pub fn accumulate(self, turn: Self) -> Self {
+        fn plus(a: Option<u64>, b: Option<u64>) -> Option<u64> {
+            match (a, b) {
+                (Some(a), Some(b)) => Some(a.saturating_add(b)),
+                (Some(v), None) | (None, Some(v)) => Some(v),
+                (None, None) => None,
+            }
+        }
+        Self {
+            input_tokens: plus(self.input_tokens, turn.input_tokens),
+            cache_read_tokens: plus(self.cache_read_tokens, turn.cache_read_tokens),
+            cache_write_tokens: plus(self.cache_write_tokens, turn.cache_write_tokens),
+            output_tokens: plus(self.output_tokens, turn.output_tokens),
+            total_tokens: plus(self.total_tokens, turn.total_tokens),
+            // Context occupancy is a LEVEL, never a sum — the latest
+            // reading is the truth, adding them would be meaningless.
+            context_used: turn.context_used.or(self.context_used),
+            context_size: turn.context_size.or(self.context_size),
+        }
+    }
+
+    /// Later reports supersede earlier ones field-by-field, so a provider
+    /// that reports input now and output later still yields one whole
+    /// picture at the end of the turn.
+    pub fn merge(self, newer: Self) -> Self {
+        Self {
+            input_tokens: newer.input_tokens.or(self.input_tokens),
+            cache_read_tokens: newer.cache_read_tokens.or(self.cache_read_tokens),
+            cache_write_tokens: newer.cache_write_tokens.or(self.cache_write_tokens),
+            output_tokens: newer.output_tokens.or(self.output_tokens),
+            total_tokens: newer.total_tokens.or(self.total_tokens),
+            context_used: newer.context_used.or(self.context_used),
+            context_size: newer.context_size.or(self.context_size),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChatEventContent {
     SessionStarted,
+    /// The provider named the model it is actually running. Emitted from
+    /// the provider's own session-configured fact — never guessed.
+    ModelSelected {
+        model: String,
+    },
     UserMessage(String),
     AssistantMessage(String),
     PlanUpdated(String),
     StatusUpdated(String),
-    ToolStarted { label: String },
-    ToolCompleted { label: String, succeeded: bool },
+    ToolStarted {
+        label: String,
+    },
+    ToolCompleted {
+        label: String,
+        succeeded: bool,
+    },
     DiffUpdated(String),
-    ApprovalRequested { summary: String },
-    ApprovalResolved { accepted: bool },
-    UsageUpdated { summary: String },
+    ApprovalRequested {
+        summary: String,
+    },
+    ApprovalResolved {
+        accepted: bool,
+    },
+    /// `summary` is the human line the activity feed shows; `usage` is the
+    /// machine truth the AI domain records. Prose was all this carried
+    /// before — you cannot aggregate a sentence.
+    UsageUpdated {
+        summary: String,
+        usage: TokenUsage,
+    },
     TurnCompleted,
     TurnInterrupted,
-    TurnFailed { message: String },
+    TurnFailed {
+        message: String,
+    },
     ProviderWarning(String),
     Unknown(BoundedNativePayload),
 }
@@ -676,6 +774,7 @@ pub enum ChatEventContent {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ChatEventKind {
     SessionStarted,
+    ModelSelected,
     UserMessage,
     AssistantMessage,
     PlanUpdated,
@@ -708,6 +807,7 @@ impl ChatEventContent {
     pub const fn kind(&self) -> ChatEventKind {
         match self {
             Self::SessionStarted => ChatEventKind::SessionStarted,
+            Self::ModelSelected { .. } => ChatEventKind::ModelSelected,
             Self::UserMessage(_) => ChatEventKind::UserMessage,
             Self::AssistantMessage(_) => ChatEventKind::AssistantMessage,
             Self::PlanUpdated(_) => ChatEventKind::PlanUpdated,
@@ -729,6 +829,7 @@ impl ChatEventContent {
     pub const fn presentation(&self) -> EventPresentation {
         match self {
             Self::SessionStarted
+            | Self::ModelSelected { .. }
             | Self::StatusUpdated(_)
             | Self::TurnCompleted
             | Self::TurnInterrupted => EventPresentation::Activity,
