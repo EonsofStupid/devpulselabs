@@ -51,47 +51,36 @@ already uses — so a plan can reference them and a token can carry them.
 | "explodes… in a fun 2d effect" | **selection burst** — a radial 2D shard emission on commit | a terminal, non-looping effect authored beside the other 19 |
 | "the matrix you are suppose to be building" | **the patch matrix: seed lineages × axes**, composed per-axis | `tokens/frame-patches.json`, generated, never hand-written |
 
-## 4. The patch matrix, and the five seed ancestrals
+## 4. The matrix — ALREADY BUILT, and bigger than described here
 
-> **Vocabulary note.** This section said "trait" until 2026-08-03. `trait` is
-> a Rust keyword and not an egui word; the term is now **`FramePatch`**,
-> because what the file authors is a partial `egui::Frame`. The rename and the
-> axis mapping are law in
-> `docs/plans/coldlight-naming-and-the-pattern-library.md`, and **N1 lands
-> before any link here** so nothing gets authored twice.
+> **Correction, 2026-08-03.** This section previously claimed the matrix held
+> "four traits and no seed lineages" and that the five ancestrals were "not in
+> it yet". Both were false. `main` has carried **THE MATRIX** since
+> 2026-07-31 — see `docs/design/coldlight-matrix.md` and
+> `crates/coldlight/tokens/matrix.json`.
 
-The matrix today holds **four patches** — `neubrutalist`, `claymorphic`,
-`cyber`, `retro` — over **nine axes**. Named for their `egui::Frame`
-destination: `fill · stroke · corner_radius · shadows ·
-override_text_color · override_font_id`, plus three that have **no egui
-equivalent and are marked as extensions**: `back_glow · tints · anim`.
-State overlays take egui's own slot names — `inactive · hovered · active ·
-open`.
+A look is a **coordinate** across four facets (Ranganathan's Colon
+Classification), not a hand-authored bundle:
+**ANCESTOR** (owns `font`) × **STRUCTURE** (`radius`, `edge.width`) ×
+**MATERIAL** (`fill`, `ink`, `edge.color`) × **ATMOSPHERE** (`shadows`,
+`back_glow`, `tints`, `anim`), with **STATE** as the overlay.
 
-The operator's correction is that those four are not the roots. The matrix
-should be seeded by **five ancestral design languages**, and the patches we
-ship are compositions descended from them — carried as a `lineage: [...]`
-provenance field, never as entries in the patch list:
+Generated and build-validated on main:
 
-| seed lineage | what it contributes to the axes |
-|---|---|
-| **Bauhaus** | primary geometry; function-first form; unmodulated primaries; grotesque type. Drives `radius` (minimal), `fill` (flat), `font`. |
-| **Art Deco** | symmetry, stepped and faceted geometry, metallic inlay, high-contrast display. Drives `edge` (inlay/rule), `tints` (metallic), display `font`. |
-| **Swiss** (International Typographic Style) | the grid, asymmetric balance, whitespace as structure, neutral type. Drives layout rhythm, `ink` hierarchy, restraint on every other axis. |
-| **Aero** | gloss, glass, depth, aqua specular highlight, humanist warmth. Drives `back_glow`, `shadows` (soft/layered), surface translucency. |
-| **Brutalist** | raw structure, exposed hierarchy, hard offset shadow, unapologetic border. Drives `shadows` (hard), `edge` (heavy), `fill` (opaque). |
+- **8 ancestors** — `bauhaus · art-deco · brutalist · swiss · aero · memphis ·
+  constructivist · editorial`
+- **6 structures** · **9 materials** · **6 atmospheres**
+- ~22 authored values → ~900 valid coordinates. Legality is DATA: every value
+  is native/allowed/forbidden for every ancestor, and leaving one
+  unclassified **fails the build**.
 
-**Why this matters and is not a rename:** `neubrutalist` and `claymorphic`
-are each already a BLEND of these — neubrutalist is Brutalist edge over
-Bauhaus geometry; claymorphic is Aero depth with Bauhaus radius. Naming the
-ancestors makes those blends derivable and lets a new trait be composed from
-lineage rather than invented, which is the whole point of an axis matrix.
+So the operator's five are five of eight, and the four old traits reclassify
+rather than survive: `neubrutalist` is the **Brutalist ancestor**,
+`claymorphic` is a **material**, `cyber` and `retro` are **atmospheres**.
 
-**The bleed pool is a matrix citizen, not a one-off.** The five hues
-(`cyan · magenta · amber · viridian · electric`) are authored as a named pool
-and referenced by id, so any surface can adopt the same wash. That is what
-"global part of the matrix" has to mean in practice — a preset, cross-checked
-at build time, not a list of hexes copied into a widget.
+The bleed pool remains a matrix citizen: authored once in
+`tokens/presets.json`, cross-checked against `hues.json` at build time, and
+referenced by id — never a list of hexes in a widget.
 
 ## 5. The interaction, end to end
 
@@ -115,7 +104,7 @@ at build time, not a list of hexes copied into a widget.
 - There is no overlay, no scroll container, no elevation-on-focus, and no
   selection burst.
 - `tokens/motion.json` has 19 effects; **none is a terminal 2D burst.**
-- The trait matrix has four traits and **no seed lineages**.
+- ~~The trait matrix has four traits and no seed lineages.~~ **FALSE — see §4.** The matrix is built, with eight ancestors.
 - The activation label after selection does not exist.
 
 ## 7. What is already in place to build on

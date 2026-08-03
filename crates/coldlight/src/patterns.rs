@@ -11,7 +11,7 @@
 //! them into the element census so the Library wall shows them — one
 //! implementation, one place it is rendered from.
 
-use crate::{self as cl, FrameStyle, Tone, WidgetState};
+use crate::{self as cl, ResolvedStyle, Tone, TraitState};
 use egui::{
     emath::TSTransform, Align, Color32, CornerRadius, Id, Layout, Rect, Response, RichText, Sense,
     Stroke, Ui, UiBuilder, Vec2,
@@ -107,7 +107,7 @@ pub fn lift_tile<R>(
     resting: Vec2,
     selected: bool,
     tone: Tone,
-    contents: impl FnOnce(&mut Ui, &FrameStyle) -> R,
+    contents: impl FnOnce(&mut Ui, &ResolvedStyle) -> R,
 ) -> (Response, R) {
     let reserved = resting * LIFT;
     let (outer, response) = ui.allocate_exact_size(reserved, Sense::click());
@@ -121,11 +121,11 @@ pub fn lift_tile<R>(
     );
 
     let state = if response.is_pointer_button_down_on() {
-        WidgetState::Active
+        TraitState::Active
     } else if raised {
-        WidgetState::Hovered
+        TraitState::Hover
     } else {
-        WidgetState::Inactive
+        TraitState::Idle
     };
     let style = cl::compose(tone, "claymorphic", &[], state);
 
@@ -157,7 +157,7 @@ pub fn lift_tile<R>(
                     let depth = 6.0 + 14.0 * t;
                     ui.painter().rect_filled(
                         inner.translate(Vec2::new(0.0, depth * 0.35)),
-                        CornerRadius::same(style.corner_radius),
+                        CornerRadius::same(style.radius),
                         Color32::from_black_alpha((90.0 + 90.0 * t) as u8),
                     );
                     let edge = if selected {
@@ -165,16 +165,13 @@ pub fn lift_tile<R>(
                     } else if t > 0.0 {
                         Stroke::new(1.0, tone.color().gamma_multiply(0.35 + 0.65 * t))
                     } else {
-                        style.stroke
+                        style.edge
                     };
-                    ui.painter().rect_filled(
-                        inner,
-                        CornerRadius::same(style.corner_radius),
-                        style.fill,
-                    );
+                    ui.painter()
+                        .rect_filled(inner, CornerRadius::same(style.radius), style.fill);
                     ui.painter().rect_stroke(
                         inner,
-                        CornerRadius::same(style.corner_radius),
+                        CornerRadius::same(style.radius),
                         edge,
                         egui::StrokeKind::Inside,
                     );

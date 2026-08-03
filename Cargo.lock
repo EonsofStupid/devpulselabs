@@ -2145,7 +2145,7 @@ name = "dpl-coach-runtime"
 version = "0.1.0"
 dependencies = [
  "async-io",
- "atspi",
+ "atspi 0.30.0",
  "dpl-coach-fabric",
  "dpl-coach-inventory",
  "dpl-proc",

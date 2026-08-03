@@ -1,112 +1,112 @@
 # ColdLight naming, and the pattern library law
 
-Two operator corrections from 2026-08-03, ground-truthed against egui 0.35
-and the code as it stands. Both are LAWS, not preferences.
+Two operator corrections from 2026-08-03. The second is a law. The first was
+written as a rename program and is **withdrawn** — the matrix already solves
+it, better. This document keeps the parts that survive and records why.
 
 > "we are suppose to be having a generic version of these patterns captured
 > for the slide library so we properly build up a true library of components
 > and patterns that do not use fake terms like traits if not used in egui"
 
-## 1. LAW — no invented term where egui has one
+## 1. WITHDRAWN — the `trait` → `FramePatch` rename
 
-### 1.1 The finding
+### 1.1 What was wrong
 
-`trait` is not an egui word. It is a Rust **keyword**, so `traits.json` →
-`traits_gen.rs` → `TraitDef` collides with the language's most loaded term
-inside a file that is nothing to do with Rust traits.
+The proposal renamed `traits.json` → `frame-patches.json`, `TraitDef` →
+`FramePatch`, and the nine axes onto their `egui::Frame` destinations, because
+`trait` is a Rust keyword and not an egui word.
 
-The system already knows better: `compose()` returns **`ResolvedStyle`**
-(`crates/coldlight/src/lib.rs:463`). Only the input is misnamed.
+The premise was right. **The conclusion was wrong, because the answer already
+existed on `main` and nobody looked.**
 
-### 1.2 egui has NO term for a stackable partial look
+`docs/design/coldlight-matrix.md` (2026-07-31) and
+`crates/coldlight/tokens/matrix.json` land **THE MATRIX** — a faceted
+classification after Ranganathan's Colon Classification, generated and
+build-validated. Traits are not being renamed; they are being **replaced** by
+four facets:
 
-This has to be said plainly, because the fix is not "find the egui word."
-egui 0.35 ships:
-
-| egui type | what it is |
-|---|---|
-| `Style` | the whole configuration |
-| `Visuals` | colours and shadows |
-| `style::Widgets` | five state slots: `noninteractive` `inactive` `hovered` `active` `open` |
-| `style::WidgetVisuals` | `bg_fill` `weak_bg_fill` `bg_stroke` `corner_radius` `fg_stroke` `expansion` |
-| `Frame` | the painted container: `fill` `stroke` `corner_radius` `shadow` `inner_margin` `outer_margin` |
-| `override_text_style` · `override_font_id` · `override_text_color` | egui's own idiom for PARTIAL application |
-
-A partial look that STACKS is a ColdLight invention on top of these.
-Adopting an "egui word" for it would be inventing one again.
-
-**The rule an egui developer follows instead: name it for the egui type it
-produces.** ColdLight produces an `egui::Frame` —
-`crates/coldlight/src/lib.rs:659`:
-
-```rust
-.fill(style.fill)
-.stroke(style.edge)
-.corner_radius(CornerRadius::same(style.radius))
-```
-
-### 1.3 The rename
-
-| today | becomes | grounding |
+| Ranganathan | facet | owns |
 |---|---|---|
-| `tokens/traits.json` | `tokens/frame-patches.json` | it authors partial `Frame` values |
-| `TraitDef` | `FramePatch` | all-`Option` partial; `patch` is the Rust word for it |
-| `ResolvedStyle` | `FrameStyle` | the complete set handed to `egui::Frame` |
-| `TraitState` | `WidgetState` | egui's `style::Widgets` axis |
-| `Idle` / `Hover` / `Active` | `Inactive` / `Hovered` / `Active` / **`Open`** | egui's exact slot names; `Open` is gained |
-| `trait_def(id)` | `frame_patch(id)` | |
-| `TRAITS` | `FRAME_PATCHES` | |
-| `traits_gen.rs` | `frame_patches_gen.rs` | |
-| `role: base \| stack` | `role: base \| overlay` | a stack is the whole; a member is an overlay |
-| a NAMED stack | **`recipe`** | already the word in the slide-seed contract — kept, not renamed |
+| Personality | **ANCESTOR** | `font` + the default coordinate for everything below |
+| Space | **STRUCTURE** | `radius`, `edge.width` |
+| Matter | **MATERIAL** | `fill`, `ink`, `edge.color` |
+| Energy | **ATMOSPHERE** | `shadows`, `back_glow`, `tints`, `anim` |
+| Time | **STATE** | the state overlay — already exists |
 
-`compose(tone, base, overlays, state) -> FrameStyle` keeps its name. Compose
-is the correct verb and needs no change.
+Ratified and generated on `main`:
 
-### 1.4 The axes — the operator's rule, applied to the right struct
+- **8 ancestors** — `bauhaus · art-deco · brutalist · swiss · aero · memphis ·
+  constructivist · editorial`
+- **6 structures** · **9 materials** · **6 atmospheres**
+- ~22 authored values → ~900 valid coordinates, with legality as DATA: every
+  value is `native`/`allowed`/`forbidden` for every ancestor, and an
+  unclassified value **fails the build**.
 
-The rule is **an axis name IS the destination field**. The destination is
-`egui::Frame`, not `WidgetVisuals`.
+### 1.2 Two claims that were false
 
-| today | becomes | egui destination |
-|---|---|---|
-| `fill` | `fill` — **unchanged** | `Frame::fill` |
-| `edge` | **`stroke`** | `Frame::stroke` |
-| `radius` | **`corner_radius`** | `Frame::corner_radius` |
-| `shadows` | `shadows` — plural kept | `Frame::shadow` is SINGULAR; stacking is an extension |
-| `ink` | **`override_text_color`** | `Visuals::override_text_color` |
-| `font` | **`override_font_id`** | `Style::override_font_id` |
-| `back_glow` | unchanged — **EXTENSION** | no egui equivalent |
-| `tints` | unchanged — **EXTENSION** | no egui equivalent |
-| `anim` | unchanged — **EXTENSION** | no egui equivalent |
+Both were stated as findings. Both are corrected here rather than quietly
+edited away.
 
-Three of nine axes have no egui home. The token file must SAY so — an
-`"$extension": true` marker per axis — rather than let a reader assume every
-axis maps somewhere. That is where ColdLight is genuinely its own system, and
-hiding it is how the vocabulary rotted the first time.
+1. **"The matrix has four traits and no seed lineages."** False. Eight
+   ancestors were ratified 2026-07-31 — before the operator described five on
+   2026-08-02, and main already carried three more.
+2. **"The five ancestrals are not in it yet."** False. Five of them are, plus
+   `memphis`, `constructivist` and `editorial`.
 
-### 1.5 The five seed lineages are not patches
+### 1.3 Why the rename must not land
 
-**Bauhaus · Art Deco · Swiss · Aero · Brutalist** are ancestry, not
-composable layers. They are a `lineage: [...]` provenance field ON a patch,
-never entries in the patch list. `neubrutalist` is Brutalist edge over
-Bauhaus geometry; `claymorphic` is Aero depth at Bauhaus radius.
+Its destination contradicts the matrix on the point the matrix cares most
+about. **Matrix law M4:**
 
-### 1.6 Scope
+> "`edge` is SPLIT: width is geometry (STRUCTURE), colour is substance
+> (MATERIAL). Without this an atmosphere has to reach outside its lane to
+> recolour an edge, which is the exact defect the matrix exists to close."
 
-82 sites carry the term across `crates/coldlight`, `crates/slides`,
-`crates/composer`, `crates/doc` and the token files. Pre-release law: this is
-a rename, executed in one pass, with **no alias and no deprecation shim**.
+The rename collapsed `edge` into a single `stroke` axis — the opposite move.
+Landing it would force the matrix to undo a rename to do its own job.
+
+**A rename on the way to a replacement is a migration nobody asked for.**
+
+### 1.4 What survives, as amendments to the matrix
+
+Three findings hold, and are handed to whoever finishes the matrix migration:
+
+1. **The STATE facet should take egui's own slot names.**
+   `egui::style::Widgets` has exactly `noninteractive · inactive · hovered ·
+   active · open`. `Idle` is not an egui word, and `open` is a slot ColdLight
+   lacks. Free to get right while that code is being touched anyway.
+2. **Three axes have no egui equivalent.** `back_glow`, `tints` and `anim`
+   appear nowhere in `egui::Frame`, `Visuals` or `WidgetVisuals`. ATMOSPHERE
+   owns all three, so that facet is *by definition* the non-egui one — worth
+   saying in `matrix.json` so a reader does not hunt for the field it maps to.
+3. **The composed output is already named right.** `compose()` returns
+   `ResolvedStyle` and it lands on `egui::Frame` — `.fill`, `.stroke`,
+   `.corner_radius` in `crates/coldlight/src/lib.rs`. Whatever the input
+   becomes, the output name should not change.
+
+### 1.5 The lesson, recorded
+
+`compose(tone, base, stack, state)` takes an **untyped `&[&str]`**, and matrix
+law M1 exists precisely because of it: nothing stops
+`compose(tone, "neubrutalist", &["claymorphic"], …)` — two contradictory
+bases, silently last-wins. A pass was spent renaming the thing instead of
+reading the doctrine that had already diagnosed it.
+
+**Read `docs/design/` before proposing a change to the design system.** The
+matrix doc opens with a section headed *"What already exists (ground truth, do
+not rebuild)"*.
 
 ## 2. LAW — every pattern lands a generic catalog item
+
+This one stands.
 
 ### 2.1 The rule
 
 A UI pattern built for one surface is not done when that surface ships. It is
-done when a **generic** version exists in the slide catalog, so the Library
-accrues a real component and pattern library instead of a pile of one-offs.
+done when a **generic** version exists, so the library accrues real components
+instead of a pile of one-offs.
 
-This mirrors the rule `slide-catalog-pass` already enforces for ported items:
+This mirrors what `slide-catalog-pass` already enforces for ported items:
 
 > "A renderer with no organized seed is only half-ported (this is the gap that
 > made the Library feel empty)."
@@ -114,57 +114,35 @@ This mirrors the rule `slide-catalog-pass` already enforces for ported items:
 Same gap, other direction: a pattern invented for Chat and never generalized
 leaves the Library just as empty.
 
-### 2.2 The two deliverables, per pattern
+### 2.2 Where a pattern lives
 
-1. **The generic renderer** — in `crates/slides/src/{elements,blocks,templates}`,
-   painting only through `compose(...)` and coldlight paint fns. No ad-hoc hex,
-   no bespoke frame helper, no reference to Chat.
-2. **The organized seed** — `seeds/slides/<category>/<name>/slide.json`,
-   carrying `template`, `category`, stackable `tags`, a `recipe` (the named
-   patch stack), and authored content blocks. Registered, so it appears on the
-   Workbench Library wall, filterable by category × tags.
+**`crates/coldlight/src/patterns.rs`** — the shared interaction primitives,
+because every crate that paints already depends on ColdLight and several need
+these. `crates/slides` registers thin demos into the element census so the
+Library wall renders them: one implementation, one place it is shown from.
 
-Categories in force: `static · animation · interactive · split` (+
-`infographics` per the catalog checklist). Today `seeds/slides/` holds four of
-those; `infographics/` does not exist yet.
+`crates/slides/src/elements/census.rs` already reserves
+`ElementCategory::Control` and `Container` for exactly this.
 
-### 2.3 What the providers work owes the library
+### 2.3 What has needed generalizing so far
 
-Each of these is a pattern invented for the Chat providers surface. Each owes
-a generic catalog item.
+Three surfaces, three primitives — which is the signal this law was written
+for.
 
-| pattern in Chat | generic catalog item | category | exists? |
+| primitive | built for | now shared with | state |
 |---|---|---|---|
-| the `subscriptions` / `API · usage-based` group chip | `elements/group-chip` — an elevated label that introduces a group and stands before the group has entries | static | **no** |
-| the subscriptions carousel | `blocks/carousel-row` — one row, horizontal snap, arrow affordances, inertial scroll | interactive | **no** |
-| the API grid | `blocks/tile-grid` — N-row-minimum scrolling grid, N authored | interactive | **no** |
-| tile elevate-on-focus | `elements/lift-tile` — elevation step + scale, siblings do not reflow | interactive | **no** |
-| selection burst | `motion.json` effect 20 — terminal radial shard emission, non-looping | animation | **no** |
-| the sporadic chip hover | `motion.json` effect 21 — per-glyph phase offset, hue-step cadence, decay | animation | **no** |
-| the `🧠 Providers` cross-link | `elements/bleed-control` — line-art at rest, two-hue dwell wash on hover | static | partial — the effect exists as `ink-bleed`, the element does not |
+| `bleed_control` | the shell status bar (V1) | the chat rail (C1) | **done** — one implementation |
+| `group_chip` · `lift_tile` · `carousel_row` · `tile_grid` | the chat carousel (C1) | the Library wall | renderers **done**, census registration **owed** |
+| `accordion` | the shell hub rail (L1a) | the chat provider rail (F1) | **owed** — still one implementation, in the shell |
 
-**Ordering law:** the generic item is authored in the SAME pass as the Chat
-use, never "later". A pattern that ships to one surface first and is
-generalized afterwards gets generalized to fit that surface.
+### 2.4 Still owed by C1
 
-### 2.4 Where the effects go
+- register the four patterns into the slides element census
+- `motion.json`: the **selection burst** — the first terminal (non-looping)
+  effect; the schema has to admit one
+- `motion.json`: the **sporadic** multi-hue chip hover
 
-The burst and the sporadic wash are **effects**, not renderers, so they land
-in `tokens/motion.json` beside the existing 19 and are referenced by id from
-the `anim` axis. `tokens/motion.json` currently has no terminal (non-looping)
-effect at all — the burst is the first, and the schema has to admit one.
+## 3. Order
 
-## 3. Order of work
-
-1. **N1** — the rename (§1). One pass, no shims. `cargo green` proves it.
-2. **N2** — the `$extension` markers and the `lineage` field (§1.4, §1.5).
-3. Then, and only then, the providers links — each carrying its generic
-   catalog item per §2.3, because those items must be authored in the new
-   vocabulary rather than renamed a second time.
-
-## 4. What this does NOT decide
-
-The generic renderers' composition, the burst's and the sporadic wash's
-authored form (counts, spread, cadence, decay), and whether `infographics/`
-becomes a real seed category are each decided in their own link's plan,
-against the code as it stands then.
+The matrix migration and the chat surface are independent lanes and stay that
+way. Nothing in §2 waits on §1.
