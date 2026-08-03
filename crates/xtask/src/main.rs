@@ -719,7 +719,12 @@ fn structure_audit() -> Result<(), String> {
     const SYS_ALLOWED: &[&str] = &["dpl-lottie-render"];
     // Orphan crate folders outside the workspace, named and tolerated
     // (architecture.md §3); anything NEW fails.
-    const ORPHAN_ALLOWED: &[&str] = &["desktop-spike", "coach-overlay", "coach-inventory"];
+    const ORPHAN_ALLOWED: &[&str] = &[
+        "desktop-spike",
+        "coach-overlay",
+        "coach-inventory",
+        "coach-fabric",
+    ];
 
     let output = Command::new("cargo")
         .args(["metadata", "--format-version", "1", "--no-deps"])

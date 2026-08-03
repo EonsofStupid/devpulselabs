@@ -44,7 +44,7 @@ indent, and WiredFRONT's subroute is still named "Composer" with no Library.
   - Helpers `chip`/`small_btn`/`plate`/`tab_stub`/`fit_aspect`/
     `painter_label`; `Act` enum; 6 tests.
 - `crates/coldlight/src/lib.rs` — generated registries this pass reads:
-  `TRAITS: &[TraitDef{id,role,label,blurb,…}]`, `LOOK_PRESETS: &[LookPreset]`,
+  `TRAITS: &[TraitDef{id,role,label,blurb,…}]`, `THEME_PRESETS: &[ThemePreset]`,
   `MOTION_PRESETS: &[MotionPreset]`, `FONTS: &[FontDef{id,label,class,blurb}]`,
   `MOODS: &[Mood{name,stops,scrim,accent}]` (+ `Mood::at`), `compose(tone,
   base, stack, state) -> ResolvedStyle` (stack is NON-static — usable for

@@ -23,9 +23,9 @@ use dpl_chat_runtime::{ChatRuntime, ProviderView, RegistryError};
 use dpl_chat_social::{
     Presence, SocialConversationId, SocialModel, SocialModelError, SocialThreadKind,
 };
-use dpl_chat_store::{HistoryCatalog, HistoryIndex};
+use dpl_chat_store::{HistoryCatalog, HistoryIndex, HistoryLocator, HistoryPage, IndexedSession};
 use dpl_coldlight::{self as cl, Tone};
-use dpl_fabric::{AppWindowKey, ProviderEvent, Stamped};
+use dpl_fabric::{AppWindowKey, ProviderCapability, ProviderEvent, ProviderPresence, Stamped};
 use dpl_hub::Route;
 use egui::{
     Align, Align2, Color32, CornerRadius, Layout, NumExt, Rect, RichText, Sense, Stroke, UiBuilder,
@@ -48,9 +48,22 @@ pub const CONTENT_ID: PilotId = PilotId::new("chat.sidebar.content");
 /// show name, and a show called "refresh" would otherwise collide with it.
 pub const CONTENT_REFRESH_ID: PilotId = PilotId::new("chat.sidebar.content.refresh");
 pub const CONTENT_BOARD_ID: PilotId = PilotId::new("chat.content.board");
+/// The banner naming which past transcript the pane is drawing.
+pub const HISTORY_BANNER_ID: PilotId = PilotId::new("chat.history.banner");
+/// The RECENT CHATS heading. It exists ONLY when transcripts were found, so
+/// its presence is the honest assertion for "the operator's chats surfaced".
+pub const HISTORY_SECTION_ID: PilotId = PilotId::new("chat.sidebar.sessions.history");
 /// One slot in the title-bar tab strip. Shared by the mode buttons and by the
 /// width budget that decides when the search field must yield to them.
 const MODE_TAB_WIDTH: f32 = 112.0;
+/// The narrowest a tab may become before the strip stops shrinking. Below this
+/// the short labels ("FX", "Grok", "Social") stop reading as words.
+const MODE_TAB_MIN_WIDTH: f32 = 68.0;
+/// The title block's fixed allocation at the left of the strip.
+const TITLE_WIDTH: f32 = 166.0;
+/// What the right-to-left group at the end of the strip needs: the four window
+/// buttons, the availability word, and the status dots.
+const TITLE_BAR_RESERVED: f32 = 250.0;
 pub const ROUTE_ID: PilotId = PilotId::new("chat.context.route");
 pub const SHOW_MAIN_ID: PilotId = PilotId::new("chat.window.show-main");
 pub const QUIT_ID: PilotId = PilotId::new("chat.window.quit");
@@ -72,6 +85,45 @@ pub const SOCIAL_THREADS_ID: PilotId = PilotId::new("chat.sidebar.social");
 pub const CONVERSATION_ID: PilotId = PilotId::new("chat.conversation");
 pub const COMPOSER_ID: PilotId = PilotId::new("chat.composer");
 pub const SEND_ID: PilotId = PilotId::new("chat.composer.send");
+
+/// The composer's keyboard contract, announced on the node itself so an
+/// assistive client or an agent reading the tree learns it — a shortcut that
+/// only exists in a hint string is folklore, not an affordance.
+pub const COMPOSER_KEYS: &str =
+    "Enter sends. Shift+Enter inserts a new line. Ctrl+Enter (Cmd+Enter) also sends.";
+
+/// Take an Enter that means SEND, leaving one that means NEWLINE alone.
+///
+/// The event is scanned by hand rather than through `consume_key`, because
+/// `consume_key` deliberately IGNORES shift when matching — so
+/// `Modifiers::NONE` happily matches Shift+Enter and would swallow the one
+/// keystroke that has to survive. Pinned by
+/// `enter_sends_and_shift_enter_makes_a_new_line`, which caught exactly that.
+///
+/// Consuming is what keeps a send from also inserting a newline, and it must
+/// happen BEFORE the `TextEdit` runs — afterwards the newline is already in
+/// the buffer. Shift+Enter (and Alt+Enter) are left in the queue and reach
+/// the widget as an ordinary new line.
+fn take_composer_submit(input: &mut egui::InputState) -> bool {
+    let mut submit = false;
+    input.events.retain(|event| {
+        let egui::Event::Key {
+            key: egui::Key::Enter,
+            pressed: true,
+            modifiers,
+            ..
+        } = event
+        else {
+            return true;
+        };
+        if modifiers.shift || modifiers.alt {
+            return true;
+        }
+        submit = true;
+        false
+    });
+    submit
+}
 pub const STOP_ID: PilotId = PilotId::new("chat.composer.stop");
 pub const NEW_CHAT_ID: PilotId = PilotId::new("chat.provider.new-chat");
 pub const ATTACHMENT_ID: PilotId = PilotId::new("chat.composer.attachment");
@@ -242,6 +294,12 @@ pub enum ChatWindowIntent {
         provider: ProviderId,
         session: ChatSessionId,
     },
+    /// Read one transcript already on this machine. The window records the
+    /// focus; the host answers with its first page (H1 §3.4).
+    SelectHistorySession {
+        provider: ProviderId,
+        locator: HistoryLocator,
+    },
     SelectSocialConversation(SocialConversationId),
     UpdateAiDraft {
         provider: ProviderId,
@@ -361,6 +419,13 @@ pub enum HostIntent {
     OpenUtility {
         interaction_id: InteractionId,
         placement: InteractionPlacement,
+    },
+    /// Read a past transcript's first page from disk. The window cannot do
+    /// this itself — a surface does not do IO — so it asks the host, which
+    /// owns the catalog (H1 §3.2).
+    LoadHistoryPage {
+        provider: ProviderId,
+        locator: HistoryLocator,
     },
     ActivateProvider(ProviderId),
     OpenProviderAuthorization(ProviderId),
@@ -484,6 +549,11 @@ pub struct ChatWindow {
     runtime: ChatRuntime,
     route_context: RouteContextState,
     histories: HashMap<ProviderId, ProviderHistory>,
+    /// The transcript the operator is reading, if any. Distinct from the live
+    /// session focus: a past transcript is read-only.
+    history_focus: Option<(ProviderId, HistoryLocator)>,
+    /// The page the host last handed back for `history_focus`.
+    history_page: Option<HistoryPage>,
     routes: Vec<(String, Route)>,
     social: SocialModel,
     interactions: InteractionRegistry,
@@ -519,10 +589,13 @@ pub struct ChatWindow {
 }
 
 impl ChatWindow {
+    /// The catalog is BORROWED, never owned: reading transcripts is IO, and
+    /// a surface does not do IO (D1's law). The window indexes it once here;
+    /// the host keeps it and owns every later `page()` call.
     pub fn new(
         runtime: ChatRuntime,
         initial_route: Route,
-        catalog: HistoryCatalog,
+        catalog: &HistoryCatalog,
         routes: Vec<(String, Route)>,
     ) -> Self {
         Self::with_models(
@@ -538,7 +611,7 @@ impl ChatWindow {
     pub fn with_models(
         runtime: ChatRuntime,
         initial_route: Route,
-        catalog: HistoryCatalog,
+        catalog: &HistoryCatalog,
         routes: Vec<(String, Route)>,
         social: SocialModel,
         interactions: InteractionRegistry,
@@ -588,6 +661,8 @@ impl ChatWindow {
             runtime,
             route_context,
             histories,
+            history_focus: None,
+            history_page: None,
             routes,
             social,
             interactions,
@@ -763,6 +838,29 @@ impl ChatWindow {
     /// Receive the content census the host read. Replaces the census and
     /// the error, and KEEPS any loaded spine — a refresh of the list must
     /// not blank the episode the operator is reading.
+    /// Receive the transcript page the host read from disk. Late pages for a
+    /// row the operator has already navigated away from are DISCARDED — disk
+    /// reads race the finger, and the banner must always name what is drawn.
+    /// The newest transcript on this machine, if any. The proof harness uses
+    /// it to open a REAL conversation rather than an authored stand-in.
+    pub fn first_history_session(&self) -> Option<(ProviderId, HistoryLocator)> {
+        let providers = self.runtime.provider_views();
+        let rows = self.history_rows(&providers);
+        rows.first().map(|(provider, session)| {
+            (
+                provider.registration.manifest.descriptor.id,
+                session.locator,
+            )
+        })
+    }
+
+    pub fn observe_history_page(&mut self, page: HistoryPage) {
+        if self.history_focus != Some((page.provider_id, page.locator)) {
+            return;
+        }
+        self.history_page = Some(page);
+    }
+
     pub fn observe_content(&mut self, view: ContentView) {
         let spine = self.content.spine.take().or(view.spine);
         self.content = ContentView { spine, ..view };
@@ -807,6 +905,52 @@ impl ChatWindow {
 
     pub fn selected_provider_id(&self) -> Option<ProviderId> {
         self.runtime.selected_provider_id()
+    }
+
+    /// What every registered provider can do, as plain data the platform can
+    /// hold. The host publishes this onto the fabric's roster.
+    ///
+    /// This is the same shape D1 established with `content_episode_ids` — an
+    /// owned projection, not a handle. It does not leak `ChatRuntime` (which
+    /// stays a private field of this SURFACE) and it does no IO: it reads a
+    /// registry that is already in memory.
+    ///
+    /// `ActivationState`'s fourteen shades flatten here, deliberately: a
+    /// platform consumer needs the FACT (activated, and what's qualified),
+    /// not the chat lifecycle's state machine.
+    pub fn provider_capabilities(&self) -> Vec<ProviderCapability> {
+        self.runtime
+            .provider_views()
+            .into_iter()
+            .map(|view| {
+                let registration = &view.registration;
+                ProviderCapability {
+                    id: registration.manifest.descriptor.id,
+                    label: registration.manifest.descriptor.label.to_string(),
+                    activated: registration.activation.is_activated(),
+                    note: registration.activation.reason().map(str::to_owned),
+                    capabilities: registration.qualified_capabilities.clone(),
+                    summary: registration.manifest.descriptor.summary.to_owned(),
+                    since: registration.manifest.descriptor.since.to_owned(),
+                    // The lifecycle collapses to the states the Providers
+                    // surface may show — and only those.
+                    presence: match &registration.activation {
+                        ActivationState::Ready
+                        | ActivationState::Experimental { .. }
+                        | ActivationState::Degraded { .. } => ProviderPresence::Ready,
+                        ActivationState::SignedOut { .. } => ProviderPresence::SignedOut,
+                        ActivationState::NotInstalled { .. } => ProviderPresence::NotInstalled,
+                        ActivationState::SigningIn
+                        | ActivationState::AwaitingAuthorization(_)
+                        | ActivationState::Verifying => ProviderPresence::SigningIn,
+                        ActivationState::VersionUnsupported { .. }
+                        | ActivationState::Blocked { .. }
+                        | ActivationState::Failed { .. }
+                        | ActivationState::Disabled { .. } => ProviderPresence::Unavailable,
+                    },
+                }
+            })
+            .collect()
     }
 
     pub fn replace_provider_profiles(&mut self, profiles: Vec<ProviderProfile>) {
@@ -861,6 +1005,10 @@ impl ChatWindow {
             ChatWindowIntent::RefreshContent => Ok(Some(HostIntent::RefreshContent)),
             ChatWindowIntent::SelectSession { provider, session } => {
                 self.runtime.select_session(provider, session)?;
+                // Choosing a LIVE session leaves the transcript reader, or the
+                // pane would keep drawing a past conversation over a live one.
+                self.history_focus = None;
+                self.history_page = None;
                 Ok(None)
             }
             ChatWindowIntent::SelectSocialConversation(conversation) => {
@@ -877,6 +1025,15 @@ impl ChatWindow {
             } => {
                 self.social.set_draft(&conversation, value)?;
                 Ok(None)
+            }
+            ChatWindowIntent::SelectHistorySession { provider, locator } => {
+                // Record the focus and drop the stale page in the same beat,
+                // so the pane never shows the PREVIOUS transcript under the
+                // newly selected row's banner while the host reads disk.
+                self.history_focus = Some((provider, locator));
+                self.history_page = None;
+                self.runtime.select_provider(provider)?;
+                Ok(Some(HostIntent::LoadHistoryPage { provider, locator }))
             }
             ChatWindowIntent::UpdateProviderProfileDraft(draft) => {
                 self.provider_profile_draft = draft;
@@ -1268,11 +1425,23 @@ impl ChatWindow {
                 ui.horizontal(|ui| {
                     // Every connected provider spends a tab's worth of the row,
                     // so the width the strip needs before the search field may
-                    // keep its place grows with them. The +1 is Content, which
-                    // is always in the strip.
+                    // keep its place grows with them. The +3 is AI, Content and
+                    // Social — the three that are ALWAYS in the strip. Counting
+                    // only Content under-budgeted by two slots, which stayed
+                    // invisible until a third provider activated and pushed
+                    // Social underneath the status text.
                     let connected = self.connected_tabs();
-                    let tabs = connected.len() + 1;
+                    let tabs = connected.len() + 3;
                     let compact = ui.available_width() < 820.0 + MODE_TAB_WIDTH * tabs as f32;
+                    // The strip cannot simply overflow: the window controls and
+                    // the status word are laid out right-to-left in this SAME
+                    // row, so tabs that do not fit are drawn UNDERNEATH them.
+                    // Every slot therefore shares whatever is left once the
+                    // title and that right-hand group are reserved, down to a
+                    // floor where the short labels still read.
+                    let tab_width = ((ui.available_width() - TITLE_WIDTH - TITLE_BAR_RESERVED)
+                        / tabs as f32)
+                        .clamp(MODE_TAB_MIN_WIDTH, MODE_TAB_WIDTH);
                     let title = ui
                         .allocate_ui_with_layout(
                             egui::vec2(166.0, 35.0),
@@ -1306,6 +1475,7 @@ impl ChatWindow {
                         AI_MODE_ID,
                         "AI",
                         self.domain == ChatDomain::Ai && focused_tab.is_none(),
+                        tab_width,
                     )
                     .clicked()
                     {
@@ -1322,6 +1492,7 @@ impl ChatWindow {
                             PROVIDER_TAB_ID.child(&PilotKey::new(id.0)),
                             short_label,
                             selected,
+                            tab_width,
                         )
                         .on_hover_text(label);
                         if tab.clicked() {
@@ -1333,6 +1504,7 @@ impl ChatWindow {
                         CONTENT_MODE_ID,
                         "Content",
                         self.domain == ChatDomain::Content,
+                        tab_width,
                     )
                     .clicked()
                     {
@@ -1348,6 +1520,7 @@ impl ChatWindow {
                         SOCIAL_MODE_ID,
                         &social_label,
                         self.domain == ChatDomain::Social,
+                        tab_width,
                     )
                     .clicked()
                     {
@@ -2023,38 +2196,54 @@ impl ChatWindow {
         }
     }
 
+    /// The transcripts already on this machine, newest first.
+    ///
+    /// This is a SECOND source beside the live registry, not a replacement.
+    /// History-backed providers have no live sessions at all — which is
+    /// exactly why the rail could only ever show a count before H1.
+    fn history_rows<'a>(
+        &'a self,
+        providers: &'a [ProviderView],
+    ) -> Vec<(&'a ProviderView, &'a IndexedSession)> {
+        let mut rows = providers
+            .iter()
+            .filter_map(|provider| {
+                let id = provider.registration.manifest.descriptor.id;
+                let index = self.histories.get(&id)?.index.as_ref()?;
+                Some(
+                    index
+                        .sessions
+                        .iter()
+                        .map(move |session| (provider, session)),
+                )
+            })
+            .flatten()
+            .collect::<Vec<_>>();
+        // Most recent first: the operator is looking for what they were just
+        // doing, never for their oldest transcript.
+        rows.sort_by_key(|(_, session)| std::cmp::Reverse(session.modified_millis));
+        rows
+    }
+
     fn session_groups(
         &self,
         ui: &mut egui::Ui,
         providers: &[ProviderView],
         intents: &mut Vec<ChatWindowIntent>,
     ) {
+        let history = self.history_rows(providers);
         if providers
             .iter()
             .all(|provider| provider.registration.sessions.is_empty())
+            && history.is_empty()
         {
             micro_heading(ui, "SESSIONS");
-            let local_count = self
-                .histories
-                .values()
-                .filter_map(|history| history.index.as_ref())
-                .map(|index| index.sessions.len())
-                .sum::<usize>();
             if let Some(error) = self
                 .histories
                 .values()
                 .find_map(|history| history.error.as_deref())
             {
                 ui.label(RichText::new(error).small().color(Tone::Coral.color()));
-            } else if local_count > 0 {
-                ui.label(
-                    RichText::new(format!(
-                        "{local_count} local histor{} available",
-                        if local_count == 1 { "y" } else { "ies" }
-                    ))
-                    .small()
-                    .color(cl::ink::MUTED),
-                );
             } else {
                 ui.label(
                     RichText::new("Connect a provider or choose New chat")
@@ -2114,6 +2303,42 @@ impl ChatWindow {
                     intents.push(ChatWindowIntent::SelectSession {
                         provider: descriptor.id,
                         session: session.id,
+                    });
+                }
+            }
+        }
+        if !history.is_empty() {
+            let heading = ui.scope(|ui| micro_heading(ui, "RECENT CHATS")).response;
+            let mut metadata = NodeMetadata::new(HISTORY_SECTION_ID, Role::Region, "Recent chats");
+            metadata.value = Some(history.len().to_string());
+            ui.pilot_track(&heading, metadata);
+            for (provider, session) in history {
+                let descriptor = provider.registration.manifest.descriptor;
+                let selected = self.history_focus == Some((descriptor.id, session.locator));
+                let label = format!(
+                    "{}  {}
+   {} · {}",
+                    descriptor.glyph,
+                    session.summary.title,
+                    descriptor.label,
+                    session.summary.workspace
+                );
+                let response = sidebar_row(ui, &label, selected);
+                let mut metadata = NodeMetadata::new(
+                    SESSIONS_ID
+                        .child(&PilotKey::new(descriptor.id.0))
+                        .child(&PilotKey::new("history"))
+                        .child(&PilotKey::new(session.locator.value().to_string())),
+                    Role::Tab,
+                    session.summary.title.clone(),
+                );
+                metadata.selected = Some(selected);
+                metadata.value = Some(format!("{} · {}", descriptor.label, session.started_at));
+                ui.pilot_track(&response, metadata);
+                if response.clicked() {
+                    intents.push(ChatWindowIntent::SelectHistorySession {
+                        provider: descriptor.id,
+                        locator: session.locator,
                     });
                 }
             }
@@ -2226,6 +2451,14 @@ impl ChatWindow {
         }
         ui.separator();
 
+        // A transcript already on this machine outranks the live stream: the
+        // operator picked one specific past conversation, and the pane must
+        // draw THAT or say plainly why it cannot.
+        if let Some((focus_provider, locator)) = self.history_focus {
+            self.history_transcript(ui, focus_provider, locator);
+            return;
+        }
+
         if !provider.registration.activation.is_activated() {
             self.provider_activation_ceremony(ui, &provider, intents);
             return;
@@ -2252,6 +2485,69 @@ impl ChatWindow {
                         "Choose a session or qualify this provider before starting a turn.",
                     );
                     empty_state(ui, "No messages in this session", detail);
+                }
+            });
+    }
+
+    /// Draw a past transcript. Read-only by construction: nothing on this
+    /// path can write, and the composer disables itself for the same reason.
+    fn history_transcript(&self, ui: &mut egui::Ui, provider: ProviderId, locator: HistoryLocator) {
+        let indexed = self
+            .histories
+            .get(&provider)
+            .and_then(|history| history.index.as_ref())
+            .and_then(|index| index.sessions.iter().find(|s| s.locator == locator));
+        let response = ui
+            .horizontal(|ui| {
+                ui.label(
+                    RichText::new("Past transcript")
+                        .small()
+                        .color(Tone::Amber.color()),
+                );
+                if let Some(session) = indexed {
+                    ui.label(
+                        RichText::new(format!(
+                            "{} · {}",
+                            session.summary.workspace, session.started_at
+                        ))
+                        .small()
+                        .color(cl::ink::MUTED),
+                    );
+                }
+            })
+            .response;
+        let mut metadata = NodeMetadata::new(HISTORY_BANNER_ID, Role::Region, "Past transcript");
+        metadata.value = indexed.map(|session| session.summary.title.clone());
+        ui.pilot_track(&response, metadata);
+
+        let Some(page) = &self.history_page else {
+            empty_state(
+                ui,
+                "Reading the transcript",
+                "The host is reading this conversation from disk.",
+            );
+            return;
+        };
+        egui::ScrollArea::vertical()
+            .id_salt(("chat.history.transcript", provider, locator.value()))
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                if page.truncated_before {
+                    ui.label(
+                        RichText::new("Showing the first page — earlier messages are not loaded.")
+                            .small()
+                            .color(cl::ink::SUBTLE),
+                    );
+                }
+                if page.events.is_empty() {
+                    empty_state(
+                        ui,
+                        "This transcript decoded to no messages",
+                        "The file was readable, but nothing in it rendered as a message.",
+                    );
+                }
+                for event in &page.events {
+                    event_row(ui, &event.content);
                 }
             });
     }
@@ -2496,16 +2792,41 @@ impl ChatWindow {
                 });
                 ui.horizontal(|ui| {
                     let mut draft = self.current_draft();
+                    // SUBMIT ON ENTER — the convention every chat client the
+                    // operator uses already obeys.
+                    //
+                    // The key must be consumed BEFORE the TextEdit runs, or
+                    // the widget has already inserted the newline by the time
+                    // we could look. Focus therefore comes from memory (last
+                    // frame's truth) against an explicit id, which is also
+                    // what lets the editor keep focus across a send.
+                    //
+                    // Enter and Ctrl/Cmd+Enter submit; SHIFT+Enter is left
+                    // alone and falls through as a newline, so a multi-line
+                    // message is still typeable.
+                    let editor_id = egui::Id::new("dpl_chat_composer");
+                    let composer_focused = ui.memory(|m| m.has_focus(editor_id));
+                    let submit_key = composer_focused && ui.input_mut(take_composer_submit);
                     let editor = ui.add_sized(
                         [(ui.available_width() - 104.0).max(160.0), 52.0],
                         egui::TextEdit::multiline(&mut draft)
+                            .id(editor_id)
                             .hint_text(self.composer_hint())
                             .desired_rows(2),
                     );
                     let mut metadata =
                         NodeMetadata::new(COMPOSER_ID, Role::TextInput, "Message composer");
                     metadata.editable = true;
-                    metadata.value = (!draft.is_empty()).then(|| draft.clone());
+                    // ALWAYS report the value, empty included. A text field
+                    // that is empty has a value of "" — it does not stop
+                    // having one, and reporting `None` makes "the composer
+                    // cleared" unassertable and reads to an assistive client
+                    // as a field with no content rather than an empty one.
+                    metadata.value = Some(draft.clone());
+                    // The keys are part of the control's contract, so they are
+                    // announced rather than hidden in a hint an agent or a
+                    // screen reader never sees.
+                    metadata.description = Some(COMPOSER_KEYS.to_owned());
                     ui.pilot_track(&editor, metadata);
                     if self.composer_focus_requested && editor.enabled() {
                         editor.request_focus();
@@ -2583,10 +2904,18 @@ impl ChatWindow {
                                     })
                                 });
                                 let slash = parse_operator_slash(&draft);
-                                let enabled = slash.is_some()
-                                    || (send_target.is_some_and(|(_, _, can_send)| can_send)
-                                        && !draft.trim().is_empty());
-                                let reason = if slash.is_some() {
+                                // A past transcript is read-only, full stop —
+                                // operator commands included. Saying so beats
+                                // the transport reason, which would be true
+                                // but would not be the ACTUAL reason.
+                                let reading_history = self.history_focus.is_some();
+                                let enabled = !reading_history
+                                    && (slash.is_some()
+                                        || (send_target.is_some_and(|(_, _, can_send)| can_send)
+                                            && !draft.trim().is_empty()));
+                                let reason = if reading_history {
+                                    "This is a past transcript — it is read-only."
+                                } else if slash.is_some() {
                                     "Run this operator command."
                                 } else if draft.trim().is_empty() {
                                     "Type a message first."
@@ -2606,7 +2935,17 @@ impl ChatWindow {
                                     NodeMetadata::new(SEND_ID, Role::Button, "Send message");
                                 metadata.description = Some(reason.to_owned());
                                 ui.pilot_track(&send, metadata);
-                                if send.clicked() {
+                                // Enter submits through the SAME branch the
+                                // button does — one submit path, so the slash
+                                // handling and every `enabled` rule above
+                                // cannot drift between mouse and keyboard.
+                                let submitted = send.clicked() || (submit_key && enabled);
+                                if submitted {
+                                    // Keep the caret where the operator is
+                                    // typing; a send should not cost focus.
+                                    self.composer_focus_requested = true;
+                                }
+                                if submitted {
                                     if let Some(command) = slash {
                                         // Provenance law: recognize at the
                                         // operator's input-submit event, from
@@ -2684,10 +3023,13 @@ impl ChatWindow {
     }
 
     fn composer_hint(&self) -> &'static str {
+        if self.domain == ChatDomain::Ai && self.history_focus.is_some() {
+            return "Past transcript — read-only";
+        }
         match self.domain {
-            ChatDomain::Ai => "Draft for this AI session…",
+            ChatDomain::Ai => "Message… — Enter sends, Shift+Enter new line",
             ChatDomain::Content => "Browsing content — no conversation here",
-            ChatDomain::Social => "Draft for this conversation…",
+            ChatDomain::Social => "Message… — Enter sends, Shift+Enter new line",
         }
     }
 
@@ -3883,10 +4225,10 @@ fn mode_button(
     path: impl Into<PilotPath>,
     label: &str,
     selected: bool,
+    width: f32,
 ) -> egui::Response {
-    const TAB_SIZE: egui::Vec2 = egui::vec2(MODE_TAB_WIDTH, 35.0);
     let path = path.into();
-    let (rect, response) = ui.allocate_exact_size(TAB_SIZE, Sense::click());
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 35.0), Sense::click());
     let fill = if selected {
         Color32::from_rgb(8, 31, 36)
     } else if response.hovered() {
@@ -4565,6 +4907,7 @@ mod tests {
             glyph: "F",
             accent: ProviderAccent::Cyan,
             summary: "deterministic fixture",
+            since: "2000-01-01",
         },
         profile: ProviderProfileId("fixture"),
         target_capabilities: CAPABILITIES,
@@ -4584,6 +4927,7 @@ mod tests {
             glyph: "S",
             accent: ProviderAccent::Amber,
             summary: "second deterministic fixture",
+            since: "2000-01-01",
         },
         profile: ProviderProfileId("second"),
         target_capabilities: CAPABILITIES,
@@ -4616,7 +4960,7 @@ mod tests {
         ChatWindow::new(
             ChatRuntime::try_from_registrations([registration]).expect("runtime"),
             ROUTE,
-            HistoryCatalog::default(),
+            &HistoryCatalog::default(),
             vec![("Library".into(), ROUTE)],
         )
     }
@@ -4654,7 +4998,7 @@ mod tests {
         ChatWindow::new(
             runtime,
             ROUTE,
-            HistoryCatalog::default(),
+            &HistoryCatalog::default(),
             vec![("Library".into(), ROUTE)],
         )
     }
@@ -4970,7 +5314,7 @@ mod tests {
         let window = ChatWindow::new(
             runtime,
             ROUTE,
-            HistoryCatalog::default(),
+            &HistoryCatalog::default(),
             vec![("Library".into(), ROUTE)],
         );
         let tabs = window.connected_tabs();
@@ -5282,7 +5626,7 @@ mod tests {
         let mut window = ChatWindow::with_models(
             ChatRuntime::try_from_registrations(fixture.providers).expect("runtime"),
             ROUTE,
-            HistoryCatalog::default(),
+            &HistoryCatalog::default(),
             vec![("Library".into(), ROUTE)],
             fixture.social,
             fixture.interactions,
@@ -5308,7 +5652,7 @@ mod tests {
         let mut window = ChatWindow::with_models(
             ChatRuntime::try_from_registrations(fixture.providers).expect("runtime"),
             ROUTE,
-            HistoryCatalog::default(),
+            &HistoryCatalog::default(),
             vec![("Library".into(), ROUTE)],
             fixture.social,
             fixture.interactions,
@@ -5337,6 +5681,270 @@ mod tests {
         assert_eq!(harness.state().pending_focus_return, None);
     }
 
+    // ---- H1: local transcripts become rows -------------------------------
+    //
+    // These pins build a REAL catalog over a real temp directory and let
+    // `ChatWindow::new` run its real indexing loop, so the fixture proves the
+    // same path the operator's 165 transcripts take — not an injected map.
+
+    struct HistoryTree {
+        root: std::path::PathBuf,
+    }
+
+    impl HistoryTree {
+        fn new() -> Self {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static NEXT: AtomicU64 = AtomicU64::new(1);
+            let id = NEXT.fetch_add(1, Ordering::Relaxed);
+            let root = std::env::temp_dir()
+                .join(format!("devpulse-chat-window-{}-{id}", std::process::id()));
+            std::fs::create_dir_all(&root).expect("create history tree");
+            Self { root }
+        }
+
+        fn write(&self, name: &str, body: &str) {
+            std::fs::write(self.root.join(name), body).expect("write transcript fixture");
+        }
+    }
+
+    impl Drop for HistoryTree {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    struct FixtureHistoryDecoder;
+
+    impl dpl_chat_store::HistoryDecoder for FixtureHistoryDecoder {
+        fn provider_id(&self) -> ProviderId {
+            PROVIDER
+        }
+
+        fn index_metadata(
+            &self,
+            path: &std::path::Path,
+            _prefix: &str,
+        ) -> Option<dpl_chat_store::HistoryIndexMetadata> {
+            let stem = path.file_stem()?.to_string_lossy().into_owned();
+            Some(dpl_chat_store::HistoryIndexMetadata {
+                native_id: dpl_chat_core::ProviderSessionId(stem.clone()),
+                title: format!("Transcript {stem}"),
+                workspace: "DevPULSE".to_owned(),
+                started_at: "2026-07-30T00:00:00Z".to_owned(),
+            })
+        }
+
+        fn decode_line(&self, line: &str) -> dpl_chat_store::DecodeOutcome {
+            dpl_chat_store::DecodeOutcome::Event(dpl_chat_store::DecodedHistoryEvent {
+                turn_id: None,
+                content: ChatEventContent::AssistantMessage(line.to_owned()),
+            })
+        }
+    }
+
+    fn history_catalog(tree: &HistoryTree) -> HistoryCatalog {
+        let mut catalog = HistoryCatalog::default();
+        let source = dpl_chat_store::JsonlHistorySource::open(
+            &tree.root,
+            FixtureHistoryDecoder,
+            dpl_chat_store::HistoryLimits::default(),
+        )
+        .expect("open fixture history");
+        catalog.register(source).expect("register fixture history");
+        catalog
+    }
+
+    /// A provider with NO live sessions — exactly the shape that rendered a
+    /// count and nothing else before H1.
+    fn history_window(catalog: &HistoryCatalog) -> ChatWindow {
+        let mut registration = ProviderRegistration::planned(MANIFEST);
+        registration.activation = ActivationState::Ready;
+        ChatWindow::new(
+            ChatRuntime::try_from_registrations([registration]).expect("runtime"),
+            ROUTE,
+            catalog,
+            vec![("Library".into(), ROUTE)],
+        )
+    }
+
+    #[test]
+    fn history_sessions_become_rows() {
+        let tree = HistoryTree::new();
+        tree.write("alpha.jsonl", "first\nsecond\n");
+        tree.write("beta.jsonl", "only\n");
+        let catalog = history_catalog(&tree);
+        let window = history_window(&catalog);
+
+        let providers = window.runtime.provider_views();
+        assert!(
+            providers
+                .iter()
+                .all(|provider| provider.registration.sessions.is_empty()),
+            "the fixture provider has no LIVE sessions — that is the point"
+        );
+        let rows = window.history_rows(&providers);
+        assert_eq!(
+            rows.len(),
+            2,
+            "both transcripts on disk must become rows, not a count"
+        );
+    }
+
+    #[test]
+    fn history_rows_sort_most_recent_first() {
+        let tree = HistoryTree::new();
+        tree.write("older.jsonl", "old\n");
+        // Distinct mtimes: the sort key is the filesystem's, and two writes in
+        // the same instant would make the assertion vacuous.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        tree.write("newer.jsonl", "new\n");
+        let catalog = history_catalog(&tree);
+        let window = history_window(&catalog);
+
+        let providers = window.runtime.provider_views();
+        let rows = window.history_rows(&providers);
+        assert_eq!(rows.len(), 2);
+        assert!(
+            rows[0].1.modified_millis >= rows[1].1.modified_millis,
+            "the operator is looking for what they were just doing"
+        );
+        assert!(rows[0].1.summary.title.contains("newer"));
+    }
+
+    #[test]
+    fn selecting_a_history_row_asks_the_host_for_its_page() {
+        let tree = HistoryTree::new();
+        tree.write("alpha.jsonl", "first\n");
+        let catalog = history_catalog(&tree);
+        let mut window = history_window(&catalog);
+        let providers = window.runtime.provider_views();
+        let locator = window.history_rows(&providers)[0].1.locator;
+
+        let host = window
+            .apply(ChatWindowIntent::SelectHistorySession {
+                provider: PROVIDER,
+                locator,
+            })
+            .expect("select the transcript");
+        assert_eq!(
+            host,
+            Some(HostIntent::LoadHistoryPage {
+                provider: PROVIDER,
+                locator
+            }),
+            "a surface cannot read disk — it must ask the host"
+        );
+        assert_eq!(window.history_focus, Some((PROVIDER, locator)));
+    }
+
+    #[test]
+    fn a_history_page_replaces_the_previous_one() {
+        let tree = HistoryTree::new();
+        tree.write("alpha.jsonl", "first\n");
+        tree.write("beta.jsonl", "second\n");
+        let catalog = history_catalog(&tree);
+        let mut window = history_window(&catalog);
+        let providers = window.runtime.provider_views();
+        let rows = window.history_rows(&providers);
+        let (first, second) = (rows[0].1.locator, rows[1].1.locator);
+
+        window
+            .apply(ChatWindowIntent::SelectHistorySession {
+                provider: PROVIDER,
+                locator: first,
+            })
+            .expect("select first");
+        let page = catalog.page(PROVIDER, first, None).expect("first page");
+        window.observe_history_page(page);
+        assert!(window.history_page.is_some());
+
+        // Moving to another transcript drops the stale page immediately, so
+        // the banner never names one conversation over another's messages.
+        window
+            .apply(ChatWindowIntent::SelectHistorySession {
+                provider: PROVIDER,
+                locator: second,
+            })
+            .expect("select second");
+        assert!(window.history_page.is_none());
+
+        // A LATE page for the transcript already navigated away from is
+        // discarded — disk reads race the finger.
+        let stale = catalog.page(PROVIDER, first, None).expect("stale page");
+        window.observe_history_page(stale);
+        assert!(
+            window.history_page.is_none(),
+            "a page for an unfocused transcript must never be drawn"
+        );
+    }
+
+    #[test]
+    fn a_focused_history_session_disables_the_composer() {
+        let tree = HistoryTree::new();
+        tree.write("alpha.jsonl", "first\n");
+        let catalog = history_catalog(&tree);
+        let mut window = history_window(&catalog);
+        let providers = window.runtime.provider_views();
+        let locator = window.history_rows(&providers)[0].1.locator;
+
+        assert_eq!(
+            window.composer_hint(),
+            "Message… — Enter sends, Shift+Enter new line",
+            "the composer advertises its keys where the operator is typing"
+        );
+        window
+            .apply(ChatWindowIntent::SelectHistorySession {
+                provider: PROVIDER,
+                locator,
+            })
+            .expect("select the transcript");
+        assert_eq!(
+            window.composer_hint(),
+            "Past transcript — read-only",
+            "a past transcript is read-only and the composer must say so"
+        );
+    }
+
+    #[test]
+    fn choosing_a_live_session_leaves_the_transcript_reader() {
+        let tree = HistoryTree::new();
+        tree.write("alpha.jsonl", "first\n");
+        let catalog = history_catalog(&tree);
+        let mut window = history_window(&catalog);
+        let providers = window.runtime.provider_views();
+        let locator = window.history_rows(&providers)[0].1.locator;
+        window
+            .apply(ChatWindowIntent::SelectHistorySession {
+                provider: PROVIDER,
+                locator,
+            })
+            .expect("select the transcript");
+
+        window
+            .runtime
+            .upsert_session(
+                PROVIDER,
+                SessionSummary {
+                    id: ChatSessionId(9),
+                    provider_id: PROVIDER,
+                    provider_session_id: None,
+                    title: "Live again".into(),
+                    workspace: "DevPULSE".into(),
+                    group: SessionGroup::Active,
+                    state: SessionState::Idle,
+                },
+            )
+            .expect("upsert live session");
+        window
+            .apply(ChatWindowIntent::SelectSession {
+                provider: PROVIDER,
+                session: ChatSessionId(9),
+            })
+            .expect("select the live session");
+        assert_eq!(window.history_focus, None);
+        assert!(window.history_page.is_none());
+    }
+
     #[test]
     fn slash_parse_is_exact_and_whole_buffer() {
         assert_eq!(
@@ -5359,5 +5967,65 @@ mod tests {
     fn slash_commands_name_their_audit_action() {
         assert_eq!(OperatorSlashCommand::Strict.as_str(), "strict");
         assert_eq!(OperatorSlashCommand::Behavioral.as_str(), "behavioral");
+    }
+
+    /// Drive a real `InputState` with one Enter press carrying `modifiers`,
+    /// and report whether the composer would take it as a SEND and whether
+    /// the key survived for the `TextEdit` to turn into a newline.
+    fn enter_with(modifiers: egui::Modifiers) -> (bool, bool) {
+        let ctx = egui::Context::default();
+        let mut input = egui::RawInput::default();
+        input.events.push(egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        });
+        let _ = ctx.run_ui(input, |_| {});
+        let submitted = ctx.input_mut(take_composer_submit);
+        // Whatever is left is what the text widget would act on.
+        let survives = ctx.input(|i| {
+            i.events.iter().any(|e| {
+                matches!(
+                    e,
+                    egui::Event::Key {
+                        key: egui::Key::Enter,
+                        pressed: true,
+                        ..
+                    }
+                )
+            })
+        });
+        (submitted, survives)
+    }
+
+    #[test]
+    fn enter_sends_and_shift_enter_makes_a_new_line() {
+        let (submitted, survives) = enter_with(egui::Modifiers::NONE);
+        assert!(submitted, "bare Enter must SEND — the whole point");
+        assert!(
+            !survives,
+            "a sending Enter must be consumed, or it sends AND inserts a newline"
+        );
+
+        let (submitted, survives) = enter_with(egui::Modifiers::SHIFT);
+        assert!(
+            !submitted,
+            "Shift+Enter must NOT send — it is how a multi-line message is typed"
+        );
+        assert!(
+            survives,
+            "Shift+Enter must reach the TextEdit so it becomes a new line"
+        );
+    }
+
+    #[test]
+    fn ctrl_enter_also_sends() {
+        // The operator asked for it by name, and several clients use it as
+        // the primary submit.
+        let (submitted, survives) = enter_with(egui::Modifiers::COMMAND);
+        assert!(submitted, "Ctrl/Cmd+Enter must send");
+        assert!(!survives, "and must not also leave a newline behind");
     }
 }

@@ -3687,7 +3687,7 @@ impl Composer {
                 .contains(&"no-tint")
         {
             ui.label(
-                RichText::new("This element is designed untinted (noCT) — tint may look off.")
+                RichText::new("This element is designed untinted (noCT) — tint may theme off.")
                     .small()
                     .color(cl::ink::MUTED),
             );

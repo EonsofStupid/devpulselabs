@@ -212,7 +212,9 @@ pub fn search_files(root: &Path, query: &str, cap: usize) -> Vec<Entry> {
             }
         }
     }
-    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    // CACHED: `to_lowercase` allocates, and a plain `sort_by` would run it
+    // twice per comparison. Cached keys allocate once per entry.
+    out.sort_by_cached_key(|a| a.name.to_lowercase());
     out
 }
 
@@ -349,8 +351,8 @@ pub fn scan(dir: &Path) -> Vec<Entry> {
             });
         }
     }
-    dirs.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-    files.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    dirs.sort_by_cached_key(|a| a.name.to_lowercase());
+    files.sort_by_cached_key(|a| a.name.to_lowercase());
     dirs.extend(files);
     dirs
 }

@@ -27,8 +27,8 @@ use dpl_chat_windows::{
 };
 use dpl_fabric::{
     ActivationAttemptId, AppWindowAction, CaptureEvent, Fabric, IntentEvent, JobEvent, JobId,
-    ProviderActivationStage, ProviderEvent, ProviderFailureClass, ProviderReceiver, ShellEvent,
-    ShellReceiver,
+    ProviderActivationStage, ProviderCapability, ProviderEvent, ProviderFailureClass,
+    ProviderReceiver, ShellEvent, ShellReceiver,
 };
 use dpl_hub::Route;
 use egui_pilot_ai::{
@@ -62,6 +62,8 @@ pub enum ChatProofMode {
     Assist,
     /// The Content domain with a real episode spine loaded (D1).
     Content,
+    /// A REAL local transcript open in the conversation pane (H1).
+    History,
 }
 
 #[cfg(feature = "eguipilotai-devtools")]
@@ -81,6 +83,7 @@ impl ChatProofMode {
             "snapped" => Some(Self::Snapped),
             "assist" => Some(Self::Assist),
             "content" => Some(Self::Content),
+            "history" => Some(Self::History),
             _ => None,
         }
     }
@@ -94,6 +97,10 @@ struct Shared {
     registry: ChatWindowRegistry,
     lifetime: PeerLifetime,
     window: ChatWindow,
+    /// The transcript catalog lives HERE, not in the window: paging a past
+    /// session is IO, and the host owns IO. The window borrowed it once to
+    /// build its index (H1 §3.2).
+    catalog: HistoryCatalog,
     codex_activation: dpl_chat_codex::CodexActivationCoordinator,
     grok_activation: dpl_chat_grok::GrokActivationCoordinator,
     grok_runtime: Option<dpl_chat_grok::GrokAcpRuntime>,
@@ -121,6 +128,17 @@ struct Shared {
     /// The coordinator publishes `ShellEvent::NavigateRequest`; the shell
     /// drains it and navigates the main window.
     fabric: Fabric,
+    /// THE ROSTER as last published — the comparison that makes the publish
+    /// change-driven instead of per-frame chatter.
+    roster: Vec<ProviderCapability>,
+    /// The one-shot presence sweep: each vendor's own tool answering whether
+    /// the operator is already signed in. Polled from the frame loop and
+    /// dropped once it lands.
+    presence: Option<std::sync::mpsc::Receiver<Vec<crate::presence::Presence>>>,
+    /// Where the roster is remembered between launches (ADR-017 §2). `None`
+    /// when the estate failed to open; the roster is derived, so the only
+    /// cost is that the platform starts empty instead of remembered.
+    estate: Option<Arc<dpl_estate::Estate>>,
     /// The session's determinism gate — slash mint site and UI channel
     /// share one state machine (determinism-intent-gate plan).
     determinism: dpl_intent::DeterminismGate,
@@ -190,6 +208,219 @@ fn now_unix_ms() -> u64 {
         .unwrap_or_default()
 }
 
+/// The estate key THE ROSTER is stored under (ADR-017 §2). `Tree::Agents`
+/// already exists for "agent (chat provider) session state" — the capability
+/// registry is exactly that.
+const ROSTER_KEY: &str = "providers/roster";
+
+/// THE ROSTER on disk.
+///
+/// A separate type from [`ProviderCapability`] on purpose: the in-memory
+/// fact holds `ProviderId(&'static str)` and a live `Capability` set, and
+/// NEITHER can be deserialized straight back — a `&'static str` cannot be
+/// minted from disk bytes without leaking, and a capability this build no
+/// longer has must not be resurrected. So the stored form speaks strings,
+/// and restore RESOLVES them against what this build actually knows.
+/// Unknown names are dropped, never invented (the doctor law).
+///
+/// Live process handles are deliberately unrepresentable here: this records
+/// what was TRUE and is cheap to re-verify, never a connection.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct StoredProviderCapability {
+    id: String,
+    label: String,
+    activated: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    note: Option<String>,
+    capabilities: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    since: Option<String>,
+}
+
+/// The stored envelope: when it was true, and what was true.
+///
+/// The stamp is what lets a boot tell a roster written moments ago from one
+/// left by a launch weeks back, without which "remembered" and "stale" look
+/// identical on disk. Epoch ms because that is the clock this file already
+/// keeps; the workspace has no date crate and a cosmetic string is not worth
+/// one.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct StoredRoster {
+    written_at_ms: u64,
+    providers: Vec<StoredProviderCapability>,
+}
+
+fn store_roster(estate: Option<&dpl_estate::Estate>, roster: &[ProviderCapability]) {
+    let Some(estate) = estate else {
+        return;
+    };
+    let stored = StoredRoster {
+        written_at_ms: now_unix_ms(),
+        providers: roster
+            .iter()
+            .map(|p| StoredProviderCapability {
+                id: p.id.0.to_owned(),
+                label: p.label.clone(),
+                activated: p.activated,
+                note: p.note.clone(),
+                capabilities: p.capabilities.iter().map(|c| c.slug().to_owned()).collect(),
+                since: Some(p.since.clone()),
+            })
+            .collect(),
+    };
+    if let Err(error) = estate.put_json(dpl_estate::Tree::Agents, ROSTER_KEY, &stored) {
+        // A roster that cannot be remembered is not a reason to fail a
+        // launch — the live one is recomputed every boot regardless.
+        tracing::warn!(%error, "the provider roster could not be persisted");
+    }
+}
+
+/// Read the remembered roster, resolving every stored name against what this
+/// build knows. `known` is the live registry's ids — a provider that no
+/// longer exists is dropped rather than resurrected with a leaked id.
+fn restore_roster(
+    estate: Option<&dpl_estate::Estate>,
+    known: &[ProviderId],
+) -> Vec<ProviderCapability> {
+    let Some(estate) = estate else {
+        return Vec::new();
+    };
+    let stored: StoredRoster = match estate
+        .get_json::<StoredRoster>(dpl_estate::Tree::Agents, ROSTER_KEY)
+    {
+        Ok(Some(stored)) => stored,
+        Ok(None) => return Vec::new(),
+        Err(error) => {
+            tracing::warn!(%error, "the remembered provider roster is unreadable — starting empty");
+            return Vec::new();
+        }
+    };
+    stored
+        .providers
+        .into_iter()
+        .filter_map(|row| {
+            let id = *known.iter().find(|known| known.0 == row.id)?;
+            Some(ProviderCapability {
+                id,
+                label: row.label,
+                activated: row.activated,
+                note: row.note,
+                summary: String::new(),
+                since: row.since.unwrap_or_default(),
+                // The remembered roster records what was TRUE, not which of
+                // the probe's states produced it, and the live sweep replaces
+                // this within a second of boot. Claiming SignedOut here would
+                // be inventing a reason the disk never carried.
+                presence: if row.activated {
+                    dpl_fabric::ProviderPresence::Ready
+                } else {
+                    dpl_fabric::ProviderPresence::Unavailable
+                },
+                capabilities: row
+                    .capabilities
+                    .iter()
+                    .filter_map(|slug| Capability::from_slug(slug))
+                    .collect(),
+            })
+        })
+        .collect()
+}
+
+/// Take the presence sweep the moment it lands, then never look again.
+///
+/// A non-blocking poll on the frame path: the probe runs four short-lived
+/// vendor processes on its own thread, and the egui thread only ever asks
+/// whether the answer has arrived.
+fn drain_presence(state: &mut Shared) {
+    let Some(receiver) = state.presence.as_ref() else {
+        return;
+    };
+    let found = match receiver.try_recv() {
+        Ok(found) => found,
+        Err(std::sync::mpsc::TryRecvError::Empty) => return,
+        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+            state.presence = None;
+            return;
+        }
+    };
+    state.presence = None;
+    for one in &found {
+        tracing::info!(provider = %one.provider, verdict = ?one.verdict, "provider presence");
+        apply_presence(state, one);
+    }
+}
+
+/// Fold one presence answer into the window's activation, if it has anything
+/// to add.
+///
+/// It is deliberately NON-DESTRUCTIVE. A provider that is already activated
+/// keeps whatever activated it — H1's Claude is `Experimental` off its
+/// transcripts, and Codex and Grok own full activation coordinators with
+/// launchers and runtimes. Presence's job is to fill in the providers nobody
+/// has spoken for, and to state honestly what the machine says about the
+/// rest. Overwriting a live coordinator's state from a one-shot probe is how
+/// a working provider ends up reported as signed out mid-session.
+fn apply_presence(state: &mut Shared, found: &crate::presence::Presence) {
+    use dpl_chat_core::PresenceVerdict;
+
+    let already_activated = state
+        .window
+        .provider_capabilities()
+        .iter()
+        .any(|p| p.id == found.provider && p.activated);
+    if already_activated {
+        return;
+    }
+
+    let note = found.note.clone().unwrap_or_default();
+    let activation = match found.verdict {
+        // Signed in, but nothing here qualifies a live turn transport yet —
+        // say exactly that rather than claiming Ready.
+        PresenceVerdict::SignedIn => ActivationState::Experimental {
+            reason: "Signed in on this machine. Live turns are not qualified yet.".to_owned(),
+            recovery: Vec::new(),
+        },
+        PresenceVerdict::SignedOut => ActivationState::SignedOut {
+            reason: note,
+            recovery: vec![RecoveryAction::new(
+                RecoveryActionKind::SignIn,
+                "Sign in with your browser",
+            )],
+        },
+        PresenceVerdict::NotInstalled => ActivationState::NotInstalled {
+            reason: note,
+            recovery: Vec::new(),
+        },
+        // An answer nobody taught us to read is not evidence of anything.
+        PresenceVerdict::Unknown => return,
+    };
+
+    if let Err(error) = state
+        .window
+        .set_provider_activation(found.provider, activation)
+    {
+        tracing::warn!(%error, provider = %found.provider, "presence could not be applied");
+    }
+}
+
+/// Publish THE ROSTER when — and only when — it changed.
+///
+/// Change-detection rather than a list of "activation-affecting" intents:
+/// activation is mutated from fourteen `set_provider_activation` sites plus
+/// the provider-event drain, and any enumeration of them is one new call
+/// site away from being silently wrong. Comparing the projection cannot be
+/// forgotten. The cost is building a handful of small rows per frame, which
+/// is far below the threshold law 6 protects.
+fn republish_roster(state: &mut Shared) {
+    let roster = state.window.provider_capabilities();
+    if roster == state.roster {
+        return;
+    }
+    state.fabric.publish_provider_roster(roster.clone());
+    store_roster(state.estate.as_deref(), &roster);
+    state.roster = roster;
+}
+
 /// The sole owner of primary Chat viewport creation and peer lifetime policy.
 pub struct ChatWindowCoordinator {
     shared: Arc<Mutex<Shared>>,
@@ -204,6 +435,10 @@ pub struct ChatWindowConfig {
     pub codex_activation: dpl_chat_codex::CodexActivationCoordinator,
     pub grok_activation: dpl_chat_grok::GrokActivationCoordinator,
     pub open_at_boot: bool,
+    /// The Ring-0 estate, when it opened. THE ROSTER is remembered here so
+    /// the platform knows what was activated last launch before any probe
+    /// runs (ADR-017 §2).
+    pub estate: Option<Arc<dpl_estate::Estate>>,
     #[cfg(feature = "eguipilotai-devtools")]
     pub proof_mode: Option<ChatProofMode>,
 }
@@ -218,6 +453,7 @@ impl ChatWindowCoordinator {
             codex_activation,
             grok_activation,
             open_at_boot,
+            estate,
             #[cfg(feature = "eguipilotai-devtools")]
             proof_mode,
         } = config;
@@ -257,12 +493,12 @@ impl ChatWindowCoordinator {
             Some((social, interactions)) => ChatWindow::with_models(
                 runtime,
                 initial_route,
-                catalog,
+                &catalog,
                 routes,
                 social,
                 interactions,
             ),
-            None => ChatWindow::new(runtime, initial_route, catalog, routes),
+            None => ChatWindow::new(runtime, initial_route, &catalog, routes),
         };
         window.replace_provider_profiles(provider_profiles);
         // Trigger 0 of the content refresh policy (D1 plan §3.4): seed the
@@ -298,6 +534,22 @@ impl ChatWindowCoordinator {
                     if let Some(first) = window.content_episode_ids().first().cloned() {
                         if let Some(spine) = read_content_spine(&first) {
                             window.observe_content_spine(spine);
+                        }
+                    }
+                }
+                ChatProofMode::History => {
+                    // Open the operator's OWN newest transcript. If the rail
+                    // found nothing the proof shot shows exactly that, which
+                    // is the failure worth seeing.
+                    if let Some((provider, locator)) = window.first_history_session() {
+                        window
+                            .apply(dpl_chat_window::ChatWindowIntent::SelectHistorySession {
+                                provider,
+                                locator,
+                            })
+                            .expect("the selected transcript is registered");
+                        if let Ok(page) = catalog.page(provider, locator, None) {
+                            window.observe_history_page(page);
                         }
                     }
                 }
@@ -509,6 +761,7 @@ impl ChatWindowCoordinator {
             registry,
             lifetime: PeerLifetime::default(),
             window,
+            catalog,
             codex_activation,
             grok_activation,
             grok_runtime: None,
@@ -533,6 +786,9 @@ impl ChatWindowCoordinator {
             next_interaction_id: 2_000_000_000,
             primary_monitor,
             fabric: fabric.clone(),
+            roster: Vec::new(),
+            presence: Some(crate::presence::probe_all(crate::presence::specs())),
+            estate,
             determinism: dpl_intent::DeterminismGate::default(),
             #[cfg(feature = "eguipilotai-devtools")]
             pilot_runtime: None,
@@ -615,6 +871,29 @@ impl ChatWindowCoordinator {
                 }
             }
         }
+        // Trigger 0 for THE ROSTER, the same lesson D1's census learned: the
+        // window has more than one way to be opened, so the platform's view
+        // of what providers can do is seeded at CONSTRUCTION, never only on
+        // the open path.
+        //
+        // The remembered roster is published FIRST so a consumer reading in
+        // the gap sees what was true last launch rather than nothing at all
+        // (ADR-017 §2); the live projection immediately follows and wins
+        // wherever the two disagree. Recomputing is always the authority —
+        // persistence only decides what is shown before it lands.
+        let known: Vec<ProviderId> = shared
+            .window
+            .provider_capabilities()
+            .into_iter()
+            .map(|p| p.id)
+            .collect();
+        let remembered = restore_roster(shared.estate.as_deref(), &known);
+        if !remembered.is_empty() {
+            shared.fabric.publish_provider_roster(remembered.clone());
+            shared.roster = remembered;
+        }
+        republish_roster(&mut shared);
+
         Self {
             shared: Arc::new(Mutex::new(shared)),
             events: fabric.subscribe_shell(),
@@ -656,6 +935,12 @@ impl ChatWindowCoordinator {
             let mut shared = lock(&self.shared);
             shared.window.observe_route(current_route);
             drain_provider_facts(&mut shared);
+            drain_presence(&mut shared);
+            // Every activation change — from the drain above or from any of
+            // the host intents applied last frame — reaches the platform
+            // here. Publishing is change-gated, so a steady state costs one
+            // comparison.
+            republish_roster(&mut shared);
             while let Ok(event) = self.events.try_recv() {
                 match event {
                     ShellEvent::RouteChanged { route } => shared.window.observe_route(route),
@@ -1000,6 +1285,20 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
         } => open_utility(ctx, shared, interaction_id, placement),
         HostIntent::ActivateProvider(provider) => {
             activate_provider(shared, provider);
+            ctx.request_repaint();
+        }
+        HostIntent::LoadHistoryPage { provider, locator } => {
+            // The host owns the catalog because reading a transcript is IO.
+            // A failed read is reported to the operator, never swallowed —
+            // an empty pane with no reason is how the count label happened.
+            let mut state = lock(shared);
+            match state.catalog.page(provider, locator, None) {
+                Ok(page) => state.window.observe_history_page(page),
+                Err(error) => {
+                    tracing::warn!(%error, %provider, "chat transcript page unavailable");
+                }
+            }
+            drop(state);
             ctx.request_repaint();
         }
         HostIntent::ProviderSelected(provider) => {
@@ -1382,6 +1681,37 @@ fn activate_provider(shared: &Arc<Mutex<Shared>>, provider: ProviderId) {
             }
         }
         state.grok_activation.activation().clone()
+    } else if let Some((_, spec)) = crate::presence::specs()
+        .into_iter()
+        .find(|(id, _)| *id == provider)
+    {
+        // A2 — subscription initialization for every provider that answers
+        // through a presence probe rather than a bespoke coordinator. The
+        // vendor's own CLI opens the operator's DEFAULT browser and runs the
+        // real flow; we watch until the probe confirms it took.
+        match crate::presence::begin_sign_in(provider, spec) {
+            Ok(receiver) => {
+                state.presence = Some(receiver);
+                let attempt = state.fabric.mint_provider_attempt();
+                state
+                    .fabric
+                    .publish_provider(ProviderEvent::ActivationRequested { provider, attempt });
+                state
+                    .fabric
+                    .publish_provider(ProviderEvent::SystemBrowserDispatched { provider, attempt });
+                ActivationState::SigningIn
+            }
+            Err(error) => {
+                tracing::warn!(%error, %provider, "provider sign-in could not start");
+                ActivationState::SignedOut {
+                    reason: error,
+                    recovery: vec![RecoveryAction::new(
+                        RecoveryActionKind::InstallInstructions,
+                        "Install the provider's CLI",
+                    )],
+                }
+            }
+        }
     } else {
         tracing::warn!(%provider, "provider activation action is not qualified");
         return;
@@ -3416,6 +3746,108 @@ fn lock<T>(value: &Mutex<T>) -> MutexGuard<'_, T> {
     value
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+#[cfg(test)]
+mod roster_tests {
+    use super::*;
+
+    fn estate_at(tag: &str) -> dpl_estate::Estate {
+        let dir = std::env::temp_dir().join(format!("dpl-roster-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dpl_estate::Estate::open(&dir).expect("estate open")
+    }
+
+    fn claude() -> ProviderCapability {
+        ProviderCapability {
+            id: ProviderId("claude"),
+            label: "Claude Code".into(),
+            activated: true,
+            note: Some("local transcripts only".into()),
+            summary: String::new(),
+            since: "2021-01-28".into(),
+            presence: dpl_fabric::ProviderPresence::Ready,
+            capabilities: BTreeSet::from([Capability::ReadSessions, Capability::PageHistory]),
+        }
+    }
+
+    #[test]
+    fn the_roster_survives_a_restart() {
+        let estate = estate_at("restart");
+        let roster = vec![claude()];
+        store_roster(Some(&estate), &roster);
+        estate.persist().expect("estate persist");
+
+        // Reopened as a NEW launch would: the ids this build knows are what
+        // the stored names resolve against.
+        let restored = restore_roster(Some(&estate), &[ProviderId("claude")]);
+        assert_eq!(
+            restored, roster,
+            "what was activated last launch is known before any probe runs"
+        );
+        assert!(
+            restored[0].can(Capability::PageHistory),
+            "the capability SET round-trips, not just the fact of activation"
+        );
+    }
+
+    #[test]
+    fn a_provider_this_build_no_longer_knows_is_dropped_not_resurrected() {
+        let estate = estate_at("unknown-provider");
+        store_roster(
+            Some(&estate),
+            &[
+                claude(),
+                ProviderCapability {
+                    id: ProviderId("retired"),
+                    label: "Retired".into(),
+                    ..claude()
+                },
+            ],
+        );
+        estate.persist().expect("estate persist");
+        let restored = restore_roster(Some(&estate), &[ProviderId("claude")]);
+        assert_eq!(
+            restored.len(),
+            1,
+            "only what this build registers comes back"
+        );
+        assert_eq!(restored[0].id, ProviderId("claude"));
+    }
+
+    #[test]
+    fn an_unknown_stored_capability_is_dropped_not_invented() {
+        let estate = estate_at("unknown-capability");
+        let stored = StoredRoster {
+            written_at_ms: 1,
+            providers: vec![StoredProviderCapability {
+                id: "claude".into(),
+                label: "Claude Code".into(),
+                activated: true,
+                note: None,
+                capabilities: vec!["page-history".into(), "teleportation".into()],
+                since: None,
+            }],
+        };
+        estate
+            .put_json(dpl_estate::Tree::Agents, ROSTER_KEY, &stored)
+            .expect("write");
+        estate.persist().expect("estate persist");
+        let restored = restore_roster(Some(&estate), &[ProviderId("claude")]);
+        assert_eq!(
+            restored[0].capabilities,
+            BTreeSet::from([Capability::PageHistory]),
+            "a capability this build does not have is refused by name"
+        );
+    }
+
+    #[test]
+    fn no_estate_is_not_an_error() {
+        // The roster is derived; a failed estate open costs a remembered
+        // start, never a launch.
+        store_roster(None, &[claude()]);
+        assert!(restore_roster(None, &[ProviderId("claude")]).is_empty());
+    }
 }
 
 #[cfg(test)]

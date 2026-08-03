@@ -118,6 +118,7 @@ proved by use before anything is built on top of it.
 |---|---|---|---|
 | **D1** | **The content seam + the episode spine, READ-ONLY.** A plain-data content view in `dpl-chat-core`; `observe_content` push from the host; the app translating `dpl_doc` truth (shows → episodes → chapters → slides) into it; the AI rail showing the real spine. | Every later link needs content crossing the seam. Read-only forces the model to be RIGHT before any verb depends on its shape — a wrong model discovered in D3 would cost every link above it. | no |
 | **H1** | **The chats in one system.** Local history sessions become first-class ROWS in the rail — grouped by provider, titled from the decoder's `title`/`workspace`/`started_at`, selectable, and readable in the conversation pane. | The operator's actual, repeatedly-stated ask. The decoders, the catalog registration, and the index already exist (§3b) — this wires the rail to the source it already loads, plus a reader for the transcript body. Sequenced ahead of D2 because it is both the highest-value and the nearest-to-done link in this map. | no (read-only over existing transcripts) |
+| **P1** | **Activated providers become platform capabilities.** A fabric-carried provider-availability signal, plus the FIRST real platform consumer of it, landed together. | The operator, 2026-07-30: *"chat needs to be built so its properly yes its own window but the providers that get activated in the chat become available in the platform."* Today `ChatRuntime` is a private field of `ChatWindow` — a SURFACE — and the coordinator exposes nothing but `frame`/`attach_*`; a workspace grep for `ActivationState`/`Capability::` outside `crates/chat/` returns only the chat host itself. So the platform cannot see a provider at all. Sequenced after H1 because H1 makes activation TRUE (local capability counts) and P1 makes it VISIBLE — and because a publication with no consumer proves nothing, so the consumer ships in the same pass. | no |
 | **D2** | **Content-addressed navigation.** "Open this slide / this episode in Main" — a `HostIntent` carrying a content address, reusing `NavigateTo`'s proven host path. | Proves the intent round-trip on content while still touching nothing on disk. The first content-addressed intent should be the one that cannot corrupt anything. | no |
 | **D3** | **The episode spine becomes editable from Chat.** Add / reorder / retitle at the chapter+slide level, written through `dpl_doc::save_episode`. | The container must be authorable before what fills it. This is the first MUTATION, so it lands where the write set is smallest and entirely inside `episode.json`. | **yes** |
 | **D4** | **Raw media into slides.** The WiredFRONT raw library readable in Chat, and a media reference placeable into a slide's blocks. | Needs D1's model and D3's proven write path. Placing a REFERENCE never moves or mutates the source — the sources-are-never-mutated law is what makes this safe. | **yes** |
@@ -134,5 +135,12 @@ never the authority the code is.
 
 ## 6. Status
 
-- **D1** — plan `docs/plans/chat-content-seam.md`. IN FLIGHT.
+- **D1** — plan `docs/plans/chat-content-seam.md`. MERGED (#180).
+- **H1** — plan `docs/plans/chat-histories-in-one-system.md`. MERGED (#180).
+- **P1** — plan `docs/plans/chat-providers-become-platform.md`, governed by
+  `docs/design/adr-017-provider-capability-registry.md`. Built and green on
+  `feat/p1-provider-availability`.
+- The surface P1 feeds is V1–V3 of
+  `docs/plans/providers-presence-and-the-brain.md`, against
+  `docs/design/mocks/providers.html`.
 - D2–D6 — not planned yet, by design.

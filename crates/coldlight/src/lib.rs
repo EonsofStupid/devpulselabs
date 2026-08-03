@@ -239,7 +239,7 @@ pub fn icon_label(ui: &mut egui::Ui, id: &str, size: f32, color: Color32) -> egu
 /// optional ambience) from tokens/presets.json, the 6th source. Applying
 /// one is swapping refs on a document; presets are never new code.
 #[derive(Debug, Clone, Copy)]
-pub struct LookPreset {
+pub struct ThemePreset {
     pub id: &'static str,
     pub label: &'static str,
     pub blurb: &'static str,
@@ -258,19 +258,72 @@ pub struct MotionPreset {
     pub enter: &'static str,
 }
 
+/// A two-colour hover wash: an effect plus the POOL its pair is drawn from.
+///
+/// Its own kind rather than a wider [`MotionPreset`], which carries one
+/// `enter` effect and no colour. The pool is authored in
+/// `tokens/presets.json` and every hue id in it is checked against
+/// `tokens/hues.json` at BUILD time — the reason a bleed can be reused
+/// globally without any widget holding a list of hexes.
+#[derive(Debug, Clone, Copy)]
+pub struct BleedPreset {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub blurb: &'static str,
+    pub effect: &'static str,
+    pub hues: &'static [&'static str],
+}
+
 include!(concat!(env!("OUT_DIR"), "/presets_gen.rs"));
 
-pub fn look_preset(id: &str) -> Option<&'static LookPreset> {
-    LOOK_PRESETS.iter().find(|p| p.id == id)
+pub fn theme_preset(id: &str) -> Option<&'static ThemePreset> {
+    THEME_PRESETS.iter().find(|p| p.id == id)
 }
 
 pub fn motion_preset(id: &str) -> Option<&'static MotionPreset> {
     MOTION_PRESETS.iter().find(|p| p.id == id)
 }
 
+pub fn bleed_preset(id: &str) -> Option<&'static BleedPreset> {
+    BLEED_PRESETS.iter().find(|p| p.id == id)
+}
+
+/// The ladder step a bleed wash is drawn at — vivid enough to read as ink
+/// on the dark surface, short of the near-white top of the ladder.
+pub const BLEED_STEP: u32 = 400;
+
+impl BleedPreset {
+    /// Two DISTINCT hues from the pool, chosen by `seed`.
+    ///
+    /// The same xorshift discipline `dpl_backdrop::random_mood_index` uses —
+    /// no RNG dependency, and deterministic in the seed so a proof shot
+    /// reproduces. The second pick walks a coprime-ish stride from the first
+    /// so the pair is never the same hue twice.
+    pub fn pair(&self, seed: u64) -> (Color32, Color32) {
+        let (a, b) = self.pair_ids(seed);
+        (step_on(a, BLEED_STEP), step_on(b, BLEED_STEP))
+    }
+
+    /// The chosen hue IDS — what a test can assert on without comparing
+    /// colours.
+    pub fn pair_ids(&self, seed: u64) -> (&'static str, &'static str) {
+        let n = self.hues.len();
+        debug_assert!(n >= 2, "a two-colour bleed needs a pool of at least 2");
+        let mut x = seed | 1;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        let x = x.wrapping_mul(0x2545_F491_4F6C_DD1D);
+        let first = (x % n as u64) as usize;
+        // 1..n keeps the offset off zero, so the second is never the first.
+        let step = 1 + ((x >> 32) % (n as u64 - 1)) as usize;
+        (self.hues[first], self.hues[(first + step) % n])
+    }
+}
+
 // ── THE TRAIT SYSTEM (docs/design/doctrine.md) ──────────────────────────
 //
-// A trait is a STACKABLE partial look, authored in tokens/traits.json,
+// A trait is a STACKABLE partial theme, authored in tokens/traits.json,
 // generated to traits_gen.rs, and resolved per-axis against a runtime Tone
 // by `compose`. Additive axes (shadows/back_glow/tints/anim) concatenate
 // across the stack; override axes (fill/edge/radius/ink/font) last-wins.
@@ -804,7 +857,7 @@ pub mod icon {
 }
 
 /// The scatter card: solid raised fill, crisp hairline edge, and the black
-/// diffusion — a dark shadow bleeding down and out. This is the house look.
+/// diffusion — a dark shadow bleeding down and out. This is the house theme.
 pub fn scatter_frame(tone: Tone) -> egui::Frame {
     egui::Frame::new()
         .fill(surface::RAISED)
@@ -1160,6 +1213,46 @@ include!(concat!(env!("OUT_DIR"), "/fluid_gen.rs"));
 /// PURE function of the clock: `EFFECT.at(now, t0, index)` → 0..1 progress
 /// (index applies the authored stagger). Presenter law holds by construction
 /// — one-shot effects rest at 1, looped effects wrap, nothing stores state.
+/// The MATRIX — the faceted classification a Theme is a coordinate in
+/// (`docs/design/coldlight-matrix.md`). The vocabularies and the legality
+/// rulings are generated from `tokens/matrix.json`; `build.rs` fails if any
+/// facet value is left unclassified by any ancestor, so the matrix cannot rot
+/// as values are added.
+pub mod matrix {
+    include!(concat!(env!("OUT_DIR"), "/matrix_gen.rs"));
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// The census law, applied to the matrix: eight ancestors ruling on
+        /// every facet value, exactly once each. If this number moves without
+        /// a vocabulary change, a ruling was lost.
+        #[test]
+        fn every_ancestor_rules_on_every_facet_value() {
+            let values = STRUCTURES.len() + MATERIALS.len() + ATMOSPHERES.len();
+            assert_eq!(ANCESTORS.len(), 8, "eight seeds, ratified 2026-07-31");
+            assert_eq!(values, 21, "6 structures + 9 materials + 6 atmospheres");
+            assert_eq!(
+                RULING_COUNT,
+                ANCESTORS.len() * values,
+                "every ancestor must rule on every value"
+            );
+        }
+
+        /// The ancestral list must stay SHORT — every added seed costs a full
+        /// column of rulings, which is why atmospheres and materials are not
+        /// promoted to lineages (matrix §3.2).
+        #[test]
+        fn the_ancestral_list_stays_short() {
+            assert!(
+                ANCESTORS.len() <= 8,
+                "5-8 seeds is the workable range; 20 is not"
+            );
+        }
+    }
+}
+
 pub mod motion {
     /// Cubic-bézier ease, CSS convention: control points (x1, y1, x2, y2).
     /// y may leave [0,1] — that's how the spring eases overshoot.
@@ -1191,6 +1284,47 @@ pub mod motion {
         }
     }
 
+    /// The RESOLVED transform an effect is asking for at a moment in time.
+    ///
+    /// Before this existed, [`Effect::at`] handed back a bare scalar and every
+    /// call site decided for itself what the motion MEANT — `callout_card`
+    /// read `ENTER_RISE` as "fade, plus a 6-unit lift", `gauge_dial` read the
+    /// same shape as a sweep fraction, and a dozen other templates each made
+    /// their own call. That is why the pool could not grow: a new effect was a
+    /// new number somebody had to be hand-taught to interpret, not a new
+    /// motion.
+    ///
+    /// Sizes here are NORMALISED, never pixels — `offset` is a fraction of
+    /// whatever amplitude the caller chooses, so `Fluid` keeps owning size and
+    /// the effect owns shape. A caller writes `fluid.sp_6() * m.offset.y`, and
+    /// the one effect then reads correctly at every window size.
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    pub struct Motion {
+        /// 1.0 = fully opaque. Clamped — opacity outside 0..1 is not a thing.
+        pub alpha: f32,
+        /// Displacement as a fraction of the caller's amplitude. Deliberately
+        /// UNCLAMPED so a spring ease can overshoot in space.
+        pub offset: egui::Vec2,
+        /// 1.0 = natural size. Unclamped, for the same reason as `offset`.
+        pub scale: f32,
+        /// Radians.
+        pub rotation: f32,
+        /// Reveal fraction for a wipe or a stroke draw. Clamped 0..1.
+        pub clip: f32,
+    }
+
+    impl Motion {
+        /// The resting state — what every one-shot settles to, and what a
+        /// caller paints when it has no effect at all.
+        pub const REST: Motion = Motion {
+            alpha: 1.0,
+            offset: egui::Vec2::ZERO,
+            scale: 1.0,
+            rotation: 0.0,
+            clip: 1.0,
+        };
+    }
+
     /// A named motion effect: duration, authored delay, per-index stagger,
     /// ease, and whether it loops (hotspot-pulse) or rests at 1.
     #[derive(Debug, Clone, Copy)]
@@ -1216,6 +1350,26 @@ pub mod motion {
                 self.ease.apply(p.max(0.0).fract())
             } else {
                 self.ease.apply(p)
+            }
+        }
+
+        /// The RESOLVED transform this effect asks for at a moment in time.
+        ///
+        /// See [`Motion`] for why this exists. The interpretation here is the
+        /// one every call site was already applying by hand, written down
+        /// once: fade in, rise from below, reveal forward.
+        pub fn sample(&self, now: f64, t0: f64, index: usize) -> Motion {
+            let p = self.at(now, t0, index);
+            Motion {
+                alpha: p.clamp(0.0, 1.0),
+                // Unclamped on purpose: a spring ease must be able to
+                // overshoot in space, which is the whole point of authoring
+                // one. Opacity and clip cannot, so they are clamped above and
+                // below.
+                offset: egui::vec2(0.0, 1.0 - p),
+                scale: 1.0,
+                rotation: 0.0,
+                clip: p.clamp(0.0, 1.0),
             }
         }
 
@@ -1268,9 +1422,67 @@ pub mod motion {
             assert!(CHART_RISE.in_flight(0.1, 0.0, 5));
         }
 
+        /// `sample` must reproduce EXACTLY the arithmetic every call site was
+        /// doing by hand, or this refactor is a silent visual regression
+        /// across every animated slide. `callout_card` computed
+        /// `alpha = p.clamp(0,1)` and `lift = sp_6 * (1.0 - p)`; those two
+        /// lines are the contract being pinned here.
+        #[test]
+        fn sample_reproduces_the_hand_math_it_replaces() {
+            for &(now, index) in &[(0.0, 0), (0.35, 0), (0.5, 2), (100.0, 4)] {
+                let p = ENTER_RISE.at(now, 0.0, index);
+                let m = ENTER_RISE.sample(now, 0.0, index);
+                assert_eq!(m.alpha, p.clamp(0.0, 1.0), "alpha at {now}/{index}");
+                assert_eq!(m.offset.y, 1.0 - p, "lift fraction at {now}/{index}");
+                assert_eq!(m.clip, p.clamp(0.0, 1.0), "reveal at {now}/{index}");
+            }
+        }
+
+        /// A one-shot settles to the identity transform and stays there — the
+        /// presenter law is that every state is a REST state.
+        #[test]
+        fn a_finished_effect_samples_to_rest() {
+            let m = ENTER_RISE.sample(100.0, 0.0, 0);
+            assert!((m.alpha - Motion::REST.alpha).abs() < 0.001);
+            assert!(
+                m.offset.length() < 0.001,
+                "settled offset was {:?}",
+                m.offset
+            );
+            assert!((m.clip - Motion::REST.clip).abs() < 0.001);
+        }
+
+        /// Opacity is clamped, displacement is not. A spring ease overshoots
+        /// past its target in SPACE — that is the reason to author one — while
+        /// alpha stays a legal opacity throughout.
+        #[test]
+        fn a_spring_overshoots_in_space_but_never_in_opacity() {
+            let springy = Effect {
+                dur: 1.0,
+                delay: 0.0,
+                stagger: 0.0,
+                ease: EASE_SPRING_SOFT,
+                looped: false,
+            };
+            let mut overshot = false;
+            for i in 0..=40 {
+                let m = springy.sample(i as f64 / 40.0, 0.0, 0);
+                assert!(
+                    (0.0..=1.0).contains(&m.alpha),
+                    "alpha {} left 0..1",
+                    m.alpha
+                );
+                assert!((0.0..=1.0).contains(&m.clip), "clip {} left 0..1", m.clip);
+                if m.offset.y < -0.001 {
+                    overshot = true;
+                }
+            }
+            assert!(overshot, "spring-soft must carry past its target in space");
+        }
+
         #[test]
         fn the_vocabulary_is_generated_and_complete() {
-            assert_eq!(EFFECT_COUNT, 18, "motion.json ships 18 named effects");
+            assert_eq!(EFFECT_COUNT, 19, "motion.json ships 19 named effects");
             assert!(
                 effect("enter-rise").is_some(),
                 "the entrance law is authored"
@@ -1333,7 +1545,7 @@ fn quad(painter: &egui::Painter, rect: Rect, c: [Color32; 4]) {
 }
 
 /// The gradient tint a chrome plate wears: a faint sheen from its top edge,
-/// dying out by the midline. Solid color + gradient tint — the sprite look.
+/// dying out by the midline. Solid color + gradient tint — the sprite theme.
 pub fn sheen(painter: &egui::Painter, rect: Rect) {
     let lit = Color32::from_rgba_unmultiplied(0xff, 0xff, 0xff, 7);
     let band = Rect::from_min_max(
@@ -1719,15 +1931,15 @@ mod tests {
 
     #[test]
     fn preset_refs_all_resolve_through_the_live_registries() {
-        assert_eq!(LOOK_PRESETS.len(), LOOK_PRESET_COUNT);
+        assert_eq!(THEME_PRESETS.len(), THEME_PRESET_COUNT);
         assert_eq!(MOTION_PRESETS.len(), MOTION_PRESET_COUNT);
-        let mut ids: Vec<&str> = LOOK_PRESETS.iter().map(|p| p.id).collect();
+        let mut ids: Vec<&str> = THEME_PRESETS.iter().map(|p| p.id).collect();
         ids.extend(MOTION_PRESETS.iter().map(|p| p.id));
         let n = ids.len();
         ids.sort_unstable();
         ids.dedup();
         assert_eq!(ids.len(), n, "duplicate preset id");
-        for p in LOOK_PRESETS {
+        for p in THEME_PRESETS {
             assert!(FONTS.iter().any(|f| f.id == p.font), "{}: font", p.id);
             for m in [p.moods.0, p.moods.1] {
                 assert!(MOODS.iter().any(|x| x.name == m), "{}: mood {m}", p.id);
@@ -1744,8 +1956,8 @@ mod tests {
         for p in MOTION_PRESETS {
             assert!(motion::effect(p.enter).is_some(), "{}: enter", p.id);
         }
-        assert!(look_preset("neon-intro").is_some());
-        assert!(look_preset("ghost").is_none());
+        assert!(theme_preset("neon-intro").is_some());
+        assert!(theme_preset("ghost").is_none());
     }
 
     #[test]
@@ -1775,5 +1987,102 @@ mod tests {
                 }
             });
         });
+    }
+
+    // ── V1: the dwell tier, the ink-bleed, and the brain ────────────────
+
+    #[test]
+    fn the_dwell_tier_is_authored_in_the_window_the_operator_named() {
+        // Bound to locals so this reads the AUTHORED values as data — the
+        // point is that motion.json says this, not that a literal does.
+        let (dwell, lo, hi, slow) = (
+            motion::DUR_DWELL,
+            motion::DUR_DWELL_MIN,
+            motion::DUR_DWELL_MAX,
+            motion::DUR_SLOW,
+        );
+        assert!(
+            (5.6..=6.3).contains(&dwell),
+            "the dwell tier must sit in the operator's 5.6-6.3s window, got {dwell}"
+        );
+        assert!(lo < hi, "the jitter window is a range, got {lo}..{hi}");
+        assert!(
+            lo >= 5.6 && hi <= 6.3,
+            "the authored bounds are the window itself, got {lo}..{hi}"
+        );
+        assert!(
+            dwell > slow * 10.0,
+            "dwell is a different CLASS of motion, not a longer `slow` ({dwell} vs {slow})"
+        );
+    }
+
+    #[test]
+    fn the_ink_bleed_effect_resolves_and_is_not_a_loop() {
+        let fx = motion::effect("ink-bleed").expect("ink-bleed is authored in motion.json");
+        assert!(
+            !fx.looped,
+            "the bleed settles at full colour; it does not cycle"
+        );
+        assert!(
+            (5.6..=6.3).contains(&fx.dur),
+            "the effect carries the dwell duration, got {}",
+            fx.dur
+        );
+    }
+
+    #[test]
+    fn the_brain_icon_is_tessellated() {
+        let def = icon_def("brain").expect("brain is authored in icons.json");
+        assert!(
+            !def.vertices.is_empty() && !def.indices.is_empty(),
+            "the vendored brain.svg must tessellate to real geometry"
+        );
+        assert_eq!(def.label, "Providers");
+    }
+
+    #[test]
+    fn the_bleed_pool_is_known_hues() {
+        let p = bleed_preset("providers-ink").expect("the providers bleed is authored");
+        assert!(p.hues.len() >= 4, "the operator asked for a pool of 4-5");
+        for hue in p.hues {
+            assert!(ramp(hue).is_some(), "{hue} must exist in the authored pool");
+        }
+        assert_eq!(p.effect, "ink-bleed");
+    }
+
+    #[test]
+    fn a_bleed_pair_is_always_two_different_hues() {
+        let p = bleed_preset("providers-ink").expect("preset");
+        for seed in 0..512u64 {
+            let (a, b) = p.pair_ids(seed);
+            assert_ne!(
+                a, b,
+                "seed {seed} drew the same hue twice — that is one colour, not a bleed"
+            );
+        }
+    }
+
+    #[test]
+    fn the_same_seed_gives_the_same_pair() {
+        // The proof-shot guarantee: a freely random pick would make every
+        // capture of the bleed flaky.
+        let p = bleed_preset("providers-ink").expect("preset");
+        for seed in [0u64, 1, 7, 99, 12_345] {
+            assert_eq!(p.pair_ids(seed), p.pair_ids(seed));
+            assert_eq!(p.pair(seed), p.pair(seed));
+        }
+    }
+
+    #[test]
+    fn the_pool_is_actually_drawn_from() {
+        // A pick that always returned the same pair would pass every test
+        // above and still be wrong.
+        let p = bleed_preset("providers-ink").expect("preset");
+        let seen: std::collections::BTreeSet<_> = (0..256u64).map(|s| p.pair_ids(s)).collect();
+        assert!(
+            seen.len() > 4,
+            "the seed must actually range over the pool, saw {} pairs",
+            seen.len()
+        );
     }
 }

@@ -29,9 +29,9 @@ gallery-gated wall.
   `motion` {id,label,blurb,enter}. Every value is a registry id.
 - **generate_presets()** — cross-validates AT BUILD against the other
   authored sources (unknown font/mood/effect/ambience = build error, the
-  same manifest⇄truth law fonts use) and emits `LOOK_PRESETS` /
+  same manifest⇄truth law fonts use) and emits `THEME_PRESETS` /
   `MOTION_PRESETS` statics + counts.
-- **Runtime**: `LookPreset`/`MotionPreset` structs + `look_preset(id)` /
+- **Runtime**: `ThemePreset`/`MotionPreset` structs + `theme_preset(id)` /
   `motion_preset(id)` lookups; tests pin id-uniqueness and that every ref
   resolves through the live registries.
 - **Presets wall** (Library → Presets): each look preset = a card painted

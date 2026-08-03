@@ -11,7 +11,7 @@ properly cleanly colocated with the slide per folder auto growing as we
 adhere to strict patterns."* Ratified shape (checked against how PPTX
 masters/themes, Keynote, and Slidev actually work):
 
-- **Cascade in** — an episode gets an authored `look.json` (a trait built
+- **Cascade in** — an episode gets an authored `theme.json` (a trait built
   from the generated ingredients, refs only). This is the slide-master
   pattern: shared styling lives at the show level.
 - **Sparse overrides inline** — a slide states only what differs from the
@@ -34,7 +34,7 @@ first means the deck never learns a pre-cascade shape it must unlearn.
   the live registries (fonts/moods/fluid) plus W1 allowlists
   `INKS`/`AMBIENCES`/`BLEND_MOTIONS`/`ENTERS = ["rise"]`. `save` and
   `save_episode` each hand-roll the SAME atomic tmp→bak→swap dance
-  (lines 111–128 and 296–313) — duplicated; a third copy for look.json
+  (lines 111–128 and 296–313) — duplicated; a third copy for theme.json
   would be a smell. Episode tier: `Episode`/`Chapter`/`SlideRef`,
   `load_episode`/`save_episode`/`episode_slides`/`validate_episode`
   (dup chapter ids, empty, dangling, nested slide issues path-prefixed,
@@ -75,7 +75,7 @@ first means the deck never learns a pre-cascade shape it must unlearn.
 ```
 seeds/episodes/<id>/
   episode.json      structure: chapters → slide subfolder names
-  look.json         the show's authored trait — refs only (OPTIONAL;
+  theme.json         the show's authored trait — refs only (OPTIONAL;
                     absent = the built-in fallback look)
   <slide>/
     slide.json      structure + content + SPARSE style overrides
@@ -115,7 +115,7 @@ each block's text into `painter.layout` every frame; same order.)
 
 `Look::fallback()` is the built-in default (known-good refs, proven by a
 test against the live registries) used wherever no authored look exists:
-standalone seeds, episodes without a look.json.
+standalone seeds, episodes without a theme.json.
 
 **Editor legibility (THE UI LAW):** trays show the RESOLVED value;
 tapping a card writes an override (`Some(...)`) exactly as today; a new
@@ -125,12 +125,12 @@ put it back" in plain words. Editing text on a sparse slide must NOT
 densify styling (serde `skip_serializing_if` keeps absent fields absent).
 
 **Doctor grows the contract:** `validate_episode` additionally flags
-(a) a look.json that names unknown refs, (b) unknown files in the
+(a) a theme.json that names unknown refs, (b) unknown files in the
 episode folder or a slide folder (reserved names allowed), (c) leftover
 `.tmp`/`.bak` transients, (d) an orphan slide folder no chapter
 references.
 
-**Scale story:** restyling a whole show = editing ONE look.json. A new
+**Scale story:** restyling a whole show = editing ONE theme.json. A new
 slide in a show costs structure + words only — zero styling. A future
 concern (ink, notes, assets) claims its reserved filename and the
 contract grows by one line, not by renegotiation.
@@ -197,9 +197,9 @@ pub struct Slide {
 ```rust
 // ── the LOOK tier (W3b) — the show's authored trait ─────────────────────
 
-const LOOK_FILE: &str = "look.json";
+const LOOK_FILE: &str = "theme.json";
 
-/// The show-level styling trait — `<episode-dir>/look.json`. Refs only,
+/// The show-level styling trait — `<episode-dir>/theme.json`. Refs only,
 /// like every document. Slides inherit these unless they override.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Look {
@@ -214,7 +214,7 @@ pub struct Look {
 }
 
 impl Look {
-    /// The built-in default — used when no look.json is authored
+    /// The built-in default — used when no theme.json is authored
     /// (standalone seeds, showless slides). Known-good refs; a test
     /// proves they resolve through the live registries.
     pub fn fallback() -> Self {
@@ -232,8 +232,8 @@ impl Look {
     }
 }
 
-/// Load `<dir>/look.json`; Ok(None) when none is authored (= fallback).
-pub fn load_look(dir: &Path) -> Result<Option<Look>, DocError> {
+/// Load `<dir>/theme.json`; Ok(None) when none is authored (= fallback).
+pub fn load_theme(dir: &Path) -> Result<Option<Look>, DocError> {
     let path = dir.join(LOOK_FILE);
     if !path.exists() {
         return Ok(None);
@@ -246,18 +246,18 @@ pub fn load_look(dir: &Path) -> Result<Option<Look>, DocError> {
     Ok(Some(look))
 }
 
-pub fn save_look(dir: &Path, look: &Look) -> Result<(), DocError> {
+pub fn save_theme(dir: &Path, look: &Look) -> Result<(), DocError> {
     save_json(dir, LOOK_FILE, look)
 }
 
 /// The look a slide folder resolves against: its parent episode's
 /// authored look, else the fallback. (A folder is "in a show" when the
 /// PARENT holds an episode.json.)
-pub fn look_for_slide(slide_dir: &Path) -> Look {
+pub fn theme_for_slide(slide_dir: &Path) -> Look {
     slide_dir
         .parent()
         .filter(|p| p.join(EPISODE_FILE).is_file())
-        .and_then(|p| load_look(p).ok().flatten())
+        .and_then(|p| load_theme(p).ok().flatten())
         .unwrap_or_else(Look::fallback)
 }
 
@@ -284,7 +284,7 @@ pub fn resolve(slide: &Slide, look: &Look) -> Slide {
 }
 
 /// Name every unknown ref in a look. Empty = clean.
-pub fn validate_look(look: &Look) -> Vec<Issue> { /* font via FONTS,
+pub fn validate_theme(look: &Look) -> Vec<Issue> { /* font via FONTS,
     ink via INKS, background via the same arm as validate's, enter via
     ENTERS — factor the Background arm out of validate into a private
     fn validate_background(bg: &Background, push) so both use it. */ }
@@ -301,19 +301,19 @@ walk, add:
 // The folder contract: reserved names only; everything else is flagged
 // so growth stays strict. (Transients mean a crashed save — worth naming.)
 const SLIDE_RESERVED: &[&str] = &["slide.json", "ink.json", "notes.md", "assets"];
-const EPISODE_RESERVED: &[&str] = &["episode.json", "look.json"];
+const EPISODE_RESERVED: &[&str] = &["episode.json", "theme.json"];
 ```
 
 - Episode dir scan: files not in `EPISODE_RESERVED` → `Issue { path:
   "folder", message: "unexpected file {name:?} (contract: episode.json,
-  look.json, slide folders)" }`; `.tmp`/`.bak` → "leftover transient
+  theme.json, slide folders)" }`; `.tmp`/`.bak` → "leftover transient
   {name:?} from an interrupted save". Subdirectories containing a
   slide.json but referenced by no chapter → "orphan slide folder
   {name:?} — not in any chapter".
 - Each referenced slide dir scan: entries not in `SLIDE_RESERVED`
   (same transient carve-out) → flagged, path-prefixed as today.
-- Look: `load_look(dir)` → parse/version errors become an Issue
-  ("look.json does not load: {e}"); loaded looks run `validate_look`,
+- Look: `load_theme(dir)` → parse/version errors become an Issue
+  ("theme.json does not load: {e}"); loaded looks run `validate_theme`,
   issues prefixed `look.`.
 
 **1f. Tests** (extend the existing module; existing tests updated for
@@ -321,7 +321,7 @@ the Option fields — `sample()` keeps every field `Some(...)` so the
 round-trip/validate tests keep their meaning):
 
 - `the_fallback_look_resolves_through_the_live_registries` —
-  `validate_look(&Look::fallback())` is empty.
+  `validate_theme(&Look::fallback())` is empty.
 - `look_round_trips_and_absent_look_is_ok_none`.
 - `resolve_prefers_the_slide_override_and_fills_the_rest` — a slide with
   only `font: Some("orbitron")` on one block: that block keeps orbitron,
@@ -334,7 +334,7 @@ round-trip/validate tests keep their meaning):
 - `the_folder_contract_names_strays_orphans_and_transients` — a rogue
   `styles.css` in a slide folder, an unreferenced slide folder, and a
   `slide.json.tmp` are each flagged; reserved names are not.
-- `a_bad_look_ref_is_named_via_the_episode_doctor` — look.json with
+- `a_bad_look_ref_is_named_via_the_episode_doctor` — theme.json with
   font "comic-sans" → `look.` -prefixed issue.
 - Update `episode_doctrine_names_dangling_dup_and_empty` /seed tests as
   needed for the new checks (seed episode must stay clean — step 5).
@@ -385,7 +385,7 @@ impl DocSlide {
 ### Step 3 — `crates/editor/src/lib.rs` (edit)
 
 - `Editor` gains `look: dpl_doc::Look`; `open` sets
-  `look: dpl_doc::look_for_slide(dir)` — a slide inside an episode
+  `look: dpl_doc::theme_for_slide(dir)` — a slide inside an episode
   folder automatically edits against its show's look; a standalone seed
   gets the fallback. Render call passes `&self.look`.
 - `text_fields` returns the RESOLVED values plus which are overridden:
@@ -422,7 +422,7 @@ impl DocSlide {
 ### Step 4 — `crates/hubs/workbench/src/lib.rs` (edit)
 
 - `EpisodeView::open`: load the show's look once —
-  `let look = dpl_doc::load_look(dir).ok().flatten().unwrap_or_else(dpl_doc::Look::fallback);`
+  `let look = dpl_doc::load_theme(dir).ok().flatten().unwrap_or_else(dpl_doc::Look::fallback);`
   — and build rows with `DocSlide::with_look(slide, look.clone())`.
 - Seeds wall: unchanged (`DocSlide::new` = fallback; standalone seeds
   stay fully specified anyway).
@@ -431,11 +431,11 @@ impl DocSlide {
   `list_episodes()` entry, a small header (the episode title) then a
   card per `episode_slides(&dir, &ep)` entry (label
   `"{chapter} · {name}"`), opening `dpl_editor::Editor::open(&r.dir)` —
-  the editor auto-detects the episode look via `look_for_slide`.
+  the editor auto-detects the episode look via `theme_for_slide`.
 
 ### Step 5 — migrate the seed episode (edit 5 JSON files by hand)
 
-- **Create** `seeds/episodes/how-ai-works/look.json`:
+- **Create** `seeds/episodes/how-ai-works/theme.json`:
 
 ```json
 {
@@ -471,8 +471,8 @@ disagree.
 ## 5. Boundaries
 
 - 🚫 `seeds/slides/*` content unchanged; `crates/coldlight` unchanged
-  (presets.json, build.rs, LookPreset all stay as-is).
-- 🚫 No third cascade level, no per-slide look.json, no template-level
+  (presets.json, build.rs, ThemePreset all stay as-is).
+- 🚫 No third cascade level, no per-slide theme.json, no template-level
   styling tier (that conversation belongs to Program T).
 - 🚫 The `enter-rise`/`rise` vocabulary mismatch between motion presets
   and slide `enter` is NOT resolved here (noted §2; motion-preset pass).
@@ -490,7 +490,7 @@ disagree.
    new doc/renderer/editor ones, release build, exe mtime advanced).
 2. The seed episode's doctrine is clean post-migration:
    `the_seed_episode_loads_validates_and_flattens` passes with the
-   folder-contract checks active (proves look.json + sparse slides +
+   folder-contract checks active (proves theme.json + sparse slides +
    no strays).
 3. Cascade proof at the data layer: `resolve` tests (override wins,
    inheritance fills, full slide is a fixed point).
@@ -512,13 +512,13 @@ One commit on main, then a backgrounded push:
 ```
 feat(doc): W3b — episode looks: the two-level cascade + the folder contract
 
-An episode now carries an authored look.json (the show's trait — refs
+An episode now carries an authored theme.json (the show's trait — refs
 only); slides state only their deliberate overrides. resolve() is the
 pure two-level cascade; the renderer resolves once and paints as before.
 The doctor enforces the folder contract (reserved names, orphans,
 transients, look refs). Editor shows resolved values with "Show look"
 to clear an override; picker gains the Shows section. Seed episode
-migrated (look.json + sparsified slides); standalone seeds stay fully
+migrated (theme.json + sparsified slides); standalone seeds stay fully
 specified by design.
 ```
 

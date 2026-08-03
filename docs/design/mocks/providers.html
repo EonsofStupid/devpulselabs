@@ -1,0 +1,524 @@
+<meta charset="utf-8">
+<title>Providers — the vision</title>
+<style>
+:root{
+  --well:#07090e; --base:#0a0c12; --raised:#11141d; --overlay:#181c27;
+  --hair:#232836;
+  --strong:#eef2f9; --ink:#c2c9d6; --muted:#8a93a6; --subtle:#5b6478;
+  /* the bleed pool — brand hues, authored in coldlight/tokens/hues.json */
+  --cyan:#22d3ee; --magenta:#e879f9; --amber:#fbbf24;
+  --viridian:#34d399; --electric:#818cf8; --coral:#fb7185;
+  --dwell: 5.9s;               /* the duration tier this vision adds: 5.6–6.3s */
+  --dwell-ease: cubic-bezier(.22,.61,.36,1);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--well);color:var(--ink);padding:30px 26px 70px;
+  font:13.5px/1.55 ui-sans-serif,system-ui,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+h1{font-size:15px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);
+  font-weight:600;margin:0 0 6px}
+.sub{color:var(--subtle);font-size:12.5px;margin:0 0 26px;max-width:100ch}
+.sub b{color:var(--ink);font-weight:600}
+h2{font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);
+  font-weight:600;margin:30px 0 12px;display:flex;align-items:center;gap:10px}
+h2:after{content:"";flex:1;height:1px;background:var(--hair)}
+.note{font-size:11.5px;color:var(--subtle);margin:9px 0 0;line-height:1.45}
+
+/* ───────────────── THE CONTROL ───────────────── */
+.stage{background:var(--base);border:1px solid var(--hair);border-radius:10px;padding:30px}
+.providers{display:inline-flex;align-items:center;gap:11px;
+  padding:10px 16px 10px 12px;border-radius:10px;
+  border:1px solid var(--hair);background:var(--raised);
+  cursor:pointer;position:relative;isolation:isolate;transition:border-color .2s ease}
+.providers:hover{border-color:#2e3547}
+/* the ai circle — its diameter equals the cap-height of the P */
+.aidot{width:19px;height:19px;border-radius:50%;flex:none;border:1.5px solid var(--subtle);
+  display:grid;place-items:center;font-size:9px;letter-spacing:.02em;font-weight:700;
+  color:var(--subtle);
+  transition:color var(--dwell) var(--dwell-ease),border-color var(--dwell) var(--dwell-ease)}
+.providers:hover .aidot{color:var(--c1);border-color:var(--c1)}
+.brainwrap{position:relative;width:26px;height:26px;flex:none}
+.brain{width:26px;height:26px;display:block}
+.brain path{fill:none;stroke:var(--subtle);stroke-width:1.4;
+  stroke-linecap:round;stroke-linejoin:round;
+  transition:stroke var(--dwell) var(--dwell-ease)}
+.providers:hover .brain path{stroke:var(--c1)}
+.plabel{font-size:16px;font-weight:600;letter-spacing:.01em;color:var(--muted);
+  transition:color var(--dwell) var(--dwell-ease)}
+.providers:hover .plabel{color:var(--strong)}
+/* THE BLEED — two colours seeping from two origins like ink into paper.
+   Scale, not opacity: the wash spreads outward rather than fading in. */
+.bleed{position:absolute;inset:0;border-radius:10px;overflow:hidden;z-index:-1;pointer-events:none}
+.bleed span{position:absolute;border-radius:50%;transform:scale(.04);opacity:0;filter:blur(11px);
+  transition:transform var(--dwell) var(--dwell-ease),opacity var(--dwell) var(--dwell-ease)}
+.bleed .a{left:-14%;top:-40%;width:62%;padding-bottom:62%;
+  background:radial-gradient(circle,var(--c1) 0%,transparent 68%)}
+.bleed .b{right:-16%;bottom:-46%;width:70%;padding-bottom:70%;
+  background:radial-gradient(circle,var(--c2) 0%,transparent 68%)}
+.providers:hover .bleed span{transform:scale(1);opacity:.42}
+.hint{color:var(--subtle);font-size:12px;margin-top:16px}
+.hint b{color:var(--muted);font-weight:600}
+
+/* ───────────────── THE POPUP ───────────────── */
+.pop{margin-top:24px;background:var(--overlay);border:1px solid var(--hair);
+  border-radius:12px;padding:18px;display:none;max-width:760px}
+.pop.open{display:block}
+.poptitle{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);
+  margin-bottom:14px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(152px,1fr));gap:12px}
+.card{background:var(--raised);border:1px solid var(--hair);border-radius:9px;padding:13px;
+  cursor:pointer;position:relative;transition:border-color .18s ease,transform .18s ease}
+.card:hover{border-color:#334;transform:translateY(-1px)}
+.thumb{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;
+  font-weight:700;font-size:13px;color:#08111a;margin-bottom:9px}
+.name{font-size:13px;font-weight:600;color:var(--strong)}
+.state{font-size:11.5px;margin-top:3px;display:flex;align-items:center;gap:5px}
+.dot{width:6px;height:6px;border-radius:50%;flex:none}
+.ready .dot{background:var(--viridian)} .ready{color:var(--viridian)}
+.out .dot{background:var(--amber)} .out{color:var(--amber)}
+.none .dot{background:var(--subtle)} .none{color:var(--subtle)}
+.capline{font-size:10.5px;color:var(--subtle);margin-top:7px;line-height:1.4}
+/* the tooltip is itself clickable — it PROMOTES into the modal */
+.tip{position:absolute;left:50%;bottom:calc(100% + 8px);transform:translateX(-50%);
+  background:#05080d;border:1px solid var(--hair);border-radius:7px;padding:8px 11px;
+  font-size:11.5px;color:var(--ink);white-space:nowrap;opacity:0;pointer-events:none;
+  transition:opacity .16s ease;z-index:5}
+.card:hover .tip{opacity:1;pointer-events:auto}
+.tip em{color:var(--subtle);font-style:normal;display:block;font-size:10.5px;margin-top:2px}
+
+/* ───────────────── THE MODAL ───────────────── */
+.scrim{position:fixed;inset:0;background:rgba(3,5,9,.72);display:none;place-items:center;z-index:20}
+.scrim.open{display:grid}
+.modal{background:var(--overlay);border:1px solid var(--hair);border-radius:14px;
+  padding:24px;width:min(470px,92vw)}
+.mhead{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.mname{font-size:18px;font-weight:600;color:var(--strong)}
+.tenure{font-variant-numeric:tabular-nums;color:var(--cyan);font-size:13px;background:#0b1a20;
+  border:1px solid #16323b;border-radius:7px;padding:7px 10px;display:inline-block;margin:12px 0 4px}
+.mcaps{margin-top:14px;font-size:12.5px;color:var(--muted)}
+.mcaps span{display:inline-block;border:1px solid var(--hair);border-radius:20px;
+  padding:2px 9px;margin:3px 5px 0 0;font-size:11.5px}
+.close{margin-top:18px;background:var(--raised);border:1px solid var(--hair);color:var(--ink);
+  border-radius:8px;padding:8px 14px;cursor:pointer;font-size:12.5px}
+
+/* ───────────────── THE FACT + CONSUMERS ───────────────── */
+.cols{display:grid;grid-template-columns:minmax(250px,1fr) minmax(280px,1.15fr) minmax(300px,1.35fr);
+  gap:16px;align-items:start}
+@media(max-width:1080px){.cols{grid-template-columns:1fr}}
+.panel{background:var(--base);border:1px solid var(--hair);border-radius:10px;padding:14px}
+.ptitle{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);
+  margin:0 0 10px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.ptitle i{font-style:normal;color:var(--subtle);letter-spacing:0;text-transform:none;font-size:11px}
+.prov{background:var(--raised);border:1px solid var(--hair);border-radius:8px;padding:10px;
+  margin-bottom:9px}
+.prow{display:flex;align-items:center;gap:9px}
+.badge{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;
+  font-weight:700;font-size:12px;color:#07101a;flex:none}
+.pname{font-weight:600;color:var(--strong);font-size:13px}
+.pstate{font-size:11px}
+.cyc{margin-left:auto;border:1px solid var(--hair);background:#0c1017;color:var(--muted);
+  border-radius:20px;font-size:10.5px;padding:3px 10px;cursor:pointer;font-family:inherit}
+.cyc.ready{border-color:#1d5c4a;background:#0b201a;color:var(--viridian)}
+.cyc.out{border-color:#4a3a1d;background:#1d1608;color:var(--amber)}
+.caps{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
+.cap{font-size:10px;border:1px solid var(--hair);border-radius:20px;padding:2px 7px;
+  color:var(--subtle);cursor:pointer;user-select:none}
+.cap.on{border-color:#1d4a5c;background:#08202a;color:var(--cyan)}
+.prov.off{opacity:.5} .prov.off .cap{pointer-events:none}
+pre{background:#05070c;border:1px solid var(--hair);border-radius:8px;padding:11px;
+  font:11.5px/1.55 ui-monospace,"Cascadia Code",Consolas,monospace;color:#a9b6c9;
+  overflow-x:auto;margin:0}
+pre .k{color:var(--magenta)} pre .s{color:var(--viridian)} pre .n{color:var(--amber)}
+pre .b{color:var(--electric)}
+.tabs{display:flex;gap:5px;margin-bottom:9px;flex-wrap:wrap}
+.tab{font-size:11px;border:1px solid var(--hair);border-radius:6px;padding:4px 9px;
+  color:var(--muted);cursor:pointer;background:#0c1017}
+.tab.on{border-color:#1d4a5c;color:var(--cyan);background:#08202a}
+.cons{background:var(--raised);border:1px solid var(--hair);border-radius:9px;padding:11px;
+  margin-bottom:10px}
+.cname{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
+  margin-bottom:7px;display:flex;align-items:center;gap:6px}
+.cname b{color:var(--cyan);font-weight:600;letter-spacing:0;text-transform:none;font-size:11.5px}
+.aff{display:inline-block;border:1px solid var(--hair);border-radius:7px;padding:5px 10px;
+  margin:3px 5px 0 0;font-size:11.5px;background:#0c1017;color:var(--ink)}
+.aff.dead{opacity:.32;text-decoration:line-through;color:var(--subtle)}
+.pill{display:inline-block;border-radius:20px;padding:2px 9px;font-size:11px;
+  margin:3px 5px 0 0;border:1px solid}
+.pill.ok{border-color:#1d5c4a;background:#0b201a;color:var(--viridian)}
+.pill.no{border-color:#3a2530;background:#1a0f14;color:var(--coral)}
+select,button.act{background:#0c1017;border:1px solid var(--hair);color:var(--ink);
+  border-radius:7px;padding:5px 9px;font-size:12px;font-family:inherit}
+button.act{cursor:pointer} button.act:hover{border-color:#334}
+.run{border:1px solid var(--hair);border-radius:8px;padding:9px;margin-top:7px;background:#0c1017}
+.run.pick{border-color:#1d5c4a;background:#0b1a16}
+.rhead{display:flex;align-items:center;gap:7px;font-size:11.5px}
+.rbody{font-size:11.5px;color:var(--muted);margin-top:5px}
+.cap-row{font:11px/1.5 ui-monospace,monospace;color:var(--viridian);background:#06120e;
+  border:1px solid #14352b;border-radius:6px;padding:7px;margin-top:6px;overflow-x:auto;white-space:pre}
+.empty{color:var(--subtle);font-size:11.5px;font-style:italic}
+.warn{color:var(--amber)}
+</style>
+
+<h1>Providers</h1>
+<p class="sub">One surface, one fact. The control below is the way in — hover it and <b>wait</b>:
+the bleed is deliberately passive, about six seconds from line-art to full colour, two colours
+seeping from two origins, drawn from a seeded pool. Click it for the roster; hover a card for its
+tooltip, then click the tooltip to promote it into the provider modal.
+Everything further down is <b>derived from the same registry</b> — set a provider's presence or its
+capabilities on the left and watch the roster, the stored fact, and the four consumers all move
+together. The question this page exists to answer: <b>when Claude goes dark, does the right stuff
+disappear everywhere at once?</b> If any surface keeps offering something no longer possible, the
+shape is wrong.</p>
+
+<h2>The control</h2>
+<div class="stage">
+  <div class="providers" id="ctl">
+    <div class="bleed"><span class="a"></span><span class="b"></span></div>
+    <div class="aidot">ai</div>
+    <div class="brainwrap">
+      <svg class="brain" viewBox="0 0 24 24">
+        <path d="M12 4.4v15.2"/>
+        <path d="M12 5.6a3 3 0 0 0-5.5 1.7A2.7 2.7 0 0 0 4.3 10a2.8 2.8 0 0 0 .8 4.3A2.9 2.9 0 0 0 7 18.6a2.9 2.9 0 0 0 5-1.2"/>
+        <path d="M12 5.6a3 3 0 0 1 5.5 1.7A2.7 2.7 0 0 1 19.7 10a2.8 2.8 0 0 1-.8 4.3A2.9 2.9 0 0 1 17 18.6a2.9 2.9 0 0 1-5-1.2"/>
+        <path d="M8.6 9.2c1 .3 1.7 1 1.9 2.1M15.4 9.2c-1 .3-1.7 1-1.9 2.1M8.1 14.4c1.1-.2 2-.1 2.6.4M15.9 14.4c-1.1-.2-2-.1-2.6.4"/>
+      </svg>
+    </div>
+    <div class="plabel">Providers</div>
+  </div>
+  <div class="hint">pool pick this load: <b id="pick"></b> · dwell <b id="dw"></b> — seeded, so a proof run pins both</div>
+
+  <div class="pop" id="pop">
+    <div class="poptitle">Frontier AI on this machine</div>
+    <div class="grid" id="grid"></div>
+    <p class="note">Every card carries its live state from the registry, and a card can say three
+    different true things — <b>signed in</b>, <b>signed out</b>, <b>not installed</b> — because that
+    is exactly what a vendor status probe can distinguish. Nothing here implies more certainty than
+    the probe gives it, and nothing here is a credential.</p>
+  </div>
+</div>
+
+<div class="scrim" id="scrim">
+  <div class="modal">
+    <div class="mhead">
+      <div class="thumb" id="mthumb"></div>
+      <div><div class="mname" id="mname"></div><div class="state" id="mstate"></div></div>
+    </div>
+    <div id="mblurb" style="font-size:13px;color:var(--ink)"></div>
+    <div class="tenure" id="mten"></div>
+    <div style="font-size:11px;color:var(--subtle)">time in operation, live</div>
+    <div class="mcaps" id="mcaps"></div>
+    <button class="close" id="mclose">Close</button>
+  </div>
+</div>
+
+<h2>The registry and everything that reads it</h2>
+<div class="cols">
+
+  <div class="panel">
+    <div class="ptitle">Presence <i>the only writer</i></div>
+    <div id="provs"></div>
+    <p class="note">Click a provider's state to cycle it the way a probe would find it. Presence is
+    answered by the vendor's own tool — <code>codex login status</code>, the CLI's auth state, the
+    transcripts already on disk — never by reading another app's cookie jar. Capability chips are
+    what that provider <em>qualified</em> for.</p>
+  </div>
+
+  <div class="panel">
+    <div class="ptitle">The one fact</div>
+    <div class="tabs">
+      <div class="tab on" data-v="reg">registry</div>
+      <div class="tab" data-v="estate">estate · Tree::Agents</div>
+      <div class="tab" data-v="seam">seam · wire JSON</div>
+    </div>
+    <pre id="fact"></pre>
+    <p class="note" id="factnote"></p>
+  </div>
+
+  <div class="panel">
+    <div class="ptitle">The four consumers <i>read-only</i></div>
+
+    <div class="cons">
+      <div class="cname">1 · <b>A2UI — the evolving UI</b></div>
+      <div id="a2ui"></div>
+      <p class="note">An affordance exists only while something can honour it. Struck-through =
+      removed from the UI, not disabled-with-an-excuse.</p>
+    </div>
+
+    <div class="cons">
+      <div class="cname">2 · <b>Workflows — mixture of experts</b></div>
+      <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap">
+        <span style="font-size:11.5px;color:var(--muted)">route beat</span>
+        <select id="beat"></select>
+      </div>
+      <div id="route" style="margin-top:7px"></div>
+    </div>
+
+    <div class="cons">
+      <div class="cname">3 · <b>A/B duplicate runs</b></div>
+      <button class="act" id="fan">Run this beat on every eligible provider</button>
+      <div id="runs"></div>
+    </div>
+
+    <div class="cons">
+      <div class="cname">4 · <b>Capture → Clyffy</b></div>
+      <div id="cap"><div class="empty">No picks yet. Run a beat, then choose the answer you'd keep.</div></div>
+      <p class="note">The pick is the label. Provider identity plus the capability set it was
+      selected for is what makes the row attributable later.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ── ONE state. The control, the roster, the modal, the stored fact and all
+      four consumers are projections of this array and nothing else. ── */
+const ALL_CAPS = ['ReadSessions','PageHistory','StreamTurns','Tools','Images','Plans'];
+
+const P = [
+  {id:'codex', label:'ChatGPT / Codex', k:'C', c:'#10a37f', presence:'ready',
+   why:'codex login status → signed in', note:null, since:'2015-12-11',
+   blurb:'OpenAI. Detected through the Codex CLI on this machine, which reports its own auth state.',
+   caps:['ReadSessions','PageHistory','StreamTurns','Tools','Plans']},
+  {id:'claude', label:'Claude Code', k:'A', c:'#d97757', presence:'ready',
+   why:'165 local transcripts indexed', note:'Local transcripts only — live turns are not qualified yet.',
+   since:'2021-01-28',
+   blurb:'Anthropic. Activated by the transcripts already on this machine — live turns are not qualified yet.',
+   caps:['ReadSessions','PageHistory']},
+  {id:'grok', label:'Grok', k:'G', c:'#e5e7eb', presence:'ready',
+   why:'build subscription active', note:null, since:'2023-07-12',
+   blurb:'xAI. Activation coordinator reports a live runtime on this machine.',
+   caps:['StreamTurns','Tools','Images']},
+  {id:'gemini', label:'Gemini', k:'G', c:'#4285f4', presence:'out',
+   why:'CLI installed, signed out', note:'Installed, signed out.', since:'2023-12-06',
+   blurb:'Google DeepMind. Installed but not signed in — sign-in opens your default browser.',
+   caps:[]},
+  {id:'mistral', label:'Mistral', k:'M', c:'#ff7000', presence:'none',
+   why:'not installed', note:'No local client detected.', since:'2023-04-28',
+   blurb:'Mistral AI. No local client detected on this machine.', caps:[]},
+  {id:'llama', label:'Llama', k:'L', c:'#0866ff', presence:'none',
+   why:'not installed', note:'No local client detected.', since:'2023-02-24',
+   blurb:'Meta. No local client detected on this machine.', caps:[]}
+];
+
+/* Activation is DERIVED from presence — only a probe that found the operator
+   signed in makes a provider available. */
+const isOn = p => p.presence === 'ready';
+const can = (p,c) => isOn(p) && p.caps.includes(c);
+const eligible = need => P.filter(p => can(p,need));
+
+const LABEL = {ready:'signed in · available', out:'signed out', none:'not installed'};
+const CYCLE = {ready:'out', out:'none', none:'ready'};
+
+const BEATS = [
+  {id:'brainstorm', label:'Brainstorm', needs:'StreamTurns'},
+  {id:'research',   label:'Research prior work', needs:'ReadSessions'},
+  {id:'develop',    label:'Develop (senior, built for scale)', needs:'Tools'},
+  {id:'consistency',label:'Consistency check', needs:'Plans'},
+  {id:'visual',     label:'Visual pass', needs:'Images'}
+];
+
+const AFF = [
+  {label:'Ask AI about this slide', needs:'StreamTurns'},
+  {label:'Search past sessions',    needs:'ReadSessions'},
+  {label:'Generate an image',       needs:'Images'},
+  {label:'Run a tool',              needs:'Tools'}
+];
+
+let view = 'reg', picks = [], lastRuns = [], ticker = null, openCard = null;
+
+/* ── the bleed: seeded pool pick + a dwell inside the 5.6–6.3s window ── */
+const POOL = [['cyan','#22d3ee'],['magenta','#e879f9'],['amber','#fbbf24'],
+              ['viridian','#34d399'],['electric','#818cf8']];
+const seed = Math.floor(Math.random()*POOL.length);
+const ca = POOL[seed];
+const cb = POOL[(seed + 1 + Math.floor(Math.random()*(POOL.length-1))) % POOL.length];
+const ctl = document.getElementById('ctl');
+const dwell = (5.6 + Math.random()*0.7).toFixed(2);
+ctl.style.setProperty('--c1', ca[1]);
+ctl.style.setProperty('--c2', cb[1]);
+ctl.style.setProperty('--dwell', dwell + 's');
+document.getElementById('pick').textContent = ca[0] + ' + ' + cb[0];
+document.getElementById('dw').textContent = dwell + 's';
+ctl.onclick = () => document.getElementById('pop').classList.toggle('open');
+
+function esc(s){return String(s).replace(/[<>&]/g,m=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[m]))}
+function j(o){
+  return esc(JSON.stringify(o,null,2))
+    .replace(/&quot;([^&]+?)&quot;:/g,'<span class="k">"$1"</span>:')
+    .replace(/: &quot;([^&]*?)&quot;/g,': <span class="s">"$1"</span>')
+    .replace(/: (true|false)/g,': <span class="b">$1</span>')
+    .replace(/: (null)/g,': <span class="b">$1</span>')
+    .replace(/^(\s*)&quot;([A-Za-z]+)&quot;(,?)$/gm,'$1<span class="s">"$2"</span>$3');
+}
+
+function reg(){
+  return P.map(p=>({
+    id:p.id, label:p.label, activated:isOn(p),
+    note: isOn(p) ? p.note : (p.note || 'Not activated.'),
+    capabilities:[...p.caps].sort()
+  }));
+}
+
+/* ── the roster popup ── */
+function renderGrid(){
+  document.getElementById('grid').innerHTML = P.map((p,i)=>{
+    const shown = isOn(p) ? p.caps.slice().sort() : [];
+    return `<div class="card" data-i="${i}">
+      <div class="thumb" style="background:${p.c}">${p.k}</div>
+      <div class="name">${p.label}</div>
+      <div class="state ${p.presence}"><i class="dot"></i>${LABEL[p.presence]}</div>
+      <div class="capline">${shown.length ? shown.join(' · ') : '—'}</div>
+      <div class="tip">${p.why}<em>click for the full summary</em></div>
+    </div>`;
+  }).join('');
+  document.querySelectorAll('.card').forEach(el=>{
+    const i = +el.dataset.i;
+    el.onclick = () => openModal(i);
+    el.querySelector('.tip').onclick = e => { e.stopPropagation(); openModal(i); };
+  });
+}
+
+function openModal(i){
+  openCard = i;
+  const p = P[i];
+  const t = document.getElementById('mthumb');
+  t.style.background = p.c; t.textContent = p.k;
+  document.getElementById('mname').textContent = p.label;
+  const st = document.getElementById('mstate');
+  st.className = 'state ' + p.presence;
+  st.innerHTML = `<i class="dot"></i>${LABEL[p.presence]} — ${p.why}`;
+  document.getElementById('mblurb').textContent = p.blurb;
+  const shown = isOn(p) ? p.caps.slice().sort() : [];
+  document.getElementById('mcaps').innerHTML = 'Capabilities ' +
+    (shown.length ? shown.map(c=>`<span>${c}</span>`).join('') : '<span>—</span>');
+  const from = new Date(p.since + 'T00:00:00Z');
+  clearInterval(ticker);
+  const tick = () => {
+    const ms = Date.now() - from;
+    const d = Math.floor(ms/86400000);
+    const y = Math.floor(d/365.25), mo = Math.floor((d - y*365.25)/30.44);
+    const s = Math.floor(ms/1000)%60, mi = Math.floor(ms/60000)%60, h = Math.floor(ms/3600000)%24;
+    document.getElementById('mten').textContent =
+      `${y}y ${mo}mo · ${d.toLocaleString()} days · ${String(h).padStart(2,'0')}:${String(mi).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  };
+  tick(); ticker = setInterval(tick, 1000);
+  document.getElementById('scrim').classList.add('open');
+}
+function closeModal(){
+  document.getElementById('scrim').classList.remove('open');
+  clearInterval(ticker); openCard = null;
+}
+document.getElementById('mclose').onclick = closeModal;
+document.getElementById('scrim').onclick = e => { if (e.target.id === 'scrim') closeModal(); };
+
+/* ── the writer ── */
+function renderProviders(){
+  document.getElementById('provs').innerHTML = P.map((p,i)=>`
+    <div class="prov ${isOn(p)?'':'off'}">
+      <div class="prow">
+        <div class="badge" style="background:${p.c}">${p.k}</div>
+        <div>
+          <div class="pname">${p.label}</div>
+          <div class="pstate ${p.presence}">${LABEL[p.presence]}</div>
+        </div>
+        <button class="cyc ${p.presence}" data-p="${i}">${p.presence}</button>
+      </div>
+      <div class="caps">${ALL_CAPS.map(c=>
+        `<span class="cap ${p.caps.includes(c)?'on':''}" data-p="${i}" data-c="${c}">${c}</span>`).join('')}</div>
+    </div>`).join('');
+  document.querySelectorAll('.cyc').forEach(b=>b.onclick=()=>{
+    const p = P[+b.dataset.p];
+    p.presence = CYCLE[p.presence];
+    all();
+  });
+  document.querySelectorAll('.cap').forEach(el=>el.onclick=()=>{
+    const p = P[+el.dataset.p], c = el.dataset.c;
+    p.caps.includes(c) ? p.caps.splice(p.caps.indexOf(c),1) : p.caps.push(c);
+    all();
+  });
+}
+
+const NOTES = {
+  reg:'One in-memory fold, replaced wholesale by the chat host. Booleans like can_send are derived from the set — never stored, because a boolean cannot answer "who can take this beat".',
+  estate:'Written to the estate partition that already exists. Read at BOOT, before any probe runs, so the UI starts truthful instead of empty and correcting itself a second later. No live handles, no credentials.',
+  seam:'The same fact projected onto the registry an agent already reads to learn the map. An agent that cannot see which experts exist cannot route to them.'
+};
+function renderFact(){
+  const r = reg();
+  let o;
+  if (view==='reg') o = r;
+  else if (view==='estate') o = {tree:'Agents', key:'providers/roster',
+    value:{written_at:'2026-08-01T20:41:00Z',
+      providers:r.map(x=>({id:x.id,activated:x.activated,capabilities:x.capabilities}))}};
+  else o = {registry:{providers:r.map(x=>({id:x.id,label:x.label,activated:x.activated,capabilities:x.capabilities}))}};
+  document.getElementById('fact').innerHTML = j(o);
+  document.getElementById('factnote').textContent = NOTES[view];
+}
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));
+  t.classList.add('on'); view = t.dataset.v; renderFact();
+});
+
+function renderA2UI(){
+  document.getElementById('a2ui').innerHTML = AFF.map(a=>{
+    const who = eligible(a.needs);
+    return `<span class="aff ${who.length?'':'dead'}" title="${a.needs}">${a.label}</span>`;
+  }).join('');
+}
+
+function renderRoute(){
+  const beat = BEATS.find(b=>b.id===document.getElementById('beat').value);
+  const who = eligible(beat.needs);
+  document.getElementById('route').innerHTML =
+    `<div style="font-size:11.5px;color:var(--subtle);margin-bottom:4px">needs <code style="color:var(--cyan)">${beat.needs}</code></div>` +
+    (who.length
+      ? who.map(p=>`<span class="pill ok">${p.label}</span>`).join('')
+      : `<span class="pill no">no expert available — the beat cannot run</span>`);
+}
+
+function renderRuns(){
+  const el = document.getElementById('runs');
+  if(!lastRuns.length){ el.innerHTML=''; return; }
+  el.innerHTML = lastRuns.map((r,i)=>`
+    <div class="run ${r.picked?'pick':''}">
+      <div class="rhead"><span class="badge" style="background:${r.c};width:18px;height:18px;font-size:9px">${r.k}</span>
+        <b style="color:var(--strong)">${r.label}</b>
+        <button class="act" style="margin-left:auto;font-size:10.5px;padding:3px 8px" data-r="${i}">
+          ${r.picked?'kept':'keep this'}</button></div>
+      <div class="rbody">${r.text}</div>
+    </div>`).join('');
+  el.querySelectorAll('button[data-r]').forEach(b=>b.onclick=()=>{
+    const r = lastRuns[+b.dataset.r];
+    lastRuns.forEach(x=>x.picked=false); r.picked = true;
+    picks.unshift({beat:r.beat, needs:r.needs, chose:r.id,
+      over:lastRuns.filter(x=>x.id!==r.id).map(x=>x.id),
+      caps:P.find(p=>p.id===r.id).caps.slice().sort()});
+    renderRuns(); renderCaptures();
+  });
+}
+document.getElementById('fan').onclick = ()=>{
+  const beat = BEATS.find(b=>b.id===document.getElementById('beat').value);
+  const who = eligible(beat.needs);
+  lastRuns = who.map(p=>({id:p.id,label:p.label,k:p.k,c:p.c,beat:beat.label,needs:beat.needs,
+    picked:false, text:`— ${p.label}'s answer for “${beat.label}”. Duplicate run, same beat, same inputs.`}));
+  if(!lastRuns.length) document.getElementById('runs').innerHTML =
+    `<div class="empty warn">Nothing eligible — no run to compare. That is the registry doing its job.</div>`;
+  else renderRuns();
+};
+
+function renderCaptures(){
+  const el = document.getElementById('cap');
+  if(!picks.length){ el.innerHTML = `<div class="empty">No picks yet. Run a beat, then choose the answer you'd keep.</div>`; return; }
+  el.innerHTML = picks.slice(0,4).map(p=>
+    `<div class="cap-row">beat=${p.beat}
+needs=${p.needs}
+chose=${p.chose}   over=[${p.over.join(', ')||'—'}]
+caps=[${p.caps.join(', ')}]</div>`).join('');
+}
+
+function all(){
+  renderProviders(); renderGrid(); renderFact(); renderA2UI(); renderRoute(); renderRuns();
+  if (openCard !== null) openModal(openCard);   // the modal is a projection too
+}
+document.getElementById('beat').innerHTML = BEATS.map(b=>`<option value="${b.id}">${b.label}</option>`).join('');
+document.getElementById('beat').onchange = ()=>{ lastRuns=[]; renderRuns(); renderRoute(); };
+all(); renderCaptures();
+</script>
