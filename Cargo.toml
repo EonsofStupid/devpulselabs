@@ -131,7 +131,7 @@ thorvg-sys = "0.3"
 tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
 # C2s/C2b desktop overlay (desktop-spike + coach-overlay): locked transitive
 # versions promoted to direct deps — no new third-party tree.
-atspi = { version = "0.29", default-features = false, features = ["proxies", "zbus"] }
+atspi = { version = "0.30", default-features = false, features = ["proxies", "zbus"] }
 zbus = { version = "5", default-features = false, features = ["async-io"] }
 x11rb = { version = "0.14", default-features = false, features = ["allow-unsafe-code", "xtest"] }
 toml = "1.1"
