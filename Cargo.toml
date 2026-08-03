@@ -65,6 +65,7 @@ members = [
     "crates/hubs/present",
     "crates/hubs/workbench",
     "crates/hubs/wiredfront",
+    "crates/hubs/coach",
     "crates/app",
     "crates/desktop-spike",
     "crates/coach-overlay",
@@ -217,6 +218,7 @@ dpl-hub-shows = { path = "crates/hubs/shows" }
 dpl-hub-present = { path = "crates/hubs/present" }
 dpl-hub-workbench = { path = "crates/hubs/workbench" }
 dpl-hub-wiredfront = { path = "crates/hubs/wiredfront" }
+dpl-hub-coach = { path = "crates/hubs/coach" }
 
 # The Windows MSVC linker otherwise exhausts its PDB record limit while
 # linking the workspace test graph (notably the ACP-backed provider tests).

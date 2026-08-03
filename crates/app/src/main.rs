@@ -840,6 +840,7 @@ impl App {
             Box::new(present_hub),
             Box::new(workbench),
             Box::new(wiredfront),
+            Box::new(dpl_hub_coach::CoachHub::new()),
         ];
         // The lite route launcher's targets: each registered hub's label and
         // its home route (HubSpec::default_route → first subroute). Built here,
