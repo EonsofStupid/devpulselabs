@@ -954,6 +954,9 @@ impl App {
         if let Some(m) = mood {
             shell.set_harness_mood(m);
         }
+        // Recorded before the match consumes it: a harness route must not
+        // become the operator's persisted landing route.
+        let harness_route = boot_route.is_some();
         match boot_route {
             // The harness route: HubId/SubId are &'static str newtypes, so the
             // CLI strings are leaked once — a harness-only allocation.
@@ -984,7 +987,17 @@ impl App {
                 seam_registry,
                 dpl_engine_capture::content_root(),
                 estate.clone(),
-                Some(shell.route()),
+                // A HARNESS route is never the operator's landing route.
+                // `--route` exists so a surface can prove itself; seeding it
+                // here persisted it to the estate, so the next plain
+                // double-click opened wherever the last drill happened to
+                // stop. Proof runs must not mutate operator state — the same
+                // law that keeps proof-shot runs off the content index.
+                if harness_route {
+                    None
+                } else {
+                    Some(shell.route())
+                },
                 port,
             );
         }
