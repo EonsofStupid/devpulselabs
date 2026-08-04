@@ -127,14 +127,11 @@ Chip order becomes `Seeds · Templates · Blocks · Elements · Themes · Colors
 Presets · Fonts · Moods` — ladder order, coarse to fine. The stale `lib.rs` l.8
 note ("Elements sections join later") is deleted, because they no longer do.
 
-### 3d. `Traits` → `Themes` (S0; was briefly Looks)
+### 3d. Treatment tier face = **Themes** (S0) — DONE in code
 
-Per S0, the user-facing word for the treatment tier is **Themes**.
-`LibSection::Traits` is the only surface still saying "traits" to the operator.
-Renaming the variant + slug + blurb is 3 lines and keeps ONE vocabulary across
-Library and Author. The authored data (`tokens/frame-patches.json`) and the internal
-type names for FramePatch are engineering metal — Themes is
-the correct operator word, exactly as `Slide`/"card" already splits.
+Operator chip/shelf: **`LibSection::Themes`** / **`Shelf::Themes`**, slug
+`themes`, label Themes. Engineering metal remains FramePatch /
+`tokens/frame-patches.json`. Looks and Traits are not operator words.
 
 ## 4. Scope
 
@@ -146,7 +143,7 @@ the correct operator word, exactly as `Slide`/"card" already splits.
 3. `LibSection::Elements` added; `blocks_wall` → `elements_wall`; new
    `blocks_wall` painting the honest-empty chunk shelf; chip order; stale note
    deleted.
-4. `LibSection::Traits` → `Themes` (variant, slug `themes`, label Themes only).
+4. `LibSection::Themes` (variant, slug `themes`, label Themes) — landed.
 
 **Out — each its own pass:**
 - **Promoting any actual block.** Needs a recurrence audit across the 20

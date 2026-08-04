@@ -1,63 +1,69 @@
 ---
 name: coldlight-system
-description: The DevPULSE Labs visual-language gate AND the composable-ingredients foundation. Invoke before ANY pass that adds/edits UI or builds a slide, element, block, or template. Ensures the stackable ColdLight ingredients (patches, elements, blocks, templates) already exist as generated egui code ready to colocate, and holds every surface to the patch doctrine — neubrutalism/claymorphism base + cyber/retro stack, tooltip law, generated-tokens-only, any-shape proofs. Replaces the old dpl-style gate.
+description: The DevPULSE Labs visual-language gate AND the composable-ingredients foundation. Invoke before ANY pass that adds/edits UI or builds a slide, element, block, or template. Ensures the stackable ColdLight ingredients (FramePatches, elements, blocks, templates) already exist as generated egui code ready to colocate, and holds every surface to the doctrine — Theme face, FramePatch metal, neubrutalism/claymorphism base + cyber/retro overlays, tooltip law, generated-tokens-only, any-shape proofs. Replaces the old dpl-style gate.
 ---
 
-# ColdLight — the composable styling system + the gate
+# ColdLight Design OS — gate + composition metal
 
-Read `docs/design/doctrine.md` first (the authored treatment doctrine, ratified
-in `docs/plans/pass0-coldlight-treatments.md`). This skill is BOTH the foundation
-guarantee and the per-surface gate. It supersedes `dpl-style`.
+Read first, in order:
 
-## The architecture (the concept, ported to egui — do not fight it)
+1. `docs/design/coldlight-design-os.md` — OS charter (seeds · entities · presets · Themes)
+2. `docs/design/theme-vocabulary-law.md` — **Theme face**; Looks forbidden; FramePatch is metal
+3. `docs/design/doctrine.md` — composition / paint laws
 
-The original's web pipeline (author JSON → Style Dictionary → CSS vars → cascade)
-lands in egui as **author JSON → `build.rs` generates Rust consts → a pure
-compositor resolves a `Style` struct → immediate-mode paint**. Same concept,
-better fit: the compositor is one pure, testable, cacheable function, not a
-browser resolving var-chains.
+This skill is BOTH the foundation guarantee and the per-surface gate. It
+supersedes `dpl-style`.
+
+**Product face:** Themes / Theme / ThemePreset.  
+**Engineering metal:** FramePatch / FrameStyle / compose.  
+**Forbidden:** Looks, LookPreset, ColdLight product `trait` / TraitDef.
+
+## The architecture (egui — do not fight it)
+
+Author JSON → RenderForge / `build.rs` generates Rust → pure `compose` →
+`FrameStyle` → immediate-mode paint.
 
 ```
 tokens/*.json (AUTHORED — the only thing you touch)
-  hues · fluid · motion · moods · fonts · presets · TRAITS
-        │  build.rs (the design build; unknown ref fails the build)
+  hues · fluid · motion · moods · fonts · presets · frame-patches · matrix
+        │  build.rs (unknown ref / illegal coordinate fails the build)
         ▼
-generated *_gen.rs  (NEVER hand-edit — carries "GENERATED … DO NOT EDIT")
+generated *_gen.rs  (NEVER hand-edit — "GENERATED … DO NOT EDIT")
         │
-compose(base, &[trait_id], overrides) -> FrameStyle   (pure fn, per frame, cacheable)
+compose(tone, base, &[overlays], state) -> FrameStyle
         │
 paint fns take FrameStyle → egui::Frame + painter ops
         │
-manifest (generated) ← the Workbench editor reads THIS ("only show what exists")
+manifest (generated) ← Workbench editor ("only show what exists")
 ```
 
-**Two orthogonal axes — never conflate them:**
-- **Styling ingredients** = `patches · elements · blocks · templates` (what dresses a surface).
-- **Slide categories** = `static · animation · interactive · split · infographics`
-  (what KIND of slide) — a `category` field + registry key, plus open stackable
-  `tags` (`topic:*`, `episode:*`, …). Independent of styling.
+**Do not conflate:**
 
-## The treatments (patches — authored in `tokens/frame-patches.json`, composed per-axis)
+| Concern | Words |
+|---|---|
+| Operator dress | **Theme / Themes / ThemePreset** |
+| Composition metal | **FramePatch · FrameStyle · compose** |
+| Library ladder | Pieces · Combos · Layouts · Starters (elements/blocks/templates) |
+| Slide categories | static · animation · interactive · split · infographics |
 
-Two BASE treatments + two STACKABLE patches (operator-ratified). Never hand-roll
-any of them; if a variant is missing, author the patch data and regenerate.
+## The treatments (FramePatches — `tokens/frame-patches.json`)
 
-- **NEUBRUTALIST** (base, actionable) — the egui-native strength move. Flat
-  saturated fill, crisp 2px hard edge, HARD offset shadow `[3,3]` zero blur
-  (a shape, not a glow), tight radius. The "lit-from-behind" pop is a CHEAP
-  painted back-glow / tone-wash — NEVER a real blur. Loud, honest, fast.
-- **CLAYMORPHIC** (base, passive) — soft extruded surface (the original's
-  neumorphic specialty): DIRECTIONAL double-shadow (light top-left, dark
-  bottom-right), generous radius, hairline edge, optional two-color diffuse
-  tint. Content sits IN it; chrome sits ON it.
-- **CYBER** (stack) — cyan glow + thin bright edge + hue-drift. Rides on top.
-- **RETRO** (stack) — scanline texture + chunky amber edge + sharp corners + flicker.
+Two BASE + two OVERLAY patches (operator-ratified). Never hand-roll; author
+patch data and regenerate.
 
-**Composition law (per-axis, from the resolved-struct compositor):**
-- **Additive axes** — `shadows`, `tint/gradient layers`, `back-glow`, `animation`
-  — every patch's contribution CONCATENATES (retro scanline AND cyber glow both paint).
-- **Override axes** — `fill`, `stroke`, `corner_radius`, `override_text_color`, `override_font_id` — last patch in the
-  stack wins. The additive/override split is a static table beside the axis enum.
+- **NEUBRUTALIST** (base, actionable) — flat saturated fill, crisp 2px hard edge,
+  HARD offset shadow `[3,3]` zero blur, tight radius, painted back-glow —
+  NEVER real blur.
+- **CLAYMORPHIC** (base) — directional double-shadow, generous radius, hairline
+  edge, optional diffuse tint. Clay may be actionable (doctrine ruling).
+- **CYBER** (overlay) — cyan glow + thin bright edge + hue-drift.
+- **RETRO** (overlay) — scanline + chunky amber edge + sharp corners + flicker.
+
+**Composition law:**
+
+- **Additive** — `shadows`, `tints`, `back_glow`, `anim` — concatenate.
+- **Override** — `fill`, `stroke`, `corner_radius`, `override_text_color`,
+  `override_font_id` — last overlay wins.
 
 ## Foundation gate — run BEFORE any slide/UI is built
 

@@ -1,6 +1,6 @@
 # Resume pack — CURRENT
 
-**Updated:** 2026-08-03 (OS + Theme S0; Looks→Themes docs)
+**Updated:** 2026-08-04 (Theme API hard-cut; OS + S0; rebased on origin)
 **Lane:** providers
 **Dirty:** false
 
@@ -50,20 +50,24 @@ The Providers carousel (rework of V2), against
 - Chip hover is a **sporadic** multi-hue effect — NOT the slow `ink-bleed`.
   Same authored pool, different temperament.
 
-## Done and on PR #192 (`feat/p1-provider-availability`, green)
+## Done and on PR #192 (`feat/p1-provider-availability`)
 
 P1 registry · V1 control + ink-bleed preset · V2 roster popup · V3 modal with
 live tenure · A1 presence probes · A2 vendor sign-in · Cursor + Antigravity
-providers · Enter-sends in the composer.
+providers · Enter-sends in the composer · **C1** carousel/chips on this branch.
+
+**Theme vocabulary (2026-08-04):** ColdLight Design OS + S0 Theme law; N1
+FramePatch metal; `with_theme` / `apply_theme_preset` / `theme_enter` /
+`theme_preset_tray`; Looks forbidden. Docs + code rebased on origin tip.
 
 Live on this machine: codex/claude/grok **signed in**, cursor/gemini **not
 installed**.
 
 ## Next
 
-1. Land PR #192, or rebase it — #169 also edits `crates/fabric/src/lib.rs`.
-2. **Build C1** — `docs/plans/c1-providers-carousel.md`. Mock is done
-   (artifact, A/B against the real capture) and the plan is settled.
+1. **Push + double-green** PR #192 — both hosted lanes SUCCESS, then merge
+   only on operator go. Watch for fabric conflict with #169 if still open.
+2. After land: rebuild release exe; tip STATE.
 3. PU1 — the `.pulse` container + verifier. **Signing is the real
    guarantee; encryption is obfuscation** — `pulse-program.md` §2.1 says why,
    and that section must not be softened.
