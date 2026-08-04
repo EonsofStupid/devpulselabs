@@ -1987,6 +1987,7 @@ dependencies = [
  "async-io",
  "async-process",
  "dpl-chat-core",
+ "dpl-chat-runtime",
  "dpl-chat-store",
  "dpl-proc",
  "dpl-tools-deps",
@@ -2145,7 +2146,7 @@ name = "dpl-coach-runtime"
 version = "0.1.0"
 dependencies = [
  "async-io",
- "atspi",
+ "atspi 0.30.0",
  "dpl-coach-fabric",
  "dpl-coach-inventory",
  "dpl-proc",

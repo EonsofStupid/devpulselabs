@@ -193,7 +193,10 @@ shape as `content_episode_ids()`, which D1 established.
 Both land WITH P1 because both are cheap now and expensive to retrofit,
 and because the four consumers assume them:
 
-- **Persistence.** `Tree::Agents` already exists in the estate
+- **Persistence.** ⚠️ **SUPERSEDED 2026-08-03 — chat owns its store; the
+  roster does NOT live in the shared estate.** See the ADR-017 amendment.
+  The requirement below still binds; only the STORE changed.
+  ~~`Tree::Agents` already exists in the estate~~
   (`crates/estate/src/lib.rs:35`, *"Agent (chat provider) session state for
   the HTTP seam"*). The host writes the roster with `put_json` on change
   and reads it at boot, so a provider that was active last launch is known
@@ -238,8 +241,9 @@ via the vendor's own tool.
 2. `crates/chat/window/src/lib.rs` — `provider_capabilities()` accessor
    projecting `runtime.provider_views()` into the plain-data set.
 3. `crates/app/src/chat.rs` — publish at construction and after every
-   activation-affecting host intent; write `Tree::Agents`; seed the roster
-   FROM `Tree::Agents` at boot before the first probe.
+   activation-affecting host intent; write CHAT'S OWN STORE; seed the
+   roster FROM it at boot before the first probe. (Amended 2026-08-03 —
+   this step originally named `Tree::Agents`.)
 4. `crates/seam/src/lib.rs` — the roster joins the wire-JSON registry.
 5. `crates/shell/src/lib.rs` — read `provider_roster()` and render the chip.
 6. Unit pins (§6.3).

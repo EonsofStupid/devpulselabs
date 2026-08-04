@@ -1,6 +1,18 @@
 # STATE — the living ledger
 
-Updated every pass. This file is the first read of every session.
+Updated every pass. This file is APPEND-ONLY history — 2000+ lines of it.
+**It is not the resume truth.** For "what is done now, what is next, what is
+deprecated", read `docs/ops/resume/CURRENT.md` first; this file is for how
+we got here.
+
+> **SUPERSEDED CLAIMS — anywhere below, these are stale by design (history
+> is not rewritten):**
+> - the capability roster persisting to the estate's `Tree::Agents` — chat
+>   owns its store (ADR-017 amendment, 2026-08-03);
+> - DuckDB as the analytics engine — it is Arrow/DataFusion over Parquet
+>   (ADR-014 amendment, 2026-08-03);
+> - any Providers-program link described as planned — P1, V1, V2, V3, A1 and
+>   A2 all landed (#192).
 
 **2026-08-02 — THE PROVIDERS CONTROL AND THE INK BLEED (V1, plan
 `docs/plans/providers-v1-ink-bleed-control.md`, journal

@@ -1,8 +1,9 @@
 # ADR-017 — The provider capability registry is a PLATFORM fact
 
-**Status:** PROPOSED 2026-07-31. Filed BEFORE P1 is built, deliberately —
-P1's planned shape was wrong for this and would have had to be rewritten.
-Merging P1 ratifies this ADR.
+**Status:** ACCEPTED 2026-07-31 (P1 merged, which ratified it) ·
+**AMENDED 2026-08-03: §2's persistence choice was wrong — chat owns its
+store; the estate does not hold chat's roster.** See Amendment below. The
+capability model (§1, §3–6) is unchanged and stands.
 
 ## Context
 
@@ -56,19 +57,18 @@ coordinators, and the probes, so it is the only place that can be
 authoritative. Every other crate READS. A second writer is how a registry
 starts lying.
 
-### 2. It persists — the config store cross-link
+### 2. It persists — SUPERSEDED, see the 2026-08-03 amendment
 
-The estate ALREADY reserves the partition: `Tree::Agents` —
-*"Agent (chat provider) session state for the HTTP seam"*
-(`crates/estate/src/lib.rs:35`). Activation writes there via
-`put_json`/`get_json`, so:
-
-- a provider that was active last launch is known at boot, before any
-  probe has run — the UI starts truthful instead of empty and correcting;
-- the seam and the app read ONE store rather than two views of it.
-
-Derived facts (a live process handle) are NOT persisted. What persists is
-what was true and cheap to re-verify.
+> The original text put the roster in the shared estate's `Tree::Agents`.
+> That was wrong for the reason the amendment gives. The REQUIREMENT it
+> was serving is still right and still binding:
+>
+> - a provider that was active last launch is known at boot, before any
+>   probe has run — the UI starts truthful instead of empty and correcting;
+> - derived facts (a live process handle) are NOT persisted. What persists
+>   is what was true and cheap to re-verify.
+>
+> Only the STORE changed. Chat's own store now holds it.
 
 ### 3. It is exposed to agents
 
@@ -125,8 +125,8 @@ proves nothing, but its TYPE is now the platform shape, not a chip's
 convenience.
 
 **Order changes.** Persistence and the seam projection land WITH P1, not
-after. They are cheap now and expensive to retrofit: `Tree::Agents` already
-exists, and the seam already publishes a registry.
+after. They are cheap now and expensive to retrofit, and the seam already
+publishes a registry. (Which store persistence uses is amended below.)
 
 **The layer law is unaffected.** `docs/design/architecture.md:65` already
 ratifies `dpl-fabric → dpl-chat-core`, so the capability vocabulary crosses
@@ -149,3 +149,84 @@ is cheap to avoid now and structural to undo later.
 - **Put routing in the registry.** Rejected: it is a consumer. D1
   established read-only-before-verbs and it held; the same discipline
   applies.
+
+
+## Amendment 2026-08-03 — chat owns its store; the estate does not
+
+**Operator ruling:** *"Chat should be its own store."* Research confirms
+it, and it corrects a decision this ADR made.
+
+### What was wrong
+
+§2 put the capability roster in the shared estate's `Tree::Agents`,
+reasoning that the partition already existed and was already labelled
+*"agent (chat provider) session state"*. A reserved partition is not the
+same as the right owner, and I did not check the second store.
+
+Ground truth, measured 2026-08-03:
+
+- `grep dpl_estate` across the entire `crates/chat/**` tree returns
+  **zero**. Chat never touches the estate.
+- `dpl-chat-profiles` keeps its own database —
+  `.userdata/chat/provider-profiles.db` (turso) with **its own tokio
+  runtime**.
+- The only thing writing `Tree::Agents` is `app/src/chat.rs`, on chat's
+  behalf, per this ADR.
+
+So the effect of §2 was to spread CHAT'S OWN DATA across two stores while
+chat itself owned a third path. That is the failure mode this project has
+hit before under a different name: one fact, two homes, guaranteed drift.
+
+### The rule, and why
+
+Domain-driven design is unambiguous: a bounded context gets its own
+datastore; sharing is acceptable only WITHIN a context, where cohesion is
+high and the coupling is visible to one owner. Chat is unambiguously a
+bounded context — its own crate tree, its own vocabulary, its own
+lifecycle.
+
+**Chat owns one store. The roster lives there.**
+
+### How the platform still sees it — published language, not shared tables
+
+Integration does not regress, because the platform never read the estate
+for this anyway:
+
+```
+chat store (private)  ──hydrate at boot──▶  fabric.provider_roster()  ──▶  every surface
+```
+
+The shell's Providers popup already reads `fabric.provider_roster()`, not
+the estate, so it keeps working unchanged. The seam's wire JSON is
+projected from the fabric for the same reason. A reader consumes the
+PUBLISHED fact; only chat touches chat's store. This is the standard
+bounded-context integration and it is stronger than the shared partition,
+because a second writer becomes impossible rather than merely discouraged.
+
+### What this does NOT change
+
+§1 (one writer), §3 (exposed to agents), §4 (capability SET, four
+consumers), §5 (duplicate runs), §6 (no credentials, no dispatch) all
+stand exactly as written. The model was right; its address was not.
+
+### Consequences
+
+- `Tree::Agents` becomes unused by this ADR. It is NOT repurposed or
+  deleted here — the estate is operator data and that is a separate,
+  deliberate migration.
+- `chat/provider-profiles.db` and the roster converge on ONE chat store.
+  That migration moves data the operator already has, so it lands as its
+  own pass with its own plan, never as a side effect.
+- **A new boundary is created**: "chat's store" becomes a named thing that
+  only chat writes. Flagged explicitly because a new boundary is the
+  operator's call, not a drive-by.
+
+### Alternatives rejected
+
+- **Leave the roster in the estate and move profiles there too.** Rejected:
+  it makes the shared store the owner of a bounded context's private data,
+  which is the coupling DDD warns about — and it would put chat's session
+  state, transcripts, and persona bindings there next.
+- **Three stores, one per concern.** Rejected: cohesion inside chat is
+  high and it changes for one set of reasons. Splitting inside a context
+  buys nothing and costs a migration each time.

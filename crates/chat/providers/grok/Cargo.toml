@@ -11,6 +11,7 @@ async-channel.workspace = true
 async-io.workspace = true
 async-process.workspace = true
 dpl-chat-core.workspace = true
+dpl-chat-runtime.workspace = true
 # The usage seam every provider implements (Phase 3 §3.2b).
 dpl-chat-store.workspace = true
 dpl-tools-deps.workspace = true

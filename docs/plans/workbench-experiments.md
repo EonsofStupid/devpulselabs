@@ -3,7 +3,9 @@
 Branch: `feat/workbench-experiments` off `main`.
 Adjacent, not competing: `docs/plans/coach-lab-experiment-program.md` (PR
 #181) owns the Coach Lab PROCESS — honesty prompt, essential checks,
-Standard/Advanced import, experiment lifecycle, DuckDB baselines. **This
+Standard/Advanced import, experiment lifecycle, analytics baselines
+(named DuckDB there; **ADR-014 amended 2026-08-03 to Arrow/DataFusion** —
+that plan's owner rules on its own wording). **This
 plan builds the SURFACE and the capture dimension that process needs.**
 Adopt, never duplicate.
 
@@ -191,7 +193,7 @@ scenario shape, they sit next to each other so a difference is visible
 rather than computed.
 
 **Deliberately NOT in this pass:** trend lines, regression detection,
-significance, DuckDB rollups. `trace.jsonl` is the typed signal stream
+significance, analytics rollups. `trace.jsonl` is the typed signal stream
 those need, and it is the same substrate PR #181 wants for its baselines —
 so the depth analytics belong with that program, over a capture dimension
 this pass makes exist. Building a chart before the dimension exists is how
@@ -245,7 +247,8 @@ produces. No per-experiment scan, no N+1 walk.
 
 - **Hubs mounting workflows by `Surface`** (§2.5). Real and unenforced, but
   it belongs to the workflow list, not the experiment surface.
-- Trend/regression/significance analytics and DuckDB rollups (§3.5).
+- Trend/regression/significance analytics and rollups (§3.5) — the engine
+  is Arrow/DataFusion over Parquet (ADR-014, amended).
 - Minting an experiment from Chat.
 
 ## 6. Verification
