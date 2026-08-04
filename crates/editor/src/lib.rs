@@ -109,7 +109,7 @@ impl Editor {
     /// What the show's theme says the entrance is — what "follow the show"
     /// resolves to, so a picker can name it instead of showing an invisible
     /// default.
-    pub fn look_enter(&self) -> Option<String> {
+    pub fn theme_enter(&self) -> Option<String> {
         self.theme.enter.clone()
     }
 
@@ -365,14 +365,14 @@ impl Editor {
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(inner));
         child.set_clip_rect(inner);
         match self.selection.clone() {
-            Selection::None => self.look_tray(&mut child),
+            Selection::None => self.theme_preset_tray(&mut child),
             Selection::Background => self.background_tray(&mut child),
             Selection::Block(id) => self.text_tray(&mut child, &id),
         }
     }
 
-    /// Nothing selected → the LOOK presets (W3), applied whole.
-    fn look_tray(&mut self, ui: &mut Ui) {
+    /// Nothing selected → Theme presets (W3), applied whole to the slide.
+    fn theme_preset_tray(&mut self, ui: &mut Ui) {
         ui.label(tray_title("Themes — tap to restyle the whole slide"));
         egui::ScrollArea::horizontal()
             .auto_shrink([false, false])
@@ -395,7 +395,7 @@ impl Editor {
                         card_edge(&painter, rect, resp.hovered());
                         if resp.clicked() {
                             let p = *p;
-                            self.mutate(|s| apply_look(s, &p));
+                            self.mutate(|s| apply_theme_preset(s, &p));
                         }
                     }
                 });
@@ -675,9 +675,9 @@ impl Editor {
 
 // ── free helpers ────────────────────────────────────────────────────────
 
-/// Applying a preset to a slide is an explicit whole-slide OVERRIDE —
-/// every write is `Some`, deliberately.
-fn apply_look(s: &mut dpl_doc::Slide, p: &cl::ThemePreset) {
+/// Apply a ThemePreset as an explicit whole-slide OVERRIDE — every write
+/// is `Some`, deliberately. Does not rewrite the show's `theme.json`.
+fn apply_theme_preset(s: &mut dpl_doc::Slide, p: &cl::ThemePreset) {
     s.background = Some(dpl_doc::Background::MoodBlend {
         moods: vec![p.moods.0.to_string(), p.moods.1.to_string()],
         motion: p.motion.to_string(),
@@ -965,12 +965,12 @@ mod tests {
     }
 
     #[test]
-    fn applying_a_look_sets_every_text_font_and_the_background() {
+    fn applying_a_theme_preset_sets_every_text_font_and_the_background() {
         let dir = scratch("theme");
         dpl_doc::save(&dir, &seed()).unwrap();
         let mut ed = Editor::open(&dir).unwrap();
         let p = cl::THEME_PRESETS[0];
-        ed.mutate(|s| apply_look(s, &p));
+        ed.mutate(|s| apply_theme_preset(s, &p));
         let on_disk = dpl_doc::load(&dir).unwrap();
         let dpl_doc::Block::Text { font, .. } = &on_disk.blocks[0] else {
             panic!("block 0 is text");
@@ -1016,7 +1016,7 @@ mod tests {
     }
 
     #[test]
-    fn show_look_clears_the_override_on_disk() {
+    fn show_theme_clears_the_override_on_disk() {
         let dir = scratch("show-theme");
         dpl_doc::save(&dir, &sparse_seed()).unwrap();
         let mut ed = Editor::open(&dir).unwrap();

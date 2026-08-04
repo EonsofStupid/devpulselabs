@@ -68,7 +68,7 @@ inside the element. Per §1 the caller supplies it.
 |---|---|---|
 | `lib.rs:816` `chip()` | 8 call sites (411, 459, 526, 538, 550, 555 ×2) | font 13.0, pad 22.0, height 30.0 |
 | `lib.rs:844` `big_button()` | 1 call site (336, "Undo") | 84.0 × 30.0, font 13.5 |
-| `lib.rs:383` look tile | inline in `look_tray` | 150.0 × 84.0 |
+| `lib.rs:383` look tile | inline in `theme_preset_tray` | 150.0 × 84.0 |
 
 **Two real gaps, both found by reading rather than assumed:**
 
@@ -156,7 +156,7 @@ deleted and `author.rs` moved onto the element · the editor's `chip`,
 4. The editor's 8 `chip` sites → the element; **delete** `chip`.
 5. The editor's `big_button` site → the element with `Disabled`; **delete**
    `big_button`. Assert a disabled control does not report a click.
-6. `look_tray`'s 150×84 → `Fluid`-derived.
+6. `theme_preset_tray`'s 150×84 → `Fluid`-derived.
 7. `cargo green`; proof shots at 1280×800 and 1100×700; §8; `docs/STATE.md`.
 
 ## 6. Risks

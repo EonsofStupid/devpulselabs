@@ -40,7 +40,7 @@ let fx = cl::motion::ENTER_RISE;
 `"none"` is the absence of the animation. There is no second code path.
 
 **`Slide::enter` is three-valued, and the third value matters.** `None`
-inherits the show's look (`Look::enter`, which the fallback sets to `"rise"`);
+inherits the show's Theme (`Theme::enter`, which the fallback sets to `"rise"`);
 `Some("rise")` and `Some("none")` are deliberate overrides. Inheriting is a
 real, distinct answer and the editor already treats it that way for fonts and
 inks ("Show look" chips).
@@ -175,7 +175,7 @@ would drift the day a third is added and start writing invalid documents.
 
 **"Follow the show" names what it resolves to.** Inheriting is invisible by
 nature — it looks like whatever it inherited. The chip reads "Follow the show
-— rise into place" via `Editor::look_enter`, so the default is legible
+— rise into place" via `Editor::theme_enter`, so the default is legible
 instead of a blank.
 
 **Picking restarts the clock.** `Editor::set_enter` restarts it so the

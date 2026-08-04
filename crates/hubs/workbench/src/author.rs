@@ -535,7 +535,7 @@ fn movement_tab(ui: &mut egui::Ui, ed: &mut CardEditor) {
 
     // "Follow the show" first: inheriting is the default and the commonest
     // right answer, so it should not read as the leftover option.
-    let inherited = editor.look_enter();
+    let inherited = editor.theme_enter();
     let follow = cl::tip(
         ui.selectable_label(
             current.is_none(),

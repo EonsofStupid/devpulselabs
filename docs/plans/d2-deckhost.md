@@ -40,7 +40,7 @@ edge-reveal escape hatches (touch law: tap-min, no hover-only).
   tap → `{index, step 0}` + close.
 
 **New repo:**
-- `dpl_doc` (post-W3b): Slide sparse + Look cascade + `episode_slides`
+- `dpl_doc` (post-W3b): Slide sparse + Theme cascade + `episode_slides`
   flat walk + folder contract. NO reveals field yet — every slide is
   currently a single step.
 - `dpl_slides::document` — `render/render_traced(ui, rect, slide, look,

@@ -57,7 +57,7 @@ the audit, same commit, with the reason.
 
 ## 3. Standing exceptions (recorded, not hidden — each removal is its own pass)
 
-- **dpl-doc → dpl-coldlight**: `Look`/`resolve` speak the token
+- **dpl-doc → dpl-coldlight**: `Theme`/`resolve` speak the token
   vocabulary (fonts, inks, moods). The document REFERENCES tokens; it
   never paints. (Pulling the token IDS into a paint-free crate would
   remove this edge — a ratified later pass, not a drive-by.)

@@ -688,15 +688,15 @@ pub fn validate_episode(dir: &Path, ep: &Episode) -> Vec<Issue> {
     issues
 }
 
-// ── the LOOK tier (W3b) — the show's authored patch stack ───────────────
+// ── the Theme tier (W3b) — the show's authored styling cascade ───────────
 
 const THEME_FILE: &str = "theme.json";
 
-/// The show-level styling patch stack — `<episode-dir>/look.json`. Refs only,
-/// like every document: a look names registry ids, never values. Slides
-/// inherit these unless they carry an explicit override; [`resolve`] is
-/// the whole cascade (exactly two levels — this is the slide-master
-/// pattern, deliberately without a third tier).
+/// The show-level Theme — `<episode-dir>/theme.json`. Refs only, like every
+/// document: a Theme names registry ids, never values. Slides inherit these
+/// unless they carry an explicit override; [`resolve`] is the whole cascade
+/// (exactly two levels — this is the slide-master pattern, deliberately
+/// without a third tier).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Theme {
     pub v: u32,
@@ -1693,12 +1693,12 @@ mod tests {
     // ── the theme tier + cascade (W3b) ───────────────────────────────────
 
     #[test]
-    fn the_fallback_look_resolves_through_the_live_registries() {
+    fn the_fallback_theme_resolves_through_the_live_registries() {
         assert_eq!(validate_theme(&Theme::fallback()), Vec::new());
     }
 
     #[test]
-    fn look_round_trips_and_absent_look_is_ok_none() {
+    fn theme_round_trips_and_absent_theme_is_ok_none() {
         let dir = ep_scratch("theme");
         assert!(load_theme(&dir).unwrap().is_none(), "no folder yet");
         std::fs::create_dir_all(&dir).unwrap();
@@ -1877,8 +1877,8 @@ mod tests {
     }
 
     #[test]
-    fn a_bad_look_ref_is_named_via_the_episode_doctor() {
-        let dir = ep_scratch("badlook");
+    fn a_bad_theme_ref_is_named_via_the_episode_doctor() {
+        let dir = ep_scratch("badtheme");
         for s in ["a", "b", "c"] {
             write_ok_slide(&dir.join(s));
         }

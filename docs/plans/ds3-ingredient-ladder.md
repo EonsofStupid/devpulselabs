@@ -133,7 +133,7 @@ Per S0, the user-facing word for the treatment tier is **Themes**.
 `LibSection::Traits` is the only surface still saying "traits" to the operator.
 Renaming the variant + slug + blurb is 3 lines and keeps ONE vocabulary across
 Library and Author. The authored data (`tokens/frame-patches.json`) and the internal
-type names are **untouched** — trait is the correct engineering word, Look is
+type names for FramePatch are engineering metal — Themes is
 the correct operator word, exactly as `Slide`/"card" already splits.
 
 ## 4. Scope

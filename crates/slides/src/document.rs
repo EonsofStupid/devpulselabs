@@ -201,7 +201,7 @@ pub enum Stage {
 }
 
 /// Render a document into `rect`. The ONE path — every surface calls this.
-/// `look` is the show's patch stack (W3b): the slide's absent styling fields
+/// `theme` is the show's Theme (W3b): the slide's absent styling fields
 /// inherit from it via `dpl_doc::resolve`; standalone slides pass
 /// `&dpl_doc::Theme::fallback()`.
 pub fn render(
@@ -472,11 +472,11 @@ pub struct DocSlide {
 impl DocSlide {
     /// Standalone document — resolves against the fallback theme.
     pub fn new(slide: dpl_doc::Slide) -> Self {
-        Self::with_look(slide, dpl_doc::Theme::fallback())
+        Self::with_theme(slide, dpl_doc::Theme::fallback())
     }
 
     /// A document inside a show — resolves against the show's theme.
-    pub fn with_look(slide: dpl_doc::Slide, theme: dpl_doc::Theme) -> Self {
+    pub fn with_theme(slide: dpl_doc::Slide, theme: dpl_doc::Theme) -> Self {
         Self {
             slide,
             theme,
@@ -567,7 +567,7 @@ mod tests {
     /// The cascade at the paint layer: a slide with NO styling of its own
     /// renders through a theme without panicking (W3b).
     #[test]
-    fn a_sparse_slide_renders_with_the_looks_styling() {
+    fn a_sparse_slide_renders_with_the_theme_styling() {
         let sparse = dpl_doc::Slide {
             v: dpl_doc::SCHEMA_V,
             template: "title".into(),

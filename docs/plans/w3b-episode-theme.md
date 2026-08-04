@@ -49,7 +49,7 @@ first means the deck never learns a pre-cascade shape it must unlearn.
 - **`crates/editor/src/lib.rs`** (721 lines): `Editor { dir, slide, clock,
   selection, undo, saved }`. `render_traced(...)` at line 122. Trays read
   concrete `font`/`ink` strings (`text_fields` returns a 4-tuple of
-  Strings); `set_text` mutates the tuple; `apply_look` writes preset refs
+  Strings); `set_text` mutates the tuple; `apply_theme_preset` writes preset refs
   into background + every block font. 4 on-disk tests incl. the marquee
   one-ref-diff.
 - **`crates/hubs/workbench/src/lib.rs`** (436 lines): seeds wall builds
@@ -85,7 +85,7 @@ seeds/slides/<id>/
                     (self-contained by design; no episode to inherit from)
 ```
 
-**The Look** — the trait tier, colocated with the show:
+**The Theme** — the trait tier, colocated with the show:
 
 ```json
 { "v": 1,
@@ -106,14 +106,14 @@ is static" override (otherwise a slide could never opt OUT of the look's
 entrance). `Background::None` already expresses "bare well" explicitly,
 so `background` absent = inherit, `"kind": "none"` = deliberately bare.
 
-Resolution is a pure function in `dpl_doc` — `resolve(&Slide, &Look) ->
+Resolution is a pure function in `dpl_doc` — `resolve(&Slide, &Theme) ->
 Slide` returning a fully-specified document — so the cascade is unit-
 testable data logic, and the renderer stays ONE path: it resolves once
 at the top of `render_traced` and paints exactly as today. (Cost: one
 small clone of a few strings per frame — the renderer already clones
 each block's text into `painter.layout` every frame; same order.)
 
-`Look::fallback()` is the built-in default (known-good refs, proven by a
+`Theme::fallback()` is the built-in default (known-good refs, proven by a
 test against the live registries) used wherever no authored look exists:
 standalone seeds, episodes without a theme.json.
 
@@ -192,10 +192,10 @@ pub struct Slide {
 `#[serde(default, skip_serializing_if = "Option::is_none")]`.
 `text`, `id`, `size` unchanged. `ENTERS` becomes `&["rise", "none"]`.
 
-**1c. The Look tier** — new, after the episode tier:
+**1c. The Theme tier** — new, after the episode tier:
 
 ```rust
-// ── the LOOK tier (W3b) — the show's authored trait ─────────────────────
+// ── the Theme tier (W3b) — the show's authored trait ─────────────────────
 
 const LOOK_FILE: &str = "theme.json";
 
@@ -213,7 +213,7 @@ pub struct Theme {
     pub enter: Option<String>,
 }
 
-impl Look {
+impl Theme {
     /// The built-in default — used when no theme.json is authored
     /// (standalone seeds, showless slides). Known-good refs; a test
     /// proves they resolve through the live registries.
@@ -233,37 +233,37 @@ impl Look {
 }
 
 /// Load `<dir>/theme.json`; Ok(None) when none is authored (= fallback).
-pub fn load_theme(dir: &Path) -> Result<Option<Look>, DocError> {
+pub fn load_theme(dir: &Path) -> Result<Option<Theme>, DocError> {
     let path = dir.join(LOOK_FILE);
     if !path.exists() {
         return Ok(None);
     }
     let raw = std::fs::read_to_string(&path).map_err(DocError::Io)?;
-    let look: Look = serde_json::from_str(&raw).map_err(DocError::Parse)?;
+    let theme: Theme = serde_json::from_str(&raw).map_err(DocError::Parse)?;
     if look.v > SCHEMA_V {
         return Err(DocError::Version(look.v));
     }
     Ok(Some(look))
 }
 
-pub fn save_theme(dir: &Path, look: &Look) -> Result<(), DocError> {
+pub fn save_theme(dir: &Path, theme: &Theme) -> Result<(), DocError> {
     save_json(dir, LOOK_FILE, look)
 }
 
 /// The look a slide folder resolves against: its parent episode's
 /// authored look, else the fallback. (A folder is "in a show" when the
 /// PARENT holds an episode.json.)
-pub fn theme_for_slide(slide_dir: &Path) -> Look {
+pub fn theme_for_slide(slide_dir: &Path) -> Theme {
     slide_dir
         .parent()
         .filter(|p| p.join(EPISODE_FILE).is_file())
         .and_then(|p| load_theme(p).ok().flatten())
-        .unwrap_or_else(Look::fallback)
+        .unwrap_or_else(Theme::fallback)
 }
 
 /// THE CASCADE — exactly two levels: slide override, else look. Pure;
 /// returns a fully-specified document the renderer paints as-is.
-pub fn resolve(slide: &Slide, look: &Look) -> Slide {
+pub fn resolve(slide: &Slide, theme: &Theme) -> Slide {
     let mut out = slide.clone();
     if out.background.is_none() {
         out.background = Some(look.background.clone());
@@ -284,7 +284,7 @@ pub fn resolve(slide: &Slide, look: &Look) -> Slide {
 }
 
 /// Name every unknown ref in a look. Empty = clean.
-pub fn validate_theme(look: &Look) -> Vec<Issue> { /* font via FONTS,
+pub fn validate_theme(theme: &Theme) -> Vec<Issue> { /* font via FONTS,
     ink via INKS, background via the same arm as validate's, enter via
     ENTERS — factor the Background arm out of validate into a private
     fn validate_background(bg: &Background, push) so both use it. */ }
@@ -312,7 +312,7 @@ const EPISODE_RESERVED: &[&str] = &["episode.json", "theme.json"];
   {name:?} — not in any chapter".
 - Each referenced slide dir scan: entries not in `SLIDE_RESERVED`
   (same transient carve-out) → flagged, path-prefixed as today.
-- Look: `load_theme(dir)` → parse/version errors become an Issue
+- Theme: `load_theme(dir)` → parse/version errors become an Issue
   ("theme.json does not load: {e}"); loaded looks run `validate_theme`,
   issues prefixed `look.`.
 
@@ -320,9 +320,9 @@ const EPISODE_RESERVED: &[&str] = &["episode.json", "theme.json"];
 the Option fields — `sample()` keeps every field `Some(...)` so the
 round-trip/validate tests keep their meaning):
 
-- `the_fallback_look_resolves_through_the_live_registries` —
-  `validate_theme(&Look::fallback())` is empty.
-- `look_round_trips_and_absent_look_is_ok_none`.
+- `the_fallback_theme_resolves_through_the_live_registries` —
+  `validate_theme(&Theme::fallback())` is empty.
+- `theme_round_trips_and_absent_theme_is_ok_none`.
 - `resolve_prefers_the_slide_override_and_fills_the_rest` — a slide with
   only `font: Some("orbitron")` on one block: that block keeps orbitron,
   the other inherits, background/enter/ink come from the look; a fully-
@@ -334,7 +334,7 @@ round-trip/validate tests keep their meaning):
 - `the_folder_contract_names_strays_orphans_and_transients` — a rogue
   `styles.css` in a slide folder, an unreferenced slide folder, and a
   `slide.json.tmp` are each flagged; reserved names are not.
-- `a_bad_look_ref_is_named_via_the_episode_doctor` — theme.json with
+- `a_bad_theme_ref_is_named_via_the_episode_doctor` — theme.json with
   font "comic-sans" → `look.` -prefixed issue.
 - Update `episode_doctrine_names_dangling_dup_and_empty` /seed tests as
   needed for the new checks (seed episode must stay clean — step 5).
@@ -345,12 +345,12 @@ round-trip/validate tests keep their meaning):
 
 ```rust
 pub fn render(ui: &mut Ui, rect: Rect, slide: &dpl_doc::Slide,
-              look: &dpl_doc::Look, now: f64, t0: f64) {
+              theme: &dpl_doc::Theme, now: f64, t0: f64) {
     let _ = render_traced(ui, rect, slide, look, now, t0);
 }
 
 pub fn render_traced(ui: &mut Ui, rect: Rect, slide: &dpl_doc::Slide,
-                     look: &dpl_doc::Look, now: f64, t0: f64) -> RenderMap {
+                     theme: &dpl_doc::Theme, now: f64, t0: f64) -> RenderMap {
     let slide = &dpl_doc::resolve(slide, look);
     // body unchanged except the Option unwraps below
     ...
@@ -371,14 +371,14 @@ pub fn render_traced(ui: &mut Ui, rect: Rect, slide: &dpl_doc::Slide,
 ```rust
 pub struct DocSlide { pub slide: dpl_doc::Slide, look: dpl_doc::Theme, clock: Clock }
 impl DocSlide {
-    pub fn new(slide: dpl_doc::Slide) -> Self { Self::with_look(slide, dpl_doc::Theme::fallback()) }
-    pub fn with_look(slide: dpl_doc::Slide, look: dpl_doc::Theme) -> Self { ... }
-    // ui() passes &self.look through to render.
+    pub fn new(slide: dpl_doc::Slide) -> Self { Self::with_theme(slide, dpl_doc::Theme::fallback()) }
+    pub fn with_theme(slide: dpl_doc::Slide, look: dpl_doc::Theme) -> Self { ... }
+    // ui() passes &self.theme through to render.
 }
 ```
 
-- Tests: existing ones pass `&dpl_doc::Look::fallback()`; add
-  `a_sparse_slide_renders_with_the_looks_styling` — a slide with no
+- Tests: existing ones pass `&dpl_doc::Theme::fallback()`; add
+  `a_sparse_slide_renders_with_the_theme_styling` — a slide with no
   background and a font-less block renders through a look without
   panicking (the degrade+cascade proof at the paint layer).
 
@@ -387,7 +387,7 @@ impl DocSlide {
 - `Editor` gains `look: dpl_doc::Theme`; `open` sets
   `look: dpl_doc::theme_for_slide(dir)` — a slide inside an episode
   folder automatically edits against its show's look; a standalone seed
-  gets the fallback. Render call passes `&self.look`.
+  gets the fallback. Render call passes `&self.theme`.
 - `text_fields` returns the RESOLVED values plus which are overridden:
   change the return to
   `Option<(String, String, String, String, bool /*font override*/, bool /*ink override*/)>`
@@ -406,7 +406,7 @@ impl DocSlide {
     resolves through the look when background is None.
   - Enter is not in any tray yet (no motion tray until the motion-preset
     pass) — nothing to add.
-- `apply_look` (the W3 preset apply) now writes `Some(...)` everywhere
+- `apply_theme_preset` (the W3 preset apply) now writes `Some(...)` everywhere
   it writes — applying a preset to a slide is an explicit override of
   the whole slide, unchanged in spirit.
 - Tests: existing 4 updated for the Option shape (seed() keeps full
@@ -415,15 +415,15 @@ impl DocSlide {
   - `editing_text_on_a_sparse_slide_does_not_densify_styling` — save a
     slide whose block has `font: None`; edit only the text; the on-disk
     JSON still has no `"font"` key.
-  - `show_look_clears_the_override_on_disk` — override a font, then
+  - `show_theme_clears_the_override_on_disk` — override a font, then
     clear via `clear_font`; on-disk block has no `"font"` key and the
     editor's resolved value equals the look's font.
 
 ### Step 4 — `crates/hubs/workbench/src/lib.rs` (edit)
 
 - `EpisodeView::open`: load the show's look once —
-  `let look = dpl_doc::load_theme(dir).ok().flatten().unwrap_or_else(dpl_doc::Look::fallback);`
-  — and build rows with `DocSlide::with_look(slide, look.clone())`.
+  `let theme = dpl_doc::load_theme(dir).ok().flatten().unwrap_or_else(dpl_doc::Theme::fallback);`
+  — and build rows with `DocSlide::with_theme(slide, theme.clone())`.
 - Seeds wall: unchanged (`DocSlide::new` = fallback; standalone seeds
   stay fully specified anyway).
 - Editor picker gains a **Shows section** so episode slides are editable

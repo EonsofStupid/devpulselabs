@@ -54,7 +54,7 @@ English “looks wrong” and Rust `pub trait ElementDemo` are not this law.
 | Author shelf | `Shelf::Themes`, label Themes | Looks |
 | Shelf metal slug | `frame-patches` (after N1) | `looks`, `traits` |
 | Preset type | `ThemePreset`, `THEME_PRESETS`, `theme_preset` | LookPreset, LOOK_PRESETS, look_preset |
-| Apply helpers | `apply_theme`, `with_theme` | apply_look, with_look |
+| Apply helpers | `apply_theme_preset`, `with_theme`, `theme_enter`, `theme_preset_tray` | apply_look, with_look, look_enter, look_tray |
 
 ---
 

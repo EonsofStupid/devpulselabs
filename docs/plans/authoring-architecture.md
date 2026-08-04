@@ -95,7 +95,7 @@ deliberately bare). `dpl_doc::resolve(slide, look)` is the whole cascade —
 three-deep chain is the cautionary tale). Standalone `seeds/slides/*`
 stay FULLY specified by design — they are self-contained starters with
 no show to inherit from; episodes without a theme.json resolve against
-`Look::fallback()`.
+`Theme::fallback()`.
 
 **The folder contract** (doctor-enforced — strays, orphan slide folders,
 leftover save transients, and bad look refs are all flagged):
@@ -159,7 +159,7 @@ Binding consequences for every W-pass:
   path — this runs on a 75" touchscreen).
 - **No save ceremony.** Edits write back automatically (atomic), undo is
   one big obvious button. The file mechanics are our business, not theirs.
-- **Plain words.** "Background", "Font", "Motion", "Look" — never
+- **Plain words.** "Background", "Font", "Motion", "Theme" — never
   "preset id", "registry", "ref".
 - **Private use.** No licensing/commercial constraint ever shapes a
   feature choice; pull whatever makes content generation easier.

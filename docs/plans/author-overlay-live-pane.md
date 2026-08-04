@@ -104,7 +104,7 @@ the card fed from the editor's live slide · tests · proof shots.
 ## 5. Work plan (atomic, in order — commit at each step that compiles)
 
 1. `Editor::slide()` is already public; add whatever the live pane needs to
-   draw from it without a file read (a `look()` accessor if required).
+   draw from it without a file read (a `theme()` accessor if required).
 2. The vertical rail + narrow fallback. No split yet; prove the fold is
    already better.
 3. The split and the live pane, for non-Words tabs.
@@ -188,7 +188,7 @@ is correct here, and a converging harness would have meant the preview had
 stopped being live.
 
 **The pane renders the editor's in-memory slide**, via
-`render_thumbnail(… ed.editor.slide(), ed.editor.look() …)` with a clock owned
+`render_thumbnail(… ed.editor.slide(), ed.editor.theme() …)` with a clock owned
 by `CardEditor` — not a re-read of the file and not a rebuilt `DocSlide`,
-either of which would restart the entrance on every keystroke. `Editor::look`
+either of which would restart the entrance on every keystroke. `Editor::theme`
 is new so the preview cascades the same way the card does.

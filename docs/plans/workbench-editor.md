@@ -118,7 +118,7 @@ struct Slide {
 }
 ```
 
-Cascade is exactly two levels — episode `Look` → `Slide`, sparse means inherit
+Cascade is exactly two levels — episode `Theme` → `Slide`, sparse means inherit
 (`:695-760`). What is genuinely good and must not be lost: **refs never
 values** — a slide names `"orbitron"`, `"ember-drift"`, never a hex or a pixel.
 That single property is the reason presets can work at all.
@@ -168,7 +168,7 @@ only one where the spec survives a reload:
 - the on-disk diff stays tiny and readable;
 - it preserves refs-never-values rather than smearing resolved values around.
 
-Cost, stated plainly: the cascade goes from two levels to three (`Look` →
+Cost, stated plainly: the cascade goes from two levels to three (`Theme` →
 `preset` → `slide overrides`), `resolve()` gains a step, and `SCHEMA_V` goes
 **2 → 3**. `load` already refuses newer versions loudly, so old builds fail
 honest rather than misreading — which is exactly what the v1→v2 bump was for.
@@ -233,7 +233,7 @@ newer, and registry-validated references (the census law). What is missing:
 1. **Additive-only evolution with real migrations.** Today v1 documents simply
    fail. One `migrate(v, json) -> Slide` with a test per hop means the four
    authored template docs are not stranded by the v3 bump.
-2. **An explicit, tested cascade order** — `Look` → preset → slide, one
+2. **An explicit, tested cascade order** — `Theme` → preset → slide, one
    `resolve()`, one table-driven test. Undocumented cascades rot.
 3. **Provenance** — `created`/`modified` and a `by` field (`operator` |
    `preset:<id>` | `ai:<model>`), which is what makes charter §5's compounding
@@ -557,7 +557,7 @@ things this pass could lose or fake silently, so each gets its own proof seam.
     `size` is written through as an explicit override, and it renders
     **identically**. The four authored template docs are migrated in the same
     commit, not stranded (§2.5.1).
-3c. **`resolve()` gains the middle level** — `Look` → preset → entity
+3c. **`resolve()` gains the middle level** — `Theme` → preset → entity
     override — with one table-driven cascade test (§2.5.2).
 3d. **Provenance** — `created`/`modified`/`by` (§2.5.3).
 

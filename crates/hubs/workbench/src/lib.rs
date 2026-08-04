@@ -457,7 +457,7 @@ impl EpisodeView {
                 let head = (i == 0).then(|| chapter.title.clone());
                 let slide_dir = dir.join(name);
                 let doc = dpl_doc::load(&slide_dir)
-                    .map(|s| DocSlide::with_look(s, theme.clone()))
+                    .map(|s| DocSlide::with_theme(s, theme.clone()))
                     .map_err(|e| e.to_string())?;
                 let script = dpl_doc::script::load_script(&slide_dir)
                     .ok()

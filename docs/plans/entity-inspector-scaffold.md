@@ -22,12 +22,12 @@ The panel is therefore not the deliverable. The seven APIs under it are.
 ## 2. Current state (ground-truthed, `53b321f`)
 
 **Storage — partially there.** `Block::Text { id, text, font: Option<String>,
-size: String, ink: Option<String> }` over `Look { font, ink, background, enter }`
+size: String, ink: Option<String> }` over `Theme { font, ink, background, enter }`
 is a real two-level cascade for **font · size · ink**. A block cannot hold a
 base treatment, a trait stack, a tone, a motion, or a recipe.
 
 **Resolution — there, one level too low.** `compose(tone, base, &stack, state)
--> ResolvedStyle` works and is good. Four files in 68 crates call it.
+-> FrameStyle` works and is good. Four files in 68 crates call it.
 
 **Addressing — two half-systems.** Blocks carry `id: String`. `egui-pilot-ai`
 carries `NodeId` / `SemanticNode` / `Role` for the agent seam. Neither knows
@@ -85,7 +85,7 @@ from.
 
 ### 3.4 `dress()` — resolution (`dpl-coldlight`)
 ```rust
-pub fn dress(look: &Look, d: &Dress, state: TraitState) -> ResolvedStyle
+pub fn dress(theme: &Theme, d: &Dress, state: WidgetState) -> FrameStyle
 ```
 Cascade: look → base + stack + tone → per-axis overrides → state. `compose()`
 one level up; nothing already working is discarded.
