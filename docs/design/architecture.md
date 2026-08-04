@@ -38,6 +38,49 @@ side rails         dpl-fabric (signals) · dpl-seam (agent HTTP) ·
 document/domain layer; providers and accounts are engines; window/windows/
 renderers are surfaces.
 
+## 1b. The KERNEL BOUNDARY (gate-enforced)
+
+The layer stack above says which way dependencies point. This says which way
+they may point ACROSS the three tiers, and the structure audit enforces it.
+
+```
+INTERFACES      chat/* · hubs/* · shell · editor · composer · deck · slides
+                     ↕  intents out, views in — never types down
+════════════════ KERNEL BOUNDARY ═══════════════════════════════
+AI SUBSYSTEM    dpl-ai-core — provider identity · capability · presence
+                activation · guided values          ← attaches HERE
+════════════════ KERNEL (engine) ═══════════════════════════════
+                dpl-fabric · dpl-estate · dpl-intent · dpl-hub
+                dpl-doc · dpl-comp   (+ the editing engine, K4)
+```
+
+**The rule, checked in `xtask` (`KERNEL`, `AI_SUBSYSTEM`,
+`INTERFACE_PREFIXES`):**
+
+1. An interface may depend on the kernel and on the AI subsystem.
+2. **Neither the kernel nor the AI subsystem may depend on an interface.**
+3. **The kernel may not depend on the AI subsystem** — AI attaches TO the
+   boundary, it does not sit under it. `dpl-fabric` is the one recorded
+   carrier: it folds the roster, so it names the roster's shape.
+
+### Why the rule exists
+
+`dpl-fabric` used to open with:
+
+```rust
+pub use dpl_chat_core::{Capability, ProviderId};
+```
+
+The platform's signal bus re-exported its AI vocabulary **from a chat crate**,
+so any hub wanting to ask "who can stream turns?" had to depend on the whole
+chat tree. None did — which is why `Fabric::providers_that_can()` sat with
+zero production callers while "AI is available across the platform" stayed
+aspiration.
+
+Interface prefixes are matched by PREFIX rather than listed exactly, so a new
+surface is covered the day it is added instead of the day someone remembers to
+add it. Full reasoning: `docs/plans/kernel-boundary.md`.
+
 ## 2. Ceilings (exact sets, gate-enforced)
 
 | crate | direct deps are EXACTLY | why the ceiling exists |
@@ -62,10 +105,10 @@ the audit, same commit, with the reason.
   never paints. (Pulling the token IDS into a paint-free crate would
   remove this edge — a ratified later pass, not a drive-by.)
 - **dpl-seam → dpl-coldlight**: the envelope serializes tone/token ids.
-- **dpl-fabric → dpl-hub + dpl-chat-core + dpl-intent**: facts carry Route,
-  provider types, and the intent gate's mode/cause/channel. The fabric is a
-  side rail, not a layer violation; reusing the gate's types avoids a
-  mirrored vocabulary.
+- **dpl-fabric → dpl-hub + dpl-ai-core + dpl-intent**: facts carry Route,
+  the AI contract's provider types, and the intent gate's mode/cause/channel.
+  The `dpl-chat-core` edge this used to name is GONE — K1 moved the contract
+  below the boundary (§1b), which is what made the rule checkable.
 - **dpl-video / dpl-vector / dpl-backdrop are egui-linked**: they are
   SUPPORT crates (players, paint math), deliberately above the engine
   line.

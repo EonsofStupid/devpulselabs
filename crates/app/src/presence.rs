@@ -21,7 +21,7 @@
 //! | Codex 0.146.0 | `codex login status` | `Logged in using ChatGPT` |
 //! | Cursor | `cursor-agent status` | not installed here — unverified |
 
-use dpl_chat_core::{PresenceSpec, PresenceVerdict, ProviderId};
+use dpl_ai_core::{PresenceSpec, PresenceVerdict, ProviderId};
 use std::io::Read as _;
 use std::process::{Command, Stdio};
 

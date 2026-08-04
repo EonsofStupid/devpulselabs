@@ -5,9 +5,9 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+dpl-ai-core.workspace = true
 tokio.workspace = true
 dpl-hub.workspace = true
-dpl-chat-core.workspace = true
 # INTENT-domain facts carry the gate's own types (mode, cause, channel)
 # instead of mirroring them — same reason Route and provider ids ride in.
 dpl-intent.workspace = true

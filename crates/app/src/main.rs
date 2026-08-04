@@ -891,7 +891,7 @@ impl App {
         // the coach catalog names them so an agent can wait for one provider's
         // activation rather than any provider's.
         #[cfg(feature = "eguipilotai-devtools")]
-        let coach_providers: Vec<dpl_chat_core::ProviderId> = chat_registrations
+        let coach_providers: Vec<dpl_ai_core::ProviderId> = chat_registrations
             .iter()
             .map(|registration| registration.manifest.descriptor.id)
             .collect();
@@ -1245,8 +1245,8 @@ impl App {
 }
 
 fn activation_registration(
-    manifest: dpl_chat_core::ProviderManifest,
-    activation: dpl_chat_core::ActivationState,
+    manifest: dpl_ai_core::ProviderManifest,
+    activation: dpl_ai_core::ActivationState,
     subscription_auth_qualified: bool,
 ) -> dpl_chat_runtime::ProviderRegistration {
     let mut registration = dpl_chat_runtime::ProviderRegistration::planned(manifest);
@@ -1254,7 +1254,7 @@ fn activation_registration(
     if subscription_auth_qualified {
         registration
             .qualified_capabilities
-            .insert(dpl_chat_core::Capability::SubscriptionAuth);
+            .insert(dpl_ai_core::Capability::SubscriptionAuth);
     }
     registration
 }
@@ -1278,12 +1278,12 @@ fn with_local_history(
     }
     registration
         .qualified_capabilities
-        .insert(dpl_chat_core::Capability::ReadSessions);
+        .insert(dpl_ai_core::Capability::ReadSessions);
     registration
         .qualified_capabilities
-        .insert(dpl_chat_core::Capability::PageHistory);
+        .insert(dpl_ai_core::Capability::PageHistory);
     if !registration.activation.is_activated() {
-        registration.activation = dpl_chat_core::ActivationState::Experimental {
+        registration.activation = dpl_ai_core::ActivationState::Experimental {
             reason: "Local transcripts only — live turns are not qualified yet.".to_owned(),
             // No recovery action: nothing is broken and there is nothing for
             // the operator to fix. The live adapter simply is not built yet.
@@ -1733,7 +1733,7 @@ impl eframe::App for App {
 #[cfg(test)]
 mod tests {
     use super::with_local_history;
-    use dpl_chat_core::{ActivationState, Capability};
+    use dpl_ai_core::{ActivationState, Capability};
     use dpl_chat_runtime::ProviderRegistration;
     use dpl_chat_store::{HistoryCatalog, HistoryLimits, JsonlHistorySource};
 

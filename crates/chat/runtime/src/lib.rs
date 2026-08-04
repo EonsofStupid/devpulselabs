@@ -3,10 +3,13 @@
 //! CH1 contains no process transport. Live provider ownership is blocked on
 //! the Chat provider-runtime ADR.
 
+use dpl_ai_core::{
+    AccountSummary, ActivationState, Capability, ProviderId, ProviderManifest, RecoveryAction,
+    RecoveryActionKind,
+};
 use dpl_chat_core::{
-    AccountSummary, ActivationState, Capability, ChatEvent, ChatEventContent, ChatEventId,
-    ChatSessionId, ProviderId, ProviderManifest, RecoveryAction, RecoveryActionKind, SessionGroup,
-    SessionState, SessionSummary, TurnId,
+    ChatEvent, ChatEventContent, ChatEventId, ChatSessionId, SessionGroup, SessionState,
+    SessionSummary, TurnId,
 };
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt;
@@ -488,9 +491,8 @@ impl ChatRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dpl_chat_core::{
-        Capability, ProviderAccent, ProviderDescriptor, ProviderProfileId, ProviderSessionId,
-    };
+    use dpl_ai_core::{Capability, ProviderAccent, ProviderDescriptor, ProviderProfileId};
+    use dpl_chat_core::ProviderSessionId;
 
     const ID: ProviderId = ProviderId("test");
     const OTHER: ProviderId = ProviderId("other");

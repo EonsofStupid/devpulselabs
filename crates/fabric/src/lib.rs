@@ -9,7 +9,7 @@
 //! (capture, jobs, providers) land with their ports and follow this file's
 //! shape exactly.
 
-pub use dpl_chat_core::{Capability, ProviderId};
+pub use dpl_ai_core::{Capability, ProviderId};
 use dpl_hub::Route;
 use std::collections::BTreeSet;
 use std::fmt;
@@ -248,7 +248,7 @@ impl ProviderFailureClass {
 /// beat, and training capture needs a stable subject. None of those can be
 /// expressed by `can_send` (ADR-017 §4).
 ///
-/// `Capability` is carried as-is from `dpl-chat-core` rather than mirrored —
+/// `Capability` is carried as-is from `dpl-ai-core` rather than mirrored —
 /// the vocabulary is already provider-neutral plain data, and a second
 /// registry is exactly what drifts. `ActivationState` is deliberately NOT
 /// carried: it is a chat LIFECYCLE type with fourteen shades a platform
@@ -262,7 +262,7 @@ pub struct ProviderCapability {
     pub activated: bool,
     /// The truthful limitation when activated but partial.
     pub note: Option<String>,
-    /// The qualified set, in `dpl_chat_core`'s existing vocabulary.
+    /// The qualified set, in the AI contract's vocabulary.
     pub capabilities: BTreeSet<Capability>,
     /// One line on who the vendor is — the modal's blurb.
     pub summary: String,

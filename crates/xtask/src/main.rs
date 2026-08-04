@@ -695,6 +695,7 @@ fn structure_audit() -> Result<(), String> {
         "dpl-lottie-render",
         "dpl-svg",
         "dpl-guide",
+        "dpl-ai-core",
         "dpl-chat-core",
         "dpl-chat-store",
         "dpl-chat-accounts",
@@ -715,6 +716,40 @@ fn structure_audit() -> Result<(), String> {
         "egui-pilot-ai-cli",
         "xtask",
     ];
+    // THE KERNEL BOUNDARY (architecture.md §1b, docs/plans/kernel-boundary.md).
+    //
+    // The kernel is the platform's engine; the AI subsystem attaches AT its
+    // boundary; interfaces sit above both. An interface may depend on either.
+    // NEITHER may depend on an interface, and the kernel may not depend on the
+    // AI subsystem — AI attaches to the boundary, it does not sit under it.
+    //
+    // This rule exists because the arrow used to point the wrong way:
+    // `dpl-fabric` re-exported `Capability` and `ProviderId` from
+    // `dpl-chat-core`, so reaching AI meant depending on the chat tree — which
+    // is why `providers_that_can()` had no callers outside its own tests.
+    const KERNEL: &[&str] = &[
+        "dpl-fabric",
+        "dpl-estate",
+        "dpl-intent",
+        "dpl-hub",
+        "dpl-doc",
+        "dpl-comp",
+    ];
+    const AI_SUBSYSTEM: &[&str] = &["dpl-ai-core"];
+    /// Anything that paints or routes an operator. Named by PREFIX so a new
+    /// surface is covered the day it is added, not the day someone remembers.
+    const INTERFACE_PREFIXES: &[&str] = &[
+        "dpl-chat-",
+        "dpl-hub-",
+        "dpl-shell",
+        "dpl-editor",
+        "dpl-composer",
+        "dpl-deck",
+        "dpl-slides",
+        "dpl-viziwiz",
+        "devpulselabs",
+    ];
+
     // The ONE FFI leaf (ADR-009): `-sys` links live here and nowhere else.
     const SYS_ALLOWED: &[&str] = &["dpl-lottie-render"];
     // Orphan crate folders outside the workspace, named and tolerated
@@ -762,6 +797,40 @@ fn structure_audit() -> Result<(), String> {
         let deps = normal_deps(package);
         if let Some(path) = package["manifest_path"].as_str() {
             manifests.push(PathBuf::from(path));
+        }
+
+        // THE KERNEL BOUNDARY. Dependencies point toward the kernel, never
+        // back up at an interface — the defect that made AI unreachable
+        // except through chat.
+        let is_interface = |c: &str| INTERFACE_PREFIXES.iter().any(|p| c.starts_with(p));
+        if KERNEL.contains(&name) || AI_SUBSYSTEM.contains(&name) {
+            let tier = if KERNEL.contains(&name) {
+                "kernel"
+            } else {
+                "AI subsystem"
+            };
+            for dep in &deps {
+                if is_interface(dep) {
+                    return Err(format!(
+                        "{name} ({tier}) depends on {dep}, an INTERFACE. \
+                         Dependencies cross the kernel boundary one way only — \
+                         see docs/plans/kernel-boundary.md. If {dep} owns a type \
+                         the kernel needs, that type belongs below the boundary."
+                    ));
+                }
+            }
+        }
+        if KERNEL.contains(&name) {
+            for dep in &deps {
+                if AI_SUBSYSTEM.contains(&dep.as_str()) && name != "dpl-fabric" {
+                    return Err(format!(
+                        "{name} (kernel) depends on {dep} (AI subsystem). AI \
+                         attaches TO the boundary; it does not sit under it. \
+                         `dpl-fabric` is the one recorded carrier — it folds the \
+                         roster, so it names the roster's shape."
+                    ));
+                }
+            }
         }
 
         if let Some((_, ceiling)) = CEILINGS.iter().find(|(c, _)| *c == name) {
@@ -971,9 +1040,10 @@ fn structure_audit() -> Result<(), String> {
 
     if failures.is_empty() {
         println!(
-            "structure: {} ceilings · {} egui-free · {} members hygienic · {} flags in census \
+            "structure: {} ceilings · {} kernel+ai boundary · {} egui-free · {} members hygienic · {} flags in census \
              · {} crates + {} binaries named",
             CEILINGS.len(),
+            KERNEL.len() + AI_SUBSYSTEM.len(),
             EGUI_FREE.len(),
             manifests.len(),
             parsed.len(),

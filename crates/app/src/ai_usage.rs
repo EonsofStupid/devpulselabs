@@ -10,7 +10,7 @@
 //! `every_provider_has_a_usage_adapter` fails — the "grow as the releases
 //! come out" property is a test, not a hope.
 
-use dpl_chat_core::{ProviderId, ProviderManifest};
+use dpl_ai_core::{ProviderId, ProviderManifest};
 use dpl_chat_store::{ProviderUsage, UsageReporting};
 
 /// Every provider manifest the app ships. The census pins the usage

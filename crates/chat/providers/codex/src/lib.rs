@@ -11,10 +11,10 @@ pub use activation::{
     CodexStatusRequest, CodexVersion, SETUP_URL,
 };
 
-use dpl_chat_core::{
-    BoundedNativePayload, Capability, ChatEventContent, ProviderAccent, ProviderDescriptor,
-    ProviderId, ProviderManifest, ProviderProfileId, TokenUsage,
+use dpl_ai_core::{
+    Capability, ProviderAccent, ProviderDescriptor, ProviderId, ProviderManifest, ProviderProfileId,
 };
+use dpl_chat_core::{BoundedNativePayload, ChatEventContent, TokenUsage};
 use dpl_chat_store::{
     DecodeOutcome, DecodedHistoryEvent, HistoryDecoder, HistoryIndexMetadata, ProviderUsage,
     UsageReporting,

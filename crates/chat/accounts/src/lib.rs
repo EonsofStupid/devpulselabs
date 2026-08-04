@@ -4,7 +4,7 @@
 //! its official runtime. It never stores credentials, device codes,
 //! authorization URLs, cookies, auth-file contents, or provider output.
 
-use dpl_chat_core::ProviderId;
+use dpl_ai_core::ProviderId;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use turso::Value;

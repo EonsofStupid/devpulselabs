@@ -13,6 +13,7 @@ eguipilotai-devtools = [
 ]
 
 [dependencies]
+dpl-ai-core.workspace = true
 # Structured logging ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â RUST_LOG drives verbosity (tracing is the modern std).
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

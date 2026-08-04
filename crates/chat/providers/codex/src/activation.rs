@@ -1,4 +1,4 @@
-use dpl_chat_core::{ActivationState, RecoveryAction, RecoveryActionKind};
+use dpl_ai_core::{ActivationState, RecoveryAction, RecoveryActionKind};
 use std::fmt;
 use std::fs;
 use std::io;

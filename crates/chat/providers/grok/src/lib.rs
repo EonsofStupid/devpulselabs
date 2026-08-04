@@ -11,7 +11,7 @@ mod terminal;
 pub use retry::*;
 pub use runtime::*;
 
-use dpl_chat_core::{
+use dpl_ai_core::{
     ActivationState, Capability, DeviceAuthorizationPrompt, GuidedValue, GuidedValueSensitivity,
     ProviderAccent, ProviderDescriptor, ProviderId, ProviderManifest, ProviderProfileId,
     RecoveryAction, RecoveryActionKind,
@@ -29,7 +29,7 @@ pub const PROVIDER: ProviderId = ProviderId("grok");
 /// Grok's CLI has `login`/`logout` but no `status`, so presence is read off
 /// `grok models`, which names the signed-in account before it lists them.
 /// Verified against grok 0.2.117.
-pub const PRESENCE: dpl_chat_core::PresenceSpec = dpl_chat_core::PresenceSpec {
+pub const PRESENCE: dpl_ai_core::PresenceSpec = dpl_ai_core::PresenceSpec {
     program: "grok",
     args: &["models"],
     signed_in: &["you are logged in with"],

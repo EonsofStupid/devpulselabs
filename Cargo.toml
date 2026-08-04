@@ -8,6 +8,7 @@ members = [
     "crates/egui-pilot-ai-runner",
     "crates/egui-pilot-ai-cli",
     "crates/egui-pilot-ai-lab",
+    "crates/ai-core",
     "crates/chat/core",
     "crates/chat/accounts",
     "crates/chat/browser-auth",
@@ -162,6 +163,7 @@ egui-pilot-ai-runtime = { path = "crates/egui-pilot-ai-runtime" }
 egui-pilot-ai-runner = { path = "crates/egui-pilot-ai-runner" }
 egui-pilot-ai-lab = { path = "crates/egui-pilot-ai-lab" }
 
+dpl-ai-core = { path = "crates/ai-core" }
 dpl-chat-core = { path = "crates/chat/core" }
 dpl-chat-accounts = { path = "crates/chat/accounts" }
 dpl-chat-browser-auth = { path = "crates/chat/browser-auth" }

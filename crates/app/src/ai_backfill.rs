@@ -19,7 +19,7 @@
 //! transports (Grok's ACP) have nothing on disk and are excluded by
 //! construction, not by a special case here.
 
-use dpl_chat_core::ProviderId;
+use dpl_ai_core::ProviderId;
 use dpl_chat_store::{HistorySource, JsonlHistorySource, ProviderUsage, SessionUsage};
 use dpl_fabric::{AiEvent, AiOutcome, Fabric, Observation, Origin};
 use serde::{Deserialize, Serialize};

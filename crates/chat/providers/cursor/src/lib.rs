@@ -11,7 +11,7 @@
 //! and the presence probe, so an installed-and-signed-in Cursor becomes
 //! visible to the platform the moment it exists on the machine.
 
-use dpl_chat_core::{
+use dpl_ai_core::{
     Capability, PresenceSpec, ProviderAccent, ProviderDescriptor, ProviderId, ProviderManifest,
     ProviderProfileId,
 };
@@ -71,7 +71,7 @@ pub const MANIFEST: ProviderManifest = ProviderManifest {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dpl_chat_core::PresenceVerdict;
+    use dpl_ai_core::PresenceVerdict;
 
     #[test]
     fn a_signed_out_cursor_is_not_read_as_signed_in() {

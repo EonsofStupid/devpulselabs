@@ -270,7 +270,7 @@ const COARSE: &[&str] = &[
 /// what is coachable without touching this function.
 pub fn declare(
     hubs: impl IntoIterator<Item = &'static HubSpec>,
-    providers: impl IntoIterator<Item = dpl_chat_core::ProviderId>,
+    providers: impl IntoIterator<Item = dpl_ai_core::ProviderId>,
 ) -> Vec<SignalId> {
     let mut declared: Vec<SignalId> = COARSE.iter().copied().map(id).collect();
     declared.push(id(format!("{SHELL_FULL_BLEED}/on")));
@@ -302,7 +302,7 @@ pub fn declare(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dpl_chat_core::ProviderId;
+    use dpl_ai_core::ProviderId;
     use dpl_fabric::{
         ActivationAttemptId, AppWindowAction, AppWindowKey, JobId, ProviderActivationStage,
         ProviderFailureClass,

@@ -1,9 +1,12 @@
 //! Deterministic Chat fixtures. Production crates do not depend on this crate.
 
+use dpl_ai_core::{
+    ActivationState, Capability, ProviderAccent, ProviderDescriptor, ProviderId, ProviderManifest,
+    ProviderProfileId, RecoveryAction, RecoveryActionKind,
+};
 use dpl_chat_core::{
-    ActivationState, Capability, ChatEvent, ChatEventContent, ChatEventId, ChatSessionId,
-    ProviderAccent, ProviderDescriptor, ProviderId, ProviderManifest, ProviderProfileId,
-    RecoveryAction, RecoveryActionKind, SessionGroup, SessionState, SessionSummary, TurnId,
+    ChatEvent, ChatEventContent, ChatEventId, ChatSessionId, SessionGroup, SessionState,
+    SessionSummary, TurnId,
 };
 use dpl_chat_runtime::ProviderRegistration;
 use dpl_chat_social::{

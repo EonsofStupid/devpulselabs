@@ -3,7 +3,7 @@
 //! Observing a route can only change the offer. Attaching is a separate
 //! operator action and no API in this crate can send a provider message.
 
-use dpl_chat_core::ProviderId;
+use dpl_ai_core::ProviderId;
 use dpl_hub::Route;
 use std::collections::HashMap;
 use std::fmt;
@@ -101,7 +101,7 @@ impl RouteContextState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dpl_chat_core::ProviderId;
+    use dpl_ai_core::ProviderId;
     use dpl_hub::{HubId, SubId};
 
     const CODEX: ProviderId = ProviderId("codex");

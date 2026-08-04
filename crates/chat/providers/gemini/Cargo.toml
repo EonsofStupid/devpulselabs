@@ -5,6 +5,7 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+dpl-ai-core.workspace = true
 dpl-chat-core.workspace = true
 # The usage seam every provider implements — Gemini declares NOTHING
 # until its runtime lands (CH6), which keeps the gap legible.

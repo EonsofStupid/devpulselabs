@@ -3,7 +3,8 @@
 //! Native viewport creation belongs to the shell coordinator in CH8. This
 //! crate defines ownership and transitions without depending on egui.
 
-use dpl_chat_core::{ChatSessionId, ProviderId, TurnId};
+use dpl_ai_core::ProviderId;
+use dpl_chat_core::{ChatSessionId, TurnId};
 use dpl_chat_interactions::InteractionId;
 use dpl_hub::Route;
 use std::fmt;

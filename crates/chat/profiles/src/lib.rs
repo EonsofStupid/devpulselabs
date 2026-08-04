@@ -3,7 +3,7 @@
 //! A profile selects one reviewed configuration kind. It cannot carry an
 //! executable, arguments, environment, shell, workspace, or credential.
 
-use dpl_chat_core::{ProviderAccent, ProviderId};
+use dpl_ai_core::{ProviderAccent, ProviderId};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};

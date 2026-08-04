@@ -234,18 +234,27 @@ pub fn carousel_row(
     height: f32,
     contents: impl FnOnce(&mut Ui),
 ) -> CarouselRow {
-    ui.style_mut().always_scroll_the_only_direction = true;
-    let output = egui::ScrollArea::horizontal()
-        .id_salt(id_salt)
-        .max_height(height)
-        .auto_shrink([false, true])
-        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded)
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = cl::space::S3;
-                contents(ui);
-            });
-        });
+    // SCOPED, not set. `style_mut` mutates this `Ui`'s own style for the rest
+    // of its life, so setting the flag on the caller's `ui` leaks it to every
+    // widget added after the carousel. In the providers overlay that is the
+    // API grid, one line below — it would have started scrolling sideways on
+    // a vertical wheel. A scope confines the change to the scroll area.
+    let output = ui
+        .scope(|ui| {
+            ui.style_mut().always_scroll_the_only_direction = true;
+            egui::ScrollArea::horizontal()
+                .id_salt(id_salt)
+                .max_height(height)
+                .auto_shrink([false, true])
+                .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded)
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = cl::space::S3;
+                        contents(ui);
+                    });
+                })
+        })
+        .inner;
 
     let offset = output.state.offset.x;
     let overflow = (output.content_size.x - output.inner_rect.width()).max(0.0);
@@ -304,6 +313,30 @@ mod tests {
         let outer = Rect::from_min_size(egui::Pos2::ZERO, reserved);
         let inner = Rect::from_center_size(outer.center(), resting);
         assert!((inner.left() - outer.left()) - (outer.right() - inner.right()) < 0.001);
+    }
+
+    /// A helper that changes style must not change it for its CALLER. The
+    /// carousel enables `always_scroll_the_only_direction`, and the API grid
+    /// is laid out one line later in the same `Ui` — a leak would have made
+    /// the grid scroll sideways on a vertical wheel.
+    #[test]
+    fn the_carousel_does_not_leak_its_style_to_the_caller() {
+        let ctx = egui::Context::default();
+        let mut leaked = None;
+        let _ = ctx.run_ui(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                assert!(!ui.style().always_scroll_the_only_direction);
+                carousel_row(ui, "test.carousel", 40.0, |ui| {
+                    ui.label("tile");
+                });
+                leaked = Some(ui.style().always_scroll_the_only_direction);
+            });
+        });
+        assert_eq!(
+            leaked,
+            Some(false),
+            "carousel_row left always_scroll_the_only_direction set on its caller"
+        );
     }
 
     #[test]

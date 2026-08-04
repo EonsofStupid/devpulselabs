@@ -20,7 +20,8 @@ use agent_client_protocol::{
 };
 use async_channel::{Receiver, Sender, TryRecvError, TrySendError};
 use async_process::Child;
-use dpl_chat_core::{ProviderId, TokenUsage};
+use dpl_ai_core::ProviderId;
+use dpl_chat_core::TokenUsage;
 use dpl_chat_store::{ProviderUsage, UsageReporting};
 use futures_lite::future;
 use std::{

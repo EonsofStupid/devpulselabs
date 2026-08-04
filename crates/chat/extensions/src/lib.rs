@@ -3,7 +3,7 @@
 //! Extensions contribute typed metadata and intents. This crate intentionally
 //! exposes no egui callback, provider handle, filesystem handle, or shell API.
 
-use dpl_chat_core::{Capability, ProviderId};
+use dpl_ai_core::{Capability, ProviderId};
 use dpl_hub::{HubId, Route, SubId};
 use std::collections::HashSet;
 use std::fmt;

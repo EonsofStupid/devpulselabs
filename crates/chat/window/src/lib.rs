@@ -4,12 +4,12 @@
 //! It does not create viewports, publish signals, navigate Main, scan stores,
 //! launch providers, or implement Social transport.
 
+use dpl_ai_core::{ActivationState, Capability, ProviderAccent, ProviderId, RecoveryActionKind};
 use dpl_chat_context::RouteContextState;
 use dpl_chat_core::{
-    ActivationState, Capability, ChatDomain, ChatEvent, ChatEventContent, ChatEventId,
-    ChatSessionId, ContentEpisode, ContentEpisodeId, ContentSpine, ContentView, EventPresentation,
-    ProviderAccent, ProviderId, RecoveryActionKind, SessionGroup, SessionState, SessionSummary,
-    TurnId,
+    ChatDomain, ChatEvent, ChatEventContent, ChatEventId, ChatSessionId, ContentEpisode,
+    ContentEpisodeId, ContentSpine, ContentView, EventPresentation, SessionGroup, SessionState,
+    SessionSummary, TurnId,
 };
 use dpl_chat_interactions::{
     InteractionContent, InteractionId, InteractionLifecycle, InteractionPlacement,
@@ -5158,9 +5158,8 @@ fn paint_shell_backplate(painter: &egui::Painter, rect: Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dpl_chat_core::{
-        Capability, ProviderDescriptor, ProviderManifest, ProviderProfileId, SessionSummary,
-    };
+    use dpl_ai_core::{Capability, ProviderDescriptor, ProviderManifest, ProviderProfileId};
+    use dpl_chat_core::SessionSummary;
     use dpl_chat_runtime::ProviderRegistration;
     use dpl_hub::{HubId, SubId};
     use egui_kittest::Harness;

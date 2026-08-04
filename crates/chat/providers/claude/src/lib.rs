@@ -3,10 +3,11 @@
 //! Live structured-stream integration is CH5. The runtime exception is
 //! ratified, but process launch stays fail-closed on the ADR launch gates.
 
-use dpl_chat_core::{
-    BoundedNativePayload, Capability, ChatEventContent, PresenceSpec, ProviderAccent,
-    ProviderDescriptor, ProviderId, ProviderManifest, ProviderProfileId, TokenUsage,
+use dpl_ai_core::{
+    Capability, PresenceSpec, ProviderAccent, ProviderDescriptor, ProviderId, ProviderManifest,
+    ProviderProfileId,
 };
+use dpl_chat_core::{BoundedNativePayload, ChatEventContent, TokenUsage};
 use dpl_chat_store::{
     DecodeOutcome, DecodedHistoryEvent, HistoryDecoder, HistoryIndexMetadata, ProviderUsage,
     UsageReporting,

@@ -1,13 +1,13 @@
+use dpl_ai_core::{ActivationState, Capability, ProviderId, RecoveryAction, RecoveryActionKind};
+#[cfg(feature = "eguipilotai-devtools")]
+use dpl_ai_core::{DeviceAuthorizationPrompt, GuidedValue, GuidedValueSensitivity};
 use dpl_chat_accounts::ActivationLedger;
 use dpl_chat_browser_auth::{BrowserAuthCoordinator, BrowserAuthError, BrowserAuthEvent};
 use dpl_chat_core::{
-    ActivationState, BoundedNativePayload, Capability, ChatEvent, ChatEventContent, ChatEventId,
-    ChatSessionId, ContentChapter, ContentEpisode, ContentEpisodeId, ContentSlide, ContentSpine,
-    ContentView, ProviderId, ProviderSessionId, RecoveryAction, RecoveryActionKind, SessionGroup,
-    SessionState, SessionSummary, TokenUsage, TurnId,
+    BoundedNativePayload, ChatEvent, ChatEventContent, ChatEventId, ChatSessionId, ContentChapter,
+    ContentEpisode, ContentEpisodeId, ContentSlide, ContentSpine, ContentView, ProviderSessionId,
+    SessionGroup, SessionState, SessionSummary, TokenUsage, TurnId,
 };
-#[cfg(feature = "eguipilotai-devtools")]
-use dpl_chat_core::{ChatDomain, DeviceAuthorizationPrompt, GuidedValue, GuidedValueSensitivity};
 use dpl_chat_imagine::{ImagineCache, ImagineClient, ImaginePolicy, SystemImagineClient};
 use dpl_chat_interactions::{
     InteractionContent, InteractionId, InteractionPlacement, InteractionRegistry,
@@ -364,7 +364,7 @@ fn drain_presence(state: &mut Shared) {
 /// rest. Overwriting a live coordinator's state from a one-shot probe is how
 /// a working provider ends up reported as signed out mid-session.
 fn apply_presence(state: &mut Shared, found: &crate::presence::Presence) {
-    use dpl_chat_core::PresenceVerdict;
+    use dpl_ai_core::PresenceVerdict;
 
     let already_activated = state
         .window
@@ -2899,7 +2899,7 @@ struct AiCall {
 /// enforced in one readable place rather than scattered per provider.
 fn ai_call_started(
     state: &mut Shared,
-    provider: dpl_chat_core::ProviderId,
+    provider: dpl_ai_core::ProviderId,
     provider_session_id: &str,
     model: &str,
 ) {

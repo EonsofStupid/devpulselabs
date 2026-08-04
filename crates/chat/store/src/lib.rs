@@ -3,8 +3,9 @@
 //! Provider crates own schema interpretation. This crate owns the filesystem
 //! jail, resource ceilings, opaque session resolution, and cursor mechanics.
 
+use dpl_ai_core::ProviderId;
 use dpl_chat_core::{
-    BoundedNativePayload, ChatEvent, ChatEventContent, ChatEventId, ChatSessionId, ProviderId,
+    BoundedNativePayload, ChatEvent, ChatEventContent, ChatEventId, ChatSessionId,
     ProviderSessionId, SessionState, SessionSummary, TokenUsage, TurnId,
 };
 use std::collections::HashSet;
