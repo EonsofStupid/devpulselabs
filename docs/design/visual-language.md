@@ -48,11 +48,27 @@ Direct quotes, newest last. These outrank every inference in this repo.
 
 | File | What it shows | Operator's association |
 |---|---|---|
-| `editor.png` | "WIRED FRONT EDITOR" — deep-navy pro app; CAPTURE/ANNOTATE/EDIT/NARRATE/PREVIEW/EXPORT icon-over-label nav; left SCENES+ASSETS; right INSPECTOR/LAYERS/ACTIONS with form fields; bottom STEPS strip + narration waveform + transport. Restrained cyan/purple glow. A **"COLDLIGHT VOLTAGE" theme picker in the top bar.** | **The WiredFRONT editor target** |
-| `editor-2.png` | "DevPULSE Guide Workbench" — same family, more refined; categorized ASSETS with counts; STEP INSPECTOR with sliders + toggle; cyan glow rings on the active element; big cyan circular Play. | The editor/guide-workbench target |
+| `editor.png` **(WORKBENCH — operator 2026-08-05, being renamed)** | "WIRED FRONT EDITOR" — deep-navy pro app; CAPTURE/ANNOTATE/EDIT/NARRATE/PREVIEW/EXPORT icon-over-label nav; left SCENES+ASSETS; right INSPECTOR/LAYERS/ACTIONS with form fields; bottom STEPS strip + narration waveform + transport. Restrained cyan/purple glow. A **"COLDLIGHT VOLTAGE" theme picker in the top bar.** | **WORKBENCH.** *Was recorded here as the WiredFRONT target — that was wrong.* |
+| `editor-2.png` **(WORKBENCH)** | "DevPULSE Guide Workbench" — same family, more refined; categorized ASSETS with counts; STEP INSPECTOR with sliders + toggle; cyan glow rings on the active element; big cyan circular Play. | **WORKBENCH** — its own name says so. |
 | `neubrutalist.png` | "COLDLIGHT DESIGN SUITE v1.0" — dark hatched ground, **extruded** nav plates, and **exactly ONE** saturated hot-pink hero button ("START SYSTEM") with a starburst. | **A styling preset** |
 | `claymorphism-cyber.png` | Teal/chrome machine console — riveted metal frame, gauges, bracketed tabs. | **A styling preset — belongs to WORKBENCH** |
 | `claymorphism-icons-examples.png` | Deep clay tiles/pills with neon ink. | **A styling preset** |
+
+**THE WIREDFRONT EDITOR'S TARGET IS A MOCK, NOT A REFERENCE SHOT** — operator
+2026-08-05: *"its fucking this … EDITOR.PNG IS FUCKING PART OF WORKBENCH IM
+RENAMING THAT RIGHT NOW."*
+
+| target | what it governs |
+|---|---|
+| **`docs/design/mocks/wiredfront-editor-mock.html`** | **the WiredFRONT editor — layout AND treatment** |
+| `visual-language-v3-mock.html` | the shared visual language (palette, bases, materials) |
+| `editor.png` · `editor-2.png` | **Workbench**, not WiredFRONT |
+
+**This invalidates a derivation.** `visual-language-v3-mock.html:401` claims
+*"the two editor shots map to flat wells + liquid-glass/cyber chrome + glow
+spotlights (WiredFRONT, Guide Workbench)"* — that sentence is the sole origin
+of the aero/`neon-glass` reading for WiredFRONT, and its premise (that those
+shots are WiredFRONT) is false. **The v3 mock line must be amended.**
 
 **The load-bearing observation from `neubrutalist.png`:** the saturated
 brutalist fill is the **hero** treatment — used *once*, for the primary
