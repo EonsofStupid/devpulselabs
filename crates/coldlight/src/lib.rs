@@ -631,6 +631,72 @@ pub fn brutal(tone: Tone) -> Treated {
     treated(tone, "neubrutalist", &[], TraitState::Idle)
 }
 
+/// **VIBRON** (vibes + Tron) — the workhorse treatment, and the surface a
+/// dense tool screen wears by default.
+///
+/// A quiet dark plate: overlay fill, 2px hairline edge, hard offset shadow,
+/// body ink. Its defining move is RESTRAINT — the plate says nothing so the
+/// ONE active control can, and the content stays the loudest thing on screen.
+/// `TraitState::Active` swaps the edge to the surface's tone and washes the
+/// fill at ~14% (never a solid tone); press sinks it onto its own shadow.
+///
+/// That is the difference between a tool screen and a bag of pills. Values
+/// transcribed from `docs/design/mocks/wiredfront-editor-mock.html`; resolves
+/// to the matrix coordinate `brutalist · massive · plate · hard-cast`.
+pub fn vibron(tone: Tone, state: TraitState) -> Treated {
+    treated(tone, "vibron", &[], state)
+}
+
+/// The CHROME treatment every ordinary control wears, as a changeable
+/// setting rather than a hardcoded call.
+///
+/// Chrome is the app's own furniture — buttons, chips, panels. Which
+/// treatment it wears is a CHOICE, so surfaces ask for "the chrome" and get
+/// whatever is currently set. Swapping the whole app to another look is then
+/// one call, not an edit to every widget helper.
+///
+/// A component may still ask for a SPECIFIC treatment ([`vibron`],
+/// [`brutal`], [`clay`]) when it means that one on purpose — which is what
+/// lets glass sit inside a brutalist container.
+static CHROME: std::sync::OnceLock<std::sync::Mutex<&'static str>> = std::sync::OnceLock::new();
+
+fn chrome_cell() -> &'static std::sync::Mutex<&'static str> {
+    CHROME.get_or_init(|| std::sync::Mutex::new(DEFAULT_CHROME))
+}
+
+/// The treatment chrome wears until something changes it.
+pub const DEFAULT_CHROME: &str = "vibron";
+
+/// Which treatment chrome is currently wearing.
+pub fn chrome() -> &'static str {
+    *chrome_cell()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Dress the app's chrome in another treatment. Returns whether it took.
+///
+/// An UNKNOWN id is REFUSED and the current chrome kept, rather than
+/// panicking: the realistic bad value is not a typo in code but a STALE
+/// preset id read back from persisted operator data after a treatment was
+/// renamed. Losing the setting is recoverable; killing the app over it is
+/// not. The `bool` is the report — callers that care should check it.
+pub fn set_chrome(id: &'static str) -> bool {
+    if trait_def(id).is_none() {
+        return false;
+    }
+    *chrome_cell()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = id;
+    true
+}
+
+/// An ordinary control in whatever chrome is currently set. This is what
+/// surfaces call; [`vibron`] and friends are for meaning one on purpose.
+pub fn chrome_treated(tone: Tone, state: TraitState) -> Treated {
+    treated(tone, chrome(), &[], state)
+}
+
 /// The claymorphic passive plane. Successor to `clay_frame`. Claymorphic
 /// uses only fixed surface/ink refs, so the tone is inert here.
 pub fn clay() -> Treated {
@@ -2264,6 +2330,27 @@ mod tests {
     /// paints must resolve to real geometry. A dropped icons.json entry
     /// would otherwise degrade silently to `draw_icon`'s hairline box on
     /// a live surface — this fails the gate instead.
+    /// Chrome is a SETTING, not a hardcoded call — so the whole app can be
+    /// re-dressed later without touching a single widget helper.
+    #[test]
+    fn chrome_is_switchable_and_refuses_a_typo() {
+        assert_eq!(chrome(), DEFAULT_CHROME, "vibron until something changes it");
+        assert!(set_chrome("neubrutalist"), "any authored trait is fair game");
+        assert_eq!(chrome(), "neubrutalist");
+        // A resolved style really does follow the setting — compared through
+        // compose() so this asserts on the PAINTED values, not on a wrapper.
+        let loud = compose(Tone::Magenta, chrome(), &[], TraitState::Idle);
+        assert!(set_chrome("vibron"));
+        let quiet = compose(Tone::Magenta, chrome(), &[], TraitState::Idle);
+        assert_ne!(
+            loud.fill, quiet.fill,
+            "neubrutalist is a saturated fill; vibron is a quiet plate — they              must not resolve to the same colour"
+        );
+        // A typo is refused and the current chrome survives.
+        assert!(!set_chrome("vibrn"), "unknown id refused");
+        assert_eq!(chrome(), "vibron", "and the good one is kept");
+    }
+
     #[test]
     fn the_editor_icon_set_is_whole() {
         const EDITOR_ICONS: &[&str] = &[

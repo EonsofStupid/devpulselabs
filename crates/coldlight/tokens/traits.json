@@ -1,81 +1,301 @@
 {
-	"$description": "AUTHORED — traits: stackable partial looks resolved per-axis against a runtime Tone. Generated to traits_gen.rs; hue/step refs are cross-validated at build (unknown → build fails). Composition (docs/design/doctrine.md): additive axes (shadows, back_glow, tints, anim) concatenate across the stack; override axes (fill, edge, radius, ink, font) last-wins. A hover/active block overlays that trait's axes for the state. Color refs: {tone:STEP} = the surface Tone's ladder at STEP; {hue:ID,step:STEP} = a fixed pool hue; {surface:SLOT} / {ink:SLOT} = a named slot; {black:true}; optional alpha (0-255, default 255). role: base = neubrutalist/claymorphic (one per surface); stack = cyber/retro (ride on top). NOTE: cyber/retro animation (hue-drift/crt-flicker) is deferred until motion.json carries the effects + a cheap painter — anim is empty for now.",
-
-	"traits": [
-		{
-			"id": "neubrutalist",
-			"role": "base",
-			"label": "Neubrutalist",
-			"blurb": "Flat saturated surface, crisp hard edge, hard offset shadow, lit-from-behind glow. Loud, honest, tappable — and cheap.",
-			"fill": { "tone": 400 },
-			"edge": { "width": 2.0, "color": { "tone": 700 } },
-			"radius": 6,
-			"ink": { "surface": "WELL" },
-			"shadows": [
-				{ "offset": [3, 3], "blur": 0, "spread": 0, "color": { "black": true, "alpha": 230 } }
-			],
-			"back_glow": [
-				{ "color": { "tone": 300, "alpha": 60 }, "spread": 18.0 }
-			],
-			"hover": {
-				"shadows": [
-					{ "offset": [4, 4], "blur": 0, "spread": 0, "color": { "black": true, "alpha": 235 } }
-				],
-				"back_glow": [
-					{ "color": { "tone": 300, "alpha": 95 }, "spread": 24.0 }
-				]
-			},
-			"active": {
-				"fill": { "tone": 500, "alpha": 90 },
-				"shadows": [
-					{ "offset": [1, 1], "blur": 0, "spread": 0, "color": { "black": true, "alpha": 230 } }
-				]
-			}
-		},
-		{
-			"id": "claymorphic",
-			"role": "base",
-			"label": "Claymorphic",
-			"blurb": "Soft extruded plane — directional light top-left, shadow bottom-right, generous radius. Content sits in it; it is never a button.",
-			"fill": { "surface": "RAISED" },
-			"edge": { "width": 1.0, "color": { "surface": "HAIRLINE" } },
-			"radius": 16,
-			"ink": { "ink": "BASE" },
-			"shadows": [
-				{ "offset": [-4, -4], "blur": 12, "spread": 0, "color": { "ink": "STRONG", "alpha": 12 } },
-				{ "offset": [6, 6], "blur": 16, "spread": 0, "color": { "black": true, "alpha": 150 } }
-			],
-			"tints": [
-				{ "color": { "surface": "OVERLAY", "alpha": 90 }, "dir": 135.0 }
-			]
-		},
-		{
-			"id": "cyber",
-			"role": "stack",
-			"label": "Cyber",
-			"blurb": "Cyan neon — a glow bloom, a top wash, a bright thin edge. Rides on top of a base.",
-			"edge": { "width": 1.0, "color": { "hue": "cyan", "step": 400 } },
-			"radius": 6,
-			"ink": { "hue": "cyan", "step": 100 },
-			"tints": [
-				{ "color": { "hue": "cyan", "step": 500, "alpha": 36 }, "dir": 180.0 }
-			],
-			"back_glow": [
-				{ "color": { "hue": "cyan", "step": 400, "alpha": 120 }, "spread": 14.0 },
-				{ "color": { "hue": "cyan", "step": 600, "alpha": 80 }, "spread": 28.0 }
-			]
-		},
-		{
-			"id": "retro",
-			"role": "stack",
-			"label": "Retro",
-			"blurb": "CRT amber — sharp corners, a chunky amber edge, a scanline wash. Rides on top of a base.",
-			"edge": { "width": 2.0, "color": { "hue": "amber", "step": 700 } },
-			"radius": 3,
-			"ink": { "hue": "amber", "step": 200 },
-			"tints": [
-				{ "color": { "hue": "amber", "step": 900, "alpha": 60 }, "dir": 0.0 }
-			]
-		}
-	]
+  "$description": "AUTHORED — traits: stackable partial looks resolved per-axis against a runtime Tone. Generated to traits_gen.rs; hue/step refs are cross-validated at build (unknown → build fails). Composition (docs/design/doctrine.md): additive axes (shadows, back_glow, tints, anim) concatenate across the stack; override axes (fill, edge, radius, ink, font) last-wins. A hover/active block overlays that trait's axes for the state. Color refs: {tone:STEP} = the surface Tone's ladder at STEP; {hue:ID,step:STEP} = a fixed pool hue; {surface:SLOT} / {ink:SLOT} = a named slot; {black:true}; optional alpha (0-255, default 255). role: base = neubrutalist/claymorphic (one per surface); stack = cyber/retro (ride on top). NOTE: cyber/retro animation (hue-drift/crt-flicker) is deferred until motion.json carries the effects + a cheap painter — anim is empty for now.",
+  "traits": [
+    {
+      "id": "neubrutalist",
+      "role": "base",
+      "label": "Neubrutalist",
+      "blurb": "Flat saturated surface, crisp hard edge, hard offset shadow, lit-from-behind glow. Loud, honest, tappable — and cheap.",
+      "fill": {
+        "tone": 400
+      },
+      "edge": {
+        "width": 2.0,
+        "color": {
+          "tone": 700
+        }
+      },
+      "radius": 6,
+      "ink": {
+        "surface": "WELL"
+      },
+      "shadows": [
+        {
+          "offset": [
+            3,
+            3
+          ],
+          "blur": 0,
+          "spread": 0,
+          "color": {
+            "black": true,
+            "alpha": 230
+          }
+        }
+      ],
+      "back_glow": [
+        {
+          "color": {
+            "tone": 300,
+            "alpha": 60
+          },
+          "spread": 18.0
+        }
+      ],
+      "hover": {
+        "shadows": [
+          {
+            "offset": [
+              4,
+              4
+            ],
+            "blur": 0,
+            "spread": 0,
+            "color": {
+              "black": true,
+              "alpha": 235
+            }
+          }
+        ],
+        "back_glow": [
+          {
+            "color": {
+              "tone": 300,
+              "alpha": 95
+            },
+            "spread": 24.0
+          }
+        ]
+      },
+      "active": {
+        "fill": {
+          "tone": 500,
+          "alpha": 90
+        },
+        "shadows": [
+          {
+            "offset": [
+              1,
+              1
+            ],
+            "blur": 0,
+            "spread": 0,
+            "color": {
+              "black": true,
+              "alpha": 230
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "claymorphic",
+      "role": "base",
+      "label": "Claymorphic",
+      "blurb": "Soft extruded plane — directional light top-left, shadow bottom-right, generous radius. Content sits in it; it is never a button.",
+      "fill": {
+        "surface": "RAISED"
+      },
+      "edge": {
+        "width": 1.0,
+        "color": {
+          "surface": "HAIRLINE"
+        }
+      },
+      "radius": 16,
+      "ink": {
+        "ink": "BASE"
+      },
+      "shadows": [
+        {
+          "offset": [
+            -4,
+            -4
+          ],
+          "blur": 12,
+          "spread": 0,
+          "color": {
+            "ink": "STRONG",
+            "alpha": 12
+          }
+        },
+        {
+          "offset": [
+            6,
+            6
+          ],
+          "blur": 16,
+          "spread": 0,
+          "color": {
+            "black": true,
+            "alpha": 150
+          }
+        }
+      ],
+      "tints": [
+        {
+          "color": {
+            "surface": "OVERLAY",
+            "alpha": 90
+          },
+          "dir": 135.0
+        }
+      ]
+    },
+    {
+      "id": "cyber",
+      "role": "stack",
+      "label": "Cyber",
+      "blurb": "Cyan neon — a glow bloom, a top wash, a bright thin edge. Rides on top of a base.",
+      "edge": {
+        "width": 1.0,
+        "color": {
+          "hue": "cyan",
+          "step": 400
+        }
+      },
+      "radius": 6,
+      "ink": {
+        "hue": "cyan",
+        "step": 100
+      },
+      "tints": [
+        {
+          "color": {
+            "hue": "cyan",
+            "step": 500,
+            "alpha": 36
+          },
+          "dir": 180.0
+        }
+      ],
+      "back_glow": [
+        {
+          "color": {
+            "hue": "cyan",
+            "step": 400,
+            "alpha": 120
+          },
+          "spread": 14.0
+        },
+        {
+          "color": {
+            "hue": "cyan",
+            "step": 600,
+            "alpha": 80
+          },
+          "spread": 28.0
+        }
+      ]
+    },
+    {
+      "id": "retro",
+      "role": "stack",
+      "label": "Retro",
+      "blurb": "CRT amber — sharp corners, a chunky amber edge, a scanline wash. Rides on top of a base.",
+      "edge": {
+        "width": 2.0,
+        "color": {
+          "hue": "amber",
+          "step": 700
+        }
+      },
+      "radius": 3,
+      "ink": {
+        "hue": "amber",
+        "step": 200
+      },
+      "tints": [
+        {
+          "color": {
+            "hue": "amber",
+            "step": 900,
+            "alpha": 60
+          },
+          "dir": 0.0
+        }
+      ]
+    },
+    {
+      "id": "vibron",
+      "role": "base",
+      "label": "Vibron",
+      "blurb": "VIBRON (vibes + Tron) — the workhorse. A quiet dark plate: overlay fill, 2px hairline edge, hard offset shadow, body ink. Its whole point is RESTRAINT — the plate says nothing so the ONE active control can, and content stays the loudest thing on screen. Active swaps the edge to the surface's tone and washes the fill at ~14%; press sinks it onto its own shadow. The 4th brutalist preset, and the default a dense tool surface wears. Transcribed from docs/design/mocks/wiredfront-editor-mock.html. Resolves to the matrix coordinate brutalist · massive · plate · hard-cast.",
+      "fill": {
+        "surface": "OVERLAY"
+      },
+      "edge": {
+        "width": 2.0,
+        "color": {
+          "surface": "HAIRLINE"
+        }
+      },
+      "radius": 6,
+      "ink": {
+        "ink": "BASE"
+      },
+      "shadows": [
+        {
+          "offset": [
+            3,
+            3
+          ],
+          "blur": 0,
+          "spread": 0,
+          "color": {
+            "black": true,
+            "alpha": 230
+          }
+        }
+      ],
+      "hover": {
+        "shadows": [
+          {
+            "offset": [
+              4,
+              4
+            ],
+            "blur": 0,
+            "spread": 0,
+            "color": {
+              "black": true,
+              "alpha": 235
+            }
+          }
+        ],
+        "ink": {
+          "ink": "STRONG"
+        }
+      },
+      "active": {
+        "fill": {
+          "tone": 500,
+          "alpha": 36
+        },
+        "edge": {
+          "width": 2.0,
+          "color": {
+            "tone": 400
+          }
+        },
+        "ink": {
+          "ink": "STRONG"
+        },
+        "shadows": [
+          {
+            "offset": [
+              1,
+              1
+            ],
+            "blur": 0,
+            "spread": 0,
+            "color": {
+              "black": true,
+              "alpha": 230
+            }
+          }
+        ]
+      }
+    }
+  ]
 }

@@ -5668,13 +5668,14 @@ fn tool_btn(
     label: &'static str,
     active: bool,
 ) -> egui::Response {
-    let tone = if active { Tone::Magenta } else { Tone::Cyan };
+    // The mock's tone is MAGENTA for the active thing; an idle control is a
+    // quiet plate, so the tone is inert until it lights.
     let state = if active {
         cl::TraitState::Active
     } else {
         cl::TraitState::Idle
     };
-    let inner = cl::treated(tone, "neubrutalist", &[], state)
+    let inner = cl::chrome_treated(Tone::Magenta, state)
         .margin(egui::Margin::symmetric(8, 5))
         .show(ui, |ui| {
             let _ = cl::icon_label(ui, icon, ICON_MD, tool_ink(active));
@@ -5717,13 +5718,12 @@ fn tool_cap_btn(
     label: &'static str,
     active: bool,
 ) -> egui::Response {
-    let tone = if active { Tone::Magenta } else { Tone::Cyan };
     let state = if active {
         cl::TraitState::Active
     } else {
         cl::TraitState::Idle
     };
-    let inner = cl::treated(tone, "neubrutalist", &[], state)
+    let inner = cl::chrome_treated(Tone::Magenta, state)
         .margin(egui::Margin::symmetric(8, 5))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -5760,10 +5760,10 @@ fn icon_btn(
     icon: &str,
     key: impl std::hash::Hash + std::fmt::Debug,
 ) -> egui::Response {
-    let inner = cl::brutal(Tone::Magenta)
+    let inner = cl::chrome_treated(Tone::Magenta, cl::TraitState::Idle)
         .margin(egui::Margin::symmetric(6, 4))
         .show(ui, |ui| {
-            let _ = cl::icon_label(ui, icon, ICON_MD, cl::ink::STRONG);
+            let _ = cl::icon_label(ui, icon, ICON_MD, cl::ink::BASE);
         });
     ui.interact(
         inner.response.rect,
@@ -5779,10 +5779,10 @@ fn small_btn(
     glyph: &str,
     key: impl std::hash::Hash + std::fmt::Debug,
 ) -> egui::Response {
-    let inner = cl::brutal(Tone::Magenta)
+    let inner = cl::chrome_treated(Tone::Magenta, cl::TraitState::Idle)
         .margin(egui::Margin::symmetric(6, 2))
         .show(ui, |ui| {
-            ui.label(RichText::new(glyph).strong());
+            ui.label(RichText::new(glyph).small());
         });
     ui.interact(
         inner.response.rect,
@@ -5799,11 +5799,11 @@ fn icon_word_btn(
     label: &str,
     key: impl std::hash::Hash + std::fmt::Debug,
 ) -> egui::Response {
-    let inner = cl::brutal(Tone::Cyan)
+    let inner = cl::chrome_treated(Tone::Cyan, cl::TraitState::Idle)
         .margin(egui::Margin::symmetric(6, 3))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                let _ = cl::icon_label(ui, icon, ICON_SM, cl::ink::STRONG);
+                let _ = cl::icon_label(ui, icon, ICON_SM, cl::ink::BASE);
                 ui.add_space(cl::space::S1);
                 ui.label(RichText::new(label).small().strong());
             });
@@ -5819,13 +5819,12 @@ fn icon_word_btn(
 /// active filter presses in — composed from the trait system, never
 /// hand-painted chrome.
 fn tag_chip(ui: &mut egui::Ui, label: &str, active: bool, key: &str) -> egui::Response {
-    let tone = if active { Tone::Magenta } else { Tone::Cyan };
     let state = if active {
         cl::TraitState::Active
     } else {
         cl::TraitState::Idle
     };
-    let inner = cl::treated(tone, "neubrutalist", &[], state)
+    let inner = cl::chrome_treated(Tone::Magenta, state)
         .margin(egui::Margin::symmetric(6, 2))
         .show(ui, |ui| {
             ui.label(RichText::new(label).small());
