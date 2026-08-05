@@ -264,6 +264,36 @@ be amended. Recorded here as the ruling.
 
 ---
 
+## 3b · FLAVORS cut across ancestors · **operator, 2026-08-05**
+
+> *"the aero morphism is fine but it needs to actually exist and then you need
+> to realize that is actually going to become Hacker subpreset for aero"*
+
+The seed names are **not** brutalist's private list. They are a **second axis
+— a flavor** — that each ancestor expresses in its own lineage:
+
+| flavor | under `brutalist` | under `aero` |
+|---|---|---|
+| **neo** | lime plate, 3px black edge, 6px hard shadow | *(to author)* |
+| **hacker** | terminal: mono, hairline rule, zero radius, zero shadow | **neon-glass + cyan glow — the `editor.png` look** |
+| **retro** | Win95 bevel chrome | *(to author)* |
+
+So `aero · measured · neon-glass · neon` — the coordinate this document
+proposed for the editor — **is not a one-off.** It is **`aero` wearing the
+`hacker` flavor**, and it should be authored as such rather than as a bare
+coordinate. That is what makes it reusable instead of a special case.
+
+**Consequence:** a coordinate is not the authoring unit the operator works in.
+The unit is **(ancestor, flavor)**, which RESOLVES to a coordinate. That is
+`coldlight-matrix.md` §6's *"a preset is a named coordinate plus the facets
+left free"* — flavors are those presets, named consistently across lineages.
+
+**Still OPEN:** `aero` exists in `matrix.json` as vocabulary and legality only
+— like every other ancestor, it has **no authored values reaching the runtime**
+(the `generate_matrix` payload-discard defect, C2b). *"It needs to actually
+exist"* is therefore the same blocker as everything else: `resolve()` plus
+payload emission (`docs/plans/matrix-resolve.md`).
+
 ## 4 · Surface → treatment assignment
 
 Consolidated from the above. **Bold = operator-stated. Italic = inferred,

@@ -19,6 +19,7 @@
 
 mod browse;
 pub mod import;
+mod player;
 mod mogrt;
 mod packs;
 mod rtfx;
@@ -110,6 +111,11 @@ pub struct Composer {
     preview: Option<(String, ClipPlayer)>,
     /// The STILL preview lane (W7): (layer id, file:/// uri) when the
     /// active layer is an image — no ffmpeg pipe for a held frame.
+    /// The PREVIEW modal — look before it lands (`player.rs`). `None` = closed.
+    preview_modal: Option<player::Preview>,
+    /// Browse picks waiting to be previewed. The modal shows ONE at a time,
+    /// so several picks queue rather than racing or being dropped.
+    preview_queue: Vec<PathBuf>,
     preview_still: Option<(String, String)>,
     /// The LOTTIE preview lane (L2): (layer id, player) when the active
     /// layer is a native Lottie — rendered by the ThorVG subprocess helper.
@@ -292,6 +298,8 @@ impl Default for Composer {
             dir: None,
             selected: None,
             preview: None,
+            preview_modal: None,
+            preview_queue: Vec::new(),
             preview_still: None,
             preview_lottie: None,
             overlay_lanes: Vec::new(),
@@ -416,6 +424,8 @@ enum Act {
     BrowseAt(PathBuf),
     /// File the finished render into (show, episode) — the tag seam.
     Keep(String, String),
+    /// Open the PREVIEW modal on something — look before it lands.
+    Preview(player::Source),
 }
 
 /// The tab strip — Editor leads; the others are TAILORED surfaces
@@ -882,6 +892,80 @@ impl Composer {
                 egui::TextStyle::Small.resolve(ui.style()),
                 cl::ink::MUTED,
             );
+        }
+    }
+
+    /// Drive the PREVIEW modal for a frame: keep a playing clip advancing,
+    /// paint it, and act on what the operator picked.
+    fn show_preview(&mut self, ctx: &egui::Context) {
+        // One at a time: the next queued pick opens as soon as the modal frees.
+        if self.preview_modal.is_none() && !self.preview_queue.is_empty() {
+            let path = self.preview_queue.remove(0);
+            let root = Self::content_root();
+            self.preview_modal = Some(player::Preview::open(
+                player::Source::Loose(path),
+                &root,
+            ));
+        }
+        let Some(pv) = self.preview_modal.as_mut() else {
+            return;
+        };
+        pv.tick(ctx);
+        match player::modal(ctx, pv, Tone::Magenta) {
+            Some(player::Act::Close) => self.preview_modal = None,
+            Some(player::Act::AddToEdit) => self.add_preview_to_edit(),
+            None => {}
+        }
+    }
+
+    /// Promote what the preview is showing into the open comp.
+    ///
+    /// An INDEXED record is already in the library, so it goes straight to
+    /// [`Composer::add_clip`]. A LOOSE path is a file the operator is only
+    /// looking at, so it enters through the ONE import seam first — copy, or
+    /// symlink when reference mode is on — and the record that comes back is
+    /// what lands. There is deliberately no second import path here.
+    ///
+    /// `add_clip` checkpoints, so ONE undo takes the layer back off. The
+    /// preview stays open so several items can be added in a row.
+    fn add_preview_to_edit(&mut self) {
+        let Some(pv) = self.preview_modal.as_ref() else {
+            return;
+        };
+        let rec = match &pv.source {
+            player::Source::Indexed(r) => Ok((**r).clone()),
+            player::Source::Loose(path) => {
+                if self.prefer_reference {
+                    import::import_reference(path)
+                } else {
+                    import::import_file(path)
+                }
+            }
+        };
+        match rec {
+            Ok(rec) => {
+                Self::signal_saved(&self.fabric, &rec);
+                match rec.kind.as_str() {
+                    "video" | "image" => {
+                        self.add_clip(&rec);
+                        self.status = format!("{} added as a new layer.", rec.name);
+                    }
+                    "lottie" => {
+                        self.add_lottie(&rec);
+                        self.status = format!("{} added as a new layer.", rec.name);
+                    }
+                    // Audio has no timeline track yet; say so rather than
+                    // dropping it silently into nothing.
+                    other => {
+                        self.status = format!(
+                            "{} is in your library — {other} on the timeline lands with a later pass.",
+                            rec.name
+                        );
+                    }
+                }
+                self.palette = None;
+            }
+            Err(e) => self.status = format!("Could not add that: {e}"),
         }
     }
 
@@ -1922,15 +2006,19 @@ impl Composer {
         for dir in ingests {
             self.start_ingest(&dir);
         }
-        incoming.extend(
-            ctx.input(|i| i.raw.dropped_files.clone())
-                .into_iter()
-                .filter_map(|f| f.path),
-        );
-        if incoming.is_empty() {
+        // A browse PICK means "let me look" — it queues a preview, and the
+        // import only happens if the operator then says add. An Explorer DROP
+        // is an explicit "put this in", so it still imports directly.
+        self.preview_queue.append(&mut incoming);
+        let drops: Vec<PathBuf> = ctx
+            .input(|i| i.raw.dropped_files.clone())
+            .into_iter()
+            .filter_map(|f| f.path)
+            .collect();
+        if drops.is_empty() && self.preview_queue.is_empty() {
             return;
         }
-        for src in incoming {
+        for src in drops {
             self.handle_import(&src);
         }
         self.palette = None;
@@ -2472,6 +2560,7 @@ impl Composer {
         self.ensure_project();
         self.tick_playback(ui.ctx());
         self.show_browsers(ui.ctx());
+        self.show_preview(ui.ctx());
         self.drain_media_feeds(ui.ctx());
         // The ingest pill: progress while Running (the board row's counter),
         // one-shot status + cache reset when the row resolves.
@@ -2655,6 +2744,10 @@ impl Composer {
             }
             Some(Act::OpenComp(dir)) => self.open_comp(dir),
             Some(Act::Select(id)) => self.select(&id),
+            Some(Act::Preview(src)) => {
+                let root = Self::content_root();
+                self.preview_modal = Some(player::Preview::open(src, &root));
+            }
             Some(Act::Remove(id)) => self.remove(&id),
             Some(Act::ToggleExpand(id)) => {
                 if !self.expanded.remove(&id) {
@@ -3256,6 +3349,27 @@ impl Composer {
                             &rec.name,
                         ),
                     );
+                    // The PREVIEW corner — look before it lands. Sits left of
+                    // the fx corner so the row reads: preview · overlay.
+                    let pvr = Rect::from_min_max(
+                        egui::pos2(resp.rect.max.x - 52.0, resp.rect.min.y),
+                        egui::pos2(resp.rect.max.x - 26.0, resp.rect.max.y),
+                    );
+                    let pv_resp = cl::tip(
+                        ui.interact(pvr, egui::Id::new(("ft-pv", i)), Sense::click()),
+                        "Play it first — a preview opens; close it, or add it from there",
+                    );
+                    cl::draw_icon(
+                        ui.painter(),
+                        "transport-play",
+                        Rect::from_center_size(pvr.center(), egui::vec2(ICON_SM, ICON_SM)),
+                        if pv_resp.hovered() {
+                            Tone::Lime.color()
+                        } else {
+                            cl::ink::SUBTLE
+                        },
+                    );
+
                     // L3: the fx corner — overlay this ON TOP at the playhead
                     // instead of cutting it onto the end.
                     let fxr = Rect::from_min_max(
@@ -3279,9 +3393,13 @@ impl Composer {
                             cl::ink::SUBTLE
                         },
                     );
-                    if fx_resp.clicked() {
+                    if pv_resp.clicked() {
+                        *act = Some(Act::Preview(player::Source::Indexed(Box::new(
+                            rec.clone(),
+                        ))));
+                    } else if fx_resp.clicked() {
                         *act = Some(Act::AddOverlay(i));
-                    } else if resp.clicked() && !fx_resp.hovered() {
+                    } else if resp.clicked() && !fx_resp.hovered() && !pv_resp.hovered() {
                         *act = Some(Act::Add(i));
                     }
                 }
@@ -6101,6 +6219,56 @@ mod tests {
         assert_eq!((tiny.clip_lanes, tiny.lottie_lanes), (2, 1));
         let monster = PreviewCaps::for_machine(128.0, 88);
         assert_eq!((monster.clip_lanes, monster.lottie_lanes), (8, 2));
+    }
+
+    /// A browse PICK queues a preview instead of importing. This is the whole
+    /// point of the player: look before it lands, so nothing enters
+    /// `content/` until the operator says add.
+    #[test]
+    fn a_browse_pick_queues_a_preview_and_imports_nothing() {
+        let mut c = Composer::default();
+        assert!(c.preview_modal.is_none() && c.preview_queue.is_empty());
+        // What drain_media_feeds does with picks (drops take the other path).
+        c.preview_queue.push(PathBuf::from("some/clip.mp4"));
+        assert_eq!(c.layers().len(), 0, "queuing a preview adds no layer");
+        assert!(
+            c.preview_modal.is_none(),
+            "the modal opens on the next frame's pump, not at queue time"
+        );
+    }
+
+    /// The queue is one-at-a-time and order-preserving — several picks must
+    /// not race or be silently dropped.
+    #[test]
+    fn the_preview_queue_is_ordered_and_one_at_a_time() {
+        let mut c = Composer::default();
+        for n in ["a.mp4", "b.mp4", "c.mp4"] {
+            c.preview_queue.push(PathBuf::from(n));
+        }
+        assert_eq!(c.preview_queue.len(), 3);
+        // The pump takes the front one only.
+        let first = c.preview_queue.remove(0);
+        assert!(first.ends_with("a.mp4"), "FIFO, not LIFO");
+        assert_eq!(c.preview_queue.len(), 2, "the rest wait their turn");
+    }
+
+    /// Adding from the preview goes through `add_clip`, which checkpoints —
+    /// so ONE undo takes the layer back off. That is the contract the
+    /// preview's "add to edit" leans on.
+    #[test]
+    fn adding_from_a_preview_is_one_undo_away() {
+        let mut c = Composer::default();
+        let rec = Record {
+            rel_path: "inbox/x.mp4".into(),
+            name: "x".into(),
+            kind: "video".into(),
+            seconds: Some(4),
+            ..Default::default()
+        };
+        c.add_clip(&rec);
+        assert_eq!(c.layers().len(), 1, "one layer landed");
+        c.undo_now();
+        assert_eq!(c.layers().len(), 0, "one undo took it back off");
     }
 
     #[test]
