@@ -152,21 +152,21 @@ what the mock shows.
   treatments outside coldlight.
 - Proof shots: one hero per surface; `danger` reads coral on a lime hub.
 
-## 7. OPEN — flavors for the other ancestors
+## 7. OPEN — presets for the other ancestors
 
 The operator asked this back rather than ruling, so it is recorded, not
 guessed:
 
-> "Do the other ancestors get flavors now? aero + neo/hacker/retro, or is
+> "Do the other ancestors get presets now? aero + neo/hacker/retro, or is
 > brutalist the only lineage with presets until later?"
 
 **Recommendation: author what is NAMED, let the structure carry the rest.**
 Today that is brutalist's four (`neo · hacker · retro-os · vibron`) plus
-`aero + hacker`, which the operator named for Workbench. Authoring 3 flavors
+`aero + hacker`, which the operator named for Workbench. Authoring 3 presets
 × 8 ancestors would be 24 presets, most of them invented rather than
 designed — and the legality system means an unused one still costs rulings.
 
-Roles make this cheap either way: a flavor is just another treatment a role
+Roles make this cheap either way: a preset is just another treatment a role
 can point at, so adding one later changes `roles.json`, never a widget.
 
 ## 8. Evidence

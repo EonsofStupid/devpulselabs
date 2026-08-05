@@ -30,7 +30,7 @@ said neo/lime; then corrected to **`aero` + `hacker`**. The correction stands,
 and it AGREES with both the C1 ruling (*align to v3*) and the mock — so the
 document and the mock now say the same thing rather than disagreeing.
 
-Per `visual-language.md` §3b the authoring unit is **(ancestor, flavor)**, not
+Per `visual-language.md` §3b the authoring unit is **(ancestor, preset)**, not
 a bare coordinate: `aero+hacker` RESOLVES to that coordinate. `brutalist+neo`
 on `lime` remains a selectable OPTION.
 

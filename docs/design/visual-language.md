@@ -194,7 +194,7 @@ and `editorial` all list them `forbidden`; `brutalist` allows
 `neon-glass` but forbids `glass`; `memphis` forbids both.
 
 > **RULED 2026-08-05 (corrected in-session) — the editor's default is
-> `aero` wearing the `hacker` flavor.**
+> `aero` wearing the `hacker` preset.**
 >
 > The operator first said *"we will default to neo first the lime green"*,
 > then corrected it: *"i was wrong to state default is brute neo while that
@@ -209,7 +209,7 @@ and `editorial` all list them `forbidden`; `brutalist` allows
 >   so the mock and the operator now say the same thing.
 > - **`neo-brute` is an OPTION**, not the default — one of brutalist's three
 >   seeds (§3b), selectable, not the editor's dress.
-> - Per §3b, the authoring unit is **(ancestor, flavor)**, not a bare
+> - Per §3b, the authoring unit is **(ancestor, preset)**, not a bare
 >   coordinate. `aero · measured · neon-glass · neon` is what `aero+hacker`
 >   RESOLVES to; it is not itself the thing being chosen.
 >
@@ -283,7 +283,7 @@ front. Nothing here needs re-ratifying.
 ### C3 — `claymorphism-cyber.png` ownership · **RULED 2026-08-04**
 
 - v3 mock `:401`: "the metal machine-console look
-  (`claymorphism-cyber.png`) is a candidate flavor for the **Present /
+  (`claymorphism-cyber.png`) is a candidate preset for the **Present /
   show-machine** surface, its own later pass"
 - **Operator, 2026-08-04: it is associated with WORKBENCH.**
 
@@ -292,15 +292,29 @@ be amended. Recorded here as the ruling.
 
 ---
 
-## 3b · FLAVORS cut across ancestors · **operator, 2026-08-05**
+## 3b · PRESETS cut across ancestors · **operator, 2026-08-05**
+
+**NAMING RULED 2026-08-05.** The word is **preset** — never "flavor", which is
+banned from this codebase. The justification is the DOMAIN, not the toolkit:
+After Effects, Premiere and OBS all call a named saved look a *preset*, and
+this platform is absorbing those tools, so the operator-facing word should be
+the one their users already know. egui has no opinion here at all — its
+vocabulary is `Style · Visuals · Widgets · WidgetVisuals · Theme`, one global
+appearance with per-interaction-state values and no concept of a named
+alternative look. Everything above that line is what ColdLight adds.
+
+This also CONSOLIDATES rather than collides: `tokens/presets.json` already
+holds named looks and `cl::LookPreset` is already "a named bundle of REFS", so
+`brutalist + neo` being a preset unifies two half-vocabularies instead of
+inventing a third.
 
 > *"the aero morphism is fine but it needs to actually exist and then you need
 > to realize that is actually going to become Hacker subpreset for aero"*
 
 The seed names are **not** brutalist's private list. They are a **second axis
-— a flavor** — that each ancestor expresses in its own lineage:
+— a PRESET** — that each ancestor expresses in its own lineage:
 
-| flavor | under `brutalist` | under `aero` |
+| preset | under `brutalist` | under `aero` |
 |---|---|---|
 | **neo** | lime plate, 3px black edge, 6px hard shadow | *(to author)* |
 | **hacker** | terminal: mono, hairline rule, zero radius, zero shadow | **neon-glass + cyan glow — the `editor.png` look** |
@@ -308,13 +322,13 @@ The seed names are **not** brutalist's private list. They are a **second axis
 
 So `aero · measured · neon-glass · neon` — the coordinate this document
 proposed for the editor — **is not a one-off.** It is **`aero` wearing the
-`hacker` flavor**, and it should be authored as such rather than as a bare
+`hacker` preset**, and it should be authored as such rather than as a bare
 coordinate. That is what makes it reusable instead of a special case.
 
 **Consequence:** a coordinate is not the authoring unit the operator works in.
-The unit is **(ancestor, flavor)**, which RESOLVES to a coordinate. That is
+The unit is **(ancestor, preset)**, which RESOLVES to a coordinate. That is
 `coldlight-matrix.md` §6's *"a preset is a named coordinate plus the facets
-left free"* — flavors are those presets, named consistently across lineages.
+left free"* — which is exactly this, named consistently across lineages.
 
 **Still OPEN:** `aero` exists in `matrix.json` as vocabulary and legality only
 — like every other ancestor, it has **no authored values reaching the runtime**
@@ -329,16 +343,16 @@ needs confirmation.**
 
 | Surface | Base | Stack | Source |
 |---|---|---|---|
-| **WiredFRONT editor** | **`aero` + `hacker` flavor** → resolves to `aero · measured · neon-glass · neon` | glow spotlights | operator 2026-08-05 + v3 mock `:401` + `matrix.json:91-95` |
-| WiredFRONT editor *(option)* | `brutalist` + `neo` flavor on `lime` | — | operator 2026-08-05 — an option, **not** the default |
-| **Workbench** | *clay* | **machine-console flavor** (`claymorphism-cyber.png`) | operator 2026-08-04 |
+| **WiredFRONT editor** | **`aero` + `hacker` preset** → resolves to `aero · measured · neon-glass · neon` | glow spotlights | operator 2026-08-05 + v3 mock `:401` + `matrix.json:91-95` |
+| WiredFRONT editor *(option)* | `brutalist` + `neo` preset on `lime` | — | operator 2026-08-05 — an option, **not** the default |
+| **Workbench** | *clay* | **machine-console preset** (`claymorphism-cyber.png`) | operator 2026-08-04 |
 | Rail / hub chips | neubrutalist, per-hub tone | — | v3 mock `:349-368` |
 | Passive content cards | claymorphic | — | doctrine `:39` |
 | Transient chrome (HUDs, palettes) | *liquid glass* | — | v3 mock `:378` |
-| Present / show machine | *OPEN* — its flavor was reassigned to Workbench | — | C3 |
+| Present / show machine | *OPEN* — its preset was reassigned to Workbench | — | C3 |
 
 **Present is now unassigned.** The machine-console look was its only
-proposed flavor and that has moved to Workbench. **OPEN.**
+proposed preset and that has moved to Workbench. **OPEN.**
 
 ---
 

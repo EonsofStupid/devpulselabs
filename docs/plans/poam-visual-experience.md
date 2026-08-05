@@ -100,7 +100,7 @@ rail preview. The operator's reference set is `docs/design/references/`:
 the nav-is-clay-buttons question, RESOLVED by the 2026-07-30 doctrine
 ruling "clay IS a button"), `neubrutalist.png` (comic energy: bevel
 slabs, halftone, starburst — all paintable), `claymorphism-cyber.png`
-(metal machine-console — candidate Present-hub flavor, own pass),
+(metal machine-console — candidate Present-hub preset, own pass),
 `editor.png`/`editor-2.png` (flat wells + neon + glow-spotlight chrome
 for WiredFRONT / Guide Workbench). **NO STYLING pass in this program
 executes until the operator ratifies (or redlines) the mock.** That
