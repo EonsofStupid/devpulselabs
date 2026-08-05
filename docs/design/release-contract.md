@@ -94,39 +94,46 @@ stage-tool-deps <release-root>`."* **A zip-only tester cannot do that**, because
 So "download the nightly and test it" yields a half-dead app unless the tester
 is also a dev on a staged machine.
 
-### 5.3 The fix that already works — verified in-session
+### 5.3 RULED 2026-08-05 — the deps SHIP WITH THE RELEASE
 
-**A staged depot is PORTABLE.** It carries its own `manifest.json` with
-SHA-256 for every payload, and the resolver re-verifies on open. I copied a
-staged `dptools-deps/` from one checkout to another and the app accepted it:
+**Operator:** *"no remote … that sentence unzip copy a staged dptools deps is
+stupid we are not doing that."*
 
-```
-INFO verified embedded ffmpeg resolved … version="8.1.2" sha256="ad8f211b…"
-INFO verified embedded pdftoppm resolved … version="26.02.0" sha256="575a2f66…"
-```
+Both rejected, and rightly:
 
-**So the nightly test procedure is:**
+- **no remote fetch** — the app never reaches out for its own tools;
+- **no manual copy** — "unzip, then go find a staged depot" is a workaround,
+  not a design. A release that needs a second artifact to function is not a
+  release.
 
-```
-1. unzip the nightly
-2. copy an already-staged  dptools-deps/  folder beside devpulselabs.exe
-3. run it — the resolver re-hashes and either trusts it or refuses honestly
-```
+**Therefore the nightly BUNDLES the depot.** Unzip and it works. That is the
+whole requirement, and it is the right one for an artifact whose purpose is
+testing.
 
-No cargo, no checkout, no re-download. Stage once per machine, reuse for every
-nightly. **This was undocumented anywhere** — it is the single most useful
-sentence in this file.
+### 5.4 The one constraint on bundling — the repo is PUBLIC
 
-### 5.4 Recommended, not yet built
+`nightly.yml:5-8` records it: the estate runners were deregistered *"when the
+repo went public"*, and the Release is a public GitHub Release. The depot's
+five payloads do not share a distribution story:
 
-Two options to close 5.2 properly, neither taken without a ruling:
+| family | payloads | bundle into a PUBLIC release? |
+|---|---|---|
+| **Media** | `ffmpeg`, `pdftoppm` | the tools testing actually needs — previews, probes, renders, PDF slides |
+| **Browser** | `chromium` | large; only the browser-driver surfaces need it |
+| **Provider** | `codex`, `grok` | **the operator's private binaries** — publishing them is a redistribution decision, not a packaging one |
 
-- **`devpulselabs --stage-tools <sources.toml>`** — put staging in the app
-  itself so a zip-only tester never needs cargo. Small; reuses
-  `dpl-tools-deps` wholesale.
-- **A `--doctor` flag** that prints exactly which payloads are missing and
-  where it looked. Today the operator gets two WARN lines in a log they may
-  never see, and a UI that silently cannot render.
+**Media is what makes a test build work.** Every WARN in §5.1 is ffmpeg or
+pdftoppm; nothing in the editor's preview/render path touches a provider.
+
+### 5.5 Recommended shape
+
+- **Bundle Media** in the nightly zip → unzip and previews/renders work.
+- **Leave Provider out** until the operator rules on redistribution; the app
+  already degrades honestly when a payload is absent (§5.1), so their absence
+  costs nothing the editor cares about.
+- **Browser** is the operator's call on size.
+- `--doctor` still earns its place: it turns "two WARN lines in a log" into a
+  plain statement of what is present and what is not.
 
 ## 6 · Where the truth WAS scattered
 
