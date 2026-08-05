@@ -2040,6 +2040,68 @@ mod tests {
         assert_eq!(def.label, "Providers");
     }
 
+    /// The census law for the EDITOR's icon set: every id the composer
+    /// paints must resolve to real geometry. A dropped icons.json entry
+    /// would otherwise degrade silently to `draw_icon`'s hairline box on
+    /// a live surface — this fails the gate instead.
+    #[test]
+    fn the_editor_icon_set_is_whole() {
+        const EDITOR_ICONS: &[&str] = &[
+            // tool strip
+            "tool-select",
+            "tool-hand",
+            "tool-pen",
+            "tool-camera",
+            "tool-text",
+            "tool-null",
+            "tool-precomp",
+            "tool-track",
+            "tool-mblur",
+            "tool-3d",
+            // transport
+            "transport-start",
+            "transport-back",
+            "transport-play",
+            "transport-pause",
+            "transport-forward",
+            "transport-end",
+            // project panel
+            "browse",
+            "ref-link",
+            "ref-copy",
+            "proj-comp",
+            "proj-pack",
+            "proj-video",
+            "proj-image",
+            "proj-render",
+            "fx",
+            // fx pane + status
+            "search",
+            "info",
+            // timeline
+            "zoom-in",
+            "zoom-out",
+            "delete",
+            "group-open",
+            "group-closed",
+        ];
+        for id in EDITOR_ICONS {
+            let def = icon_def(id)
+                .unwrap_or_else(|| panic!("{id} must be authored in tokens/icons.json"));
+            assert!(
+                !def.vertices.is_empty() && !def.indices.is_empty(),
+                "{id} ({}) must tessellate to real geometry",
+                def.lucide
+            );
+        }
+        assert_eq!(
+            ICON_COUNT,
+            25 + EDITOR_ICONS.len(),
+            "the registry is the 25 chrome ids plus the editor set — \
+             update this count deliberately when either grows"
+        );
+    }
+
     #[test]
     fn the_bleed_pool_is_known_hues() {
         let p = bleed_preset("providers-ink").expect("the providers bleed is authored");

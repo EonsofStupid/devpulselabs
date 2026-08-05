@@ -52,6 +52,11 @@ const RULER_H: f32 = 22.0;
 const FXHDR_H: f32 = 18.0;
 /// The layer OUTLINE column's width (timeline left half).
 const OUTLINE_W: f32 = 252.0;
+/// Registry-icon paint sizes (ADR-015 meshes scale cleanly, so these are
+/// the only two the editor needs): SM rides inline with text, MD is a
+/// tappable control's glyph.
+const ICON_SM: f32 = 13.0;
+const ICON_MD: f32 = 16.0;
 
 /// Responsive clamp — the ALL-RESOLUTIONS law. `f32::clamp` PANICS when
 /// `min > max`, which is exactly what happens on a small window: a fixed
@@ -499,6 +504,17 @@ impl EditorTool {
             EditorTool::Pen => "Masks and paths — land with the effects pass.",
             EditorTool::Camera => "Orbit the 3D view — 3D is a ratified later phase.",
             EditorTool::Text => "Type on the comp — lands with the preset-text pass.",
+        }
+    }
+    /// The registry icon id (tokens/icons.json → Lucide, ADR-015). The
+    /// mock's ② strip is glyphs, not words.
+    fn icon(self) -> &'static str {
+        match self {
+            EditorTool::Select => "tool-select",
+            EditorTool::Hand => "tool-hand",
+            EditorTool::Pen => "tool-pen",
+            EditorTool::Camera => "tool-camera",
+            EditorTool::Text => "tool-text",
         }
     }
 }
@@ -2971,7 +2987,7 @@ impl Composer {
                 ui.horizontal(|ui| {
                     for t in EditorTool::ALL {
                         let active = self.etool == t;
-                        let resp = cl::tip(tool_btn(ui, t.label(), active), t.blurb());
+                        let resp = cl::tip(tool_btn(ui, t.icon(), t.label(), active), t.blurb());
                         ui.pilot_track(
                             &resp,
                             NodeMetadata::new(
@@ -2990,20 +3006,34 @@ impl Composer {
                         }
                     }
                     ui.add_space(cl::space::S3);
-                    for (label, blurb) in [
+                    for (icon, label, blurb) in [
                         (
+                            "tool-null",
                             "null",
                             "A parenting rig handle — lands with the keyframes pass.",
                         ),
                         (
+                            "tool-precomp",
                             "pre-comp",
                             "Nest layers as one — lands with the multi-comp pass.",
                         ),
-                        ("track", "Motion tracking — a ratified later phase."),
-                        ("m.blur", "Motion blur — a ratified later phase."),
-                        ("3D", "3D layers and cameras — a ratified later phase."),
+                        (
+                            "tool-track",
+                            "track",
+                            "Motion tracking — a ratified later phase.",
+                        ),
+                        (
+                            "tool-mblur",
+                            "m.blur",
+                            "Motion blur — a ratified later phase.",
+                        ),
+                        (
+                            "tool-3d",
+                            "3D",
+                            "3D layers and cameras — a ratified later phase.",
+                        ),
                     ] {
-                        let resp = cl::tip(small_btn(ui, label, ("strip", label)), blurb);
+                        let resp = cl::tip(tool_cap_btn(ui, icon, label, false), blurb);
                         if resp.clicked() {
                             // Honest: name the phase instead of pretending.
                             *act = Some(Act::ETool(self.etool));
@@ -3019,7 +3049,7 @@ impl Composer {
         ui.horizontal(|ui| {
             ui.label(RichText::new("PROJECT").small().strong());
             let resp = cl::tip(
-                small_btn(ui, "Browse…", "browse"),
+                icon_word_btn(ui, "browse", "Browse…", "browse"),
                 "Open a separate window onto one of your folders — click a file there \
                  to pull it in. You can also drop files here straight from Explorer.",
             );
@@ -3034,21 +3064,23 @@ impl Composer {
             if resp.clicked() {
                 *act = Some(Act::Browse);
             }
-            let (rlabel, rtip) = if self.prefer_reference {
+            let (ricon, rlabel, rtip) = if self.prefer_reference {
                 (
-                    "⌁ in place",
+                    "ref-link",
+                    "in place",
                     "Reference mode ON — pulled files are SYMLINKED where they live, so your \
                      paid AE presets / image folders are used without copying them into the app. \
                      Tap to switch back to copy.",
                 )
             } else {
                 (
-                    "⧉ copy",
+                    "ref-copy",
+                    "copy",
                     "Copy mode — pulled files are copied in. Tap to REFERENCE in place (symlink) \
                      instead: use your AE presets / folders directly, no duplication.",
                 )
             };
-            if cl::tip(small_btn(ui, rlabel, "ref-toggle"), rtip).clicked() {
+            if cl::tip(icon_word_btn(ui, ricon, rlabel, "ref-toggle"), rtip).clicked() {
                 *act = Some(Act::ToggleReference);
             }
         });
@@ -3088,7 +3120,7 @@ impl Composer {
                 }
                 for (name, dir) in comps {
                     let resp = cl::tip(
-                        row_line(ui, "cmp", name, "", ("comp", name.as_str())),
+                        row_line(ui, "proj-comp", name, "", ("comp", name.as_str())),
                         "Open this composition",
                     );
                     ui.pilot_track(
@@ -3122,7 +3154,7 @@ impl Composer {
                         format!("{}", p.files)
                     };
                     let resp = cl::tip(
-                        row_line(ui, "pak", &p.name, &count, ("pk", p.name.as_str())),
+                        row_line(ui, "proj-pack", &p.name, &count, ("pk", p.name.as_str())),
                         if p.online {
                             "Open this pack in its own window — the files stay in place; \
                              using one copies just that file"
@@ -3199,12 +3231,16 @@ impl Composer {
                         .as_deref()
                         .is_none_or(|t| r.tags.iter().any(|x| x == t))
                 }) {
-                    let glyph = if rec.kind == "video" { "vid" } else { "img" };
+                    let kind_icon = if rec.kind == "video" {
+                        "proj-video"
+                    } else {
+                        "proj-image"
+                    };
                     // Trailing spaces shift the duration clear of the fx
                     // corner painted below (right-anchored text).
                     let trail = format!("{}     ", fmt_secs(rec.seconds));
                     let resp = cl::tip(
-                        row_line(ui, glyph, &rec.name, &trail, ("ft", i)),
+                        row_line(ui, kind_icon, &rec.name, &trail, ("ft", i)),
                         if rec.kind == "video" {
                             "Add this clip to the timeline"
                         } else {
@@ -3230,11 +3266,13 @@ impl Composer {
                         ui.interact(fxr, egui::Id::new(("ft-fx", i)), Sense::click()),
                         "Overlay this ON TOP at the playhead — alpha composites over the cuts",
                     );
-                    ui.painter().text(
-                        fxr.center(),
-                        egui::Align2::CENTER_CENTER,
+                    cl::draw_icon(
+                        ui.painter(),
                         "fx",
-                        egui::FontId::monospace(9.0),
+                        Rect::from_center_size(
+                            fxr.center(),
+                            egui::vec2(ICON_SM, ICON_SM),
+                        ),
                         if fx_resp.hovered() {
                             Tone::Violet.color()
                         } else {
@@ -3254,7 +3292,7 @@ impl Composer {
                 }
                 for (name, rel) in renders {
                     let resp = cl::tip(
-                        row_line(ui, "rnd", name, "", ("rd", name.as_str())),
+                        row_line(ui, "proj-render", name, "", ("rd", name.as_str())),
                         "Add this render to the timeline as footage",
                     );
                     if resp.clicked() {
@@ -3324,22 +3362,41 @@ impl Composer {
         let mut c = ui.new_child(UiBuilder::new().max_rect(bar));
         c.horizontal(|ui| {
             let dur = self.comp.duration();
-            for (glyph, tip_text, a) in [
-                ("⏮", "Jump to the start", Act::ToStart),
-                ("◀", "Step back one second", Act::Step(-1.0)),
+            // The pilot KEY is stable per control ("play" stays "play"
+            // whether playing or paused); only the ICON reflects state. The
+            // old code keyed on the glyph, so the play button changed
+            // identity mid-session — a harness cannot address that.
+            for (icon, key, tip_text, a) in [
+                ("transport-start", "start", "Jump to the start", Act::ToStart),
                 (
-                    if self.playing { "⏸" } else { "▶" },
+                    "transport-back",
+                    "back",
+                    "Step back one second",
+                    Act::Step(-1.0),
+                ),
+                (
+                    if self.playing {
+                        "transport-pause"
+                    } else {
+                        "transport-play"
+                    },
+                    "play",
                     "Play or pause the sequence (the playhead drives the preview)",
                     Act::TogglePlay,
                 ),
-                ("▶|", "Step forward one second", Act::Step(1.0)),
-                ("⏭", "Jump to the end", Act::ToEnd),
+                (
+                    "transport-forward",
+                    "forward",
+                    "Step forward one second",
+                    Act::Step(1.0),
+                ),
+                ("transport-end", "end", "Jump to the end", Act::ToEnd),
             ] {
-                let resp = cl::tip(small_btn(ui, glyph, ("tr", glyph)), tip_text);
+                let resp = cl::tip(icon_btn(ui, icon, ("tr", key)), tip_text);
                 ui.pilot_track(
                     &resp,
                     NodeMetadata::new(
-                        PilotId::new("composer.transport").child(&PilotKey::new(glyph)),
+                        PilotId::new("composer.transport").child(&PilotKey::new(key)),
                         Role::Button,
                         tip_text,
                     ),
@@ -3364,7 +3421,7 @@ impl Composer {
             ui.label(RichText::new("INFO").small().strong());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let resp = cl::tip(
-                    ui.label(RichText::new("x").small().color(cl::ink::SUBTLE))
+                    cl::icon_label(ui, "close", ICON_SM, cl::ink::SUBTLE)
                         .interact(Sense::click()),
                     "Close Info (reopen from the status row)",
                 );
@@ -3726,10 +3783,14 @@ impl Composer {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.label(RichText::new("EFFECTS & PRESETS").small().strong());
-                let search = egui::TextEdit::singleline(&mut self.fx_search)
-                    .hint_text("search effects…")
-                    .desired_width(f32::INFINITY);
-                cl::tip(ui.add(search), "Filter effects and presets by name");
+                // Mock ⑥ leads the field with the magnifier.
+                ui.horizontal(|ui| {
+                    let _ = cl::icon_label(ui, "search", ICON_SM, cl::ink::SUBTLE);
+                    let search = egui::TextEdit::singleline(&mut self.fx_search)
+                        .hint_text("search effects…")
+                        .desired_width(f32::INFINITY);
+                    cl::tip(ui.add(search), "Filter effects and presets by name");
+                });
                 ui.add_space(cl::space::S1);
                 ui.label(
                     RichText::new(
@@ -3762,15 +3823,15 @@ impl Composer {
                 .small()
                 .color(cl::ink::SUBTLE),
             );
-            if cl::tip(small_btn(ui, "-", "zoom-out"), "Zoom the timeline out").clicked() {
+            if cl::tip(icon_btn(ui, "zoom-out", "zoom-out"), "Zoom the timeline out").clicked() {
                 *act = Some(Act::Zoom(1.0 / 1.4));
             }
-            if cl::tip(small_btn(ui, "+", "zoom-in"), "Zoom the timeline in").clicked() {
+            if cl::tip(icon_btn(ui, "zoom-in", "zoom-in"), "Zoom the timeline in").clicked() {
                 *act = Some(Act::Zoom(1.4));
             }
             if let Some(id) = self.selected.clone() {
                 if cl::tip(
-                    small_btn(ui, "x", ("rm", id.as_str())),
+                    icon_btn(ui, "delete", ("rm", id.as_str())),
                     "Remove the selected layer from the composition",
                 )
                 .clicked()
@@ -3834,11 +3895,13 @@ impl Composer {
                     );
                     painter.rect_filled(chip_r, CornerRadius::same(2), row_tone(*i).color());
                     let open = self.expanded.contains(&layer.id);
-                    painter.text(
-                        egui::pos2(r.min.x + 40.0, r.center().y),
-                        egui::Align2::LEFT_CENTER,
-                        if open { "-" } else { "+" },
-                        egui::FontId::monospace(11.0),
+                    cl::draw_icon(
+                        &painter,
+                        if open { "group-open" } else { "group-closed" },
+                        Rect::from_center_size(
+                            egui::pos2(r.min.x + 44.0, r.center().y),
+                            egui::vec2(ICON_SM, ICON_SM),
+                        ),
                         cl::ink::SUBTLE,
                     );
                     painter.text(
@@ -4316,7 +4379,7 @@ impl Composer {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if !self.info_open {
                     let resp = cl::tip(
-                        small_btn(ui, "info", "info-reopen"),
+                        icon_btn(ui, "info", "info-reopen"),
                         "Reopen the Info panel",
                     );
                     if resp.clicked() {
@@ -4842,7 +4905,7 @@ impl Composer {
         tr.add_space(cl::space::S1);
         for t in AnnotateTool::ALL {
             let active = self.atool == t;
-            let resp = cl::tip(tool_btn(&mut tr, t.label(), active), t.blurb());
+            let resp = cl::tip(tool_word_btn(&mut tr, t.label(), active), t.blurb());
             tr.pilot_track(
                 &resp,
                 NodeMetadata::new(
@@ -5203,7 +5266,34 @@ fn chip(
 }
 
 /// One tool button: treated neubrutal; the active tool presses in.
-fn tool_btn(ui: &mut egui::Ui, label: &'static str, active: bool) -> egui::Response {
+fn tool_btn(
+    ui: &mut egui::Ui,
+    icon: &'static str,
+    label: &'static str,
+    active: bool,
+) -> egui::Response {
+    let tone = if active { Tone::Magenta } else { Tone::Cyan };
+    let state = if active {
+        cl::TraitState::Active
+    } else {
+        cl::TraitState::Idle
+    };
+    let inner = cl::treated(tone, "neubrutalist", &[], state)
+        .margin(egui::Margin::symmetric(8, 5))
+        .show(ui, |ui| {
+            let _ = cl::icon_label(ui, icon, ICON_MD, tool_ink(active));
+        });
+    ui.interact(
+        inner.response.rect,
+        egui::Id::new(("composer-tool", label)),
+        Sense::click(),
+    )
+}
+
+/// The WORD-only tool button — still the Annotate tab's vocabulary
+/// (arrow/callout/spotlight have no registry icons yet; giving them one
+/// is the Annotate surface's own pass, not the editor's).
+fn tool_word_btn(ui: &mut egui::Ui, label: &'static str, active: bool) -> egui::Response {
     let tone = if active { Tone::Magenta } else { Tone::Cyan };
     let state = if active {
         cl::TraitState::Active
@@ -5222,7 +5312,72 @@ fn tool_btn(ui: &mut egui::Ui, label: &'static str, active: bool) -> egui::Respo
     )
 }
 
-/// A compact square button (transport, zoom, strip affordances).
+/// A tool-strip button that keeps its caption (mock ②: the rig/switch
+/// affordances read `⊹ null`, `⧉ pre-comp` — icon AND word, because the
+/// word is what makes them layman-findable).
+fn tool_cap_btn(
+    ui: &mut egui::Ui,
+    icon: &'static str,
+    label: &'static str,
+    active: bool,
+) -> egui::Response {
+    let tone = if active { Tone::Magenta } else { Tone::Cyan };
+    let state = if active {
+        cl::TraitState::Active
+    } else {
+        cl::TraitState::Idle
+    };
+    let inner = cl::treated(tone, "neubrutalist", &[], state)
+        .margin(egui::Margin::symmetric(8, 5))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                let _ = cl::icon_label(ui, icon, ICON_MD, tool_ink(active));
+                ui.add_space(cl::space::S1);
+                ui.label(
+                    RichText::new(label)
+                        .small()
+                        .color(if active { cl::ink::STRONG } else { cl::ink::SUBTLE }),
+                );
+            });
+        });
+    ui.interact(
+        inner.response.rect,
+        egui::Id::new(("composer-tool", label)),
+        Sense::click(),
+    )
+}
+
+/// The ink a strip control's icon carries — active reads STRONG so the
+/// selected tool is unmistakable at a glance (mock ②).
+fn tool_ink(active: bool) -> Color32 {
+    if active {
+        cl::ink::STRONG
+    } else {
+        cl::ink::BASE
+    }
+}
+
+/// A compact square button (transport, zoom, strip affordances) painting
+/// a REGISTRY ICON. Callers still owe the tooltip law.
+fn icon_btn(
+    ui: &mut egui::Ui,
+    icon: &str,
+    key: impl std::hash::Hash + std::fmt::Debug,
+) -> egui::Response {
+    let inner = cl::brutal(Tone::Magenta)
+        .margin(egui::Margin::symmetric(6, 4))
+        .show(ui, |ui| {
+            let _ = cl::icon_label(ui, icon, ICON_MD, cl::ink::STRONG);
+        });
+    ui.interact(
+        inner.response.rect,
+        egui::Id::new(("composer-sbtn", key)),
+        Sense::click(),
+    )
+}
+
+/// A compact square button carrying a WORD (Browse…, info) — kept for the
+/// controls the mock itself spells out.
 fn small_btn(
     ui: &mut egui::Ui,
     glyph: &str,
@@ -5236,6 +5391,30 @@ fn small_btn(
     ui.interact(
         inner.response.rect,
         egui::Id::new(("composer-sbtn", key)),
+        Sense::click(),
+    )
+}
+
+/// A word button with its registry icon ahead of it (Browse…, the
+/// reference toggle) — the mock's `＋ Import` / `Browse folders…` shape.
+fn icon_word_btn(
+    ui: &mut egui::Ui,
+    icon: &str,
+    label: &str,
+    key: impl std::hash::Hash + std::fmt::Debug,
+) -> egui::Response {
+    let inner = cl::brutal(Tone::Cyan)
+        .margin(egui::Margin::symmetric(6, 3))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                let _ = cl::icon_label(ui, icon, ICON_SM, cl::ink::STRONG);
+                ui.add_space(cl::space::S1);
+                ui.label(RichText::new(label).small().strong());
+            });
+        });
+    ui.interact(
+        inner.response.rect,
+        egui::Id::new(("composer-iwbtn", key)),
         Sense::click(),
     )
 }
@@ -5316,10 +5495,12 @@ fn empty_line(ui: &mut egui::Ui, text: &str) {
     ui.label(RichText::new(text).small().color(cl::ink::SUBTLE));
 }
 
-/// One tappable project row: glyph · name · trailing value; whole-row hit.
+/// One tappable project row: KIND ICON · name · trailing value; whole-row
+/// hit. The icon is a registry id (mock ③ paints kind swatches, not the
+/// three-letter codes this carried before).
 fn row_line(
     ui: &mut egui::Ui,
-    glyph: &str,
+    icon: &str,
     name: &str,
     trail: &str,
     key: impl std::hash::Hash + std::fmt::Debug,
@@ -5332,13 +5513,11 @@ fn row_line(
     if hovered {
         painter.rect_filled(rect, cl::RADIUS_SM, cl::surface::OVERLAY);
     }
-    painter.text(
-        egui::pos2(rect.min.x + 4.0, rect.center().y),
-        egui::Align2::LEFT_CENTER,
-        glyph,
-        egui::FontId::monospace(10.0),
-        Tone::Cyan.color(),
+    let icon_r = Rect::from_center_size(
+        egui::pos2(rect.min.x + 4.0 + ICON_SM * 0.5, rect.center().y),
+        egui::vec2(ICON_SM, ICON_SM),
     );
+    cl::draw_icon(&painter, icon, icon_r, Tone::Cyan.color());
     let trail_w = if trail.is_empty() { 4.0 } else { 44.0 };
     let name_clip = egui::Rect::from_min_max(
         egui::pos2(rect.min.x + 32.0, rect.min.y),
