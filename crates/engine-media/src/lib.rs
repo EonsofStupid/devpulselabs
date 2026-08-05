@@ -492,6 +492,29 @@ pub struct OverlayClip {
     pub matte: Option<PathBuf>,
     /// L4: a `.cube` LUT graded onto this leg.
     pub lut: Option<PathBuf>,
+    /// Motion blur: how many frames `tmix` averages, or `None` for none.
+    /// The COUNT is computed by the caller from the comp's shutter angle so
+    /// this crate stays a filter emitter and never a policy holder.
+    pub motion_blur_frames: Option<u32>,
+}
+
+/// `tmix` with a symmetric triangle weighting — the middle frame carries the
+/// most, so a smear reads as motion rather than as a ghost trail. ffmpeg
+/// normalises the weights, so they need not sum to 1.
+fn tmix(frames: u32) -> String {
+    let n = frames.clamp(2, 8);
+    let mid = n / 2;
+    let weights: Vec<String> = (0..n)
+        .map(|i| (mid + 1 - (i as i32 - mid as i32).unsigned_abs().min(mid)).to_string())
+        .collect();
+    format!(",tmix=frames={n}:weights='{}'", weights.join(" "))
+}
+
+/// Frames to average for a shutter angle. 180 degrees (AE's default) is a
+/// half-open shutter and reads as a modest 2-frame smear; 360 is fully open.
+/// Clamped 2..=8 so a silly authored value cannot explode render time.
+pub fn blur_frames(shutter_degrees: u32) -> u32 {
+    (shutter_degrees as f32 / 90.0).round().clamp(2.0, 8.0) as u32
 }
 
 /// The one-pass comp filtergraph: the PROVEN stitch legs concat into
@@ -636,6 +659,12 @@ pub fn comp_args(
         }
         if let Some(lut) = &o.lut {
             graph.push_str(&format!(",lut3d={}", filter_path(lut)));
+        }
+        // Motion blur LAST in the leg's own chain: it averages the frames this
+        // leg has already been trimmed, placed, scaled, tinted and graded
+        // into, so the smear is of the finished leg rather than of raw source.
+        if let Some(n) = o.motion_blur_frames {
+            graph.push_str(&tmix(n));
         }
         let prev = if j == 0 {
             "base".to_string()
@@ -1168,6 +1197,7 @@ mod comp_tests {
 
     fn fx(at: f32) -> OverlayClip {
         OverlayClip {
+            motion_blur_frames: None,
             input: OverlayInput::File("fire.mov".into()),
             in_pt: 0.5,
             out_pt: 2.0,

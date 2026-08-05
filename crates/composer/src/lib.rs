@@ -640,7 +640,9 @@ impl Composer {
         let mut out = Vec::new();
         for track in self.comp.tracks.iter().skip(1) {
             for layer in track.layers.iter().rev() {
-                if t >= layer.start && t < layer.end().max(layer.start) {
+                // `visible` is honoured HERE as well as in render_parts, so
+                // the preview and the export agree about what exists.
+                if layer.visible && t >= layer.start && t < layer.end().max(layer.start) {
                     out.push(layer);
                 }
             }
@@ -838,8 +840,22 @@ impl Composer {
                 .tint
                 .map(|[r, g, b, a]| Color32::from_rgba_unmultiplied(r, g, b, a))
                 .unwrap_or(Color32::WHITE);
-            let center = frame.center() + egui::vec2(layer.x * px, layer.y * px);
-            let bx = Rect::from_center_size(center, frame.size() * layer.scale);
+            // Parent + depth resolve through the SAME pure functions the
+            // render uses, so the viewer cannot drift from the export.
+            let tf = self
+                .comp
+                .tracks
+                .iter()
+                .find(|t| t.layers.iter().any(|l| l.id == layer.id))
+                .and_then(|t| dpl_comp::resolved_transform(&t.layers, &layer.id))
+                .unwrap_or(dpl_comp::Transform {
+                    x: layer.x,
+                    y: layer.y,
+                    scale: layer.scale,
+                });
+            let tf = dpl_comp::project(tf, layer.z, self.comp.focal);
+            let center = frame.center() + egui::vec2(tf.x * px, tf.y * px);
+            let bx = Rect::from_center_size(center, frame.size() * tf.scale);
             match lane {
                 OverlayLane::Clip(player) => {
                     if let Some(tex) = player.texture(ui.ctx()) {
@@ -862,6 +878,12 @@ impl Composer {
             // has no screen/add compositing) and Lottie grades apply at
             // export only — the badge NAMES it; the render is exact.
             let badge = match (layer.blend, lane) {
+                _ if self.comp.motion_blur && layer.motion_blur => {
+                    // egui cannot average frames on the paint thread; ffmpeg
+                    // does it exactly. Say so rather than showing a sharp
+                    // frame that silently disagrees with the export.
+                    Some("motion blur · export-exact")
+                }
                 (dpl_comp::Blend::Screen, _) => Some("screen · export-exact"),
                 (dpl_comp::Blend::Add, _) => Some("add · export-exact"),
                 (dpl_comp::Blend::Normal, OverlayLane::Lottie(_))
@@ -1059,9 +1081,12 @@ impl Composer {
     /// The layer under the playhead: the FIRST row whose [start, end)
     /// contains `t` (row 0 = topmost wins). Gaps return None.
     fn active_layer_at(layers: &[Layer], t: f32) -> Option<usize> {
+        // A HIDDEN base cut still occupies its span (render_parts turns it
+        // into black to preserve timing), so the preview must show nothing
+        // there rather than falling through to the cut underneath.
         layers
             .iter()
-            .position(|l| t >= l.start && t < l.end().max(l.start))
+            .position(|l| l.visible && t >= l.start && t < l.end().max(l.start))
     }
 
     /// Advance playback and keep the preview player FOLLOWING the
@@ -1448,6 +1473,21 @@ impl Composer {
     /// cut stay visible (output length = concat length).
     fn render_parts(&self) -> RenderParts {
         use dpl_engine_media::{CompBase, OverlayClip, OverlayInput};
+        // Motion blur is AE's rule: the comp master AND the layer switch.
+        let blur_n = dpl_engine_media::blur_frames(self.comp.shutter);
+        let blur_for =
+            |l: &Layer| (self.comp.motion_blur && l.motion_blur).then_some(blur_n);
+        // Parent + depth resolve into (x, y, scale) — the values the graph
+        // already consumes, which is why neither needs an engine change.
+        let placed = |layers: &[Layer], l: &Layer| {
+            let t = dpl_comp::resolved_transform(layers, &l.id)
+                .unwrap_or(dpl_comp::Transform {
+                    x: l.x,
+                    y: l.y,
+                    scale: l.scale,
+                });
+            dpl_comp::project(t, l.z, self.comp.focal)
+        };
         let mut base = Vec::new();
         let mut overlays = Vec::new();
         let mut elements_skipped = 0usize;
@@ -1455,17 +1495,26 @@ impl Composer {
         for l in self.layers() {
             match &l.source {
                 Source::Artifact { rel } => {
-                    let path = Self::resolve(rel);
-                    base.push(CompBase::Clip {
-                        clip: StitchClip {
-                            still: dpl_engine_media::is_still(&path),
-                            path,
-                            in_pt: l.in_pt,
-                            out_pt: l.out_pt,
-                        },
-                        // L4: base cuts grade (blend/matte are overlay-only).
-                        lut: l.lut.as_deref().map(Self::resolve),
-                    });
+                    if l.visible {
+                        let path = Self::resolve(rel);
+                        base.push(CompBase::Clip {
+                            clip: StitchClip {
+                                still: dpl_engine_media::is_still(&path),
+                                path,
+                                in_pt: l.in_pt,
+                                out_pt: l.out_pt,
+                            },
+                            // L4: base cuts grade (blend/matte are overlay-only).
+                            lut: l.lut.as_deref().map(Self::resolve),
+                        });
+                    } else {
+                        // A hidden BASE cut HOLDS ITS TIME as black. Dropping
+                        // it would re-time every cut after it, so hiding one
+                        // layer would silently move the whole comp.
+                        base.push(CompBase::Black {
+                            dur: l.span().max(0.05),
+                        });
+                    }
                     base_end = base_end.max(l.end());
                 }
                 Source::Lottie { rel } => {
@@ -1484,6 +1533,7 @@ impl Composer {
                         blend: engine_blend(l.blend),
                         matte: l.matte.as_deref().map(Self::resolve),
                         lut: l.lut.as_deref().map(Self::resolve),
+                        motion_blur_frames: blur_for(l),
                     }));
                     base_end = base_end.max(l.end());
                 }
@@ -1492,6 +1542,10 @@ impl Composer {
         }
         for track in self.comp.tracks.iter().skip(1) {
             for l in track.layers.iter().rev() {
+                if !l.visible {
+                    continue; // a hidden overlay is simply absent
+                }
+                let tf = placed(&track.layers, l);
                 match &l.source {
                     Source::Artifact { rel } => {
                         let path = Self::resolve(rel);
@@ -1501,14 +1555,15 @@ impl Composer {
                             in_pt: l.in_pt,
                             out_pt: l.out_pt,
                             at: l.start,
-                            x: l.x,
-                            y: l.y,
-                            scale: l.scale,
+                            x: tf.x,
+                            y: tf.y,
+                            scale: tf.scale,
                             tint: l.tint,
                             hold,
                             blend: engine_blend(l.blend),
                             matte: l.matte.as_deref().map(Self::resolve),
                             lut: l.lut.as_deref().map(Self::resolve),
+                            motion_blur_frames: blur_for(l),
                         }));
                     }
                     Source::Lottie { rel } => {
@@ -1517,13 +1572,14 @@ impl Composer {
                             in_pt: l.in_pt,
                             out_pt: l.out_pt,
                             at: l.start,
-                            x: l.x,
-                            y: l.y,
-                            scale: l.scale,
+                            x: tf.x,
+                            y: tf.y,
+                            scale: tf.scale,
                             tint: l.tint,
                             blend: engine_blend(l.blend),
                             matte: l.matte.as_deref().map(Self::resolve),
                             lut: l.lut.as_deref().map(Self::resolve),
+                            motion_blur_frames: blur_for(l),
                         }));
                     }
                     Source::Element { .. } => elements_skipped += 1,
@@ -5184,6 +5240,7 @@ fn render_comp_resolving(
                     hold: false,
                     blend: p.blend,
                     matte: p.matte,
+                    motion_blur_frames: p.motion_blur_frames,
                     lut: p.lut,
                 });
             }
@@ -5865,6 +5922,9 @@ struct PendingLottie {
     blend: dpl_engine_media::OverlayBlend,
     matte: Option<PathBuf>,
     lut: Option<PathBuf>,
+    /// Carried through the PNG-sequence export so a Lottie leg blurs
+    /// exactly like a clip leg does.
+    motion_blur_frames: Option<u32>,
 }
 
 /// `dpl_comp::Blend` → the engine's blend word (the crates share no dep;
@@ -6282,6 +6342,78 @@ mod tests {
         assert_eq!(c.layers().len(), 1, "one layer landed");
         c.undo_now();
         assert_eq!(c.layers().len(), 0, "one undo took it back off");
+    }
+
+    /// Hiding a BASE cut must not re-time the comp. It becomes black of the
+    /// same duration, so every cut after it stays exactly where it was.
+    #[test]
+    fn a_hidden_base_cut_holds_its_time_as_black() {
+        let mut c = Composer::default();
+        let rec = |n: &str| Record {
+            rel_path: format!("inbox/{n}.mp4"),
+            name: n.into(),
+            kind: "video".into(),
+            seconds: Some(4),
+            ..Default::default()
+        };
+        c.add_clip(&rec("a"));
+        c.add_clip(&rec("b"));
+        let before = c.comp.duration();
+
+        c.comp.tracks[0].layers[0].visible = false;
+        let parts = c.render_parts();
+        assert_eq!(
+            c.comp.duration(),
+            before,
+            "hiding a cut must NEVER move the comp's length"
+        );
+        assert!(
+            matches!(parts.base.first(), Some(dpl_engine_media::CompBase::Black { .. })),
+            "the hidden cut became black, not absent"
+        );
+        // And the preview agrees: nothing plays there.
+        assert!(
+            Composer::active_layer_at(c.layers(), 0.1).is_none(),
+            "the preview shows nothing where the render shows black"
+        );
+    }
+
+    /// Motion blur is AE's rule — the comp master AND the layer switch. One
+    /// alone must emit nothing, or a comp-wide toggle could not kill it.
+    #[test]
+    fn motion_blur_needs_both_switches() {
+        let mut c = Composer::default();
+        c.add_clip(&Record {
+            rel_path: "inbox/a.mp4".into(),
+            name: "a".into(),
+            kind: "video".into(),
+            seconds: Some(4),
+            ..Default::default()
+        });
+        // Put it on an overlay track, where blur is emitted.
+        let t = c.ensure_fx_track();
+        let l = c.comp.tracks[0].layers.remove(0);
+        c.comp.tracks[t].layers.push(l);
+
+        let frames = |c: &Composer| {
+            c.render_parts()
+                .overlays
+                .into_iter()
+                .find_map(|s| match s {
+                    OverlaySlot::Ready(o) => Some(o.motion_blur_frames),
+                    _ => None,
+                })
+                .flatten()
+        };
+        assert_eq!(frames(&c), None, "neither switch: no blur");
+        c.comp.motion_blur = true;
+        assert_eq!(frames(&c), None, "master alone: still no blur");
+        c.comp.tracks[t].layers[0].motion_blur = true;
+        assert_eq!(frames(&c), Some(2), "both: 180 degrees is a 2-frame smear");
+        c.comp.shutter = 360;
+        assert_eq!(frames(&c), Some(4), "360 degrees opens the shutter wider");
+        c.comp.motion_blur = false;
+        assert_eq!(frames(&c), None, "the master kills it comp-wide");
     }
 
     #[test]
