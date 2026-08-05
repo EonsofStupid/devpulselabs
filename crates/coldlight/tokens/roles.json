@@ -1,0 +1,35 @@
+{
+  "$comment": "The 10th authored source. A ROLE is what a control MEANS; a treatment is how that meaning gets painted. Widgets bind to ROLES and never to treatments — that indirection is what makes the whole app re-dressable from data, and it is what stops 'neubrutalist' being written into a widget helper. Per-surface, with per-role fallback to `default` (the same M2 rule the matrix uses), so a surface states only what it CHANGES. A role may pin its own `tone`: danger is coral on every surface, because 'are you sure you want to delete this' must not turn lime just because the hub's tone is lime.",
+  "default": {
+    "chrome": {
+      "trait": "vibron"
+    },
+    "hero": {
+      "trait": "neubrutalist"
+    },
+    "quiet": {
+      "trait": "claymorphic"
+    },
+    "danger": {
+      "trait": "neubrutalist",
+      "tone": "coral"
+    }
+  },
+  "surfaces": {
+    "wiredfront": {
+      "chrome": {
+        "trait": "vibron"
+      }
+    },
+    "workbench": {
+      "chrome": {
+        "trait": "claymorphic"
+      }
+    },
+    "viziwiz": {
+      "chrome": {
+        "trait": "vibron"
+      }
+    }
+  }
+}

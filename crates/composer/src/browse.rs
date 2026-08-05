@@ -848,7 +848,7 @@ fn card(
 
 /// A small brutal chip for the window's top bar.
 fn bar_chip(ui: &mut egui::Ui, text: &str, ns: usize, key: &str) -> egui::Response {
-    let inner = cl::brutal(Tone::Cyan)
+    let inner = cl::dressed(crate::SURFACE, cl::Intent::Chrome, Tone::Cyan, cl::TraitState::Idle)
         .margin(egui::Margin::symmetric(6, 3))
         .show(ui, |ui| {
             ui.label(RichText::new(text).small().strong());

@@ -54,6 +54,9 @@ const FXHDR_H: f32 = 18.0;
 /// The layer OUTLINE column's width (timeline left half). Widened for the
 /// mock's switch columns — the name still clips rather than colliding.
 const OUTLINE_W: f32 = 382.0;
+/// This surface's id in `tokens/roles.json`. Widgets name an INTENT; which
+/// treatment paints it is authored data keyed by this.
+pub(crate) const SURFACE: &str = "wiredfront";
 /// The depth a layer takes when its 3D switch is first lit — far enough to
 /// read as "further away", not so far it vanishes.
 const DEFAULT_LAYER_Z: f32 = 400.0;
@@ -3045,7 +3048,7 @@ impl Composer {
             for t in Tab::ALL {
                 let active = self.tab == t;
                 let tone = if active { Tone::Magenta } else { Tone::Cyan };
-                let resp = cl::tip(chip(ui, tone, t.label(), ("tab", t.label())), t.blurb());
+                let resp = cl::tip(chip(ui, cl::Intent::Chrome, tone, t.label(), ("tab", t.label())), t.blurb());
                 ui.pilot_track(
                     &resp,
                     NodeMetadata::new(
@@ -3069,7 +3072,8 @@ impl Composer {
     fn workflows_tab(&self, ui: &mut egui::Ui, act: &mut Option<Act>) {
         egui::ScrollArea::vertical().show(ui, |ui| {
             for wf in dpl_workflows::workflows() {
-                cl::clay().show(ui, |ui| {
+                cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle)
+            .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(&wf.label).heading());
                         ui.label(
@@ -3080,7 +3084,7 @@ impl Composer {
                             .color(cl::ink::SUBTLE),
                         );
                         let run = cl::tip(
-                            chip(ui, Tone::Lime, "Run", ("wf-run", &wf.id)),
+                            chip(ui, cl::Intent::Chrome, Tone::Lime, "Run", ("wf-run", &wf.id)),
                             "Run this pipeline now — every step reports honestly below. \
                              Nothing is ever generated or spent without a key you provisioned.",
                         );
@@ -3124,7 +3128,8 @@ impl Composer {
             };
 
             ui.add_space(cl::space::S2);
-            cl::clay().show(ui, |ui| {
+            cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle)
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(format!("Last run — {}", run.workflow)).heading());
                     // Where the run landed — the operator can find it in Explorer.
@@ -3142,7 +3147,7 @@ impl Composer {
                         V::Failed { error } => (Tone::Coral, "FAILED", error.as_str()),
                     };
                     ui.horizontal(|ui| {
-                        let badge = chip(ui, tone, word, ("wf-stage", &run.workflow, &row.stage));
+                        let badge = chip(ui, cl::Intent::Quiet, tone, word, ("wf-stage", &run.workflow, &row.stage));
                         ui.pilot_track(
                             &badge,
                             NodeMetadata::new(
@@ -3160,7 +3165,8 @@ impl Composer {
             });
 
             ui.add_space(cl::space::S2);
-            cl::clay().show(ui, |ui| {
+            cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle)
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("Storyboard").heading());
                     ui.label(
@@ -3181,7 +3187,7 @@ impl Composer {
                         F::Draft { .. } => (Tone::Violet, "draft"),
                     };
                     ui.horizontal(|ui| {
-                        let badge = chip(ui, tone, state, ("wf-slot", &run.workflow, &slot.id));
+                        let badge = chip(ui, cl::Intent::Quiet, tone, state, ("wf-slot", &run.workflow, &slot.id));
                         let resp = cl::tip(
                             badge,
                             "A storyboard slot — its brief says what it needs; filling one \
@@ -4205,7 +4211,7 @@ impl Composer {
             }
             if let Some(id) = self.selected.clone() {
                 if cl::tip(
-                    icon_btn(ui, "delete", ("rm", id.as_str())),
+                    danger_btn(ui, "delete", ("rm", id.as_str())),
                     "Remove the selected layer from the composition",
                 )
                 .clicked()
@@ -4724,7 +4730,7 @@ impl Composer {
         };
         ui.horizontal(|ui| {
             if cl::tip(
-                chip(ui, Tone::Lime, "New", "new"),
+                chip(ui, cl::Intent::Chrome, Tone::Lime, "New", "new"),
                 "Start a fresh composition",
             )
             .clicked()
@@ -4732,7 +4738,7 @@ impl Composer {
                 *act = Some(Act::New);
             }
             if cl::tip(
-                chip(ui, Tone::Cyan, "Save", "save"),
+                chip(ui, cl::Intent::Chrome, Tone::Cyan, "Save", "save"),
                 "Write this composition to your inbox as comp.json",
             )
             .clicked()
@@ -4749,7 +4755,7 @@ impl Composer {
             if !self.layers().is_empty()
                 && !rendering
                 && cl::tip(
-                    chip(ui, Tone::Magenta, "Render", "render"),
+                    chip(ui, cl::Intent::Hero, Tone::Magenta, "Render", "render"),
                     "Stitch these layers into one video file beside the comp",
                 )
                 .clicked()
@@ -4900,7 +4906,8 @@ impl Composer {
                     self.guide_review_section(ui, &mut gact);
                     ui.add_space(cl::space::S2);
 
-                    cl::clay().show(ui, |ui| {
+                    cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle)
+            .show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.label(RichText::new("3 · NAME IT").small().strong());
                         let field = egui::TextEdit::singleline(&mut self.save_name)
@@ -4922,7 +4929,8 @@ impl Composer {
                     });
                     ui.add_space(cl::space::S2);
 
-                    cl::clay().show(ui, |ui| {
+                    cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle)
+            .show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.label(RichText::new("4 · EXPORT").small().strong());
                         ui.horizontal_wrapped(|ui| {
@@ -4978,7 +4986,7 @@ impl Composer {
                         ui.horizontal(|ui| {
                             if self.review.is_some() && !exporting {
                                 let resp = cl::tip(
-                                    chip(ui, Tone::Magenta, "Export guide", "guide-export"),
+                                    chip(ui, cl::Intent::Hero, Tone::Magenta, "Export guide", "guide-export"),
                                     "Write the standalone guide folder into your inbox",
                                 );
                                 ui.pilot_track(
@@ -5001,7 +5009,8 @@ impl Composer {
                     });
                     ui.add_space(cl::space::S2);
 
-                    cl::clay().show(ui, |ui| {
+                    cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle)
+            .show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.label(RichText::new("5 · FILE IT INTO A SHOW").small().strong());
                         if done_dir.is_some() {
@@ -5081,7 +5090,8 @@ impl Composer {
 
     /// Guide step 1 · PICK — the guides and sessions walls, tappable.
     fn guide_pick_section(&mut self, ui: &mut egui::Ui, gact: &mut Option<GAct>) {
-        cl::clay().show(ui, |ui| {
+        cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle)
+            .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.label(RichText::new("1 · PICK WHAT SHIPS").small().strong());
             ui.label(
@@ -5173,7 +5183,8 @@ impl Composer {
     /// Guide step 2 · REVIEW & TUNE — the W5 reviewer rows: thumb, keep,
     /// reorder, caption; Apply is two-tap (pruning deletes source frames).
     fn guide_review_section(&mut self, ui: &mut egui::Ui, gact: &mut Option<GAct>) {
-        cl::clay().show(ui, |ui| {
+        cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle)
+            .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.label(RichText::new("2 · REVIEW & TUNE").small().strong());
             let Some(rev) = self.review.as_mut() else {
@@ -5647,12 +5658,16 @@ fn name_seeds() -> Vec<String> {
 /// target), painted only via ColdLight.
 fn chip(
     ui: &mut egui::Ui,
+    intent: cl::Intent,
     tone: Tone,
     text: &str,
     key: impl std::hash::Hash + std::fmt::Debug,
 ) -> egui::Response {
-    let inner = cl::brutal(tone).show(ui, |ui| {
-        ui.label(RichText::new(text).strong());
+    // The MEANING is the argument; which treatment paints it is data. This is
+    // why New/Save stopped being as loud as Render without anyone re-picking
+    // a colour: they simply stopped claiming to be the primary action.
+    let inner = cl::dressed(SURFACE, intent, tone, cl::TraitState::Idle).show(ui, |ui| {
+        ui.label(RichText::new(text).small().strong());
     });
     ui.interact(
         inner.response.rect,
@@ -5675,7 +5690,7 @@ fn tool_btn(
     } else {
         cl::TraitState::Idle
     };
-    let inner = cl::chrome_treated(Tone::Magenta, state)
+    let inner = cl::dressed(SURFACE, cl::Intent::Chrome, Tone::Magenta, state)
         .margin(egui::Margin::symmetric(8, 5))
         .show(ui, |ui| {
             let _ = cl::icon_label(ui, icon, ICON_MD, tool_ink(active));
@@ -5691,13 +5706,12 @@ fn tool_btn(
 /// (arrow/callout/spotlight have no registry icons yet; giving them one
 /// is the Annotate surface's own pass, not the editor's).
 fn tool_word_btn(ui: &mut egui::Ui, label: &'static str, active: bool) -> egui::Response {
-    let tone = if active { Tone::Magenta } else { Tone::Cyan };
     let state = if active {
         cl::TraitState::Active
     } else {
         cl::TraitState::Idle
     };
-    let inner = cl::treated(tone, "neubrutalist", &[], state)
+    let inner = cl::dressed(SURFACE, cl::Intent::Chrome, Tone::Magenta, state)
         .margin(egui::Margin::symmetric(8, 5))
         .show(ui, |ui| {
             ui.label(RichText::new(label).small().strong());
@@ -5723,7 +5737,7 @@ fn tool_cap_btn(
     } else {
         cl::TraitState::Idle
     };
-    let inner = cl::chrome_treated(Tone::Magenta, state)
+    let inner = cl::dressed(SURFACE, cl::Intent::Chrome, Tone::Magenta, state)
         .margin(egui::Margin::symmetric(8, 5))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -5753,6 +5767,25 @@ fn tool_ink(active: bool) -> Color32 {
     }
 }
 
+/// A DESTRUCTIVE control. Its tone is pinned by the role, so a delete reads
+/// the same on every surface rather than taking the hub's colour.
+fn danger_btn(
+    ui: &mut egui::Ui,
+    icon: &str,
+    key: impl std::hash::Hash + std::fmt::Debug,
+) -> egui::Response {
+    let inner = cl::dressed(SURFACE, cl::Intent::Danger, Tone::Coral, cl::TraitState::Idle)
+        .margin(egui::Margin::symmetric(6, 4))
+        .show(ui, |ui| {
+            let _ = cl::icon_label(ui, icon, ICON_MD, cl::ink::STRONG);
+        });
+    ui.interact(
+        inner.response.rect,
+        egui::Id::new(("composer-danger", key)),
+        Sense::click(),
+    )
+}
+
 /// A compact square button (transport, zoom, strip affordances) painting
 /// a REGISTRY ICON. Callers still owe the tooltip law.
 fn icon_btn(
@@ -5760,7 +5793,7 @@ fn icon_btn(
     icon: &str,
     key: impl std::hash::Hash + std::fmt::Debug,
 ) -> egui::Response {
-    let inner = cl::chrome_treated(Tone::Magenta, cl::TraitState::Idle)
+    let inner = cl::dressed(SURFACE, cl::Intent::Chrome, Tone::Magenta, cl::TraitState::Idle)
         .margin(egui::Margin::symmetric(6, 4))
         .show(ui, |ui| {
             let _ = cl::icon_label(ui, icon, ICON_MD, cl::ink::BASE);
@@ -5779,7 +5812,7 @@ fn small_btn(
     glyph: &str,
     key: impl std::hash::Hash + std::fmt::Debug,
 ) -> egui::Response {
-    let inner = cl::chrome_treated(Tone::Magenta, cl::TraitState::Idle)
+    let inner = cl::dressed(SURFACE, cl::Intent::Chrome, Tone::Magenta, cl::TraitState::Idle)
         .margin(egui::Margin::symmetric(6, 2))
         .show(ui, |ui| {
             ui.label(RichText::new(glyph).small());
@@ -5799,7 +5832,7 @@ fn icon_word_btn(
     label: &str,
     key: impl std::hash::Hash + std::fmt::Debug,
 ) -> egui::Response {
-    let inner = cl::chrome_treated(Tone::Cyan, cl::TraitState::Idle)
+    let inner = cl::dressed(SURFACE, cl::Intent::Chrome, Tone::Cyan, cl::TraitState::Idle)
         .margin(egui::Margin::symmetric(6, 3))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -5824,7 +5857,7 @@ fn tag_chip(ui: &mut egui::Ui, label: &str, active: bool, key: &str) -> egui::Re
     } else {
         cl::TraitState::Idle
     };
-    let inner = cl::chrome_treated(Tone::Magenta, state)
+    let inner = cl::dressed(SURFACE, cl::Intent::Chrome, Tone::Magenta, state)
         .margin(egui::Margin::symmetric(6, 2))
         .show(ui, |ui| {
             ui.label(RichText::new(label).small());
@@ -6406,7 +6439,8 @@ fn painter_label(ui: &egui::Ui, rect: Rect, text: &str) {
 
 /// A passive claymorphic plate with a title + hint — the empty/loading state.
 fn plate(ui: &mut egui::Ui, title: &str, hint: &str) {
-    cl::clay().show(ui, |ui| {
+    cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle)
+            .show(ui, |ui| {
         ui.vertical_centered(|ui| {
             ui.add_space(cl::space::S3);
             ui.label(RichText::new(title).heading());

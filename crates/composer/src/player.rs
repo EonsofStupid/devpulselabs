@@ -240,7 +240,7 @@ pub(crate) fn modal(ctx: &egui::Context, pv: &mut Preview, tone: Tone) -> Option
             ui.add_space(cl::space::S2);
             ui.horizontal(|ui| {
                 let add = cl::tip(
-                    word_btn(ui, "＋ Add to edit", Tone::Lime, "pv-add"),
+                    word_btn(ui, "Add to edit", Tone::Lime, cl::Intent::Hero, "pv-add"),
                     "Drop this onto the timeline as a new layer — one undo takes it back",
                 );
                 ui.pilot_track(
@@ -255,7 +255,7 @@ pub(crate) fn modal(ctx: &egui::Context, pv: &mut Preview, tone: Tone) -> Option
                     act = Some(Act::AddToEdit);
                 }
                 let close = cl::tip(
-                    word_btn(ui, "Close", Tone::Cyan, "pv-close"),
+                    word_btn(ui, "Close", Tone::Cyan, cl::Intent::Chrome, "pv-close"),
                     "Close without adding anything",
                 );
                 if close.clicked() {
@@ -283,7 +283,7 @@ fn plate(ui: &egui::Ui, rect: egui::Rect, text: &str) {
 }
 
 fn icon_btn(ui: &mut egui::Ui, icon: &str, key: &str) -> egui::Response {
-    let inner = cl::brutal(Tone::Magenta)
+    let inner = cl::dressed(crate::SURFACE, cl::Intent::Chrome, Tone::Magenta, cl::TraitState::Idle)
         .margin(egui::Margin::symmetric(7, 4))
         .show(ui, |ui| {
             let _ = cl::icon_label(ui, icon, 15.0, cl::ink::STRONG);
@@ -295,8 +295,14 @@ fn icon_btn(ui: &mut egui::Ui, icon: &str, key: &str) -> egui::Response {
     )
 }
 
-fn word_btn(ui: &mut egui::Ui, label: &str, tone: Tone, key: &str) -> egui::Response {
-    let inner = cl::brutal(tone)
+fn word_btn(
+    ui: &mut egui::Ui,
+    label: &str,
+    tone: Tone,
+    intent: cl::Intent,
+    key: &str,
+) -> egui::Response {
+    let inner = cl::dressed(crate::SURFACE, intent, tone, cl::TraitState::Idle)
         .margin(egui::Margin::symmetric(11, 5))
         .show(ui, |ui| {
             ui.label(RichText::new(label).small().strong());

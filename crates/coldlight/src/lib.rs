@@ -37,6 +37,17 @@ pub enum Tone {
 }
 
 impl Tone {
+    /// Every tone. ONE list, so a new tone cannot be half-added — the census
+    /// law applied to the smallest registry in the crate.
+    pub const ALL: [Tone; 6] = [
+        Tone::Cyan,
+        Tone::Lime,
+        Tone::Violet,
+        Tone::Amber,
+        Tone::Magenta,
+        Tone::Coral,
+    ];
+
     /// The hue id this tone resolves through in the pool.
     pub const fn hue_id(self) -> &'static str {
         match self {
@@ -695,6 +706,81 @@ pub fn set_chrome(id: &'static str) -> bool {
 /// surfaces call; [`vibron`] and friends are for meaning one on purpose.
 pub fn chrome_treated(tone: Tone, state: TraitState) -> Treated {
     treated(tone, chrome(), &[], state)
+}
+
+// ── the SEMANTIC layer: what a control MEANS ────────────────────────────
+
+/// What a control means, which is the only thing a widget should have to
+/// know. The treatment that paints it is DATA (`tokens/roles.json`), so
+/// re-dressing the app never touches a widget.
+///
+/// Named `Intent` rather than `Role` on purpose: `egui_pilot_ai::protocol::
+/// Role` is already imported across these surfaces, and a second `Role`
+/// would be a readability trap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Intent {
+    /// The ordinary control. Most things.
+    Chrome,
+    /// The ONE primary action on a surface. If two things are heroes,
+    /// neither is.
+    Hero,
+    /// Passive — content sits in it rather than acting.
+    Quiet,
+    /// Destructive. Pins its own tone so a delete never turns lime because
+    /// the hub's tone is lime.
+    Danger,
+}
+
+impl Intent {
+    fn index(self) -> usize {
+        match self {
+            Intent::Chrome => 0,
+            Intent::Hero => 1,
+            Intent::Quiet => 2,
+            Intent::Danger => 3,
+        }
+    }
+}
+
+/// One role's binding: which treatment paints it, and whether it pins a tone.
+#[derive(Debug, Clone, Copy)]
+pub struct Binding {
+    pub treatment: &'static str,
+    /// `Some(hue)` overrides the caller's tone — danger is coral everywhere.
+    pub tone: Option<&'static str>,
+}
+
+include!(concat!(env!("OUT_DIR"), "/roles_gen.rs"));
+
+/// The binding for a role on a surface: the surface's own if it states one,
+/// otherwise the default. A surface therefore declares only what it CHANGES.
+pub fn binding(surface: &str, intent: Intent) -> Binding {
+    let i = intent.index();
+    SURFACE_ROLES
+        .iter()
+        .find(|(s, _)| *s == surface)
+        .and_then(|(_, roles)| roles[i])
+        .unwrap_or(DEFAULT_ROLES[i])
+}
+
+/// A control dressed by what it MEANS on a given surface.
+///
+/// This is what widgets call. They name an [`Intent`]; which treatment paints
+/// it, and whether it keeps their tone, is authored data.
+pub fn dressed(surface: &str, intent: Intent, tone: Tone, state: TraitState) -> Treated {
+    let b = binding(surface, intent);
+    // A pinned tone wins: `danger` must read the same on every surface.
+    let tone = match b.tone.and_then(tone_for_hue) {
+        Some(t) => t,
+        None => tone,
+    };
+    treated(tone, b.treatment, &[], state)
+}
+
+/// The `Tone` that resolves through a given hue id, when one does. Roles pin
+/// hues by NAME in data; this maps that name back onto the tone vocabulary.
+fn tone_for_hue(hue: &str) -> Option<Tone> {
+    Tone::ALL.iter().copied().find(|t| t.hue_id() == hue)
 }
 
 /// The claymorphic passive plane. Successor to `clay_frame`. Claymorphic
@@ -2332,6 +2418,61 @@ mod tests {
     /// a live surface — this fails the gate instead.
     /// Chrome is a SETTING, not a hardcoded call — so the whole app can be
     /// re-dressed later without touching a single widget helper.
+    /// A surface states only what it CHANGES; every other role falls back to
+    /// `default`. That fallback is what keeps roles.json small as surfaces
+    /// multiply.
+    #[test]
+    fn a_surface_states_only_what_it_changes() {
+        // wiredfront overrides chrome only.
+        assert_eq!(binding("wiredfront", Intent::Chrome).treatment, "vibron");
+        assert_eq!(
+            binding("wiredfront", Intent::Hero).treatment,
+            binding("nosuchsurface", Intent::Hero).treatment,
+            "an unstated role falls back to default"
+        );
+        // An UNKNOWN surface is not an error — it simply wears the defaults,
+        // so a new hub paints correctly before anyone authors it.
+        for i in [Intent::Chrome, Intent::Hero, Intent::Quiet, Intent::Danger] {
+            assert!(!binding("brand-new-hub", i).treatment.is_empty());
+        }
+        // Workbench genuinely differs from WiredFRONT.
+        assert_ne!(
+            binding("workbench", Intent::Chrome).treatment,
+            binding("wiredfront", Intent::Chrome).treatment,
+            "per-surface chrome must actually differ"
+        );
+    }
+
+    /// Danger pins its own tone, so a destructive control never takes the
+    /// hub's colour — "delete this" must not turn lime on a lime surface.
+    #[test]
+    fn danger_keeps_its_own_tone_against_any_caller() {
+        // Asserted through compose() on the resolved binding, so this checks
+        // the PAINTED colour rather than a wrapper's shape.
+        let painted = |surface: &str, caller: Tone| {
+            let b = binding(surface, Intent::Danger);
+            let tone = b
+                .tone
+                .and_then(|h| Tone::ALL.iter().copied().find(|t| t.hue_id() == h))
+                .unwrap_or(caller);
+            compose(tone, b.treatment, &[], TraitState::Idle).fill
+        };
+        assert_eq!(
+            painted("wiredfront", Tone::Lime),
+            painted("workbench", Tone::Cyan),
+            "danger ignores the caller's tone and reads the same everywhere"
+        );
+        // And it is genuinely NOT the caller's colour.
+        assert_ne!(
+            painted("wiredfront", Tone::Lime),
+            compose(Tone::Lime, "neubrutalist", &[], TraitState::Idle).fill,
+            "danger on a lime surface must not be lime"
+        );
+        // Chrome, by contrast, KEEPS the caller's tone.
+        assert!(binding("wiredfront", Intent::Chrome).tone.is_none());
+        assert_eq!(binding("wiredfront", Intent::Danger).tone, Some("coral"));
+    }
+
     #[test]
     fn chrome_is_switchable_and_refuses_a_typo() {
         assert_eq!(chrome(), DEFAULT_CHROME, "vibron until something changes it");

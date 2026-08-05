@@ -11,6 +11,9 @@ use egui_pilot_ai::{NodeMetadata, PilotId, UiPilotExt};
 
 use crate::{PendingLanding, TONE};
 
+/// This surface's id in `tokens/roles.json`.
+const SURFACE: &str = "viziwiz";
+
 const PALETTE_TITLE: PilotId = PilotId::new("viziwiz.title");
 const PALETTE_CLOSE: PilotId = PilotId::new("viziwiz.close");
 const TAB_IMG: PilotId = PilotId::new("viziwiz.tab.img");
@@ -736,7 +739,11 @@ fn pilot_chip(
     } else {
         cl::TraitState::Idle
     };
-    let style = cl::compose(tone, "neubrutalist", &[], state);
+    // The capture palette is its own surface, so it gets its own row in
+    // tokens/roles.json rather than a treatment written in here. A palette
+    // chip is the ORDINARY kind — the REC button is the one that shouts.
+    let b = cl::binding(SURFACE, cl::Intent::Chrome);
+    let style = cl::compose(tone, b.treatment, &[], state);
     let cr = CornerRadius::same(style.radius);
     let painter = ui.painter();
     // The hard offset shadow (a shape, never a blur) — the primary shadow the

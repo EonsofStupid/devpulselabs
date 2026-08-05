@@ -132,7 +132,7 @@ fn newest_draft() -> Option<std::path::PathBuf> {
 /// key or the selected styling can never drift between them.
 fn tab_chip(ui: &mut egui::Ui, ed: &mut CardEditor, t: CardTab, tone: Tone) {
     let active = ed.tab == t;
-    let chip = cl::tip(control(ui, t.label(), active, tone, Weight::Quiet), t.tip());
+    let chip = cl::tip(control(ui, t.label(), active, tone, Weight::Chrome), t.tip());
     ui.pilot_track(
         &chip,
         NodeMetadata::new(
@@ -1356,7 +1356,7 @@ impl AuthorSurface {
                         ),
                         false,
                         c.kind.tone(),
-                        Weight::Quiet,
+                        Weight::Chrome,
                     ),
                     "Go straight into this one",
                 );
@@ -1433,7 +1433,7 @@ impl AuthorSurface {
 
         ui.add_space(cl::space::S3);
         let seed = cl::tip(
-            control(ui, "+ Start a blank card", false, Tone::Amber, Weight::Loud),
+            control(ui, "+ Start a blank card", false, Tone::Amber, Weight::Hero),
             "Make a card with nothing on it but your words, and add to it from there.",
         );
 
@@ -1682,7 +1682,7 @@ impl AuthorSurface {
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if cl::tip(
-                            control(ui, "Done", false, tone, Weight::Loud),
+                            control(ui, "Done", false, tone, Weight::Hero),
                             "Close this — your card is already saved.",
                         )
                         .clicked()
@@ -1813,7 +1813,7 @@ impl AuthorSurface {
                 // the tooltip and in the carousel header, not doubled across a
                 // row that then wraps onto two lines.
                 let chip = cl::tip(
-                    control(ui, shelf.label(), active, super::SPEC.tone, Weight::Quiet),
+                    control(ui, shelf.label(), active, super::SPEC.tone, Weight::Chrome),
                     shelf.tip(),
                 );
                 ui.pilot_track(
@@ -2093,7 +2093,7 @@ impl AuthorSurface {
                                         "Put them in",
                                         false,
                                         super::SPEC.tone,
-                                        Weight::Loud,
+                                        Weight::Hero,
                                     ),
                                     "Copy every card you started into this one. Your \
                                      originals stay where they are.",
@@ -2112,7 +2112,7 @@ impl AuthorSurface {
                                 );
                                 for (id, title) in many {
                                     if cl::tip(
-                                        control(ui, title, false, super::SPEC.tone, Weight::Loud),
+                                        control(ui, title, false, super::SPEC.tone, Weight::Hero),
                                         "Copy every card you started into this chapter",
                                     )
                                     .clicked()
