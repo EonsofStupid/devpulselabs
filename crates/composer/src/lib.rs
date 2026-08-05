@@ -53,7 +53,7 @@ const RULER_H: f32 = 22.0;
 const FXHDR_H: f32 = 18.0;
 /// The layer OUTLINE column's width (timeline left half). Widened for the
 /// mock's switch columns — the name still clips rather than colliding.
-const OUTLINE_W: f32 = 330.0;
+const OUTLINE_W: f32 = 382.0;
 /// The depth a layer takes when its 3D switch is first lit — far enough to
 /// read as "further away", not so far it vanishes.
 const DEFAULT_LAYER_Z: f32 = 400.0;
@@ -61,6 +61,8 @@ const DEFAULT_LAYER_Z: f32 = 400.0;
 /// DEFAULT_LAYER_Z this puts a pushed-back layer at 0.75 scale — visible, not
 /// dramatic.
 const DEFAULT_FOCAL: f32 = 1200.0;
+/// The Mode column's width, between the layer name and the switches.
+const MODE_W: f32 = 52.0;
 /// One switch cell in the outline's right-hand columns.
 const SWITCH_W: f32 = 16.0;
 /// Where the switch block starts, measured back from the row's right edge
@@ -439,6 +441,8 @@ enum Act {
     Keep(String, String),
     /// The mock's ⑦ switch columns — each toggles real document state and
     /// checkpoints, so one undo reverses it.
+    /// Step a layer's blend mode (mock ⑦'s Mode column). Overlay-only.
+    CycleBlend(String),
     ToggleVisible(String),
     ToggleLock(String),
     ToggleLayerBlur(String),
@@ -2896,6 +2900,14 @@ impl Composer {
             }
             Some(Act::OpenComp(dir)) => self.open_comp(dir),
             Some(Act::Select(id)) => self.select(&id),
+            Some(Act::CycleBlend(id)) => {
+                self.checkpoint();
+                if let Some(l) = self.layer_mut(&id) {
+                    l.blend = l.blend.next();
+                }
+                self.mark_edit();
+                self.reconcile_overlays(ui.ctx());
+            }
             Some(Act::ToggleVisible(id)) => {
                 self.checkpoint();
                 if let Some(l) = self.layer_mut(&id) {
@@ -4285,7 +4297,7 @@ impl Composer {
                         cl::ink::SUBTLE,
                     );
 
-                    if let Some(a) = switch_columns(ui, &painter, r, layer, row_i, "tl") {
+                    if let Some(a) = switch_columns(ui, &painter, r, layer, row_i, "tl", false) {
                         *act = Some(a);
                     }
 
@@ -4300,9 +4312,9 @@ impl Composer {
                     let row_resp = ui.interact(
                         Rect::from_min_max(
                             egui::pos2(r.min.x + 52.0, r.min.y),
-                            // Stop short of the switches — otherwise every
-                            // toggle would also select the row underneath it.
-                            egui::pos2(r.max.x - SWITCHES_RIGHT - SWITCH_W * 0.5, r.max.y),
+                            // Stop short of Mode and the switches — otherwise
+                            // every toggle would also select the row beneath.
+                            egui::pos2(r.max.x - SWITCHES_RIGHT - MODE_W, r.max.y),
                         ),
                         egui::Id::new(("tl-row", row_i)),
                         Sense::click(),
@@ -4400,7 +4412,7 @@ impl Composer {
                     );
                     // Overlays are exactly where blur and parenting matter most,
                     // so they carry the same columns as a base row.
-                    if let Some(a) = switch_columns(ui, &painter, r, layer, row_i, "tl-fx") {
+                    if let Some(a) = switch_columns(ui, &painter, r, layer, row_i, "tl-fx", true) {
                         *act = Some(a);
                     }
                     let twirl = Rect::from_min_max(r.min, egui::pos2(r.min.x + 52.0, r.max.y));
@@ -4413,8 +4425,8 @@ impl Composer {
                     let row_resp = ui.interact(
                         Rect::from_min_max(
                             egui::pos2(r.min.x + 52.0, r.min.y),
-                            // Stop short of the switches, as the base row does.
-                            egui::pos2(r.max.x - SWITCHES_RIGHT - SWITCH_W * 0.5, r.max.y),
+                            // Stop short of Mode + switches, as the base row does.
+                            egui::pos2(r.max.x - SWITCHES_RIGHT - MODE_W, r.max.y),
                         ),
                         egui::Id::new(("tl-fx-row", row_i)),
                         Sense::click(),
@@ -5896,9 +5908,49 @@ fn switch_columns(
     layer: &Layer,
     row_i: usize,
     ns: &'static str,
+    // Base cuts ignore blend, so only an overlay row gets a live Mode.
+    overlay: bool,
 ) -> Option<Act> {
     let id = layer.id.clone();
     let mut out = None;
+
+    // ── MODE (mock ⑦'s column between the name and the switches) ─────────
+    // Blend is an OVERLAY property — the base track composites straight cuts
+    // and ignores it — so a base row reads "—" exactly as the mock's Camera
+    // and NULL rows do, rather than showing a control that would do nothing.
+    let mode_r = Rect::from_min_max(
+        egui::pos2(r.max.x - SWITCHES_RIGHT - MODE_W, r.min.y),
+        egui::pos2(r.max.x - SWITCHES_RIGHT, r.max.y),
+    );
+    if overlay {
+        painter.text(
+            mode_r.center(),
+            egui::Align2::CENTER_CENTER,
+            layer.blend.label(),
+            egui::FontId::proportional(10.5),
+            if layer.blend == dpl_comp::Blend::Normal {
+                cl::ink::SUBTLE
+            } else {
+                Tone::Violet.color()
+            },
+        );
+        let resp = cl::tip(
+            ui.interact(mode_r, egui::Id::new((ns, "mode", row_i)), Sense::click()),
+            &format!("{} Tap for the next mode.", layer.blend.blurb()),
+        );
+        if resp.clicked() {
+            out = Some(Act::CycleBlend(id.clone()));
+        }
+    } else {
+        painter.text(
+            mode_r.center(),
+            egui::Align2::CENTER_CENTER,
+            "—",
+            egui::FontId::proportional(10.5),
+            cl::ink::MUTED,
+        );
+    }
+
     let mut sx = r.max.x - SWITCHES_RIGHT;
     let mut cell = |icon: &str, lit: Option<Tone>, tip: &str, key: &str| {
         let cell = Rect::from_center_size(
@@ -6643,6 +6695,21 @@ mod tests {
     /// same duration, so every cut after it stays exactly where it was.
     /// Lock has to mean something. Guarding SELECT is what makes every
     /// downstream edit safe without each one re-checking.
+    /// Mode cycles and wraps, and it is OVERLAY-ONLY: base cuts composite
+    /// straight and ignore blend, so the base row shows a dash rather than a
+    /// control that would do nothing.
+    #[test]
+    fn blend_mode_cycles_and_wraps() {
+        use dpl_comp::Blend;
+        assert_eq!(Blend::Normal.next(), Blend::Screen);
+        assert_eq!(Blend::Screen.next(), Blend::Add);
+        assert_eq!(Blend::Add.next(), Blend::Normal, "wraps back to Normal");
+        // Every mode says what it does, in plain words (the tooltip law).
+        for b in Blend::ALL {
+            assert!(!b.label().is_empty() && b.blurb().len() > 20, "{b:?}");
+        }
+    }
+
     #[test]
     fn a_locked_layer_cannot_be_selected_or_removed() {
         let mut c = Composer::default();

@@ -135,6 +135,39 @@ impl Blend {
     fn is_normal(&self) -> bool {
         *self == Blend::Normal
     }
+
+    /// Every mode, in the order the Mode column steps through them.
+    pub const ALL: [Blend; 3] = [Blend::Normal, Blend::Screen, Blend::Add];
+
+    /// What the operator reads in the timeline's Mode column.
+    pub fn label(self) -> &'static str {
+        match self {
+            Blend::Normal => "Normal",
+            Blend::Screen => "Screen",
+            Blend::Add => "Add",
+        }
+    }
+
+    /// Plain words for what the mode DOES — the tooltip law, and the reason
+    /// these live here rather than in the surface: one vocabulary, wherever
+    /// a mode is shown.
+    pub fn blurb(self) -> &'static str {
+        match self {
+            Blend::Normal => "Lays on top as-is, using its own transparency.",
+            Blend::Screen => "Only lightens — black in this layer disappears.                               Light leaks, glows, dust.",
+            Blend::Add => "Piles light on light. Brighter and harsher than Screen.",
+        }
+    }
+
+    /// The next mode, wrapping — the Mode column is a tap-through, so there
+    /// is always a way back round to Normal.
+    pub fn next(self) -> Blend {
+        match self {
+            Blend::Normal => Blend::Screen,
+            Blend::Screen => Blend::Add,
+            Blend::Add => Blend::Normal,
+        }
+    }
 }
 
 fn one() -> f32 {
