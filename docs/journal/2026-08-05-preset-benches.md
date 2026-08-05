@@ -1,4 +1,4 @@
-# 2026-08-05 — the preset benches, and the three defects they exposed
+# 2026-08-05 — the preset benches, and the defects they exposed
 
 ## The ask
 
@@ -23,8 +23,8 @@ The generator is a **gate, not a renderer**. It refuses to emit:
 - a set of three where two resolve to **identical paint** (radius, edge width,
   fill, ink, edge, shadows, back-glow, tints all compared).
 
-It also *reports* — see the material cap below — rather than quietly shipping
-a weaker set.
+It also *reports* rather than quietly shipping a weaker set — the material cap
+below was found by that report, not by inspection.
 
 ### Three defects in the authored data, found by building it
 
@@ -129,7 +129,7 @@ inference stays proposed until the operator rules on it.
 ## Verify
 
 ```
-python docs/design/mocks/_preset-bench.gen.py     # gate passes, 24 coordinates
+python docs/design/mocks/_preset-bench.gen.py     # gate passes, 25 coordinates
 cargo test -p dpl-coldlight                       # 48 passed
 cargo clippy -p dpl-coldlight --all-targets       # clean
 ```
