@@ -177,16 +177,29 @@ during migration and nothing is big-bang.
   is authored today and what CSS can express. A real spring integrator would
   not survive the CSS leg.
 
-## 7. Open questions for the operator
+## 7. RULED 2026-08-05 — pure Rust/egui, and `clip` is a mask
 
-1. **`clip` → CSS.** `clip-path: inset()` or a mask? It is the one channel
-   without a clean web equivalent, and picking wrong means the web leg fakes it.
-2. **Per-channel easing.** WAAPI eases a whole keyframe, not one channel. Do we
-   want alpha and scale on *different* curves within one segment? It is
-   expressible (a track per channel), but it doubles the format's surface and
-   leaves the WAAPI standard behind.
-3. **Does the editor share `Track` now or later?** Sharing it now shapes the
-   channel enum; deferring risks a second model.
+**Operator:** *"mask would make more since for egui right … i want you building
+this as a true rust egui im not worried about anything else."*
+
+- **SCOPE: egui only.** The CSS emitter, the channel→CSS property map, and the
+  three-renderer constraint are **out of scope for this pass**. §4's web leg is
+  deferred, not deleted — `coldlight-matrix.md` §9 still stands as later work,
+  and nothing here blocks it *because the track is still authored as DATA*.
+  That is the point worth keeping: authoring in `tokens/*.json` is the house
+  pattern and it is what fixes the "meaning hardcoded in Rust" defect, whether
+  or not a web target ever reads it.
+- **`clip` is a MASK, egui-native, two forms, no blur:**
+  - **hard wipe** → `Painter::with_clip_rect` over the reveal fraction. Free.
+  - **soft edge** → a mesh with per-vertex alpha ramp (the same technique
+    `mood_blend` already uses to blend in the SAMPLE rather than stacking
+    translucent layers). No texture, no blur — doctrine law 6 holds.
+- **WAAPI's per-KEYFRAME easing stands.** Per-channel easing is not adopted: it
+  doubles the format's surface for a case nothing has asked for. Revisit only
+  when a real effect needs it.
+- **`dpl-comp` shares `Track` LATER.** The channel enum is authored so the
+  editor's `x/y/scale/opacity` are already expressible, but wiring the editor
+  is its own pass — this one does not touch `dpl-comp`.
 
 ## 8. Evidence
 

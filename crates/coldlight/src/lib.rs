@@ -1334,6 +1334,100 @@ pub mod motion {
         pub stagger: f32,
         pub ease: Ease,
         pub looped: bool,
+        /// The authored keyframe track, when the effect has one. `None` keeps
+        /// the legacy single-ramp reading — the two coexist so migration is
+        /// never big-bang (`docs/plans/keyframe-engine.md` §5).
+        pub track: Option<&'static Track>,
+    }
+
+    /// One animatable channel — EXACTLY [`Motion`]'s fields, so an authored
+    /// track can say everything the resolved struct can carry and nothing it
+    /// cannot.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum Chan {
+        Alpha,
+        OffsetX,
+        OffsetY,
+        Scale,
+        Rotation,
+        Clip,
+    }
+
+    /// One keyframe. `ease` applies FROM this stop UNTIL the next one that
+    /// declares the same channel — the Web Animations API rule, adopted so
+    /// the format is a standard rather than a house invention.
+    #[derive(Debug, Clone, Copy)]
+    pub struct Stop {
+        pub offset: f32,
+        pub ease: Ease,
+        pub ch: &'static [(Chan, f32)],
+    }
+
+    /// An authored keyframe track. Generated const data — no allocation, and
+    /// [`Track::sample`] is a pure function of progress, so `PilotClock` can
+    /// pin a frame for a deterministic proof shot (doctrine law 4).
+    #[derive(Debug, Clone, Copy)]
+    pub struct Track {
+        pub stops: &'static [Stop],
+    }
+
+    impl Track {
+        /// One channel's value at `p`. Channels interpolate INDEPENDENTLY:
+        /// only the stops that declare a channel bound its segments, so
+        /// `scale` may turn over at 0.62 while `alpha` runs straight 0→1.
+        /// That independence is the whole reason a track beats a single ramp.
+        fn channel(&self, c: Chan, p: f32) -> Option<f32> {
+            let mut prev: Option<(f32, f32, Ease)> = None;
+            for s in self.stops {
+                let Some(&(_, v)) = s.ch.iter().find(|(k, _)| *k == c) else {
+                    continue;
+                };
+                if p <= s.offset {
+                    return Some(match prev {
+                        // Before the first stop that declares it: hold.
+                        None => v,
+                        Some((po, pv, pe)) => {
+                            let span = s.offset - po;
+                            if span <= f32::EPSILON {
+                                v
+                            } else {
+                                let local = ((p - po) / span).clamp(0.0, 1.0);
+                                // The LEFT stop's ease owns the segment.
+                                pv + (v - pv) * pe.apply(local)
+                            }
+                        }
+                    });
+                }
+                prev = Some((s.offset, v, s.ease));
+            }
+            // Past the last stop that declares it: hold the final value.
+            prev.map(|(_, v, _)| v)
+        }
+
+        /// The resolved [`Motion`] at linear progress `p` (0..1). A channel no
+        /// stop declares stays at [`Motion::REST`] — an effect never has to
+        /// restate what it does not move.
+        pub fn sample(&self, p: f32) -> Motion {
+            let p = p.clamp(0.0, 1.0);
+            let rest = Motion::REST;
+            Motion {
+                alpha: self
+                    .channel(Chan::Alpha, p)
+                    .unwrap_or(rest.alpha)
+                    .clamp(0.0, 1.0),
+                // Unclamped: a spring must be able to overshoot in space.
+                offset: egui::vec2(
+                    self.channel(Chan::OffsetX, p).unwrap_or(rest.offset.x),
+                    self.channel(Chan::OffsetY, p).unwrap_or(rest.offset.y),
+                ),
+                scale: self.channel(Chan::Scale, p).unwrap_or(rest.scale),
+                rotation: self.channel(Chan::Rotation, p).unwrap_or(rest.rotation),
+                clip: self
+                    .channel(Chan::Clip, p)
+                    .unwrap_or(rest.clip)
+                    .clamp(0.0, 1.0),
+            }
+        }
     }
 
     impl Effect {
@@ -1353,12 +1447,36 @@ pub mod motion {
             }
         }
 
+        /// RAW progress — elapsed/dur, NO ease applied. One-shot clamps to
+        /// 0..1; looped wraps. This exists because an authored [`Track`] does
+        /// its own per-segment easing: feeding it [`Effect::at`] would ease
+        /// twice and quietly bend every curve.
+        pub fn progress(&self, now: f64, t0: f64, index: usize) -> f32 {
+            let elapsed = (now - t0) as f32 - self.delay - self.stagger * index as f32;
+            if self.dur <= 0.0 {
+                return 1.0;
+            }
+            let p = elapsed / self.dur;
+            if self.looped {
+                p.max(0.0).fract()
+            } else {
+                p.clamp(0.0, 1.0)
+            }
+        }
+
         /// The RESOLVED transform this effect asks for at a moment in time.
         ///
-        /// See [`Motion`] for why this exists. The interpretation here is the
-        /// one every call site was already applying by hand, written down
-        /// once: fade in, rise from below, reveal forward.
+        /// See [`Motion`] for why this exists. When the effect authors a
+        /// [`Track`], the track IS the interpretation — read from
+        /// `tokens/motion.json`, not from this file. Effects with no track
+        /// fall through to the legacy reading below (fade in, rise from
+        /// below, reveal forward), which is the one every call site was
+        /// already applying by hand.
         pub fn sample(&self, now: f64, t0: f64, index: usize) -> Motion {
+            if let Some(track) = self.track {
+                // The track eases per segment, so it gets LINEAR progress.
+                return track.sample(self.progress(now, t0, index));
+            }
             let p = self.at(now, t0, index);
             Motion {
                 alpha: p.clamp(0.0, 1.0),
@@ -1401,6 +1519,107 @@ pub mod motion {
                 assert!(e.apply(0.0).abs() < 0.01);
                 assert!((e.apply(1.0) - 1.0).abs() < 0.01);
             }
+        }
+
+        /// A 2-stop track reproduces the LEGACY reading exactly — so
+        /// migrating the 19 effects is a reclassification, not a restyle
+        /// (`docs/plans/keyframe-engine.md` §5). This is the guard that lets
+        /// the port happen at all.
+        #[test]
+        fn a_two_stop_track_reproduces_the_legacy_reading() {
+            // The legacy interpretation, written as data: fade in, rise from
+            // below, reveal forward.
+            const LEGACY: Track = Track {
+                stops: &[
+                    Stop {
+                        offset: 0.0,
+                        ease: EASE_EMPHASIZED,
+                        ch: &[
+                            (Chan::Alpha, 0.0),
+                            (Chan::OffsetY, 1.0),
+                            (Chan::Clip, 0.0),
+                        ],
+                    },
+                    Stop {
+                        offset: 1.0,
+                        ease: EASE_EMPHASIZED,
+                        ch: &[
+                            (Chan::Alpha, 1.0),
+                            (Chan::OffsetY, 0.0),
+                            (Chan::Clip, 1.0),
+                        ],
+                    },
+                ],
+            };
+            // ENTER_RISE wears EASE_EMPHASIZED and has no track, so it takes
+            // the legacy path — the exact pair we need to compare.
+            let legacy_fx = ENTER_RISE;
+            for step in 0..=8 {
+                let p = step as f32 / 8.0;
+                // Legacy: at() eases, then sample() interprets.
+                let now = legacy_fx.delay as f64 + (p * legacy_fx.dur) as f64;
+                let old = legacy_fx.sample(now, 0.0, 0);
+                // Track: raw progress in, per-segment ease inside.
+                let new = LEGACY.sample(legacy_fx.progress(now, 0.0, 0));
+                assert!(
+                    (old.alpha - new.alpha).abs() < 1e-5
+                        && (old.offset.y - new.offset.y).abs() < 1e-5
+                        && (old.clip - new.clip).abs() < 1e-5,
+                    "p={p}: legacy {old:?} != track {new:?}"
+                );
+            }
+        }
+
+        /// The capability a single ramp CANNOT express: two channels on two
+        /// schedules. `enter-bloom` runs alpha straight to 1 by 62% while
+        /// scale overshoots to 1.04 and settles back to 1.0.
+        #[test]
+        fn a_track_moves_channels_on_independent_schedules() {
+            let t = ENTER_BLOOM.track.expect("enter-bloom authors a track");
+            assert_eq!(t.stops.len(), 3);
+            let (start, mid, end) = (t.sample(0.0), t.sample(0.62), t.sample(1.0));
+            assert!((start.alpha - 0.0).abs() < 1e-5, "starts transparent");
+            assert!((start.scale - 0.86).abs() < 1e-5, "starts small");
+            assert!((mid.scale - 1.04).abs() < 1e-4, "overshoots at 62%");
+            assert!((end.scale - 1.0).abs() < 1e-5, "settles to natural size");
+            assert!((end.alpha - 1.0).abs() < 1e-5, "ends opaque");
+            // The overshoot is REAL — somewhere past mid, scale exceeds 1.
+            let peak = (0..=100)
+                .map(|i| t.sample(i as f32 / 100.0).scale)
+                .fold(0.0f32, f32::max);
+            assert!(peak > 1.0, "scale must overshoot, peaked at {peak}");
+            // A channel no stop declares stays at REST — never restated.
+            assert_eq!(end.rotation, Motion::REST.rotation);
+        }
+
+        /// Sampling is a pure function of progress — the property `PilotClock`
+        /// relies on to pin a frame for a deterministic proof shot (law 4).
+        #[test]
+        fn track_sampling_is_pure_and_bounded() {
+            let t = ENTER_BLOOM.track.expect("track");
+            for i in 0..=20 {
+                let p = i as f32 / 20.0;
+                assert_eq!(t.sample(p), t.sample(p), "same input, same output");
+            }
+            // Out-of-range progress clamps rather than extrapolating.
+            assert_eq!(t.sample(-1.0), t.sample(0.0));
+            assert_eq!(t.sample(2.0), t.sample(1.0));
+            // Opacity and clip are clamped even when a spring overshoots.
+            for i in 0..=40 {
+                let m = t.sample(i as f32 / 40.0);
+                assert!((0.0..=1.0).contains(&m.alpha), "alpha {} escaped", m.alpha);
+                assert!((0.0..=1.0).contains(&m.clip), "clip {} escaped", m.clip);
+            }
+        }
+
+        /// An effect with no track keeps the legacy path untouched, so the two
+        /// coexist and migration is never big-bang.
+        #[test]
+        fn untracked_effects_still_take_the_legacy_path() {
+            assert!(ENTER_FADE.track.is_none());
+            assert!(ENTER_BLOOM.track.is_some());
+            let m = ENTER_FADE.sample(10.0, 0.0, 0);
+            assert_eq!(m, Motion::REST, "a settled untracked effect rests");
         }
 
         #[test]
@@ -1463,6 +1682,7 @@ pub mod motion {
                 stagger: 0.0,
                 ease: EASE_SPRING_SOFT,
                 looped: false,
+                track: None,
             };
             let mut overshot = false;
             for i in 0..=40 {

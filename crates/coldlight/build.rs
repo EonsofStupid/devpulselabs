@@ -544,7 +544,20 @@ fn generate_motion(out_dir: &str) {
         .unwrap();
     }
 
+    // The authored channel vocabulary — EXACTLY `Motion`'s fields. A typo in
+    // a track fails the build naming the effect, the same manifest⇄truth law
+    // icons and fonts already carry.
+    const CHANS: [(&str, &str); 6] = [
+        ("alpha", "Chan::Alpha"),
+        ("offset_x", "Chan::OffsetX"),
+        ("offset_y", "Chan::OffsetY"),
+        ("scale", "Chan::Scale"),
+        ("rotation", "Chan::Rotation"),
+        ("clip", "Chan::Clip"),
+    ];
+
     let mut match_arms = String::new();
+    let mut tracks = String::new();
     for (name, fx) in effects {
         let dur = fx["dur"].as_f64().expect("effect.dur");
         let delay = fx.get("delay").and_then(|v| v.as_f64()).unwrap_or(0.0);
@@ -552,14 +565,109 @@ fn generate_motion(out_dir: &str) {
         let looped = fx.get("loop").and_then(|v| v.as_bool()).unwrap_or(false);
         let ease = ease_of(fx["ease"].as_str().expect("effect.ease"));
         let konst = ident(name).to_uppercase();
+
+        // ── the optional keyframe track (docs/plans/keyframe-engine.md §3) ──
+        let track_ref = match fx.get("track").and_then(|t| t.as_array()) {
+            None => "None".to_string(),
+            Some(stops) => {
+                assert!(
+                    stops.len() >= 2,
+                    "effect {name:?}: a track needs at least 2 stops"
+                );
+                let mut emitted = String::new();
+                let mut prev_off = f32::NEG_INFINITY;
+                // Which channels the whole track touches, and whether the
+                // first / last stop pin them (law 4 — no implicit endpoints).
+                let mut seen: Vec<&str> = Vec::new();
+                let (mut first_ch, mut last_ch): (Vec<&str>, Vec<&str>) = (vec![], vec![]);
+
+                for (i, st) in stops.iter().enumerate() {
+                    let off = st["offset"].as_f64().unwrap_or_else(|| {
+                        panic!("effect {name:?}: stop {i} has no numeric offset")
+                    }) as f32;
+                    assert!(
+                        (0.0..=1.0).contains(&off),
+                        "effect {name:?}: stop {i} offset {off} is outside 0..=1"
+                    );
+                    assert!(
+                        off > prev_off,
+                        "effect {name:?}: stop {i} offset {off} is not ascending"
+                    );
+                    if i == 0 {
+                        assert!(off == 0.0, "effect {name:?}: first stop must be offset 0.0");
+                    }
+                    if i == stops.len() - 1 {
+                        assert!(off == 1.0, "effect {name:?}: last stop must be offset 1.0");
+                    }
+                    prev_off = off;
+
+                    // A stop's ease is optional; it defaults to the effect's.
+                    let st_ease = match st.get("ease").and_then(|e| e.as_str()) {
+                        Some(e) => ease_of(e),
+                        None => ease.clone(),
+                    };
+
+                    let mut pairs = String::new();
+                    for (key, variant) in CHANS {
+                        if let Some(v) = st.get(key).and_then(|v| v.as_f64()) {
+                            write!(pairs, "({variant}, {v}f32),").unwrap();
+                            if !seen.contains(&key) {
+                                seen.push(key);
+                            }
+                            if i == 0 {
+                                first_ch.push(key);
+                            }
+                            if i == stops.len() - 1 {
+                                last_ch.push(key);
+                            }
+                        }
+                    }
+                    // Anything that is not `offset`, `ease` or a real channel
+                    // is a typo — refuse it rather than ignoring it silently.
+                    for k in st.as_object().expect("track stop is an object").keys() {
+                        assert!(
+                            k == "offset"
+                                || k == "ease"
+                                || CHANS.iter().any(|(c, _)| c == k),
+                            "effect {name:?}: stop {i} has unknown channel {k:?}"
+                        );
+                    }
+                    writeln!(
+                        emitted,
+                        "    Stop {{ offset: {off}f32, ease: {st_ease}, ch: &[{pairs}] }},"
+                    )
+                    .unwrap();
+                }
+                for c in &seen {
+                    assert!(
+                        first_ch.contains(c) && last_ch.contains(c),
+                        "effect {name:?}: channel {c:?} must be declared on BOTH the \
+                         first and last stop so its endpoints are never implicit"
+                    );
+                }
+                // `const`, not `static`: the Effect consts reference these,
+                // and a const may not refer to a static (E0013). A `&CONST`
+                // promotes to 'static, which is exactly what we want.
+                writeln!(
+                    tracks,
+                    "const TRACK_{konst}: Track = Track {{ stops: &[\n{emitted}] }};"
+                )
+                .unwrap();
+                format!("Some(&TRACK_{konst})")
+            }
+        };
+
         writeln!(
             code,
             "pub const {konst}: Effect = Effect {{ dur: {dur}f32, delay: {delay}f32, \
-             stagger: {stagger}f32, ease: {ease}, looped: {looped} }};"
+             stagger: {stagger}f32, ease: {ease}, looped: {looped}, track: {track_ref} }};"
         )
         .unwrap();
         writeln!(match_arms, "        {name:?} => Some(&{konst}),").unwrap();
     }
+    // Tracks are statics the Effect consts point at — emitted first so the
+    // consts can reference them.
+    code.push_str(&tracks);
     writeln!(code, "pub const EFFECT_COUNT: usize = {};", effects.len()).unwrap();
     writeln!(
         code,
