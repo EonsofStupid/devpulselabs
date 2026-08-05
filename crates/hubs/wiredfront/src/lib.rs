@@ -1071,6 +1071,10 @@ impl WiredfrontHub {
     /// The `--fx-drill <clip-rel> <fx-rel>` harness seam (L3): one base
     /// cut + one transformed/tinted FX overlay, rendered synchronously —
     /// the headless alpha-overlay proof.
+    pub fn preview_drill(&mut self, rel: &str) {
+        self.composer.preview_drill(rel);
+    }
+
     pub fn fx_drill(&mut self, clip_rel: &str, fx_rel: &str) {
         self.composer.fx_drill(clip_rel, fx_rel);
     }

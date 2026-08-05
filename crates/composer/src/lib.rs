@@ -2047,6 +2047,19 @@ impl Composer {
     /// add_overlay, inspector-shaped edits), saved, then rendered
     /// SYNCHRONOUSLY so the headless proof can ffprobe `render.mp4` the
     /// moment the process exits. Verdict on stdout.
+    /// PROOF DRILL: open the preview modal on a content-relative artifact so
+    /// a screenshot can show the player. Same shape as the other drills —
+    /// deterministic, no operator input, one frame away from a shot.
+    pub fn preview_drill(&mut self, rel: &str) {
+        let root = Self::content_root();
+        let path = root.join(rel);
+        self.preview_modal = Some(player::Preview::open(
+            player::Source::Loose(path),
+            &root,
+        ));
+        self.status = format!("Preview drill: {rel}");
+    }
+
     pub fn fx_drill(&mut self, clip_rel: &str, fx_rel: &str) {
         let base = Record {
             rel_path: clip_rel.into(),

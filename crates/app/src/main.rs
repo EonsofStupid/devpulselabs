@@ -330,6 +330,13 @@ fn main() -> eframe::Result {
         .iter()
         .position(|a| a == "--fx-drill")
         .and_then(|i| Some((args.get(i + 1)?.clone(), args.get(i + 2)?.clone())));
+    // `--preview-drill <rel>`: open the PREVIEW modal on a content-relative
+    // artifact — the player proof (docs/plans/wiredfront-library-and-player.md).
+    let preview_drill: Option<String> = args
+        .iter()
+        .position(|a| a == "--preview-drill")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
     // `--l4-drill` (L4): graded base + screen leak + matted overlay from
     // conventional scratch-root files — the blend/matte/LUT proof.
     let l4_drill = args.iter().any(|a| a == "--l4-drill");
@@ -520,6 +527,7 @@ fn main() -> eframe::Result {
                 save_comp,
                 lottie_import,
                 fx_drill,
+                preview_drill,
                 l4_drill,
                 make_slide,
                 run_workflow,
@@ -575,6 +583,7 @@ struct Boot {
     save_comp: Option<String>,
     lottie_import: Option<String>,
     fx_drill: Option<(String, String)>,
+    preview_drill: Option<String>,
     l4_drill: bool,
     make_slide: Option<String>,
     run_workflow: Option<String>,
@@ -669,6 +678,7 @@ impl App {
             save_comp,
             lottie_import,
             fx_drill,
+            preview_drill,
             l4_drill,
             make_slide,
             run_workflow,
@@ -808,6 +818,9 @@ impl App {
         }
         // L3: the alpha-overlay proof — base cut + transformed/tinted FX
         // overlay, rendered synchronously before the first frame.
+        if let Some(rel) = &preview_drill {
+            wiredfront.preview_drill(rel);
+        }
         if let Some((clip, fx)) = &fx_drill {
             wiredfront.fx_drill(clip, fx);
         }
