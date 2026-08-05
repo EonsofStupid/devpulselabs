@@ -177,7 +177,15 @@ four-trait system had no vocabulary for it. Under the matrix it is a
 and `editorial` all list them `forbidden`; `brutalist` allows
 `neon-glass` but forbids `glass`; `memphis` forbids both.
 
-> **Proposed editor coordinate: `aero · measured · neon-glass · neon`**
+> **SUPERSEDED 2026-08-05 — operator: *"we will default to neo first the lime
+> green."*** The editor's DEFAULT is the **`neo-brute` seed on the `lime`
+> tone**, not the aero coordinate below. The aero reading came from the v3
+> mock's line 401 (*"flat wells + liquid-glass/cyber chrome"*); the operator's
+> live word outranks a mock inference. `neon-glass` remains the right material
+> for *nested* glass children inside the neo container — the daisy chain — but
+> it is not the editor's default dress.
+>
+> ~~Proposed editor coordinate: `aero · measured · neon-glass · neon`~~
 > Checked legal against `matrix.json:91-95` — aero allows structure
 > `measured`, materials `glass`/`neon-glass`, atmosphere `neon`.
 > That is precisely "flat wells + liquid-glass/cyber chrome + glow
