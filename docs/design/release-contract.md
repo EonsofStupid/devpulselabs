@@ -14,9 +14,9 @@ reading the code or by running the real exe.
 
 ## 1 · The one-line answer
 
-> A release is **two executables in a folder**. Everything the app draws is
-> compiled INTO the app. The only thing that is neither embedded nor shipped
-> is the **private tool depot** — and without it every media operation fails.
+> A release is **two executables plus the tool depot, in a folder**.
+> Everything the app draws is compiled INTO the app. The depot ships WITH the
+> release (RULED §5.3) — unzip and it works. No second artifact, no fetch.
 
 ---
 
@@ -158,17 +158,22 @@ Run against an unzipped nightly, in order:
 2. Confirm `dpl-lottie-render` sits beside the exe (proves §3).
 3. Launch once → `content/`, `assets/`, `.userdata/` appear (proves §4).
 4. **Without** a depot: the two WARN lines appear and media fails (§5.1).
-5. Copy a staged `dptools-deps/` beside the exe → relaunch → both
-   `verified … resolved` INFO lines appear (§5.3).
+5. **Once the depot is bundled (§5.3):** the same launch logs
+   `verified … resolved` for ffmpeg and pdftoppm with **no extra step**.
+   That is the acceptance test for the bundling change.
 6. `--preview-drill <rel>` on a real clip → frames decode.
 
-Steps 1–5 were performed in-session; step 6 was performed on a staged lane
-build and the proof shot is `docs/proof/preview-player-1600x900.png`.
+Steps 1–4 were performed in-session on a real build. Step 6 was performed on
+a lane build with a depot present; the proof shot is
+`docs/proof/preview-player-1600x900.png`. Step 5 is the pending change.
 
 ## 8 · Open
 
-- **§5.4** — does staging move into the app (`--stage-tools`), and does a
-  `--doctor` land? Both are small; neither is mine to decide.
-- The nightly zip could carry §5.3's copy-the-depot procedure in `NIGHTLY.md`
-  instead of pointing at a cargo command a tester cannot run. One-line change
-  to `nightly.yml`, deferred to the operator's word.
+- **Which families bundle** (§5.4). Media is the answer for a test build;
+  Provider is a redistribution decision on a PUBLIC repo, not a packaging one.
+- **How CI obtains the payloads to bundle.** The Linux lanes already
+  `apt-get install ffmpeg`; Windows has no equivalent step today. That is
+  build-time acquisition, not the app fetching at runtime — the "no remote"
+  rule is about the app, and this does not violate it.
+- **`--doctor`** — turns two WARN lines into a plain statement of what is
+  present. Stays useful after bundling, for whichever families do not ship.
