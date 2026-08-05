@@ -88,19 +88,29 @@
   material. The shell is identical everywhere, so <b>only the formula differs</b>.</p>
 
   <div class="findings">
-    <h4>What building this exposed in the authored data</h4>
+    <h4>What building this exposed in the authored data — and what was done</h4>
     <ul>
-      <li><b class="warn">bloom shipped a blur.</b> Aero's native atmosphere authored <code>blur: 12/16</code>,
+      <li><b>Vibron is a coordinate now.</b> The operator ruled
+      <code>brutalist · massive · <b>plate</b> · hard-cast = Vibron</code>, and that it needed one new material.
+      <code>traits.json</code> even recorded the resolution in its blurb — but <code>plate</code> was never added, so
+      Vibron existed only as a trait in the parallel system. It decomposes exactly: radius 6 + edge 2.0 is
+      <code>massive</code>, shadow [3,3] blur 0 black@230 is <code>hard-cast</code>, and fill OVERLAY + ink BASE +
+      edge HAIRLINE is <code>plate</code>. The material is authored and ruled for all eight lineages.</li>
+      <li><b class="warn">bloom shipped a blur — fixed.</b> Aero's native atmosphere authored <code>blur: 12/16</code>,
       violating doctrine law 6 (“No blur, ever”) <i>and</i> matrix §11.4's own ruling that aero is interpreted
       no-blur. Re-authored as a painted <b>ring falloff</b> — concentric hard rings at falling alpha — plus two hard
       directional shadows. Aero reads soft here without one blurred pixel.</li>
-      <li><b class="warn">The gloss band was invisible.</b> <code>sheen</code> and <code>bloom</code> painted their
-      specular band as <code>OVERLAY @ 90</code> — a <i>dark</i> surface on a <i>dark</i> fill, a measured
+      <li><b class="warn">The gloss band was invisible — fixed.</b> <code>sheen</code> and <code>bloom</code> painted
+      their specular band as <code>OVERLAY @ 90</code>: a <i>dark</i> surface on a <i>dark</i> fill, a measured
       <b>4/255</b> delta. A specular band must be lit; both now use <code>ink STRONG</code>.</li>
-      <li><b class="warn">A third of the material axis is duplicate data.</b> <code>matte ≡ raw</code>,
-      <code>glass ≡ metallic</code>, and <code>paper ≡ clay</code> are byte-identical in fill, ink and edge — 9
-      materials that paint 6. The sets below route around it, but it is <b>unfixed and needs a ruling</b>: those
-      words mean different things, so they should paint differently.</li>
+      <li><b class="warn">A third of the material axis was duplicate data — fixed.</b>
+      <code>matte ≡ raw</code>, <code>glass ≡ metallic</code> and <code>paper ≡ clay</code> were byte-identical in
+      fill, ink and edge: 9 materials that painted 6, which capped <code>bauhaus</code>, <code>swiss</code> and
+      <code>constructivist</code> at two distinct materials each. <b>10 materials now paint 10.</b>
+      <code>raw</code> and <code>paper</code> kept their fills because they carry ratified looks (neo, and the swiss
+      + editorial natives); the duplicates moved instead — <code>matte</code> went deep and absorbing,
+      <code>metallic</code> became dark metal with a lit rim, and <code>clay</code> became a RECESSED well, because
+      the doctrine says content sits <i>in</i> clay.</li>
     </ul>
   </div>
 

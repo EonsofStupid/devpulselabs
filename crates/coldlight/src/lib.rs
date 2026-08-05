@@ -1384,7 +1384,10 @@ pub mod matrix {
         fn every_ancestor_rules_on_every_facet_value() {
             let values = STRUCTURES.len() + MATERIALS.len() + ATMOSPHERES.len();
             assert_eq!(ANCESTORS.len(), 8, "eight seeds, ratified 2026-07-31");
-            assert_eq!(values, 21, "6 structures + 9 materials + 6 atmospheres");
+            // 22 since 2026-08-05: `plate` joined the material axis, because
+            // the operator's ruling `brutalist · massive · plate · hard-cast
+            // = Vibron` named a material the matrix did not have.
+            assert_eq!(values, 22, "6 structures + 10 materials + 6 atmospheres");
             assert_eq!(
                 RULING_COUNT,
                 ANCESTORS.len() * values,

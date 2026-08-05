@@ -20,10 +20,10 @@ for g in H['groups'].values():
 # metallic, paper==clay) — otherwise "three unique presets" would be a lie.
 PRESETS = {
  'bauhaus': [
-  ('primary',   'Primary',   'the teaching wall',   'rectilinear','matte','none',      'azure',
-   'Foundational and unarguable: zero radius, flat saturated pigment, no atmosphere at all. Bauhaus before anything is added to it.'),
+  ('primary',   'Primary',   'the teaching wall',   'rectilinear','raw','none',        'azure',
+   'Foundational and unarguable: zero radius, saturated pigment applied straight, no atmosphere at all. Bauhaus before anything is added to it.'),
   ('werkstatt', 'Werkstatt', 'the workshop block',  'massive','matte','hard-cast',    'coral',
-   'The same pigment given weight and a cast shadow — a heavy block sitting on the wall rather than printed into it. Same material, wholly different object.'),
+   'Deep absorbing pigment given weight and a cast shadow — a heavy block sitting on the wall rather than printed into it.'),
   ('vorkurs',   'Vorkurs',   'paper and grid',      'measured','paper','none',        'amber',
    'The quiet register: fibrous paper, restrained radius, hairline rule. What the surrounding page is made of, not what the poster shouts.')],
  'art-deco': [
@@ -34,8 +34,10 @@ PRESETS = {
   ('salon',     'Salon',     'restrained deco',     'measured','matte','none',        'violet',
    'Deco with the volume down: flat pigment, measured radius, no atmosphere. Proof the lineage survives without its ornament.')],
  'brutalist': [
+  ('vibron',    'Vibron',    'the workhorse',       'massive','plate','hard-cast',    'cyan',
+   'OPERATOR-RULED: brutalist massive plate hard-cast IS Vibron, and `plate` is the material that ruling required. A quiet dark panel whose whole point is RESTRAINT — the plate says nothing so the ONE active control can. What the editor wears.'),
   ('neo',       'Neo',       'the ratified default','massive','raw','hard-cast',      'lime',
-   'The existing preset, stated as a coordinate: heavy block, unfinished material, hard offset shadow. Loud, honest, fast.'),
+   'Heavy block, saturated pigment applied straight, hard offset shadow. Loud, honest, fast — the neubrutalist fill.'),
   ('hacker',    'Hacker',    'cold terminal',       'massive','neon-glass','neon',    'cyan',
    'Cyan ink on a lit edge with a painted halo. Brutalist bones wearing a terminal.'),
   ('retro-os',  'Retro-OS',  'amber CRT',           'rectilinear','amber-crt','scanline','amber',
@@ -43,8 +45,8 @@ PRESETS = {
  'swiss': [
   ('grid',      'Grid',      'the native',          'measured','paper','none',        'slate',
    'Paper, measured radius, hairline rule, nothing else. Swiss is the ancestor that gets quieter the more correct it is.'),
-  ('akzidenz',  'Akzidenz',  'flat and square',     'rectilinear','matte','none',     'coral',
-   'Saturated flat pigment at zero radius. The poster half of Swiss — still no atmosphere, because Swiss barely permits any.'),
+  ('akzidenz',  'Akzidenz',  'flat and square',     'rectilinear','raw','none',       'coral',
+   'Saturated pigment at zero radius. The poster half of Swiss — still no atmosphere, because Swiss barely permits any.'),
   ('offset',    'Offset',    'print register',      'measured','matte','hard-cast',   'azure',
    'The same pigment with one hard cast shadow, like a mis-registered second pass on press. The most atmosphere Swiss legally allows.')],
  'aero': [
@@ -119,7 +121,8 @@ if errs:
 if capped:
     print('MATERIAL CAP (caused by the matte==raw / paper==clay collision):')
     [print('  !', c) for c in capped]
-print('legality + uniqueness: 24 coordinates OK across 8 ancestors')
+n=sum(len(v) for v in PRESETS.values())
+print(f'legality + distinctness: {n} coordinates OK across {len(PRESETS)} ancestors')
 
 DATA = {'structures': M['structures'], 'materials': M['materials'],
         'atmospheres': M['atmospheres'], 'hues': hues,

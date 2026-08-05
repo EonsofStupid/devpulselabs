@@ -44,14 +44,14 @@ a weaker set.
    `{ink: STRONG}` (30 for sheen, 20 for bloom), and the band stops sharp at
    46% because a specular band is a band, not a wash.
 
-3. **A third of the material axis is duplicate data — UNFIXED, needs a
-   ruling.** `matte ≡ raw`, `glass ≡ metallic`, `paper ≡ clay` are
+3. **A third of the material axis was duplicate data — FIXED.** `matte ≡ raw`, `glass ≡ metallic`, `paper ≡ clay` are
    byte-identical in `fill`/`ink`/`edge_color`. Nine named materials paint
-   six. Consequence: **`bauhaus`, `swiss` and `constructivist` cannot produce
-   three materially-distinct presets at all** — their whole material palette
-   is `matte`/`paper`/`raw`, which is two things wearing three names. Their
-   sets differentiate by structure and atmosphere instead, which works (see
-   the shots) but is a workaround.
+   six, which capped `bauhaus`, `swiss` and `constructivist` at two distinct
+   materials each. **Ten materials now paint ten.** `raw` and `paper` kept
+   their fills because they carry ratified looks (neo, and the swiss +
+   editorial natives); the duplicates moved instead — `matte` went deep and
+   absorbing, `metallic` became dark metal with a lit rim, and `clay` became
+   a RECESSED well, because the doctrine says content sits *in* clay.
 
 ### Two mock-side bugs, fixed
 
@@ -62,13 +62,36 @@ a weaker set.
   element's own `background` — painted, then covered. It is now composited
   into the background stack, which is also how the egui painter stacks it.
 
-## The 24 coordinates
+### The correction that mattered most
+
+I asked the operator to rule on the material collision. **They had already
+ruled it.** On 2026-08-05 they named
+`brutalist · massive · plate · hard-cast = Vibron` and said one new material
+was needed — then, when I hesitated about growing the vocabulary: *"who cares
+if we have to add a fifth thing this needs to be diverse for my content
+creation capabilities."*
+
+`plate` was never added to `matrix.json`. Vibron was built as a **trait** in
+the parallel `traits.json` system, and its own blurb even recorded the
+resolution — *"Resolves to the matrix coordinate brutalist · massive · plate ·
+hard-cast"* — while the coordinate it named did not exist. I then produced a
+bench that listed brutalist as Neo/Hacker/Retro-OS, **dropping Vibron**, and
+asked for a ruling already given.
+
+`plate` is now authored (`fill OVERLAY · ink BASE · edge HAIRLINE`) and ruled
+by all eight lineages. Vibron decomposes exactly onto it: radius 6 + edge 2.0
+is `massive`, shadow [3,3] blur 0 black@230 is `hard-cast`. The census test
+moved 21 → 22 facet values with the reason in a comment.
+
+**Standing lesson: when the operator has ruled, execute — do not re-ask.**
+
+## The 25 coordinates
 
 | ancestor | the three |
 |---|---|
 | bauhaus | Primary · Werkstatt · Vorkurs |
 | art-deco | Chrysler · Machine Age · Salon |
-| brutalist | Neo · Hacker · Retro-OS *(the ratified ones, restated as coordinates)* |
+| brutalist | **Vibron** · Neo · Hacker · Retro-OS *(all four ratified, restated as coordinates)* |
 | swiss | Grid · Akzidenz · Offset |
 | aero | Hacker · Gloss · Tactile |
 | memphis | Bacterio · Tawaraya · Carlton |
@@ -81,14 +104,14 @@ inference stays proposed until the operator rules on it.
 
 ## Exact next step
 
-1. **Operator ruling on the material collision** (finding 3). Proposal:
-   separate `raw` from `matte` (unfinished/béton — darker, desaturated, not a
-   saturated tone-400 fill) and `clay` from `paper` (clay is extruded and
-   takes a directional double-shadow; paper is fibrous and flat). That is a
-   vocabulary change, so it is not being made unilaterally.
-2. **Operator ruling on the 21 proposed preset names.**
-3. Once ruled: author them into `tokens/presets.json` and bind through
+1. **Operator ruling on the 21 proposed preset names.** Vibron, Neo, Hacker
+   and Retro-OS are already ratified; the other 21 are proposals.
+2. Once ruled: author them into `tokens/presets.json` and bind through
    `tokens/roles.json`, which already resolves role → treatment per surface.
+3. **Retire the `vibron` trait in favour of the coordinate.** `roles.json`
+   still points `chrome` at `"trait": "vibron"`; once `resolve()` lands
+   (`docs/plans/matrix-resolve.md`) that becomes the coordinate and the
+   parallel trait system loses its last base treatment.
 
 ## Landmines
 

@@ -55,21 +55,21 @@
     {
       "id": "matte",
       "label": "Matte",
-      "blurb": "Flat, unmodulated colour plane.",
+      "blurb": "Deep pigment with the sheen knocked out — quiet, absorbing, no rim light.",
       "fill": {
-        "tone": 400
+        "tone": 800
       },
       "ink": {
-        "surface": "WELL"
+        "ink": "STRONG"
       },
       "edge_color": {
-        "tone": 700
+        "tone": 600
       }
     },
     {
       "id": "raw",
       "label": "Raw",
-      "blurb": "Exposed, unfinished, concrete.",
+      "blurb": "Saturated pigment applied straight, crisp dark rule. Beton brut by attitude: unrefined and loud. THE NEUBRUTALIST FILL — neo depends on it.",
       "fill": {
         "tone": 400
       },
@@ -83,7 +83,7 @@
     {
       "id": "lacquer",
       "label": "Lacquer",
-      "blurb": "Deep high-gloss.",
+      "blurb": "Deep gloss over colour, bright rim where the light catches the lip.",
       "fill": {
         "tone": 600
       },
@@ -97,7 +97,21 @@
     {
       "id": "metallic",
       "label": "Metallic",
-      "blurb": "Chrome / gold sheen.",
+      "blurb": "Dark brushed metal with a lit rim — the body absorbs, the edge catches.",
+      "fill": {
+        "tone": 900
+      },
+      "ink": {
+        "ink": "STRONG"
+      },
+      "edge_color": {
+        "tone": 400
+      }
+    },
+    {
+      "id": "glass",
+      "label": "Glass",
+      "blurb": "Translucent panel, neutral body, bright tinted rim. Reads through to what is behind.",
       "fill": {
         "surface": "OVERLAY"
       },
@@ -109,11 +123,11 @@
       }
     },
     {
-      "id": "paper",
-      "label": "Paper",
-      "blurb": "Neutral flat, print-like.",
+      "id": "plate",
+      "label": "Plate",
+      "blurb": "A quiet neutral panel that is PROUD of the surface, with a visible fabricated rim. Its whole point is RESTRAINT — the plate says nothing so the one active control can. THE VIBRON MATERIAL (operator-ruled 2026-08-05): brutalist massive plate hard-cast IS Vibron.",
       "fill": {
-        "surface": "RAISED"
+        "surface": "OVERLAY"
       },
       "ink": {
         "ink": "BASE"
@@ -123,28 +137,28 @@
       }
     },
     {
-      "id": "glass",
-      "label": "Glass",
-      "blurb": "Translucent pane; gloss via banded gradient, never a blur (doctrine).",
-      "fill": {
-        "surface": "OVERLAY"
-      },
-      "ink": {
-        "ink": "STRONG"
-      },
-      "edge_color": {
-        "tone": 200
-      }
-    },
-    {
-      "id": "clay",
-      "label": "Clay",
-      "blurb": "Soft extruded plane.",
+      "id": "paper",
+      "label": "Paper",
+      "blurb": "Flat fibrous stock, effectively edgeless — the rule is the same value as the sheet. What a page is made of.",
       "fill": {
         "surface": "RAISED"
       },
       "ink": {
         "ink": "BASE"
+      },
+      "edge_color": {
+        "surface": "RAISED"
+      }
+    },
+    {
+      "id": "clay",
+      "label": "Clay",
+      "blurb": "A soft RECESSED well — content sits IN it, not on it, so the body drops below the surface and the ink softens.",
+      "fill": {
+        "surface": "BASE"
+      },
+      "ink": {
+        "ink": "MUTED"
       },
       "edge_color": {
         "surface": "HAIRLINE"
@@ -390,7 +404,8 @@
         ],
         "material": [
           "paper",
-          "raw"
+          "raw",
+          "plate"
         ],
         "atmosphere": [
           "hard-cast"
@@ -454,7 +469,8 @@
           "glass",
           "clay",
           "neon-glass",
-          "amber-crt"
+          "amber-crt",
+          "plate"
         ],
         "atmosphere": [
           "bloom",
@@ -482,7 +498,8 @@
           "matte",
           "paper",
           "neon-glass",
-          "amber-crt"
+          "amber-crt",
+          "plate"
         ],
         "atmosphere": [
           "none",
@@ -524,7 +541,8 @@
         ],
         "material": [
           "matte",
-          "raw"
+          "raw",
+          "plate"
         ],
         "atmosphere": [
           "hard-cast"
@@ -571,7 +589,8 @@
         "material": [
           "glass",
           "paper",
-          "neon-glass"
+          "neon-glass",
+          "plate"
         ],
         "atmosphere": [
           "sheen",
@@ -635,7 +654,8 @@
           "metallic",
           "glass",
           "neon-glass",
-          "amber-crt"
+          "amber-crt",
+          "plate"
         ],
         "atmosphere": [
           "bloom",
@@ -660,7 +680,8 @@
         ],
         "material": [
           "matte",
-          "paper"
+          "paper",
+          "plate"
         ],
         "atmosphere": [
           "none",
@@ -706,7 +727,8 @@
         "material": [
           "matte",
           "lacquer",
-          "metallic"
+          "metallic",
+          "plate"
         ],
         "atmosphere": [
           "sheen",
