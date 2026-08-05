@@ -177,15 +177,27 @@ four-trait system had no vocabulary for it. Under the matrix it is a
 and `editorial` all list them `forbidden`; `brutalist` allows
 `neon-glass` but forbids `glass`; `memphis` forbids both.
 
-> **SUPERSEDED 2026-08-05 — operator: *"we will default to neo first the lime
-> green."*** The editor's DEFAULT is the **`neo-brute` seed on the `lime`
-> tone**, not the aero coordinate below. The aero reading came from the v3
-> mock's line 401 (*"flat wells + liquid-glass/cyber chrome"*); the operator's
-> live word outranks a mock inference. `neon-glass` remains the right material
-> for *nested* glass children inside the neo container — the daisy chain — but
-> it is not the editor's default dress.
+> **RULED 2026-08-05 (corrected in-session) — the editor's default is
+> `aero` wearing the `hacker` flavor.**
 >
-> ~~Proposed editor coordinate: `aero · measured · neon-glass · neon`~~
+> The operator first said *"we will default to neo first the lime green"*,
+> then corrected it: *"i was wrong to state default is brute neo while that
+> will exist as an option i agreed v3 but as aero hacker."*
+>
+> **Both statements are recorded on purpose** — the correction is the ruling,
+> and the first is kept so nobody re-derives it later and thinks the doc
+> drifted.
+>
+> - **DEFAULT: `aero` + `hacker`** — which resolves to the coordinate below.
+>   This agrees with the C1 ruling (*align to v3*) and with v3 mock line 401,
+>   so the mock and the operator now say the same thing.
+> - **`neo-brute` is an OPTION**, not the default — one of brutalist's three
+>   seeds (§3b), selectable, not the editor's dress.
+> - Per §3b, the authoring unit is **(ancestor, flavor)**, not a bare
+>   coordinate. `aero · measured · neon-glass · neon` is what `aero+hacker`
+>   RESOLVES to; it is not itself the thing being chosen.
+>
+> **Editor coordinate — `aero · measured · neon-glass · neon`**
 > Checked legal against `matrix.json:91-95` — aero allows structure
 > `measured`, materials `glass`/`neon-glass`, atmosphere `neon`.
 > That is precisely "flat wells + liquid-glass/cyber chrome + glow
@@ -301,7 +313,8 @@ needs confirmation.**
 
 | Surface | Base | Stack | Source |
 |---|---|---|---|
-| **WiredFRONT editor** | **`aero · measured · neon-glass · neon`** *(coordinate, legality-checked)* | — | v3 mock `:401` + `matrix.json:91-95` |
+| **WiredFRONT editor** | **`aero` + `hacker` flavor** → resolves to `aero · measured · neon-glass · neon` | glow spotlights | operator 2026-08-05 + v3 mock `:401` + `matrix.json:91-95` |
+| WiredFRONT editor *(option)* | `brutalist` + `neo` flavor on `lime` | — | operator 2026-08-05 — an option, **not** the default |
 | **Workbench** | *clay* | **machine-console flavor** (`claymorphism-cyber.png`) | operator 2026-08-04 |
 | Rail / hub chips | neubrutalist, per-hub tone | — | v3 mock `:349-368` |
 | Passive content cards | claymorphic | — | doctrine `:39` |

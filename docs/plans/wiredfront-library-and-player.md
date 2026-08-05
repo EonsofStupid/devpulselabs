@@ -1,4 +1,4 @@
-# Pass — the editor wears neo, the library caches, and media previews before it lands
+# Pass — the editor wears aero+hacker, the library caches, and media previews before it lands
 
 ## 1. Context
 
@@ -6,6 +6,11 @@ Three operator requirements, 2026-08-05, verbatim:
 
 > "you must ensure that this editor is faithfully getting styled correct we
 > will default to neo first the lime green"
+
+...corrected by the operator the same day, and the correction is the ruling:
+
+> "i was wrong to state default is brute neo while that will exist as an
+> option i agreed v3 but as aero hacker"
 
 > "then we need to make sure that the library is easily providing a simple
 > browser add folder experience that will ask to cache for thumbnail
@@ -19,11 +24,15 @@ Three deliverables, in dependency order: **A** the editor's default dress,
 **B** add-a-folder with consented thumbnail caching, **C** the preview popup
 that can promote what it is showing into the timeline.
 
-**A supersedes a recorded decision.** `docs/design/visual-language.md` carried
-`aero · measured · neon-glass · neon` as the editor's proposed coordinate,
-inferred from v3 mock line 401. The operator's live word outranks it; the file
-now records the supersession. `neon-glass` stays correct for *nested* glass
-children inside the neo container (the daisy chain), just not the default.
+**A settles a decision that flipped twice.** `visual-language.md` proposed
+`aero · measured · neon-glass · neon` from v3 mock line 401; the operator then
+said neo/lime; then corrected to **`aero` + `hacker`**. The correction stands,
+and it AGREES with both the C1 ruling (*align to v3*) and the mock — so the
+document and the mock now say the same thing rather than disagreeing.
+
+Per `visual-language.md` §3b the authoring unit is **(ancestor, flavor)**, not
+a bare coordinate: `aero+hacker` RESOLVES to that coordinate. `brutalist+neo`
+on `lime` remains a selectable OPTION.
 
 ## 2. Current state (read in-session 2026-08-05)
 
@@ -37,9 +46,9 @@ children inside the neo container (the daisy chain), just not the default.
   proof shots read as pills.
 - `docs/design/references/neubrutalist.png` shows the correct usage: **one**
   saturated hero button; every other control is a dark extruded plate.
-- The seed bench (`docs/design/mocks/seed-bench-brutalist.html`, rendered and
-  reviewed) already carries Neo-Brute's real formula: lime bar, 3px black
-  edge, 6px hard offset shadow, `#eef2f9` button fill with `#07090e` ink.
+- The v3 mock §4 (rendered and reviewed) carries the glass stops; the seed
+  bench carries Neo-Brute's formula. **v3/aero+hacker is the default; the seed
+  bench is the OPTION**, not the target.
 
 ### 2.2 Library / browse
 
@@ -83,24 +92,32 @@ children inside the neo container (the daisy chain), just not the default.
 
 ## 3. Target design
 
-### A — the editor wears neo
+### A — the editor wears `aero` + `hacker`
 
-Neo-Brute becomes the editor's default seed on the **lime** tone. The
-correction is *what wears the saturated fill*:
+The default is the v3 language: **flat wells, liquid-glass/cyber chrome, glow
+used as a SPOTLIGHT on the active thing** — the `editor.png` read. Resolved
+from `matrix.json`, every value authored, nothing hand-picked:
 
-| element | today | neo-brute |
+| element | today | aero + hacker |
 |---|---|---|
-| top/bottom bars | translucent | **lime plate, black edge** |
-| ordinary buttons | saturated tone-400 pill | **`#eef2f9` plate, black 3px edge, 6px hard shadow** |
-| the ONE primary action | same as everything | the saturated lime plate |
-| panels | no edge | 3px black edge, hard shadow |
-| press | none | 4px travel onto the shadow |
+| panel fill | translucent, no edge | `surface RAISED` (via M2 fallback to aero's native `clay`) |
+| edge | none | **1px cyan-400**, `measured` radius 4 |
+| ink | mixed | **cyan-100** — cold, pale |
+| ordinary control | saturated tone-400 pill | dark plate, thin cyan edge, **no glow** |
+| the ACTIVE thing | indistinguishable | the cyan glow ring (spread 14 + 28) |
+| wells / stage | mood bleeds through | flat `WELL` |
 
-Rendered and reviewed already in the seed bench, so this is transcription, not
-invention. It rides `cl::treated` today; when `resolve()` lands
-(`matrix-resolve.md`) it becomes the coordinate `brutalist · massive · raw ·
-hard-cast` on `lime` with no visual change — that equivalence is
-`matrix-resolve.md`'s byte-identical test.
+**The correction this makes to today's editor** is the same one either seed
+would have made: *stop giving every control the loud treatment.* Today
+`neubrutalist.fill = {tone:400}` is opaque and applied to everything, so
+nothing reads as selected. Under aero+hacker the loud thing is the **glow on
+the active element**, and everything else is a quiet plate.
+
+`brutalist + neo` on `lime` stays authored and selectable — it is an option,
+and the seed bench already carries its formula.
+
+It rides `cl::treated` today; when `resolve()` lands (`matrix-resolve.md`) it
+becomes the coordinate proper with no visual change.
 
 ### B — add a folder, then consent to caching
 
@@ -153,16 +170,17 @@ popup stays open so several items can be added in a row.
 
 ## 4. Changes, in execution order
 
-**A — the editor wears neo** (smallest, independently shippable)
+**A — the editor wears `aero` + `hacker`** (smallest, independently shippable)
 
 1. `crates/composer/src/lib.rs` — `tool_btn` / `tool_cap_btn` / `icon_btn` /
-   `icon_word_btn` / `small_btn` / `tag_chip`: plate fill + black edge + hard
-   offset shadow per §3A; the saturated tone reserved for the ONE primary
-   action and the active state.
-2. Same file — bars (`ae_screen`'s `tools_rect`, `status_rect`) take the lime
-   plate; panels take the 3px edge + hard shadow.
+   `icon_word_btn` / `small_btn` / `tag_chip`: quiet dark plate + 1px cyan
+   edge + `measured` radius per §3A. **The glow ring is reserved for the
+   ACTIVE control only** — that is the whole correction.
+2. Same file — `ae_screen`'s panel rects take the flat `WELL`/`RAISED`
+   treatment with a hairline edge; no saturated fills anywhere.
 3. Proof: `--route wiredfront/editor` at maximized, `1100x700`, `1600x900`;
-   compare against `seed-bench-brutalist.html` region by region.
+   compare against `docs/design/references/editor.png` and v3 §4's glass
+   stops region by region.
 
 **B — the library caches** (needs no new dependency)
 
@@ -211,8 +229,9 @@ popup stays open so several items can be added in a row.
 ## 6. Verification
 
 - `cargo green` exits 0.
-- **A:** proof shots at three sizes beside `seed-bench-brutalist.html`; the
-  feel bar is the gate — one saturated hero, everything else a plate.
+- **A:** proof shots at three sizes beside `docs/design/references/editor.png`;
+  the feel bar is the gate — **glow marks the active thing and nothing else**,
+  every other control a quiet plate.
 - **B:** add a real folder of ~50 videos → the prompt states the count →
   accept → browsing stays responsive while thumbs fill → **second open is
   instant** (cache hit). Touch one file's mtime → only that one regenerates.
