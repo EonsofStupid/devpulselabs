@@ -2304,6 +2304,11 @@ mod tests {
             "delete",
             "group-open",
             "group-closed",
+            // the mock's ⑦ switch columns
+            "layer-visible",
+            "layer-hidden",
+            "layer-lock",
+            "layer-parent",
         ];
         for id in EDITOR_ICONS {
             let def = icon_def(id)

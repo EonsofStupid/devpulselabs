@@ -1,5 +1,5 @@
 {
-  "$comment": "The 8th authored source (ADR-015): semantic icon ids resolved from the vendored Lucide 1.27.0 pool (assets/lucide/icons). One entry per MEANING \u2014 the same law the old glyph consts carried. An entry whose SVG is missing fails the build.",
+  "$comment": "The 8th authored source (ADR-015): semantic icon ids resolved from the vendored Lucide 1.27.0 pool (assets/lucide/icons). One entry per MEANING — the same law the old glyph consts carried. An entry whose SVG is missing fails the build.",
   "icons": [
     {
       "id": "home",
@@ -151,7 +151,6 @@
       "label": "Providers",
       "blurb": "the frontier AI on this machine"
     },
-
     {
       "id": "tool-select",
       "lucide": "mouse-pointer-2",
@@ -212,7 +211,6 @@
       "label": "3D",
       "blurb": "give layers depth in space"
     },
-
     {
       "id": "transport-start",
       "lucide": "skip-back",
@@ -249,7 +247,6 @@
       "label": "Jump to end",
       "blurb": "go to the very end"
     },
-
     {
       "id": "browse",
       "lucide": "folder-open",
@@ -304,7 +301,6 @@
       "label": "Overlay",
       "blurb": "lay this on top at the playhead"
     },
-
     {
       "id": "search",
       "lucide": "search",
@@ -317,7 +313,6 @@
       "label": "Info",
       "blurb": "the facts about what is selected"
     },
-
     {
       "id": "zoom-in",
       "lucide": "zoom-in",
@@ -347,6 +342,30 @@
       "lucide": "chevron-right",
       "label": "Expand",
       "blurb": "show what is inside"
+    },
+    {
+      "id": "layer-visible",
+      "lucide": "eye",
+      "label": "Visible",
+      "blurb": "this layer is showing — tap to hide it"
+    },
+    {
+      "id": "layer-hidden",
+      "lucide": "eye-off",
+      "label": "Hidden",
+      "blurb": "this layer is hidden — tap to show it again"
+    },
+    {
+      "id": "layer-lock",
+      "lucide": "lock",
+      "label": "Locked",
+      "blurb": "stop this layer being moved or removed by accident"
+    },
+    {
+      "id": "layer-parent",
+      "lucide": "link-2",
+      "label": "Parent",
+      "blurb": "make this layer ride another one's movement"
     }
   ]
 }

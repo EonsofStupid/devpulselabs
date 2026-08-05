@@ -51,8 +51,21 @@ const PROP_H: f32 = 20.0;
 const RULER_H: f32 = 22.0;
 /// The FX section divider row's height (L3).
 const FXHDR_H: f32 = 18.0;
-/// The layer OUTLINE column's width (timeline left half).
-const OUTLINE_W: f32 = 252.0;
+/// The layer OUTLINE column's width (timeline left half). Widened for the
+/// mock's switch columns — the name still clips rather than colliding.
+const OUTLINE_W: f32 = 330.0;
+/// The depth a layer takes when its 3D switch is first lit — far enough to
+/// read as "further away", not so far it vanishes.
+const DEFAULT_LAYER_Z: f32 = 400.0;
+/// The camera's focal length when the comp's 3D switch adds one. With
+/// DEFAULT_LAYER_Z this puts a pushed-back layer at 0.75 scale — visible, not
+/// dramatic.
+const DEFAULT_FOCAL: f32 = 1200.0;
+/// One switch cell in the outline's right-hand columns.
+const SWITCH_W: f32 = 16.0;
+/// Where the switch block starts, measured back from the row's right edge
+/// (leaving room for the start-time readout beyond it).
+const SWITCHES_RIGHT: f32 = 128.0;
 /// Registry-icon paint sizes (ADR-015 meshes scale cleanly, so these are
 /// the only two the editor needs): SM rides inline with text, MD is a
 /// tappable control's glyph.
@@ -424,6 +437,19 @@ enum Act {
     BrowseAt(PathBuf),
     /// File the finished render into (show, episode) — the tag seam.
     Keep(String, String),
+    /// The mock's ⑦ switch columns — each toggles real document state and
+    /// checkpoints, so one undo reverses it.
+    ToggleVisible(String),
+    ToggleLock(String),
+    ToggleLayerBlur(String),
+    Toggle3d(String),
+    /// Step this layer's parent through the legal candidates and back to
+    /// none — a picker without a popover, which is all the outline has room
+    /// for. Cycles are refused by `dpl_comp::parent_would_cycle`.
+    CycleParent(String),
+    /// The comp-level switches from the tool strip (mock ②).
+    ToggleCompBlur,
+    ToggleCamera,
     /// Open the PREVIEW modal on something — look before it lands.
     Preview(player::Source),
 }
@@ -991,6 +1017,43 @@ impl Composer {
         }
     }
 
+    /// Step a layer's parent to the next LEGAL candidate, then back to none.
+    ///
+    /// The outline has no room for a popover, so parenting cycles instead:
+    /// tap through the layers that would not close a loop, then off. Legality
+    /// comes from `dpl_comp::parent_would_cycle`, so the document can never
+    /// hold a cycle authored through the UI.
+    fn cycle_parent(&mut self, id: &str) {
+        let track = self
+            .comp
+            .tracks
+            .iter()
+            .position(|t| t.layers.iter().any(|l| l.id == id));
+        let Some(ti) = track else { return };
+        let layers = self.comp.tracks[ti].layers.clone();
+        let candidates: Vec<String> = layers
+            .iter()
+            .filter(|l| l.id != id && !dpl_comp::parent_would_cycle(&layers, id, &l.id))
+            .map(|l| l.id.clone())
+            .collect();
+        let current = layers
+            .iter()
+            .find(|l| l.id == id)
+            .and_then(|l| l.parent.clone());
+        let next = match current {
+            None => candidates.first().cloned(),
+            Some(cur) => match candidates.iter().position(|c| *c == cur) {
+                // past the last candidate wraps to NONE, so a tap-through
+                // always has a way back to unparented.
+                Some(i) => candidates.get(i + 1).cloned(),
+                None => candidates.first().cloned(),
+            },
+        };
+        if let Some(l) = self.comp.tracks[ti].layers.iter_mut().find(|l| l.id == id) {
+            l.parent = next;
+        }
+    }
+
     /// A layer id unique across the comp: the first free `clip-N`.
     fn next_layer_id(&self) -> String {
         let used: BTreeSet<&str> = self
@@ -1075,7 +1138,23 @@ impl Composer {
     /// Select a layer (outline + Info focus). The PREVIEW follows the
     /// playhead, not the selection — like any real editor.
     fn select(&mut self, id: &str) {
+        // LOCK GUARD. A locked layer cannot be picked, which is what makes
+        // every downstream edit (drag, trim, remove, inspector) safe without
+        // each one re-checking.
+        if self.layers().iter().any(|l| l.id == id && l.locked) {
+            self.status = "That layer is locked — tap its lock to edit it.".into();
+            return;
+        }
         self.selected = Some(id.to_string());
+    }
+
+    /// Is `id` locked? The guard the remove paths ask before acting.
+    fn is_locked(&self, id: &str) -> bool {
+        self.comp
+            .tracks
+            .iter()
+            .flat_map(|t| t.layers.iter())
+            .any(|l| l.id == id && l.locked)
     }
 
     /// The layer under the playhead: the FIRST row whose [start, end)
@@ -1194,6 +1273,10 @@ impl Composer {
     }
 
     fn remove(&mut self, id: &str) {
+        if self.is_locked(id) {
+            self.status = "That layer is locked — unlock it first.".into();
+            return;
+        }
         self.checkpoint();
         // EVERY track — an FX overlay removes exactly like a base cut.
         for track in &mut self.comp.tracks {
@@ -2813,6 +2896,79 @@ impl Composer {
             }
             Some(Act::OpenComp(dir)) => self.open_comp(dir),
             Some(Act::Select(id)) => self.select(&id),
+            Some(Act::ToggleVisible(id)) => {
+                self.checkpoint();
+                if let Some(l) = self.layer_mut(&id) {
+                    l.visible = !l.visible;
+                }
+                self.mark_edit();
+                self.reconcile_overlays(ui.ctx());
+            }
+            Some(Act::ToggleLock(id)) => {
+                self.checkpoint();
+                if let Some(l) = self.layer_mut(&id) {
+                    l.locked = !l.locked;
+                    // Locking what is selected also drops the selection —
+                    // otherwise the inspector still offers edits the guards
+                    // will silently refuse.
+                    if l.locked && self.selected.as_deref() == Some(id.as_str()) {
+                        self.selected = None;
+                    }
+                }
+                self.mark_edit();
+            }
+            Some(Act::ToggleLayerBlur(id)) => {
+                self.checkpoint();
+                if let Some(l) = self.layer_mut(&id) {
+                    l.motion_blur = !l.motion_blur;
+                }
+                self.mark_edit();
+                if !self.comp.motion_blur {
+                    self.status = "Motion blur is off for the whole comp — turn on                                    m.blur in the tool strip to see it."
+                        .into();
+                }
+            }
+            Some(Act::Toggle3d(id)) => {
+                self.checkpoint();
+                if let Some(l) = self.layer_mut(&id) {
+                    // A layer is "3D" when it has depth; toggling gives it a
+                    // sensible push back rather than a meaningless 0.
+                    l.z = if l.z == 0.0 { DEFAULT_LAYER_Z } else { 0.0 };
+                }
+                self.mark_edit();
+                if self.comp.focal.is_none() {
+                    self.status = "This comp has no camera yet — turn on 3D in the                                    tool strip and depth starts to show."
+                        .into();
+                }
+            }
+            Some(Act::CycleParent(id)) => {
+                self.checkpoint();
+                self.cycle_parent(&id);
+                self.mark_edit();
+            }
+            Some(Act::ToggleCompBlur) => {
+                self.checkpoint();
+                self.comp.motion_blur = !self.comp.motion_blur;
+                self.mark_edit();
+                self.status = if self.comp.motion_blur {
+                    "Motion blur on — layers with their own switch lit will smear.".into()
+                } else {
+                    "Motion blur off for the whole comp.".into()
+                };
+            }
+            Some(Act::ToggleCamera) => {
+                self.checkpoint();
+                self.comp.focal = match self.comp.focal {
+                    Some(_) => None,
+                    None => Some(DEFAULT_FOCAL),
+                };
+                self.mark_edit();
+                self.status = if self.comp.focal.is_some() {
+                    "Camera added — layers with depth now sit nearer or further.".into()
+                } else {
+                    "Camera removed — the comp is flat again.".into()
+                };
+            }
             Some(Act::Preview(src)) => {
                 let root = Self::content_root();
                 self.preview_modal = Some(player::Preview::open(src, &root));
@@ -3168,6 +3324,35 @@ impl Composer {
                         }
                     }
                     ui.add_space(cl::space::S3);
+                    // m.blur and 3D are LIVE comp switches now (mock ② calls
+                    // m.blur "a comp switch"), so they leave the honest
+                    // later-phase list below and gain real state.
+                    let blur_on = self.comp.motion_blur;
+                    if cl::tip(
+                        tool_cap_btn(ui, "tool-mblur", "m.blur", blur_on),
+                        if blur_on {
+                            "Motion blur is ON for this comp. Each layer still needs its                              own switch in the timeline."
+                        } else {
+                            "Turn on motion blur for this comp, then light it per layer                              in the timeline."
+                        },
+                    )
+                    .clicked()
+                    {
+                        *act = Some(Act::ToggleCompBlur);
+                    }
+                    let cam_on = self.comp.focal.is_some();
+                    if cl::tip(
+                        tool_cap_btn(ui, "tool-3d", "3D", cam_on),
+                        if cam_on {
+                            "This comp has a camera — layers with depth sit nearer or                              further. Tap to remove it and go flat."
+                        } else {
+                            "Add a camera so layers can have depth. Give a layer depth                              with its 3D switch in the timeline."
+                        },
+                    )
+                    .clicked()
+                    {
+                        *act = Some(Act::ToggleCamera);
+                    }
                     for (icon, label, blurb) in [
                         (
                             "tool-null",
@@ -3183,16 +3368,6 @@ impl Composer {
                             "tool-track",
                             "track",
                             "Motion tracking — a ratified later phase.",
-                        ),
-                        (
-                            "tool-mblur",
-                            "m.blur",
-                            "Motion blur — a ratified later phase.",
-                        ),
-                        (
-                            "tool-3d",
-                            "3D",
-                            "3D layers and cameras — a ratified later phase.",
                         ),
                     ] {
                         let resp = cl::tip(tool_cap_btn(ui, icon, label, false), blurb);
@@ -4109,6 +4284,11 @@ impl Composer {
                         egui::FontId::monospace(10.0),
                         cl::ink::SUBTLE,
                     );
+
+                    if let Some(a) = switch_columns(ui, &painter, r, layer, row_i, "tl") {
+                        *act = Some(a);
+                    }
+
                     // Two hit zones: the twirl (left 52px) and the row.
                     let twirl = Rect::from_min_max(r.min, egui::pos2(r.min.x + 52.0, r.max.y));
                     let tw_resp =
@@ -4118,7 +4298,12 @@ impl Composer {
                         *act = Some(Act::ToggleExpand(layer.id.clone()));
                     }
                     let row_resp = ui.interact(
-                        Rect::from_min_max(egui::pos2(r.min.x + 52.0, r.min.y), r.max),
+                        Rect::from_min_max(
+                            egui::pos2(r.min.x + 52.0, r.min.y),
+                            // Stop short of the switches — otherwise every
+                            // toggle would also select the row underneath it.
+                            egui::pos2(r.max.x - SWITCHES_RIGHT - SWITCH_W * 0.5, r.max.y),
+                        ),
                         egui::Id::new(("tl-row", row_i)),
                         Sense::click(),
                     );
@@ -4186,11 +4371,13 @@ impl Composer {
                     );
                     painter.rect_filled(chip_r, CornerRadius::same(2), Tone::Violet.color());
                     let open = self.expanded.contains(&layer.id);
-                    painter.text(
-                        egui::pos2(r.min.x + 40.0, r.center().y),
-                        egui::Align2::LEFT_CENTER,
-                        if open { "-" } else { "+" },
-                        egui::FontId::monospace(11.0),
+                    cl::draw_icon(
+                        &painter,
+                        if open { "group-open" } else { "group-closed" },
+                        Rect::from_center_size(
+                            egui::pos2(r.min.x + 44.0, r.center().y),
+                            egui::vec2(ICON_SM, ICON_SM),
+                        ),
                         cl::ink::SUBTLE,
                     );
                     painter.text(
@@ -4211,6 +4398,11 @@ impl Composer {
                         egui::FontId::monospace(10.0),
                         cl::ink::SUBTLE,
                     );
+                    // Overlays are exactly where blur and parenting matter most,
+                    // so they carry the same columns as a base row.
+                    if let Some(a) = switch_columns(ui, &painter, r, layer, row_i, "tl-fx") {
+                        *act = Some(a);
+                    }
                     let twirl = Rect::from_min_max(r.min, egui::pos2(r.min.x + 52.0, r.max.y));
                     let tw_resp =
                         ui.interact(twirl, egui::Id::new(("tl-fx-twirl", row_i)), Sense::click());
@@ -4219,7 +4411,11 @@ impl Composer {
                         *act = Some(Act::ToggleExpand(layer.id.clone()));
                     }
                     let row_resp = ui.interact(
-                        Rect::from_min_max(egui::pos2(r.min.x + 52.0, r.min.y), r.max),
+                        Rect::from_min_max(
+                            egui::pos2(r.min.x + 52.0, r.min.y),
+                            // Stop short of the switches, as the base row does.
+                            egui::pos2(r.max.x - SWITCHES_RIGHT - SWITCH_W * 0.5, r.max.y),
+                        ),
                         egui::Id::new(("tl-fx-row", row_i)),
                         Sense::click(),
                     );
@@ -5683,6 +5879,105 @@ fn empty_line(ui: &mut egui::Ui, text: &str) {
     ui.label(RichText::new(text).small().color(cl::ink::SUBTLE));
 }
 
+/// Paint the mock's ⑦ switch columns for one layer row; return what a tap
+/// asked for.
+///
+/// **The read is DEFAULT-QUIET.** A switch sitting at its default stays
+/// muted; a switch that is NON-default lights in its tone. So an ordinary row
+/// is silent and anything lit means "this layer is special" — which is the
+/// only way a thirty-row timeline stays scannable. Lighting every visible
+/// layer's eye would make the common case the loudest thing on screen.
+///
+/// `ns` namespaces the interaction ids so base rows and fx rows never collide.
+fn switch_columns(
+    ui: &mut egui::Ui,
+    painter: &egui::Painter,
+    r: Rect,
+    layer: &Layer,
+    row_i: usize,
+    ns: &'static str,
+) -> Option<Act> {
+    let id = layer.id.clone();
+    let mut out = None;
+    let mut sx = r.max.x - SWITCHES_RIGHT;
+    let mut cell = |icon: &str, lit: Option<Tone>, tip: &str, key: &str| {
+        let cell = Rect::from_center_size(
+            egui::pos2(sx, r.center().y),
+            egui::vec2(SWITCH_W, SWITCH_W),
+        );
+        sx += SWITCH_W;
+        cl::draw_icon(
+            painter,
+            icon,
+            cell.shrink(3.0),
+            lit.map_or(cl::ink::MUTED, |t| t.color()),
+        );
+        cl::tip(
+            ui.interact(cell, egui::Id::new((ns, key, row_i)), Sense::click()),
+            tip,
+        )
+        .clicked()
+    };
+
+    if cell(
+        if layer.visible { "layer-visible" } else { "layer-hidden" },
+        // LIT means hidden — the abnormal state is the one worth seeing.
+        (!layer.visible).then_some(Tone::Coral),
+        if layer.visible {
+            "Showing — tap to hide it. A hidden layer keeps its place in time."
+        } else {
+            "HIDDEN — it still holds its place in time. Tap to show it again."
+        },
+        "vis",
+    ) {
+        out = Some(Act::ToggleVisible(id.clone()));
+    }
+    if cell(
+        "layer-lock",
+        layer.locked.then_some(Tone::Amber),
+        if layer.locked {
+            "LOCKED — it cannot be picked, dragged or removed. Tap to unlock."
+        } else {
+            "Lock it so you cannot move or remove it by accident."
+        },
+        "lock",
+    ) {
+        out = Some(Act::ToggleLock(id.clone()));
+    }
+    if cell(
+        "tool-3d",
+        (layer.z != 0.0).then_some(Tone::Violet),
+        "Give this layer depth. It only shows once the comp has a camera —          the 3D switch in the tool strip adds one.",
+        "3d",
+    ) {
+        out = Some(Act::Toggle3d(id.clone()));
+    }
+    if cell(
+        "tool-mblur",
+        layer.motion_blur.then_some(Tone::Lime),
+        "Smear this layer's movement. The tool strip's m.blur switch has to be          on too — that one kills blur for the whole comp.",
+        "blur",
+    ) {
+        out = Some(Act::ToggleLayerBlur(id.clone()));
+    }
+    // Bound, not inlined: a `&format!` in a match arm would be a temporary
+    // dropped before the tooltip reads it.
+    let parent_tip = match layer.parent.as_deref() {
+        Some(p) => format!("Riding {p} — tap for the next one, or off."),
+        None => "Make this layer ride another, so moving that one moves this too."
+            .to_string(),
+    };
+    if cell(
+        "layer-parent",
+        layer.parent.is_some().then_some(Tone::Magenta),
+        &parent_tip,
+        "parent",
+    ) {
+        out = Some(Act::CycleParent(id));
+    }
+    out
+}
+
 /// One tappable project row: KIND ICON · name · trailing value; whole-row
 /// hit. The icon is a registry id (mock ③ paints kind swatches, not the
 /// three-letter codes this carried before).
@@ -6346,6 +6641,91 @@ mod tests {
 
     /// Hiding a BASE cut must not re-time the comp. It becomes black of the
     /// same duration, so every cut after it stays exactly where it was.
+    /// Lock has to mean something. Guarding SELECT is what makes every
+    /// downstream edit safe without each one re-checking.
+    #[test]
+    fn a_locked_layer_cannot_be_selected_or_removed() {
+        let mut c = Composer::default();
+        c.add_clip(&Record {
+            rel_path: "inbox/a.mp4".into(),
+            name: "a".into(),
+            kind: "video".into(),
+            seconds: Some(4),
+            ..Default::default()
+        });
+        let id = c.layers()[0].id.clone();
+
+        c.select(&id);
+        assert_eq!(c.selected.as_deref(), Some(id.as_str()), "unlocked: selects");
+
+        c.selected = None;
+        c.comp.tracks[0].layers[0].locked = true;
+        c.select(&id);
+        assert!(c.selected.is_none(), "locked: refuses selection");
+        assert!(c.status.contains("locked"), "and says why: {}", c.status);
+
+        c.remove(&id);
+        assert_eq!(c.layers().len(), 1, "locked: refuses removal");
+
+        c.comp.tracks[0].layers[0].locked = false;
+        c.remove(&id);
+        assert_eq!(c.layers().len(), 0, "unlocked again: removes");
+    }
+
+    /// Parenting cycles through the LEGAL candidates and back to none, so a
+    /// tap-through always has a way out and can never author a loop.
+    #[test]
+    fn parenting_cycles_through_legal_candidates_and_back_to_none() {
+        let mut c = Composer::default();
+        for n in ["a", "b"] {
+            c.add_clip(&Record {
+                rel_path: format!("inbox/{n}.mp4"),
+                name: n.into(),
+                kind: "video".into(),
+                seconds: Some(2),
+                ..Default::default()
+            });
+        }
+        let (a, b) = (c.layers()[0].id.clone(), c.layers()[1].id.clone());
+
+        c.cycle_parent(&a);
+        assert_eq!(
+            c.layers()[0].parent.as_deref(),
+            Some(b.as_str()),
+            "first tap rides the only other layer"
+        );
+        c.cycle_parent(&a);
+        assert!(
+            c.layers()[0].parent.is_none(),
+            "past the last candidate wraps to NONE — always a way out"
+        );
+
+        // With a riding b, b may not ride a — the cycler must not offer it.
+        c.cycle_parent(&a);
+        c.cycle_parent(&b);
+        assert!(
+            c.layers()[1].parent.is_none(),
+            "no legal candidate for b, so it stays unparented rather than looping"
+        );
+    }
+
+    /// The comp switches are one tap and one undo, like every other edit.
+    #[test]
+    fn the_comp_switches_toggle_and_undo() {
+        let mut c = Composer::default();
+        assert!(!c.comp.motion_blur && c.comp.focal.is_none(), "off by default");
+
+        c.checkpoint();
+        c.comp.motion_blur = true;
+        c.checkpoint();
+        c.comp.focal = Some(DEFAULT_FOCAL);
+        assert!(c.comp.focal.is_some());
+
+        c.undo_now();
+        assert!(c.comp.focal.is_none(), "one undo removed the camera");
+        assert!(c.comp.motion_blur, "and left the blur switch alone");
+    }
+
     #[test]
     fn a_hidden_base_cut_holds_its_time_as_black() {
         let mut c = Composer::default();
