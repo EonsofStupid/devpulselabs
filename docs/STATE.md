@@ -14,6 +14,33 @@ we got here.
 > - any Providers-program link described as planned — P1, V1, V2, V3, A1 and
 >   A2 all landed (#192).
 
+**2026-08-06 — THE MEDIA-EXPERIENCE PROGRAM IS PLANNED — BROWSER, GIMP,
+ADOBE EXIT (`docs/plans/media-experience-program.md` +
+`docs/runbook/adobe-exit.md`):** research-first pass, no code. The browse
+freeze is grounded with 13 ranked suspects, every one with file:line — the
+killer is `Index::open_default()` **four times on the editor's first
+paint** (fresh tokio runtime + turso open + DDL each, on the UI thread; the
+`author.rs:1055` incident already proved this pattern hangs proof runs),
+then the unvirtualized 500-card grids (frame 1 can spawn ~1000 loader
+threads via egui_extras' thread-per-URI loaders), a recursive
+`count_files(elements)` **every frame** on the Library route, first-paint
+recursive walks over pinned USB drives, and 26 drive-letter probes on the
+UI thread when Browse opens — five violations of `browse.rs`'s own header
+law ("No UI surface ever walks a directory on the paint thread"). The plan
+is enforcement, not invention: A1 kill the paint-path blockers → A2
+virtualized streamed grids (skeleton-then-swap, visible-first, budgets) →
+A3 disk thumb cache + video thumbs (absorbs `wiredfront-library-and-player`
+part B, which never landed — `poster_for`/`ThumbJob` have zero grep hits —
+consent prompt intact) → A4 layman layer. Arc B: GIMP 3 as an ADR-009
+subprocess (`gimp-console` batch + sentinel verdicts; `GIMP3_DIRECTORY`
+profile sandbox; PhotoGIMP is GPLv3 config but **broken on GIMP 3.2.x** —
+pairing decision PROPOSED §7). Arc C: the Adobe exit runbook —
+.mogrt = zip-in-zip → .aep; queue-all-comps.jsx → aerender → ProRes 4444
++ alpha archive (render-don't-parse holds); Lottie only for
+re-animatables, expressions BAKED (ThorVG can't run them); .ffx confirmed
+unconvertible; P0 clocks: cloud files + CC fonts audit. Lane
+`dpl-lane-lucide` verified fully landed (#211) and retired this session.
+
 **2026-08-05 — THE MATRIX RESOLVES, AND THE EDITOR WEARS A COORDINATE
 (journals `docs/journal/2026-08-05-preset-benches.md` +
 `docs/journal/2026-08-05-matrix-resolves.md`, `8f9d98e` + `8918b14`):**
