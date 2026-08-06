@@ -768,6 +768,12 @@ pub fn set_chrome_preset(surface: &str, id: &str) -> bool {
     true
 }
 
+/// Every surface currently overridden, so the app can persist the set
+/// without coldlight ever touching the filesystem.
+pub fn chrome_choices() -> Vec<(String, &'static str)> {
+    with_overrides(|o| o.clone())
+}
+
 /// Put a surface back to whatever `roles.json` authored for it.
 pub fn clear_chrome_preset(surface: &str) {
     with_overrides(|o| o.retain(|(s, _)| s != surface));

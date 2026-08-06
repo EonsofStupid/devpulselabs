@@ -597,6 +597,9 @@ struct Boot {
 
 struct App {
     shell: Shell,
+    /// The last-written ColdLight picks, so a write only happens when the
+    /// operator actually changed something.
+    chrome_choices: ChromeChoices,
     /// The one fabric — kept for the first-frame waker install (the
     /// egui Context exists only inside frames; doctrine law 6).
     fabric: Fabric,
@@ -1070,8 +1073,14 @@ impl App {
         );
         chat.attach_determinism(determinism);
 
+        // What the operator last picked, applied before the first frame so the
+        // app opens wearing it rather than flashing the authored look first.
+        let chrome_choices = ChromeChoices::load(&dpl_engine_capture::userdata_root());
+        chrome_choices.apply();
+
         Self {
             shell,
+            chrome_choices,
             fabric,
             waker_installed: false,
             viziwiz,
@@ -1497,6 +1506,64 @@ fn fit_window(ctx: &egui::Context) {
     }
 }
 
+// ── the operator's ColdLight picks, remembered ──────────────────────────
+//
+// `dpl-coldlight` holds the live override table but never touches the
+// filesystem — it has no business knowing where `.userdata` is. The app owns
+// that, exactly as it owns the assist policy, so persistence costs coldlight
+// no dependency and the structure audit stays flat.
+
+/// Which preset each surface is wearing, on disk under the three-ring root.
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+struct ChromeChoices {
+    #[serde(default)]
+    surfaces: std::collections::BTreeMap<String, String>,
+}
+
+const CHROME_CHOICES_FILE: &str = "coldlight.json";
+
+impl ChromeChoices {
+    /// A missing or corrupt file is not an error — it means "nothing picked
+    /// yet", which is the authored look.
+    fn load(userdata: &std::path::Path) -> Self {
+        std::fs::read(userdata.join(CHROME_CHOICES_FILE))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default()
+    }
+
+    fn save(&self, userdata: &std::path::Path) -> std::io::Result<()> {
+        let bytes = serde_json::to_vec_pretty(self).map_err(std::io::Error::other)?;
+        let temporary = userdata.join(format!("{CHROME_CHOICES_FILE}.tmp"));
+        std::fs::write(&temporary, bytes)?;
+        std::fs::rename(temporary, userdata.join(CHROME_CHOICES_FILE))
+    }
+
+    /// What coldlight is wearing right now.
+    fn snapshot() -> Self {
+        Self {
+            surfaces: dpl_coldlight::chrome_choices()
+                .into_iter()
+                .map(|(surface, id)| (surface, id.to_owned()))
+                .collect(),
+        }
+    }
+
+    /// Apply what was remembered. A preset that no longer exists is DROPPED
+    /// with a line rather than killing the launch — a rename must not brick
+    /// the app on start.
+    fn apply(&self) {
+        for (surface, id) in &self.surfaces {
+            if !dpl_coldlight::set_chrome_preset(surface, id) {
+                eprintln!(
+                    "coldlight: remembered preset {id:?} for {surface:?} no longer exists — \
+                     falling back to the authored look"
+                );
+            }
+        }
+    }
+}
+
 impl eframe::App for App {
     fn on_exit(&mut self) {
         if let Some(tap) = self.ledger.take() {
@@ -1516,6 +1583,18 @@ impl eframe::App for App {
         self.chat.root_close_requested(ui.ctx());
         fit_window(ui.ctx());
         self.shell.ui(ui);
+
+        // The picker lives in the shell and mutates coldlight's table; the app
+        // notices the change and writes it. Comparing a handful of short
+        // strings once a frame is cheaper than threading an event through two
+        // crates, and it cannot miss a pick.
+        let picks = ChromeChoices::snapshot();
+        if picks.surfaces != self.chrome_choices.surfaces {
+            if let Err(error) = picks.save(&dpl_engine_capture::userdata_root()) {
+                eprintln!("coldlight: could not remember the preset pick: {error}");
+            }
+            self.chrome_choices = picks;
+        }
         let ctx = ui.ctx().clone();
         self.chat.frame(&ctx, self.shell.route());
 
