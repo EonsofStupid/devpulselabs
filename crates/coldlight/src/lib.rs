@@ -455,14 +455,14 @@ pub enum TraitState {
 }
 
 /// A resolved back-glow (color already carries alpha; painter draws behind).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Glow {
     pub color: Color32,
     pub spread: f32,
 }
 
 /// A resolved tint layer.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Tint {
     pub color: Color32,
     pub dir: f32,
@@ -470,7 +470,7 @@ pub struct Tint {
 
 /// The concrete style a paint fn consumes — the compositor's output. Pure
 /// input → pure output, so it is cacheable by (tone, base, stack, state).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ResolvedStyle {
     pub fill: Color32,
     pub edge: Stroke,
@@ -497,18 +497,26 @@ fn merged(def: &TraitDef, state: TraitState) -> Axes {
         TraitState::Hover => def.hover,
         TraitState::Active => def.active,
     };
+    merged_axes(def.base, patch)
+}
+
+/// Overlay a state patch onto base axes: the patch REPLACES any axis it
+/// names (additive axes included), so a hover shadow replaces the idle
+/// shadow rather than stacking on itself. Shared by the trait compositor
+/// and `matrix::resolve` so the two can never drift apart.
+fn merged_axes(base: Axes, patch: Option<Axes>) -> Axes {
     match patch {
-        None => def.base,
+        None => base,
         Some(p) => Axes {
-            fill: p.fill.or(def.base.fill),
-            edge: p.edge.or(def.base.edge),
-            radius: p.radius.or(def.base.radius),
-            ink: p.ink.or(def.base.ink),
-            font: p.font.or(def.base.font),
-            shadows: p.shadows.or(def.base.shadows),
-            back_glow: p.back_glow.or(def.base.back_glow),
-            tints: p.tints.or(def.base.tints),
-            anim: p.anim.or(def.base.anim),
+            fill: p.fill.or(base.fill),
+            edge: p.edge.or(base.edge),
+            radius: p.radius.or(base.radius),
+            ink: p.ink.or(base.ink),
+            font: p.font.or(base.font),
+            shadows: p.shadows.or(base.shadows),
+            back_glow: p.back_glow.or(base.back_glow),
+            tints: p.tints.or(base.tints),
+            anim: p.anim.or(base.anim),
         },
     }
 }
@@ -1371,7 +1379,262 @@ include!(concat!(env!("OUT_DIR"), "/fluid_gen.rs"));
 /// facet value is left unclassified by any ancestor, so the matrix cannot rot
 /// as values are added.
 pub mod matrix {
+    // The generated payloads are written in the SAME primitives the traits
+    // are, which is the point: one set of specs, one resolver semantics.
+    use super::{
+        ink, merged_axes, surface, Axes, ColorBase, ColorRef, EdgeSpec, Glow, GlowSpec,
+        ResolvedStyle, ShadowSpec, Tint, TintSpec, Tone, TraitState,
+    };
+    use egui::{Shadow, Stroke};
+
+    /// STRUCTURE — geometry only. The edge WIDTH lives here and the edge
+    /// COLOUR lives on the material: an edge is assembled from two facets
+    /// (matrix law M4), which is why `EdgeSpec` cannot be carried whole.
+    #[derive(Debug, Clone, Copy)]
+    pub struct StructureDef {
+        pub id: &'static str,
+        pub label: &'static str,
+        pub blurb: &'static str,
+        pub radius: u8,
+        pub edge_width: f32,
+    }
+
+    /// MATERIAL — how the surface responds to light. Every field is `Option`
+    /// because law M2 says an axis a material does not declare falls back to
+    /// the ancestor's NATIVE material (`neon-glass` declares no fill, so on
+    /// `aero` it inherits `clay`'s).
+    #[derive(Debug, Clone, Copy)]
+    pub struct MaterialDef {
+        pub id: &'static str,
+        pub label: &'static str,
+        pub blurb: &'static str,
+        pub fill: Option<ColorRef>,
+        pub ink: Option<ColorRef>,
+        pub edge_color: Option<ColorRef>,
+    }
+
+    /// ATMOSPHERE — the additive light: shadows, back-glow, tints, and the
+    /// state overlays. Carries `Axes`, the identical shape a trait carries.
+    #[derive(Debug, Clone, Copy)]
+    pub struct AtmosphereDef {
+        pub id: &'static str,
+        pub label: &'static str,
+        pub blurb: &'static str,
+        pub base: Axes,
+        pub hover: Option<Axes>,
+        pub active: Option<Axes>,
+    }
+
+    /// The one value per facet an ancestor resolves to alone — and the
+    /// fallback target for law M2.
+    #[derive(Debug, Clone, Copy)]
+    pub struct Natives {
+        pub structure: &'static str,
+        pub material: &'static str,
+        pub atmosphere: &'static str,
+    }
+
+    /// One legality set (`allowed` or `forbidden`), per facet.
+    #[derive(Debug, Clone, Copy)]
+    pub struct Sets {
+        pub structures: &'static [&'static str],
+        pub materials: &'static [&'static str],
+        pub atmospheres: &'static [&'static str],
+    }
+
+    /// ANCESTOR — the lineage. Owns the font (law M5: typography belongs to
+    /// the lineage, never a free knob) and the legality rulings.
+    #[derive(Debug, Clone, Copy)]
+    pub struct AncestorDef {
+        pub id: &'static str,
+        pub label: &'static str,
+        pub blurb: &'static str,
+        pub font: &'static str,
+        pub native: Natives,
+        pub allowed: Sets,
+        pub forbidden: Sets,
+    }
+
     include!(concat!(env!("OUT_DIR"), "/matrix_gen.rs"));
+
+    /// A point in the matrix — **a theme is a COORDINATE, not a hand-authored
+    /// bundle** (matrix §1). This is what a preset is.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct Coordinate {
+        pub ancestor: &'static str,
+        pub structure: &'static str,
+        pub material: &'static str,
+        pub atmosphere: &'static str,
+    }
+
+    pub fn ancestor(id: &str) -> Option<&'static AncestorDef> {
+        ANCESTORS.iter().find(|a| a.id == id)
+    }
+    pub fn structure(id: &str) -> Option<&'static StructureDef> {
+        STRUCTURES.iter().find(|s| s.id == id)
+    }
+    pub fn material(id: &str) -> Option<&'static MaterialDef> {
+        MATERIALS.iter().find(|m| m.id == id)
+    }
+    pub fn atmosphere(id: &str) -> Option<&'static AtmosphereDef> {
+        ATMOSPHERES.iter().find(|a| a.id == id)
+    }
+
+    impl Coordinate {
+        /// The ancestor's own look — every facet at its native value.
+        pub fn native(ancestor_id: &'static str) -> Option<Self> {
+            let a = ancestor(ancestor_id)?;
+            Some(Self {
+                ancestor: a.id,
+                structure: a.native.structure,
+                material: a.native.material,
+                atmosphere: a.native.atmosphere,
+            })
+        }
+
+        /// Is this coordinate legal for its lineage? Authored presets are
+        /// build-checked; this is for coordinates assembled at RUNTIME (an
+        /// operator switching facets in a picker).
+        ///
+        /// A forbidden combination still PAINTS — it reports rather than
+        /// panicking, because the realistic bad value is a stale persisted
+        /// preset, and losing a look is recoverable where killing a shipped
+        /// exe is not.
+        pub fn legality(&self) -> Result<(), String> {
+            let a = ancestor(self.ancestor)
+                .ok_or_else(|| format!("unknown ancestor {:?}", self.ancestor))?;
+            for (facet, value, forbidden, allowed, native) in [
+                (
+                    "structure",
+                    self.structure,
+                    a.forbidden.structures,
+                    a.allowed.structures,
+                    a.native.structure,
+                ),
+                (
+                    "material",
+                    self.material,
+                    a.forbidden.materials,
+                    a.allowed.materials,
+                    a.native.material,
+                ),
+                (
+                    "atmosphere",
+                    self.atmosphere,
+                    a.forbidden.atmospheres,
+                    a.allowed.atmospheres,
+                    a.native.atmosphere,
+                ),
+            ] {
+                if forbidden.contains(&value) {
+                    return Err(format!("{} forbids {facet} {value:?}", a.id));
+                }
+                if value != native && !allowed.contains(&value) {
+                    return Err(format!("{} does not rule on {facet} {value:?}", a.id));
+                }
+            }
+            Ok(())
+        }
+    }
+
+    /// Resolve a coordinate into the SAME `ResolvedStyle` the trait
+    /// compositor produces, so both paths feed one painter.
+    ///
+    /// Order implements the matrix laws:
+    /// 1. font ← ancestor (M5).
+    /// 2. radius ← structure; **edge = structure.width + material.colour** (M4).
+    /// 3. fill/ink ← material, falling back to the ancestor's native material
+    ///    for any axis this material does not declare (M2).
+    /// 4. shadows/back-glow/tints ← atmosphere, ADDITIVE, exactly as `compose`.
+    /// 5. the atmosphere's hover/active patch REPLACES the axes it names.
+    ///
+    /// An unknown facet degrades to the ancestor's native rather than
+    /// panicking — the `compose()` precedent.
+    pub fn resolve(c: &Coordinate, tone: Tone, state: TraitState) -> ResolvedStyle {
+        let mut rs = ResolvedStyle::default();
+        let Some(anc) = ancestor(c.ancestor) else {
+            debug_assert!(false, "unknown ancestor: {}", c.ancestor);
+            return rs;
+        };
+        rs.font = Some(anc.font);
+
+        let st = structure(c.structure)
+            .or_else(|| structure(anc.native.structure))
+            .expect("ancestor natives are build-checked");
+        let mat = material(c.material)
+            .or_else(|| material(anc.native.material))
+            .expect("ancestor natives are build-checked");
+        let atm = atmosphere(c.atmosphere)
+            .or_else(|| atmosphere(anc.native.atmosphere))
+            .expect("ancestor natives are build-checked");
+        // M2: the native material backs any axis this one leaves unnamed.
+        let base_mat = material(anc.native.material).expect("native material");
+
+        rs.radius = st.radius;
+        let edge_color = mat.edge_color.or(base_mat.edge_color);
+        rs.edge = match edge_color {
+            Some(cr) => Stroke::new(st.edge_width, cr.resolve(tone)),
+            None => Stroke::NONE,
+        };
+        if let Some(cr) = mat.fill.or(base_mat.fill) {
+            rs.fill = cr.resolve(tone);
+        }
+        if let Some(cr) = mat.ink.or(base_mat.ink) {
+            rs.ink = cr.resolve(tone);
+        }
+
+        let ax = merged_axes(atm.base, state_patch(atm, state));
+        apply_atmosphere(&mut rs, &ax, tone, st.edge_width);
+        rs
+    }
+
+    fn state_patch(atm: &AtmosphereDef, state: TraitState) -> Option<Axes> {
+        match state {
+            TraitState::Idle => None,
+            TraitState::Hover => atm.hover,
+            TraitState::Active => atm.active,
+        }
+    }
+
+    /// The atmosphere's contribution. Colour axes it names OVERRIDE the
+    /// material (that is how `hard-cast`'s active state lights the edge);
+    /// shadow/glow/tint axes are ADDITIVE, matching `compose`.
+    fn apply_atmosphere(rs: &mut ResolvedStyle, ax: &Axes, tone: Tone, edge_width: f32) {
+        if let Some(cr) = ax.fill {
+            rs.fill = cr.resolve(tone);
+        }
+        if let Some(cr) = ax.ink {
+            rs.ink = cr.resolve(tone);
+        }
+        // An atmosphere may relight the edge, but the WIDTH stays the
+        // structure's — geometry is never an atmosphere's to change (M4).
+        if let Some(e) = ax.edge {
+            rs.edge = Stroke::new(edge_width, e.color.resolve(tone));
+        }
+        if let Some(shadows) = ax.shadows {
+            rs.shadows.extend(shadows.iter().map(|s| Shadow {
+                offset: s.offset,
+                blur: s.blur,
+                spread: s.spread,
+                color: s.color.resolve(tone),
+            }));
+        }
+        if let Some(glows) = ax.back_glow {
+            rs.back_glow.extend(glows.iter().map(|g| Glow {
+                color: g.color.resolve(tone),
+                spread: g.spread,
+            }));
+        }
+        if let Some(tints) = ax.tints {
+            rs.tints.extend(tints.iter().map(|t| Tint {
+                color: t.color.resolve(tone),
+                dir: t.dir,
+            }));
+        }
+        if let Some(anim) = ax.anim {
+            rs.anim.extend(anim.iter().copied());
+        }
+    }
 
     #[cfg(test)]
     mod tests {
@@ -1384,15 +1647,171 @@ pub mod matrix {
         fn every_ancestor_rules_on_every_facet_value() {
             let values = STRUCTURES.len() + MATERIALS.len() + ATMOSPHERES.len();
             assert_eq!(ANCESTORS.len(), 8, "eight seeds, ratified 2026-07-31");
-            // 22 since 2026-08-05: `plate` joined the material axis, because
-            // the operator's ruling `brutalist · massive · plate · hard-cast
-            // = Vibron` named a material the matrix did not have.
-            assert_eq!(values, 22, "6 structures + 10 materials + 6 atmospheres");
+            // 23 since 2026-08-05: `plate` joined the materials (the Vibron
+            // ruling), and `lit-cast` split the halo off `hard-cast` so a
+            // quiet plate can take a cast shadow without lighting up.
+            assert_eq!(values, 23, "6 structures + 10 materials + 7 atmospheres");
             assert_eq!(
                 RULING_COUNT,
                 ANCESTORS.len() * values,
                 "every ancestor must rule on every value"
             );
+        }
+
+        /// **The migration proof.** The operator ruled
+        /// `brutalist · massive · plate · hard-cast = Vibron`; this asserts
+        /// the coordinate really does paint the trait, in every state and
+        /// against several tones — so repointing the editor at the matrix is
+        /// a reclassification, not a restyle.
+        ///
+        /// `font` is the ONE legitimate difference: law M5 gives typography
+        /// to the lineage, so the matrix ADDS a font the trait never carried.
+        #[test]
+        fn vibron_the_coordinate_paints_vibron_the_trait() {
+            let coord = Coordinate {
+                ancestor: "brutalist",
+                structure: "massive",
+                material: "plate",
+                atmosphere: "hard-cast",
+            };
+            coord
+                .legality()
+                .expect("the ruled coordinate must be legal");
+
+            for tone in [Tone::Cyan, Tone::Lime, Tone::Magenta] {
+                for state in [TraitState::Idle, TraitState::Hover, TraitState::Active] {
+                    let from_trait = crate::compose(tone, "vibron", &[], state);
+                    let from_matrix = resolve(&coord, tone, state);
+
+                    assert_eq!(
+                        from_matrix.font,
+                        Some("spacegrotesk"),
+                        "M5: the lineage owns the font"
+                    );
+                    assert_eq!(from_trait.font, None, "the trait never carried one");
+
+                    // Everything that reaches a pixel must be identical.
+                    let normalized = ResolvedStyle {
+                        font: None,
+                        ..from_matrix.clone()
+                    };
+                    assert_eq!(
+                        normalized, from_trait,
+                        "vibron diverged at tone {tone:?} state {state:?}"
+                    );
+                }
+            }
+        }
+
+        /// The halo is what LOUD looks like, so it must not ride on the
+        /// shadow. `hard-cast` casts; `lit-cast` casts AND pops.
+        #[test]
+        fn the_halo_belongs_to_lit_cast_not_hard_cast() {
+            let quiet = Coordinate {
+                ancestor: "brutalist",
+                structure: "massive",
+                material: "plate",
+                atmosphere: "hard-cast",
+            };
+            let loud = Coordinate {
+                atmosphere: "lit-cast",
+                material: "raw",
+                ..quiet
+            };
+            let q = resolve(&quiet, Tone::Cyan, TraitState::Idle);
+            let l = resolve(&loud, Tone::Lime, TraitState::Idle);
+            assert!(q.back_glow.is_empty(), "a quiet plate must not glow");
+            assert!(!l.back_glow.is_empty(), "a loud block must");
+            assert_eq!(q.shadows.len(), 1, "both still cast");
+            assert_eq!(l.shadows.len(), 1);
+        }
+
+        /// Law M2 — an axis a material does not declare falls back to the
+        /// ancestor's NATIVE material. `neon-glass` declares no fill, so on
+        /// `aero` it must inherit `clay`'s.
+        #[test]
+        fn unnamed_axes_fall_back_to_ancestor_natives() {
+            let c = Coordinate {
+                ancestor: "aero",
+                structure: "measured",
+                material: "neon-glass",
+                atmosphere: "neon",
+            };
+            c.legality().expect("the editor coordinate is legal");
+            let rs = resolve(&c, Tone::Cyan, TraitState::Idle);
+            let clay_fill = material("clay").unwrap().fill.unwrap().resolve(Tone::Cyan);
+            assert_eq!(rs.fill, clay_fill, "M2: neon-glass inherits clay's fill");
+            assert_ne!(rs.ink, clay_fill, "but keeps its own cyan ink");
+        }
+
+        /// Law M4 — an edge is assembled from TWO facets: the width is the
+        /// structure's, the colour is the material's.
+        #[test]
+        fn edge_is_assembled_from_two_facets() {
+            let c = Coordinate {
+                ancestor: "brutalist",
+                structure: "measured",
+                material: "plate",
+                atmosphere: "none",
+            };
+            let rs = resolve(&c, Tone::Cyan, TraitState::Idle);
+            assert_eq!(rs.edge.width, structure("measured").unwrap().edge_width);
+            assert_eq!(rs.radius, structure("measured").unwrap().radius);
+            assert_eq!(
+                rs.edge.color,
+                material("plate")
+                    .unwrap()
+                    .edge_color
+                    .unwrap()
+                    .resolve(Tone::Cyan)
+            );
+        }
+
+        /// Legality is enforced where it is authored and REPORTED where it is
+        /// assembled at runtime — a forbidden look still paints rather than
+        /// killing a shipped exe.
+        #[test]
+        fn a_forbidden_pairing_reports_but_still_paints() {
+            let bad = Coordinate {
+                ancestor: "swiss",
+                structure: "measured",
+                material: "glass",
+                atmosphere: "none",
+            };
+            let err = bad.legality().expect_err("swiss forbids glass");
+            assert!(err.contains("glass"), "the message names the value: {err}");
+            let rs = resolve(&bad, Tone::Cyan, TraitState::Idle);
+            assert_ne!(rs, ResolvedStyle::default(), "it still paints");
+        }
+
+        /// An unknown facet degrades to the lineage's native — never a panic.
+        #[test]
+        fn an_unknown_facet_degrades_without_panicking() {
+            let c = Coordinate {
+                ancestor: "brutalist",
+                structure: "nosuchstructure",
+                material: "plate",
+                atmosphere: "hard-cast",
+            };
+            let rs = resolve(&c, Tone::Cyan, TraitState::Idle);
+            let native = structure(ancestor("brutalist").unwrap().native.structure).unwrap();
+            assert_eq!(rs.radius, native.radius, "fell back to massive");
+        }
+
+        /// Every authored ancestor resolves on its own natives, in every
+        /// state — the census applied to painting rather than to counting.
+        #[test]
+        fn every_ancestor_paints_from_its_natives() {
+            for a in ANCESTORS {
+                let c = Coordinate::native(a.id).expect("native coordinate");
+                c.legality()
+                    .unwrap_or_else(|e| panic!("{}'s own natives are illegal: {e}", a.id));
+                for state in [TraitState::Idle, TraitState::Hover, TraitState::Active] {
+                    let rs = resolve(&c, Tone::Cyan, state);
+                    assert_eq!(rs.font, Some(a.font), "{} must wear its own font", a.id);
+                    assert!(rs.edge.width > 0.0, "{} resolved no edge", a.id);
+                }
+            }
         }
 
         /// The ancestral list must stay SHORT — every added seed costs a full
@@ -1689,20 +2108,12 @@ pub mod motion {
                     Stop {
                         offset: 0.0,
                         ease: EASE_EMPHASIZED,
-                        ch: &[
-                            (Chan::Alpha, 0.0),
-                            (Chan::OffsetY, 1.0),
-                            (Chan::Clip, 0.0),
-                        ],
+                        ch: &[(Chan::Alpha, 0.0), (Chan::OffsetY, 1.0), (Chan::Clip, 0.0)],
                     },
                     Stop {
                         offset: 1.0,
                         ease: EASE_EMPHASIZED,
-                        ch: &[
-                            (Chan::Alpha, 1.0),
-                            (Chan::OffsetY, 0.0),
-                            (Chan::Clip, 1.0),
-                        ],
+                        ch: &[(Chan::Alpha, 1.0), (Chan::OffsetY, 0.0), (Chan::Clip, 1.0)],
                     },
                 ],
             };
@@ -2478,8 +2889,15 @@ mod tests {
 
     #[test]
     fn chrome_is_switchable_and_refuses_a_typo() {
-        assert_eq!(chrome(), DEFAULT_CHROME, "vibron until something changes it");
-        assert!(set_chrome("neubrutalist"), "any authored trait is fair game");
+        assert_eq!(
+            chrome(),
+            DEFAULT_CHROME,
+            "vibron until something changes it"
+        );
+        assert!(
+            set_chrome("neubrutalist"),
+            "any authored trait is fair game"
+        );
         assert_eq!(chrome(), "neubrutalist");
         // A resolved style really does follow the setting — compared through
         // compose() so this asserts on the PAINTED values, not on a wrapper.

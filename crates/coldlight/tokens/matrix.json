@@ -200,7 +200,74 @@
     {
       "id": "hard-cast",
       "label": "Hard cast",
-      "blurb": "Hard offset shadow, zero blur.",
+      "blurb": "One hard offset shadow, cast down-right, zero blur — a shape, never a glow. No halo: that is `lit-cast`. Carries the interaction convention — hover lifts the cast and strengthens the ink; ACTIVE washes the fill in the surface tone, lights the edge to it, and sinks onto the shadow, so exactly ONE control reads as live.",
+      "shadows": [
+        {
+          "offset": [
+            3,
+            3
+          ],
+          "blur": 0,
+          "spread": 0,
+          "color": {
+            "black": true,
+            "alpha": 230
+          }
+        }
+      ],
+      "hover": {
+        "shadows": [
+          {
+            "offset": [
+              4,
+              4
+            ],
+            "blur": 0,
+            "spread": 0,
+            "color": {
+              "black": true,
+              "alpha": 235
+            }
+          }
+        ],
+        "ink": {
+          "ink": "STRONG"
+        }
+      },
+      "active": {
+        "fill": {
+          "tone": 500,
+          "alpha": 36
+        },
+        "edge": {
+          "width": 2.0,
+          "color": {
+            "tone": 400
+          }
+        },
+        "ink": {
+          "ink": "STRONG"
+        },
+        "shadows": [
+          {
+            "offset": [
+              1,
+              1
+            ],
+            "blur": 0,
+            "spread": 0,
+            "color": {
+              "black": true,
+              "alpha": 230
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "lit-cast",
+      "label": "Lit cast",
+      "blurb": "A hard offset shadow AND a painted lit-from-behind pop. The neubrutalist move: it makes a saturated surface read as lit from directly behind. Never on a quiet material — the halo is what LOUD looks like.",
       "shadows": [
         {
           "offset": [
@@ -408,7 +475,8 @@
           "plate"
         ],
         "atmosphere": [
-          "hard-cast"
+          "hard-cast",
+          "lit-cast"
         ]
       },
       "forbidden": {
@@ -475,7 +543,8 @@
         "atmosphere": [
           "bloom",
           "neon",
-          "scanline"
+          "scanline",
+          "lit-cast"
         ]
       }
     },
@@ -504,7 +573,8 @@
         "atmosphere": [
           "none",
           "neon",
-          "scanline"
+          "scanline",
+          "lit-cast"
         ]
       },
       "forbidden": {
@@ -567,7 +637,8 @@
           "sheen",
           "bloom",
           "neon",
-          "scanline"
+          "scanline",
+          "lit-cast"
         ]
       }
     },
@@ -613,7 +684,8 @@
         ],
         "atmosphere": [
           "hard-cast",
-          "scanline"
+          "scanline",
+          "lit-cast"
         ]
       }
     },
@@ -641,7 +713,8 @@
         "atmosphere": [
           "none",
           "sheen",
-          "neon"
+          "neon",
+          "lit-cast"
         ]
       },
       "forbidden": {
@@ -685,7 +758,8 @@
         ],
         "atmosphere": [
           "none",
-          "scanline"
+          "scanline",
+          "lit-cast"
         ]
       },
       "forbidden": {
@@ -751,7 +825,8 @@
         "atmosphere": [
           "bloom",
           "neon",
-          "scanline"
+          "scanline",
+          "lit-cast"
         ]
       }
     }
