@@ -1,5 +1,5 @@
 {
-  "$description": "AUTHORED \u2014 presets, the 6th token source. A preset is a NAMED BUNDLE OF REFS into the other registries (fonts/moods/motion/hues) \u2014 data composed FROM the generated styling, zero new code per preset. Cross-validated at build: an unknown ref fails the build. theme = one-tap slide looks (W4 trays); motion = entrance choices; bleed = two-colour hover washes over a hue pool (V1 Providers control). The editor's Save-as-preset appends here (data in the authored format, never generated output).",
+  "$description": "AUTHORED — presets, the 6th token source. A preset is a NAMED BUNDLE OF REFS into the other registries (fonts/moods/motion/hues) — data composed FROM the generated styling, zero new code per preset. Cross-validated at build: an unknown ref fails the build. theme = one-tap slide looks (W4 trays); motion = entrance choices; bleed = two-colour hover washes over a hue pool (V1 Providers control). The editor's Save-as-preset appends here (data in the authored format, never generated output).",
   "theme": [
     {
       "id": "neon-intro",
@@ -11,7 +11,7 @@
       ],
       "motion": "blend-drift",
       "ambience": "pulse",
-      "blurb": "Sci-fi opener \u2014 ember heat cooling into lagoon, pulse breathing."
+      "blurb": "Sci-fi opener — ember heat cooling into lagoon, pulse breathing."
     },
     {
       "id": "glacier-stat",
@@ -22,7 +22,7 @@
         "violet-static"
       ],
       "motion": "blend-drift",
-      "blurb": "Cold clean numbers \u2014 glacier light over violet static."
+      "blurb": "Cold clean numbers — glacier light over violet static."
     },
     {
       "id": "arcade-flash",
@@ -34,7 +34,7 @@
       ],
       "motion": "blend-drift",
       "ambience": "drift",
-      "blurb": "8-bit night \u2014 botanical dark riding the jade current."
+      "blurb": "8-bit night — botanical dark riding the jade current."
     },
     {
       "id": "warm-editorial",
@@ -45,7 +45,7 @@
         "solar-flare"
       ],
       "motion": "blend-drift",
-      "blurb": "Aerospace headline warmth \u2014 terracotta into solar flare."
+      "blurb": "Aerospace headline warmth — terracotta into solar flare."
     },
     {
       "id": "fuchsia-signal",
@@ -57,7 +57,7 @@
       ],
       "motion": "blend-drift",
       "ambience": "rings",
-      "blurb": "Synthwave broadcast \u2014 fuchsia arcing through orchid haze."
+      "blurb": "Synthwave broadcast — fuchsia arcing through orchid haze."
     }
   ],
   "motion": [
@@ -65,19 +65,19 @@
       "id": "calm-rise",
       "label": "Calm rise",
       "enter": "enter-rise",
-      "blurb": "Lines rise in, staggered \u2014 the default entrance."
+      "blurb": "Lines rise in, staggered — the default entrance."
     },
     {
       "id": "soft-fade",
       "label": "Soft fade",
       "enter": "enter-fade",
-      "blurb": "No movement, just presence \u2014 for dense slides."
+      "blurb": "No movement, just presence — for dense slides."
     },
     {
       "id": "bloom-in",
       "label": "Bloom in",
       "enter": "enter-bloom",
-      "blurb": "A spring-soft bloom \u2014 for reveals that deserve drama."
+      "blurb": "A spring-soft bloom — for reveals that deserve drama."
     }
   ],
   "bleed": [
@@ -94,5 +94,333 @@
       ],
       "blurb": "Two colours seeping from two origins, ink into paper."
     }
-  ]
+  ],
+  "ancestral": [
+    {
+      "id": "primary",
+      "label": "Primary",
+      "kicker": "the teaching wall",
+      "coordinate": {
+        "ancestor": "bauhaus",
+        "structure": "rectilinear",
+        "material": "raw",
+        "atmosphere": "none"
+      },
+      "tone": "azure",
+      "blurb": "Foundational and unarguable: zero radius, saturated pigment applied straight, no atmosphere at all. Bauhaus before anything is added to it."
+    },
+    {
+      "id": "werkstatt",
+      "label": "Werkstatt",
+      "kicker": "the workshop block",
+      "coordinate": {
+        "ancestor": "bauhaus",
+        "structure": "massive",
+        "material": "matte",
+        "atmosphere": "lit-cast"
+      },
+      "tone": "coral",
+      "blurb": "Deep absorbing pigment given weight and a cast shadow — a heavy block sitting on the wall rather than printed into it."
+    },
+    {
+      "id": "vorkurs",
+      "label": "Vorkurs",
+      "kicker": "paper and grid",
+      "coordinate": {
+        "ancestor": "bauhaus",
+        "structure": "rectilinear",
+        "material": "paper",
+        "atmosphere": "none"
+      },
+      "tone": "amber",
+      "blurb": "The quiet register: fibrous paper at bauhaus's own zero radius, effectively edgeless. What the surrounding page is made of, not what the poster shouts. Rectilinear rather than measured because measured + paper + none on a spacegrotesk lineage resolves BYTE-IDENTICALLY to editorial's Broadsheet — paper names no tone-relative ref, so the tone cannot separate them."
+    },
+    {
+      "id": "chrysler",
+      "label": "Chrysler",
+      "kicker": "lacquer and sheen",
+      "coordinate": {
+        "ancestor": "art-deco",
+        "structure": "stepped",
+        "material": "lacquer",
+        "atmosphere": "sheen"
+      },
+      "tone": "amber",
+      "blurb": "The native coordinate. Ziggurat steps, deep lacquer, and one hard specular band running across the top-left. Deco at full dress."
+    },
+    {
+      "id": "machine",
+      "label": "Machine Age",
+      "kicker": "brushed and cast",
+      "coordinate": {
+        "ancestor": "art-deco",
+        "structure": "rectilinear",
+        "material": "metallic",
+        "atmosphere": "hard-cast"
+      },
+      "tone": "teal",
+      "blurb": "Metal instead of lacquer, right angles instead of steps, and a hard cast shadow. The industrial half of the same decade."
+    },
+    {
+      "id": "salon",
+      "label": "Salon",
+      "kicker": "restrained deco",
+      "coordinate": {
+        "ancestor": "art-deco",
+        "structure": "measured",
+        "material": "matte",
+        "atmosphere": "none"
+      },
+      "tone": "violet",
+      "blurb": "Deco with the volume down: flat pigment, measured radius, no atmosphere. Proof the lineage survives without its ornament."
+    },
+    {
+      "id": "vibron",
+      "label": "Vibron",
+      "kicker": "the workhorse",
+      "coordinate": {
+        "ancestor": "brutalist",
+        "structure": "massive",
+        "material": "plate",
+        "atmosphere": "hard-cast"
+      },
+      "tone": "cyan",
+      "blurb": "OPERATOR-RULED: brutalist massive plate hard-cast IS Vibron, and `plate` is the material that ruling required. A quiet dark panel whose whole point is RESTRAINT — the plate says nothing so the ONE active control can. What the editor wears."
+    },
+    {
+      "id": "neo",
+      "label": "Neo",
+      "kicker": "the ratified default",
+      "coordinate": {
+        "ancestor": "brutalist",
+        "structure": "massive",
+        "material": "raw",
+        "atmosphere": "lit-cast"
+      },
+      "tone": "lime",
+      "blurb": "Heavy block, saturated pigment applied straight, hard offset shadow. Loud, honest, fast — the neubrutalist fill."
+    },
+    {
+      "id": "hacker",
+      "label": "Hacker",
+      "kicker": "cold terminal",
+      "coordinate": {
+        "ancestor": "brutalist",
+        "structure": "massive",
+        "material": "neon-glass",
+        "atmosphere": "neon"
+      },
+      "tone": "cyan",
+      "blurb": "Cyan ink on a lit edge with a painted halo. Brutalist bones wearing a terminal."
+    },
+    {
+      "id": "retro-os",
+      "label": "Retro-OS",
+      "kicker": "amber CRT",
+      "coordinate": {
+        "ancestor": "brutalist",
+        "structure": "rectilinear",
+        "material": "amber-crt",
+        "atmosphere": "scanline"
+      },
+      "tone": "amber",
+      "blurb": "Amber phosphor, square corners, scanline texture. The third of the ratified four."
+    },
+    {
+      "id": "grid",
+      "label": "Grid",
+      "kicker": "the native",
+      "coordinate": {
+        "ancestor": "swiss",
+        "structure": "measured",
+        "material": "paper",
+        "atmosphere": "none"
+      },
+      "tone": "slate",
+      "blurb": "Paper, measured radius, hairline rule, nothing else. Swiss is the ancestor that gets quieter the more correct it is."
+    },
+    {
+      "id": "akzidenz",
+      "label": "Akzidenz",
+      "kicker": "flat and square",
+      "coordinate": {
+        "ancestor": "swiss",
+        "structure": "rectilinear",
+        "material": "raw",
+        "atmosphere": "none"
+      },
+      "tone": "coral",
+      "blurb": "Saturated pigment at zero radius. The poster half of Swiss — still no atmosphere, because Swiss barely permits any."
+    },
+    {
+      "id": "offset",
+      "label": "Offset",
+      "kicker": "print register",
+      "coordinate": {
+        "ancestor": "swiss",
+        "structure": "measured",
+        "material": "matte",
+        "atmosphere": "hard-cast"
+      },
+      "tone": "azure",
+      "blurb": "The same pigment with one hard cast shadow, like a mis-registered second pass on press. The most atmosphere Swiss legally allows."
+    },
+    {
+      "id": "hacker-aero",
+      "label": "Hacker",
+      "kicker": "the cold tool",
+      "coordinate": {
+        "ancestor": "aero",
+        "structure": "measured",
+        "material": "neon-glass",
+        "atmosphere": "neon"
+      },
+      "tone": "cyan",
+      "blurb": "Operator-named for Workbench. Cold cyan ink on a lit edge, restrained radius, glow used as a SPOTLIGHT on the active thing."
+    },
+    {
+      "id": "gloss",
+      "label": "Gloss",
+      "kicker": "classic Frutiger Aero",
+      "coordinate": {
+        "ancestor": "aero",
+        "structure": "rounded",
+        "material": "glass",
+        "atmosphere": "bloom"
+      },
+      "tone": "cyan",
+      "blurb": "Aero at its most itself — translucent fill, generous radius, light from above-left, a painted halo. Optimistic and glassy, with zero blurred pixels."
+    },
+    {
+      "id": "tactile",
+      "label": "Tactile",
+      "kicker": "soft and friendly",
+      "coordinate": {
+        "ancestor": "aero",
+        "structure": "pill",
+        "material": "clay",
+        "atmosphere": "sheen"
+      },
+      "tone": "violet",
+      "blurb": "The opposite register: fully rounded clay pills with a single specular band and no halo at all. What a touch-first surface wears."
+    },
+    {
+      "id": "bacterio",
+      "label": "Bacterio",
+      "kicker": "the native",
+      "coordinate": {
+        "ancestor": "memphis",
+        "structure": "rounded",
+        "material": "matte",
+        "atmosphere": "lit-cast"
+      },
+      "tone": "magenta",
+      "blurb": "Flat saturated pigment, generous radius, hard cast shadow. Memphis as Sottsass drew it — playful and unbothered."
+    },
+    {
+      "id": "tawaraya",
+      "label": "Tawaraya",
+      "kicker": "lacquer pills",
+      "coordinate": {
+        "ancestor": "memphis",
+        "structure": "pill",
+        "material": "lacquer",
+        "atmosphere": "sheen"
+      },
+      "tone": "amber",
+      "blurb": "Fully rounded lacquer with a specular band. The glossy, toy-like half of the lineage."
+    },
+    {
+      "id": "carlton",
+      "label": "Carlton",
+      "kicker": "stepped under neon",
+      "coordinate": {
+        "ancestor": "memphis",
+        "structure": "stepped",
+        "material": "paper",
+        "atmosphere": "neon"
+      },
+      "tone": "teal",
+      "blurb": "Chamfered steps in quiet paper, lit by a cyan halo. Memphis is the only ancestor legal for both steps and neon."
+    },
+    {
+      "id": "rodchenko",
+      "label": "Rodchenko",
+      "kicker": "the native",
+      "coordinate": {
+        "ancestor": "constructivist",
+        "structure": "rectilinear",
+        "material": "raw",
+        "atmosphere": "hard-cast"
+      },
+      "tone": "coral",
+      "blurb": "Right angles, unfinished material, one hard diagonal shadow. The agitational poster."
+    },
+    {
+      "id": "agitprop",
+      "label": "Agitprop",
+      "kicker": "heavy and scanned",
+      "coordinate": {
+        "ancestor": "constructivist",
+        "structure": "massive",
+        "material": "paper",
+        "atmosphere": "scanline"
+      },
+      "tone": "amber",
+      "blurb": "A heavy block in quiet paper under scanline texture — the printed, reproduced, distributed version of the same message."
+    },
+    {
+      "id": "lissitzky",
+      "label": "Lissitzky",
+      "kicker": "stepped and silent",
+      "coordinate": {
+        "ancestor": "constructivist",
+        "structure": "stepped",
+        "material": "matte",
+        "atmosphere": "none"
+      },
+      "tone": "azure",
+      "blurb": "Chamfered steps in flat pigment with no atmosphere whatsoever. Pure geometry — the Proun register."
+    },
+    {
+      "id": "broadsheet",
+      "label": "Broadsheet",
+      "kicker": "the native",
+      "coordinate": {
+        "ancestor": "editorial",
+        "structure": "measured",
+        "material": "paper",
+        "atmosphere": "none"
+      },
+      "tone": "slate",
+      "blurb": "Paper, measured radius, hairline rule. The body of the page — it must never compete with what is set on it."
+    },
+    {
+      "id": "cover",
+      "label": "Cover",
+      "kicker": "glossy stock",
+      "coordinate": {
+        "ancestor": "editorial",
+        "structure": "rounded",
+        "material": "lacquer",
+        "atmosphere": "sheen"
+      },
+      "tone": "magenta",
+      "blurb": "Deep lacquer with a specular band and a generous radius. The magazine cover, not the column."
+    },
+    {
+      "id": "masthead",
+      "label": "Masthead",
+      "kicker": "metal rule",
+      "coordinate": {
+        "ancestor": "editorial",
+        "structure": "rectilinear",
+        "material": "metallic",
+        "atmosphere": "hard-cast"
+      },
+      "tone": "teal",
+      "blurb": "Brushed metal at zero radius with a hard cast. The nameplate and the rules that divide the page."
+    }
+  ],
+  "$ancestral_note": "THE PRESETS. A preset is a NAMED LEGAL COORDINATE on the matrix — never a hand-authored bundle of colours. `tone` is a DEFAULT the caller may override; only a role pins a tone outright (that stays danger's privilege). Adding one is one object here: build.rs checks the coordinate against the ancestor's own native/allowed/forbidden rulings, so an illegal preset FAILS THE BUILD. docs/design/mocks/_preset-bench.gen.py renders this same array, so the bench and the app cannot disagree."
 }

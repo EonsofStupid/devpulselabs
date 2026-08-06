@@ -119,6 +119,45 @@ fn main() {
 /// 1. every role names a trait that EXISTS in traits.json;
 /// 2. a pinned `tone` names a real hue;
 /// 3. `default` carries every role — a surface may omit one and fall back,
+
+/// A coordinate is LEGAL when its lineage rules on every facet it names.
+///
+/// Shared by `generate_roles` and `generate_presets` so a role binding and an
+/// authored preset can never be validated by two different rules. Fails the
+/// BUILD rather than degrading: an illegal preset that ships is mush no one
+/// can explain, and the matrix exists precisely to make that impossible.
+fn assert_coordinate_legal(
+    matrix: &serde_json::Value,
+    ctx: &str,
+    anc: &str,
+    st: &str,
+    mt: &str,
+    at: &str,
+) {
+    let a = matrix["ancestors"]
+        .as_array()
+        .expect("matrix.json: ancestors[]")
+        .iter()
+        .find(|x| x["id"].as_str() == Some(anc))
+        .unwrap_or_else(|| panic!("{ctx}: unknown ancestor {anc:?}"));
+    for (facet, value) in [("structure", st), ("material", mt), ("atmosphere", at)] {
+        let in_set = |which: &str| -> bool {
+            a[which][facet]
+                .as_array()
+                .map(|x| x.iter().any(|v| v.as_str() == Some(value)))
+                .unwrap_or(false)
+        };
+        assert!(
+            !in_set("forbidden"),
+            "{ctx} is ILLEGAL — {anc} forbids {facet} {value:?}"
+        );
+        assert!(
+            a["native"][facet].as_str() == Some(value) || in_set("allowed"),
+            "{ctx} names {facet} {value:?}, which {anc} does not rule on"
+        );
+    }
+}
+
 ///    but there must always be something to fall back TO.
 fn generate_roles(out_dir: &str) {
     let raw = std::fs::read_to_string("tokens/roles.json").expect("read roles.json");
@@ -166,23 +205,15 @@ fn generate_roles(out_dir: &str) {
                 .unwrap_or_else(|| {
                     panic!("roles.json: {scope}.{role} names unknown ancestor {anc:?}")
                 });
-            for (facet, value) in [("structure", &st), ("material", &mt), ("atmosphere", &at)] {
-                let in_set = |which: &str| -> bool {
-                    a[which][facet]
-                        .as_array()
-                        .map(|x| x.iter().any(|v| v.as_str() == Some(value.as_str())))
-                        .unwrap_or(false)
-                };
-                assert!(
-                    !in_set("forbidden"),
-                    "roles.json: {scope}.{role} is ILLEGAL — {anc} forbids {facet} {value:?}"
-                );
-                assert!(
-                    a["native"][facet].as_str() == Some(value.as_str()) || in_set("allowed"),
-                    "roles.json: {scope}.{role} names {facet} {value:?}, \
-                     which {anc} does not rule on"
-                );
-            }
+            let _ = a;
+            assert_coordinate_legal(
+                &matrix_doc,
+                &format!("roles.json: {scope}.{role}"),
+                &anc,
+                &st,
+                &mt,
+                &at,
+            );
             format!(
                 "Dress::Coord(matrix::Coordinate {{ ancestor: {anc:?}, structure: {st:?}, \
                  material: {mt:?}, atmosphere: {at:?} }})"
@@ -1367,6 +1398,75 @@ fn generate_presets(out_dir: &str) {
         bleeds.len()
     )
     .unwrap();
+
+    // ── the ANCESTRAL presets — the 4th kind, and the only one that is a
+    //    MATRIX COORDINATE rather than a bundle of refs. Every one is checked
+    //    against its lineage's own rulings, so an illegal look fails the build.
+    let matrix_for_presets: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string("tokens/matrix.json").expect("read matrix.json"),
+    )
+    .expect("parse matrix.json");
+    let hues_for_presets: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string("tokens/hues.json").expect("read hues.json"))
+            .expect("parse hues.json");
+
+    writeln!(
+        code,
+        "pub static ANCESTRAL_PRESETS: &[AncestralPreset] = &["
+    )
+    .unwrap();
+    let mut preset_ids: Vec<String> = Vec::new();
+    for p in doc["ancestral"]
+        .as_array()
+        .expect("presets.json: ancestral[]")
+    {
+        let id = p["id"].as_str().expect("ancestral.id").to_owned();
+        assert!(
+            !preset_ids.contains(&id),
+            "presets.json: duplicate ancestral preset {id:?}"
+        );
+        let c = &p["coordinate"];
+        let get = |k: &str| -> &str {
+            c[k].as_str()
+                .unwrap_or_else(|| panic!("presets.json: ancestral[{id}].coordinate needs {k:?}"))
+        };
+        let (anc, st, mt, at) = (
+            get("ancestor"),
+            get("structure"),
+            get("material"),
+            get("atmosphere"),
+        );
+        assert_coordinate_legal(
+            &matrix_for_presets,
+            &format!("presets.json: ancestral[{id}]"),
+            anc,
+            st,
+            mt,
+            at,
+        );
+        let tone = match p.get("tone").and_then(|t| t.as_str()) {
+            Some(h) => {
+                assert!(
+                    hue_exists(&hues_for_presets, h),
+                    "presets.json: ancestral[{id}] names unknown hue {h:?}"
+                );
+                format!("Some({h:?})")
+            }
+            None => "None".to_string(),
+        };
+        writeln!(
+            code,
+            "    AncestralPreset {{ id: {id:?}, label: {:?}, kicker: {:?}, blurb: {:?}, \
+             coord: matrix::Coordinate {{ ancestor: {anc:?}, structure: {st:?}, \
+             material: {mt:?}, atmosphere: {at:?} }}, tone: {tone} }},",
+            p["label"].as_str().expect("ancestral.label"),
+            p["kicker"].as_str().unwrap_or_default(),
+            p["blurb"].as_str().unwrap_or_default(),
+        )
+        .unwrap();
+        preset_ids.push(id);
+    }
+    writeln!(code, "];").unwrap();
 
     std::fs::write(Path::new(out_dir).join("presets_gen.rs"), code).expect("write presets_gen.rs");
 }

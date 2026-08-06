@@ -678,54 +678,104 @@ pub fn vibron(tone: Tone, state: TraitState) -> Treated {
     treated(tone, "vibron", &[], state)
 }
 
-/// The CHROME treatment every ordinary control wears, as a changeable
-/// setting rather than a hardcoded call.
+/// A NAMED LEGAL COORDINATE — the authored form of a preset
+/// (`tokens/presets.json`, kind `ancestral`).
 ///
-/// Chrome is the app's own furniture — buttons, chips, panels. Which
-/// treatment it wears is a CHOICE, so surfaces ask for "the chrome" and get
-/// whatever is currently set. Swapping the whole app to another look is then
-/// one call, not an edit to every widget helper.
-///
-/// A component may still ask for a SPECIFIC treatment ([`vibron`],
-/// [`brutal`], [`clay`]) when it means that one on purpose — which is what
-/// lets glass sit inside a brutalist container.
-static CHROME: std::sync::OnceLock<std::sync::Mutex<&'static str>> = std::sync::OnceLock::new();
-
-fn chrome_cell() -> &'static std::sync::Mutex<&'static str> {
-    CHROME.get_or_init(|| std::sync::Mutex::new(DEFAULT_CHROME))
+/// A preset is never a hand-authored bundle of colours; it is a point on the
+/// matrix, which is what makes 25 of them cost 25 JSON objects rather than 25
+/// stylesheets. `build.rs` checks each one against its lineage's own
+/// native/allowed/forbidden rulings, so an illegal preset fails the build.
+#[derive(Debug, Clone, Copy)]
+pub struct AncestralPreset {
+    pub id: &'static str,
+    pub label: &'static str,
+    /// Three or four words for the picker, under the label.
+    pub kicker: &'static str,
+    pub blurb: &'static str,
+    pub coord: matrix::Coordinate,
+    /// The tone this preset reads best in — a DEFAULT, not a pin.
+    pub tone: Option<&'static str>,
 }
 
-/// The treatment chrome wears until something changes it.
-pub const DEFAULT_CHROME: &str = "vibron";
-
-/// Which treatment chrome is currently wearing.
-pub fn chrome() -> &'static str {
-    *chrome_cell()
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
-/// Dress the app's chrome in another treatment. Returns whether it took.
-///
-/// An UNKNOWN id is REFUSED and the current chrome kept, rather than
-/// panicking: the realistic bad value is not a typo in code but a STALE
-/// preset id read back from persisted operator data after a treatment was
-/// renamed. Losing the setting is recoverable; killing the app over it is
-/// not. The `bool` is the report — callers that care should check it.
-pub fn set_chrome(id: &'static str) -> bool {
-    if trait_def(id).is_none() {
-        return false;
+impl AncestralPreset {
+    /// What this preset paints, so a picker can show the real look rather
+    /// than a name.
+    pub fn style(&self, tone: Tone, state: TraitState) -> ResolvedStyle {
+        matrix::resolve(&self.coord, self.toned(tone), state)
     }
-    *chrome_cell()
+
+    /// The tone it paints in: its own default, or the caller's.
+    pub fn toned(&self, tone: Tone) -> Tone {
+        self.tone.and_then(tone_for_hue).unwrap_or(tone)
+    }
+}
+
+/// A preset by id.
+pub fn preset(id: &str) -> Option<&'static AncestralPreset> {
+    ANCESTRAL_PRESETS.iter().find(|p| p.id == id)
+}
+
+/// Every authored preset, in authored order (grouped by lineage).
+pub fn presets() -> &'static [AncestralPreset] {
+    ANCESTRAL_PRESETS
+}
+
+// ── the runtime override: which preset a surface's CHROME is wearing ────
+//
+// Authored `roles.json` is the default for every surface; this layer is what
+// the operator changes. It is CHROME-ONLY on purpose: hero/quiet/danger carry
+// MEANING, and a picker that could turn `danger` into a glossy pill would
+// break the semantic layer this was built for.
+
+type Overrides = std::sync::Mutex<Vec<(String, &'static str)>>;
+static CHROME_PRESET: std::sync::OnceLock<Overrides> = std::sync::OnceLock::new();
+
+fn overrides() -> &'static Overrides {
+    CHROME_PRESET.get_or_init(|| std::sync::Mutex::new(Vec::new()))
+}
+
+fn with_overrides<R>(f: impl FnOnce(&mut Vec<(String, &'static str)>) -> R) -> R {
+    let mut guard = overrides()
         .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner) = id;
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    f(&mut guard)
+}
+
+/// The preset a surface's chrome is currently overridden to, if any.
+pub fn chrome_preset(surface: &str) -> Option<&'static AncestralPreset> {
+    with_overrides(|o| {
+        o.iter()
+            .find(|(s, _)| s == surface)
+            .and_then(|(_, id)| preset(id))
+    })
+}
+
+/// Dress a surface's chrome in an authored preset. Returns whether it took.
+///
+/// An UNKNOWN id is REFUSED and the current look kept, rather than panicking:
+/// the realistic bad value is not a typo in code but a STALE PERSISTED id read
+/// back from `.userdata` after a preset was renamed. Losing a look is
+/// recoverable; killing a shipped exe over it is not. The `bool` is the
+/// report — callers that persist should check it.
+pub fn set_chrome_preset(surface: &str, id: &str) -> bool {
+    let Some(p) = preset(id) else {
+        return false;
+    };
+    with_overrides(|o| match o.iter_mut().find(|(s, _)| s == surface) {
+        Some(slot) => slot.1 = p.id,
+        None => o.push((surface.to_owned(), p.id)),
+    });
     true
 }
 
-/// An ordinary control in whatever chrome is currently set. This is what
-/// surfaces call; [`vibron`] and friends are for meaning one on purpose.
-pub fn chrome_treated(tone: Tone, state: TraitState) -> Treated {
-    treated(tone, chrome(), &[], state)
+/// Put a surface back to whatever `roles.json` authored for it.
+pub fn clear_chrome_preset(surface: &str) {
+    with_overrides(|o| o.retain(|(s, _)| s != surface));
+}
+
+/// An ordinary control in whatever chrome the surface is wearing.
+pub fn chrome_treated(surface: &str, tone: Tone, state: TraitState) -> Treated {
+    dressed(surface, Intent::Chrome, tone, state)
 }
 
 // ── the SEMANTIC layer: what a control MEANS ────────────────────────────
@@ -818,6 +868,16 @@ include!(concat!(env!("OUT_DIR"), "/roles_gen.rs"));
 /// The binding for a role on a surface: the surface's own if it states one,
 /// otherwise the default. A surface therefore declares only what it CHANGES.
 pub fn binding(surface: &str, intent: Intent) -> Binding {
+    // The operator's pick wins over the authored default — but only for
+    // chrome, so a preset can never redefine what `danger` MEANS.
+    if intent == Intent::Chrome {
+        if let Some(p) = chrome_preset(surface) {
+            return Binding {
+                dress: Dress::Coord(p.coord),
+                tone: p.tone,
+            };
+        }
+    }
     let i = intent.index();
     SURFACE_ROLES
         .iter()
@@ -2957,30 +3017,106 @@ mod tests {
         assert_eq!(binding("wiredfront", Intent::Danger).tone, Some("coral"));
     }
 
+    /// The tests below share one process-wide override table, so each one
+    /// clears what it set. They stay in a single test to keep that honest
+    /// rather than depending on test ordering.
     #[test]
-    fn chrome_is_switchable_and_refuses_a_typo() {
+    fn presets_switch_a_surface_and_survive_a_typo() {
+        // Authored default first: the editor wears Vibron from roles.json.
+        clear_chrome_preset("wiredfront");
+        let authored = binding("wiredfront", Intent::Chrome);
         assert_eq!(
-            chrome(),
-            DEFAULT_CHROME,
-            "vibron until something changes it"
+            authored.dress,
+            Dress::Coord(matrix::Coordinate {
+                ancestor: "brutalist",
+                structure: "massive",
+                material: "plate",
+                atmosphere: "hard-cast",
+            })
         );
+
+        // A pick really moves the PAINTED values, not just a wrapper.
+        let before = authored.style(Tone::Cyan, TraitState::Idle);
         assert!(
-            set_chrome("neubrutalist"),
-            "any authored trait is fair game"
+            set_chrome_preset("wiredfront", "gloss"),
+            "gloss is authored"
         );
-        assert_eq!(chrome(), "neubrutalist");
-        // A resolved style really does follow the setting — compared through
-        // compose() so this asserts on the PAINTED values, not on a wrapper.
-        let loud = compose(Tone::Magenta, chrome(), &[], TraitState::Idle);
-        assert!(set_chrome("vibron"));
-        let quiet = compose(Tone::Magenta, chrome(), &[], TraitState::Idle);
+        let after = binding("wiredfront", Intent::Chrome).style(Tone::Cyan, TraitState::Idle);
         assert_ne!(
-            loud.fill, quiet.fill,
-            "neubrutalist is a saturated fill; vibron is a quiet plate — they              must not resolve to the same colour"
+            before, after,
+            "vibron is a square quiet plate; gloss is a rounded glass panel"
         );
-        // A typo is refused and the current chrome survives.
-        assert!(!set_chrome("vibrn"), "unknown id refused");
-        assert_eq!(chrome(), "vibron", "and the good one is kept");
+        assert_eq!(after.radius, 16, "gloss wears aero's `rounded`");
+
+        // ONE surface moved. Workbench is untouched.
+        assert_eq!(
+            binding("workbench", Intent::Chrome).dress,
+            Dress::Trait("claymorphic"),
+            "dressing the editor must not dress the workbench"
+        );
+
+        // A stale persisted id is refused and the good look survives — the
+        // realistic failure is a renamed preset read back from .userdata.
+        assert!(!set_chrome_preset("wiredfront", "nosuchpreset"));
+        assert_eq!(
+            binding("wiredfront", Intent::Chrome).style(Tone::Cyan, TraitState::Idle),
+            after,
+            "a typo must not blank the surface"
+        );
+
+        // An override never reaches a role that carries MEANING.
+        for intent in [Intent::Hero, Intent::Quiet, Intent::Danger] {
+            let with = binding("wiredfront", intent);
+            clear_chrome_preset("wiredfront");
+            let without = binding("wiredfront", intent);
+            assert_eq!(
+                with.dress, without.dress,
+                "{intent:?} must not follow the chrome picker"
+            );
+            assert!(set_chrome_preset("wiredfront", "gloss"));
+        }
+        clear_chrome_preset("wiredfront");
+        assert_eq!(
+            binding("wiredfront", Intent::Chrome).dress,
+            authored.dress,
+            "clearing returns the surface to what roles.json authored"
+        );
+    }
+
+    #[test]
+    fn every_authored_preset_is_legal_and_paints() {
+        assert_eq!(presets().len(), 25, "25 authored coordinates");
+        for p in presets() {
+            p.coord
+                .legality()
+                .unwrap_or_else(|e| panic!("preset {}: {e}", p.id));
+            assert!(!p.label.is_empty(), "preset {} has no label", p.id);
+            for state in [TraitState::Idle, TraitState::Hover, TraitState::Active] {
+                let rs = p.style(Tone::Cyan, state);
+                assert_ne!(
+                    rs,
+                    ResolvedStyle::default(),
+                    "preset {} painted nothing in {state:?}",
+                    p.id
+                );
+                assert!(rs.font.is_some(), "preset {} wears no font", p.id);
+            }
+        }
+    }
+
+    /// The bench's own gate, in Rust: two presets that resolve to identical
+    /// paint are not two presets. This is what stops the library quietly
+    /// filling up with the same look under different names.
+    #[test]
+    fn the_authored_presets_are_visually_distinct() {
+        let mut seen: Vec<(&str, ResolvedStyle)> = Vec::new();
+        for p in presets() {
+            let rs = p.style(Tone::Cyan, TraitState::Idle);
+            if let Some((other, _)) = seen.iter().find(|(_, s)| *s == rs) {
+                panic!("presets {} and {} resolve to IDENTICAL paint", other, p.id);
+            }
+            seen.push((p.id, rs));
+        }
     }
 
     #[test]
