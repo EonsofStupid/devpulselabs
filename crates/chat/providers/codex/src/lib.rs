@@ -4,6 +4,7 @@
 //! process launch stays fail-closed until every ADR launch gate passes.
 
 mod activation;
+pub mod runtime;
 
 pub use activation::{
     CodexActivationCoordinator, CodexActivationError, CodexDiscoveryError, CodexLoginExit,
