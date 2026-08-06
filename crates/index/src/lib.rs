@@ -378,6 +378,34 @@ impl Index {
     /// recursively) + its companions (sidecar; a video's poster), then
     /// SOFT-clear the row (history survives). Jailed to `root/inbox` BY
     /// CONSTRUCTION — a rel_path outside it is refused, never resolved.
+    /// Unlink a symlink ITSELF, never what it points at.
+    ///
+    /// Windows has two kinds of symlink and they are removed by different
+    /// calls: a DIRECTORY symlink must go through `remove_dir`, and
+    /// `remove_file` refuses it outright. Unix has one kind, which
+    /// `remove_file` unlinks. Neither call follows the link on either OS, so
+    /// the operator's original is untouched whichever branch runs.
+    ///
+    /// This existed as a bare `remove_file`, which meant a REFERENCED folder
+    /// could never be dumped on Windows — the operator's remove would fail and
+    /// the link would stay in their inbox. The file-symlink case worked, which
+    /// is why it went unnoticed.
+    fn remove_symlink(link: &Path) -> std::io::Result<()> {
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::FileTypeExt;
+            // `symlink_metadata` does not follow — we are asking what the LINK
+            // is, not what it points at.
+            if std::fs::symlink_metadata(link)?
+                .file_type()
+                .is_symlink_dir()
+            {
+                return std::fs::remove_dir(link);
+            }
+        }
+        std::fs::remove_file(link)
+    }
+
     pub fn dump(&self, root: &Path, rel_path: &str) -> Result<(), String> {
         let target = jail_inbox(root, rel_path)?;
         // `symlink_metadata` does NOT follow — which is the whole point here.
@@ -389,7 +417,7 @@ impl Index {
             // The operator's original is somewhere outside `content/` and is
             // not ours to delete — referencing was the promise that we would
             // not copy it, and removing must keep that promise.
-            std::fs::remove_file(&target).map_err(|e| format!("dump link: {e}"))?;
+            Self::remove_symlink(&target).map_err(|e| format!("dump link: {e}"))?;
             let _ = std::fs::remove_file(sidecar::path_for(&target));
             if kind_of(&target) == Some("video") {
                 let _ = std::fs::remove_file(target.with_extension("jpg"));
@@ -1172,7 +1200,12 @@ mod tests {
         // What import_reference lands: a single-file symlink in the inbox.
         let link = inbox.join("clip.mp4");
         if !try_symlink(&original, &link) {
-            eprintln!("skipped: this OS denied symlink creation");
+            // NOT A PASS. This machine cannot create symlinks (Windows
+            // without Developer Mode or admin), so the assertions below never
+            // run here — only CI, whose runner is privileged, truly exercises
+            // them. A silent skip reading as "ok" is exactly how a Windows
+            // folder-symlink bug survived a local `green` and died in CI.
+            eprintln!("SKIPPED (NOT PROOF): this OS denied symlink creation");
             return;
         }
         sidecar::write(&link, &rec("inbox/clip.mp4", "video")).unwrap();
@@ -1207,7 +1240,12 @@ mod tests {
         std::fs::write(theirs.join("precious.mp4"), b"KEEP").unwrap();
         let link = inbox.join("pack");
         if !try_symlink(&theirs, &link) {
-            eprintln!("skipped: this OS denied symlink creation");
+            // NOT A PASS. This machine cannot create symlinks (Windows
+            // without Developer Mode or admin), so the assertions below never
+            // run here — only CI, whose runner is privileged, truly exercises
+            // them. A silent skip reading as "ok" is exactly how a Windows
+            // folder-symlink bug survived a local `green` and died in CI.
+            eprintln!("SKIPPED (NOT PROOF): this OS denied symlink creation");
             return;
         }
 
