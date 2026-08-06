@@ -68,6 +68,31 @@ ASSISTANT ANSWER: "WIRED"
 An example rather than a test on purpose: it needs a real login and the
 network, and a test that needs either is one CI will eventually run.
 
+**The UI witness** (`tests/eguipilotai/chat-codex-persisted-ready.toml`,
+re-run live and PASSING): Codex Ready → type a draft → **Send is enabled**.
+Before this pass that button's tooltip read *"This provider's live turn
+transport is not qualified."* And in the app's own log, under the pilot:
+
+```
+provider runtime connected provider=codex can_send=true
+                           qualified=[StartSession, StreamTurns, InterruptTurn]
+```
+
+Getting there required correcting two claims I had asserted without checking
+— both found only by RUNNING it:
+
+1. I called `chat-peer` an authored fixture. It is not: `.eguipilotai.toml`
+   passes `--chat-open` with no `--chat-authored`, so the real app-server
+   child starts. Its old `expect disabled` assertions were pinning LIVE
+   behaviour this pass changes.
+2. I then asserted `enabled` on an EMPTY composer. Send needs four things and
+   only one is the transport: not reading history · a session selected ·
+   `can_send()` · **a non-empty draft**. An empty composer is disabled with
+   "Type a message first." however qualified the provider is — that assertion
+   would have passed before and after, proving nothing.
+
+The code was right both times; the assertions were wrong.
+
 **The live run found a real defect the unit tests could not.** The first turn
 reported `usage: 0 of 0`. The pinned schema said why: `ThreadTokenUsage` is
 **nested** — `tokenUsage.total.totalTokens` and `tokenUsage.modelContextWindow`
@@ -91,6 +116,23 @@ Land this (double-green), then the operator's call between:
    Passthrough first, depot fallback second, and the fallback stated aloud.
 3. **`ai-chat-social-separation.md`** — the `crates/ai/` rename, which renames
    these very files.
+
+## The blocker this pass hit (not its own)
+
+`green-windows` went red on #213 for a reason #213 did not cause:
+`dpl_index::tests::a_folder_symlink_is_unlinked_never_recursively_deleted`.
+`crates/index` is not in this diff; it was last touched by #211. **Main was
+red for everyone** — #213 was simply the first Windows lane to run against it.
+
+`Index::dump` unlinked symlinks with `remove_file`, but a Windows DIRECTORY
+symlink needs `remove_dir`, so a referenced FOLDER could never be dumped on
+Windows. Fixed on its own branch as **#214**, which must land before #213 can.
+
+Why every local gate missed it, and the reason worth keeping: `try_symlink`
+returns false on a Windows machine without Developer Mode, and both symlink
+tests then return early **while still reporting `ok`**. A local `cargo green`
+never executed the assertion — a skip wearing a pass's clothes. The skip
+messages now read `SKIPPED (NOT PROOF)`.
 
 ## Landmines
 
