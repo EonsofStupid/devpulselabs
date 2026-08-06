@@ -139,14 +139,64 @@ fn generate_roles(out_dir: &str) {
 
     const ROLES: [&str; 4] = ["chrome", "hero", "quiet", "danger"];
 
+    // A role points at EITHER a legacy trait or a MATRIX COORDINATE. The
+    // coordinate form is checked here against the real facet pools AND the
+    // ancestor's own legality rulings, so an illegal preset cannot ship — it
+    // fails the build exactly as an unknown trait already does.
+    let matrix_raw = std::fs::read_to_string("tokens/matrix.json").expect("read matrix.json");
+    let matrix_doc: serde_json::Value =
+        serde_json::from_str(&matrix_raw).expect("parse matrix.json");
+
     let binding = |scope: &str, role: &str, v: &serde_json::Value| -> String {
-        let t = v["trait"]
-            .as_str()
-            .unwrap_or_else(|| panic!("roles.json: {scope}.{role} has no `trait`"));
-        assert!(
-            trait_ids.iter().any(|x| x == t),
-            "roles.json: {scope}.{role} names unknown treatment {t:?}"
-        );
+        let dress = if let Some(c) = v.get("coordinate") {
+            let get = |k: &str| -> String {
+                c[k].as_str()
+                    .unwrap_or_else(|| panic!("roles.json: {scope}.{role}.coordinate needs {k:?}"))
+                    .to_owned()
+            };
+            let anc = get("ancestor");
+            let st = get("structure");
+            let mt = get("material");
+            let at = get("atmosphere");
+            let a = matrix_doc["ancestors"]
+                .as_array()
+                .expect("ancestors[]")
+                .iter()
+                .find(|x| x["id"].as_str() == Some(anc.as_str()))
+                .unwrap_or_else(|| {
+                    panic!("roles.json: {scope}.{role} names unknown ancestor {anc:?}")
+                });
+            for (facet, value) in [("structure", &st), ("material", &mt), ("atmosphere", &at)] {
+                let in_set = |which: &str| -> bool {
+                    a[which][facet]
+                        .as_array()
+                        .map(|x| x.iter().any(|v| v.as_str() == Some(value.as_str())))
+                        .unwrap_or(false)
+                };
+                assert!(
+                    !in_set("forbidden"),
+                    "roles.json: {scope}.{role} is ILLEGAL — {anc} forbids {facet} {value:?}"
+                );
+                assert!(
+                    a["native"][facet].as_str() == Some(value.as_str()) || in_set("allowed"),
+                    "roles.json: {scope}.{role} names {facet} {value:?}, \
+                     which {anc} does not rule on"
+                );
+            }
+            format!(
+                "Dress::Coord(matrix::Coordinate {{ ancestor: {anc:?}, structure: {st:?}, \
+                 material: {mt:?}, atmosphere: {at:?} }})"
+            )
+        } else {
+            let t = v["trait"].as_str().unwrap_or_else(|| {
+                panic!("roles.json: {scope}.{role} names neither `trait` nor `coordinate`")
+            });
+            assert!(
+                trait_ids.iter().any(|x| x == t),
+                "roles.json: {scope}.{role} names unknown treatment {t:?}"
+            );
+            format!("Dress::Trait({t:?})")
+        };
         let tone = match v.get("tone").and_then(|x| x.as_str()) {
             Some(h) => {
                 assert!(
@@ -157,7 +207,7 @@ fn generate_roles(out_dir: &str) {
             }
             None => "None".to_string(),
         };
-        format!("Binding {{ treatment: {t:?}, tone: {tone} }}")
+        format!("Binding {{ dress: {dress}, tone: {tone} }}")
     };
 
     let mut code = String::new();

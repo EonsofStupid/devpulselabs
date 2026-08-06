@@ -618,8 +618,7 @@ impl ResolvedStyle {
 /// drop-in successor to `brutal_frame`/`clay_frame` — `.show(ui, |ui| …)`.
 pub struct Treated {
     tone: Tone,
-    base: &'static str,
-    stack: &'static [&'static str],
+    dress: Dress,
     state: TraitState,
     margin: egui::Margin,
 }
@@ -636,12 +635,25 @@ pub fn treated(
     } else {
         egui::Margin::symmetric(10, 6)
     };
+    debug_assert!(
+        stack.is_empty(),
+        "a trait STACK has no coordinate form; ask for a coordinate instead"
+    );
     Treated {
         tone,
-        base,
-        stack,
+        dress: Dress::Trait(base),
         state,
         margin,
+    }
+}
+
+/// Begin a treated surface from a MATRIX COORDINATE — the preset path.
+pub fn treated_coord(tone: Tone, coord: matrix::Coordinate, state: TraitState) -> Treated {
+    Treated {
+        tone,
+        dress: Dress::Coord(coord),
+        state,
+        margin: egui::Margin::symmetric(10, 6),
     }
 }
 
@@ -750,12 +762,55 @@ impl Intent {
     }
 }
 
-/// One role's binding: which treatment paints it, and whether it pins a tone.
+/// WHAT paints a role — a legacy trait id, or a point in the matrix.
+///
+/// Both resolve to the same `ResolvedStyle`, which is exactly what lets a
+/// surface be repointed from a trait to a coordinate in DATA, with not one
+/// widget touched.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Dress {
+    /// A treatment from `tokens/traits.json` (the original compositor).
+    Trait(&'static str),
+    /// A coordinate on the MATRIX — the preset form.
+    Coord(matrix::Coordinate),
+}
+
+impl Dress {
+    /// Resolve to the concrete style, whichever path this is.
+    pub fn style(self, tone: Tone, state: TraitState) -> ResolvedStyle {
+        match self {
+            Dress::Trait(id) => compose(tone, id, &[], state),
+            Dress::Coord(c) => matrix::resolve(&c, tone, state),
+        }
+    }
+
+    /// The trait id, when this is one — for call sites still naming traits.
+    pub fn trait_id(self) -> Option<&'static str> {
+        match self {
+            Dress::Trait(id) => Some(id),
+            Dress::Coord(_) => None,
+        }
+    }
+}
+
+/// One role's binding: what paints it, and whether it pins a tone.
 #[derive(Debug, Clone, Copy)]
 pub struct Binding {
-    pub treatment: &'static str,
+    pub dress: Dress,
     /// `Some(hue)` overrides the caller's tone — danger is coral everywhere.
     pub tone: Option<&'static str>,
+}
+
+impl Binding {
+    /// The style this binding paints, with its pinned tone honoured.
+    pub fn style(&self, tone: Tone, state: TraitState) -> ResolvedStyle {
+        self.dress.style(self.toned(tone), state)
+    }
+
+    /// The tone this binding actually paints in: its pin, or the caller's.
+    pub fn toned(&self, tone: Tone) -> Tone {
+        self.tone.and_then(tone_for_hue).unwrap_or(tone)
+    }
 }
 
 include!(concat!(env!("OUT_DIR"), "/roles_gen.rs"));
@@ -778,11 +833,17 @@ pub fn binding(surface: &str, intent: Intent) -> Binding {
 pub fn dressed(surface: &str, intent: Intent, tone: Tone, state: TraitState) -> Treated {
     let b = binding(surface, intent);
     // A pinned tone wins: `danger` must read the same on every surface.
-    let tone = match b.tone.and_then(tone_for_hue) {
-        Some(t) => t,
-        None => tone,
+    let margin = if b.dress == Dress::Trait("claymorphic") {
+        egui::Margin::same(16)
+    } else {
+        egui::Margin::symmetric(10, 6)
     };
-    treated(tone, b.treatment, &[], state)
+    Treated {
+        tone: b.toned(tone),
+        dress: b.dress,
+        state,
+        margin,
+    }
 }
 
 /// The `Tone` that resolves through a given hue id, when one does. Roles pin
@@ -813,7 +874,7 @@ impl Treated {
         ui: &mut egui::Ui,
         add_contents: impl FnOnce(&mut egui::Ui) -> R,
     ) -> egui::InnerResponse<R> {
-        let style = compose(self.tone, self.base, self.stack, self.state);
+        let style = self.dress.style(self.tone, self.state);
         let behind = ui.painter().add(egui::Shape::Noop);
         let mut frame = egui::Frame::new()
             .fill(style.fill)
@@ -2838,21 +2899,30 @@ mod tests {
     #[test]
     fn a_surface_states_only_what_it_changes() {
         // wiredfront overrides chrome only.
-        assert_eq!(binding("wiredfront", Intent::Chrome).treatment, "vibron");
         assert_eq!(
-            binding("wiredfront", Intent::Hero).treatment,
-            binding("nosuchsurface", Intent::Hero).treatment,
+            binding("wiredfront", Intent::Chrome).dress,
+            Dress::Coord(matrix::Coordinate {
+                ancestor: "brutalist",
+                structure: "massive",
+                material: "plate",
+                atmosphere: "hard-cast",
+            }),
+            "the editor wears Vibron AS A COORDINATE"
+        );
+        assert_eq!(
+            binding("wiredfront", Intent::Hero).dress,
+            binding("nosuchsurface", Intent::Hero).dress,
             "an unstated role falls back to default"
         );
         // An UNKNOWN surface is not an error — it simply wears the defaults,
         // so a new hub paints correctly before anyone authors it.
         for i in [Intent::Chrome, Intent::Hero, Intent::Quiet, Intent::Danger] {
-            assert!(!binding("brand-new-hub", i).treatment.is_empty());
+            let _ = binding("brand-new-hub", i).dress;
         }
         // Workbench genuinely differs from WiredFRONT.
         assert_ne!(
-            binding("workbench", Intent::Chrome).treatment,
-            binding("wiredfront", Intent::Chrome).treatment,
+            binding("workbench", Intent::Chrome).dress,
+            binding("wiredfront", Intent::Chrome).dress,
             "per-surface chrome must actually differ"
         );
     }
@@ -2869,7 +2939,7 @@ mod tests {
                 .tone
                 .and_then(|h| Tone::ALL.iter().copied().find(|t| t.hue_id() == h))
                 .unwrap_or(caller);
-            compose(tone, b.treatment, &[], TraitState::Idle).fill
+            b.style(tone, TraitState::Idle).fill
         };
         assert_eq!(
             painted("wiredfront", Tone::Lime),

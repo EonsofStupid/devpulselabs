@@ -743,7 +743,7 @@ fn pilot_chip(
     // tokens/roles.json rather than a treatment written in here. A palette
     // chip is the ORDINARY kind — the REC button is the one that shouts.
     let b = cl::binding(SURFACE, cl::Intent::Chrome);
-    let style = cl::compose(tone, b.treatment, &[], state);
+    let style = b.style(tone, state);
     let cr = CornerRadius::same(style.radius);
     let painter = ui.painter();
     // The hard offset shadow (a shape, never a blur) — the primary shadow the

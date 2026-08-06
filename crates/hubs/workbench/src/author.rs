@@ -132,7 +132,10 @@ fn newest_draft() -> Option<std::path::PathBuf> {
 /// key or the selected styling can never drift between them.
 fn tab_chip(ui: &mut egui::Ui, ed: &mut CardEditor, t: CardTab, tone: Tone) {
     let active = ed.tab == t;
-    let chip = cl::tip(control(ui, t.label(), active, tone, Weight::Chrome), t.tip());
+    let chip = cl::tip(
+        control(ui, t.label(), active, tone, Weight::Chrome),
+        t.tip(),
+    );
     ui.pilot_track(
         &chip,
         NodeMetadata::new(

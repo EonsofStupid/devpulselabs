@@ -18,7 +18,12 @@
   "surfaces": {
     "wiredfront": {
       "chrome": {
-        "trait": "vibron"
+        "coordinate": {
+          "ancestor": "brutalist",
+          "structure": "massive",
+          "material": "plate",
+          "atmosphere": "hard-cast"
+        }
       }
     },
     "workbench": {

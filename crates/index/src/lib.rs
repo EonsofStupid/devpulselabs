@@ -1215,7 +1215,10 @@ mod tests {
         // dump may or may not have a row; the FILESYSTEM outcome is the point.
         let _ = ix.dump(&root, "inbox/pack");
 
-        assert!(std::fs::symlink_metadata(&link).is_err(), "the link is gone");
+        assert!(
+            std::fs::symlink_metadata(&link).is_err(),
+            "the link is gone"
+        );
         assert!(theirs.is_dir(), "their folder SURVIVES");
         assert!(
             theirs.join("precious.mp4").is_file(),
@@ -1231,11 +1234,12 @@ mod tests {
         // suite runs in parallel, so reusing "jail" raced the neighbouring
         // test and wiped its fixtures.
         let root = scratch("jail-lexical");
-        for bad in ["../secrets.png", "inbox/../../etc/passwd", "elsewhere/x.png"] {
-            assert!(
-                jail_inbox(&root, bad).is_err(),
-                "{bad:?} must be refused"
-            );
+        for bad in [
+            "../secrets.png",
+            "inbox/../../etc/passwd",
+            "elsewhere/x.png",
+        ] {
+            assert!(jail_inbox(&root, bad).is_err(), "{bad:?} must be refused");
         }
     }
 

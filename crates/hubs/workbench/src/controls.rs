@@ -75,7 +75,7 @@ pub(crate) fn control(
         .tone
         .and_then(|h| cl::Tone::ALL.iter().copied().find(|t| t.hue_id() == h))
         .unwrap_or(tone);
-    let style = cl::compose(tone, b.treatment, &[], state);
+    let style = b.style(tone, state);
     let radius = egui::CornerRadius::same(style.radius);
     let painter = ui.painter();
 
@@ -164,7 +164,7 @@ pub(crate) fn stacked_control(
         .tone
         .and_then(|h| cl::Tone::ALL.iter().copied().find(|t| t.hue_id() == h))
         .unwrap_or(tone);
-    let style = cl::compose(tone, b.treatment, &[], state);
+    let style = b.style(tone, state);
     let radius = egui::CornerRadius::same(style.radius);
     let painter = ui.painter();
     for sh in &style.shadows {

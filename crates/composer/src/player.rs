@@ -146,8 +146,7 @@ pub(crate) fn modal(ctx: &egui::Context, pv: &mut Preview, tone: Tone) -> Option
                 ui.label(RichText::new(&title).strong().color(cl::ink::STRONG));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let x = cl::tip(
-                        cl::icon_label(ui, "close", 16.0, cl::ink::SUBTLE)
-                            .interact(Sense::click()),
+                        cl::icon_label(ui, "close", 16.0, cl::ink::SUBTLE).interact(Sense::click()),
                         "Close this preview — nothing is imported",
                     );
                     if x.clicked() {
@@ -283,11 +282,16 @@ fn plate(ui: &egui::Ui, rect: egui::Rect, text: &str) {
 }
 
 fn icon_btn(ui: &mut egui::Ui, icon: &str, key: &str) -> egui::Response {
-    let inner = cl::dressed(crate::SURFACE, cl::Intent::Chrome, Tone::Magenta, cl::TraitState::Idle)
-        .margin(egui::Margin::symmetric(7, 4))
-        .show(ui, |ui| {
-            let _ = cl::icon_label(ui, icon, 15.0, cl::ink::STRONG);
-        });
+    let inner = cl::dressed(
+        crate::SURFACE,
+        cl::Intent::Chrome,
+        Tone::Magenta,
+        cl::TraitState::Idle,
+    )
+    .margin(egui::Margin::symmetric(7, 4))
+    .show(ui, |ui| {
+        let _ = cl::icon_label(ui, icon, 15.0, cl::ink::STRONG);
+    });
     ui.interact(
         inner.response.rect,
         egui::Id::new(("pv-btn", key)),

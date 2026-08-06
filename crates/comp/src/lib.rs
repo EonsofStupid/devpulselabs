@@ -716,7 +716,10 @@ mod tests {
         // the way a hand-written fixture would.
         let back: Composition = serde_json::from_str(&json).expect("an old comp still loads");
         let l = &back.tracks[0].layers[0];
-        assert!(l.visible, "a layer with no `visible` is VISIBLE, not hidden");
+        assert!(
+            l.visible,
+            "a layer with no `visible` is VISIBLE, not hidden"
+        );
         assert!(!l.locked && !l.motion_blur && l.parent.is_none());
         assert_eq!(l.z, 0.0);
         assert_eq!(back.shutter, 180, "shutter defaults to AE's 180");
@@ -782,9 +785,18 @@ mod tests {
         };
         // Authoring: b already rides a, so a may not ride b.
         let sane = vec![mk("a", None), mk("b", Some("a"))];
-        assert!(parent_would_cycle(&sane, "a", "b"), "a->b would close a loop");
-        assert!(parent_would_cycle(&sane, "a", "a"), "self-parenting is a loop");
-        assert!(!parent_would_cycle(&sane, "b", "a"), "b->a is already true and fine");
+        assert!(
+            parent_would_cycle(&sane, "a", "b"),
+            "a->b would close a loop"
+        );
+        assert!(
+            parent_would_cycle(&sane, "a", "a"),
+            "self-parenting is a loop"
+        );
+        assert!(
+            !parent_would_cycle(&sane, "b", "a"),
+            "b->a is already true and fine"
+        );
 
         // Surviving: a file that already contains a->b->a must still resolve.
         let looped = vec![mk("a", Some("b")), mk("b", Some("a"))];
@@ -802,7 +814,11 @@ mod tests {
             scale: 1.0,
         };
         assert_eq!(project(t, 500.0, None), t, "no camera: z does nothing");
-        assert_eq!(project(t, 0.0, Some(1000.0)), t, "on the focal plane: identity");
+        assert_eq!(
+            project(t, 0.0, Some(1000.0)),
+            t,
+            "on the focal plane: identity"
+        );
 
         let far = project(t, 1000.0, Some(1000.0));
         assert_eq!(far.scale, 0.5, "twice the focal length is half the size");

@@ -19,9 +19,9 @@
 
 mod browse;
 pub mod import;
-mod player;
 mod mogrt;
 mod packs;
+mod player;
 mod rtfx;
 mod state;
 
@@ -957,10 +957,7 @@ impl Composer {
         if self.preview_modal.is_none() && !self.preview_queue.is_empty() {
             let path = self.preview_queue.remove(0);
             let root = Self::content_root();
-            self.preview_modal = Some(player::Preview::open(
-                player::Source::Loose(path),
-                &root,
-            ));
+            self.preview_modal = Some(player::Preview::open(player::Source::Loose(path), &root));
         }
         let Some(pv) = self.preview_modal.as_mut() else {
             return;
@@ -1565,17 +1562,15 @@ impl Composer {
         use dpl_engine_media::{CompBase, OverlayClip, OverlayInput};
         // Motion blur is AE's rule: the comp master AND the layer switch.
         let blur_n = dpl_engine_media::blur_frames(self.comp.shutter);
-        let blur_for =
-            |l: &Layer| (self.comp.motion_blur && l.motion_blur).then_some(blur_n);
+        let blur_for = |l: &Layer| (self.comp.motion_blur && l.motion_blur).then_some(blur_n);
         // Parent + depth resolve into (x, y, scale) — the values the graph
         // already consumes, which is why neither needs an engine change.
         let placed = |layers: &[Layer], l: &Layer| {
-            let t = dpl_comp::resolved_transform(layers, &l.id)
-                .unwrap_or(dpl_comp::Transform {
-                    x: l.x,
-                    y: l.y,
-                    scale: l.scale,
-                });
+            let t = dpl_comp::resolved_transform(layers, &l.id).unwrap_or(dpl_comp::Transform {
+                x: l.x,
+                y: l.y,
+                scale: l.scale,
+            });
             dpl_comp::project(t, l.z, self.comp.focal)
         };
         let mut base = Vec::new();
@@ -2199,10 +2194,7 @@ impl Composer {
     pub fn preview_drill(&mut self, rel: &str) {
         let root = Self::content_root();
         let path = root.join(rel);
-        self.preview_modal = Some(player::Preview::open(
-            player::Source::Loose(path),
-            &root,
-        ));
+        self.preview_modal = Some(player::Preview::open(player::Source::Loose(path), &root));
         self.status = format!("Preview drill: {rel}");
     }
 
@@ -3048,7 +3040,10 @@ impl Composer {
             for t in Tab::ALL {
                 let active = self.tab == t;
                 let tone = if active { Tone::Magenta } else { Tone::Cyan };
-                let resp = cl::tip(chip(ui, cl::Intent::Chrome, tone, t.label(), ("tab", t.label())), t.blurb());
+                let resp = cl::tip(
+                    chip(ui, cl::Intent::Chrome, tone, t.label(), ("tab", t.label())),
+                    t.blurb(),
+                );
                 ui.pilot_track(
                     &resp,
                     NodeMetadata::new(
@@ -3072,49 +3067,57 @@ impl Composer {
     fn workflows_tab(&self, ui: &mut egui::Ui, act: &mut Option<Act>) {
         egui::ScrollArea::vertical().show(ui, |ui| {
             for wf in dpl_workflows::workflows() {
-                cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle)
-            .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(&wf.label).heading());
-                        ui.label(
-                            RichText::new(match wf.surface {
-                                dpl_workflows::Surface::Wiredfront => "wiredFRONT · raw media",
-                                dpl_workflows::Surface::Workbench => "Workbench · slides",
-                            })
-                            .color(cl::ink::SUBTLE),
-                        );
-                        let run = cl::tip(
-                            chip(ui, cl::Intent::Chrome, Tone::Lime, "Run", ("wf-run", &wf.id)),
-                            "Run this pipeline now — every step reports honestly below. \
+                cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle).show(
+                    ui,
+                    |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(&wf.label).heading());
+                            ui.label(
+                                RichText::new(match wf.surface {
+                                    dpl_workflows::Surface::Wiredfront => "wiredFRONT · raw media",
+                                    dpl_workflows::Surface::Workbench => "Workbench · slides",
+                                })
+                                .color(cl::ink::SUBTLE),
+                            );
+                            let run = cl::tip(
+                                chip(
+                                    ui,
+                                    cl::Intent::Chrome,
+                                    Tone::Lime,
+                                    "Run",
+                                    ("wf-run", &wf.id),
+                                ),
+                                "Run this pipeline now — every step reports honestly below. \
                              Nothing is ever generated or spent without a key you provisioned.",
-                        );
-                        ui.pilot_track(
-                            &run,
-                            NodeMetadata::new(
-                                PilotId::new("composer.workflows.run")
-                                    .child(&PilotKey::new(&wf.id)),
-                                Role::Button,
-                                format!("Run {}", wf.label),
+                            );
+                            ui.pilot_track(
+                                &run,
+                                NodeMetadata::new(
+                                    PilotId::new("composer.workflows.run")
+                                        .child(&PilotKey::new(&wf.id)),
+                                    Role::Button,
+                                    format!("Run {}", wf.label),
+                                )
+                                .value("ready"),
+                            );
+                            if run.clicked() {
+                                *act = Some(Act::RunWorkflow(wf.id.clone()));
+                            }
+                        });
+                        ui.label(RichText::new(&wf.blurb).color(cl::ink::SUBTLE));
+                        ui.label(
+                            RichText::new(
+                                wf.stages
+                                    .iter()
+                                    .map(|s| s.id.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(" → "),
                             )
-                            .value("ready"),
+                            .color(cl::ink::SUBTLE)
+                            .small(),
                         );
-                        if run.clicked() {
-                            *act = Some(Act::RunWorkflow(wf.id.clone()));
-                        }
-                    });
-                    ui.label(RichText::new(&wf.blurb).color(cl::ink::SUBTLE));
-                    ui.label(
-                        RichText::new(
-                            wf.stages
-                                .iter()
-                                .map(|s| s.id.as_str())
-                                .collect::<Vec<_>>()
-                                .join(" → "),
-                        )
-                        .color(cl::ink::SUBTLE)
-                        .small(),
-                    );
-                });
+                    },
+                );
                 ui.add_space(cl::space::S2);
             }
 
@@ -3128,85 +3131,101 @@ impl Composer {
             };
 
             ui.add_space(cl::space::S2);
-            cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle)
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(format!("Last run — {}", run.workflow)).heading());
-                    // Where the run landed — the operator can find it in Explorer.
-                    ui.label(
-                        RichText::new(run.dir.display().to_string())
-                            .small()
-                            .color(cl::ink::SUBTLE),
-                    );
-                });
-                for row in &run.report.stages {
-                    use dpl_workflows::StageVerdict as V;
-                    let (tone, word, detail) = match &row.verdict {
-                        V::Done { note } => (Tone::Lime, "done", note.as_str()),
-                        V::Skipped { reason } => (Tone::Amber, "skipped", reason.as_str()),
-                        V::Failed { error } => (Tone::Coral, "FAILED", error.as_str()),
-                    };
+            cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle).show(
+                ui,
+                |ui| {
                     ui.horizontal(|ui| {
-                        let badge = chip(ui, cl::Intent::Quiet, tone, word, ("wf-stage", &run.workflow, &row.stage));
-                        ui.pilot_track(
-                            &badge,
-                            NodeMetadata::new(
-                                PilotId::new("composer.workflows.stage")
-                                    .child(&PilotKey::new(&row.stage)),
-                                Role::Label,
-                                row.stage.clone(),
-                            )
-                            .value(word),
+                        ui.label(RichText::new(format!("Last run — {}", run.workflow)).heading());
+                        // Where the run landed — the operator can find it in Explorer.
+                        ui.label(
+                            RichText::new(run.dir.display().to_string())
+                                .small()
+                                .color(cl::ink::SUBTLE),
                         );
-                        ui.label(RichText::new(&row.stage).strong());
-                        ui.label(RichText::new(detail).color(cl::ink::SUBTLE));
                     });
-                }
-            });
+                    for row in &run.report.stages {
+                        use dpl_workflows::StageVerdict as V;
+                        let (tone, word, detail) = match &row.verdict {
+                            V::Done { note } => (Tone::Lime, "done", note.as_str()),
+                            V::Skipped { reason } => (Tone::Amber, "skipped", reason.as_str()),
+                            V::Failed { error } => (Tone::Coral, "FAILED", error.as_str()),
+                        };
+                        ui.horizontal(|ui| {
+                            let badge = chip(
+                                ui,
+                                cl::Intent::Quiet,
+                                tone,
+                                word,
+                                ("wf-stage", &run.workflow, &row.stage),
+                            );
+                            ui.pilot_track(
+                                &badge,
+                                NodeMetadata::new(
+                                    PilotId::new("composer.workflows.stage")
+                                        .child(&PilotKey::new(&row.stage)),
+                                    Role::Label,
+                                    row.stage.clone(),
+                                )
+                                .value(word),
+                            );
+                            ui.label(RichText::new(&row.stage).strong());
+                            ui.label(RichText::new(detail).color(cl::ink::SUBTLE));
+                        });
+                    }
+                },
+            );
 
             ui.add_space(cl::space::S2);
-            cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle)
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("Storyboard").heading());
-                    ui.label(
-                        RichText::new(format!(
-                            "{} of {} slots filled",
-                            run.board.filled().len(),
-                            run.board.slots.len()
-                        ))
-                        .color(cl::ink::SUBTLE),
-                    );
-                });
-                for slot in &run.board.slots {
-                    use dpl_workflows::SlotFill as F;
-                    let (tone, state) = match &slot.fill {
-                        F::Empty => (Tone::Amber, "empty"),
-                        F::Slide { .. } => (Tone::Lime, "slide"),
-                        F::Artifact { .. } => (Tone::Cyan, "artifact"),
-                        F::Draft { .. } => (Tone::Violet, "draft"),
-                    };
+            cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle).show(
+                ui,
+                |ui| {
                     ui.horizontal(|ui| {
-                        let badge = chip(ui, cl::Intent::Quiet, tone, state, ("wf-slot", &run.workflow, &slot.id));
-                        let resp = cl::tip(
-                            badge,
-                            "A storyboard slot — its brief says what it needs; filling one \
-                             is one gesture, from the library or a fresh creation.",
+                        ui.label(RichText::new("Storyboard").heading());
+                        ui.label(
+                            RichText::new(format!(
+                                "{} of {} slots filled",
+                                run.board.filled().len(),
+                                run.board.slots.len()
+                            ))
+                            .color(cl::ink::SUBTLE),
                         );
-                        let mut meta = NodeMetadata::new(
-                            PilotId::new("wiredfront.storyboard.slot")
-                                .child(&PilotKey::new(&slot.id)),
-                            Role::ListItem,
-                            format!("{} ({})", slot.id, slot.role),
-                        )
-                        .value(state);
-                        meta.description = Some(slot.brief.clone());
-                        ui.pilot_track(&resp, meta);
-                        ui.label(RichText::new(&slot.id).strong());
-                        ui.label(RichText::new(&slot.brief).color(cl::ink::SUBTLE));
                     });
-                }
-            });
+                    for slot in &run.board.slots {
+                        use dpl_workflows::SlotFill as F;
+                        let (tone, state) = match &slot.fill {
+                            F::Empty => (Tone::Amber, "empty"),
+                            F::Slide { .. } => (Tone::Lime, "slide"),
+                            F::Artifact { .. } => (Tone::Cyan, "artifact"),
+                            F::Draft { .. } => (Tone::Violet, "draft"),
+                        };
+                        ui.horizontal(|ui| {
+                            let badge = chip(
+                                ui,
+                                cl::Intent::Quiet,
+                                tone,
+                                state,
+                                ("wf-slot", &run.workflow, &slot.id),
+                            );
+                            let resp = cl::tip(
+                                badge,
+                                "A storyboard slot — its brief says what it needs; filling one \
+                             is one gesture, from the library or a fresh creation.",
+                            );
+                            let mut meta = NodeMetadata::new(
+                                PilotId::new("wiredfront.storyboard.slot")
+                                    .child(&PilotKey::new(&slot.id)),
+                                Role::ListItem,
+                                format!("{} ({})", slot.id, slot.role),
+                            )
+                            .value(state);
+                            meta.description = Some(slot.brief.clone());
+                            ui.pilot_track(&resp, meta);
+                            ui.label(RichText::new(&slot.id).strong());
+                            ui.label(RichText::new(&slot.brief).color(cl::ink::SUBTLE));
+                        });
+                    }
+                },
+            );
         });
     }
 
@@ -3645,10 +3664,7 @@ impl Composer {
                     cl::draw_icon(
                         ui.painter(),
                         "fx",
-                        Rect::from_center_size(
-                            fxr.center(),
-                            egui::vec2(ICON_SM, ICON_SM),
-                        ),
+                        Rect::from_center_size(fxr.center(), egui::vec2(ICON_SM, ICON_SM)),
                         if fx_resp.hovered() {
                             Tone::Violet.color()
                         } else {
@@ -3656,9 +3672,7 @@ impl Composer {
                         },
                     );
                     if pv_resp.clicked() {
-                        *act = Some(Act::Preview(player::Source::Indexed(Box::new(
-                            rec.clone(),
-                        ))));
+                        *act = Some(Act::Preview(player::Source::Indexed(Box::new(rec.clone()))));
                     } else if fx_resp.clicked() {
                         *act = Some(Act::AddOverlay(i));
                     } else if resp.clicked() && !fx_resp.hovered() && !pv_resp.hovered() {
@@ -3747,7 +3761,12 @@ impl Composer {
             // old code keyed on the glyph, so the play button changed
             // identity mid-session — a harness cannot address that.
             for (icon, key, tip_text, a) in [
-                ("transport-start", "start", "Jump to the start", Act::ToStart),
+                (
+                    "transport-start",
+                    "start",
+                    "Jump to the start",
+                    Act::ToStart,
+                ),
                 (
                     "transport-back",
                     "back",
@@ -3801,8 +3820,7 @@ impl Composer {
             ui.label(RichText::new("INFO").small().strong());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let resp = cl::tip(
-                    cl::icon_label(ui, "close", ICON_SM, cl::ink::SUBTLE)
-                        .interact(Sense::click()),
+                    cl::icon_label(ui, "close", ICON_SM, cl::ink::SUBTLE).interact(Sense::click()),
                     "Close Info (reopen from the status row)",
                 );
                 if resp.clicked() {
@@ -4203,7 +4221,12 @@ impl Composer {
                 .small()
                 .color(cl::ink::SUBTLE),
             );
-            if cl::tip(icon_btn(ui, "zoom-out", "zoom-out"), "Zoom the timeline out").clicked() {
+            if cl::tip(
+                icon_btn(ui, "zoom-out", "zoom-out"),
+                "Zoom the timeline out",
+            )
+            .clicked()
+            {
                 *act = Some(Act::Zoom(1.0 / 1.4));
             }
             if cl::tip(icon_btn(ui, "zoom-in", "zoom-in"), "Zoom the timeline in").clicked() {
@@ -4779,10 +4802,8 @@ impl Composer {
             // overrunning the facts at a narrow width (RR2).
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if !self.info_open {
-                    let resp = cl::tip(
-                        icon_btn(ui, "info", "info-reopen"),
-                        "Reopen the Info panel",
-                    );
+                    let resp =
+                        cl::tip(icon_btn(ui, "info", "info-reopen"), "Reopen the Info panel");
                     if resp.clicked() {
                         *act = Some(Act::ToggleInfo);
                     }
@@ -5090,8 +5111,7 @@ impl Composer {
 
     /// Guide step 1 · PICK — the guides and sessions walls, tappable.
     fn guide_pick_section(&mut self, ui: &mut egui::Ui, gact: &mut Option<GAct>) {
-        cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle)
-            .show(ui, |ui| {
+        cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle).show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.label(RichText::new("1 · PICK WHAT SHIPS").small().strong());
             ui.label(
@@ -5183,8 +5203,7 @@ impl Composer {
     /// Guide step 2 · REVIEW & TUNE — the W5 reviewer rows: thumb, keep,
     /// reorder, caption; Apply is two-tap (pruning deletes source frames).
     fn guide_review_section(&mut self, ui: &mut egui::Ui, gact: &mut Option<GAct>) {
-        cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle)
-            .show(ui, |ui| {
+        cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle).show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.label(RichText::new("2 · REVIEW & TUNE").small().strong());
             let Some(rev) = self.review.as_mut() else {
@@ -5743,11 +5762,11 @@ fn tool_cap_btn(
             ui.horizontal(|ui| {
                 let _ = cl::icon_label(ui, icon, ICON_MD, tool_ink(active));
                 ui.add_space(cl::space::S1);
-                ui.label(
-                    RichText::new(label)
-                        .small()
-                        .color(if active { cl::ink::STRONG } else { cl::ink::SUBTLE }),
-                );
+                ui.label(RichText::new(label).small().color(if active {
+                    cl::ink::STRONG
+                } else {
+                    cl::ink::SUBTLE
+                }));
             });
         });
     ui.interact(
@@ -5774,11 +5793,16 @@ fn danger_btn(
     icon: &str,
     key: impl std::hash::Hash + std::fmt::Debug,
 ) -> egui::Response {
-    let inner = cl::dressed(SURFACE, cl::Intent::Danger, Tone::Coral, cl::TraitState::Idle)
-        .margin(egui::Margin::symmetric(6, 4))
-        .show(ui, |ui| {
-            let _ = cl::icon_label(ui, icon, ICON_MD, cl::ink::STRONG);
-        });
+    let inner = cl::dressed(
+        SURFACE,
+        cl::Intent::Danger,
+        Tone::Coral,
+        cl::TraitState::Idle,
+    )
+    .margin(egui::Margin::symmetric(6, 4))
+    .show(ui, |ui| {
+        let _ = cl::icon_label(ui, icon, ICON_MD, cl::ink::STRONG);
+    });
     ui.interact(
         inner.response.rect,
         egui::Id::new(("composer-danger", key)),
@@ -5793,11 +5817,16 @@ fn icon_btn(
     icon: &str,
     key: impl std::hash::Hash + std::fmt::Debug,
 ) -> egui::Response {
-    let inner = cl::dressed(SURFACE, cl::Intent::Chrome, Tone::Magenta, cl::TraitState::Idle)
-        .margin(egui::Margin::symmetric(6, 4))
-        .show(ui, |ui| {
-            let _ = cl::icon_label(ui, icon, ICON_MD, cl::ink::BASE);
-        });
+    let inner = cl::dressed(
+        SURFACE,
+        cl::Intent::Chrome,
+        Tone::Magenta,
+        cl::TraitState::Idle,
+    )
+    .margin(egui::Margin::symmetric(6, 4))
+    .show(ui, |ui| {
+        let _ = cl::icon_label(ui, icon, ICON_MD, cl::ink::BASE);
+    });
     ui.interact(
         inner.response.rect,
         egui::Id::new(("composer-sbtn", key)),
@@ -5812,11 +5841,16 @@ fn small_btn(
     glyph: &str,
     key: impl std::hash::Hash + std::fmt::Debug,
 ) -> egui::Response {
-    let inner = cl::dressed(SURFACE, cl::Intent::Chrome, Tone::Magenta, cl::TraitState::Idle)
-        .margin(egui::Margin::symmetric(6, 2))
-        .show(ui, |ui| {
-            ui.label(RichText::new(glyph).small());
-        });
+    let inner = cl::dressed(
+        SURFACE,
+        cl::Intent::Chrome,
+        Tone::Magenta,
+        cl::TraitState::Idle,
+    )
+    .margin(egui::Margin::symmetric(6, 2))
+    .show(ui, |ui| {
+        ui.label(RichText::new(glyph).small());
+    });
     ui.interact(
         inner.response.rect,
         egui::Id::new(("composer-sbtn", key)),
@@ -5832,15 +5866,20 @@ fn icon_word_btn(
     label: &str,
     key: impl std::hash::Hash + std::fmt::Debug,
 ) -> egui::Response {
-    let inner = cl::dressed(SURFACE, cl::Intent::Chrome, Tone::Cyan, cl::TraitState::Idle)
-        .margin(egui::Margin::symmetric(6, 3))
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                let _ = cl::icon_label(ui, icon, ICON_SM, cl::ink::BASE);
-                ui.add_space(cl::space::S1);
-                ui.label(RichText::new(label).small().strong());
-            });
+    let inner = cl::dressed(
+        SURFACE,
+        cl::Intent::Chrome,
+        Tone::Cyan,
+        cl::TraitState::Idle,
+    )
+    .margin(egui::Margin::symmetric(6, 3))
+    .show(ui, |ui| {
+        ui.horizontal(|ui| {
+            let _ = cl::icon_label(ui, icon, ICON_SM, cl::ink::BASE);
+            ui.add_space(cl::space::S1);
+            ui.label(RichText::new(label).small().strong());
         });
+    });
     ui.interact(
         inner.response.rect,
         egui::Id::new(("composer-iwbtn", key)),
@@ -5985,10 +6024,8 @@ fn switch_columns(
 
     let mut sx = r.max.x - SWITCHES_RIGHT;
     let mut cell = |icon: &str, lit: Option<Tone>, tip: &str, key: &str| {
-        let cell = Rect::from_center_size(
-            egui::pos2(sx, r.center().y),
-            egui::vec2(SWITCH_W, SWITCH_W),
-        );
+        let cell =
+            Rect::from_center_size(egui::pos2(sx, r.center().y), egui::vec2(SWITCH_W, SWITCH_W));
         sx += SWITCH_W;
         cl::draw_icon(
             painter,
@@ -6004,7 +6041,11 @@ fn switch_columns(
     };
 
     if cell(
-        if layer.visible { "layer-visible" } else { "layer-hidden" },
+        if layer.visible {
+            "layer-visible"
+        } else {
+            "layer-hidden"
+        },
         // LIT means hidden — the abnormal state is the one worth seeing.
         (!layer.visible).then_some(Tone::Coral),
         if layer.visible {
@@ -6048,8 +6089,7 @@ fn switch_columns(
     // dropped before the tooltip reads it.
     let parent_tip = match layer.parent.as_deref() {
         Some(p) => format!("Riding {p} — tap for the next one, or off."),
-        None => "Make this layer ride another, so moving that one moves this too."
-            .to_string(),
+        None => "Make this layer ride another, so moving that one moves this too.".to_string(),
     };
     if cell(
         "layer-parent",
@@ -6439,8 +6479,7 @@ fn painter_label(ui: &egui::Ui, rect: Rect, text: &str) {
 
 /// A passive claymorphic plate with a title + hint — the empty/loading state.
 fn plate(ui: &mut egui::Ui, title: &str, hint: &str) {
-    cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle)
-            .show(ui, |ui| {
+    cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle).show(ui, |ui| {
         ui.vertical_centered(|ui| {
             ui.add_space(cl::space::S3);
             ui.label(RichText::new(title).heading());
@@ -6756,7 +6795,11 @@ mod tests {
         let id = c.layers()[0].id.clone();
 
         c.select(&id);
-        assert_eq!(c.selected.as_deref(), Some(id.as_str()), "unlocked: selects");
+        assert_eq!(
+            c.selected.as_deref(),
+            Some(id.as_str()),
+            "unlocked: selects"
+        );
 
         c.selected = None;
         c.comp.tracks[0].layers[0].locked = true;
@@ -6813,7 +6856,10 @@ mod tests {
     #[test]
     fn the_comp_switches_toggle_and_undo() {
         let mut c = Composer::default();
-        assert!(!c.comp.motion_blur && c.comp.focal.is_none(), "off by default");
+        assert!(
+            !c.comp.motion_blur && c.comp.focal.is_none(),
+            "off by default"
+        );
 
         c.checkpoint();
         c.comp.motion_blur = true;
@@ -6848,7 +6894,10 @@ mod tests {
             "hiding a cut must NEVER move the comp's length"
         );
         assert!(
-            matches!(parts.base.first(), Some(dpl_engine_media::CompBase::Black { .. })),
+            matches!(
+                parts.base.first(),
+                Some(dpl_engine_media::CompBase::Black { .. })
+            ),
             "the hidden cut became black, not absent"
         );
         // And the preview agrees: nothing plays there.
