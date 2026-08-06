@@ -1,7 +1,17 @@
 # Operator-state proof: the official Codex client is already ChatGPT-
-# authenticated. DevPULSE must project Ready from `codex login status` alone
-# and must NOT enable conversation actions — Codex is activation-only until
-# the CH4 app-server pass. Grok's independent real state stays visible in the
+# authenticated. DevPULSE must project Ready from `codex login status` alone.
+#
+# Conversation actions stay DISABLED here, and the reason changed on
+# 2026-08-06. It is no longer "Codex has no transport" — it has one (the
+# app-server runtime, docs/plans/codex-host-wiring.md). It is that this
+# scenario runs on an AUTHORED fixture, where `provider_runtime_enabled` is
+# false and no live runtime is ever started, so nothing advertises
+# `StreamTurns`.
+#
+# That makes this scenario a pin on the SEAM'S CENTRAL GUARANTEE: capability
+# is earned from a connected runtime, never assumed from an activation state.
+# Ready-but-unsendable is the correct reading when the provider is signed in
+# and nothing is connected. Grok's independent real state stays visible in the
 # same catalog.
 id = "chat-codex-persisted-ready"
 fixture = "chat-peer"

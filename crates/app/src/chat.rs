@@ -3313,9 +3313,20 @@ fn project_seam_event(state: &mut Shared, provider: ProviderId, event: RuntimeEv
             // EARNED, never assumed: one function derives the capability set
             // from what the provider advertised, so a surface can never offer
             // what the adapter cannot honour.
+            let qualified = qualified_capabilities(capabilities);
+            // The one line that says a provider became TALKABLE. Without it a
+            // connected runtime is indistinguishable from a stalled one in a
+            // log, which is how "it shows active and I cannot chat" stayed
+            // unexplained for so long.
+            tracing::info!(
+                %provider,
+                can_send = qualified.contains(&Capability::StreamTurns),
+                qualified = ?qualified,
+                "provider runtime connected"
+            );
             if let Err(error) = state
                 .window
-                .qualify_provider_capabilities(provider, qualified_capabilities(capabilities))
+                .qualify_provider_capabilities(provider, qualified)
             {
                 tracing::warn!(%provider, %error, "provider capabilities could not be projected");
             }
