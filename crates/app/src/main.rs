@@ -137,6 +137,27 @@ fn main() -> eframe::Result {
             r.split_once('/')
                 .map(|(h, s)| (h.to_string(), s.to_string()))
         });
+    // `--preset <id>` — dress the ROUTED surface in an authored preset before
+    // the first frame, so the picker's effect is provable headlessly. It goes
+    // through the same `set_chrome_preset` the picker calls, and is therefore
+    // persisted the same way — which is the point of the drill.
+    if let Some(id) = args
+        .iter()
+        .position(|a| a == "--preset")
+        .and_then(|i| args.get(i + 1))
+    {
+        let surface = boot_route
+            .as_ref()
+            .map(|(hub, _)| hub.as_str())
+            .unwrap_or("wiredfront");
+        if dpl_coldlight::set_chrome_preset(surface, id) {
+            eprintln!("preset: {surface} now wears {id}");
+        } else {
+            eprintln!("preset: {id:?} is not authored — keeping the current look");
+            std::process::exit(2);
+        }
+    }
+
     // `--focus <template-id>` — boot the Workbench Library's TEMPLATES
     // section solo'd on one template, for per-template proof shots.
     let focus: Option<String> = args
