@@ -14,6 +14,35 @@ we got here.
 > - any Providers-program link described as planned — P1, V1, V2, V3, A1 and
 >   A2 all landed (#192).
 
+**2026-08-05 — THE MATRIX RESOLVES, AND THE EDITOR WEARS A COORDINATE
+(journals `docs/journal/2026-08-05-preset-benches.md` +
+`docs/journal/2026-08-05-matrix-resolves.md`, `8f9d98e` + `8918b14`):**
+matrix adoption was **0 runtime call sites** — `generate_matrix` validated
+every authored value and discarded it, so `matrix_gen.rs` was 765 bytes of
+ids and the app painted with `compose(trait)`. It is now **14,078 bytes** of
+payloads, with `Coordinate` + `resolve()`, and `roles.json` binds a role to
+either a trait or a COORDINATE. `wiredfront.chrome` is
+`brutalist · massive · plate · hard-cast` — Vibron, as ruled — and the
+release exe's `roles_gen.rs` carries `Dress::Coord`, so the shipped binary
+resolves through the matrix. Not one composer call site changed.
+
+Four defects surfaced by building the preset benches, three fixed: `bloom`
+shipped a **blur** (violating doctrine law 6 AND matrix §11.4's own aero
+ruling) → re-authored as a painted ring falloff; `sheen`/`bloom` painted
+their specular band as `OVERLAY@90`, a measured **4/255** delta on the dark
+base → now `ink STRONG`; **9 materials painted 6** (`matte≡raw`,
+`glass≡metallic`, `paper≡clay`), capping three lineages at two distinct
+materials → 10 now paint 10, with `raw`/`paper` untouched because they carry
+ratified looks. The ruled Vibron coordinate did **not** reproduce Vibron —
+`hard-cast` carried a halo and its `active` only sank the shadow — so the
+halo split off as **`lit-cast`** and `hard-cast` took the interaction
+convention. Census 21 → 23 facet values (`plate`, `lit-cast`).
+
+**Open:** runtime switching between the 25 preset coordinates (no registry,
+no picker — changing the look still means editing `roles.json` + rebuilding);
+`presets.json` has no `ancestral` kind yet; RTFX `.ffx`/`.aep` still FILED
+but unparsed, `engine-ae` Phase 1 unwired.
+
 **2026-08-02 — THE PROVIDERS CONTROL AND THE INK BLEED (V1, plan
 `docs/plans/providers-v1-ink-bleed-control.md`, journal
 `docs/journal/2026-08-02-v1-providers-control.md`, `green ✔`):** the brain,

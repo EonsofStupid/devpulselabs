@@ -13,7 +13,7 @@
   switcher, rail A/B preview, all ten mood washes.
 - Operator's reference set absorbed (`docs/design/references/`, 5 pngs):
   deep rim-lit NEON-INK clay (pills/tiles), comic neubrutalism (bevel +
-  halftone + starburst), metal console (future Present flavor), editor
+  halftone + starburst), metal console (future Present preset), editor
   chrome (flat wells + glow spotlights).
 - **RULING 2026-07-30: clay IS a button** — "never a button" was a port
   inference, retired in `doctrine.md` (memory: clay-is-a-button-ruling).

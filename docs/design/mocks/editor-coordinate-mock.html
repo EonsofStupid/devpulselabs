@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WiredFRONT editor — pick the coordinate</title>
+<style>
+  :root{
+    /* v3 palette — VERBATIM crates/coldlight/src/lib.rs:83-92 (the C1 ruling) */
+    --well:#07090e; --base:#0a0c12; --raised:#11141d; --overlay:#181c27; --hairline:#232836;
+    --ink-strong:#eef2f9; --ink:#c2c9d6; --ink-muted:#8a93a6; --ink-subtle:#5b6478;
+    --mono:ui-monospace,"JetBrains Mono",Consolas,monospace;
+    --sans:system-ui,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box} html,body{margin:0}
+  body{background:var(--well);color:var(--ink);font:13px/1.5 var(--sans)}
+  .wrap{max-width:1500px;margin:0 auto;padding:18px}
+  .eyebrow{font-family:var(--mono);font-size:10.5px;letter-spacing:.26em;text-transform:uppercase;color:var(--ink-muted)}
+  h1{font-size:26px;line-height:1.1;color:var(--ink-strong);margin:.2em 0 .1em;font-weight:800;letter-spacing:-.01em}
+  .lede{color:var(--ink-muted);font-size:13px;max-width:88ch;margin:0 0 16px}
+  h2{font-family:var(--mono);font-size:11.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink-strong);margin:26px 0 8px}
+
+  /* ---- the picker ---- */
+  .cands{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:10px}
+  .cand{background:var(--base);border:1px solid var(--hairline);border-radius:8px;padding:11px 12px;cursor:pointer;text-align:left;color:inherit;font:inherit}
+  .cand:hover{border-color:var(--ink-subtle)}
+  .cand.on{border-color:var(--pick,#7cd6ee);box-shadow:0 0 0 1px var(--pick,#7cd6ee)}
+  .cand .nm{font-weight:700;color:var(--ink-strong);font-size:13px}
+  .cand .co{font-family:var(--mono);font-size:10px;color:var(--ink-subtle);margin-top:3px;line-height:1.45}
+  .cand .why{font-size:11px;color:var(--ink-muted);margin-top:6px}
+  .cand .sw{display:flex;gap:4px;margin-top:8px}
+  .cand .sw i{width:20px;height:12px;border-radius:2px;display:block}
+  .tag{display:inline-block;font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;
+    border:1px solid var(--hairline);border-radius:3px;padding:1px 5px;color:var(--ink-muted);margin-left:6px}
+  .tag.rec{color:#a9e6c0;border-color:#2f5c43}
+
+  /* ---- resolved readout ---- */
+  .readout{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:8px;margin-top:10px}
+  .rv{background:var(--base);border:1px solid var(--hairline);border-radius:6px;padding:8px 10px}
+  .rv .k{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-subtle)}
+  .rv .v{font-family:var(--mono);font-size:11px;color:var(--ink-strong);margin-top:3px;word-break:break-all}
+  .rv .chip{width:100%;height:14px;border-radius:3px;margin-top:6px;border:1px solid rgba(255,255,255,.10)}
+
+  /* ================= THE EDITOR, dressed by the coordinate =================
+     Every value below is set from JS by resolve(): --c-fill --c-ink --c-edge
+     --c-edgew --c-rad --c-glow1 --c-glow2 --c-wash --c-sp1 --c-sp2         */
+  .editor{margin-top:12px;background:var(--well);border:1px solid var(--hairline);border-radius:10px;padding:12px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+
+  /* a CONTROL wears the coordinate */
+  .ctl{display:inline-flex;align-items:center;gap:7px;
+    background:var(--c-fill); color:var(--c-ink);
+    border:var(--c-edgew) solid var(--c-edge); border-radius:var(--c-rad);
+    padding:6px 11px; font-family:var(--mono); font-size:11.5px; font-weight:600;
+    background-image:var(--c-wash); box-shadow:var(--c-glowring); cursor:pointer}
+  .ctl.icon{padding:6px 8px}
+  .ctl.on{box-shadow:var(--c-glowring-on)}
+  .ctl svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  .ctl.big svg{width:16px;height:16px}
+
+  /* a PANEL is the same material, quieter: no glow ring, hairline edge */
+  .pane{background:var(--c-fill);border:1px solid var(--hairline);border-radius:var(--c-rad);
+    background-image:var(--c-wash);position:relative}
+  .ptab{display:inline-block;font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--c-ink);background:var(--overlay);border:1px solid var(--hairline);border-bottom:none;
+    border-radius:5px 5px 0 0;padding:3px 10px;margin:0 0 -1px 8px}
+  .ptab.dim{color:var(--ink-subtle);background:transparent;border-color:transparent}
+  .pbody{padding:9px;border-top:1px solid var(--hairline)}
+
+  .grid{display:grid;grid-template-columns:250px 1fr 232px;gap:9px;margin-top:9px}
+  .stage{aspect-ratio:16/9;border-radius:6px;border:1px solid var(--hairline);background:var(--well);
+    display:flex;align-items:center;justify-content:center;color:var(--ink-subtle);font-size:12px;position:relative;overflow:hidden}
+  .stage .spot{position:absolute;inset:0;background:var(--c-spot);pointer-events:none}
+  .sect{font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-subtle);margin:9px 0 4px}
+  .lrow{display:flex;align-items:center;gap:7px;padding:3px 4px;border-radius:4px;font-size:12px;color:var(--ink)}
+  .lrow:hover{background:var(--overlay)}
+  .lrow svg{width:13px;height:13px;stroke:var(--c-edge);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+  .lrow .t{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--ink-subtle)}
+  .tl{margin-top:9px}
+  .ruler{height:20px;border-bottom:1px solid var(--hairline);position:relative;font-family:var(--mono);font-size:9px;color:var(--ink-subtle)}
+  .ruler span{position:absolute;top:4px}
+  .lane{height:26px;border-bottom:1px solid rgba(35,40,54,.55);position:relative}
+  .bar{position:absolute;top:4px;height:18px;border-radius:3px;font-size:10px;color:var(--c-ink);
+    display:flex;align-items:center;padding:0 7px;background:var(--c-fill);
+    border:var(--c-edgew) solid var(--c-edge);background-image:var(--c-wash);box-shadow:var(--c-glowring)}
+  .cti{position:absolute;top:0;bottom:0;width:2px;background:var(--c-edge);box-shadow:0 0 7px var(--c-edge)}
+  .status{display:flex;gap:14px;align-items:center;margin-top:9px;font-size:11px;color:var(--ink-subtle)}
+  .note{font-size:11.5px;color:var(--ink-muted);margin-top:8px}
+  .warn{color:#e6b98a}
+  code{font-family:var(--mono);font-size:.92em;background:var(--base);border:1px solid var(--hairline);border-radius:3px;padding:.06em .32em}
+  footer{margin:34px 0 10px;font-family:var(--mono);font-size:10px;color:var(--ink-subtle)}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="i-pointer" viewBox="0 0 24 24"><path d="M4.037 4.688a.5.5 0 0 1 .65-.65l16 6.5a.5.5 0 0 1-.42.915l-5.436-.99a.5.5 0 0 0-.5.19L10.5 20.5a.5.5 0 0 1-.915-.42z"/></symbol>
+<symbol id="i-hand" viewBox="0 0 24 24"><path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2"/><path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></symbol>
+<symbol id="i-pen" viewBox="0 0 24 24"><path d="M15.707 21.293a1 1 0 0 1-1.414 0l-1.586-1.586a1 1 0 0 1 0-1.414l5.586-5.586a1 1 0 0 1 1.414 0l1.586 1.586a1 1 0 0 1 0 1.414z"/><path d="m18 13-1.375-6.874a1 1 0 0 0-.746-.776L3.235 2.028a1 1 0 0 0-1.207 1.207L5.35 15.879a1 1 0 0 0 .776.746L13 18"/><path d="m2.3 2.3 7.286 7.286"/><circle cx="11" cy="11" r="2"/></symbol>
+<symbol id="i-video" viewBox="0 0 24 24"><path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/></symbol>
+<symbol id="i-type" viewBox="0 0 24 24"><path d="M12 4v16"/><path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2"/><path d="M9 20h6"/></symbol>
+<symbol id="i-skipback" viewBox="0 0 24 24"><path d="M17.971 4.285A2 2 0 0 1 21 6v12a2 2 0 0 1-3.029 1.715l-9.997-5.998a2 2 0 0 1-.003-3.432z"/><path d="M3 20V4"/></symbol>
+<symbol id="i-play" viewBox="0 0 24 24"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"/></symbol>
+<symbol id="i-skipfwd" viewBox="0 0 24 24"><path d="M21 4v16"/><path d="M6.029 4.285A2 2 0 0 0 3 6v12a2 2 0 0 0 3.029 1.715l9.997-5.998a2 2 0 0 0 .003-3.432z"/></symbol>
+<symbol id="i-film" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/></symbol>
+<symbol id="i-clip" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="m10 11 5 3-5 3z"/></symbol>
+<symbol id="i-image" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></symbol>
+<symbol id="i-sliders" viewBox="0 0 24 24"><path d="M21 4h-7"/><path d="M10 4H3"/><path d="M21 12h-9"/><path d="M8 12H3"/><path d="M21 20h-5"/><path d="M12 20H3"/><path d="M14 2v4"/><path d="M8 10v4"/><path d="M16 18v4"/></symbol>
+</defs></svg>
+
+<div class="wrap">
+  <div class="eyebrow">DevPULSE Labs · visual-language.md C2 · confirm the editor coordinate</div>
+  <h1>The WiredFRONT editor — which coordinate?</h1>
+  <p class="lede">Every colour below is computed by the <b>real ColdLight engine</b> (the OKLCH lightness × chroma
+  curves, floor and authored overrides ported verbatim from <code>crates/coldlight/build.rs</code>), resolved through
+  the authored facets in <code>tokens/matrix.json</code>. Surfaces and inks are the <b>v3 palette</b>, verbatim from
+  <code>crates/coldlight/src/lib.rs:83-92</code> — the C1 ruling. Nothing here is hand-picked: pick a coordinate and
+  the whole editor re-dresses from the data.</p>
+
+  <h2>1 · Legal candidates</h2>
+  <p class="lede" style="margin-bottom:10px">Only <code>aero</code> and <code>brutalist</code> permit the translucent
+  materials; every other seed lists <code>glass</code>/<code>neon-glass</code> as <b>forbidden</b>
+  (<code>matrix.json:71-113</code>). These are the coordinates that are actually legal.</p>
+  <div class="cands" id="cands"></div>
+
+  <h2>2 · What that coordinate resolves to</h2>
+  <div class="readout" id="readout"></div>
+  <p class="note" id="fallback"></p>
+
+  <h2>3 · The editor wearing it</h2>
+  <div class="editor" id="editor">
+    <!-- ② tool strip -->
+    <div class="row">
+      <span class="ctl icon on"><svg><use href="#i-pointer"/></svg></span>
+      <span class="ctl icon"><svg><use href="#i-hand"/></svg></span>
+      <span class="ctl icon"><svg><use href="#i-pen"/></svg></span>
+      <span class="ctl icon"><svg><use href="#i-video"/></svg></span>
+      <span class="ctl icon"><svg><use href="#i-type"/></svg></span>
+      <span style="width:1px;height:20px;background:var(--hairline);margin:0 4px"></span>
+      <span class="ctl">null</span><span class="ctl">pre-comp</span><span class="ctl">track</span>
+      <span class="ctl">m.blur</span><span class="ctl">3D</span>
+    </div>
+
+    <div class="grid">
+      <!-- ③ project -->
+      <div>
+        <span class="ptab">Project</span><span class="ptab dim">Elements</span>
+        <div class="pane"><div class="pbody">
+          <div class="row" style="gap:6px"><span class="ctl">Browse…</span><span class="ctl">＋ Import</span></div>
+          <div class="sect">Comps</div>
+          <div class="lrow"><svg><use href="#i-film"/></svg>Comp 1 — teaser<span class="t">0:34</span></div>
+          <div class="sect">Footage</div>
+          <div class="lrow"><svg><use href="#i-clip"/></svg>clip-02.mp4<span class="t">0:11</span></div>
+          <div class="lrow"><svg><use href="#i-clip"/></svg>clip-01.mp4<span class="t">0:08</span></div>
+          <div class="lrow"><svg><use href="#i-image"/></svg>cover-art.png<span class="t">—</span></div>
+        </div></div>
+      </div>
+
+      <!-- ④ viewer -->
+      <div>
+        <span class="ptab">Composition — Comp 1</span>
+        <div class="pane"><div class="pbody">
+          <div class="stage"><div class="spot"></div>1920×1080 · 29.97</div>
+          <div class="row" style="justify-content:center;margin-top:9px">
+            <span class="ctl icon big"><svg><use href="#i-skipback"/></svg></span>
+            <span class="ctl icon big on"><svg><use href="#i-play"/></svg></span>
+            <span class="ctl icon big"><svg><use href="#i-skipfwd"/></svg></span>
+            <span style="font-family:var(--mono);font-size:13px;color:var(--ink-strong);margin-left:8px">0:00:04:12</span>
+          </div>
+        </div></div>
+      </div>
+
+      <!-- ⑤⑥ right stack -->
+      <div>
+        <span class="ptab">Info</span><span class="ptab dim">Audio</span>
+        <div class="pane"><div class="pbody" style="font-family:var(--mono);font-size:11px;color:var(--ink-muted)">
+          X · Y <span style="color:var(--ink-strong);float:right">712, 833</span><br>
+          Layer <span style="color:var(--ink-strong);float:right">lower-third</span>
+        </div></div>
+        <div style="height:9px"></div>
+        <span class="ptab">Effects &amp; Presets</span>
+        <div class="pane"><div class="pbody">
+          <div class="lrow"><svg><use href="#i-search"/></svg><span style="color:var(--ink-subtle)">search effects…</span></div>
+          <div class="lrow"><svg><use href="#i-sliders"/></svg>Cross Dissolve</div>
+          <div class="lrow"><svg><use href="#i-sliders"/></svg>Glow</div>
+        </div></div>
+      </div>
+    </div>
+
+    <!-- ⑦ timeline -->
+    <div class="tl">
+      <span class="ptab">Comp 1 · 0:00:04:12</span>
+      <div class="pane"><div class="pbody" style="padding:0 9px 9px">
+        <div class="ruler"><span style="left:1%">0:00</span><span style="left:26%">0:10</span><span style="left:51%">0:20</span><span style="left:76%">0:30</span></div>
+        <div class="lane"><div class="bar" style="left:6%;width:20%">lower-third-neon.webm</div></div>
+        <div class="lane"><div class="bar" style="left:26%;width:35%">clip-02.mp4 · 11.0s</div><div class="cti" style="left:15%"></div></div>
+        <div class="lane"><div class="bar" style="left:1%;width:25%">clip-01.mp4 · 8.0s</div></div>
+      </div></div>
+    </div>
+
+    <div class="status"><b style="color:var(--ink-strong)">Saved</b> inbox/comp-3 · autosave on
+      <span>5 layers · 0:34 · 1920×1080 @29.97</span></div>
+  </div>
+
+  <p class="note">Compare against <code>docs/design/references/editor.png</code> and
+  <code>editor-2.png</code> — restrained dark panels, one cold accent, glow used as a <i>spotlight</i> on the
+  active thing rather than a fill on everything.</p>
+
+  <footer>DevPULSE Labs · docs/design/mocks/editor-coordinate-mock.html · colours: live OKLCH from the ColdLight
+  curves · facets from tokens/matrix.json · 2026-08-04</footer>
+</div>
+
+<script>
+/* ---------- the ColdLight palette engine, verbatim from build.rs ---------- */
+const STEPS=[25,50,100,200,300,400,500,600,700,800,900,950,975], FLOOR=0.10;
+const L={brand:[.99,.98,.95,.90,.84,.79,.72,.62,.52,.42,.32,.22,.14],
+  neutral:[.99,.98,.94,.86,.72,.58,.44,.32,.24,.20,.16,.13,.11],
+  muted:[.97,.94,.88,.80,.72,.62,.52,.44,.36,.28,.22,.16,.12],
+  "high-contrast":[.995,.99,.96,.90,.82,.72,.60,.48,.36,.26,.18,.14,.10],
+  "low-key":[.85,.78,.70,.62,.54,.46,.38,.32,.26,.22,.18,.14,.11],
+  luminous:[.99,.97,.94,.90,.86,.82,.78,.72,.60,.46,.34,.24,.15]};
+const M={"linear-to-500":[.08,.15,.30,.55,.80,.95,1,1,.90,.75,.55,.35,.22],
+  flat:[1,1,1,1,1,1,1,1,1,1,1,1,1],
+  soft:[.25,.40,.55,.70,.85,.95,1,.95,.85,.70,.55,.40,.28],
+  "peak-at-400":[.12,.22,.40,.68,.90,1,.95,.82,.68,.55,.42,.28,.18],
+  "peak-at-600":[.08,.15,.28,.48,.68,.85,.95,1,.98,.85,.65,.42,.26],
+  bloom:[.45,.60,.75,.88,.96,1,.98,.88,.72,.55,.38,.24,.14]};
+const HUES={cyan:[210,.15,"brand","linear-to-500"], amber:[75,.17,"brand","linear-to-500"],
+  magenta:[340,.22,"brand","linear-to-500"], lime:[128,.2,"brand","linear-to-500"]};
+const SURF={WELL:"#07090e",BASE:"#0a0c12",RAISED:"#11141d",OVERLAY:"#181c27",HAIRLINE:"#232836"};
+const INK={STRONG:"#eef2f9",BASE:"#c2c9d6",MUTED:"#8a93a6",SUBTLE:"#5b6478"};
+function step(hue,s){const [h,c,cu,cm]=HUES[hue],i=STEPS.indexOf(s);
+  return `oklch(${Math.max(L[cu][i],FLOOR)} ${(c*M[cm][i]).toFixed(4)} ${h})`;}
+/* a ColorRef -> css. {tone:N} uses the surface Tone (cyan for this screen). */
+const TONE="cyan";
+function ref(r,a){ if(!r) return null;
+  let base = r.surface ? SURF[r.surface] : r.ink ? INK[r.ink]
+           : r.hue ? step(r.hue,r.step) : r.tone!==undefined ? step(TONE,r.tone) : null;
+  if(base===null) return null;
+  const alpha = (r.alpha!==undefined? r.alpha : (a!==undefined?a:255))/255;
+  return alpha>=1 ? base : `color-mix(in oklab, ${base} ${Math.round(alpha*100)}%, transparent)`;}
+
+/* ---------- the authored facets, verbatim from tokens/matrix.json ---------- */
+const STRUCTURES={ measured:{radius:4,edge_width:1.0}, rounded:{radius:16,edge_width:1.0},
+  massive:{radius:6,edge_width:2.0}, pill:{radius:999,edge_width:1.0} };
+const MATERIALS={
+  clay:{fill:{surface:"RAISED"},ink:{ink:"BASE"},edge_color:{surface:"HAIRLINE"}},
+  glass:{fill:{surface:"OVERLAY"},ink:{ink:"STRONG"},edge_color:{tone:200}},
+  "neon-glass":{ink:{hue:"cyan",step:100},edge_color:{hue:"cyan",step:400}},
+  paper:{fill:{surface:"RAISED"},ink:{ink:"BASE"},edge_color:{surface:"HAIRLINE"}}};
+const ATMOS={
+  none:{},
+  sheen:{tints:[{color:{surface:"OVERLAY",alpha:90},dir:135}]},
+  bloom:{tints:[{color:{surface:"OVERLAY",alpha:90},dir:135}]},
+  neon:{back_glow:[{color:{hue:"cyan",step:400,alpha:120},spread:14},
+                   {color:{hue:"cyan",step:600,alpha:80},spread:28}],
+        tints:[{color:{hue:"cyan",step:500,alpha:36},dir:180}]}};
+const ANCESTORS={ aero:{font:"exo2",native:{structure:"rounded",material:"clay",atmosphere:"bloom"}},
+  brutalist:{font:"spacegrotesk",native:{structure:"massive",material:"raw",atmosphere:"hard-cast"}}};
+
+/* ---------- resolve(): M2 native fallback + M4 edge split ---------- */
+function resolve(c){
+  const anc=ANCESTORS[c.ancestor], st=STRUCTURES[c.structure];
+  const mat=MATERIALS[c.material]||{}, natMat=MATERIALS[anc.native.material]||{};
+  const atm=ATMOS[c.atmosphere]||{};
+  const fillRef = mat.fill || natMat.fill;              // M2 fallback
+  const inkRef  = mat.ink  || natMat.ink;
+  const edgeRef = mat.edge_color || natMat.edge_color;
+  const glows=(atm.back_glow||[]).map(g=>({c:ref(g.color),s:g.spread}));
+  const tint=(atm.tints||[])[0];
+  return {
+    fill: ref(fillRef), ink: ref(inkRef), edge: ref(edgeRef),
+    edgew: st.edge_width+"px", rad: (st.radius>100?999:st.radius)+"px",
+    font: anc.font, glows,
+    wash: tint? `linear-gradient(${tint.dir}deg, ${ref(tint.color)}, transparent 62%)` : "none",
+    fellBack: { fill: !mat.fill && !!natMat.fill, ink: !mat.ink, edge: !mat.edge_color }
+  };
+}
+
+/* ---------- the candidates (legality checked against matrix.json) ---------- */
+const CANDS=[
+ {id:"a", nm:"Proposed", rec:true, c:{ancestor:"aero",structure:"measured",material:"neon-glass",atmosphere:"neon"},
+  why:"Cold cyan ink on a lit edge, restrained radius, glow as a spotlight. The closest read of “flat wells + liquid-glass/cyber chrome + glow spotlights”."},
+ {id:"b", nm:"Glass, neon", c:{ancestor:"aero",structure:"measured",material:"glass",atmosphere:"neon"},
+  why:"Same geometry, but glass’s OVERLAY fill + STRONG ink — brighter plates, neutral text, cyan only in the glow."},
+ {id:"c", nm:"Glass, sheen", c:{ancestor:"aero",structure:"measured",material:"glass",atmosphere:"sheen"},
+  why:"No glow at all — a specular band only. The quietest option; closest to a plain pro app."},
+ {id:"d", nm:"Rounded neon", c:{ancestor:"aero",structure:"rounded",material:"neon-glass",atmosphere:"neon"},
+  why:"aero’s NATIVE structure (r16). Softer, more consumer; further from the reference’s tight chrome."},
+ {id:"e", nm:"Brutalist neon", c:{ancestor:"brutalist",structure:"massive",material:"neon-glass",atmosphere:"neon"},
+  why:"The only other legal seed for neon-glass. Heavier 2px edge, r6 — closer to today’s look."}
+];
+
+const cands=document.getElementById("cands"), readout=document.getElementById("readout");
+let active=CANDS[0];
+function paint(){
+  const r=resolve(active.c), e=document.getElementById("editor").style;
+  e.setProperty("--c-fill",r.fill); e.setProperty("--c-ink",r.ink);
+  e.setProperty("--c-edge",r.edge); e.setProperty("--c-edgew",r.edgew);
+  e.setProperty("--c-rad",r.rad);   e.setProperty("--c-wash",r.wash);
+  const ring=r.glows.length? r.glows.map(g=>`0 0 0 ${Math.round(g.s/5)}px ${g.c}`).join(", ") : "none";
+  const ringOn=r.glows.length? r.glows.map(g=>`0 0 0 ${Math.round(g.s/3)}px ${g.c}`).join(", ") : "none";
+  e.setProperty("--c-glowring",ring); e.setProperty("--c-glowring-on",ringOn);
+  e.setProperty("--c-spot", r.glows.length
+    ? `radial-gradient(ellipse at 68% 32%, ${r.glows[0].c}, transparent 58%)` : "none");
+  document.documentElement.style.setProperty("--pick", r.edge);
+
+  readout.innerHTML=[["fill",r.fill],["ink",r.ink],["edge colour",r.edge],
+    ["edge width",r.edgew],["radius",r.rad],["font (ancestor)",r.font],
+    ["wash",r.wash==="none"?"—":r.wash],["glow rings",r.glows.length?r.glows.map(g=>`spread ${g.s}`).join(" · "):"—"]]
+    .map(([k,v])=>`<div class="rv"><div class="k">${k}</div><div class="v">${v}</div>${
+      /oklch|#|color-mix/.test(v)?`<div class="chip" style="background:${v}"></div>`:""}</div>`).join("");
+
+  const fb=[]; if(r.fellBack.fill) fb.push("fill");
+  document.getElementById("fallback").innerHTML = fb.length
+    ? `<span class="warn">Law M2 in action:</span> <code>${active.c.material}</code> declares no <b>${fb.join(", ")}</b>, so it falls back to <code>${ANCESTORS[active.c.ancestor].native.material}</code> — the ancestor’s native material. That is the fallback working, not a gap.`
+    : "";
+  [...cands.children].forEach(el=>el.classList.toggle("on", el.dataset.id===active.id));
+}
+cands.innerHTML=CANDS.map(k=>{const r=resolve(k.c);
+  return `<button class="cand${k.id===active.id?" on":""}" data-id="${k.id}">
+    <div class="nm">${k.nm}${k.rec?'<span class="tag rec">recommended</span>':''}</div>
+    <div class="co">${k.c.ancestor} · ${k.c.structure}<br>${k.c.material} · ${k.c.atmosphere}</div>
+    <div class="sw"><i style="background:${r.fill}"></i><i style="background:${r.edge}"></i>
+      <i style="background:${r.ink}"></i></div>
+    <div class="why">${k.why}</div></button>`}).join("");
+cands.addEventListener("click",ev=>{const b=ev.target.closest(".cand"); if(!b)return;
+  active=CANDS.find(k=>k.id===b.dataset.id); paint();});
+paint();
+</script>
+</body>
+</html>

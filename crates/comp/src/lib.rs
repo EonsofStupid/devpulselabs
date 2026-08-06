@@ -26,6 +26,22 @@ pub struct Composition {
     pub w: u32,
     pub h: u32,
     pub tracks: Vec<Track>,
+
+    // ── comp-level switches (mock ② calls m.blur "a comp switch"). Additive
+    // and skipped at default, exactly like the layer fields. ──────────────
+    /// The motion-blur MASTER. A layer blurs only when this AND its own
+    /// switch are on — AE's rule, so one toggle can kill it comp-wide.
+    #[serde(default, skip_serializing_if = "is_no")]
+    pub motion_blur: bool,
+    /// Shutter angle in degrees (AE's default is 180). Drives how many frames
+    /// the render averages.
+    #[serde(default = "shutter", skip_serializing_if = "is_shutter")]
+    pub shutter: u32,
+    /// Camera focal length in comp px. `None` = NO CAMERA: `z` is inert and
+    /// the comp is flat, which is byte-identical to every comp authored
+    /// before this field existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focal: Option<f32>,
 }
 
 /// One track — a named, ordered run of layers. Tracks stack back-to-front in
@@ -76,6 +92,31 @@ pub struct Layer {
     /// too — the 860-cube use case). A REF, never bytes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lut: Option<String>,
+
+    // ── the timeline switches (mock ⑦). Every one is ADDITIVE and skipped at
+    // its default, so an existing comp.json round-trips byte-identically and
+    // SCHEMA_V does not move. ─────────────────────────────────────────────
+    /// Hidden layers render as if absent. A hidden BASE cut still holds its
+    /// time as black, so hiding never re-times everything after it.
+    #[serde(default = "yes", skip_serializing_if = "is_yes")]
+    pub visible: bool,
+    /// Editor-side only: a locked layer cannot be selected, dragged, trimmed
+    /// or removed. Never reaches the render.
+    #[serde(default, skip_serializing_if = "is_no")]
+    pub locked: bool,
+    /// Per-layer motion blur, gated by the comp master switch — AE's rule:
+    /// both must be on.
+    #[serde(default, skip_serializing_if = "is_no")]
+    pub motion_blur: bool,
+    /// Another layer's id whose transform this one rides. Cycles are refused
+    /// at author time and survived at resolve time ([`resolved_transform`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    /// Depth in comp px. 0 = the camera's focal plane (unchanged). Positive
+    /// is further away (smaller), negative is nearer (larger). Inert unless
+    /// the comp has a `focal` — so a comp without a camera is exactly flat.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub z: f32,
 }
 
 /// The L4 blend modes — screen and add cover the estate's light-leak/
@@ -94,6 +135,39 @@ impl Blend {
     fn is_normal(&self) -> bool {
         *self == Blend::Normal
     }
+
+    /// Every mode, in the order the Mode column steps through them.
+    pub const ALL: [Blend; 3] = [Blend::Normal, Blend::Screen, Blend::Add];
+
+    /// What the operator reads in the timeline's Mode column.
+    pub fn label(self) -> &'static str {
+        match self {
+            Blend::Normal => "Normal",
+            Blend::Screen => "Screen",
+            Blend::Add => "Add",
+        }
+    }
+
+    /// Plain words for what the mode DOES — the tooltip law, and the reason
+    /// these live here rather than in the surface: one vocabulary, wherever
+    /// a mode is shown.
+    pub fn blurb(self) -> &'static str {
+        match self {
+            Blend::Normal => "Lays on top as-is, using its own transparency.",
+            Blend::Screen => "Only lightens — black in this layer disappears.                               Light leaks, glows, dust.",
+            Blend::Add => "Piles light on light. Brighter and harsher than Screen.",
+        }
+    }
+
+    /// The next mode, wrapping — the Mode column is a tap-through, so there
+    /// is always a way back round to Normal.
+    pub fn next(self) -> Blend {
+        match self {
+            Blend::Normal => Blend::Screen,
+            Blend::Screen => Blend::Add,
+            Blend::Add => Blend::Normal,
+        }
+    }
 }
 
 fn one() -> f32 {
@@ -106,6 +180,137 @@ fn is_one(v: &f32) -> bool {
 
 fn is_zero(v: &f32) -> bool {
     *v == 0.0
+}
+
+fn yes() -> bool {
+    true
+}
+
+fn is_yes(v: &bool) -> bool {
+    *v
+}
+
+fn is_no(v: &bool) -> bool {
+    !*v
+}
+
+/// AE's default shutter angle.
+fn shutter() -> u32 {
+    180
+}
+
+fn is_shutter(v: &u32) -> bool {
+    *v == 180
+}
+
+/// How deep a parent chain may go before [`resolved_transform`] stops
+/// walking. A hand-edited `comp.json` can contain a cycle; the paint thread
+/// and the render must survive one, so the walk is BOUNDED rather than
+/// trusting.
+pub const PARENT_MAX_DEPTH: usize = 16;
+
+/// A layer's resolved placement — the three values both the preview and the
+/// ffmpeg graph already consume. Parenting and depth resolve INTO this, which
+/// is why neither needs an engine change.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Transform {
+    pub x: f32,
+    pub y: f32,
+    pub scale: f32,
+}
+
+impl Transform {
+    pub const IDENTITY: Transform = Transform {
+        x: 0.0,
+        y: 0.0,
+        scale: 1.0,
+    };
+}
+
+/// Resolve a layer's transform, walking its parent chain.
+///
+/// A child rides its parent: `scale` multiplies, and the child's offset is
+/// expressed in the parent's SCALED space — which is what makes a parented
+/// layer track its parent when the parent scales rather than drifting off it.
+///
+/// **Cycle-safe by construction.** The walk carries a visited set and stops at
+/// [`PARENT_MAX_DEPTH`], returning the chain resolved so far. A cycle in a
+/// hand-edited file can therefore never hang a frame or a render.
+pub fn resolved_transform(layers: &[Layer], id: &str) -> Option<Transform> {
+    let find = |lid: &str| layers.iter().find(|l| l.id == lid);
+    let start = find(id)?;
+
+    // Collect the chain child→root first, so the compose below reads in the
+    // same direction a reader thinks about it.
+    let mut chain: Vec<&Layer> = vec![start];
+    let mut seen: Vec<&str> = vec![start.id.as_str()];
+    let mut cursor = start;
+    while let Some(pid) = cursor.parent.as_deref() {
+        if seen.contains(&pid) || chain.len() >= PARENT_MAX_DEPTH {
+            break; // a cycle, or too deep — keep what we have, never spin
+        }
+        let Some(p) = find(pid) else { break };
+        chain.push(p);
+        seen.push(p.id.as_str());
+        cursor = p;
+    }
+
+    // Apply root→child so each child lands inside its parent's scaled space.
+    let mut t = Transform::IDENTITY;
+    for l in chain.iter().rev() {
+        t = Transform {
+            x: t.x + l.x * t.scale,
+            y: t.y + l.y * t.scale,
+            scale: t.scale * l.scale,
+        };
+    }
+    Some(t)
+}
+
+/// Would setting `child.parent = Some(parent)` close a cycle?
+///
+/// The UI asks BEFORE authoring, so a cycle never reaches the document. The
+/// depth cap in [`resolved_transform`] is the second line of defence, for
+/// files edited by hand or by an agent.
+pub fn parent_would_cycle(layers: &[Layer], child: &str, parent: &str) -> bool {
+    if child == parent {
+        return true;
+    }
+    let find = |lid: &str| layers.iter().find(|l| l.id == lid);
+    let mut cursor = parent;
+    for _ in 0..PARENT_MAX_DEPTH {
+        let Some(l) = find(cursor) else { return false };
+        match l.parent.as_deref() {
+            Some(p) if p == child => return true,
+            Some(p) => cursor = p,
+            None => return false,
+        }
+    }
+    true // ran out of depth — treat as a cycle rather than authoring one
+}
+
+/// Project a transform through a pinhole camera at depth `z`.
+///
+/// `k = focal / (focal + z)` — the whole of it. `focal: None` means no camera
+/// and returns the transform UNCHANGED, so a comp without one is exactly as
+/// flat as it was before cameras existed. `z = 0` is likewise identity.
+///
+/// This is 3D **position**, not rotation: rotation needs a perspective warp
+/// and is a later pass. Because the output is `(x, y, scale)`, it feeds the
+/// preview and the ffmpeg graph with no engine change at all.
+pub fn project(t: Transform, z: f32, focal: Option<f32>) -> Transform {
+    let Some(f) = focal else { return t };
+    if f <= 0.0 || z == 0.0 {
+        return t;
+    }
+    // Clamp rather than invert or divide by zero: a layer at or behind the
+    // camera collapses toward nothing instead of flipping inside out.
+    let k = (f / (f + z)).max(0.01);
+    Transform {
+        x: t.x * k,
+        y: t.y * k,
+        scale: t.scale * k,
+    }
 }
 
 impl Layer {
@@ -131,6 +336,11 @@ impl Layer {
             blend: Blend::Normal,
             matte: None,
             lut: None,
+            visible: true,
+            locked: false,
+            motion_blur: false,
+            parent: None,
+            z: 0.0,
         }
     }
 
@@ -182,6 +392,12 @@ impl Composition {
             w,
             h,
             tracks: Vec::new(),
+            // A fresh comp is flat and unblurred — the switches are opt-in,
+            // and these defaults are what make the field additions invisible
+            // on disk.
+            motion_blur: false,
+            shutter: shutter(),
+            focal: None,
         }
     }
 
@@ -423,6 +639,9 @@ mod tests {
     fn sample() -> Composition {
         Composition {
             v: SCHEMA_V,
+            motion_blur: false,
+            shutter: 180,
+            focal: None,
             fps: 30,
             w: 1920,
             h: 1080,
@@ -458,6 +677,162 @@ mod tests {
             .join(format!("{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir
+    }
+
+    /// THE additive claim, proven rather than asserted: a comp that uses none
+    /// of the new switches serialises with NO trace of them, so every
+    /// comp.json written before this pass is byte-identical after it and
+    /// SCHEMA_V never had to move.
+    #[test]
+    fn the_switches_are_invisible_on_disk_until_used() {
+        let mut c = Composition::default_1080p30();
+        c.tracks[0].layers.push(Layer::plain(
+            "clip-1",
+            Source::Artifact {
+                rel: "inbox/a.mp4".into(),
+            },
+            0.0,
+            0.0,
+            4.0,
+        ));
+        let json = serde_json::to_string_pretty(&c).unwrap();
+        for absent in [
+            "visible",
+            "locked",
+            "motion_blur",
+            "parent",
+            "\"z\"",
+            "shutter",
+            "focal",
+        ] {
+            assert!(
+                !json.contains(absent),
+                "{absent} must not appear until it is used:\n{json}"
+            );
+        }
+        // `json` above provably contains NONE of the new fields, so it IS an
+        // old-format file. Reading it back is therefore the real
+        // backward-compatibility test — and it cannot drift from the schema
+        // the way a hand-written fixture would.
+        let back: Composition = serde_json::from_str(&json).expect("an old comp still loads");
+        let l = &back.tracks[0].layers[0];
+        assert!(
+            l.visible,
+            "a layer with no `visible` is VISIBLE, not hidden"
+        );
+        assert!(!l.locked && !l.motion_blur && l.parent.is_none());
+        assert_eq!(l.z, 0.0);
+        assert_eq!(back.shutter, 180, "shutter defaults to AE's 180");
+        assert!(back.focal.is_none(), "no camera unless one is authored");
+    }
+
+    /// A child rides its parent, and its offset is expressed in the parent's
+    /// SCALED space — which is what makes a parented layer track its parent
+    /// instead of drifting off it when the parent scales.
+    #[test]
+    fn a_child_rides_its_parents_scaled_space() {
+        let mk = |id: &str, x: f32, scale: f32, parent: Option<&str>| {
+            let mut l = Layer::plain(
+                id,
+                Source::Artifact {
+                    rel: "inbox/a.mp4".into(),
+                },
+                0.0,
+                0.0,
+                1.0,
+            );
+            l.x = x;
+            l.scale = scale;
+            l.parent = parent.map(str::to_string);
+            l
+        };
+        let layers = vec![
+            mk("rig", 100.0, 2.0, None),
+            mk("child", 10.0, 0.5, Some("rig")),
+        ];
+        let t = resolved_transform(&layers, "child").unwrap();
+        assert_eq!(t.scale, 1.0, "0.5 inside a 2x rig is natural size");
+        assert_eq!(t.x, 120.0, "the child's 10 is 10 IN THE RIG'S 2x space");
+        // The rig itself is unaffected by its child.
+        assert_eq!(resolved_transform(&layers, "rig").unwrap().x, 100.0);
+        // An unparented layer is just itself.
+        assert_eq!(
+            resolved_transform(&[mk("solo", 5.0, 1.0, None)], "solo").unwrap(),
+            Transform {
+                x: 5.0,
+                y: 0.0,
+                scale: 1.0
+            }
+        );
+    }
+
+    /// A cycle in a hand-edited file must never hang a frame or a render.
+    /// Authoring one is refused up front; surviving one is the second line.
+    #[test]
+    fn a_parent_cycle_is_refused_and_survived() {
+        let mk = |id: &str, parent: Option<&str>| {
+            let mut l = Layer::plain(
+                id,
+                Source::Artifact {
+                    rel: "inbox/a.mp4".into(),
+                },
+                0.0,
+                0.0,
+                1.0,
+            );
+            l.parent = parent.map(str::to_string);
+            l
+        };
+        // Authoring: b already rides a, so a may not ride b.
+        let sane = vec![mk("a", None), mk("b", Some("a"))];
+        assert!(
+            parent_would_cycle(&sane, "a", "b"),
+            "a->b would close a loop"
+        );
+        assert!(
+            parent_would_cycle(&sane, "a", "a"),
+            "self-parenting is a loop"
+        );
+        assert!(
+            !parent_would_cycle(&sane, "b", "a"),
+            "b->a is already true and fine"
+        );
+
+        // Surviving: a file that already contains a->b->a must still resolve.
+        let looped = vec![mk("a", Some("b")), mk("b", Some("a"))];
+        let t = resolved_transform(&looped, "a").expect("a cycle resolves, bounded");
+        assert!(t.scale.is_finite(), "and yields finite numbers");
+    }
+
+    /// 3D position is a pinhole projection, and it is INERT without a camera —
+    /// so every comp authored before cameras existed is exactly as flat.
+    #[test]
+    fn depth_is_inert_without_a_camera_and_shrinks_with_one() {
+        let t = Transform {
+            x: 100.0,
+            y: 50.0,
+            scale: 1.0,
+        };
+        assert_eq!(project(t, 500.0, None), t, "no camera: z does nothing");
+        assert_eq!(
+            project(t, 0.0, Some(1000.0)),
+            t,
+            "on the focal plane: identity"
+        );
+
+        let far = project(t, 1000.0, Some(1000.0));
+        assert_eq!(far.scale, 0.5, "twice the focal length is half the size");
+        assert_eq!(far.x, 50.0, "and it pulls toward centre");
+
+        let near = project(t, -500.0, Some(1000.0));
+        assert!(near.scale > 1.0, "nearer than the plane is LARGER");
+
+        // At or behind the camera it collapses rather than inverting.
+        let behind = project(t, -2000.0, Some(1000.0));
+        assert!(
+            behind.scale > 0.0 && behind.scale.is_finite(),
+            "never negative, never NaN: {behind:?}"
+        );
     }
 
     #[test]
@@ -506,6 +881,9 @@ mod tests {
         let dir = scratch("lottie");
         let comp = Composition {
             v: SCHEMA_V,
+            motion_blur: false,
+            shutter: 180,
+            focal: None,
             fps: 30,
             w: 1920,
             h: 1080,
@@ -533,6 +911,9 @@ mod tests {
     fn structural_faults_are_named_not_swallowed() {
         let comp = Composition {
             v: SCHEMA_V,
+            motion_blur: false,
+            shutter: 180,
+            focal: None,
             fps: 0,
             w: 0,
             h: 1080,

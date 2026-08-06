@@ -29,6 +29,8 @@ pub enum StatusAction {
     Window(AppWindowKey),
     /// Toggle the Providers roster popup (V2).
     ToggleProviders,
+    /// Toggle the ColdLight preset picker — how THIS screen is dressed.
+    TogglePresets,
 }
 
 /// Data-only description of an app-owned window accessory.
@@ -45,6 +47,10 @@ pub struct WindowAccessory {
 /// Everything a cell may read this frame — the shell's live state, borrowed.
 pub struct StatusCtx<'a> {
     pub tone: Tone,
+    /// The surface the operator is looking at (`route.hub`), so the preset
+    /// picker dresses THIS screen and not the whole app. A cell paints; it
+    /// does not decide which surface it is on (Law 4).
+    pub surface: &'static str,
     pub viewport: egui::Vec2,
     pub ppp: f32,
     pub navs: u64,
@@ -184,10 +190,32 @@ pub fn grid(
 
 // ── the cells ───────────────────────────────────────────────────────────
 
+/// The system's own name, and the way into how this screen is dressed.
+///
+/// It reads "ColdLight" until a preset is picked, then wears that preset's
+/// label — so the bar always answers "what am I looking at" without a second
+/// indicator.
 fn brand(ui: &mut Ui, cx: &StatusCtx) -> Option<StatusAction> {
     cl::tone_dot(ui, cx.tone);
-    ui.label(RichText::new("ColdLight").small().color(cl::ink::MUTED));
-    None
+    let worn = cl::chrome_preset(cx.surface);
+    let label = worn.map_or("ColdLight", |p| p.label);
+    let response = cl::tip(
+        ui.add(
+            egui::Label::new(RichText::new(label).small().color(cl::ink::MUTED))
+                .sense(egui::Sense::click()),
+        ),
+        "Change how this screen is dressed — every look is a legal point on the ColdLight matrix",
+    );
+    ui.pilot_track(
+        &response,
+        NodeMetadata::new(
+            PilotId::new("shell.status").child(&egui_pilot_ai::PilotKey::new("presets")),
+            Role::Button,
+            "Open the ColdLight preset picker",
+        )
+        .value(worn.map_or("authored", |p| p.id)),
+    );
+    response.clicked().then_some(StatusAction::TogglePresets)
 }
 
 fn snip(ui: &mut Ui, cx: &StatusCtx) -> Option<StatusAction> {

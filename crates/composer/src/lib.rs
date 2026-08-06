@@ -21,6 +21,7 @@ mod browse;
 pub mod import;
 mod mogrt;
 mod packs;
+mod player;
 mod rtfx;
 mod state;
 
@@ -50,8 +51,31 @@ const PROP_H: f32 = 20.0;
 const RULER_H: f32 = 22.0;
 /// The FX section divider row's height (L3).
 const FXHDR_H: f32 = 18.0;
-/// The layer OUTLINE column's width (timeline left half).
-const OUTLINE_W: f32 = 252.0;
+/// The layer OUTLINE column's width (timeline left half). Widened for the
+/// mock's switch columns — the name still clips rather than colliding.
+const OUTLINE_W: f32 = 382.0;
+/// This surface's id in `tokens/roles.json`. Widgets name an INTENT; which
+/// treatment paints it is authored data keyed by this.
+pub(crate) const SURFACE: &str = "wiredfront";
+/// The depth a layer takes when its 3D switch is first lit — far enough to
+/// read as "further away", not so far it vanishes.
+const DEFAULT_LAYER_Z: f32 = 400.0;
+/// The camera's focal length when the comp's 3D switch adds one. With
+/// DEFAULT_LAYER_Z this puts a pushed-back layer at 0.75 scale — visible, not
+/// dramatic.
+const DEFAULT_FOCAL: f32 = 1200.0;
+/// The Mode column's width, between the layer name and the switches.
+const MODE_W: f32 = 52.0;
+/// One switch cell in the outline's right-hand columns.
+const SWITCH_W: f32 = 16.0;
+/// Where the switch block starts, measured back from the row's right edge
+/// (leaving room for the start-time readout beyond it).
+const SWITCHES_RIGHT: f32 = 128.0;
+/// Registry-icon paint sizes (ADR-015 meshes scale cleanly, so these are
+/// the only two the editor needs): SM rides inline with text, MD is a
+/// tappable control's glyph.
+const ICON_SM: f32 = 13.0;
+const ICON_MD: f32 = 16.0;
 
 /// Responsive clamp — the ALL-RESOLUTIONS law. `f32::clamp` PANICS when
 /// `min > max`, which is exactly what happens on a small window: a fixed
@@ -105,6 +129,11 @@ pub struct Composer {
     preview: Option<(String, ClipPlayer)>,
     /// The STILL preview lane (W7): (layer id, file:/// uri) when the
     /// active layer is an image — no ffmpeg pipe for a held frame.
+    /// The PREVIEW modal — look before it lands (`player.rs`). `None` = closed.
+    preview_modal: Option<player::Preview>,
+    /// Browse picks waiting to be previewed. The modal shows ONE at a time,
+    /// so several picks queue rather than racing or being dropped.
+    preview_queue: Vec<PathBuf>,
     preview_still: Option<(String, String)>,
     /// The LOTTIE preview lane (L2): (layer id, player) when the active
     /// layer is a native Lottie — rendered by the ThorVG subprocess helper.
@@ -287,6 +316,8 @@ impl Default for Composer {
             dir: None,
             selected: None,
             preview: None,
+            preview_modal: None,
+            preview_queue: Vec::new(),
             preview_still: None,
             preview_lottie: None,
             overlay_lanes: Vec::new(),
@@ -411,6 +442,23 @@ enum Act {
     BrowseAt(PathBuf),
     /// File the finished render into (show, episode) — the tag seam.
     Keep(String, String),
+    /// The mock's ⑦ switch columns — each toggles real document state and
+    /// checkpoints, so one undo reverses it.
+    /// Step a layer's blend mode (mock ⑦'s Mode column). Overlay-only.
+    CycleBlend(String),
+    ToggleVisible(String),
+    ToggleLock(String),
+    ToggleLayerBlur(String),
+    Toggle3d(String),
+    /// Step this layer's parent through the legal candidates and back to
+    /// none — a picker without a popover, which is all the outline has room
+    /// for. Cycles are refused by `dpl_comp::parent_would_cycle`.
+    CycleParent(String),
+    /// The comp-level switches from the tool strip (mock ②).
+    ToggleCompBlur,
+    ToggleCamera,
+    /// Open the PREVIEW modal on something — look before it lands.
+    Preview(player::Source),
 }
 
 /// The tab strip — Editor leads; the others are TAILORED surfaces
@@ -499,6 +547,17 @@ impl EditorTool {
             EditorTool::Pen => "Masks and paths — land with the effects pass.",
             EditorTool::Camera => "Orbit the 3D view — 3D is a ratified later phase.",
             EditorTool::Text => "Type on the comp — lands with the preset-text pass.",
+        }
+    }
+    /// The registry icon id (tokens/icons.json → Lucide, ADR-015). The
+    /// mock's ② strip is glyphs, not words.
+    fn icon(self) -> &'static str {
+        match self {
+            EditorTool::Select => "tool-select",
+            EditorTool::Hand => "tool-hand",
+            EditorTool::Pen => "tool-pen",
+            EditorTool::Camera => "tool-camera",
+            EditorTool::Text => "tool-text",
         }
     }
 }
@@ -614,7 +673,9 @@ impl Composer {
         let mut out = Vec::new();
         for track in self.comp.tracks.iter().skip(1) {
             for layer in track.layers.iter().rev() {
-                if t >= layer.start && t < layer.end().max(layer.start) {
+                // `visible` is honoured HERE as well as in render_parts, so
+                // the preview and the export agree about what exists.
+                if layer.visible && t >= layer.start && t < layer.end().max(layer.start) {
                     out.push(layer);
                 }
             }
@@ -812,8 +873,22 @@ impl Composer {
                 .tint
                 .map(|[r, g, b, a]| Color32::from_rgba_unmultiplied(r, g, b, a))
                 .unwrap_or(Color32::WHITE);
-            let center = frame.center() + egui::vec2(layer.x * px, layer.y * px);
-            let bx = Rect::from_center_size(center, frame.size() * layer.scale);
+            // Parent + depth resolve through the SAME pure functions the
+            // render uses, so the viewer cannot drift from the export.
+            let tf = self
+                .comp
+                .tracks
+                .iter()
+                .find(|t| t.layers.iter().any(|l| l.id == layer.id))
+                .and_then(|t| dpl_comp::resolved_transform(&t.layers, &layer.id))
+                .unwrap_or(dpl_comp::Transform {
+                    x: layer.x,
+                    y: layer.y,
+                    scale: layer.scale,
+                });
+            let tf = dpl_comp::project(tf, layer.z, self.comp.focal);
+            let center = frame.center() + egui::vec2(tf.x * px, tf.y * px);
+            let bx = Rect::from_center_size(center, frame.size() * tf.scale);
             match lane {
                 OverlayLane::Clip(player) => {
                     if let Some(tex) = player.texture(ui.ctx()) {
@@ -836,6 +911,12 @@ impl Composer {
             // has no screen/add compositing) and Lottie grades apply at
             // export only — the badge NAMES it; the render is exact.
             let badge = match (layer.blend, lane) {
+                _ if self.comp.motion_blur && layer.motion_blur => {
+                    // egui cannot average frames on the paint thread; ffmpeg
+                    // does it exactly. Say so rather than showing a sharp
+                    // frame that silently disagrees with the export.
+                    Some("motion blur · export-exact")
+                }
                 (dpl_comp::Blend::Screen, _) => Some("screen · export-exact"),
                 (dpl_comp::Blend::Add, _) => Some("add · export-exact"),
                 (dpl_comp::Blend::Normal, OverlayLane::Lottie(_))
@@ -866,6 +947,114 @@ impl Composer {
                 egui::TextStyle::Small.resolve(ui.style()),
                 cl::ink::MUTED,
             );
+        }
+    }
+
+    /// Drive the PREVIEW modal for a frame: keep a playing clip advancing,
+    /// paint it, and act on what the operator picked.
+    fn show_preview(&mut self, ctx: &egui::Context) {
+        // One at a time: the next queued pick opens as soon as the modal frees.
+        if self.preview_modal.is_none() && !self.preview_queue.is_empty() {
+            let path = self.preview_queue.remove(0);
+            let root = Self::content_root();
+            self.preview_modal = Some(player::Preview::open(player::Source::Loose(path), &root));
+        }
+        let Some(pv) = self.preview_modal.as_mut() else {
+            return;
+        };
+        pv.tick(ctx);
+        match player::modal(ctx, pv, Tone::Magenta) {
+            Some(player::Act::Close) => self.preview_modal = None,
+            Some(player::Act::AddToEdit) => self.add_preview_to_edit(),
+            None => {}
+        }
+    }
+
+    /// Promote what the preview is showing into the open comp.
+    ///
+    /// An INDEXED record is already in the library, so it goes straight to
+    /// [`Composer::add_clip`]. A LOOSE path is a file the operator is only
+    /// looking at, so it enters through the ONE import seam first — copy, or
+    /// symlink when reference mode is on — and the record that comes back is
+    /// what lands. There is deliberately no second import path here.
+    ///
+    /// `add_clip` checkpoints, so ONE undo takes the layer back off. The
+    /// preview stays open so several items can be added in a row.
+    fn add_preview_to_edit(&mut self) {
+        let Some(pv) = self.preview_modal.as_ref() else {
+            return;
+        };
+        let rec = match &pv.source {
+            player::Source::Indexed(r) => Ok((**r).clone()),
+            player::Source::Loose(path) => {
+                if self.prefer_reference {
+                    import::import_reference(path)
+                } else {
+                    import::import_file(path)
+                }
+            }
+        };
+        match rec {
+            Ok(rec) => {
+                Self::signal_saved(&self.fabric, &rec);
+                match rec.kind.as_str() {
+                    "video" | "image" => {
+                        self.add_clip(&rec);
+                        self.status = format!("{} added as a new layer.", rec.name);
+                    }
+                    "lottie" => {
+                        self.add_lottie(&rec);
+                        self.status = format!("{} added as a new layer.", rec.name);
+                    }
+                    // Audio has no timeline track yet; say so rather than
+                    // dropping it silently into nothing.
+                    other => {
+                        self.status = format!(
+                            "{} is in your library — {other} on the timeline lands with a later pass.",
+                            rec.name
+                        );
+                    }
+                }
+                self.palette = None;
+            }
+            Err(e) => self.status = format!("Could not add that: {e}"),
+        }
+    }
+
+    /// Step a layer's parent to the next LEGAL candidate, then back to none.
+    ///
+    /// The outline has no room for a popover, so parenting cycles instead:
+    /// tap through the layers that would not close a loop, then off. Legality
+    /// comes from `dpl_comp::parent_would_cycle`, so the document can never
+    /// hold a cycle authored through the UI.
+    fn cycle_parent(&mut self, id: &str) {
+        let track = self
+            .comp
+            .tracks
+            .iter()
+            .position(|t| t.layers.iter().any(|l| l.id == id));
+        let Some(ti) = track else { return };
+        let layers = self.comp.tracks[ti].layers.clone();
+        let candidates: Vec<String> = layers
+            .iter()
+            .filter(|l| l.id != id && !dpl_comp::parent_would_cycle(&layers, id, &l.id))
+            .map(|l| l.id.clone())
+            .collect();
+        let current = layers
+            .iter()
+            .find(|l| l.id == id)
+            .and_then(|l| l.parent.clone());
+        let next = match current {
+            None => candidates.first().cloned(),
+            Some(cur) => match candidates.iter().position(|c| *c == cur) {
+                // past the last candidate wraps to NONE, so a tap-through
+                // always has a way back to unparented.
+                Some(i) => candidates.get(i + 1).cloned(),
+                None => candidates.first().cloned(),
+            },
+        };
+        if let Some(l) = self.comp.tracks[ti].layers.iter_mut().find(|l| l.id == id) {
+            l.parent = next;
         }
     }
 
@@ -953,15 +1142,34 @@ impl Composer {
     /// Select a layer (outline + Info focus). The PREVIEW follows the
     /// playhead, not the selection — like any real editor.
     fn select(&mut self, id: &str) {
+        // LOCK GUARD. A locked layer cannot be picked, which is what makes
+        // every downstream edit (drag, trim, remove, inspector) safe without
+        // each one re-checking.
+        if self.layers().iter().any(|l| l.id == id && l.locked) {
+            self.status = "That layer is locked — tap its lock to edit it.".into();
+            return;
+        }
         self.selected = Some(id.to_string());
+    }
+
+    /// Is `id` locked? The guard the remove paths ask before acting.
+    fn is_locked(&self, id: &str) -> bool {
+        self.comp
+            .tracks
+            .iter()
+            .flat_map(|t| t.layers.iter())
+            .any(|l| l.id == id && l.locked)
     }
 
     /// The layer under the playhead: the FIRST row whose [start, end)
     /// contains `t` (row 0 = topmost wins). Gaps return None.
     fn active_layer_at(layers: &[Layer], t: f32) -> Option<usize> {
+        // A HIDDEN base cut still occupies its span (render_parts turns it
+        // into black to preserve timing), so the preview must show nothing
+        // there rather than falling through to the cut underneath.
         layers
             .iter()
-            .position(|l| t >= l.start && t < l.end().max(l.start))
+            .position(|l| l.visible && t >= l.start && t < l.end().max(l.start))
     }
 
     /// Advance playback and keep the preview player FOLLOWING the
@@ -1069,6 +1277,10 @@ impl Composer {
     }
 
     fn remove(&mut self, id: &str) {
+        if self.is_locked(id) {
+            self.status = "That layer is locked — unlock it first.".into();
+            return;
+        }
         self.checkpoint();
         // EVERY track — an FX overlay removes exactly like a base cut.
         for track in &mut self.comp.tracks {
@@ -1348,6 +1560,19 @@ impl Composer {
     /// cut stay visible (output length = concat length).
     fn render_parts(&self) -> RenderParts {
         use dpl_engine_media::{CompBase, OverlayClip, OverlayInput};
+        // Motion blur is AE's rule: the comp master AND the layer switch.
+        let blur_n = dpl_engine_media::blur_frames(self.comp.shutter);
+        let blur_for = |l: &Layer| (self.comp.motion_blur && l.motion_blur).then_some(blur_n);
+        // Parent + depth resolve into (x, y, scale) — the values the graph
+        // already consumes, which is why neither needs an engine change.
+        let placed = |layers: &[Layer], l: &Layer| {
+            let t = dpl_comp::resolved_transform(layers, &l.id).unwrap_or(dpl_comp::Transform {
+                x: l.x,
+                y: l.y,
+                scale: l.scale,
+            });
+            dpl_comp::project(t, l.z, self.comp.focal)
+        };
         let mut base = Vec::new();
         let mut overlays = Vec::new();
         let mut elements_skipped = 0usize;
@@ -1355,17 +1580,26 @@ impl Composer {
         for l in self.layers() {
             match &l.source {
                 Source::Artifact { rel } => {
-                    let path = Self::resolve(rel);
-                    base.push(CompBase::Clip {
-                        clip: StitchClip {
-                            still: dpl_engine_media::is_still(&path),
-                            path,
-                            in_pt: l.in_pt,
-                            out_pt: l.out_pt,
-                        },
-                        // L4: base cuts grade (blend/matte are overlay-only).
-                        lut: l.lut.as_deref().map(Self::resolve),
-                    });
+                    if l.visible {
+                        let path = Self::resolve(rel);
+                        base.push(CompBase::Clip {
+                            clip: StitchClip {
+                                still: dpl_engine_media::is_still(&path),
+                                path,
+                                in_pt: l.in_pt,
+                                out_pt: l.out_pt,
+                            },
+                            // L4: base cuts grade (blend/matte are overlay-only).
+                            lut: l.lut.as_deref().map(Self::resolve),
+                        });
+                    } else {
+                        // A hidden BASE cut HOLDS ITS TIME as black. Dropping
+                        // it would re-time every cut after it, so hiding one
+                        // layer would silently move the whole comp.
+                        base.push(CompBase::Black {
+                            dur: l.span().max(0.05),
+                        });
+                    }
                     base_end = base_end.max(l.end());
                 }
                 Source::Lottie { rel } => {
@@ -1384,6 +1618,7 @@ impl Composer {
                         blend: engine_blend(l.blend),
                         matte: l.matte.as_deref().map(Self::resolve),
                         lut: l.lut.as_deref().map(Self::resolve),
+                        motion_blur_frames: blur_for(l),
                     }));
                     base_end = base_end.max(l.end());
                 }
@@ -1392,6 +1627,10 @@ impl Composer {
         }
         for track in self.comp.tracks.iter().skip(1) {
             for l in track.layers.iter().rev() {
+                if !l.visible {
+                    continue; // a hidden overlay is simply absent
+                }
+                let tf = placed(&track.layers, l);
                 match &l.source {
                     Source::Artifact { rel } => {
                         let path = Self::resolve(rel);
@@ -1401,14 +1640,15 @@ impl Composer {
                             in_pt: l.in_pt,
                             out_pt: l.out_pt,
                             at: l.start,
-                            x: l.x,
-                            y: l.y,
-                            scale: l.scale,
+                            x: tf.x,
+                            y: tf.y,
+                            scale: tf.scale,
                             tint: l.tint,
                             hold,
                             blend: engine_blend(l.blend),
                             matte: l.matte.as_deref().map(Self::resolve),
                             lut: l.lut.as_deref().map(Self::resolve),
+                            motion_blur_frames: blur_for(l),
                         }));
                     }
                     Source::Lottie { rel } => {
@@ -1417,13 +1657,14 @@ impl Composer {
                             in_pt: l.in_pt,
                             out_pt: l.out_pt,
                             at: l.start,
-                            x: l.x,
-                            y: l.y,
-                            scale: l.scale,
+                            x: tf.x,
+                            y: tf.y,
+                            scale: tf.scale,
                             tint: l.tint,
                             blend: engine_blend(l.blend),
                             matte: l.matte.as_deref().map(Self::resolve),
                             lut: l.lut.as_deref().map(Self::resolve),
+                            motion_blur_frames: blur_for(l),
                         }));
                     }
                     Source::Element { .. } => elements_skipped += 1,
@@ -1906,15 +2147,19 @@ impl Composer {
         for dir in ingests {
             self.start_ingest(&dir);
         }
-        incoming.extend(
-            ctx.input(|i| i.raw.dropped_files.clone())
-                .into_iter()
-                .filter_map(|f| f.path),
-        );
-        if incoming.is_empty() {
+        // A browse PICK means "let me look" — it queues a preview, and the
+        // import only happens if the operator then says add. An Explorer DROP
+        // is an explicit "put this in", so it still imports directly.
+        self.preview_queue.append(&mut incoming);
+        let drops: Vec<PathBuf> = ctx
+            .input(|i| i.raw.dropped_files.clone())
+            .into_iter()
+            .filter_map(|f| f.path)
+            .collect();
+        if drops.is_empty() && self.preview_queue.is_empty() {
             return;
         }
-        for src in incoming {
+        for src in drops {
             self.handle_import(&src);
         }
         self.palette = None;
@@ -1943,6 +2188,16 @@ impl Composer {
     /// add_overlay, inspector-shaped edits), saved, then rendered
     /// SYNCHRONOUSLY so the headless proof can ffprobe `render.mp4` the
     /// moment the process exits. Verdict on stdout.
+    /// PROOF DRILL: open the preview modal on a content-relative artifact so
+    /// a screenshot can show the player. Same shape as the other drills —
+    /// deterministic, no operator input, one frame away from a shot.
+    pub fn preview_drill(&mut self, rel: &str) {
+        let root = Self::content_root();
+        let path = root.join(rel);
+        self.preview_modal = Some(player::Preview::open(player::Source::Loose(path), &root));
+        self.status = format!("Preview drill: {rel}");
+    }
+
     pub fn fx_drill(&mut self, clip_rel: &str, fx_rel: &str) {
         let base = Record {
             rel_path: clip_rel.into(),
@@ -2456,6 +2711,7 @@ impl Composer {
         self.ensure_project();
         self.tick_playback(ui.ctx());
         self.show_browsers(ui.ctx());
+        self.show_preview(ui.ctx());
         self.drain_media_feeds(ui.ctx());
         // The ingest pill: progress while Running (the board row's counter),
         // one-shot status + cache reset when the row resolves.
@@ -2639,6 +2895,91 @@ impl Composer {
             }
             Some(Act::OpenComp(dir)) => self.open_comp(dir),
             Some(Act::Select(id)) => self.select(&id),
+            Some(Act::CycleBlend(id)) => {
+                self.checkpoint();
+                if let Some(l) = self.layer_mut(&id) {
+                    l.blend = l.blend.next();
+                }
+                self.mark_edit();
+                self.reconcile_overlays(ui.ctx());
+            }
+            Some(Act::ToggleVisible(id)) => {
+                self.checkpoint();
+                if let Some(l) = self.layer_mut(&id) {
+                    l.visible = !l.visible;
+                }
+                self.mark_edit();
+                self.reconcile_overlays(ui.ctx());
+            }
+            Some(Act::ToggleLock(id)) => {
+                self.checkpoint();
+                if let Some(l) = self.layer_mut(&id) {
+                    l.locked = !l.locked;
+                    // Locking what is selected also drops the selection —
+                    // otherwise the inspector still offers edits the guards
+                    // will silently refuse.
+                    if l.locked && self.selected.as_deref() == Some(id.as_str()) {
+                        self.selected = None;
+                    }
+                }
+                self.mark_edit();
+            }
+            Some(Act::ToggleLayerBlur(id)) => {
+                self.checkpoint();
+                if let Some(l) = self.layer_mut(&id) {
+                    l.motion_blur = !l.motion_blur;
+                }
+                self.mark_edit();
+                if !self.comp.motion_blur {
+                    self.status = "Motion blur is off for the whole comp — turn on                                    m.blur in the tool strip to see it."
+                        .into();
+                }
+            }
+            Some(Act::Toggle3d(id)) => {
+                self.checkpoint();
+                if let Some(l) = self.layer_mut(&id) {
+                    // A layer is "3D" when it has depth; toggling gives it a
+                    // sensible push back rather than a meaningless 0.
+                    l.z = if l.z == 0.0 { DEFAULT_LAYER_Z } else { 0.0 };
+                }
+                self.mark_edit();
+                if self.comp.focal.is_none() {
+                    self.status = "This comp has no camera yet — turn on 3D in the                                    tool strip and depth starts to show."
+                        .into();
+                }
+            }
+            Some(Act::CycleParent(id)) => {
+                self.checkpoint();
+                self.cycle_parent(&id);
+                self.mark_edit();
+            }
+            Some(Act::ToggleCompBlur) => {
+                self.checkpoint();
+                self.comp.motion_blur = !self.comp.motion_blur;
+                self.mark_edit();
+                self.status = if self.comp.motion_blur {
+                    "Motion blur on — layers with their own switch lit will smear.".into()
+                } else {
+                    "Motion blur off for the whole comp.".into()
+                };
+            }
+            Some(Act::ToggleCamera) => {
+                self.checkpoint();
+                self.comp.focal = match self.comp.focal {
+                    Some(_) => None,
+                    None => Some(DEFAULT_FOCAL),
+                };
+                self.mark_edit();
+                self.status = if self.comp.focal.is_some() {
+                    "Camera added — layers with depth now sit nearer or further.".into()
+                } else {
+                    "Camera removed — the comp is flat again.".into()
+                };
+            }
+            Some(Act::Preview(src)) => {
+                let root = Self::content_root();
+                self.preview_modal = Some(player::Preview::open(src, &root));
+            }
             Some(Act::Remove(id)) => self.remove(&id),
             Some(Act::ToggleExpand(id)) => {
                 if !self.expanded.remove(&id) {
@@ -2699,7 +3040,10 @@ impl Composer {
             for t in Tab::ALL {
                 let active = self.tab == t;
                 let tone = if active { Tone::Magenta } else { Tone::Cyan };
-                let resp = cl::tip(chip(ui, tone, t.label(), ("tab", t.label())), t.blurb());
+                let resp = cl::tip(
+                    chip(ui, cl::Intent::Chrome, tone, t.label(), ("tab", t.label())),
+                    t.blurb(),
+                );
                 ui.pilot_track(
                     &resp,
                     NodeMetadata::new(
@@ -2723,48 +3067,57 @@ impl Composer {
     fn workflows_tab(&self, ui: &mut egui::Ui, act: &mut Option<Act>) {
         egui::ScrollArea::vertical().show(ui, |ui| {
             for wf in dpl_workflows::workflows() {
-                cl::clay().show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(&wf.label).heading());
-                        ui.label(
-                            RichText::new(match wf.surface {
-                                dpl_workflows::Surface::Wiredfront => "wiredFRONT · raw media",
-                                dpl_workflows::Surface::Workbench => "Workbench · slides",
-                            })
-                            .color(cl::ink::SUBTLE),
-                        );
-                        let run = cl::tip(
-                            chip(ui, Tone::Lime, "Run", ("wf-run", &wf.id)),
-                            "Run this pipeline now — every step reports honestly below. \
+                cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle).show(
+                    ui,
+                    |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(&wf.label).heading());
+                            ui.label(
+                                RichText::new(match wf.surface {
+                                    dpl_workflows::Surface::Wiredfront => "wiredFRONT · raw media",
+                                    dpl_workflows::Surface::Workbench => "Workbench · slides",
+                                })
+                                .color(cl::ink::SUBTLE),
+                            );
+                            let run = cl::tip(
+                                chip(
+                                    ui,
+                                    cl::Intent::Chrome,
+                                    Tone::Lime,
+                                    "Run",
+                                    ("wf-run", &wf.id),
+                                ),
+                                "Run this pipeline now — every step reports honestly below. \
                              Nothing is ever generated or spent without a key you provisioned.",
-                        );
-                        ui.pilot_track(
-                            &run,
-                            NodeMetadata::new(
-                                PilotId::new("composer.workflows.run")
-                                    .child(&PilotKey::new(&wf.id)),
-                                Role::Button,
-                                format!("Run {}", wf.label),
+                            );
+                            ui.pilot_track(
+                                &run,
+                                NodeMetadata::new(
+                                    PilotId::new("composer.workflows.run")
+                                        .child(&PilotKey::new(&wf.id)),
+                                    Role::Button,
+                                    format!("Run {}", wf.label),
+                                )
+                                .value("ready"),
+                            );
+                            if run.clicked() {
+                                *act = Some(Act::RunWorkflow(wf.id.clone()));
+                            }
+                        });
+                        ui.label(RichText::new(&wf.blurb).color(cl::ink::SUBTLE));
+                        ui.label(
+                            RichText::new(
+                                wf.stages
+                                    .iter()
+                                    .map(|s| s.id.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(" → "),
                             )
-                            .value("ready"),
+                            .color(cl::ink::SUBTLE)
+                            .small(),
                         );
-                        if run.clicked() {
-                            *act = Some(Act::RunWorkflow(wf.id.clone()));
-                        }
-                    });
-                    ui.label(RichText::new(&wf.blurb).color(cl::ink::SUBTLE));
-                    ui.label(
-                        RichText::new(
-                            wf.stages
-                                .iter()
-                                .map(|s| s.id.as_str())
-                                .collect::<Vec<_>>()
-                                .join(" → "),
-                        )
-                        .color(cl::ink::SUBTLE)
-                        .small(),
-                    );
-                });
+                    },
+                );
                 ui.add_space(cl::space::S2);
             }
 
@@ -2778,83 +3131,101 @@ impl Composer {
             };
 
             ui.add_space(cl::space::S2);
-            cl::clay().show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(format!("Last run — {}", run.workflow)).heading());
-                    // Where the run landed — the operator can find it in Explorer.
-                    ui.label(
-                        RichText::new(run.dir.display().to_string())
-                            .small()
-                            .color(cl::ink::SUBTLE),
-                    );
-                });
-                for row in &run.report.stages {
-                    use dpl_workflows::StageVerdict as V;
-                    let (tone, word, detail) = match &row.verdict {
-                        V::Done { note } => (Tone::Lime, "done", note.as_str()),
-                        V::Skipped { reason } => (Tone::Amber, "skipped", reason.as_str()),
-                        V::Failed { error } => (Tone::Coral, "FAILED", error.as_str()),
-                    };
+            cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle).show(
+                ui,
+                |ui| {
                     ui.horizontal(|ui| {
-                        let badge = chip(ui, tone, word, ("wf-stage", &run.workflow, &row.stage));
-                        ui.pilot_track(
-                            &badge,
-                            NodeMetadata::new(
-                                PilotId::new("composer.workflows.stage")
-                                    .child(&PilotKey::new(&row.stage)),
-                                Role::Label,
-                                row.stage.clone(),
-                            )
-                            .value(word),
+                        ui.label(RichText::new(format!("Last run — {}", run.workflow)).heading());
+                        // Where the run landed — the operator can find it in Explorer.
+                        ui.label(
+                            RichText::new(run.dir.display().to_string())
+                                .small()
+                                .color(cl::ink::SUBTLE),
                         );
-                        ui.label(RichText::new(&row.stage).strong());
-                        ui.label(RichText::new(detail).color(cl::ink::SUBTLE));
                     });
-                }
-            });
+                    for row in &run.report.stages {
+                        use dpl_workflows::StageVerdict as V;
+                        let (tone, word, detail) = match &row.verdict {
+                            V::Done { note } => (Tone::Lime, "done", note.as_str()),
+                            V::Skipped { reason } => (Tone::Amber, "skipped", reason.as_str()),
+                            V::Failed { error } => (Tone::Coral, "FAILED", error.as_str()),
+                        };
+                        ui.horizontal(|ui| {
+                            let badge = chip(
+                                ui,
+                                cl::Intent::Quiet,
+                                tone,
+                                word,
+                                ("wf-stage", &run.workflow, &row.stage),
+                            );
+                            ui.pilot_track(
+                                &badge,
+                                NodeMetadata::new(
+                                    PilotId::new("composer.workflows.stage")
+                                        .child(&PilotKey::new(&row.stage)),
+                                    Role::Label,
+                                    row.stage.clone(),
+                                )
+                                .value(word),
+                            );
+                            ui.label(RichText::new(&row.stage).strong());
+                            ui.label(RichText::new(detail).color(cl::ink::SUBTLE));
+                        });
+                    }
+                },
+            );
 
             ui.add_space(cl::space::S2);
-            cl::clay().show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("Storyboard").heading());
-                    ui.label(
-                        RichText::new(format!(
-                            "{} of {} slots filled",
-                            run.board.filled().len(),
-                            run.board.slots.len()
-                        ))
-                        .color(cl::ink::SUBTLE),
-                    );
-                });
-                for slot in &run.board.slots {
-                    use dpl_workflows::SlotFill as F;
-                    let (tone, state) = match &slot.fill {
-                        F::Empty => (Tone::Amber, "empty"),
-                        F::Slide { .. } => (Tone::Lime, "slide"),
-                        F::Artifact { .. } => (Tone::Cyan, "artifact"),
-                        F::Draft { .. } => (Tone::Violet, "draft"),
-                    };
+            cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle).show(
+                ui,
+                |ui| {
                     ui.horizontal(|ui| {
-                        let badge = chip(ui, tone, state, ("wf-slot", &run.workflow, &slot.id));
-                        let resp = cl::tip(
-                            badge,
-                            "A storyboard slot — its brief says what it needs; filling one \
-                             is one gesture, from the library or a fresh creation.",
+                        ui.label(RichText::new("Storyboard").heading());
+                        ui.label(
+                            RichText::new(format!(
+                                "{} of {} slots filled",
+                                run.board.filled().len(),
+                                run.board.slots.len()
+                            ))
+                            .color(cl::ink::SUBTLE),
                         );
-                        let mut meta = NodeMetadata::new(
-                            PilotId::new("wiredfront.storyboard.slot")
-                                .child(&PilotKey::new(&slot.id)),
-                            Role::ListItem,
-                            format!("{} ({})", slot.id, slot.role),
-                        )
-                        .value(state);
-                        meta.description = Some(slot.brief.clone());
-                        ui.pilot_track(&resp, meta);
-                        ui.label(RichText::new(&slot.id).strong());
-                        ui.label(RichText::new(&slot.brief).color(cl::ink::SUBTLE));
                     });
-                }
-            });
+                    for slot in &run.board.slots {
+                        use dpl_workflows::SlotFill as F;
+                        let (tone, state) = match &slot.fill {
+                            F::Empty => (Tone::Amber, "empty"),
+                            F::Slide { .. } => (Tone::Lime, "slide"),
+                            F::Artifact { .. } => (Tone::Cyan, "artifact"),
+                            F::Draft { .. } => (Tone::Violet, "draft"),
+                        };
+                        ui.horizontal(|ui| {
+                            let badge = chip(
+                                ui,
+                                cl::Intent::Quiet,
+                                tone,
+                                state,
+                                ("wf-slot", &run.workflow, &slot.id),
+                            );
+                            let resp = cl::tip(
+                                badge,
+                                "A storyboard slot — its brief says what it needs; filling one \
+                             is one gesture, from the library or a fresh creation.",
+                            );
+                            let mut meta = NodeMetadata::new(
+                                PilotId::new("wiredfront.storyboard.slot")
+                                    .child(&PilotKey::new(&slot.id)),
+                                Role::ListItem,
+                                format!("{} ({})", slot.id, slot.role),
+                            )
+                            .value(state);
+                            meta.description = Some(slot.brief.clone());
+                            ui.pilot_track(&resp, meta);
+                            ui.label(RichText::new(&slot.id).strong());
+                            ui.label(RichText::new(&slot.brief).color(cl::ink::SUBTLE));
+                        });
+                    }
+                },
+            );
         });
     }
 
@@ -2971,7 +3342,7 @@ impl Composer {
                 ui.horizontal(|ui| {
                     for t in EditorTool::ALL {
                         let active = self.etool == t;
-                        let resp = cl::tip(tool_btn(ui, t.label(), active), t.blurb());
+                        let resp = cl::tip(tool_btn(ui, t.icon(), t.label(), active), t.blurb());
                         ui.pilot_track(
                             &resp,
                             NodeMetadata::new(
@@ -2990,20 +3361,53 @@ impl Composer {
                         }
                     }
                     ui.add_space(cl::space::S3);
-                    for (label, blurb) in [
+                    // m.blur and 3D are LIVE comp switches now (mock ② calls
+                    // m.blur "a comp switch"), so they leave the honest
+                    // later-phase list below and gain real state.
+                    let blur_on = self.comp.motion_blur;
+                    if cl::tip(
+                        tool_cap_btn(ui, "tool-mblur", "m.blur", blur_on),
+                        if blur_on {
+                            "Motion blur is ON for this comp. Each layer still needs its                              own switch in the timeline."
+                        } else {
+                            "Turn on motion blur for this comp, then light it per layer                              in the timeline."
+                        },
+                    )
+                    .clicked()
+                    {
+                        *act = Some(Act::ToggleCompBlur);
+                    }
+                    let cam_on = self.comp.focal.is_some();
+                    if cl::tip(
+                        tool_cap_btn(ui, "tool-3d", "3D", cam_on),
+                        if cam_on {
+                            "This comp has a camera — layers with depth sit nearer or                              further. Tap to remove it and go flat."
+                        } else {
+                            "Add a camera so layers can have depth. Give a layer depth                              with its 3D switch in the timeline."
+                        },
+                    )
+                    .clicked()
+                    {
+                        *act = Some(Act::ToggleCamera);
+                    }
+                    for (icon, label, blurb) in [
                         (
+                            "tool-null",
                             "null",
                             "A parenting rig handle — lands with the keyframes pass.",
                         ),
                         (
+                            "tool-precomp",
                             "pre-comp",
                             "Nest layers as one — lands with the multi-comp pass.",
                         ),
-                        ("track", "Motion tracking — a ratified later phase."),
-                        ("m.blur", "Motion blur — a ratified later phase."),
-                        ("3D", "3D layers and cameras — a ratified later phase."),
+                        (
+                            "tool-track",
+                            "track",
+                            "Motion tracking — a ratified later phase.",
+                        ),
                     ] {
-                        let resp = cl::tip(small_btn(ui, label, ("strip", label)), blurb);
+                        let resp = cl::tip(tool_cap_btn(ui, icon, label, false), blurb);
                         if resp.clicked() {
                             // Honest: name the phase instead of pretending.
                             *act = Some(Act::ETool(self.etool));
@@ -3019,7 +3423,7 @@ impl Composer {
         ui.horizontal(|ui| {
             ui.label(RichText::new("PROJECT").small().strong());
             let resp = cl::tip(
-                small_btn(ui, "Browse…", "browse"),
+                icon_word_btn(ui, "browse", "Browse…", "browse"),
                 "Open a separate window onto one of your folders — click a file there \
                  to pull it in. You can also drop files here straight from Explorer.",
             );
@@ -3034,21 +3438,23 @@ impl Composer {
             if resp.clicked() {
                 *act = Some(Act::Browse);
             }
-            let (rlabel, rtip) = if self.prefer_reference {
+            let (ricon, rlabel, rtip) = if self.prefer_reference {
                 (
-                    "⌁ in place",
+                    "ref-link",
+                    "in place",
                     "Reference mode ON — pulled files are SYMLINKED where they live, so your \
                      paid AE presets / image folders are used without copying them into the app. \
                      Tap to switch back to copy.",
                 )
             } else {
                 (
-                    "⧉ copy",
+                    "ref-copy",
+                    "copy",
                     "Copy mode — pulled files are copied in. Tap to REFERENCE in place (symlink) \
                      instead: use your AE presets / folders directly, no duplication.",
                 )
             };
-            if cl::tip(small_btn(ui, rlabel, "ref-toggle"), rtip).clicked() {
+            if cl::tip(icon_word_btn(ui, ricon, rlabel, "ref-toggle"), rtip).clicked() {
                 *act = Some(Act::ToggleReference);
             }
         });
@@ -3088,7 +3494,7 @@ impl Composer {
                 }
                 for (name, dir) in comps {
                     let resp = cl::tip(
-                        row_line(ui, "cmp", name, "", ("comp", name.as_str())),
+                        row_line(ui, "proj-comp", name, "", ("comp", name.as_str())),
                         "Open this composition",
                     );
                     ui.pilot_track(
@@ -3122,7 +3528,7 @@ impl Composer {
                         format!("{}", p.files)
                     };
                     let resp = cl::tip(
-                        row_line(ui, "pak", &p.name, &count, ("pk", p.name.as_str())),
+                        row_line(ui, "proj-pack", &p.name, &count, ("pk", p.name.as_str())),
                         if p.online {
                             "Open this pack in its own window — the files stay in place; \
                              using one copies just that file"
@@ -3199,12 +3605,16 @@ impl Composer {
                         .as_deref()
                         .is_none_or(|t| r.tags.iter().any(|x| x == t))
                 }) {
-                    let glyph = if rec.kind == "video" { "vid" } else { "img" };
+                    let kind_icon = if rec.kind == "video" {
+                        "proj-video"
+                    } else {
+                        "proj-image"
+                    };
                     // Trailing spaces shift the duration clear of the fx
                     // corner painted below (right-anchored text).
                     let trail = format!("{}     ", fmt_secs(rec.seconds));
                     let resp = cl::tip(
-                        row_line(ui, glyph, &rec.name, &trail, ("ft", i)),
+                        row_line(ui, kind_icon, &rec.name, &trail, ("ft", i)),
                         if rec.kind == "video" {
                             "Add this clip to the timeline"
                         } else {
@@ -3220,6 +3630,27 @@ impl Composer {
                             &rec.name,
                         ),
                     );
+                    // The PREVIEW corner — look before it lands. Sits left of
+                    // the fx corner so the row reads: preview · overlay.
+                    let pvr = Rect::from_min_max(
+                        egui::pos2(resp.rect.max.x - 52.0, resp.rect.min.y),
+                        egui::pos2(resp.rect.max.x - 26.0, resp.rect.max.y),
+                    );
+                    let pv_resp = cl::tip(
+                        ui.interact(pvr, egui::Id::new(("ft-pv", i)), Sense::click()),
+                        "Play it first — a preview opens; close it, or add it from there",
+                    );
+                    cl::draw_icon(
+                        ui.painter(),
+                        "transport-play",
+                        Rect::from_center_size(pvr.center(), egui::vec2(ICON_SM, ICON_SM)),
+                        if pv_resp.hovered() {
+                            Tone::Lime.color()
+                        } else {
+                            cl::ink::SUBTLE
+                        },
+                    );
+
                     // L3: the fx corner — overlay this ON TOP at the playhead
                     // instead of cutting it onto the end.
                     let fxr = Rect::from_min_max(
@@ -3230,20 +3661,21 @@ impl Composer {
                         ui.interact(fxr, egui::Id::new(("ft-fx", i)), Sense::click()),
                         "Overlay this ON TOP at the playhead — alpha composites over the cuts",
                     );
-                    ui.painter().text(
-                        fxr.center(),
-                        egui::Align2::CENTER_CENTER,
+                    cl::draw_icon(
+                        ui.painter(),
                         "fx",
-                        egui::FontId::monospace(9.0),
+                        Rect::from_center_size(fxr.center(), egui::vec2(ICON_SM, ICON_SM)),
                         if fx_resp.hovered() {
                             Tone::Violet.color()
                         } else {
                             cl::ink::SUBTLE
                         },
                     );
-                    if fx_resp.clicked() {
+                    if pv_resp.clicked() {
+                        *act = Some(Act::Preview(player::Source::Indexed(Box::new(rec.clone()))));
+                    } else if fx_resp.clicked() {
                         *act = Some(Act::AddOverlay(i));
-                    } else if resp.clicked() && !fx_resp.hovered() {
+                    } else if resp.clicked() && !fx_resp.hovered() && !pv_resp.hovered() {
                         *act = Some(Act::Add(i));
                     }
                 }
@@ -3254,7 +3686,7 @@ impl Composer {
                 }
                 for (name, rel) in renders {
                     let resp = cl::tip(
-                        row_line(ui, "rnd", name, "", ("rd", name.as_str())),
+                        row_line(ui, "proj-render", name, "", ("rd", name.as_str())),
                         "Add this render to the timeline as footage",
                     );
                     if resp.clicked() {
@@ -3324,22 +3756,46 @@ impl Composer {
         let mut c = ui.new_child(UiBuilder::new().max_rect(bar));
         c.horizontal(|ui| {
             let dur = self.comp.duration();
-            for (glyph, tip_text, a) in [
-                ("⏮", "Jump to the start", Act::ToStart),
-                ("◀", "Step back one second", Act::Step(-1.0)),
+            // The pilot KEY is stable per control ("play" stays "play"
+            // whether playing or paused); only the ICON reflects state. The
+            // old code keyed on the glyph, so the play button changed
+            // identity mid-session — a harness cannot address that.
+            for (icon, key, tip_text, a) in [
                 (
-                    if self.playing { "⏸" } else { "▶" },
+                    "transport-start",
+                    "start",
+                    "Jump to the start",
+                    Act::ToStart,
+                ),
+                (
+                    "transport-back",
+                    "back",
+                    "Step back one second",
+                    Act::Step(-1.0),
+                ),
+                (
+                    if self.playing {
+                        "transport-pause"
+                    } else {
+                        "transport-play"
+                    },
+                    "play",
                     "Play or pause the sequence (the playhead drives the preview)",
                     Act::TogglePlay,
                 ),
-                ("▶|", "Step forward one second", Act::Step(1.0)),
-                ("⏭", "Jump to the end", Act::ToEnd),
+                (
+                    "transport-forward",
+                    "forward",
+                    "Step forward one second",
+                    Act::Step(1.0),
+                ),
+                ("transport-end", "end", "Jump to the end", Act::ToEnd),
             ] {
-                let resp = cl::tip(small_btn(ui, glyph, ("tr", glyph)), tip_text);
+                let resp = cl::tip(icon_btn(ui, icon, ("tr", key)), tip_text);
                 ui.pilot_track(
                     &resp,
                     NodeMetadata::new(
-                        PilotId::new("composer.transport").child(&PilotKey::new(glyph)),
+                        PilotId::new("composer.transport").child(&PilotKey::new(key)),
                         Role::Button,
                         tip_text,
                     ),
@@ -3364,8 +3820,7 @@ impl Composer {
             ui.label(RichText::new("INFO").small().strong());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let resp = cl::tip(
-                    ui.label(RichText::new("x").small().color(cl::ink::SUBTLE))
-                        .interact(Sense::click()),
+                    cl::icon_label(ui, "close", ICON_SM, cl::ink::SUBTLE).interact(Sense::click()),
                     "Close Info (reopen from the status row)",
                 );
                 if resp.clicked() {
@@ -3726,10 +4181,14 @@ impl Composer {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.label(RichText::new("EFFECTS & PRESETS").small().strong());
-                let search = egui::TextEdit::singleline(&mut self.fx_search)
-                    .hint_text("search effects…")
-                    .desired_width(f32::INFINITY);
-                cl::tip(ui.add(search), "Filter effects and presets by name");
+                // Mock ⑥ leads the field with the magnifier.
+                ui.horizontal(|ui| {
+                    let _ = cl::icon_label(ui, "search", ICON_SM, cl::ink::SUBTLE);
+                    let search = egui::TextEdit::singleline(&mut self.fx_search)
+                        .hint_text("search effects…")
+                        .desired_width(f32::INFINITY);
+                    cl::tip(ui.add(search), "Filter effects and presets by name");
+                });
                 ui.add_space(cl::space::S1);
                 ui.label(
                     RichText::new(
@@ -3762,15 +4221,20 @@ impl Composer {
                 .small()
                 .color(cl::ink::SUBTLE),
             );
-            if cl::tip(small_btn(ui, "-", "zoom-out"), "Zoom the timeline out").clicked() {
+            if cl::tip(
+                icon_btn(ui, "zoom-out", "zoom-out"),
+                "Zoom the timeline out",
+            )
+            .clicked()
+            {
                 *act = Some(Act::Zoom(1.0 / 1.4));
             }
-            if cl::tip(small_btn(ui, "+", "zoom-in"), "Zoom the timeline in").clicked() {
+            if cl::tip(icon_btn(ui, "zoom-in", "zoom-in"), "Zoom the timeline in").clicked() {
                 *act = Some(Act::Zoom(1.4));
             }
             if let Some(id) = self.selected.clone() {
                 if cl::tip(
-                    small_btn(ui, "x", ("rm", id.as_str())),
+                    danger_btn(ui, "delete", ("rm", id.as_str())),
                     "Remove the selected layer from the composition",
                 )
                 .clicked()
@@ -3834,11 +4298,13 @@ impl Composer {
                     );
                     painter.rect_filled(chip_r, CornerRadius::same(2), row_tone(*i).color());
                     let open = self.expanded.contains(&layer.id);
-                    painter.text(
-                        egui::pos2(r.min.x + 40.0, r.center().y),
-                        egui::Align2::LEFT_CENTER,
-                        if open { "-" } else { "+" },
-                        egui::FontId::monospace(11.0),
+                    cl::draw_icon(
+                        &painter,
+                        if open { "group-open" } else { "group-closed" },
+                        Rect::from_center_size(
+                            egui::pos2(r.min.x + 44.0, r.center().y),
+                            egui::vec2(ICON_SM, ICON_SM),
+                        ),
                         cl::ink::SUBTLE,
                     );
                     painter.text(
@@ -3859,6 +4325,11 @@ impl Composer {
                         egui::FontId::monospace(10.0),
                         cl::ink::SUBTLE,
                     );
+
+                    if let Some(a) = switch_columns(ui, &painter, r, layer, row_i, "tl", false) {
+                        *act = Some(a);
+                    }
+
                     // Two hit zones: the twirl (left 52px) and the row.
                     let twirl = Rect::from_min_max(r.min, egui::pos2(r.min.x + 52.0, r.max.y));
                     let tw_resp =
@@ -3868,7 +4339,12 @@ impl Composer {
                         *act = Some(Act::ToggleExpand(layer.id.clone()));
                     }
                     let row_resp = ui.interact(
-                        Rect::from_min_max(egui::pos2(r.min.x + 52.0, r.min.y), r.max),
+                        Rect::from_min_max(
+                            egui::pos2(r.min.x + 52.0, r.min.y),
+                            // Stop short of Mode and the switches — otherwise
+                            // every toggle would also select the row beneath.
+                            egui::pos2(r.max.x - SWITCHES_RIGHT - MODE_W, r.max.y),
+                        ),
                         egui::Id::new(("tl-row", row_i)),
                         Sense::click(),
                     );
@@ -3936,11 +4412,13 @@ impl Composer {
                     );
                     painter.rect_filled(chip_r, CornerRadius::same(2), Tone::Violet.color());
                     let open = self.expanded.contains(&layer.id);
-                    painter.text(
-                        egui::pos2(r.min.x + 40.0, r.center().y),
-                        egui::Align2::LEFT_CENTER,
-                        if open { "-" } else { "+" },
-                        egui::FontId::monospace(11.0),
+                    cl::draw_icon(
+                        &painter,
+                        if open { "group-open" } else { "group-closed" },
+                        Rect::from_center_size(
+                            egui::pos2(r.min.x + 44.0, r.center().y),
+                            egui::vec2(ICON_SM, ICON_SM),
+                        ),
                         cl::ink::SUBTLE,
                     );
                     painter.text(
@@ -3961,6 +4439,11 @@ impl Composer {
                         egui::FontId::monospace(10.0),
                         cl::ink::SUBTLE,
                     );
+                    // Overlays are exactly where blur and parenting matter most,
+                    // so they carry the same columns as a base row.
+                    if let Some(a) = switch_columns(ui, &painter, r, layer, row_i, "tl-fx", true) {
+                        *act = Some(a);
+                    }
                     let twirl = Rect::from_min_max(r.min, egui::pos2(r.min.x + 52.0, r.max.y));
                     let tw_resp =
                         ui.interact(twirl, egui::Id::new(("tl-fx-twirl", row_i)), Sense::click());
@@ -3969,7 +4452,11 @@ impl Composer {
                         *act = Some(Act::ToggleExpand(layer.id.clone()));
                     }
                     let row_resp = ui.interact(
-                        Rect::from_min_max(egui::pos2(r.min.x + 52.0, r.min.y), r.max),
+                        Rect::from_min_max(
+                            egui::pos2(r.min.x + 52.0, r.min.y),
+                            // Stop short of Mode + switches, as the base row does.
+                            egui::pos2(r.max.x - SWITCHES_RIGHT - MODE_W, r.max.y),
+                        ),
                         egui::Id::new(("tl-fx-row", row_i)),
                         Sense::click(),
                     );
@@ -4266,7 +4753,7 @@ impl Composer {
         };
         ui.horizontal(|ui| {
             if cl::tip(
-                chip(ui, Tone::Lime, "New", "new"),
+                chip(ui, cl::Intent::Chrome, Tone::Lime, "New", "new"),
                 "Start a fresh composition",
             )
             .clicked()
@@ -4274,7 +4761,7 @@ impl Composer {
                 *act = Some(Act::New);
             }
             if cl::tip(
-                chip(ui, Tone::Cyan, "Save", "save"),
+                chip(ui, cl::Intent::Chrome, Tone::Cyan, "Save", "save"),
                 "Write this composition to your inbox as comp.json",
             )
             .clicked()
@@ -4291,7 +4778,7 @@ impl Composer {
             if !self.layers().is_empty()
                 && !rendering
                 && cl::tip(
-                    chip(ui, Tone::Magenta, "Render", "render"),
+                    chip(ui, cl::Intent::Hero, Tone::Magenta, "Render", "render"),
                     "Stitch these layers into one video file beside the comp",
                 )
                 .clicked()
@@ -4315,10 +4802,8 @@ impl Composer {
             // overrunning the facts at a narrow width (RR2).
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if !self.info_open {
-                    let resp = cl::tip(
-                        small_btn(ui, "info", "info-reopen"),
-                        "Reopen the Info panel",
-                    );
+                    let resp =
+                        cl::tip(icon_btn(ui, "info", "info-reopen"), "Reopen the Info panel");
                     if resp.clicked() {
                         *act = Some(Act::ToggleInfo);
                     }
@@ -4442,7 +4927,8 @@ impl Composer {
                     self.guide_review_section(ui, &mut gact);
                     ui.add_space(cl::space::S2);
 
-                    cl::clay().show(ui, |ui| {
+                    cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle)
+            .show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.label(RichText::new("3 · NAME IT").small().strong());
                         let field = egui::TextEdit::singleline(&mut self.save_name)
@@ -4464,7 +4950,8 @@ impl Composer {
                     });
                     ui.add_space(cl::space::S2);
 
-                    cl::clay().show(ui, |ui| {
+                    cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle)
+            .show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.label(RichText::new("4 · EXPORT").small().strong());
                         ui.horizontal_wrapped(|ui| {
@@ -4520,7 +5007,7 @@ impl Composer {
                         ui.horizontal(|ui| {
                             if self.review.is_some() && !exporting {
                                 let resp = cl::tip(
-                                    chip(ui, Tone::Magenta, "Export guide", "guide-export"),
+                                    chip(ui, cl::Intent::Hero, Tone::Magenta, "Export guide", "guide-export"),
                                     "Write the standalone guide folder into your inbox",
                                 );
                                 ui.pilot_track(
@@ -4543,7 +5030,8 @@ impl Composer {
                     });
                     ui.add_space(cl::space::S2);
 
-                    cl::clay().show(ui, |ui| {
+                    cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle)
+            .show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.label(RichText::new("5 · FILE IT INTO A SHOW").small().strong());
                         if done_dir.is_some() {
@@ -4623,7 +5111,7 @@ impl Composer {
 
     /// Guide step 1 · PICK — the guides and sessions walls, tappable.
     fn guide_pick_section(&mut self, ui: &mut egui::Ui, gact: &mut Option<GAct>) {
-        cl::clay().show(ui, |ui| {
+        cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle).show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.label(RichText::new("1 · PICK WHAT SHIPS").small().strong());
             ui.label(
@@ -4715,7 +5203,7 @@ impl Composer {
     /// Guide step 2 · REVIEW & TUNE — the W5 reviewer rows: thumb, keep,
     /// reorder, caption; Apply is two-tap (pruning deletes source frames).
     fn guide_review_section(&mut self, ui: &mut egui::Ui, gact: &mut Option<GAct>) {
-        cl::clay().show(ui, |ui| {
+        cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle).show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.label(RichText::new("2 · REVIEW & TUNE").small().strong());
             let Some(rev) = self.review.as_mut() else {
@@ -4842,7 +5330,7 @@ impl Composer {
         tr.add_space(cl::space::S1);
         for t in AnnotateTool::ALL {
             let active = self.atool == t;
-            let resp = cl::tip(tool_btn(&mut tr, t.label(), active), t.blurb());
+            let resp = cl::tip(tool_word_btn(&mut tr, t.label(), active), t.blurb());
             tr.pilot_track(
                 &resp,
                 NodeMetadata::new(
@@ -4990,6 +5478,7 @@ fn render_comp_resolving(
                     hold: false,
                     blend: p.blend,
                     matte: p.matte,
+                    motion_blur_frames: p.motion_blur_frames,
                     lut: p.lut,
                 });
             }
@@ -5188,12 +5677,16 @@ fn name_seeds() -> Vec<String> {
 /// target), painted only via ColdLight.
 fn chip(
     ui: &mut egui::Ui,
+    intent: cl::Intent,
     tone: Tone,
     text: &str,
     key: impl std::hash::Hash + std::fmt::Debug,
 ) -> egui::Response {
-    let inner = cl::brutal(tone).show(ui, |ui| {
-        ui.label(RichText::new(text).strong());
+    // The MEANING is the argument; which treatment paints it is data. This is
+    // why New/Save stopped being as loud as Render without anyone re-picking
+    // a colour: they simply stopped claiming to be the primary action.
+    let inner = cl::dressed(SURFACE, intent, tone, cl::TraitState::Idle).show(ui, |ui| {
+        ui.label(RichText::new(text).small().strong());
     });
     ui.interact(
         inner.response.rect,
@@ -5203,14 +5696,41 @@ fn chip(
 }
 
 /// One tool button: treated neubrutal; the active tool presses in.
-fn tool_btn(ui: &mut egui::Ui, label: &'static str, active: bool) -> egui::Response {
-    let tone = if active { Tone::Magenta } else { Tone::Cyan };
+fn tool_btn(
+    ui: &mut egui::Ui,
+    icon: &'static str,
+    label: &'static str,
+    active: bool,
+) -> egui::Response {
+    // The mock's tone is MAGENTA for the active thing; an idle control is a
+    // quiet plate, so the tone is inert until it lights.
     let state = if active {
         cl::TraitState::Active
     } else {
         cl::TraitState::Idle
     };
-    let inner = cl::treated(tone, "neubrutalist", &[], state)
+    let inner = cl::dressed(SURFACE, cl::Intent::Chrome, Tone::Magenta, state)
+        .margin(egui::Margin::symmetric(8, 5))
+        .show(ui, |ui| {
+            let _ = cl::icon_label(ui, icon, ICON_MD, tool_ink(active));
+        });
+    ui.interact(
+        inner.response.rect,
+        egui::Id::new(("composer-tool", label)),
+        Sense::click(),
+    )
+}
+
+/// The WORD-only tool button — still the Annotate tab's vocabulary
+/// (arrow/callout/spotlight have no registry icons yet; giving them one
+/// is the Annotate surface's own pass, not the editor's).
+fn tool_word_btn(ui: &mut egui::Ui, label: &'static str, active: bool) -> egui::Response {
+    let state = if active {
+        cl::TraitState::Active
+    } else {
+        cl::TraitState::Idle
+    };
+    let inner = cl::dressed(SURFACE, cl::Intent::Chrome, Tone::Magenta, state)
         .margin(egui::Margin::symmetric(8, 5))
         .show(ui, |ui| {
             ui.label(RichText::new(label).small().strong());
@@ -5222,20 +5742,147 @@ fn tool_btn(ui: &mut egui::Ui, label: &'static str, active: bool) -> egui::Respo
     )
 }
 
-/// A compact square button (transport, zoom, strip affordances).
+/// A tool-strip button that keeps its caption (mock ②: the rig/switch
+/// affordances read `⊹ null`, `⧉ pre-comp` — icon AND word, because the
+/// word is what makes them layman-findable).
+fn tool_cap_btn(
+    ui: &mut egui::Ui,
+    icon: &'static str,
+    label: &'static str,
+    active: bool,
+) -> egui::Response {
+    let state = if active {
+        cl::TraitState::Active
+    } else {
+        cl::TraitState::Idle
+    };
+    let inner = cl::dressed(SURFACE, cl::Intent::Chrome, Tone::Magenta, state)
+        .margin(egui::Margin::symmetric(8, 5))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                let _ = cl::icon_label(ui, icon, ICON_MD, tool_ink(active));
+                ui.add_space(cl::space::S1);
+                ui.label(RichText::new(label).small().color(if active {
+                    cl::ink::STRONG
+                } else {
+                    cl::ink::SUBTLE
+                }));
+            });
+        });
+    ui.interact(
+        inner.response.rect,
+        egui::Id::new(("composer-tool", label)),
+        Sense::click(),
+    )
+}
+
+/// The ink a strip control's icon carries — active reads STRONG so the
+/// selected tool is unmistakable at a glance (mock ②).
+fn tool_ink(active: bool) -> Color32 {
+    if active {
+        cl::ink::STRONG
+    } else {
+        cl::ink::BASE
+    }
+}
+
+/// A DESTRUCTIVE control. Its tone is pinned by the role, so a delete reads
+/// the same on every surface rather than taking the hub's colour.
+fn danger_btn(
+    ui: &mut egui::Ui,
+    icon: &str,
+    key: impl std::hash::Hash + std::fmt::Debug,
+) -> egui::Response {
+    let inner = cl::dressed(
+        SURFACE,
+        cl::Intent::Danger,
+        Tone::Coral,
+        cl::TraitState::Idle,
+    )
+    .margin(egui::Margin::symmetric(6, 4))
+    .show(ui, |ui| {
+        let _ = cl::icon_label(ui, icon, ICON_MD, cl::ink::STRONG);
+    });
+    ui.interact(
+        inner.response.rect,
+        egui::Id::new(("composer-danger", key)),
+        Sense::click(),
+    )
+}
+
+/// A compact square button (transport, zoom, strip affordances) painting
+/// a REGISTRY ICON. Callers still owe the tooltip law.
+fn icon_btn(
+    ui: &mut egui::Ui,
+    icon: &str,
+    key: impl std::hash::Hash + std::fmt::Debug,
+) -> egui::Response {
+    let inner = cl::dressed(
+        SURFACE,
+        cl::Intent::Chrome,
+        Tone::Magenta,
+        cl::TraitState::Idle,
+    )
+    .margin(egui::Margin::symmetric(6, 4))
+    .show(ui, |ui| {
+        let _ = cl::icon_label(ui, icon, ICON_MD, cl::ink::BASE);
+    });
+    ui.interact(
+        inner.response.rect,
+        egui::Id::new(("composer-sbtn", key)),
+        Sense::click(),
+    )
+}
+
+/// A compact square button carrying a WORD (Browse…, info) — kept for the
+/// controls the mock itself spells out.
 fn small_btn(
     ui: &mut egui::Ui,
     glyph: &str,
     key: impl std::hash::Hash + std::fmt::Debug,
 ) -> egui::Response {
-    let inner = cl::brutal(Tone::Magenta)
-        .margin(egui::Margin::symmetric(6, 2))
-        .show(ui, |ui| {
-            ui.label(RichText::new(glyph).strong());
-        });
+    let inner = cl::dressed(
+        SURFACE,
+        cl::Intent::Chrome,
+        Tone::Magenta,
+        cl::TraitState::Idle,
+    )
+    .margin(egui::Margin::symmetric(6, 2))
+    .show(ui, |ui| {
+        ui.label(RichText::new(glyph).small());
+    });
     ui.interact(
         inner.response.rect,
         egui::Id::new(("composer-sbtn", key)),
+        Sense::click(),
+    )
+}
+
+/// A word button with its registry icon ahead of it (Browse…, the
+/// reference toggle) — the mock's `＋ Import` / `Browse folders…` shape.
+fn icon_word_btn(
+    ui: &mut egui::Ui,
+    icon: &str,
+    label: &str,
+    key: impl std::hash::Hash + std::fmt::Debug,
+) -> egui::Response {
+    let inner = cl::dressed(
+        SURFACE,
+        cl::Intent::Chrome,
+        Tone::Cyan,
+        cl::TraitState::Idle,
+    )
+    .margin(egui::Margin::symmetric(6, 3))
+    .show(ui, |ui| {
+        ui.horizontal(|ui| {
+            let _ = cl::icon_label(ui, icon, ICON_SM, cl::ink::BASE);
+            ui.add_space(cl::space::S1);
+            ui.label(RichText::new(label).small().strong());
+        });
+    });
+    ui.interact(
+        inner.response.rect,
+        egui::Id::new(("composer-iwbtn", key)),
         Sense::click(),
     )
 }
@@ -5244,13 +5891,12 @@ fn small_btn(
 /// active filter presses in — composed from the trait system, never
 /// hand-painted chrome.
 fn tag_chip(ui: &mut egui::Ui, label: &str, active: bool, key: &str) -> egui::Response {
-    let tone = if active { Tone::Magenta } else { Tone::Cyan };
     let state = if active {
         cl::TraitState::Active
     } else {
         cl::TraitState::Idle
     };
-    let inner = cl::treated(tone, "neubrutalist", &[], state)
+    let inner = cl::dressed(SURFACE, cl::Intent::Chrome, Tone::Magenta, state)
         .margin(egui::Margin::symmetric(6, 2))
         .show(ui, |ui| {
             ui.label(RichText::new(label).small());
@@ -5316,10 +5962,152 @@ fn empty_line(ui: &mut egui::Ui, text: &str) {
     ui.label(RichText::new(text).small().color(cl::ink::SUBTLE));
 }
 
-/// One tappable project row: glyph · name · trailing value; whole-row hit.
+/// Paint the mock's ⑦ switch columns for one layer row; return what a tap
+/// asked for.
+///
+/// **The read is DEFAULT-QUIET.** A switch sitting at its default stays
+/// muted; a switch that is NON-default lights in its tone. So an ordinary row
+/// is silent and anything lit means "this layer is special" — which is the
+/// only way a thirty-row timeline stays scannable. Lighting every visible
+/// layer's eye would make the common case the loudest thing on screen.
+///
+/// `ns` namespaces the interaction ids so base rows and fx rows never collide.
+fn switch_columns(
+    ui: &mut egui::Ui,
+    painter: &egui::Painter,
+    r: Rect,
+    layer: &Layer,
+    row_i: usize,
+    ns: &'static str,
+    // Base cuts ignore blend, so only an overlay row gets a live Mode.
+    overlay: bool,
+) -> Option<Act> {
+    let id = layer.id.clone();
+    let mut out = None;
+
+    // ── MODE (mock ⑦'s column between the name and the switches) ─────────
+    // Blend is an OVERLAY property — the base track composites straight cuts
+    // and ignores it — so a base row reads "—" exactly as the mock's Camera
+    // and NULL rows do, rather than showing a control that would do nothing.
+    let mode_r = Rect::from_min_max(
+        egui::pos2(r.max.x - SWITCHES_RIGHT - MODE_W, r.min.y),
+        egui::pos2(r.max.x - SWITCHES_RIGHT, r.max.y),
+    );
+    if overlay {
+        painter.text(
+            mode_r.center(),
+            egui::Align2::CENTER_CENTER,
+            layer.blend.label(),
+            egui::FontId::proportional(10.5),
+            if layer.blend == dpl_comp::Blend::Normal {
+                cl::ink::SUBTLE
+            } else {
+                Tone::Violet.color()
+            },
+        );
+        let resp = cl::tip(
+            ui.interact(mode_r, egui::Id::new((ns, "mode", row_i)), Sense::click()),
+            &format!("{} Tap for the next mode.", layer.blend.blurb()),
+        );
+        if resp.clicked() {
+            out = Some(Act::CycleBlend(id.clone()));
+        }
+    } else {
+        painter.text(
+            mode_r.center(),
+            egui::Align2::CENTER_CENTER,
+            "—",
+            egui::FontId::proportional(10.5),
+            cl::ink::MUTED,
+        );
+    }
+
+    let mut sx = r.max.x - SWITCHES_RIGHT;
+    let mut cell = |icon: &str, lit: Option<Tone>, tip: &str, key: &str| {
+        let cell =
+            Rect::from_center_size(egui::pos2(sx, r.center().y), egui::vec2(SWITCH_W, SWITCH_W));
+        sx += SWITCH_W;
+        cl::draw_icon(
+            painter,
+            icon,
+            cell.shrink(3.0),
+            lit.map_or(cl::ink::MUTED, |t| t.color()),
+        );
+        cl::tip(
+            ui.interact(cell, egui::Id::new((ns, key, row_i)), Sense::click()),
+            tip,
+        )
+        .clicked()
+    };
+
+    if cell(
+        if layer.visible {
+            "layer-visible"
+        } else {
+            "layer-hidden"
+        },
+        // LIT means hidden — the abnormal state is the one worth seeing.
+        (!layer.visible).then_some(Tone::Coral),
+        if layer.visible {
+            "Showing — tap to hide it. A hidden layer keeps its place in time."
+        } else {
+            "HIDDEN — it still holds its place in time. Tap to show it again."
+        },
+        "vis",
+    ) {
+        out = Some(Act::ToggleVisible(id.clone()));
+    }
+    if cell(
+        "layer-lock",
+        layer.locked.then_some(Tone::Amber),
+        if layer.locked {
+            "LOCKED — it cannot be picked, dragged or removed. Tap to unlock."
+        } else {
+            "Lock it so you cannot move or remove it by accident."
+        },
+        "lock",
+    ) {
+        out = Some(Act::ToggleLock(id.clone()));
+    }
+    if cell(
+        "tool-3d",
+        (layer.z != 0.0).then_some(Tone::Violet),
+        "Give this layer depth. It only shows once the comp has a camera —          the 3D switch in the tool strip adds one.",
+        "3d",
+    ) {
+        out = Some(Act::Toggle3d(id.clone()));
+    }
+    if cell(
+        "tool-mblur",
+        layer.motion_blur.then_some(Tone::Lime),
+        "Smear this layer's movement. The tool strip's m.blur switch has to be          on too — that one kills blur for the whole comp.",
+        "blur",
+    ) {
+        out = Some(Act::ToggleLayerBlur(id.clone()));
+    }
+    // Bound, not inlined: a `&format!` in a match arm would be a temporary
+    // dropped before the tooltip reads it.
+    let parent_tip = match layer.parent.as_deref() {
+        Some(p) => format!("Riding {p} — tap for the next one, or off."),
+        None => "Make this layer ride another, so moving that one moves this too.".to_string(),
+    };
+    if cell(
+        "layer-parent",
+        layer.parent.is_some().then_some(Tone::Magenta),
+        &parent_tip,
+        "parent",
+    ) {
+        out = Some(Act::CycleParent(id));
+    }
+    out
+}
+
+/// One tappable project row: KIND ICON · name · trailing value; whole-row
+/// hit. The icon is a registry id (mock ③ paints kind swatches, not the
+/// three-letter codes this carried before).
 fn row_line(
     ui: &mut egui::Ui,
-    glyph: &str,
+    icon: &str,
     name: &str,
     trail: &str,
     key: impl std::hash::Hash + std::fmt::Debug,
@@ -5332,13 +6120,11 @@ fn row_line(
     if hovered {
         painter.rect_filled(rect, cl::RADIUS_SM, cl::surface::OVERLAY);
     }
-    painter.text(
-        egui::pos2(rect.min.x + 4.0, rect.center().y),
-        egui::Align2::LEFT_CENTER,
-        glyph,
-        egui::FontId::monospace(10.0),
-        Tone::Cyan.color(),
+    let icon_r = Rect::from_center_size(
+        egui::pos2(rect.min.x + 4.0 + ICON_SM * 0.5, rect.center().y),
+        egui::vec2(ICON_SM, ICON_SM),
     );
+    cl::draw_icon(&painter, icon, icon_r, Tone::Cyan.color());
     let trail_w = if trail.is_empty() { 4.0 } else { 44.0 };
     let name_clip = egui::Rect::from_min_max(
         egui::pos2(rect.min.x + 32.0, rect.min.y),
@@ -5555,6 +6341,9 @@ struct PendingLottie {
     blend: dpl_engine_media::OverlayBlend,
     matte: Option<PathBuf>,
     lut: Option<PathBuf>,
+    /// Carried through the PNG-sequence export so a Lottie leg blurs
+    /// exactly like a clip leg does.
+    motion_blur_frames: Option<u32>,
 }
 
 /// `dpl_comp::Blend` → the engine's blend word (the crates share no dep;
@@ -5690,7 +6479,7 @@ fn painter_label(ui: &egui::Ui, rect: Rect, text: &str) {
 
 /// A passive claymorphic plate with a title + hint — the empty/loading state.
 fn plate(ui: &mut egui::Ui, title: &str, hint: &str) {
-    cl::clay().show(ui, |ui| {
+    cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle).show(ui, |ui| {
         ui.vertical_centered(|ui| {
             ui.add_space(cl::space::S3);
             ui.label(RichText::new(title).heading());
@@ -5922,6 +6711,238 @@ mod tests {
         assert_eq!((tiny.clip_lanes, tiny.lottie_lanes), (2, 1));
         let monster = PreviewCaps::for_machine(128.0, 88);
         assert_eq!((monster.clip_lanes, monster.lottie_lanes), (8, 2));
+    }
+
+    /// A browse PICK queues a preview instead of importing. This is the whole
+    /// point of the player: look before it lands, so nothing enters
+    /// `content/` until the operator says add.
+    #[test]
+    fn a_browse_pick_queues_a_preview_and_imports_nothing() {
+        let mut c = Composer::default();
+        assert!(c.preview_modal.is_none() && c.preview_queue.is_empty());
+        // What drain_media_feeds does with picks (drops take the other path).
+        c.preview_queue.push(PathBuf::from("some/clip.mp4"));
+        assert_eq!(c.layers().len(), 0, "queuing a preview adds no layer");
+        assert!(
+            c.preview_modal.is_none(),
+            "the modal opens on the next frame's pump, not at queue time"
+        );
+    }
+
+    /// The queue is one-at-a-time and order-preserving — several picks must
+    /// not race or be silently dropped.
+    #[test]
+    fn the_preview_queue_is_ordered_and_one_at_a_time() {
+        let mut c = Composer::default();
+        for n in ["a.mp4", "b.mp4", "c.mp4"] {
+            c.preview_queue.push(PathBuf::from(n));
+        }
+        assert_eq!(c.preview_queue.len(), 3);
+        // The pump takes the front one only.
+        let first = c.preview_queue.remove(0);
+        assert!(first.ends_with("a.mp4"), "FIFO, not LIFO");
+        assert_eq!(c.preview_queue.len(), 2, "the rest wait their turn");
+    }
+
+    /// Adding from the preview goes through `add_clip`, which checkpoints —
+    /// so ONE undo takes the layer back off. That is the contract the
+    /// preview's "add to edit" leans on.
+    #[test]
+    fn adding_from_a_preview_is_one_undo_away() {
+        let mut c = Composer::default();
+        let rec = Record {
+            rel_path: "inbox/x.mp4".into(),
+            name: "x".into(),
+            kind: "video".into(),
+            seconds: Some(4),
+            ..Default::default()
+        };
+        c.add_clip(&rec);
+        assert_eq!(c.layers().len(), 1, "one layer landed");
+        c.undo_now();
+        assert_eq!(c.layers().len(), 0, "one undo took it back off");
+    }
+
+    /// Hiding a BASE cut must not re-time the comp. It becomes black of the
+    /// same duration, so every cut after it stays exactly where it was.
+    /// Lock has to mean something. Guarding SELECT is what makes every
+    /// downstream edit safe without each one re-checking.
+    /// Mode cycles and wraps, and it is OVERLAY-ONLY: base cuts composite
+    /// straight and ignore blend, so the base row shows a dash rather than a
+    /// control that would do nothing.
+    #[test]
+    fn blend_mode_cycles_and_wraps() {
+        use dpl_comp::Blend;
+        assert_eq!(Blend::Normal.next(), Blend::Screen);
+        assert_eq!(Blend::Screen.next(), Blend::Add);
+        assert_eq!(Blend::Add.next(), Blend::Normal, "wraps back to Normal");
+        // Every mode says what it does, in plain words (the tooltip law).
+        for b in Blend::ALL {
+            assert!(!b.label().is_empty() && b.blurb().len() > 20, "{b:?}");
+        }
+    }
+
+    #[test]
+    fn a_locked_layer_cannot_be_selected_or_removed() {
+        let mut c = Composer::default();
+        c.add_clip(&Record {
+            rel_path: "inbox/a.mp4".into(),
+            name: "a".into(),
+            kind: "video".into(),
+            seconds: Some(4),
+            ..Default::default()
+        });
+        let id = c.layers()[0].id.clone();
+
+        c.select(&id);
+        assert_eq!(
+            c.selected.as_deref(),
+            Some(id.as_str()),
+            "unlocked: selects"
+        );
+
+        c.selected = None;
+        c.comp.tracks[0].layers[0].locked = true;
+        c.select(&id);
+        assert!(c.selected.is_none(), "locked: refuses selection");
+        assert!(c.status.contains("locked"), "and says why: {}", c.status);
+
+        c.remove(&id);
+        assert_eq!(c.layers().len(), 1, "locked: refuses removal");
+
+        c.comp.tracks[0].layers[0].locked = false;
+        c.remove(&id);
+        assert_eq!(c.layers().len(), 0, "unlocked again: removes");
+    }
+
+    /// Parenting cycles through the LEGAL candidates and back to none, so a
+    /// tap-through always has a way out and can never author a loop.
+    #[test]
+    fn parenting_cycles_through_legal_candidates_and_back_to_none() {
+        let mut c = Composer::default();
+        for n in ["a", "b"] {
+            c.add_clip(&Record {
+                rel_path: format!("inbox/{n}.mp4"),
+                name: n.into(),
+                kind: "video".into(),
+                seconds: Some(2),
+                ..Default::default()
+            });
+        }
+        let (a, b) = (c.layers()[0].id.clone(), c.layers()[1].id.clone());
+
+        c.cycle_parent(&a);
+        assert_eq!(
+            c.layers()[0].parent.as_deref(),
+            Some(b.as_str()),
+            "first tap rides the only other layer"
+        );
+        c.cycle_parent(&a);
+        assert!(
+            c.layers()[0].parent.is_none(),
+            "past the last candidate wraps to NONE — always a way out"
+        );
+
+        // With a riding b, b may not ride a — the cycler must not offer it.
+        c.cycle_parent(&a);
+        c.cycle_parent(&b);
+        assert!(
+            c.layers()[1].parent.is_none(),
+            "no legal candidate for b, so it stays unparented rather than looping"
+        );
+    }
+
+    /// The comp switches are one tap and one undo, like every other edit.
+    #[test]
+    fn the_comp_switches_toggle_and_undo() {
+        let mut c = Composer::default();
+        assert!(
+            !c.comp.motion_blur && c.comp.focal.is_none(),
+            "off by default"
+        );
+
+        c.checkpoint();
+        c.comp.motion_blur = true;
+        c.checkpoint();
+        c.comp.focal = Some(DEFAULT_FOCAL);
+        assert!(c.comp.focal.is_some());
+
+        c.undo_now();
+        assert!(c.comp.focal.is_none(), "one undo removed the camera");
+        assert!(c.comp.motion_blur, "and left the blur switch alone");
+    }
+
+    #[test]
+    fn a_hidden_base_cut_holds_its_time_as_black() {
+        let mut c = Composer::default();
+        let rec = |n: &str| Record {
+            rel_path: format!("inbox/{n}.mp4"),
+            name: n.into(),
+            kind: "video".into(),
+            seconds: Some(4),
+            ..Default::default()
+        };
+        c.add_clip(&rec("a"));
+        c.add_clip(&rec("b"));
+        let before = c.comp.duration();
+
+        c.comp.tracks[0].layers[0].visible = false;
+        let parts = c.render_parts();
+        assert_eq!(
+            c.comp.duration(),
+            before,
+            "hiding a cut must NEVER move the comp's length"
+        );
+        assert!(
+            matches!(
+                parts.base.first(),
+                Some(dpl_engine_media::CompBase::Black { .. })
+            ),
+            "the hidden cut became black, not absent"
+        );
+        // And the preview agrees: nothing plays there.
+        assert!(
+            Composer::active_layer_at(c.layers(), 0.1).is_none(),
+            "the preview shows nothing where the render shows black"
+        );
+    }
+
+    /// Motion blur is AE's rule — the comp master AND the layer switch. One
+    /// alone must emit nothing, or a comp-wide toggle could not kill it.
+    #[test]
+    fn motion_blur_needs_both_switches() {
+        let mut c = Composer::default();
+        c.add_clip(&Record {
+            rel_path: "inbox/a.mp4".into(),
+            name: "a".into(),
+            kind: "video".into(),
+            seconds: Some(4),
+            ..Default::default()
+        });
+        // Put it on an overlay track, where blur is emitted.
+        let t = c.ensure_fx_track();
+        let l = c.comp.tracks[0].layers.remove(0);
+        c.comp.tracks[t].layers.push(l);
+
+        let frames = |c: &Composer| {
+            c.render_parts()
+                .overlays
+                .into_iter()
+                .find_map(|s| match s {
+                    OverlaySlot::Ready(o) => Some(o.motion_blur_frames),
+                    _ => None,
+                })
+                .flatten()
+        };
+        assert_eq!(frames(&c), None, "neither switch: no blur");
+        c.comp.motion_blur = true;
+        assert_eq!(frames(&c), None, "master alone: still no blur");
+        c.comp.tracks[t].layers[0].motion_blur = true;
+        assert_eq!(frames(&c), Some(2), "both: 180 degrees is a 2-frame smear");
+        c.comp.shutter = 360;
+        assert_eq!(frames(&c), Some(4), "360 degrees opens the shutter wider");
+        c.comp.motion_blur = false;
+        assert_eq!(frames(&c), None, "the master kills it comp-wide");
     }
 
     #[test]

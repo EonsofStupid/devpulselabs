@@ -1,5 +1,5 @@
 {
-  "$schema": "authored motion source \u00e2\u20ac\u201d durations in seconds, eases as cubic-bezier control points (ported verbatim from the prior theme.css), effects = the named vocabulary slides pull",
+  "$schema": "authored motion source â€” durations in seconds, eases as cubic-bezier control points (ported verbatim from the prior theme.css), effects = the named vocabulary slides pull",
   "durations": {
     "fast": 0.12,
     "base": 0.2,
@@ -126,7 +126,26 @@
     "enter-bloom": {
       "dur": 0.9,
       "ease": "spring-soft",
-      "delay": 0.35
+      "delay": 0.35,
+      "track": [
+        {
+          "offset": 0.0,
+          "ease": "spring-soft",
+          "alpha": 0.0,
+          "scale": 0.86
+        },
+        {
+          "offset": 0.62,
+          "ease": "decelerate",
+          "alpha": 1.0,
+          "scale": 1.04
+        },
+        {
+          "offset": 1.0,
+          "alpha": 1.0,
+          "scale": 1.0
+        }
+      ]
     },
     "reveal-pop": {
       "dur": 0.45,
