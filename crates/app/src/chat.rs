@@ -13,6 +13,10 @@ use dpl_chat_interactions::{
     InteractionContent, InteractionId, InteractionPlacement, InteractionRegistry,
 };
 use dpl_chat_profiles::{ProfileStore, ProviderProfileDraft};
+use dpl_chat_runtime::seam::{
+    qualified_capabilities, ProviderRuntime, RuntimeCommand, RuntimeEvent, RuntimeFailureKind,
+    RuntimeUpdate,
+};
 use dpl_chat_runtime::ChatRuntime;
 use dpl_chat_social::SocialModel;
 use dpl_chat_store::HistoryCatalog;
@@ -110,6 +114,17 @@ struct Shared {
     grok_sessions: BTreeMap<String, ChatSessionId>,
     grok_turns: BTreeMap<String, TurnId>,
     grok_permissions: BTreeMap<u64, PendingGrokPermission>,
+    /// LIVE PROVIDER RUNTIMES, driven through the one seam path.
+    ///
+    /// Grok is deliberately absent: it owns a working bespoke runtime above,
+    /// and converging it is its own pass (codex-host-wiring §5). Everything
+    /// else that gains a transport lands here and costs the host no new code.
+    runtimes: BTreeMap<ProviderId, Box<dyn ProviderRuntime>>,
+    /// Keyed by PROVIDER and session, because two providers can mint the same
+    /// session string — an unkeyed map would splice two conversations into one
+    /// transcript.
+    seam_sessions: BTreeMap<(ProviderId, String), ChatSessionId>,
+    seam_turns: BTreeMap<(ProviderId, String), TurnId>,
     /// In-flight AI calls keyed by provider session id — the AI domain's
     /// correlation state. Mint at dispatch, first-token once, finish once.
     ai_calls: BTreeMap<String, AiCall>,
@@ -775,6 +790,9 @@ impl ChatWindowCoordinator {
             grok_turns: BTreeMap::new(),
             ai_calls: BTreeMap::new(),
             grok_permissions: BTreeMap::new(),
+            runtimes: BTreeMap::new(),
+            seam_sessions: BTreeMap::new(),
+            seam_turns: BTreeMap::new(),
             grok_attempt: None,
             codex_attempt: None,
             imagine,
@@ -1068,9 +1086,12 @@ impl ChatWindowCoordinator {
                     let activation_changed = poll_provider_activations(&mut state);
                     let runtime_changed = poll_grok_runtime(&mut state)
                         | drive_grok_runtime(&mut state, Instant::now())
+                        | poll_seam_runtimes(&mut state)
+                        | drive_codex_runtime(&mut state)
                         | poll_imagine(&mut state);
-                    let provider_runtime_live =
-                        state.grok_runtime.is_some() || state.grok_runtime_retry_at.is_some();
+                    let provider_runtime_live = state.grok_runtime.is_some()
+                        || state.grok_runtime_retry_at.is_some()
+                        || !state.runtimes.is_empty();
                     let login_running = state.codex_activation.is_login_running()
                         || state.grok_activation.is_login_running()
                         || state.imagine.in_flight();
@@ -1383,12 +1404,15 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
             ctx.request_repaint();
         }
         HostIntent::NewSession(provider) => {
-            if provider != dpl_chat_grok::PROVIDER {
+            let mut state = lock(shared);
+            if provider == dpl_chat_grok::PROVIDER {
+                send_grok_command(&state, dpl_chat_grok::GrokRuntimeCommand::NewSession);
+            } else if state.runtimes.contains_key(&provider) {
+                send_seam_command(&mut state, provider, RuntimeCommand::NewSession);
+            } else {
                 tracing::warn!(%provider, "new-session runtime is not qualified");
                 return;
             }
-            let state = lock(shared);
-            send_grok_command(&state, dpl_chat_grok::GrokRuntimeCommand::NewSession);
             ctx.request_repaint();
         }
         HostIntent::SendTurn {
@@ -1396,31 +1420,43 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
             session,
             text,
         } => {
-            if provider != dpl_chat_grok::PROVIDER {
+            let mut state = lock(shared);
+            if provider == dpl_chat_grok::PROVIDER {
+                send_grok_turn(&mut state, session, text);
+            } else if state.runtimes.contains_key(&provider) {
+                send_seam_turn(&mut state, provider, session, text);
+            } else {
                 tracing::warn!(%provider, "live turn runtime is not qualified");
                 return;
             }
-            let mut state = lock(shared);
-            send_grok_turn(&mut state, session, text);
             ctx.request_repaint();
         }
         HostIntent::CancelTurn { provider, session } => {
-            if provider != dpl_chat_grok::PROVIDER {
+            let mut state = lock(shared);
+            let Some(provider_session_id) = provider_session_id(&state, provider, session) else {
+                tracing::warn!(%provider, %session, "provider session binding is missing");
+                return;
+            };
+            if provider == dpl_chat_grok::PROVIDER {
+                cancel_grok_permissions(&mut state, Some(&provider_session_id), true);
+                send_grok_command(
+                    &state,
+                    dpl_chat_grok::GrokRuntimeCommand::Cancel {
+                        provider_session_id,
+                    },
+                );
+            } else if state.runtimes.contains_key(&provider) {
+                send_seam_command(
+                    &mut state,
+                    provider,
+                    RuntimeCommand::Cancel {
+                        provider_session_id,
+                    },
+                );
+            } else {
                 tracing::warn!(%provider, "turn cancellation runtime is not qualified");
                 return;
             }
-            let mut state = lock(shared);
-            let Some(provider_session_id) = provider_session_id(&state, session) else {
-                tracing::warn!(%session, "Grok session binding is missing");
-                return;
-            };
-            cancel_grok_permissions(&mut state, Some(&provider_session_id), true);
-            send_grok_command(
-                &state,
-                dpl_chat_grok::GrokRuntimeCommand::Cancel {
-                    provider_session_id,
-                },
-            );
             ctx.request_repaint();
         }
         HostIntent::ResolveProviderPermission {
@@ -2864,10 +2900,19 @@ fn grok_chat_session_id(state: &mut Shared, provider_session_id: &str) -> ChatSe
     id
 }
 
-fn provider_session_id(state: &Shared, session: ChatSessionId) -> Option<String> {
+/// Resolve the PROVIDER's own id for a chat session.
+///
+/// Takes the provider explicitly: this used to read Grok's view no matter who
+/// asked, which was harmless only while Grok was the one provider with live
+/// sessions. This pass is what ends that.
+fn provider_session_id(
+    state: &Shared,
+    provider: ProviderId,
+    session: ChatSessionId,
+) -> Option<String> {
     state
         .window
-        .provider_view(dpl_chat_grok::PROVIDER)?
+        .provider_view(provider)?
         .registration
         .sessions
         .into_iter()
@@ -2983,7 +3028,8 @@ fn ai_usage_observed(state: &mut Shared, provider_session_id: &str, usage: Token
 }
 
 fn send_grok_turn(state: &mut Shared, session: ChatSessionId, text: String) {
-    let Some(provider_session_id) = provider_session_id(state, session) else {
+    let Some(provider_session_id) = provider_session_id(state, dpl_chat_grok::PROVIDER, session)
+    else {
         tracing::warn!(%session, "Grok session binding is missing");
         return;
     };
@@ -3137,6 +3183,495 @@ fn append_grok_event(state: &mut Shared, provider_session_id: &str, content: Cha
         .append_provider_event(dpl_chat_grok::PROVIDER, event)
     {
         tracing::warn!(%error, "Grok event could not be projected");
+    }
+}
+
+// ─────────────────────────── THE SEAM HOST ───────────────────────────
+//
+// ONE path for every provider that implements `ProviderRuntime`. The Grok
+// functions above are its ancestor — structurally identical, but hard-bound to
+// one provider. These take a `ProviderId`, so the next provider to grow a
+// transport costs a `start()` and nothing here.
+//
+// Grok deliberately does NOT flow through this path yet: it works, and
+// converging it is its own pass (docs/plans/codex-host-wiring.md §5).
+
+/// Start Codex's app-server runtime once activation says the operator is
+/// actually signed in.
+///
+/// Idempotent and cheap: it returns immediately when a runtime already exists
+/// or activation has not reached an activated state, so the frame loop can
+/// call it every frame.
+fn drive_codex_runtime(state: &mut Shared) -> bool {
+    if !state.provider_runtime_enabled || state.runtimes.contains_key(&dpl_chat_codex::PROVIDER) {
+        return false;
+    }
+    if !state.codex_activation.activation().is_activated() {
+        return false;
+    }
+    let Some(profile) = state.codex_activation.runtime_profile() else {
+        return false;
+    };
+    // The pinned schema and the discovered binary can disagree — the depot
+    // copy and a PATH copy are different builds. Say so in the log rather than
+    // let a protocol mismatch surface later as a turn that never answers.
+    let discovered = profile.version().to_string();
+    if !discovered.is_empty()
+        && !dpl_chat_codex::runtime::PINNED_CLI_VERSION.starts_with(&discovered)
+    {
+        tracing::info!(
+            discovered = %discovered,
+            pinned = %dpl_chat_codex::runtime::PINNED_CLI_VERSION,
+            "Codex app-server build differs from the pinned schema"
+        );
+    }
+    match dpl_chat_codex::runtime::CodexAppServerRuntime::start(&profile) {
+        Ok(runtime) => {
+            state
+                .runtimes
+                .insert(dpl_chat_codex::PROVIDER, Box::new(runtime));
+            if let Some(attempt) = state.codex_attempt {
+                state
+                    .fabric
+                    .publish_provider(ProviderEvent::RuntimeStarted {
+                        provider: dpl_chat_codex::PROVIDER,
+                        attempt,
+                    });
+            }
+            true
+        }
+        Err(error) => {
+            tracing::warn!(%error, "Codex app-server could not start");
+            let activation = ActivationState::Failed {
+                reason: format!("ChatGPT could not start: {error}"),
+                recovery: vec![RecoveryAction::new(
+                    RecoveryActionKind::Retry,
+                    "Retry ChatGPT",
+                )],
+            };
+            if let Err(error) = state
+                .window
+                .set_provider_activation(dpl_chat_codex::PROVIDER, activation)
+            {
+                tracing::warn!(%error, "Codex launch failure could not be projected");
+            }
+            record_codex_failed(state, "app_server_launch");
+            publish_codex_failure(
+                state,
+                ProviderActivationStage::Runtime,
+                ProviderFailureClass::Launch,
+                true,
+            );
+            true
+        }
+    }
+}
+
+/// Drain every seam runtime's event queue.
+fn poll_seam_runtimes(state: &mut Shared) -> bool {
+    let providers = state.runtimes.keys().copied().collect::<Vec<_>>();
+    let mut changed = false;
+    for provider in providers {
+        while let Some(event) = take_seam_event(state, provider) {
+            changed = true;
+            project_seam_event(state, provider, event);
+        }
+        // A runtime retired mid-drain is a state change the frame must see,
+        // even if it never produced an event.
+        changed |= !state.runtimes.contains_key(&provider);
+    }
+    changed
+}
+
+/// Take one event, retiring the runtime if its channel has closed.
+///
+/// A closed channel reads the same as an empty one to the caller — `None` —
+/// because both mean "nothing more this frame". The difference is recorded by
+/// removing the runtime, which is what lets the next frame restart it.
+fn take_seam_event(state: &mut Shared, provider: ProviderId) -> Option<RuntimeEvent> {
+    // Bound first so the immutable borrow ends before the arms need `state`.
+    let taken = state.runtimes.get(&provider)?.try_event();
+    match taken {
+        Ok(event) => event,
+        Err(error) => {
+            tracing::warn!(%provider, %error, "provider runtime channel closed");
+            state.runtimes.remove(&provider);
+            None
+        }
+    }
+}
+
+fn project_seam_event(state: &mut Shared, provider: ProviderId, event: RuntimeEvent) {
+    match event {
+        RuntimeEvent::Connected { capabilities } => {
+            if let Err(error) = state
+                .window
+                .set_provider_activation(provider, ActivationState::Ready)
+            {
+                tracing::warn!(%provider, %error, "provider ready state could not be projected");
+            }
+            // EARNED, never assumed: one function derives the capability set
+            // from what the provider advertised, so a surface can never offer
+            // what the adapter cannot honour.
+            if let Err(error) = state
+                .window
+                .qualify_provider_capabilities(provider, qualified_capabilities(capabilities))
+            {
+                tracing::warn!(%provider, %error, "provider capabilities could not be projected");
+            }
+            // A conversation needs a session; ask for one the moment we can.
+            send_seam_command(state, provider, RuntimeCommand::NewSession);
+        }
+        RuntimeEvent::SessionsPage { .. } => {
+            // Never reached today: no seam provider advertises `list_sessions`,
+            // so the surface never asks. Kept explicit so adding one is a
+            // compile-time conversation rather than a silent no-op.
+        }
+        RuntimeEvent::SessionReady {
+            provider_session_id,
+            is_new,
+        } => {
+            let session = seam_chat_session_id(state, provider, &provider_session_id);
+            let summary = SessionSummary {
+                id: session,
+                provider_id: provider,
+                title: if is_new {
+                    "New chat".to_owned()
+                } else {
+                    provider_session_id.clone()
+                },
+                provider_session_id: Some(ProviderSessionId(provider_session_id)),
+                workspace: "DevPULSE".to_owned(),
+                group: SessionGroup::Active,
+                state: SessionState::Idle,
+            };
+            if let Err(error) = state
+                .window
+                .upsert_provider_session(provider, summary)
+                .and_then(|()| state.window.select_provider_session(provider, session))
+            {
+                tracing::warn!(%provider, %error, "provider session could not be selected");
+            } else {
+                state.window.request_composer_focus();
+            }
+        }
+        RuntimeEvent::TurnStarted {
+            provider_session_id,
+        } => {
+            let key = (provider, provider_session_id);
+            if let Some(session) = state.seam_sessions.get(&key).copied() {
+                if !state.seam_turns.contains_key(&key) {
+                    let turn = next_turn_id(state);
+                    state.seam_turns.insert(key, turn);
+                }
+                if let Err(error) = state.window.set_provider_session_state(
+                    provider,
+                    session,
+                    SessionState::Running,
+                ) {
+                    tracing::warn!(%provider, %error, "running state could not be projected");
+                }
+            }
+        }
+        RuntimeEvent::SessionUpdate {
+            provider_session_id,
+            update,
+        } => project_seam_update(state, provider, &provider_session_id, update),
+        RuntimeEvent::PermissionRequested {
+            request_id,
+            provider_session_id: _,
+            summary: _,
+            options: _,
+        } => {
+            // Approvals are an interaction design, not a mapping, and no seam
+            // provider advertises them yet. DECLINING is the honest response —
+            // silently allowing would act on the operator's behalf.
+            send_seam_command(
+                state,
+                provider,
+                RuntimeCommand::ResolvePermission {
+                    request_id,
+                    option_id: None,
+                },
+            );
+        }
+        RuntimeEvent::TurnFinished {
+            provider_session_id,
+            stop_reason: _,
+        } => {
+            append_seam_event(
+                state,
+                provider,
+                &provider_session_id,
+                ChatEventContent::TurnCompleted,
+            );
+            ai_call_finished(state, &provider_session_id, AiOutcome::Ok);
+            set_seam_session_idle(state, provider, &provider_session_id);
+            state.seam_turns.remove(&(provider, provider_session_id));
+        }
+        RuntimeEvent::Failure(failure) => {
+            tracing::warn!(%provider, kind = ?failure.kind, reason = %failure.reason, "provider runtime failure");
+            if let Some(provider_session_id) = failure.provider_session_id.clone() {
+                append_seam_event(
+                    state,
+                    provider,
+                    &provider_session_id,
+                    ChatEventContent::TurnFailed {
+                        message: failure.reason,
+                    },
+                );
+                ai_call_finished(
+                    state,
+                    &provider_session_id,
+                    AiOutcome::Error(AiFailureClass::Runtime),
+                );
+                set_seam_session_idle(state, provider, &provider_session_id);
+                state.seam_turns.remove(&(provider, provider_session_id));
+            } else {
+                let class = match failure.kind {
+                    RuntimeFailureKind::Launch => ProviderFailureClass::Launch,
+                    RuntimeFailureKind::CredentialUnavailable
+                    | RuntimeFailureKind::Authentication => ProviderFailureClass::Authorization,
+                    RuntimeFailureKind::Timeout => ProviderFailureClass::Timeout,
+                    RuntimeFailureKind::Disconnected => ProviderFailureClass::Disconnect,
+                    RuntimeFailureKind::Protocol
+                    | RuntimeFailureKind::Unsupported
+                    | RuntimeFailureKind::InvalidCommand
+                    | RuntimeFailureKind::Backpressure => ProviderFailureClass::Protocol,
+                };
+                let activation = ActivationState::Failed {
+                    reason: failure.reason,
+                    recovery: vec![RecoveryAction::new(RecoveryActionKind::Retry, "Retry")],
+                };
+                if let Err(error) = state.window.set_provider_activation(provider, activation) {
+                    tracing::warn!(%provider, %error, "runtime failure could not be projected");
+                }
+                if provider == dpl_chat_codex::PROVIDER {
+                    record_codex_failed(state, "app_server_runtime");
+                    publish_codex_failure(state, ProviderActivationStage::Runtime, class, true);
+                }
+            }
+        }
+        RuntimeEvent::Stopped => {
+            state.runtimes.remove(&provider);
+        }
+    }
+}
+
+fn project_seam_update(
+    state: &mut Shared,
+    provider: ProviderId,
+    provider_session_id: &str,
+    update: RuntimeUpdate,
+) {
+    let key = (provider, provider_session_id.to_owned());
+    match update {
+        RuntimeUpdate::UserText(_) => {
+            // Projected at submit time, so the composer clears atomically with
+            // a successful enqueue.
+        }
+        RuntimeUpdate::AssistantText(chunk) => {
+            ai_first_token(state, provider_session_id);
+            let Some(session) = state.seam_sessions.get(&key).copied() else {
+                return;
+            };
+            let turn = state
+                .seam_turns
+                .get(&key)
+                .cloned()
+                .unwrap_or_else(|| next_turn_id(state));
+            let event = next_event_id(state);
+            if let Err(error) = state
+                .window
+                .append_provider_assistant_chunk(provider, session, turn, event, &chunk)
+            {
+                tracing::warn!(%provider, %error, "assistant chunk could not be projected");
+            }
+        }
+        RuntimeUpdate::ThoughtText(text) => {
+            let Some(session) = state.seam_sessions.get(&key).copied() else {
+                return;
+            };
+            let turn = state
+                .seam_turns
+                .get(&key)
+                .cloned()
+                .unwrap_or_else(|| next_turn_id(state));
+            let event = next_event_id(state);
+            if let Err(error) = state
+                .window
+                .append_provider_status_chunk(provider, session, turn, event, &text)
+            {
+                tracing::warn!(%provider, %error, "reasoning activity could not be projected");
+            }
+        }
+        RuntimeUpdate::Tool(label) => append_seam_event(
+            state,
+            provider,
+            provider_session_id,
+            ChatEventContent::ToolStarted { label },
+        ),
+        RuntimeUpdate::Plan(plan) => append_seam_event(
+            state,
+            provider,
+            provider_session_id,
+            ChatEventContent::PlanUpdated(plan),
+        ),
+        RuntimeUpdate::SessionInfo(info) => append_seam_event(
+            state,
+            provider,
+            provider_session_id,
+            ChatEventContent::StatusUpdated(info),
+        ),
+        RuntimeUpdate::AvailableCommands { count } => append_seam_event(
+            state,
+            provider,
+            provider_session_id,
+            ChatEventContent::StatusUpdated(format!("{count} provider commands available")),
+        ),
+        RuntimeUpdate::Usage { used, size } => {
+            let usage = TokenUsage {
+                context_used: Some(used),
+                context_size: Some(size),
+                ..TokenUsage::default()
+            };
+            ai_usage_observed(state, provider_session_id, usage);
+            append_seam_event(
+                state,
+                provider,
+                provider_session_id,
+                ChatEventContent::UsageUpdated {
+                    summary: format!("{used} of {size} context tokens"),
+                    usage,
+                },
+            );
+        }
+        // An unknown frame is EVIDENCE, kept redacted rather than dropped.
+        RuntimeUpdate::Other(summary) => append_seam_event(
+            state,
+            provider,
+            provider_session_id,
+            ChatEventContent::Unknown(BoundedNativePayload::redacted(
+                "provider.seam.session-update",
+                summary,
+            )),
+        ),
+    }
+}
+
+fn seam_chat_session_id(
+    state: &mut Shared,
+    provider: ProviderId,
+    provider_session_id: &str,
+) -> ChatSessionId {
+    let key = (provider, provider_session_id.to_owned());
+    if let Some(id) = state.seam_sessions.get(&key) {
+        return *id;
+    }
+    let id = ChatSessionId(state.next_chat_session_id);
+    state.next_chat_session_id = state.next_chat_session_id.saturating_add(1);
+    state.seam_sessions.insert(key, id);
+    id
+}
+
+fn append_seam_event(
+    state: &mut Shared,
+    provider: ProviderId,
+    provider_session_id: &str,
+    content: ChatEventContent,
+) {
+    let key = (provider, provider_session_id.to_owned());
+    let Some(session) = state.seam_sessions.get(&key).copied() else {
+        return;
+    };
+    let event = ChatEvent {
+        id: next_event_id(state),
+        provider_id: provider,
+        session_id: session,
+        turn_id: state.seam_turns.get(&key).cloned(),
+        content,
+    };
+    if let Err(error) = state.window.append_provider_event(provider, event) {
+        tracing::warn!(%provider, %error, "provider event could not be projected");
+    }
+}
+
+fn set_seam_session_idle(state: &mut Shared, provider: ProviderId, provider_session_id: &str) {
+    let Some(session) = state
+        .seam_sessions
+        .get(&(provider, provider_session_id.to_owned()))
+        .copied()
+    else {
+        return;
+    };
+    if let Err(error) =
+        state
+            .window
+            .set_provider_session_state(provider, session, SessionState::Idle)
+    {
+        tracing::warn!(%provider, %error, "idle state could not be projected");
+    }
+}
+
+/// Queue one command, translating backpressure honestly.
+///
+/// `Full` is TRANSIENT and must never read as the operator's failure; `Closed`
+/// retires the runtime so the next frame can restart it.
+fn send_seam_command(state: &mut Shared, provider: ProviderId, command: RuntimeCommand) -> bool {
+    let Some(runtime) = state.runtimes.get(&provider) else {
+        return false;
+    };
+    match runtime.try_send(command) {
+        Ok(()) => true,
+        Err(dpl_chat_runtime::seam::RuntimeSendError::Full) => {
+            tracing::warn!(%provider, "provider command queue is full; command dropped");
+            false
+        }
+        Err(dpl_chat_runtime::seam::RuntimeSendError::Closed) => {
+            tracing::warn!(%provider, "provider runtime is closed");
+            state.runtimes.remove(&provider);
+            false
+        }
+    }
+}
+
+fn send_seam_turn(state: &mut Shared, provider: ProviderId, session: ChatSessionId, text: String) {
+    let Some(provider_session_id) = provider_session_id(state, provider, session) else {
+        tracing::warn!(%provider, %session, "provider session binding is missing");
+        return;
+    };
+    let turn = next_turn_id(state);
+    let event_id = next_event_id(state);
+    let event = ChatEvent {
+        id: event_id,
+        provider_id: provider,
+        session_id: session,
+        turn_id: Some(turn.clone()),
+        content: ChatEventContent::UserMessage(text.clone()),
+    };
+    if !send_seam_command(
+        state,
+        provider,
+        RuntimeCommand::Prompt {
+            provider_session_id: provider_session_id.clone(),
+            text,
+        },
+    ) {
+        return;
+    }
+    // Airborne — mint the correlation id before any chunk can arrive, so TTFT
+    // has something to attach to. Model stays EMPTY until the price table
+    // lands; an empty model reads "not yet known", never a wrong model priced.
+    ai_call_started(state, provider, &provider_session_id, "");
+    state
+        .seam_turns
+        .insert((provider, provider_session_id), turn);
+    if let Err(error) = state
+        .window
+        .append_provider_event(provider, event)
+        .and_then(|()| state.window.clear_provider_draft(provider))
+    {
+        tracing::warn!(%provider, %error, "user message could not be projected");
     }
 }
 

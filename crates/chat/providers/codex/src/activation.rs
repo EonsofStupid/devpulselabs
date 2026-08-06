@@ -616,7 +616,11 @@ fn login_command(profile: &CodexRuntimeProfile) -> Command {
     command
 }
 
-fn profiled_command(executable: &Path, working_directory: &Path) -> Command {
+/// The ONE way this crate builds a `codex` child: quiet-spawned, rooted in the
+/// profile's directory, and carrying only the allow-listed environment.
+/// `runtime.rs` uses it too, so the app-server child cannot drift from the
+/// probes into a different environment than the one we measured login in.
+pub(crate) fn profiled_command(executable: &Path, working_directory: &Path) -> Command {
     let mut command = Command::new(executable);
     // The quiet-spawn law (W8): probes and login alike are console-free.
     dpl_proc::quiet(&mut command);
