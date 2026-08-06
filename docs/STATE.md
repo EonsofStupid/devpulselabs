@@ -227,6 +227,38 @@ mint → lesson button (still name-spawn overlay until bridge wires).
 overlay locate on Cursor **`Search Ctrl+K`** + **`File`**; Calculator `7`
 regression green.
 
+**2026-08-03 — THE SEAT GETS A BOOTSTRAP (PR #182, `docs/runbook/devbox-bootstrap.sh`):**
+`linux-runner-bootstrap.sh` builds a CI runner; this builds a **seat**. Same
+contract on purpose — idempotent, every step self-verifying, exits nonzero
+naming the first unsatisfied requirement, `--verify-only` for the post-boot
+audit. Blank Debian/Ubuntu guest → the PROVEN apt set (carried over because a
+seat has to COMPILE, not just edit — that is the whole pitch) + node 22 +
+`@anthropic-ai/claude-code` + rust pinned to `rust-toolchain.toml` + zellij +
+ttyd, behind a `devbox-ttyd@.service` template, with the clone's
+`core.hooksPath .githooks` **set and verified** (the fresh-clone law otherwise
+leaves the gate silently doing nothing). Two things deliberately NOT baked:
+Claude Code credentials (per-seat, first boot — a shared credential in an
+image is a licensing AND blast-radius problem) and any cloud role. ttyd binds
+`--interface lo` ONLY: it is an unauthenticated root-equivalent shell, and
+this is the same law that deregistered the runners on 2026-07-30. Intent is
+one provisioning source Packer runs twice — Proxmox template + AWS AMI — so
+estate and fleet cannot drift. **OPEN: never yet run end-to-end as root on a
+blank guest** — proven only by `bash -n` and a `--verify-only` audit on an
+unprovisioned container (9 named failures, exit 1, correctly PASSING the
+`node>=18` and `claude` predicates already satisfied there, so the checks
+discriminate rather than blanket-fail). NEXT = `sudo ./devbox-bootstrap.sh` on
+`warden-devstation`, then the Packer bake with `--verify-only` as the gate.
+
+**2026-08-03 — DOCS-ONLY PRs HAVE ZERO LANES (doctrine finding, no code):**
+`green.yml` carries `paths-ignore: ["docs/**", "**.md", ".claude/**"]`, so
+#182 registered `total_count: 0` — not pending, **terminal**. The double-green
+merge law therefore has NOTHING to check on a docs-only PR. This matters
+because `docs/plans/product-vision.md` records that branch protection with
+required checks is now free on the public repo: turning it on naively would
+block every docs-only PR forever, since a required check that never runs never
+reports. Decide the skipped-run policy BEFORE enabling protection — the law
+that exists to prevent bad merges would otherwise prevent good ones.
+
 **2026-07-31 — C2e FABRIC MINT PASS (`docs/journal/2026-07-31-c2e-fabric-mint.md`):**
 `dpl-coach-fabric` + `coach-fabric-mint`. Live Calculator **Ready · 82
 nodes · seed `7` · ~255 ms**; ChildCount-gated BFS; oversized refuse in
