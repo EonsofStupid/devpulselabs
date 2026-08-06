@@ -1,18 +1,23 @@
 # Operator-state proof: the official Codex client is already ChatGPT-
 # authenticated. DevPULSE must project Ready from `codex login status` alone.
 #
-# Conversation actions stay DISABLED here, and the reason changed on
-# 2026-08-06. It is no longer "Codex has no transport" — it has one (the
-# app-server runtime, docs/plans/codex-host-wiring.md). It is that this
-# scenario runs on an AUTHORED fixture, where `provider_runtime_enabled` is
-# false and no live runtime is ever started, so nothing advertises
-# `StreamTurns`.
+# THIS SCENARIO INVERTED ON 2026-08-06. It used to assert that conversation
+# actions stay DISABLED, because "Codex is activation-only until the CH4
+# app-server pass". That pass landed (docs/plans/codex-host-wiring.md): Codex
+# now has a live transport, the host drives it through the provider seam, and
+# a connected runtime advertises `StreamTurns`. Ready-and-unsendable was the
+# defect the operator named from the program's first message — "it shows
+# active and I cannot chat" — so continuing to pin it would pin the bug.
 #
-# That makes this scenario a pin on the SEAM'S CENTRAL GUARANTEE: capability
-# is earned from a connected runtime, never assumed from an activation state.
-# Ready-but-unsendable is the correct reading when the provider is signed in
-# and nothing is connected. Grok's independent real state stays visible in the
-# same catalog.
+# The `chat-peer` fixture is LIVE: it passes `--chat-open` WITHOUT
+# `--chat-authored`, so `provider_runtime_enabled` is true and the real
+# app-server child is started. That is what makes the enabled assertions below
+# meaningful — and it also means this scenario needs the operator's real Codex
+# login, exactly as it always has to report `Ready`.
+#
+# What it pins now: capability is EARNED from a connected runtime
+# (`qualified_capabilities`), never assumed from an activation state. Grok's
+# independent real state stays visible in the same catalog.
 id = "chat-codex-persisted-ready"
 fixture = "chat-peer"
 record = true
@@ -87,23 +92,56 @@ type = "click"
 [steps.action.target]
 id = "chat.primary/chat.sidebar.providers/codex"
 
+# The app-server child has to spawn, answer `initialize`, and have its
+# advertised capabilities qualified before the surface can offer anything.
+# That is a real process on a cold start, so the wait is generous — a short
+# one would make this scenario flaky in a way that reads as a regression.
+[[steps]]
+kind = "wait"
+milliseconds = 8000
+
+# Send is gated on FOUR things, and only one of them is the transport:
+# not reading history · a session selected · `can_send()` · a NON-EMPTY draft.
+# An empty composer is disabled with "Type a message first." no matter how
+# qualified the provider is, so asserting `enabled` on an empty composer would
+# pass before this pass and after it — proving nothing. Typing first is what
+# isolates the transport as the variable under test.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "fill"
+text = "hello"
+
+[steps.action.target]
+id = "chat.primary/chat.composer"
+
+[[steps]]
+kind = "wait"
+milliseconds = 300
+
+# THE ASSERTION THIS PASS EXISTS FOR. With a draft present, Send can only be
+# enabled if `can_send()` is true — and that is qualified from what the runtime
+# ADVERTISED at connect, never hard-coded. Before this pass the tooltip here
+# read "This provider's live turn transport is not qualified."
 [[steps]]
 kind = "expect"
 
 [steps.expectation]
-type = "disabled"
-
-[steps.expectation.target]
-id = "chat.primary/chat.provider.new-chat/sidebar"
-
-[[steps]]
-kind = "expect"
-
-[steps.expectation]
-type = "disabled"
+type = "enabled"
 
 [steps.expectation.target]
 id = "chat.primary/chat.composer.send"
+
+# `StartSession` is qualified by the same handshake.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "enabled"
+
+[steps.expectation.target]
+id = "chat.primary/chat.provider.new-chat/sidebar"
 
 [[steps]]
 kind = "action"
