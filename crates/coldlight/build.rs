@@ -113,13 +113,6 @@ fn main() {
     generate_matrix(&out_dir);
 }
 
-/// tokens/roles.json → the SEMANTIC layer: role → treatment, per surface.
-///
-/// Three refusals, all at build time:
-/// 1. every role names a trait that EXISTS in traits.json;
-/// 2. a pinned `tone` names a real hue;
-/// 3. `default` carries every role — a surface may omit one and fall back,
-
 /// A coordinate is LEGAL when its lineage rules on every facet it names.
 ///
 /// Shared by `generate_roles` and `generate_presets` so a role binding and an
@@ -158,6 +151,12 @@ fn assert_coordinate_legal(
     }
 }
 
+/// tokens/roles.json → the SEMANTIC layer: role → treatment, per surface.
+///
+/// Three refusals, all at build time:
+/// 1. every role names a trait that EXISTS in traits.json;
+/// 2. a pinned `tone` names a real hue;
+/// 3. `default` carries every role — a surface may omit one and fall back,
 ///    but there must always be something to fall back TO.
 fn generate_roles(out_dir: &str) {
     let raw = std::fs::read_to_string("tokens/roles.json").expect("read roles.json");
