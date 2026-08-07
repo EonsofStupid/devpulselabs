@@ -19,6 +19,11 @@ mod engine {
         canvas: tvg::Tvg_Canvas,
         anim: tvg::Tvg_Animation,
         buf: Vec<u32>,
+        /// The frame ThorVG is currently sitting on. A freshly loaded
+        /// animation IS on frame 0 — that is precisely why asking for frame 0
+        /// used to fail. `update`/`draw`/`sync` still run on every render, so
+        /// skipping a redundant `set_frame` never leaves the canvas undrawn.
+        frame: f32,
         pub total_frames: f32,
         pub fps: f32,
     }
@@ -105,6 +110,7 @@ mod engine {
                     canvas,
                     anim,
                     buf,
+                    frame: 0.0,
                     total_frames: total,
                     fps,
                 })
@@ -116,7 +122,22 @@ mod engine {
             let last = (self.total_frames - 1.0).max(0.0);
             let frame = (t_secs.max(0.0) * self.fps).clamp(0.0, last);
             unsafe {
-                ok(tvg::tvg_animation_set_frame(self.anim, frame), "set_frame")?;
+                // `tvg_animation_set_frame` reports INSUFFICIENT_CONDITION when
+                // the requested frame is ALREADY the current one. That is a
+                // no-op, not a failure — and the animation loads sitting on
+                // frame 0, so treating it as fatal made **frame 0 of every
+                // Lottie unrenderable**: `frame … 0.0` always died, `export`
+                // died on its first frame and produced nothing at all, and
+                // `serve` died whenever the operator scrubbed to the same time
+                // twice. Measured 2026-08-07 against a real animated fixture.
+                //
+                // Skipping the call when the frame has not moved is the honest
+                // fix: it makes the no-op a no-op instead of asking ThorVG to
+                // report one.
+                if self.frame != frame {
+                    ok(tvg::tvg_animation_set_frame(self.anim, frame), "set_frame")?;
+                    self.frame = frame;
+                }
                 ok(tvg::tvg_canvas_update(self.canvas), "update")?;
                 ok(tvg::tvg_canvas_draw(self.canvas, true), "draw")?;
                 ok(tvg::tvg_canvas_sync(self.canvas), "sync")?;
