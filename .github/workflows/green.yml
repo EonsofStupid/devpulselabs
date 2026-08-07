@@ -20,8 +20,10 @@ name: green
 # the real gate once already (no structure phase, no release build in CI);
 # the lanes now cannot diverge from the hook or from each other.
 #
-# The toolchain is pinned by `rust-toolchain.toml` (1.92.0 + clippy/rustfmt),
-# so a guest's preinstalled Rust cannot silently become the lane's compiler.
+# The toolchain is pinned by `rust-toolchain.toml` (1.97.1 + clippy/rustfmt,
+# since #177), so a guest's preinstalled Rust cannot silently become the
+# lane's compiler. The bootstrap scripts install an older default toolchain;
+# rustup auto-installs the pinned one from the toolchain file on first build.
 #
 # The Windows lane also PUBLISHES its exe (see `upload the windows exe`). The
 # gate's release build was already happening and being discarded; keeping it

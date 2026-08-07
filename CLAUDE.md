@@ -88,8 +88,8 @@ other worktree. The operator double-clicks `target\release\devpulselabs.exe`
   private and every PR author is the operator. **If the repo ever goes
   public again, deregister the runners FIRST, same day, before anything
   else.**
-- The toolchain is pinned by `rust-toolchain.toml` (1.92.0), so a guest's
-  preinstalled Rust cannot silently become the lane's compiler.
+- The toolchain is pinned by `rust-toolchain.toml` (1.97.1 since #177), so
+  a guest's preinstalled Rust cannot silently become the lane's compiler.
 - `concurrency: cancel-in-progress` supersedes a stale run when a PR is
   force-pushed — the estate has one Windows slot, and stale runs used to
   sit in the queue holding it.
