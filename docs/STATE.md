@@ -14,6 +14,52 @@ we got here.
 > - any Providers-program link described as planned — P1, V1, V2, V3, A1 and
 >   A2 all landed (#192).
 
+**2026-08-06 — CHAT REACHES THE AI PROVIDER CRATE: THE HOST DRIVES THE SEAM
+(#213, plan `docs/plans/codex-host-wiring.md`, journal
+`docs/journal/2026-08-06-codex-host-wiring.md`, `green ✔`):** the oldest open
+ask in the program — *"it shows active and I cannot chat"* — is closed for
+Codex. Witnessed in the real exe, not inferred:
+`provider runtime connected provider=codex can_send=true
+qualified=[StartSession, StreamTurns, InterruptTurn]`, and a live UI drill
+where typing a draft ENABLES Send.
+
+#210 had shipped Codex's translation table and **nothing that could run it**:
+`from_parts`, `APP_SERVER_ARGS` and `initialize_params()` had zero callers
+anywhere in the workspace. This wrote the missing half — `start(profile)`
+spawning `codex app-server` with three threads (reader/writer/stderr drain)
+and **zero new dependencies**, plus a host that drives the SEAM: `runtimes:
+BTreeMap<ProviderId, Box<dyn ProviderRuntime>>` and nine provider-parameterised
+functions replacing the `if provider != grok::PROVIDER { return }` gates. The
+gate stopped asking *"are you Grok?"* and started asking *"do you have a
+runtime?"*, so the next provider costs a `start()` and no host code. Grok
+keeps its bespoke path; converging it is its own pass.
+
+**The lessons, all of them "a cheap signal is not the real one":** a merged PR
+is not a delivered capability — the check that catches it is *does anything
+call this?*, not *did CI pass?*. The live turn found what 27 unit tests could
+not (`ThreadTokenUsage` is NESTED; reading `totalTokens` at the top level
+parses cleanly and returns zero forever). And `green-windows` went red on a
+defect this pass did not cause — `Index::dump` unlinked symlinks with
+`remove_file`, but a Windows DIRECTORY symlink needs `remove_dir`, so a
+referenced FOLDER could never be dumped (#214). It survived every local gate
+because `try_symlink` returns false without Developer Mode and both symlink
+tests then **return early while reporting `ok`** — a skip wearing a pass's
+clothes; they now say `SKIPPED (NOT PROOF)`.
+
+**Also this pass:** the crate census —
+`docs/plans/crate-consolidation-review.md`. 73 crates / 114,956 LOC. THREE
+crates are dead (`dpl-chat-extensions` 254 · `dpl-chat-renderers` 419 ·
+`dpl-engine-ae` 684); `dpl-chat-extensions` is dead AND named in neither
+`architecture.md` nor the gate. `extensions` + `renderers` are the two halves
+of ONE unbuilt feature the 6032-line window bypassed with 24 hard-coded
+`ChatEventContent::` arms; `engine-ae` was orphaned by its own intended
+consumer (`composer/src/lib.rs:6294` replicated `Caps::probe` — *"no
+engine-ae coupling for 12 lines"*). Three dependency edges nothing imports
+removed (#216). **Correction recorded:** the recommended `dpl-hub` split was
+wrong — the root of the transitive-egui leak is `Tone` living in
+`dpl-coldlight`, which also traps `dpl-doc` and `dpl-seam`, and
+`architecture.md` §3 already ratifies that extraction.
+
 **2026-08-06 — THE MEDIA-EXPERIENCE PROGRAM IS PLANNED — BROWSER, GIMP,
 ADOBE EXIT (`docs/plans/media-experience-program.md` +
 `docs/runbook/adobe-exit.md`):** research-first pass, no code. The browse
