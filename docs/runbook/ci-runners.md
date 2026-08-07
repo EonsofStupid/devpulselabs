@@ -117,6 +117,12 @@ in place; Linux rebuilt from blank into `/opt/actions-runner`).
   ("running scripts is disabled") — the bootstrap sets RemoteSigned.
 - rustup installs per-user: a SYSTEM service needs SYSTEM's profile
   cargo on the MACHINE PATH (and a service restart to see it).
+- The Linux twin (2026-08-07, first proof run): the runner snapshots PATH
+  into `/opt/actions-runner/.path` AT CONFIG TIME. `config.sh` run via
+  `sudo -u runner` from root's non-login shell captures a PATH without
+  `/home/runner/.cargo/bin` → every job dies `cargo: command not found`.
+  Cure: prepend it to `.path`, restart the service. The bootstrap should
+  eventually write `.path` itself after config.sh.
 - VS Build Tools does NOT ship `libclang.dll` — bindgen needs the
   standalone LLVM install; the pin matches the dev laptop (18.1.8).
 - khronos-egl needs the full apt dep set on Linux — a runner with only
