@@ -1,17 +1,17 @@
 name: green
 
-# The green gate on GITHUB-HOSTED runners.
+# The green gate on the ESTATE runners (again).
 #
-# It ran on self-hosted runners on the estate until 2026-07-30, which was safe
-# only while the repo was private and every PR author was the operator. The
-# repo went public, and `docs/runbook/ci-runners.md` calls that combination
-# non-negotiable: a fork PR would have executed arbitrary code on the estate
-# (the Windows runner ran as SYSTEM). Both runners were deregistered and these
-# lanes moved to hosted images — exactly the rework that runbook demanded
-# before going public.
-#
-# Hosted minutes are free and unmetered for public repositories, so this also
-# ends the single-Windows-runner queue that serialised every merge.
+# History, because the topology has flipped twice and the WHY must not be
+# lost: the lanes ran self-hosted until 2026-07-30, when the repo went
+# public and both runners were deregistered the same day — self-hosted on
+# `pull_request` is safe ONLY while the repo is private and every PR author
+# is the operator (the Windows runner executes as SYSTEM). The lanes moved
+# to hosted images for the public month. On 2026-08-07 the repo returned to
+# PRIVATE (operator ruling: personal tool), hosted minutes became metered,
+# and the estate runners were re-registered from the runbook recipe —
+# `docs/runbook/ci-runners.md` — restoring the precondition the security
+# rule demands. If the repo ever goes public again: deregister FIRST.
 #
 # ONE DEFINITION OF GREEN: both lanes run `cargo green` — the same xtask gate
 # the pre-push hook enforces locally (fmt → docs-status → spawn audit →
@@ -20,9 +20,10 @@ name: green
 # the real gate once already (no structure phase, no release build in CI);
 # the lanes now cannot diverge from the hook or from each other.
 #
-# The toolchain is pinned by `rust-toolchain.toml` (1.92.0 + clippy/rustfmt),
-# so the hosted image's preinstalled Rust is overridden automatically — the
-# lane cannot silently drift onto a newer compiler.
+# The toolchain is pinned by `rust-toolchain.toml` (1.97.1 + clippy/rustfmt,
+# since #177), so a guest's preinstalled Rust cannot silently become the
+# lane's compiler. The bootstrap scripts install an older default toolchain;
+# rustup auto-installs the pinned one from the toolchain file on first build.
 #
 # The Windows lane also PUBLISHES its exe (see `upload the windows exe`). The
 # gate's release build was already happening and being discarded; keeping it
@@ -40,15 +41,13 @@ on:
   # downloadable Windows exe (see the upload step). Deliberately WITHOUT
   # `paths-ignore`: a docs-only merge produces a byte-identical exe, but it
   # produces one stamped with the new tip SHA, so "grab the artifact for the
-  # current main" is always a question with an answer. On a public repo the
-  # minutes are free; an operator unable to tell which commit they are running
-  # is not.
+  # current main" is always a question with an answer. The estate runners are
+  # the operator's own metal, so these runs cost queue time, not minutes.
   push:
     branches: [main]
 
-# A new push supersedes an in-flight run for the same PR. On self-hosted this
-# had to be done by hand — stale runs sat in the queue holding the only
-# Windows slot.
+# A new push supersedes an in-flight run for the same PR — the estate has one
+# Windows slot, and stale runs used to sit in the queue holding it.
 concurrency:
   group: green-${{ github.workflow }}-${{ github.ref }}
   # ...but NEVER cancel a main build. On a PR the newest push is the only one
@@ -62,25 +61,23 @@ env:
 
 jobs:
   green-windows:
-    runs-on: windows-latest
-    # 90: `cargo green` adds the workspace RELEASE build the old step list
-    # skipped; a cold cache pays for it once, warm runs are incremental.
+    runs-on: [self-hosted, dpl-win]
+    # 90: `cargo green` includes the workspace RELEASE build; the persistent
+    # runner keeps its incremental target, so warm runs are far shorter.
     timeout-minutes: 90
     env:
-      # Carried over from the 16 GB self-hosted VM, where cargo test hit
-      # LNK1318 "PDB LIMIT" linking big test exes with debug info. Hosted
-      # Windows images are also 16 GB, and CI has never needed debug info —
-      # local builds keep it. Drop these only with a green run proving it.
+      # The 16 GB VM's LNK1318 "PDB LIMIT" cures (2026-07-28, each from a
+      # real failing run): no debug info in CI test builds, and a bounded
+      # job count so the linker isn't starved. Drop these only with a green
+      # run on this VM proving they're unneeded.
       CARGO_PROFILE_DEV_DEBUG: "0"
       CARGO_PROFILE_TEST_DEBUG: "0"
+      CARGO_BUILD_JOBS: "8"
     steps:
       - uses: actions/checkout@v7
-      - uses: Swatinem/rust-cache@v2
-        with:
-          # Hosted runners start cold; the cache is keyed per-job so the two
-          # lanes never share artifacts. Release artifacts ride too.
-          key: green-windows
-          cache-all-crates: "true"
+      # No rust-cache on self-hosted: the runner's _work directory persists
+      # between runs, so the incremental target IS the cache — shipping
+      # gigabytes to the Actions cache service would only slow the lane.
       - name: cargo green (the xtask gate)
         run: cargo green
 
@@ -88,11 +85,11 @@ jobs:
       #
       # `cargo green` already ends in `cargo build --workspace --release`, so
       # by this point both binaries exist — this step costs a zip, not a
-      # build. Until now CI compiled them on windows-latest and threw them
-      # away, which meant devpulselabs.exe existed in exactly one place on
-      # earth: whatever the operator's own machine last built. Work could sit
-      # merged on main for days while the running exe predated it, with no way
-      # to tell from the app itself.
+      # build. Until now CI compiled them and threw them away, which meant
+      # devpulselabs.exe existed in exactly one place on earth: whatever the
+      # operator's own machine last built. Work could sit merged on main for
+      # days while the running exe predated it, with no way to tell from the
+      # app itself.
       #
       # No `if:` — the default is "only on success", and that is the point: an
       # artifact exists ONLY for a commit that passed the gate on this OS.
@@ -112,39 +109,29 @@ jobs:
           # A silent empty artifact would be worse than none — it would look
           # like a delivered build.
           if-no-files-found: error
-          retention-days: 30
+          # Private-repo artifact storage is quota'd; 90 days of exes would
+          # exhaust it and future uploads would start failing. 3 days keeps
+          # "grab the current main exe" answerable without that cliff.
+          retention-days: 3
 
   green-linux:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, dpl-linux]
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
-      # khronos-egl and friends need the full dev set — a runner with only
-      # rustup dies at `pkg-config egl` in the first clippy. This is the same
-      # list `docs/runbook/linux-runner-bootstrap.sh` installed; keep them in
-      # step.
-      - name: system deps
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq \
-            build-essential cmake pkg-config ffmpeg libssl-dev \
-            libegl1-mesa-dev libgl1-mesa-dev libwayland-dev libxkbcommon-dev \
-            libxkbcommon-x11-dev libx11-dev libxcursor-dev libxrandr-dev \
-            libxi-dev libxtst-dev libxdo-dev libudev-dev libevdev-dev \
-            libasound2-dev libpipewire-0.3-dev libdbus-1-dev libgtk-3-dev \
-            libgbm-dev libxcb1-dev \
-            libpango1.0-dev libcairo2-dev libglib2.0-dev libv4l-dev \
-            clang libclang-dev llvm-dev
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: green-linux
-          cache-all-crates: "true"
+      # The dev deps (khronos-egl and friends) are BAKED into the guest by
+      # `docs/runbook/linux-runner-bootstrap.sh` — the runner user has no
+      # sudo, by design. This step only proves the bake is intact so a
+      # hollow guest fails loudly here instead of mysteriously in clippy.
+      - name: system deps are baked (verify, no sudo)
+        run: pkg-config --exists egl && ffmpeg -version | head -1
       - name: cargo green (the xtask gate)
         run: cargo green
 
-  # macOS lane — STAGED, ready to flip (docs/plans/mac-parity.md). Hosted
-  # `macos-latest` is free for public repos, so this no longer waits on a Mac
-  # being registered; it waits on the macOS implementation itself.
+  # macOS lane — STAGED, ready to flip (docs/plans/mac-parity.md). No Mac is
+  # registered on the estate, and flipping this on now would also mean paying
+  # hosted macOS minutes on a private repo. It waits on the macOS
+  # implementation itself either way.
   # green-mac:
   #   runs-on: macos-latest
   #   timeout-minutes: 90
