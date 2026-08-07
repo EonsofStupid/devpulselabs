@@ -386,6 +386,9 @@ enum Act {
     Render,
     /// Run a registered workflow by id (the Workflows tab's Run chip).
     RunWorkflow(String),
+    /// Dry-run a registered workflow (the Dry chip): every stage reports
+    /// what it WOULD do — nothing touches disk, generation never spends.
+    DryRunWorkflow(String),
     /// Flip reference-in-place mode (symlink imports instead of copy).
     ToggleReference,
     Tab(Tab),
@@ -2521,6 +2524,27 @@ impl Composer {
         Ok(verdict)
     }
 
+    /// Dry-run a registered workflow through [`dpl_workflows::DryRunner`] —
+    /// the honest preview finally has its caller. Every stage reports what
+    /// it WOULD do; nothing touches disk, no run folder is minted, no job
+    /// facts publish (nothing ran), and generation never spends. The
+    /// verdict lands on the status line and returns for the harness seam.
+    pub fn dry_run_workflow(&mut self, id: &str) -> Result<String, String> {
+        let Some(doc) = dpl_workflows::find(id) else {
+            let all = dpl_workflows::workflows()
+                .iter()
+                .map(|w| w.id.clone())
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(format!("unknown workflow {id:?} — registered: {all}"));
+        };
+        let (report, _board) =
+            dpl_workflows::execute(&doc, &mut dpl_workflows::DryRunner, &mut |_| {})?;
+        let verdict = format!("dry-run — {}", report.verdict_line());
+        self.status = verdict.clone();
+        Ok(verdict)
+    }
+
     /// Wire the signal fabric (called by the hub's own wire_fabric —
     /// ONE fabric end to end). Also opens this editor's capture ears.
     pub fn wire_fabric(&mut self, fabric: &dpl_fabric::Fabric) {
@@ -2827,6 +2851,11 @@ impl Composer {
                     self.status = format!("Workflow refused: {e}");
                 }
             }
+            Some(Act::DryRunWorkflow(id)) => {
+                if let Err(e) = self.dry_run_workflow(&id) {
+                    self.status = format!("Workflow refused: {e}");
+                }
+            }
             Some(Act::Tab(t)) => self.tab = t,
             Some(Act::ETool(t)) => {
                 self.etool = t;
@@ -3102,6 +3131,30 @@ impl Composer {
                             );
                             if run.clicked() {
                                 *act = Some(Act::RunWorkflow(wf.id.clone()));
+                            }
+                            let dry = cl::tip(
+                                chip(
+                                    ui,
+                                    cl::Intent::Chrome,
+                                    Tone::Cyan,
+                                    "Dry run",
+                                    ("wf-dry", &wf.id),
+                                ),
+                                "Preview this pipeline — every stage reports what it WOULD \
+                             do. Nothing touches disk and generation never spends.",
+                            );
+                            ui.pilot_track(
+                                &dry,
+                                NodeMetadata::new(
+                                    PilotId::new("composer.workflows.dry")
+                                        .child(&PilotKey::new(&wf.id)),
+                                    Role::Button,
+                                    format!("Dry-run {}", wf.label),
+                                )
+                                .value("ready"),
+                            );
+                            if dry.clicked() {
+                                *act = Some(Act::DryRunWorkflow(wf.id.clone()));
                             }
                         });
                         ui.label(RichText::new(&wf.blurb).color(cl::ink::SUBTLE));
@@ -6603,6 +6656,28 @@ mod tests {
         assert!(report
             .verdict_line()
             .starts_with("run-workflow: storyboard ok"));
+    }
+
+    /// The Dry-run chip's path: the honest preview reports every stage's
+    /// would-do without touching disk, and an unknown id refuses naming
+    /// the registered set — same contract as Run.
+    #[test]
+    fn dry_run_workflow_previews_without_touching_disk() {
+        let mut c = Composer::default();
+        let verdict = c
+            .dry_run_workflow("storyboard")
+            .expect("registered workflow previews");
+        assert!(verdict.starts_with("dry-run — "), "{verdict}");
+        assert_eq!(c.status, verdict, "the status line carries the preview");
+        assert!(
+            c.wf_run.is_none(),
+            "a dry run is not a run — nothing landed"
+        );
+        let err = c.dry_run_workflow("nosuchflow").unwrap_err();
+        assert!(
+            err.contains("storyboard"),
+            "refusal names the registered set"
+        );
     }
 
     fn video_rec(name: &str, rel: &str, secs: Option<u32>) -> Record {

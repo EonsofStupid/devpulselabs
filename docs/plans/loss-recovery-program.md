@@ -58,9 +58,9 @@ branch) · **DOC-HAZARD** (docs contradict a ruling or cite dead artifacts).
 | L4 | `composer::import::promote_asset` (RING-1, ADR-014): transactional promotion reachable only from a test drill; the deferred "assets shelf, promote chips" pass never landed | ORPHANED | `crates/composer/src/import.rs:272`; callers: `tests/promote_drill.rs` only |
 | L5 | `dpl-estate` partitions `Tree::Docs` + `Tree::Manifest`: zero production writers/readers (State + Agents are wired) | PARTIAL | `crates/estate/src/lib.rs:35`; external hits none |
 | L6 | `engine-media::ink` (`flatten_ink`, `InkStroke`): kept at the ViziWiz-ink deletion "for a future presenter annotate-and-save". Precision (2026-08-07): deck ink D3 itself LANDED (`8772e30`, Program D complete per roadmap) — what never landed is the presenter **annotate-and-save** consumer the engine was kept for | ORPHANED | `54ba46d` body; zero non-test consumers |
-| L7 | `fabric::jobs_running`: defined, self-tested, never read. **Re-measured 2026-08-07**: the shell jobs cell DOES consume the board — `shell/src/lib.rs:952-957` filters `fabric.jobs()` by `JobRow::running()` inline (it needs row labels, not a bare count). The capability is live; the accessor is a duplicate nothing needs | ORPHANED (accessor, not capability) | `crates/fabric/src/lib.rs:954`; external hits 0 |
-| L8 | `workflows::DryRunner`: the "honest dry run" has no caller outside its own tests | ORPHANED | `crates/workflows/src/lib.rs:722` |
-| L9 | `coldlight::treated_coord`: pub fn, zero callers anywhere including tests | ORPHANED | `crates/coldlight/src/lib.rs:651` |
+| L7 | `fabric::jobs_running`: defined, self-tested, never read — the half-finished coaching-plane surface (the jobs-board plan deferred "a jobs inspector panel") | **RESTORED-at-R1 (2026-08-07)** — THE JOB BOARD inspector built; `jobs_running` is its header truth, `ack_job` its ack chips, every control pilot-tracked for the coach plane | `crates/fabric/src/lib.rs:954`; consumer `shell::jobs_popup` |
+| L8 | `workflows::DryRunner`: the "honest dry run" had no caller outside its own tests | **RESTORED-at-R1 (2026-08-07)** — `dry_run_workflow` seam + Dry-run chip + `--dry-run-workflow` flag | `crates/workflows/src/lib.rs:722`; consumers in composer/hub/app |
+| L9 | `coldlight::treated_coord`: pub fn, had zero callers anywhere including tests | **RESTORED-at-R1 (2026-08-07)** — the preset picker's rows wear their presets through it | `crates/coldlight/src/lib.rs:651`; consumer `shell::preset_row` |
 | L10 | `dpl-engine-ae`: whole crate, zero dependents; its intended consumer replicated `Caps::probe` inline (`composer/src/lib.rs:6294`). Honestly recorded in STATE/journal — the loss is the unscheduled wiring, not the record | ORPHANED | `crates/engine-ae/`; STATE.md:50-57,117 |
 | L11 | `RemoveProviderWorkspace` intent: ratified in the chat-provider contract, never built, no analogue symbol at all; `RetryProvider`/`SignOutProvider` shape-changed into `RecoveryActionKind::{Retry, SignIn}` without the contract being reconciled | NEVER-BUILT / PARTIAL | `docs/plans/chat-provider-workspaces.md:78-86`; `crates/chat/core/src/lib.rs:569` |
 | L12 | Coach C1 §4 "LANDED" bullet claims the Test Lab "coach" tab and CLI form `coach mount <node> --once`; the tab was never on any branch (deliberately deferred to Slice 8, self-contradicted at :438) and the CLI grammar shipped differently | PARTIAL | `docs/plans/operator-coach-a2ui.md:249-256,438`; lab `enum Tab` has 5 tabs |
@@ -111,22 +111,30 @@ Gate: grep for every dead name in this list returns 0 doc hits (or only
 historical-context hits explicitly marked as such); `poam` V1 no longer
 contradicts 30e35e7.
 
-### Arc R1 — small wires and retirements (code, small, low risk)
+### Arc R1 — the orphans get their missing halves (code) — EXECUTING
 
-- **L7 `jobs_running`**: RETIRE, not wire — re-measured 2026-08-07, the
-  R1 bullet as first written sat on a stale premise. The shell's jobs cell
-  already consumes the board (`shell/src/lib.rs:952-957`, `fabric.jobs()`
-  filtered by `JobRow::running()` — it needs the row labels a bare count
-  cannot give). Ceremonial wiring would double-lock the mutex to no end.
-  Delete the accessor; keep the running-count truth covered by tests
-  through `jobs()`. Gate: symbol gone, grep 0; fabric tests still assert
-  the running-count behavior.
-- **L8 `DryRunner`**: wire a `--dry-run` mode on the composer's workflow
-  seam (`WfRunner` path) so the honest runner has a caller. Gate: ≥1
-  external call site + one harness scenario exercising it.
-- **L9 `treated_coord`**: PROPOSED **delete** (zero callers including
-  tests; `Dress::Coord` + `matrix::resolve` are the live path). Gate:
-  symbol gone, grep 0.
+Re-ruled 2026-08-07 (§5 amendment): no deletions. Each orphan's original
+ask is excavated, then its missing consumer built.
+
+- **L7 `jobs_running`**: BUILT 2026-08-07 — THE JOB BOARD inspector
+  (`shell::jobs_popup`): clickable pilot-tracked jobs cell, board rows
+  with live progress, ack chips → `ack_job`, `jobs_running()` as the
+  header truth, "jobs · N done" when outcomes wait unacked. The board's
+  ack contract has its consumer; the coach plane can mount it and register
+  clicks. Gate: `jobs_running`/`job`/`ack_job` external call sites ≥1
+  each (met); build + tests green; proof shot of the open board.
+- **L8 `DryRunner`**: BUILT 2026-08-07 — `Composer::dry_run_workflow`
+  (refusal contract mirrors Run; no disk, no run folder, no job facts, no
+  spend), the Dry-run chip beside Run in the Workflows tab
+  (pilot-tracked, `composer.workflows.dry`), and the `--dry-run-workflow
+  <id>` harness flag through hub + app + the CLAUDE.md census. Gate:
+  external call sites ≥3 (chip dispatch, hub seam, app flag — met);
+  `dry_run_workflow_previews_without_touching_disk` green.
+- **L9 `treated_coord`**: BUILT 2026-08-07 (Q1 reversed) — the preset
+  picker's rows now WEAR their presets through `treated_coord` (full
+  treatment, hover/worn states, resolved inks) instead of painting flat
+  color chips. Gate: external call site ≥1 (met); build + tests green;
+  proof shot of the picker.
 
 ### Arc R2 — RING-1 completes: the assets shelf (code, medium)
 
@@ -164,12 +172,12 @@ scenario proves it; contract doc and code name the same verbs.
 
 ### Arc R5 — the estate fills its shelves or shrinks them (ruling, then code)
 
-**L5**: PROPOSED — wire `Tree::Docs` (the in-app docs/guide surfaces are
-the natural writer per the estate doctrine) and `Tree::Manifest` (run
-manifests already exist in `dpl-protocol`; persisting them is the natural
-reader). If the operator rules either partition speculative, shrink the
-enum instead — a hollow partition is drift either way. Gate: each kept
-partition has ≥1 production writer AND reader; each cut one is gone.
+**L5**: wire `Tree::Docs` (the in-app docs/guide surfaces are the natural
+writer per the estate doctrine) and `Tree::Manifest` (run manifests
+already exist in `dpl-protocol`; persisting them is the natural reader).
+Per the §5 amendment there is no shrink option — hollow partitions are
+half-finished implementations and get finished. Gate: each partition has
+≥1 production writer AND reader.
 
 ### Arc R6 — portable packaging becomes true in the rewrite (code, large)
 
@@ -199,13 +207,36 @@ WiredFRONT-adjacent:
   honest tombstone. Gate (when run): `dpl-engine-ae` gains ≥1 crate
   dependent and the inline `Caps::probe` replica in composer is retired.
 
-## 5. The rulings table — RULED 2026-08-07, all defaults stand
+## 5. The rulings table — RULED 2026-08-07, then AMENDED the same day
 
-Operator ruling 2026-08-07 ("execute defaults") ratifies every line:
+**Operator ruling, 2026-08-07 (supersedes Q1 and every delete-shaped
+default): an orphan is a half-finished implementation, never dead code.
+"If it's not being called it's because the implementation was half-assed —
+get it implemented, don't delete it. Find out why it was even implemented."
+The recovery move for EVERY orphan is: git-archaeology the original ask,
+then build the missing consumer.** Executed same-session:
+
+- `treated_coord` (Q1 REVERSED — was "delete"): archaeology found its
+  purpose in its own doc comment — "the preset path", the constructor for a
+  surface to wear a matrix coordinate. Its missing consumer was the preset
+  picker, whose rows painted flat color chips instead of the real look.
+  BUILT: `preset_row` now wears each preset through `treated_coord` (full
+  treatment — back-glow, shadows, edge; hover previews Hover, worn sits
+  Active), inks from the preset's own resolution.
+- `jobs_running` (retire-ruling REVERSED): archaeology found the deferred
+  consumer named in the jobs-board plan's own out-of-scope list — "a jobs
+  inspector panel" — and the board's ack contract waiting for it. BUILT:
+  THE JOB BOARD popup (`shell::jobs_popup`) — the status jobs cell is now
+  clickable and pilot-tracked, `jobs_running()` is the header truth,
+  resolved rows carry pilot-tracked ack chips driving `ack_job`, unacked
+  outcomes surface as "jobs · N done" instead of silence. Coach-plane
+  ready: every control registers on the pilot tree.
+
+Original table (Q1's default no longer stands; the rest hold):
 
 | # | Question | RULED (2026-08-07) |
 |---|----------|--------------------|
-| Q1 | `treated_coord` — delete or keep? | delete (R1) |
+| Q1 | `treated_coord` — delete or keep? | ~~delete~~ REVERSED same day: complete it (see amendment above) |
 | Q2 | `color-palette.png` → `WORKBENCH-editor-2.png` rename? | yes (R0) |
 | Q3 | Rendering ADR refile number ADR-018? | yes (R0) |
 | Q4 | W4b reorder: hand-rolled drag or adopt `egui_dnd`? | hand-rolled unless it fights egui 0.35 (R3a) |

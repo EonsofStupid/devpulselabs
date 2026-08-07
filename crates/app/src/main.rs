@@ -377,6 +377,14 @@ fn main() -> eframe::Result {
         .position(|a| a == "--run-workflow")
         .and_then(|i| args.get(i + 1))
         .cloned();
+    // `--dry-run-workflow <id>` previews a workflow through the Dry-run
+    // chip's exact path — would-do verdict on stdout; nothing touches disk,
+    // generation never spends. Pair with `--screenshot` to terminate.
+    let dry_run_workflow: Option<String> = args
+        .iter()
+        .position(|a| a == "--dry-run-workflow")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
     // `--open-rail <hub>` pins the accordion open on one house (L1a) —
     // proof shots of the unfolded rail reproduce. Unknown hub degrades to
     // a folded rail, never a panic.
@@ -552,6 +560,7 @@ fn main() -> eframe::Result {
                 l4_drill,
                 make_slide,
                 run_workflow,
+                dry_run_workflow,
                 seam_port,
                 ledger,
                 ai_backfill: ai_backfill_on,
@@ -608,6 +617,7 @@ struct Boot {
     l4_drill: bool,
     make_slide: Option<String>,
     run_workflow: Option<String>,
+    dry_run_workflow: Option<String>,
     /// The agent seam's port; None = `--no-seam`.
     seam_port: Option<u16>,
     /// Signal ledger (Phase 2) — Parquet writer under `.userdata/analytics/`.
@@ -706,6 +716,7 @@ impl App {
             l4_drill,
             make_slide,
             run_workflow,
+            dry_run_workflow,
             seam_port,
             ledger: ledger_on,
             ai_backfill: ai_backfill_on,
@@ -861,6 +872,10 @@ impl App {
         // Workflows tab's exact Run path (jobs facts ride the wired fabric).
         if let Some(id) = &run_workflow {
             wiredfront.run_workflow(id);
+        }
+        // The honest preview: the same census, none of the spend.
+        if let Some(id) = &dry_run_workflow {
+            wiredfront.dry_run_workflow(id);
         }
         // Chat coding providers work inside the canonical launch workspace,
         // not DevPULSE's media/content store. The launcher (and later the

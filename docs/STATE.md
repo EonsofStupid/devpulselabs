@@ -15,15 +15,22 @@ we got here.
 >   A2 all landed (#192).
 
 **2026-08-07 — THE LOSS-RECOVERY PROGRAM IS RATIFIED; R0 SETS THE DOCS
-STRAIGHT (`docs/plans/loss-recovery-program.md`):** the 2026-08-06
-loss-audit probe measured every capability claim against the tree — 153
-claims verified, 136 wired — and the program ratified 2026-08-07 carries
-the recovery: ledger L1–L17, rulings Q1–Q9 (all defaults). Arc R0 is THIS
-pass — the docs stop claiming what the code no longer holds: the W1.2
-supersession of the wiredfront ingredient library recorded at R1u, the
-`brutal_frame`/`clay_frame` epitaph note in KNOWN BROKEN #2, and in the
-census fetch-ffmpeg flipped to ❌ (recovery = Arc R6) and pixvix corrected
-to viziwiz. The program doc carries the detail.
+STRAIGHT, R1 BUILDS THE ORPHANS' MISSING HALVES
+(`docs/plans/loss-recovery-program.md`):** the 2026-08-06 loss-audit probe
+measured every capability claim against the tree — 153 claims verified,
+136 wired — and the program ratified 2026-08-07 carries the recovery:
+ledger L1–L17, rulings Q1–Q9. Arc R0: the docs stop claiming what the
+code no longer holds (the W1.2 supersession recorded at R1u, the
+`brutal_frame`/`clay_frame` epitaph note, census fetch-ffmpeg flipped to
+❌ → Arc R6, pixvix corrected to viziwiz). Arc R1, re-ruled the same day —
+**an orphan is a half-finished ask; build the consumer, never delete** —
+ships three: THE JOB BOARD inspector (`shell::jobs_popup` — clickable
+pilot-tracked jobs cell, live progress rows, ack chips → `ack_job`,
+`jobs_running()` the header truth; the coach plane can mount it), the
+preset picker's rows now WEAR their presets through `treated_coord` (full
+treatment, hover/worn states), and the honest workflow preview
+(`dry_run_workflow` + the Dry-run chip + `--dry-run-workflow`, nothing
+touches disk, nothing spends). The program doc carries the detail.
 
 **2026-08-06 — CHAT REACHES THE AI PROVIDER CRATE: THE HOST DRIVES THE SEAM
 (#213, plan `docs/plans/codex-host-wiring.md`, journal

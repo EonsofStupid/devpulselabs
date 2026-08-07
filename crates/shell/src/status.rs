@@ -31,6 +31,8 @@ pub enum StatusAction {
     ToggleProviders,
     /// Toggle the ColdLight preset picker — how THIS screen is dressed.
     TogglePresets,
+    /// Toggle THE JOB BOARD inspector — every row the fabric holds, ackable.
+    ToggleJobs,
 }
 
 /// Data-only description of an app-owned window accessory.
@@ -59,6 +61,9 @@ pub struct StatusCtx<'a> {
     pub mood: &'static Mood,
     /// The JobBoard's "working…" truth — None = nothing running.
     pub working: Option<String>,
+    /// Resolved board rows nobody has acknowledged yet — the quiet reminder
+    /// that outcomes are waiting on the board after the work stops.
+    pub jobs_unacked: usize,
     /// THE ROSTER's truth — None = no provider is activated, and the control
     /// is absent rather than claiming an empty capability.
     pub providers: Option<ProviderChip>,
@@ -261,16 +266,39 @@ fn signals(ui: &mut Ui, cx: &StatusCtx) -> Option<StatusAction> {
 }
 
 /// The JobBoard's honest "working…" truth — a render, ingest, or export in
-/// flight is visible from EVERY route, not only the surface that started it.
+/// flight is visible from EVERY route, not only the surface that started it —
+/// and the way INTO the board: clicking the cell opens THE JOB BOARD
+/// inspector. Quiet when the board is empty; when work has resolved unacked
+/// it says so instead of going silent.
 fn jobs(ui: &mut Ui, cx: &StatusCtx) -> Option<StatusAction> {
-    if let Some(text) = &cx.working {
-        cl::tone_dot(ui, cx.tone);
-        ui.label(RichText::new(text).small().color(cl::ink::BASE));
-        // Progress counters tick without a signal — keep the bar live.
-        ui.ctx()
-            .request_repaint_after(std::time::Duration::from_millis(300));
-    }
-    None
+    let text = match (&cx.working, cx.jobs_unacked) {
+        (Some(text), _) => {
+            cl::tone_dot(ui, cx.tone);
+            // Progress counters tick without a signal — keep the bar live.
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(300));
+            text.clone()
+        }
+        (None, n) if n > 0 => format!("jobs · {n} done"),
+        (None, _) => return None,
+    };
+    let response = cl::tip(
+        ui.add(
+            egui::Label::new(RichText::new(&text).small().color(cl::ink::BASE))
+                .sense(egui::Sense::click()),
+        ),
+        "Open the job board — everything running or finished, acknowledge outcomes here",
+    );
+    ui.pilot_track(
+        &response,
+        NodeMetadata::new(
+            PilotId::new("shell.status").child(&egui_pilot_ai::PilotKey::new("jobs")),
+            Role::Button,
+            "Open the job board",
+        )
+        .value(text),
+    );
+    response.clicked().then_some(StatusAction::ToggleJobs)
 }
 
 /// The PROVIDERS control (V1) — brain + "Providers" + the `ai` circle, the
