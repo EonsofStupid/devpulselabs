@@ -12,11 +12,9 @@ dpl-coldlight.workspace = true
 dpl-index.workspace = true
 dpl-doc.workspace = true
 dpl-engine-capture.workspace = true
-dpl-engine-steps.workspace = true
 dpl-video.workspace = true
 dpl-composer.workspace = true
 dpl-estate.workspace = true
-image.workspace = true
 serde_json.workspace = true
 egui-pilot-ai.workspace = true
 
