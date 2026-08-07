@@ -1,0 +1,836 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- DevPULSE Coach SEAM mock — rev 3 2026-08-07 (red-pen me).
+     Rev 3: stage 7 OPTIMIZE — the closed loop per signal-ledger §9.1
+     ("recommends an action that arrives with a button that mounts the
+     lesson"). Insight cards over dpl-ledger Parquet + seam spans via
+     DataFusion; never a passive dashboard. Home precedent: /experiments.
+     Rev 2 (operator challenge + ruling): stage 2 is the FABRIC FOUNDRY
+     job console — checkpointed, resumable, sandboxed, battery-gated builds
+     (build the tedious thing ONCE, offer the pack to users). Trace sink is
+     Arrow/DataFusion over Parquet per ADR-014 ruling — NOT DuckDB.
+     Challenge capture: docs/research/coach/seam-real-world-challenge.md
+     Extends the LOOK-APPROVED C2c Import Process mock into the full seam
+     program: Pick (tier ladder) → Foundry (build-once pipeline)
+     → Profile card (the config series) → Verb console (the 101 + effect
+     contracts) → Lesson (overlay + Coach/Teacher agency) → Trace ledger
+     (OTel-style spans → Arrow/Parquet, DataFusion queries).
+     Spine: docs/plans/coach-c2s-foreign-target-spike.md (tier ladder, C5 AppAdapter)
+            docs/plans/coach-operator-verb-catalog-adr.md (the ratified 101)
+            docs/plans/coach-overlay-adr.md (paint/observe laws)
+     Law: ONE vocabulary — the seam extends egui-pilot-ai-protocol
+          (CoachCommand / CoachEvent / Action). No second agent surface.
+     WHAT IS REAL: the verb names, effect-contract shapes, tier ladder,
+     Calculator/Cursor evidence, and the Blender socket pattern are
+     ground-truthed. WHAT IS NOT: every number in the seam-build progress,
+     the VS Code/SolidWorks/Claude profiles, spans, and DuckDB rows are
+     illustrative. Not production UI. ColdLight-adjacent: crisp edges,
+     hard offset shadow, mono eyebrows — no backdrop blur. -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DevPULSE — Coach Seam</title>
+<style>
+  :root{
+    --ground:#0b0e14; --raised:#151a24; --raised-2:#1b2230; --well:#090c11;
+    --hairline:#2a3140; --hairline-2:#39435a;
+    --ink-strong:#e8edf5; --ink:#9aa6b8; --ink-muted:#5f6b7e;
+    --cyan:#28e0d0; --amber:#ffb020; --good:#4ade80; --warn:#ff6a5c;
+    --violet:#a78bfa;
+    --tone:var(--cyan); --tone-soft:rgba(40,224,208,.14);
+    --amber-soft:rgba(255,176,32,.12); --warn-soft:rgba(255,106,92,.08);
+    --violet-soft:rgba(167,139,250,.12);
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --r:8px; --shadow:5px 5px 0 rgba(0,0,0,.55); --shadow-sm:3px 3px 0 rgba(0,0,0,.5);
+    color-scheme:dark;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;min-height:100%}
+  body{
+    background:var(--ground);color:var(--ink);font-family:var(--sans);line-height:1.45;
+    -webkit-font-smoothing:antialiased;
+  }
+  .shell{display:grid;grid-template-columns:72px 1fr;min-height:100vh}
+  .rail{
+    background:var(--well);border-right:1px solid var(--hairline);
+    display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px 8px;
+  }
+  .rail .mark{
+    width:40px;height:40px;border:1px solid var(--hairline-2);border-radius:var(--r);
+    background:var(--raised);box-shadow:var(--shadow-sm);
+    display:grid;place-items:center;font-family:var(--mono);font-size:10px;
+    letter-spacing:.08em;color:var(--tone);font-weight:700;
+  }
+  .rail button{
+    width:48px;min-height:48px;border:1px solid transparent;border-radius:var(--r);
+    background:transparent;color:var(--ink-muted);font-family:var(--mono);font-size:9px;
+    letter-spacing:.06em;text-transform:uppercase;cursor:pointer;
+  }
+  .rail button.on{
+    border-color:var(--tone);color:var(--tone);background:var(--tone-soft);
+    box-shadow:var(--shadow-sm);
+  }
+  .main{display:flex;flex-direction:column;min-width:0}
+  .topbar{
+    display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+    padding:14px 22px;border-bottom:1px solid var(--hairline);
+  }
+  .crumb{font-family:var(--mono);font-size:12px;color:var(--ink-muted)}
+  .crumb b{color:var(--ink-strong);font-weight:600}
+  .topbar .sp{flex:1}
+  .sig{
+    display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10.5px;
+    letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted);
+    border:1px solid var(--hairline);border-radius:999px;padding:6px 12px;background:var(--raised);
+  }
+  .sig .led{width:6px;height:6px;border-radius:50%;background:var(--good)}
+  .sig b{color:var(--good)}
+  .btn{
+    font-family:var(--mono);font-size:12px;letter-spacing:.05em;text-transform:uppercase;
+    background:var(--raised-2);color:var(--ink);border:1px solid var(--hairline-2);
+    border-radius:var(--r);padding:11px 15px;cursor:pointer;min-height:44px;
+  }
+  .btn.tone{border-color:var(--tone);color:var(--tone)}
+  .btn.tone:hover{background:var(--tone-soft)}
+  .btn.amber{border-color:var(--amber);color:var(--amber)}
+  .btn.amber:hover{background:var(--amber-soft)}
+  .btn.violet{border-color:var(--violet);color:var(--violet)}
+  .btn.violet:hover{background:var(--violet-soft)}
+  .btn:focus-visible{outline:3px solid var(--tone);outline-offset:2px}
+  .btn:active{transform:translate(1px,1px)}
+  .btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+  .wrap{padding:22px clamp(16px,2.5vw,28px);max-width:1280px}
+  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.28em;text-transform:uppercase;color:var(--ink-muted)}
+  h1{font-weight:800;font-size:clamp(24px,3.2vw,34px);line-height:1.05;letter-spacing:-.02em;color:var(--ink-strong);margin:.12em 0 .1em}
+  h1 .lit{color:var(--tone)}
+  .dek{font-size:15px;color:var(--ink);max-width:66ch;margin:0 0 18px}
+  .stagebar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px}
+  .stagebar button{
+    font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;
+    border:1px solid var(--hairline);background:var(--raised);color:var(--ink-muted);
+    border-radius:999px;padding:7px 11px;cursor:pointer;
+  }
+  .stagebar button.on{border-color:var(--tone);color:var(--tone);background:var(--tone-soft)}
+  .grid{display:grid;grid-template-columns:.85fr 1.15fr;gap:18px;align-items:start}
+  @media (max-width:980px){
+    .shell{grid-template-columns:1fr}
+    .rail{flex-direction:row;justify-content:flex-start;border-right:none;border-bottom:1px solid var(--hairline)}
+    .grid{grid-template-columns:1fr}
+  }
+  .panel{
+    background:var(--raised);border:1px solid var(--hairline-2);border-radius:12px;
+    box-shadow:var(--shadow);padding:18px 16px 16px;
+  }
+  .panel h2{margin:0 0 6px;font-size:15px;color:var(--ink-strong);letter-spacing:-.01em}
+  .panel .hint{font-size:13px;color:var(--ink-muted);margin:0 0 14px}
+  .list{display:flex;flex-direction:column;gap:8px}
+  .app{
+    display:flex;align-items:center;gap:12px;width:100%;text-align:left;
+    background:var(--raised-2);border:1px solid var(--hairline);border-radius:var(--r);
+    padding:11px 12px;cursor:pointer;color:inherit;font:inherit;box-shadow:var(--shadow-sm);
+  }
+  .app:hover{border-color:var(--ink-muted)}
+  .app.sel{border-color:var(--tone);background:var(--tone-soft)}
+  .app:focus-visible{outline:3px solid var(--tone);outline-offset:2px}
+  .app .glyph{
+    width:38px;height:38px;border-radius:var(--r);border:1px solid var(--hairline-2);
+    display:grid;place-items:center;font-family:var(--mono);font-size:11px;color:var(--tone);
+    background:var(--well);flex:none;
+  }
+  .app .meta{min-width:0;flex:1}
+  .app .name{font-weight:700;color:var(--ink-strong);font-size:14px}
+  .app .sub{font-family:var(--mono);font-size:10.5px;color:var(--ink-muted);margin-top:2px}
+  .pill{
+    font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+    border:1px solid var(--hairline-2);border-radius:999px;padding:4px 9px;color:var(--ink-muted);
+    white-space:nowrap;
+  }
+  .pill.a{border-color:var(--good);color:var(--good)}
+  .pill.b{border-color:var(--violet);color:var(--violet)}
+  .pill.c{border-color:var(--warn);color:var(--warn)}
+  .pill.amberp{border-color:var(--amber);color:var(--amber)}
+  .seed{
+    margin-top:14px;padding:12px;border:1px dashed var(--hairline-2);border-radius:var(--r);
+    font-size:13px;color:var(--ink);
+  }
+  .seed b{color:var(--tone)}
+  .progress{height:10px;background:var(--well);border:1px solid var(--hairline);border-radius:999px;overflow:hidden}
+  .progress > i{display:block;height:100%;background:var(--tone);width:var(--p,12%)}
+  .progress.violet > i{background:var(--violet)}
+  .steps{margin:14px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}
+  .steps li{
+    display:flex;gap:10px;align-items:flex-start;font-size:13px;color:var(--ink);
+    padding:8px 0;border-bottom:1px solid var(--hairline);
+  }
+  .steps li:last-child{border-bottom:none}
+  .steps .n{font-family:var(--mono);font-size:11px;color:var(--tone);min-width:2.2ch}
+  .steps .ok{color:var(--good)}
+  .steps .bad{color:var(--warn)}
+  .callout{
+    margin-top:14px;padding:12px;border:1px solid var(--warn);border-radius:var(--r);
+    background:var(--warn-soft);font-size:13px;color:var(--ink-strong);
+  }
+  .callout.good{border-color:var(--good);background:rgba(74,222,128,.08)}
+  .callout.amber{border-color:var(--amber);background:var(--amber-soft)}
+  .callout.violet{border-color:var(--violet);background:var(--violet-soft)}
+  .callout .tip{margin-top:6px;color:var(--ink);font-size:12.5px}
+  .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+  .law{
+    margin-top:14px;padding:12px;border:1px solid var(--hairline-2);border-radius:var(--r);
+    background:var(--well);font-size:12.5px;color:var(--ink);
+  }
+  .law b{color:var(--tone)}
+  .note{margin-top:18px;font-size:12px;color:var(--ink-muted);max-width:78ch}
+  .redpen{
+    margin-top:14px;padding:12px;border:1px solid var(--amber);border-radius:var(--r);
+    background:var(--amber-soft);font-size:12.5px;color:var(--ink-strong);
+  }
+  .redpen b{color:var(--amber)}
+  .redpen ol{margin:.4em 0 0;padding-left:1.3em;color:var(--ink)}
+  .redpen li{margin:.3em 0}
+  table.tbl{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:10px}
+  table.tbl th{
+    font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ink-muted);text-align:left;padding:6px 8px;border-bottom:1px solid var(--hairline-2);
+  }
+  table.tbl td{padding:7px 8px;border-bottom:1px solid var(--hairline);color:var(--ink)}
+  table.tbl td b{color:var(--ink-strong)}
+  table.tbl tr:last-child td{border-bottom:none}
+  .rung{
+    font-family:var(--mono);font-size:10px;border:1px solid var(--hairline-2);
+    border-radius:4px;padding:2px 6px;white-space:nowrap;
+  }
+  .rung.r1{border-color:var(--violet);color:var(--violet)}
+  .rung.r2{border-color:var(--good);color:var(--good)}
+  .rung.r3{border-color:var(--amber);color:var(--amber)}
+  .rung.r4{border-color:var(--warn);color:var(--warn)}
+  .code{
+    font-family:var(--mono);font-size:11.5px;line-height:1.55;background:var(--well);
+    border:1px solid var(--hairline);border-radius:var(--r);padding:12px;overflow:auto;
+    color:var(--ink);white-space:pre;margin-top:10px;
+  }
+  .code .k{color:var(--tone)} .code .s{color:var(--good)} .code .c{color:var(--ink-muted)}
+  .code .v{color:var(--violet)} .code .a{color:var(--amber)}
+  .verbgrid{display:flex;flex-wrap:wrap;gap:7px;margin-top:6px}
+  .verb{
+    font-family:var(--mono);font-size:11px;border:1px solid var(--hairline-2);
+    background:var(--raised-2);color:var(--ink);border-radius:6px;padding:7px 10px;cursor:pointer;
+  }
+  .verb:hover{border-color:var(--ink-muted)}
+  .verb.on{border-color:var(--tone);color:var(--tone);background:var(--tone-soft)}
+  .verb.planned{opacity:.5;cursor:not-allowed}
+  .feed{
+    margin-top:12px;background:var(--well);border:1px solid var(--hairline);border-radius:var(--r);
+    padding:10px 12px;font-family:var(--mono);font-size:11px;line-height:1.7;color:var(--ink-muted);
+    max-height:150px;overflow:auto;
+  }
+  .feed .ev{color:var(--good)} .feed .vb{color:var(--tone)} .feed .rf{color:var(--warn)}
+  /* lesson stage */
+  .stagebox{
+    position:relative;margin-top:12px;height:280px;background:var(--well);
+    border:1px solid var(--hairline-2);border-radius:var(--r);overflow:hidden;
+  }
+  .fakewin{
+    position:absolute;left:34px;top:30px;width:300px;height:210px;background:#10151f;
+    border:1px solid var(--hairline-2);border-radius:6px;box-shadow:var(--shadow-sm);
+    transition:left .5s ease;
+  }
+  .fakewin .bar{height:22px;border-bottom:1px solid var(--hairline);display:flex;align-items:center;
+    padding:0 8px;font-family:var(--mono);font-size:9px;color:var(--ink-muted)}
+  .fakewin .kbd{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;padding:10px}
+  .fakewin .kbd span{
+    height:26px;border:1px solid var(--hairline);border-radius:4px;display:grid;place-items:center;
+    font-family:var(--mono);font-size:10px;color:var(--ink);
+  }
+  .fakewin .kbd span.target{position:relative;border-color:var(--tone);color:var(--tone)}
+  .ring{
+    position:absolute;border:2px solid var(--tone);border-radius:6px;pointer-events:none;
+    box-shadow:0 0 0 6px rgba(40,224,208,.14), 0 0 22px rgba(40,224,208,.35);
+  }
+  .caption{
+    position:absolute;background:var(--raised);border:1px solid var(--tone);border-radius:6px;
+    font-family:var(--mono);font-size:10px;color:var(--tone);padding:4px 8px;white-space:nowrap;
+    box-shadow:var(--shadow-sm);
+  }
+  .dim{position:absolute;inset:0;background:rgba(0,0,0,.42);pointer-events:none}
+  .dim .hole{position:absolute;background:transparent;outline:9999px solid rgba(0,0,0,.42)}
+  .lessondock{
+    position:absolute;right:12px;top:12px;width:190px;background:var(--raised);
+    border:1px solid var(--hairline-2);border-radius:8px;box-shadow:var(--shadow-sm);
+    padding:10px;transition:right .5s ease;
+  }
+  .lessondock h3{margin:0 0 6px;font-size:11px;font-family:var(--mono);letter-spacing:.06em;
+    text-transform:uppercase;color:var(--ink-muted)}
+  .beat{display:flex;gap:7px;align-items:center;font-size:11px;padding:4px 0;color:var(--ink)}
+  .beat .st{font-family:var(--mono);font-size:9px;min-width:3.4em}
+  .beat.done{color:var(--ink-muted);text-decoration:line-through}
+  .beat.done .st{color:var(--good);text-decoration:none}
+  .beat.now .st{color:var(--tone)}
+  .toggle{display:inline-flex;border:1px solid var(--hairline-2);border-radius:999px;overflow:hidden;margin-top:10px}
+  .toggle button{
+    font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;
+    border:none;background:transparent;color:var(--ink-muted);padding:7px 12px;cursor:pointer;
+  }
+  .toggle button.on{background:var(--tone-soft);color:var(--tone)}
+  .toggle button.teach.on{background:var(--violet-soft);color:var(--violet)}
+  /* optimize stage — insight cards (closed loop, never a dashboard) */
+  .insight{
+    background:var(--raised-2);border:1px solid var(--hairline-2);border-radius:var(--r);
+    box-shadow:var(--shadow-sm);padding:12px;margin-top:12px;
+  }
+  .insight .prov{
+    font-family:var(--mono);font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;
+    color:var(--ink-muted);margin-bottom:6px;
+  }
+  .insight .finding{font-size:13.5px;color:var(--ink-strong)}
+  .insight .finding b{color:var(--tone)}
+  .insight .finding .bad{color:var(--warn)}
+  .insight .finding .warnv{color:var(--amber)}
+  .insight .why{font-family:var(--mono);font-size:11px;color:var(--ink-muted);margin-top:5px}
+  .insight .act{display:flex;gap:8px;align-items:center;margin-top:10px}
+  .hidden{display:none !important}
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="rail" aria-label="Hubs">
+    <div class="mark" title="DevPULSE">DPL</div>
+    <button type="button">Home</button>
+    <button type="button">Work</button>
+    <button type="button" class="on" title="Coach hub">Coach</button>
+    <button type="button">Show</button>
+  </nav>
+  <div class="main">
+    <header class="topbar">
+      <div class="crumb">Hubs <span aria-hidden="true">/</span> <b>Coach</b> <span aria-hidden="true">/</span> Seam</div>
+      <div class="sp"></div>
+      <div class="sig" title="One vocabulary — extends egui-pilot-ai-protocol"><span class="led" aria-hidden="true"></span> Protocol <b>one voice</b></div>
+      <div class="sig" title="Every verb emits an execute_tool span"><span class="led" aria-hidden="true"></span> Trace <b>on</b></div>
+      <button class="btn" type="button" title="EguiPilot devtools surface">Advanced</button>
+    </header>
+    <div class="wrap">
+      <div class="eyebrow">Coach · the app seam</div>
+      <h1>Any installed app becomes <span class="lit">teachable</span></h1>
+      <p class="dek">
+        Pick an installed application. The seam builds a <b>profile</b> — identity, transports,
+        verb coverage, oracles — climbing the <b>transport ladder</b> per verb: the app's own API
+        when a pack declares one, accessibility actions by default, injected input last, vision
+        only as import fuel. Every verb returns an <b>effect contract</b> and emits a
+        <b>trace span</b>. Coach points; <b>Teacher</b> may open and execute on the same rails.
+      </p>
+
+      <div class="stagebar" role="tablist" aria-label="Mock stages">
+        <button type="button" class="on" data-stage="pick">1 · Pick</button>
+        <button type="button" data-stage="build">2 · Foundry</button>
+        <button type="button" data-stage="profile">3 · Profile card</button>
+        <button type="button" data-stage="console">4 · Verb console</button>
+        <button type="button" data-stage="lesson">5 · Lesson</button>
+        <button type="button" data-stage="trace">6 · Trace ledger</button>
+        <button type="button" data-stage="optimize">7 · Optimize</button>
+      </div>
+
+      <div class="grid">
+        <section class="panel" aria-labelledby="pick-h">
+          <h2 id="pick-h">Installed &amp; classified</h2>
+          <p class="hint">Every app lands on the tier ladder. The pill is the highest tier available — an adapter always uses the best rung per verb.</p>
+          <div class="list" role="listbox" aria-label="Target apps" id="app-list"></div>
+          <div class="seed">
+            <b>Ladder:</b> <span class="rung r1">R1 native API</span>
+            <span class="rung r2">R2 a11y action</span>
+            <span class="rung r3">R3 injected input</span>
+            <span class="rung r4">R4 vision (import fuel)</span>
+            <div style="margin-top:8px">Unprofiled apps synthesize a generic R2+R3 profile — degrade, never crash.</div>
+          </div>
+        </section>
+
+        <section class="panel" aria-labelledby="flow-h" id="flow-panel">
+          <!-- stage script renders here -->
+        </section>
+      </div>
+
+      <div class="law">
+        <b>Seam laws:</b> one vocabulary — foreign arms extend <b>egui-pilot-ai-protocol</b>, never a
+        second agent surface · every mutating verb returns <b>effect_observed</b> + typed before/after ·
+        screenshots are import fuel, never the lesson hot path · overlay observes, never intercepts ·
+        traces are <b>local-first</b> (Arrow/Parquet · DataFusion, ADR-014), nothing leaves the machine ·
+        packs ship only on <b>battery green</b> and revalidate on attach.
+      </div>
+
+      <div class="redpen">
+        <b>Red-pen queue (operator):</b>
+        <ol>
+          <li>Does the <b>Profile card</b> live on the Coach hub, or under Lab/Advanced only?</li>
+          <li>Is the <b>Verb console</b> operator-visible, or a devtools surface behind Advanced?</li>
+          <li>Teacher consent — per <b>step</b>, per <b>lesson</b>, or a standing per-app grant?</li>
+          <li>Pack versioning display: show the hash-fingerprinted pack id (app+version) on the card?</li>
+          <li>Lesson dock relocation (window moves opposite the action) — always, or only when overlapping?</li>
+        </ol>
+      </div>
+
+      <p class="note">
+        Mock rev 3 · 2026-08-07 — adds 7·Optimize (closed loop per
+        signal-ledger §9.1; home precedent /experiments #185). Rev 2 added the
+        Foundry job console + Arrow/DataFusion sink (operator challenge +
+        ADR-014 ruling). Challenge capture:
+        docs/research/coach/seam-real-world-challenge.md. Spine:
+        docs/plans/coach-c2s-foreign-target-spike.md (tier ladder · C5 AppAdapter) ·
+        docs/plans/coach-operator-verb-catalog-adr.md (the ratified 101) ·
+        docs/plans/coach-overlay-adr.md. Research: UFO² hybrid GUI–API ·
+        Agent Workflow Memory · libei/portal forward path. Nothing here is code
+        until the seam ADR is red-penned and ratified.
+      </p>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  // ── the config series (illustrative profiles; Calculator/Cursor facts real) ──
+  const APPS = {
+    calc: {
+      name: "Calculator", glyph: "7±", tier: "a", pillText: "Tier A · proven",
+      sub: "gnome-calculator · 81-node fabric · verb battery GREEN",
+      eta: "~1 min — small fabric (proven on this box)",
+      ladder: [
+        ["invoke / type_text", "r2", "AT-SPI named button Actions"],
+        ["select", "r3", "a11y extents + click (GTK4 toggle: zero Actions via zbus)"],
+        ["move / resize / focus", "r3", "X11 configure + _NET_ACTIVE_WINDOW"],
+        ["scroll", "r3", "xdotool wheel — no scroll offset observable"],
+      ],
+      profile: `[app]
+id        = <span class="s">"org.gnome.Calculator"</span>
+match     = { wm_class = [<span class="s">"gnome-calculator"</span>], desktop = <span class="s">"org.gnome.Calculator.desktop"</span> }
+tier      = <span class="k">"A"</span>          <span class="c"># proven 2026-08-01 · verb battery 25 PASS</span>
+
+[launch]
+exec       = [<span class="s">"gnome-calculator"</span>]
+ready_when = { a11y_role = <span class="s">"frame"</span>, mapped_window = <span class="k">true</span>, pid_alive = <span class="k">true</span> }
+
+[a11y]
+toolkit = <span class="s">"gtk4"</span>
+quirks  = [<span class="a">"screen-extents-zero"</span>, <span class="a">"text-iface-empty"</span>, <span class="a">"toggle-actions-empty-zbus"</span>]
+
+[[transports]]          <span class="c"># ordered = the ladder for this app</span>
+kind  = <span class="v">"atspi-action"</span>
+verbs = [<span class="s">"invoke"</span>, <span class="s">"type_text"</span>, <span class="s">"press_key"</span>]
+[[transports]]
+kind  = <span class="v">"input-injection"</span>   <span class="c"># x11 today · portal+libei behind the same trait</span>
+verbs = [<span class="s">"select"</span>, <span class="s">"scroll"</span>, <span class="s">"move"</span>, <span class="s">"resize"</span>, <span class="s">"focus"</span>]
+
+[verbs.type_text]
+oracle = { kind = <span class="s">"text-delta"</span>, target = <span class="s">"display"</span> }   <span class="c"># before→after display text</span>
+[verbs.scroll]
+oracle = { kind = <span class="s">"none-observable"</span> }  <span class="c"># honest: delivery ok, no offset to read</span>`,
+    },
+    cursor: {
+      name: "Cursor", glyph: "Cu", tier: "a", pillText: "Tier A · quirk",
+      sub: "electron · needs --force-renderer-accessibility · seed Search Ctrl+K",
+      eta: "seconds once the a11y flag is set — 157-node mint probed",
+      ladder: [
+        ["invoke / locate", "r2", "AT-SPI after --force-renderer-accessibility"],
+        ["open_file / goto", "r1", "code CLI + command URIs (bridge candidate)"],
+        ["window verbs", "r3", "X11"],
+      ],
+      profile: `[app]
+id    = <span class="s">"com.cursor.Cursor"</span>
+match = { wm_class = [<span class="s">"Cursor"</span>], exe = <span class="s">"cursor"</span> }
+tier  = <span class="k">"A"</span>            <span class="c"># electron — a11y is lazy, not absent</span>
+
+[launch]
+exec          = [<span class="s">"cursor"</span>]
+args_teaching = [<span class="a">"--force-renderer-accessibility"</span>]
+
+[[transports]]
+kind  = <span class="v">"cli-bridge"</span>      <span class="c"># R1: code CLI · command URIs · companion ext (candidate)</span>
+verbs = [<span class="s">"open_file"</span>, <span class="s">"goto"</span>, <span class="s">"run_command"</span>]
+health = { probe = <span class="s">"cursor --version"</span>, timeout_ms = 500 }
+[[transports]]
+kind  = <span class="v">"atspi-action"</span>
+verbs = [<span class="s">"invoke"</span>, <span class="s">"focus"</span>, <span class="s">"select"</span>]
+[[transports]]
+kind  = <span class="v">"input-injection"</span>
+verbs = [<span class="s">"move"</span>, <span class="s">"resize"</span>, <span class="s">"press_key"</span>, <span class="s">"scroll"</span>]
+
+[landmarks]
+search = { a11y_name = <span class="s">"Search Ctrl+K"</span> }   <span class="c"># CX-cursor-01 proven locate</span>`,
+    },
+    blender: {
+      name: "Blender", glyph: "B3", tier: "b", pillText: "Tier B · first pack",
+      sub: "custom UI · bpy socket addon · FIRST Tier B pack (ratified 2026-08-07)",
+      eta: "first pack induction: hours (offline, budgeted, cancelable) — then seconds",
+      ladder: [
+        ["open_file / edit / select", "r1", "seam addon: loopback socket → bpy.app.timers (main thread)"],
+        ["viewport landmarks", "r1", "area/region geometry from bpy — no vision"],
+        ["window verbs", "r3", "X11 / portal"],
+        ["canvas regions", "r4", "vision import-fuel only, if ever"],
+      ],
+      profile: `[app]
+id    = <span class="s">"org.blender.Blender"</span>
+match = { wm_class = [<span class="s">"Blender"</span>], exe = <span class="s">"blender"</span> }
+tier  = <span class="k">"B"</span>            <span class="c"># draws its own UI — a11y tree dark</span>
+
+[launch]
+exec          = [<span class="s">"blender"</span>]
+args_teaching = [<span class="a">"--python"</span>, <span class="a">"{seam_addon}"</span>]  <span class="c"># marshal-only addon (op ruling 2026-07-27)</span>
+ready_when    = { socket = <span class="s">"tcp://127.0.0.1:{port}"</span>, probe = <span class="s">"scene_info"</span> }
+
+[[transports]]
+kind   = <span class="v">"socket-jsonrpc"</span>   <span class="c"># R1 — thousands of verified bpy.ops, zero guesswork</span>
+verbs  = [<span class="s">"open_file"</span>, <span class="s">"invoke"</span>, <span class="s">"select"</span>, <span class="s">"edit"</span>, <span class="s">"resolve"</span>, <span class="s">"assert_state"</span>]
+health = { probe = <span class="s">"scene_info"</span>, timeout_ms = 500 }
+[[transports]]
+kind  = <span class="v">"input-injection"</span>
+verbs = [<span class="s">"move"</span>, <span class="s">"resize"</span>, <span class="s">"focus"</span>, <span class="s">"scroll"</span>]
+
+[landmarks]
+viewport = { bpy_area = <span class="s">"VIEW_3D"</span> }     <span class="c"># true geometry from the app itself</span>
+outliner = { bpy_area = <span class="s">"OUTLINER"</span> }
+
+[pack]                    <span class="c"># Agent Workflow Memory — induced, versioned, fingerprinted</span>
+fingerprint = <span class="s">"blender-4.x-sha256:…"</span>
+workflows   = <span class="s">"induced from successful traces, verified by reading bpy state back"</span>`,
+    },
+    vscode: {
+      name: "VS Code", glyph: "VS", tier: "a", pillText: "Tier A + bridge",
+      sub: "electron · command registry is a complete verb vocabulary",
+      eta: "seconds with a11y flag; bridge extension unlocks R1",
+      ladder: [
+        ["run_command / open / goto", "r1", "workbench.action.* via companion bridge"],
+        ["invoke / locate", "r2", "AT-SPI with --force-renderer-accessibility"],
+        ["window verbs", "r3", "X11 / portal"],
+      ],
+      profile: `[app]
+id    = <span class="s">"com.microsoft.VSCode"</span>
+tier  = <span class="k">"A"</span>   <span class="c"># + R1 bridge candidate — same pack shape as Cursor</span>
+<span class="c"># … mirrors the Cursor profile; one pack template serves both</span>`,
+    },
+    solidworks: {
+      name: "SolidWorks", glyph: "SW", tier: "b", pillText: "Tier B · win lane",
+      sub: "Windows x64 only · in-process COM add-in (ISwAddin) · C7",
+      eta: "Windows-laptop deliverable — profile authored now, proven on the win lane",
+      ladder: [
+        ["everything semantic", "r1", "COM add-in servicing a queue on OnIdle (marshal only)"],
+        ["window verbs", "r3", "UIA / Win32"],
+      ],
+      profile: `[app]
+id       = <span class="s">"com.solidworks.SolidWorks"</span>
+tier     = <span class="k">"B"</span>
+platform = <span class="k">"windows"</span>   <span class="c"># cannot run on this box at all — C7 lane</span>
+
+[[transports]]
+kind = <span class="v">"com-addin"</span>       <span class="c"># in-process ISwAddin; out-of-proc COM is unreliable</span>
+verbs = [<span class="s">"open_file"</span>, <span class="s">"invoke"</span>, <span class="s">"select"</span>, <span class="s">"edit"</span>, <span class="s">"assert_state"</span>]
+<span class="c"># event sinks (DSldWorksEvents) feed /events — richer than anything the kernel sees</span>`,
+    },
+    claude: {
+      name: "Claude Desktop", glyph: "Cl", tier: "b", pillText: "Tier B · links",
+      sub: "electron · claude:// deep links supported path · CDP fragile",
+      eta: "seconds — deep links need no import at all",
+      ladder: [
+        ["open / new_chat / open_folder", "r1", "claude:// deep links (supported)"],
+        ["invoke / locate", "r2", "AT-SPI with a11y flag"],
+        ["window verbs", "r3", "X11 / portal"],
+      ],
+      profile: `[app]
+id   = <span class="s">"com.anthropic.ClaudeDesktop"</span>
+tier = <span class="k">"B"</span>   <span class="c"># deep links are R1; CDP named + rejected (version-fragile, security)</span>
+
+[[transports]]
+kind  = <span class="v">"deep-link"</span>
+verbs = [<span class="s">"open"</span>, <span class="s">"new_chat"</span>, <span class="s">"open_folder"</span>]`,
+    },
+    capcut: {
+      name: "CapCut", glyph: "Cc", tier: "c", pillText: "Tier C · thin",
+      sub: "no a11y tree, no API — honest refusal until Advanced Import",
+      eta: "Advanced Import required — vision builds the fabric offline",
+      ladder: [
+        ["all semantic verbs", "r4", "absent — Advanced Import (harvest) builds fabric offline"],
+        ["window verbs", "r3", "X11 / portal"],
+      ],
+      profile: `[app]
+id   = <span class="s">"com.bytedance.CapCut"</span>
+tier = <span class="k">"C"</span>   <span class="c"># rungs 1–2 absent — the profile SAYS so instead of pretending</span>
+
+[[transports]]
+kind  = <span class="v">"input-injection"</span>
+verbs = [<span class="s">"move"</span>, <span class="s">"resize"</span>, <span class="s">"focus"</span>]
+<span class="c"># semantic verbs refuse with a tip until a HarvestedGraph pack exists</span>`,
+    },
+  };
+
+  const VERBS = [
+    ["open","shipped"],["close","shipped"],["focus","shipped"],["move","shipped"],
+    ["resize","shipped"],["type_text","shipped"],["press_key","shipped"],["select","shipped"],
+    ["scroll","shipped"],["invoke","shipped"],["resolve","shipped"],["import","shipped"],
+    ["mount","shipped"],["wait_until","shipped"],["assert_state","shipped"],["observe","shipped"],
+    ["drag","planned"],["open_file","pack"],["edit","pack"],["run_command","pack"],
+  ];
+
+  let selected = "blender";
+  let stage = "pick";
+  let agency = "coach";
+
+  const flow = document.getElementById("flow-panel");
+  const list = document.getElementById("app-list");
+
+  function renderList() {
+    list.innerHTML = Object.entries(APPS).map(([id, a]) => `
+      <button class="app ${id === selected ? "sel" : ""}" type="button" role="option"
+              aria-selected="${id === selected}" data-app="${id}">
+        <span class="glyph">${a.glyph}</span>
+        <span class="meta">
+          <span class="name">${a.name}</span>
+          <span class="sub">${a.sub}</span>
+        </span>
+        <span class="pill ${a.tier}">${a.pillText}</span>
+      </button>`).join("");
+  }
+
+  function ladderRows(a) {
+    return a.ladder.map(([what, rung, how]) =>
+      `<tr><td><b>${what}</b></td><td><span class="rung ${rung}">${rung.toUpperCase()}</span></td><td>${how}</td></tr>`
+    ).join("");
+  }
+
+  function renderFlow() {
+    const a = APPS[selected];
+    if (stage === "pick") {
+      flow.innerHTML = `
+        <h2 id="flow-h">${a.name} — how the seam will attach</h2>
+        <p class="hint">The ladder is resolved <b>per verb</b>, not per app. Native API when a pack declares one; a11y by default; injection last; vision only as import fuel.</p>
+        <table class="tbl"><thead><tr><th>Verbs</th><th>Rung</th><th>Transport</th></tr></thead>
+        <tbody>${ladderRows(a)}</tbody></table>
+        <div class="callout ${a.tier === "c" ? "amber" : "good"}">
+          Import ETA: <b>${a.eta}</b>
+          <div class="tip">Import never starts silently — honesty prompt + ETA first (C2c law).</div>
+        </div>
+        <div class="actions"><button class="btn tone" type="button" data-go="build">Build the seam…</button></div>`;
+      return;
+    }
+    if (stage === "build") {
+      const violet = a.tier === "b" || a.tier === "c";
+      flow.innerHTML = `
+        <h2 id="flow-h">Fabric Foundry — ${a.name}</h2>
+        <p class="hint">The tedious build happens <b>once, here</b> — checkpointed, resumable, sandboxed — then the pack ships to users. The pipeline is the asset: rebuilding for the next app version is a button, not a week.</p>
+        <div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:8px;font-family:var(--mono);font-size:11px;color:var(--ink-muted)">
+          <span>Job <b style="color:var(--ink)">${selected}-pack-001</b> · checkpoint 47/112 · resumable</span><span>${violet ? "34%" : "72%"}</span>
+        </div>
+        <div class="progress ${violet ? "violet" : ""}" style="--p:${violet ? "34%" : "72%"}" role="progressbar"><i></i></div>
+        <ul class="steps">
+          <li><span class="n ok">01</span><span><b>Census</b> — presence gate + a11y roles/names/actions (no content reads) <b class="ok">${a.tier === "c" ? "THIN → diverted" : "DONE"}</b></span></li>
+          <li><span class="n ok">02</span><span><b>Passive fabric</b> — budgeted tree walk, anchor <b>fingerprint bundles</b> (role + path + relations + a11y-id — never name alone; names break per locale) <b class="ok">DONE</b></span></li>
+          <li><span class="n ok">03</span><span><b>Active exploration</b> — menus/dialogs opened in a <b>sandbox</b> (scratch profile, op whitelist, revert-or-restart) <b class="ok">RESUMED</b> — target crashed at checkpoint 31, relaunched, continued</span></li>
+          <li><span class="n">04</span><span><b>Verb probing</b> — every promoted verb executed against its oracle; reliability scored per verb</span></li>
+          ${violet ? `<li><span class="n">05</span><span><b>Pack induction</b> — successful traces → reusable workflows (Agent Workflow Memory; hours, offline)</span></li>` : ""}
+          <li><span class="n">0${violet ? "6" : "5"}</span><span><b>Verification battery</b> — the ship gate: every anchor resolved, every verb + oracle green on a clean seat, or the pack does not publish</span></li>
+          <li><span class="n">0${violet ? "7" : "6"}</span><span><b>Fingerprint + sign</b> — app+version hash; data-only where possible, signed adapters where not → registry</span></li>
+        </ul>
+        <div class="law"><b>Foundry laws:</b> checkpoint to disk — an hours-long job that loses progress at hour three is a pipeline nobody re-runs · the target <b>will</b> crash mid-exploration: relaunch and resume, never restart from zero · kill criteria + honest ETA · on the user's machine the pack <b>revalidates</b> on attach and reports degradation honestly ("built on 4.2-en, you run 4.5-de, 87% anchors verified").</div>
+        <div class="actions"><button class="btn" type="button">Pause (checkpoint)</button>
+        <button class="btn" type="button">Kill</button>
+        <button class="btn tone" type="button" data-go="profile">Skip to profile card</button></div>`;
+      return;
+    }
+    if (stage === "profile") {
+      flow.innerHTML = `
+        <h2 id="flow-h">Profile card — the config that makes ${a.name} teachable</h2>
+        <p class="hint">Declarative TOML, versioned in the registry. This is the "series of configs": author once (or induce), reuse forever, degrade honestly.</p>
+        <div class="code">${a.profile}</div>
+        <div class="callout good">
+          The registry law
+          <div class="tip">Unprofiled app → synthesized generic profile (a11y + injection only). A profile can only <b>promote</b> verbs above the default ladder — it can never bypass presence or effect gates.</div>
+        </div>
+        <div class="actions"><button class="btn tone" type="button" data-go="console">Open verb console</button></div>`;
+      return;
+    }
+    if (stage === "console") {
+      flow.innerHTML = `
+        <h2 id="flow-h">Verb console — the ratified 101 against ${a.name}</h2>
+        <p class="hint">Click a verb. Every call returns an effect contract and appends a trace span. Grey = planned. Violet-tagged = pack verbs (R1 only).</p>
+        <div class="verbgrid" id="verb-grid">
+          ${VERBS.map(([v, st]) => `<button class="verb ${st === "planned" ? "planned" : ""}" data-verb="${v}" ${st === "planned" ? "disabled title='drag is P2 — refused honestly'" : ""}>${v}${st === "pack" ? " ·R1" : ""}</button>`).join("")}
+        </div>
+        <div class="code" id="contract"><span class="c">// click a verb to see its effect contract</span></div>
+        <div class="feed" id="feed" aria-label="Event stream">
+          <div><span class="ev">event:hello</span> observe_start app=${a.name.toLowerCase()}</div>
+        </div>`;
+      return;
+    }
+    if (stage === "lesson") {
+      const teach = agency === "teacher";
+      flow.innerHTML = `
+        <h2 id="flow-h">Lesson — spotlight, beats, agency</h2>
+        <p class="hint">Overlay anchors to <b>fabric identity + live geometry</b> (the event stream re-anchors on move/resize). Beats clear by <b>effect oracle</b>, never by a "Next" button.</p>
+        <div class="toggle" role="radiogroup" aria-label="Agency">
+          <button type="button" class="${teach ? "" : "on"}" data-agency="coach">Coach — points, you press</button>
+          <button type="button" class="teach ${teach ? "on" : ""}" data-agency="teacher">Teacher — AI may execute</button>
+        </div>
+        <div class="stagebox" id="stagebox">
+          <div class="dim"><div class="hole" style="left:${teach ? 96 : 130}px;top:112px;width:64px;height:26px"></div></div>
+          <div class="fakewin" style="left:${teach ? 0 : 34}px">
+            <div class="bar">${a.name} — live window (SSE re-anchors this)</div>
+            <div class="kbd">
+              <span>7</span><span>8</span><span>9</span><span>÷</span>
+              <span class="target">4</span><span>5</span><span>6</span><span>×</span>
+              <span>1</span><span>2</span><span>3</span><span>−</span>
+            </div>
+          </div>
+          <div class="ring" style="left:${teach ? 96 : 130}px;top:112px;width:64px;height:26px"></div>
+          <div class="caption" style="left:${teach ? 96 : 130}px;top:86px">${teach ? "Teacher pressed 4 · rung R2 · oracle text-delta ✓" : "Press 4 — display will change"}</div>
+          <div class="lessondock">
+            <h3>Beats</h3>
+            <div class="beat done"><span class="st">ORACLE✓</span> Open ${a.name}</div>
+            <div class="beat done"><span class="st">ORACLE✓</span> Focus the keypad</div>
+            <div class="beat now"><span class="st">NOW</span> ${teach ? "Teacher: press 4" : "You: press 4"}</div>
+            <div class="beat"><span class="st">·</span> Verify display shows 4</div>
+            <div class="beat"><span class="st">·</span> Beat clear → particle burst in row</div>
+          </div>
+        </div>
+        <div class="callout ${teach ? "violet" : "good"}">
+          ${teach
+            ? `<b>Teacher agency:</b> same touchpoints, same verbs, same oracles — with <b>actor=Agent</b> attribution on every span. Consent scope is red-pen item 3.`
+            : `<b>Coach agency:</b> the overlay observes the real press (Sync-grab, never intercept) and clears the beat when the oracle confirms the effect.`}
+          <div class="tip">Window minimized → big notification on beat clear; window up → cross-out animation + mini particle burst (operator spec 2026-07-31).</div>
+        </div>`;
+      return;
+    }
+    if (stage === "trace") {
+      flow.innerHTML = `
+        <h2 id="flow-h">Trace ledger — every verb is a span</h2>
+        <p class="hint">OTel GenAI conventions: one trace per teaching session, <b>invoke_agent</b> root, one <b>execute_tool</b> span per verb. Sink is <b>Arrow record batches → date/app-partitioned Parquet</b> beside the product ledger (ADR-014); DataFusion queries both. Evidence frames referenced by span id. Nothing leaves the machine.</p>
+        <table class="tbl"><thead><tr><th>span</th><th>rung</th><th>oracle</th><th>ms</th><th>actor</th></tr></thead><tbody>
+          <tr><td><b>invoke_agent</b> lesson:${selected}-basics</td><td>—</td><td>—</td><td>41 208</td><td>operator</td></tr>
+          <tr><td>· execute_tool <b>open</b></td><td><span class="rung r2">R2</span></td><td>presence real ✓</td><td>1 984</td><td>agent</td></tr>
+          <tr><td>· execute_tool <b>mount</b></td><td><span class="rung r2">R2</span></td><td>identity hit-test ✓</td><td>112</td><td>agent</td></tr>
+          <tr><td>· execute_tool <b>press_key "4"</b></td><td><span class="rung r2">R2</span></td><td>text-delta "→4" ✓</td><td>391</td><td>${agency === "teacher" ? "agent" : "operator"}</td></tr>
+          <tr><td>· execute_tool <b>scroll</b></td><td><span class="rung r3">R3</span></td><td>none-observable ⚠</td><td>204</td><td>agent</td></tr>
+          <tr><td>· execute_tool <b>assert_state</b></td><td><span class="rung r2">R2</span></td><td>display contains 4 ✓</td><td>88</td><td>agent</td></tr>
+          <tr><td>· execute_tool <b>drag</b></td><td>—</td><td><span style="color:var(--warn)">refused: P2</span></td><td>2</td><td>agent</td></tr>
+        </tbody></table>
+        <div class="code"><span class="c">-- DataFusion over partitioned Parquet — one engine with the product ledger (ADR-014)</span>
+<span class="c">-- pure Rust, already in-tree (dpl-ledger writes Parquet via Arrow today)</span>
+<span class="k">SELECT</span> verb, rung, count(*) runs,
+       avg(duration_ms) <span class="k">AS</span> p50_ish,
+       sum(oracle_ok::<span class="v">int</span>) / count(*) <span class="k">AS</span> reliability
+<span class="k">FROM</span> <span class="s">'traces/app_id=${selected}/date=2026-08-*/*.parquet'</span>
+<span class="k">GROUP BY</span> 1, 2 <span class="k">ORDER BY</span> reliability <span class="k">ASC</span>;  <span class="c">-- weakest verbs surface first</span>
+<span class="c">-- joinable with lesson signals: which verbs stall operators, per app × version</span></div>
+        <div class="callout good">
+          Downgrade events are first-class
+          <div class="tip">When the ladder falls through (R1 health fail → R2), the span carries <b>seam.downgraded_from</b> — the signal that tells us which pack needs work, methodically.</div>
+        </div>
+        <div class="actions"><button class="btn tone" type="button" data-go="optimize">What should we fix? → Optimize</button></div>`;
+      return;
+    }
+    if (stage === "optimize") {
+      flow.innerHTML = `
+        <h2 id="flow-h">Optimize — the closed loop</h2>
+        <p class="hint">Signal-ledger law §9.1: observe (signals → ledger) → understand (DataFusion) →
+        <b>recommend an action that arrives with a button</b>. Never a passive dashboard.
+        Every card below IS one query over <span style="font-family:var(--mono)">.userdata/analytics</span> + seam spans.</p>
+
+        <div class="insight">
+          <div class="prov">seam spans · verb reliability · app_id=${selected} · last 30d</div>
+          <div class="finding">Verb <b>select</b> is the weakest on <b>${a.name}</b> — <span class="bad">71% oracle-green</span> (12/17), with 5 ladder downgrades R1→R2.</div>
+          <div class="why">seam.downgraded_from=R1 ×5 · socket health probe timed out each time</div>
+          <div class="act"><button class="btn violet" type="button">Re-run Foundry probe</button>
+          <span class="pill">mounts foundry stage 04</span></div>
+        </div>
+
+        <div class="insight">
+          <div class="prov">coach domain · beat durations · lesson=${selected}-basics</div>
+          <div class="finding">Operators <span class="warnv">stall on beat 3</span> — median 41 s vs 8 s for every other beat; 40% needed a retry.</div>
+          <div class="why">triggered→satisfied gap · 14 sessions · oracle text-delta fired late in 6</div>
+          <div class="act"><button class="btn tone" type="button">Review beat 3</button>
+          <span class="pill">opens the lesson at the beat</span></div>
+        </div>
+
+        <div class="insight">
+          <div class="prov">pack registry · revalidation report · ${selected} 4.2 → 4.5</div>
+          <div class="finding"><b>Pack drift:</b> after the app updated, <span class="warnv">87% of anchors verified</span> on attach — 9 degraded, 2 lessons partially blocked.</div>
+          <div class="why">fingerprint re-resolve fell back to neighborhood match on 9 nodes</div>
+          <div class="act"><button class="btn amber" type="button">Re-run verification battery</button>
+          <span class="pill">publishes 4.5 pack on green</span></div>
+        </div>
+
+        <div class="law"><b>Loop law:</b> the button on each card triggers the guided workflow itself —
+        Foundry job, lesson beat, battery run — and that run emits new spans, which update the card.
+        Ledger files are the truth; DataFusion is a lens; the card is the product.</div>`;
+      return;
+    }
+  }
+
+  // ── wiring ──
+  renderList();
+  renderFlow();
+
+  list.addEventListener("click", (e) => {
+    const btn = e.target.closest(".app");
+    if (!btn) return;
+    selected = btn.dataset.app;
+    renderList();
+    renderFlow();
+  });
+
+  document.querySelector(".stagebar").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-stage]");
+    if (!b) return;
+    stage = b.dataset.stage;
+    document.querySelectorAll(".stagebar button").forEach((x) =>
+      x.classList.toggle("on", x.dataset.stage === stage));
+    renderFlow();
+  });
+
+  flow.addEventListener("click", (e) => {
+    const go = e.target.closest("[data-go]");
+    if (go) {
+      stage = go.dataset.go;
+      document.querySelectorAll(".stagebar button").forEach((x) =>
+        x.classList.toggle("on", x.dataset.stage === stage));
+      renderFlow();
+      return;
+    }
+    const ag = e.target.closest("[data-agency]");
+    if (ag) {
+      agency = ag.dataset.agency;
+      renderFlow();
+      return;
+    }
+    const vb = e.target.closest(".verb:not(.planned)");
+    if (vb) runVerb(vb.dataset.verb);
+  });
+
+  function runVerb(verb) {
+    document.querySelectorAll(".verb").forEach((x) =>
+      x.classList.toggle("on", x.dataset.verb === verb));
+    const a = APPS[selected];
+    const contract = document.getElementById("contract");
+    const feed = document.getElementById("feed");
+    const packOnly = ["open_file", "edit", "run_command"].includes(verb);
+    const hasR1 = a.ladder.some(([, r]) => r === "r1");
+    if (packOnly && !hasR1) {
+      contract.innerHTML =
+`<span class="c">// POST /verb — refused honestly (no R1 transport in this profile)</span>
+{ <span class="k">"refused"</span>: <span class="a">true</span>,
+  <span class="k">"reason"</span>: <span class="s">"verb '${verb}' needs a pack transport (R1); ${a.name} has none"</span>,
+  <span class="k">"tip"</span>: <span class="s">"Run Advanced Import to induce a pack, or pick a Tier A/B app."</span> }`;
+      feed.innerHTML += `<div><span class="rf">refused</span> <span class="vb">${verb}</span> app=${selected} · no R1 transport</div>`;
+      feed.scrollTop = feed.scrollHeight;
+      return;
+    }
+    const rung = packOnly ? "r1" : (verb === "invoke" || verb === "type_text" || verb === "press_key" ? "r2" : "r3");
+    contract.innerHTML =
+`<span class="c">// POST /verb — effect contract (same shape the protocol arms will carry)</span>
+{ <span class="k">"ok"</span>: <span class="a">true</span>, <span class="k">"verb"</span>: <span class="s">"${verb}"</span>, <span class="k">"app"</span>: <span class="s">"${selected}"</span>,
+  <span class="k">"transport"</span>: { <span class="k">"rung"</span>: <span class="s">"${rung.toUpperCase()}"</span>, <span class="k">"kind"</span>: <span class="s">"${packOnly ? "socket-jsonrpc" : rung === "r2" ? "atspi-action" : "input-injection"}"</span> },
+  <span class="k">"effect_observed"</span>: <span class="a">${verb === "scroll" ? "false" : "true"}</span>,${verb === "scroll" ? `  <span class="c">// honest — no scroll offset readable</span>` : ""}
+  <span class="k">"before"</span>: { <span class="c">…typed observable…</span> }, <span class="k">"after"</span>: { <span class="c">…typed observable…</span> },
+  <span class="k">"span_id"</span>: <span class="s">"a3f1…"</span> }  <span class="c">// → DuckDB, evidence frames beside it</span>`;
+    feed.innerHTML += `<div><span class="ev">event:effect</span> <span class="vb">${verb}</span> app=${selected} rung=${rung.toUpperCase()} oracle=${verb === "scroll" ? "⚠ none-observable" : "✓"}</div>`;
+    feed.scrollTop = feed.scrollHeight;
+  }
+})();
+</script>
+</body>
+</html>

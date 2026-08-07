@@ -1,7 +1,7 @@
 ---
-dirty: true
-active_lane: ai-layer
-updated: 2026-08-03
+dirty: false
+active_lane: coach-seam
+updated: 2026-08-07
 ---
 
 # Ops session ledger
@@ -13,12 +13,21 @@ milestone-loop). The RESUME truth is `docs/ops/resume/CURRENT.md`.
 
 ## Active lane
 
-**ai-layer** — the persona (Clyffy), the session primitive, and the one
-typed funnel every frontier provider is forced through.
-Program `docs/plans/providers-presence-and-the-brain.md` §7–§9.
+**coach-seam** (2026-08-07) — operator stopped the coach lane for an
+audit: the CX daemon was a second agent surface; tracing/profiles/mock
+were skipped. Audit + research + the true mock landed this session.
+Journal: `docs/journal/2026-08-07-coach-seam-audit.md`.
 
-**NEXT:** commit the provider runtime seam → land the docs alignment →
-land #206 → **Codex conversation transport** (the real gap).
+**NEXT:** seam ADR drafted (`docs/plans/coach-seam-adr.md` — DRAFT; §6
+answers the mock's 5 questions as overrulable defaults) → operator
+red-pens ADR §6/§7/naming + mock rev 3 → ratify → slices: S1 tracing
+spine → S2 protocol rehoming → S3 profile registry → S4 **Blender first
+Tier B pack** (ruled 2026-08-07) → S5 Optimize cards.
+
+**Prior lane — ai-layer** (2026-08-03 state; #212 landed since, verify):
+persona (Clyffy), session primitive, typed provider funnel.
+Program `docs/plans/providers-presence-and-the-brain.md` §7–§9.
+Its NEXT was: land #206 → Codex conversation transport.
 
 **CLOSED** (nothing elided — the ellipsis in the previous revision was
 hiding exactly the "previous completed" that kept getting lost):
@@ -54,6 +63,8 @@ AI usage domain (#169) · coach C2e/C2f + fabric bridge (#179/#187/#188)
 | Debt | `chat-extensions` | zero references |
 | Debt | Claude decoder | `UNKNOWN` for `last-prompt`/`ai-title`/`mode`/`permission-mode` |
 | Providers | Cursor / Gemini | probe needles UNVERIFIED until their CLIs exist on a machine |
+| Coach | seam mock | `coach-seam-mock.html` rev 3 (7 stages incl. Optimize closed loop) UNCOMMITTED — awaiting operator red-pen; then seam ADR |
+| Coach | trace sink | RESOLVED 2026-08-07: Arrow/DataFusion over Parquet (operator go); mock rev 2 + research note updated |
 | Coach | C2f / Notepad | #187; CX-harvest + Pass-2 parked |
 | Harness | no mid-animation capture | every capture is `MotionPolicy::Suppressed` |
 | Harness | 4 scenarios red headless | `chat-local-histories`, `chat-content-spine`, `chat-provider-tab`, `shell-navigation` — need a real display |
