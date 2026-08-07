@@ -18,8 +18,10 @@ Priority: ABOVE the roadmap.
 3. **Clear seed folders = BY TEMPLATE CLASS**: `seeds/slides/static/`,
    `split/`, `animation/`, `interactive/` — the registry's own
    classes; the library wall's sections ARE the folders.
-4. **Home stays the backdrop.** It is part of the STREAMING PROP tool
-   — a calm mood floor, deliberately unbusy. Do not turn it into a
+4. **Home stays the calm mood floor** — the hero over the SHELL-owned
+   backdrop, which paints app-wide under every route (ruled in
+   30e35e7; the Home-scoped read was a misread). Home is part of the
+   STREAMING PROP tool — deliberately unbusy. Do not turn it into a
    dashboard.
 
 ## 2. The EXTENDED vision (operator's words, compressed)
@@ -59,7 +61,8 @@ Priority: ABOVE the roadmap.
 
 ```
 RAIL (accordion — tap a house, its subroutes unfold, others push down)
-├─ Home        the backdrop — the streaming prop floor. Calm. Done.
+├─ Home        the hero over the shell backdrop — the streaming
+│              prop floor. Calm. Done.
 ├─ Shows       the OPERATOR'S CONTENT, by stream category
 │   ├─ EffingAI          episodes · show gallery · social content
 │   ├─ DevPulse News     episodes · show gallery · social content

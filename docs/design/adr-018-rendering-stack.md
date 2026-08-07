@@ -1,7 +1,15 @@
-# ADR-011 — the rendering & widget stack (ratified picks + adoption passes)
+# ADR-018 — the rendering & widget stack
 
-Status: ratified 2026-07-22 (operator: "Get them planned out for
-implementation"). Research grounded in live July-2026 ecosystem state.
+Status: proposed 2026-07-22 as ADR-011 (operator: "Get them planned out
+for implementation"); the ADR-011 number was since reassigned to Chat
+Imagine generation (`adr-011-imagine-generation.md`) and this document was
+never filed in `docs/design/` — refiled as ADR-018 by the loss-recovery
+program, ruled 2026-08-07. Measured 2026-08-06: no pick below ever entered
+any branch's dependency graph — 0 Cargo.lock hits and 0 `git log --all -S`
+hits per dep. Per-pick verdicts from that ruling (Q5) are annotated on
+each row and pass; the original text stands intact beneath them so the
+history stays readable. ADR-012 remains a number gap in the register.
+Research grounded in live July-2026 ecosystem state.
 
 ## The bet, in one line
 
@@ -12,6 +20,25 @@ that stack, and every widget choice with the crates that demonstrably track
 egui releases (Rerun's and lucasmerlin's).
 
 ## Ratified picks
+
+> **Ruled verdicts (Q5, 2026-08-07)** — no row below was ever adopted; the
+> table stands as proposed:
+>
+> - **resvg** (RS1): SUPERSEDED by ADR-015 — SVG shipped as the zero-dep
+>   `dpl-svg` icon engine (`adr-015-svg-icon-engine.md`).
+> - **egui_tiles + vello + vello_svg** (RS4): RETIRED — the editor shipped
+>   on hand-rolled egui panes (W1 `067646d`, W1.2 `9a95fc7`); the layered
+>   compositor shipped as ffmpeg overlay filtergraphs (L3 `render_comp`,
+>   `crates/engine-media`).
+> - **egui_dnd** (RS2): RETIRED as a dependency — the capability (W4b
+>   block reorder) is restored hand-rolled by loss-recovery Arc R3a
+>   (ruling Q4).
+> - **egui_flex** (RS2): RETIRED — no consumer ever materialized.
+> - **egui_virtual_list / egui_infinite_scroll** (RS3): RETIRED as
+>   dependencies — virtualization is owned by
+>   `docs/plans/media-experience-program.md` S2/Arc A.
+> - **egui-snarl** (RS5) and **egui_plot** (RS6) carried no 2026-08-07
+>   ruling; their original deferral triggers stand below.
 
 | Need | Pick | Why | Where |
 |---|---|---|---|
@@ -49,6 +76,9 @@ egui releases (Rerun's and lucasmerlin's).
 ## Adoption passes
 
 ### RS1 — resvg SVG support (NOW; small, standalone)
+
+> Verdict (Q5): SUPERSEDED by ADR-015 — SVG shipped as the zero-dep
+> `dpl-svg` icon engine, not via resvg/egui_extras.
 - Cargo: egui_extras feature `"svg"` (pulls resvg through the maintained
   loader path).
 - Doc schema: `Media::Image`/future doc media blocks accept `.svg` — the
@@ -59,6 +89,10 @@ egui releases (Rerun's and lucasmerlin's).
 - Verify: green + wall proof. Blast radius: feature flag.
 
 ### RS2 — W4 riders: egui_dnd + egui_flex (with ledger #105)
+
+> Verdict (Q5): egui_dnd RETIRED as a dependency — the W4b block-reorder
+> capability is restored hand-rolled by loss-recovery Arc R3a (ruling Q4).
+> egui_flex RETIRED — no consumer ever materialized.
 - Adopt inside the editor pass, not before: dnd for the slide-strip
   reorder + tray drag-to-apply; flex for tray layouts.
 - Adapters: `crates/editor/src/ui/dnd.rs`, `.../flex.rs` (names final at
@@ -67,6 +101,9 @@ egui releases (Rerun's and lucasmerlin's).
   scenario.
 
 ### RS3 — X2 riders: egui_virtual_list (+ egui_table evaluation)
+
+> Verdict (Q5): RETIRED as dependencies — virtualization is owned by
+> `docs/plans/media-experience-program.md` S2/Arc A.
 - Gallery grid virtualizes from day one (the old app virtualization was a
   planned perf pass — we adopt at build time instead of retrofitting).
 - Evaluation gate for egui_table: only if the Gallery's list view is
@@ -74,6 +111,10 @@ egui releases (Rerun's and lucasmerlin's).
 - Pilot: scroll-through scenario over a seeded 500-artifact fixture root.
 
 ### RS4 — R1: the editor rendering ADR (vello + egui_tiles)
+
+> Verdict (Q5): RETIRED — the editor shipped on hand-rolled egui panes
+> (W1 `067646d`, W1.2 `9a95fc7`); the layered compositor shipped as
+> ffmpeg overlay filtergraphs (L3 `render_comp`, `crates/engine-media`).
 - The wiredFRONT editor ADR (already roadmapped as R1) now has its stack
   named: egui_tiles for panel/docking chrome; egui_wgpu paint callbacks +
   vello for the layered compositor (video frames as textures, vector

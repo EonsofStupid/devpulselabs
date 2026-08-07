@@ -39,19 +39,29 @@ Ground truth (read this session):
 
 ## Milestones
 
-### V1 — Backdrop policy: animation is a Home privilege
+### V1 — Backdrop repaint policy: spend the frames where they matter
 
-**Scope:** the animated backdrop (loops + mood drift) paints ONLY on the
-Home/start route. Every other route gets a STATIC mood wash — one painted
-gradient from the session mood, zero per-frame animation, zero repaint
-requests at idle.
-**Deliverables:** a backdrop policy in the shell (route-aware), a static
-`mood_wash` paint path in `dpl-backdrop` or coldlight; the topbar mood
-tiles keep working everywhere (state stays, animation doesn't).
-**Evidence gate:** kittest/contract pinning "non-home routes request no
-animation repaints"; before/after idle repaint or CPU numbers in the pass
-plan §8; proof shots of Home (animated) vs two other hubs (static wash) at
-1100x700 and 1280x800.
+**Ruling first (30e35e7, 2026-07-22; `docs/plans/port-backdrop.md`):** the
+backdrop is SHELL-OWNED (`crates/backdrop`), painted app-wide under EVERY
+route — that commit explicitly retired "B1's Home-subroute misread." The
+shape does not reopen here: no route ever owns the backdrop, and no route
+goes without it.
+**Scope:** what the operator is cutting is the PER-FRAME spend, not the
+paint. The one shell-owned backdrop gains a REPAINT policy: on the
+Home/start route it runs its animated loop; on every other route it holds
+a STATIC mood wash — the same mood-derived paint, zero per-frame
+animation, zero repaint requests at idle. A mode of the one backdrop,
+never route-scoped ownership.
+**Deliverables:** the repaint policy inside the shell-owned backdrop
+(which mode paints is decided per route; ownership never moves), a static
+`mood_wash` paint path in `dpl-backdrop` or coldlight; mood state stays
+global — the topbar mood tiles keep working everywhere (state stays,
+animation doesn't).
+**Evidence gate:** kittest/contract pinning "non-Home routes request no
+animation repaints" AND "every route still paints the shell backdrop";
+before/after idle repaint or CPU numbers in the pass plan §8; proof shots
+of Home (animated) vs two other hubs (static wash) at 1100x700 and
+1280x800.
 **Depends on:** nothing. First mover.
 
 ### V2 — Mood-derived card backgrounds (a generated ingredient)
@@ -96,13 +106,15 @@ geometry, the ratified bases + stacks, the operator-named mixes
 (neubrutalist/retro, claymorphism/cyber, cyber/retro), the PROPOSED
 liquid-glass base, the icon grid in every treatment, and the V3b/V4
 rail preview. The operator's reference set is `docs/design/references/`:
-`claymorphism-icons-examples.png` (deep rim-lit clay, NEON-INK pills —
+`aero-morphism.png` (formerly claymorphism-icons-examples.png, renamed
+in #211; deep rim-lit clay, NEON-INK pills —
 the nav-is-clay-buttons question, RESOLVED by the 2026-07-30 doctrine
 ruling "clay IS a button"), `neubrutalist.png` (comic energy: bevel
 slabs, halftone, starburst — all paintable), `claymorphism-cyber.png`
 (metal machine-console — candidate Present-hub preset, own pass),
-`editor.png`/`editor-2.png` (flat wells + neon + glow-spotlight chrome
-for WiredFRONT / Guide Workbench). **NO STYLING pass in this program
+`WORKBENCH-editor.png`/`WORKBENCH-editor-2.png` (flat wells + neon +
+glow-spotlight chrome for WiredFRONT / Guide Workbench). **NO STYLING
+pass in this program
 executes until the operator ratifies (or redlines) the mock.** That
 gate holds M2 (the 40-call-site migration that makes rail/chrome
 visibly wear Lucide), every treatment-variant pass, and V4/V5. Liquid
@@ -149,7 +161,7 @@ maximized AND 1100x700 shots; the operator's feel bar.
 
 | # | Milestone | Status | Blocked on |
 |---|-----------|--------|------------|
-| V1 | Backdrop policy — animation only on Home | not started | — |
+| V1 | Backdrop repaint policy — animate on Home, static wash elsewhere (shell-owned, app-wide per 30e35e7) | not started | — |
 | V2 | Mood card backgrounds (generated ingredient) | not started | V1 paint path |
 | V3 | Icon language — Lucide, owned (redirected) | **M1 LANDED (#163)**; M2 + variants held | **the MOCK GATE** |
 | V4 | Rail links become clear buttons | not started | the MOCK GATE (pairs with V3b) |

@@ -251,11 +251,21 @@ internalize what we actually use.
    Router-shaped protocol arms from day one (`Mount`/`Unmount`/`Triggered`
    + roundtrip tests) but only `visual: Spotlight`, `on: Press` implemented
    → runtime handling + resolver → egui Foreground renderer (ColdLight) →
-   CLI verb `eguipilotai coach mount <node> --message <s> --once` →
-   scenario TOML step (`coach.mount` + `expect triggered`) → Test Lab
-   "coach" tab reusing the same commands. Unimplemented `TriggerKind`s
-   answer `Refused { Unsupported }` — no silent stubs. Amends delivery-doc
-   Slice 8 rather than forking it.
+   CLI coach verb → scenario TOML step (`coach.mount` + `expect
+   triggered`). Unimplemented `TriggerKind`s answer
+   `Refused { Unsupported }` — no silent stubs. Amends delivery-doc Slice 8
+   rather than forking it.
+   **Corrected 2026-08-07 (measured 2026-08-06) — this bullet over-claimed
+   two deliverables.** The draft's CLI form `eguipilotai coach mount <node>
+   --message <s> --once` never shipped: the grammar is `coach <profile>
+   <node-id> [--fixture <name>] [--message <text>] [--on <trigger>]
+   [--wait-ms <n>] [--ttl-ms <n>]` (`crates/egui-pilot-ai-cli/src/main.rs`)
+   — no `mount` positional, no `--once` flag; `once` exists only as a
+   scenario TOML touchpoint field. And the Test Lab "coach" tab was never
+   built, deliberately — the lab's tabs are Agent tree / Full tree / Runs /
+   Trace / Visual (`crates/egui-pilot-ai-lab/src/lib.rs`), and §9 already
+   records why: Test Lab holds no live session, so the coach tab is
+   deferred to Slice 8's `test-lab.live-control`.
 2. **C1.5a — dynamic triggers (in-app).** `NodeAppeared` / `ValueChanged`
    evaluated in `coach::run_pass` against the committed nodes it already
    receives; `FabricEvent` fed by the app-side push. `Armed` for unresolved

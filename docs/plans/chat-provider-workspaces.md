@@ -73,17 +73,76 @@ message.
 
 ## 3. Shared provider-runtime boundary
 
-The UI emits provider-neutral intents:
+The UI emits provider-neutral intents. The list below is the contract as
+ratified 2026-07-25; per-intent shipped status was measured 2026-08-06 and
+reconciled in the subsection that follows:
 
 - `ActivateProvider`
-- `RemoveProviderWorkspace`
+- `RemoveProviderWorkspace` *(never built — OPEN GAP, see reconciliation)*
 - `RefreshProvider`
 - `NewSession`
 - `SelectSession`
 - `SendTurn`
 - `CancelTurn`
-- `RetryProvider`
-- `SignOutProvider`
+- `RetryProvider` *(superseded — see reconciliation)*
+- `SignOutProvider` *(superseded — see reconciliation)*
+
+### Intent status — measured 2026-08-06, reconciled 2026-08-07
+
+Measured against `crates/`, the ratified list shipped in four shapes.
+
+**Live as intents** (`ChatWindowIntent` → `HostIntent`, consumed in
+`crates/app/src/chat.rs`):
+
+- `ActivateProvider` — 8 references. Intent and host arms
+  (`crates/chat/window/src/lib.rs:321`, `:430`), mapped at `:1074`,
+  emitted from the provider surface at `:3680`, handled at
+  `crates/app/src/chat.rs:1311`.
+- `RefreshProvider` — 6 references. Same shape (window `:324`, `:433`,
+  `:1083`, `:3709`; host handling `crates/app/src/chat.rs:1363`).
+- `NewSession` — live end to end: intent and host arms (window `:330`,
+  `:437`, mapped `:1093`), handled at `crates/app/src/chat.rs:1406`, which
+  fans into `GrokRuntimeCommand::NewSession`
+  (`crates/chat/providers/grok/src/runtime.rs:916`) and the seam's
+  `RuntimeCommand::NewSession` (`crates/chat/runtime/src/seam.rs:151`,
+  consumed by codex at `crates/chat/providers/codex/src/runtime.rs:73`).
+- `SendTurn` — intent and host arms (window `:331`, `:438`, mapped
+  `:1094`), handled at `crates/app/src/chat.rs:1418`.
+- `CancelTurn` — intent and host arms (window `:336`, `:443`, mapped
+  `:1106`), handled at `crates/app/src/chat.rs:1434`.
+
+**Live, but window-local — never a host intent:**
+
+- `SelectSession` — `ChatWindowIntent::SelectSession`
+  (`crates/chat/window/src/lib.rs:293`) is handled inside the window at
+  `:1006`: `self.runtime.select_session(...)` then `Ok(None)`. Selection
+  never crosses the host boundary, because the window's runtime owns
+  session truth — a narrower shape than the flat list implies, not a gap.
+
+**Superseded — the capability shipped inverted:**
+
+- `RetryProvider` and `SignOutProvider` were never built as intents (zero
+  references in `crates/`). What shipped instead is provider-emitted
+  recovery affordances: `RecoveryActionKind::{InstallInstructions, SignIn,
+  Retry, UpdateProvider, OpenDiagnostics}` carried on
+  `RecoveryAction { kind, label }` (`crates/chat/core/src/lib.rs:566`).
+  Providers attach them to their own failure states (grok
+  `crates/chat/providers/grok/src/lib.rs:489`, `:505`; codex
+  `crates/chat/providers/codex/src/activation.rs:525`), and the window
+  renders the first recovery action as the login-area button — a pressed
+  `SignIn` or `Retry` maps back into `ActivateProvider`
+  (`crates/chat/window/src/lib.rs:3666`). The inversion is truthful in a
+  way the intent shape was not: the provider states which recovery it
+  needs rather than the UI guessing, so retry and sign-in exist as
+  provider-declared affordances, not UI-declared intents. This supersedes
+  the two listed intents.
+
+**Open gap:**
+
+- `RemoveProviderWorkspace` — no analogue anywhere in `crates/`; nothing
+  removes a provider workspace today. **OPEN GAP**, owned by
+  [`loss-recovery-program.md`](loss-recovery-program.md) Arc R4 (ruling
+  Q6: the removal implementation follows this reconciled contract).
 
 The app-owned provider coordinator owns the named adapter and maps immutable
 events into `ChatRuntime`. Widgets never own a child process, parse a provider

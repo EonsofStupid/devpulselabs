@@ -14,8 +14,8 @@ show/episode") on an editor that is AI-drivable through the fabric. D3:
 a workflow is a typed, declarative document executed by the app, each stage
 publishing `jobs.*` facts — never bespoke code paths. WF1 builds that
 engine and proves it with ONE workflow: **storyboarding** — outline beats →
-slide drafts (catalog templates, optional Imagine image per beat under
-ADR-011) → comp assembly → preview in the editor.
+slide drafts (catalog templates, optional image per beat under the
+Imagine ADR-011) → comp assembly → preview in the editor.
 
 ## 2. Current state (evidence, spot-checked)
 
@@ -46,7 +46,7 @@ dpl-comp, dpl-doc; `publish = false`, workspace lints):
   validation issues (unknown stage kind, dangling refs, jailed paths).
 - `StageKind` v1 — exactly what the skeleton needs, registered in ONE
   `stages()` census: `Outline` (typed beats), `SlideFromBeat` (template id
-  + text per beat), `GenerateImage` (optional; ADR-011; skips honestly
+  + text per beat), `GenerateImage` (optional; Imagine ADR-011; skips honestly
   when no key/dry-run), `AssembleComp` (slides/media → comp.json layers),
   `Render` (existing stitch).
 - Execution: the pure crate owns planning/validation/dry-run; the app
@@ -148,7 +148,7 @@ nodes on the Workflows panel.
 ## 5. Boundaries
 
 - 🚫 Never: new fabric variants (jobs/capture suffice); seam workflow
-  verbs (T4b); C3 surfaces; auto/retried generation spend (ADR-011 —
+  verbs (T4b); C3 surfaces; auto/retried generation spend (Imagine ADR-011 —
   `GenerateImage` runs only inside an operator-started run, dry-run
   default in drills); touching `/content`; `#[allow]`; second workflow
   hardcoded outside the registry.
@@ -197,7 +197,7 @@ merge.
   pretty-LF save + crash-safe overwrite, newer-schema refusal, named
   faults (duplicate stage id, orphan fill stage, empty template), jailed
   refs (drive letter / `..` / absolute all named), dry-run executes every
-  stage with a verdict (generation Skipped naming ADR-011),
+  stage with a verdict (generation Skipped naming the Imagine ADR-011),
   failed-stage-halts-and-names, invalid-doc-never-runs, no-clobber mint,
   slide/comp value builders validate clean.
 - **§6.3**: `cargo test -p dpl-composer` 43 passed + 1 ignored (was 41 —
@@ -243,6 +243,7 @@ merge.
 - **Deviations from plan (reported)**: (1) `GenerateImage` with a key
   present also skips in WF1 (reason names the async-run slice) — the Run
   chip carries no per-image spend labeling yet, so spending there would
-  violate ADR-011's visible-cost law; the skip is the compliant reading.
+  violate the Imagine ADR-011's visible-cost law; the skip is the
+  compliant reading.
   (2) The panel run executes synchronously (milliseconds without
   generation); the async run arrives with the generation slice.

@@ -18,7 +18,9 @@ gallery-gated wall.
   `crates/coldlight/build.rs`, one `generate_*` each, lint-clean output.
 - Registries runtime-enumerable: FONTS (13), MOODS (10), motion effects
   (18 incl. blend-drift + enter-rise/fade/bloom), FLUID_TOKEN_NAMES.
-- Library hub walls: pool/templates/moods/fonts (`crates/hubs/library`).
+- Library hub walls: pool/templates/moods/fonts (`crates/hubs/library` —
+  since dissolved into `crates/hubs/workbench/src/library.rs` by L1c,
+  80f7887, 2026-07-23; the walls are `LibSection` variants there now).
 - `cl::mood_blend(painter, rect, a, b, mix, pan)` paints a static blend
   when given fixed mix/pan.
 
@@ -51,6 +53,9 @@ gallery-gated wall.
 2. edit `crates/coldlight/build.rs` — `generate_presets()` + rerun-if.
 3. edit `crates/coldlight/src/lib.rs` — structs, include, lookups, tests.
 4. edit `crates/hubs/library/src/lib.rs` — PRESETS subroute + wall.
+   (Executed against the then-live hub; after the L1c dissolution, 80f7887,
+   `presets_wall` lives in `crates/hubs/workbench/src/library.rs` under
+   `LibSection::Presets`.)
 5. `cargo green`; exe proof `--route library/presets`; commit; push.
 
 ## 5. Boundaries

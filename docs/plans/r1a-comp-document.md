@@ -2,7 +2,8 @@
 
 Pass R1a of the WiredFRONT editor (ledger #114). Parent ADR:
 `r1-editor-adr-proposal.md` (PARTIALLY RATIFIED 2026-07-24, four forks
-resolved). Stack ADR: `rendering-stack.md` RS4. Ground-truthed in-session
+resolved). Stack ADR: `docs/design/adr-018-rendering-stack.md` RS4
+(formerly numbered ADR-011). Ground-truthed in-session
 2026-07-24 against the real files (every excerpt below traces to a read
 this session).
 

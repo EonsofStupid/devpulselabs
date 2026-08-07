@@ -210,6 +210,10 @@ on the 75".
    Tests: registry complete (8 demos), spec ids unique, tone cycle order.
 5. **edit** `crates/hubs/library` — add subroute `templates`; render the live
    gallery (ScrollArea of stages, each `demos()` entry with label/class chip).
+   (Executed against the then-live hub. `crates/hubs/library` was later
+   dissolved into `crates/hubs/workbench/src/library.rs` by L1c, 80f7887,
+   2026-07-23 — the gallery lives there today as `LibSection::Templates`,
+   `templates_gallery` over `registry::demos()`.)
 6. **verify + baselines** per §6; **commit** per §7.
 
 (S2/S3/S4 get their own fully-specced continuation of this document before

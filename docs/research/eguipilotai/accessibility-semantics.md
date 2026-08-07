@@ -51,11 +51,12 @@ Each live registration records:
 - current semantic revision and AccessKit update revision.
 
 Standard wrappers create the widget inside a `push_id(PilotPath)` scope.
-Custom-painted controls use a `pilot_interact(rect, sense, registration)`
-helper that supplies an explicit egui ID derived from the path. Calling
-`pilot_track` on an arbitrary auto-generated response remains possible only as
-an escape hatch and emits a diagnostic until its stable ID correlation is
-proved.
+Custom-painted controls need a response-creating registration helper that
+supplies an explicit egui ID derived from the path; that helper has never been
+built, and today custom paint attaches `pilot_track` to a response the owner
+creates. Under this contract, `pilot_track` on an arbitrary auto-generated
+response remains possible only as an escape hatch and emits a diagnostic until
+its stable ID correlation is proved.
 
 Duplicate `PilotPath` remains an immediate error with both source locations.
 Duplicate AccessKit correlation or one pilot path changing AccessKit node ID
@@ -71,9 +72,11 @@ The boring public lane should cover the recurring DevPULSE controls:
 - `pilot_text_edit`, `pilot_slider`, `pilot_combo_box`;
 - `pilot_progress`, `pilot_image`;
 - `pilot_region`, `pilot_dialog`;
-- `pilot_interact` for custom paint and hit behavior;
+- a response-creating interaction helper for custom paint and hit behavior
+  (never built; today's `pilot_track` only instruments an owner-created
+  response);
 - `pilot_drag_source` and `pilot_drop_target` as semantic specializations of
-  `pilot_interact`.
+  that interaction helper.
 
 Wrappers return the original egui `Response` and never hide application state
 mutation. They register after the widget has finalized its changed/focused
@@ -169,22 +172,23 @@ the real hit rectangle:
 
 ```rust,ignore
 let id = CHOICE.child(&PilotKey::new(choice.id));
-let response = ui.pilot_interact(
-    id,
-    rect,
-    egui::Sense::click(),
-    NodeMetadata::radio(choice.label)
+let response = ui.interact(rect, ui.id().with(id.as_str()), egui::Sense::click());
+ui.pilot_track(
+    &response,
+    NodeMetadata::new(id, Role::Radio, choice.label)
         .parent(CHOICE_GROUP)
-        .selected(model.selected == Some(choice.id))
-        .enabled(!model.committed),
+        .selected(model.selected == Some(choice.id)),
 );
 if response.clicked() {
     model.select(choice.id);
 }
 ```
 
-The example is a target API shape, not current compiling code. The important
-rules are stable ID, real response, truthful state, semantic parent, and one
+The example uses today's real `pilot_track` surface. The egui ID scope is the
+caller's convention, not a recorded correlation, and disabled state is read
+from the real response rather than the metadata — the correlation and
+enrichment contract above remains unimplemented. The important rules are
+stable ID, real response, truthful state, semantic parent, and one
 registration.
 
 ## Diagnostics
@@ -207,7 +211,8 @@ AccessKit revisions, normalized expected/actual fields, and nearby hierarchy.
 ## Conformance gates
 
 - every standard wrapper produces the expected real AccessKit role/state;
-- custom `pilot_interact` has stable pilot/egui/AccessKit correlation;
+- custom-paint registration has stable pilot/egui/AccessKit correlation,
+  which requires the response-creating helper that does not yet exist;
 - TreeUpdate deltas reconstruct the same tree as a full rebuild;
 - focus is current on every applied update;
 - label/value/checked/selected/expanded/disabled changes appear in both

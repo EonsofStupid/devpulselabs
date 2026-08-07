@@ -63,7 +63,7 @@ Legend: ✅ CAPTURED in the rewrite · 🟡 PARTIAL (exists, gaps named) ·
 | write_inbox_image (editor composite → inbox) | ❌ (ViziWiz path) |
 | Media pipeline: image AVIF/WebP/JPEG optimize, video transcode+poster, animation webp, sequence stitch | ✅ engine-media (+ media-cli) |
 | Background-removal cutout | 🟡 — engine-media carries the cutout arm; ort/BiRefNet worker NOT ported (old ran it as an isolated subprocess; segfaulted on Windows — revisit) |
-| Portable packaging: fetch-ffmpeg ✅ · package-portable ❌ · data_root law ❌ · runtime_status self-report ❌ · portable-drill ❌ · kiosk --kiosk ❌ | 🟡 |
+| Portable packaging: fetch-ffmpeg ❌ (measured 2026-08-06 — the old ✅ pointed at the OLD app's scripts/fetch-ffmpeg.mjs; the rewrite has only the tools-deps resolver + W6 boot resolution, no fetcher — recovery: docs/plans/loss-recovery-program.md Arc R6) · package-portable ❌ · data_root law ❌ · runtime_status self-report ❌ · portable-drill ❌ · kiosk --kiosk ❌ | 🟡 |
 | ext-episodes / import-replays / use-replay scripts | ❌ (replay vehicle TBD, see §5) |
 
 ## 4. Workbench / Authoring — 🟡 (W-passes are the replacement track)
@@ -84,7 +84,7 @@ Legend: ✅ CAPTURED in the rewrite · 🟡 PARTIAL (exists, gaps named) ·
 
 | | |
 |---|---|
-| Palette overlay window, tabs Img/Video/Session/Steps, warm hide | ✅ (pixvix crate) |
+| Palette overlay window, tabs Img/Video/Session/Steps, warm hide | ✅ (viziwiz crate, formerly pixvix) |
 | Global summon hotkey (Ctrl+Shift+S OS-level) | ❌ — in-app chords only; rdev OS-global on ledger |
 | Filing chip + meta popover + auto-name-never-blocks | ❌ |
 | First-run per-tab help, settings (clipboard toggle, format defaults) persisted | ❌ |

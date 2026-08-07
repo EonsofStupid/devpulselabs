@@ -71,7 +71,7 @@ doctrine makes every future workflow PR mechanical:
   per-stage transitions, `workflow <id> · <stage>` labels, batching law,
   the JobBoard rides free; storyboard slots — refs never values, derived
   queries never prose; surface declaration — two-libraries law; dry-run
-  never spends, ADR-011; WF2 graph forward-compat — stage ids are node
+  never spends, Imagine ADR-011; WF2 graph forward-compat — stage ids are node
   ids) + **THE WORKFLOW-PR CHECKLIST** — the concrete "similar and
   consistent" gate every workflow PR copies into its plan §6.
 - `architecture.md` document-crates row for dpl-workflows gains the

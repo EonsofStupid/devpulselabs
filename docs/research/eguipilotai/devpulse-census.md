@@ -36,8 +36,9 @@ Playwright-class scenario coverage.
 3. Direct `ui.input().time` is deterministic only when the runtime owns
    `RawInput.time`; authored motion still needs registration so capture can
    identify terminal/canonical states.
-4. Custom-painted controls need `pilot_interact` at their real hit rectangles.
-   Adding invisible standard widgets would create a false second UI.
+4. Custom-painted controls need `pilot_track` attached to the real response at
+   their real hit rectangles. Adding invisible standard widgets would create a
+   false second UI.
 5. Every interactive slide needs a keyboard path. Drag Match explicitly marks
    its keyboard path as deferred.
 

@@ -3,7 +3,8 @@
 Status: active execution plan derived from the 2026-07-22 Playwright/W3C/
 AccessKit/egui review and DevPULSE source census. Slice 0, the protocol-v2 core
 of Slice 1, the stateful viewport-bound input core, and the Slice 2B immediate
-PixVix vertical are locally qualified. Slice 2B remains open for deferred
+ViziWiz (formerly PixVix, renamed 54ba46d) vertical are locally qualified.
+Slice 2B remains open for deferred
 viewports, renderer-supported child capture, richer selectors, reopen and
 stress qualification. The canonical product architecture remains
 `docs/plans/eguipilotai.md`.
@@ -122,7 +123,7 @@ state is empty after every test outcome.
 ## Slice 2B — native viewport lifecycle and targeting
 
 Purpose: make extended/second windows dependable before per-viewport
-accessibility, runner assertions, visual evidence, PixVix, or presenter work
+accessibility, runner assertions, visual evidence, ViziWiz, or presenter work
 depends on them.
 
 Dependency: Slice 2 must already bind every input source to a viewport and
@@ -160,7 +161,7 @@ Tests:
 - child-close/stop/timeout/input-cleanup failure matrix;
 - one hundred open/close cycles without stale live resources or budget-breaking
   memory growth;
-- real PixVix palette -> region -> capture -> cancel -> close -> reopen flow;
+- real ViziWiz palette -> region -> capture -> cancel -> close -> reopen flow;
 - manual Windows hardware and pinned Lavapipe/Xvfb qualification.
 
 Exit gate: a durable scenario can discover a newly opened window by stable key,
@@ -176,7 +177,7 @@ Implementation checkpoint (2026-07-23):
 - complete locally: durable key/lifetime registry, authoritative inventory,
   lifecycle events and bounded closed journal, viewport-bound input/focus/
   close, source cleanup, strict status/run/MCP targeting, child-aware stop,
-  protocol 2.1 fail-closed negotiation, PixVix palette/region instrumentation,
+  protocol 2.1 fail-closed negotiation, ViziWiz palette/region instrumentation,
   and the real Windows flow;
 - fail-closed boundary: immediate child capture reports
   `viewport-capture-unsupported` because eframe 0.35 native wgpu does not
@@ -193,8 +194,9 @@ truthful real accessibility output.
 Deliverables:
 
 - stable pilot/egui/AccessKit identity correlation;
-- complete standard helper set and `pilot_interact` for custom-painted
-  controls;
+- complete standard helper set and a response-creating registration helper
+  for custom-painted controls (today only `pilot_track` on an owner-created
+  response exists);
 - metadata projection/enrichment for role, name, description, values, state,
   relations, actions, bounds, and focus;
 - per-viewport actual AccessKit `TreeUpdate` capture and reconstructed mirror;
@@ -333,11 +335,11 @@ toolkit ad hoc.
 - correct/wrong drag trajectories and keyboard pickup/place;
 - natural/fast-forward/suppressed interaction captures.
 
-### 7D Workbench and PixVix
+### 7D Workbench and ViziWiz
 
 - seed reload with fixture lifecycle;
 - palette/region viewport roots and lifecycle through the completed Slice 2B
-  registry—no PixVix-private window harness;
+  registry—no ViziWiz-private window harness;
 - tabs/combo/actions/status, busy tokens, REC motion;
 - jailed output probes and capture engine boundaries;
 - launch/interact/cancel/capture/shutdown scenarios.

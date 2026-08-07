@@ -14,6 +14,17 @@ we got here.
 > - any Providers-program link described as planned — P1, V1, V2, V3, A1 and
 >   A2 all landed (#192).
 
+**2026-08-07 — THE LOSS-RECOVERY PROGRAM IS RATIFIED; R0 SETS THE DOCS
+STRAIGHT (`docs/plans/loss-recovery-program.md`):** the 2026-08-06
+loss-audit probe measured every capability claim against the tree — 153
+claims verified, 136 wired — and the program ratified 2026-08-07 carries
+the recovery: ledger L1–L17, rulings Q1–Q9 (all defaults). Arc R0 is THIS
+pass — the docs stop claiming what the code no longer holds: the W1.2
+supersession of the wiredfront ingredient library recorded at R1u, the
+`brutal_frame`/`clay_frame` epitaph note in KNOWN BROKEN #2, and in the
+census fetch-ffmpeg flipped to ❌ (recovery = Arc R6) and pixvix corrected
+to viziwiz. The program doc carries the detail.
+
 **2026-08-06 — CHAT REACHES THE AI PROVIDER CRATE: THE HOST DRIVES THE SEAM
 (#213, plan `docs/plans/codex-host-wiring.md`, journal
 `docs/journal/2026-08-06-codex-host-wiring.md`, `green ✔`):** the oldest open
@@ -2072,6 +2083,11 @@ is DELETED. Memory: `chat-is-a-peer-window`.
   clippy, all tests, release; ran in the pre-push hook). Proof:
   docs/proof/r1u-{editor-1280,editor-1100,library,rail-open}.png. Plan:
   docs/plans/r1u-editor-fidelity.md.
+  [SUPERSEDED (2026-07-24): the ingredient LIBRARY half did not survive —
+  W1.2 `9a95fc7` deleted crates/composer/src/library.rs (212 lines,
+  `dpl_composer::library_ui`) under the two-libraries law; ingredient
+  rendering lives in the Workbench Library and `wiredfront/library` is
+  the MEDIA shelf. Recorded 2026-08-07, R0 docs-truth.]
 - **R1v — the AGENT SEAM landed** (branch `feat/r1v-agent-seam`, stacked on
   R1u): `dpl-seam` — axum on `127.0.0.1:7341` (own thread + runtime, egui
   never touched; `--seam-port <n>` / `--no-seam`): `GET /state` (last-heard
@@ -2119,6 +2135,11 @@ is DELETED. Memory: `chat-is-a-peer-window`.
    and the `coldlight-system` skill (formerly `dpl-style`) gates every UI
    pass on it. ColdLight grew the primitives (`brutal_frame`/`clay_frame`/
    `tip`, `RADIUS_LG`).
+   SUPERSEDED (2026-07-24, `54ba46d`): `brutal_frame`/`clay_frame` are
+   retired — the live successor is `cl::treated`
+   (crates/coldlight/src/lib.rs:627); the old names survive only as
+   doc-comment epitaphs (:618, :660, :921). `tip` and `RADIUS_LG` are
+   alive and wired. Recorded 2026-08-07, R0 docs-truth.
    SUPERSEDED (2026-07-24): the thin BRUTAL/CLAY doctrine is being
    replaced by the composable TRAIT system faithfully ported from the
    original ColdLight (neubrutalism/claymorphism base + cyber/retro

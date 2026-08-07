@@ -6,6 +6,9 @@
 > (see docs/desktop.md, Pass W). The platform engine concerns — scap/str0m forks,
 > DevPulse Live P2P, Turso/Qortex gallery metadata, AI tagging/highlights, channels —
 > live in the DevPulse platform, not here. Do not implement them from this file alone.
+> The ADR numbers the verbatim spec cites (ADR-008/009/012, the "ADR-010 stack",
+> the "ADR-011 fork policy") are the DevPulse PLATFORM's ADR series, not this repo's
+> `docs/design/` register — this repo's ADR-011 is Chat Imagine generation.
 
 ---
 

@@ -3,9 +3,10 @@
 Status: PARTIALLY RATIFIED — the operator gave the vision (2026-07-23)
 and, in the 2026-07-24 ratification conversation, resolved the four
 gating forks (see "Ratified decisions" below). This is the architecture
-half; the passes may now begin, R1a first. Parents: ADR-011
-(rendering-stack.md — RS4 names the R1 stack: egui_tiles docking +
-egui_wgpu/vello compositor behind our own Layer/Compositor traits),
+half; the passes may now begin, R1a first. Parents: ADR-018
+(`docs/design/adr-018-rendering-stack.md`, filed at the time as ADR-011 —
+RS4 names the R1 stack: egui_tiles docking + egui_wgpu/vello compositor
+behind our own Layer/Compositor traits),
 ADR-009 (ffmpeg subprocess law), ADR-010 (ComfyUI first pluggable
 backend). Ledger #114.
 
@@ -58,7 +59,7 @@ motion grammar (coldlight motion tokens + params). A comp doctor
 validates every ref. **This is what makes it AI-editable: agents read
 and write plain validated JSON — the same trick as slides.**
 
-**2. The editor surface — ADR-011's picks, realized.**
+**2. The editor surface — ADR-018's picks, realized.**
 `egui_tiles` panes: preview · timeline · palette (elements + artifacts
 from the index) · inspector. `vello` for vector overlays and effect UI,
 behind our own Layer/Compositor traits (exit honesty). ViziWiz mode =

@@ -3,6 +3,17 @@
 Parent: roadmap Program C (#108) — the program's LAST pass. After C3
 (18af135). Worktree: `C:\localdev\dpl-main` on main.
 
+> **2026-08-07 — the C4 surface no longer exists.** One day after landing,
+> 54ba46d (2026-07-24) deleted `crates/hubs/wiredfront/src/viziwiz.rs` (598
+> lines) and the `--ink-drill` harness seam: *"it was drift overlapping the
+> WiredFRONT/Workbench editors. Live ink/annotate belongs to the PRESENTER
+> (in-session over slides; D3)… (engine-media::ink engine kept for a future
+> presenter annotate-and-save.)"* The engine tier —
+> `engine-media::ink::{InkStroke, flatten_ink}` — survives with zero
+> non-test consumers; its fate is owned by
+> docs/plans/loss-recovery-program.md Arc R7. The body below is left intact
+> as the archaeology reference for any presenter annotate revival.
+
 ## 1. Context
 
 Roadmap C4: *"ViziWiz ink editor (wiredFRONT-side, never mixed with
@@ -47,7 +58,8 @@ editor (vello ADR) — ViziWiz is the small, real annotate-and-file tool.
   save dest PNG. Never touches src. Unit-tested on a generated fixture
   (stroked pixels colored, off-path pixels untouched, src bytes
   identical) — the "baseline on the composite" in engine form.
-- **Surface tier** — `crates/hubs/wiredfront/src/viziwiz.rs` (the hub
+- **Surface tier** (deleted by 54ba46d — see the header note) —
+  `crates/hubs/wiredfront/src/viziwiz.rs` (the hub
   file is 933 lines; new surfaces get their own module — the C2
   alignment law):
   - `VizView{rows, open: Option<VizEdit>, status}` — rows = index
@@ -72,7 +84,8 @@ editor (vello ADR) — ViziWiz is the small, real annotate-and-file tool.
 - **Wiring**: `mod viziwiz;` + `viziwiz: Option<viziwiz::VizView>`
   field + a VIZIWIZ route arm; Cargo += image, dpl-engine-media,
   dpl-engine-steps (all workspace deps already).
-- **Harness**: `--ink-drill <rel>` — open the REAL editor state on an
+- **Harness** (deleted by 54ba46d — see the header note):
+  `--ink-drill <rel>` — open the REAL editor state on an
   inbox image, push a corner-to-corner stroke programmatically, fire
   the REAL flatten action (blank name → auto `-annot`), print the
   status, exit 0 iff it reports the flattened file. Screenshot

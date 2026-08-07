@@ -84,9 +84,12 @@ Register one `EguiPilotPlugin` with the application's `egui::Context`.
   and viewport mappings.
 - `UiPilotExt` wraps standard widgets; `pilot_track` instruments custom
   `allocate_rect` interactions.
-- Standard wrappers and `pilot_interact` correlate the stable `PilotPath`, real
-  `egui::Id`, and AccessKit tree/node IDs. Automation and accessibility data
-  originate from the same registration and are parity-checked.
+- Standard wrappers and `pilot_track` register automation and accessibility
+  data from one owner call: the stable `PilotPath` keys the pilot semantic
+  node, and the same role and name feed egui's real AccessKit output through
+  `WidgetInfo`. Recording the real `egui::Id` and AccessKit tree/node IDs
+  against that path, with parity checks, is specified in
+  `docs/research/eguipilotai/accessibility-semantics.md` and not yet built.
 - The control runtime is compiled only by the devtools feature.
 
 ## Boring extension contract

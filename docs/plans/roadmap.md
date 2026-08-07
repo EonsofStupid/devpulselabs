@@ -165,7 +165,11 @@ the deck track in session capture. Original charter follows.
   + flatten flow, baseline on the composite. ✅ DONE (plan
   docs/plans/c4-viziwiz-ink.md; `engine-media::ink::flatten_ink` +
   `--ink-drill` prove the composite with source-bytes equality; the
-  in-app stroke scenario waits on the Test Lab runner lane).
+  in-app stroke scenario waits on the Test Lab runner lane). (Surface
+  superseded 2026-07-24 by 54ba46d: the viziwiz module + `--ink-drill`
+  seam deleted as drift overlapping the WiredFRONT/Workbench editors —
+  live ink/annotate belongs to the presenter; `engine-media::ink` kept,
+  its fate owned by loss-recovery Arc R7.)
 
 ## Program T — Templates & interaction (census #5)
 

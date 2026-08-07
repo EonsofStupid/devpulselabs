@@ -22,7 +22,10 @@ token source: manifest → generated registry → runtime → gallery wall.
   both default families, sets text styles.
 - `crates/hubs/library/src/lib.rs` — subroutes COMPONENTS/TEMPLATES/MOODS;
   `moods_wall` is the wall pattern (horizontal_wrapped cards in a
-  ScrollArea).
+  ScrollArea). (Historical — the Library hub was dissolved into
+  `crates/hubs/workbench/src/library.rs` by L1c, 80f7887, 2026-07-23; the
+  walls live on as `LibSection` variants, ten sections including
+  Templates/Moods/Fonts.)
 
 ## 3. Target design
 
@@ -68,6 +71,9 @@ and appears on the wall with zero further code.
 5. **edit `crates/hubs/library/src/lib.rs`** — `FONTS` subroute ("Fonts") +
    `fonts_wall()`: one card per FontDef — label rendered IN the font (26pt),
    sample "The quick brown fox — 0123456789" (17pt), class + id monospace.
+   (Executed against the then-live hub; after the L1c dissolution, 80f7887,
+   `fonts_wall` lives in `crates/hubs/workbench/src/library.rs` under
+   `LibSection::Fonts`.)
 6. `cargo green`; exe proof `--route library/fonts` screenshot; commit.
 
 ## 5. Boundaries

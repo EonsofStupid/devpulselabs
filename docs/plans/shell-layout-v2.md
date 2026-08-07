@@ -64,6 +64,10 @@ Root causes, confirmed this session:
   `cl::mood_gradient`. RNG is private to `Backdrop`.
 - `crates/hubs/library/src/lib.rs:171,254,303` — hubs already own their
   vertical `ScrollArea`s; the shell must NOT wrap the well in another one.
+  (Historical cite — the Library hub was dissolved into
+  `crates/hubs/workbench/src/library.rs` by L1c, 80f7887, 2026-07-23; the
+  live file still owns its own vertical `ScrollArea`s at :150/:338/:448 and
+  six more sites, so the grounding stands.)
 - Workspace pins `egui = "0.35"`; docs/workspace.md lists `egui_kittest` as
   "adopt with the shell-layout pass".
 - `docs/shell.md` does not exist yet.
