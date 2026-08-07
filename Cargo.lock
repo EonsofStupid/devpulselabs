@@ -2388,7 +2388,6 @@ dependencies = [
  "dpl-composer",
  "dpl-doc",
  "dpl-engine-capture",
- "dpl-engine-steps",
  "dpl-estate",
  "dpl-fabric",
  "dpl-hub",
@@ -2396,7 +2395,6 @@ dependencies = [
  "dpl-video",
  "egui",
  "egui-pilot-ai",
- "image",
  "serde_json",
 ]
 
@@ -2524,7 +2522,6 @@ dependencies = [
  "dpl-vector",
  "dpl-video",
  "egui",
- "egui_extras",
 ]
 
 [[package]]
