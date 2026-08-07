@@ -558,6 +558,481 @@ pub fn tailor(bible: &BibleDoc) -> Result<WorkflowDoc, Vec<Issue>> {
     })
 }
 
+// ── the brainstorm board (BS1: the massive idea, breaking down) ─────────
+
+/// The brainstorm phases, in order — the template-first scaffold the
+/// surface walks: explode the idea, group what landed, order the
+/// survivors. Promotion (distill) is only offered from the last phase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BrainstormPhase {
+    Diverge,
+    Cluster,
+    Converge,
+}
+
+impl BrainstormPhase {
+    /// The phase's kebab label — surface headers and pilot nodes speak
+    /// this.
+    pub fn label(self) -> &'static str {
+        match self {
+            BrainstormPhase::Diverge => "diverge",
+            BrainstormPhase::Cluster => "cluster",
+            BrainstormPhase::Converge => "converge",
+        }
+    }
+
+    /// The phase after this one; `None` past the end — advancing from
+    /// Converge is a refusal, not a wrap.
+    pub fn next(self) -> Option<Self> {
+        match self {
+            BrainstormPhase::Diverge => Some(BrainstormPhase::Cluster),
+            BrainstormPhase::Cluster => Some(BrainstormPhase::Converge),
+            BrainstormPhase::Converge => None,
+        }
+    }
+}
+
+/// Who put an item on the board. Assist proposals stay visibly ASSIST
+/// until the operator edits them — same ops, disclosed origin (D5
+/// parity: the assist may propose, the operator disposes).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BrainstormOrigin {
+    Operator,
+    Assist,
+}
+
+/// One idea on the board — an editable peer object whatever its origin.
+/// `parent` makes it a breakdown of another item; `cluster` groups it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrainstormItem {
+    pub id: String,
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cluster: Option<String>,
+    pub origin: BrainstormOrigin,
+}
+
+/// One named group the Cluster phase sorts items into.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrainstormCluster {
+    pub id: String,
+    pub label: String,
+}
+
+/// The brainstorm board — the massive idea and its breakdown, one
+/// document. The chat surface renders THIS; every gesture (operator tap
+/// or assist proposal) mutates it only through [`apply`], so the board
+/// on disk is always the board on screen.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrainstormDoc {
+    pub v: u32,
+    /// Kebab identity of THIS board instance (its folder name stem).
+    pub id: String,
+    /// A registered [`BrainstormScaffold`] id.
+    pub template: String,
+    /// The massive idea, in the operator's words. Empty until the first
+    /// [`BrainstormOp::Seed`] — the board opens before the idea lands.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub seed: String,
+    pub phase: BrainstormPhase,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub items: Vec<BrainstormItem>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub clusters: Vec<BrainstormCluster>,
+}
+
+/// Name every structural fault in a board. [`apply`] refuses to touch a
+/// board with issues — half-valid never mutates.
+pub fn validate_brainstorm(doc: &BrainstormDoc) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    let mut push = |path: String, message: String| issues.push(Issue { path, message });
+    if !kebab_ok(&doc.id) {
+        push(
+            "id".into(),
+            format!("board id {:?} is not kebab-case", doc.id),
+        );
+    }
+    if brainstorm_scaffold(&doc.template).is_none() {
+        let all = brainstorm_scaffolds()
+            .iter()
+            .map(|s| s.id)
+            .collect::<Vec<_>>()
+            .join(", ");
+        push(
+            "template".into(),
+            format!("unknown scaffold {:?} — registered: {all}", doc.template),
+        );
+    }
+    let mut item_ids = std::collections::BTreeSet::new();
+    for item in &doc.items {
+        let at = format!("items.{}", item.id);
+        if !kebab_ok(&item.id) {
+            push(
+                at.clone(),
+                format!("item id {:?} is not kebab-case", item.id),
+            );
+        }
+        if !item_ids.insert(item.id.clone()) {
+            push(at.clone(), "duplicate item id".into());
+        }
+        if item.text.trim().is_empty() {
+            push(format!("{at}.text"), "item text is empty".into());
+        }
+    }
+    let mut cluster_ids = std::collections::BTreeSet::new();
+    for cluster in &doc.clusters {
+        let at = format!("clusters.{}", cluster.id);
+        if !kebab_ok(&cluster.id) {
+            push(
+                at.clone(),
+                format!("cluster id {:?} is not kebab-case", cluster.id),
+            );
+        }
+        if !cluster_ids.insert(cluster.id.clone()) {
+            push(at.clone(), "duplicate cluster id".into());
+        }
+        if cluster.label.trim().is_empty() {
+            push(format!("{at}.label"), "cluster label is empty".into());
+        }
+    }
+    for item in &doc.items {
+        let at = format!("items.{}", item.id);
+        if let Some(parent) = &item.parent {
+            if !item_ids.contains(parent) {
+                push(
+                    format!("{at}.parent"),
+                    format!("parent {parent:?} does not exist"),
+                );
+            }
+        }
+        if let Some(cluster) = &item.cluster {
+            if !cluster_ids.contains(cluster) {
+                push(
+                    format!("{at}.cluster"),
+                    format!("cluster {cluster:?} does not exist"),
+                );
+            }
+        }
+    }
+    // A parent chain must terminate — a breakdown is a tree, not a loop.
+    for item in &doc.items {
+        let mut seen = std::collections::BTreeSet::new();
+        let mut cursor = item.parent.as_deref();
+        while let Some(id) = cursor {
+            if !seen.insert(id) || id == item.id {
+                push(
+                    format!("items.{}.parent", item.id),
+                    "breakdown chain loops".into(),
+                );
+                break;
+            }
+            cursor = doc
+                .items
+                .iter()
+                .find(|i| i.id == id)
+                .and_then(|i| i.parent.as_deref());
+        }
+    }
+    issues
+}
+
+/// The typed board verbs — the ONE mutation vocabulary. The operator's
+/// gestures and the assist's proposals both speak this; nothing else
+/// edits a board (census law: variant + [`apply`] arm + pins).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "kebab-case")]
+pub enum BrainstormOp {
+    /// Set (or restate) the massive idea.
+    Seed { seed: String },
+    /// Put an idea on the board, optionally as a breakdown of `parent`.
+    AddItem {
+        id: String,
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parent: Option<String>,
+        origin: BrainstormOrigin,
+    },
+    /// Rewrite an item's text. An operator edit CLAIMS an assist item —
+    /// touched work is the operator's work.
+    EditItem { id: String, text: String },
+    /// Remove an item AND its whole breakdown subtree — nothing dangles.
+    RemoveItem { id: String },
+    /// Add a named cluster to sort into.
+    AddCluster { id: String, label: String },
+    /// Rename a cluster.
+    RenameCluster { id: String, label: String },
+    /// Move an item into a cluster (`None` = unsorted).
+    AssignCluster {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cluster: Option<String>,
+    },
+    /// Step the board to the next phase. Gated: leaving Diverge needs a
+    /// seed and at least two items; leaving Cluster needs every root
+    /// item sorted; Converge is the end.
+    AdvancePhase,
+}
+
+/// Apply one verb to the board — pure in effect (same board + same op =
+/// same result), all-or-nothing (a refused op mutates NOTHING), every
+/// refusal a named issue. This is the single write path the surface,
+/// the assist, and the drills all share.
+pub fn apply(doc: &mut BrainstormDoc, op: &BrainstormOp) -> Result<(), Vec<Issue>> {
+    let refuse = |path: &str, message: String| {
+        Err(vec![Issue {
+            path: path.into(),
+            message,
+        }])
+    };
+    match op {
+        BrainstormOp::Seed { seed } => {
+            if seed.trim().is_empty() {
+                return refuse("seed", "a seed needs words".into());
+            }
+            doc.seed = seed.trim().to_owned();
+        }
+        BrainstormOp::AddItem {
+            id,
+            text,
+            parent,
+            origin,
+        } => {
+            if !kebab_ok(id) {
+                return refuse("id", format!("item id {id:?} is not kebab-case"));
+            }
+            if doc.items.iter().any(|i| &i.id == id) {
+                return refuse("id", format!("item {id:?} already exists"));
+            }
+            if text.trim().is_empty() {
+                return refuse("text", "item text is empty".into());
+            }
+            if let Some(parent) = parent {
+                if !doc.items.iter().any(|i| &i.id == parent) {
+                    return refuse("parent", format!("parent {parent:?} does not exist"));
+                }
+            }
+            doc.items.push(BrainstormItem {
+                id: id.clone(),
+                text: text.trim().to_owned(),
+                parent: parent.clone(),
+                cluster: None,
+                origin: *origin,
+            });
+        }
+        BrainstormOp::EditItem { id, text } => {
+            if text.trim().is_empty() {
+                return refuse("text", "item text is empty".into());
+            }
+            let Some(item) = doc.items.iter_mut().find(|i| &i.id == id) else {
+                return refuse("id", format!("item {id:?} does not exist"));
+            };
+            item.text = text.trim().to_owned();
+            item.origin = BrainstormOrigin::Operator;
+        }
+        BrainstormOp::RemoveItem { id } => {
+            if !doc.items.iter().any(|i| &i.id == id) {
+                return refuse("id", format!("item {id:?} does not exist"));
+            }
+            // Collect the subtree first, then remove — nothing dangles.
+            let mut doomed: Vec<String> = vec![id.clone()];
+            let mut cursor = 0;
+            while cursor < doomed.len() {
+                let parent = doomed[cursor].clone();
+                for child in doc
+                    .items
+                    .iter()
+                    .filter(|i| i.parent.as_deref() == Some(parent.as_str()))
+                {
+                    doomed.push(child.id.clone());
+                }
+                cursor += 1;
+            }
+            doc.items.retain(|i| !doomed.contains(&i.id));
+        }
+        BrainstormOp::AddCluster { id, label } => {
+            if !kebab_ok(id) {
+                return refuse("id", format!("cluster id {id:?} is not kebab-case"));
+            }
+            if doc.clusters.iter().any(|c| &c.id == id) {
+                return refuse("id", format!("cluster {id:?} already exists"));
+            }
+            if label.trim().is_empty() {
+                return refuse("label", "cluster label is empty".into());
+            }
+            doc.clusters.push(BrainstormCluster {
+                id: id.clone(),
+                label: label.trim().to_owned(),
+            });
+        }
+        BrainstormOp::RenameCluster { id, label } => {
+            if label.trim().is_empty() {
+                return refuse("label", "cluster label is empty".into());
+            }
+            let Some(cluster) = doc.clusters.iter_mut().find(|c| &c.id == id) else {
+                return refuse("id", format!("cluster {id:?} does not exist"));
+            };
+            cluster.label = label.trim().to_owned();
+        }
+        BrainstormOp::AssignCluster { id, cluster } => {
+            if let Some(cluster) = cluster {
+                if !doc.clusters.iter().any(|c| &c.id == cluster) {
+                    return refuse("cluster", format!("cluster {cluster:?} does not exist"));
+                }
+            }
+            let Some(item) = doc.items.iter_mut().find(|i| &i.id == id) else {
+                return refuse("id", format!("item {id:?} does not exist"));
+            };
+            item.cluster = cluster.clone();
+        }
+        BrainstormOp::AdvancePhase => {
+            let Some(next) = doc.phase.next() else {
+                return refuse(
+                    "phase",
+                    "the board is at Converge — promote it, don't advance it".into(),
+                );
+            };
+            match doc.phase {
+                BrainstormPhase::Diverge => {
+                    if doc.seed.trim().is_empty() {
+                        return refuse("seed", "seed the idea before clustering".into());
+                    }
+                    if doc.items.len() < 2 {
+                        return refuse(
+                            "items",
+                            "clustering needs at least two ideas on the board".into(),
+                        );
+                    }
+                }
+                BrainstormPhase::Cluster => {
+                    let unsorted: Vec<&str> = doc
+                        .items
+                        .iter()
+                        .filter(|i| i.parent.is_none() && i.cluster.is_none())
+                        .map(|i| i.id.as_str())
+                        .collect();
+                    if doc.clusters.is_empty() {
+                        return refuse("clusters", "converging needs at least one cluster".into());
+                    }
+                    if !unsorted.is_empty() {
+                        return refuse(
+                            "items",
+                            format!("unsorted ideas remain: {}", unsorted.join(", ")),
+                        );
+                    }
+                }
+                BrainstormPhase::Converge => unreachable!("next() gated"),
+            }
+            doc.phase = next;
+        }
+    }
+    Ok(())
+}
+
+// ── brainstorm scaffolds (the template that shapes the brainstorm) ──────
+
+/// One registered brainstorm scaffold — the operator's "template to make
+/// it brainstorming". v1 ships the breakdown arc; a new scaffold is one
+/// census line.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BrainstormScaffold {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub blurb: &'static str,
+}
+
+/// THE scaffold census — one line per scaffold, nothing else enumerates.
+pub fn brainstorm_scaffolds() -> Vec<BrainstormScaffold> {
+    vec![BrainstormScaffold {
+        id: "breakdown",
+        label: "Breakdown",
+        blurb: "Seed the massive idea, explode it, group what landed, order the survivors.",
+    }]
+}
+
+/// Look one scaffold up by id.
+pub fn brainstorm_scaffold(id: &str) -> Option<BrainstormScaffold> {
+    brainstorm_scaffolds().into_iter().find(|s| s.id == id)
+}
+
+/// Mint a fresh board from a scaffold. The board opens at Diverge with
+/// no seed — the first gesture IS the idea landing.
+pub fn mint_brainstorm(scaffold: &BrainstormScaffold, id: &str) -> BrainstormDoc {
+    BrainstormDoc {
+        v: SCHEMA_V,
+        id: id.to_owned(),
+        template: scaffold.id.to_owned(),
+        seed: String::new(),
+        phase: BrainstormPhase::Diverge,
+        items: Vec::new(),
+        clusters: Vec::new(),
+    }
+}
+
+// ── the distill (board → intake pre-fill; promotion feeds EX1) ──────────
+
+/// One suggested intake answer — which field it pre-fills and the text
+/// the operator will see (and may overrule) in the guided intake.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IntakePrefill {
+    pub field: String,
+    pub answer: String,
+}
+
+/// Distill a CONVERGED board into explainer-intake pre-fill. Pure and
+/// DETERMINISTIC — same board, same pre-fill. The bible mint stays
+/// single-sited at the intake: brainstorm feeds intake, intake mints
+/// bible. Refuses an unfinished board with every issue named.
+pub fn distill(doc: &BrainstormDoc) -> Result<Vec<IntakePrefill>, Vec<Issue>> {
+    let mut issues = validate_brainstorm(doc);
+    if doc.phase != BrainstormPhase::Converge {
+        issues.push(Issue {
+            path: "phase".into(),
+            message: format!(
+                "promote from converge — the board is still at {}",
+                doc.phase.label()
+            ),
+        });
+    }
+    if doc.seed.trim().is_empty() {
+        issues.push(Issue {
+            path: "seed".into(),
+            message: "an unseeded board has nothing to promote".into(),
+        });
+    }
+    if !issues.is_empty() {
+        return Err(issues);
+    }
+    let key_points: Vec<String> = doc
+        .clusters
+        .iter()
+        .flat_map(|cluster| {
+            doc.items
+                .iter()
+                .filter(move |i| i.cluster.as_deref() == Some(cluster.id.as_str()))
+                .map(|i| i.text.clone())
+        })
+        .collect();
+    let beats: Vec<String> = doc.clusters.iter().map(|c| c.label.clone()).collect();
+    Ok(vec![
+        IntakePrefill {
+            field: "subject".into(),
+            answer: doc.seed.clone(),
+        },
+        IntakePrefill {
+            field: "key-points".into(),
+            answer: key_points.join("\n"),
+        },
+        IntakePrefill {
+            field: "beats".into(),
+            answer: beats.join("\n"),
+        },
+    ])
+}
+
 // ── the registry census ─────────────────────────────────────────────────
 
 /// Every registered workflow, one line each — nothing else enumerates
@@ -1000,6 +1475,7 @@ impl std::error::Error for DocError {}
 const BOARD_FILE: &str = "storyboard.json";
 const WORKFLOW_FILE: &str = "workflow.json";
 const BIBLE_FILE: &str = "bible.json";
+const BRAINSTORM_FILE: &str = "brainstorm.json";
 
 /// Load `<dir>/storyboard.json`, refusing a newer schema honestly.
 pub fn load_board(dir: &Path) -> Result<StoryboardDoc, DocError> {
@@ -1049,8 +1525,23 @@ pub fn save_bible(dir: &Path, bible: &BibleDoc) -> Result<(), DocError> {
     save_json(dir, BIBLE_FILE, bible)
 }
 
+/// Load `<dir>/brainstorm.json`, refusing a newer schema honestly.
+pub fn load_brainstorm(dir: &Path) -> Result<BrainstormDoc, DocError> {
+    let raw = std::fs::read_to_string(dir.join(BRAINSTORM_FILE)).map_err(DocError::Io)?;
+    let doc: BrainstormDoc = serde_json::from_str(&raw).map_err(DocError::Parse)?;
+    if doc.v > SCHEMA_V {
+        return Err(DocError::Version(doc.v));
+    }
+    Ok(doc)
+}
+
+/// Crash-safe write of the board into `<dir>/brainstorm.json`.
+pub fn save_brainstorm(dir: &Path, doc: &BrainstormDoc) -> Result<(), DocError> {
+    save_json(dir, BRAINSTORM_FILE, doc)
+}
+
 /// The ONE crash-safe pretty-JSON+LF writer (tmp → bak-step-aside →
-/// swap) all three run documents share.
+/// swap) all four run documents share.
 fn save_json<T: Serialize>(dir: &Path, file: &str, value: &T) -> Result<(), DocError> {
     std::fs::create_dir_all(dir).map_err(DocError::Io)?;
     let target = dir.join(file);
@@ -1534,6 +2025,253 @@ mod tests {
         );
         assert!(notes.iter().any(|n| n.contains("not a renderable")));
     }
+
+    /// Build a board the way the surface will: mint, then ops through
+    /// every phase — the fixture IS an integration proof of `apply`.
+    fn worked_board() -> BrainstormDoc {
+        let scaffold = brainstorm_scaffold("breakdown").expect("registered");
+        let mut doc = mint_brainstorm(&scaffold, "launch-video");
+        let ops = [
+            BrainstormOp::Seed {
+                seed: "One video that explains the whole product".into(),
+            },
+            BrainstormOp::AddItem {
+                id: "pain".into(),
+                text: "Name the pain".into(),
+                parent: None,
+                origin: BrainstormOrigin::Operator,
+            },
+            BrainstormOp::AddItem {
+                id: "demo".into(),
+                text: "Show it working".into(),
+                parent: None,
+                origin: BrainstormOrigin::Assist,
+            },
+            BrainstormOp::AddItem {
+                id: "demo-fail".into(),
+                text: "Show the old way failing first".into(),
+                parent: Some("demo".into()),
+                origin: BrainstormOrigin::Assist,
+            },
+            BrainstormOp::AdvancePhase,
+            BrainstormOp::AddCluster {
+                id: "open".into(),
+                label: "The opening".into(),
+            },
+            BrainstormOp::AddCluster {
+                id: "proof".into(),
+                label: "The proof".into(),
+            },
+            BrainstormOp::AssignCluster {
+                id: "pain".into(),
+                cluster: Some("open".into()),
+            },
+            BrainstormOp::AssignCluster {
+                id: "demo".into(),
+                cluster: Some("proof".into()),
+            },
+            BrainstormOp::AdvancePhase,
+        ];
+        for op in &ops {
+            apply(&mut doc, op).expect("fixture ops are legal");
+        }
+        doc
+    }
+
+    #[test]
+    fn the_brainstorm_scaffold_registry_is_the_census() {
+        let all = brainstorm_scaffolds();
+        assert_eq!(all.len(), 1, "v1 ships the breakdown scaffold");
+        let mut ids = std::collections::BTreeSet::new();
+        for s in &all {
+            assert!(ids.insert(s.id), "duplicate scaffold id {}", s.id);
+            assert!(!s.label.is_empty() && !s.blurb.is_empty());
+            let minted = mint_brainstorm(s, "census-proof");
+            assert!(
+                validate_brainstorm(&minted).is_empty(),
+                "a scaffold must mint a clean board"
+            );
+        }
+        assert!(brainstorm_scaffold("ghost").is_none());
+    }
+
+    #[test]
+    fn a_worked_board_is_deterministic_and_ops_are_all_or_nothing() {
+        let a = serde_json::to_string(&worked_board()).unwrap();
+        let b = serde_json::to_string(&worked_board()).unwrap();
+        assert_eq!(a, b, "same ops, same board — bytes included");
+        let mut doc = worked_board();
+        let before = serde_json::to_string(&doc).unwrap();
+        let refused = apply(
+            &mut doc,
+            &BrainstormOp::AssignCluster {
+                id: "pain".into(),
+                cluster: Some("ghost".into()),
+            },
+        );
+        assert!(refused.is_err());
+        assert_eq!(
+            serde_json::to_string(&doc).unwrap(),
+            before,
+            "a refused op mutates NOTHING"
+        );
+    }
+
+    #[test]
+    fn apply_refuses_what_it_cannot_do() {
+        let scaffold = brainstorm_scaffold("breakdown").unwrap();
+        let mut doc = mint_brainstorm(&scaffold, "refusals");
+        // Leaving Diverge before the idea landed.
+        let err = apply(&mut doc, &BrainstormOp::AdvancePhase).unwrap_err();
+        assert!(err.iter().any(|i| i.path == "seed"));
+        apply(
+            &mut doc,
+            &BrainstormOp::Seed {
+                seed: "the idea".into(),
+            },
+        )
+        .unwrap();
+        let err = apply(&mut doc, &BrainstormOp::AdvancePhase).unwrap_err();
+        assert!(err.iter().any(|i| i.path == "items"), "needs two ideas");
+        // Unknown refs and duplicates name themselves.
+        let add = |id: &str| BrainstormOp::AddItem {
+            id: id.into(),
+            text: format!("idea {id}"),
+            parent: None,
+            origin: BrainstormOrigin::Operator,
+        };
+        apply(&mut doc, &add("one")).unwrap();
+        assert!(apply(&mut doc, &add("one")).is_err(), "duplicate id");
+        assert!(apply(
+            &mut doc,
+            &BrainstormOp::AddItem {
+                id: "orphan".into(),
+                text: "x".into(),
+                parent: Some("ghost".into()),
+                origin: BrainstormOrigin::Operator,
+            }
+        )
+        .is_err());
+        assert!(apply(
+            &mut doc,
+            &BrainstormOp::EditItem {
+                id: "ghost".into(),
+                text: "x".into()
+            }
+        )
+        .is_err());
+        apply(&mut doc, &add("two")).unwrap();
+        apply(&mut doc, &BrainstormOp::AdvancePhase).unwrap();
+        // Leaving Cluster with unsorted ideas, then without any cluster.
+        let err = apply(&mut doc, &BrainstormOp::AdvancePhase).unwrap_err();
+        assert!(err.iter().any(|i| i.path == "clusters"));
+        apply(
+            &mut doc,
+            &BrainstormOp::AddCluster {
+                id: "only".into(),
+                label: "Only".into(),
+            },
+        )
+        .unwrap();
+        let err = apply(&mut doc, &BrainstormOp::AdvancePhase).unwrap_err();
+        assert!(
+            err.iter().any(|i| i.message.contains("unsorted")),
+            "unsorted ideas are named"
+        );
+        for id in ["one", "two"] {
+            apply(
+                &mut doc,
+                &BrainstormOp::AssignCluster {
+                    id: id.into(),
+                    cluster: Some("only".into()),
+                },
+            )
+            .unwrap();
+        }
+        apply(&mut doc, &BrainstormOp::AdvancePhase).unwrap();
+        // Past Converge is a refusal, not a wrap.
+        let err = apply(&mut doc, &BrainstormOp::AdvancePhase).unwrap_err();
+        assert!(err.iter().any(|i| i.message.contains("promote")));
+    }
+
+    #[test]
+    fn an_operator_edit_claims_assist_work() {
+        let mut doc = worked_board();
+        assert_eq!(
+            doc.items.iter().find(|i| i.id == "demo").unwrap().origin,
+            BrainstormOrigin::Assist
+        );
+        apply(
+            &mut doc,
+            &BrainstormOp::EditItem {
+                id: "demo".into(),
+                text: "Show it working, live".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            doc.items.iter().find(|i| i.id == "demo").unwrap().origin,
+            BrainstormOrigin::Operator,
+            "touched work is the operator's work"
+        );
+    }
+
+    #[test]
+    fn removal_cascades_the_breakdown() {
+        let mut doc = worked_board();
+        apply(&mut doc, &BrainstormOp::RemoveItem { id: "demo".into() }).unwrap();
+        assert!(
+            !doc.items.iter().any(|i| i.id == "demo-fail"),
+            "the subtree goes with its root — nothing dangles"
+        );
+        assert!(validate_brainstorm(&doc).is_empty());
+    }
+
+    #[test]
+    fn brainstorm_round_trips_crash_safe() {
+        let dir = scratch("brainstorm-roundtrip");
+        let doc = worked_board();
+        save_brainstorm(&dir, &doc).unwrap();
+        assert_eq!(load_brainstorm(&dir).unwrap(), doc);
+        assert!(!dir.join("brainstorm.json.tmp").exists());
+        assert!(!dir.join("brainstorm.json.bak").exists());
+        let mut newer = doc.clone();
+        newer.v = SCHEMA_V + 1;
+        save_brainstorm(&dir, &newer).unwrap();
+        assert!(matches!(load_brainstorm(&dir), Err(DocError::Version(_))));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn distill_fills_the_explainer_intake() {
+        let prefill = distill(&worked_board()).unwrap();
+        let intake = explainer().intake.expect("explainer has an intake");
+        for p in &prefill {
+            assert!(
+                intake.fields.iter().any(|f| f.id == p.field),
+                "prefill field {:?} is not an explainer intake field",
+                p.field
+            );
+            assert!(!p.answer.trim().is_empty());
+        }
+        let subject = prefill.iter().find(|p| p.field == "subject").unwrap();
+        assert_eq!(subject.answer, "One video that explains the whole product");
+        let beats = prefill.iter().find(|p| p.field == "beats").unwrap();
+        assert_eq!(
+            beats.answer, "The opening\nThe proof",
+            "beats ride the cluster order"
+        );
+        assert_eq!(distill(&worked_board()).unwrap(), prefill, "deterministic");
+    }
+
+    #[test]
+    fn distill_refuses_an_unconverged_board() {
+        let scaffold = brainstorm_scaffold("breakdown").unwrap();
+        let doc = mint_brainstorm(&scaffold, "too-early");
+        let err = distill(&doc).unwrap_err();
+        assert!(err.iter().any(|i| i.path == "phase"));
+        assert!(err.iter().any(|i| i.path == "seed"));
+    }
 }
 
 /// THE SCHEMA PIN (workflow-doctrine law 3): the wire contract in
@@ -1814,5 +2552,82 @@ mod schema_pin {
             assert!(p.beat_budget >= 1);
         }
         assert!(format_profile("ghost").is_none());
+    }
+
+    fn fixture_board(phase: BrainstormPhase) -> BrainstormDoc {
+        BrainstormDoc {
+            v: SCHEMA_V,
+            id: "launch-video".into(),
+            template: "breakdown".into(),
+            seed: "One video that explains the whole product".into(),
+            phase,
+            items: vec![
+                BrainstormItem {
+                    id: "pain".into(),
+                    text: "Name the pain".into(),
+                    parent: None,
+                    cluster: Some("open".into()),
+                    origin: BrainstormOrigin::Operator,
+                },
+                BrainstormItem {
+                    id: "demo-fail".into(),
+                    text: "Show the old way failing first".into(),
+                    parent: Some("pain".into()),
+                    cluster: None,
+                    origin: BrainstormOrigin::Assist,
+                },
+            ],
+            clusters: vec![BrainstormCluster {
+                id: "open".into(),
+                label: "The opening".into(),
+            }],
+        }
+    }
+
+    #[test]
+    fn a_minted_and_worked_brainstorm_matches_the_v1_wire_schema() {
+        let v = validator("brainstorm.v1.schema.json");
+        let scaffold = brainstorm_scaffold("breakdown").expect("registered");
+        let minted = serde_json::to_value(mint_brainstorm(&scaffold, "fresh")).unwrap();
+        assert_valid(&v, &minted, "a freshly minted board");
+        for phase in [
+            BrainstormPhase::Diverge,
+            BrainstormPhase::Cluster,
+            BrainstormPhase::Converge,
+        ] {
+            let doc = serde_json::to_value(fixture_board(phase)).unwrap();
+            assert_valid(&v, &doc, "a worked board at every phase");
+        }
+    }
+
+    #[test]
+    fn the_brainstorm_schema_refuses_drift() {
+        let v = validator("brainstorm.v1.schema.json");
+        let good = serde_json::to_value(fixture_board(BrainstormPhase::Cluster)).unwrap();
+        assert_valid(&v, &good, "the drift fixture starts valid");
+
+        let mut doc = good.clone();
+        doc["phase"] = serde_json::json!("vibing");
+        assert!(!v.is_valid(&doc), "an unknown phase must be refused");
+
+        let mut doc = good.clone();
+        doc["items"][0]["origin"] = serde_json::json!("gremlin");
+        assert!(!v.is_valid(&doc), "an unknown origin must be refused");
+
+        let mut doc = good.clone();
+        doc["id"] = serde_json::json!("Not Kebab");
+        assert!(!v.is_valid(&doc), "a non-kebab id must be refused");
+
+        let mut doc = good.clone();
+        doc["vibes"] = serde_json::json!("immaculate");
+        assert!(!v.is_valid(&doc), "an unknown root field is drift");
+
+        let mut doc = good.clone();
+        doc["items"][0]["text"] = serde_json::json!("");
+        assert!(!v.is_valid(&doc), "an empty item text must be refused");
+
+        let mut doc = good;
+        doc["v"] = serde_json::json!(2);
+        assert!(!v.is_valid(&doc), "v2 must not pass the v1 contract");
     }
 }
