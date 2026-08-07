@@ -68,6 +68,7 @@ branch) · **DOC-HAZARD** (docs contradict a ruling or cite dead artifacts).
 | L14 | Portable packaging census row marks fetch-ffmpeg ✅ — the checkmark points at the OLD Tauri app's `scripts/fetch-ffmpeg.mjs`; the rewrite has only a resolver (`tools-deps`), no fetcher, no package-portable, and the data_root law row is ❌ | NEVER-BUILT | `docs/plans/census.md:66`; `crates/tools-deps/Cargo.toml` |
 | L15 | R1u "ingredient LIBRARY (`library_ui`)" reads as live in STATE.md; deleted by W1.2 (`9a95fc7`) under the two-libraries law, and **W1.2 is recorded nowhere in STATE.md** | LOST (deletion ruled; record missing) | `docs/STATE.md:2067-2071` |
 | L16 | `brutal_frame`/`clay_frame`: symbols gone (superseded by `cl::treated`), survive only as doc-comment epitaphs; the STATE entry names them without noting the retirement | LOST (superseded; record stale) | `docs/STATE.md:2120-2121` |
+| L18 | **The coach/eguiPilot split (operator question 2026-08-07: "where did the live-overlay code go? was Coach wrongfully created separate?").** Censused: NOTHING was lost — desktop-spike + coach-overlay + coach-inventory/fabric/runtime + the axum daemon (127.0.0.1:7843) are all on main, proven live (25 PASS/1 SOFT verb battery on Calculator; foreign spotlight painted — `docs/proof/c2s-foreign-spotlight.png`; Cursor Ctrl+K located). Stranded on two axes: (a) 100% `cfg(linux)` — on the Windows seat every verb Refuses, the overlay stubs exit 2, inventory is empty (Windows/UIA lane = deferred C7); (b) the unification seams were all cut — Pass-2 stdio shared-protocol loop parked day one, so two verb vocabularies (protocol `Touchpoint`/`CoachStyle` vs the 101-verb catalog), two transports (pilot stdio vs axum HTTP), two event streams (fabric COACH domain vs unstamped SSE), hand-copied palette, zero crate references between stacks. Also: `CoachStyle::{Arrow,Outline,DimAround}` protocol-only (refused "not painted yet"), no ScreenRect/fabric-id target arm, A2UI Surface commands (C3) not started | PARTIAL / STRANDED — ruled 2026-08-07: one system (debug mode + coaching mode), unify by EXPANDING eguiPilot → Arc R8 | census 2026-08-07, three reports; `crates/coach-*`, `crates/desktop-spike`, `crates/egui-pilot-ai/src/coach.rs` |
 | L17 | Doc-rot cluster: (a) 12 dangling citations to reference PNGs renamed in `30fb73b` — incl. two evidence gates in `wiredfront-library-and-player.md:182,232` and `editor-2.png` misfiled as `color-palette.png`; (b) 4 plans cite deleted `crates/hubs/library` present-tense; (c) `c4-viziwiz-ink.md:50,75` + `roadmap.md:167` cite the deleted viziwiz.rs surface and `--ink-drill`; (d) PixVix names live in `census.md:87` + `eguipilotai-v1-delivery.md` (crate renamed viziwiz `54ba46d`); (e) `wiredfront-library-and-player.md` header carries no SUPERSEDED marker for part B | DOC-HAZARD | verifier reports, 2026-08-06 |
 
 ## 4. The restoration arcs — in order
@@ -206,6 +207,45 @@ WiredFRONT-adjacent:
   wiring pass there; until then the xtask ceiling entry stays as the
   honest tombstone. Gate (when run): `dpl-engine-ae` gains ≥1 crate
   dependent and the inline `Caps::probe` replica in composer is retired.
+
+### Arc R8 — coach comes home: eguiPilot's coaching mode, whole (ruled 2026-08-07)
+
+Operator ruling, verbatim essence: "this and eguiPilot are the same — we
+have its debug mode and coaching mode… we need to just properly have it
+properly expanding eguiPilot and then get the mock to fully capture this
+cutting edge concept: the app sees the installed applications, an axum
+fabric creates the seam for that application to be manipulated/opened/
+reviewed, and reliably paints live circles, arrows, floating commands
+above terminal etc."
+
+Sequenced (mock gate law — "mocks built first for a clear vision"):
+
+1. **R8a — THE MOCK**, first and fully: the end-to-end concept in the
+   house mock style (docs/design/mocks/) — installed-app census → per-app
+   fabric seam → the live overlay vocabulary (ring, circle, ARROW,
+   floating command panel) painted over a terminal — so nothing downstream
+   is guessed. Fed by the existing research (docs/research/coach/*, the
+   ratified ADRs, the C-series proofs) — the research is largely done;
+   the mock is what was never built.
+2. **R8b — one vocabulary**: reconcile protocol `Touchpoint`/`CoachStyle`/
+   `TriggerKind`/`CoachEvent` with the 101-verb catalog; add the missing
+   target arms (ScreenRect, foreign fabric id); paint the refused styles
+   (Arrow, Outline, DimAround) in the ONE painter both coaches share.
+3. **R8c — one transport + one event stream**: the overlay speaks the
+   pilot protocol (the parked Pass-2 stdio loop, un-parked); daemon events
+   enter dpl-fabric's stamped COACH domain; the axum door remains the
+   agent HTTP seam but carries the same typed vocabulary.
+4. **R8d — the Windows lane (deferred C7, now the seat that matters)**:
+   UIA in place of AT-SPI, layered/transparent window in place of X11
+   override-redirect, behind the already-platform-neutral
+   `compose_screen_rect` algebra; developed and proven on the estate's
+   Windows VM (devpulse-runner-win-01 on server1).
+5. **R8e — the Teacher client**: the daemon's 19 shipped verbs get their
+   first real caller (deferred three journals running).
+
+Boundaries: the separate overlay PROCESS stands (egui-wgpu transparent
+backbuffer constraint, ratified ADR); the two-surface rule (Operator
+Coach vs Advanced/EguiPilot) stands — one system, two modes, two doors.
 
 ## 5. The rulings table — RULED 2026-08-07, then AMENDED the same day
 
