@@ -36,6 +36,20 @@ mod engine {
         }
     }
 
+    /// Register a scalable font with ThorVG, keyed by the family name inside
+    /// the file — which is what a Lottie's `fonts.list[].fFamily` must match.
+    ///
+    /// **Text renders as NOTHING for a family ThorVG was never given, and it
+    /// does not complain.** Measured 2026-08-07: a text fixture rendered a
+    /// fully blank frame at exit code 0 because this call did not exist. So a
+    /// failure here is REPORTED — a silent font is the whole defect.
+    pub fn load_font(path: &std::path::Path) -> Result<(), String> {
+        let c = CString::new(path.to_string_lossy().as_ref())
+            .map_err(|e| format!("font path {}: {e}", path.display()))?;
+        unsafe { ok(tvg::tvg_font_load(c.as_ptr()), "font_load") }
+            .map_err(|e| format!("{e} ({})", path.display()))
+    }
+
     impl Lottie {
         /// Load a Bodymovin buffer at a fixed render size.
         pub fn new(data: &[u8], w: u32, h: u32) -> Result<Self, String> {
@@ -171,9 +185,57 @@ fn die(msg: &str) -> ! {
     std::process::exit(1);
 }
 
+/// Split `--font <path>` / `--fonts <dir>` out of argv, returning the font
+/// files to register and the remaining POSITIONAL args untouched — so the
+/// existing `<mode> <lottie> <w> <h> …` grammar is unchanged for every caller
+/// that passes no fonts.
+fn take_font_args(argv: &[String]) -> (Vec<std::path::PathBuf>, Vec<String>) {
+    let mut fonts = Vec::new();
+    let mut rest = Vec::new();
+    let mut i = 0;
+    while i < argv.len() {
+        match argv[i].as_str() {
+            "--font" => {
+                if let Some(p) = argv.get(i + 1) {
+                    fonts.push(std::path::PathBuf::from(p));
+                }
+                i += 2;
+            }
+            "--fonts" => {
+                if let Some(dir) = argv.get(i + 1) {
+                    // Every scalable font in the directory, sorted so the load
+                    // order is the same on every machine.
+                    let mut found: Vec<_> = std::fs::read_dir(dir)
+                        .into_iter()
+                        .flatten()
+                        .flatten()
+                        .map(|e| e.path())
+                        .filter(|p| {
+                            matches!(
+                                p.extension().and_then(|x| x.to_str()),
+                                Some("ttf" | "otf" | "ttc")
+                            )
+                        })
+                        .collect();
+                    found.sort();
+                    fonts.extend(found);
+                }
+                i += 2;
+            }
+            _ => {
+                rest.push(argv[i].clone());
+                i += 1;
+            }
+        }
+    }
+    (fonts, rest)
+}
+
 fn main() {
-    let a: Vec<String> = std::env::args().collect();
-    let usage = "usage: dpl-lottie-render <frame|export|serve> <lottie> <w> <h> [args]";
+    let argv: Vec<String> = std::env::args().collect();
+    let (fonts, a) = take_font_args(&argv);
+    let usage =
+        "usage: dpl-lottie-render <frame|export|serve> <lottie> <w> <h> [args] [--fonts <dir>] [--font <file>]";
     let mode = a.get(1).map(String::as_str).unwrap_or_else(|| die(usage));
     let src = a.get(2).unwrap_or_else(|| die(usage));
     let w: u32 = a
@@ -186,6 +248,12 @@ fn main() {
         .unwrap_or_else(|| die(usage));
     let data = std::fs::read(src).unwrap_or_else(|e| die(&format!("read {src}: {e}")));
     let mut lottie = engine::Lottie::new(&data, w, h).unwrap_or_else(|e| die(&e));
+    // AFTER `Lottie::new`, which owns `tvg_engine_init` — ThorVG will not
+    // accept a font before its engine exists. Loud on failure: an unloaded
+    // font renders text as nothing, at exit code 0 (see `load_font`).
+    for font in &fonts {
+        engine::load_font(font).unwrap_or_else(|e| die(&e));
+    }
 
     match mode {
         // frame <lottie> <w> <h> <t_secs> <out.png>

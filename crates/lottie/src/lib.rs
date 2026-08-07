@@ -12,6 +12,8 @@
 //! keyframes, masks, mattes, gradients, and text — NOT effects, 3D, or
 //! expressions (those stay the AE orchestrator's job).
 
+pub mod controls;
+
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
@@ -67,13 +69,35 @@ impl Player {
     /// Open `lottie` at a fixed render size, spawning the helper and
     /// reading its `READY <w> <h> <fps> <total>` header.
     pub fn open(lottie: &Path, w: u32, h: u32) -> Result<Self, String> {
+        Self::open_with_fonts(lottie, w, h, None)
+    }
+
+    /// As [`Player::open`], with a directory of scalable fonts registered
+    /// before rendering.
+    ///
+    /// **Text renders as NOTHING for a family ThorVG was never given, and it
+    /// does not error** — measured 2026-08-07, a text fixture produced a
+    /// blank frame at exit code 0. So a Lottie with text needs this, and the
+    /// caller supplies the directory: this crate cannot reach ColdLight's
+    /// font pool itself (ColdLight is egui-linked, and this crate is on the
+    /// egui-free side of the line), and the pool is `include_bytes!`-embedded
+    /// rather than on disk, so it must be staged by whoever owns it.
+    pub fn open_with_fonts(
+        lottie: &Path,
+        w: u32,
+        h: u32,
+        fonts: Option<&Path>,
+    ) -> Result<Self, String> {
         let mut cmd = Command::new(helper_path());
         dpl_proc::quiet(&mut cmd);
-        let mut child = cmd
-            .arg("serve")
+        cmd.arg("serve")
             .arg(lottie)
             .arg(w.to_string())
-            .arg(h.to_string())
+            .arg(h.to_string());
+        if let Some(dir) = fonts {
+            cmd.arg("--fonts").arg(dir);
+        }
+        let mut child = cmd
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -137,15 +161,31 @@ pub fn export_sequence(
     fps: f32,
     out_dir: &Path,
 ) -> Result<String, String> {
+    export_sequence_with_fonts(lottie, w, h, fps, out_dir, None)
+}
+
+/// As [`export_sequence`], registering a directory of scalable fonts first.
+/// A Lottie carrying text needs this — see [`Player::open_with_fonts`].
+pub fn export_sequence_with_fonts(
+    lottie: &Path,
+    w: u32,
+    h: u32,
+    fps: f32,
+    out_dir: &Path,
+    fonts: Option<&Path>,
+) -> Result<String, String> {
     let mut cmd = Command::new(helper_path());
     dpl_proc::quiet(&mut cmd);
-    let out = cmd
-        .arg("export")
+    cmd.arg("export")
         .arg(lottie)
         .arg(w.to_string())
         .arg(h.to_string())
         .arg(fps.to_string())
-        .arg(out_dir)
+        .arg(out_dir);
+    if let Some(dir) = fonts {
+        cmd.arg("--fonts").arg(dir);
+    }
+    let out = cmd
         .output()
         .map_err(|e| format!("spawn lottie export: {e}"))?;
     if !out.status.success() {
