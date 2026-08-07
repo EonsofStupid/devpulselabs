@@ -20,14 +20,23 @@ we got here.
 >   plan-before-code law names. The estate roster in
 >   `docs/runbook/ci-runners.md` lists RUNNERS only (`devpulse-runner-win-01`,
 >   `devpulse-runner-lnx-01`, `dpl-linux-clyffy-lab`) and states the dev
->   machine is not among them — **the devstation host is unnamed in the
->   ledger**. `hades` is evidenced as the current USER
+>   machine is not among them. `hades` is evidenced as the current USER
 >   (`/home/hades/Projects/devpulselabs`, marked current in
 >   `phase3-analytics-program.md`; `wardenop` was already flagged stale at
 >   `product-vision.md:339`) — a home directory, not a hostname, so it does
->   not name the host either. Nothing depends on the name: the seat bootstrap
->   is host-agnostic (`tailscale up --hostname="$(hostname)"`), so the target
->   host is a runtime choice, not a code change.
+>   not name the host either. **The devbox target is `server1`** (operator
+>   ruling, 2026-08-07): `ssh.clyffy.ai`, the 128 GB / 88-core Debian
+>   Proxmox HOST that already carries VM 119 + LXC 121 and is the standing
+>   Linux gate box (the 16 GB laptop OOMs the full gate). This correction's
+>   own first draft claimed the devstation was "unnamed in the ledger" —
+>   that was itself un-ground-truthed: `server1` appears throughout STATE
+>   and the journals as the build box, and in `ci-runners.md` as the
+>   hypervisor. The search had looked for `warden-devstation` and `hades`
+>   and stopped, which is the SAME failure one layer down. Nothing in the
+>   script depends on the name — the bootstrap is host-agnostic
+>   (`tailscale up --hostname="$(hostname)"`) — but the runbook now says
+>   where it runs, and names the hypervisor blast radius that follows from
+>   that choice (see `devbox-bootstrap.sh` §"Where this runs").
 
 **2026-08-06 — CHAT REACHES THE AI PROVIDER CRATE: THE HOST DRIVES THE SEAM
 (#213, plan `docs/plans/codex-host-wiring.md`, journal

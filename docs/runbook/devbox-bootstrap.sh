@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# devbox-bootstrap.sh — blank Debian/Ubuntu x64|arm64 guest -> a browser-
-# reachable Claude Code devbox. Idempotent; every step verifies itself;
-# exits nonzero naming the first unsatisfied requirement.
+# devbox-bootstrap.sh — a Debian/Ubuntu x64|arm64 machine (blank guest OR an
+# already-provisioned box) -> a browser-reachable Claude Code devbox.
+# Idempotent; every step verifies itself; exits nonzero naming the first
+# unsatisfied requirement.
 #
 # This is the GOLDEN-IMAGE SOURCE. Packer runs this once against a Proxmox
 # template and once against an AWS AMI so the estate and the fleet cannot
@@ -11,6 +12,24 @@
 # Usage:
 #   sudo ./devbox-bootstrap.sh [--user devbox] [--repo-url <url>] [--port 7681]
 #   sudo ./devbox-bootstrap.sh --verify-only     # post-boot / post-restart audit
+#
+# WHERE THIS RUNS (2026-08-07 operator ruling): server1 — `ssh.clyffy.ai`, the
+# 128 GB / 88-core Debian Proxmox HOST, which is also the standing Linux gate
+# box (the 16 GB laptop OOMs `cargo green`). It is NOT a blank guest, so most
+# of APT_DEPS is already satisfied there and those steps will SKIP; that is the
+# idempotency contract doing its job, not a no-op run. The genuinely new
+# surface on server1 is: the `devbox` user, node, the claude CLI, zellij, ttyd,
+# and the systemd unit.
+#
+# Because server1 is the hypervisor, the blast radius is NOT a disposable
+# guest: an unauthenticated ttyd there is a root-equivalent shell on the box
+# that owns VM 119, LXC 121 and every snapshot. That is exactly why ttyd binds
+# loopback and why --expose is a separate, deliberate step. At `--expose
+# loopback` nothing listens off-box and the risk is unchanged from today's SSH
+# access. Before promoting the HOST to `--expose tailscale`, weigh running the
+# seat in its own LXC on server1 instead (`pct`, same estate, same "on
+# server1") — the tailnet front would otherwise publish a hypervisor root shell
+# to every node on the tailnet.
 #
 # NOT baked by this script, deliberately:
 #   - Claude Code credentials. The seat holder authenticates on first boot
@@ -239,6 +258,16 @@ mkdir -p "$(dirname "$EXPOSE_STATE")"
 printf '%s\n' "$EXPOSE" >"$EXPOSE_STATE"
 
 if [ "$EXPOSE" = tailscale ]; then
+  # Promoting the front on a HYPERVISOR publishes a root-equivalent shell on
+  # the box that owns every guest and snapshot. Warn, don't refuse — the
+  # operator may have decided that; an unattended Packer bake must not block.
+  if [ -d /etc/pve ]; then
+    echo "   !! WARNING: /etc/pve present — this is a Proxmox HOST."
+    echo "   !! Fronting ttyd on the tailnet here exposes a root shell on the"
+    echo "   !! hypervisor (all guests, all snapshots) to every tailnet node."
+    echo "   !! Consider running the seat in its own LXC instead."
+  fi
+
   if have_ts; then skip "tailscale present"; else
     curl -fsSL https://tailscale.com/install.sh | sh
     have_ts || { echo "tailscale STILL missing after install" >&2; exit 1; }
