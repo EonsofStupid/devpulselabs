@@ -12,7 +12,22 @@ we got here.
 > - DuckDB as the analytics engine — it is Arrow/DataFusion over Parquet
 >   (ADR-014 amendment, 2026-08-03);
 > - any Providers-program link described as planned — P1, V1, V2, V3, A1 and
->   A2 all landed (#192).
+>   A2 all landed (#192);
+> - **`warden-devstation`** (in *THE SEAT GETS A BOOTSTRAP*, 2026-08-03 —
+>   anchored by title, not line number, because append-only history keeps
+>   moving it) — no host of that name is recorded anywhere in this repo. It was taken from a branch
+>   slug rather than ground-truthed, which is the exact failure the
+>   plan-before-code law names. The estate roster in
+>   `docs/runbook/ci-runners.md` lists RUNNERS only (`devpulse-runner-win-01`,
+>   `devpulse-runner-lnx-01`, `dpl-linux-clyffy-lab`) and states the dev
+>   machine is not among them — **the devstation host is unnamed in the
+>   ledger**. `hades` is evidenced as the current USER
+>   (`/home/hades/Projects/devpulselabs`, marked current in
+>   `phase3-analytics-program.md`; `wardenop` was already flagged stale at
+>   `product-vision.md:339`) — a home directory, not a hostname, so it does
+>   not name the host either. Nothing depends on the name: the seat bootstrap
+>   is host-agnostic (`tailscale up --hostname="$(hostname)"`), so the target
+>   host is a runtime choice, not a code change.
 
 **2026-08-06 — CHAT REACHES THE AI PROVIDER CRATE: THE HOST DRIVES THE SEAM
 (#213, plan `docs/plans/codex-host-wiring.md`, journal
