@@ -12,7 +12,82 @@ we got here.
 > - DuckDB as the analytics engine — it is Arrow/DataFusion over Parquet
 >   (ADR-014 amendment, 2026-08-03);
 > - any Providers-program link described as planned — P1, V1, V2, V3, A1 and
->   A2 all landed (#192).
+>   A2 all landed (#192);
+> - **`warden-devstation`** (in *THE SEAT GETS A BOOTSTRAP*, 2026-08-03 —
+>   anchored by title, not line number, because append-only history keeps
+>   moving it) — no host of that name is recorded anywhere in this repo. It was taken from a branch
+>   slug rather than ground-truthed, which is the exact failure the
+>   plan-before-code law names. The estate roster in
+>   `docs/runbook/ci-runners.md` lists RUNNERS only (`devpulse-runner-win-01`,
+>   `devpulse-runner-lnx-01`, `dpl-linux-clyffy-lab`) and states the dev
+>   machine is not among them. `hades` is evidenced as the current USER
+>   (`/home/hades/Projects/devpulselabs`, marked current in
+>   `phase3-analytics-program.md`; `wardenop` was already flagged stale at
+>   `product-vision.md:339`) — a home directory, not a hostname, so it does
+>   not name the host either. **The devbox target is `server1`** (operator
+>   ruling, 2026-08-07): `ssh.clyffy.ai`, the 128 GB / 88-core Debian
+>   Proxmox HOST that already carries VM 119 + LXC 121 and is the standing
+>   Linux gate box (the 16 GB laptop OOMs the full gate). This correction's
+>   own first draft claimed the devstation was "unnamed in the ledger" —
+>   that was itself un-ground-truthed: `server1` appears throughout STATE
+>   and the journals as the build box, and in `ci-runners.md` as the
+>   hypervisor. The search had looked for `warden-devstation` and `hades`
+>   and stopped, which is the SAME failure one layer down. Nothing in the
+>   script depends on the name — the bootstrap is host-agnostic
+>   (`tailscale up --hostname="$(hostname)"`) — but the runbook now says
+>   where it runs, and names the hypervisor blast radius that follows from
+>   that choice (see `devbox-bootstrap.sh` §"Where this runs").
+
+**2026-08-07 — THE SEAT GETS A FRONT AND A HOST (#212, docs-only, no lane —
+`green.yml` `paths-ignore` excludes `docs/**`):** `devbox-bootstrap.sh` gains
+`--expose loopback|tailscale`, and the seat finally has a ground-truthed
+target: **server1** (`ssh.clyffy.ai`).
+
+THE FRONT IS A PLUG. ttyd stays bound to loopback in EVERY mode; `--expose`
+only decides what sits in front of that same socket. That is what makes the
+http → tailnet → shipped-VPN progression a SWAP rather than three rebuilds —
+no stage edits the devbox, only its front. `loopback` (default) opens nothing
+and is reached by `ssh -L`; `tailscale serve` adds HTTPS, a real cert and
+tailnet identity with no port opened, no reverse proxy authored and no cert to
+renew. Stage 3 plugs in as a third value: build it as **Headscale** — a
+self-hosted control plane the STOCK tailscale client already speaks — and
+stage 2's client config carries forward instead of becoming sunk cost.
+`TS_AUTHKEY` is read from the ENV only, never a flag (shell history) and never
+baked (ships to every seat). Provision-time mode persists to
+`/etc/devbox/expose`, so `--verify-only` audits the front that was BUILT, not
+the one the auditor passes. `ts_up()` greps `BackendState` because
+`tailscale status` exits 0 while a node is still `Starting`/`NeedsLogin` — a
+half-joined node would have reported green.
+
+THE HOST, AND A CORRECTION INSIDE A CORRECTION. The entry above named
+`warden-devstation`, taken from a branch slug — the exact failure the
+plan-before-code law names. The first correction then concluded the devstation
+was "unnamed in the ledger"; it had searched `warden-devstation` and `hades`,
+found neither, and STOPPED. `server1` was there the whole time — throughout
+STATE and the journals as the build box, and in `ci-runners.md` as the
+hypervisor. The same un-ground-truthed failure, one layer down, inside the fix
+for it. Both are recorded in SUPERSEDED CLAIMS (append-only).
+
+BLAST RADIUS FOLLOWS THE HOST CHOICE. server1 is not a blank guest — it
+already builds the product, so most of `APT_DEPS` SKIPs (the idempotency
+contract working, not a no-op); the new surface is the `devbox` user, node,
+the claude CLI, zellij, ttyd and the systemd unit. But it is the HYPERVISOR:
+an unauthenticated ttyd there is a root-equivalent shell on the box owning
+VM 119, LXC 121 and every snapshot. At `--expose loopback` nothing listens
+off-box and the risk equals today's SSH access. Promoting the HOST to
+`--expose tailscale` would publish that shell to every tailnet node, so the
+tailscale branch WARNS loudly on `/etc/pve` and points at running the seat in
+its own LXC — warns, not refuses, because that may be a deliberate call and an
+unattended Packer bake must not block on a prompt.
+
+**STANDING OPEN (unchanged, and the reason this is not "done"): the script has
+never run end-to-end as root.** Everything above is proven by inspection only
+(`bash -n`; `--verify-only` → 9 failures on `loopback`, 12 on `tailscale`
+adding the three tailscale probes; `--expose wireguard` → exit 2). The proof
+is two commands on server1: `sudo ./docs/runbook/devbox-bootstrap.sh`, then
+`--expose tailscale` over the top of it. NEXT: run stage 0 on the host (that
+alone proves the script), then decide host-vs-LXC for stage 1 — the plug means
+that decision does not have to be made first.
 
 **2026-08-06 — CHAT REACHES THE AI PROVIDER CRATE: THE HOST DRIVES THE SEAM
 (#213, plan `docs/plans/codex-host-wiring.md`, journal
