@@ -65,14 +65,36 @@ queue forever. Check when a job sits queued > ~2 min:
   re-registration: restart the runner service
   (`Restart-Service actions.runner.*` / `./svc.sh stop && ./svc.sh start`).
 
-## Security rule (non-negotiable) — SETTLED 2026-07-30
+## Security rule (non-negotiable) — SETTLED 2026-07-30, PRECONDITION RESTORED 2026-08-07
 
-**The rule below was hit for real, and the resolution is: the estate runners
-are gone.** The repo went public on 2026-07-30 while both self-hosted runners
-were still wired to `pull_request`. Both were deregistered within minutes and
-`green.yml` moved to GitHub-hosted images (`windows-latest`, `ubuntu-latest`),
-which is the rework this rule always demanded. Hosted minutes are free and
-unmetered for public repos.
+**2026-08-07: the repo returned to PRIVATE** (operator ruling — personal
+tool, no open-source exposure) and both estate runners were re-registered
+from this runbook's recipe, exactly as §"kept because" below promised. The
+lanes moved back to `dpl-win`/`dpl-linux` in `green.yml` the same day
+(hosted minutes are metered on private repos — the first private-repo
+hosted run burned 67 billable Windows-lane minutes on a docs PR's main
+push). The rule's precondition — private repo, every PR author is the
+operator — holds again. **If the repo ever goes public again: deregister
+both runners FIRST, same day, before anything else.**
+
+Re-registration lesson (2026-08-07, the 2026-07-28 hollow-directory failure
+RECURRED): LXC 121's rebuild registered on GitHub fine, but the guest still
+carried the pre-deregistration systemd unit pointing at the OLD root
+(`/home/runner/runner-devpulselabs`), and the bootstrap's
+`./svc.sh install || true` swallowed the "already exists" failure — so the
+service started the stale install, the listener died with "Not configured",
+and the roster showed the runner registered-but-offline. Cure: from the NEW
+root, `./svc.sh uninstall` then `install` + `start`, and move the stale
+directory aside (`*.stale-<date>`). OPEN hardening: the bootstrap should
+detect a unit whose ExecStart is not `$RUNNER_HOME` and refuse loudly
+instead of `|| true`-ing past it.
+
+**The rule below was hit for real on 2026-07-30, and the resolution then
+was: the estate runners are gone.** The repo went public on 2026-07-30
+while both self-hosted runners were still wired to `pull_request`. Both
+were deregistered within minutes and `green.yml` moved to GitHub-hosted
+images (`windows-latest`, `ubuntu-latest`), which is the rework this rule
+always demanded. Hosted minutes are free and unmetered for public repos.
 
 The rule stands for any future self-hosted runner:
 
@@ -84,9 +106,10 @@ The rule stands for any future self-hosted runner:
 > label-gating the workflow to same-repo PRs plus a dedicated low-privilege
 > account.
 
-Everything below about registering, bootstrapping and rebuilding the estate
-runners is kept because it is the recipe for standing them back up if the repo
-ever returns to private — not because anything is registered today.
+Everything in this runbook about registering, bootstrapping and rebuilding
+was proven again on 2026-08-07: the repo returned to private and both
+runners were stood back up from these exact recipes (Windows re-registered
+in place; Linux rebuilt from blank into `/opt/actions-runner`).
 
 ## Paid-for gotchas (2026-07-28, each from a real failing run)
 

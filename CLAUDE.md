@@ -76,24 +76,26 @@ other worktree. The operator double-clicks `target\release\devpulselabs.exe`
   `target\release\eguipilotai.exe doctor | inspect devpulse-windows pixvix`.
   Kill any orphaned `devpulselabs` process after CLI runs.
 
-## CI (GitHub-hosted since 2026-07-30)
+## CI (estate runners again since 2026-08-07 — repo is PRIVATE)
 
-- Both lanes run on **hosted images** — `windows-latest` + `ubuntu-latest`
-  in `.github/workflows/green.yml`. Free and unmetered because the repo is
-  public.
-- The **self-hosted estate runners are deregistered**. They executed PR code
-  with real privileges (Windows as SYSTEM), which is safe only on a private
-  repo; the repo went public on 2026-07-30 and they came off the same day.
-  `docs/runbook/ci-runners.md` keeps the rebuild recipe and the standing rule:
-  never wire a self-hosted runner to `pull_request` on a public repo.
-- The toolchain is pinned by `rust-toolchain.toml` (1.92.0), so a hosted
-  image's preinstalled Rust cannot silently become the lane's compiler.
+- The repo returned to **private** on 2026-08-07 (operator ruling: personal
+  tool; no open-source/licensing exposure wanted). Hosted minutes are
+  METERED on private repos, so both lanes moved back to the **estate
+  runners**: Proxmox VM 119 (`dpl-win`) + LXC 121 (`dpl-linux`) in
+  `.github/workflows/green.yml`.
+- The standing security rule is unchanged (`docs/runbook/ci-runners.md`):
+  self-hosted runners on `pull_request` are safe ONLY while the repo is
+  private and every PR author is the operator. **If the repo ever goes
+  public again, deregister the runners FIRST, same day, before anything
+  else.**
+- The toolchain is pinned by `rust-toolchain.toml` (1.92.0), so a guest's
+  preinstalled Rust cannot silently become the lane's compiler.
 - `concurrency: cancel-in-progress` supersedes a stale run when a PR is
-  force-pushed — on self-hosted those sat in the queue holding the only
-  Windows slot.
-- Public repo means **branch protection with required checks is now
-  available** on the free plan. Turning it on would enforce the double-green
-  law mechanically instead of by discipline — not yet configured.
+  force-pushed — the estate has one Windows slot, and stale runs used to
+  sit in the queue holding it.
+- Branch protection with required checks needs a paid plan on private
+  repos — the double-green law stays discipline-enforced
+  (`gh pr checks <n> --watch`, then merge).
 
 ## Session end (every session, no exceptions)
 
