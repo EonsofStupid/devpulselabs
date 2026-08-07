@@ -1,8 +1,60 @@
 # Resume pack — CURRENT
 
-**Updated:** 2026-08-03
-**Lane:** ai-layer (the Providers lane is CLOSED — see Done)
-**Dirty:** true — provider runtime seam built, uncommitted (see Next §1)
+**Updated:** 2026-08-07
+**Lanes:** coach-seam (this session) · ai-layer (2026-08-03 state below;
+its "uncommitted seam" note is stale — the tree is clean of it as of #212)
+**Dirty:** false — one uncommitted artifact by design:
+`docs/design/mocks/coach-seam-mock.html` awaits operator red-pen.
+(`editor-presets-mock.html` + `workbench-editor.md` edits are the
+operator's own parallel work — do not touch.)
+
+## Coach-seam lane (session 2026-08-07) — READ FIRST if resuming coach
+
+**Trigger:** operator stopped the lane — the CX daemon was a second agent
+surface; tracing/profiles/mock were skipped. Audit confirmed. Full story:
+`docs/journal/2026-08-07-coach-seam-audit.md`.
+
+**Done this session:**
+- Audit: daemon violates C2s §3.4 "no new agent surface"; runtime engine
+  (~2,500 lines) survives, HTTP wrapper (~800) gets demoted/rehomed.
+- Research brief: UFO² validates per-app profiles; injection must be a
+  trait (x11 now, portal+libei later); OTel `execute_tool` spans → DuckDB.
+- **`docs/design/mocks/coach-seam-mock.html`** authored + browser-verified,
+  now rev 3 (7 stages: Pick / Foundry / Profile card / Verb console /
+  Lesson / Trace ledger / **Optimize**). Stage 7 is the closed loop per
+  signal-ledger §9.1: insight cards computed from `dpl-ledger` Parquet +
+  seam spans via DataFusion, each carrying its provenance query and a
+  one-click action (re-run Foundry probe / review beat / re-run battery) —
+  never a passive dashboard. UNCOMMITTED — awaiting red-pen.
+- Real-world challenge delivered: fingerprint anchors (locale!), sandboxed
+  checkpointed builds, pack verification batteries, signed distribution,
+  the version×locale matrix → the Foundry pipeline is the asset.
+
+**Rulings 2026-08-07:** mock-first (review before seam ADR) · Blender is
+the first Tier B pack.
+
+**Next (coach):**
+1. **Seam ADR DRAFTED** — `docs/plans/coach-seam-adr.md` (2026-08-07):
+   vocabulary rehomes into `egui-pilot-ai-protocol` (`seam` module:
+   `SeamVerb` keeping the ratified 101 wire names, `SeamTarget`,
+   `EffectContract`, `SeamEvent` with `downgraded_from`); daemon demotes
+   to devtools adapter; per-verb ladder R0–R3 with `Injector` trait;
+   AppProfile TOML (promote-only law, synthesized generic profile);
+   Foundry pipeline; `seam` fabric domain → `dpl-ledger` (rides free) →
+   DataFusion → Optimize cards. §6 = the 5 mock questions answered as
+   overrulable defaults. §7 = slices S1 tracing → S2 rehoming →
+   S3 registry → S4 Blender pack → S5 Optimize cards.
+2. Operator red-pens ADR (§6 defaults, §7 order, naming) + mock rev 3 →
+   ratify → S1.
+
+**Resolved 2026-08-07 (operator go):** seam trace sink is
+**Arrow/DataFusion over Parquet** (ADR-014-consistent). Mock rev 2 shows
+the Foundry job console + DataFusion query. Challenge captured in
+`docs/research/coach/seam-real-world-challenge.md`.
+
+---
+
+# ai-layer lane — as of 2026-08-03 (verify before trusting; #212 landed since)
 
 ## Goal
 
