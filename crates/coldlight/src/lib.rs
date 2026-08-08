@@ -371,10 +371,20 @@ fn step_on(hue: &str, step: u32) -> Color32 {
 }
 
 impl ColorRef {
-    /// Resolve against the surface's tone and the generated pool.
-    pub fn resolve(self, tone: Tone) -> Color32 {
+    /// Resolve against ANY hue in the generated pool.
+    ///
+    /// `Tone` names six hues; `hues.json` authors **53**. Everything below
+    /// this line was already string-addressed — `Tone::hue_id()` returns a
+    /// `&str` and [`step_on`] looks it up by name — so the six were never a
+    /// limit of the engine, only of the enum in front of it. A surface that
+    /// wants `teal-accent` asks for it here instead of picking the nearest of
+    /// six.
+    ///
+    /// An id absent from the pool degrades loudly in debug and to GRAY in
+    /// release, the same contract `step_on` already had.
+    pub fn resolve_on(self, hue: &str) -> Color32 {
         let base = match self.base {
-            ColorBase::ToneStep(step) => step_on(tone.hue_id(), step),
+            ColorBase::ToneStep(step) => step_on(hue, step),
             ColorBase::Hue(id, step) => step_on(id, step),
             ColorBase::Fixed(c) => c,
         };
@@ -383,6 +393,14 @@ impl ColorRef {
         } else {
             Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), self.alpha)
         }
+    }
+
+    /// Resolve against the surface's tone and the generated pool.
+    ///
+    /// Kept as-is so the 369 existing `Tone::*` call sites are untouched: this
+    /// is [`Self::resolve_on`] with the tone's own hue id.
+    pub fn resolve(self, tone: Tone) -> Color32 {
+        self.resolve_on(tone.hue_id())
     }
 }
 
@@ -1677,7 +1695,13 @@ pub mod matrix {
     ///
     /// An unknown facet degrades to the ancestor's native rather than
     /// panicking — the `compose()` precedent.
-    pub fn resolve(c: &Coordinate, tone: Tone, state: TraitState) -> ResolvedStyle {
+    /// Resolve a coordinate against ANY of the 53 authored hues.
+    ///
+    /// The matrix classifies the LOOK; the hue is the one axis left free, and
+    /// restricting it to the six `Tone` variants was an accident of the enum,
+    /// not a law — nothing below this call was ever tone-shaped (see
+    /// [`ColorRef::resolve_on`]).
+    pub fn resolve_on(c: &Coordinate, hue: &'static str, state: TraitState) -> ResolvedStyle {
         let mut rs = ResolvedStyle::default();
         let Some(anc) = ancestor(c.ancestor) else {
             debug_assert!(false, "unknown ancestor: {}", c.ancestor);
@@ -1700,19 +1724,25 @@ pub mod matrix {
         rs.radius = st.radius;
         let edge_color = mat.edge_color.or(base_mat.edge_color);
         rs.edge = match edge_color {
-            Some(cr) => Stroke::new(st.edge_width, cr.resolve(tone)),
+            Some(cr) => Stroke::new(st.edge_width, cr.resolve_on(hue)),
             None => Stroke::NONE,
         };
         if let Some(cr) = mat.fill.or(base_mat.fill) {
-            rs.fill = cr.resolve(tone);
+            rs.fill = cr.resolve_on(hue);
         }
         if let Some(cr) = mat.ink.or(base_mat.ink) {
-            rs.ink = cr.resolve(tone);
+            rs.ink = cr.resolve_on(hue);
         }
 
         let ax = merged_axes(atm.base, state_patch(atm, state));
-        apply_atmosphere(&mut rs, &ax, tone, st.edge_width);
+        apply_atmosphere(&mut rs, &ax, hue, st.edge_width);
         rs
+    }
+
+    /// Resolve against a `Tone`. The six-variant path, kept so every existing
+    /// caller is untouched; it is [`resolve_on`] with the tone's hue id.
+    pub fn resolve(c: &Coordinate, tone: Tone, state: TraitState) -> ResolvedStyle {
+        resolve_on(c, tone.hue_id(), state)
     }
 
     fn state_patch(atm: &AtmosphereDef, state: TraitState) -> Option<Axes> {
@@ -1726,35 +1756,35 @@ pub mod matrix {
     /// The atmosphere's contribution. Colour axes it names OVERRIDE the
     /// material (that is how `hard-cast`'s active state lights the edge);
     /// shadow/glow/tint axes are ADDITIVE, matching `compose`.
-    fn apply_atmosphere(rs: &mut ResolvedStyle, ax: &Axes, tone: Tone, edge_width: f32) {
+    fn apply_atmosphere(rs: &mut ResolvedStyle, ax: &Axes, hue: &str, edge_width: f32) {
         if let Some(cr) = ax.fill {
-            rs.fill = cr.resolve(tone);
+            rs.fill = cr.resolve_on(hue);
         }
         if let Some(cr) = ax.ink {
-            rs.ink = cr.resolve(tone);
+            rs.ink = cr.resolve_on(hue);
         }
         // An atmosphere may relight the edge, but the WIDTH stays the
         // structure's — geometry is never an atmosphere's to change (M4).
         if let Some(e) = ax.edge {
-            rs.edge = Stroke::new(edge_width, e.color.resolve(tone));
+            rs.edge = Stroke::new(edge_width, e.color.resolve_on(hue));
         }
         if let Some(shadows) = ax.shadows {
             rs.shadows.extend(shadows.iter().map(|s| Shadow {
                 offset: s.offset,
                 blur: s.blur,
                 spread: s.spread,
-                color: s.color.resolve(tone),
+                color: s.color.resolve_on(hue),
             }));
         }
         if let Some(glows) = ax.back_glow {
             rs.back_glow.extend(glows.iter().map(|g| Glow {
-                color: g.color.resolve(tone),
+                color: g.color.resolve_on(hue),
                 spread: g.spread,
             }));
         }
         if let Some(tints) = ax.tints {
             rs.tints.extend(tints.iter().map(|t| Tint {
-                color: t.color.resolve(tone),
+                color: t.color.resolve_on(hue),
                 dir: t.dir,
             }));
         }
@@ -1939,6 +1969,82 @@ pub mod matrix {
                     assert!(rs.edge.width > 0.0, "{} resolved no edge", a.id);
                 }
             }
+        }
+
+        /// THE UNLOCK. `Tone` names six hues; `hues.json` authors 53, and the
+        /// resolver was string-addressed the whole way down — so the six were
+        /// a limit of the enum, never of the engine. Every authored hue must
+        /// resolve through a coordinate, or the "colour" knob is a lie about
+        /// the size of the pool it draws from.
+        #[test]
+        fn a_coordinate_resolves_on_every_one_of_the_53_hues() {
+            let c = Coordinate::native("brutalist").expect("brutalist is authored");
+            let mut n = 0usize;
+            for (_, ids) in crate::HUE_GROUPS.iter() {
+                for id in ids.iter() {
+                    let rs = resolve_on(&c, id, TraitState::Idle);
+                    assert!(
+                        rs.fill != egui::Color32::GRAY,
+                        "hue {id} did not resolve — GRAY is the missing-from-pool fallback"
+                    );
+                    n += 1;
+                }
+            }
+            assert_eq!(n, crate::HUE_COUNT, "every authored hue must be reachable");
+            assert!(
+                n > Tone::ALL.len() * 8,
+                "{n} hues vs {} tones",
+                Tone::ALL.len()
+            );
+        }
+
+        /// The change is ADDITIVE: 369 existing `Tone::*` call sites keep their
+        /// exact pixels. If these two ever diverge, the six-tone path has been
+        /// quietly restyled underneath every surface in the app.
+        #[test]
+        fn the_tone_path_and_the_hue_path_agree() {
+            let c = Coordinate::native("aero").expect("aero is authored");
+            for t in Tone::ALL {
+                for st in [TraitState::Idle, TraitState::Hover, TraitState::Active] {
+                    let a = resolve(&c, t, st);
+                    let b = resolve_on(&c, t.hue_id(), st);
+                    assert_eq!(a.fill, b.fill, "{t:?}/{st:?} fill");
+                    assert_eq!(a.ink, b.ink, "{t:?}/{st:?} ink");
+                    assert_eq!(a.edge.color, b.edge.color, "{t:?}/{st:?} edge");
+                }
+            }
+        }
+
+        /// The operator asked for #097d71. It is `teal-accent`, which `Tone`
+        /// cannot name — this is the concrete thing the unlock buys.
+        #[test]
+        fn a_hue_outside_the_six_is_now_reachable() {
+            assert!(
+                !Tone::ALL.iter().any(|t| t.hue_id() == "teal-accent"),
+                "teal-accent is deliberately NOT one of the six"
+            );
+            // brutalist's native material is `raw`, whose fill is a TONE STEP
+            // (`{tone: 400}`) — so the hue drives it.
+            let c = Coordinate::native("brutalist").expect("brutalist is authored");
+            let teal = resolve_on(&c, "teal-accent", TraitState::Idle);
+            let amber = resolve_on(&c, "amber", TraitState::Idle);
+            assert_ne!(
+                teal.fill, amber.fill,
+                "the hue must actually change the fill"
+            );
+            assert_ne!(teal.fill, egui::Color32::GRAY);
+
+            // ...and the converse is deliberate, not a bug: `paper`'s fill is a
+            // SURFACE constant, so a paper material is hue-INDEPENDENT. Paper is
+            // paper in every tone. This assertion is here because the first
+            // draft of this test picked `swiss` (native `paper`) and read the
+            // correct behaviour as a failure.
+            let sw = Coordinate::native("swiss").expect("swiss is authored");
+            assert_eq!(
+                resolve_on(&sw, "teal-accent", TraitState::Idle).fill,
+                resolve_on(&sw, "amber", TraitState::Idle).fill,
+                "a surface-based material must not follow the hue"
+            );
         }
 
         /// The ancestral list must stay SHORT — every added seed costs a full
