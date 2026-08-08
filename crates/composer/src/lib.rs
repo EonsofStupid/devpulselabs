@@ -644,6 +644,30 @@ impl Composer {
         dpl_engine_capture::content_root()
     }
 
+    /// The preview's motion-blur sampling for one layer: `(samples, span)`.
+    ///
+    /// AE's rule — the comp master AND the layer switch. `span` is the
+    /// SHUTTER INTERVAL in seconds: a shutter angle is the fraction of the
+    /// frame the shutter stays open, so 180 degrees at 30fps is half of
+    /// 1/30s. Sample count reuses `blur_frames`, the same function the export
+    /// graph uses, so the viewer and the render cannot disagree about how
+    /// much blur "on" means.
+    fn layer_blur(&self, layer_id: &str) -> (u32, f32) {
+        if !self.comp.motion_blur {
+            return (1, 0.0);
+        }
+        let on = self
+            .layers()
+            .iter()
+            .any(|l| l.id == layer_id && l.motion_blur);
+        if !on {
+            return (1, 0.0);
+        }
+        let fps = self.comp.fps.max(1) as f32;
+        let span = (self.comp.shutter as f32 / 360.0) / fps;
+        (dpl_engine_media::blur_frames(self.comp.shutter), span)
+    }
+
     /// THE ONE PATCH POINT — resolve a Lottie layer to the document that
     /// should actually render.
     ///
@@ -940,8 +964,9 @@ impl Composer {
                             self.overlay_lanes.len() - 1
                         }
                     };
+                    let blur = self.layer_blur(id);
                     if let Some((_, OverlayLane::Lottie(lp))) = self.overlay_lanes.get_mut(idx) {
-                        lp.render(ctx, *want);
+                        lp.render(ctx, *want, blur);
                     }
                 }
                 Source::Element { .. } => {}
@@ -1005,10 +1030,19 @@ impl Composer {
             // has no screen/add compositing) and Lottie grades apply at
             // export only — the badge NAMES it; the render is exact.
             let badge = match (layer.blend, lane) {
+                // A LOTTIE lane now shows its own blur: the helper averages
+                // sub-frames across the shutter, the same integral ffmpeg's
+                // tmix computes. So it is LIVE, not a promise.
+                _ if self.comp.motion_blur
+                    && layer.motion_blur
+                    && matches!(lane, OverlayLane::Lottie(_)) =>
+                {
+                    Some("motion blur · live")
+                }
                 _ if self.comp.motion_blur && layer.motion_blur => {
-                    // egui cannot average frames on the paint thread; ffmpeg
-                    // does it exactly. Say so rather than showing a sharp
-                    // frame that silently disagrees with the export.
+                    // A video lane still cannot be averaged on the paint
+                    // thread; ffmpeg does it exactly. Say so rather than
+                    // showing a sharp frame that disagrees with the export.
                     Some("motion blur · export-exact")
                 }
                 (dpl_comp::Blend::Screen, _) => Some("screen · export-exact"),
@@ -1317,8 +1351,9 @@ impl Composer {
             if self.preview_lottie.as_ref().map(|(k, _)| k.as_str()) != Some(key.as_str()) {
                 self.preview_lottie = LottiePlayer::open(&path).map(|p| (key.clone(), p));
             }
+            let blur = self.layer_blur(&lid);
             if let Some((_, lp)) = self.preview_lottie.as_mut() {
-                lp.render(ctx, want.max(0.0));
+                lp.render(ctx, want.max(0.0), blur);
             }
             self.preview_still = None;
             if let Some((_, player)) = self.preview.as_mut() {
@@ -6648,6 +6683,9 @@ struct LottiePlayer {
     /// The last rendered time — re-render (a subprocess round-trip) only
     /// when the playhead actually moved.
     last_t: f32,
+    /// The blur the current texture was rendered with, so toggling the
+    /// switch invalidates the frame even when the playhead has not moved.
+    last_blur: (u32, f32),
     render_w: u32,
     render_h: u32,
 }
@@ -6664,18 +6702,28 @@ impl LottiePlayer {
             player,
             handle: None,
             last_t: f32::NAN,
+            last_blur: (1, 0.0),
             render_w,
             render_h,
         })
     }
 
     /// Ensure the frame at `t` is rendered and uploaded (a no-op when `t`
-    /// is unchanged). Called from `tick_playback`.
-    fn render(&mut self, ctx: &egui::Context, t: f32) {
-        if self.handle.is_some() && (t - self.last_t).abs() < 1e-4 {
+    /// and the blur are unchanged). Called from `tick_playback`.
+    ///
+    /// `blur` is `(samples, span_secs)`; `(1, 0.0)` renders plainly. The
+    /// viewer used to paint a sharp frame and a badge PROMISING blur at
+    /// export — now it shows the blur, because the helper computes the same
+    /// shutter integral ffmpeg's `tmix` does.
+    fn render(&mut self, ctx: &egui::Context, t: f32, blur: (u32, f32)) {
+        let (samples, span) = blur;
+        // The blur is part of the cache key: turning the switch on must
+        // re-render the SAME time, or the operator toggles it and sees
+        // nothing change.
+        if self.handle.is_some() && (t - self.last_t).abs() < 1e-4 && self.last_blur == blur {
             return;
         }
-        if let Ok(frame) = self.player.frame_at(t) {
+        if let Ok(frame) = self.player.frame_blurred(t, samples, span) {
             let img = egui::ColorImage::from_rgba_unmultiplied(
                 [frame.width as usize, frame.height as usize],
                 &frame.rgba,
@@ -6691,6 +6739,7 @@ impl LottiePlayer {
                 }
             }
             self.last_t = t;
+            self.last_blur = blur;
         }
     }
 
@@ -7173,6 +7222,44 @@ mod tests {
 
     /// Motion blur is AE's rule — the comp master AND the layer switch. One
     /// alone must emit nothing, or a comp-wide toggle could not kill it.
+    /// The PREVIEW's blur must obey AE's rule and use the export's own
+    /// sample count — a viewer that disagrees with the render is worse than
+    /// a viewer that shows nothing.
+    #[test]
+    fn the_preview_blur_matches_the_export_and_needs_both_switches() {
+        let mut c = Composer::default();
+        c.add_clip(&Record {
+            rel_path: "inbox/a.mp4".into(),
+            kind: "video".into(),
+            ..Default::default()
+        });
+        let id = c.layers()[0].id.clone();
+
+        // Neither switch: no blur.
+        assert_eq!(c.layer_blur(&id), (1, 0.0), "off by default");
+
+        // Comp master only: still nothing (AE's rule).
+        c.comp.motion_blur = true;
+        assert_eq!(c.layer_blur(&id), (1, 0.0), "master alone does nothing");
+
+        // Both: the export's own sample count, and a shutter interval that
+        // is the angle's fraction of one frame.
+        if let Some(l) = c.layer_mut(&id) {
+            l.motion_blur = true;
+        }
+        let (samples, span) = c.layer_blur(&id);
+        assert_eq!(
+            samples,
+            dpl_engine_media::blur_frames(c.comp.shutter),
+            "preview must sample exactly what the export averages"
+        );
+        let expected = (c.comp.shutter as f32 / 360.0) / c.comp.fps as f32;
+        assert!(
+            (span - expected).abs() < 1e-6,
+            "shutter angle is a fraction of the FRAME: {span} vs {expected}"
+        );
+    }
+
     #[test]
     fn motion_blur_needs_both_switches() {
         let mut c = Composer::default();

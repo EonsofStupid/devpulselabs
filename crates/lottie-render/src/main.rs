@@ -131,6 +131,45 @@ mod engine {
             }
         }
 
+        /// Render `t` with MOTION BLUR, by averaging sub-frames across the
+        /// shutter interval.
+        ///
+        /// This is what a shutter physically does and what AE computes: the
+        /// sensor is open for a fraction of the frame, so the image is the
+        /// integral of everything that moved while it was open. Averaging
+        /// `samples` renders across `span` seconds IS that integral, sampled.
+        /// It is the same computation ffmpeg's `tmix` performs on the export —
+        /// done here so the operator SEES their blur instead of reading a
+        /// badge promising it.
+        ///
+        /// `samples <= 1` or a zero span degrades to a plain render, so a
+        /// blur-off layer costs exactly what it did before.
+        pub fn rgba_blurred(
+            &mut self,
+            t_secs: f32,
+            samples: u32,
+            span: f32,
+        ) -> Result<Vec<u8>, String> {
+            if samples <= 1 || span <= 0.0 {
+                return self.rgba_at(t_secs);
+            }
+            // Accumulate in u32 so 8 samples cannot wrap a u8 channel.
+            let mut sum: Vec<u32> = Vec::new();
+            for i in 0..samples {
+                // Centred on `t`: the shutter opens before and closes after,
+                // so the blur trails and leads rather than only lagging.
+                let offset = (f64::from(i) / f64::from(samples - 1) - 0.5) as f32 * span;
+                let frame = self.rgba_at(t_secs + offset)?;
+                if sum.is_empty() {
+                    sum = vec![0u32; frame.len()];
+                }
+                for (slot, byte) in sum.iter_mut().zip(&frame) {
+                    *slot += u32::from(*byte);
+                }
+            }
+            Ok(sum.iter().map(|v| (v / samples) as u8).collect())
+        }
+
         /// Render the frame at `t` seconds (clamped) and return packed RGBA8.
         pub fn rgba_at(&mut self, t_secs: f32) -> Result<Vec<u8>, String> {
             let last = (self.total_frames - 1.0).max(0.0);
@@ -260,7 +299,13 @@ fn main() {
         "frame" => {
             let t: f32 = a.get(5).and_then(|s| s.parse().ok()).unwrap_or(0.0);
             let out = a.get(6).map(String::as_str).unwrap_or("frame.png");
-            let rgba = lottie.rgba_at(t).unwrap_or_else(|e| die(&e));
+            // Optional trailing <samples> <span> — motion blur, same maths as
+            // the serve path and as ffmpeg's tmix.
+            let samples: u32 = a.get(7).and_then(|s| s.parse().ok()).unwrap_or(1);
+            let span: f32 = a.get(8).and_then(|s| s.parse().ok()).unwrap_or(0.0);
+            let rgba = lottie
+                .rgba_blurred(t, samples, span)
+                .unwrap_or_else(|e| die(&e));
             image::save_buffer(out, &rgba, w, h, image::ColorType::Rgba8)
                 .unwrap_or_else(|e| die(&format!("png: {e}")));
             println!(
@@ -303,8 +348,16 @@ fn main() {
                 if line == "q" || line.is_empty() {
                     break;
                 }
-                let t: f32 = line.parse().unwrap_or(0.0);
-                let rgba = lottie.rgba_at(t).unwrap_or_else(|e| die(&e));
+                // "<t>" renders plainly; "<t> <samples> <span>" renders with
+                // motion blur. Additive on purpose — an older caller sending
+                // a bare time behaves exactly as before.
+                let mut parts = line.split_whitespace();
+                let t: f32 = parts.next().and_then(|v| v.parse().ok()).unwrap_or(0.0);
+                let samples: u32 = parts.next().and_then(|v| v.parse().ok()).unwrap_or(1);
+                let span: f32 = parts.next().and_then(|v| v.parse().ok()).unwrap_or(0.0);
+                let rgba = lottie
+                    .rgba_blurred(t, samples, span)
+                    .unwrap_or_else(|e| die(&e));
                 if out.write_all(&rgba).is_err() {
                     break;
                 }
