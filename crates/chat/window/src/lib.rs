@@ -2471,8 +2471,10 @@ impl ChatWindow {
         // as soon as the platform knows it; ACTIVE only while a
         // signed-in backing exists — the row never claims readiness it
         // borrowed from nobody.
+        let mut pinned_heading_painted = false;
         if self.clyffy.present {
             micro_heading(ui, "PINNED");
+            pinned_heading_painted = true;
             let backing = self
                 .clyffy
                 .backing
@@ -2519,7 +2521,11 @@ impl ChatWindow {
             if matching.is_empty() {
                 continue;
             }
-            micro_heading(ui, heading);
+            // Clyffy may already own the PINNED heading — one heading,
+            // every pinned thing beneath it.
+            if heading != "PINNED" || !pinned_heading_painted {
+                micro_heading(ui, heading);
+            }
             for (provider, session) in matching {
                 let descriptor = provider.registration.manifest.descriptor;
                 let selected = self.runtime.selected_provider_id() == Some(descriptor.id)
@@ -3150,6 +3156,14 @@ impl ChatWindow {
                                 })
                             });
                             if let Some((provider, session, can_stop)) = running {
+                                // The Enter-honesty law holds mid-turn too:
+                                // the consumed key says why it cannot send.
+                                if submit_key {
+                                    self.composer_status = Some(
+                                        "A response is running — Stop it, or wait for it to finish."
+                                            .to_owned(),
+                                    );
+                                }
                                 let stop = ui.add_enabled(
                                     can_stop,
                                     egui::Button::new("Stop").min_size(egui::vec2(86.0, 42.0)),
@@ -3234,30 +3248,37 @@ impl ChatWindow {
                                 }
                                 if submitted {
                                     if let Some(draft_cmd) = command {
-                                        // Consume the trigger text; nothing
-                                        // is sent as a message.
-                                        if let Some(provider) = selected.as_ref() {
-                                            intents.push(ChatWindowIntent::UpdateAiDraft {
-                                                provider: provider
-                                                    .registration
-                                                    .manifest
-                                                    .descriptor
-                                                    .id,
-                                                value: String::new(),
-                                            });
-                                        }
                                         let synthetic =
                                             egui_pilot_ai::input_is_synthetic(ui.ctx());
                                         if let Some(command) = privileged_command(&draft_cmd) {
                                             // The audited determinism wire,
-                                            // byte-identical to before.
+                                            // byte-identical to before. A
+                                            // privileged command always
+                                            // dispatches, so the trigger
+                                            // text is consumed here.
+                                            if let Some(provider) = selected.as_ref() {
+                                                intents.push(ChatWindowIntent::UpdateAiDraft {
+                                                    provider: provider
+                                                        .registration
+                                                        .manifest
+                                                        .descriptor
+                                                        .id,
+                                                    value: String::new(),
+                                                });
+                                            }
                                             intents.push(ChatWindowIntent::OperatorSlash {
                                                 command,
                                                 synthetic,
                                             });
-                                        } else if draft_cmd.slug == "brainstorm" {
-                                            intents.push(ChatWindowIntent::StartBrainstorm);
                                         } else {
+                                            // EVERY census command — the
+                                            // brainstorm trigger included —
+                                            // crosses to the host, which
+                                            // refuses synthetic input and
+                                            // validates args BEFORE the
+                                            // draft is cleared: a refused
+                                            // command never eats the
+                                            // operator's typed buffer.
                                             intents.push(ChatWindowIntent::Command {
                                                 draft: draft_cmd,
                                                 synthetic,

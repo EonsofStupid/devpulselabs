@@ -492,6 +492,9 @@ fn republish_roster(state: &mut Shared) {
     state.fabric.publish_provider_roster(roster.clone());
     store_roster(state.estate.as_deref(), &roster);
     state.roster = roster;
+    // Clyffy derives from the same truth — and rides the same change
+    // gate, so a steady state pays one comparison, not a re-walk.
+    sync_clyffy(state);
 }
 
 /// The sole owner of primary Chat viewport creation and peer lifetime policy.
@@ -1080,9 +1083,6 @@ impl ChatWindowCoordinator {
             // here. Publishing is change-gated, so a steady state costs one
             // comparison.
             republish_roster(&mut shared);
-            // Clyffy derives from the same truth: the moment one
-            // provider is activated, the house session stands (BND1).
-            sync_clyffy(&mut shared);
             while let Ok(event) = self.events.try_recv() {
                 match event {
                     ShellEvent::RouteChanged { route } => shared.window.observe_route(route),
@@ -1642,10 +1642,23 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
         HostIntent::SelectClyffy => {
             let mut state = lock(shared);
             // M3a honesty: the row exists and binds; the conversation
-            // pane arrives with the send-through-binding slice.
+            // pane arrives with the send-through-binding slice. The
+            // status must agree with the pinned row — a signed-out
+            // backing is WAITING, never "backed by".
+            let activated: Vec<ProviderId> = state
+                .window
+                .provider_capabilities()
+                .into_iter()
+                .filter(|p| p.activated)
+                .map(|p| p.id)
+                .collect();
             let line = match state.clyffy.as_ref().and_then(|c| c.backing) {
-                Some(backing) => format!(
+                Some(backing) if activated.contains(&backing) => format!(
                     "Clyffy — backed by {} · sends arrive with the next slice (/model swaps the backing).",
+                    backing.0
+                ),
+                Some(backing) => format!(
+                    "Clyffy — {} is signed out; sign it back in, or /model a signed-in provider.",
                     backing.0
                 ),
                 None => "Clyffy — no backing yet: sign a provider in, or /model one.".to_owned(),
@@ -2435,13 +2448,23 @@ fn dispatch_command(state: &mut Shared, draft: &dpl_chat_core::CommandDraft, syn
             .set_composer_status("Commands come from the operator, not from injected input.");
         return;
     }
+    // /model's census is the SIGNED-IN providers — its blurb promises
+    // exactly that, and a success line must never detach a working
+    // binding onto a dead backing.
+    let activated: Vec<ProviderId> = state
+        .window
+        .provider_capabilities()
+        .into_iter()
+        .filter(|p| p.activated)
+        .map(|p| p.id)
+        .collect();
     let censuses = dpl_chat_core::CommandCensuses {
         routes: state
             .route_table
             .iter()
             .map(|(path, _)| path.clone())
             .collect(),
-        providers: state.roster.iter().map(|p| p.id.0.to_owned()).collect(),
+        providers: activated.iter().map(|p| p.0.to_owned()).collect(),
         workflows: dpl_workflows::workflows()
             .iter()
             .map(|w| w.id.clone())
@@ -2456,6 +2479,9 @@ fn dispatch_command(state: &mut Shared, draft: &dpl_chat_core::CommandDraft, syn
         state.window.set_composer_status(named);
         return;
     }
+    // Validation passed — NOW the trigger text is consumed. A refused
+    // command above never eats the operator's typed buffer.
+    clear_ai_draft(state);
     match draft.slug.as_str() {
         "route" => {
             let target = draft.rest.trim();
@@ -2477,15 +2503,46 @@ fn dispatch_command(state: &mut Shared, draft: &dpl_chat_core::CommandDraft, syn
             state
                 .window
                 .set_composer_status(format!("Registered workflows:\n{listed}"));
+            // The blurb PROMISES the Workflows tab opens — keep it.
+            if let Some((_, route)) = state
+                .route_table
+                .iter()
+                .find(|(path, _)| path.starts_with("wiredfront/"))
+            {
+                state
+                    .fabric
+                    .publish_shell(ShellEvent::NavigateRequest { route: *route });
+            }
         }
         "model" => {
             let target = draft.rest.trim();
-            if let Some(provider) = state.roster.iter().find(|p| p.id.0 == target).map(|p| p.id) {
+            if let Some(provider) = activated.iter().find(|p| p.0 == target).copied() {
                 set_clyffy_backing(state, provider);
             }
         }
+        "brainstorm" => {
+            // The trigger rides the SAME refusal + validation ladder
+            // as every command — no special-cased side door.
+            start_brainstorm(state);
+        }
         other => {
             tracing::warn!(slug = %other, "recognized command with no dispatch arm");
+        }
+    }
+}
+
+/// Consume the composer's Ai draft after a command dispatched — the
+/// host-side half of the provenance law's "nothing is sent".
+fn clear_ai_draft(state: &mut Shared) {
+    if let Some(provider) = state.window.selected_provider_id() {
+        if let Err(error) = state
+            .window
+            .apply(dpl_chat_window::ChatWindowIntent::UpdateAiDraft {
+                provider,
+                value: String::new(),
+            })
+        {
+            tracing::warn!(%error, "the dispatched command's draft could not be cleared");
         }
     }
 }

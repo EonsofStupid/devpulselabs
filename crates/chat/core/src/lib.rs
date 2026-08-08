@@ -997,7 +997,11 @@ pub fn recognize(draft: &str) -> Option<CommandDraft> {
             Some((slug, rest)) => (slug, rest.trim()),
             None => (body, ""),
         };
-        let spec = commands().into_iter().find(|c| c.slug == slug)?;
+        // Case-insensitive like the aliases — "/Strict" is a shift held
+        // a beat too long, not a message for the provider.
+        let spec = commands()
+            .into_iter()
+            .find(|c| c.slug.eq_ignore_ascii_case(slug))?;
         return Some(CommandDraft {
             slug: spec.slug.to_owned(),
             rest: rest.to_owned(),
@@ -1343,6 +1347,11 @@ mod tests {
             }
         );
         assert_eq!(recognize("Brainstorming").unwrap().slug, "brainstorm");
+        assert_eq!(
+            recognize("/Strict").unwrap().slug,
+            "strict",
+            "a held shift is not a message for the provider"
+        );
         assert!(
             recognize("please /route home now").is_none(),
             "pattern-in-string"
