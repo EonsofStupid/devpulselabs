@@ -240,7 +240,7 @@ one conversation, any backing.
 | BND1-M1 · The command layer | chat/core: CommandSpec+census+recognize+validate+seeds; window: parsers replaced, Enter honesty line, intents; app: dispatch arms (/route via widened route census → NavigateTo, /routines list+navigate, aliases); guarded fix or dated park of the window:4199 sensitivity leak | V1-V7 green in-lane | **DONE 2026-08-08** — 16+45+37 tests incl. THE ENTER-HONESTY PIN; NavigateTo's first emitter live; sensitivity leak parked with a dated line below |
 | BND1-M2 · The strip | window: typeahead Area + key-retain pass + seed display; ChatProofMode::Commands (both lists); native PNGs both sizes READ | V8, V11 green | **DONE 2026-08-08** — census strip + click-fill + proof PNG read (19-route census visible); arrow-nav deferred, logged (journal: chat-boundary-m2) |
 | BND1-M3 · Clyffy | runtime house slot + binding + presence gate; house transcript write + decoder; /model swap; profiles row truthful; Pinned occupied | V9, V10 green | **M3a DONE 2026-08-08** — host-owned session (design correction), presence gate, pinned row, /model rebind, V9+V10 pinned; M3b (send-through-binding + JSONL/decoder) named-remaining (journal: chat-boundary-m3a) |
-| BND1-M4 · Close-out | pilot scenarios (+negative), existing suite re-run, rebase, green, double-green merge, exe, STATE | V12-V17; PR merged | not started |
+| BND1-M4 · Close-out | pilot scenarios (+negative), existing suite re-run, rebase, green, double-green merge, exe, STATE | V12-V17; PR merged | **DONE 2026-08-08** — suite 5/5, accounts fixture flake fixed at cause, double-green merge (journal: chat-boundary-m4) |
 
 ### §9.1 Deviations log
 - 2026-08-08 (M1): `/strict please` behavior CHANGED deliberately — the
