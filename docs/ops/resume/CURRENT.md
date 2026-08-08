@@ -1,10 +1,12 @@
 # Resume pack — CURRENT
 
-**Updated:** 2026-08-08
+**Updated:** 2026-08-08 (post-compact execution: S3a BUILT + proven,
+landing via PR; S3b is the work to execute next)
 **Lanes:** coach-seam (this session) · ai-layer (2026-08-03 state below;
 its "uncommitted seam" note is stale — the tree is clean of it as of #212)
-**Dirty:** false. (`editor-presets-mock.html` + `workbench-editor.md`
-edits are the operator's own parallel work — do not touch.)
+**Dirty:** false. (`editor-presets-mock.html` + `workbench-editor.md` +
+branch `feat/coldlight-53-hues` are the operator's own parallel work —
+do not touch; branch S3a from `main`.)
 
 ## Coach-seam lane (session 2026-08-07) — READ FIRST if resuming coach
 
@@ -57,9 +59,50 @@ in-tree pure-Rust reader is the interim lens.
 - `architecture.md` coach-daemon entry amended (fabric+ledger edges) in
   the same commit; `cargo green` full gate passed.
 
-**Next (coach):** S2 protocol rehoming → S3 profile registry → S4
-Blender pack → S5 Optimize cards (+ DataFusion lens when its arrow-59
-release ships).
+**S3a — identity spine + pack registry, LANDED 2026-08-08** (plan +
+evidence: `docs/plans/coach-seam-s3a-identity-spine.md`; design text:
+`docs/journal/2026-08-08-coach-seam-s1-spine-s3-design.md`):
+- New egui-free crate **`dpl-coach-pack`** (workspace member, xtask
+  `EGUI_FREE` census + architecture.md §3 amended in-commit; deps:
+  toml + sha2 + dpl-coach-inventory; never a dep of `app`).
+- `AppId` minted once, parse-validated (reverse-DNS ≥ 2 segments; `x.`
+  reserved; `x.unresolved:<slug>` for strangers); `CellKey`
+  (version×os×locale) first-class in `PackId` from day one.
+- `FingerprintBundle::from_inventory` — honest evidence only
+  (`live-only:` synthetics are NOT desktop ids; `wm_class`/version
+  never invented, S3b observes them live).
+- Resolver: weights desktop_id 4 · startup_wm_class/wm_class 3 ·
+  atspi_name/exe_basename 2 · alias 1; accept ≥ 3.0; ties = honest
+  `Unresolved`; miss synthesizes a promotable generic profile.
+- Registry `packs/<app-id>/pack.toml`: schema-1 tolerant TOML (unknown
+  keys warn AND survive rewrites), content-hash in `[signing]`
+  (§7.7), tmp→bak→rename, `UnresolvedWrite` refused (promotion mints a
+  real id first). Promote-only IN TYPES: `PromotedRung` cannot express
+  r2/r3; `effective_rung` never demotes.
+- Proof: 25 unit tests green; live drill on this seat resolved the
+  RUNNING gnome-calculator (score 8 with live AT-SPI evidence) among
+  65 real inventory rows, 64 honest `x.unresolved:` strangers; Blender
+  pack written + resolved by shape (Blender NOT installed here — S4
+  seat prep). Full `cargo green`.
+
+**Next (coach), in order:**
+1. **S3b** — Foundry v0 (census → passive fabric via existing mint →
+   verb probes emitting seam spans → induction → battery → publish) +
+   hub UI: "Build fabric (Foundry)" on Pick, job console, profile card.
+   Hub swaps its heuristic matching for `FingerprintBundle` + registry
+   resolve — the hardcoded cursor/calculator seed strings die here.
+2. **S4** — Blender first pack ON THIS SEAT (install Blender first);
+   thin a11y recorded honestly (Blender = OpenGL UI; its real rail is
+   R0 Python, later slice); publish on battery green.
+3. Then S2 protocol rehoming (`AppId`/`PackId` MOVE into
+   `egui-pilot-ai-protocol`, no shims) → S5 Optimize cards (+ DataFusion
+   lens when its arrow-59 release ships).
+
+Review contract: every slice lands with plan doc, tests, live drill
+where applicable, `cargo green`, PR merged on double-green only,
+STATE/journal updated — evidence first. Operator branch dirt
+(`feat/coldlight-53-hues`, editor mock, workbench-editor plan) is NOT
+ours; S3a branches from `main`.
 
 **History — how the ADR got here:**
 1. **Seam ADR** — `docs/plans/coach-seam-adr.md` (2026-08-07):

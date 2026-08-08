@@ -92,6 +92,12 @@ the audit, same commit, with the reason.
 - **crates/hubs/coach/** (`dpl-hub-coach`): Operator Coach Import UI
   (C2f); depends on inventory + fabric + runtime; spawns
   `dpl-coach-overlay` binary only (never a crate dep on overlay).
+- **crates/coach-pack/** (`dpl-coach-pack`): S3a identity spine + pack
+  registry (seam ADR §3/§7.4/§7.7): minted-once `AppId`, fingerprint
+  bundles, evidence-weighted resolver, schema-1 TOML packs under a
+  root-agnostic `packs/<app-id>/pack.toml` registry, promote-only law
+  in types; egui-free; may depend on inventory; consumed by
+  `dpl-hub-coach` + the Foundry (S3b); never a dep of `app` directly.
 - **crates/coach-runtime/** (`dpl-coach-runtime`): FabricGraph bridge
   (session resolve / invoke / extents + reality presence); egui-free;
   may depend on fabric + inventory; never a dep of `app` directly.

@@ -1,0 +1,18 @@
+[package]
+name = "dpl-coach-pack"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# S3a of the seam ADR (docs/plans/coach-seam-adr.md §3, §7.4, §7.7;
+# pass plan docs/plans/coach-seam-s3a-identity-spine.md): the durable
+# identity spine + pack registry. Egui-free; never a dep of `app`
+# directly; consumed by dpl-hub-coach + the Foundry (S3b).
+
+[dependencies]
+dpl-coach-inventory = { path = "../coach-inventory" }
+toml.workspace = true
+sha2.workspace = true
+
+[lints]
+workspace = true

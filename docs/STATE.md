@@ -38,6 +38,30 @@ we got here.
 >   where it runs, and names the hypervisor blast radius that follows from
 >   that choice (see `devbox-bootstrap.sh` §"Where this runs").
 
+**2026-08-08 — COACH SEAM S3a: THE IDENTITY SPINE + PACK REGISTRY
+(landed).** Operator ruling executed: "no more hardcoding — identity
+resolved, never assumed." New egui-free crate `dpl-coach-pack`
+(plan `docs/plans/coach-seam-s3a-identity-spine.md`): `AppId` is the
+minted-once source of truth (parse-validated reverse-DNS, `x.`
+namespace reserved; `x.unresolved:<slug>` for scan-observed strangers);
+every scan builds a `FingerprintBundle` (desktop id, StartupWMClass,
+WM_CLASS, AT-SPI name, exe basename/path, version — all optional, none
+invented) and an evidence-weighted resolver scores it against installed
+packs' `[identity]` (weights 4/3/3/2/2/1, accept ≥ 3.0, ties are honest
+`Unresolved`, never a coin flip); a miss synthesizes a promotable
+generic profile the registry REFUSES to persist (`UnresolvedWrite` —
+promotion mints a real id first). Packs are schema-1 TOML under a
+root-agnostic `packs/<app-id>/pack.toml` registry: unknown keys warn
+AND survive rewrites (§7.4), the body is content-hashed into
+`[signing].pack_hash` (§7.7), writes are tmp → bak → rename, and the
+promote-only law lives in types (`PromotedRung` cannot express r2/r3;
+`effective_rung` never demotes). 25 unit tests green; live drill on
+this seat resolved the RUNNING gnome-calculator (score 8, live AT-SPI
+evidence) among 65 real inventory rows with 64 honest strangers;
+Blender pack proven against a Blender-shaped bundle (Blender install is
+S4 seat prep). `architecture.md` §3 + xtask `EGUI_FREE` census amended
+in-commit; full gate green. Next: S3b Foundry v0 + hub UI.
+
 **2026-08-08 — COACH SEAM S1: THE TRACING SPINE (ADR ratified, spine
 landed).** The seam ADR (`docs/plans/coach-seam-adr.md`) is RATIFIED —
 §6 defaults stand until individually overruled; §10 gained a named

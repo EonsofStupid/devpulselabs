@@ -2147,6 +2147,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "dpl-coach-pack"
+version = "0.1.0"
+dependencies = [
+ "dpl-coach-inventory",
+ "sha2",
+ "toml",
+]
+
+[[package]]
 name = "dpl-coach-runtime"
 version = "0.1.0"
 dependencies = [
