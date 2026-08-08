@@ -227,6 +227,13 @@ Sequenced (mock gate law — "mocks built first for a clear vision"):
    is guessed. Fed by the existing research (docs/research/coach/*, the
    ratified ADRs, the C-series proofs) — the research is largely done;
    the mock is what was never built.
+   **FILED 2026-08-07: `docs/design/mocks/coach-one-system-mock.html`** —
+   interactive (click the coached target → Triggered → effect contract →
+   Satisfied → grounded-progress tick; census drift → re-mint; mode
+   toggle), every element badged SHIPPED/SPEC'D/NEW with provenance,
+   ColdLight ladder engine + treatments verbatim, the operator's ask and
+   the PBS gamify principle quoted verbatim. Render-verified headless at
+   1400px. Awaiting operator redlines; R8b-R8e execute against it.
 2. **R8b — one vocabulary**: reconcile protocol `Touchpoint`/`CoachStyle`/
    `TriggerKind`/`CoachEvent` with the 101-verb catalog; add the missing
    target arms (ScreenRect, foreign fabric id); paint the refused styles
