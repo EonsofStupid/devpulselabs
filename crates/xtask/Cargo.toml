@@ -7,6 +7,10 @@ description = "Workspace automation (the cargo-xtask pattern): `cargo green` is 
 
 [dependencies]
 dpl-tools-deps.workspace = true
+# The smoke phase decodes what the renderers actually PRODUCED. Counting
+# opaque pixels is the whole point: three separate failures shipped behind an
+# exit code of 0, and only the pixels would have caught them.
+image.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
