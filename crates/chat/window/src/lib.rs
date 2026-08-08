@@ -160,6 +160,7 @@ pub const BRAINSTORM_REDO_ID: PilotId = PilotId::new("chat.brainstorm.redo");
 pub const BRAINSTORM_SUGGEST_ID: PilotId = PilotId::new("chat.brainstorm.suggest");
 pub const COMPOSER_STATUS_ID: PilotId = PilotId::new("chat.composer.status");
 pub const COMMAND_STRIP_ID: PilotId = PilotId::new("chat.composer.command-strip");
+pub const CLYFFY_ROW_ID: PilotId = PilotId::new("chat.clyffy.session");
 
 const FULL_RAIL_WIDTH: f32 = 840.0;
 const SIDEBAR_WIDTH: f32 = 252.0;
@@ -382,6 +383,8 @@ pub enum ChatWindowIntent {
     BrainstormAssist,
     /// Distill the converged board into the explainer intake pre-fill.
     PromoteBrainstorm,
+    /// The operator tapped the pinned Clyffy row.
+    SelectClyffy,
     /// The operator tapped the assist chip — `enable` is the DESIRED
     /// state. Enabling waits on the one blanket acknowledgement (host
     /// policy); disabling is instant.
@@ -547,6 +550,8 @@ pub enum HostIntent {
     BrainstormAssist,
     /// Distill the converged board into the explainer intake pre-fill.
     PromoteBrainstorm,
+    /// The operator tapped the pinned Clyffy row.
+    SelectClyffy,
     ToggleAssist {
         enable: bool,
     },
@@ -693,6 +698,20 @@ pub struct ChatWindow {
     /// keyboard submit paints under the composer. Cleared by the next
     /// keystroke or a successful submit.
     composer_status: Option<String>,
+    /// The Clyffy house session as the HOST projects it.
+    clyffy: ClyffyView,
+}
+
+/// The host's projection of the Clyffy house session (BND1): DevPULSE's
+/// own conversation, pinned above the providers. `active` derives from
+/// presence (any signed-in backing); `backing` is a CURRENT BINDING,
+/// never part of the session's identity.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ClyffyView {
+    pub present: bool,
+    pub active: bool,
+    pub backing: Option<ProviderId>,
+    pub events: usize,
 }
 
 /// The host's projection of the brainstorm session into the window.
@@ -812,6 +831,7 @@ impl ChatWindow {
             brainstorm_cluster_draft: String::new(),
             brainstorm_item_drafts: HashMap::new(),
             composer_status: None,
+            clyffy: ClyffyView::default(),
         }
     }
 
@@ -1049,6 +1069,17 @@ impl ChatWindow {
     /// refusal, a named skip) — same surface the Enter-honesty law uses.
     pub fn set_composer_status(&mut self, status: impl Into<String>) {
         self.composer_status = Some(status.into());
+    }
+
+    /// The host pushes the Clyffy house session's truth — presence,
+    /// backing, transcript reach. The window renders the pinned row.
+    pub fn observe_clyffy(&mut self, view: ClyffyView) {
+        self.clyffy = view;
+    }
+
+    /// Read-only view of the projected house session (tests).
+    pub fn clyffy(&self) -> &ClyffyView {
+        &self.clyffy
     }
 
     /// Read-only view of the composer status line (tests).
@@ -1329,6 +1360,7 @@ impl ChatWindow {
             ChatWindowIntent::BrainstormRedo => Ok(Some(HostIntent::BrainstormRedo)),
             ChatWindowIntent::BrainstormAssist => Ok(Some(HostIntent::BrainstormAssist)),
             ChatWindowIntent::PromoteBrainstorm => Ok(Some(HostIntent::PromoteBrainstorm)),
+            ChatWindowIntent::SelectClyffy => Ok(Some(HostIntent::SelectClyffy)),
             // The chip never flips itself: the desired state crosses the
             // typed host boundary and the HOST projects the outcome back
             // (consent may stand between).
@@ -2432,6 +2464,40 @@ impl ChatWindow {
                         .small()
                         .color(cl::ink::SUBTLE),
                 );
+            }
+        }
+        // Clyffy sits pinned above every provider session (BND1): the
+        // house conversation, its backing a swappable binding. Present
+        // as soon as the platform knows it; ACTIVE only while a
+        // signed-in backing exists — the row never claims readiness it
+        // borrowed from nobody.
+        if self.clyffy.present {
+            micro_heading(ui, "PINNED");
+            let backing = self
+                .clyffy
+                .backing
+                .map_or("no backing yet".to_owned(), |p| format!("via {}", p.0));
+            let state = if self.clyffy.active {
+                "ready"
+            } else {
+                "waiting for a signed-in provider"
+            };
+            let label = format!("C  Clyffy\n   {backing} · {state}");
+            let response = sidebar_row(ui, &label, false);
+            let response = cl::tip(
+                response,
+                "DevPULSE's own session — /model picks which signed-in provider powers it.",
+            );
+            let mut metadata = NodeMetadata::new(CLYFFY_ROW_ID, Role::Tab, "Clyffy house session");
+            metadata.value = Some(
+                self.clyffy
+                    .backing
+                    .map_or("none".to_owned(), |p| p.0.to_owned()),
+            );
+            metadata.description = Some(state.to_owned());
+            ui.pilot_track(&response, metadata);
+            if response.clicked() {
+                intents.push(ChatWindowIntent::SelectClyffy);
             }
         }
         for (heading, predicate) in [
