@@ -36,10 +36,28 @@ AND refusal. Live-proven on gnome-calculator: 8 spans in Parquet, scroll
 landed `rung:r2, downgraded_from:r1, mechanism:xdotool_wheel` — the
 ladder downgrade is queryable data.
 
-**NEXT:** S2 protocol rehoming (seam module in `egui-pilot-ai-protocol`;
-daemon's verb wire → protocol types) → S3 profile registry → S4
-**Blender first Tier B pack** (ruled 2026-08-07) → S5 Optimize cards
-(+ DataFusion lens when its arrow-59 release ships).
+**S3a identity spine + pack registry LANDED 2026-08-08** (plan
+`docs/plans/coach-seam-s3a-identity-spine.md`): new egui-free crate
+`dpl-coach-pack` — minted-once `AppId` (`x.unresolved:<slug>` for
+strangers), `FingerprintBundle` evidence, weighted resolver (4/3/3/2/2/1,
+accept ≥ 3.0, ties honest `Unresolved`), schema-1 tolerant TOML packs
+(unknown keys warn + survive rewrites), content-hashed `[signing]`,
+tmp→bak→rename writes, promote-only in types (`PromotedRung` cannot say
+r2/r3; registry refuses `UnresolvedWrite`). 25 unit tests; live drill:
+running gnome-calculator resolved (score 8, live AT-SPI evidence) among
+65 real rows, 64 honest strangers; Blender pack proven by shape (install
+= S4 seat prep). architecture.md §3 + xtask census amended in-commit.
+
+**NEXT:** **S3b** Foundry v0 + hub UI (Pick gains "Build fabric",
+staged checkpointed job, console + profile card; every probe emits a
+seam span; hub calls `FingerprintBundle::from_inventory` + registry
+resolve — no more hardcoded seed strings) → **S4 Blender first pack**
+(install Blender on this seat; thin a11y RECORDED, R0 Python rail is a
+later slice) → S2 protocol rehoming → S5 Optimize cards (+ DataFusion
+lens when its arrow-59 release ships). Full design:
+`docs/journal/2026-08-08-coach-seam-s1-spine-s3-design.md`. Each slice:
+plan doc → tests → live drill → `cargo green` → PR on double-green →
+STATE/journal.
 
 **Prior lane — ai-layer** (2026-08-03 state; #212 landed since, verify):
 persona (Clyffy), session primitive, typed provider funnel.
