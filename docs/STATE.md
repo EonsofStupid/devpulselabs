@@ -38,6 +38,31 @@ we got here.
 >   where it runs, and names the hypervisor blast radius that follows from
 >   that choice (see `devbox-bootstrap.sh` §"Where this runs").
 
+**2026-08-08 — COACH SEAM S1: THE TRACING SPINE (ADR ratified, spine
+landed).** The seam ADR (`docs/plans/coach-seam-adr.md`) is RATIFIED —
+§6 defaults stand until individually overruled; §10 gained a named
+amendment: the DataFusion dependency WAITS for a release tracking arrow
+59 (stable 54.1 pins arrow 58 — a second arrow in the tree for a proof
+the in-tree reader already serves is exactly the drift the ledger crate
+warns about). S1 landed per `docs/plans/coach-seam-s1-tracing-spine.md`:
+a `seam` domain on `dpl-fabric` (`SeamSpan` v1 — verb, app, rung R0–R3,
+`downgraded_from`, mechanism, agency, ok, effect_observed, duration,
+lesson/beat from day one, open attrs map; refusals are first-class
+`SeamEvent::Refused` facts); `dpl-ledger` writes it with `type`=verb so
+reliability-per-verb is a GROUP BY, plus the `seam_reliability` fold and
+`seam_reliability`/`dump_rows` examples as the interim lens; the coach
+daemon owns a daemon-local signal fabric + ledger tap
+(`--analytics-root`, resolved root logged loudly at boot — silent
+non-recording is how weeks of verb stats were lost) and every
+`/verb`+`/import`+`/resolve`+`/invoke` execution AND refusal is timed
+and published. Live proof on gnome-calculator: open → focus → move →
+type_text("7") → assert_state → scroll → drag(refused) → close left 8
+`seam-*.parquet` rows; the scroll row landed
+`rung:r2, downgraded_from:r1, mechanism:xdotool_wheel` — the transport
+ladder's first live downgrade, visible as data. `architecture.md`
+coach-daemon entry amended (fabric+ledger edges) in the same commit;
+full gate green.
+
 **2026-08-07 — THE SEAT GETS A FRONT AND A HOST (#212, docs-only, no lane —
 `green.yml` `paths-ignore` excludes `docs/**`):** `devbox-bootstrap.sh` gains
 `--expose loopback|tailscale`, and the seat finally has a ground-truthed

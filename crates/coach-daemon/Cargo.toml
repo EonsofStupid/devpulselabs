@@ -20,6 +20,11 @@ tokio-stream.workspace = true
 dpl-coach-inventory = { path = "../coach-inventory" }
 dpl-coach-fabric = { path = "../coach-fabric" }
 dpl-coach-runtime = { path = "../coach-runtime" }
+# The tracing spine (seam ADR S1): every verb execution/refusal publishes a
+# seam span on a daemon-local signal fabric; the ledger writes it to the
+# same Parquet layout the app uses. The files are the meeting point.
+dpl-fabric.workspace = true
+dpl-ledger.workspace = true
 dpl-proc.workspace = true
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

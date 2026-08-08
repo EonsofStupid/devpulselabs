@@ -1,7 +1,7 @@
 ---
 dirty: false
 active_lane: coach-seam
-updated: 2026-08-07
+updated: 2026-08-08
 ---
 
 # Ops session ledger
@@ -18,14 +18,28 @@ audit: the CX daemon was a second agent surface; tracing/profiles/mock
 were skipped. Audit + research + the true mock landed this session.
 Journal: `docs/journal/2026-08-07-coach-seam-audit.md`.
 
-**NEXT:** seam ADR drafted (`docs/plans/coach-seam-adr.md` — DRAFT; §6 =
-the mock's 5 questions as overrulable defaults; §7 = the **evolution
-contract**, ruled 2026-08-07: starting point built for 10x — additive
-wire law, `x.` extension verbs, open observable/attr maps, versioned
-tolerant packs, cards-as-data, content-addressed registry) → operator
-red-pens §6/§7/§8/naming → ratify → slices: S1 tracing spine → S2
-protocol rehoming → S3 profile registry → S4 **Blender first Tier B
-pack** (ruled 2026-08-07) → S5 Optimize cards.
+Seam ADR **RATIFIED 2026-08-08** (operator `so lets plan and implement`;
+§6 defaults stand until individually overruled). §10 amendment: the
+DataFusion dep WAITS for a release on arrow 59 (stable 54.1 pins arrow
+58); the in-tree pure-Rust reader is the interim lens — files stay
+Arrow/Parquet, ruling substance unchanged.
+
+**S1 tracing spine LANDED 2026-08-08** (plan
+`docs/plans/coach-seam-s1-tracing-spine.md`): `seam` domain on
+`dpl-fabric` (SeamSpan v1: verb/app/rung/downgraded_from/mechanism/
+agency/ok/effect_observed/duration + lesson/beat + open attrs);
+`dpl-ledger` writes it (`type`=verb → reliability is GROUP BY) +
+`seam_reliability` fold + `seam_reliability`/`dump_rows` examples;
+daemon owns a local signal fabric + tap (`--analytics-root`, loud boot
+log), spans on every `/verb`+`/import`+`/resolve`+`/invoke` execution
+AND refusal. Live-proven on gnome-calculator: 8 spans in Parquet, scroll
+landed `rung:r2, downgraded_from:r1, mechanism:xdotool_wheel` — the
+ladder downgrade is queryable data.
+
+**NEXT:** S2 protocol rehoming (seam module in `egui-pilot-ai-protocol`;
+daemon's verb wire → protocol types) → S3 profile registry → S4
+**Blender first Tier B pack** (ruled 2026-08-07) → S5 Optimize cards
+(+ DataFusion lens when its arrow-59 release ships).
 
 **Prior lane — ai-layer** (2026-08-03 state; #212 landed since, verify):
 persona (Clyffy), session primitive, typed provider funnel.
@@ -66,7 +80,7 @@ AI usage domain (#169) · coach C2e/C2f + fabric bridge (#179/#187/#188)
 | Debt | `chat-extensions` | zero references |
 | Debt | Claude decoder | `UNKNOWN` for `last-prompt`/`ai-title`/`mode`/`permission-mode` |
 | Providers | Cursor / Gemini | probe needles UNVERIFIED until their CLIs exist on a machine |
-| Coach | seam mock | `coach-seam-mock.html` rev 3 (7 stages incl. Optimize closed loop) UNCOMMITTED — awaiting operator red-pen; then seam ADR |
+| Coach | seam mock | rev 3 committed (#223); ADR ratified; standing red-pen invite on the 5 §6 defaults stays open |
 | Coach | trace sink | RESOLVED 2026-08-07: Arrow/DataFusion over Parquet (operator go); mock rev 2 + research note updated |
 | Coach | C2f / Notepad | #187; CX-harvest + Pass-2 parked |
 | Harness | no mid-animation capture | every capture is `MotionPolicy::Suppressed` |

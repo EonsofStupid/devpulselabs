@@ -27,6 +27,7 @@ use dpl_coach_runtime::{
     resolve_seed, verb_catalog, window_focus, window_geom, window_move, window_resize, AgencyMode,
     FabricSession, MountSpec, OuterGeom,
 };
+use dpl_fabric::{Fabric as SignalFabric, SeamAgency, SeamEvent, SeamSpan, TransportRung};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -42,6 +43,10 @@ use tokio_stream::wrappers::ReceiverStream;
 #[derive(Clone)]
 struct AppState {
     sessions: Arc<Mutex<HashMap<String, FabricSession>>>,
+    /// The tracing spine (seam ADR S1): spans publish here; the ledger
+    /// drain task writes them to Parquet. Daemon-local — a separate
+    /// process cannot ride the app's in-process fabric; the files join.
+    signals: SignalFabric,
 }
 
 #[derive(Debug, Deserialize)]
@@ -127,14 +132,18 @@ async fn main() {
         .init();
 
     let mut port: u16 = 7843;
+    let mut analytics_root: Option<PathBuf> = None;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
             "--port" => {
                 port = args.next().and_then(|p| p.parse().ok()).unwrap_or(7843);
             }
+            "--analytics-root" => {
+                analytics_root = args.next().map(PathBuf::from);
+            }
             "--help" | "-h" => {
-                println!("usage: dpl-coach-daemon [--port 7843]");
+                println!("usage: dpl-coach-daemon [--port 7843] [--analytics-root <path>]");
                 return;
             }
             other => {
@@ -144,8 +153,43 @@ async fn main() {
         }
     }
 
+    let signals = SignalFabric::new();
+    // Open the ledger ears BEFORE serving — the first verb must land.
+    // The resolved root is logged loudly (honesty law): silent
+    // non-recording is how weeks of stats were lost before S1.
+    let root = resolve_analytics_root(analytics_root);
+    let tap = match dpl_ledger::LedgerTap::open(&signals, root.clone()) {
+        Ok(tap) => {
+            tracing::info!(root = %root.display(), "seam spans writing");
+            Some(tap)
+        }
+        Err(e) => {
+            tracing::error!(%e, root = %root.display(), "seam spans NOT recorded");
+            None
+        }
+    };
+    let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
+    let drain = tokio::spawn(async move {
+        let mut tap = tap;
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_millis(250)) => {
+                    if let Some(t) = tap.as_mut() {
+                        t.drain();
+                    }
+                }
+                _ = shutdown_rx.changed() => break,
+            }
+        }
+        if let Some(mut t) = tap.take() {
+            t.drain();
+            t.flush_and_join();
+        }
+    });
+
     let state = AppState {
         sessions: Arc::new(Mutex::new(HashMap::new())),
+        signals,
     };
     let app = Router::new()
         .route("/health", get(health))
@@ -175,6 +219,33 @@ async fn main() {
         })
         .await
         .ok();
+    // Flush the last spans before exit — exit skips Drop.
+    let _ = shutdown_tx.send(true);
+    let _ = drain.await;
+}
+
+/// Flag → `DPL_ANALYTICS_ROOT` → `USERDATA_ROOT`/analytics → the checkout
+/// default the app also lands on when launched here. NOT an
+/// `engine-capture` dep — one path fn is not worth that edge; the flag is
+/// the exactness lever and the resolved path is logged at boot.
+fn resolve_analytics_root(explicit: Option<PathBuf>) -> PathBuf {
+    if let Some(p) = explicit {
+        return p;
+    }
+    if let Ok(p) = std::env::var("DPL_ANALYTICS_ROOT") {
+        return PathBuf::from(p);
+    }
+    if let Ok(p) = std::env::var("USERDATA_ROOT") {
+        return PathBuf::from(p).join("analytics");
+    }
+    PathBuf::from(".userdata/analytics")
+}
+
+const fn seam_agency(a: AgencyMode) -> SeamAgency {
+    match a {
+        AgencyMode::Coach => SeamAgency::Coach,
+        AgencyMode::Teacher => SeamAgency::Teacher,
+    }
 }
 
 async fn health() -> Json<Value> {
@@ -201,7 +272,38 @@ async fn verbs_handler() -> Json<Value> {
     Json(json!({ "verbs": verbs }))
 }
 
+/// What one verb execution produced, beside its span facts (plan §4:
+/// the rung table is v1 static; `mechanism` names the honest means;
+/// scroll resolves its rung from the effect's `via` at runtime).
+struct VerbOutcome {
+    value: Value,
+    rung: TransportRung,
+    downgraded_from: Option<TransportRung>,
+    mechanism: String,
+    effect_observed: bool,
+    attrs: Vec<(String, String)>,
+}
+
+impl VerbOutcome {
+    fn new(value: Value, rung: TransportRung, mechanism: &str, effect_observed: bool) -> Self {
+        Self {
+            value,
+            rung,
+            downgraded_from: None,
+            mechanism: mechanism.into(),
+            effect_observed,
+            attrs: Vec::new(),
+        }
+    }
+
+    fn attr(mut self, key: &str, value: impl ToString) -> Self {
+        self.attrs.push((key.into(), value.to_string()));
+        self
+    }
+}
+
 async fn verb_handler(
+    State(state): State<AppState>,
     Json(body): Json<VerbBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
     let verb = body.verb.to_ascii_lowercase();
@@ -215,159 +317,288 @@ async fn verb_handler(
             }),
         )
     })?;
-    let timeout_ms = body.timeout_ms.unwrap_or(8_000);
-    let value = tokio::task::spawn_blocking(move || -> Result<Value, dpl_coach_fabric::Refused> {
-        match verb.as_str() {
-            "move" => {
-                let x = body.x.ok_or_else(|| dpl_coach_fabric::Refused {
-                    reason: "move requires x".into(),
-                    tip: "Pass x and y.".into(),
-                })?;
-                let y = body.y.ok_or_else(|| dpl_coach_fabric::Refused {
-                    reason: "move requires y".into(),
-                    tip: "Pass x and y.".into(),
-                })?;
-                Ok(verb_effect_json(&window_move(&app, x, y)?))
-            }
-            "resize" => {
-                let w = body.w.ok_or_else(|| dpl_coach_fabric::Refused {
-                    reason: "resize requires w".into(),
-                    tip: "Pass w and h (≥ 50).".into(),
-                })?;
-                let h = body.h.ok_or_else(|| dpl_coach_fabric::Refused {
-                    reason: "resize requires h".into(),
-                    tip: "Pass w and h (≥ 50).".into(),
-                })?;
-                Ok(verb_effect_json(&window_resize(&app, w, h)?))
-            }
-            "focus" => Ok(verb_effect_json(&window_focus(&app)?)),
-            "geom" | "window_geom" => {
-                let g = window_geom(&app)?;
-                Ok(verb_effect_json(&dpl_coach_runtime::WindowVerbEffect {
-                    verb: "geom".into(),
-                    effect_observed: true,
-                    before: g,
-                    after: g,
-                }))
-            }
-            "open" => {
-                let e = app_open(&app, timeout_ms)?;
-                Ok(json!({
-                    "ok": true,
-                    "verb": e.verb,
-                    "effect_observed": e.effect_observed,
-                    "atspi_name": e.atspi_name,
-                    "real_before": e.real_before,
-                    "real_after": e.real_after,
-                    "pid": e.pid,
-                }))
-            }
-            "close" => {
-                let e = app_close(&app, timeout_ms)?;
-                Ok(json!({
-                    "ok": true,
-                    "verb": e.verb,
-                    "effect_observed": e.effect_observed,
-                    "atspi_name": e.atspi_name,
-                    "real_before": e.real_before,
-                    "real_after": e.real_after,
-                    "pid": e.pid,
-                }))
-            }
-            "wait_until" => {
-                let pred = body.predicate.as_deref().unwrap_or("real");
-                let e = app_wait_until(&app, pred, timeout_ms)?;
-                Ok(wait_assert_json(&e))
-            }
-            "assert_state" => {
-                let expect = body.expect.as_deref().unwrap_or("real");
-                let e = app_assert_state(&app, expect, body.display_contains.as_deref())?;
-                if !e.ok {
-                    return Err(dpl_coach_fabric::Refused {
-                        reason: e
-                            .detail
-                            .clone()
-                            .unwrap_or_else(|| "assert_state failed".into()),
-                        tip: "Open/close the app or adjust expect/display_contains.".into(),
-                    });
-                }
-                Ok(wait_assert_json(&e))
-            }
-            "type_text" => {
-                let text = body.text.ok_or_else(|| dpl_coach_fabric::Refused {
-                    reason: "type_text requires text".into(),
-                    tip: "Pass {\"text\":\"3\"}.".into(),
-                })?;
-                let e = app_type_text(&app, &text)?;
-                Ok(json!({
-                    "ok": true,
-                    "verb": e.verb,
-                    "effect_observed": e.effect_observed,
-                    "atspi_name": e.atspi_name,
-                    "text": e.text,
-                    "display_before": e.display_before,
-                    "display_after": e.display_after,
-                }))
-            }
-            "press_key" => {
-                let key = body.key.ok_or_else(|| dpl_coach_fabric::Refused {
-                    reason: "press_key requires key".into(),
-                    tip: "Pass {\"key\":\"4\"} or Return.".into(),
-                })?;
-                let e = app_press_key(&app, &key)?;
-                Ok(json!({
-                    "ok": true,
-                    "verb": e.verb,
-                    "effect_observed": e.effect_observed,
-                    "atspi_name": e.atspi_name,
-                    "key": e.key,
-                    "display_before": e.display_before,
-                    "display_after": e.display_after,
-                }))
-            }
-            "select" => {
-                let name = body.name.ok_or_else(|| dpl_coach_fabric::Refused {
-                    reason: "select requires name".into(),
-                    tip: "Pass {\"name\":\"Basic\"}.".into(),
-                })?;
-                let e = app_select(&app, &name)?;
-                Ok(json!({
-                    "ok": true,
-                    "verb": e.verb,
-                    "effect_observed": e.effect_observed,
-                    "atspi_name": e.atspi_name,
-                    "name": e.name,
-                    "state_before": e.state_before,
-                    "state_after": e.state_after,
-                }))
-            }
-            "scroll" => {
-                let direction = body.direction.unwrap_or_else(|| "down".into());
-                let delta = body.delta.unwrap_or(3);
-                let e = app_scroll(&app, &direction, delta)?;
-                Ok(json!({
-                    "ok": true,
-                    "verb": e.verb,
-                    "effect_observed": e.effect_observed,
-                    "atspi_name": e.atspi_name,
-                    "direction": e.direction,
-                    "delta": e.delta,
-                    "via": e.via,
-                    "snapshot_before": e.snapshot_before,
-                    "snapshot_after": e.snapshot_after,
-                }))
-            }
-            other => Err(dpl_coach_fabric::Refused {
-                reason: format!("verb not implemented: {other}"),
-                tip: "GET /verbs for shipped names. Use /import|/invoke for fabric verbs.".into(),
-            }),
+    let started = std::time::Instant::now();
+    let (verb_c, app_c) = (verb.clone(), app.clone());
+    let result = tokio::task::spawn_blocking(move || execute_verb(&verb_c, &app_c, body))
+        .await
+        .map_err(join_err)?;
+    let duration_ms = started.elapsed().as_millis() as u64;
+    match result {
+        Ok(outcome) => {
+            state.signals.publish_seam(SeamEvent::Executed(SeamSpan {
+                verb,
+                app,
+                rung: outcome.rung,
+                downgraded_from: outcome.downgraded_from,
+                mechanism: outcome.mechanism,
+                agency: SeamAgency::Teacher,
+                ok: true,
+                effect_observed: outcome.effect_observed,
+                duration_ms,
+                lesson: None,
+                beat: None,
+                attrs: outcome.attrs,
+            }));
+            Ok(Json(outcome.value))
         }
-    })
-    .await
-    .map_err(join_err)?
-    .map_err(map_refused)?;
+        Err(r) => {
+            state.signals.publish_seam(SeamEvent::Refused {
+                verb,
+                app,
+                reason: r.reason.clone(),
+                duration_ms,
+            });
+            Err(map_refused(r))
+        }
+    }
+}
 
-    Ok(Json(value))
+fn execute_verb(
+    verb: &str,
+    app: &str,
+    body: VerbBody,
+) -> Result<VerbOutcome, dpl_coach_fabric::Refused> {
+    let timeout_ms = body.timeout_ms.unwrap_or(8_000);
+    match verb {
+        "move" => {
+            let x = body.x.ok_or_else(|| dpl_coach_fabric::Refused {
+                reason: "move requires x".into(),
+                tip: "Pass x and y.".into(),
+            })?;
+            let y = body.y.ok_or_else(|| dpl_coach_fabric::Refused {
+                reason: "move requires y".into(),
+                tip: "Pass x and y.".into(),
+            })?;
+            let e = window_move(app, x, y)?;
+            Ok(VerbOutcome::new(
+                verb_effect_json(&e),
+                TransportRung::R2Injection,
+                "x11-wm",
+                e.effect_observed,
+            )
+            .attr("x", x)
+            .attr("y", y))
+        }
+        "resize" => {
+            let w = body.w.ok_or_else(|| dpl_coach_fabric::Refused {
+                reason: "resize requires w".into(),
+                tip: "Pass w and h (≥ 50).".into(),
+            })?;
+            let h = body.h.ok_or_else(|| dpl_coach_fabric::Refused {
+                reason: "resize requires h".into(),
+                tip: "Pass w and h (≥ 50).".into(),
+            })?;
+            let e = window_resize(app, w, h)?;
+            Ok(VerbOutcome::new(
+                verb_effect_json(&e),
+                TransportRung::R2Injection,
+                "x11-wm",
+                e.effect_observed,
+            )
+            .attr("w", w)
+            .attr("h", h))
+        }
+        "focus" => {
+            let e = window_focus(app)?;
+            Ok(VerbOutcome::new(
+                verb_effect_json(&e),
+                TransportRung::R2Injection,
+                "x11-wm",
+                e.effect_observed,
+            ))
+        }
+        "geom" | "window_geom" => {
+            let g = window_geom(app)?;
+            let e = dpl_coach_runtime::WindowVerbEffect {
+                verb: "geom".into(),
+                effect_observed: true,
+                before: g,
+                after: g,
+            };
+            Ok(VerbOutcome::new(
+                verb_effect_json(&e),
+                TransportRung::R2Injection,
+                "x11-wm",
+                true,
+            ))
+        }
+        "open" => {
+            let e = app_open(app, timeout_ms)?;
+            let value = lifecycle_json(&e);
+            let mut out = VerbOutcome::new(
+                value,
+                TransportRung::R2Injection,
+                "spawn",
+                e.effect_observed,
+            );
+            if let Some(pid) = e.pid {
+                out = out.attr("pid", pid);
+            }
+            Ok(out)
+        }
+        "close" => {
+            let e = app_close(app, timeout_ms)?;
+            let value = lifecycle_json(&e);
+            let mut out = VerbOutcome::new(
+                value,
+                TransportRung::R2Injection,
+                "wm-delete",
+                e.effect_observed,
+            );
+            if let Some(pid) = e.pid {
+                out = out.attr("pid", pid);
+            }
+            Ok(out)
+        }
+        "wait_until" => {
+            let pred = body.predicate.as_deref().unwrap_or("real");
+            let e = app_wait_until(app, pred, timeout_ms)?;
+            let matched = e.matched;
+            Ok(VerbOutcome::new(
+                wait_assert_json(&e),
+                TransportRung::R1Semantic,
+                "atspi-read",
+                matched,
+            )
+            .attr("predicate", pred))
+        }
+        "assert_state" => {
+            let expect = body.expect.as_deref().unwrap_or("real");
+            let e = app_assert_state(app, expect, body.display_contains.as_deref())?;
+            if !e.ok {
+                return Err(dpl_coach_fabric::Refused {
+                    reason: e
+                        .detail
+                        .clone()
+                        .unwrap_or_else(|| "assert_state failed".into()),
+                    tip: "Open/close the app or adjust expect/display_contains.".into(),
+                });
+            }
+            let matched = e.matched;
+            Ok(VerbOutcome::new(
+                wait_assert_json(&e),
+                TransportRung::R1Semantic,
+                "atspi-read",
+                matched,
+            )
+            .attr("expect", expect))
+        }
+        "type_text" => {
+            let text = body.text.ok_or_else(|| dpl_coach_fabric::Refused {
+                reason: "type_text requires text".into(),
+                tip: "Pass {\"text\":\"3\"}.".into(),
+            })?;
+            let e = app_type_text(app, &text)?;
+            let value = json!({
+                "ok": true,
+                "verb": e.verb,
+                "effect_observed": e.effect_observed,
+                "atspi_name": e.atspi_name,
+                "text": e.text,
+                "display_before": e.display_before,
+                "display_after": e.display_after,
+            });
+            Ok(VerbOutcome::new(
+                value,
+                TransportRung::R2Injection,
+                "xdotool",
+                e.effect_observed,
+            )
+            .attr("text_len", text.len()))
+        }
+        "press_key" => {
+            let key = body.key.ok_or_else(|| dpl_coach_fabric::Refused {
+                reason: "press_key requires key".into(),
+                tip: "Pass {\"key\":\"4\"} or Return.".into(),
+            })?;
+            let e = app_press_key(app, &key)?;
+            let value = json!({
+                "ok": true,
+                "verb": e.verb,
+                "effect_observed": e.effect_observed,
+                "atspi_name": e.atspi_name,
+                "key": e.key,
+                "display_before": e.display_before,
+                "display_after": e.display_after,
+            });
+            // Digits ride AT-SPI Action, everything else xdotool — the
+            // effect does not say which; named honestly until it does.
+            Ok(VerbOutcome::new(
+                value,
+                TransportRung::R2Injection,
+                "atspi-or-xdotool",
+                e.effect_observed,
+            )
+            .attr("key", key))
+        }
+        "select" => {
+            let name = body.name.ok_or_else(|| dpl_coach_fabric::Refused {
+                reason: "select requires name".into(),
+                tip: "Pass {\"name\":\"Basic\"}.".into(),
+            })?;
+            let e = app_select(app, &name)?;
+            let value = json!({
+                "ok": true,
+                "verb": e.verb,
+                "effect_observed": e.effect_observed,
+                "atspi_name": e.atspi_name,
+                "name": e.name,
+                "state_before": e.state_before,
+                "state_after": e.state_after,
+            });
+            Ok(VerbOutcome::new(
+                value,
+                TransportRung::R1Semantic,
+                "atspi-action",
+                e.effect_observed,
+            )
+            .attr("name", name))
+        }
+        "scroll" => {
+            let direction = body.direction.unwrap_or_else(|| "down".into());
+            let delta = body.delta.unwrap_or(3);
+            let e = app_scroll(app, &direction, delta)?;
+            let value = json!({
+                "ok": true,
+                "verb": e.verb,
+                "effect_observed": e.effect_observed,
+                "atspi_name": e.atspi_name,
+                "direction": e.direction,
+                "delta": e.delta,
+                "via": e.via,
+                "snapshot_before": e.snapshot_before,
+                "snapshot_after": e.snapshot_after,
+            });
+            // The first live downgrade-visible verb: AT-SPI scroll action
+            // when the pane offers one, wheel injection when it does not.
+            let (rung, downgraded_from) = if e.via == "xdotool_wheel" {
+                (TransportRung::R2Injection, Some(TransportRung::R1Semantic))
+            } else {
+                (TransportRung::R1Semantic, None)
+            };
+            let mut out = VerbOutcome::new(value, rung, &e.via, e.effect_observed)
+                .attr("direction", direction)
+                .attr("delta", delta);
+            out.downgraded_from = downgraded_from;
+            Ok(out)
+        }
+        other => Err(dpl_coach_fabric::Refused {
+            reason: format!("verb not implemented: {other}"),
+            tip: "GET /verbs for shipped names. Use /import|/invoke for fabric verbs.".into(),
+        }),
+    }
+}
+
+fn lifecycle_json(e: &dpl_coach_runtime::LifecycleEffect) -> Value {
+    json!({
+        "ok": true,
+        "verb": e.verb,
+        "effect_observed": e.effect_observed,
+        "atspi_name": e.atspi_name,
+        "real_before": e.real_before,
+        "real_after": e.real_after,
+        "pid": e.pid,
+    })
 }
 
 fn wait_assert_json(e: &dpl_coach_runtime::WaitAssertEffect) -> Value {
@@ -569,6 +800,44 @@ async fn import_handler(
     State(state): State<AppState>,
     Json(body): Json<ImportBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
+    let started = std::time::Instant::now();
+    let requested = body.name.clone();
+    let result = import_inner(&state, body).await;
+    let duration_ms = started.elapsed().as_millis() as u64;
+    match result {
+        Ok((value, app, agency, nodes)) => {
+            state.signals.publish_seam(SeamEvent::Executed(SeamSpan {
+                verb: "import".into(),
+                app,
+                rung: TransportRung::R1Semantic,
+                downgraded_from: None,
+                mechanism: "atspi-tree-walk".into(),
+                agency: seam_agency(agency),
+                ok: true,
+                effect_observed: nodes > 0,
+                duration_ms,
+                lesson: None,
+                beat: None,
+                attrs: vec![("nodes".into(), nodes.to_string())],
+            }));
+            Ok(Json(value))
+        }
+        Err(err) => {
+            state.signals.publish_seam(SeamEvent::Refused {
+                verb: "import".into(),
+                app: requested,
+                reason: err.1.reason.clone(),
+                duration_ms,
+            });
+            Err(err)
+        }
+    }
+}
+
+async fn import_inner(
+    state: &AppState,
+    body: ImportBody,
+) -> Result<(Value, String, AgencyMode, usize), (StatusCode, Json<ApiError>)> {
     let mut request = request_from_inventory_name(&body.name).map_err(map_refused)?;
     if let Some(seed) = body.seed {
         request.seed_name = Some(seed);
@@ -612,7 +881,7 @@ async fn import_handler(
         .expect("sessions")
         .insert(sid.clone(), session);
 
-    Ok(Json(json!({
+    let value = json!({
         "ok": true,
         "session": sid,
         "agency": agency.as_str(),
@@ -620,7 +889,8 @@ async fn import_handler(
         "minted_ms": fabric.minted_ms,
         "seed_path": fabric.seed_path,
         "atspi_name": fabric.atspi_name,
-    })))
+    });
+    Ok((value, fabric.atspi_name.clone(), agency, fabric.nodes.len()))
 }
 
 async fn resolve_handler(
@@ -634,20 +904,54 @@ async fn resolve_handler(
             .cloned()
             .ok_or_else(missing_session)?
     };
-    require_real_target(&session.fabric.atspi_name).map_err(map_refused)?;
-    let handle = tokio::task::spawn_blocking(move || resolve_seed(&session))
-        .await
-        .map_err(join_err)?
-        .map_err(map_refused)?;
-    let rect = extents(&handle).ok();
-    Ok(Json(json!({
-        "ok": true,
-        "path": handle.node.path,
-        "name": handle.node.name,
-        "role": handle.node.role,
-        "actions": handle.node.actions,
-        "window_rect": rect.map(|r| r.as_csv()),
-    })))
+    let app = session.fabric.atspi_name.clone();
+    let agency = session.agency;
+    let started = std::time::Instant::now();
+    let result = async {
+        require_real_target(&session.fabric.atspi_name).map_err(map_refused)?;
+        tokio::task::spawn_blocking(move || resolve_seed(&session))
+            .await
+            .map_err(join_err)?
+            .map_err(map_refused)
+    }
+    .await;
+    let duration_ms = started.elapsed().as_millis() as u64;
+    match result {
+        Ok(handle) => {
+            let rect = extents(&handle).ok();
+            state.signals.publish_seam(SeamEvent::Executed(SeamSpan {
+                verb: "resolve".into(),
+                app,
+                rung: TransportRung::R1Semantic,
+                downgraded_from: None,
+                mechanism: "atspi-read".into(),
+                agency: seam_agency(agency),
+                ok: true,
+                effect_observed: true,
+                duration_ms,
+                lesson: None,
+                beat: None,
+                attrs: vec![("path".into(), handle.node.path.clone())],
+            }));
+            Ok(Json(json!({
+                "ok": true,
+                "path": handle.node.path,
+                "name": handle.node.name,
+                "role": handle.node.role,
+                "actions": handle.node.actions,
+                "window_rect": rect.map(|r| r.as_csv()),
+            })))
+        }
+        Err(err) => {
+            state.signals.publish_seam(SeamEvent::Refused {
+                verb: "resolve".into(),
+                app,
+                reason: err.1.reason.clone(),
+                duration_ms,
+            });
+            Err(err)
+        }
+    }
 }
 
 async fn invoke_handler(
@@ -664,22 +968,51 @@ async fn invoke_handler(
     let action = body.action.unwrap_or_else(|| "click".into());
     let require_effect = body.require_effect.unwrap_or(true);
     let agency = session.agency;
-    let effect = tokio::task::spawn_blocking(move || {
+    let app = session.fabric.atspi_name.clone();
+    let action_c = action.clone();
+    let started = std::time::Instant::now();
+    let result = tokio::task::spawn_blocking(move || {
         let handle = resolve_seed(&session)?;
-        invoke_gated(&handle, &action, agency, require_effect)
+        invoke_gated(&handle, &action_c, agency, require_effect)
     })
     .await
-    .map_err(join_err)?
-    .map_err(map_refused)?;
-
-    Ok(Json(json!({
-        "ok": true,
-        "action": effect.action,
-        "agency": effect.agency.as_str(),
-        "effect_observed": effect.effect_observed,
-        "display_before": effect.display_before,
-        "display_after": effect.display_after,
-    })))
+    .map_err(join_err)?;
+    let duration_ms = started.elapsed().as_millis() as u64;
+    match result {
+        Ok(effect) => {
+            state.signals.publish_seam(SeamEvent::Executed(SeamSpan {
+                verb: "invoke".into(),
+                app,
+                rung: TransportRung::R1Semantic,
+                downgraded_from: None,
+                mechanism: "atspi-action".into(),
+                agency: seam_agency(agency),
+                ok: true,
+                effect_observed: effect.effect_observed,
+                duration_ms,
+                lesson: None,
+                beat: None,
+                attrs: vec![("action".into(), action.clone())],
+            }));
+            Ok(Json(json!({
+                "ok": true,
+                "action": effect.action,
+                "agency": effect.agency.as_str(),
+                "effect_observed": effect.effect_observed,
+                "display_before": effect.display_before,
+                "display_after": effect.display_after,
+            })))
+        }
+        Err(r) => {
+            state.signals.publish_seam(SeamEvent::Refused {
+                verb: "invoke".into(),
+                app,
+                reason: r.reason.clone(),
+                duration_ms,
+            });
+            Err(map_refused(r))
+        }
+    }
 }
 
 async fn mount_handler(

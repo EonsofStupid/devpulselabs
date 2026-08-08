@@ -98,7 +98,11 @@ the audit, same commit, with the reason.
 - **crates/coach-daemon/** (`dpl-coach-daemon`): localhost Axum Coach
   control plane (ADR `coach-control-plane-adr.md`); never a dep of
   `app`; agent hop = HTTP; app hop = runtime AT-SPI; overlay remains
-  painter-only under overlay ADR.
+  painter-only under overlay ADR. May depend on `dpl-fabric` +
+  `dpl-ledger` (seam ADR S1): every verb execution/refusal publishes a
+  seam span on a daemon-local signal fabric and the ledger writes it to
+  the same Parquet layout the app uses — the files are the meeting
+  point between the two processes.
 
 ## 4. The laws every new crate inherits
 

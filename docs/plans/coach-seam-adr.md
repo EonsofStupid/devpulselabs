@@ -257,6 +257,15 @@ versioning; S4 the content-addressed registry layout; S5 cards-as-data).
 
 ## 10. Ratification
 
-**DRAFT** — awaiting operator. Red-pen surface: the §6 defaults, the §7
-evolution mechanisms, the §8 slice order, and the
-`SeamVerb`/`SeamTarget`/`EffectContract` naming.
+**RATIFIED** 2026-08-07 by operator (`so lets plan and implement` after the
+rev 3 mock and the §7 evolution contract). §6 defaults stand until
+individually overruled.
+
+**Amendment 2026-08-07 (S1, named cause):** DataFusion's current stable
+release (54.1) pins arrow 58 while `dpl-ledger` is on arrow/parquet 59 —
+adding it today means a second arrow in the tree for a proof the in-tree
+pure-Rust Parquet reader already serves. S1 therefore proves the spine and
+the reliability-per-verb aggregation with the in-tree reader; the
+**DataFusion lens lands as its own step when DataFusion tracks arrow 59**
+(upstream merged 2026-07; unreleased) or at S5, whichever comes first. The
+files stay Arrow/Parquet — the ruling's substance is unchanged.

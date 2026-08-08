@@ -2104,6 +2104,8 @@ dependencies = [
  "dpl-coach-fabric",
  "dpl-coach-inventory",
  "dpl-coach-runtime",
+ "dpl-fabric",
+ "dpl-ledger",
  "dpl-proc",
  "serde",
  "serde_json",
