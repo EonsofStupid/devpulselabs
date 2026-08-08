@@ -39,6 +39,7 @@ dpl-engine-steps.workspace = true
 dpl-video.workspace = true
 dpl-composer.workspace = true
 dpl-guide.workspace = true
+dpl-workflows.workspace = true
 dpl-chat-core.workspace = true
 dpl-chat-accounts.workspace = true
 dpl-chat-browser-auth.workspace = true

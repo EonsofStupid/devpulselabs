@@ -412,6 +412,88 @@ fn main() -> eframe::Result {
     // idempotent, and it only runs when the ledger is on — there is no
     // point recovering facts with nowhere to write them.
     let ai_backfill_on = args.iter().any(|a| a == "--ai-backfill");
+    // (BS1 drill body — pre-window, exits by verdict; lives up here so
+    // the flag block below stays a thin dispatcher like its siblings.)
+    fn run_brainstorm_drill(
+        scaffold: &dpl_workflows::BrainstormScaffold,
+    ) -> Result<String, String> {
+        use dpl_workflows::{BrainstormOp as Op, BrainstormOrigin as Origin};
+        let inbox = dpl_engine_capture::content_root().join("inbox");
+        let dir = dpl_workflows::fresh_dir(&inbox, "brainstorm");
+        let stem = dir
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "brainstorm".to_owned());
+        let mut doc = dpl_workflows::mint_brainstorm(scaffold, &stem);
+        let ops = [
+            Op::Seed {
+                seed: "Drill: one video that explains the product".into(),
+            },
+            Op::AddItem {
+                id: "pain".into(),
+                text: "Name the pain".into(),
+                parent: None,
+                origin: Origin::Operator,
+            },
+            Op::AddItem {
+                id: "demo".into(),
+                text: "Show it working".into(),
+                parent: None,
+                origin: Origin::Assist,
+            },
+            Op::AddItem {
+                id: "demo-fail".into(),
+                text: "Show the old way failing first".into(),
+                parent: Some("demo".into()),
+                origin: Origin::Assist,
+            },
+            Op::AdvancePhase,
+            Op::AddCluster {
+                id: "open".into(),
+                label: "The opening".into(),
+            },
+            Op::AddCluster {
+                id: "proof".into(),
+                label: "The proof".into(),
+            },
+            Op::AssignCluster {
+                id: "pain".into(),
+                cluster: Some("open".into()),
+            },
+            Op::AssignCluster {
+                id: "demo".into(),
+                cluster: Some("proof".into()),
+            },
+            Op::AdvancePhase,
+        ];
+        for op in &ops {
+            dpl_workflows::apply(&mut doc, op)
+                .map_err(|issues| format!("drill op refused: {issues:?}"))?;
+        }
+        dpl_workflows::save_brainstorm(&dir, &doc).map_err(|e| format!("save failed: {e}"))?;
+        let reloaded =
+            dpl_workflows::load_brainstorm(&dir).map_err(|e| format!("reload failed: {e}"))?;
+        if reloaded != doc {
+            return Err("round-trip drift: the reloaded board differs".into());
+        }
+        let faults = dpl_workflows::validate_brainstorm(&reloaded);
+        if !faults.is_empty() {
+            return Err(format!("worked board is invalid: {faults:?}"));
+        }
+        let prefill = dpl_workflows::distill(&reloaded)
+            .map_err(|issues| format!("distill refused: {issues:?}"))?;
+        dpl_workflows::save_intake_prefill(&dir, &prefill)
+            .map_err(|e| format!("prefill save failed: {e}"))?;
+        Ok(format!(
+            "brainstormed {} → {} ({} ideas, {} groups, {} prefills)",
+            scaffold.id,
+            dir.display(),
+            reloaded.items.len(),
+            reloaded.clusters.len(),
+            prefill.len()
+        ))
+    }
+
     // `--clone-seed <seed-id> <show> <episode>` — the headless clone
     // drill (X3): copy a seed into the real content tree through the
     // engine (`dpl_doc::clone_episode`) and exit; no window boots.
@@ -468,6 +550,36 @@ fn main() -> eframe::Result {
                 std::process::exit(1);
             }
         }
+    }
+
+    // `--brainstorm-drill <scaffold>` — the headless BS1 drill: mint a
+    // board in the content inbox, work it through every phase with the
+    // ONE op path, prove round-trip + no-clobber + distill, exit by
+    // verdict; no window boots.
+    if let Some(i) = args.iter().position(|a| a == "--brainstorm-drill") {
+        let Some(scaffold_id) = args.get(i + 1).filter(|a| !a.starts_with("--")) else {
+            eprintln!("usage: --brainstorm-drill <scaffold-id>");
+            std::process::exit(2);
+        };
+        let Some(scaffold) = dpl_workflows::brainstorm_scaffold(scaffold_id) else {
+            let all = dpl_workflows::brainstorm_scaffolds()
+                .iter()
+                .map(|s| s.id)
+                .collect::<Vec<_>>()
+                .join(", ");
+            eprintln!("unknown scaffold {scaffold_id:?} — registered: {all}");
+            std::process::exit(2);
+        };
+        std::process::exit(match run_brainstorm_drill(&scaffold) {
+            Ok(line) => {
+                println!("{line}");
+                0
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                1
+            }
+        });
     }
 
     let options = eframe::NativeOptions {

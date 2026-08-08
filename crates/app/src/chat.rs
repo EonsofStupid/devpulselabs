@@ -68,6 +68,9 @@ pub enum ChatProofMode {
     Content,
     /// A REAL local transcript open in the conversation pane (H1).
     History,
+    /// The inline brainstorm board, worked to Cluster with an assist
+    /// item visible (BS1) — deterministic, in-memory only.
+    Brainstorm,
 }
 
 #[cfg(feature = "eguipilotai-devtools")]
@@ -88,6 +91,7 @@ impl ChatProofMode {
             "assist" => Some(Self::Assist),
             "content" => Some(Self::Content),
             "history" => Some(Self::History),
+            "brainstorm" => Some(Self::Brainstorm),
             _ => None,
         }
     }
@@ -160,8 +164,48 @@ struct Shared {
     /// The session's determinism gate — slash mint site and UI channel
     /// share one state machine (determinism-intent-gate plan).
     determinism: dpl_intent::DeterminismGate,
+    /// The live brainstorm board, if one is open (BS1). Host-owned: the
+    /// document, its folder, and the undo reach all live here; the
+    /// window gets a projection and sends typed ops back.
+    brainstorm: Option<BrainstormSession>,
     #[cfg(feature = "eguipilotai-devtools")]
     pilot_runtime: Option<Arc<Mutex<PilotRuntime>>>,
+}
+
+/// One open brainstorm board and its undo reach (the composer
+/// checkpoint shape: snapshots, dedupe at the call site, redo cleared
+/// by any new edit).
+struct BrainstormSession {
+    dir: std::path::PathBuf,
+    doc: dpl_workflows::BrainstormDoc,
+    undo: Vec<dpl_workflows::BrainstormDoc>,
+    redo: Vec<dpl_workflows::BrainstormDoc>,
+    /// The last honest status line (a refusal's issues, a promote note).
+    status: Option<String>,
+    /// The in-flight suggestion call, if any (the imagine correlation
+    /// shape: job minted at dispatch, one terminal transition).
+    assist: Option<BrainstormAssistCall>,
+}
+
+struct BrainstormAssistCall {
+    job: dpl_fabric::JobId,
+    rx: std::sync::mpsc::Receiver<Result<Vec<String>, String>>,
+}
+
+const BRAINSTORM_UNDO_CAP: usize = 100;
+
+impl BrainstormSession {
+    /// Snapshot before an edit — dedupe, cap, and clear redo (the
+    /// composer `checkpoint` contract).
+    fn checkpoint(&mut self) {
+        if self.undo.last() != Some(&self.doc) {
+            if self.undo.len() >= BRAINSTORM_UNDO_CAP {
+                self.undo.remove(0);
+            }
+            self.undo.push(self.doc.clone());
+        }
+        self.redo.clear();
+    }
 }
 
 struct PendingGrokPermission {
@@ -661,6 +705,52 @@ impl ChatWindowCoordinator {
                         )
                         .expect("the authored Grok authorization is valid");
                 }
+                ChatProofMode::Brainstorm => {
+                    // A deterministic worked board, in memory only —
+                    // authored proofs never touch the content tree. It
+                    // stands at Cluster with the assist item unsorted,
+                    // so the proof shows the sort affordance AND the
+                    // origin disclosure at once.
+                    let scaffold = dpl_workflows::brainstorm_scaffold("breakdown")
+                        .expect("the scaffold census ships breakdown");
+                    let mut doc = dpl_workflows::mint_brainstorm(&scaffold, "authored-proof");
+                    use dpl_workflows::{BrainstormOp as Op, BrainstormOrigin as Origin};
+                    for op in [
+                        Op::Seed {
+                            seed: "One video that explains the whole product".into(),
+                        },
+                        Op::AddItem {
+                            id: "pain".into(),
+                            text: "Name the pain".into(),
+                            parent: None,
+                            origin: Origin::Operator,
+                        },
+                        Op::AddItem {
+                            id: "demo".into(),
+                            text: "Show it working".into(),
+                            parent: None,
+                            origin: Origin::Assist,
+                        },
+                        Op::AdvancePhase,
+                        Op::AddCluster {
+                            id: "open".into(),
+                            label: "The opening".into(),
+                        },
+                        Op::AssignCluster {
+                            id: "pain".into(),
+                            cluster: Some("open".into()),
+                        },
+                    ] {
+                        dpl_workflows::apply(&mut doc, &op)
+                            .expect("the authored board ops are legal");
+                    }
+                    window.observe_brainstorm(dpl_chat_window::BrainstormView {
+                        doc: Some(doc),
+                        status: None,
+                        can_undo: true,
+                        can_redo: false,
+                    });
+                }
                 ChatProofMode::Approval
                 | ChatProofMode::Ai
                 | ChatProofMode::Compact
@@ -812,6 +902,7 @@ impl ChatWindowCoordinator {
             presence: Some(crate::presence::probe_all(crate::presence::specs())),
             estate,
             determinism: dpl_intent::DeterminismGate::default(),
+            brainstorm: None,
             #[cfg(feature = "eguipilotai-devtools")]
             pilot_runtime: None,
         };
@@ -1088,7 +1179,8 @@ impl ChatWindowCoordinator {
                         | drive_grok_runtime(&mut state, Instant::now())
                         | poll_seam_runtimes(&mut state)
                         | drive_codex_runtime(&mut state)
-                        | poll_imagine(&mut state);
+                        | poll_imagine(&mut state)
+                        | poll_brainstorm_assist(&mut state);
                     let provider_runtime_live = state.grok_runtime.is_some()
                         || state.grok_runtime_retry_at.is_some()
                         || !state.runtimes.is_empty();
@@ -1511,6 +1603,36 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
         HostIntent::ResolveImagineFlush { decision } => {
             let mut state = lock(shared);
             resolve_imagine_flush(&mut state, decision);
+            ctx.request_repaint();
+        }
+        HostIntent::StartBrainstorm => {
+            let mut state = lock(shared);
+            start_brainstorm(&mut state);
+            ctx.request_repaint();
+        }
+        HostIntent::Brainstorm(op) => {
+            let mut state = lock(shared);
+            apply_brainstorm_op(&mut state, &op);
+            ctx.request_repaint();
+        }
+        HostIntent::BrainstormUndo => {
+            let mut state = lock(shared);
+            brainstorm_history_jump(&mut state, true);
+            ctx.request_repaint();
+        }
+        HostIntent::BrainstormRedo => {
+            let mut state = lock(shared);
+            brainstorm_history_jump(&mut state, false);
+            ctx.request_repaint();
+        }
+        HostIntent::BrainstormAssist => {
+            let mut state = lock(shared);
+            brainstorm_assist(&mut state);
+            ctx.request_repaint();
+        }
+        HostIntent::PromoteBrainstorm => {
+            let mut state = lock(shared);
+            promote_brainstorm(&mut state);
             ctx.request_repaint();
         }
         HostIntent::ToggleAssist { enable } => {
@@ -2171,6 +2293,282 @@ fn save_assist(state: &Shared) {
     if let Err(error) = state.assist.save(&dpl_engine_capture::userdata_root()) {
         tracing::warn!(%error, "assist policy could not be persisted");
     }
+}
+
+// ── the brainstorm session (BS1: the board lives host-side) ─────────────
+
+/// Push the session's current truth into the window — after EVERY
+/// mutation, refusal included, so the surface never renders stale state.
+fn project_brainstorm(state: &mut Shared) {
+    let view = match &state.brainstorm {
+        Some(session) => dpl_chat_window::BrainstormView {
+            doc: Some(session.doc.clone()),
+            status: session.status.clone(),
+            can_undo: !session.undo.is_empty(),
+            can_redo: !session.redo.is_empty(),
+        },
+        None => dpl_chat_window::BrainstormView::default(),
+    };
+    state.window.observe_brainstorm(view);
+}
+
+/// Mint a fresh board in the content inbox (no-clobber) and project it.
+/// One live board per chat session — retriggering while one is open
+/// just surfaces it (the operator's board is never silently replaced).
+fn start_brainstorm(state: &mut Shared) {
+    if let Some(session) = &mut state.brainstorm {
+        session.status = Some("The board is already open — right here.".to_owned());
+        project_brainstorm(state);
+        return;
+    }
+    let scaffold = dpl_workflows::brainstorm_scaffolds()
+        .into_iter()
+        .next()
+        .expect("the scaffold census is never empty");
+    let inbox = dpl_engine_capture::content_root().join("inbox");
+    let dir = dpl_workflows::fresh_dir(&inbox, "brainstorm");
+    let stem = dir
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "brainstorm".to_owned());
+    let doc = dpl_workflows::mint_brainstorm(&scaffold, &stem);
+    let status = match dpl_workflows::save_brainstorm(&dir, &doc) {
+        Ok(()) => Some("Board opened — type the massive idea and add it.".to_owned()),
+        Err(error) => Some(format!(
+            "Board opened in memory only — save failed: {error}"
+        )),
+    };
+    state.brainstorm = Some(BrainstormSession {
+        dir,
+        doc,
+        undo: Vec::new(),
+        redo: Vec::new(),
+        status,
+        assist: None,
+    });
+    project_brainstorm(state);
+}
+
+/// Spawn the one-shot suggestion call (the imagine drive shape): guard
+/// honestly, mint the job BEFORE the worker, one terminal transition.
+fn brainstorm_assist(state: &mut Shared) {
+    if !state.assist.enabled {
+        if let Some(session) = &mut state.brainstorm {
+            session.status =
+                Some("Assist is off — the ⚡ chip by the composer turns it on.".to_owned());
+        }
+        project_brainstorm(state);
+        return;
+    }
+    let Some(session) = &mut state.brainstorm else {
+        return;
+    };
+    if session.assist.is_some() {
+        session.status = Some("The assist is already thinking…".to_owned());
+        project_brainstorm(state);
+        return;
+    }
+    if session.doc.seed.trim().is_empty() {
+        session.status = Some("Seed the board first — suggestions grow from the idea.".to_owned());
+        project_brainstorm(state);
+        return;
+    }
+    let Some(key) = dpl_chat_imagine::resolve_api_key() else {
+        session.status =
+            Some("No XAI_API_KEY in this session — suggestions stay off, honestly.".to_owned());
+        project_brainstorm(state);
+        return;
+    };
+    let seed = session.doc.seed.clone();
+    let existing: Vec<String> = session.doc.items.iter().map(|i| i.text.clone()).collect();
+    let job = state.fabric.mint_job();
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    let spawned = std::thread::Builder::new()
+        .name("devpulse-brainstorm-assist".into())
+        .spawn(move || {
+            use dpl_chat_imagine::SuggestClient as _;
+            let result =
+                dpl_chat_imagine::SystemImagineClient.suggest_ideas(&key, &seed, &existing);
+            let _ = tx.send(result);
+        });
+    if spawned.is_err() {
+        session.status = Some("The suggestion worker could not start.".to_owned());
+        project_brainstorm(state);
+        return;
+    }
+    session.assist = Some(BrainstormAssistCall { job, rx });
+    session.status = Some("Assist is thinking…".to_owned());
+    state.fabric.publish_job(dpl_fabric::JobEvent::Queued {
+        job,
+        label: "brainstorm · populate".to_owned(),
+    });
+    project_brainstorm(state);
+}
+
+/// Drain the suggestion call: proposals land as Assist-origin items
+/// through the SAME `apply` path, one checkpoint for the whole batch
+/// (one undo step — a proposal wave is one gesture).
+fn poll_brainstorm_assist(state: &mut Shared) -> bool {
+    let Some(session) = &mut state.brainstorm else {
+        return false;
+    };
+    let Some(call) = &session.assist else {
+        return false;
+    };
+    let result = match call.rx.try_recv() {
+        Ok(result) => result,
+        Err(std::sync::mpsc::TryRecvError::Empty) => return false,
+        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+            Err("the suggestion worker vanished".to_owned())
+        }
+    };
+    let job = call.job;
+    session.assist = None;
+    match result {
+        Ok(ideas) => {
+            session.checkpoint();
+            let mut landed = 0usize;
+            for text in &ideas {
+                let id = (1..)
+                    .map(|n| format!("idea-{n}"))
+                    .find(|c| session.doc.items.iter().all(|i| &i.id != c))
+                    .expect("unbounded");
+                if dpl_workflows::apply(
+                    &mut session.doc,
+                    &dpl_workflows::BrainstormOp::AddItem {
+                        id,
+                        text: text.clone(),
+                        parent: None,
+                        origin: dpl_workflows::BrainstormOrigin::Assist,
+                    },
+                )
+                .is_ok()
+                {
+                    landed += 1;
+                }
+            }
+            session.status = Some(format!(
+                "Assist proposed {landed} ideas — yours to keep or cut."
+            ));
+            if let Err(error) = dpl_workflows::save_brainstorm(&session.dir, &session.doc) {
+                session.status = Some(format!("Proposals kept in memory — save failed: {error}"));
+            }
+            state.fabric.publish_job(dpl_fabric::JobEvent::Done {
+                job,
+                out: format!("{landed} ideas"),
+            });
+        }
+        Err(error) => {
+            session.status = Some(error.clone());
+            state
+                .fabric
+                .publish_job(dpl_fabric::JobEvent::Failed { job, error });
+        }
+    }
+    project_brainstorm(state);
+    true
+}
+
+/// The ONE write path: checkpoint → apply → save → project. A refused
+/// op rolls the checkpoint back and surfaces its issues honestly.
+fn apply_brainstorm_op(state: &mut Shared, op: &dpl_workflows::BrainstormOp) {
+    let Some(session) = &mut state.brainstorm else {
+        return;
+    };
+    session.checkpoint();
+    match dpl_workflows::apply(&mut session.doc, op) {
+        Ok(()) => {
+            session.status = None;
+            if let Err(error) = dpl_workflows::save_brainstorm(&session.dir, &session.doc) {
+                session.status = Some(format!("Edit kept in memory — save failed: {error}"));
+            }
+        }
+        Err(issues) => {
+            // The checkpoint pushed a snapshot equal to the (unmutated)
+            // doc; pop it so a refusal never pollutes the undo reach.
+            session.undo.pop();
+            let named = issues
+                .iter()
+                .map(|i| i.message.as_str())
+                .collect::<Vec<_>>()
+                .join(" · ");
+            session.status = Some(named);
+        }
+    }
+    project_brainstorm(state);
+}
+
+/// Undo/redo — the composer pop-swap shape, persisted like any edit.
+fn brainstorm_history_jump(state: &mut Shared, back: bool) {
+    let Some(session) = &mut state.brainstorm else {
+        return;
+    };
+    let (from, to) = if back {
+        (&mut session.undo, &mut session.redo)
+    } else {
+        (&mut session.redo, &mut session.undo)
+    };
+    if let Some(prev) = from.pop() {
+        to.push(std::mem::replace(&mut session.doc, prev));
+        session.status = None;
+        if let Err(error) = dpl_workflows::save_brainstorm(&session.dir, &session.doc) {
+            session.status = Some(format!("History jump unsaved — {error}"));
+        }
+    } else {
+        session.status = Some(if back {
+            "Nothing to undo.".to_owned()
+        } else {
+            "Nothing to redo.".to_owned()
+        });
+    }
+    project_brainstorm(state);
+}
+
+/// Distill the converged board into the explainer intake pre-fill,
+/// landed beside the board (`intake-prefill.json`) — the honest BS-M2
+/// exit; the guided intake itself arrives with EX1-M3.
+fn promote_brainstorm(state: &mut Shared) {
+    let Some(session) = &mut state.brainstorm else {
+        return;
+    };
+    let announce = match dpl_workflows::distill(&session.doc) {
+        Ok(prefill) => match dpl_workflows::save_intake_prefill(&session.dir, &prefill) {
+            Ok(()) => {
+                session.status = Some(format!(
+                    "Promoted — {} intake answers staged in {}.",
+                    prefill.len(),
+                    session.dir.display()
+                ));
+                Some((prefill.len(), session.dir.display().to_string()))
+            }
+            Err(error) => {
+                session.status = Some(format!("Promote failed to save: {error}"));
+                None
+            }
+        },
+        Err(issues) => {
+            let named = issues
+                .iter()
+                .map(|i| i.message.as_str())
+                .collect::<Vec<_>>()
+                .join(" · ");
+            session.status = Some(named);
+            None
+        }
+    };
+    // The promote is a durable transcript fact, not only a status line
+    // the next op overwrites. (Session borrow ends before the window.)
+    if let Some((answers, dir)) = announce {
+        let interaction = InteractionId(state.next_interaction_id);
+        state.next_interaction_id = state.next_interaction_id.saturating_add(1);
+        if let Err(error) = state
+            .window
+            .register_brainstorm_promoted(interaction, answers, &dir)
+        {
+            tracing::warn!(%error, "the promote announce could not register");
+        }
+    }
+    project_brainstorm(state);
 }
 
 fn poll_provider_activations(state: &mut Shared) -> bool {

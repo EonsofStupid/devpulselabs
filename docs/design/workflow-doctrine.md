@@ -28,11 +28,17 @@ the Nth workflow shaped like the 1st.
 
 3. **THE WIRE CONTRACT IS A FIRST-CLASS ARTIFACT.** Each document major
    version has a JSON Schema in `schemas/` —
-   `workflow.v1.schema.json`, `storyboard.v1.schema.json` — strict
+   `workflow.v1.schema.json`, `storyboard.v1.schema.json`,
+   `bible.v1.schema.json` (EX1) — strict
    (`additionalProperties: false`, `v` pinned by `const`), draft
    2020-12. A new major version adds `*.v2.schema.json` BESIDE v1;
    schema files are append-only history, never edited after their
-   version ships (fixes to a shipped schema are a new version).
+   version ships (fixes to a shipped schema are a new version) — with
+   ONE carve-out: a compatible ADDITIVE amendment (a new OPTIONAL
+   property that leaves every previously-valid document valid) amends
+   the current version's file in the SAME commit as its Rust field,
+   mirroring law 2's additive rule. Anything that could invalidate an
+   existing document is a new version, no exceptions.
    **PINNED BY TEST**: `crates/workflows` tests serialize the real Rust
    types and validate them against these files — including a NEGATIVE
    case, so the schema is proven load-bearing. Rust and wire cannot
