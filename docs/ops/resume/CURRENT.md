@@ -1,12 +1,10 @@
 # Resume pack — CURRENT
 
-**Updated:** 2026-08-07
+**Updated:** 2026-08-08
 **Lanes:** coach-seam (this session) · ai-layer (2026-08-03 state below;
 its "uncommitted seam" note is stale — the tree is clean of it as of #212)
-**Dirty:** false — one uncommitted artifact by design:
-`docs/design/mocks/coach-seam-mock.html` awaits operator red-pen.
-(`editor-presets-mock.html` + `workbench-editor.md` edits are the
-operator's own parallel work — do not touch.)
+**Dirty:** false. (`editor-presets-mock.html` + `workbench-editor.md`
+edits are the operator's own parallel work — do not touch.)
 
 ## Coach-seam lane (session 2026-08-07) — READ FIRST if resuming coach
 
@@ -33,8 +31,38 @@ surface; tracing/profiles/mock were skipped. Audit confirmed. Full story:
 **Rulings 2026-08-07:** mock-first (review before seam ADR) · Blender is
 the first Tier B pack.
 
-**Next (coach):**
-1. **Seam ADR DRAFTED** — `docs/plans/coach-seam-adr.md` (2026-08-07):
+**RATIFIED + S1 LANDED (2026-08-08):** operator ratified the ADR
+(`so lets plan and implement`; §6 defaults stand until individually
+overruled). §10 amendment: DataFusion dep WAITS for a release tracking
+arrow 59 (stable 54.1 pins arrow 58 — no second arrow in the tree); the
+in-tree pure-Rust reader is the interim lens.
+
+**S1 — the tracing spine, LANDED** (plan + evidence:
+`docs/plans/coach-seam-s1-tracing-spine.md`):
+- `dpl-fabric`: `seam` domain — `SeamSpan` v1 (verb, app, rung R0–R3,
+  `downgraded_from`, mechanism, agency, ok, effect_observed,
+  duration_ms, lesson/beat from day one, open attrs map) +
+  `SeamEvent::Refused` as a first-class fact.
+- `dpl-ledger`: tap subscribes seam; `type`=verb so reliability is a
+  GROUP BY; `seam_reliability` fold + `read_all_rows`; examples
+  `seam_reliability` (the lens) and `dump_rows` (the eyeball drill).
+- `dpl-coach-daemon`: owns a local signal fabric + ledger tap
+  (`--analytics-root` → `DPL_ANALYTICS_ROOT` → `USERDATA_ROOT` →
+  `./.userdata/analytics`, logged loudly at boot); every
+  `/verb`+`/import`+`/resolve`+`/invoke` execution AND refusal is timed
+  and published; drain task 250 ms; flush on SIGINT.
+- Live-proven on gnome-calculator (DISPLAY=:1): 8 spans → Parquet; the
+  scroll row landed `rung:r2, downgraded_from:r1,
+  mechanism:xdotool_wheel` — the ladder downgrade is queryable data.
+- `architecture.md` coach-daemon entry amended (fabric+ledger edges) in
+  the same commit; `cargo green` full gate passed.
+
+**Next (coach):** S2 protocol rehoming → S3 profile registry → S4
+Blender pack → S5 Optimize cards (+ DataFusion lens when its arrow-59
+release ships).
+
+**History — how the ADR got here:**
+1. **Seam ADR** — `docs/plans/coach-seam-adr.md` (2026-08-07):
    vocabulary rehomes into `egui-pilot-ai-protocol` (`seam` module:
    `SeamVerb` keeping the ratified 101 wire names, `SeamTarget`,
    `EffectContract`, `SeamEvent` with `downgraded_from`); daemon demotes

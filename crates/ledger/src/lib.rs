@@ -12,7 +12,7 @@ use arrow_array::{Array, ArrayRef, RecordBatch, StringArray, UInt64Array};
 use arrow_schema::{DataType, Field, Schema};
 use dpl_fabric::{
     AiEvent, BuildEvent, CaptureEvent, CoachEvent, Fabric, IntentEvent, JobEvent, ProviderEvent,
-    Stamped,
+    SeamEvent, Stamped,
 };
 use parquet::arrow::ArrowWriter;
 use parquet::basic::Compression;
@@ -91,6 +91,7 @@ pub struct LedgerTap {
     providers: dpl_fabric::ProviderReceiver,
     build: dpl_fabric::BuildReceiver,
     coach: dpl_fabric::CoachReceiver,
+    seam: dpl_fabric::SeamReceiver,
     intent: dpl_fabric::IntentReceiver,
     ai: dpl_fabric::AiReceiver,
     handle: LedgerHandle,
@@ -107,6 +108,7 @@ impl LedgerTap {
             providers: fabric.subscribe_providers(),
             build: fabric.subscribe_build(),
             coach: fabric.subscribe_coach(),
+            seam: fabric.subscribe_seam(),
             intent: fabric.subscribe_intent(),
             ai: fabric.subscribe_ai(),
             handle,
@@ -129,6 +131,9 @@ impl LedgerTap {
         }
         while let Ok(st) = self.coach.try_recv() {
             let _ = self.handle.try_record(row_coach(&st));
+        }
+        while let Ok(st) = self.seam.try_recv() {
+            let _ = self.handle.try_record(row_seam(&st));
         }
         while let Ok(st) = self.intent.try_recv() {
             let _ = self.handle.try_record(row_intent(&st));
@@ -701,6 +706,59 @@ fn row_coach(st: &Stamped<CoachEvent>) -> LedgerRow {
     base_row(st.seq, st.ms, "coach", ty, body)
 }
 
+/// The SEAM domain's projection (seam ADR §5 + §7.5).
+///
+/// `type` carries the VERB wire name, so reliability-per-verb is a plain
+/// GROUP BY over the fixed columns. Refusals share the verb's `type` with
+/// `"refused": true` — one group carries its failures beside its
+/// successes, which is the whole point of the reliability question. The
+/// body opens with `"v": 1` and closes with the open `attrs` map: new
+/// dimensions ride there until they earn a typed field (additive-only).
+pub fn row_seam(st: &Stamped<SeamEvent>) -> LedgerRow {
+    let (ty, body) = match &st.ev {
+        SeamEvent::Executed(span) => (
+            span.verb.clone(),
+            serde_json::json!({
+                "v": 1,
+                "app": span.app,
+                "rung": span.rung.label(),
+                "downgraded_from": span.downgraded_from.map(|r| r.label()),
+                "mechanism": span.mechanism,
+                "agency": span.agency.as_str(),
+                "ok": span.ok,
+                "effect_observed": span.effect_observed,
+                "duration_ms": span.duration_ms,
+                "lesson": span.lesson,
+                "beat": span.beat,
+                "refused": false,
+                "attrs": span
+                    .attrs
+                    .iter()
+                    .map(|(k, v)| (k.clone(), serde_json::Value::from(v.as_str())))
+                    .collect::<serde_json::Map<_, _>>(),
+            }),
+        ),
+        SeamEvent::Refused {
+            verb,
+            app,
+            reason,
+            duration_ms,
+        } => (
+            verb.clone(),
+            serde_json::json!({
+                "v": 1,
+                "app": app,
+                "ok": false,
+                "effect_observed": false,
+                "duration_ms": duration_ms,
+                "refused": true,
+                "reason": reason,
+            }),
+        ),
+    };
+    base_row(st.seq, st.ms, "seam", &ty, body)
+}
+
 fn row_intent(st: &Stamped<IntentEvent>) -> LedgerRow {
     let (ty, body) = match &st.ev {
         IntentEvent::DeterminismChanged { mode, cause } => {
@@ -798,6 +856,80 @@ pub fn row_ai(st: &Stamped<AiEvent>) -> LedgerRow {
         ),
     };
     base_row(st.seq, st.ms, "ai", ty, body)
+}
+
+/// Reliability of one verb, folded from seam rows — the S1 lens.
+///
+/// Pure-Rust over `read_parquet_rows` until DataFusion tracks arrow 59
+/// (seam ADR §10 amendment); the numbers are the same either way.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct VerbReliability {
+    pub verb: String,
+    /// Executions that returned (refusals excluded).
+    pub executed: u64,
+    /// Executions whose effect contract held.
+    pub effect_ok: u64,
+    /// First-class refusal facts.
+    pub refused: u64,
+    pub total_duration_ms: u64,
+}
+
+/// Fold seam-domain rows into per-verb reliability, sorted by volume.
+/// Non-seam rows are ignored, so callers can feed a whole day's mix.
+pub fn seam_reliability(rows: &[LedgerRow]) -> Vec<VerbReliability> {
+    let mut by_verb: HashMap<String, VerbReliability> = HashMap::new();
+    for row in rows.iter().filter(|r| r.domain == "seam") {
+        let Ok(body) = serde_json::from_str::<serde_json::Value>(&row.body) else {
+            continue;
+        };
+        let entry = by_verb
+            .entry(row.type_name.clone())
+            .or_insert_with(|| VerbReliability {
+                verb: row.type_name.clone(),
+                ..VerbReliability::default()
+            });
+        entry.total_duration_ms += body["duration_ms"].as_u64().unwrap_or(0);
+        if body["refused"].as_bool().unwrap_or(false) {
+            entry.refused += 1;
+        } else {
+            entry.executed += 1;
+            if body["effect_observed"].as_bool().unwrap_or(false) {
+                entry.effect_ok += 1;
+            }
+        }
+    }
+    let mut out: Vec<VerbReliability> = by_verb.into_values().collect();
+    out.sort_by(|a, b| {
+        (b.executed + b.refused)
+            .cmp(&(a.executed + a.refused))
+            .then_with(|| a.verb.cmp(&b.verb))
+    });
+    out
+}
+
+/// Every row from every segment under `<root>/events/` (all dates, all
+/// domains) — the example/proof walk; queries filter from here.
+pub fn read_all_rows(analytics_root: &Path) -> Result<Vec<LedgerRow>, String> {
+    let events = analytics_root.join("events");
+    let mut out = Vec::new();
+    let days =
+        fs::read_dir(&events).map_err(|e| format!("ledger: read {}: {e}", events.display()))?;
+    for day in days.flatten() {
+        let dir = day.path();
+        if !dir.is_dir() {
+            continue;
+        }
+        for entry in fs::read_dir(&dir)
+            .map_err(|e| format!("ledger: read {}: {e}", dir.display()))?
+            .flatten()
+        {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("parquet") {
+                out.extend(read_parquet_rows(&path)?);
+            }
+        }
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -1012,6 +1144,99 @@ mod tests {
             }
         }
         assert!(started && finished, "both ai facts reached parquet");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    fn sample_span(verb: &str, effect: bool, ms: u64) -> dpl_fabric::SeamSpan {
+        dpl_fabric::SeamSpan {
+            verb: verb.into(),
+            app: "gnome-calculator".into(),
+            rung: dpl_fabric::TransportRung::R2Injection,
+            downgraded_from: None,
+            mechanism: "xdotool".into(),
+            agency: dpl_fabric::SeamAgency::Teacher,
+            ok: true,
+            effect_observed: effect,
+            duration_ms: ms,
+            lesson: None,
+            beat: None,
+            attrs: vec![("key".into(), "7".into())],
+        }
+    }
+
+    #[test]
+    fn seam_spans_land_in_their_own_segment_grouped_by_verb() {
+        let dir = std::env::temp_dir().join(format!("dpl-ledger-seam-{}", wall_ms_now()));
+        let _ = fs::remove_dir_all(&dir);
+        let fabric = Fabric::new();
+        let mut tap = LedgerTap::open(&fabric, dir.clone()).unwrap();
+
+        fabric.publish_seam(SeamEvent::Executed(sample_span("press_key", true, 30)));
+        fabric.publish_seam(SeamEvent::Executed(sample_span("press_key", false, 25)));
+        fabric.publish_seam(SeamEvent::Refused {
+            verb: "press_key".into(),
+            app: "gnome-calculator".into(),
+            reason: "target lost".into(),
+            duration_ms: 5,
+        });
+        tap.drain();
+        thread::sleep(Duration::from_millis(50));
+        tap.flush_and_join();
+
+        let date = utc_date_today();
+        let day = dir.join("events").join(format!("date={date}"));
+        let mut seam_rows = Vec::new();
+        for entry in fs::read_dir(&day).unwrap().flatten() {
+            let path = entry.path();
+            let name = path.file_name().unwrap().to_string_lossy().to_string();
+            // The seam domain gets its OWN segment file — never mixed in.
+            if name.starts_with("seam-") && name.ends_with(".parquet") {
+                seam_rows.extend(read_parquet_rows(&path).unwrap());
+            }
+        }
+        assert_eq!(seam_rows.len(), 3, "three seam facts reached parquet");
+        for row in &seam_rows {
+            assert_eq!(row.domain, "seam");
+            // `type` is the VERB — reliability is GROUP BY type.
+            assert_eq!(row.type_name, "press_key");
+            assert!(
+                row.body.contains("\"v\":1"),
+                "schema version rides: {}",
+                row.body
+            );
+        }
+        let refused: Vec<_> = seam_rows
+            .iter()
+            .filter(|r| r.body.contains("\"refused\":true"))
+            .collect();
+        assert_eq!(refused.len(), 1, "the refusal is a first-class fact");
+        assert!(refused[0].body.contains("target lost"));
+        let executed: Vec<_> = seam_rows
+            .iter()
+            .filter(|r| r.body.contains("\"refused\":false"))
+            .collect();
+        assert!(executed
+            .iter()
+            .any(|r| r.body.contains("\"effect_observed\":true")));
+        assert!(
+            executed.iter().all(|r| r.body.contains("\"rung\":\"r2\"")
+                && r.body.contains("\"mechanism\":\"xdotool\"")
+                && r.body.contains("\"attrs\":{\"key\":\"7\"}")),
+            "typed core + open attrs map both survive"
+        );
+
+        // The S1 lens: reliability per verb over the very rows on disk.
+        let table = seam_reliability(&read_all_rows(&dir).unwrap());
+        assert_eq!(
+            table,
+            vec![VerbReliability {
+                verb: "press_key".into(),
+                executed: 2,
+                effect_ok: 1,
+                refused: 1,
+                total_duration_ms: 60,
+            }]
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 

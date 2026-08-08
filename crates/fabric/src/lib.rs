@@ -501,6 +501,92 @@ pub enum CoachEvent {
 
 pub type CoachReceiver = broadcast::Receiver<Stamped<CoachEvent>>;
 
+/// Which rung of the seam transport ladder executed a verb (seam ADR §3:
+/// R0 app-native API, R1 accessibility semantic action, R2 targeted input
+/// injection, R3 vision-grounded — import/harvest fuel only, never the
+/// lesson hot path).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TransportRung {
+    R0Native,
+    R1Semantic,
+    R2Injection,
+    R3Vision,
+}
+
+impl TransportRung {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::R0Native => "r0",
+            Self::R1Semantic => "r1",
+            Self::R2Injection => "r2",
+            Self::R3Vision => "r3",
+        }
+    }
+}
+
+/// Who drove the verb — mirrored from the coach runtime's `AgencyMode`
+/// so the fabric stays dependency-free (the `CoachActor` precedent).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SeamAgency {
+    /// Operator leads; lesson typically mounts and observes.
+    Coach,
+    /// AI executes via the same rails.
+    Teacher,
+}
+
+impl SeamAgency {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Coach => "coach",
+            Self::Teacher => "teacher",
+        }
+    }
+}
+
+/// One verb execution — the seam span (schema v1).
+///
+/// The typed core is the query surface; `attrs` is the open map the
+/// evolution contract (seam ADR §7) reserves for new dimensions before
+/// they earn a typed field. `lesson`/`beat` exist from day one and stay
+/// `None` until lessons drive verbs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SeamSpan {
+    /// Ratified wire name (`type_text`, `move`, `invoke`, …).
+    pub verb: String,
+    /// The app as addressed (AT-SPI name today, `AppId` after S2).
+    pub app: String,
+    pub rung: TransportRung,
+    /// Set when the ladder fell through from a higher rung.
+    pub downgraded_from: Option<TransportRung>,
+    /// The honest means: `atspi-action`, `xdotool`, `x11-wm`, `spawn`, …
+    pub mechanism: String,
+    pub agency: SeamAgency,
+    /// The call returned (refusals are `SeamEvent::Refused`, not `ok=false`).
+    pub ok: bool,
+    /// The verb's effect contract held — the reliability numerator.
+    pub effect_observed: bool,
+    pub duration_ms: u64,
+    pub lesson: Option<String>,
+    pub beat: Option<u32>,
+    pub attrs: Vec<(String, String)>,
+}
+
+/// SEAM-domain signals — one fact per verb execution or refusal on the
+/// foreign-app seam (seam ADR §5). Refusals are first-class: a verb that
+/// was refused is exactly as much a reliability fact as one that ran.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SeamEvent {
+    Executed(SeamSpan),
+    Refused {
+        verb: String,
+        app: String,
+        reason: String,
+        duration_ms: u64,
+    },
+}
+
+pub type SeamReceiver = broadcast::Receiver<Stamped<SeamEvent>>;
+
 /// INTENT-domain signals — privileged-mode transitions and their refusals
 /// (determinism-intent-gate plan; signal-ledger plan §9.2/§9.3). The audit
 /// trail of the operator intent gate: every mode change names its cause,
@@ -754,6 +840,7 @@ pub struct Fabric {
     providers: broadcast::Sender<Stamped<ProviderEvent>>,
     build: broadcast::Sender<Stamped<BuildEvent>>,
     coach: broadcast::Sender<Stamped<CoachEvent>>,
+    seam: broadcast::Sender<Stamped<SeamEvent>>,
     intent: broadcast::Sender<Stamped<IntentEvent>>,
     ai: broadcast::Sender<Stamped<AiEvent>>,
     /// THE JOBBOARD — the fold of the jobs stream (+ each row's latest-wins
@@ -792,6 +879,8 @@ impl Fabric {
         let (providers, _) = broadcast::channel(128);
         let (build, _) = broadcast::channel(64);
         let (coach, _) = broadcast::channel(128);
+        // Verb cadence tracks the provider lane, not the chatty capture lane.
+        let (seam, _) = broadcast::channel(128);
         let (intent, _) = broadcast::channel(64);
         // AI facts arrive up to 4 per call (start/first-token/finish/
         // disposition) across concurrent provider calls — sized like the
@@ -805,6 +894,7 @@ impl Fabric {
             providers,
             build,
             coach,
+            seam,
             intent,
             ai,
             board: Arc::new(std::sync::Mutex::new(Vec::new())),
@@ -1038,6 +1128,16 @@ impl Fabric {
         self.coach.subscribe()
     }
 
+    /// Publish a SEAM-domain fact (verb execution/refusal span).
+    pub fn publish_seam(&self, event: SeamEvent) {
+        let _ = self.seam.send(self.stamp(event));
+        self.wake();
+    }
+
+    pub fn subscribe_seam(&self) -> SeamReceiver {
+        self.seam.subscribe()
+    }
+
     /// Publish an INTENT-domain fact (privileged-mode transition/refusal).
     pub fn publish_intent(&self, event: IntentEvent) {
         let _ = self.intent.send(self.stamp(event));
@@ -1192,6 +1292,53 @@ mod tests {
             actor: CoachActor::Operator,
         });
         assert!(capture_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn seam_spans_stamp_in_total_order_and_refusals_are_facts() {
+        let fabric = Fabric::new();
+        let mut rx = fabric.subscribe_seam();
+        fabric.publish_seam(SeamEvent::Executed(SeamSpan {
+            verb: "type_text".into(),
+            app: "gnome-calculator".into(),
+            rung: TransportRung::R2Injection,
+            downgraded_from: Some(TransportRung::R1Semantic),
+            mechanism: "xdotool".into(),
+            agency: SeamAgency::Teacher,
+            ok: true,
+            effect_observed: true,
+            duration_ms: 42,
+            lesson: None,
+            beat: None,
+            attrs: vec![("text_len".into(), "3".into())],
+        }));
+        fabric.publish_seam(SeamEvent::Refused {
+            verb: "drag".into(),
+            app: "gnome-calculator".into(),
+            reason: "verb not implemented: drag".into(),
+            duration_ms: 1,
+        });
+        let a = rx.try_recv().unwrap();
+        let b = rx.try_recv().unwrap();
+        assert!(matches!(
+            &a.ev,
+            SeamEvent::Executed(span)
+                if span.verb == "type_text"
+                    && span.rung == TransportRung::R2Injection
+                    && span.downgraded_from == Some(TransportRung::R1Semantic)
+                    && span.effect_observed
+        ));
+        assert!(matches!(&b.ev, SeamEvent::Refused { verb, .. } if verb == "drag"));
+        assert!(b.seq > a.seq, "one global sequence orders seam spans");
+        // Domains stay separate: seam spans never wake coach ears.
+        let mut coach_rx = fabric.subscribe_coach();
+        fabric.publish_seam(SeamEvent::Refused {
+            verb: "drag".into(),
+            app: "x".into(),
+            reason: "again".into(),
+            duration_ms: 1,
+        });
+        assert!(coach_rx.try_recv().is_err());
     }
 
     #[test]
