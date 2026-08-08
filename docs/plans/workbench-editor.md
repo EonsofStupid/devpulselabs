@@ -532,6 +532,123 @@ fact it proves:
 existing-slide path (§3.3) and the "only 4-7 traits" claim (§3.1) are the two
 things this pass could lose or fake silently, so each gets its own proof seam.
 
+---
+
+## 3.9 AMENDMENT 2026-08-07 — two depths, and how Studio relates
+
+Operator, verbatim: *"we need to realize we want an advance mode so we have the
+capability to grow and expand this … the ability to apply and mix and match
+presets on each entity and then save … then the full advance editor where we
+can mix and match, extend the options, for the default edit in place. Basically
+need to have edit existing, and then the full editor … we do not need 3 meaning
+the same."*
+
+### 3.9.1 RULED — three surfaces become two, not one
+
+**OPERATOR RULING 2026-08-07: "studio and editor work together but separate."**
+
+| today | after | why |
+|---|---|---|
+| **Author** (3,591 lines) — make a card | **deleted** into Editor | §3 already ruled this |
+| **Editor** (81 lines) — change a card | **the Editor** | one surface, two depths (§3.9.2) |
+| **Studio** (251 lines) — sequence cards into episodes | **stays, separate** | arranging is a different verb from making |
+
+Studio is *not* merged. It is also not independent: its blurb today claims
+"blocks → elements → templates → effects" — the Editor's vocabulary — while its
+code only publishes `SlidePlaced`. **Working together means sharing the system,
+not the surface:** one bucket vocabulary (§3.4), one preset registry (§3.1), one
+`Seed` trait for every tile (§3.6), one signal stream (§3.7). Studio's blurb is
+corrected to describe sequencing, which is what it does.
+
+The test that keeps them honest: **no styling vocabulary may be defined twice.**
+If Studio needs to name a bucket, a preset or a trait, it reads the Editor's
+registry — a second enumeration fails the census (§6).
+
+### 3.9.2 The two depths
+
+The flow (§3.0) is unchanged and remains the default. It gains a second depth
+*behind* it, not a sixth step in it — §5's boundary holds.
+
+| depth | who it is for | what it is |
+|---|---|---|
+| **Edit in place** *(default)* | every card, every day | §3.0 exactly: select an entity → its preset carousel → its 4-7 traits → save. Nothing else on the path. |
+| **Advanced** *(opt-in)* | growing the system | the same surface opened up: mix and match across ALL entities at once, browse by category, and extend the option sets |
+
+Advanced is reached from the Editor, never navigated to as a separate route —
+otherwise it is a fourth surface and this amendment defeats itself.
+
+### 3.9.3 The interaction model — carousels, not trays
+
+Operator: *"categories, overlays, carousel experiences, seamless scrolling,
+select and it applies."* That is a correction to §3.5's tiles-and-tray drawing:
+
+- **Select applies immediately.** No confirm step, no Apply button. Tapping a
+  preset restyles the entity; the card is the preview (§3.6's `seed_preview`
+  law, extended from the tile to the whole stage).
+- **Carousels, seamlessly scrolled** — the `carousel` already built
+  (`author.rs:2208`, #136) is the pattern, one per entity, not a grid that
+  paginates.
+- **Categories are a browse axis** alongside the four buckets — the matrix
+  facets (`coldlight-matrix.md` §§3-4) are the categories, so this reuses the
+  classification rather than inventing a taxonomy.
+- **Overlays, not routes.** Depth is an overlay over the card; the card stays
+  visible and live underneath.
+
+### 3.9.4 The composition IS the product — the number that justifies all of it
+
+Each entity wears its own preset, so a card is the **product** of its entities'
+presets, not one choice from a list:
+
+```
+12 card × 13 text × 10 picture × 10 quote = 15,600 compositions
+                                          = 187,200 with tone
+```
+
+from **45 authored presets** (`editor-presets-mock.html`, red-pen pending).
+That is where "diverse visuals" comes from — mixing factors, not a longer list.
+The mock's composition section demonstrates it live.
+
+### 3.9.5 OPEN — the styling generator inside the system
+
+Operator: *"the code used to generate the styling needs to be in the system."*
+
+Today generation is **build-time only**: `tokens/*.json` → `build.rs` →
+generated Rust consts. That is why the pool cannot grow without a recompile, and
+it is the reason Advanced cannot yet *create* — only *combine*.
+
+Making presets runtime-authorable is a **document-layer change**, not a UI one:
+an authored preset becomes operator data that must still validate against the
+registries (the manifest⇄truth law), which means a new document kind, a
+validator, and a place on disk. That is larger than this plan.
+
+**⬜ NOT ANSWERED — staging.** Recommendation unless corrected: Advanced ships
+as *mix and match everything that exists* (which the 15,600 already makes
+worthwhile), and runtime preset **authoring** is its own plan immediately after.
+Shipping both together would put a schema change and a surface rewrite in one
+pass, which is how the last three passes went wrong.
+
+### 3.9.6 The knob registry is WRONG in both documents — blocks Commit 4
+
+Found 2026-08-07 by generating the composition surface from the real data:
+
+| source | knobs it lists |
+|---|---|
+| this plan, §3.1 | colour · motion · font · size · ink · background · ambience · drift · **fit** |
+| `editor-presets-mock.html` | colour · motion · **treatment** · font · size · ink · background · ambience · drift |
+| what the 45 presets **actually use** | **both** — all 10 picture presets expose `fit`; 15 presets expose `treatment` |
+
+It is **10 knobs**, and each document omits a different one. The per-entity
+build check of §3.1 is decided by exactly this table, so **Commit 4 cannot be
+written until it is corrected.**
+
+Second, unresolved: §3.2 rules that treatments are *"machinery a layman must
+never see"* — yet `treatment` is exposed on the operator's tray by 15 of the 45
+presets. Both cannot stand.
+
+**⬜ OPERATOR DECISION REQUIRED (2):**
+1. Ten knobs, both tables corrected — or drop one?
+2. `treatment` on the tray, or resolved behind the preset per §3.2?
+
 ## 4. Changes, in execution order
 
 **Commit 1 — the signals (§3.7).**
@@ -620,6 +737,9 @@ composer, the entity-first AI law, and the library-count readout (charter
 extra rail, a "just one more tab" — all out, by construction.
 🚫 `crates/editor` (`dpl-editor`) is not touched — it is the engine behind ADD →
 Text.
+🚫 **Studio is not merged** (§3.9.1 amendment) — it stays a separate surface
+and shares the vocabulary, presets, Seed trait and signal stream. Only its
+blurb is corrected, to describe sequencing.
 🚫 wiredFRONT's editor (`wiredfront/editor`, the After-Effects video editor) is
 a **different product surface** and is not touched, renamed, or merged. Mixing
 those two is the error called out on 2026-07-31 01:54.
