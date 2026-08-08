@@ -158,6 +158,7 @@ pub const BRAINSTORM_PROMOTE_ID: PilotId = PilotId::new("chat.brainstorm.promote
 pub const BRAINSTORM_UNDO_ID: PilotId = PilotId::new("chat.brainstorm.undo");
 pub const BRAINSTORM_REDO_ID: PilotId = PilotId::new("chat.brainstorm.redo");
 pub const BRAINSTORM_SUGGEST_ID: PilotId = PilotId::new("chat.brainstorm.suggest");
+pub const COMPOSER_STATUS_ID: PilotId = PilotId::new("chat.composer.status");
 
 const FULL_RAIL_WIDTH: f32 = 840.0;
 const SIDEBAR_WIDTH: f32 = 252.0;
@@ -403,6 +404,13 @@ pub enum ChatWindowIntent {
         command: OperatorSlashCommand,
         synthetic: bool,
     },
+    /// A non-privileged census command recognized at submit (BND1).
+    /// `synthetic` rides every command — the whole census refuses
+    /// model-minted input, not just the determinism pair.
+    Command {
+        draft: dpl_chat_core::CommandDraft,
+        synthetic: bool,
+    },
 }
 
 /// Privileged slash commands the Ai composer recognizes at submit.
@@ -424,31 +432,28 @@ impl OperatorSlashCommand {
     }
 }
 
-/// Parse a slash command from the operator's submit buffer.
-///
-/// Recognition is exact and whole-buffer: the trimmed draft must be exactly
-/// `/strict` or `/behavioral`. A `/strict` buried in a sentence is just text
-/// — that is the provenance law's other half: pattern-in-string never
-/// escalates; only an intentional whole-buffer command at submit does.
-pub fn parse_operator_slash(draft: &str) -> Option<OperatorSlashCommand> {
-    match draft.trim() {
-        "/strict" => Some(OperatorSlashCommand::Strict),
-        "/behavioral" => Some(OperatorSlashCommand::Behavioral),
-        _ => None,
-    }
+/// Recognize a command from the submit buffer — ONE recognizer, the
+/// registry census (`dpl_chat_core::recognize`; BND1 law: the two hand
+/// parsers this replaced are gone, not wrapped). The privileged
+/// determinism pair maps onto [`OperatorSlashCommand`] here — the ONE
+/// place a slug becomes the audited wire vocabulary.
+pub fn recognize_command(draft: &str) -> Option<dpl_chat_core::CommandDraft> {
+    dpl_chat_core::recognize(draft)
 }
 
-/// Parse the brainstorm trigger from the operator's submit buffer.
-///
-/// Same provenance law as [`parse_operator_slash`]: recognition is exact
-/// and whole-buffer at submit — "brainstorming" buried in a sentence is
-/// just text. Case-insensitive because the trigger is a WORD the
-/// operator types, not a command they memorize.
-pub fn parse_brainstorm_trigger(draft: &str) -> bool {
-    let trimmed = draft.trim();
-    trimmed.eq_ignore_ascii_case("brainstorming")
-        || trimmed.eq_ignore_ascii_case("brainstorm")
-        || trimmed == "/brainstorm"
+/// The slug→audited-command mapping for the privileged pair. EXACT and
+/// argument-less — `/strict please` is not the audited command (it
+/// falls through to the census refusal, which says so honestly).
+/// Everything else dispatches as a plain [`ChatWindowIntent::Command`].
+pub fn privileged_command(draft: &dpl_chat_core::CommandDraft) -> Option<OperatorSlashCommand> {
+    if !draft.rest.trim().is_empty() {
+        return None;
+    }
+    match draft.slug.as_str() {
+        "strict" => Some(OperatorSlashCommand::Strict),
+        "behavioral" => Some(OperatorSlashCommand::Behavioral),
+        _ => None,
+    }
 }
 
 /// The next free `idea-N` id on a board — deterministic, collision-free
@@ -559,6 +564,12 @@ pub enum HostIntent {
     /// site for `OperatorIntent::slash_command`.
     OperatorSlash {
         command: OperatorSlashCommand,
+        synthetic: bool,
+    },
+    /// A census command for the host to validate (against the live
+    /// censuses it owns) and dispatch.
+    Command {
+        draft: dpl_chat_core::CommandDraft,
         synthetic: bool,
     },
 }
@@ -677,6 +688,10 @@ pub struct ChatWindow {
     brainstorm_add_draft: String,
     brainstorm_cluster_draft: String,
     brainstorm_item_drafts: HashMap<String, String>,
+    /// The Enter-honesty line (BND1): the refusal reason a consumed
+    /// keyboard submit paints under the composer. Cleared by the next
+    /// keystroke or a successful submit.
+    composer_status: Option<String>,
 }
 
 /// The host's projection of the brainstorm session into the window.
@@ -795,6 +810,7 @@ impl ChatWindow {
             brainstorm_add_draft: String::new(),
             brainstorm_cluster_draft: String::new(),
             brainstorm_item_drafts: HashMap::new(),
+            composer_status: None,
         }
     }
 
@@ -1026,6 +1042,17 @@ impl ChatWindow {
     /// Read-only view of the projected board (tests + host assertions).
     pub fn brainstorm(&self) -> &BrainstormView {
         &self.brainstorm
+    }
+
+    /// The host paints an honest line under the composer (a command
+    /// refusal, a named skip) — same surface the Enter-honesty law uses.
+    pub fn set_composer_status(&mut self, status: impl Into<String>) {
+        self.composer_status = Some(status.into());
+    }
+
+    /// Read-only view of the composer status line (tests).
+    pub fn composer_status(&self) -> Option<&str> {
+        self.composer_status.as_deref()
     }
 
     /// Every census address, in rail order. The host uses this to drive a
@@ -1290,6 +1317,9 @@ impl ChatWindow {
                 }
                 self.imagine_flush_consent = None;
                 Ok(Some(HostIntent::ResolveImagineFlush { decision }))
+            }
+            ChatWindowIntent::Command { draft, synthetic } => {
+                Ok(Some(HostIntent::Command { draft, synthetic }))
             }
             // The board lives host-side; every brainstorm intent crosses.
             ChatWindowIntent::StartBrainstorm => Ok(Some(HostIntent::StartBrainstorm)),
@@ -3006,6 +3036,8 @@ impl ChatWindow {
                         self.composer_focus_requested = false;
                     }
                     if editor.changed() {
+                        // A fresh keystroke supersedes the refusal line.
+                        self.composer_status = None;
                         match self.domain {
                             ChatDomain::Ai => {
                                 if let Some(provider) = self.runtime.selected_provider_id() {
@@ -3076,59 +3108,67 @@ impl ChatWindow {
                                         )
                                     })
                                 });
-                                let slash = parse_operator_slash(&draft);
-                                let brainstorm = parse_brainstorm_trigger(&draft);
+                                // ONE recognizer: the registry census
+                                // (provenance law — whole-buffer, at
+                                // submit, from the operator's buffer).
+                                let command = recognize_command(&draft);
                                 // A past transcript is read-only, full stop —
                                 // operator commands included. Saying so beats
                                 // the transport reason, which would be true
                                 // but would not be the ACTUAL reason.
                                 let reading_history = self.history_focus.is_some();
                                 let enabled = !reading_history
-                                    && (slash.is_some()
-                                        || brainstorm
+                                    && (command.is_some()
                                         || (send_target.is_some_and(|(_, _, can_send)| can_send)
                                             && !draft.trim().is_empty()));
                                 let reason = if reading_history {
-                                    "This is a past transcript — it is read-only."
-                                } else if slash.is_some() {
-                                    "Run this operator command."
-                                } else if brainstorm {
-                                    "Open a brainstorm board right here."
+                                    "This is a past transcript — it is read-only.".to_owned()
+                                } else if let Some(c) =
+                                    command.as_ref().and_then(|d| dpl_chat_core::command(&d.slug))
+                                {
+                                    c.blurb.to_owned()
                                 } else if draft.trim().is_empty() {
-                                    "Type a message first."
+                                    "Type a message first.".to_owned()
                                 } else if send_target.is_none() {
-                                    "Choose or create a provider session first."
+                                    "Choose or create a provider session first.".to_owned()
                                 } else if send_target.is_some_and(|(_, _, can_send)| !can_send) {
                                     "This provider's live turn transport is not qualified."
+                                        .to_owned()
                                 } else {
-                                    "Send this message."
+                                    "Send this message.".to_owned()
                                 };
                                 let send = ui.add_enabled(
                                     enabled,
                                     egui::Button::new("Send").min_size(egui::vec2(86.0, 42.0)),
                                 );
-                                let send = cl::tip(send, reason);
+                                let send = cl::tip(send, &reason);
                                 let mut metadata =
                                     NodeMetadata::new(SEND_ID, Role::Button, "Send message");
-                                metadata.description = Some(reason.to_owned());
+                                metadata.description = Some(reason.clone());
                                 ui.pilot_track(&send, metadata);
                                 // Enter submits through the SAME branch the
-                                // button does — one submit path, so the slash
-                                // handling and every `enabled` rule above
-                                // cannot drift between mouse and keyboard.
+                                // button does — one submit path, so the
+                                // command handling and every `enabled` rule
+                                // above cannot drift between mouse and
+                                // keyboard.
                                 let submitted = send.clicked() || (submit_key && enabled);
+                                // THE ENTER-HONESTY LAW (BND1): a consumed
+                                // Enter that cannot send SAYS WHY — the
+                                // reason paints under the composer instead
+                                // of dying in a disabled button's tooltip.
+                                if submit_key && !enabled {
+                                    self.composer_status = Some(reason.clone());
+                                }
                                 if submitted {
                                     // Keep the caret where the operator is
                                     // typing; a send should not cost focus.
                                     self.composer_focus_requested = true;
+                                    self.composer_status = None;
                                 }
                                 if submitted {
-                                    if let Some(command) = slash {
-                                        // Provenance law: recognize at the
-                                        // operator's input-submit event, from
-                                        // the operator's own text buffer,
-                                        // BEFORE the text becomes a message.
-                                        // Clear the draft so nothing is sent.
+                                    if let Some(draft_cmd) = command {
+                                        // Consume the trigger text; nothing
+                                        // is sent as a message.
                                         if let Some(provider) = selected.as_ref() {
                                             intents.push(ChatWindowIntent::UpdateAiDraft {
                                                 provider: provider
@@ -3139,25 +3179,23 @@ impl ChatWindow {
                                                 value: String::new(),
                                             });
                                         }
-                                        intents.push(ChatWindowIntent::OperatorSlash {
-                                            command,
-                                            synthetic: egui_pilot_ai::input_is_synthetic(ui.ctx()),
-                                        });
-                                    } else if brainstorm {
-                                        // Same provenance shape as slash:
-                                        // consume the trigger word, send
-                                        // nothing, mint the board.
-                                        if let Some(provider) = selected.as_ref() {
-                                            intents.push(ChatWindowIntent::UpdateAiDraft {
-                                                provider: provider
-                                                    .registration
-                                                    .manifest
-                                                    .descriptor
-                                                    .id,
-                                                value: String::new(),
+                                        let synthetic =
+                                            egui_pilot_ai::input_is_synthetic(ui.ctx());
+                                        if let Some(command) = privileged_command(&draft_cmd) {
+                                            // The audited determinism wire,
+                                            // byte-identical to before.
+                                            intents.push(ChatWindowIntent::OperatorSlash {
+                                                command,
+                                                synthetic,
+                                            });
+                                        } else if draft_cmd.slug == "brainstorm" {
+                                            intents.push(ChatWindowIntent::StartBrainstorm);
+                                        } else {
+                                            intents.push(ChatWindowIntent::Command {
+                                                draft: draft_cmd,
+                                                synthetic,
                                             });
                                         }
-                                        intents.push(ChatWindowIntent::StartBrainstorm);
                                     } else if let Some((provider, session, _)) = send_target {
                                         intents.push(ChatWindowIntent::SendTurn {
                                             provider,
@@ -3195,6 +3233,20 @@ impl ChatWindow {
                         }
                     }
                 });
+                // The Enter-honesty line: the refusal a keyboard submit
+                // earned, painted where the operator is looking.
+                if let Some(status) = self.composer_status.clone() {
+                    let line = ui.label(
+                        RichText::new(&status).small().color(Tone::Amber.color()),
+                    );
+                    let mut metadata = NodeMetadata::new(
+                        COMPOSER_STATUS_ID,
+                        Role::Status,
+                        "Composer status",
+                    );
+                    metadata.value = Some(status);
+                    ui.pilot_track(&line, metadata);
+                }
             });
     }
 
@@ -6211,15 +6263,17 @@ mod tests {
 
     #[test]
     fn the_brainstorm_trigger_is_whole_buffer_only() {
-        assert!(parse_brainstorm_trigger("brainstorming"));
-        assert!(parse_brainstorm_trigger("  Brainstorm  "));
-        assert!(parse_brainstorm_trigger("/brainstorm"));
-        assert!(
-            !parse_brainstorm_trigger("let's do some brainstorming"),
+        let slug = |d: &str| recognize_command(d).map(|c| c.slug);
+        assert_eq!(slug("brainstorming").as_deref(), Some("brainstorm"));
+        assert_eq!(slug("  Brainstorm  ").as_deref(), Some("brainstorm"));
+        assert_eq!(slug("/brainstorm").as_deref(), Some("brainstorm"));
+        assert_eq!(
+            slug("let's do some brainstorming"),
+            None,
             "pattern-in-string never escalates (the provenance law)"
         );
-        assert!(!parse_brainstorm_trigger("/brainstorming"));
-        assert!(!parse_brainstorm_trigger(""));
+        assert_eq!(slug("/brainstorming"), None, "unknown /x stays text");
+        assert_eq!(slug(""), None);
     }
 
     #[test]
@@ -6605,20 +6659,68 @@ mod tests {
 
     #[test]
     fn slash_parse_is_exact_and_whole_buffer() {
+        let privileged = |d: &str| recognize_command(d).and_then(|c| privileged_command(&c));
+        assert_eq!(privileged("/strict"), Some(OperatorSlashCommand::Strict));
         assert_eq!(
-            parse_operator_slash("/strict"),
-            Some(OperatorSlashCommand::Strict)
-        );
-        assert_eq!(
-            parse_operator_slash("  /behavioral  "),
+            privileged("  /behavioral  "),
             Some(OperatorSlashCommand::Behavioral)
         );
         // Buried in a sentence — inert. Pattern-in-string never escalates.
-        assert_eq!(parse_operator_slash("please /strict now"), None);
-        assert_eq!(parse_operator_slash("/strict please"), None);
-        assert_eq!(parse_operator_slash("/stricter"), None);
-        assert_eq!(parse_operator_slash("strict"), None);
-        assert_eq!(parse_operator_slash(""), None);
+        assert_eq!(privileged("please /strict now"), None);
+        assert!(recognize_command("please /strict now").is_none());
+        // Trailing text is NOT the audited command — it recognizes and
+        // then refuses honestly ("takes no arguments"), never escalates.
+        assert_eq!(privileged("/strict please"), None);
+        assert!(recognize_command("/strict please").is_some());
+        assert_eq!(privileged("/stricter"), None);
+        assert!(recognize_command("/stricter").is_none());
+        assert_eq!(privileged("strict"), None);
+        assert_eq!(privileged(""), None);
+    }
+
+    /// THE ENTER-HONESTY PIN (BND1 V7): a consumed keyboard submit that
+    /// cannot send SAYS WHY — the reason lands in `composer_status` (and
+    /// paints under the composer), instead of dying in a disabled
+    /// button's hover tooltip.
+    #[test]
+    fn a_refused_enter_paints_its_reason() {
+        let fixture = dpl_chat_testkit::authored_chat();
+        let window = ChatWindow::with_models(
+            ChatRuntime::try_from_registrations(fixture.providers).expect("runtime"),
+            ROUTE,
+            &HistoryCatalog::default(),
+            vec![("Library".into(), ROUTE)],
+            fixture.social,
+            InteractionRegistry::default(),
+        );
+        let mut harness = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(1040.0, 640.0))
+            .build_ui_state(
+                |ui, window: &mut ChatWindow| {
+                    let _ = window.ui(ui);
+                },
+                window,
+            );
+        harness.run_steps(2);
+        // Focus the composer (the draft is empty — Enter cannot send),
+        // then press bare Enter.
+        harness
+            .ctx
+            .memory_mut(|m| m.request_focus(egui::Id::new("dpl_chat_composer")));
+        harness.run_steps(1);
+        harness.input_mut().events.push(egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        harness.run_steps(2);
+        assert_eq!(
+            harness.state().composer_status(),
+            Some("Type a message first."),
+            "the refusal must be painted, not hover-only"
+        );
     }
 
     #[test]

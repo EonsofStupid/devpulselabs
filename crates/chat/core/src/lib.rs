@@ -1055,6 +1055,12 @@ pub fn validate_command(
     };
     let mut issues = Vec::new();
     let value = draft.rest.trim();
+    if spec.args.is_empty() && !value.is_empty() {
+        issues.push(CommandIssue {
+            path: "rest".into(),
+            message: format!("/{} takes no arguments", spec.slug),
+        });
+    }
     for arg in spec.args {
         if value.is_empty() {
             if arg.required {

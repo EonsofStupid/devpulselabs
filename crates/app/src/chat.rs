@@ -153,6 +153,10 @@ struct Shared {
     /// THE ROSTER as last published — the comparison that makes the publish
     /// change-driven instead of per-frame chatter.
     roster: Vec<ProviderCapability>,
+    /// The full `hub/sub` route census (BND1): /route validates against
+    /// and navigates through THIS — the platform's registry, loaded
+    /// live, never a hardcoded list.
+    route_table: Vec<(String, Route)>,
     /// The one-shot presence sweep: each vendor's own tool answering whether
     /// the operator is already signed in. Polled from the frame loop and
     /// dropped once it lands.
@@ -551,6 +555,9 @@ impl ChatWindowCoordinator {
         } else {
             (None, Vec::new())
         };
+        // The host keeps its own copy of the route census: /route
+        // validates against and navigates through it (BND1).
+        let route_table = routes.clone();
         let mut window = match authored_models {
             Some((social, interactions)) => ChatWindow::with_models(
                 runtime,
@@ -899,6 +906,7 @@ impl ChatWindowCoordinator {
             primary_monitor,
             fabric: fabric.clone(),
             roster: Vec::new(),
+            route_table,
             presence: Some(crate::presence::probe_all(crate::presence::specs())),
             estate,
             determinism: dpl_intent::DeterminismGate::default(),
@@ -1605,6 +1613,11 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
             resolve_imagine_flush(&mut state, decision);
             ctx.request_repaint();
         }
+        HostIntent::Command { draft, synthetic } => {
+            let mut state = lock(shared);
+            dispatch_command(&mut state, &draft, synthetic);
+            ctx.request_repaint();
+        }
         HostIntent::StartBrainstorm => {
             let mut state = lock(shared);
             start_brainstorm(&mut state);
@@ -2292,6 +2305,75 @@ fn save_assist(state: &Shared) {
     }
     if let Err(error) = state.assist.save(&dpl_engine_capture::userdata_root()) {
         tracing::warn!(%error, "assist policy could not be persisted");
+    }
+}
+
+// ── command dispatch (BND1: the host validates against live censuses) ───
+
+/// Validate a recognized command against the censuses the host owns and
+/// dispatch it. Refusals paint under the composer naming what IS
+/// registered; synthetic input is refused for the WHOLE census.
+fn dispatch_command(state: &mut Shared, draft: &dpl_chat_core::CommandDraft, synthetic: bool) {
+    if synthetic {
+        tracing::warn!(slug = %draft.slug, "command refused: synthetic input");
+        state
+            .window
+            .set_composer_status("Commands come from the operator, not from injected input.");
+        return;
+    }
+    let censuses = dpl_chat_core::CommandCensuses {
+        routes: state
+            .route_table
+            .iter()
+            .map(|(path, _)| path.clone())
+            .collect(),
+        providers: state.roster.iter().map(|p| p.id.0.to_owned()).collect(),
+        workflows: dpl_workflows::workflows()
+            .iter()
+            .map(|w| w.id.clone())
+            .collect(),
+    };
+    if let Err(issues) = dpl_chat_core::validate_command(draft, &censuses) {
+        let named = issues
+            .iter()
+            .map(|i| i.message.as_str())
+            .collect::<Vec<_>>()
+            .join(" · ");
+        state.window.set_composer_status(named);
+        return;
+    }
+    match draft.slug.as_str() {
+        "route" => {
+            let target = draft.rest.trim();
+            if let Some((_, route)) = state.route_table.iter().find(|(path, _)| path == target) {
+                state
+                    .fabric
+                    .publish_shell(ShellEvent::NavigateRequest { route: *route });
+                state
+                    .window
+                    .set_composer_status(format!("Opening {target} in the main window."));
+            }
+        }
+        "routines" => {
+            let listed = dpl_workflows::workflows()
+                .iter()
+                .map(|w| format!("{} — {}", w.id, w.blurb))
+                .collect::<Vec<_>>()
+                .join("\n");
+            state
+                .window
+                .set_composer_status(format!("Registered workflows:\n{listed}"));
+        }
+        "model" => {
+            // Honest named skip until the Clyffy house session lands
+            // (BND1-M3): the argument validated, the wiring is next.
+            state.window.set_composer_status(
+                "Clyffy's backing toggle arrives with the house session (BND1-M3).",
+            );
+        }
+        other => {
+            tracing::warn!(slug = %other, "recognized command with no dispatch arm");
+        }
     }
 }
 

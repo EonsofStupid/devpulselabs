@@ -237,10 +237,19 @@ one conversation, any backing.
 
 | M | Scope (files) | Exit criteria | Status |
 |---|---|---|---|
-| BND1-M1 · The command layer | chat/core: CommandSpec+census+recognize+validate+seeds; window: parsers replaced, Enter honesty line, intents; app: dispatch arms (/route via widened route census → NavigateTo, /routines list+navigate, aliases); guarded fix or dated park of the window:4199 sensitivity leak | V1-V7 green in-lane | not started |
+| BND1-M1 · The command layer | chat/core: CommandSpec+census+recognize+validate+seeds; window: parsers replaced, Enter honesty line, intents; app: dispatch arms (/route via widened route census → NavigateTo, /routines list+navigate, aliases); guarded fix or dated park of the window:4199 sensitivity leak | V1-V7 green in-lane | **DONE 2026-08-08** — 16+45+37 tests incl. THE ENTER-HONESTY PIN; NavigateTo's first emitter live; sensitivity leak parked with a dated line below |
 | BND1-M2 · The strip | window: typeahead Area + key-retain pass + seed display; ChatProofMode::Commands (both lists); native PNGs both sizes READ | V8, V11 green | not started |
 | BND1-M3 · Clyffy | runtime house slot + binding + presence gate; house transcript write + decoder; /model swap; profiles row truthful; Pinned occupied | V9, V10 green | not started |
 | BND1-M4 · Close-out | pilot scenarios (+negative), existing suite re-run, rebase, green, double-green merge, exe, STATE | V12-V17; PR merged | not started |
 
 ### §9.1 Deviations log
-(empty — every deviation gets a dated line here)
+- 2026-08-08 (M1): `/strict please` behavior CHANGED deliberately — the
+  old parser let it fall through as an ordinary message; the registry
+  recognizes it and refuses honestly ("/strict takes no arguments").
+  The audited privileged mapping stays whole-buffer-exact
+  (`privileged_command` requires empty rest); pinned in
+  `slash_parse_is_exact_and_whole_buffer`.
+- 2026-08-08 (M1): the window:4199 GuidedValue sensitivity leak
+  (TransientSecret user_code into pilot NodeMetadata) is PARKED, not
+  fixed — it predates BND1 and deserves its own guarded line with a
+  test; carried in STATE as a named open.
