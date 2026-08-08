@@ -649,6 +649,117 @@ presets. Both cannot stand.
 1. Ten knobs, both tables corrected — or drop one?
 2. `treatment` on the tray, or resolved behind the preset per §3.2?
 
+## 3.10 AMENDMENT 2026-08-08 — Commit 2, ground-truthed by reading the files
+
+Every file Commit 2 touches was read in full before this was written:
+`crates/doc/src/lib.rs` (2,065) · `crates/slides/src/document.rs` (706) ·
+`crates/editor/src/lib.rs` (1,035) · all 8 authored `slide.json` · the one
+authored `theme.json`. **Three things §2.5 and §4 assert are wrong**, and each
+changes the work.
+
+### 3.10.1 There are EIGHT authored documents, not four
+
+§4 item 3b says "the four authored template docs". There are eight:
+
+```
+seeds/slides/static/{headline-clean,stat-callout,terminal-retro,title-neon}/slide.json
+seeds/episodes/how-ai-works/{headline,title,stat,terminal}/slide.json
+seeds/episodes/how-ai-works/theme.json
+```
+
+The episode set was missed because `list_template_docs()` only walks
+`seeds/slides`. Migrating four and stranding four would leave the seeded
+episode — the one `--clone-seed` uses for every proof — on a stale shape.
+
+### 3.10.2 v1 documents do NOT fail today — and every authored doc IS v1
+
+§2.5.1 says *"Today v1 documents simply fail."* They do not. The only version
+check is `doc/src/lib.rs:169`:
+
+```rust
+if slide.v > SCHEMA_V { return Err(DocError::Version(slide.v)); }
+```
+
+Older is **accepted and never migrated**. And all nine authored documents carry
+`"v": 1` while `SCHEMA_V` is 2 — the repo has been running a version behind
+since W11 and nothing noticed, because additive-only evolution means an old
+document is a valid new one.
+
+That is good news twice over: the property §2.5.1 asks for already holds, and
+it means **v3 needs no `migrate()` function** — only a test that pins it.
+
+### 3.10.3 The `size` hazard is smaller than stated — serde already does it
+
+§4 item 3b calls `Block::Text.size` required → optional "the single migration
+hazard", requiring a migration that "writes the old required `size` through as
+an explicit override".
+
+Serde does exactly that for free: with `size: Option<String>`, a document
+carrying `"size": "display"` deserialises to `Some("display")` — which **is**
+the explicit override. No card changes appearance and no migration code runs.
+
+Both render paths already have the fallback for the absent case —
+`document.rs:375` and `:443` are both
+`size_of(&fluid, size).unwrap_or_else(|| fluid.fs_body())` — so `None` needs
+only `as_deref()`, not a new branch.
+
+The real hazard is elsewhere and unnamed by the plan: **`dpl-editor` writes
+`size` unconditionally** (`editor/src/lib.rs:894,912` mint blocks with
+`size: "display".into()`, and its own struct holds `size: String` at `:51`).
+If the editor keeps stamping a size on every block it touches, every card the
+operator opens silently acquires an override, and the preset can never own size
+again. That is the migration hazard, and it is a write-path fix, not a
+read-path one.
+
+### 3.10.4 What Commit 2 actually is, then
+
+```rust
+pub const SCHEMA_V: u32 = 3;
+
+struct Slide {
+  v, template, title: Option<String>,
+  preset: Option<String>,          // the CARD entity's preset (§2.4)
+  tone:   Option<String>,          // its colour — now ANY of the 53 (477d643)
+  coordinate: Option<Coordinate>,  // the matrix point, if pinned directly
+  background, blocks, enter,
+  recipe: Option<String>,          // ratified #4 — reserved, unused
+  reveals,
+}
+Block::Text  { id, preset?, tone?, text, font?, size?, ink? }   // size now optional
+Block::Media { id, preset?, tone?, as, src, fit?, poster? }
+Block::Quote { id, preset?, tone?, text, attribution, source? } // ratified #3
+```
+
+**`resolve()` gains the middle level** (`lib.rs:764` today, two levels):
+`Theme` → preset → entity override. It is currently 20 lines and pure; the
+third level keeps both properties.
+
+**Material as `:root` (operator, 2026-08-07)** lands here as the inheritance
+rule, not a new field: an entity that names no material inherits its parent's,
+so most entities declare nothing and the document stays sparse. Without that,
+per-entity styling means every block carrying a full coordinate.
+
+### 3.10.5 Work plan
+
+1. `SCHEMA_V` 3 + the new fields, all `Option`, all `skip_serializing_if`.
+   A v1/v2 fixture must round-trip byte-identically — the test that proves
+   §3.10.2 rather than assuming it.
+2. `Block::Quote` + retire the quote convention (`:222-250`) and `quote_lines()`.
+3. `size` → `Option<String>`; `as_deref()` at the two render sites; **stop
+   `dpl-editor` stamping a default size** (§3.10.3) — the actual hazard.
+4. `resolve()` three-level, with one table-driven cascade test.
+5. Provenance (`created`/`modified`/`by`) per §2.5.3.
+6. Validate the new refs: preset id, tone against the 53-hue pool, recipe.
+7. The eight authored documents re-saved at v3 — all eight, §3.10.1.
+8. `cargo green`; §8.
+
+### 3.10.6 Risk the plan does not name
+
+`Theme` also carries `v` and is version-checked the same way
+(`lib.rs:739`). It gains `preset`/`tone` too, or a show-level preset is
+unexpressible and the cascade has a hole at its top. One authored `theme.json`
+exists; it is v1.
+
 ## 4. Changes, in execution order
 
 **Commit 1 — the signals (§3.7).**
@@ -670,7 +781,9 @@ presets. Both cannot stand.
     `preset`, `tone`. **`Block::Quote{id,preset?,tone?,text,attribution,source?}`
     is new** — the quote convention (`:222-250`) is retired, and
     `quote_lines()` with it.
-3b. **The v2→v3 migration + its test** — a v2 document loads, its required
+3b. **The v2→v3 migration + its test** — see §3.10.2/§3.10.3: NO migrate() is
+    needed (older documents already load; serde turns a present `size` into the
+    override by itself), and there are **eight** authored documents, not four — a v2 document loads, its required
     `size` is written through as an explicit override, and it renders
     **identically**. The four authored template docs are migrated in the same
     commit, not stranded (§2.5.1).
