@@ -264,7 +264,7 @@ double-green.
 | M | Scope (files) | Exit criteria | Status |
 |---|---|---|---|
 | BS-M1 · Documents | workflows lib.rs: BrainstormDoc+ops+apply+scaffold census+distill+save/load; schemas/brainstorm.v1.schema.json; pins | V1-V5 green in-lane | **DONE 2026-08-07** — 34/34 tests, fmt+clippy clean (journal: brainstorm-m1) |
-| BS-M2 · Surface | window: trigger+view+inline board painters+intents; app/chat.rs: session store+undo+host arm; --brainstorm-drill; ChatProofMode::Brainstorm (+native-proof list); xtask flag census | V6-V9 green; both PNGs read | not started |
+| BS-M2 · Surface | window: trigger+view+inline board painters+intents; app/chat.rs: session store+undo+host arm; --brainstorm-drill; ChatProofMode::Brainstorm (+native-proof list); xtask flag census | V6-V9 green; both PNGs read | **DONE 2026-08-07** — 44+34+37 tests, drill verdicts live, baseline PNG read (journal: brainstorm-m2) |
 | BS-M3 · Assist + promote + close-out | assist populate job; promote/distill wiring + ArtifactPreview; pilot scenario; rebase, V10-V12, baselines, STATE+journal, double-green | PR merged, exe rebuilt HERE | not started |
 
 ### §9.1 Deviations log
@@ -272,3 +272,9 @@ double-green.
   wire schema to the `apply` unit tests — ops are not persisted in v1,
   so `brainstorm.v1.schema.json` covers the DOC only; the op census is
   pinned Rust-side (refusal ladder + determinism tests).
+- 2026-08-07 (M2): V7's "both house sizes" replaced by ONE capture at
+  the chat peer window's own geometry (1300x800 via chat-native-proof)
+  — the two-size law governs ROUTE screenshots; the peer window sizes
+  itself, and compact is a separate proof state. `IntakePrefillDoc`
+  added to dpl-workflows (the distill's persistence half M1 left
+  implicit).

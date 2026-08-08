@@ -41,7 +41,7 @@ fn run() -> Result<(), String> {
     let output = argument_value(&arguments, "--out")
         .map(PathBuf::from)
         .ok_or_else(|| {
-            "usage: chat-native-proof --out <png> [--state approval|ai|social|content|providers|hover|codex|generation|grok|grok-auth|compact|snapped|assist] [--title <exact title>] [--app <exe>]".to_owned()
+            "usage: chat-native-proof --out <png> [--state approval|ai|social|content|providers|hover|codex|generation|grok|grok-auth|compact|snapped|assist|history|brainstorm] [--title <exact title>] [--app <exe>]".to_owned()
         })?;
     let title = argument_value(&arguments, "--title").unwrap_or_else(|| DEFAULT_TITLE.to_owned());
     let state = argument_value(&arguments, "--state").unwrap_or_else(|| "approval".to_owned());
@@ -61,6 +61,7 @@ fn run() -> Result<(), String> {
             | "assist"
             | "content"
             | "history"
+            | "brainstorm"
     ) {
         return Err(format!("unknown native Chat proof state {state:?}"));
     }

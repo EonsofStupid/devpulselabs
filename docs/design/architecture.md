@@ -38,6 +38,10 @@ side rails         dpl-fabric (signals) · dpl-seam (agent HTTP) ·
 document/domain layer; providers and accounts are engines; window/windows/
 renderers are surfaces.
 
+`dpl-chat-window → dpl-workflows` is an ordinary surface→document edge
+(the `dpl-editor → dpl-doc` direction): the chat surface renders the
+brainstorm board document and emits its typed ops; the host owns all IO.
+
 ## 2. Ceilings (exact sets, gate-enforced)
 
 | crate | direct deps are EXACTLY | why the ceiling exists |

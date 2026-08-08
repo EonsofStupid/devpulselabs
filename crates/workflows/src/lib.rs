@@ -743,7 +743,7 @@ pub fn validate_brainstorm(doc: &BrainstormDoc) -> Vec<Issue> {
 /// The typed board verbs — the ONE mutation vocabulary. The operator's
 /// gestures and the assist's proposals both speak this; nothing else
 /// edits a board (census law: variant + [`apply`] arm + pins).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "kebab-case")]
 pub enum BrainstormOp {
     /// Set (or restate) the massive idea.
@@ -1031,6 +1031,14 @@ pub fn distill(doc: &BrainstormDoc) -> Result<Vec<IntakePrefill>, Vec<Issue>> {
             answer: beats.join("\n"),
         },
     ])
+}
+
+/// The staged pre-fill on disk (document law: persisted JSON carries
+/// `v`). The guided intake (EX1-M3) reads this beside the board.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IntakePrefillDoc {
+    pub v: u32,
+    pub answers: Vec<IntakePrefill>,
 }
 
 // ── the registry census ─────────────────────────────────────────────────
@@ -1476,6 +1484,7 @@ const BOARD_FILE: &str = "storyboard.json";
 const WORKFLOW_FILE: &str = "workflow.json";
 const BIBLE_FILE: &str = "bible.json";
 const BRAINSTORM_FILE: &str = "brainstorm.json";
+const PREFILL_FILE: &str = "intake-prefill.json";
 
 /// Load `<dir>/storyboard.json`, refusing a newer schema honestly.
 pub fn load_board(dir: &Path) -> Result<StoryboardDoc, DocError> {
@@ -1538,6 +1547,25 @@ pub fn load_brainstorm(dir: &Path) -> Result<BrainstormDoc, DocError> {
 /// Crash-safe write of the board into `<dir>/brainstorm.json`.
 pub fn save_brainstorm(dir: &Path, doc: &BrainstormDoc) -> Result<(), DocError> {
     save_json(dir, BRAINSTORM_FILE, doc)
+}
+
+/// Load `<dir>/intake-prefill.json`, refusing a newer schema honestly.
+pub fn load_intake_prefill(dir: &Path) -> Result<IntakePrefillDoc, DocError> {
+    let raw = std::fs::read_to_string(dir.join(PREFILL_FILE)).map_err(DocError::Io)?;
+    let doc: IntakePrefillDoc = serde_json::from_str(&raw).map_err(DocError::Parse)?;
+    if doc.v > SCHEMA_V {
+        return Err(DocError::Version(doc.v));
+    }
+    Ok(doc)
+}
+
+/// Crash-safe write of the staged intake pre-fill beside the board.
+pub fn save_intake_prefill(dir: &Path, answers: &[IntakePrefill]) -> Result<(), DocError> {
+    let doc = IntakePrefillDoc {
+        v: SCHEMA_V,
+        answers: answers.to_vec(),
+    };
+    save_json(dir, PREFILL_FILE, &doc)
 }
 
 /// The ONE crash-safe pretty-JSON+LF writer (tmp → bak-step-aside →

@@ -16,6 +16,7 @@ dpl-chat-store.workspace = true
 dpl-coldlight.workspace = true
 dpl-fabric.workspace = true
 dpl-hub.workspace = true
+dpl-workflows.workspace = true
 egui-pilot-ai.workspace = true
 
 [dev-dependencies]
