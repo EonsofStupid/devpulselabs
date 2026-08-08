@@ -1,0 +1,54 @@
+# BND1: the command strip is semantic truth. The authored fixture with a
+# `/ro` draft (proof preset `commands`) stands the strip open: the census
+# offers /route and /routines by node id, the strip region's value is the
+# match count, and the Clyffy pinned row is present with its backing as a
+# readable value. No focus-viewport step (headless lanes have no window
+# manager); no capture (deferred viewports cannot self-screenshot —
+# chat-native-proof owns the pixels, docs/proof/bnd1-command-strip.png).
+id = "chat-command-strip"
+fixture = "chat-commands"
+record = true
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "open"
+
+[steps.expectation.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "wait"
+milliseconds = 750
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "2"
+
+[steps.expectation.target]
+id = "chat.primary/chat.composer.command-strip"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "route"
+
+[steps.expectation.target]
+id = "chat.primary/chat.composer.command-strip/route"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "routines"
+
+[steps.expectation.target]
+id = "chat.primary/chat.composer.command-strip/routines"

@@ -1064,11 +1064,24 @@ impl App {
         // The lite route launcher's targets: each registered hub's label and
         // its home route (HubSpec::default_route → first subroute). Built here,
         // before `hubs` is moved into the shell, and handed to the peer window.
+        // The FULL hub/sub census, one entry per SUBROUTE in the one
+        // route grammar (`hub/sub`, the seam's `route_str` law) — no
+        // longer the hub-defaults "lite launcher" list this began as:
+        // /route validates against and navigates through exactly what
+        // the platform registers (BND1).
         let chat_routes: Vec<(String, Route)> = hubs
             .iter()
-            .map(|hub| {
+            .flat_map(|hub| {
                 let spec = hub.spec();
-                (spec.label.to_owned(), spec.default_route())
+                spec.subroutes.iter().map(move |sub| {
+                    (
+                        format!("{}/{}", spec.id.0, sub.id.0),
+                        Route {
+                            hub: spec.id,
+                            sub: sub.id,
+                        },
+                    )
+                })
             })
             .collect();
         // Registry for estate hydrate + the agent seam (same specs the shell has).

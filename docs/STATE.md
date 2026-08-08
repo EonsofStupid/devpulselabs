@@ -114,6 +114,37 @@ is two commands on server1: `sudo ./docs/runbook/devbox-bootstrap.sh`, then
 alone proves the script), then decide host-vs-LXC for stage 1 — the plug means
 that decision does not have to be made first.
 
+**2026-08-08 — BND1: THE CHAT BOUNDARY, AUTHORED (plan
+`docs/plans/chat-boundary.md`, journals `chat-boundary-m1/m2/m3a/m4`,
+PR #226):** the operator's three asks — the missing commands, the
+silent Enter, and "the chat boundary and AI boundary truly separate" —
+are real. The boundary statement in running code: window = render +
+recognize · core = command vocabulary + validation + seeds · host =
+dispatch + IO · providers = transport. `dpl-chat-core` carries the
+SIX-command census (/route /model /routines /brainstorm /strict
+/behavioral) behind ONE whole-buffer recognizer (provenance law; the
+window's two hand parsers DELETED); every command refuses synthetic
+input; out-of-census args refuse NAMING the census; seeds ride
+`GuidedValue`'s dormant Route/Provider/Session sources. THE
+ENTER-HONESTY LAW: a refused keyboard submit paints its already-
+authored reason under the composer (first test that path ever had).
+The typeahead strip reveals the census over a `/` draft (click-to-fill,
+Area+Foreground — no popup precedent existed); /route navigates through
+the FULL 19-route hub/sub census (NavigateTo's FIRST emitter ever —
+the plumbing was dead weight behind a count badge). CLYFFY STANDS:
+host-owned house session (the projection law; the runtime's
+provider-mismatch guards never in play), minted once, pinned FIRST
+under the sidebar's previously-orphaned PINNED heading, presence-gated
+("active" = the current binding is signed in, never borrowed
+readiness), /model rebinds with the identity law pinned by test (same
+id, history keeps per-event provider tags). Proofs: 17+45+39 tests,
+native PNG read (docs/proof/bnd1-command-strip.png), pilot suite 5/5
+incl. the new chat-command-strip semantics. Gate-flake fixed at cause
+(chat-accounts fixture aliased leftover dbs under Windows PID reuse).
+NAMED-REMAINING (the row's own tooltip says so): M3b
+send-through-binding + house transcript JSONL/decoder; strip
+arrow-nav; the window:4199 GuidedValue sensitivity leak (parked).
+
 **2026-08-07 — BS1: THE BRAINSTORM SURFACE, COMPLETE (plan
 `docs/plans/brainstorm-surface.md`, journals `brainstorm-m1/m2/m3`, PR
 #220):** the operator's 2026-08-06 ask — type "brainstorming" in chat and

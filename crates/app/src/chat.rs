@@ -71,6 +71,9 @@ pub enum ChatProofMode {
     /// The inline brainstorm board, worked to Cluster with an assist
     /// item visible (BS1) — deterministic, in-memory only.
     Brainstorm,
+    /// The command strip open over a `/ro` draft (BND1) — the census
+    /// offering /route and /routines.
+    Commands,
 }
 
 #[cfg(feature = "eguipilotai-devtools")]
@@ -92,6 +95,7 @@ impl ChatProofMode {
             "content" => Some(Self::Content),
             "history" => Some(Self::History),
             "brainstorm" => Some(Self::Brainstorm),
+            "commands" => Some(Self::Commands),
             _ => None,
         }
     }
@@ -153,6 +157,13 @@ struct Shared {
     /// THE ROSTER as last published — the comparison that makes the publish
     /// change-driven instead of per-frame chatter.
     roster: Vec<ProviderCapability>,
+    /// The full `hub/sub` route census (BND1): /route validates against
+    /// and navigates through THIS — the platform's registry, loaded
+    /// live, never a hardcoded list.
+    route_table: Vec<(String, Route)>,
+    /// The Clyffy house session (BND1-M3a). Host-owned like the board;
+    /// minted on first presence sync, never re-identified.
+    clyffy: Option<ClyffySession>,
     /// The one-shot presence sweep: each vendor's own tool answering whether
     /// the operator is already signed in. Polled from the frame loop and
     /// dropped once it lands.
@@ -481,6 +492,9 @@ fn republish_roster(state: &mut Shared) {
     state.fabric.publish_provider_roster(roster.clone());
     store_roster(state.estate.as_deref(), &roster);
     state.roster = roster;
+    // Clyffy derives from the same truth — and rides the same change
+    // gate, so a steady state pays one comparison, not a re-walk.
+    sync_clyffy(state);
 }
 
 /// The sole owner of primary Chat viewport creation and peer lifetime policy.
@@ -551,6 +565,9 @@ impl ChatWindowCoordinator {
         } else {
             (None, Vec::new())
         };
+        // The host keeps its own copy of the route census: /route
+        // validates against and navigates through it (BND1).
+        let route_table = routes.clone();
         let mut window = match authored_models {
             Some((social, interactions)) => ChatWindow::with_models(
                 runtime,
@@ -751,6 +768,16 @@ impl ChatWindowCoordinator {
                         can_redo: false,
                     });
                 }
+                ChatProofMode::Commands => {
+                    // A `/ro` draft opens the strip over the census —
+                    // /route and /routines offered, asks in the tips.
+                    window
+                        .apply(dpl_chat_window::ChatWindowIntent::UpdateAiDraft {
+                            provider: dpl_chat_codex::PROVIDER,
+                            value: "/ro".to_owned(),
+                        })
+                        .expect("the authored codex draft is valid");
+                }
                 ChatProofMode::Approval
                 | ChatProofMode::Ai
                 | ChatProofMode::Compact
@@ -899,6 +926,8 @@ impl ChatWindowCoordinator {
             primary_monitor,
             fabric: fabric.clone(),
             roster: Vec::new(),
+            route_table,
+            clyffy: None,
             presence: Some(crate::presence::probe_all(crate::presence::specs())),
             estate,
             determinism: dpl_intent::DeterminismGate::default(),
@@ -1605,6 +1634,38 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
             resolve_imagine_flush(&mut state, decision);
             ctx.request_repaint();
         }
+        HostIntent::Command { draft, synthetic } => {
+            let mut state = lock(shared);
+            dispatch_command(&mut state, &draft, synthetic);
+            ctx.request_repaint();
+        }
+        HostIntent::SelectClyffy => {
+            let mut state = lock(shared);
+            // M3a honesty: the row exists and binds; the conversation
+            // pane arrives with the send-through-binding slice. The
+            // status must agree with the pinned row — a signed-out
+            // backing is WAITING, never "backed by".
+            let activated: Vec<ProviderId> = state
+                .window
+                .provider_capabilities()
+                .into_iter()
+                .filter(|p| p.activated)
+                .map(|p| p.id)
+                .collect();
+            let line = match state.clyffy.as_ref().and_then(|c| c.backing) {
+                Some(backing) if activated.contains(&backing) => format!(
+                    "Clyffy — backed by {} · sends arrive with the next slice (/model swaps the backing).",
+                    backing.0
+                ),
+                Some(backing) => format!(
+                    "Clyffy — {} is signed out; sign it back in, or /model a signed-in provider.",
+                    backing.0
+                ),
+                None => "Clyffy — no backing yet: sign a provider in, or /model one.".to_owned(),
+            };
+            state.window.set_composer_status(line);
+            ctx.request_repaint();
+        }
         HostIntent::StartBrainstorm => {
             let mut state = lock(shared);
             start_brainstorm(&mut state);
@@ -2292,6 +2353,197 @@ fn save_assist(state: &Shared) {
     }
     if let Err(error) = state.assist.save(&dpl_engine_capture::userdata_root()) {
         tracing::warn!(%error, "assist policy could not be persisted");
+    }
+}
+
+// ── the Clyffy house session (BND1-M3a: host-owned, like the board) ─────
+
+/// DevPULSE's own conversation. The id is minted ONCE and never changes;
+/// `backing` is a current binding /model swaps; events keep the
+/// provider tag of whoever produced them (history is never rewritten).
+struct ClyffySession {
+    id: ChatSessionId,
+    backing: Option<ProviderId>,
+    events: Vec<dpl_chat_core::ChatEvent>,
+}
+
+impl ClyffySession {
+    /// Rebind the backing. The identity law: the session id and every
+    /// recorded event are UNTOUCHED — a swap is a re-binding, never a
+    /// new transcript and never a rewritten history.
+    fn rebind(&mut self, provider: ProviderId) -> ChatSessionId {
+        self.backing = Some(provider);
+        self.id
+    }
+
+    /// Active = the current binding is among the activated providers.
+    /// Clyffy never claims readiness it borrowed from nobody.
+    fn is_active(&self, activated: &[ProviderId]) -> bool {
+        self.backing.is_some_and(|b| activated.contains(&b))
+    }
+}
+
+/// Derive Clyffy's truth from presence: the session EXISTS from first
+/// sync; it is ACTIVE only while at least one provider is activated
+/// (signed-in). The binding defaults to the first activated provider
+/// and survives sign-outs (an inactive binding is shown, not erased).
+fn sync_clyffy(state: &mut Shared) {
+    let activated: Vec<ProviderId> = state
+        .window
+        .provider_capabilities()
+        .into_iter()
+        .filter(|p| p.activated)
+        .map(|p| p.id)
+        .collect();
+    if state.clyffy.is_none() {
+        let id = ChatSessionId(state.next_chat_session_id);
+        state.next_chat_session_id = state.next_chat_session_id.saturating_add(1);
+        state.clyffy = Some(ClyffySession {
+            id,
+            backing: None,
+            events: Vec::new(),
+        });
+    }
+    let session = state.clyffy.as_mut().expect("minted above");
+    if session.backing.is_none() {
+        session.backing = activated.first().copied();
+    }
+    let active = session.is_active(&activated);
+    let view = dpl_chat_window::ClyffyView {
+        present: true,
+        active,
+        backing: session.backing,
+        events: session.events.len(),
+    };
+    state.window.observe_clyffy(view);
+}
+
+/// /model — rebind Clyffy's backing. The argument already validated
+/// against the roster census; the session id and history are untouched
+/// (the swap is a re-binding, never a new transcript).
+fn set_clyffy_backing(state: &mut Shared, provider: ProviderId) {
+    let Some(session) = &mut state.clyffy else {
+        state
+            .window
+            .set_composer_status("Clyffy has not arrived yet — sign a provider in first.");
+        return;
+    };
+    session.rebind(provider);
+    state
+        .window
+        .set_composer_status(format!("Clyffy is now backed by {}.", provider.0));
+    sync_clyffy(state);
+}
+
+// ── command dispatch (BND1: the host validates against live censuses) ───
+
+/// Validate a recognized command against the censuses the host owns and
+/// dispatch it. Refusals paint under the composer naming what IS
+/// registered; synthetic input is refused for the WHOLE census.
+fn dispatch_command(state: &mut Shared, draft: &dpl_chat_core::CommandDraft, synthetic: bool) {
+    if synthetic {
+        tracing::warn!(slug = %draft.slug, "command refused: synthetic input");
+        state
+            .window
+            .set_composer_status("Commands come from the operator, not from injected input.");
+        return;
+    }
+    // /model's census is the SIGNED-IN providers — its blurb promises
+    // exactly that, and a success line must never detach a working
+    // binding onto a dead backing.
+    let activated: Vec<ProviderId> = state
+        .window
+        .provider_capabilities()
+        .into_iter()
+        .filter(|p| p.activated)
+        .map(|p| p.id)
+        .collect();
+    let censuses = dpl_chat_core::CommandCensuses {
+        routes: state
+            .route_table
+            .iter()
+            .map(|(path, _)| path.clone())
+            .collect(),
+        providers: activated.iter().map(|p| p.0.to_owned()).collect(),
+        workflows: dpl_workflows::workflows()
+            .iter()
+            .map(|w| w.id.clone())
+            .collect(),
+    };
+    if let Err(issues) = dpl_chat_core::validate_command(draft, &censuses) {
+        let named = issues
+            .iter()
+            .map(|i| i.message.as_str())
+            .collect::<Vec<_>>()
+            .join(" · ");
+        state.window.set_composer_status(named);
+        return;
+    }
+    // Validation passed — NOW the trigger text is consumed. A refused
+    // command above never eats the operator's typed buffer.
+    clear_ai_draft(state);
+    match draft.slug.as_str() {
+        "route" => {
+            let target = draft.rest.trim();
+            if let Some((_, route)) = state.route_table.iter().find(|(path, _)| path == target) {
+                state
+                    .fabric
+                    .publish_shell(ShellEvent::NavigateRequest { route: *route });
+                state
+                    .window
+                    .set_composer_status(format!("Opening {target} in the main window."));
+            }
+        }
+        "routines" => {
+            let listed = dpl_workflows::workflows()
+                .iter()
+                .map(|w| format!("{} — {}", w.id, w.blurb))
+                .collect::<Vec<_>>()
+                .join("\n");
+            state
+                .window
+                .set_composer_status(format!("Registered workflows:\n{listed}"));
+            // The blurb PROMISES the Workflows tab opens — keep it.
+            if let Some((_, route)) = state
+                .route_table
+                .iter()
+                .find(|(path, _)| path.starts_with("wiredfront/"))
+            {
+                state
+                    .fabric
+                    .publish_shell(ShellEvent::NavigateRequest { route: *route });
+            }
+        }
+        "model" => {
+            let target = draft.rest.trim();
+            if let Some(provider) = activated.iter().find(|p| p.0 == target).copied() {
+                set_clyffy_backing(state, provider);
+            }
+        }
+        "brainstorm" => {
+            // The trigger rides the SAME refusal + validation ladder
+            // as every command — no special-cased side door.
+            start_brainstorm(state);
+        }
+        other => {
+            tracing::warn!(slug = %other, "recognized command with no dispatch arm");
+        }
+    }
+}
+
+/// Consume the composer's Ai draft after a command dispatched — the
+/// host-side half of the provenance law's "nothing is sent".
+fn clear_ai_draft(state: &mut Shared) {
+    if let Some(provider) = state.window.selected_provider_id() {
+        if let Err(error) = state
+            .window
+            .apply(dpl_chat_window::ChatWindowIntent::UpdateAiDraft {
+                provider,
+                value: String::new(),
+            })
+        {
+            tracing::warn!(%error, "the dispatched command's draft could not be cleared");
+        }
     }
 }
 
@@ -4927,6 +5179,68 @@ mod roster_tests {
         // start, never a launch.
         store_roster(None, &[claude()]);
         assert!(restore_roster(None, &[ProviderId("claude")]).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod clyffy_tests {
+    use super::*;
+
+    fn event(provider: &'static str, id: u64) -> dpl_chat_core::ChatEvent {
+        dpl_chat_core::ChatEvent {
+            id: dpl_chat_core::ChatEventId(id),
+            provider_id: ProviderId(provider),
+            session_id: ChatSessionId(1),
+            turn_id: None,
+            content: dpl_chat_core::ChatEventContent::UserMessage(format!("m{id}")),
+        }
+    }
+
+    /// V10: a backing swap is a re-binding — the session id is
+    /// unchanged, every prior event survives in order, and each event
+    /// keeps the provider tag of whoever produced it.
+    #[test]
+    fn swapping_clyffys_backing_preserves_the_transcript() {
+        let mut session = ClyffySession {
+            id: ChatSessionId(42),
+            backing: Some(ProviderId("codex")),
+            events: vec![event("codex", 1), event("codex", 2)],
+        };
+        let id = session.rebind(ProviderId("claude"));
+        session.events.push(event("claude", 3));
+        assert_eq!(id, ChatSessionId(42), "the identity never changes");
+        assert_eq!(session.id, ChatSessionId(42));
+        assert_eq!(
+            session
+                .events
+                .iter()
+                .map(|e| (e.provider_id.0, e.id.0))
+                .collect::<Vec<_>>(),
+            [("codex", 1), ("codex", 2), ("claude", 3)],
+            "history keeps its per-event provider tags, in order"
+        );
+    }
+
+    /// V9: Clyffy never claims readiness it borrowed from nobody —
+    /// active iff the CURRENT binding is among the activated providers.
+    #[test]
+    fn clyffy_is_inert_without_a_signed_in_backing() {
+        let mut session = ClyffySession {
+            id: ChatSessionId(7),
+            backing: None,
+            events: Vec::new(),
+        };
+        assert!(!session.is_active(&[]), "no backing, no presence — inert");
+        assert!(
+            !session.is_active(&[ProviderId("codex")]),
+            "presence without a binding is not activation"
+        );
+        session.rebind(ProviderId("codex"));
+        assert!(session.is_active(&[ProviderId("codex")]));
+        assert!(
+            !session.is_active(&[ProviderId("claude")]),
+            "the binding signed out — Clyffy waits, honestly"
+        );
     }
 }
 

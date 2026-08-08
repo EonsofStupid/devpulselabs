@@ -86,6 +86,10 @@ arguments = ["--chat-open", "--chat-authored", "--chat-proof", "grok-auth", "--m
 [fixtures.chat-brainstorm]
 arguments = ["--chat-open", "--chat-authored", "--chat-proof", "brainstorm", "--mood", "0"]
 
+# BND1: the command strip open over a `/ro` draft.
+[fixtures.chat-commands]
+arguments = ["--chat-open", "--chat-authored", "--chat-proof", "commands", "--mood", "0"]
+
 [fixtures.wiredfront-editor]
 arguments = ["--route", "wiredfront/editor", "--mood", "0"]
 
