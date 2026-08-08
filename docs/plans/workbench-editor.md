@@ -440,7 +440,7 @@ thing, never a label for the thing. `film_tile` (`author.rs:53`) already proves
 the pattern for cards — this generalises it to the catalog.
 
 **The word collision, resolved without touching the disk.** `seeds/slides/<class>/<id>/slide.json`
-(`doc/src/lib.rs:840-885`, four authored documents) currently uses "seed" for
+(`doc/src/lib.rs:840-885`, four authored documents there — the episode set at seeds/episodes/ is four more, §3.10.1) currently uses "seed" for
 *a starting slide document* — which under this ruling is a **Template**, not a
 seed. Leaving both meanings alive is exactly the ambiguity that produced this
 mess. The code names are corrected to say what they are:
@@ -781,14 +781,23 @@ exists; it is v1.
     `preset`, `tone`. **`Block::Quote{id,preset?,tone?,text,attribution,source?}`
     is new** — the quote convention (`:222-250`) is retired, and
     `quote_lines()` with it.
-3b. **The v2→v3 migration + its test** — see §3.10.2/§3.10.3: NO migrate() is
-    needed (older documents already load; serde turns a present `size` into the
-    override by itself), and there are **eight** authored documents, not four — a v2 document loads, its required
-    `size` is written through as an explicit override, and it renders
-    **identically**. The four authored template docs are migrated in the same
-    commit, not stranded (§2.5.1).
-3c. **`resolve()` gains the middle level** — `Look` → preset → entity
-    override — with one table-driven cascade test (§2.5.2).
+3b. **The v2→v3 round-trip + its test.** ⚠️ CORRECTED by §3.10.2/§3.10.3 —
+    read those before implementing this item; the original text below was
+    written from assumption and is wrong in two ways.
+    - **No `migrate()` is needed.** Older documents already load (`lib.rs:169`
+      refuses only `v > SCHEMA_V`), and serde turns a present `"size"` into
+      `Some(..)` — which IS the explicit override — by itself. What this item
+      ships is the TEST that pins that, not a migration.
+    - **There are EIGHT authored documents, not four** — four in
+      `seeds/slides/static/`, four in `seeds/episodes/how-ai-works/`, plus one
+      `theme.json`. All nine are `"v": 1`. Migrating four strands the seeded
+      episode every proof run uses.
+    - The real hazard is on the WRITE path: `dpl-editor` stamps `size`
+      unconditionally (`editor/src/lib.rs:894,912`). Fix that here or every
+      opened card silently acquires an override.
+3c. **`resolve()` gains the middle level** — `Theme` → preset → entity
+    override — with one table-driven cascade test (§2.5.2). This is also where
+    **material-as-`:root`** lands (§3.10.4): an inheritance rule, not a field.
 3d. **Provenance** — `created`/`modified`/`by` (§2.5.3).
 
 **Commit 3 — the vocabulary, no behaviour change.**
