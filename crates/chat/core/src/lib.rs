@@ -1012,6 +1012,24 @@ pub fn recognize(draft: &str) -> Option<CommandDraft> {
     })
 }
 
+/// The commands a partially-typed `/` draft offers — the typeahead's
+/// ONE source (derived from the census; no second filter table). A
+/// draft that already carries whitespace is past the slug and offers
+/// nothing; a non-slash draft offers nothing.
+pub fn matching_commands(draft: &str) -> Vec<CommandSpec> {
+    let trimmed = draft.trim_start();
+    let Some(body) = trimmed.strip_prefix('/') else {
+        return Vec::new();
+    };
+    if body.contains(char::is_whitespace) {
+        return Vec::new();
+    }
+    commands()
+        .into_iter()
+        .filter(|c| c.slug.starts_with(body))
+        .collect()
+}
+
 /// The live censuses argument validation runs against. The HOST fills
 /// this (it owns the route table, the roster, the workflow census);
 /// core never reaches for them itself.
@@ -1369,6 +1387,25 @@ mod tests {
             rest: String::new(),
         };
         assert!(validate_command(&argless, &censuses).is_ok());
+    }
+
+    #[test]
+    fn the_typeahead_offers_only_census_commands() {
+        let slugs = |d: &str| {
+            matching_commands(d)
+                .iter()
+                .map(|c| c.slug)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(slugs("/r"), ["route", "routines"], "registry order");
+        assert_eq!(slugs("/").len(), 6, "a bare slash offers the census");
+        assert!(slugs("/x").is_empty(), "unknown prefix offers nothing");
+        assert!(
+            slugs("/route lib").is_empty(),
+            "past the slug, the strip yields"
+        );
+        assert!(slugs("hello").is_empty());
+        assert!(slugs("").is_empty());
     }
 
     #[test]

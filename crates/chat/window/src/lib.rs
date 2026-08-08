@@ -159,6 +159,7 @@ pub const BRAINSTORM_UNDO_ID: PilotId = PilotId::new("chat.brainstorm.undo");
 pub const BRAINSTORM_REDO_ID: PilotId = PilotId::new("chat.brainstorm.redo");
 pub const BRAINSTORM_SUGGEST_ID: PilotId = PilotId::new("chat.brainstorm.suggest");
 pub const COMPOSER_STATUS_ID: PilotId = PilotId::new("chat.composer.status");
+pub const COMMAND_STRIP_ID: PilotId = PilotId::new("chat.composer.command-strip");
 
 const FULL_RAIL_WIDTH: f32 = 840.0;
 const SIDEBAR_WIDTH: f32 = 252.0;
@@ -3233,6 +3234,13 @@ impl ChatWindow {
                         }
                     }
                 });
+                // The command strip (BND1-M2): typing `/` reveals the
+                // census. Derived from ONE registry, painted above the
+                // composer, click-to-fill; a command the census does
+                // not hold is never offered.
+                if self.domain == ChatDomain::Ai {
+                    self.command_strip(ui, intents);
+                }
                 // The Enter-honesty line: the refusal a keyboard submit
                 // earned, painted where the operator is looking.
                 if let Some(status) = self.composer_status.clone() {
@@ -3247,6 +3255,74 @@ impl ChatWindow {
                     metadata.value = Some(status);
                     ui.pilot_track(&line, metadata);
                 }
+            });
+    }
+
+    /// The typeahead strip (BND1): the matching census commands, their
+    /// asks visible, painted in an anchored foreground area above the
+    /// composer. Clicking fills the draft; the census is the ONE
+    /// source (`dpl_chat_core::matching_commands`).
+    fn command_strip(&mut self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
+        let draft = self.current_draft();
+        let matches = dpl_chat_core::matching_commands(&draft);
+        if matches.is_empty() {
+            return;
+        }
+        let Some(provider) = self.runtime.selected_provider_id() else {
+            return;
+        };
+        let anchor = ui.min_rect().left_top();
+        let height = 26.0 * matches.len() as f32 + 20.0;
+        egui::Area::new(egui::Id::new("chat.composer.command-strip"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(egui::pos2(anchor.x, (anchor.y - height - 6.0).max(8.0)))
+            .show(ui.ctx(), |ui| {
+                let panel = egui::Frame::new()
+                    .fill(Color32::from_rgb(7, 22, 26))
+                    .stroke(Stroke::new(1.0, Tone::Cyan.color()))
+                    .corner_radius(CornerRadius::same(5))
+                    .inner_margin(egui::Margin::symmetric(10, 8))
+                    .show(ui, |ui| {
+                        for spec in &matches {
+                            let asks = spec
+                                .args
+                                .iter()
+                                .map(|a| a.ask)
+                                .collect::<Vec<_>>()
+                                .join(" · ");
+                            let row = ui.button(format!("/{} — {}", spec.slug, spec.label));
+                            let tip_text = if asks.is_empty() {
+                                spec.blurb.to_owned()
+                            } else {
+                                format!("{} ({asks})", spec.blurb)
+                            };
+                            let row = cl::tip(row, &tip_text);
+                            let mut metadata = NodeMetadata::new(
+                                COMMAND_STRIP_ID.child(&PilotKey::new(spec.slug)),
+                                Role::Button,
+                                spec.label,
+                            );
+                            metadata.value = Some(spec.slug.to_owned());
+                            metadata.description = Some(tip_text);
+                            ui.pilot_track(&row, metadata);
+                            if row.clicked() {
+                                let fill = if spec.args.is_empty() {
+                                    format!("/{}", spec.slug)
+                                } else {
+                                    format!("/{} ", spec.slug)
+                                };
+                                intents.push(ChatWindowIntent::UpdateAiDraft {
+                                    provider,
+                                    value: fill,
+                                });
+                                self.composer_focus_requested = true;
+                            }
+                        }
+                    });
+                let mut metadata =
+                    NodeMetadata::new(COMMAND_STRIP_ID, Role::Region, "Command strip");
+                metadata.value = Some(matches.len().to_string());
+                ui.pilot_track(&panel.response, metadata);
             });
     }
 

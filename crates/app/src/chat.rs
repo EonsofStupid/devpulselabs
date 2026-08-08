@@ -71,6 +71,9 @@ pub enum ChatProofMode {
     /// The inline brainstorm board, worked to Cluster with an assist
     /// item visible (BS1) — deterministic, in-memory only.
     Brainstorm,
+    /// The command strip open over a `/ro` draft (BND1) — the census
+    /// offering /route and /routines.
+    Commands,
 }
 
 #[cfg(feature = "eguipilotai-devtools")]
@@ -92,6 +95,7 @@ impl ChatProofMode {
             "content" => Some(Self::Content),
             "history" => Some(Self::History),
             "brainstorm" => Some(Self::Brainstorm),
+            "commands" => Some(Self::Commands),
             _ => None,
         }
     }
@@ -757,6 +761,16 @@ impl ChatWindowCoordinator {
                         can_undo: true,
                         can_redo: false,
                     });
+                }
+                ChatProofMode::Commands => {
+                    // A `/ro` draft opens the strip over the census —
+                    // /route and /routines offered, asks in the tips.
+                    window
+                        .apply(dpl_chat_window::ChatWindowIntent::UpdateAiDraft {
+                            provider: dpl_chat_codex::PROVIDER,
+                            value: "/ro".to_owned(),
+                        })
+                        .expect("the authored codex draft is valid");
                 }
                 ChatProofMode::Approval
                 | ChatProofMode::Ai
