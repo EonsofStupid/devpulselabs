@@ -180,7 +180,11 @@ fn build(event: &BuildEvent) -> Vec<SignalId> {
     match event {
         BuildEvent::SlidePlaced { .. } => vec![id(BUILD_SLIDE_PLACED)],
         BuildEvent::EpisodeChanged { .. } => vec![id(BUILD_EPISODE_CHANGED)],
-        BuildEvent::CardAuthored { .. } => vec![id(BUILD_CARD_AUTHORED)],
+        BuildEvent::CardStarted { .. } => vec![id(BUILD_CARD_STARTED)],
+        BuildEvent::CardAdded { .. } => vec![id(BUILD_CARD_ADDED)],
+        BuildEvent::CardStyled { .. } => vec![id(BUILD_CARD_STYLED)],
+        BuildEvent::CardTraitChanged { .. } => vec![id(BUILD_CARD_TRAIT_CHANGED)],
+        BuildEvent::CardSaved { .. } => vec![id(BUILD_CARD_SAVED)],
     }
 }
 
@@ -224,7 +228,13 @@ pub const PROVIDERS_CANCELLED: &str = "providers.cancelled";
 pub const PROVIDERS_EXPIRED: &str = "providers.expired";
 pub const BUILD_SLIDE_PLACED: &str = "build.slide-placed";
 pub const BUILD_EPISODE_CHANGED: &str = "build.episode-changed";
-pub const BUILD_CARD_AUTHORED: &str = "build.card-authored";
+/// One per step of the Editor's flow (workbench-editor.md §3.7), so the
+/// signal stream IS the flow and a coach can wait on any point in it.
+pub const BUILD_CARD_STARTED: &str = "build.card-started";
+pub const BUILD_CARD_ADDED: &str = "build.card-added";
+pub const BUILD_CARD_STYLED: &str = "build.card-styled";
+pub const BUILD_CARD_TRAIT_CHANGED: &str = "build.card-trait-changed";
+pub const BUILD_CARD_SAVED: &str = "build.card-saved";
 
 /// Every coarse fact, in domain order. One entry per fabric variant.
 const COARSE: &[&str] = &[
@@ -481,7 +491,24 @@ mod tests {
                 show: "s".into(),
                 episode: "e".into(),
             },
-            BuildEvent::CardAuthored {
+            BuildEvent::CardStarted { slide: "sl".into() },
+            BuildEvent::CardAdded {
+                slide: "sl".into(),
+                entity: "t1".into(),
+                kind: "text".into(),
+            },
+            BuildEvent::CardStyled {
+                slide: "sl".into(),
+                entity: "card".into(),
+                kind: "card".into(),
+                preset: "neon-intro".into(),
+            },
+            BuildEvent::CardTraitChanged {
+                slide: "sl".into(),
+                entity: "card".into(),
+                trait_name: "colour".into(),
+            },
+            BuildEvent::CardSaved {
                 show: "".into(),
                 episode: "".into(),
                 slide: "sl".into(),

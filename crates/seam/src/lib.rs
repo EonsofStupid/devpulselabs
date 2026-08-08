@@ -278,12 +278,48 @@ pub fn build_json(st: &Stamped<BuildEvent>) -> Value {
             "show": show,
             "episode": episode,
         }),
-        BuildEvent::CardAuthored {
+        BuildEvent::CardStarted { slide } => json!({
+            "type": "cardStarted",
+            "slide": slide,
+        }),
+        BuildEvent::CardAdded {
+            slide,
+            entity,
+            kind,
+        } => json!({
+            "type": "cardAdded",
+            "slide": slide,
+            "entity": entity,
+            "kind": kind,
+        }),
+        BuildEvent::CardStyled {
+            slide,
+            entity,
+            kind,
+            preset,
+        } => json!({
+            "type": "cardStyled",
+            "slide": slide,
+            "entity": entity,
+            "kind": kind,
+            "preset": preset,
+        }),
+        BuildEvent::CardTraitChanged {
+            slide,
+            entity,
+            trait_name,
+        } => json!({
+            "type": "cardTraitChanged",
+            "slide": slide,
+            "entity": entity,
+            "trait": trait_name,
+        }),
+        BuildEvent::CardSaved {
             show,
             episode,
             slide,
         } => json!({
-            "type": "cardAuthored",
+            "type": "cardSaved",
             "show": show,
             "episode": episode,
             "slide": slide,
@@ -1095,7 +1131,7 @@ mod envelope_tests {
         let st = Stamped {
             seq: 6,
             ms: 1600,
-            ev: BuildEvent::CardAuthored {
+            ev: BuildEvent::CardSaved {
                 show: "".into(),
                 episode: "".into(),
                 slide: "authored-draft-1".into(),
@@ -1105,7 +1141,7 @@ mod envelope_tests {
             build_json(&st),
             json!({
                 "domain": "build", "seq": 6, "ms": 1600,
-                "type": "cardAuthored",
+                "type": "cardSaved",
                 "show": "", "episode": "",
                 "slide": "authored-draft-1",
             })
@@ -1461,10 +1497,9 @@ mod tests {
             .expect("response");
         assert_eq!(resp.status(), StatusCode::OK);
 
-        // The exact publish the authoring surface makes after minting a draft.
-        fabric.publish_build(BuildEvent::CardAuthored {
-            show: String::new(),
-            episode: String::new(),
+        // The exact publish the Editor makes after minting a draft. Only the
+        // draft id is a fact at this point in the flow (§3.7).
+        fabric.publish_build(BuildEvent::CardStarted {
             slide: "authored-draft-1".into(),
         });
 
@@ -1491,7 +1526,7 @@ mod tests {
             envelope["domain"], "build",
             "authoring fact rides the build domain"
         );
-        assert_eq!(envelope["type"], "cardAuthored");
+        assert_eq!(envelope["type"], "cardStarted");
         assert_eq!(envelope["slide"], "authored-draft-1");
     }
 

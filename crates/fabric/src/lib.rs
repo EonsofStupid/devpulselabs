@@ -445,12 +445,52 @@ pub enum BuildEvent {
     },
     /// An episode document changed shape (chapters/slides).
     EpisodeChanged { show: String, episode: String },
-    /// A card (slide) was authored on the authoring surface — published
-    /// AFTER the draft `slide.json` is written (emit-with-mutation). The
-    /// authoring charter's first fact: every ask leaves a real card.
-    /// `show`/`episode` are empty until the card is placed into an episode
-    /// (Studio's `SlidePlaced` is that later fact); `slide` is the draft id.
-    CardAuthored {
+    // ── the Editor's flow, one signal per step (workbench-editor.md §3.7) ──
+    //
+    // Publish-only: the Editor never subscribes to `build.*` (anti-loop law).
+    // Before this there was ONE card signal and it carried the wrong word, so
+    // a coach could see that a card happened but never *where in the flow*.
+    // Now the signal stream IS the flow, and an agent can wait on any point.
+    //
+    // `entity` is the block id, or `"card"` for the stage — presets are
+    // entity-scoped (§2.4), so a styling fact that cannot say WHICH entity was
+    // styled makes preset-usage-per-kind unrecoverable from the ledger.
+    //
+    // Payloads stay content-free in the ID space (`coach_signals.rs:178`):
+    // show/episode/slide are operator content and never reach a `SignalId`.
+    // `kind`, `preset` and `trait_name` are registered vocabularies, so they
+    // may.
+    /// A new card was minted, or an existing one opened. Fires where
+    /// `CardAuthored` used to — after the draft write (emit-with-mutation) —
+    /// because that is what the old signal actually meant.
+    CardStarted { slide: String },
+    /// Something was added to the card: text · picture · quote (§3.5 ADD).
+    CardAdded {
+        slide: String,
+        entity: String,
+        kind: String,
+    },
+    /// A preset was picked for one entity (§3.5 STYLE). This is the variant
+    /// carrying the product's thesis — it names which of the 10-15 presets
+    /// collapsed the complexity, and it is what makes preset usage
+    /// measurable.
+    CardStyled {
+        slide: String,
+        entity: String,
+        kind: String,
+        preset: String,
+    },
+    /// One of the 4-7 exposed traits moved. `trait_name` is a knob from the
+    /// §3.1 registry only — a bounded vocabulary, never free text.
+    CardTraitChanged {
+        slide: String,
+        entity: String,
+        trait_name: String,
+    },
+    /// The card was saved. RENAMED from `CardAuthored`; `show`/`episode` stay
+    /// empty until it is placed into an episode (`SlidePlaced` is that later
+    /// fact).
+    CardSaved {
         show: String,
         episode: String,
         slide: String,
