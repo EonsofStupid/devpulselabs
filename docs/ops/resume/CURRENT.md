@@ -42,10 +42,22 @@ the first Tier B pack.
    AppProfile TOML (promote-only law, synthesized generic profile);
    Foundry pipeline; `seam` fabric domain → `dpl-ledger` (rides free) →
    DataFusion → Optimize cards. §6 = the 5 mock questions answered as
-   overrulable defaults. §7 = slices S1 tracing → S2 rehoming →
-   S3 registry → S4 Blender pack → S5 Optimize cards.
-2. Operator red-pens ADR (§6 defaults, §7 order, naming) + mock rev 3 →
-   ratify → S1.
+   overrulable defaults. §7 = the EVOLUTION CONTRACT (operator ruling
+   2026-08-07, "10x foresight and scale"): additive-only wire law with a
+   compat test per addition · experimental verbs ride an `x.`-namespaced
+   `Extension` arm, promoted to typed variants on ratification · effect
+   contracts carry an open pack-declared observable map · packs declare
+   `schema` + `min_seam`, unknown keys warn-never-fail, cell key
+   first-class · spans carry a version + open attrs map (DataFusion
+   schema-merge) · Optimize cards are DATA (query+threshold+action
+   registry) · registry content-addressed + signed day one · transports
+   slot behind traits, rungs append · bounded snapshots / partitioned
+   ledger / parallel Foundry cells. Anti-law: no speculative
+   implementation — seams cost design now, near-zero code.
+   §8 = slices S1 tracing → S2 rehoming → S3 registry → S4 Blender pack →
+   S5 Optimize cards, each implementing its slice of §7 as it lands.
+2. Operator red-pens ADR (§6 defaults, §7 mechanisms, §8 order, naming) +
+   mock rev 3 → ratify → S1.
 
 **Resolved 2026-08-07 (operator go):** seam trace sink is
 **Arrow/DataFusion over Parquet** (ADR-014-consistent). Mock rev 2 shows
