@@ -18,11 +18,14 @@ audit: the CX daemon was a second agent surface; tracing/profiles/mock
 were skipped. Audit + research + the true mock landed this session.
 Journal: `docs/journal/2026-08-07-coach-seam-audit.md`.
 
-**NEXT:** seam ADR drafted (`docs/plans/coach-seam-adr.md` — DRAFT; §6
-answers the mock's 5 questions as overrulable defaults) → operator
-red-pens ADR §6/§7/naming + mock rev 3 → ratify → slices: S1 tracing
-spine → S2 protocol rehoming → S3 profile registry → S4 **Blender first
-Tier B pack** (ruled 2026-08-07) → S5 Optimize cards.
+**NEXT:** seam ADR drafted (`docs/plans/coach-seam-adr.md` — DRAFT; §6 =
+the mock's 5 questions as overrulable defaults; §7 = the **evolution
+contract**, ruled 2026-08-07: starting point built for 10x — additive
+wire law, `x.` extension verbs, open observable/attr maps, versioned
+tolerant packs, cards-as-data, content-addressed registry) → operator
+red-pens §6/§7/§8/naming → ratify → slices: S1 tracing spine → S2
+protocol rehoming → S3 profile registry → S4 **Blender first Tier B
+pack** (ruled 2026-08-07) → S5 Optimize cards.
 
 **Prior lane — ai-layer** (2026-08-03 state; #212 landed since, verify):
 persona (Clyffy), session primitive, typed provider funnel.

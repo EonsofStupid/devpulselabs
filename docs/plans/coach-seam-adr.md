@@ -2,7 +2,10 @@
 
 **Status:** DRAFT 2026-08-07 — mock rev 3 approved (operator `go`); awaiting
 ratification of this ADR. §6 answers the mock's five red-pen questions as
-**proposed defaults** — each is overrulable in review.
+**proposed defaults** — each is overrulable in review. §7 is the evolution
+contract (operator ruling 2026-08-07: this ADR is the starting point,
+"built with 10x foresight and scale" — every surface open for addition
+without a breaking change).
 **Related:** [`coach-operator-verb-catalog-adr.md`](coach-operator-verb-catalog-adr.md) ·
 [`coach-overlay-adr.md`](coach-overlay-adr.md) ·
 [`eguipilotai.md`](eguipilotai.md) ·
@@ -155,7 +158,66 @@ enumeration).
 | 4 | Show the fingerprinted pack id on the card? | **Yes** — honesty over cleanliness; the id is what degradation reports cite |
 | 5 | Lesson dock relocation? | **Only when overlapping** the action target — unprompted motion is noise |
 
-## 7. Delivery slices (in order, each gated by `cargo green` + real proof)
+## 7. Evolution contract — authored for 10x
+
+This ADR is a **starting point by design** (operator ruling 2026-08-07:
+"built with 10x foresight and scale"). Foresight here means every surface
+is open for addition without a breaking change — NOT speculative features
+built early. The mechanisms, each binding:
+
+1. **The wire law is additive-only.** New fields arrive with
+   `#[serde(default)]` + `skip_serializing_if`; old readers skip what they
+   do not know; nothing is renamed or repurposed. This is already the
+   house pattern — `RunManifest` proves pre-experiment bundles still read
+   — and the `seam` module inherits it as law, with a compat test per
+   addition.
+2. **Verbs grow without protocol surgery.** Ratified verbs are typed
+   `SeamVerb` variants. New/experimental verbs ride a single
+   `Extension { id, params }` variant under an `x.`-namespaced id
+   (`x.blender.set-mode`), declared by a pack, capability-gated, and
+   refused by name where unsupported. Ratification **promotes** an `x.`
+   verb to a typed variant with its wire name kept; the extension arm is
+   the incubator, never the permanent home. No bare strings for identity:
+   extension ids are a newtype with a validated namespace.
+3. **Effect contracts carry an open observable map.** The typed core
+   (text, rect, focus, selection, running) stays fixed; packs may declare
+   additional named observables (e.g. Blender's active mode) that ride a
+   typed key→value map in the same contract. Oracles can gate on them
+   without an ADR per observable.
+4. **Packs are schema-versioned and tolerant.** Every pack declares
+   `schema = 1` and `min_seam` (the protocol version it needs). Unknown
+   keys WARN and are preserved, never fail — a newer pack degrades
+   honestly on an older seam instead of refusing to parse. The cell key
+   (app × version × OS × locale) is first-class in the pack id from day
+   one, so multi-cell was never a retrofit.
+5. **Spans carry a version and an open attribute map.** The typed columns
+   (§5) are the query surface; a `seam.attrs` map takes new dimensions
+   without schema surgery. Parquet + DataFusion schema-merge means old
+   and new segments answer one query — analytics never forces a
+   migration.
+6. **Optimize cards are data, not code.** A card is a declaration: query +
+   threshold + the action verb its button mounts. The three launch cards
+   (§5) are the first entries in a card registry; the 10th card is an
+   authored file, not a code pass.
+7. **The registry is content-addressed and signed from day one.** Local
+   directory now; a remote index later reuses the identical layout (pack
+   hash = identity), so "offer packs to users" is a transport decision,
+   not a format change.
+8. **Transports slot in behind traits.** A new injection backend (portal +
+   libei, UIA, a game-safe coach-marks-only mode) implements the
+   `Injector`/rung trait and slots into an existing rung; new rung
+   classes append after R3 without renumbering.
+9. **Scale posture.** Snapshots stay bounded (the protocol's budget
+   discipline extends to foreign trees — Blender's tree is huge); the
+   ledger partitions by date + domain and never rewrites; Foundry cells
+   are independent jobs, parallelizable across the estate's runners when
+   the matrix grows.
+
+Anti-law, stated to keep §7 honest: no speculative implementation. The
+seams above cost their design now and near-zero code; anything beyond
+(remote registry service, UIA lane, games mode) waits for its own pass.
+
+## 8. Delivery slices (in order, each gated by `cargo green` + real proof)
 
 1. **S1 — tracing spine.** `seam` domain + span schema stamped on the
    fabric; ledger writes it; one DataFusion query proven over real rows.
@@ -170,9 +232,14 @@ enumeration).
    battery), checkpoint/resume proven by killing it mid-run; first pack
    published on battery green.
 5. **S5 — Optimize cards.** The three card queries from mock stage 7 wired
-   to real ledger data, each with its mounting button.
+   to real ledger data, each with its mounting button — as registry
+   entries per §7.6, so the card set is open from the first card.
 
-## 8. Evidence
+Each slice implements its slice of §7 as it lands (S1 carries the span
+attrs map + version; S2 the wire law + extension verb arm; S3 pack schema
+versioning; S4 the content-addressed registry layout; S5 cards-as-data).
+
+## 9. Evidence
 
 - Protocol ground-truth: `crates/egui-pilot-ai-protocol/src/lib.rs` read in
   full 2026-08-07 (v2.6; `string_id!`, `Locator`, `Action`, coach router,
@@ -188,7 +255,8 @@ enumeration).
 - Verb catalog: RATIFIED 2026-08-01; names and effect contracts carried
   verbatim, home moved.
 
-## 9. Ratification
+## 10. Ratification
 
 **DRAFT** — awaiting operator. Red-pen surface: the §6 defaults, the §7
-slice order, and the `SeamVerb`/`SeamTarget`/`EffectContract` naming.
+evolution mechanisms, the §8 slice order, and the
+`SeamVerb`/`SeamTarget`/`EffectContract` naming.
