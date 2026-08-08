@@ -157,6 +157,7 @@ pub const BRAINSTORM_ADVANCE_ID: PilotId = PilotId::new("chat.brainstorm.advance
 pub const BRAINSTORM_PROMOTE_ID: PilotId = PilotId::new("chat.brainstorm.promote");
 pub const BRAINSTORM_UNDO_ID: PilotId = PilotId::new("chat.brainstorm.undo");
 pub const BRAINSTORM_REDO_ID: PilotId = PilotId::new("chat.brainstorm.redo");
+pub const BRAINSTORM_SUGGEST_ID: PilotId = PilotId::new("chat.brainstorm.suggest");
 
 const FULL_RAIL_WIDTH: f32 = 840.0;
 const SIDEBAR_WIDTH: f32 = 252.0;
@@ -374,6 +375,9 @@ pub enum ChatWindowIntent {
     Brainstorm(dpl_workflows::BrainstormOp),
     BrainstormUndo,
     BrainstormRedo,
+    /// Ask the assist for candidate ideas against the seed (assist ON
+    /// only — the host guards; proposals arrive as Assist-origin items).
+    BrainstormAssist,
     /// Distill the converged board into the explainer intake pre-fill.
     PromoteBrainstorm,
     /// The operator tapped the assist chip — `enable` is the DESIRED
@@ -533,6 +537,8 @@ pub enum HostIntent {
     Brainstorm(dpl_workflows::BrainstormOp),
     BrainstormUndo,
     BrainstormRedo,
+    /// Spawn the one-shot suggestion job (the imagine drive shape).
+    BrainstormAssist,
     /// Distill the converged board into the explainer intake pre-fill.
     PromoteBrainstorm,
     ToggleAssist {
@@ -992,6 +998,31 @@ impl ChatWindow {
         self.brainstorm = view;
     }
 
+    /// Announce a completed promote as a governed inline artifact card:
+    /// the staged intake pre-fill is now a durable transcript fact, not
+    /// just a status line that the next op overwrites.
+    pub fn register_brainstorm_promoted(
+        &mut self,
+        interaction: InteractionId,
+        answers: usize,
+        dir: &str,
+    ) -> Result<(), ChatWindowError> {
+        self.interactions
+            .register(InteractionSpec {
+                id: interaction,
+                provenance: InteractionProvenance::Host,
+                required_capability: None,
+                lifecycle: InteractionLifecycle::Visible,
+                placement: InteractionPlacement::Inline,
+                content: InteractionContent::ArtifactPreview {
+                    title: "Intake pre-fill staged".to_owned(),
+                    artifact_kind: "intake-prefill".to_owned(),
+                    summary: format!("{answers} answers ready for the guided intake · {dir}"),
+                },
+            })
+            .map_err(|error| ChatWindowError::Interaction(error.to_string()))
+    }
+
     /// Read-only view of the projected board (tests + host assertions).
     pub fn brainstorm(&self) -> &BrainstormView {
         &self.brainstorm
@@ -1265,6 +1296,7 @@ impl ChatWindow {
             ChatWindowIntent::Brainstorm(op) => Ok(Some(HostIntent::Brainstorm(op))),
             ChatWindowIntent::BrainstormUndo => Ok(Some(HostIntent::BrainstormUndo)),
             ChatWindowIntent::BrainstormRedo => Ok(Some(HostIntent::BrainstormRedo)),
+            ChatWindowIntent::BrainstormAssist => Ok(Some(HostIntent::BrainstormAssist)),
             ChatWindowIntent::PromoteBrainstorm => Ok(Some(HostIntent::PromoteBrainstorm)),
             // The chip never flips itself: the desired state crosses the
             // typed host boundary and the HOST projects the outcome back
@@ -3522,6 +3554,24 @@ impl ChatWindow {
                     intents.push(ChatWindowIntent::PromoteBrainstorm);
                 }
             } else {
+                if doc.phase == BrainstormPhase::Diverge && self.assist_enabled {
+                    let suggest = ui.add(egui::Button::new("✦ Suggest ideas"));
+                    let suggest = cl::tip(
+                        suggest,
+                        "Ask the assist for angles on your seed — proposals arrive marked, editable, yours to keep or cut.",
+                    );
+                    ui.pilot_track(
+                        &suggest,
+                        NodeMetadata::new(
+                            BRAINSTORM_SUGGEST_ID,
+                            Role::Button,
+                            "Suggest brainstorm ideas",
+                        ),
+                    );
+                    if suggest.clicked() {
+                        intents.push(ChatWindowIntent::BrainstormAssist);
+                    }
+                }
                 let label = match doc.phase {
                     BrainstormPhase::Diverge => "Start grouping",
                     _ => "Lock the order",

@@ -89,6 +89,37 @@ is two commands on server1: `sudo ./docs/runbook/devbox-bootstrap.sh`, then
 alone proves the script), then decide host-vs-LXC for stage 1 — the plug means
 that decision does not have to be made first.
 
+**2026-08-07 — BS1: THE BRAINSTORM SURFACE, COMPLETE (plan
+`docs/plans/brainstorm-surface.md`, journals `brainstorm-m1/m2/m3`, PR
+#220):** the operator's 2026-08-06 ask — type "brainstorming" in chat and
+an editable, visualized board populates inline — is real end-to-end.
+Documents layer: `BrainstormDoc v1` (diverge→cluster→converge), the
+8-verb `BrainstormOp` census through ONE pure all-or-nothing `apply`,
+scaffold census (`breakdown`), `distill()` → explainer-intake pre-fill
+(`IntakePrefillDoc v1`), strict wire schema + six negative pins. Surface:
+whole-buffer trigger (`brainstorming`/`/brainstorm` — the slash
+provenance law verbatim), inline board in the Ai transcript painted from
+a host-pushed `BrainstormView` (H1 projection shape), editable item rows
+with commit-on-focus-loss, breakdown ↳, cascade ✕, cluster lanes,
+assist-origin disclosure, Undo/Redo (host-side checkpoint stacks, cap
+100); the ⊞ Component button LIVES (its "not connected in this slice"
+tooltip is finally false). Assist populate is assist mode's FIRST real
+behavior: `SuggestClient` (the text sibling of ImagineClient, same key
+law) rides a job labeled `brainstorm · populate` (imagine drive shape,
+honest keyless/off/unseeded skips); proposals land as Assist-origin
+items through the same `apply`, one checkpoint per wave. Promote
+distills into `intake-prefill.json` beside the board + a governed
+inline ArtifactPreview announce. Proof: 35+44+37+7 tests, live
+`--brainstorm-drill` verdicts (mint/no-clobber/census-refusal), native
+proof PNG read (`docs/proof/bs1-brainstorm-board.png`), EguiPilotAI
+`chat-brainstorm` PASSED 6/6 (semantic phase/cluster nodes; capture
+dropped — deferred viewports can't self-screenshot in eframe 0.35, the
+out-of-process native proof is the pixel contract). NEXT (parked,
+operator-ruled): the chat send/Enter silent no-op + the slash-command
+registry (/route /model /routines, guided seeded values) — diagnosis in
+the task ledger; EX1 M2 (render leg) and M3 (guided intake, which reads
+the staged pre-fill) remain the explainer program's open milestones.
+
 **2026-08-06 — CHAT REACHES THE AI PROVIDER CRATE: THE HOST DRIVES THE SEAM
 (#213, plan `docs/plans/codex-host-wiring.md`, journal
 `docs/journal/2026-08-06-codex-host-wiring.md`, `green ✔`):** the oldest open

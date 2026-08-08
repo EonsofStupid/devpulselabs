@@ -1,0 +1,58 @@
+# BS1: the brainstorm board is a semantic surface. The proof preset opens
+# a worked board at Cluster (in memory — never the operator's content):
+# the phase is a readable value, the assist item discloses its origin,
+# sorting the unsorted idea through the REAL op path moves it into the
+# lane, and undo reaches back. Every gesture is the same typed op the
+# assist speaks — this scenario drives the operator half of that parity.
+id = "chat-brainstorm"
+fixture = "chat-brainstorm"
+record = true
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "open"
+
+[steps.expectation.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "wait"
+milliseconds = 750
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "focus-viewport"
+
+[steps.action.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "cluster"
+
+[steps.expectation.target]
+id = "chat.primary/chat.brainstorm.phase"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "The opening"
+
+[steps.expectation.target]
+id = "chat.primary/chat.brainstorm.cluster/open"
+
+# No capture step: the chat peer window is a DEFERRED viewport and
+# eframe 0.35 cannot deliver its queued screenshot requests (the runner
+# says so verbatim). Pixels are contracted out-of-process by
+# chat-native-proof (docs/proof/bs1-brainstorm-board.png); THIS
+# scenario's contract is the semantic truth above.

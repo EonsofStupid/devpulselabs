@@ -265,7 +265,7 @@ double-green.
 |---|---|---|---|
 | BS-M1 · Documents | workflows lib.rs: BrainstormDoc+ops+apply+scaffold census+distill+save/load; schemas/brainstorm.v1.schema.json; pins | V1-V5 green in-lane | **DONE 2026-08-07** — 34/34 tests, fmt+clippy clean (journal: brainstorm-m1) |
 | BS-M2 · Surface | window: trigger+view+inline board painters+intents; app/chat.rs: session store+undo+host arm; --brainstorm-drill; ChatProofMode::Brainstorm (+native-proof list); xtask flag census | V6-V9 green; both PNGs read | **DONE 2026-08-07** — 44+34+37 tests, drill verdicts live, baseline PNG read (journal: brainstorm-m2) |
-| BS-M3 · Assist + promote + close-out | assist populate job; promote/distill wiring + ArtifactPreview; pilot scenario; rebase, V10-V12, baselines, STATE+journal, double-green | PR merged, exe rebuilt HERE | not started |
+| BS-M3 · Assist + promote + close-out | assist populate job; promote/distill wiring + ArtifactPreview; pilot scenario; rebase, V10-V12, baselines, STATE+journal, double-green | PR merged, exe rebuilt HERE | **DONE 2026-08-07** — SuggestClient + populate job + announce + pilot 6/6 (journal: brainstorm-m3); merge rides double-green |
 
 ### §9.1 Deviations log
 - 2026-08-07 (M1): V2's "unknown op tag" negative case moved from the

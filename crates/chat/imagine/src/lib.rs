@@ -249,6 +249,113 @@ pub fn parse_image_response(body: &str) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
+/// One-shot idea suggestions for the brainstorm board (BS1) — the text
+/// sibling of [`ImagineClient`]: same vendor, same key law (read at
+/// call time, never stored, never in an error), same bounded worker
+/// discipline.
+pub trait SuggestClient: std::fmt::Debug + Send {
+    /// Blocking; the app runs this on a worker thread. Returns candidate
+    /// idea lines (already trimmed, non-empty, deduplicated).
+    fn suggest_ideas(
+        &self,
+        api_key: &str,
+        seed: &str,
+        existing: &[String],
+    ) -> Result<Vec<String>, String>;
+}
+
+pub const SUGGEST_MODEL: &str = "grok-4-fast-non-reasoning";
+pub const CHAT_ENDPOINT: &str = "https://api.x.ai/v1/chat/completions";
+const MAX_SUGGESTIONS: usize = 6;
+
+pub fn suggest_request_json(seed: &str, existing: &[String]) -> serde_json::Value {
+    let taken = if existing.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " Already on the board (do not repeat): {}.",
+            existing.join("; ")
+        )
+    };
+    serde_json::json!({
+        "model": SUGGEST_MODEL,
+        "messages": [{
+            "role": "user",
+            "content": format!(
+                "Brainstorm concrete angles for an explainer video about: {seed}.{taken} \
+                 Answer with up to {MAX_SUGGESTIONS} short idea lines, one per line, \
+                 no numbering, no prose."
+            ),
+        }],
+    })
+}
+
+pub fn parse_suggest_response(body: &str, existing: &[String]) -> Result<Vec<String>, String> {
+    let value: serde_json::Value = serde_json::from_str(body)
+        .map_err(|_| "the suggestion response was not valid JSON".to_owned())?;
+    let content = value
+        .get("choices")
+        .and_then(|choices| choices.get(0))
+        .and_then(|first| first.get("message"))
+        .and_then(|message| message.get("content"))
+        .and_then(|content| content.as_str())
+        .ok_or_else(|| "the suggestion response carried no text".to_owned())?;
+    let mut seen: Vec<String> = existing.to_vec();
+    let mut ideas = Vec::new();
+    for line in content.lines() {
+        let line = line
+            .trim()
+            .trim_start_matches(['-', '*', '•'])
+            .trim()
+            .to_owned();
+        if line.is_empty() || seen.iter().any(|s| s.eq_ignore_ascii_case(&line)) {
+            continue;
+        }
+        seen.push(line.clone());
+        ideas.push(line);
+        if ideas.len() >= MAX_SUGGESTIONS {
+            break;
+        }
+    }
+    if ideas.is_empty() {
+        return Err("the suggestion response held no usable idea lines".to_owned());
+    }
+    Ok(ideas)
+}
+
+impl SuggestClient for SystemImagineClient {
+    fn suggest_ideas(
+        &self,
+        api_key: &str,
+        seed: &str,
+        existing: &[String],
+    ) -> Result<Vec<String>, String> {
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .timeout_global(Some(REQUEST_TIMEOUT))
+            .build()
+            .into();
+        let response = agent
+            .post(CHAT_ENDPOINT)
+            .header("Authorization", &format!("Bearer {api_key}"))
+            .header("Content-Type", "application/json")
+            .send(suggest_request_json(seed, existing).to_string());
+        let mut response = match response {
+            Ok(response) => response,
+            Err(ureq::Error::StatusCode(code)) => {
+                return Err(format!("the suggestion service answered HTTP {code}"));
+            }
+            Err(_) => {
+                return Err("the suggestion service could not be reached".to_owned());
+            }
+        };
+        let body = response
+            .body_mut()
+            .read_to_string()
+            .map_err(|_| "the suggestion response could not be read".to_owned())?;
+        parse_suggest_response(&body, existing)
+    }
+}
+
 impl ImagineClient for SystemImagineClient {
     fn generate_image(&self, api_key: &str, prompt: &str) -> Result<Vec<u8>, String> {
         // ureq 3: AgentBuilder/timeout/send_string/Error::Status|Transport

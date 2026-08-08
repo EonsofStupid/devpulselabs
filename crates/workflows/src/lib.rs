@@ -2293,6 +2293,26 @@ mod tests {
     }
 
     #[test]
+    fn intake_prefill_round_trips_crash_safe() {
+        let dir = scratch("prefill-roundtrip");
+        let prefill = distill(&worked_board()).unwrap();
+        save_intake_prefill(&dir, &prefill).unwrap();
+        assert_eq!(load_intake_prefill(&dir).unwrap().answers, prefill);
+        assert!(!dir.join("intake-prefill.json.tmp").exists());
+        let newer = serde_json::json!({ "v": SCHEMA_V + 1, "answers": [] });
+        std::fs::write(
+            dir.join("intake-prefill.json"),
+            serde_json::to_string_pretty(&newer).unwrap(),
+        )
+        .unwrap();
+        assert!(matches!(
+            load_intake_prefill(&dir),
+            Err(DocError::Version(_))
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn distill_refuses_an_unconverged_board() {
         let scaffold = brainstorm_scaffold("breakdown").unwrap();
         let doc = mint_brainstorm(&scaffold, "too-early");

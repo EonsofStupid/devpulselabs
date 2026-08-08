@@ -81,6 +81,11 @@ CONTENT_ROOT = "target/eguipilotai/content-seam/content"
 [fixtures.chat-grok-auth]
 arguments = ["--chat-open", "--chat-authored", "--chat-proof", "grok-auth", "--mood", "0"]
 
+# BS1: the worked brainstorm board proof preset — in-memory board only,
+# no content root touched (the preset never writes a file).
+[fixtures.chat-brainstorm]
+arguments = ["--chat-open", "--chat-authored", "--chat-proof", "brainstorm", "--mood", "0"]
+
 [fixtures.wiredfront-editor]
 arguments = ["--route", "wiredfront/editor", "--mood", "0"]
 

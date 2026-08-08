@@ -182,6 +182,14 @@ struct BrainstormSession {
     redo: Vec<dpl_workflows::BrainstormDoc>,
     /// The last honest status line (a refusal's issues, a promote note).
     status: Option<String>,
+    /// The in-flight suggestion call, if any (the imagine correlation
+    /// shape: job minted at dispatch, one terminal transition).
+    assist: Option<BrainstormAssistCall>,
+}
+
+struct BrainstormAssistCall {
+    job: dpl_fabric::JobId,
+    rx: std::sync::mpsc::Receiver<Result<Vec<String>, String>>,
 }
 
 const BRAINSTORM_UNDO_CAP: usize = 100;
@@ -1171,7 +1179,8 @@ impl ChatWindowCoordinator {
                         | drive_grok_runtime(&mut state, Instant::now())
                         | poll_seam_runtimes(&mut state)
                         | drive_codex_runtime(&mut state)
-                        | poll_imagine(&mut state);
+                        | poll_imagine(&mut state)
+                        | poll_brainstorm_assist(&mut state);
                     let provider_runtime_live = state.grok_runtime.is_some()
                         || state.grok_runtime_retry_at.is_some()
                         || !state.runtimes.is_empty();
@@ -1614,6 +1623,11 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
         HostIntent::BrainstormRedo => {
             let mut state = lock(shared);
             brainstorm_history_jump(&mut state, false);
+            ctx.request_repaint();
+        }
+        HostIntent::BrainstormAssist => {
+            let mut state = lock(shared);
+            brainstorm_assist(&mut state);
             ctx.request_repaint();
         }
         HostIntent::PromoteBrainstorm => {
@@ -2330,8 +2344,129 @@ fn start_brainstorm(state: &mut Shared) {
         undo: Vec::new(),
         redo: Vec::new(),
         status,
+        assist: None,
     });
     project_brainstorm(state);
+}
+
+/// Spawn the one-shot suggestion call (the imagine drive shape): guard
+/// honestly, mint the job BEFORE the worker, one terminal transition.
+fn brainstorm_assist(state: &mut Shared) {
+    if !state.assist.enabled {
+        if let Some(session) = &mut state.brainstorm {
+            session.status =
+                Some("Assist is off — the ⚡ chip by the composer turns it on.".to_owned());
+        }
+        project_brainstorm(state);
+        return;
+    }
+    let Some(session) = &mut state.brainstorm else {
+        return;
+    };
+    if session.assist.is_some() {
+        session.status = Some("The assist is already thinking…".to_owned());
+        project_brainstorm(state);
+        return;
+    }
+    if session.doc.seed.trim().is_empty() {
+        session.status = Some("Seed the board first — suggestions grow from the idea.".to_owned());
+        project_brainstorm(state);
+        return;
+    }
+    let Some(key) = dpl_chat_imagine::resolve_api_key() else {
+        session.status =
+            Some("No XAI_API_KEY in this session — suggestions stay off, honestly.".to_owned());
+        project_brainstorm(state);
+        return;
+    };
+    let seed = session.doc.seed.clone();
+    let existing: Vec<String> = session.doc.items.iter().map(|i| i.text.clone()).collect();
+    let job = state.fabric.mint_job();
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    let spawned = std::thread::Builder::new()
+        .name("devpulse-brainstorm-assist".into())
+        .spawn(move || {
+            use dpl_chat_imagine::SuggestClient as _;
+            let result =
+                dpl_chat_imagine::SystemImagineClient.suggest_ideas(&key, &seed, &existing);
+            let _ = tx.send(result);
+        });
+    if spawned.is_err() {
+        session.status = Some("The suggestion worker could not start.".to_owned());
+        project_brainstorm(state);
+        return;
+    }
+    session.assist = Some(BrainstormAssistCall { job, rx });
+    session.status = Some("Assist is thinking…".to_owned());
+    state.fabric.publish_job(dpl_fabric::JobEvent::Queued {
+        job,
+        label: "brainstorm · populate".to_owned(),
+    });
+    project_brainstorm(state);
+}
+
+/// Drain the suggestion call: proposals land as Assist-origin items
+/// through the SAME `apply` path, one checkpoint for the whole batch
+/// (one undo step — a proposal wave is one gesture).
+fn poll_brainstorm_assist(state: &mut Shared) -> bool {
+    let Some(session) = &mut state.brainstorm else {
+        return false;
+    };
+    let Some(call) = &session.assist else {
+        return false;
+    };
+    let result = match call.rx.try_recv() {
+        Ok(result) => result,
+        Err(std::sync::mpsc::TryRecvError::Empty) => return false,
+        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+            Err("the suggestion worker vanished".to_owned())
+        }
+    };
+    let job = call.job;
+    session.assist = None;
+    match result {
+        Ok(ideas) => {
+            session.checkpoint();
+            let mut landed = 0usize;
+            for text in &ideas {
+                let id = (1..)
+                    .map(|n| format!("idea-{n}"))
+                    .find(|c| session.doc.items.iter().all(|i| &i.id != c))
+                    .expect("unbounded");
+                if dpl_workflows::apply(
+                    &mut session.doc,
+                    &dpl_workflows::BrainstormOp::AddItem {
+                        id,
+                        text: text.clone(),
+                        parent: None,
+                        origin: dpl_workflows::BrainstormOrigin::Assist,
+                    },
+                )
+                .is_ok()
+                {
+                    landed += 1;
+                }
+            }
+            session.status = Some(format!(
+                "Assist proposed {landed} ideas — yours to keep or cut."
+            ));
+            if let Err(error) = dpl_workflows::save_brainstorm(&session.dir, &session.doc) {
+                session.status = Some(format!("Proposals kept in memory — save failed: {error}"));
+            }
+            state.fabric.publish_job(dpl_fabric::JobEvent::Done {
+                job,
+                out: format!("{landed} ideas"),
+            });
+        }
+        Err(error) => {
+            session.status = Some(error.clone());
+            state
+                .fabric
+                .publish_job(dpl_fabric::JobEvent::Failed { job, error });
+        }
+    }
+    project_brainstorm(state);
+    true
 }
 
 /// The ONE write path: checkpoint → apply → save → project. A refused
@@ -2396,17 +2531,21 @@ fn promote_brainstorm(state: &mut Shared) {
     let Some(session) = &mut state.brainstorm else {
         return;
     };
-    match dpl_workflows::distill(&session.doc) {
-        Ok(prefill) => {
-            session.status = match dpl_workflows::save_intake_prefill(&session.dir, &prefill) {
-                Ok(()) => Some(format!(
+    let announce = match dpl_workflows::distill(&session.doc) {
+        Ok(prefill) => match dpl_workflows::save_intake_prefill(&session.dir, &prefill) {
+            Ok(()) => {
+                session.status = Some(format!(
                     "Promoted — {} intake answers staged in {}.",
                     prefill.len(),
                     session.dir.display()
-                )),
-                Err(error) => Some(format!("Promote failed to save: {error}")),
-            };
-        }
+                ));
+                Some((prefill.len(), session.dir.display().to_string()))
+            }
+            Err(error) => {
+                session.status = Some(format!("Promote failed to save: {error}"));
+                None
+            }
+        },
         Err(issues) => {
             let named = issues
                 .iter()
@@ -2414,6 +2553,19 @@ fn promote_brainstorm(state: &mut Shared) {
                 .collect::<Vec<_>>()
                 .join(" · ");
             session.status = Some(named);
+            None
+        }
+    };
+    // The promote is a durable transcript fact, not only a status line
+    // the next op overwrites. (Session borrow ends before the window.)
+    if let Some((answers, dir)) = announce {
+        let interaction = InteractionId(state.next_interaction_id);
+        state.next_interaction_id = state.next_interaction_id.saturating_add(1);
+        if let Err(error) = state
+            .window
+            .register_brainstorm_promoted(interaction, answers, &dir)
+        {
+            tracing::warn!(%error, "the promote announce could not register");
         }
     }
     project_brainstorm(state);
