@@ -177,10 +177,177 @@ fn green() -> Result<(), String> {
         // catch a masked link failure that leaves an OLD exe behind.
         (Some(b), Some(a)) if a < b => Err("release exe went BACKWARDS — locked/stale".into()),
         _ => {
+            // LAST, because it needs the release helper the build just made —
+            // and because a gate that never runs the real renderers proves
+            // only that they compile.
+            smoke_audit()?;
             println!("green ✔ exe: {}", exe.display());
             Ok(())
         }
     }
+}
+
+/// THE SMOKE PHASE — run the real subprocess renderers and look at what they
+/// actually produced.
+///
+/// **Why this exists.** ADR-009 makes ffmpeg, aerender, ThorVG and the AI
+/// providers all subprocesses, and tests must stay hermetic to run in CI. That
+/// left the entire ADR-009 surface with NO coverage: unit tests reach the pure
+/// functions, drills reach the UI over authored fixtures, and nothing ever ran
+/// a real helper and checked real output. Three failures shipped through that
+/// gap and none of them returned a non-zero exit code:
+///
+/// - `dpl-lottie-render export` emitted ZERO frames — frame 0 always failed;
+/// - Lottie TEXT rendered a fully blank frame, because no font was ever loaded;
+/// - `CodexAppServerRuntime::from_parts` had no callers at all.
+///
+/// So every assertion here is on the ARTIFACT — opaque pixel counts, frame
+/// counts — never on process success. An exit code is what lied all three
+/// times.
+///
+/// Hermetic by construction: in-repo fixtures, in-repo fonts, an in-repo
+/// helper, no network and no login. Provider smoke (a real Codex turn) needs
+/// the operator's credentials and therefore stays a local example, not a gate.
+fn smoke_audit() -> Result<(), String> {
+    println!("── smoke: real renderers, real pixels ────────");
+    let helper = target_dir()
+        .join("release")
+        .join(format!("dpl-lottie-render{}", std::env::consts::EXE_SUFFIX));
+    if !helper.is_file() {
+        return Err(format!(
+            "smoke: {} is missing — the release build must produce it",
+            helper.display()
+        ));
+    }
+    let scratch = target_dir().join("smoke");
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(&scratch).map_err(|e| format!("smoke scratch: {e}"))?;
+    let fonts = Path::new("crates/coldlight/assets/fonts");
+
+    // 1. A SHAPE at t=0. Frame 0 is the case that used to be fatal, so it is
+    //    the case the gate pins.
+    let shape_png = scratch.join("shape-t0.png");
+    render_frame(
+        &helper,
+        "tests/fixtures/lottie/shape.json",
+        256,
+        0.0,
+        &shape_png,
+        None,
+    )?;
+    let painted = opaque_pixels(&shape_png)?;
+    if painted < 1_000 {
+        return Err(format!(
+            "smoke: the shape fixture rendered {painted} opaque pixels at t=0 — \
+             a blank or near-blank frame, which is what a broken renderer looks \
+             like at exit code 0"
+        ));
+    }
+    println!("  shape  t=0     {painted:>7} opaque px");
+
+    // 2. TEXT, which needs a font registered. This is the regression guard for
+    //    the blank-text bug: without `--fonts` this frame is EMPTY and the
+    //    process still succeeds.
+    let text_png = scratch.join("text.png");
+    render_frame(
+        &helper,
+        "tests/fixtures/lottie/text.json",
+        512,
+        0.5,
+        &text_png,
+        Some(fonts),
+    )?;
+    let lettered = opaque_pixels(&text_png)?;
+    if lettered < 1_000 {
+        return Err(format!(
+            "smoke: the text fixture rendered {lettered} opaque pixels — text is \
+             not drawing. ThorVG renders NOTHING for a font family it was never \
+             given, and it does not error."
+        ));
+    }
+    println!("  text   t=0.5   {lettered:>7} opaque px");
+
+    // 3. EXPORT a whole sequence. This is the path that produced no files at
+    //    all, so the gate counts them.
+    let seq = scratch.join("seq");
+    let out = Command::new(&helper)
+        .args([
+            "export",
+            "tests/fixtures/lottie/shape.json",
+            "128",
+            "128",
+            "30",
+        ])
+        .arg(&seq)
+        .output()
+        .map_err(|e| format!("smoke: spawn export: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "smoke: export failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    let frames = std::fs::read_dir(&seq)
+        .map_err(|e| format!("smoke: read export dir: {e}"))?
+        .filter_map(Result::ok)
+        .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("png"))
+        .count();
+    // The fixture is 60 frames at 30fps; exporting at 30fps must yield 60.
+    if frames != 60 {
+        return Err(format!(
+            "smoke: export wrote {frames} frames, expected 60 — this path once \
+             wrote ZERO while exiting 0"
+        ));
+    }
+    println!("  export         {frames:>7} frames");
+    let _ = std::fs::remove_dir_all(&scratch);
+    Ok(())
+}
+
+/// Render one frame through the real helper.
+fn render_frame(
+    helper: &Path,
+    lottie: &str,
+    size: u32,
+    t: f32,
+    out: &Path,
+    fonts: Option<&Path>,
+) -> Result<(), String> {
+    let mut command = Command::new(helper);
+    command
+        .arg("frame")
+        .arg(lottie)
+        .arg(size.to_string())
+        .arg(size.to_string())
+        .arg(t.to_string())
+        .arg(out);
+    if let Some(dir) = fonts {
+        command.arg("--fonts").arg(dir);
+    }
+    let output = command
+        .output()
+        .map_err(|e| format!("smoke: spawn {lottie}: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "smoke: {lottie} at t={t} failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(())
+}
+
+/// Count pixels that are not fully transparent.
+///
+/// The measure that matters: a renderer that draws nothing still writes a
+/// valid, correctly-sized PNG and exits 0. Only the alpha channel tells the
+/// truth.
+fn opaque_pixels(png: &Path) -> Result<usize, String> {
+    let image = image::open(png).map_err(|e| format!("smoke: decode {}: {e}", png.display()))?;
+    Ok(image
+        .to_rgba8()
+        .pixels()
+        .filter(|pixel| pixel.0[3] > 0)
+        .count())
 }
 
 fn docs_status() -> Result<(), String> {
@@ -1135,6 +1302,9 @@ fn main() -> ExitCode {
         "sweep" => sweep(&arguments),
         "docs-status" => docs_status(),
         "structure" => structure_audit(),
+        // Runnable alone so the check can be PROVEN to fail — a gate nobody
+        // has watched fail is a gate nobody should trust.
+        "smoke" => smoke_audit(),
         "stage-tool-deps" => stage_tool_dependencies(&arguments),
         "fix" => run("fmt", &["fmt", "--all"]).and_then(|()| {
             run(
