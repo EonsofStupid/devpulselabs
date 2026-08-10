@@ -9444,6 +9444,7 @@ name = "xtask"
 version = "0.1.0"
 dependencies = [
  "dpl-tools-deps",
+ "image",
  "pelite",
  "serde",
  "serde_json",

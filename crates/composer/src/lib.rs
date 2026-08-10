@@ -2371,6 +2371,36 @@ impl Composer {
     /// comp — a graded base cut, a screen-blended leak at 1.0s, and a
     /// matted+tinted overlay at 2.5s — rendered synchronously through
     /// the exact app paths. Verdict on stdout.
+    /// MOTION-BLUR DRILL — a fast-moving Lottie with both switches on, so a
+    /// screenshot of the viewer either shows a smear or proves it does not.
+    ///
+    /// Exists because the operator's demand was exactly right: a CLI render
+    /// and an ffmpeg filtergraph are two things they never see. The only
+    /// proof that counts is the frame the app paints.
+    pub fn mblur_drill(&mut self) {
+        let spin = Record {
+            rel_path: "inbox/fast.json".into(),
+            kind: "lottie".into(),
+            name: "blur drill".into(),
+            ..Record::default()
+        };
+        self.add_lottie(&spin);
+        // AE's rule: the comp master AND the layer switch.
+        self.comp.motion_blur = true;
+        if let Some(id) = self.selected.clone() {
+            if let Some(l) = self.layer_mut(&id) {
+                l.motion_blur = true;
+            }
+        }
+        // Mid-spin, where the smear is largest.
+        self.time = 0.25;
+        self.status = format!(
+            "motion-blur drill: shutter {}deg, {} samples",
+            self.comp.shutter,
+            dpl_engine_media::blur_frames(self.comp.shutter)
+        );
+    }
+
     pub fn l4_drill(&mut self) {
         let base = Record {
             rel_path: "inbox/base.mp4".into(),

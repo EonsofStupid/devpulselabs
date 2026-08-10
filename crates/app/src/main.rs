@@ -361,6 +361,9 @@ fn main() -> eframe::Result {
     // `--l4-drill` (L4): graded base + screen leak + matted overlay from
     // conventional scratch-root files — the blend/matte/LUT proof.
     let l4_drill = args.iter().any(|a| a == "--l4-drill");
+    // `--mblur-drill`: a fast Lottie with both blur switches on, so a
+    // screenshot of the VIEWER is the proof — not a CLI render.
+    let mblur_drill = args.iter().any(|a| a == "--mblur-drill");
     // `--make-slide <asset-rel>` (W11) mints a media slide from a
     // content-relative artifact through the shelf's "Make slide" path —
     // image/video → one slide, `.pdf` → page slides.
@@ -662,6 +665,7 @@ fn main() -> eframe::Result {
                 fx_drill,
                 preview_drill,
                 l4_drill,
+                mblur_drill,
                 make_slide,
                 run_workflow,
                 seam_port,
@@ -718,6 +722,7 @@ struct Boot {
     fx_drill: Option<(String, String)>,
     preview_drill: Option<String>,
     l4_drill: bool,
+    mblur_drill: bool,
     make_slide: Option<String>,
     run_workflow: Option<String>,
     /// The agent seam's port; None = `--no-seam`.
@@ -816,6 +821,7 @@ impl App {
             fx_drill,
             preview_drill,
             l4_drill,
+            mblur_drill,
             make_slide,
             run_workflow,
             seam_port,
@@ -961,6 +967,9 @@ impl App {
             wiredfront.fx_drill(clip, fx);
         }
         // L4's harness seam: blend + matte + LUT in one synchronous proof.
+        if mblur_drill {
+            wiredfront.mblur_drill();
+        }
         if l4_drill {
             wiredfront.l4_drill();
         }
