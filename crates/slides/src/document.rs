@@ -556,12 +556,14 @@ mod tests {
         };
         let ctx = egui::Context::default();
         cl::apply_theme(&ctx);
-        let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
+        ctx.run_ui(egui::RawInput::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
                 let rect = ui.max_rect();
                 render(ui, rect, &slide, &dpl_doc::Theme::fallback(), 1.0, 0.0);
             });
-        });
+        })
+        .textures_delta
+        .clear();
     }
 
     /// The cascade at the paint layer: a slide with NO styling of its own
@@ -584,12 +586,14 @@ mod tests {
         };
         let ctx = egui::Context::default();
         cl::apply_theme(&ctx);
-        let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
+        ctx.run_ui(egui::RawInput::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
                 let rect = ui.max_rect();
                 render(ui, rect, &sparse, &dpl_doc::Theme::fallback(), 1.0, 0.0);
             });
-        });
+        })
+        .textures_delta
+        .clear();
     }
 
     /// The beat renderer (D2): every step of a reveal slide paints without
@@ -626,12 +630,14 @@ mod tests {
         cl::apply_theme(&ctx);
         let mut maps: Vec<RenderMap> = Vec::new();
         for step in 0..slide.step_count() {
-            let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
+            ctx.run_ui(egui::RawInput::default(), |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     let rect = ui.max_rect();
                     maps.push(render_step(ui, rect, &slide, &theme, step, 5.0, 0.0));
                 });
-            });
+            })
+            .textures_delta
+            .clear();
         }
         let rects = |m: &RenderMap| m.blocks.clone();
         assert_eq!(rects(&maps[0]), rects(&maps[1]), "steps must not reflow");
@@ -670,7 +676,7 @@ mod tests {
         let ctx = egui::Context::default();
         cl::apply_theme(&ctx);
         let mut map = RenderMap::default();
-        let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
+        ctx.run_ui(egui::RawInput::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
                 let rect = ui.max_rect();
                 map = render_traced(ui, rect, &slide, &dpl_doc::Theme::fallback(), 2.0, 0.0);
@@ -681,7 +687,9 @@ mod tests {
                     .map(|(_, r)| *r);
                 assert_eq!(media_rect, Some(rect), "media hit-tests the full stage");
             });
-        });
+        })
+        .textures_delta
+        .clear();
         assert_eq!(map.blocks.len(), 2, "media + caption both present");
     }
 
@@ -695,12 +703,14 @@ mod tests {
         for s in seeds {
             let (id, dir) = (s.id, s.dir);
             let slide = dpl_doc::load(&dir).unwrap_or_else(|e| panic!("seed {id}: {e}"));
-            let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
+            ctx.run_ui(egui::RawInput::default(), |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     let rect = ui.max_rect();
                     render(ui, rect, &slide, &dpl_doc::Theme::fallback(), 2.0, 0.0);
                 });
-            });
+            })
+            .textures_delta
+            .clear();
         }
     }
 }

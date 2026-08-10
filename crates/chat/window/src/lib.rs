@@ -6905,7 +6905,12 @@ mod tests {
             repeat: false,
             modifiers,
         });
-        let _ = ctx.run_ui(input, |_| {});
+        // epaint 0.36 PANICS when a `TexturesDelta` is dropped with unapplied
+        // deltas — dropping the whole `FullOutput` on the floor used to be
+        // fine and now is not. This test drives input and paints nothing, so
+        // clearing is the honest disposal rather than pretending to upload.
+        let mut output = ctx.run_ui(input, |_| {});
+        output.textures_delta.clear();
         let submitted = ctx.input_mut(take_composer_submit);
         // Whatever is left is what the text widget would act on.
         let survives = ctx.input(|i| {

@@ -2858,9 +2858,11 @@ mod tests {
 
     fn coach_frame(ctx: &egui::Context, input: egui::RawInput) {
         use egui_pilot_ai::UiPilotExt;
-        let _ = ctx.run_ui(input, |ui| {
+        ctx.run_ui(input, |ui| {
             ui.pilot_button(COACH_SAVE, "Save");
-        });
+        })
+        .textures_delta
+        .clear();
     }
 
     fn drain_coach_events(client: &egui_pilot_ai_transport::InMemoryClient) -> Vec<CoachEvent> {
@@ -2979,7 +2981,9 @@ mod tests {
         let (ctx, client, mut runtime) = test_runtime(32);
         authenticate(&client, &mut runtime);
         // Deliberately no coach frame yet: the target does not exist.
-        let _ = ctx.run_ui(Default::default(), |_ui| {});
+        ctx.run_ui(Default::default(), |_ui| {})
+            .textures_delta
+            .clear();
 
         let mut waiting = touchpoint(
             "coach-appear",
@@ -3028,7 +3032,9 @@ mod tests {
         let (ctx, client, mut runtime) = test_runtime(32);
         authenticate(&client, &mut runtime);
         // Deliberately no coach frame yet: the control is not revealed.
-        let _ = ctx.run_ui(Default::default(), |_ui| {});
+        ctx.run_ui(Default::default(), |_ui| {})
+            .textures_delta
+            .clear();
 
         let target = Locator {
             id: Some(NodeId::new("root/coach.save")),
@@ -3676,7 +3682,7 @@ mod tests {
         with_child
             .viewports
             .insert(child, egui::ViewportInfo::default());
-        let _ = ctx.run_ui(with_child, |_| {});
+        ctx.run_ui(with_child, |_| {}).textures_delta.clear();
 
         client
             .try_send(CommandEnvelope {
@@ -3703,7 +3709,7 @@ mod tests {
         root_only
             .viewports
             .insert(egui::ViewportId::ROOT, egui::ViewportInfo::default());
-        let _ = ctx.run_ui(root_only, |_| {});
+        ctx.run_ui(root_only, |_| {}).textures_delta.clear();
         runtime.pump();
         let after_close: Vec<_> = std::iter::from_fn(|| client.try_receive().ok().flatten())
             .take(8)

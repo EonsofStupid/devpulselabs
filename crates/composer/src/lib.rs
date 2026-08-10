@@ -2292,7 +2292,13 @@ impl Composer {
         let drops: Vec<PathBuf> = ctx
             .input(|i| i.raw.dropped_files.clone())
             .into_iter()
-            .filter_map(|f| f.path)
+            // egui 0.36 made `DroppedFile` a trait object: `path` is a METHOD
+            // returning `&Path`, where it used to be an `Option<PathBuf>`
+            // field. A pathless drop (the web case) now reads as an EMPTY
+            // path, so the filter keeps the old skip-it semantics rather than
+            // importing "".
+            .map(|f| PathBuf::from(f.path()))
+            .filter(|path| !path.as_os_str().is_empty())
             .collect();
         if drops.is_empty() && self.preview_queue.is_empty() {
             return;
