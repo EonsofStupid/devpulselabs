@@ -93,7 +93,7 @@ edition = "2021"
 publish = false
 
 [workspace.dependencies]
-egui = "0.35"
+egui = "0.36"
 eframe = { version = "0.35", features = ["wgpu"] }
 egui-wgpu = "0.35"
 # "file" installs the file:// loader (without it every Media::Image errors);
