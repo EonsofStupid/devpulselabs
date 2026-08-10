@@ -2155,8 +2155,12 @@ impl Composer {
             .input(|i| i.raw.dropped_files.clone())
             .into_iter()
             // egui 0.36 made `DroppedFile` a trait object: `path` is a METHOD
-            // now, not a field, and it hands back an owned path.
-            .filter_map(|f| f.path().map(PathBuf::from))
+            // returning `&Path`, where it used to be an `Option<PathBuf>`
+            // field. A pathless drop (the web case) now reads as an EMPTY
+            // path, so the filter keeps the old skip-it semantics rather than
+            // importing "".
+            .map(|f| PathBuf::from(f.path()))
+            .filter(|path| !path.as_os_str().is_empty())
             .collect();
         if drops.is_empty() && self.preview_queue.is_empty() {
             return;
