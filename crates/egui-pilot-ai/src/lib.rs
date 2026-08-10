@@ -2373,7 +2373,9 @@ mod tests {
                 ..Default::default()
             },
         );
-        let output = ctx.run_ui(input, |_ui| {});
+        let mut output = ctx.run_ui(input, |_ui| {});
+        // epaint 0.36 panics if this drops with unapplied deltas.
+        output.textures_delta.clear();
 
         assert!(output.platform_output.events.is_empty());
         assert_eq!(pilot.viewport_committed_input_generation(child), generation);
