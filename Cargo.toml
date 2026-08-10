@@ -98,7 +98,7 @@ eframe = { version = "0.35", features = ["wgpu"] }
 egui-wgpu = "0.35"
 # "file" installs the file:// loader (without it every Media::Image errors);
 # "webp" adds animated-webp support on top of the image crate's static decode.
-egui_extras = { version = "0.35", features = ["image", "file", "webp"] }
+egui_extras = { version = "0.36", features = ["image", "file", "webp"] }
 # Headless UI test harness (dev-only) Ã¢â‚¬â€ MUST track the egui minor version.
 egui_kittest = { version = "0.35", default-features = false }
 # The document layer (dpl-doc): slide.json is serde data, end to end.
