@@ -38,6 +38,52 @@ we got here.
 >   where it runs, and names the hypervisor blast radius that follows from
 >   that choice (see `devbox-bootstrap.sh` §"Where this runs").
 
+**2026-08-10 — PRESETS YOU EDIT, EGUI 0.36, AND TWO GATES THAT CATCH WHAT
+GREEN MISSED (#229, #230, #236, #237, plans `lottie-preset-controls.md` +
+`lottie-controls-panel.md`, `green ✔`):**
+
+**The preset surface (#229).** A Lottie's own text and colours are now
+editable from the composer's inspector — the SAME ColdLight tone-swatch row
+`overlay_inspector` uses for tint, because two colour pickers in one
+inspector would be drift. Text commits on Enter/focus-loss, never per
+keystroke (each change re-patches the document and re-opens the player,
+~24ms measured). Preview and export resolve through ONE function,
+`resolved_lottie`, so what the operator sees IS what renders; the values live
+on `Layer.controls` as plain JSON because dpl-comp's ceiling is exactly
+serde+serde_json, and the additive-invisibility pin now covers it.
+
+**Motion blur you can SEE.** The app had the switches (`m.blur` master, a
+per-layer toggle, a lime timeline marker) and painted `motion blur ·
+export-exact` — honest, but you had to export to see your own blur. The
+Lottie lane now averages sub-renders across the shutter interval, the same
+integral ffmpeg's `tmix` computes, reusing the EXPORT's own `blur_frames` so
+viewer and render cannot disagree. `--mblur-drill` makes it provable in the
+app rather than in a CLI.
+
+**egui 0.35 → 0.36 (#236).** Dependabot's five per-crate PRs were four-fifths
+red and always would be — those crates are version-locked. One branch, all
+five, plus wgpu 29 → 30. Three breakages: `RawInput::modifiers` REMOVED
+(modifiers now ride on events — had it *moved* instead, every synthetic
+Ctrl+Z would have silently become a bare Z with no compile error);
+`DroppedFile::path` is a method returning `&Path`; and epaint now PANICS on a
+dropped `TexturesDelta` — 32 sites across six crates.
+
+**Two gates, because instructions were not working.**
+`smoke` runs the REAL renderers and asserts on opaque-pixel counts and frame
+counts (#227): ADR-009 makes every renderer a subprocess and tests must stay
+hermetic, so that whole surface had NO coverage — three failures shipped
+through it at exit code 0 (Lottie `export` wrote zero frames, Lottie text
+rendered blank, `CodexAppServerRuntime::from_parts` had no callers).
+`lock` runs `cargo metadata --locked` (#237) after I committed a manifest
+without its lock THREE times in a week — cargo silently re-resolves, so
+#236 merged with Cargo.toml on 0.36 and Cargo.lock on 0.35 and both lanes
+went green. Both gates were watched FAIL before being trusted.
+
+**Operator correction, applied:** builds belong on server1 (88c/125GB) —
+measured 3m31s there vs 23m28s locally at 2 jobs, with two rustc
+STATUS_STACK_BUFFER_OVERRUN crashes and an `os error 1455` (pagefile) on the
+laptop. Needs `source $HOME/.cargo/env` over SSH or cargo is not on PATH.
+
 **2026-08-08 — COACH SEAM S3a: THE IDENTITY SPINE + PACK REGISTRY
 (landed).** Operator ruling executed: "no more hardcoding — identity
 resolved, never assumed." New egui-free crate `dpl-coach-pack`
