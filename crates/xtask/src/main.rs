@@ -141,8 +141,39 @@ fn release_exe() -> PathBuf {
         .join(format!("devpulselabs{}", std::env::consts::EXE_SUFFIX))
 }
 
+/// THE LOCK AUDIT — `Cargo.lock` must already satisfy `Cargo.toml`.
+///
+/// Cargo silently re-resolves and REWRITES the lock on any ordinary build, so
+/// a manifest change committed without its lock looks perfectly fine locally
+/// and in CI. It cost three separate incidents in one week (#216, #219, and
+/// egui 0.36 — which merged with the manifest demanding 0.36 and the lock
+/// still pinning 0.35).
+///
+/// Intention did not fix it; a gate does. `--locked` refuses to update the
+/// lock, so a manifest/lock mismatch FAILS here instead of being papered over
+/// by the next build.
+fn lock_audit() -> Result<(), String> {
+    println!("── lock ──────────────────────────────────────");
+    let output = Command::new("cargo")
+        .args(["metadata", "--locked", "--format-version", "1"])
+        .stdout(Stdio::null())
+        .output()
+        .map_err(|error| format!("lock: spawn failed: {error}"))?;
+    if output.status.success() {
+        println!("  Cargo.lock satisfies Cargo.toml");
+        return Ok(());
+    }
+    Err(format!(
+        "Cargo.lock does NOT satisfy Cargo.toml — a manifest change was \
+         committed without its lock. Run `cargo metadata` (or any build) and \
+         COMMIT the resulting Cargo.lock.\n{}",
+        String::from_utf8_lossy(&output.stderr).trim()
+    ))
+}
+
 fn green() -> Result<(), String> {
     run("fmt", &["fmt", "--all", "--", "--check"])?;
+    lock_audit()?;
     docs_status()?;
     spawn_audit()?;
     structure_audit()?;
@@ -1306,6 +1337,9 @@ fn main() -> ExitCode {
         // Runnable alone so the check can be PROVEN to fail — a gate nobody
         // has watched fail is a gate nobody should trust.
         "smoke" => smoke_audit(),
+        // Runnable alone so the check can be PROVEN to fail — the whole point
+        // is that it catches what three commits already got wrong.
+        "lock" => lock_audit(),
         "stage-tool-deps" => stage_tool_dependencies(&arguments),
         "fix" => run("fmt", &["fmt", "--all"]).and_then(|()| {
             run(
