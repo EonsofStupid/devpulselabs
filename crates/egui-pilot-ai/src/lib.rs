@@ -1055,12 +1055,30 @@ impl egui::Plugin for EguiPilotPlugin {
             } else {
                 shared.synthetic_frame.remove(&input.viewport_id);
             }
-            input.events.extend(queued.events);
+            // egui 0.36 REMOVED `RawInput::modifiers`. Modifiers now ride on
+            // the events that carry them, so a queued modifier state has to be
+            // stamped onto the injected events instead of set once globally —
+            // otherwise a synthetic Ctrl+Z arrives as a bare Z.
+            let mut events = queued.events;
+            if let Some(modifiers) = queued.modifiers {
+                for event in &mut events {
+                    match event {
+                        egui::Event::Key {
+                            modifiers: stamp, ..
+                        }
+                        | egui::Event::PointerButton {
+                            modifiers: stamp, ..
+                        }
+                        | egui::Event::MouseWheel {
+                            modifiers: stamp, ..
+                        } => *stamp = modifiers,
+                        _ => {}
+                    }
+                }
+            }
+            input.events.extend(events);
             if let Some(time) = queued.time {
                 input.time = Some(time);
-            }
-            if let Some(modifiers) = queued.modifiers {
-                input.modifiers = modifiers;
             }
             shared
                 .viewport_pending_input_commit
