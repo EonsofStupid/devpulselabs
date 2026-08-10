@@ -319,11 +319,13 @@ mod tests {
                     egui::pos2(0.0, 0.0),
                     egui::vec2(1280.0, 720.0),
                 ));
-                let _ = ctx.run_ui(input, |ctx| {
+                ctx.run_ui(input, |ctx| {
                     egui::CentralPanel::default().show(ctx, |ui| {
                         element.paint(ui);
                     });
-                });
+                })
+                .textures_delta
+                .clear();
             }
         }
     }

@@ -2890,7 +2890,7 @@ mod tests {
     fn every_pool_font_lays_out_through_a_real_context() {
         let ctx = egui::Context::default();
         apply_theme(&ctx);
-        let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
+        ctx.run_ui(egui::RawInput::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
                 for def in FONTS {
                     ui.label(
@@ -2899,7 +2899,9 @@ mod tests {
                     );
                 }
             });
-        });
+        })
+        .textures_delta
+        .clear();
     }
 
     // ── V1: the dwell tier, the ink-bleed, and the brain ────────────────

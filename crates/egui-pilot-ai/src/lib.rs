@@ -1653,9 +1653,11 @@ mod tests {
     fn plugin_captures_typed_widget_semantics() {
         let ctx = egui::Context::default();
         let pilot = install(&ctx);
-        let _ = ctx.run_ui(Default::default(), |ui| {
+        ctx.run_ui(Default::default(), |ui| {
             ui.pilot_button(SAVE, "Save");
-        });
+        })
+        .textures_delta
+        .clear();
         let frame = pilot.latest_frame();
         assert_eq!(frame.nodes.len(), 1);
         assert_eq!(frame.nodes[0].id, NodeId::new("root/settings.save"));
@@ -1678,13 +1680,15 @@ mod tests {
                 ..Default::default()
             },
         );
-        let _ = ctx.run_ui(input, |ui| {
+        ctx.run_ui(input, |ui| {
             let (_, rect) = ui.allocate_space(egui::vec2(80.0, 24.0));
             let response = ui.interact(rect, egui::Id::new("logical-focus"), egui::Sense::click());
             response.request_focus();
             assert!(!response.has_focus());
             ui.pilot_track(&response, NodeMetadata::new(SAVE, Role::Button, "Save"));
-        });
+        })
+        .textures_delta
+        .clear();
 
         let frame = pilot.latest_frame();
         assert!(frame.nodes[0].state.focused);
@@ -1723,7 +1727,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let _ = ctx.run_ui(input, |_ui| {});
+        ctx.run_ui(input, |_ui| {}).textures_delta.clear();
 
         assert!(lock(&repaints).contains(&egui::ViewportId::ROOT));
     }
@@ -1734,7 +1738,9 @@ mod tests {
         let pilot = install(&ctx);
         let child = egui::ViewportId::from_hash_of("pilot-revision-child");
 
-        let _ = ctx.run_ui(Default::default(), |_ui| {});
+        ctx.run_ui(Default::default(), |_ui| {})
+            .textures_delta
+            .clear();
         let root_revision = pilot
             .viewport_semantic_revision(egui::ViewportId::ROOT)
             .expect("root semantic revision");
@@ -1754,7 +1760,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let _ = ctx.run_ui(input, |_ui| {});
+        ctx.run_ui(input, |_ui| {}).textures_delta.clear();
 
         assert_eq!(
             pilot.viewport_semantic_revision(egui::ViewportId::ROOT),
@@ -1766,9 +1772,11 @@ mod tests {
     }
 
     fn save_button_frame(ctx: &egui::Context, input: egui::RawInput) {
-        let _ = ctx.run_ui(input, |ui| {
+        ctx.run_ui(input, |ui| {
             ui.pilot_button(SAVE, "Save");
-        });
+        })
+        .textures_delta
+        .clear();
     }
 
     fn mount_save_touchpoint(pilot: &PilotHandle, once: bool) -> Rect {
@@ -2054,7 +2062,9 @@ mod tests {
         mount_save_touchpoint(&pilot, false);
         let _ = pilot.take_coach_events();
 
-        let _ = ctx.run_ui(Default::default(), |_ui| {});
+        ctx.run_ui(Default::default(), |_ui| {})
+            .textures_delta
+            .clear();
 
         assert_eq!(
             pilot.take_coach_events(),
@@ -2112,7 +2122,9 @@ mod tests {
     fn an_armed_touchpoint_mounts_and_fires_when_its_target_appears() {
         let ctx = egui::Context::default();
         let pilot = install(&ctx);
-        let _ = ctx.run_ui(Default::default(), |_ui| {});
+        ctx.run_ui(Default::default(), |_ui| {})
+            .textures_delta
+            .clear();
         assert_eq!(
             mount_on_save(
                 &pilot,
@@ -2132,7 +2144,9 @@ mod tests {
 
         // Nothing to see: the target is still absent, and an armed touchpoint
         // must not mistake that for a lost target.
-        let _ = ctx.run_ui(Default::default(), |_ui| {});
+        ctx.run_ui(Default::default(), |_ui| {})
+            .textures_delta
+            .clear();
         assert!(pilot.take_coach_events().is_empty());
         assert_eq!(pilot.mounted_coach_count(), 1);
 
@@ -2247,14 +2261,16 @@ mod tests {
         let pilot = install(&ctx);
         let frame = |value: &str| {
             let value = value.to_string();
-            let _ = ctx.run_ui(Default::default(), |ui| {
+            ctx.run_ui(Default::default(), |ui| {
                 let (_, rect) = ui.allocate_space(egui::vec2(80.0, 24.0));
                 let response = ui.interact(rect, egui::Id::new("status"), egui::Sense::click());
                 ui.pilot_track(
                     &response,
                     NodeMetadata::new(SAVE, Role::Status, "Status").value(value.clone()),
                 );
-            });
+            })
+            .textures_delta
+            .clear();
         };
         let mut value = String::from("draft");
         frame(&value);
@@ -2289,10 +2305,12 @@ mod tests {
     fn duplicate_ids_are_hard_failures() {
         let ctx = egui::Context::default();
         install(&ctx);
-        let _ = ctx.run_ui(Default::default(), |ui| {
+        ctx.run_ui(Default::default(), |ui| {
             ui.pilot_button(SAVE, "Save");
             ui.pilot_button(SAVE, "Save again");
-        });
+        })
+        .textures_delta
+        .clear();
     }
 
     #[test]
@@ -2300,10 +2318,14 @@ mod tests {
         let ctx = egui::Context::default();
         let pilot = install(&ctx);
         let token = pilot.begin_busy("loading");
-        let _ = ctx.run_ui(Default::default(), |_ui| {});
+        ctx.run_ui(Default::default(), |_ui| {})
+            .textures_delta
+            .clear();
         assert_eq!(pilot.latest_frame().diagnostics.busy_tokens, ["loading"]);
         drop(token);
-        let _ = ctx.run_ui(Default::default(), |_ui| {});
+        ctx.run_ui(Default::default(), |_ui| {})
+            .textures_delta
+            .clear();
         assert!(pilot.latest_frame().diagnostics.busy_tokens.is_empty());
     }
 
@@ -2389,7 +2411,9 @@ mod tests {
             },
         );
 
-        let _ = ctx.run_ui(input, |_ui| pilot.retire_viewport(child));
+        ctx.run_ui(input, |_ui| pilot.retire_viewport(child))
+            .textures_delta
+            .clear();
 
         assert_eq!(pilot.viewport_committed_input_generation(child), generation);
         assert!(pilot
@@ -2404,9 +2428,11 @@ mod tests {
         let pilot = install(&ctx);
         pilot.set_clock_mode(ClockMode::Fixed(42.0));
         let observed = std::cell::Cell::new(0.0);
-        let _ = ctx.run_ui(Default::default(), |ui| {
+        ctx.run_ui(Default::default(), |ui| {
             observed.set(ui.input(|input| input.time));
-        });
+        })
+        .textures_delta
+        .clear();
         assert_eq!(observed.get(), 42.0);
     }
 
