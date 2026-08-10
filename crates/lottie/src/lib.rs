@@ -128,7 +128,22 @@ impl Player {
     /// Render the frame at time `t` (seconds). Writes the request and reads
     /// exactly `width * height * 4` RGBA bytes back.
     pub fn frame_at(&mut self, t_secs: f32) -> Result<Frame, String> {
-        writeln!(self.stdin, "{t_secs}").map_err(|e| format!("request frame: {e}"))?;
+        self.frame_blurred(t_secs, 1, 0.0)
+    }
+
+    /// A frame WITH MOTION BLUR — `samples` sub-renders averaged across
+    /// `span` seconds of shutter.
+    ///
+    /// The same integral ffmpeg's `tmix` computes on export, so the viewer
+    /// stops promising blur in a badge and simply shows it. `samples <= 1`
+    /// costs exactly what a plain frame costs.
+    pub fn frame_blurred(&mut self, t_secs: f32, samples: u32, span: f32) -> Result<Frame, String> {
+        if samples <= 1 || span <= 0.0 {
+            writeln!(self.stdin, "{t_secs}")
+        } else {
+            writeln!(self.stdin, "{t_secs} {samples} {span}")
+        }
+        .map_err(|e| format!("request frame: {e}"))?;
         self.stdin.flush().ok();
         let n = (self.width as usize) * (self.height as usize) * 4;
         let mut rgba = vec![0u8; n];

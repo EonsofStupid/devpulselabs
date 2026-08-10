@@ -35,7 +35,8 @@ use egui_pilot_ai::{
     protocol::{PilotViewportKey, Role},
     ContextPilotExt, NodeMetadata, PilotId, PilotKey, UiPilotExt,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
@@ -401,6 +402,18 @@ enum Act {
     /// Filter the FOOTAGE palette by an index tag (None = everything) —
     /// in-memory over the loaded records, the house pattern.
     PaletteTag(Option<String>),
+    /// Set one PRESET CONTROL on a Lottie layer — a swatch tap or a
+    /// committed text edit. `fresh` marks the first change of a gesture so a
+    /// drag collapses into one undo step, exactly like `OverlayEdit`.
+    ///
+    /// `None` clears the value, returning that control to the preset's own
+    /// authored colour or text.
+    SetControl {
+        id: String,
+        control: String,
+        value: Option<serde_json::Value>,
+        fresh: bool,
+    },
     /// Edit the selected layer's L4 grade (blend/matte/lut) from the
     /// inspector — discrete taps, one undo step each.
     GradeEdit {
@@ -631,6 +644,111 @@ impl Composer {
         dpl_engine_capture::content_root()
     }
 
+    /// The preview's motion-blur sampling for one layer: `(samples, span)`.
+    ///
+    /// AE's rule — the comp master AND the layer switch. `span` is the
+    /// SHUTTER INTERVAL in seconds: a shutter angle is the fraction of the
+    /// frame the shutter stays open, so 180 degrees at 30fps is half of
+    /// 1/30s. Sample count reuses `blur_frames`, the same function the export
+    /// graph uses, so the viewer and the render cannot disagree about how
+    /// much blur "on" means.
+    fn layer_blur(&self, layer_id: &str) -> (u32, f32) {
+        if !self.comp.motion_blur {
+            return (1, 0.0);
+        }
+        let on = self
+            .layers()
+            .iter()
+            .any(|l| l.id == layer_id && l.motion_blur);
+        if !on {
+            return (1, 0.0);
+        }
+        let fps = self.comp.fps.max(1) as f32;
+        let span = (self.comp.shutter as f32 / 360.0) / fps;
+        (dpl_engine_media::blur_frames(self.comp.shutter), span)
+    }
+
+    /// THE ONE PATCH POINT — resolve a Lottie layer to the document that
+    /// should actually render.
+    ///
+    /// No control values means the authored file, untouched. Values means a
+    /// patched COPY in the regenerable cache; the operator's artifact is never
+    /// written to (sources are never mutated).
+    ///
+    /// **Preview and export both call this, and that is the whole guarantee.**
+    /// If one patched and the other did not, the operator would edit a preset,
+    /// watch it change, render it, and get the old one — the exact class of
+    /// defect this program keeps paying for.
+    ///
+    /// Cached by a hash of (rel, values) so an unchanged preset re-uses its
+    /// file instead of re-patching every frame.
+    fn resolved_lottie(rel: &str, controls: &BTreeMap<String, serde_json::Value>) -> PathBuf {
+        let authored = Self::resolve(rel);
+        if controls.is_empty() {
+            return authored;
+        }
+        let Ok(bytes) = std::fs::read(&authored) else {
+            return authored;
+        };
+        let Ok(document) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+            return authored;
+        };
+
+        let mut hasher = DefaultHasher::new();
+        rel.hash(&mut hasher);
+        // BTreeMap iterates in key order, so the same choices always hash the
+        // same way — the cache must not miss because a map re-ordered.
+        for (id, value) in controls {
+            id.hash(&mut hasher);
+            value.to_string().hash(&mut hasher);
+        }
+        let cached = dpl_engine_capture::userdata_root()
+            .join("cache")
+            .join("lottie")
+            .join(format!("{:016x}.json", hasher.finish()));
+        if cached.is_file() {
+            return cached;
+        }
+
+        let discovered = dpl_lottie::controls::discover(&document);
+        let values: Vec<(String, dpl_lottie::controls::ControlValue)> = controls
+            .iter()
+            .filter_map(|(id, raw)| Self::control_value(raw).map(|v| (id.clone(), v)))
+            .collect();
+        let Ok(patched) = dpl_lottie::controls::apply(&document, &discovered, &values) else {
+            // A stale control set against a changed preset degrades to the
+            // authored document rather than rendering something half-applied.
+            return authored;
+        };
+        if let Some(dir) = cached.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        match serde_json::to_vec(&patched) {
+            Ok(out) if std::fs::write(&cached, &out).is_ok() => cached,
+            _ => authored,
+        }
+    }
+
+    /// Read a stored control value back into the renderer's vocabulary.
+    ///
+    /// The comp stores plain JSON because its ceiling forbids naming a
+    /// renderer type (architecture.md §2); this is the one place that
+    /// translation lives.
+    fn control_value(raw: &serde_json::Value) -> Option<dpl_lottie::controls::ControlValue> {
+        use dpl_lottie::controls::ControlValue;
+        if let Some(text) = raw.as_str() {
+            return Some(ControlValue::Text(text.to_owned()));
+        }
+        let array = raw.as_array()?;
+        // RGBA 0-255, an array and never a hex string — the same shape law
+        // `Layer::tint` follows.
+        let mut rgba = [255u8; 4];
+        for (slot, value) in rgba.iter_mut().zip(array) {
+            *slot = u8::try_from(value.as_u64()?).ok()?;
+        }
+        Some(ControlValue::Color(rgba))
+    }
+
     /// Resolve a forward-slash artifact rel_path to a real file path under the
     /// content root (component-wise, so Windows separators stay correct).
     fn resolve(rel: &str) -> PathBuf {
@@ -846,8 +964,9 @@ impl Composer {
                             self.overlay_lanes.len() - 1
                         }
                     };
+                    let blur = self.layer_blur(id);
                     if let Some((_, OverlayLane::Lottie(lp))) = self.overlay_lanes.get_mut(idx) {
-                        lp.render(ctx, *want);
+                        lp.render(ctx, *want, blur);
                     }
                 }
                 Source::Element { .. } => {}
@@ -911,10 +1030,19 @@ impl Composer {
             // has no screen/add compositing) and Lottie grades apply at
             // export only — the badge NAMES it; the render is exact.
             let badge = match (layer.blend, lane) {
+                // A LOTTIE lane now shows its own blur: the helper averages
+                // sub-frames across the shutter, the same integral ffmpeg's
+                // tmix computes. So it is LIVE, not a promise.
+                _ if self.comp.motion_blur
+                    && layer.motion_blur
+                    && matches!(lane, OverlayLane::Lottie(_)) =>
+                {
+                    Some("motion blur · live")
+                }
                 _ if self.comp.motion_blur && layer.motion_blur => {
-                    // egui cannot average frames on the paint thread; ffmpeg
-                    // does it exactly. Say so rather than showing a sharp
-                    // frame that silently disagrees with the export.
+                    // A video lane still cannot be averaged on the paint
+                    // thread; ffmpeg does it exactly. Say so rather than
+                    // showing a sharp frame that disagrees with the export.
                     Some("motion blur · export-exact")
                 }
                 (dpl_comp::Blend::Screen, _) => Some("screen · export-exact"),
@@ -1203,7 +1331,8 @@ impl Composer {
         let lid = layer.id.clone();
         let want = layer.in_pt + (self.time - layer.start);
         let source = layer.source.clone(); // owned — releases the layer borrow
-                                           // L4: a graded base cut previews EXACTLY (lut3d in the pipe).
+        let controls = layer.controls.clone(); // ditto: the preset's values
+                                               // L4: a graded base cut previews EXACTLY (lut3d in the pipe).
         let base_grade = dpl_video::clip::PipeGrade {
             lut: layer.lut.as_deref().map(Self::resolve),
             matte: None,
@@ -1212,12 +1341,19 @@ impl Composer {
         // L2: a native Lottie layer previews on its OWN lane (the ThorVG
         // helper), rendered here so the immutable viewer just reads the tex.
         if let Source::Lottie { rel } = &source {
-            let path = Self::resolve(rel);
-            if self.preview_lottie.as_ref().map(|(k, _)| k.as_str()) != Some(lid.as_str()) {
-                self.preview_lottie = LottiePlayer::open(&path).map(|p| (lid.clone(), p));
+            // PATCHED, so the preview shows the operator's control values —
+            // the same document `render_parts` will export.
+            let path = Self::resolved_lottie(rel, &controls);
+            // Re-open when the layer changes OR when its control values do: the
+            // cache path carries the values, so a differing path IS a
+            // differing preset.
+            let key = format!("{lid}\u{1}{}", path.display());
+            if self.preview_lottie.as_ref().map(|(k, _)| k.as_str()) != Some(key.as_str()) {
+                self.preview_lottie = LottiePlayer::open(&path).map(|p| (key.clone(), p));
             }
+            let blur = self.layer_blur(&lid);
             if let Some((_, lp)) = self.preview_lottie.as_mut() {
-                lp.render(ctx, want.max(0.0));
+                lp.render(ctx, want.max(0.0), blur);
             }
             self.preview_still = None;
             if let Some((_, player)) = self.preview.as_mut() {
@@ -1607,7 +1743,8 @@ impl Composer {
                         dur: l.span().max(0.05),
                     });
                     overlays.push(OverlaySlot::Lottie(PendingLottie {
-                        path: Self::resolve(rel),
+                        // PATCHED — same function the preview uses.
+                        path: Self::resolved_lottie(rel, &l.controls),
                         in_pt: l.in_pt,
                         out_pt: l.out_pt,
                         at: l.start,
@@ -1653,7 +1790,8 @@ impl Composer {
                     }
                     Source::Lottie { rel } => {
                         overlays.push(OverlaySlot::Lottie(PendingLottie {
-                            path: Self::resolve(rel),
+                            // PATCHED — same function the preview uses.
+                            path: Self::resolved_lottie(rel, &l.controls),
                             in_pt: l.in_pt,
                             out_pt: l.out_pt,
                             at: l.start,
@@ -2233,6 +2371,36 @@ impl Composer {
     /// comp — a graded base cut, a screen-blended leak at 1.0s, and a
     /// matted+tinted overlay at 2.5s — rendered synchronously through
     /// the exact app paths. Verdict on stdout.
+    /// MOTION-BLUR DRILL — a fast-moving Lottie with both switches on, so a
+    /// screenshot of the viewer either shows a smear or proves it does not.
+    ///
+    /// Exists because the operator's demand was exactly right: a CLI render
+    /// and an ffmpeg filtergraph are two things they never see. The only
+    /// proof that counts is the frame the app paints.
+    pub fn mblur_drill(&mut self) {
+        let spin = Record {
+            rel_path: "inbox/fast.json".into(),
+            kind: "lottie".into(),
+            name: "blur drill".into(),
+            ..Record::default()
+        };
+        self.add_lottie(&spin);
+        // AE's rule: the comp master AND the layer switch.
+        self.comp.motion_blur = true;
+        if let Some(id) = self.selected.clone() {
+            if let Some(l) = self.layer_mut(&id) {
+                l.motion_blur = true;
+            }
+        }
+        // Mid-spin, where the smear is largest.
+        self.time = 0.25;
+        self.status = format!(
+            "motion-blur drill: shutter {}deg, {} samples",
+            self.comp.shutter,
+            dpl_engine_media::blur_frames(self.comp.shutter)
+        );
+    }
+
     pub fn l4_drill(&mut self) {
         let base = Record {
             rel_path: "inbox/base.mp4".into(),
@@ -2850,6 +3018,30 @@ impl Composer {
             Some(Act::PaletteTag(tag)) => {
                 self.palette_tag = tag;
                 self.proj_sel = None;
+            }
+            Some(Act::SetControl {
+                id,
+                control,
+                value,
+                fresh,
+            }) => {
+                // One undo step per gesture, matching `OverlayEdit`.
+                if fresh {
+                    self.checkpoint();
+                }
+                if let Some(l) = self.layer_mut(&id) {
+                    match value {
+                        Some(v) => {
+                            l.controls.insert(control, v);
+                        }
+                        // Cleared — back to the preset's own authored value,
+                        // and the map empties back to byte-identical on disk.
+                        None => {
+                            l.controls.remove(&control);
+                        }
+                    }
+                }
+                self.mark_edit();
             }
             Some(Act::GradeEdit {
                 id,
@@ -4033,10 +4225,147 @@ impl Composer {
         (hits.len() == 1).then(|| hits[0])
     }
 
+    /// THE PRESET INSPECTOR — a Lottie's own editable text and colours,
+    /// discovered from the document rather than authored by hand.
+    ///
+    /// This is the whole point of the preset work: retexting and recolouring
+    /// a template without After Effects, and re-using the same template
+    /// against the next thing instead of rendering a frozen copy.
+    ///
+    /// Colours reuse the EXACT tone-swatch row `overlay_inspector` uses for
+    /// tint. Two different colour pickers in one inspector would be drift.
+    fn preset_inspector(&self, ui: &mut egui::Ui, layer: &Layer, act: &mut Option<Act>) {
+        let Source::Lottie { rel } = &layer.source else {
+            return;
+        };
+        let Some(document) = std::fs::read(Self::resolve(rel))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        else {
+            return;
+        };
+        let controls = dpl_lottie::controls::discover(&document);
+        ui.add_space(cl::space::S1);
+        ui.label(RichText::new("PRESET").small().strong());
+        if controls.is_empty() {
+            // Said plainly rather than shown as an empty box — an operator
+            // must be able to tell "nothing to edit" from "still loading".
+            ui.label(
+                RichText::new("This preset exposes nothing editable.")
+                    .small()
+                    .color(cl::ink::MUTED),
+            );
+            return;
+        }
+
+        for control in &controls {
+            let stored = layer.controls.get(&control.id);
+            match control.kind {
+                dpl_lottie::controls::ControlKind::Text => {
+                    let mut text = stored
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned();
+                    let response = cl::tip(
+                        ui.add(
+                            egui::TextEdit::singleline(&mut text)
+                                .hint_text(control.label.as_str())
+                                .desired_width(f32::INFINITY),
+                        ),
+                        "Retype this preset's words — the render follows",
+                    );
+                    // COMMITTED, not per-keystroke: each change re-patches the
+                    // document and re-opens the player (~24ms measured), which
+                    // is fine on commit and awful on every letter.
+                    if response.lost_focus()
+                        || response.ctx.input(|i| i.key_pressed(egui::Key::Enter))
+                    {
+                        let next = (!text.trim().is_empty())
+                            .then(|| serde_json::Value::String(text.clone()));
+                        if next.as_ref().map(serde_json::Value::to_string)
+                            != stored.map(serde_json::Value::to_string)
+                        {
+                            *act = Some(Act::SetControl {
+                                id: layer.id.clone(),
+                                control: control.id.clone(),
+                                value: next,
+                                fresh: true,
+                            });
+                        }
+                    }
+                }
+                dpl_lottie::controls::ControlKind::Color => {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(control.label.as_str())
+                                .small()
+                                .color(cl::ink::SUBTLE),
+                        );
+                        let current = stored.and_then(|v| v.as_array()).map(|a| {
+                            let at = |i: usize| {
+                                u8::try_from(
+                                    a.get(i).and_then(serde_json::Value::as_u64).unwrap_or(255),
+                                )
+                                .unwrap_or(255)
+                            };
+                            [at(0), at(1), at(2)]
+                        });
+                        let none = cl::tip(
+                            swatch(
+                                ui,
+                                None,
+                                current.is_none(),
+                                &format!("pc-none-{}", control.id),
+                            ),
+                            "The preset's own colour",
+                        );
+                        if none.clicked() && current.is_some() {
+                            *act = Some(Act::SetControl {
+                                id: layer.id.clone(),
+                                control: control.id.clone(),
+                                value: None,
+                                fresh: true,
+                            });
+                        }
+                        for tone in [
+                            Tone::Cyan,
+                            Tone::Lime,
+                            Tone::Violet,
+                            Tone::Amber,
+                            Tone::Magenta,
+                            Tone::Coral,
+                        ] {
+                            let c = tone.color();
+                            let active = current == Some([c.r(), c.g(), c.b()]);
+                            let resp = cl::tip(
+                                swatch(
+                                    ui,
+                                    Some(c),
+                                    active,
+                                    &format!("pc-{}-{}", control.id, tone.hue_id()),
+                                ),
+                                "Recolour this part of the preset",
+                            );
+                            if resp.clicked() && !active {
+                                *act = Some(Act::SetControl {
+                                    id: layer.id.clone(),
+                                    control: control.id.clone(),
+                                    value: Some(serde_json::json!([c.r(), c.g(), c.b(), 255])),
+                                    fresh: true,
+                                });
+                            }
+                        }
+                    });
+                }
+            }
+        }
+    }
+
     /// The OVERLAY inspector (L3): size, position, tint — plain-words
     /// controls for the selected FX layer. Emits `Act::OverlayEdit`; the
     /// first change of a gesture (`fresh`) takes the undo checkpoint.
     fn overlay_inspector(&self, ui: &mut egui::Ui, layer: &Layer, act: &mut Option<Act>) {
+        self.preset_inspector(ui, layer, act);
         ui.add_space(cl::space::S1);
         ui.label(RichText::new("OVERLAY").small().strong());
         let (mut x, mut y, mut scale, mut tint) = (layer.x, layer.y, layer.scale, layer.tint);
@@ -6384,6 +6713,9 @@ struct LottiePlayer {
     /// The last rendered time — re-render (a subprocess round-trip) only
     /// when the playhead actually moved.
     last_t: f32,
+    /// The blur the current texture was rendered with, so toggling the
+    /// switch invalidates the frame even when the playhead has not moved.
+    last_blur: (u32, f32),
     render_w: u32,
     render_h: u32,
 }
@@ -6400,18 +6732,28 @@ impl LottiePlayer {
             player,
             handle: None,
             last_t: f32::NAN,
+            last_blur: (1, 0.0),
             render_w,
             render_h,
         })
     }
 
     /// Ensure the frame at `t` is rendered and uploaded (a no-op when `t`
-    /// is unchanged). Called from `tick_playback`.
-    fn render(&mut self, ctx: &egui::Context, t: f32) {
-        if self.handle.is_some() && (t - self.last_t).abs() < 1e-4 {
+    /// and the blur are unchanged). Called from `tick_playback`.
+    ///
+    /// `blur` is `(samples, span_secs)`; `(1, 0.0)` renders plainly. The
+    /// viewer used to paint a sharp frame and a badge PROMISING blur at
+    /// export — now it shows the blur, because the helper computes the same
+    /// shutter integral ffmpeg's `tmix` does.
+    fn render(&mut self, ctx: &egui::Context, t: f32, blur: (u32, f32)) {
+        let (samples, span) = blur;
+        // The blur is part of the cache key: turning the switch on must
+        // re-render the SAME time, or the operator toggles it and sees
+        // nothing change.
+        if self.handle.is_some() && (t - self.last_t).abs() < 1e-4 && self.last_blur == blur {
             return;
         }
-        if let Ok(frame) = self.player.frame_at(t) {
+        if let Ok(frame) = self.player.frame_blurred(t, samples, span) {
             let img = egui::ColorImage::from_rgba_unmultiplied(
                 [frame.width as usize, frame.height as usize],
                 &frame.rgba,
@@ -6427,6 +6769,7 @@ impl LottiePlayer {
                 }
             }
             self.last_t = t;
+            self.last_blur = blur;
         }
     }
 
@@ -6909,6 +7252,44 @@ mod tests {
 
     /// Motion blur is AE's rule — the comp master AND the layer switch. One
     /// alone must emit nothing, or a comp-wide toggle could not kill it.
+    /// The PREVIEW's blur must obey AE's rule and use the export's own
+    /// sample count — a viewer that disagrees with the render is worse than
+    /// a viewer that shows nothing.
+    #[test]
+    fn the_preview_blur_matches_the_export_and_needs_both_switches() {
+        let mut c = Composer::default();
+        c.add_clip(&Record {
+            rel_path: "inbox/a.mp4".into(),
+            kind: "video".into(),
+            ..Default::default()
+        });
+        let id = c.layers()[0].id.clone();
+
+        // Neither switch: no blur.
+        assert_eq!(c.layer_blur(&id), (1, 0.0), "off by default");
+
+        // Comp master only: still nothing (AE's rule).
+        c.comp.motion_blur = true;
+        assert_eq!(c.layer_blur(&id), (1, 0.0), "master alone does nothing");
+
+        // Both: the export's own sample count, and a shutter interval that
+        // is the angle's fraction of one frame.
+        if let Some(l) = c.layer_mut(&id) {
+            l.motion_blur = true;
+        }
+        let (samples, span) = c.layer_blur(&id);
+        assert_eq!(
+            samples,
+            dpl_engine_media::blur_frames(c.comp.shutter),
+            "preview must sample exactly what the export averages"
+        );
+        let expected = (c.comp.shutter as f32 / 360.0) / c.comp.fps as f32;
+        assert!(
+            (span - expected).abs() < 1e-6,
+            "shutter angle is a fraction of the FRAME: {span} vs {expected}"
+        );
+    }
+
     #[test]
     fn motion_blur_needs_both_switches() {
         let mut c = Composer::default();

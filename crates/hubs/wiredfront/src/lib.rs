@@ -1082,6 +1082,11 @@ impl WiredfrontHub {
     /// The `--l4-drill` harness seam: graded base + screen leak + matted
     /// overlay from conventional scratch-root files, rendered
     /// synchronously — the headless blend/matte/LUT proof.
+    /// The motion-blur drill — see `Composer::mblur_drill`.
+    pub fn mblur_drill(&mut self) {
+        self.composer.mblur_drill();
+    }
+
     pub fn l4_drill(&mut self) {
         self.composer.l4_drill();
     }

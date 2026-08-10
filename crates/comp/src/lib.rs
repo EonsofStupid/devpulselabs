@@ -117,6 +117,19 @@ pub struct Layer {
     /// the comp has a `focal` — so a comp without a camera is exactly flat.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub z: f32,
+    /// PRESET CONTROL VALUES for a `Source::Lottie` layer, keyed by the
+    /// control id `dpl_lottie::controls::discover` reports.
+    ///
+    /// Plain data on purpose. This crate's ceiling is EXACTLY `serde` +
+    /// `serde_json` (architecture.md §2), so it cannot name a renderer's
+    /// value type — and it should not: the document records WHAT THE OPERATOR
+    /// CHOSE, and the renderer knows what that means. Same split `Source`
+    /// already uses — a ref, never a value.
+    ///
+    /// Additive and skipped when empty, so every comp authored before presets
+    /// were editable round-trips byte-identically and `SCHEMA_V` stays put.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub controls: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 /// The L4 blend modes — screen and add cover the estate's light-leak/
@@ -341,6 +354,7 @@ impl Layer {
             motion_blur: false,
             parent: None,
             z: 0.0,
+            controls: std::collections::BTreeMap::new(),
         }
     }
 
@@ -704,6 +718,7 @@ mod tests {
             "\"z\"",
             "shutter",
             "focal",
+            "controls",
         ] {
             assert!(
                 !json.contains(absent),
