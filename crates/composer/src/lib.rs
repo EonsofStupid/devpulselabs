@@ -2154,7 +2154,9 @@ impl Composer {
         let drops: Vec<PathBuf> = ctx
             .input(|i| i.raw.dropped_files.clone())
             .into_iter()
-            .filter_map(|f| f.path)
+            // egui 0.36 made `DroppedFile` a trait object: `path` is a METHOD
+            // now, not a field, and it hands back an owned path.
+            .filter_map(|f| f.path().map(PathBuf::from))
             .collect();
         if drops.is_empty() && self.preview_queue.is_empty() {
             return;
