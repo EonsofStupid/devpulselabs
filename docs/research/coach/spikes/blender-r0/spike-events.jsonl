@@ -1,0 +1,10 @@
+{"ts_ms": 1786396085604, "kind": "bridge_started", "blender": "4.0.2", "pid": 2647254}
+{"ts_ms": 1786396085604, "kind": "bridge_listening", "port": 7844}
+{"ts_ms": 1786396112084, "kind": "file_loaded", "filepath": "/home/hades/Projects/devpulselabs/docs/research/coach/spikes/blender-r0/model.blend"}
+{"ts_ms": 1786396112134, "kind": "selection_changed", "objects": [], "was": null}
+{"ts_ms": 1786396112165, "kind": "selection_changed", "objects": ["Cube"], "was": []}
+{"ts_ms": 1786396112198, "kind": "selection_changed", "objects": ["Camera"], "was": ["Cube"]}
+{"ts_ms": 1786396128790, "kind": "selection_changed", "objects": [], "was": ["Camera"]}
+{"ts_ms": 1786396160328, "kind": "selection_changed", "objects": ["Light"], "was": []}
+{"ts_ms": 1786396201364, "kind": "selection_changed", "objects": [], "was": ["Light"]}
+{"ts_ms": 1786396201686, "kind": "selection_changed", "objects": ["Light"], "was": []}
