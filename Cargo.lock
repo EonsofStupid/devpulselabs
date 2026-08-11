@@ -2113,12 +2113,14 @@ dependencies = [
  "dpl-fabric",
  "dpl-ledger",
  "dpl-proc",
+ "egui-pilot-ai-protocol",
  "serde",
  "serde_json",
  "tokio",
  "tokio-stream",
  "tracing",
  "tracing-subscriber",
+ "ureq",
 ]
 
 [[package]]
@@ -2157,6 +2159,7 @@ name = "dpl-coach-pack"
 version = "0.1.0"
 dependencies = [
  "dpl-coach-inventory",
+ "egui-pilot-ai-protocol",
  "sha2",
  "toml",
 ]

@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 2, minor: 6 };
+pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 2, minor: 7 };
 pub const DEFAULT_AGENT_NODES: usize = 200;
 pub const DEFAULT_AGENT_BYTES: usize = 12 * 1024;
 pub const MAX_AGENT_NODES: usize = 1_000;
@@ -34,6 +34,10 @@ macro_rules! string_id {
         }
     };
 }
+
+/// The foreign-app seam vocabulary (coach seam ADR, S2). Declared after
+/// `string_id!` so the macro is textually in scope for the module.
+pub mod seam;
 
 string_id!(NodeId);
 string_id!(ViewportId);
@@ -1410,6 +1414,9 @@ pub mod capability {
     pub const COACH_TRIGGER_DYNAMIC: &str = "coach.trigger.dynamic";
     pub const COACH_SEMANTIC_TICKER: &str = "coach.semantic-ticker";
     pub const COACH_DESKTOP_OVERLAY: &str = "coach.desktop-overlay";
+    pub const SEAM_VERB: &str = "seam.verb";
+    pub const SEAM_EVENTS: &str = "seam.events";
+    pub const SEAM_PACK_ATTACH: &str = "seam.pack-attach";
     pub const CODEGEN_RECORDER: &str = "codegen.recorder";
     pub const TRACE_REPLAY: &str = "trace.replay";
     pub const VISUAL_APPROVAL: &str = "visual.approval";
@@ -1647,6 +1654,21 @@ pub fn capability_catalog() -> Vec<CapabilityDescriptor> {
             id::COACH_DESKTOP_OVERLAY,
             "painting touchpoints outside the app window needs the coach-overlay daemon and its ADR",
             "coach-c2",
+        ),
+        unsupported(
+            id::SEAM_VERB,
+            "the pilot pipe never executes foreign-app verbs; dpl-coach-daemon is the honest devtools surface for the seam catalog",
+            "coach-seam-s2",
+        ),
+        unsupported(
+            id::SEAM_EVENTS,
+            "foreign-app fact streams flow from the coach daemon's /events, not the pilot pipe",
+            "coach-seam-s2",
+        ),
+        unsupported(
+            id::SEAM_PACK_ATTACH,
+            "pack resolution and attach live in dpl-coach-pack behind the daemon; the pilot never loads packs",
+            "coach-seam-s2",
         ),
         unsupported(
             id::CODEGEN_RECORDER,

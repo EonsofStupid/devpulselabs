@@ -5,9 +5,9 @@
 //! is the checkpoint unit.
 
 use crate::bundle::FingerprintBundle;
-use crate::id::AppId;
 use crate::pack::{Pack, PackError, ParsedPack};
 use crate::resolve::{resolve_against, Resolution};
+use egui_pilot_ai_protocol::seam::AppId;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -118,9 +118,9 @@ impl PackRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::id::CellKey;
     use crate::pack::{Identity, CURRENT_SEAM, PACK_SCHEMA};
     use crate::resolve::synthesize_generic;
+    use egui_pilot_ai_protocol::seam::CellKey;
 
     fn temp_registry(tag: &str) -> PackRegistry {
         let ms = std::time::SystemTime::now()

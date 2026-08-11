@@ -1,6 +1,18 @@
 # ADR — Coach operator verb catalog (the 101)
 
 **Status:** RATIFIED 2026-08-01 — operator `go` · CX-events-01 implements P0 observe/window slice  
+**Amended 2026-08-11 (S2 rehoming, operator `gfo`):** the catalog's ONE
+home is now `egui_pilot_ai_protocol::seam` — typed `SeamVerb` +
+`seam_verb_catalog()` (21 entries: the 20 below **plus `geom`**, which
+shipped 2026-08-01 as an uncataloged alias of `window_geom` — the S2
+census made it a first-class row). §2.1's "own the catalog in
+`dpl-coach-runtime` / daemon JSON" is superseded: the runtime keeps the
+ENGINE, the protocol owns the VOCABULARY, and the daemon is a
+translator (verbs parse at the HTTP edge; answers are typed
+`EffectContract`s; `/events` emits typed `SeamEvent`s). Extension verbs
+ride the `x.<namespace>.<verb>` arm — additive, never a breaking bump.
+Plan: [`coach-seam-s2-protocol-rehoming.md`](coach-seam-s2-protocol-rehoming.md).
+
 **Related:** [`coach-control-plane-adr.md`](coach-control-plane-adr.md) ·
 [`coach-bridge-fabric-runtime.md`](coach-bridge-fabric-runtime.md) ·
 [`../research/coach/bleeding-edge-control-plane.md`](../research/coach/bleeding-edge-control-plane.md)
