@@ -2,23 +2,42 @@
 
 Rust recompiles the same crate bytes over and over — across `cargo clean`,
 across branches, across machines, across projects. sccache caches the
-*compiler output* per crate and replays it. Measured on server1, 2026-08-10:
+*compiler output* per crate and replays it.
 
-| egui + deps | wall time | hit rate |
-|---|---|---|
-| cold (empty cache) | **1m 07s** | 0% |
-| warm (same crates) | **1.4s** | **100%** |
+**But it is not a free speedup, and this runbook's first draft oversold it.**
+Here is the full measurement, on both machines, 2026-08-10:
 
-~45× on that slice. The win is every build after the first, and every machine
-that reuses what another already compiled.
+| scenario | result |
+|---|---|
+| per-crate rebuild, crate already cached (`cargo clean -p egui`) | 100% hit — **1.4s vs 1m07s (server1), 3.1s vs 1m57s (laptop)** |
+| **first** full clean gate, COLD cache | **13m53s — SLOWER than the 5m47s no-sccache baseline** |
+| **repeat** full clean gate, cache primed | **99.0% hit** (Rust 98.6%, C/C++ 99.8%) |
+
+The honest shape: **the first clean build is slower** (pure overhead, no
+hits). The payoff is every clean build *after* the first — CI checkouts,
+branch switches, post-`cargo clean` — where ~99% of compilation is served
+instead of redone, and (tier 2) every machine reusing what another compiled.
+
+**Where it wins:** CI, `cargo clean` rebuilds, branch switches, cross-machine.
+**Where it is neutral-to-negative:** the very first build, and tight
+iterative single-crate dev (see the `CARGO_INCREMENTAL=0` note below —
+cargo's own incremental was already doing that job).
 
 ## What it does NOT do (so nobody is surprised)
 
 - **Does not mix with incremental compilation.** `CARGO_INCREMENTAL=0` is
-  required; sccache replaces incremental's job for clean/CI builds and costs a
-  little on tiny iterative edits.
-- **Does not cache everything.** Link steps and some `build.rs` outputs miss.
-  Real speedup, never 100% of wall time.
+  required. This is a REAL tradeoff, not a footnote: for a small edit to one
+  crate, cargo's own incremental compilation was faster than a cold sccache
+  miss. sccache wins the clean/CI/branch-switch cases and slightly loses the
+  tight edit-rebuild loop. Ratified 2026-08-10 as global-default anyway
+  (operator choice "A") — the clean-build wins outweigh the iterative cost for
+  this workload.
+- **Does not cache everything.** Link steps miss, and the FINAL release binary
+  is always linked fresh — so even a 99%-hit gate still pays the link time.
+  Real speedup on compile, never 100% of wall time.
+- **C/C++ (`-sys`) crates DO cache once warm** (thorvg, wgpu: 99.8% hit on the
+  repeat run) — but they MISS on the cold pass and are a big chunk of the
+  first-build penalty.
 - **Keyed by exact compiler + flags + TARGET TRIPLE.** So
   `x86_64-pc-windows-msvc` and `x86_64-unknown-linux-gnu` are separate
   namespaces — the Windows laptop shares with the Windows CI runner, server1
@@ -35,6 +54,20 @@ automatically. No cron, no manual cleaning. This is the answer to "Rust piles
 up": the *cache* is bounded; it is `target/` directories that grow unbounded,
 and a warm sccache is what lets you delete `target/` freely because rebuilding
 is cheap.
+
+## Status: tier 1 is LIVE on both build machines (2026-08-10)
+
+Wired global-default per operator choice "A":
+
+- **Laptop** — sccache 0.17.0, cache on `D:\sccache`, `SCCACHE_CACHE_SIZE=50G`,
+  wrapper in `%USERPROFILE%\.cargo\config.toml`, env persisted in the user
+  registry. Full `cargo green` verified passing under the wrapper.
+- **server1** — `/usr/bin/sccache`, cache on `/root/.cache/sccache`,
+  `SCCACHE_CACHE_SIZE=20G`, wrapper in `~/.cargo/config.toml`, env in
+  `~/.sccache_env` sourced from `.bashrc` (so a non-interactive SSH build sees
+  it). Full `cargo green` verified: `green ✔`, 99.0% cache hit on the repeat.
+
+Tier 2 (cross-machine) is NOT wired — see below.
 
 ## Tier 1 — local bounded cache per machine (turnkey, do this first)
 
