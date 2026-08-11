@@ -1,12 +1,78 @@
 # Resume pack — CURRENT
 
-**Updated:** 2026-08-08 (post-compact execution: S3a BUILT + proven,
-landing via PR; S3b is the work to execute next)
+**Updated:** 2026-08-10 (Blender R0 spike PROVEN + mock rev 4 authored,
+both UNCOMMITTED awaiting operator red-pen → then one docs PR. **S2 plan
+still DRAFTED at `docs/plans/coach-seam-s2-protocol-rehoming.md` —
+AWAITING OPERATOR APPROVAL of the plan before any code.**)
 **Lanes:** coach-seam (this session) · ai-layer (2026-08-03 state below;
 its "uncommitted seam" note is stale — the tree is clean of it as of #212)
-**Dirty:** false. (`editor-presets-mock.html` + `workbench-editor.md` +
-branch `feat/coldlight-53-hues` are the operator's own parallel work —
-do not touch; branch S3a from `main`.)
+**Dirty:** ops docs + journals + mock rev 4 + spike plan/artifacts ride
+the next PR (house pattern). `Cargo.lock` is legitimately dirty on
+`main`: the committed lock is missing xtask's `image` dep (a sibling PR
+merged without its lock line); any build regenerates it — commit it WITH
+the next slice, it is not our drift. Operator parallel work
+(`feat/coldlight-53-hues`, editor mock, workbench-editor plan, PRs
+#227/#222) — do not touch.
+
+## Session 2026-08-10 — Blender R0 spike + mock rev 4 (read before S2)
+
+**Blender R0 spike PROVEN** (operator demanded real proof, pulled
+forward from S4; plan + full evidence table:
+`docs/plans/coach-seam-s4-spike-blender-r0.md` §5; journal:
+`docs/journal/2026-08-10-blender-r0-spike-mock-rev4.md`):
+- Packaged Blender 4.0.2 (apt, this seat, DISPLAY=:1) driven live via a
+  stdlib-only Python bridge loaded with `--python` — socket thread
+  enqueues, `bpy.app.timers` executes on the main thread (bpy is not
+  thread-safe), Blender's own handlers emit timestamped facts to JSONL.
+- Numbers: ping 9 ms · `open model.blend` 16 ms RTT with
+  `effect_observed:true` · select/deselect 4–21 ms, named before/after ·
+  operator viewport click → **named-object fact in 109 ms, zero pixels**.
+- **Named gap:** `dpl-coach-overlay` presence gate is AT-SPI-only
+  (`linux_self_test.rs::ensure_target_running`); Blender is invisible to
+  AT-SPI, so R0 apps can be driven+observed but NOT painted yet. Fix is
+  a small follow-on: an R0/X11 presence arm — `x11_window_for_class`
+  already exists in the same file. NOT yet coded (operator redirected).
+- Artifacts: `docs/research/coach/spikes/blender-r0/` (bridge.py,
+  drive.py, spike-events.jsonl; model.blend is untracked scratch).
+
+**Mock rev 4** (`docs/design/mocks/coach-seam-mock.html`, operator:
+"find our existing mocks and fix them and have them clearly named"):
+- Three systems named in plain words at the top: **1 EguiPilot** —
+  inside lane, chat/AI drives the platform itself (teach or perform
+  live); **2 Fabric Foundry → the Catalog** — progress-bar build that
+  generates an app's fabric into the catalog = the source-of-truth
+  app-agnostic layer; **3 Coach + HUD** — outside lane at lesson time.
+- **Rung realignment:** rev ≤3 said R1–R4; merged code + ratified ADR
+  say **R0 native / R1 a11y / R2 injection / R3 vision**. Fixed
+  everywhere (legend, per-app ladders, trace table, TOMLs, downgrades).
+- **Stage 8 · Coach HUD added:** persistent floating toolbar opposite
+  focus; **Ctrl+Shift+Space freeze** with visible indicator (hotkey
+  actually works in the mock — browser-verified); hover chips (steps
+  2/5 · points · community · avg act ms · actions · tokens) each
+  tooltip-naming its REAL ledger source: coach-domain beats, S1 seam
+  spans, ai-usage domain (#169). HUD is a lens over signals we already
+  emit — nothing new invented for it.
+- Foundry stage reframed "building X into the catalog" + cites the real
+  spike numbers for Blender. Red-pen queue grew to 8: (6) HUD placement
+  law — a11y focus vs pointer dwell; (7) freeze hotkey confirm; (8)
+  **community score vs local-first law — needs an explicit opt-in
+  ruling before anything ships.**
+- Render-verified in browser (stages 1/2/8 + hotkey). Note: the mock's
+  palette has no `--panel` var — HUD uses `--raised` (a transparent-HUD
+  bug caught and fixed in-session).
+
+**Operator questions answered in-session:** "am I wrong / better
+solution?" — no: catalog/pack approach validated by the spike (109 ms
+named-object click vs vision-first guessing); refinement = for R0 apps
+the fabric IS the native API surface, the pack records which rail. The
+Rust "connector" term = trait + adapter; Axum is just the daemon's HTTP
+lib, not the architecture.
+
+**Next in order:** operator red-pens mock rev 4 (esp. items 6–8) →
+docs PR (mock + spike plan + journals + ops) → **S2 plan approval** →
+S2 code → S3b (first clickable demo) → S4 Blender pack proper (seat now
+HAS Blender + a proven bridge shape) → S5. Overlay R0 presence arm can
+ride S3b or a micro-slice — operator's call.
 
 ## Coach-seam lane (session 2026-08-07) — READ FIRST if resuming coach
 
@@ -85,18 +151,64 @@ evidence: `docs/plans/coach-seam-s3a-identity-spine.md`; design text:
   pack written + resolved by shape (Blender NOT installed here — S4
   seat prep). Full `cargo green`.
 
-**Next (coach), in order:**
+**RULED 2026-08-08 (operator, after post-compact reground): S2 next.**
+S2 plan drafted — `docs/plans/coach-seam-s2-protocol-rehoming.md` —
+**halted for operator approval before code.** The reground (all key
+files re-read in full) corrected the record; the corrections are IN the
+plan's §1 and must not be re-lost by a future compact:
+- NO "private verb enum" exists — the violation is bare verb strings
+  end to end (`execute_verb(&str)` match; 20 static `VerbInfo` rows in
+  `coach-runtime/src/verbs.rs`) + eight crate-local effect structs. S2
+  *introduces* the typed vocabulary, it does not delete an enum.
+- "The 101" is the catalog's NAME (19 shipped verbs + `drag` planned),
+  never a count of 101 verbs.
+- Daemon executes `geom`/`window_geom` but `/verbs` omits it — S2
+  catalogs it honestly.
+- The 2026-08-01 battery was MANUAL curl (no committed script; GREEN
+  report at `docs/proof/coach-verb-battery/REPORT.md`); S2 commits it
+  as `coach-daemon/examples/verb_battery.rs` (`ureq` dev-dep flagged
+  for red pen) so the re-run is one command and — via S1 spans — yields
+  per-verb reliability stats for the first time.
+
+**S2 shape (plan §4, ADR §2.1–2.2 + §8.2):** `seam` module in
+`egui-pilot-ai-protocol` (v2.6→2.7, additive): `SeamVerb` (catalog wire
+names + `geom` + `Extension{x.*}` incubator), `SeamTarget`,
+`SeamVerbDescriptor`/`seam_verb_catalog()` (replaces `verbs.rs`, no
+shim), `TransportRung` (labels `r0`..`r3` == dpl-fabric labels,
+equality-TESTED, no fabric→protocol dep edge), `EffectContract` (typed
+core + open extra map), protocol `SeamEvent` fact stream
+(name-collides with dpl-fabric's ledger event — accepted, two-Fabrics
+precedent), `seam.*` capability entries Unsupported-with-evidence in
+the pilot catalog (= testing-vs-coaching separation, visible).
+Identity ids (`AppId`/`CellKey`/`PackId`/`IdError`) MOVE from
+dpl-coach-pack **with parse law intact** — ADR §2.1 refinement: NOT
+bare `string_id!`; Deserialize goes through `parse`. coach-pack's
+`Rung` replaced by protocol `TransportRung` (TOML values unchanged —
+S3a packs on disk parse unchanged, tested); `PromotedRung` stays
+pack-domain. Daemon: `+protocol` dep, verb strings die at the HTTP
+edge, `/verbs` derives from the protocol, responses carry
+`EffectContract`, `/events` emits typed facts. Docs amended in-PR:
+catalog ADR (home moved, geom, count honesty), architecture.md §3 +
+xtask if censused, seam ADR one-line §2.1 refinement note.
+
+**Then:**
 1. **S3b** — Foundry v0 (census → passive fabric via existing mint →
    verb probes emitting seam spans → induction → battery → publish) +
    hub UI: "Build fabric (Foundry)" on Pick, job console, profile card.
-   Hub swaps its heuristic matching for `FingerprintBundle` + registry
+   Hub swaps heuristic matching for `FingerprintBundle` + registry
    resolve — the hardcoded cursor/calculator seed strings die here.
-2. **S4** — Blender first pack ON THIS SEAT (install Blender first);
-   thin a11y recorded honestly (Blender = OpenGL UI; its real rail is
-   R0 Python, later slice); publish on battery green.
-3. Then S2 protocol rehoming (`AppId`/`PackId` MOVE into
-   `egui-pilot-ai-protocol`, no shims) → S5 Optimize cards (+ DataFusion
-   lens when its arrow-59 release ships).
+   FIRST CLICKABLE DEMO lands here.
+2. **S4** — Blender first pack ON THIS SEAT (install Blender first —
+   not present); thin a11y recorded honestly (its real rail is R0
+   Python, later slice); publish on battery green.
+3. Then S5 Optimize cards (+ DataFusion lens when its arrow-59 release
+   ships).
+
+**Honesty ledger (operator review 2026-08-08):** S1+S3a are foundations
+— NOTHING clickable exists yet; never call a proof example a demo. The
+pre-audit waste is bounded to the ~800-line daemon HTTP wrapper (S2
+repurposes it); verb engine, inventory, mint, spans, identity are all
+load-bearing and merged.
 
 Review contract: every slice lands with plan doc, tests, live drill
 where applicable, `cargo green`, PR merged on double-green only,

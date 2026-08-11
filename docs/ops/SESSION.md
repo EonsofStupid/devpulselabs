@@ -1,7 +1,7 @@
 ---
 dirty: false
 active_lane: coach-seam
-updated: 2026-08-08
+updated: 2026-08-10
 ---
 
 # Ops session ledger
@@ -48,16 +48,53 @@ running gnome-calculator resolved (score 8, live AT-SPI evidence) among
 65 real rows, 64 honest strangers; Blender pack proven by shape (install
 = S4 seat prep). architecture.md §3 + xtask census amended in-commit.
 
-**NEXT:** **S3b** Foundry v0 + hub UI (Pick gains "Build fabric",
-staged checkpointed job, console + profile card; every probe emits a
-seam span; hub calls `FingerprintBundle::from_inventory` + registry
-resolve — no more hardcoded seed strings) → **S4 Blender first pack**
-(install Blender on this seat; thin a11y RECORDED, R0 Python rail is a
-later slice) → S2 protocol rehoming → S5 Optimize cards (+ DataFusion
-lens when its arrow-59 release ships). Full design:
-`docs/journal/2026-08-08-coach-seam-s1-spine-s3-design.md`. Each slice:
-plan doc → tests → live drill → `cargo green` → PR on double-green →
-STATE/journal.
+**Blender R0 spike PROVEN 2026-08-10** (pulled forward from S4 by
+operator demand for real proof; plan+evidence
+`docs/plans/coach-seam-s4-spike-blender-r0.md`): packaged Blender 4.0.2
+driven live via its own Python bridge — open 16 ms / select 4–21 ms,
+every effect observed by name; operator viewport click → named-object
+fact in 109 ms, zero pixels. **Named gap:** `dpl-coach-overlay`
+presence gate is AT-SPI-only (`ensure_target_running`), so R0 apps can
+be driven+observed but not yet painted — overlay needs an R0/X11
+presence arm (small follow-on; `x11_window_for_class` already exists in
+the same file). Spike artifacts in
+`docs/research/coach/spikes/blender-r0/`.
+
+**Mock rev 4 2026-08-10** (operator: fix + name the mocks): three
+systems named in plain words (1 EguiPilot inside lane · 2 Fabric
+Foundry → Catalog = source-of-truth agnostic layer · 3 Coach + HUD);
+rungs REALIGNED to the ratified R0–R3 (rev ≤3 said R1–R4, mismatching
+merged code); stage **8 · Coach HUD** added — persistent floating
+toolbar opposite focus, Ctrl+Shift+Space freeze (hotkey WORKS in the
+mock), hover chips each naming their real ledger source (coach beats /
+seam spans / ai-usage tokens); red-pen items 6–8 added (placement law,
+freeze hotkey, community score vs local-first — needs opt-in ruling).
+Render-verified in browser. UNCOMMITTED — awaiting operator red-pen,
+then docs PR.
+
+**RULED 2026-08-08: S2 before S3b** (operator, post-reground). S2 plan
+DRAFTED — `docs/plans/coach-seam-s2-protocol-rehoming.md` — **awaiting
+operator approval before code.** The reground corrected the record
+(post-compact review, all key files re-read in full): there is NO
+"private verb enum" — the violation's true shape is bare verb strings
+end to end (`execute_verb(&str)`, 20 static `VerbInfo` rows) + eight
+crate-local effect structs; "the 101" is the catalog's NAME (19 verbs +
+drag planned), not a count; the daemon executes `geom` uncataloged; the
+2026-08-01 battery was manual curl, no committed script. S2 therefore:
+typed `SeamVerb`/`SeamTarget`/`EffectContract`/`TransportRung` +
+validated ids MOVED (parse law intact — ADR §2.1 refinement, no bare
+`string_id!`) into `egui_pilot_ai_protocol::seam` (v2.7); daemon =
+translator; `verbs.rs` deleted (no shim); `seam.*` capability entries
+Unsupported-with-evidence in the pilot catalog = the testing-vs-coaching
+separation, visible; battery committed as
+`coach-daemon/examples/verb_battery.rs` (flagged: `ureq` dev-dep) and
+re-run green WITH per-verb reliability stats via S1 spans. Then: S3b
+Foundry v0 + hub UI (FIRST CLICKABLE DEMO) → S4 Blender first pack
+(INSTALL BLENDER on this seat first) → S5 Optimize cards (+ DataFusion
+lens when its arrow-59 release ships). Journals:
+`docs/journal/2026-08-08-coach-seam-s3a-landed-s2-ruling-pending.md`.
+Each slice: plan doc → tests → live drill → `cargo green` → PR on
+double-green → STATE/journal.
 
 **Prior lane — ai-layer** (2026-08-03 state; #212 landed since, verify):
 persona (Clyffy), session primitive, typed provider funnel.
@@ -98,7 +135,8 @@ AI usage domain (#169) · coach C2e/C2f + fabric bridge (#179/#187/#188)
 | Debt | `chat-extensions` | zero references |
 | Debt | Claude decoder | `UNKNOWN` for `last-prompt`/`ai-title`/`mode`/`permission-mode` |
 | Providers | Cursor / Gemini | probe needles UNVERIFIED until their CLIs exist on a machine |
-| Coach | seam mock | rev 3 committed (#223); ADR ratified; standing red-pen invite on the 5 §6 defaults stays open |
+| Coach | seam mock | rev 4 UNCOMMITTED (naming + R0–R3 realign + stage 8 HUD); rev 3 committed (#223); red-pen queue now 8 items |
+| Coach | overlay R0 gap | presence gate AT-SPI-only; Blender (R0) undrawable until an R0/X11 presence arm lands — named 2026-08-10 |
 | Coach | trace sink | RESOLVED 2026-08-07: Arrow/DataFusion over Parquet (operator go); mock rev 2 + research note updated |
 | Coach | C2f / Notepad | #187; CX-harvest + Pass-2 parked |
 | Harness | no mid-animation capture | every capture is `MotionPolicy::Suppressed` |
