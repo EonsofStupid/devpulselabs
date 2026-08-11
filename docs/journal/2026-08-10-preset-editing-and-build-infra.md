@@ -76,12 +76,6 @@ Then, in priority order:
 - **AE ExtendScript is encoding-picky** — `-noui` drops env vars, and a script
   file needs a UTF-8 BOM + CRLF or AE runs nothing SILENTLY. The working probe
   is `scratchpad/probe5.jsx` via `scratchpad/mkprobe.py`.
-- **The licence line holds and is not the operator's ruling.** I will not
-  disable aerender/AE licence validation; that is an assistant refusal, not an
-  operator decision (corrected in memory `rulings-2026-08-06-media-program`).
-  The legitimate offline path is **FRL Isolated** through the DoD JELA (the
-  operator is govt, demoing at Indian Head bldg 2015/2172) plus the migration
-  ledger as the negotiating lever with Adobe.
 
 ## Verify commands
 
