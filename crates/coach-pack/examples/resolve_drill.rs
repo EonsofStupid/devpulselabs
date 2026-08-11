@@ -11,9 +11,10 @@
 //! strangers synthesize honest `x.unresolved:` profiles.
 
 use dpl_coach_pack::{
-    AppId, CellKey, FingerprintBundle, Identity, Pack, PackRegistry, Resolution, CURRENT_SEAM,
-    PACK_SCHEMA,
+    FingerprintBundle, Identity, Pack, PackRegistry, Resolution, CURRENT_SEAM, PACK_SCHEMA,
 };
+// Identity types live at their one home since S2 (no re-export shims).
+use egui_pilot_ai_protocol::seam::{AppId, CellKey};
 
 fn blender_pack() -> Pack {
     Pack {

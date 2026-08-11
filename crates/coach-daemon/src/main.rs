@@ -1,6 +1,12 @@
-//! dpl-coach-daemon — localhost Axum Coach control plane.
+//! dpl-coach-daemon — localhost Axum TRANSLATOR onto the protocol seam.
 //!
 //! Agent hop: HTTP on 127.0.0.1. App hop: AT-SPI / X11 via dpl-coach-runtime.
+//! Since S2 (docs/plans/coach-seam-s2-protocol-rehoming.md) the daemon
+//! speaks `egui_pilot_ai_protocol::seam` end to end: `body.verb` parses
+//! to a typed `SeamVerb` at the HTTP edge (bare strings die here),
+//! `/verbs` derives from `seam_verb_catalog()`, every mutating verb
+//! answers with a protocol `EffectContract`, and `/events` emits typed
+//! protocol `SeamEvent` facts.
 //! Reality gates refuse ghost AT-SPI. ADR: docs/plans/coach-control-plane-adr.md
 //! Verb catalog: docs/plans/coach-operator-verb-catalog-adr.md
 //!
@@ -24,10 +30,20 @@ use dpl_coach_inventory::inventory;
 use dpl_coach_runtime::{
     app_assert_state, app_close, app_open, app_press_key, app_scroll, app_select, app_type_text,
     app_wait_until, extents, invoke_gated, mount_spec, probe_presence, require_real_target,
-    resolve_seed, verb_catalog, window_focus, window_geom, window_move, window_resize, AgencyMode,
-    FabricSession, MountSpec, OuterGeom,
+    resolve_seed, window_focus, window_geom, window_move, window_resize, AgencyMode, FabricSession,
+    MountSpec, OuterGeom,
 };
-use dpl_fabric::{Fabric as SignalFabric, SeamAgency, SeamEvent, SeamSpan, TransportRung};
+// Two vocabularies meet here, deliberately qualified: the protocol seam
+// (wire types; `seam::SeamEvent` is the /events fact) and the fabric's
+// ledger domain (`dpl_fabric::SeamEvent` is the S1 span fact). The
+// fabric's private `TransportRung` survives S2 only because its file is
+// held by a parallel lane — `fabric_rung` + the label-equality test
+// below hold the two enums identical until the named follow-up retires
+// the copy (S2 plan §4.1 fallback).
+use dpl_fabric::{Fabric as SignalFabric, SeamAgency, SeamEvent, SeamSpan};
+use egui_pilot_ai_protocol::seam::{
+    self, EffectContract, Observables, SeamVerb, TransportRung, WindowGeom,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -248,6 +264,19 @@ const fn seam_agency(a: AgencyMode) -> SeamAgency {
     }
 }
 
+/// Protocol rung → the fabric's private span rung. Wire labels are
+/// identical by the test below; the fabric copy retires in its own
+/// micro-slice once its file is free (S2 plan §4.1 fallback, taken
+/// because a parallel lane holds `crates/fabric/src/lib.rs`).
+const fn fabric_rung(r: TransportRung) -> dpl_fabric::TransportRung {
+    match r {
+        TransportRung::R0Native => dpl_fabric::TransportRung::R0Native,
+        TransportRung::R1Semantic => dpl_fabric::TransportRung::R1Semantic,
+        TransportRung::R2Injection => dpl_fabric::TransportRung::R2Injection,
+        TransportRung::R3Vision => dpl_fabric::TransportRung::R3Vision,
+    }
+}
+
 async fn health() -> Json<Value> {
     Json(json!({
         "ok": true,
@@ -258,14 +287,17 @@ async fn health() -> Json<Value> {
     }))
 }
 
+/// One source of truth: `/verbs` derives from the protocol catalog —
+/// the introspection surface can never under-claim what `execute_verb`
+/// accepts again (`geom` was shipped-but-unlisted for a week).
 async fn verbs_handler() -> Json<Value> {
-    let verbs: Vec<Value> = verb_catalog()
+    let verbs: Vec<Value> = seam::seam_verb_catalog()
         .iter()
-        .map(|v| {
+        .map(|d| {
             json!({
-                "name": v.name,
-                "status": v.status,
-                "target": v.target,
+                "name": d.verb,
+                "status": d.status.as_str(),
+                "target": d.target.as_str(),
             })
         })
         .collect();
@@ -274,24 +306,35 @@ async fn verbs_handler() -> Json<Value> {
 
 /// What one verb execution produced, beside its span facts (plan §4:
 /// the rung table is v1 static; `mechanism` names the honest means;
-/// scroll resolves its rung from the effect's `via` at runtime).
+/// scroll resolves its rung from the effect's `via` at runtime). The
+/// typed pieces assemble into the wire `EffectContract` at the handler;
+/// `attrs` stays the S1 span vocabulary, untouched by S2.
 struct VerbOutcome {
-    value: Value,
+    ok: bool,
+    /// The effect's own app name (AT-SPI resolved) when it reports one.
+    app: Option<String>,
     rung: TransportRung,
     downgraded_from: Option<TransportRung>,
     mechanism: String,
     effect_observed: bool,
+    before: Observables,
+    after: Observables,
+    extra: Vec<(String, String)>,
     attrs: Vec<(String, String)>,
 }
 
 impl VerbOutcome {
-    fn new(value: Value, rung: TransportRung, mechanism: &str, effect_observed: bool) -> Self {
+    fn new(rung: TransportRung, mechanism: &str, effect_observed: bool) -> Self {
         Self {
-            value,
+            ok: true,
+            app: None,
             rung,
             downgraded_from: None,
             mechanism: mechanism.into(),
             effect_observed,
+            before: Observables::default(),
+            after: Observables::default(),
+            extra: Vec::new(),
             attrs: Vec::new(),
         }
     }
@@ -300,13 +343,32 @@ impl VerbOutcome {
         self.attrs.push((key.into(), value.to_string()));
         self
     }
+
+    fn extra(mut self, key: &str, value: impl ToString) -> Self {
+        self.extra.push((key.into(), value.to_string()));
+        self
+    }
+
+    fn contract(self, verb: &SeamVerb, requested_app: &str) -> EffectContract {
+        EffectContract {
+            ok: self.ok,
+            verb: verb.wire_name().to_string(),
+            app: self.app.unwrap_or_else(|| requested_app.to_string()),
+            rung: self.rung,
+            downgraded_from: self.downgraded_from,
+            effect_observed: self.effect_observed,
+            before: self.before,
+            after: self.after,
+            extra: self.extra.into_iter().collect(),
+        }
+    }
 }
 
 async fn verb_handler(
     State(state): State<AppState>,
     Json(body): Json<VerbBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<ApiError>)> {
-    let verb = body.verb.to_ascii_lowercase();
+    let raw = body.verb.to_ascii_lowercase();
     let app = body.app.clone().ok_or_else(|| {
         (
             StatusCode::BAD_REQUEST,
@@ -318,32 +380,47 @@ async fn verb_handler(
         )
     })?;
     let started = std::time::Instant::now();
-    let (verb_c, app_c) = (verb.clone(), app.clone());
-    let result = tokio::task::spawn_blocking(move || execute_verb(&verb_c, &app_c, body))
-        .await
-        .map_err(join_err)?;
+    // Bare verb strings die HERE: parse to the protocol vocabulary at
+    // the HTTP edge; unknown names refuse by name, exactly as before.
+    let result = match SeamVerb::parse(&raw) {
+        Ok(verb) => {
+            let (verb_c, app_c) = (verb.clone(), app.clone());
+            tokio::task::spawn_blocking(move || {
+                execute_verb(&verb_c, &app_c, body).map(|outcome| (verb_c, outcome))
+            })
+            .await
+            .map_err(join_err)?
+        }
+        Err(e) => Err(dpl_coach_fabric::Refused {
+            reason: e.to_string(),
+            tip: "GET /verbs for shipped names. Use /import|/invoke for fabric verbs.".into(),
+        }),
+    };
     let duration_ms = started.elapsed().as_millis() as u64;
     match result {
-        Ok(outcome) => {
+        Ok((verb, outcome)) => {
             state.signals.publish_seam(SeamEvent::Executed(SeamSpan {
-                verb,
-                app,
-                rung: outcome.rung,
-                downgraded_from: outcome.downgraded_from,
-                mechanism: outcome.mechanism,
+                verb: verb.wire_name().to_string(),
+                app: app.clone(),
+                rung: fabric_rung(outcome.rung),
+                downgraded_from: outcome.downgraded_from.map(fabric_rung),
+                mechanism: outcome.mechanism.clone(),
                 agency: SeamAgency::Teacher,
                 ok: true,
                 effect_observed: outcome.effect_observed,
                 duration_ms,
                 lesson: None,
                 beat: None,
-                attrs: outcome.attrs,
+                attrs: outcome.attrs.clone(),
             }));
-            Ok(Json(outcome.value))
+            let contract = outcome.contract(&verb, &app);
+            Ok(Json(
+                serde_json::to_value(contract).unwrap_or_else(|_| json!({"ok": false})),
+            ))
         }
         Err(r) => {
             state.signals.publish_seam(SeamEvent::Refused {
-                verb,
+                verb: raw,
                 app,
                 reason: r.reason.clone(),
                 duration_ms,
@@ -353,14 +430,17 @@ async fn verb_handler(
     }
 }
 
+/// The runtime's effect structs (engine internals) dispose into the
+/// wire `EffectContract` HERE, at the daemon edge — field by field per
+/// the S2 plan §4.5 table. Runtime internals were not touched.
 fn execute_verb(
-    verb: &str,
+    verb: &SeamVerb,
     app: &str,
     body: VerbBody,
 ) -> Result<VerbOutcome, dpl_coach_fabric::Refused> {
     let timeout_ms = body.timeout_ms.unwrap_or(8_000);
     match verb {
-        "move" => {
+        SeamVerb::Move => {
             let x = body.x.ok_or_else(|| dpl_coach_fabric::Refused {
                 reason: "move requires x".into(),
                 tip: "Pass x and y.".into(),
@@ -370,16 +450,9 @@ fn execute_verb(
                 tip: "Pass x and y.".into(),
             })?;
             let e = window_move(app, x, y)?;
-            Ok(VerbOutcome::new(
-                verb_effect_json(&e),
-                TransportRung::R2Injection,
-                "x11-wm",
-                e.effect_observed,
-            )
-            .attr("x", x)
-            .attr("y", y))
+            Ok(window_outcome(&e).attr("x", x).attr("y", y))
         }
-        "resize" => {
+        SeamVerb::Resize => {
             let w = body.w.ok_or_else(|| dpl_coach_fabric::Refused {
                 reason: "resize requires w".into(),
                 tip: "Pass w and h (≥ 50).".into(),
@@ -389,25 +462,13 @@ fn execute_verb(
                 tip: "Pass w and h (≥ 50).".into(),
             })?;
             let e = window_resize(app, w, h)?;
-            Ok(VerbOutcome::new(
-                verb_effect_json(&e),
-                TransportRung::R2Injection,
-                "x11-wm",
-                e.effect_observed,
-            )
-            .attr("w", w)
-            .attr("h", h))
+            Ok(window_outcome(&e).attr("w", w).attr("h", h))
         }
-        "focus" => {
+        SeamVerb::Focus => {
             let e = window_focus(app)?;
-            Ok(VerbOutcome::new(
-                verb_effect_json(&e),
-                TransportRung::R2Injection,
-                "x11-wm",
-                e.effect_observed,
-            ))
+            Ok(window_outcome(&e))
         }
-        "geom" | "window_geom" => {
+        SeamVerb::Geom => {
             let g = window_geom(app)?;
             let e = dpl_coach_runtime::WindowVerbEffect {
                 verb: "geom".into(),
@@ -415,54 +476,22 @@ fn execute_verb(
                 before: g,
                 after: g,
             };
-            Ok(VerbOutcome::new(
-                verb_effect_json(&e),
-                TransportRung::R2Injection,
-                "x11-wm",
-                true,
-            ))
+            Ok(window_outcome(&e))
         }
-        "open" => {
+        SeamVerb::Open => {
             let e = app_open(app, timeout_ms)?;
-            let value = lifecycle_json(&e);
-            let mut out = VerbOutcome::new(
-                value,
-                TransportRung::R2Injection,
-                "spawn",
-                e.effect_observed,
-            );
-            if let Some(pid) = e.pid {
-                out = out.attr("pid", pid);
-            }
-            Ok(out)
+            Ok(lifecycle_outcome(&e, "spawn"))
         }
-        "close" => {
+        SeamVerb::Close => {
             let e = app_close(app, timeout_ms)?;
-            let value = lifecycle_json(&e);
-            let mut out = VerbOutcome::new(
-                value,
-                TransportRung::R2Injection,
-                "wm-delete",
-                e.effect_observed,
-            );
-            if let Some(pid) = e.pid {
-                out = out.attr("pid", pid);
-            }
-            Ok(out)
+            Ok(lifecycle_outcome(&e, "wm-delete"))
         }
-        "wait_until" => {
+        SeamVerb::WaitUntil => {
             let pred = body.predicate.as_deref().unwrap_or("real");
             let e = app_wait_until(app, pred, timeout_ms)?;
-            let matched = e.matched;
-            Ok(VerbOutcome::new(
-                wait_assert_json(&e),
-                TransportRung::R1Semantic,
-                "atspi-read",
-                matched,
-            )
-            .attr("predicate", pred))
+            Ok(wait_assert_outcome(&e).attr("predicate", pred))
         }
-        "assert_state" => {
+        SeamVerb::AssertState => {
             let expect = body.expect.as_deref().unwrap_or("real");
             let e = app_assert_state(app, expect, body.display_contains.as_deref())?;
             if !e.ok {
@@ -474,101 +503,62 @@ fn execute_verb(
                     tip: "Open/close the app or adjust expect/display_contains.".into(),
                 });
             }
-            let matched = e.matched;
-            Ok(VerbOutcome::new(
-                wait_assert_json(&e),
-                TransportRung::R1Semantic,
-                "atspi-read",
-                matched,
-            )
-            .attr("expect", expect))
+            Ok(wait_assert_outcome(&e).attr("expect", expect))
         }
-        "type_text" => {
+        SeamVerb::TypeText => {
             let text = body.text.ok_or_else(|| dpl_coach_fabric::Refused {
                 reason: "type_text requires text".into(),
                 tip: "Pass {\"text\":\"3\"}.".into(),
             })?;
             let e = app_type_text(app, &text)?;
-            let value = json!({
-                "ok": true,
-                "verb": e.verb,
-                "effect_observed": e.effect_observed,
-                "atspi_name": e.atspi_name,
-                "text": e.text,
-                "display_before": e.display_before,
-                "display_after": e.display_after,
-            });
-            Ok(VerbOutcome::new(
-                value,
-                TransportRung::R2Injection,
-                "xdotool",
-                e.effect_observed,
-            )
-            .attr("text_len", text.len()))
+            let mut out =
+                VerbOutcome::new(TransportRung::R2Injection, "xdotool", e.effect_observed)
+                    .extra("text", &e.text)
+                    .attr("text_len", text.len());
+            out.app = Some(e.atspi_name);
+            out.before.text = Some(e.display_before);
+            out.after.text = Some(e.display_after);
+            Ok(out)
         }
-        "press_key" => {
+        SeamVerb::PressKey => {
             let key = body.key.ok_or_else(|| dpl_coach_fabric::Refused {
                 reason: "press_key requires key".into(),
                 tip: "Pass {\"key\":\"4\"} or Return.".into(),
             })?;
             let e = app_press_key(app, &key)?;
-            let value = json!({
-                "ok": true,
-                "verb": e.verb,
-                "effect_observed": e.effect_observed,
-                "atspi_name": e.atspi_name,
-                "key": e.key,
-                "display_before": e.display_before,
-                "display_after": e.display_after,
-            });
             // Digits ride AT-SPI Action, everything else xdotool — the
             // effect does not say which; named honestly until it does.
-            Ok(VerbOutcome::new(
-                value,
+            let mut out = VerbOutcome::new(
                 TransportRung::R2Injection,
                 "atspi-or-xdotool",
                 e.effect_observed,
             )
-            .attr("key", key))
+            .extra("key", &e.key)
+            .attr("key", key);
+            out.app = Some(e.atspi_name);
+            out.before.text = Some(e.display_before);
+            out.after.text = Some(e.display_after);
+            Ok(out)
         }
-        "select" => {
+        SeamVerb::Select => {
             let name = body.name.ok_or_else(|| dpl_coach_fabric::Refused {
                 reason: "select requires name".into(),
                 tip: "Pass {\"name\":\"Basic\"}.".into(),
             })?;
             let e = app_select(app, &name)?;
-            let value = json!({
-                "ok": true,
-                "verb": e.verb,
-                "effect_observed": e.effect_observed,
-                "atspi_name": e.atspi_name,
-                "name": e.name,
-                "state_before": e.state_before,
-                "state_after": e.state_after,
-            });
-            Ok(VerbOutcome::new(
-                value,
-                TransportRung::R1Semantic,
-                "atspi-action",
-                e.effect_observed,
-            )
-            .attr("name", name))
+            let mut out =
+                VerbOutcome::new(TransportRung::R1Semantic, "atspi-action", e.effect_observed)
+                    .extra("name", &e.name)
+                    .attr("name", name);
+            out.app = Some(e.atspi_name);
+            out.before.selection = Some(e.state_before);
+            out.after.selection = Some(e.state_after);
+            Ok(out)
         }
-        "scroll" => {
+        SeamVerb::Scroll => {
             let direction = body.direction.unwrap_or_else(|| "down".into());
             let delta = body.delta.unwrap_or(3);
             let e = app_scroll(app, &direction, delta)?;
-            let value = json!({
-                "ok": true,
-                "verb": e.verb,
-                "effect_observed": e.effect_observed,
-                "atspi_name": e.atspi_name,
-                "direction": e.direction,
-                "delta": e.delta,
-                "via": e.via,
-                "snapshot_before": e.snapshot_before,
-                "snapshot_after": e.snapshot_after,
-            });
             // The first live downgrade-visible verb: AT-SPI scroll action
             // when the pane offers one, wheel injection when it does not.
             let (rung, downgraded_from) = if e.via == "xdotool_wheel" {
@@ -576,42 +566,76 @@ fn execute_verb(
             } else {
                 (TransportRung::R1Semantic, None)
             };
-            let mut out = VerbOutcome::new(value, rung, &e.via, e.effect_observed)
+            let mut out = VerbOutcome::new(rung, &e.via, e.effect_observed)
+                .extra("direction", &e.direction)
+                .extra("delta", e.delta)
+                .extra("via", &e.via)
                 .attr("direction", direction)
                 .attr("delta", delta);
             out.downgraded_from = downgraded_from;
+            out.app = Some(e.atspi_name);
+            out.before.text = Some(e.snapshot_before);
+            out.after.text = Some(e.snapshot_after);
             Ok(out)
         }
+        // Typed but not served on /verb: fabric verbs ride their own
+        // endpoints, drag is honestly planned, extensions have no host
+        // yet. The refusal names the verb, exactly as before.
         other => Err(dpl_coach_fabric::Refused {
-            reason: format!("verb not implemented: {other}"),
+            reason: format!("verb not implemented: {}", other.wire_name()),
             tip: "GET /verbs for shipped names. Use /import|/invoke for fabric verbs.".into(),
         }),
     }
 }
 
-fn lifecycle_json(e: &dpl_coach_runtime::LifecycleEffect) -> Value {
-    json!({
-        "ok": true,
-        "verb": e.verb,
-        "effect_observed": e.effect_observed,
-        "atspi_name": e.atspi_name,
-        "real_before": e.real_before,
-        "real_after": e.real_after,
-        "pid": e.pid,
-    })
+/// `WindowVerbEffect.before/after: OuterGeom` → typed rect observables;
+/// the window id (one window, both sides) rides `extra` (§4.5 table).
+fn window_outcome(e: &dpl_coach_runtime::WindowVerbEffect) -> VerbOutcome {
+    let mut out = VerbOutcome::new(TransportRung::R2Injection, "x11-wm", e.effect_observed)
+        .extra("window_id", e.before.window_id);
+    out.before.rect = Some(wire_geom(e.before));
+    out.after.rect = Some(wire_geom(e.after));
+    out
 }
 
-fn wait_assert_json(e: &dpl_coach_runtime::WaitAssertEffect) -> Value {
-    json!({
-        "ok": e.ok,
-        "verb": e.verb,
-        "matched": e.matched,
-        "predicate": e.predicate,
-        "atspi_name": e.atspi_name,
-        "real": e.real,
-        "pid": e.pid,
-        "detail": e.detail,
-    })
+/// `LifecycleEffect.real_before/real_after` → typed running observables;
+/// `pid` rides `extra` (§4.5 table).
+fn lifecycle_outcome(e: &dpl_coach_runtime::LifecycleEffect, mechanism: &str) -> VerbOutcome {
+    let mut out = VerbOutcome::new(TransportRung::R2Injection, mechanism, e.effect_observed);
+    out.app = Some(e.atspi_name.clone());
+    out.before.running = Some(e.real_before);
+    out.after.running = Some(e.real_after);
+    if let Some(pid) = e.pid {
+        out = out.extra("pid", pid).attr("pid", pid);
+    }
+    out
+}
+
+/// `WaitAssertEffect`: `effect_observed` = matched, `running` = real,
+/// `predicate`/`detail`/`pid` ride `extra` (§4.5 table).
+fn wait_assert_outcome(e: &dpl_coach_runtime::WaitAssertEffect) -> VerbOutcome {
+    let mut out = VerbOutcome::new(TransportRung::R1Semantic, "atspi-read", e.matched)
+        .extra("predicate", &e.predicate);
+    out.ok = e.ok;
+    out.app = Some(e.atspi_name.clone());
+    out.after.running = Some(e.real);
+    if let Some(detail) = &e.detail {
+        out = out.extra("detail", detail);
+    }
+    if let Some(pid) = e.pid {
+        out = out.extra("pid", pid);
+    }
+    out
+}
+
+fn wire_geom(g: OuterGeom) -> WindowGeom {
+    WindowGeom {
+        window_id: g.window_id,
+        x: g.x,
+        y: g.y,
+        w: g.w,
+        h: g.h,
+    }
 }
 
 async fn events_handler(
@@ -627,17 +651,22 @@ async fn events_handler(
 
     let (tx, rx) = mpsc::channel::<Result<Event, Infallible>>(64);
     tokio::spawn(async move {
+        // The stream speaks typed protocol facts since S2 — the same
+        // `kind` names as before, now with one serialization owner.
+        let fact = |name: &'static str, event: &seam::SeamEvent| {
+            let data = serde_json::to_string(event).unwrap_or_else(|_| "{}".into());
+            Ok(Event::default().event(name).data(data))
+        };
         let mut last: Option<OuterGeom> = None;
         let end = tokio::time::Instant::now() + Duration::from_secs(seconds);
         let _ = tx
-            .send(Ok(Event::default().event("hello").data(
-                json!({
-                    "kind": "observe_start",
-                    "app": app,
-                    "seconds": seconds,
-                })
-                .to_string(),
-            )))
+            .send(fact(
+                "hello",
+                &seam::SeamEvent::ObserveStart {
+                    app: app.clone(),
+                    seconds,
+                },
+            ))
             .await;
         while tokio::time::Instant::now() < end {
             let app_c = app.clone();
@@ -650,54 +679,35 @@ async fn events_handler(
                     let moved = g.x != prev.x || g.y != prev.y;
                     let resized = g.w != prev.w || g.h != prev.h;
                     if moved {
-                        let payload = json!({
-                            "kind": "moved",
-                            "app": app,
-                            "before": geom_json(prev),
-                            "after": geom_json(g),
-                            "dx": g.x - prev.x,
-                            "dy": g.y - prev.y,
-                        });
-                        if tx
-                            .send(Ok(Event::default()
-                                .event("moved")
-                                .data(payload.to_string())))
-                            .await
-                            .is_err()
-                        {
+                        let event = seam::SeamEvent::Moved {
+                            app: app.clone(),
+                            before: wire_geom(prev),
+                            after: wire_geom(g),
+                            dx: g.x - prev.x,
+                            dy: g.y - prev.y,
+                        };
+                        if tx.send(fact("moved", &event)).await.is_err() {
                             break;
                         }
                     }
                     if resized {
-                        let payload = json!({
-                            "kind": "resized",
-                            "app": app,
-                            "before": geom_json(prev),
-                            "after": geom_json(g),
-                            "dw": g.w - prev.w,
-                            "dh": g.h - prev.h,
-                        });
-                        if tx
-                            .send(Ok(Event::default()
-                                .event("resized")
-                                .data(payload.to_string())))
-                            .await
-                            .is_err()
-                        {
+                        let event = seam::SeamEvent::Resized {
+                            app: app.clone(),
+                            before: wire_geom(prev),
+                            after: wire_geom(g),
+                            dw: g.w - prev.w,
+                            dh: g.h - prev.h,
+                        };
+                        if tx.send(fact("resized", &event)).await.is_err() {
                             break;
                         }
                     }
                 } else {
-                    let payload = json!({
-                        "kind": "geom",
-                        "app": app,
-                        "geom": geom_json(g),
-                    });
-                    if tx
-                        .send(Ok(Event::default().event("geom").data(payload.to_string())))
-                        .await
-                        .is_err()
-                    {
+                    let event = seam::SeamEvent::Geom {
+                        app: app.clone(),
+                        geom: wire_geom(g),
+                    };
+                    if tx.send(fact("geom", &event)).await.is_err() {
                         break;
                     }
                 }
@@ -706,35 +716,15 @@ async fn events_handler(
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
         let _ = tx
-            .send(Ok(Event::default().event("bye").data(
-                json!({ "kind": "observe_end", "app": app }).to_string(),
-            )))
+            .send(fact(
+                "bye",
+                &seam::SeamEvent::ObserveEnd { app: app.clone() },
+            ))
             .await;
     });
 
     let stream = ReceiverStream::new(rx);
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
-}
-
-fn geom_json(g: OuterGeom) -> Value {
-    json!({
-        "window_id": g.window_id,
-        "x": g.x,
-        "y": g.y,
-        "w": g.w,
-        "h": g.h,
-        "csv": g.as_csv(),
-    })
-}
-
-fn verb_effect_json(e: &dpl_coach_runtime::WindowVerbEffect) -> Value {
-    json!({
-        "ok": true,
-        "verb": e.verb,
-        "effect_observed": e.effect_observed,
-        "before": geom_json(e.before),
-        "after": geom_json(e.after),
-    })
 }
 
 async fn presence(Query(q): Query<PresenceQuery>) -> Json<Value> {
@@ -809,7 +799,7 @@ async fn import_handler(
             state.signals.publish_seam(SeamEvent::Executed(SeamSpan {
                 verb: "import".into(),
                 app,
-                rung: TransportRung::R1Semantic,
+                rung: fabric_rung(TransportRung::R1Semantic),
                 downgraded_from: None,
                 mechanism: "atspi-tree-walk".into(),
                 agency: seam_agency(agency),
@@ -922,7 +912,7 @@ async fn resolve_handler(
             state.signals.publish_seam(SeamEvent::Executed(SeamSpan {
                 verb: "resolve".into(),
                 app,
-                rung: TransportRung::R1Semantic,
+                rung: fabric_rung(TransportRung::R1Semantic),
                 downgraded_from: None,
                 mechanism: "atspi-read".into(),
                 agency: seam_agency(agency),
@@ -983,7 +973,7 @@ async fn invoke_handler(
             state.signals.publish_seam(SeamEvent::Executed(SeamSpan {
                 verb: "invoke".into(),
                 app,
-                rung: TransportRung::R1Semantic,
+                rung: fabric_rung(TransportRung::R1Semantic),
                 downgraded_from: None,
                 mechanism: "atspi-action".into(),
                 agency: seam_agency(agency),
@@ -1152,4 +1142,39 @@ fn join_err(e: tokio::task::JoinError) -> (StatusCode, Json<ApiError>) {
             tip: "Retry.".into(),
         }),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The S2 plan §4.1 fallback contract: while `dpl-fabric` keeps its
+    /// private `TransportRung` (its file is held by a parallel lane),
+    /// this test holds the two enums to ONE wire vocabulary — a post-S2
+    /// span row serializes the same `r0`..`r3` strings the S1-era
+    /// Parquet rows carry, so old segments and new answer one query.
+    /// Retire this test WITH the fabric copy in the follow-up slice.
+    #[test]
+    fn protocol_and_fabric_rung_labels_are_one_vocabulary() {
+        for rung in [
+            TransportRung::R0Native,
+            TransportRung::R1Semantic,
+            TransportRung::R2Injection,
+            TransportRung::R3Vision,
+        ] {
+            assert_eq!(rung.label(), fabric_rung(rung).label(), "{rung:?}");
+        }
+    }
+
+    /// `/verbs` derives from the protocol catalog, and every listed
+    /// name parses back — introspection can never under-claim what the
+    /// edge accepts (the `geom` lesson, S2 plan §1 correction 3).
+    #[test]
+    fn every_cataloged_verb_parses_at_the_http_edge() {
+        for d in seam::seam_verb_catalog() {
+            assert!(SeamVerb::parse(d.verb).is_ok(), "{}", d.verb);
+        }
+        assert!(SeamVerb::parse("window_geom").is_ok(), "shipped alias");
+        assert!(SeamVerb::parse("teleport").is_err());
+    }
 }

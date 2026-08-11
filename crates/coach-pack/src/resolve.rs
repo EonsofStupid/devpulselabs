@@ -4,8 +4,8 @@
 //! honest miss: a generic profile is synthesized, never a guess.
 
 use crate::bundle::FingerprintBundle;
-use crate::id::{AppId, CellKey};
 use crate::pack::{Identity, Pack, CURRENT_SEAM, PACK_SCHEMA};
+use egui_pilot_ai_protocol::seam::{AppId, CellKey};
 
 /// Signal weights v1 (plan §4) — the ONE list; `score_bundle` consults
 /// nothing else and the census test holds this to the bundle's shape.

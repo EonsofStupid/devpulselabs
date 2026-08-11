@@ -1,18 +1,66 @@
 # Resume pack — CURRENT
 
-**Updated:** 2026-08-10 (Blender R0 spike PROVEN + mock rev 4 authored,
-both UNCOMMITTED awaiting operator red-pen → then one docs PR. **S2 plan
-still DRAFTED at `docs/plans/coach-seam-s2-protocol-rehoming.md` —
-AWAITING OPERATOR APPROVAL of the plan before any code.**)
+**Updated:** 2026-08-11 (**S2 protocol rehoming LANDED** — operator
+`gfo` approved the plan; built in an ephemeral worktree
+`../devpulselabs-s2` on `feat/coach-seam-s2-protocol` so the operator's
+live lane stayed untouched. Journal:
+`docs/journal/2026-08-11-coach-seam-s2-landed.md`.)
 **Lanes:** coach-seam (this session) · ai-layer (2026-08-03 state below;
-its "uncommitted seam" note is stale — the tree is clean of it as of #212)
-**Dirty:** ops docs + journals + mock rev 4 + spike plan/artifacts ride
-the next PR (house pattern). `Cargo.lock` is legitimately dirty on
-`main`: the committed lock is missing xtask's `image` dep (a sibling PR
-merged without its lock line); any build regenerates it — commit it WITH
-the next slice, it is not our drift. Operator parallel work
-(`feat/coldlight-53-hues`, editor mock, workbench-editor plan, PRs
-#227/#222) — do not touch.
+its "uncommitted seam" note is stale — the tree is clean of it as of
+#212) · operator live lane `feat/coldlight-53-hues` — as of 2026-08-11
+it holds uncommitted edits to `crates/{app,fabric,ledger,seam}` — DO
+NOT TOUCH those files; this is WHY S2 shipped the §4.1 rung fallback.
+**Dirty (operator checkout):** `docs/ops/signals.jsonl` has a few
+uncommitted operator-lane lines — not ours, leave them.
+
+## Session 2026-08-11 — S2 protocol rehoming LANDED
+
+Plan `docs/plans/coach-seam-s2-protocol-rehoming.md` (approved `gfo`),
+§8 evidence filled in-plan. The short shape:
+
+- **Protocol v2.6 → v2.7**, new `egui_pilot_ai_protocol::seam`: the
+  identity spine (`AppId`/`CellKey`/`PackId`, parse law intact — wire
+  Deserialize goes through `parse`) MOVED from `dpl-coach-pack` (its
+  `id.rs` deleted, no shims); typed `SeamVerb` catalog — 21 entries
+  (`geom` cataloged honestly, `window_geom` a parse alias, `x.*`
+  extension arm); `SeamTarget`; `TransportRung` `r0`..`r3`;
+  `EffectContract` (typed observables + open `extra` map);
+  `SeamEvent` fact stream; three `seam.*` capabilities registered
+  honest-`Unsupported` on the pilot pipe (testing-vs-coaching
+  separation is now VISIBLE in the capability catalog).
+- **Daemon = translator**: verb strings die at the HTTP edge
+  (`SeamVerb::parse`, unknown names 409 by name), responses are typed
+  `EffectContract`s, `/verbs` derives from the protocol catalog,
+  `/events` emits typed `SeamEvent`s. `coach-runtime/src/verbs.rs`
+  retired — a census test in the protocol crate proves the absorption
+  kept every 2026-08-01 row (name/status/target identical).
+- **Named deviation (plan §4.1 landing note):** `dpl-fabric`'s
+  `TransportRung` copy SURVIVES — `crates/fabric/src/lib.rs` sits
+  uncommitted-dirty in the operator's live coldlight lane (lane law).
+  The daemon's `protocol_and_fabric_rung_labels_are_one_vocabulary`
+  test + a `fabric_rung` mapper pin the two enums to one wire
+  vocabulary. **Follow-up micro-slice owed:** retire the fabric copy
+  (and that test) once the coldlight lane lands — pack.rs's l.16
+  promise is half-kept until then.
+- **Battery is a committed drill now**:
+  `cargo run -p dpl-coach-daemon --example verb_battery` (ureq
+  dev-dep). Live on this seat (DISPLAY=:1, gnome-calculator): **25
+  PASS / 1 SOFT (scroll, known limit) / 0 FAIL** →
+  `docs/proof/coach-verb-battery/REPORT-2026-08-11-s2.md` (old report
+  kept, Law 7). The S1 `seam_reliability` fold read the run's 44 spans
+  unchanged — first battery ever WITH per-verb stats; typed refusals
+  (`drag` planned, `teleport` unknown) counted as facts.
+- Docs amended in-PR: catalog ADR (home moved to protocol, geom, §2.1
+  superseded note), seam ADR §8.2 landing record, architecture.md
+  coach-pack/runtime/daemon entries (new protocol edges named).
+- Full `cargo green` (fmt+clippy+tests+structure+release+smoke).
+
+**Next in order:** S3b — Foundry v0 + hub UI (FIRST CLICKABLE DEMO;
+also carries the fabric-inspector overlay + purge/remake ops the
+operator asked for) → S4 Blender pack (seat has Blender + proven
+bridge) → S5 Optimize cards. Micro-slices owed: fabric rung retirement
+(after coldlight lands) · overlay R0/X11 presence arm (operator's call
+whether it rides S3b).
 
 ## Session 2026-08-10 — Blender R0 spike + mock rev 4 (read before S2)
 

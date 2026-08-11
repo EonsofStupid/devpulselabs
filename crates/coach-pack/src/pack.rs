@@ -2,7 +2,7 @@
 //! §7.7): tolerant TOML in (unknown keys warn, never fail, and are
 //! preserved), canonical content-hashed TOML out, promote-only in types.
 
-use crate::id::{AppId, CellKey, PackId};
+use egui_pilot_ai_protocol::seam::{AppId, CellKey, PackId, TransportRung};
 use sha2::{Digest, Sha256};
 use std::fmt;
 use std::fmt::Write as _;
@@ -13,27 +13,11 @@ pub const PACK_SCHEMA: i64 = 1;
 /// The seam version this build speaks (ADR §7.4 `min_seam` gate).
 pub const CURRENT_SEAM: i64 = 1;
 
-/// Transport rung. Mirrors `dpl-fabric::TransportRung` labels; the two
-/// stay decoupled until S2 rehomes both into the protocol crate.
-/// Ordering is quality: `R0Native` is the best rung, `R3Vision` the last.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Rung {
-    R0Native,
-    R1Semantic,
-    R2Injection,
-    R3Vision,
-}
-
-impl Rung {
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::R0Native => "r0",
-            Self::R1Semantic => "r1",
-            Self::R2Injection => "r2",
-            Self::R3Vision => "r3",
-        }
-    }
-}
+// The transport rung's one home is `egui_pilot_ai_protocol::seam` —
+// S2 rehomed it there as this file's own l.16 comment promised. The
+// TOML wire values (`"r0"`/`"r1"`) are byte-identical to the S3a packs
+// on disk. (`dpl-fabric`'s private copy is label-equality-tested in
+// the daemon until its own follow-up micro-slice retires it.)
 
 /// The only rungs a pack may GRANT. Demotion to `r2` and `r3` (vision
 /// never enters the lesson hot path) are unrepresentable — the
@@ -45,10 +29,10 @@ pub enum PromotedRung {
 }
 
 impl PromotedRung {
-    pub const fn rung(self) -> Rung {
+    pub const fn rung(self) -> TransportRung {
         match self {
-            Self::R0Native => Rung::R0Native,
-            Self::R1Semantic => Rung::R1Semantic,
+            Self::R0Native => TransportRung::R0Native,
+            Self::R1Semantic => TransportRung::R1Semantic,
         }
     }
 
@@ -67,11 +51,11 @@ impl PromotedRung {
 
 /// Every verb's default ladder starts semantic; injection is the
 /// fallback rung the runtime downgrades to (S1 records the downgrade).
-pub const DEFAULT_RUNG: Rung = Rung::R1Semantic;
+pub const DEFAULT_RUNG: TransportRung = TransportRung::R1Semantic;
 
 /// A grant only wins when STRICTLY better than the default — a pack can
 /// promote a verb up the ladder, never push it down.
-pub fn effective_rung(default: Rung, grant: Option<PromotedRung>) -> Rung {
+pub fn effective_rung(default: TransportRung, grant: Option<PromotedRung>) -> TransportRung {
     match grant {
         Some(g) if g.rung() < default => g.rung(),
         _ => default,
@@ -760,18 +744,62 @@ rung = \"r3\"
     fn effective_rung_promotes_and_never_demotes() {
         assert_eq!(
             effective_rung(DEFAULT_RUNG, Some(PromotedRung::R0Native)),
-            Rung::R0Native
+            TransportRung::R0Native
         );
         assert_eq!(
             effective_rung(DEFAULT_RUNG, Some(PromotedRung::R1Semantic)),
-            Rung::R1Semantic
+            TransportRung::R1Semantic
         );
-        assert_eq!(effective_rung(DEFAULT_RUNG, None), Rung::R1Semantic);
+        assert_eq!(
+            effective_rung(DEFAULT_RUNG, None),
+            TransportRung::R1Semantic
+        );
         // A grant equal to a BETTER default never demotes it.
         assert_eq!(
-            effective_rung(Rung::R0Native, Some(PromotedRung::R1Semantic)),
-            Rung::R0Native
+            effective_rung(TransportRung::R0Native, Some(PromotedRung::R1Semantic)),
+            TransportRung::R0Native
         );
+    }
+
+    /// S2 proof 6: a pack file in the exact shape the S3a drill wrote
+    /// to disk parses unchanged through the post-move loader — the
+    /// protocol-homed rung speaks the same `"r0"`/`"r1"` TOML values.
+    #[test]
+    fn s3a_pack_files_on_disk_parse_unchanged_after_the_move() {
+        let s3a_shape = "\
+schema = 1
+min_seam = 1
+
+[identity]
+app_id = \"org.blender.Blender\"
+display_name = \"Blender\"
+desktop_ids = [\"blender.desktop\", \"org.blender.Blender.desktop\"]
+wm_classes = [\"Blender\", \"blender\"]
+atspi_names = [\"Blender\"]
+exe_basenames = [\"blender\"]
+
+[cell]
+app_version = \"4.0.2\"
+os = \"linux\"
+locale = \"en\"
+
+[ladder]
+open = \"r0\"
+select = \"r1\"
+";
+        let parsed = Pack::parse(s3a_shape).unwrap();
+        assert!(parsed.warnings.is_empty(), "{:?}", parsed.warnings);
+        assert_eq!(
+            parsed.pack.ladder,
+            vec![
+                ("open".to_string(), PromotedRung::R0Native),
+                ("select".to_string(), PromotedRung::R1Semantic),
+            ]
+        );
+        // The rewrite emits the same byte values the S3a files carry.
+        let rewritten = parsed.pack.to_signed_toml().unwrap();
+        assert!(rewritten.contains("open = \"r0\""), "{rewritten}");
+        assert!(rewritten.contains("select = \"r1\""), "{rewritten}");
     }
 
     #[test]

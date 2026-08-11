@@ -38,6 +38,30 @@ we got here.
 >   where it runs, and names the hypervisor blast radius that follows from
 >   that choice (see `devbox-bootstrap.sh` §"Where this runs").
 
+**2026-08-11 — COACH SEAM S2: THE VOCABULARY COMES HOME (protocol v2.7,
+plan `coach-seam-s2-protocol-rehoming.md`, journal
+`2026-08-11-coach-seam-s2-landed.md`, `green ✔`):**
+
+The seam's verb vocabulary now has ONE home:
+`egui_pilot_ai_protocol::seam`. The identity spine (`AppId`/`CellKey`/
+`PackId`) MOVED out of `dpl-coach-pack` with its parse law intact (wire
+Deserialize goes through `parse`); the 21-verb `SeamVerb` catalog
+cataloged `geom` honestly (shipped since 2026-08-01, listed never);
+`EffectContract` + `SeamEvent` + `TransportRung` (`r0`..`r3`) are the
+typed wire; three `seam.*` capabilities sit honest-`Unsupported` on the
+pilot pipe — testing-vs-coaching separation as a visible fact. The
+daemon is a TRANSLATOR now: verb strings die at the HTTP edge (unknown
+names 409 by name), `coach-runtime/src/verbs.rs` retired behind a
+census test (catalog ⊇ old rows, no silent drops). The 2026-08-01
+manual battery became a committed drill
+(`coach-daemon --example verb_battery`): live 25 PASS / 1 SOFT / 0
+FAIL, and the S1 reliability fold read the run's 44 spans unchanged —
+the first battery WITH per-verb stats. One named deviation: fabric's
+`TransportRung` copy survives (its file dirty in the operator's live
+coldlight lane), pinned by a daemon label-equality test; a retirement
+micro-slice is owed. Built in an ephemeral worktree so the operator's
+lane was never touched.
+
 **2026-08-10 — PRESETS YOU EDIT, EGUI 0.36, AND TWO GATES THAT CATCH WHAT
 GREEN MISSED (#229, #230, #236, #237, plans `lottie-preset-controls.md` +
 `lottie-controls-panel.md`, `green ✔`):**

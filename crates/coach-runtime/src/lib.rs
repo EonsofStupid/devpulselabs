@@ -8,7 +8,6 @@
 
 mod presence;
 mod resolve;
-mod verbs;
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -22,7 +21,10 @@ mod linux_presence;
 mod linux_window;
 
 pub use presence::{probe_presence, x11_class_needle, TargetPresence};
-pub use verbs::{verb_catalog, VerbInfo};
+// The verb catalog's one home is `egui_pilot_ai_protocol::seam` — S2
+// retired this crate's `verbs.rs` (absorbed whole; the protocol crate's
+// census test proves nothing was dropped). This crate is the engine
+// behind the seam, not the vocabulary.
 
 use dpl_coach_fabric::{Fabric, FabricNode, Refused};
 use std::time::{SystemTime, UNIX_EPOCH};

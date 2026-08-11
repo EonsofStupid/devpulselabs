@@ -170,6 +170,17 @@ Same crate, same serde discipline, still zero egui/OS deps.
   promise says otherwise, so the edge is the recommendation.
   `PromotedRung` + `effective_rung` stay in coach-pack — the
   promote-only law is pack-domain, not wire vocabulary.
+  **DEVIATION AT LANDING (2026-08-11):** the fallback shipped, not the
+  edge — not by operator refusal but by lane discipline: at execution
+  time `crates/fabric/src/lib.rs` sat uncommitted-dirty in the
+  operator's live `feat/coldlight-53-hues` lane (SESSION lane law: do
+  not steal). S2 was built in an ephemeral worktree off `main` and
+  touches no fabric file. `dpl-coach-pack::Rung` IS retired into the
+  protocol as promised; `dpl-fabric::TransportRung` survives behind
+  the daemon's `protocol_and_fabric_rung_labels_are_one_vocabulary`
+  test + a `fabric_rung` mapper. The pack.rs l.16 promise is half-kept
+  and re-recorded: a follow-up micro-slice retires the fabric copy
+  (and the daemon test with it) once the coldlight lane lands.
 - **`EffectContract`** (§2.1 + §7.3) — `effect_observed: bool`, typed
   before/after observables (`text`, `rect`, `focus`, `selection`,
   `running`), and the open pack-declared observable map
@@ -404,5 +415,40 @@ legitimately drifted `Cargo.lock`.
 
 ## 8. Evidence
 
-(To be filled at landing: test counts, battery report path + verdict,
-reliability table sample, PR number, double-green run ids, exe mtime.)
+**Landed 2026-08-11** (built in ephemeral worktree `../devpulselabs-s2`
+off `main`, branch `feat/coach-seam-s2-protocol` — the operator's
+`feat/coldlight-53-hues` lane untouched).
+
+- **Protocol:** v2.6 → v2.7; `src/seam.rs` ships the identity spine
+  (moved from `coach-pack/src/id.rs`, file deleted, no shims), the
+  21-verb `SeamVerb` catalog (`geom` cataloged, `window_geom` parse
+  alias), `SeamTarget`, `TransportRung` (`r0`..`r3`), `EffectContract`
+  (+ open `extra` map), `SeamEvent`, `SeamExtensionId` (`x.` arm).
+  Three capabilities registered honest-`Unsupported` on the pipe
+  (`seam.verb`, `seam.events`, `seam.pack-attach`, evidence
+  `coach-seam-s2`).
+- **No-silent-drop census:** protocol test holds `seam_verb_catalog()`
+  ⊇ a literal copy of the 2026-08-01 20-row catalog (name/status/
+  target identical). `coach-runtime/src/verbs.rs` deleted after
+  absorption.
+- **Daemon = translator:** `/verb` parses to `SeamVerb` at the edge
+  (unknown names 409 by name), answers are `EffectContract`s, `/verbs`
+  derives from the protocol catalog, `/events` emits typed
+  `SeamEvent`s. Refusal spans carry the census verb name.
+- **Rung deviation:** §4.1 landing note — fallback shipped (fabric
+  file held by live operator lane); daemon test pins label equality.
+- **Tests:** protocol 29 unit (incl. census) + 5 integration
+  (v1-compat asserts v2.7, v2 golden); coach-pack 22 (S3a fixture
+  parses unchanged, `"r0"`/`"r1"` bytes intact); daemon 2 (label
+  continuity + edge-parses-catalog).
+- **Battery (committed drill, §4.4):** `coach-daemon --example
+  verb_battery` → `docs/proof/coach-verb-battery/REPORT-2026-08-11-s2.md`
+  — **25 PASS / 1 SOFT (scroll, known Calculator limit) / 0 FAIL —
+  GREEN**, including the two typed refusals (`drag` planned, `teleport`
+  unknown) and the SSE observe stream with a concurrent mover.
+- **Reliability fold (S1 lens over S2 spans):** `seam_reliability`
+  over the battery's analytics root read 44 seam rows unchanged —
+  per-verb table printed (e.g. `open` 100% effect at 433ms avg,
+  `drag`/`teleport` counted as refusals) — the first battery run in
+  this repo's history with stats.
+- PR / double-green run ids / exe mtime: recorded at merge below.

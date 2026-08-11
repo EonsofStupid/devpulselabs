@@ -225,7 +225,19 @@ seams above cost their design now and near-zero code; anything beyond
 2. **S2 — protocol rehoming.** `seam` module in `egui-pilot-ai-protocol`;
    daemon's verb enum deleted, daemon translates to protocol types;
    capability entries added; existing verb battery re-run green over the
-   new shape (now WITH reliability stats, per S1).
+   new shape (now WITH reliability stats, per S1). **LANDED 2026-08-11**
+   (plan `coach-seam-s2-protocol-rehoming.md`): protocol v2.7 ships
+   `seam::{AppId, CellKey, PackId, SeamVerb, SeamTarget, TransportRung,
+   EffectContract, SeamEvent}` + the 21-verb catalog (`geom` cataloged);
+   the identity spine MOVED out of `dpl-coach-pack` (no shims); the
+   daemon parses verbs at the HTTP edge and answers typed contracts; the
+   battery is a committed drill (`coach-daemon --example verb_battery`,
+   report `docs/proof/coach-verb-battery/REPORT-2026-08-11-s2.md`, 25
+   PASS / 1 SOFT / 0 FAIL) and the S1 reliability fold reads the new
+   spans unchanged. One named deviation: `dpl-fabric`'s `TransportRung`
+   copy stays (its file was held by a parallel operator lane); a daemon
+   test pins the two enums to one wire vocabulary until the retirement
+   micro-slice.
 3. **S3 — profile registry.** TOML schema + loader, synthesized generic
    profile, promote-only law enforced in types.
 4. **S4 — Blender pack.** Foundry pipeline v0 (census → anchors → probe →
