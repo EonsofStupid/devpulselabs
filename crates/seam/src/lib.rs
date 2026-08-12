@@ -282,37 +282,29 @@ pub fn build_json(st: &Stamped<BuildEvent>) -> Value {
             "type": "cardStarted",
             "slide": slide,
         }),
-        BuildEvent::CardAdded {
-            slide,
-            entity,
-            kind,
-        } => json!({
+        BuildEvent::CardAdded { slide, node, kind } => json!({
             "type": "cardAdded",
             "slide": slide,
-            "entity": entity,
+            "node": node,
             "kind": kind,
         }),
         BuildEvent::CardStyled {
             slide,
-            entity,
+            node,
             kind,
             preset,
         } => json!({
             "type": "cardStyled",
             "slide": slide,
-            "entity": entity,
+            "node": node,
             "kind": kind,
             "preset": preset,
         }),
-        BuildEvent::CardTraitChanged {
-            slide,
-            entity,
-            trait_name,
-        } => json!({
-            "type": "cardTraitChanged",
+        BuildEvent::CardAxisChanged { slide, node, axis } => json!({
+            "type": "cardAxisChanged",
             "slide": slide,
-            "entity": entity,
-            "trait": trait_name,
+            "node": node,
+            "axis": axis,
         }),
         BuildEvent::CardSaved {
             show,

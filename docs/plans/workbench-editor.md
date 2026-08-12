@@ -472,23 +472,32 @@ pub enum BuildEvent {
     SlidePlaced      { show, episode, chapter, slide },  // Studio — unchanged
     EpisodeChanged   { show, episode },                  // Studio — unchanged
     CardStarted      { slide },                       // new card, or an existing one opened
-    CardAdded        { slide, entity, kind },         // text · picture · quote (§3.5 ADD)
-    CardStyled       { slide, entity, kind, preset }, // a preset was picked    (§3.5 STYLE)
-    CardTraitChanged { slide, entity, trait_name },   // one of the 4-7 knobs moved
-    CardSaved        { show, episode, slide },        // RENAMED from CardAuthored
+    CardAdded       { slide, node, kind },         // text · picture · quote (§3.5 ADD)
+    CardStyled      { slide, node, kind, preset }, // a preset was picked    (§3.5 STYLE)
+    CardAxisChanged { slide, node, axis },         // one of the 4-7 knobs moved
+    CardSaved       { show, episode, slide },      // RENAMED from CardAuthored
 }
 ```
+
+> **Vocabulary, 2026-08-11 (`design-system.md` §0.6).** §2.4's ratified ruling
+> — *"everything is an ENTITY"* — stands as the OPERATOR'S concept and its
+> language is untouched. The **code identifier** is `Node`: in Rust GUI
+> `Entity` means an ECS handle (Bevy), and a node in a retained tree is a
+> `Node`. Likewise the knobs are **axes**, not traits — `traits.json` is a
+> retired second compositor, and an *axis* is defined as one styling property
+> channel carrying a merge rule. Fixed here before any row was written,
+> because a signal name is a **wire format** that lands in Parquet.
 
 | flow step (§3.0) | signal | catalog id |
 |---|---|---|
 | new card / edit existing | `CardStarted` | `build.card-started` |
 | add text/picture/quote | `CardAdded` | `build.card-added` |
 | pick a preset | `CardStyled` | `build.card-styled` |
-| tweak a trait | `CardTraitChanged` | `build.card-trait-changed` |
+| tweak an axis | `CardAxisChanged` | `build.card-axis-changed` |
 | save | `CardSaved` | `build.card-saved` |
 
 Since presets are entity-scoped (§2.4), the styling signals carry **which
-entity** was styled (`entity` = the block id, or `"card"` for the stage) and
+node** was styled (`node` = the block id, or `"card"` for the stage) and
 **which kind** it is. Without those, a coach could see that *something* was
 styled but never what — and preset usage per entity kind, the measurable form
 of the compounding claim, would be unrecoverable from the ledger.
@@ -499,11 +508,11 @@ of the compounding claim, would be unrecoverable from the ledger.
 - `CardStyled { preset }` is the one that carries the product's whole thesis:
   it names which of the 10-15 presets collapsed the complexity. It is also what
   makes preset usage measurable.
-- `CardTraitChanged { trait_name }` carries a knob name from the §3.1
+- `CardAxisChanged { axis }` carries a knob name from the §3.1
   registry only — a bounded, registered vocabulary, never free text.
 - Payloads stay **content-free** in the id space, per the existing law at
   `coach_signals.rs:178`: show/episode/slide names are operator content and
-  never reach a `SignalId`; `kind`, `preset`, and `trait_name` are registered
+  never reach a `SignalId`; `kind`, `preset`, and `axis` are registered
   vocabularies, so they may.
 
 **Blast radius, exact** — 5 files, all listed, no shims (pre-release ruling):
@@ -766,7 +775,7 @@ exists; it is v1.
 
 1. **`crates/fabric/src/lib.rs:360-382`** — `BuildEvent`: `CardAuthored` →
    `CardSaved`; add `CardStarted`, `CardAdded { slide, kind }`,
-   `CardStyled { slide, preset }`, `CardTraitChanged { slide, trait_name }`.
+   `CardStyled { slide, preset }`, `CardAxisChanged { slide, axis }`.
    Doc comment rewritten (it says "authoring surface" today).
 2. **`crates/app/src/coach_signals.rs`** — dispatch (`:181`), the five consts
    (`:225`), `COARSE`, and the tests at `:474`.
@@ -880,7 +889,7 @@ those two is the error called out on 2026-07-31 01:54.
   offers exactly that preset's `exposes` set — no path reaches an unexposed
   knob. Asserted on the state, so a stray control cannot regress it.
 - **Unit:** picking a preset publishes `CardStyled { preset }`; moving a knob
-  publishes `CardTraitChanged { trait_name }` with a registry name;
+  publishes `CardAxisChanged { axis }` with a registry name;
   `Bucket::ALL` asserts `slug() == label().to_lowercase()` for all four (the
   inversion can never come back); the census test still pins every bucket to a
   live registry.
@@ -899,7 +908,7 @@ those two is the error called out on 2026-07-31 01:54.
 - **Nav proof:** a shot of the Workbench nav showing **Library · Editor ·
   Episodes · Studio · Test Lab** — five rows, no "Author".
 - **Flow proof:** one `DPL_LEDGER=1` run of the whole §3.0 path capturing
-  `build.card-started` → `card-added` → `card-styled` → `card-trait-changed` →
+  `build.card-started` → `card-added` → `card-styled` → `card-axis-changed` →
   `card-saved`, in order. The ledger transcript *is* the spec, replayed.
 
 ## 7. Commit plan

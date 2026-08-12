@@ -183,7 +183,7 @@ fn build(event: &BuildEvent) -> Vec<SignalId> {
         BuildEvent::CardStarted { .. } => vec![id(BUILD_CARD_STARTED)],
         BuildEvent::CardAdded { .. } => vec![id(BUILD_CARD_ADDED)],
         BuildEvent::CardStyled { .. } => vec![id(BUILD_CARD_STYLED)],
-        BuildEvent::CardTraitChanged { .. } => vec![id(BUILD_CARD_TRAIT_CHANGED)],
+        BuildEvent::CardAxisChanged { .. } => vec![id(BUILD_CARD_AXIS_CHANGED)],
         BuildEvent::CardSaved { .. } => vec![id(BUILD_CARD_SAVED)],
     }
 }
@@ -233,7 +233,7 @@ pub const BUILD_EPISODE_CHANGED: &str = "build.episode-changed";
 pub const BUILD_CARD_STARTED: &str = "build.card-started";
 pub const BUILD_CARD_ADDED: &str = "build.card-added";
 pub const BUILD_CARD_STYLED: &str = "build.card-styled";
-pub const BUILD_CARD_TRAIT_CHANGED: &str = "build.card-trait-changed";
+pub const BUILD_CARD_AXIS_CHANGED: &str = "build.card-axis-changed";
 pub const BUILD_CARD_SAVED: &str = "build.card-saved";
 
 /// Every coarse fact, in domain order. One entry per fabric variant.
@@ -494,19 +494,19 @@ mod tests {
             BuildEvent::CardStarted { slide: "sl".into() },
             BuildEvent::CardAdded {
                 slide: "sl".into(),
-                entity: "t1".into(),
+                node: "t1".into(),
                 kind: "text".into(),
             },
             BuildEvent::CardStyled {
                 slide: "sl".into(),
-                entity: "card".into(),
+                node: "card".into(),
                 kind: "card".into(),
                 preset: "neon-intro".into(),
             },
-            BuildEvent::CardTraitChanged {
+            BuildEvent::CardAxisChanged {
                 slide: "sl".into(),
-                entity: "card".into(),
-                trait_name: "colour".into(),
+                node: "card".into(),
+                axis: "colour".into(),
             },
             BuildEvent::CardSaved {
                 show: "".into(),

@@ -452,14 +452,15 @@ pub enum BuildEvent {
     // a coach could see that a card happened but never *where in the flow*.
     // Now the signal stream IS the flow, and an agent can wait on any point.
     //
-    // `entity` is the block id, or `"card"` for the stage — presets are
-    // entity-scoped (§2.4), so a styling fact that cannot say WHICH entity was
+    // `node` is the block id, or `"card"` for the stage — presets are
+    // node-scoped (§2.4), so a styling fact that cannot say WHICH node was
     // styled makes preset-usage-per-kind unrecoverable from the ledger.
+    // (`node`, not `entity`: `design-system.md` §0.6 — in Rust GUI `Entity`
+    // means an ECS handle, and a node in a retained tree is a `Node`.)
     //
     // Payloads stay content-free in the ID space (`coach_signals.rs:178`):
     // show/episode/slide are operator content and never reach a `SignalId`.
-    // `kind`, `preset` and `trait_name` are registered vocabularies, so they
-    // may.
+    // `kind`, `preset` and `axis` are registered vocabularies, so they may.
     /// A new card was minted, or an existing one opened. Fires where
     /// `CardAuthored` used to — after the draft write (emit-with-mutation) —
     /// because that is what the old signal actually meant.
@@ -467,25 +468,31 @@ pub enum BuildEvent {
     /// Something was added to the card: text · picture · quote (§3.5 ADD).
     CardAdded {
         slide: String,
-        entity: String,
+        node: String,
         kind: String,
     },
-    /// A preset was picked for one entity (§3.5 STYLE). This is the variant
+    /// A preset was picked for one node (§3.5 STYLE). This is the variant
     /// carrying the product's thesis — it names which of the 10-15 presets
     /// collapsed the complexity, and it is what makes preset usage
     /// measurable.
     CardStyled {
         slide: String,
-        entity: String,
+        node: String,
         kind: String,
         preset: String,
     },
-    /// One of the 4-7 exposed traits moved. `trait_name` is a knob from the
-    /// §3.1 registry only — a bounded vocabulary, never free text.
-    CardTraitChanged {
+    /// One of the 4-7 exposed AXES moved (`design-system.md` §0.6: an axis is
+    /// one styling property channel carrying a merge rule). `axis` is a knob
+    /// from the §3.1 registry only — a bounded vocabulary, never free text.
+    ///
+    /// Named for the concept, not the old word: these were called "traits",
+    /// but `traits.json` is a retired second compositor (§0.6.1) and the thing
+    /// an operator actually moves is an axis. A signal name is a WIRE FORMAT —
+    /// it lands in Parquet — so it is fixed here, before any row exists.
+    CardAxisChanged {
         slide: String,
-        entity: String,
-        trait_name: String,
+        node: String,
+        axis: String,
     },
     /// The card was saved. RENAMED from `CardAuthored`; `show`/`episode` stay
     /// empty until it is placed into an episode (`SlidePlaced` is that later
