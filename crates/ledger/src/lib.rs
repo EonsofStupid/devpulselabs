@@ -663,12 +663,30 @@ fn row_build(st: &Stamped<BuildEvent>) -> LedgerRow {
             "episodeChanged",
             serde_json::json!({"show": show, "episode": episode}),
         ),
-        BuildEvent::CardAuthored {
+        BuildEvent::CardStarted { slide } => ("cardStarted", serde_json::json!({"slide": slide})),
+        BuildEvent::CardAdded { slide, node, kind } => (
+            "cardAdded",
+            serde_json::json!({"slide": slide, "node": node, "kind": kind}),
+        ),
+        BuildEvent::CardStyled {
+            slide,
+            node,
+            kind,
+            preset,
+        } => (
+            "cardStyled",
+            serde_json::json!({"slide": slide, "node": node, "kind": kind, "preset": preset}),
+        ),
+        BuildEvent::CardAxisChanged { slide, node, axis } => (
+            "cardAxisChanged",
+            serde_json::json!({"slide": slide, "node": node, "axis": axis}),
+        ),
+        BuildEvent::CardSaved {
             show,
             episode,
             slide,
         } => (
-            "cardAuthored",
+            "cardSaved",
             serde_json::json!({"show": show, "episode": episode, "slide": slide}),
         ),
     };

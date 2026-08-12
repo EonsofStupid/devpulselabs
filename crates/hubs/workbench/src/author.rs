@@ -2,7 +2,7 @@
 //!
 //! Pass A landed the spine: an intent bar and one honest mutation — a draft
 //! card is a REAL, schema-valid `slide.json` in the content inbox, and
-//! `BuildEvent::CardAuthored` publishes AFTER the write (emit-with-mutation).
+//! `BuildEvent::CardStarted` publishes AFTER the write (emit-with-mutation).
 //!
 //! This pass adds the way you actually pick things: a **shelf picker** over
 //! **one carousel** of large, sweepable cards — the operator's ask, "easily
@@ -1549,14 +1549,13 @@ impl AuthorSurface {
                 });
                 self.open_editor(&dir, title);
                 // Emit-with-mutation: the fact is published AFTER the write
-                // succeeds, never before. show/episode are empty until the
-                // card is placed into an episode (Studio's `SlidePlaced`).
+                // succeeds, never before. `CardStarted` carries only the draft
+                // id — show/episode are not facts yet at this point in the
+                // flow, and the old signal carried them as empty strings,
+                // which is a lie shaped like data. `CardSaved` carries them
+                // once placing has made them true (Studio's `SlidePlaced`).
                 if let Some(f) = fabric {
-                    f.publish_build(dpl_fabric::BuildEvent::CardAuthored {
-                        show: String::new(),
-                        episode: String::new(),
-                        slide,
-                    });
+                    f.publish_build(dpl_fabric::BuildEvent::CardStarted { slide });
                 }
             }
             Err(e) => self.status = format!("could not start a card: {e} (nothing was written)"),
