@@ -38,6 +38,104 @@ we got here.
 >   where it runs, and names the hypervisor blast radius that follows from
 >   that choice (see `devbox-bootstrap.sh` §"Where this runs").
 
+**2026-08-11 — THE EGUI CONTRACT, THE NAMING LAW, AND THE INSTRUMENT THAT
+CAN SEE DEAD TOKENS (#245, #248, #249, spec `design-system.md` rev
+2026-08-09, plan `coverage-audit.md`, `green ✔`, exe rebuilt):**
+
+The design system was audited end to end — `coldlight/src/lib.rs` (3,342
+lines, ONE file), `slides/document.rs`, `doc/lib.rs`, every `tokens/*.json`,
+and egui 0.35's vendored source. Three things were true and none were
+written down.
+
+**egui gives us NO design-system vocabulary (§0.5).** Every public type in
+its `style.rs` names painting state right now; searching all of egui for a
+design sense of token/variant/cascade/keyframe returns nothing. Its one
+inheritance is `ui_builder.rs:144` — a child `Ui` inheriting its parent's
+`egui::Style`, whole-struct — which validates the SHAPE of a cascade but
+cannot carry a `Coordinate`. So the choice was never "React term vs egui
+term"; it was borrow from the design-systems discipline or invent house
+words nobody can look up. The boundary rule is now law: **egui's vocabulary
+at and below the paint boundary, the discipline's above it, never mixed.**
+Recorded with it: no gradients (a gradient is a `Mesh`), no blur, **no
+rotation in `TSTransform`**, no document model — and two capabilities we own
+and do not use, `Scene` and `egui::atomics`.
+
+**Terms had drifted (§0.6).** `Tone` crossed two industries (Material 3
+defines *tone* as a LIGHTNESS step; ours picks a hue family) → `Accent` over
+`HueId`, 358 sites. `ThemePreset` was a LAYERING violation, not a name clash
+— all four fields are `dpl_doc::Theme` fields → moves to `dpl-doc`.
+`traits.json` goes for the PRIMARY reason that it is a second compositor the
+matrix superseded; the keyword awkwardness is secondary and would not justify
+a deletion alone. `Block` → `Node`, **not** `Entity` (in Rust GUI `Entity`
+means an ECS handle). Three duplications — `space::S*`, `RADIUS*`, and the
+raw-hex `surface`/`ink` — are **MERGED to one authored source and generated**,
+so ~1,150 call sites do not move and chrome does not start jittering.
+
+**The renderer consumes about a tenth of the engine (§4).**
+`slides/document.rs:309-463` is a centred vertical text stack that resolves
+three properties, NEVER calls `matrix::resolve`, plays one of 19 effects, and
+reads two of `Motion`'s five channels. §4 is rewritten as the real slide
+schema — `Node` tree, `Slot` defined, a fourth cascade level (parent Node),
+and `Ctx` carrying provenance + parent motion for ripple. The five-ring case
+is worked line by line: every mechanism exists, none is wired. The gap was
+never more engine; it was a node to hang the engine on.
+
+**#248 — the matrix reaches all 53 hues.** `resolve_on(hue: &str)` becomes
+the primary path with `resolve(tone)` a thin wrapper, so every `Tone::*` site
+is untouched. The six were never a limit of the ENGINE, only of the enum in
+front of it. Also renamed the day-old card signals to the ratified vocabulary
+(`entity` → `node`, `CardTraitChanged` → `CardAxisChanged`) **before a single
+row existed** — a signal name is a WIRE FORMAT that lands in Parquet.
+§2.4's ratified operator ruling ("everything is an ENTITY") is the operator's
+concept and its prose was deliberately left alone; only the code identifier
+moved.
+
+**#249 — the coverage audit, and the real lesson of this pass.** Every defect
+above was INVISIBLE and found by hand-reading. `smoke_audit` exists because
+the gate asserted on process success instead of the artifact; this is that
+lesson one layer up — a gate that only proves things COMPILE cannot see
+authored data that nothing consumes. `cargo xtask coverage` (also a
+non-gating phase inside `green`) measures **two axes**: REACH (is it
+referenced) and DEPTH (does it use the capability). Effects prove one number
+lies — reach 18/19, depth 1/19. Three verdicts, and the honest third one is
+`UNPROVABLE`: a pool reached through a computed id cannot be resolved
+statically, and calling those DEAD would make the instrument lie, which is
+worse than having none because it would be trusted. Unprovable items are
+NAMED, not counted — each is work.
+
+First run, now printed on every gate: **`presets (ancestral)` reach 6/25,
+depth 1/25** — this IS "the matrix paints exactly one role", as a number.
+**Five genuinely dead tokens** nobody had named (`bounce`, `dwell`,
+`spring-crisp`, `fast`, `settle`). And every matrix facet at 100% on BOTH
+axes — the facets are healthy, the BINDINGS are not, a distinction reach
+alone would have destroyed.
+
+**Three things recorded against ourselves rather than smoothed over.** (1) The
+audit BEAT its own plan: §3.3 predicted `ink-bleed` dead, but that hand count
+grepped const paths only and could not see `motion::effect("ink-bleed")` at
+`coldlight/src/lib.rs:2936`; §6 was corrected to the truth rather than the
+audit tuned to the prediction. (2) The first run found two bugs in the audit
+ITSELF, both it committing the defect it exists to catch — six pools printed
+`0/0` with a confident tick (array-shaped pools it could not parse), and
+`unknown refs` reported `NAME`, read out of xtask's OWN doc comment; the
+corpus now skips `crates/xtask`. (3) A perf figure carried from an earlier
+session had no record anywhere in the repo and is marked NOT YET BENCHED in
+the spec rather than asserted.
+
+**Process landmine, twice this session:** `gh pr checks <n> --watch` exited 0
+on #245 when NO checks existed (docs-only `paths-ignore`) and again on #248/
+#249 while both lanes were still `pending`. **Its exit code is not evidence.**
+Both code PRs were merged only after `gh pr checks` was read directly and
+showed both lanes `pass`. The estate's single Windows slot serialises runs —
+#249 waited ~1h behind #248's merge push before its 37m52s Windows pass.
+
+Open and unruled: the mock delete list (six candidates, untouched); pass 2 of
+the audit (the ratchet against a baseline + excluding `#[cfg(test)]` from
+reach, since a token reached only by a test currently counts as REACHED —
+stated in the doc comment, not hidden); and whether §7 goes next to `3′` (the
+naming merge, which the audit can now prove changed nothing) or to the debug
+overlay proper.
+
 **2026-08-11 — COACH SEAM S2: THE VOCABULARY COMES HOME (protocol v2.7,
 plan `coach-seam-s2-protocol-rehoming.md`, journal
 `2026-08-11-coach-seam-s2-landed.md`, `green ✔`):**
