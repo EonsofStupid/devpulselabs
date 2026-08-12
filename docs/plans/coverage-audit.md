@@ -203,9 +203,26 @@ hues         reach 53/53   depth  6/53   (6-variant enum only)
 
 ## 6. Proof
 
-1. `cargo xtask coverage` prints the table; the effects row reads
-   `reach 17/19, depth 1/19` and names `chart-fade` + `ink-bleed` — matching
-   §3.3, which was derived independently by hand.
+1. `cargo xtask coverage` prints the table.
+
+   **§3.3's hand-derived prediction was WRONG, and the audit is right.** This
+   is recorded rather than quietly reconciled, because it is the first
+   evidence that the instrument is worth having.
+
+   Predicted: `reach 17/19`, with `chart-fade` and `ink-bleed` dead.
+   Actual: **`reach 18/19, depth 1/19`**, `chart-fade` UNPROVABLE, nothing
+   dead.
+
+   The hand count grepped `cl::motion::[A-Z_]*` — **const paths only**. It
+   could not see `motion::effect("ink-bleed")` at
+   `crates/coldlight/src/lib.rs:2936`, a by-name lookup with a string literal.
+   `ink-bleed` was never dead. And `chart-fade`, which genuinely appears
+   nowhere, is `UNPROVABLE` rather than `DEAD` because `effect(` is elsewhere
+   called with a computed id — exactly the §4.2 rule doing its job on the
+   first run.
+
+   The depth number — **1/19** — was predicted correctly and is the finding
+   that matters.
 2. **The false-positive guard:** `cl::motion::M` does **not** appear as an
    effect; it is reported under `UNKNOWN REF` (§3.4).
 3. **The unprovable guard:** a unit test feeds a pool item reachable only via
@@ -238,5 +255,66 @@ Sequencing against work already in flight:
 
 ## 8. Evidence
 
-*(filled during implementation — the printed table, the green run, the three
-test names)*
+### 8.1 The first run — `cargo xtask coverage`, 2026-08-11
+
+```
+── coverage: authored vs reached ─────────────
+  effects              reach  18/19   depth   1/19   unprovable 1   (chart-fade)
+  eases                reach   4/7    depth   n/a    dead: bounce, dwell, spring-crisp
+  durations            reach   5/7    depth   n/a    dead: fast, settle
+  hues                 reach  46/53   depth  45/53   unprovable 7
+  ancestors            reach   8/8    depth   8/8
+  structures           reach   6/6    depth   6/6
+  materials            reach  10/10   depth  10/10
+  atmospheres          reach   7/7    depth   7/7
+  presets (ancestral)  reach   6/25   depth   1/25   unprovable 19
+  presets (theme)      reach   1/5    depth   n/a    unprovable 4
+  presets (motion)     reach   0/3    depth   n/a    unprovable 3
+  presets (bleed)      reach   1/1    depth   n/a
+  traits               reach   5/5    depth   n/a
+  moods                reach  10/10   depth   n/a
+  fonts                reach  11/13   depth   n/a    unprovable 2
+  icons                reach  61/61   depth   n/a
+  unknown refs        M
+coverage: 16 pools, 5 dead (reporting only — the ratchet is pass 2)
+```
+
+**What it confirms, mechanically, that previously took a hand-read:**
+
+- **`presets (ancestral)` — reach 6/25, depth 1/25.** This IS "the matrix
+  paints exactly one role," now a number that prints on every gate run.
+- **`effects` — depth 1/19.** The keyframe migration's true state.
+- **`eases`/`durations` — 5 genuinely dead tokens** nobody had named:
+  `bounce`, `dwell`, `spring-crisp`, `fast`, `settle`.
+- **`unknown refs: M`** — the §3.4 false positive, correctly quarantined
+  instead of being counted as an effect.
+- **The matrix facets are all at 8/8 · 6/6 · 10/10 · 7/7** — every authored
+  facet value stands in at least one coordinate. The *facets* are healthy;
+  it is the *bindings* that are not. Reach-only would have blurred those two
+  into one number.
+
+### 8.2 Two bugs the first run found in the audit itself
+
+Recorded because both were the audit committing the defect it exists to catch:
+
+1. **Six pools printed `0/0` with a confident tick.** `object_keys` handled
+   only id-keyed objects; every pool except `motion.json`'s three is an array
+   of `{id, …}` rows. Fixed to accept both shapes (`name` for moods).
+2. **`unknown refs` reported `NAME`** — read out of xtask's *own doc comment*
+   explaining the scanner. The corpus now skips `crates/xtask`: an instrument
+   that reads its own documentation as evidence is measuring the wrong thing.
+
+### 8.3 Tests
+
+`crates/xtask/src/main.rs`, `mod coverage_tests`:
+
+- `const_names_mirror_the_design_build` — pins the derivation to
+  `coldlight/build.rs:84`; if that changes, every reach number would silently
+  go to zero.
+- `a_module_alias_is_never_mistaken_for_an_effect` — the §3.4 guard.
+- `a_computed_lookup_is_unprovable_not_dead` — the §4.2 guard.
+
+### 8.4 Gate
+
+`cargo green` ✔ with the coverage phase wired between `structure_audit` and
+clippy, reporting and not gating (§4.4).
