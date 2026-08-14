@@ -322,7 +322,9 @@ fn main() {
     b.step("scroll", &body, v);
 
     // -- fabric verbs (routes untouched by S2 — old shapes) ------------
-    let (_, body) = b.post("/import", json!({ "name": app }));
+    // The battery IS the calculator script, so the seed is explicit —
+    // the daemon stopped sniffing seeds from app names in S3b.
+    let (_, body) = b.post("/import", json!({ "name": app, "seed": "7" }));
     let session = body["session"].as_str().unwrap_or_default().to_string();
     let seed = body["seed_path"].as_str().unwrap_or_default().to_string();
     let v = if body["ok"] == Value::Bool(true) && !session.is_empty() {

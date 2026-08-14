@@ -1,0 +1,26 @@
+[package]
+name = "dpl-coach-foundry"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# S3b of the seam ADR (docs/plans/coach-seam-adr.md §3.5; pass plan
+# docs/plans/coach-seam-s3b-foundry-v0.md): the staged, checkpointed
+# Foundry pipeline — census → resolve → fabric → probe → induct →
+# battery → publish — building pack cells on disk, resumable after a
+# kill, with purge/remake as first-class operations. Every probe emits
+# an S1 seam span to the same Parquet layout the daemon writes.
+# Egui-free; never a dep of `app` directly; consumed by dpl-hub-coach.
+
+[dependencies]
+egui-pilot-ai-protocol.workspace = true
+dpl-coach-inventory = { path = "../coach-inventory" }
+dpl-coach-fabric = { path = "../coach-fabric" }
+dpl-coach-pack = { path = "../coach-pack" }
+dpl-coach-runtime = { path = "../coach-runtime" }
+dpl-fabric.workspace = true
+dpl-ledger.workspace = true
+toml.workspace = true
+
+[lints]
+workspace = true

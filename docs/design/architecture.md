@@ -90,8 +90,12 @@ the audit, same commit, with the reason.
   fabric mint for one selected target; egui-free; may depend on
   inventory; consumed by `dpl-hub-coach` (never by `app` directly).
 - **crates/hubs/coach/** (`dpl-hub-coach`): Operator Coach Import UI
-  (C2f); depends on inventory + fabric + runtime; spawns
-  `dpl-coach-overlay` binary only (never a crate dep on overlay).
+  (C2f) + the Foundry console, Profile card, and evidence-resolved Pick
+  (S3b); depends on inventory + fabric + runtime + pack + foundry +
+  `egui-pilot-ai-protocol` (identity types) + engine-capture (userdata
+  ring for the registry/analytics roots — the same edge other hubs
+  hold); spawns `dpl-coach-overlay` binary only (never a crate dep on
+  overlay).
 - **crates/coach-pack/** (`dpl-coach-pack`): S3a pack registry (seam
   ADR §3/§7.4/§7.7): fingerprint bundles, evidence-weighted resolver,
   schema-1 TOML packs under a root-agnostic `packs/<app-id>/pack.toml`
@@ -101,6 +105,17 @@ the audit, same commit, with the reason.
   `egui_pilot_ai_protocol::seam`; this crate imports them, no re-export
   shims); consumed by `dpl-hub-coach` + the Foundry (S3b); never a dep
   of `app` directly.
+- **crates/coach-foundry/** (`dpl-coach-foundry`): S3b Fabric Foundry
+  v0 (seam ADR §3.5): the staged, checkpointed pipeline (census →
+  resolve → fabric → probe → induct → battery → publish) that builds
+  pack cells on disk under `packs/<app-id>/foundry/`, resumable after a
+  kill, purge/remake first-class (purge trashes into `packs/.trash/`,
+  never destroys). Every probe/battery run publishes an S1 seam span on
+  a local signal fabric drained by `dpl-ledger` into the same Parquet
+  layout the app and daemon write. Egui-free; may depend on inventory +
+  coach-fabric + coach-pack + coach-runtime + `dpl-fabric` +
+  `dpl-ledger` + `egui-pilot-ai-protocol`; consumed by `dpl-hub-coach`;
+  never a dep of `app` directly.
 - **crates/coach-runtime/** (`dpl-coach-runtime`): FabricGraph bridge
   (session resolve / invoke / extents + reality presence); egui-free;
   may depend on fabric + inventory; never a dep of `app` directly. The

@@ -279,12 +279,17 @@ pub fn resolve(session: &FabricSession, node: &NodeRef) -> Result<LiveHandle, Re
     }
 }
 
-/// Resolve the session seed (or refuse).
+/// Resolve the session seed. When the mint carried no seed, the first
+/// actionable node stands in (seam ADR §6.1 fallback — a seedless
+/// fabric mounts SOMETHING real rather than refusing the lesson).
 pub fn resolve_seed(session: &FabricSession) -> Result<LiveHandle, Refused> {
-    let Some(node) = session.seed_node() else {
+    let node = session
+        .seed_node()
+        .or_else(|| session.fabric.first_actionable().map(NodeRef::from));
+    let Some(node) = node else {
         return Err(Refused {
-            reason: "fabric has no seed_path".into(),
-            tip: "Re-import with a seed control (Cursor Search Ctrl+K, Calculator 7).".into(),
+            reason: "fabric has no seed and no actionable node".into(),
+            tip: "Re-import; if it repeats, the app exposes no actionable a11y nodes.".into(),
         });
     };
     resolve(session, &node)

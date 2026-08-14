@@ -69,18 +69,11 @@ fn run(args: Vec<String>) -> Result<(), String> {
         return Err("--name required (Calculator or cursor)".into());
     }
 
-    let mut request = request_from_inventory_name(&name)
+    // The probe seeds from its own flag ONLY — the sniffed seed table
+    // died in S3b; a seedless mint falls back to first-actionable.
+    let seed = if no_seed { None } else { seed_override };
+    let request = request_from_inventory_name(&name, seed)
         .map_err(|r| format!("REFUSED mint-request — {} · tip: {}", r.reason, r.tip))?;
-    if no_seed {
-        request.seed_name = None;
-    } else if let Some(seed) = seed_override {
-        request.seed_name = Some(seed);
-    } else if request.seed_name.is_none() {
-        let blob = format!("{} {}", request.target_id.as_str(), request.atspi_name).to_lowercase();
-        if blob.contains("cursor") {
-            request.seed_name = Some("Search Ctrl+K".into());
-        }
-    }
 
     println!(
         "mint: target={} atspi={} seed={:?} agency={}",

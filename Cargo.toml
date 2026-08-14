@@ -73,6 +73,7 @@ members = [
     "crates/coach-fabric",
     "crates/coach-runtime",
     "crates/coach-pack",
+    "crates/coach-foundry",
     "crates/coach-daemon",
     "crates/xtask",
 ]

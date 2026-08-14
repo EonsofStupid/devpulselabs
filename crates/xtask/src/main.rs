@@ -914,6 +914,7 @@ fn structure_audit() -> Result<(), String> {
         "dpl-chat-grok",
         "dpl-chat-imagine",
         "dpl-coach-pack",
+        "dpl-coach-foundry",
         "egui-pilot-ai-protocol",
         "egui-pilot-ai-transport",
         "egui-pilot-ai-runner",

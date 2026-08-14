@@ -2134,6 +2134,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "dpl-coach-foundry"
+version = "0.1.0"
+dependencies = [
+ "dpl-coach-fabric",
+ "dpl-coach-inventory",
+ "dpl-coach-pack",
+ "dpl-coach-runtime",
+ "dpl-fabric",
+ "dpl-ledger",
+ "egui-pilot-ai-protocol",
+ "toml",
+]
+
+[[package]]
 name = "dpl-coach-inventory"
 version = "0.1.0"
 dependencies = [
@@ -2360,12 +2374,17 @@ name = "dpl-hub-coach"
 version = "0.1.0"
 dependencies = [
  "dpl-coach-fabric",
+ "dpl-coach-foundry",
  "dpl-coach-inventory",
+ "dpl-coach-pack",
  "dpl-coach-runtime",
  "dpl-coldlight",
+ "dpl-engine-capture",
  "dpl-hub",
  "dpl-proc",
  "egui",
+ "egui-pilot-ai-protocol",
+ "toml",
 ]
 
 [[package]]

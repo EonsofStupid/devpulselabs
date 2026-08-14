@@ -184,6 +184,7 @@ pub fn synthesize_generic(bundle: &FingerprintBundle) -> Pack {
         ladder: Vec::new(),
         verbs: Vec::new(),
         teaching_landmarks: Vec::new(),
+        teaching_seed_control: None,
         extras: toml::Table::new(),
     }
 }
@@ -208,6 +209,7 @@ mod tests {
             ladder: Vec::new(),
             verbs: Vec::new(),
             teaching_landmarks: Vec::new(),
+            teaching_seed_control: None,
             extras: toml::Table::new(),
         }
     }
