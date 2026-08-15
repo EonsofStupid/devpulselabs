@@ -121,6 +121,16 @@ the audit, same commit, with the reason.
   (`dpl-fabric`'s private `TransportRung` copy is held to the protocol's
   wire labels by a daemon test until its own retirement micro-slice —
   S2 plan §4.1 deviation.)
+- **Teacher-dev T0** (program `docs/plans/coach-teacher-dev.md`):
+  `egui_pilot_ai_protocol::seam` grows `TeacherMode` / `GoalId` /
+  `TeacherGoal` / `TeacherEvent` (sibling to observation `SeamEvent`,
+  not merged with it). `dpl-fabric` mirrors a serde-free `TeacherFact`
+  as `SeamEvent::Teacher` — **no** new protocol edge on fabric (same
+  law as `TransportRung` / `SeamAgency`). `dpl-ledger` projects those
+  as `teacher.*` row types on the existing `seam` domain;
+  `seam_reliability` skips the prefix so a goal/step cannot become a
+  fake verb. Capability `seam.teacher-dev` is honest-Unsupported on
+  the pilot pipe. No new crate. Clyffy/hub/daemon untouched this cut.
 
 ## 4. The laws every new crate inherits
 

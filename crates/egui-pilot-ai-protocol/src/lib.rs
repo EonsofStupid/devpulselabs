@@ -1417,6 +1417,7 @@ pub mod capability {
     pub const SEAM_VERB: &str = "seam.verb";
     pub const SEAM_EVENTS: &str = "seam.events";
     pub const SEAM_PACK_ATTACH: &str = "seam.pack-attach";
+    pub const SEAM_TEACHER_DEV: &str = "seam.teacher-dev";
     pub const CODEGEN_RECORDER: &str = "codegen.recorder";
     pub const TRACE_REPLAY: &str = "trace.replay";
     pub const VISUAL_APPROVAL: &str = "visual.approval";
@@ -1669,6 +1670,11 @@ pub fn capability_catalog() -> Vec<CapabilityDescriptor> {
             id::SEAM_PACK_ATTACH,
             "pack resolution and attach live in dpl-coach-pack behind the daemon; the pilot never loads packs",
             "coach-seam-s2",
+        ),
+        unsupported(
+            id::SEAM_TEACHER_DEV,
+            "Teacher-dev types live in protocol::seam; the pilot pipe does not obtain goals or execute foreign verbs",
+            "coach-teacher-dev-t0",
         ),
         unsupported(
             id::CODEGEN_RECORDER,
@@ -2528,5 +2534,16 @@ mod tests {
             state(capability::VIEWPORT_DEFERRED_CAPTURE),
             CapabilityState::Unsupported
         );
+    }
+
+    #[test]
+    fn seam_teacher_dev_is_named_and_honestly_unsupported() {
+        let catalog = capability_catalog();
+        let entry = catalog
+            .iter()
+            .find(|e| e.id == CapabilityId::new(capability::SEAM_TEACHER_DEV))
+            .expect("seam.teacher-dev must be in the catalog");
+        assert_eq!(entry.state, CapabilityState::Unsupported);
+        assert_eq!(entry.evidence, "coach-teacher-dev-t0");
     }
 }

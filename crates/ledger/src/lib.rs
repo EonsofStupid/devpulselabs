@@ -773,6 +773,61 @@ pub fn row_seam(st: &Stamped<SeamEvent>) -> LedgerRow {
                 "reason": reason,
             }),
         ),
+        SeamEvent::Teacher(fact) => {
+            let mut body = serde_json::json!({
+                "v": 1,
+                "operation": fact.operation(),
+                "teacher": true,
+            });
+            let obj = body.as_object_mut().expect("object");
+            match fact {
+                dpl_fabric::TeacherFact::GoalObtained {
+                    goal_id,
+                    text,
+                    app,
+                    mode,
+                } => {
+                    obj.insert("goal_id".into(), goal_id.clone().into());
+                    obj.insert("text".into(), text.clone().into());
+                    obj.insert("app".into(), app.clone().into());
+                    obj.insert("mode".into(), mode.as_str().into());
+                }
+                dpl_fabric::TeacherFact::StepStarted {
+                    goal_id,
+                    step,
+                    verb,
+                } => {
+                    obj.insert("goal_id".into(), goal_id.clone().into());
+                    obj.insert("step".into(), (*step).into());
+                    obj.insert("verb".into(), verb.clone().into());
+                }
+                dpl_fabric::TeacherFact::StepCleared {
+                    goal_id,
+                    step,
+                    effect_observed,
+                    duration_ms,
+                } => {
+                    obj.insert("goal_id".into(), goal_id.clone().into());
+                    obj.insert("step".into(), (*step).into());
+                    obj.insert("effect_observed".into(), (*effect_observed).into());
+                    obj.insert("duration_ms".into(), (*duration_ms).into());
+                }
+                dpl_fabric::TeacherFact::Disagreement {
+                    goal_id,
+                    expected,
+                    observed,
+                } => {
+                    obj.insert("goal_id".into(), goal_id.clone().into());
+                    obj.insert("expected".into(), expected.clone().into());
+                    obj.insert("observed".into(), observed.clone().into());
+                }
+                dpl_fabric::TeacherFact::Interrupted { goal_id, reason } => {
+                    obj.insert("goal_id".into(), goal_id.clone().into());
+                    obj.insert("reason".into(), reason.clone().into());
+                }
+            }
+            (fact.type_name(), body)
+        }
     };
     base_row(st.seq, st.ms, "seam", &ty, body)
 }
@@ -894,9 +949,14 @@ pub struct VerbReliability {
 
 /// Fold seam-domain rows into per-verb reliability, sorted by volume.
 /// Non-seam rows are ignored, so callers can feed a whole day's mix.
+/// `teacher.*` lifecycle rows (T0) ride the same domain and are skipped
+/// so a goal/step fact can never become a fake verb.
 pub fn seam_reliability(rows: &[LedgerRow]) -> Vec<VerbReliability> {
     let mut by_verb: HashMap<String, VerbReliability> = HashMap::new();
-    for row in rows.iter().filter(|r| r.domain == "seam") {
+    for row in rows
+        .iter()
+        .filter(|r| r.domain == "seam" && !r.type_name.starts_with("teacher."))
+    {
         let Ok(body) = serde_json::from_str::<serde_json::Value>(&row.body) else {
             continue;
         };
@@ -1254,6 +1314,68 @@ mod tests {
                 refused: 1,
                 total_duration_ms: 60,
             }]
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn teacher_facts_land_as_teacher_types_and_do_not_poison_reliability() {
+        let dir = std::env::temp_dir().join(format!("dpl-ledger-teacher-{}", wall_ms_now()));
+        let _ = fs::remove_dir_all(&dir);
+        let fabric = Fabric::new();
+        let mut tap = LedgerTap::open(&fabric, dir.clone()).unwrap();
+
+        fabric.publish_seam(SeamEvent::Executed(sample_span("press_key", true, 30)));
+        fabric.publish_seam(SeamEvent::Teacher(dpl_fabric::TeacherFact::GoalObtained {
+            goal_id: "open-model".into(),
+            text: "Open the blend and select Cube".into(),
+            app: "org.blender.Blender".into(),
+            mode: dpl_fabric::TeacherMode::TeacherDev,
+        }));
+        fabric.publish_seam(SeamEvent::Teacher(dpl_fabric::TeacherFact::StepCleared {
+            goal_id: "open-model".into(),
+            step: 1,
+            effect_observed: true,
+            duration_ms: 16,
+        }));
+        fabric.publish_seam(SeamEvent::Teacher(dpl_fabric::TeacherFact::Disagreement {
+            goal_id: "open-model".into(),
+            expected: "Cube".into(),
+            observed: "Camera".into(),
+        }));
+        tap.drain();
+        thread::sleep(Duration::from_millis(50));
+        tap.flush_and_join();
+
+        let rows = read_all_rows(&dir).unwrap();
+        let teacher: Vec<_> = rows
+            .iter()
+            .filter(|r| r.domain == "seam" && r.type_name.starts_with("teacher."))
+            .collect();
+        assert_eq!(teacher.len(), 3, "three teacher facts reached parquet");
+        assert!(teacher
+            .iter()
+            .any(|r| r.type_name == "teacher.goal_obtained"
+                && r.body.contains("\"operation\":\"plan\"")
+                && r.body.contains("\"mode\":\"teacher-dev\"")
+                && r.body.contains("\"teacher\":true")));
+        assert!(teacher.iter().any(|r| r.type_name == "teacher.step_cleared"
+            && r.body.contains("\"operation\":\"execute_tool\"")));
+        assert!(teacher.iter().any(|r| r.type_name == "teacher.disagreement"
+            && r.body.contains("\"expected\":\"Cube\"")
+            && r.body.contains("\"observed\":\"Camera\"")));
+
+        let table = seam_reliability(&rows);
+        assert_eq!(
+            table,
+            vec![VerbReliability {
+                verb: "press_key".into(),
+                executed: 1,
+                effect_ok: 1,
+                refused: 0,
+                total_duration_ms: 30,
+            }],
+            "teacher.* rows must not appear as verbs"
         );
         let _ = fs::remove_dir_all(&dir);
     }

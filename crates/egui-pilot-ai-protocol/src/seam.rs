@@ -645,6 +645,156 @@ pub enum SeamEvent {
     },
 }
 
+// ── Teacher-dev lifecycle (program coach-teacher-dev.md, T0) ────────────
+//
+// Sibling to the observation `SeamEvent` above — do not merge them.
+// Observation is what the foreign app did (moved/focused/text).
+// Teacher-dev is the lesson lifecycle (goal/step/disagreement) that
+// Clyffy and the watch surface will consume. Wire is additive under
+// protocol 2.7; the pilot capability `seam.teacher-dev` stays
+// honest-Unsupported until a later pass executes through the pipe.
+
+/// Clyffy / session face — who is teaching, not who may drive a verb.
+/// `AgencyMode` stays `{Coach, Teacher}`; Teacher-dev *implies* agency
+/// Teacher and is not a third agency.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TeacherMode {
+    Off,
+    Teacher,
+    TeacherDev,
+}
+
+impl TeacherMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Teacher => "teacher",
+            Self::TeacherDev => "teacher-dev",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "off" => Some(Self::Off),
+            "teacher" => Some(Self::Teacher),
+            "teacher-dev" => Some(Self::TeacherDev),
+            _ => None,
+        }
+    }
+}
+
+/// Stable id for one obtained goal. Slug law: non-empty `[a-z0-9-]`,
+/// no leading or trailing `-`. Serde goes through `parse`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct GoalId(String);
+
+impl GoalId {
+    pub fn parse(raw: &str) -> Result<Self, IdError> {
+        if raw.is_empty()
+            || raw.starts_with('-')
+            || raw.ends_with('-')
+            || !raw
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        {
+            return Err(IdError {
+                raw: raw.to_string(),
+                reason: "goal id must be a non-empty [a-z0-9-] slug with no leading/trailing '-'",
+            });
+        }
+        Ok(Self(raw.to_string()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for GoalId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl Serialize for GoalId {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for GoalId {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(deserializer)?;
+        Self::parse(&raw).map_err(serde::de::Error::custom)
+    }
+}
+
+/// One obtained goal — the planning-plane object. `extra` is the
+/// additive map (oracles, success names) before those earn fields.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TeacherGoal {
+    pub id: GoalId,
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app: Option<AppId>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub extra: HashMap<String, String>,
+}
+
+/// Lesson-lifecycle facts. Tagged `kind`, snake_case, closed set —
+/// a new kind is its own additive pass.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TeacherEvent {
+    GoalObtained {
+        goal: TeacherGoal,
+        mode: TeacherMode,
+    },
+    StepStarted {
+        goal_id: GoalId,
+        step: u32,
+        verb: String,
+    },
+    StepCleared {
+        goal_id: GoalId,
+        step: u32,
+        effect_observed: bool,
+        duration_ms: u64,
+    },
+    Disagreement {
+        goal_id: GoalId,
+        expected: String,
+        observed: String,
+    },
+    Interrupted {
+        goal_id: GoalId,
+        reason: String,
+    },
+}
+
+impl TeacherEvent {
+    /// OTel GenAI-shaped operation name — planning-plane label only.
+    /// Verb reliability still comes from `SeamSpan` execute/refuse rows.
+    pub const fn operation(&self) -> &'static str {
+        match self {
+            Self::GoalObtained { .. } => "plan",
+            Self::StepStarted { .. } | Self::StepCleared { .. } => "execute_tool",
+            Self::Disagreement { .. } | Self::Interrupted { .. } => "invoke_agent",
+        }
+    }
+
+    pub const fn kind(&self) -> &'static str {
+        match self {
+            Self::GoalObtained { .. } => "goal_obtained",
+            Self::StepStarted { .. } => "step_started",
+            Self::StepCleared { .. } => "step_cleared",
+            Self::Disagreement { .. } => "disagreement",
+            Self::Interrupted { .. } => "interrupted",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -869,5 +1019,109 @@ mod tests {
         assert!(serde_json::to_string(&start)
             .unwrap()
             .contains("\"kind\":\"observe_start\""));
+    }
+
+    #[test]
+    fn teacher_mode_slugs_are_the_wire_and_the_parse() {
+        for mode in [
+            TeacherMode::Off,
+            TeacherMode::Teacher,
+            TeacherMode::TeacherDev,
+        ] {
+            assert_eq!(TeacherMode::parse(mode.as_str()), Some(mode));
+            assert_eq!(
+                serde_json::to_string(&mode).unwrap(),
+                format!("\"{}\"", mode.as_str())
+            );
+        }
+        assert!(TeacherMode::parse("coach").is_none());
+        assert!(TeacherMode::parse("teacher_dev").is_none());
+    }
+
+    #[test]
+    fn goal_id_parse_and_serde_refuse_the_same_strings() {
+        assert!(GoalId::parse("open-cube").is_ok());
+        assert!(GoalId::parse("a").is_ok());
+        assert!(GoalId::parse("").is_err());
+        assert!(GoalId::parse("-lead").is_err());
+        assert!(GoalId::parse("trail-").is_err());
+        assert!(GoalId::parse("Has Space").is_err());
+        assert!(GoalId::parse("OpenCube").is_err());
+        let good: GoalId = serde_json::from_str("\"select-cube\"").unwrap();
+        assert_eq!(good.as_str(), "select-cube");
+        assert!(serde_json::from_str::<GoalId>("\"\"").is_err());
+        assert!(serde_json::from_str::<GoalId>("\"-x\"").is_err());
+    }
+
+    #[test]
+    fn teacher_events_speak_kind_and_operation_and_survive_unknown_goal_keys() {
+        let goal = TeacherGoal {
+            id: GoalId::parse("open-model").unwrap(),
+            text: "Open the blend and select Cube".into(),
+            app: Some(AppId::parse("org.blender.Blender").unwrap()),
+            extra: HashMap::from([("oracle".into(), "selection=Cube".into())]),
+        };
+        let obtained = TeacherEvent::GoalObtained {
+            goal,
+            mode: TeacherMode::TeacherDev,
+        };
+        assert_eq!(obtained.kind(), "goal_obtained");
+        assert_eq!(obtained.operation(), "plan");
+        let encoded = serde_json::to_string(&obtained).unwrap();
+        assert!(encoded.contains("\"kind\":\"goal_obtained\""), "{encoded}");
+        assert!(encoded.contains("\"mode\":\"teacher-dev\""), "{encoded}");
+        assert_eq!(
+            serde_json::from_str::<TeacherEvent>(&encoded).unwrap(),
+            obtained
+        );
+
+        let future = r#"{
+            "kind": "goal_obtained",
+            "mode": "teacher-dev",
+            "goal": {
+                "id": "open-model",
+                "text": "Open the blend",
+                "future_field": true,
+                "extra": {"oracle": "selection=Cube"}
+            }
+        }"#;
+        let read: TeacherEvent = serde_json::from_str(future).expect("additive law");
+        match read {
+            TeacherEvent::GoalObtained { goal, mode } => {
+                assert_eq!(mode, TeacherMode::TeacherDev);
+                assert_eq!(goal.id.as_str(), "open-model");
+                assert_eq!(goal.extra["oracle"], "selection=Cube");
+                assert!(goal.app.is_none());
+            }
+            other => panic!("expected goal_obtained, got {other:?}"),
+        }
+
+        assert_eq!(
+            TeacherEvent::StepStarted {
+                goal_id: GoalId::parse("open-model").unwrap(),
+                step: 1,
+                verb: "select".into(),
+            }
+            .operation(),
+            "execute_tool"
+        );
+        assert_eq!(
+            TeacherEvent::Disagreement {
+                goal_id: GoalId::parse("open-model").unwrap(),
+                expected: "Cube".into(),
+                observed: "Camera".into(),
+            }
+            .operation(),
+            "invoke_agent"
+        );
+    }
+
+    #[test]
+    fn teacher_mode_slugs_match_the_fabric_mirror_literals() {
+        // dpl-fabric cannot depend on this crate (layer law). The
+        // slugs here ARE the fabric `TeacherMode::as_str` contract.
+        assert_eq!(TeacherMode::Off.as_str(), "off");
+        assert_eq!(TeacherMode::Teacher.as_str(), "teacher");
+        assert_eq!(TeacherMode::TeacherDev.as_str(), "teacher-dev");
     }
 }

@@ -1,7 +1,8 @@
 # Coach research census
 
-**Updated:** 2026-08-01  
+**Updated:** 2026-08-14  
 **Program:** [`../../plans/coach-lab-experiment-program.md`](../../plans/coach-lab-experiment-program.md)  
+**Teacher-dev:** [`../../plans/coach-teacher-dev.md`](../../plans/coach-teacher-dev.md)  
 **Import process:** [`import-process.md`](import-process.md)  
 **Bleeding-edge control planes:** [`bleeding-edge-control-plane.md`](bleeding-edge-control-plane.md)  
 **Verb catalog ADR (draft):** [`../../plans/coach-operator-verb-catalog-adr.md`](../../plans/coach-operator-verb-catalog-adr.md)  
@@ -23,7 +24,8 @@ experiment registry**, not the Operator hub UI.
 | CX-events-01 | **PASS** | SSE geom events + move/resize/focus verbs | — |
 | CX-verbs-p0-02 | **PASS** | open/close/type_text/wait_until/assert_state | — |
 | CX-verbs-p1 | **PASS** | press_key/select/scroll | Teacher next · drag P2 |
-| CX-teacher-agency-01 | PLANNED | Teacher = same resolve/invoke/mount rails | after events |
+| CX-teacher-agency-01 | PLANNED | Teacher = same resolve/invoke/mount rails | T3 of Teacher-dev |
+| Teacher-dev T0 | EXECUTING | Protocol + ledger lifecycle facts (`teacher.*`); no UI | program `coach-teacher-dev.md` |
 | CX-harvest-01 | PLANNED | Advanced Import when a11y thin | Advanced → maybe C2g |
 
 **Conquest ladder:** Cursor (this seat) → Notepad (Windows) · Calculator =

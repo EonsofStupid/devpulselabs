@@ -590,6 +590,85 @@ impl SeamAgency {
     }
 }
 
+/// Clyffy / session face — mirrored from
+/// `egui_pilot_ai_protocol::seam::TeacherMode` (T0). Fabric stays
+/// protocol-free; the slugs are the contract (`off` / `teacher` /
+/// `teacher-dev`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TeacherMode {
+    Off,
+    Teacher,
+    TeacherDev,
+}
+
+impl TeacherMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Teacher => "teacher",
+            Self::TeacherDev => "teacher-dev",
+        }
+    }
+}
+
+/// One Teacher-dev lifecycle fact (program `coach-teacher-dev.md`).
+/// String fields — fabric is serde-free; the ledger projects these
+/// into `teacher.*` row types.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TeacherFact {
+    GoalObtained {
+        goal_id: String,
+        text: String,
+        app: String,
+        mode: TeacherMode,
+    },
+    StepStarted {
+        goal_id: String,
+        step: u32,
+        verb: String,
+    },
+    StepCleared {
+        goal_id: String,
+        step: u32,
+        effect_observed: bool,
+        duration_ms: u64,
+    },
+    Disagreement {
+        goal_id: String,
+        expected: String,
+        observed: String,
+    },
+    Interrupted {
+        goal_id: String,
+        reason: String,
+    },
+}
+
+impl TeacherFact {
+    pub const fn kind(&self) -> &'static str {
+        match self {
+            Self::GoalObtained { .. } => "goal_obtained",
+            Self::StepStarted { .. } => "step_started",
+            Self::StepCleared { .. } => "step_cleared",
+            Self::Disagreement { .. } => "disagreement",
+            Self::Interrupted { .. } => "interrupted",
+        }
+    }
+
+    /// OTel GenAI-shaped operation — same literals as the protocol enum.
+    pub const fn operation(&self) -> &'static str {
+        match self {
+            Self::GoalObtained { .. } => "plan",
+            Self::StepStarted { .. } | Self::StepCleared { .. } => "execute_tool",
+            Self::Disagreement { .. } | Self::Interrupted { .. } => "invoke_agent",
+        }
+    }
+
+    pub fn type_name(&self) -> String {
+        format!("teacher.{}", self.kind())
+    }
+}
+
 /// One verb execution — the seam span (schema v1).
 ///
 /// The typed core is the query surface; `attrs` is the open map the
@@ -630,6 +709,9 @@ pub enum SeamEvent {
         reason: String,
         duration_ms: u64,
     },
+    /// Teacher-dev lifecycle — not a verb execution. Ledger `type` is
+    /// `teacher.<kind>` so `seam_reliability` can skip these rows.
+    Teacher(TeacherFact),
 }
 
 pub type SeamReceiver = broadcast::Receiver<Stamped<SeamEvent>>;
@@ -1386,6 +1468,44 @@ mod tests {
             duration_ms: 1,
         });
         assert!(coach_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn teacher_facts_stamp_on_the_seam_and_name_their_kind() {
+        let fabric = Fabric::new();
+        let mut rx = fabric.subscribe_seam();
+        fabric.publish_seam(SeamEvent::Teacher(TeacherFact::GoalObtained {
+            goal_id: "open-model".into(),
+            text: "Open the blend and select Cube".into(),
+            app: "org.blender.Blender".into(),
+            mode: TeacherMode::TeacherDev,
+        }));
+        fabric.publish_seam(SeamEvent::Teacher(TeacherFact::Disagreement {
+            goal_id: "open-model".into(),
+            expected: "Cube".into(),
+            observed: "Camera".into(),
+        }));
+        let a = rx.try_recv().unwrap();
+        let b = rx.try_recv().unwrap();
+        match &a.ev {
+            SeamEvent::Teacher(TeacherFact::GoalObtained { mode, goal_id, .. }) => {
+                assert_eq!(*mode, TeacherMode::TeacherDev);
+                assert_eq!(goal_id, "open-model");
+                assert_eq!(mode.as_str(), "teacher-dev");
+            }
+            other => panic!("expected goal_obtained, got {other:?}"),
+        }
+        match &b.ev {
+            SeamEvent::Teacher(fact) => {
+                assert_eq!(fact.kind(), "disagreement");
+                assert_eq!(fact.operation(), "invoke_agent");
+                assert_eq!(fact.type_name(), "teacher.disagreement");
+            }
+            other => panic!("expected teacher fact, got {other:?}"),
+        }
+        assert!(b.seq > a.seq);
+        assert_eq!(TeacherMode::Off.as_str(), "off");
+        assert_eq!(TeacherMode::Teacher.as_str(), "teacher");
     }
 
     #[test]

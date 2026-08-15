@@ -247,6 +247,14 @@ seams above cost their design now and near-zero code; anything beyond
    to real ledger data, each with its mounting button — as registry
    entries per §7.6, so the card set is open from the first card.
 
+**Teacher-dev** (Clyffy teaches from runtime events) is a **sibling
+program**, not a sixth S-slice: it consumes this seam; it does not
+replace S3b/S4/S5. Program
+[`coach-teacher-dev.md`](coach-teacher-dev.md). T0 (vocabulary +
+`teacher.*` ledger rows, capability `seam.teacher-dev` honest-
+Unsupported, protocol 2.7 unchanged — handshake is exact-match) is
+[`coach-teacher-dev-t0-runtime-events.md`](coach-teacher-dev-t0-runtime-events.md).
+
 Each slice implements its slice of §7 as it lands (S1 carries the span
 attrs map + version; S2 the wire law + extension verb arm; S3 pack schema
 versioning; S4 the content-addressed registry layout; S5 cards-as-data).
