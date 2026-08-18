@@ -323,7 +323,10 @@ mod tests {
     fn the_carousel_does_not_leak_its_style_to_the_caller() {
         let ctx = egui::Context::default();
         let mut leaked = None;
-        let _ = ctx.run_ui(Default::default(), |ctx| {
+        // epaint 0.36 panics if a TexturesDelta is dropped unapplied, so the
+        // output is cleared rather than discarded — the same shape the slides
+        // tests use. Written against 0.35, where dropping it was harmless.
+        ctx.run_ui(Default::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
                 assert!(!ui.style().always_scroll_the_only_direction);
                 carousel_row(ui, "test.carousel", 40.0, |ui| {
@@ -331,7 +334,9 @@ mod tests {
                 });
                 leaked = Some(ui.style().always_scroll_the_only_direction);
             });
-        });
+        })
+        .textures_delta
+        .clear();
         assert_eq!(
             leaked,
             Some(false),
