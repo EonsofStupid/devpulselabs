@@ -50,6 +50,18 @@ other worktree. The operator double-clicks `target\release\devpulselabs.exe`
 
 - Gate: `cargo green` · exe: `cargo build --release -p devpulselabs -p dpl-lottie-render`
   (the Lottie render helper ships BESIDE the exe — the façade spawns it, ADR-009)
+- **If the gate fails with errors that make no sense, suspect the target dir
+  before the code.** `/etc/profile.d/warden-workspace.sh` sets one machine-wide
+  `CARGO_TARGET_DIR`, and `devpulselabs` and `devpulselabs-providers` are two
+  checkouts of THIS workspace — same package names, same versions — writing into
+  it. On 2026-08-18 that produced a reproducible phantom: `cargo green` failed
+  with `unresolved import cl::patterns` in dpl-shell and dpl-chat-window, while
+  `coldlight` exported `patterns` perfectly well and `cargo build -p dpl-shell`
+  passed. `cargo clean -p` did not recover it. The same commit passed the full
+  gate with `CARGO_TARGET_DIR` pointed at an empty directory.
+  So: `CARGO_TARGET_DIR=$(mktemp -d) cargo green` is the tie-breaker, and a
+  content-addressed cache (sccache via `RUSTC_WRAPPER`, per the sccache runbook)
+  is the safe way to share build work — a shared *output* directory is not.
 - The gate is WIRED as a pre-push hook (`.githooks/pre-push`; fresh
   clones run `git config core.hooksPath .githooks` once). Never bypass
   with --no-verify. The hook proves the pusher's own OS only — the two
