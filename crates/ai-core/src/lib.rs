@@ -15,6 +15,8 @@
 //!
 //! Plan: `docs/plans/kernel-boundary.md`.
 
+pub mod composer;
+
 use std::fmt;
 
 /// A compile-time identity: a `&'static str` newtype that prints as itself.

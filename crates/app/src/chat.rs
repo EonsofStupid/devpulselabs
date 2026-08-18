@@ -1425,6 +1425,35 @@ fn read_content_spine(id: &ContentEpisodeId) -> Option<ContentSpine> {
 
 fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: HostIntent) {
     match intent {
+        // The census names the action; the host performs it. Only the two we
+        // already have surfaces for are wired — the rest SAY they are not,
+        // because a menu entry that silently does nothing is worse than one
+        // that admits it has not been built.
+        HostIntent::ComposerAction(slug) => {
+            let mut state = lock(shared);
+            match slug {
+                "connectors" | "plugins" => {
+                    state.window.open_provider_catalog();
+                    state.window.set_composer_status(
+                        "Connectors and plugins live in the providers catalog for now.",
+                    );
+                }
+                "add-to-project" => {
+                    state
+                        .window
+                        .set_composer_status("This conversation is already in this workspace.");
+                }
+                other => {
+                    let label = dpl_ai_core::composer::resolve(other)
+                        .map_or(other, |action| action.label);
+                    tracing::info!(action = other, "composer action is not wired yet");
+                    state
+                        .window
+                        .set_composer_status(format!("{label} is not wired up yet."));
+                }
+            }
+            ctx.request_repaint();
+        }
         HostIntent::OpenUtility {
             interaction_id,
             placement,

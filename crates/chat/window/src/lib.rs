@@ -4,7 +4,10 @@
 //! It does not create viewports, publish signals, navigate Main, scan stores,
 //! launch providers, or implement Social transport.
 
-use dpl_ai_core::{ActivationState, Capability, ProviderAccent, ProviderId, RecoveryActionKind};
+use dpl_ai_core::composer::{offered_for, ComposerGroup};
+use dpl_ai_core::{
+    ActivationState, Capability, ProviderAccent, ProviderId, RecoveryActionKind,
+};
 use dpl_chat_context::RouteContextState;
 use dpl_chat_core::{
     ChatDomain, ChatEvent, ChatEventContent, ChatEventId, ChatSessionId, ContentEpisode,
@@ -174,6 +177,11 @@ const API_ROWS_FLOOR: usize = 4;
 /// cross-link.
 pub const ADD_PROVIDER_ID: PilotId = PilotId::new("chat.composer.add-provider");
 
+/// THE FIRST TRIGGER: the composer `+`. Opens the action menu whose census
+/// lives in `dpl_ai_core::composer` — the same store both vendor spellings
+/// resolve through, so this surface never holds a list of its own.
+pub const COMPOSER_PLUS_ID: PilotId = PilotId::new("chat.composer.plus");
+
 const FULL_RAIL_WIDTH: f32 = 840.0;
 const SIDEBAR_WIDTH: f32 = 252.0;
 const PRESENCE_RAIL_WIDTH: f32 = 76.0;
@@ -306,6 +314,10 @@ impl ChatDomainStates {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChatWindowIntent {
+    /// A composer `+` entry was chosen. Carries the canonical slug from
+    /// `dpl_ai_core::composer` — never a label, because labels are what the
+    /// aliases exist to absorb.
+    ComposerAction(&'static str),
     SelectDomain(ChatDomain),
     SelectProvider(ProviderId),
     /// Scope the AI domain to one connected provider — the tab beside
@@ -507,6 +519,14 @@ fn kebab_of(label: &str) -> String {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostIntent {
+    /// A composer `+` entry was picked. The slug is canonical
+    /// (`dpl_ai_core::composer`), so a host matches on one stable name no
+    /// matter which product's word the operator arrived with.
+    ///
+    /// The window cannot open a file dialog, take a screenshot or authorise a
+    /// connector — a surface does not do IO — so it names the action and the
+    /// host performs it.
+    ComposerAction(&'static str),
     OpenUtility {
         interaction_id: InteractionId,
         placement: InteractionPlacement,
@@ -713,6 +733,8 @@ pub struct ChatWindow {
     /// keyboard submit paints under the composer. Cleared by the next
     /// keystroke or a successful submit.
     composer_status: Option<String>,
+    /// The backing's declared capabilities, for gating the `+` menu.
+    composer_capabilities: Vec<Capability>,
     /// The Clyffy house session as the HOST projects it.
     clyffy: ClyffyView,
 }
@@ -851,12 +873,28 @@ impl ChatWindow {
             brainstorm_cluster_draft: String::new(),
             brainstorm_item_drafts: HashMap::new(),
             composer_status: None,
+            composer_capabilities: Vec::new(),
             clyffy: ClyffyView::default(),
         }
     }
 
     pub fn set_generation_status(&mut self, status: GenerationStatus) {
         self.generation_status = status;
+    }
+
+    /// What the backing declared it can do, projected by the host.
+    ///
+    /// The `+` menu is filtered through this, so an entry the provider cannot
+    /// honour is never painted. Empty is the honest default: a window with no
+    /// backing offers only the actions that are ours.
+    pub fn set_composer_capabilities(&mut self, capabilities: Vec<Capability>) {
+        self.composer_capabilities = capabilities;
+    }
+
+    /// Open the providers catalog overlay from outside the window.
+    pub fn open_provider_catalog(&mut self) {
+        self.domain = ChatDomain::Ai;
+        self.domain_states.ai.overlay = Some(DomainOverlay::ProviderCatalog);
     }
 
     /// Assist mode as the host's policy truth — projected, never derived.
@@ -1200,6 +1238,9 @@ impl ChatWindow {
         intent: ChatWindowIntent,
     ) -> Result<Option<HostIntent>, ChatWindowError> {
         match intent {
+            ChatWindowIntent::ComposerAction(slug) => {
+                Ok(Some(HostIntent::ComposerAction(slug)))
+            }
             ChatWindowIntent::SelectDomain(domain) => {
                 self.domain = domain;
                 self.provider_tab = None;
@@ -3202,6 +3243,71 @@ impl ChatWindow {
                     );
                 });
                 ui.horizontal(|ui| {
+                    // THE FIRST TRIGGER: the composer `+`, where every chat
+                    // client the operator already uses puts it — immediately
+                    // left of where they type. The other `+` on this surface
+                    // opens the providers carousel and sits up in the chip row;
+                    // position is what keeps two `+` glyphs from colliding.
+                    //
+                    // The menu is BUILT from `dpl_ai_core::composer`, filtered
+                    // by what the backing declared. There is no list here: a
+                    // list here would be the second source of truth, and it
+                    // would go stale the first time a provider changed.
+                    let plus = ui
+                        .add(egui::Button::new(RichText::new("+").size(15.0)).small())
+                        .on_hover_text("Attach, connect, and modes");
+                    let mut plus_metadata =
+                        NodeMetadata::new(COMPOSER_PLUS_ID, Role::Button, "Composer actions");
+                    plus_metadata.description = Some(
+                        "Open the composer menu: what to attach, what to connect, \
+                         and how this turn should run."
+                            .to_owned(),
+                    );
+                    ui.pilot_track(&plus, plus_metadata);
+                    // Popup::menu takes the toggle straight off the button's
+                    // response — no id juggling, and it closes on a pick.
+                    egui::Popup::menu(&plus)
+                        .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
+                        .show(|ui| {
+                            ui.set_min_width(232.0);
+                            let offered = offered_for(&self.composer_capabilities);
+                            if offered.is_empty() {
+                                // Never an empty box with no explanation.
+                                ui.label(
+                                    RichText::new("No backing has declared what it can do")
+                                        .small()
+                                        .color(cl::ink::SUBTLE),
+                                );
+                                return;
+                            }
+                            let mut first = true;
+                            for group in ComposerGroup::ALL {
+                                let rows: Vec<_> =
+                                    offered.iter().filter(|a| a.group == group).collect();
+                                if rows.is_empty() {
+                                    continue;
+                                }
+                                if !first {
+                                    ui.separator();
+                                }
+                                first = false;
+                                ui.label(
+                                    RichText::new(group.label())
+                                        .small()
+                                        .color(cl::ink::SUBTLE),
+                                );
+                                for action in rows {
+                                    let row = ui
+                                        .button(format!("{}  {}", action.glyph, action.label))
+                                        .on_hover_text(action.blurb);
+                                    if row.clicked() {
+                                        intents.push(ChatWindowIntent::ComposerAction(
+                                            action.slug,
+                                        ));
+                                    }
+                                }
+                            }
+                        });
                     let mut draft = self.current_draft();
                     // SUBMIT ON ENTER — the convention every chat client the
                     // operator uses already obeys.
@@ -7228,5 +7334,38 @@ mod tests {
         let (submitted, survives) = enter_with(egui::Modifiers::COMMAND);
         assert!(submitted, "Ctrl/Cmd+Enter must send");
         assert!(!survives, "and must not also leave a newline behind");
+    }
+
+    /// The `+` menu's contract with the host: a pick becomes a CANONICAL slug,
+    /// never a label. Labels are what the aliases exist to absorb, so a host
+    /// that matched on them would break the day either vendor renamed one.
+    #[test]
+    fn a_composer_pick_reaches_the_host_as_a_canonical_slug() {
+        let mut window = window();
+        let out = window
+            .apply(ChatWindowIntent::ComposerAction("attach-files"))
+            .expect("a composer pick is never a window error");
+        assert_eq!(out, Some(HostIntent::ComposerAction("attach-files")));
+    }
+
+    /// The menu is filtered by what the backing declared, and the window holds
+    /// no list of its own — both sides of that are what keep it truthful.
+    #[test]
+    fn the_composer_menu_is_gated_on_the_projected_capabilities() {
+        use dpl_ai_core::composer::offered_for;
+
+        let mut window = window();
+        // Nothing projected: only the actions that are ours survive.
+        let bare = offered_for(&window.composer_capabilities);
+        assert!(bare.iter().all(|a| a.requires.is_none()));
+        assert!(!bare.iter().any(|a| a.slug == "attach-files"));
+
+        window.set_composer_capabilities(vec![Capability::Attachments]);
+        let with_attachments = offered_for(&window.composer_capabilities);
+        assert!(with_attachments.iter().any(|a| a.slug == "attach-files"));
+        assert!(
+            !with_attachments.iter().any(|a| a.slug == "create-image"),
+            "attachments must not imply images"
+        );
     }
 }
