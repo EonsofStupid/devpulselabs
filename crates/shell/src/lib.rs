@@ -202,6 +202,164 @@ impl Shell {
             self.providers_open = false;
         }
     }
+
+    /// THE PRESET PICKER — 25 legal coordinates, grouped by lineage.
+    ///
+    /// Every row paints its OWN swatch through the resolver, so the operator
+    /// picks a look by seeing it rather than by reading a name. Picking
+    /// dresses only the surface the bar is reporting on, which is why a
+    /// preset can be chosen for the editor without touching the workbench.
+    fn presets_popup(&mut self, ui: &mut egui::Ui, status: Rect, just_toggled: bool) {
+        if !self.presets_open {
+            return;
+        }
+        let surface = self.route.hub.0;
+        let tone = self.active_tone();
+        let worn = cl::chrome_preset(surface).map(|p| p.id);
+        let width = 340.0;
+        let area = egui::Area::new(egui::Id::new("dpl_presets_popup"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(egui::pos2(
+                status.min.x + cl::space::S4,
+                status.min.y - 12.0,
+            ))
+            .pivot(egui::Align2::LEFT_BOTTOM);
+        let mut pick: Option<Option<&'static str>> = None;
+        let response = area.show(ui.ctx(), |ui| {
+            ui.set_width(width);
+            egui::Frame::new()
+                .fill(cl::surface::OVERLAY)
+                .corner_radius(egui::CornerRadius::same(cl::RADIUS_LG))
+                .inner_margin(egui::Margin::same(12))
+                .stroke(egui::Stroke::new(1.0, cl::surface::RAISED))
+                .show(ui, |ui| {
+                    ui.label(
+                        egui::RichText::new(format!("How {surface} is dressed"))
+                            .small()
+                            .strong()
+                            .color(cl::ink::STRONG),
+                    );
+                    ui.add_space(cl::space::S1);
+                    if cl::tip(
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(if worn.is_some() {
+                                    "← back to the authored look"
+                                } else {
+                                    "wearing the authored look"
+                                })
+                                .small()
+                                .color(if worn.is_some() {
+                                    cl::ink::BASE
+                                } else {
+                                    cl::ink::SUBTLE
+                                }),
+                            )
+                            .sense(egui::Sense::click()),
+                        ),
+                        "Undo the pick and go back to what roles.json authored for this screen",
+                    )
+                    .clicked()
+                    {
+                        pick = Some(None);
+                    }
+                    ui.add_space(cl::space::S1);
+                    egui::ScrollArea::vertical()
+                        .max_height(420.0)
+                        .show(ui, |ui| {
+                            let mut lineage = "";
+                            for preset in cl::presets() {
+                                if preset.coord.ancestor != lineage {
+                                    lineage = preset.coord.ancestor;
+                                    ui.add_space(cl::space::S1);
+                                    ui.label(
+                                        egui::RichText::new(lineage.to_uppercase())
+                                            .monospace()
+                                            .size(9.0)
+                                            .color(cl::ink::SUBTLE),
+                                    );
+                                }
+                                if preset_row(ui, preset, tone, worn == Some(preset.id)) {
+                                    pick = Some(Some(preset.id));
+                                }
+                            }
+                        });
+                })
+                .inner
+        });
+        if let Some(choice) = pick {
+            match choice {
+                Some(id) => {
+                    // A refusal is possible in principle (a renamed preset),
+                    // so the report is not thrown away.
+                    if !cl::set_chrome_preset(surface, id) {
+                        // A renamed preset is the realistic failure; the
+                        // current look survives it rather than blanking.
+                        eprintln!(
+                            "coldlight: preset {id:?} is not authored — keeping the current look"
+                        );
+                    }
+                }
+                None => cl::clear_chrome_preset(surface),
+            }
+            self.presets_open = false;
+        }
+        // Click-outside and Esc both close, the way every menu here does.
+        if !just_toggled && response.response.clicked_elsewhere() {
+            self.presets_open = false;
+        }
+        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.presets_open = false;
+        }
+    }
+}
+
+/// One row of the picker: a swatch painted in the preset's OWN resolved
+/// style, its name, and what it is for. Returns whether it was chosen.
+fn preset_row(
+    ui: &mut egui::Ui,
+    preset: &'static cl::AncestralPreset,
+    tone: cl::Tone,
+    worn: bool,
+) -> bool {
+    let style = preset.style(tone, cl::TraitState::Idle);
+    let response = ui
+        .scope(|ui| {
+            ui.horizontal(|ui| {
+                let (rect, _) =
+                    ui.allocate_exact_size(egui::vec2(34.0, 22.0), egui::Sense::hover());
+                let painter = ui.painter();
+                painter.rect_filled(rect, egui::CornerRadius::same(style.radius), style.fill);
+                painter.rect_stroke(
+                    rect,
+                    egui::CornerRadius::same(style.radius),
+                    style.edge,
+                    egui::StrokeKind::Inside,
+                );
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    ui.label(
+                        egui::RichText::new(preset.label)
+                            .small()
+                            .strong()
+                            .color(if worn { cl::ink::STRONG } else { cl::ink::BASE }),
+                    );
+                    ui.label(
+                        egui::RichText::new(preset.kicker)
+                            .size(9.5)
+                            .color(cl::ink::SUBTLE),
+                    );
+                });
+            });
+        })
+        .response;
+    let hit = ui.interact(
+        response.rect,
+        egui::Id::new(("dpl_preset_row", preset.id)),
+        egui::Sense::click(),
+    );
+    cl::tip(hit.clone(), preset.blurb);
+    hit.clicked()
 }
 
 /// THE ROSTER, read straight off the fabric — no subscription, no history
@@ -333,6 +491,7 @@ pub struct Shell {
     bleed: providers::BleedRoll,
     /// Is the Providers roster popup open (V2)?
     providers_open: bool,
+    presets_open: bool,
     /// Which provider's summary modal is open (V3), if any.
     provider_modal: Option<dpl_fabric::ProviderId>,
     /// The accordion's ONE open house (doctrine §5.2) — its subroutes
@@ -408,6 +567,7 @@ impl Shell {
             // `set_harness_mood` so a capture reproduces.
             bleed: providers::BleedRoll::from_seed(dpl_backdrop::random_mood_index() as u64),
             providers_open: false,
+            presets_open: false,
             provider_modal: None,
             open_house: None,
             rail_reveal_pending: false,
@@ -661,9 +821,14 @@ impl Shell {
                     self.providers_open = !self.providers_open;
                     just_toggled = true;
                 }
+                status::StatusAction::TogglePresets => {
+                    self.presets_open = !self.presets_open;
+                    just_toggled = true;
+                }
             }
         }
         self.providers_popup(ui, status_rect, just_toggled);
+        self.presets_popup(ui, status_rect, just_toggled);
         self.provider_summary(ui.ctx());
         let (rail, clicked) = self.rail(ui, &fl);
         if let Some(route) = clicked {
@@ -814,6 +979,7 @@ impl Shell {
                 cl::sheen(ui.painter(), ui.max_rect().expand(6.0));
                 let cx = status::StatusCtx {
                     tone,
+                    surface: self.route.hub.0,
                     viewport: ui.ctx().content_rect().size(),
                     ppp: ui.ctx().pixels_per_point(),
                     navs: self.nav_count,

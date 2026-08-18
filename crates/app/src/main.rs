@@ -137,6 +137,27 @@ fn main() -> eframe::Result {
             r.split_once('/')
                 .map(|(h, s)| (h.to_string(), s.to_string()))
         });
+    // `--preset <id>` — dress the ROUTED surface in an authored preset before
+    // the first frame, so the picker's effect is provable headlessly. It goes
+    // through the same `set_chrome_preset` the picker calls, and is therefore
+    // persisted the same way — which is the point of the drill.
+    if let Some(id) = args
+        .iter()
+        .position(|a| a == "--preset")
+        .and_then(|i| args.get(i + 1))
+    {
+        let surface = boot_route
+            .as_ref()
+            .map(|(hub, _)| hub.as_str())
+            .unwrap_or("wiredfront");
+        if dpl_coldlight::set_chrome_preset(surface, id) {
+            eprintln!("preset: {surface} now wears {id}");
+        } else {
+            eprintln!("preset: {id:?} is not authored — keeping the current look");
+            std::process::exit(2);
+        }
+    }
+
     // `--focus <template-id>` — boot the Workbench Library's TEMPLATES
     // section solo'd on one template, for per-template proof shots.
     let focus: Option<String> = args
@@ -330,9 +351,19 @@ fn main() -> eframe::Result {
         .iter()
         .position(|a| a == "--fx-drill")
         .and_then(|i| Some((args.get(i + 1)?.clone(), args.get(i + 2)?.clone())));
+    // `--preview-drill <rel>`: open the PREVIEW modal on a content-relative
+    // artifact — the player proof (docs/plans/wiredfront-library-and-player.md).
+    let preview_drill: Option<String> = args
+        .iter()
+        .position(|a| a == "--preview-drill")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
     // `--l4-drill` (L4): graded base + screen leak + matted overlay from
     // conventional scratch-root files — the blend/matte/LUT proof.
     let l4_drill = args.iter().any(|a| a == "--l4-drill");
+    // `--mblur-drill`: a fast Lottie with both blur switches on, so a
+    // screenshot of the VIEWER is the proof — not a CLI render.
+    let mblur_drill = args.iter().any(|a| a == "--mblur-drill");
     // `--make-slide <asset-rel>` (W11) mints a media slide from a
     // content-relative artifact through the shelf's "Make slide" path —
     // image/video → one slide, `.pdf` → page slides.
@@ -384,6 +415,88 @@ fn main() -> eframe::Result {
     // idempotent, and it only runs when the ledger is on — there is no
     // point recovering facts with nowhere to write them.
     let ai_backfill_on = args.iter().any(|a| a == "--ai-backfill");
+    // (BS1 drill body — pre-window, exits by verdict; lives up here so
+    // the flag block below stays a thin dispatcher like its siblings.)
+    fn run_brainstorm_drill(
+        scaffold: &dpl_workflows::BrainstormScaffold,
+    ) -> Result<String, String> {
+        use dpl_workflows::{BrainstormOp as Op, BrainstormOrigin as Origin};
+        let inbox = dpl_engine_capture::content_root().join("inbox");
+        let dir = dpl_workflows::fresh_dir(&inbox, "brainstorm");
+        let stem = dir
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "brainstorm".to_owned());
+        let mut doc = dpl_workflows::mint_brainstorm(scaffold, &stem);
+        let ops = [
+            Op::Seed {
+                seed: "Drill: one video that explains the product".into(),
+            },
+            Op::AddItem {
+                id: "pain".into(),
+                text: "Name the pain".into(),
+                parent: None,
+                origin: Origin::Operator,
+            },
+            Op::AddItem {
+                id: "demo".into(),
+                text: "Show it working".into(),
+                parent: None,
+                origin: Origin::Assist,
+            },
+            Op::AddItem {
+                id: "demo-fail".into(),
+                text: "Show the old way failing first".into(),
+                parent: Some("demo".into()),
+                origin: Origin::Assist,
+            },
+            Op::AdvancePhase,
+            Op::AddCluster {
+                id: "open".into(),
+                label: "The opening".into(),
+            },
+            Op::AddCluster {
+                id: "proof".into(),
+                label: "The proof".into(),
+            },
+            Op::AssignCluster {
+                id: "pain".into(),
+                cluster: Some("open".into()),
+            },
+            Op::AssignCluster {
+                id: "demo".into(),
+                cluster: Some("proof".into()),
+            },
+            Op::AdvancePhase,
+        ];
+        for op in &ops {
+            dpl_workflows::apply(&mut doc, op)
+                .map_err(|issues| format!("drill op refused: {issues:?}"))?;
+        }
+        dpl_workflows::save_brainstorm(&dir, &doc).map_err(|e| format!("save failed: {e}"))?;
+        let reloaded =
+            dpl_workflows::load_brainstorm(&dir).map_err(|e| format!("reload failed: {e}"))?;
+        if reloaded != doc {
+            return Err("round-trip drift: the reloaded board differs".into());
+        }
+        let faults = dpl_workflows::validate_brainstorm(&reloaded);
+        if !faults.is_empty() {
+            return Err(format!("worked board is invalid: {faults:?}"));
+        }
+        let prefill = dpl_workflows::distill(&reloaded)
+            .map_err(|issues| format!("distill refused: {issues:?}"))?;
+        dpl_workflows::save_intake_prefill(&dir, &prefill)
+            .map_err(|e| format!("prefill save failed: {e}"))?;
+        Ok(format!(
+            "brainstormed {} → {} ({} ideas, {} groups, {} prefills)",
+            scaffold.id,
+            dir.display(),
+            reloaded.items.len(),
+            reloaded.clusters.len(),
+            prefill.len()
+        ))
+    }
+
     // `--clone-seed <seed-id> <show> <episode>` — the headless clone
     // drill (X3): copy a seed into the real content tree through the
     // engine (`dpl_doc::clone_episode`) and exit; no window boots.
@@ -440,6 +553,36 @@ fn main() -> eframe::Result {
                 std::process::exit(1);
             }
         }
+    }
+
+    // `--brainstorm-drill <scaffold>` — the headless BS1 drill: mint a
+    // board in the content inbox, work it through every phase with the
+    // ONE op path, prove round-trip + no-clobber + distill, exit by
+    // verdict; no window boots.
+    if let Some(i) = args.iter().position(|a| a == "--brainstorm-drill") {
+        let Some(scaffold_id) = args.get(i + 1).filter(|a| !a.starts_with("--")) else {
+            eprintln!("usage: --brainstorm-drill <scaffold-id>");
+            std::process::exit(2);
+        };
+        let Some(scaffold) = dpl_workflows::brainstorm_scaffold(scaffold_id) else {
+            let all = dpl_workflows::brainstorm_scaffolds()
+                .iter()
+                .map(|s| s.id)
+                .collect::<Vec<_>>()
+                .join(", ");
+            eprintln!("unknown scaffold {scaffold_id:?} — registered: {all}");
+            std::process::exit(2);
+        };
+        std::process::exit(match run_brainstorm_drill(&scaffold) {
+            Ok(line) => {
+                println!("{line}");
+                0
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                1
+            }
+        });
     }
 
     let options = eframe::NativeOptions {
@@ -520,7 +663,9 @@ fn main() -> eframe::Result {
                 save_comp,
                 lottie_import,
                 fx_drill,
+                preview_drill,
                 l4_drill,
+                mblur_drill,
                 make_slide,
                 run_workflow,
                 seam_port,
@@ -575,7 +720,9 @@ struct Boot {
     save_comp: Option<String>,
     lottie_import: Option<String>,
     fx_drill: Option<(String, String)>,
+    preview_drill: Option<String>,
     l4_drill: bool,
+    mblur_drill: bool,
     make_slide: Option<String>,
     run_workflow: Option<String>,
     /// The agent seam's port; None = `--no-seam`.
@@ -588,6 +735,9 @@ struct Boot {
 
 struct App {
     shell: Shell,
+    /// The last-written ColdLight picks, so a write only happens when the
+    /// operator actually changed something.
+    chrome_choices: ChromeChoices,
     /// The one fabric — kept for the first-frame waker install (the
     /// egui Context exists only inside frames; doctrine law 6).
     fabric: Fabric,
@@ -669,7 +819,9 @@ impl App {
             save_comp,
             lottie_import,
             fx_drill,
+            preview_drill,
             l4_drill,
+            mblur_drill,
             make_slide,
             run_workflow,
             seam_port,
@@ -808,10 +960,16 @@ impl App {
         }
         // L3: the alpha-overlay proof — base cut + transformed/tinted FX
         // overlay, rendered synchronously before the first frame.
+        if let Some(rel) = &preview_drill {
+            wiredfront.preview_drill(rel);
+        }
         if let Some((clip, fx)) = &fx_drill {
             wiredfront.fx_drill(clip, fx);
         }
         // L4's harness seam: blend + matte + LUT in one synchronous proof.
+        if mblur_drill {
+            wiredfront.mblur_drill();
+        }
         if l4_drill {
             wiredfront.l4_drill();
         }
@@ -915,11 +1073,24 @@ impl App {
         // The lite route launcher's targets: each registered hub's label and
         // its home route (HubSpec::default_route → first subroute). Built here,
         // before `hubs` is moved into the shell, and handed to the peer window.
+        // The FULL hub/sub census, one entry per SUBROUTE in the one
+        // route grammar (`hub/sub`, the seam's `route_str` law) — no
+        // longer the hub-defaults "lite launcher" list this began as:
+        // /route validates against and navigates through exactly what
+        // the platform registers (BND1).
         let chat_routes: Vec<(String, Route)> = hubs
             .iter()
-            .map(|hub| {
+            .flat_map(|hub| {
                 let spec = hub.spec();
-                (spec.label.to_owned(), spec.default_route())
+                spec.subroutes.iter().map(move |sub| {
+                    (
+                        format!("{}/{}", spec.id.0, sub.id.0),
+                        Route {
+                            hub: spec.id,
+                            sub: sub.id,
+                        },
+                    )
+                })
             })
             .collect();
         // Registry for estate hydrate + the agent seam (same specs the shell has).
@@ -954,6 +1125,9 @@ impl App {
         if let Some(m) = mood {
             shell.set_harness_mood(m);
         }
+        // Recorded before the match consumes it: a harness route must not
+        // become the operator's persisted landing route.
+        let harness_route = boot_route.is_some();
         match boot_route {
             // The harness route: HubId/SubId are &'static str newtypes, so the
             // CLI strings are leaked once — a harness-only allocation.
@@ -984,7 +1158,17 @@ impl App {
                 seam_registry,
                 dpl_engine_capture::content_root(),
                 estate.clone(),
-                Some(shell.route()),
+                // A HARNESS route is never the operator's landing route.
+                // `--route` exists so a surface can prove itself; seeding it
+                // here persisted it to the estate, so the next plain
+                // double-click opened wherever the last drill happened to
+                // stop. Proof runs must not mutate operator state — the same
+                // law that keeps proof-shot runs off the content index.
+                if harness_route {
+                    None
+                } else {
+                    Some(shell.route())
+                },
                 port,
             );
         }
@@ -1044,8 +1228,14 @@ impl App {
         );
         chat.attach_determinism(determinism);
 
+        // What the operator last picked, applied before the first frame so the
+        // app opens wearing it rather than flashing the authored look first.
+        let chrome_choices = ChromeChoices::load(&dpl_engine_capture::userdata_root());
+        chrome_choices.apply();
+
         Self {
             shell,
+            chrome_choices,
             fabric,
             waker_installed: false,
             viziwiz,
@@ -1471,6 +1661,64 @@ fn fit_window(ctx: &egui::Context) {
     }
 }
 
+// ── the operator's ColdLight picks, remembered ──────────────────────────
+//
+// `dpl-coldlight` holds the live override table but never touches the
+// filesystem — it has no business knowing where `.userdata` is. The app owns
+// that, exactly as it owns the assist policy, so persistence costs coldlight
+// no dependency and the structure audit stays flat.
+
+/// Which preset each surface is wearing, on disk under the three-ring root.
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+struct ChromeChoices {
+    #[serde(default)]
+    surfaces: std::collections::BTreeMap<String, String>,
+}
+
+const CHROME_CHOICES_FILE: &str = "coldlight.json";
+
+impl ChromeChoices {
+    /// A missing or corrupt file is not an error — it means "nothing picked
+    /// yet", which is the authored look.
+    fn load(userdata: &std::path::Path) -> Self {
+        std::fs::read(userdata.join(CHROME_CHOICES_FILE))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default()
+    }
+
+    fn save(&self, userdata: &std::path::Path) -> std::io::Result<()> {
+        let bytes = serde_json::to_vec_pretty(self).map_err(std::io::Error::other)?;
+        let temporary = userdata.join(format!("{CHROME_CHOICES_FILE}.tmp"));
+        std::fs::write(&temporary, bytes)?;
+        std::fs::rename(temporary, userdata.join(CHROME_CHOICES_FILE))
+    }
+
+    /// What coldlight is wearing right now.
+    fn snapshot() -> Self {
+        Self {
+            surfaces: dpl_coldlight::chrome_choices()
+                .into_iter()
+                .map(|(surface, id)| (surface, id.to_owned()))
+                .collect(),
+        }
+    }
+
+    /// Apply what was remembered. A preset that no longer exists is DROPPED
+    /// with a line rather than killing the launch — a rename must not brick
+    /// the app on start.
+    fn apply(&self) {
+        for (surface, id) in &self.surfaces {
+            if !dpl_coldlight::set_chrome_preset(surface, id) {
+                eprintln!(
+                    "coldlight: remembered preset {id:?} for {surface:?} no longer exists — \
+                     falling back to the authored look"
+                );
+            }
+        }
+    }
+}
+
 impl eframe::App for App {
     fn on_exit(&mut self) {
         if let Some(tap) = self.ledger.take() {
@@ -1490,6 +1738,18 @@ impl eframe::App for App {
         self.chat.root_close_requested(ui.ctx());
         fit_window(ui.ctx());
         self.shell.ui(ui);
+
+        // The picker lives in the shell and mutates coldlight's table; the app
+        // notices the change and writes it. Comparing a handful of short
+        // strings once a frame is cheaper than threading an event through two
+        // crates, and it cannot miss a pick.
+        let picks = ChromeChoices::snapshot();
+        if picks.surfaces != self.chrome_choices.surfaces {
+            if let Err(error) = picks.save(&dpl_engine_capture::userdata_root()) {
+                eprintln!("coldlight: could not remember the preset pick: {error}");
+            }
+            self.chrome_choices = picks;
+        }
         let ctx = ui.ctx().clone();
         self.chat.frame(&ctx, self.shell.route());
 

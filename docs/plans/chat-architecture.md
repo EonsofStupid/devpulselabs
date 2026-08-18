@@ -539,7 +539,8 @@ lifecycle facts publish only after their corresponding state transition
 succeeds on the dedicated stamped `providers` Fabric domain. Every activation
 attempt has one process-unique `ActivationAttemptId`; the same identity joins
 the Chat ceremony, terminal trace, shell activity feed, `/signals`, Turso
-terminal evidence, and future DuckDB analytics.
+terminal evidence, and future Arrow/DataFusion analytics over Parquet
+(ADR-014, amended 2026-08-03 — DuckDB superseded).
 
 The provider fact vocabulary covers selection, activation request, client
 start, bounded device-code receipt, code copy, system-browser dispatch,

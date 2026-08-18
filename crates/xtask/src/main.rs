@@ -9,6 +9,9 @@
 //!      stale-exe killer.
 //!
 //! `cargo xtask fix` = fmt + clippy --fix (the tidy loop).
+//! `cargo xtask coverage` = the coverage audit alone, with the depth rules
+//!   printed. It also runs inside `green`, where it REPORTS and never gates
+//!   (pass 1) — the one phase that can see authored data nothing consumes.
 
 use serde::Deserialize;
 use std::collections::HashSet;
@@ -141,11 +144,45 @@ fn release_exe() -> PathBuf {
         .join(format!("devpulselabs{}", std::env::consts::EXE_SUFFIX))
 }
 
+/// THE LOCK AUDIT — `Cargo.lock` must already satisfy `Cargo.toml`.
+///
+/// Cargo silently re-resolves and REWRITES the lock on any ordinary build, so
+/// a manifest change committed without its lock looks perfectly fine locally
+/// and in CI. It cost three separate incidents in one week (#216, #219, and
+/// egui 0.36 — which merged with the manifest demanding 0.36 and the lock
+/// still pinning 0.35).
+///
+/// Intention did not fix it; a gate does. `--locked` refuses to update the
+/// lock, so a manifest/lock mismatch FAILS here instead of being papered over
+/// by the next build.
+fn lock_audit() -> Result<(), String> {
+    println!("── lock ──────────────────────────────────────");
+    let output = Command::new("cargo")
+        .args(["metadata", "--locked", "--format-version", "1"])
+        .stdout(Stdio::null())
+        .output()
+        .map_err(|error| format!("lock: spawn failed: {error}"))?;
+    if output.status.success() {
+        println!("  Cargo.lock satisfies Cargo.toml");
+        return Ok(());
+    }
+    Err(format!(
+        "Cargo.lock does NOT satisfy Cargo.toml — a manifest change was \
+         committed without its lock. Run `cargo metadata` (or any build) and \
+         COMMIT the resulting Cargo.lock.\n{}",
+        String::from_utf8_lossy(&output.stderr).trim()
+    ))
+}
+
 fn green() -> Result<(), String> {
     run("fmt", &["fmt", "--all", "--", "--check"])?;
+    lock_audit()?;
     docs_status()?;
     spawn_audit()?;
     structure_audit()?;
+    // Reports; does not gate (pass 1). See its doc comment for why a phase
+    // that is red on arrival is worse than one that only tells the truth.
+    coverage_audit(false)?;
     run(
         "clippy",
         &[
@@ -177,10 +214,177 @@ fn green() -> Result<(), String> {
         // catch a masked link failure that leaves an OLD exe behind.
         (Some(b), Some(a)) if a < b => Err("release exe went BACKWARDS — locked/stale".into()),
         _ => {
+            // LAST, because it needs the release helper the build just made —
+            // and because a gate that never runs the real renderers proves
+            // only that they compile.
+            smoke_audit()?;
             println!("green ✔ exe: {}", exe.display());
             Ok(())
         }
     }
+}
+
+/// THE SMOKE PHASE — run the real subprocess renderers and look at what they
+/// actually produced.
+///
+/// **Why this exists.** ADR-009 makes ffmpeg, aerender, ThorVG and the AI
+/// providers all subprocesses, and tests must stay hermetic to run in CI. That
+/// left the entire ADR-009 surface with NO coverage: unit tests reach the pure
+/// functions, drills reach the UI over authored fixtures, and nothing ever ran
+/// a real helper and checked real output. Three failures shipped through that
+/// gap and none of them returned a non-zero exit code:
+///
+/// - `dpl-lottie-render export` emitted ZERO frames — frame 0 always failed;
+/// - Lottie TEXT rendered a fully blank frame, because no font was ever loaded;
+/// - `CodexAppServerRuntime::from_parts` had no callers at all.
+///
+/// So every assertion here is on the ARTIFACT — opaque pixel counts, frame
+/// counts — never on process success. An exit code is what lied all three
+/// times.
+///
+/// Hermetic by construction: in-repo fixtures, in-repo fonts, an in-repo
+/// helper, no network and no login. Provider smoke (a real Codex turn) needs
+/// the operator's credentials and therefore stays a local example, not a gate.
+fn smoke_audit() -> Result<(), String> {
+    println!("── smoke: real renderers, real pixels ────────");
+    let helper = target_dir()
+        .join("release")
+        .join(format!("dpl-lottie-render{}", std::env::consts::EXE_SUFFIX));
+    if !helper.is_file() {
+        return Err(format!(
+            "smoke: {} is missing — the release build must produce it",
+            helper.display()
+        ));
+    }
+    let scratch = target_dir().join("smoke");
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(&scratch).map_err(|e| format!("smoke scratch: {e}"))?;
+    let fonts = Path::new("crates/coldlight/assets/fonts");
+
+    // 1. A SHAPE at t=0. Frame 0 is the case that used to be fatal, so it is
+    //    the case the gate pins.
+    let shape_png = scratch.join("shape-t0.png");
+    render_frame(
+        &helper,
+        "tests/fixtures/lottie/shape.json",
+        256,
+        0.0,
+        &shape_png,
+        None,
+    )?;
+    let painted = opaque_pixels(&shape_png)?;
+    if painted < 1_000 {
+        return Err(format!(
+            "smoke: the shape fixture rendered {painted} opaque pixels at t=0 — \
+             a blank or near-blank frame, which is what a broken renderer looks \
+             like at exit code 0"
+        ));
+    }
+    println!("  shape  t=0     {painted:>7} opaque px");
+
+    // 2. TEXT, which needs a font registered. This is the regression guard for
+    //    the blank-text bug: without `--fonts` this frame is EMPTY and the
+    //    process still succeeds.
+    let text_png = scratch.join("text.png");
+    render_frame(
+        &helper,
+        "tests/fixtures/lottie/text.json",
+        512,
+        0.5,
+        &text_png,
+        Some(fonts),
+    )?;
+    let lettered = opaque_pixels(&text_png)?;
+    if lettered < 1_000 {
+        return Err(format!(
+            "smoke: the text fixture rendered {lettered} opaque pixels — text is \
+             not drawing. ThorVG renders NOTHING for a font family it was never \
+             given, and it does not error."
+        ));
+    }
+    println!("  text   t=0.5   {lettered:>7} opaque px");
+
+    // 3. EXPORT a whole sequence. This is the path that produced no files at
+    //    all, so the gate counts them.
+    let seq = scratch.join("seq");
+    let out = Command::new(&helper)
+        .args([
+            "export",
+            "tests/fixtures/lottie/shape.json",
+            "128",
+            "128",
+            "30",
+        ])
+        .arg(&seq)
+        .output()
+        .map_err(|e| format!("smoke: spawn export: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "smoke: export failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    let frames = std::fs::read_dir(&seq)
+        .map_err(|e| format!("smoke: read export dir: {e}"))?
+        .filter_map(Result::ok)
+        .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("png"))
+        .count();
+    // The fixture is 60 frames at 30fps; exporting at 30fps must yield 60.
+    if frames != 60 {
+        return Err(format!(
+            "smoke: export wrote {frames} frames, expected 60 — this path once \
+             wrote ZERO while exiting 0"
+        ));
+    }
+    println!("  export         {frames:>7} frames");
+    let _ = std::fs::remove_dir_all(&scratch);
+    Ok(())
+}
+
+/// Render one frame through the real helper.
+fn render_frame(
+    helper: &Path,
+    lottie: &str,
+    size: u32,
+    t: f32,
+    out: &Path,
+    fonts: Option<&Path>,
+) -> Result<(), String> {
+    let mut command = Command::new(helper);
+    command
+        .arg("frame")
+        .arg(lottie)
+        .arg(size.to_string())
+        .arg(size.to_string())
+        .arg(t.to_string())
+        .arg(out);
+    if let Some(dir) = fonts {
+        command.arg("--fonts").arg(dir);
+    }
+    let output = command
+        .output()
+        .map_err(|e| format!("smoke: spawn {lottie}: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "smoke: {lottie} at t={t} failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(())
+}
+
+/// Count pixels that are not fully transparent.
+///
+/// The measure that matters: a renderer that draws nothing still writes a
+/// valid, correctly-sized PNG and exits 0. Only the alpha channel tells the
+/// truth.
+fn opaque_pixels(png: &Path) -> Result<usize, String> {
+    let image = image::open(png).map_err(|e| format!("smoke: decode {}: {e}", png.display()))?;
+    Ok(image
+        .to_rgba8()
+        .pixels()
+        .filter(|pixel| pixel.0[3] > 0)
+        .count())
 }
 
 fn docs_status() -> Result<(), String> {
@@ -710,6 +914,7 @@ fn structure_audit() -> Result<(), String> {
         "dpl-chat-gemini",
         "dpl-chat-grok",
         "dpl-chat-imagine",
+        "dpl-coach-pack",
         "egui-pilot-ai-protocol",
         "egui-pilot-ai-transport",
         "egui-pilot-ai-runner",
@@ -1064,6 +1269,471 @@ fn structure_audit() -> Result<(), String> {
     }
 }
 
+/// THE COVERAGE AUDIT — what is authored, versus what actually reaches a pixel.
+///
+/// **Why this exists.** `smoke_audit` was built because the gate asserted on
+/// process success instead of on the artifact, and three failures shipped
+/// behind an exit code of 0. This is the same lesson one layer up: a gate that
+/// only proves things *compile* cannot see **authored data that nothing
+/// consumes**. Four such defects were found by hand-reading 3,342 lines of
+/// `coldlight/src/lib.rs` on 2026-08-09, and not one of them failed fmt,
+/// clippy, a test, or a build:
+///
+/// - `ResolvedStyle.anim` is resolved on every call and has ZERO readers;
+/// - three of `Motion`'s five channels never reach a pixel from a slide;
+/// - the matrix paints exactly ONE role in the whole app;
+/// - 1 of 19 effects has a keyframe `track`.
+///
+/// **Two axes, never conflated** (`docs/plans/coverage-audit.md` §4.1). REACH
+/// asks "does anything reference this id at all"; DEPTH asks "does it use the
+/// capability the system offers". Effects are the proof that one number lies:
+/// reach is 17/19 and depth is 1/19, so a reach-only audit would print a tick
+/// over the actual defect.
+///
+/// **Three verdicts** (§4.2). `REACHED` is a proven reference. `DEAD` is zero
+/// references of any kind. `UNPROVABLE` is the honest third one: a pool whose
+/// lookup is called with a computed id cannot be statically resolved, and
+/// calling those items dead would make this instrument lie — which is worse
+/// than having no instrument, because it would be trusted.
+///
+/// **Pass 1 reports and never fails on dead items** (§4.4). The numbers are
+/// already bad; a phase that is red the day it lands teaches the operator to
+/// skip it. The ratchet against a checked-in baseline is pass 2. An I/O
+/// failure IS still an error — a coverage audit that cannot read the tokens
+/// has proven nothing.
+///
+/// **Never reads `/content`** — gitignored operator data, absent in CI. Only
+/// `crates/` and the in-repo `seeds/` tree are scanned.
+///
+/// Caveat, stated because an unstated one is a lie: references are counted
+/// across `crates/**/*.rs` INCLUDING `#[cfg(test)]` blocks, so a token reached
+/// only by a test counts as REACHED. Tightening that is pass 2.
+fn coverage_audit(detail: bool) -> Result<(), String> {
+    println!("── coverage: authored vs reached ─────────────");
+
+    let tokens_dir = Path::new("crates/coldlight/tokens");
+    let mut files: Vec<(String, serde_json::Value, String)> = Vec::new();
+    let read = fs::read_dir(tokens_dir)
+        .map_err(|e| format!("coverage: cannot read {}: {e}", tokens_dir.display()))?;
+    for entry in read.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|x| x.to_str()) != Some("json") {
+            continue;
+        }
+        let raw = fs::read_to_string(&path)
+            .map_err(|e| format!("coverage: cannot read {}: {e}", path.display()))?;
+        let value: serde_json::Value = serde_json::from_str(&raw)
+            .map_err(|e| format!("coverage: {} is not valid JSON: {e}", path.display()))?;
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_string();
+        files.push((stem, value, raw));
+    }
+    if files.is_empty() {
+        return Err(format!(
+            "coverage: no token files under {}",
+            tokens_dir.display()
+        ));
+    }
+
+    let rust_src = collect_text(Path::new("crates"), "rs", &["xtask"]);
+    let seed_src = collect_text(Path::new("seeds"), "json", &[]);
+
+    let token = |stem: &str| -> Option<&serde_json::Value> {
+        files.iter().find(|(s, _, _)| s == stem).map(|(_, v, _)| v)
+    };
+    // Token-to-token references EXCLUDE the file that defines the pool —
+    // otherwise every id trivially "references" itself.
+    let others = |stem: &str| -> String {
+        files
+            .iter()
+            .filter(|(s, _, _)| s != stem)
+            .map(|(_, _, raw)| raw.as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    // Every authored coordinate in the repo, so a facet value can be asked
+    // whether anything actually stands on it.
+    let mut coord_text = String::new();
+    for stem in ["presets", "roles"] {
+        if let Some(v) = token(stem) {
+            coord_text.push_str(&v.to_string());
+        }
+    }
+
+    let mut rows: Vec<CoverageRow> = Vec::new();
+    let mut push = |row: CoverageRow| rows.push(row);
+
+    // ── motion ────────────────────────────────────────────────────────────
+    if let Some(motion) = token("motion") {
+        let effects = object_keys(motion, &["effects"]);
+        let mut row = measure(
+            "effects",
+            &effects,
+            "",
+            &rust_src,
+            &others("motion"),
+            &seed_src,
+            &["effect("],
+        );
+        let with_track = effects
+            .iter()
+            .filter(|id| {
+                motion["effects"][id.as_str()]
+                    .get("track")
+                    .is_some_and(|t| !t.is_null())
+            })
+            .count();
+        row.depth = Some((with_track, "has a keyframe track"));
+        push(row);
+
+        for (label, key, prefix) in [
+            ("eases", "eases", "EASE_"),
+            ("durations", "durations", "DUR_"),
+        ] {
+            let ids = object_keys(motion, &[key]);
+            push(measure(
+                label,
+                &ids,
+                prefix,
+                &rust_src,
+                &others("motion"),
+                &seed_src,
+                &[],
+            ));
+        }
+    }
+
+    // ── hues ──────────────────────────────────────────────────────────────
+    if let Some(hues) = token("hues") {
+        let mut ids = Vec::new();
+        if let Some(groups) = hues["groups"].as_object() {
+            for (_, group) in groups {
+                ids.extend(object_keys(group, &["hues"]));
+            }
+        }
+        let mut row = measure(
+            "hues",
+            &ids,
+            "R_",
+            &rust_src,
+            &others("hues"),
+            &seed_src,
+            &["step_on(", "resolve_on("],
+        );
+        // DEPTH: reached by an authored COORDINATE or a token ref — not merely
+        // by the six-variant enum in front of the pool.
+        let deep = ids
+            .iter()
+            .filter(|id| {
+                let q = format!("\"{id}\"");
+                coord_text.contains(&q) || seed_src.contains(&q) || others("hues").contains(&q)
+            })
+            .count();
+        row.depth = Some((deep, "reached beyond the six-variant enum"));
+        push(row);
+    }
+
+    // ── the matrix facets ─────────────────────────────────────────────────
+    if let Some(matrix) = token("matrix") {
+        for key in ["ancestors", "structures", "materials", "atmospheres"] {
+            let ids = object_keys(matrix, &[key]);
+            let mut row = measure(key, &ids, "", &rust_src, &others("matrix"), &seed_src, &[]);
+            let used = ids
+                .iter()
+                .filter(|id| coord_text.contains(&format!("\"{id}\"")))
+                .count();
+            row.depth = Some((used, "stands in >=1 authored coordinate"));
+            push(row);
+        }
+    }
+
+    // ── presets ───────────────────────────────────────────────────────────
+    if let Some(presets) = token("presets") {
+        for (label, key) in [
+            ("presets (ancestral)", "ancestral"),
+            ("presets (theme)", "theme"),
+            ("presets (motion)", "motion"),
+            ("presets (bleed)", "bleed"),
+        ] {
+            let ids = object_keys(presets, &[key]);
+            if ids.is_empty() {
+                continue;
+            }
+            let mut row = measure(
+                label,
+                &ids,
+                "",
+                &rust_src,
+                &others("presets"),
+                &seed_src,
+                &[
+                    "preset(",
+                    "theme_preset(",
+                    "motion_preset(",
+                    "bleed_preset(",
+                ],
+            );
+            if key == "ancestral" {
+                let bound = token("roles")
+                    .map(|r| {
+                        let text = r.to_string();
+                        ids.iter()
+                            .filter(|id| text.contains(&format!("\"{id}\"")))
+                            .count()
+                    })
+                    .unwrap_or(0);
+                row.depth = Some((bound, "bound by a roles.json entry"));
+            }
+            push(row);
+        }
+    }
+
+    // ── the remaining flat pools ──────────────────────────────────────────
+    for (label, stem, key, prefix, dynamic) in [
+        ("traits", "traits", "traits", "", &["trait_def("][..]),
+        ("moods", "moods", "moods", "", &["mood("][..]),
+        ("fonts", "fonts", "fonts", "", &["font_family("][..]),
+        (
+            "icons",
+            "icons",
+            "icons",
+            "",
+            &["draw_icon(", "icon_label("][..],
+        ),
+    ] {
+        let Some(v) = token(stem) else { continue };
+        let ids = object_keys(v, &[key]);
+        if ids.is_empty() {
+            continue;
+        }
+        push(measure(
+            label,
+            &ids,
+            prefix,
+            &rust_src,
+            &others(stem),
+            &seed_src,
+            dynamic,
+        ));
+    }
+
+    // ── report ────────────────────────────────────────────────────────────
+    let mut dead_total = 0usize;
+    for row in &rows {
+        dead_total += row.dead.len();
+        let depth = match row.depth {
+            Some((n, _)) => format!("depth {n:>3}/{:<3}", row.total),
+            None => "depth   n/a  ".to_string(),
+        };
+        let mut line = format!(
+            "  {:<20} reach {:>3}/{:<3}  {depth}",
+            row.name, row.reached, row.total
+        );
+        if !row.unprovable.is_empty() {
+            line.push_str(&format!("  unprovable {}", row.unprovable.len()));
+        }
+        if !row.dead.is_empty() {
+            line.push_str(&format!("  dead: {}", row.dead.join(", ")));
+        }
+        println!("{line}");
+        if detail {
+            if let Some((_, rule)) = row.depth {
+                println!("      depth rule: {rule}");
+            }
+            if !row.unprovable.is_empty() {
+                // Named, not just counted: an unprovable item is WORK — either
+                // the lookup gets a literal or the token gets deleted. A bare
+                // count cannot be acted on.
+                println!("      unprovable: {}", row.unprovable.join(", "));
+            }
+        }
+    }
+
+    // The false-positive guard: anything SHAPED like a generated motion const
+    // but absent from the pool. `cl::motion::M` is a module alias and was the
+    // first thing a naive grep reported as an effect.
+    let motion_ids: Vec<String> = token("motion")
+        .map(|m| {
+            let mut v = object_keys(m, &["effects"]);
+            v.extend(
+                object_keys(m, &["eases"])
+                    .iter()
+                    .map(|e| format!("EASE_{e}")),
+            );
+            v.extend(
+                object_keys(m, &["durations"])
+                    .iter()
+                    .map(|d| format!("DUR_{d}")),
+            );
+            v
+        })
+        .unwrap_or_default()
+        .iter()
+        .map(|s| const_name(s, ""))
+        .collect();
+    let unknown = unknown_motion_refs(&rust_src, &motion_ids);
+    if unknown.is_empty() {
+        println!("  unknown refs        none");
+    } else {
+        println!("  unknown refs        {}", unknown.join(", "));
+    }
+
+    println!(
+        "coverage: {} pools, {dead_total} dead (reporting only — the ratchet is pass 2)",
+        rows.len()
+    );
+    Ok(())
+}
+
+/// One pool's verdict counts.
+struct CoverageRow {
+    name: &'static str,
+    total: usize,
+    reached: usize,
+    unprovable: Vec<String>,
+    dead: Vec<String>,
+    depth: Option<(usize, &'static str)>,
+}
+
+/// The generated const name for an authored id: `ident(name).to_uppercase()`,
+/// mirroring `coldlight/build.rs:84`, with the pool's prefix.
+fn const_name(id: &str, prefix: &str) -> String {
+    format!("{prefix}{}", id.replace('-', "_").to_uppercase())
+}
+
+/// Concatenate every file with `ext` under `root`, skipping `target` and any
+/// directory named in `skip`.
+///
+/// `xtask` skips ITSELF: its own doc comments quote `cl::motion::NAME` while
+/// explaining the scanner, and the first run duly reported `NAME` as an
+/// unknown effect. An instrument that reads its own documentation as evidence
+/// is measuring the wrong thing.
+fn collect_text(root: &Path, ext: &str, skip: &[&str]) -> String {
+    let mut out = String::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(rd) = fs::read_dir(&dir) else { continue };
+        for entry in rd.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let name = entry.file_name();
+                if name != "target" && !skip.iter().any(|s| name == *s) {
+                    stack.push(path);
+                }
+                continue;
+            }
+            if path.extension().and_then(|x| x.to_str()) == Some(ext) {
+                if let Ok(text) = fs::read_to_string(&path) {
+                    out.push_str(&text);
+                    out.push('\n');
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The authored ids of the pool at `value[path…]`, in authored order.
+///
+/// The token files use BOTH shapes and both are legitimate: `motion.json`
+/// keys its effects/eases/durations by id, while every other pool is an array
+/// of objects carrying an `id` (or, for moods, a `name`). Handling only the
+/// first shape is what made the first run report `0/0` for six pools while
+/// printing a confident tick — the audit's own version of the defect it
+/// exists to catch.
+fn object_keys(value: &serde_json::Value, path: &[&str]) -> Vec<String> {
+    let mut cursor = value;
+    for step in path {
+        cursor = &cursor[*step];
+    }
+    if let Some(map) = cursor.as_object() {
+        return map.keys().cloned().collect();
+    }
+    cursor
+        .as_array()
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|row| {
+                    row.get("id")
+                        .or_else(|| row.get("name"))
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string)
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// True when any of `fns` is called with something other than a string
+/// literal — i.e. the pool has a lookup a static scan cannot follow.
+fn has_dynamic_call(src: &str, fns: &[&str]) -> bool {
+    fns.iter().any(|f| {
+        src.match_indices(f)
+            .any(|(i, _)| src[i + f.len()..].chars().next().is_some_and(|c| c != '"'))
+    })
+}
+
+/// Reach + verdicts for one pool.
+fn measure(
+    name: &'static str,
+    ids: &[String],
+    prefix: &str,
+    rust_src: &str,
+    other_tokens: &str,
+    seed_src: &str,
+    dynamic: &[&str],
+) -> CoverageRow {
+    let dynamic_reach = has_dynamic_call(rust_src, dynamic);
+    let mut reached = 0;
+    let mut unprovable = Vec::new();
+    let mut dead = Vec::new();
+    for id in ids {
+        let quoted = format!("\"{id}\"");
+        let hit = rust_src.contains(&const_name(id, prefix))
+            || rust_src.contains(&quoted)
+            || other_tokens.contains(&quoted)
+            || seed_src.contains(&quoted);
+        if hit {
+            reached += 1;
+        } else if dynamic_reach {
+            unprovable.push(id.clone());
+        } else {
+            dead.push(id.clone());
+        }
+    }
+    CoverageRow {
+        name,
+        total: ids.len(),
+        reached,
+        unprovable,
+        dead,
+        depth: None,
+    }
+}
+
+/// Every `cl::motion::NAME` in the source whose NAME is not a generated const.
+fn unknown_motion_refs(src: &str, known: &[String]) -> Vec<String> {
+    const PREFIX: &str = "cl::motion::";
+    let mut found: Vec<String> = Vec::new();
+    for (i, _) in src.match_indices(PREFIX) {
+        let rest = &src[i + PREFIX.len()..];
+        let name: String = rest
+            .chars()
+            .take_while(|c| c.is_ascii_uppercase() || *c == '_' || c.is_ascii_digit())
+            .collect();
+        if name.is_empty() || known.iter().any(|k| k == &name) || found.contains(&name) {
+            continue;
+        }
+        found.push(name);
+    }
+    found.sort();
+    found
+}
+
 #[cfg(windows)]
 fn windows_file_version(executable: &Path) -> Result<String, String> {
     let file = pelite::FileMap::open(executable)
@@ -1205,6 +1875,15 @@ fn main() -> ExitCode {
         "sweep" => sweep(&arguments),
         "docs-status" => docs_status(),
         "structure" => structure_audit(),
+        // Standalone prints the depth RULE beside each pool — `green` prints
+        // only the counts, so the gate stays one screen.
+        "coverage" => coverage_audit(true),
+        // Runnable alone so the check can be PROVEN to fail — a gate nobody
+        // has watched fail is a gate nobody should trust.
+        "smoke" => smoke_audit(),
+        // Runnable alone so the check can be PROVEN to fail — the whole point
+        // is that it catches what three commits already got wrong.
+        "lock" => lock_audit(),
         "stage-tool-deps" => stage_tool_dependencies(&arguments),
         "fix" => run("fmt", &["fmt", "--all"]).and_then(|()| {
             run(
@@ -1219,7 +1898,7 @@ fn main() -> ExitCode {
             )
         }),
         other => Err(format!(
-            "unknown task \"{other}\" — tasks: green, sweep, docs-status, structure, stage-tool-deps, fix"
+            "unknown task \"{other}\" — tasks: green, sweep, docs-status, structure, coverage, smoke, lock, stage-tool-deps, fix"
         )),
     };
     match result {
@@ -1228,5 +1907,46 @@ fn main() -> ExitCode {
             eprintln!("xtask: {e}");
             ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::{const_name, has_dynamic_call, unknown_motion_refs};
+
+    /// The const derivation must mirror `coldlight/build.rs:84` exactly —
+    /// `ident(name) = name.replace('-', "_")`, then uppercased. If build.rs
+    /// ever changes it, every reach number here silently goes to zero.
+    #[test]
+    fn const_names_mirror_the_design_build() {
+        assert_eq!(const_name("enter-rise", ""), "ENTER_RISE");
+        assert_eq!(const_name("spring-soft", "EASE_"), "EASE_SPRING_SOFT");
+        assert_eq!(const_name("teal-accent", "R_"), "R_TEAL_ACCENT");
+    }
+
+    /// THE FALSE-POSITIVE GUARD. A grep for `cl::motion::[A-Z_]*` reports
+    /// `cl::motion::M` — a module alias, not an effect. Matches are only
+    /// trusted after intersecting with the authored id set; whatever is left
+    /// is an UNKNOWN REF, which is its own signal rather than a fake effect.
+    #[test]
+    fn a_module_alias_is_never_mistaken_for_an_effect() {
+        let known = vec!["ENTER_RISE".to_string()];
+        let src = "let fx = cl::motion::ENTER_RISE; use cl::motion::M;";
+        assert_eq!(unknown_motion_refs(src, &known), vec!["M".to_string()]);
+    }
+
+    /// THE UNPROVABLE GUARD. A pool reached only through a computed id must
+    /// never be reported DEAD — an instrument that is confidently wrong is
+    /// worse than none, because it gets trusted.
+    #[test]
+    fn a_computed_lookup_is_unprovable_not_dead() {
+        assert!(has_dynamic_call("let p = preset(id);", &["preset("]));
+        assert!(has_dynamic_call("preset(&chosen)", &["preset("]));
+        // Every call site a literal => the scan CAN follow it; nothing is
+        // excused as unprovable.
+        assert!(!has_dynamic_call(
+            "let p = preset(\"neon-intro\");",
+            &["preset("]
+        ));
     }
 }

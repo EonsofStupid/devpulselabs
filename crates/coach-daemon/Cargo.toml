@@ -12,6 +12,10 @@ autobins = false
 workspace = true
 
 [dependencies]
+# S2 (docs/plans/coach-seam-s2-protocol-rehoming.md): the daemon is a
+# TRANSLATOR — HTTP JSON in, protocol seam types through, runtime engine,
+# protocol EffectContract out. Bare verb strings die at the HTTP edge.
+egui-pilot-ai-protocol.workspace = true
 axum.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
@@ -20,9 +24,19 @@ tokio-stream.workspace = true
 dpl-coach-inventory = { path = "../coach-inventory" }
 dpl-coach-fabric = { path = "../coach-fabric" }
 dpl-coach-runtime = { path = "../coach-runtime" }
+# The tracing spine (seam ADR S1): every verb execution/refusal publishes a
+# seam span on a daemon-local signal fabric; the ledger writes it to the
+# same Parquet layout the app uses. The files are the meeting point.
+dpl-fabric.workspace = true
+dpl-ledger.workspace = true
 dpl-proc.workspace = true
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+# The committed verb battery (examples/verb_battery.rs) — a tiny blocking
+# HTTP client, examples-only, never a production edge.
+ureq.workspace = true
 
 [[bin]]
 name = "dpl-coach-daemon"

@@ -38,6 +38,10 @@ side rails         dpl-fabric (signals) · dpl-seam (agent HTTP) ·
 document/domain layer; providers and accounts are engines; window/windows/
 renderers are surfaces.
 
+`dpl-chat-window → dpl-workflows` is an ordinary surface→document edge
+(the `dpl-editor → dpl-doc` direction): the chat surface renders the
+brainstorm board document and emits its typed ops; the host owns all IO.
+
 ## 1b. The KERNEL BOUNDARY (gate-enforced)
 
 The layer stack above says which way dependencies point. This says which way
@@ -131,13 +135,35 @@ the audit, same commit, with the reason.
 - **crates/hubs/coach/** (`dpl-hub-coach`): Operator Coach Import UI
   (C2f); depends on inventory + fabric + runtime; spawns
   `dpl-coach-overlay` binary only (never a crate dep on overlay).
+- **crates/coach-pack/** (`dpl-coach-pack`): S3a pack registry (seam
+  ADR §3/§7.4/§7.7): fingerprint bundles, evidence-weighted resolver,
+  schema-1 TOML packs under a root-agnostic `packs/<app-id>/pack.toml`
+  registry, promote-only law in types; egui-free; may depend on
+  inventory + `egui-pilot-ai-protocol` (S2 rehomed the identity spine —
+  `AppId`/`CellKey`/`PackId` — and the transport rung into
+  `egui_pilot_ai_protocol::seam`; this crate imports them, no re-export
+  shims); consumed by `dpl-hub-coach` + the Foundry (S3b); never a dep
+  of `app` directly.
 - **crates/coach-runtime/** (`dpl-coach-runtime`): FabricGraph bridge
   (session resolve / invoke / extents + reality presence); egui-free;
-  may depend on fabric + inventory; never a dep of `app` directly.
-- **crates/coach-daemon/** (`dpl-coach-daemon`): localhost Axum Coach
-  control plane (ADR `coach-control-plane-adr.md`); never a dep of
-  `app`; agent hop = HTTP; app hop = runtime AT-SPI; overlay remains
-  painter-only under overlay ADR.
+  may depend on fabric + inventory; never a dep of `app` directly. The
+  verb CATALOG is not here — S2 rehomed it to
+  `egui_pilot_ai_protocol::seam::seam_verb_catalog()`; this crate is
+  the engine behind the verbs, not the vocabulary.
+- **crates/coach-daemon/** (`dpl-coach-daemon`): localhost Axum
+  TRANSLATOR onto the protocol seam (ADR `coach-control-plane-adr.md` +
+  S2 `coach-seam-s2-protocol-rehoming.md`); never a dep of `app`; agent
+  hop = HTTP; app hop = runtime AT-SPI; overlay remains painter-only
+  under overlay ADR. May depend on `egui-pilot-ai-protocol` (verbs
+  parse to `seam::SeamVerb` at the HTTP edge; answers are
+  `seam::EffectContract`; `/events` speaks `seam::SeamEvent`) +
+  `dpl-fabric` + `dpl-ledger` (seam ADR S1): every verb
+  execution/refusal publishes a seam span on a daemon-local signal
+  fabric and the ledger writes it to the same Parquet layout the app
+  uses — the files are the meeting point between the two processes.
+  (`dpl-fabric`'s private `TransportRung` copy is held to the protocol's
+  wire labels by a daemon test until its own retirement micro-slice —
+  S2 plan §4.1 deviation.)
 
 ## 4. The laws every new crate inherits
 

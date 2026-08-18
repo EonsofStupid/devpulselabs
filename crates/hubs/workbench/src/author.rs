@@ -2,7 +2,7 @@
 //!
 //! Pass A landed the spine: an intent bar and one honest mutation — a draft
 //! card is a REAL, schema-valid `slide.json` in the content inbox, and
-//! `BuildEvent::CardAuthored` publishes AFTER the write (emit-with-mutation).
+//! `BuildEvent::CardStarted` publishes AFTER the write (emit-with-mutation).
 //!
 //! This pass adds the way you actually pick things: a **shelf picker** over
 //! **one carousel** of large, sweepable cards — the operator's ask, "easily
@@ -132,7 +132,10 @@ fn newest_draft() -> Option<std::path::PathBuf> {
 /// key or the selected styling can never drift between them.
 fn tab_chip(ui: &mut egui::Ui, ed: &mut CardEditor, t: CardTab, tone: Tone) {
     let active = ed.tab == t;
-    let chip = cl::tip(control(ui, t.label(), active, tone, Weight::Quiet), t.tip());
+    let chip = cl::tip(
+        control(ui, t.label(), active, tone, Weight::Chrome),
+        t.tip(),
+    );
     ui.pilot_track(
         &chip,
         NodeMetadata::new(
@@ -1356,7 +1359,7 @@ impl AuthorSurface {
                         ),
                         false,
                         c.kind.tone(),
-                        Weight::Quiet,
+                        Weight::Chrome,
                     ),
                     "Go straight into this one",
                 );
@@ -1433,7 +1436,7 @@ impl AuthorSurface {
 
         ui.add_space(cl::space::S3);
         let seed = cl::tip(
-            control(ui, "+ Start a blank card", false, Tone::Amber, Weight::Loud),
+            control(ui, "+ Start a blank card", false, Tone::Amber, Weight::Hero),
             "Make a card with nothing on it but your words, and add to it from there.",
         );
 
@@ -1546,14 +1549,13 @@ impl AuthorSurface {
                 });
                 self.open_editor(&dir, title);
                 // Emit-with-mutation: the fact is published AFTER the write
-                // succeeds, never before. show/episode are empty until the
-                // card is placed into an episode (Studio's `SlidePlaced`).
+                // succeeds, never before. `CardStarted` carries only the draft
+                // id — show/episode are not facts yet at this point in the
+                // flow, and the old signal carried them as empty strings,
+                // which is a lie shaped like data. `CardSaved` carries them
+                // once placing has made them true (Studio's `SlidePlaced`).
                 if let Some(f) = fabric {
-                    f.publish_build(dpl_fabric::BuildEvent::CardAuthored {
-                        show: String::new(),
-                        episode: String::new(),
-                        slide,
-                    });
+                    f.publish_build(dpl_fabric::BuildEvent::CardStarted { slide });
                 }
             }
             Err(e) => self.status = format!("could not start a card: {e} (nothing was written)"),
@@ -1682,7 +1684,7 @@ impl AuthorSurface {
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if cl::tip(
-                            control(ui, "Done", false, tone, Weight::Loud),
+                            control(ui, "Done", false, tone, Weight::Hero),
                             "Close this — your card is already saved.",
                         )
                         .clicked()
@@ -1813,7 +1815,7 @@ impl AuthorSurface {
                 // the tooltip and in the carousel header, not doubled across a
                 // row that then wraps onto two lines.
                 let chip = cl::tip(
-                    control(ui, shelf.label(), active, super::SPEC.tone, Weight::Quiet),
+                    control(ui, shelf.label(), active, super::SPEC.tone, Weight::Chrome),
                     shelf.tip(),
                 );
                 ui.pilot_track(
@@ -2093,7 +2095,7 @@ impl AuthorSurface {
                                         "Put them in",
                                         false,
                                         super::SPEC.tone,
-                                        Weight::Loud,
+                                        Weight::Hero,
                                     ),
                                     "Copy every card you started into this one. Your \
                                      originals stay where they are.",
@@ -2112,7 +2114,7 @@ impl AuthorSurface {
                                 );
                                 for (id, title) in many {
                                     if cl::tip(
-                                        control(ui, title, false, super::SPEC.tone, Weight::Loud),
+                                        control(ui, title, false, super::SPEC.tone, Weight::Hero),
                                         "Copy every card you started into this chapter",
                                     )
                                     .clicked()

@@ -1,6 +1,474 @@
 # STATE — the living ledger
 
-Updated every pass. This file is the first read of every session.
+Updated every pass. This file is APPEND-ONLY history — 2000+ lines of it.
+**It is not the resume truth.** For "what is done now, what is next, what is
+deprecated", read `docs/ops/resume/CURRENT.md` first; this file is for how
+we got here.
+
+> **SUPERSEDED CLAIMS — anywhere below, these are stale by design (history
+> is not rewritten):**
+> - the capability roster persisting to the estate's `Tree::Agents` — chat
+>   owns its store (ADR-017 amendment, 2026-08-03);
+> - DuckDB as the analytics engine — it is Arrow/DataFusion over Parquet
+>   (ADR-014 amendment, 2026-08-03);
+> - any Providers-program link described as planned — P1, V1, V2, V3, A1 and
+>   A2 all landed (#192);
+> - **`warden-devstation`** (in *THE SEAT GETS A BOOTSTRAP*, 2026-08-03 —
+>   anchored by title, not line number, because append-only history keeps
+>   moving it) — no host of that name is recorded anywhere in this repo. It was taken from a branch
+>   slug rather than ground-truthed, which is the exact failure the
+>   plan-before-code law names. The estate roster in
+>   `docs/runbook/ci-runners.md` lists RUNNERS only (`devpulse-runner-win-01`,
+>   `devpulse-runner-lnx-01`, `dpl-linux-clyffy-lab`) and states the dev
+>   machine is not among them. `hades` is evidenced as the current USER
+>   (`/home/hades/Projects/devpulselabs`, marked current in
+>   `phase3-analytics-program.md`; `wardenop` was already flagged stale at
+>   `product-vision.md:339`) — a home directory, not a hostname, so it does
+>   not name the host either. **The devbox target is `server1`** (operator
+>   ruling, 2026-08-07): `ssh.clyffy.ai`, the 128 GB / 88-core Debian
+>   Proxmox HOST that already carries VM 119 + LXC 121 and is the standing
+>   Linux gate box (the 16 GB laptop OOMs the full gate). This correction's
+>   own first draft claimed the devstation was "unnamed in the ledger" —
+>   that was itself un-ground-truthed: `server1` appears throughout STATE
+>   and the journals as the build box, and in `ci-runners.md` as the
+>   hypervisor. The search had looked for `warden-devstation` and `hades`
+>   and stopped, which is the SAME failure one layer down. Nothing in the
+>   script depends on the name — the bootstrap is host-agnostic
+>   (`tailscale up --hostname="$(hostname)"`) — but the runbook now says
+>   where it runs, and names the hypervisor blast radius that follows from
+>   that choice (see `devbox-bootstrap.sh` §"Where this runs").
+
+**2026-08-11 — THE EGUI CONTRACT, THE NAMING LAW, AND THE INSTRUMENT THAT
+CAN SEE DEAD TOKENS (#245, #248, #249, spec `design-system.md` rev
+2026-08-09, plan `coverage-audit.md`, `green ✔`, exe rebuilt):**
+
+The design system was audited end to end — `coldlight/src/lib.rs` (3,342
+lines, ONE file), `slides/document.rs`, `doc/lib.rs`, every `tokens/*.json`,
+and egui 0.35's vendored source. Three things were true and none were
+written down.
+
+**egui gives us NO design-system vocabulary (§0.5).** Every public type in
+its `style.rs` names painting state right now; searching all of egui for a
+design sense of token/variant/cascade/keyframe returns nothing. Its one
+inheritance is `ui_builder.rs:144` — a child `Ui` inheriting its parent's
+`egui::Style`, whole-struct — which validates the SHAPE of a cascade but
+cannot carry a `Coordinate`. So the choice was never "React term vs egui
+term"; it was borrow from the design-systems discipline or invent house
+words nobody can look up. The boundary rule is now law: **egui's vocabulary
+at and below the paint boundary, the discipline's above it, never mixed.**
+Recorded with it: no gradients (a gradient is a `Mesh`), no blur, **no
+rotation in `TSTransform`**, no document model — and two capabilities we own
+and do not use, `Scene` and `egui::atomics`.
+
+**Terms had drifted (§0.6).** `Tone` crossed two industries (Material 3
+defines *tone* as a LIGHTNESS step; ours picks a hue family) → `Accent` over
+`HueId`, 358 sites. `ThemePreset` was a LAYERING violation, not a name clash
+— all four fields are `dpl_doc::Theme` fields → moves to `dpl-doc`.
+`traits.json` goes for the PRIMARY reason that it is a second compositor the
+matrix superseded; the keyword awkwardness is secondary and would not justify
+a deletion alone. `Block` → `Node`, **not** `Entity` (in Rust GUI `Entity`
+means an ECS handle). Three duplications — `space::S*`, `RADIUS*`, and the
+raw-hex `surface`/`ink` — are **MERGED to one authored source and generated**,
+so ~1,150 call sites do not move and chrome does not start jittering.
+
+**The renderer consumes about a tenth of the engine (§4).**
+`slides/document.rs:309-463` is a centred vertical text stack that resolves
+three properties, NEVER calls `matrix::resolve`, plays one of 19 effects, and
+reads two of `Motion`'s five channels. §4 is rewritten as the real slide
+schema — `Node` tree, `Slot` defined, a fourth cascade level (parent Node),
+and `Ctx` carrying provenance + parent motion for ripple. The five-ring case
+is worked line by line: every mechanism exists, none is wired. The gap was
+never more engine; it was a node to hang the engine on.
+
+**#248 — the matrix reaches all 53 hues.** `resolve_on(hue: &str)` becomes
+the primary path with `resolve(tone)` a thin wrapper, so every `Tone::*` site
+is untouched. The six were never a limit of the ENGINE, only of the enum in
+front of it. Also renamed the day-old card signals to the ratified vocabulary
+(`entity` → `node`, `CardTraitChanged` → `CardAxisChanged`) **before a single
+row existed** — a signal name is a WIRE FORMAT that lands in Parquet.
+§2.4's ratified operator ruling ("everything is an ENTITY") is the operator's
+concept and its prose was deliberately left alone; only the code identifier
+moved.
+
+**#249 — the coverage audit, and the real lesson of this pass.** Every defect
+above was INVISIBLE and found by hand-reading. `smoke_audit` exists because
+the gate asserted on process success instead of the artifact; this is that
+lesson one layer up — a gate that only proves things COMPILE cannot see
+authored data that nothing consumes. `cargo xtask coverage` (also a
+non-gating phase inside `green`) measures **two axes**: REACH (is it
+referenced) and DEPTH (does it use the capability). Effects prove one number
+lies — reach 18/19, depth 1/19. Three verdicts, and the honest third one is
+`UNPROVABLE`: a pool reached through a computed id cannot be resolved
+statically, and calling those DEAD would make the instrument lie, which is
+worse than having none because it would be trusted. Unprovable items are
+NAMED, not counted — each is work.
+
+First run, now printed on every gate: **`presets (ancestral)` reach 6/25,
+depth 1/25** — this IS "the matrix paints exactly one role", as a number.
+**Five genuinely dead tokens** nobody had named (`bounce`, `dwell`,
+`spring-crisp`, `fast`, `settle`). And every matrix facet at 100% on BOTH
+axes — the facets are healthy, the BINDINGS are not, a distinction reach
+alone would have destroyed.
+
+**Three things recorded against ourselves rather than smoothed over.** (1) The
+audit BEAT its own plan: §3.3 predicted `ink-bleed` dead, but that hand count
+grepped const paths only and could not see `motion::effect("ink-bleed")` at
+`coldlight/src/lib.rs:2936`; §6 was corrected to the truth rather than the
+audit tuned to the prediction. (2) The first run found two bugs in the audit
+ITSELF, both it committing the defect it exists to catch — six pools printed
+`0/0` with a confident tick (array-shaped pools it could not parse), and
+`unknown refs` reported `NAME`, read out of xtask's OWN doc comment; the
+corpus now skips `crates/xtask`. (3) A perf figure carried from an earlier
+session had no record anywhere in the repo and is marked NOT YET BENCHED in
+the spec rather than asserted.
+
+**Process landmine, twice this session:** `gh pr checks <n> --watch` exited 0
+on #245 when NO checks existed (docs-only `paths-ignore`) and again on #248/
+#249 while both lanes were still `pending`. **Its exit code is not evidence.**
+Both code PRs were merged only after `gh pr checks` was read directly and
+showed both lanes `pass`. The estate's single Windows slot serialises runs —
+#249 waited ~1h behind #248's merge push before its 37m52s Windows pass.
+
+Open and unruled: the mock delete list (six candidates, untouched); pass 2 of
+the audit (the ratchet against a baseline + excluding `#[cfg(test)]` from
+reach, since a token reached only by a test currently counts as REACHED —
+stated in the doc comment, not hidden); and whether §7 goes next to `3′` (the
+naming merge, which the audit can now prove changed nothing) or to the debug
+overlay proper.
+
+**2026-08-11 — COACH SEAM S2: THE VOCABULARY COMES HOME (protocol v2.7,
+plan `coach-seam-s2-protocol-rehoming.md`, journal
+`2026-08-11-coach-seam-s2-landed.md`, `green ✔`):**
+
+The seam's verb vocabulary now has ONE home:
+`egui_pilot_ai_protocol::seam`. The identity spine (`AppId`/`CellKey`/
+`PackId`) MOVED out of `dpl-coach-pack` with its parse law intact (wire
+Deserialize goes through `parse`); the 21-verb `SeamVerb` catalog
+cataloged `geom` honestly (shipped since 2026-08-01, listed never);
+`EffectContract` + `SeamEvent` + `TransportRung` (`r0`..`r3`) are the
+typed wire; three `seam.*` capabilities sit honest-`Unsupported` on the
+pilot pipe — testing-vs-coaching separation as a visible fact. The
+daemon is a TRANSLATOR now: verb strings die at the HTTP edge (unknown
+names 409 by name), `coach-runtime/src/verbs.rs` retired behind a
+census test (catalog ⊇ old rows, no silent drops). The 2026-08-01
+manual battery became a committed drill
+(`coach-daemon --example verb_battery`): live 25 PASS / 1 SOFT / 0
+FAIL, and the S1 reliability fold read the run's 44 spans unchanged —
+the first battery WITH per-verb stats. One named deviation: fabric's
+`TransportRung` copy survives (its file dirty in the operator's live
+coldlight lane), pinned by a daemon label-equality test; a retirement
+micro-slice is owed. Built in an ephemeral worktree so the operator's
+lane was never touched.
+
+**2026-08-10 — PRESETS YOU EDIT, EGUI 0.36, AND TWO GATES THAT CATCH WHAT
+GREEN MISSED (#229, #230, #236, #237, plans `lottie-preset-controls.md` +
+`lottie-controls-panel.md`, `green ✔`):**
+
+**The preset surface (#229).** A Lottie's own text and colours are now
+editable from the composer's inspector — the SAME ColdLight tone-swatch row
+`overlay_inspector` uses for tint, because two colour pickers in one
+inspector would be drift. Text commits on Enter/focus-loss, never per
+keystroke (each change re-patches the document and re-opens the player,
+~24ms measured). Preview and export resolve through ONE function,
+`resolved_lottie`, so what the operator sees IS what renders; the values live
+on `Layer.controls` as plain JSON because dpl-comp's ceiling is exactly
+serde+serde_json, and the additive-invisibility pin now covers it.
+
+**Motion blur you can SEE.** The app had the switches (`m.blur` master, a
+per-layer toggle, a lime timeline marker) and painted `motion blur ·
+export-exact` — honest, but you had to export to see your own blur. The
+Lottie lane now averages sub-renders across the shutter interval, the same
+integral ffmpeg's `tmix` computes, reusing the EXPORT's own `blur_frames` so
+viewer and render cannot disagree. `--mblur-drill` makes it provable in the
+app rather than in a CLI.
+
+**egui 0.35 → 0.36 (#236).** Dependabot's five per-crate PRs were four-fifths
+red and always would be — those crates are version-locked. One branch, all
+five, plus wgpu 29 → 30. Three breakages: `RawInput::modifiers` REMOVED
+(modifiers now ride on events — had it *moved* instead, every synthetic
+Ctrl+Z would have silently become a bare Z with no compile error);
+`DroppedFile::path` is a method returning `&Path`; and epaint now PANICS on a
+dropped `TexturesDelta` — 32 sites across six crates.
+
+**Two gates, because instructions were not working.**
+`smoke` runs the REAL renderers and asserts on opaque-pixel counts and frame
+counts (#227): ADR-009 makes every renderer a subprocess and tests must stay
+hermetic, so that whole surface had NO coverage — three failures shipped
+through it at exit code 0 (Lottie `export` wrote zero frames, Lottie text
+rendered blank, `CodexAppServerRuntime::from_parts` had no callers).
+`lock` runs `cargo metadata --locked` (#237) after I committed a manifest
+without its lock THREE times in a week — cargo silently re-resolves, so
+#236 merged with Cargo.toml on 0.36 and Cargo.lock on 0.35 and both lanes
+went green. Both gates were watched FAIL before being trusted.
+
+**Operator correction, applied:** builds belong on server1 (88c/125GB) —
+measured 3m31s there vs 23m28s locally at 2 jobs, with two rustc
+STATUS_STACK_BUFFER_OVERRUN crashes and an `os error 1455` (pagefile) on the
+laptop. Needs `source $HOME/.cargo/env` over SSH or cargo is not on PATH.
+
+**2026-08-08 — COACH SEAM S3a: THE IDENTITY SPINE + PACK REGISTRY
+(landed).** Operator ruling executed: "no more hardcoding — identity
+resolved, never assumed." New egui-free crate `dpl-coach-pack`
+(plan `docs/plans/coach-seam-s3a-identity-spine.md`): `AppId` is the
+minted-once source of truth (parse-validated reverse-DNS, `x.`
+namespace reserved; `x.unresolved:<slug>` for scan-observed strangers);
+every scan builds a `FingerprintBundle` (desktop id, StartupWMClass,
+WM_CLASS, AT-SPI name, exe basename/path, version — all optional, none
+invented) and an evidence-weighted resolver scores it against installed
+packs' `[identity]` (weights 4/3/3/2/2/1, accept ≥ 3.0, ties are honest
+`Unresolved`, never a coin flip); a miss synthesizes a promotable
+generic profile the registry REFUSES to persist (`UnresolvedWrite` —
+promotion mints a real id first). Packs are schema-1 TOML under a
+root-agnostic `packs/<app-id>/pack.toml` registry: unknown keys warn
+AND survive rewrites (§7.4), the body is content-hashed into
+`[signing].pack_hash` (§7.7), writes are tmp → bak → rename, and the
+promote-only law lives in types (`PromotedRung` cannot express r2/r3;
+`effective_rung` never demotes). 25 unit tests green; live drill on
+this seat resolved the RUNNING gnome-calculator (score 8, live AT-SPI
+evidence) among 65 real inventory rows with 64 honest strangers;
+Blender pack proven against a Blender-shaped bundle (Blender install is
+S4 seat prep). `architecture.md` §3 + xtask `EGUI_FREE` census amended
+in-commit; full gate green. Next: S3b Foundry v0 + hub UI.
+
+**2026-08-08 — COACH SEAM S1: THE TRACING SPINE (ADR ratified, spine
+landed).** The seam ADR (`docs/plans/coach-seam-adr.md`) is RATIFIED —
+§6 defaults stand until individually overruled; §10 gained a named
+amendment: the DataFusion dependency WAITS for a release tracking arrow
+59 (stable 54.1 pins arrow 58 — a second arrow in the tree for a proof
+the in-tree reader already serves is exactly the drift the ledger crate
+warns about). S1 landed per `docs/plans/coach-seam-s1-tracing-spine.md`:
+a `seam` domain on `dpl-fabric` (`SeamSpan` v1 — verb, app, rung R0–R3,
+`downgraded_from`, mechanism, agency, ok, effect_observed, duration,
+lesson/beat from day one, open attrs map; refusals are first-class
+`SeamEvent::Refused` facts); `dpl-ledger` writes it with `type`=verb so
+reliability-per-verb is a GROUP BY, plus the `seam_reliability` fold and
+`seam_reliability`/`dump_rows` examples as the interim lens; the coach
+daemon owns a daemon-local signal fabric + ledger tap
+(`--analytics-root`, resolved root logged loudly at boot — silent
+non-recording is how weeks of verb stats were lost) and every
+`/verb`+`/import`+`/resolve`+`/invoke` execution AND refusal is timed
+and published. Live proof on gnome-calculator: open → focus → move →
+type_text("7") → assert_state → scroll → drag(refused) → close left 8
+`seam-*.parquet` rows; the scroll row landed
+`rung:r2, downgraded_from:r1, mechanism:xdotool_wheel` — the transport
+ladder's first live downgrade, visible as data. `architecture.md`
+coach-daemon entry amended (fabric+ledger edges) in the same commit;
+full gate green.
+
+**2026-08-07 — THE SEAT GETS A FRONT AND A HOST (#212, docs-only, no lane —
+`green.yml` `paths-ignore` excludes `docs/**`):** `devbox-bootstrap.sh` gains
+`--expose loopback|tailscale`, and the seat finally has a ground-truthed
+target: **server1** (`ssh.clyffy.ai`).
+
+THE FRONT IS A PLUG. ttyd stays bound to loopback in EVERY mode; `--expose`
+only decides what sits in front of that same socket. That is what makes the
+http → tailnet → shipped-VPN progression a SWAP rather than three rebuilds —
+no stage edits the devbox, only its front. `loopback` (default) opens nothing
+and is reached by `ssh -L`; `tailscale serve` adds HTTPS, a real cert and
+tailnet identity with no port opened, no reverse proxy authored and no cert to
+renew. Stage 3 plugs in as a third value: build it as **Headscale** — a
+self-hosted control plane the STOCK tailscale client already speaks — and
+stage 2's client config carries forward instead of becoming sunk cost.
+`TS_AUTHKEY` is read from the ENV only, never a flag (shell history) and never
+baked (ships to every seat). Provision-time mode persists to
+`/etc/devbox/expose`, so `--verify-only` audits the front that was BUILT, not
+the one the auditor passes. `ts_up()` greps `BackendState` because
+`tailscale status` exits 0 while a node is still `Starting`/`NeedsLogin` — a
+half-joined node would have reported green.
+
+THE HOST, AND A CORRECTION INSIDE A CORRECTION. The entry above named
+`warden-devstation`, taken from a branch slug — the exact failure the
+plan-before-code law names. The first correction then concluded the devstation
+was "unnamed in the ledger"; it had searched `warden-devstation` and `hades`,
+found neither, and STOPPED. `server1` was there the whole time — throughout
+STATE and the journals as the build box, and in `ci-runners.md` as the
+hypervisor. The same un-ground-truthed failure, one layer down, inside the fix
+for it. Both are recorded in SUPERSEDED CLAIMS (append-only).
+
+BLAST RADIUS FOLLOWS THE HOST CHOICE. server1 is not a blank guest — it
+already builds the product, so most of `APT_DEPS` SKIPs (the idempotency
+contract working, not a no-op); the new surface is the `devbox` user, node,
+the claude CLI, zellij, ttyd and the systemd unit. But it is the HYPERVISOR:
+an unauthenticated ttyd there is a root-equivalent shell on the box owning
+VM 119, LXC 121 and every snapshot. At `--expose loopback` nothing listens
+off-box and the risk equals today's SSH access. Promoting the HOST to
+`--expose tailscale` would publish that shell to every tailnet node, so the
+tailscale branch WARNS loudly on `/etc/pve` and points at running the seat in
+its own LXC — warns, not refuses, because that may be a deliberate call and an
+unattended Packer bake must not block on a prompt.
+
+**STANDING OPEN (unchanged, and the reason this is not "done"): the script has
+never run end-to-end as root.** Everything above is proven by inspection only
+(`bash -n`; `--verify-only` → 9 failures on `loopback`, 12 on `tailscale`
+adding the three tailscale probes; `--expose wireguard` → exit 2). The proof
+is two commands on server1: `sudo ./docs/runbook/devbox-bootstrap.sh`, then
+`--expose tailscale` over the top of it. NEXT: run stage 0 on the host (that
+alone proves the script), then decide host-vs-LXC for stage 1 — the plug means
+that decision does not have to be made first.
+
+**2026-08-08 — BND1: THE CHAT BOUNDARY, AUTHORED (plan
+`docs/plans/chat-boundary.md`, journals `chat-boundary-m1/m2/m3a/m4`,
+PR #226):** the operator's three asks — the missing commands, the
+silent Enter, and "the chat boundary and AI boundary truly separate" —
+are real. The boundary statement in running code: window = render +
+recognize · core = command vocabulary + validation + seeds · host =
+dispatch + IO · providers = transport. `dpl-chat-core` carries the
+SIX-command census (/route /model /routines /brainstorm /strict
+/behavioral) behind ONE whole-buffer recognizer (provenance law; the
+window's two hand parsers DELETED); every command refuses synthetic
+input; out-of-census args refuse NAMING the census; seeds ride
+`GuidedValue`'s dormant Route/Provider/Session sources. THE
+ENTER-HONESTY LAW: a refused keyboard submit paints its already-
+authored reason under the composer (first test that path ever had).
+The typeahead strip reveals the census over a `/` draft (click-to-fill,
+Area+Foreground — no popup precedent existed); /route navigates through
+the FULL 19-route hub/sub census (NavigateTo's FIRST emitter ever —
+the plumbing was dead weight behind a count badge). CLYFFY STANDS:
+host-owned house session (the projection law; the runtime's
+provider-mismatch guards never in play), minted once, pinned FIRST
+under the sidebar's previously-orphaned PINNED heading, presence-gated
+("active" = the current binding is signed in, never borrowed
+readiness), /model rebinds with the identity law pinned by test (same
+id, history keeps per-event provider tags). Proofs: 17+45+39 tests,
+native PNG read (docs/proof/bnd1-command-strip.png), pilot suite 5/5
+incl. the new chat-command-strip semantics. Gate-flake fixed at cause
+(chat-accounts fixture aliased leftover dbs under Windows PID reuse).
+NAMED-REMAINING (the row's own tooltip says so): M3b
+send-through-binding + house transcript JSONL/decoder; strip
+arrow-nav; the window:4199 GuidedValue sensitivity leak (parked).
+
+**2026-08-07 — BS1: THE BRAINSTORM SURFACE, COMPLETE (plan
+`docs/plans/brainstorm-surface.md`, journals `brainstorm-m1/m2/m3`, PR
+#220):** the operator's 2026-08-06 ask — type "brainstorming" in chat and
+an editable, visualized board populates inline — is real end-to-end.
+Documents layer: `BrainstormDoc v1` (diverge→cluster→converge), the
+8-verb `BrainstormOp` census through ONE pure all-or-nothing `apply`,
+scaffold census (`breakdown`), `distill()` → explainer-intake pre-fill
+(`IntakePrefillDoc v1`), strict wire schema + six negative pins. Surface:
+whole-buffer trigger (`brainstorming`/`/brainstorm` — the slash
+provenance law verbatim), inline board in the Ai transcript painted from
+a host-pushed `BrainstormView` (H1 projection shape), editable item rows
+with commit-on-focus-loss, breakdown ↳, cascade ✕, cluster lanes,
+assist-origin disclosure, Undo/Redo (host-side checkpoint stacks, cap
+100); the ⊞ Component button LIVES (its "not connected in this slice"
+tooltip is finally false). Assist populate is assist mode's FIRST real
+behavior: `SuggestClient` (the text sibling of ImagineClient, same key
+law) rides a job labeled `brainstorm · populate` (imagine drive shape,
+honest keyless/off/unseeded skips); proposals land as Assist-origin
+items through the same `apply`, one checkpoint per wave. Promote
+distills into `intake-prefill.json` beside the board + a governed
+inline ArtifactPreview announce. Proof: 35+44+37+7 tests, live
+`--brainstorm-drill` verdicts (mint/no-clobber/census-refusal), native
+proof PNG read (`docs/proof/bs1-brainstorm-board.png`), EguiPilotAI
+`chat-brainstorm` PASSED 6/6 (semantic phase/cluster nodes; capture
+dropped — deferred viewports can't self-screenshot in eframe 0.35, the
+out-of-process native proof is the pixel contract). NEXT (parked,
+operator-ruled): the chat send/Enter silent no-op + the slash-command
+registry (/route /model /routines, guided seeded values) — diagnosis in
+the task ledger; EX1 M2 (render leg) and M3 (guided intake, which reads
+the staged pre-fill) remain the explainer program's open milestones.
+
+**2026-08-06 — CHAT REACHES THE AI PROVIDER CRATE: THE HOST DRIVES THE SEAM
+(#213, plan `docs/plans/codex-host-wiring.md`, journal
+`docs/journal/2026-08-06-codex-host-wiring.md`, `green ✔`):** the oldest open
+ask in the program — *"it shows active and I cannot chat"* — is closed for
+Codex. Witnessed in the real exe, not inferred:
+`provider runtime connected provider=codex can_send=true
+qualified=[StartSession, StreamTurns, InterruptTurn]`, and a live UI drill
+where typing a draft ENABLES Send.
+
+#210 had shipped Codex's translation table and **nothing that could run it**:
+`from_parts`, `APP_SERVER_ARGS` and `initialize_params()` had zero callers
+anywhere in the workspace. This wrote the missing half — `start(profile)`
+spawning `codex app-server` with three threads (reader/writer/stderr drain)
+and **zero new dependencies**, plus a host that drives the SEAM: `runtimes:
+BTreeMap<ProviderId, Box<dyn ProviderRuntime>>` and nine provider-parameterised
+functions replacing the `if provider != grok::PROVIDER { return }` gates. The
+gate stopped asking *"are you Grok?"* and started asking *"do you have a
+runtime?"*, so the next provider costs a `start()` and no host code. Grok
+keeps its bespoke path; converging it is its own pass.
+
+**The lessons, all of them "a cheap signal is not the real one":** a merged PR
+is not a delivered capability — the check that catches it is *does anything
+call this?*, not *did CI pass?*. The live turn found what 27 unit tests could
+not (`ThreadTokenUsage` is NESTED; reading `totalTokens` at the top level
+parses cleanly and returns zero forever). And `green-windows` went red on a
+defect this pass did not cause — `Index::dump` unlinked symlinks with
+`remove_file`, but a Windows DIRECTORY symlink needs `remove_dir`, so a
+referenced FOLDER could never be dumped (#214). It survived every local gate
+because `try_symlink` returns false without Developer Mode and both symlink
+tests then **return early while reporting `ok`** — a skip wearing a pass's
+clothes; they now say `SKIPPED (NOT PROOF)`.
+
+**Also this pass:** the crate census —
+`docs/plans/crate-consolidation-review.md`. 73 crates / 114,956 LOC. THREE
+crates are dead (`dpl-chat-extensions` 254 · `dpl-chat-renderers` 419 ·
+`dpl-engine-ae` 684); `dpl-chat-extensions` is dead AND named in neither
+`architecture.md` nor the gate. `extensions` + `renderers` are the two halves
+of ONE unbuilt feature the 6032-line window bypassed with 24 hard-coded
+`ChatEventContent::` arms; `engine-ae` was orphaned by its own intended
+consumer (`composer/src/lib.rs:6294` replicated `Caps::probe` — *"no
+engine-ae coupling for 12 lines"*). Three dependency edges nothing imports
+removed (#216). **Correction recorded:** the recommended `dpl-hub` split was
+wrong — the root of the transitive-egui leak is `Tone` living in
+`dpl-coldlight`, which also traps `dpl-doc` and `dpl-seam`, and
+`architecture.md` §3 already ratifies that extraction.
+
+**2026-08-06 — THE MEDIA-EXPERIENCE PROGRAM IS PLANNED — BROWSER, GIMP,
+ADOBE EXIT (`docs/plans/media-experience-program.md` +
+`docs/runbook/adobe-exit.md`):** research-first pass, no code. The browse
+freeze is grounded with 13 ranked suspects, every one with file:line — the
+killer is `Index::open_default()` **four times on the editor's first
+paint** (fresh tokio runtime + turso open + DDL each, on the UI thread; the
+`author.rs:1055` incident already proved this pattern hangs proof runs),
+then the unvirtualized 500-card grids (frame 1 can spawn ~1000 loader
+threads via egui_extras' thread-per-URI loaders), a recursive
+`count_files(elements)` **every frame** on the Library route, first-paint
+recursive walks over pinned USB drives, and 26 drive-letter probes on the
+UI thread when Browse opens — five violations of `browse.rs`'s own header
+law ("No UI surface ever walks a directory on the paint thread"). The plan
+is enforcement, not invention: A1 kill the paint-path blockers → A2
+virtualized streamed grids (skeleton-then-swap, visible-first, budgets) →
+A3 disk thumb cache + video thumbs (absorbs `wiredfront-library-and-player`
+part B, which never landed — `poster_for`/`ThumbJob` have zero grep hits —
+consent prompt intact) → A4 layman layer. Arc B: GIMP 3 as an ADR-009
+subprocess (`gimp-console` batch + sentinel verdicts; `GIMP3_DIRECTORY`
+profile sandbox; PhotoGIMP is GPLv3 config but **broken on GIMP 3.2.x** —
+pairing decision PROPOSED §7). Arc C: the Adobe exit runbook —
+.mogrt = zip-in-zip → .aep; queue-all-comps.jsx → aerender → ProRes 4444
++ alpha archive (render-don't-parse holds); Lottie only for
+re-animatables, expressions BAKED (ThorVG can't run them); .ffx confirmed
+unconvertible; P0 clocks: cloud files + CC fonts audit. Lane
+`dpl-lane-lucide` verified fully landed (#211) and retired this session.
+
+**2026-08-05 — THE MATRIX RESOLVES, AND THE EDITOR WEARS A COORDINATE
+(journals `docs/journal/2026-08-05-preset-benches.md` +
+`docs/journal/2026-08-05-matrix-resolves.md`, `8f9d98e` + `8918b14`):**
+matrix adoption was **0 runtime call sites** — `generate_matrix` validated
+every authored value and discarded it, so `matrix_gen.rs` was 765 bytes of
+ids and the app painted with `compose(trait)`. It is now **14,078 bytes** of
+payloads, with `Coordinate` + `resolve()`, and `roles.json` binds a role to
+either a trait or a COORDINATE. `wiredfront.chrome` is
+`brutalist · massive · plate · hard-cast` — Vibron, as ruled — and the
+release exe's `roles_gen.rs` carries `Dress::Coord`, so the shipped binary
+resolves through the matrix. Not one composer call site changed.
+
+Four defects surfaced by building the preset benches, three fixed: `bloom`
+shipped a **blur** (violating doctrine law 6 AND matrix §11.4's own aero
+ruling) → re-authored as a painted ring falloff; `sheen`/`bloom` painted
+their specular band as `OVERLAY@90`, a measured **4/255** delta on the dark
+base → now `ink STRONG`; **9 materials painted 6** (`matte≡raw`,
+`glass≡metallic`, `paper≡clay`), capping three lineages at two distinct
+materials → 10 now paint 10, with `raw`/`paper` untouched because they carry
+ratified looks. The ruled Vibron coordinate did **not** reproduce Vibron —
+`hard-cast` carried a halo and its `active` only sank the shadow — so the
+halo split off as **`lit-cast`** and `hard-cast` took the interaction
+convention. Census 21 → 23 facet values (`plate`, `lit-cast`).
+
+**Open:** runtime switching between the 25 preset coordinates (no registry,
+no picker — changing the look still means editing `roles.json` + rebuilding);
+`presets.json` has no `ancestral` kind yet; RTFX `.ffx`/`.aep` still FILED
+but unparsed, `engine-ae` Phase 1 unwired.
 
 **2026-08-02 — THE PROVIDERS CONTROL AND THE INK BLEED (V1, plan
 `docs/plans/providers-v1-ink-bleed-control.md`, journal
@@ -185,6 +653,38 @@ mint → lesson button (still name-spawn overlay until bridge wires).
 **2026-07-31 — CX-cursor-01 PASS (`docs/journal/2026-07-31-cx-cursor-01.md`):**
 overlay locate on Cursor **`Search Ctrl+K`** + **`File`**; Calculator `7`
 regression green.
+
+**2026-08-03 — THE SEAT GETS A BOOTSTRAP (PR #182, `docs/runbook/devbox-bootstrap.sh`):**
+`linux-runner-bootstrap.sh` builds a CI runner; this builds a **seat**. Same
+contract on purpose — idempotent, every step self-verifying, exits nonzero
+naming the first unsatisfied requirement, `--verify-only` for the post-boot
+audit. Blank Debian/Ubuntu guest → the PROVEN apt set (carried over because a
+seat has to COMPILE, not just edit — that is the whole pitch) + node 22 +
+`@anthropic-ai/claude-code` + rust pinned to `rust-toolchain.toml` + zellij +
+ttyd, behind a `devbox-ttyd@.service` template, with the clone's
+`core.hooksPath .githooks` **set and verified** (the fresh-clone law otherwise
+leaves the gate silently doing nothing). Two things deliberately NOT baked:
+Claude Code credentials (per-seat, first boot — a shared credential in an
+image is a licensing AND blast-radius problem) and any cloud role. ttyd binds
+`--interface lo` ONLY: it is an unauthenticated root-equivalent shell, and
+this is the same law that deregistered the runners on 2026-07-30. Intent is
+one provisioning source Packer runs twice — Proxmox template + AWS AMI — so
+estate and fleet cannot drift. **OPEN: never yet run end-to-end as root on a
+blank guest** — proven only by `bash -n` and a `--verify-only` audit on an
+unprovisioned container (9 named failures, exit 1, correctly PASSING the
+`node>=18` and `claude` predicates already satisfied there, so the checks
+discriminate rather than blanket-fail). NEXT = `sudo ./devbox-bootstrap.sh` on
+`warden-devstation`, then the Packer bake with `--verify-only` as the gate.
+
+**2026-08-03 — DOCS-ONLY PRs HAVE ZERO LANES (doctrine finding, no code):**
+`green.yml` carries `paths-ignore: ["docs/**", "**.md", ".claude/**"]`, so
+#182 registered `total_count: 0` — not pending, **terminal**. The double-green
+merge law therefore has NOTHING to check on a docs-only PR. This matters
+because `docs/plans/product-vision.md` records that branch protection with
+required checks is now free on the public repo: turning it on naively would
+block every docs-only PR forever, since a required check that never runs never
+reports. Decide the skipped-run policy BEFORE enabling protection — the law
+that exists to prevent bad merges would otherwise prevent good ones.
 
 **2026-07-31 — C2e FABRIC MINT PASS (`docs/journal/2026-07-31-c2e-fabric-mint.md`):**
 `dpl-coach-fabric` + `coach-fabric-mint`. Live Calculator **Ready · 82

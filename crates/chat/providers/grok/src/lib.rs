@@ -6,6 +6,7 @@
 
 mod retry;
 mod runtime;
+pub mod seam;
 mod terminal;
 
 pub use retry::*;

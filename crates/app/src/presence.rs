@@ -252,11 +252,13 @@ mod tests {
 
     #[test]
     fn a_real_tool_is_classified_from_its_own_words() {
-        // `true` exists on every unix box and prints nothing, which is the
-        // unrecognized case — proving we never invent a verdict from silence.
+        // `cargo` is on PATH wherever this test runs — on every OS, unlike
+        // `true`, which does not exist on Windows and turned this test into
+        // NotInstalled on the CI VMs. Its version line matches no phrase
+        // below — proving we never invent a verdict from unrecognized output.
         let spec = PresenceSpec {
-            program: "true",
-            args: &[],
+            program: "cargo",
+            args: &["--version"],
             signed_in: &["logged in"],
             signed_out: &["not logged in"],
             login: &[],

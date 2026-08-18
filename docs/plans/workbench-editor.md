@@ -440,7 +440,7 @@ thing, never a label for the thing. `film_tile` (`author.rs:53`) already proves
 the pattern for cards — this generalises it to the catalog.
 
 **The word collision, resolved without touching the disk.** `seeds/slides/<class>/<id>/slide.json`
-(`doc/src/lib.rs:840-885`, four authored documents) currently uses "seed" for
+(`doc/src/lib.rs:840-885`, four authored documents there — the episode set at seeds/episodes/ is four more, §3.10.1) currently uses "seed" for
 *a starting slide document* — which under this ruling is a **Template**, not a
 seed. Leaving both meanings alive is exactly the ambiguity that produced this
 mess. The code names are corrected to say what they are:
@@ -472,23 +472,32 @@ pub enum BuildEvent {
     SlidePlaced      { show, episode, chapter, slide },  // Studio — unchanged
     EpisodeChanged   { show, episode },                  // Studio — unchanged
     CardStarted      { slide },                       // new card, or an existing one opened
-    CardAdded        { slide, entity, kind },         // text · picture · quote (§3.5 ADD)
-    CardStyled       { slide, entity, kind, preset }, // a preset was picked    (§3.5 STYLE)
-    CardTraitChanged { slide, entity, trait_name },   // one of the 4-7 knobs moved
-    CardSaved        { show, episode, slide },        // RENAMED from CardAuthored
+    CardAdded       { slide, node, kind },         // text · picture · quote (§3.5 ADD)
+    CardStyled      { slide, node, kind, preset }, // a preset was picked    (§3.5 STYLE)
+    CardAxisChanged { slide, node, axis },         // one of the 4-7 knobs moved
+    CardSaved       { show, episode, slide },      // RENAMED from CardAuthored
 }
 ```
+
+> **Vocabulary, 2026-08-11 (`design-system.md` §0.6).** §2.4's ratified ruling
+> — *"everything is an ENTITY"* — stands as the OPERATOR'S concept and its
+> language is untouched. The **code identifier** is `Node`: in Rust GUI
+> `Entity` means an ECS handle (Bevy), and a node in a retained tree is a
+> `Node`. Likewise the knobs are **axes**, not traits — `traits.json` is a
+> retired second compositor, and an *axis* is defined as one styling property
+> channel carrying a merge rule. Fixed here before any row was written,
+> because a signal name is a **wire format** that lands in Parquet.
 
 | flow step (§3.0) | signal | catalog id |
 |---|---|---|
 | new card / edit existing | `CardStarted` | `build.card-started` |
 | add text/picture/quote | `CardAdded` | `build.card-added` |
 | pick a preset | `CardStyled` | `build.card-styled` |
-| tweak a trait | `CardTraitChanged` | `build.card-trait-changed` |
+| tweak an axis | `CardAxisChanged` | `build.card-axis-changed` |
 | save | `CardSaved` | `build.card-saved` |
 
 Since presets are entity-scoped (§2.4), the styling signals carry **which
-entity** was styled (`entity` = the block id, or `"card"` for the stage) and
+node** was styled (`node` = the block id, or `"card"` for the stage) and
 **which kind** it is. Without those, a coach could see that *something* was
 styled but never what — and preset usage per entity kind, the measurable form
 of the compounding claim, would be unrecoverable from the ledger.
@@ -499,11 +508,11 @@ of the compounding claim, would be unrecoverable from the ledger.
 - `CardStyled { preset }` is the one that carries the product's whole thesis:
   it names which of the 10-15 presets collapsed the complexity. It is also what
   makes preset usage measurable.
-- `CardTraitChanged { trait_name }` carries a knob name from the §3.1
+- `CardAxisChanged { axis }` carries a knob name from the §3.1
   registry only — a bounded, registered vocabulary, never free text.
 - Payloads stay **content-free** in the id space, per the existing law at
   `coach_signals.rs:178`: show/episode/slide names are operator content and
-  never reach a `SignalId`; `kind`, `preset`, and `trait_name` are registered
+  never reach a `SignalId`; `kind`, `preset`, and `axis` are registered
   vocabularies, so they may.
 
 **Blast radius, exact** — 5 files, all listed, no shims (pre-release ruling):
@@ -532,13 +541,241 @@ fact it proves:
 existing-slide path (§3.3) and the "only 4-7 traits" claim (§3.1) are the two
 things this pass could lose or fake silently, so each gets its own proof seam.
 
+---
+
+## 3.9 AMENDMENT 2026-08-07 — two depths, and how Studio relates
+
+Operator, verbatim: *"we need to realize we want an advance mode so we have the
+capability to grow and expand this … the ability to apply and mix and match
+presets on each entity and then save … then the full advance editor where we
+can mix and match, extend the options, for the default edit in place. Basically
+need to have edit existing, and then the full editor … we do not need 3 meaning
+the same."*
+
+### 3.9.1 RULED — three surfaces become two, not one
+
+**OPERATOR RULING 2026-08-07: "studio and editor work together but separate."**
+
+| today | after | why |
+|---|---|---|
+| **Author** (3,591 lines) — make a card | **deleted** into Editor | §3 already ruled this |
+| **Editor** (81 lines) — change a card | **the Editor** | one surface, two depths (§3.9.2) |
+| **Studio** (251 lines) — sequence cards into episodes | **stays, separate** | arranging is a different verb from making |
+
+Studio is *not* merged. It is also not independent: its blurb today claims
+"blocks → elements → templates → effects" — the Editor's vocabulary — while its
+code only publishes `SlidePlaced`. **Working together means sharing the system,
+not the surface:** one bucket vocabulary (§3.4), one preset registry (§3.1), one
+`Seed` trait for every tile (§3.6), one signal stream (§3.7). Studio's blurb is
+corrected to describe sequencing, which is what it does.
+
+The test that keeps them honest: **no styling vocabulary may be defined twice.**
+If Studio needs to name a bucket, a preset or a trait, it reads the Editor's
+registry — a second enumeration fails the census (§6).
+
+### 3.9.2 The two depths
+
+The flow (§3.0) is unchanged and remains the default. It gains a second depth
+*behind* it, not a sixth step in it — §5's boundary holds.
+
+| depth | who it is for | what it is |
+|---|---|---|
+| **Edit in place** *(default)* | every card, every day | §3.0 exactly: select an entity → its preset carousel → its 4-7 traits → save. Nothing else on the path. |
+| **Advanced** *(opt-in)* | growing the system | the same surface opened up: mix and match across ALL entities at once, browse by category, and extend the option sets |
+
+Advanced is reached from the Editor, never navigated to as a separate route —
+otherwise it is a fourth surface and this amendment defeats itself.
+
+### 3.9.3 The interaction model — carousels, not trays
+
+Operator: *"categories, overlays, carousel experiences, seamless scrolling,
+select and it applies."* That is a correction to §3.5's tiles-and-tray drawing:
+
+- **Select applies immediately.** No confirm step, no Apply button. Tapping a
+  preset restyles the entity; the card is the preview (§3.6's `seed_preview`
+  law, extended from the tile to the whole stage).
+- **Carousels, seamlessly scrolled** — the `carousel` already built
+  (`author.rs:2208`, #136) is the pattern, one per entity, not a grid that
+  paginates.
+- **Categories are a browse axis** alongside the four buckets — the matrix
+  facets (`coldlight-matrix.md` §§3-4) are the categories, so this reuses the
+  classification rather than inventing a taxonomy.
+- **Overlays, not routes.** Depth is an overlay over the card; the card stays
+  visible and live underneath.
+
+### 3.9.4 The composition IS the product — the number that justifies all of it
+
+Each entity wears its own preset, so a card is the **product** of its entities'
+presets, not one choice from a list:
+
+```
+12 card × 13 text × 10 picture × 10 quote = 15,600 compositions
+                                          = 187,200 with tone
+```
+
+from **45 authored presets** (`editor-presets-mock.html`, red-pen pending).
+That is where "diverse visuals" comes from — mixing factors, not a longer list.
+The mock's composition section demonstrates it live.
+
+### 3.9.5 OPEN — the styling generator inside the system
+
+Operator: *"the code used to generate the styling needs to be in the system."*
+
+Today generation is **build-time only**: `tokens/*.json` → `build.rs` →
+generated Rust consts. That is why the pool cannot grow without a recompile, and
+it is the reason Advanced cannot yet *create* — only *combine*.
+
+Making presets runtime-authorable is a **document-layer change**, not a UI one:
+an authored preset becomes operator data that must still validate against the
+registries (the manifest⇄truth law), which means a new document kind, a
+validator, and a place on disk. That is larger than this plan.
+
+**⬜ NOT ANSWERED — staging.** Recommendation unless corrected: Advanced ships
+as *mix and match everything that exists* (which the 15,600 already makes
+worthwhile), and runtime preset **authoring** is its own plan immediately after.
+Shipping both together would put a schema change and a surface rewrite in one
+pass, which is how the last three passes went wrong.
+
+### 3.9.6 The knob registry is WRONG in both documents — blocks Commit 4
+
+Found 2026-08-07 by generating the composition surface from the real data:
+
+| source | knobs it lists |
+|---|---|
+| this plan, §3.1 | colour · motion · font · size · ink · background · ambience · drift · **fit** |
+| `editor-presets-mock.html` | colour · motion · **treatment** · font · size · ink · background · ambience · drift |
+| what the 45 presets **actually use** | **both** — all 10 picture presets expose `fit`; 15 presets expose `treatment` |
+
+It is **10 knobs**, and each document omits a different one. The per-entity
+build check of §3.1 is decided by exactly this table, so **Commit 4 cannot be
+written until it is corrected.**
+
+Second, unresolved: §3.2 rules that treatments are *"machinery a layman must
+never see"* — yet `treatment` is exposed on the operator's tray by 15 of the 45
+presets. Both cannot stand.
+
+**⬜ OPERATOR DECISION REQUIRED (2):**
+1. Ten knobs, both tables corrected — or drop one?
+2. `treatment` on the tray, or resolved behind the preset per §3.2?
+
+## 3.10 AMENDMENT 2026-08-08 — Commit 2, ground-truthed by reading the files
+
+Every file Commit 2 touches was read in full before this was written:
+`crates/doc/src/lib.rs` (2,065) · `crates/slides/src/document.rs` (706) ·
+`crates/editor/src/lib.rs` (1,035) · all 8 authored `slide.json` · the one
+authored `theme.json`. **Three things §2.5 and §4 assert are wrong**, and each
+changes the work.
+
+### 3.10.1 There are EIGHT authored documents, not four
+
+§4 item 3b says "the four authored template docs". There are eight:
+
+```
+seeds/slides/static/{headline-clean,stat-callout,terminal-retro,title-neon}/slide.json
+seeds/episodes/how-ai-works/{headline,title,stat,terminal}/slide.json
+seeds/episodes/how-ai-works/theme.json
+```
+
+The episode set was missed because `list_template_docs()` only walks
+`seeds/slides`. Migrating four and stranding four would leave the seeded
+episode — the one `--clone-seed` uses for every proof — on a stale shape.
+
+### 3.10.2 v1 documents do NOT fail today — and every authored doc IS v1
+
+§2.5.1 says *"Today v1 documents simply fail."* They do not. The only version
+check is `doc/src/lib.rs:169`:
+
+```rust
+if slide.v > SCHEMA_V { return Err(DocError::Version(slide.v)); }
+```
+
+Older is **accepted and never migrated**. And all nine authored documents carry
+`"v": 1` while `SCHEMA_V` is 2 — the repo has been running a version behind
+since W11 and nothing noticed, because additive-only evolution means an old
+document is a valid new one.
+
+That is good news twice over: the property §2.5.1 asks for already holds, and
+it means **v3 needs no `migrate()` function** — only a test that pins it.
+
+### 3.10.3 The `size` hazard is smaller than stated — serde already does it
+
+§4 item 3b calls `Block::Text.size` required → optional "the single migration
+hazard", requiring a migration that "writes the old required `size` through as
+an explicit override".
+
+Serde does exactly that for free: with `size: Option<String>`, a document
+carrying `"size": "display"` deserialises to `Some("display")` — which **is**
+the explicit override. No card changes appearance and no migration code runs.
+
+Both render paths already have the fallback for the absent case —
+`document.rs:375` and `:443` are both
+`size_of(&fluid, size).unwrap_or_else(|| fluid.fs_body())` — so `None` needs
+only `as_deref()`, not a new branch.
+
+The real hazard is elsewhere and unnamed by the plan: **`dpl-editor` writes
+`size` unconditionally** (`editor/src/lib.rs:894,912` mint blocks with
+`size: "display".into()`, and its own struct holds `size: String` at `:51`).
+If the editor keeps stamping a size on every block it touches, every card the
+operator opens silently acquires an override, and the preset can never own size
+again. That is the migration hazard, and it is a write-path fix, not a
+read-path one.
+
+### 3.10.4 What Commit 2 actually is, then
+
+```rust
+pub const SCHEMA_V: u32 = 3;
+
+struct Slide {
+  v, template, title: Option<String>,
+  preset: Option<String>,          // the CARD entity's preset (§2.4)
+  tone:   Option<String>,          // its colour — now ANY of the 53 (477d643)
+  coordinate: Option<Coordinate>,  // the matrix point, if pinned directly
+  background, blocks, enter,
+  recipe: Option<String>,          // ratified #4 — reserved, unused
+  reveals,
+}
+Block::Text  { id, preset?, tone?, text, font?, size?, ink? }   // size now optional
+Block::Media { id, preset?, tone?, as, src, fit?, poster? }
+Block::Quote { id, preset?, tone?, text, attribution, source? } // ratified #3
+```
+
+**`resolve()` gains the middle level** (`lib.rs:764` today, two levels):
+`Theme` → preset → entity override. It is currently 20 lines and pure; the
+third level keeps both properties.
+
+**Material as `:root` (operator, 2026-08-07)** lands here as the inheritance
+rule, not a new field: an entity that names no material inherits its parent's,
+so most entities declare nothing and the document stays sparse. Without that,
+per-entity styling means every block carrying a full coordinate.
+
+### 3.10.5 Work plan
+
+1. `SCHEMA_V` 3 + the new fields, all `Option`, all `skip_serializing_if`.
+   A v1/v2 fixture must round-trip byte-identically — the test that proves
+   §3.10.2 rather than assuming it.
+2. `Block::Quote` + retire the quote convention (`:222-250`) and `quote_lines()`.
+3. `size` → `Option<String>`; `as_deref()` at the two render sites; **stop
+   `dpl-editor` stamping a default size** (§3.10.3) — the actual hazard.
+4. `resolve()` three-level, with one table-driven cascade test.
+5. Provenance (`created`/`modified`/`by`) per §2.5.3.
+6. Validate the new refs: preset id, tone against the 53-hue pool, recipe.
+7. The eight authored documents re-saved at v3 — all eight, §3.10.1.
+8. `cargo green`; §8.
+
+### 3.10.6 Risk the plan does not name
+
+`Theme` also carries `v` and is version-checked the same way
+(`lib.rs:739`). It gains `preset`/`tone` too, or a show-level preset is
+unexpressible and the cascade has a hole at its top. One authored `theme.json`
+exists; it is v1.
+
 ## 4. Changes, in execution order
 
 **Commit 1 — the signals (§3.7).**
 
 1. **`crates/fabric/src/lib.rs:360-382`** — `BuildEvent`: `CardAuthored` →
    `CardSaved`; add `CardStarted`, `CardAdded { slide, kind }`,
-   `CardStyled { slide, preset }`, `CardTraitChanged { slide, trait_name }`.
+   `CardStyled { slide, preset }`, `CardAxisChanged { slide, axis }`.
    Doc comment rewritten (it says "authoring surface" today).
 2. **`crates/app/src/coach_signals.rs`** — dispatch (`:181`), the five consts
    (`:225`), `COARSE`, and the tests at `:474`.
@@ -553,12 +790,23 @@ things this pass could lose or fake silently, so each gets its own proof seam.
     `preset`, `tone`. **`Block::Quote{id,preset?,tone?,text,attribution,source?}`
     is new** — the quote convention (`:222-250`) is retired, and
     `quote_lines()` with it.
-3b. **The v2→v3 migration + its test** — a v2 document loads, its required
-    `size` is written through as an explicit override, and it renders
-    **identically**. The four authored template docs are migrated in the same
-    commit, not stranded (§2.5.1).
-3c. **`resolve()` gains the middle level** — `Look` → preset → entity
-    override — with one table-driven cascade test (§2.5.2).
+3b. **The v2→v3 round-trip + its test.** ⚠️ CORRECTED by §3.10.2/§3.10.3 —
+    read those before implementing this item; the original text below was
+    written from assumption and is wrong in two ways.
+    - **No `migrate()` is needed.** Older documents already load (`lib.rs:169`
+      refuses only `v > SCHEMA_V`), and serde turns a present `"size"` into
+      `Some(..)` — which IS the explicit override — by itself. What this item
+      ships is the TEST that pins that, not a migration.
+    - **There are EIGHT authored documents, not four** — four in
+      `seeds/slides/static/`, four in `seeds/episodes/how-ai-works/`, plus one
+      `theme.json`. All nine are `"v": 1`. Migrating four strands the seeded
+      episode every proof run uses.
+    - The real hazard is on the WRITE path: `dpl-editor` stamps `size`
+      unconditionally (`editor/src/lib.rs:894,912`). Fix that here or every
+      opened card silently acquires an override.
+3c. **`resolve()` gains the middle level** — `Theme` → preset → entity
+    override — with one table-driven cascade test (§2.5.2). This is also where
+    **material-as-`:root`** lands (§3.10.4): an inheritance rule, not a field.
 3d. **Provenance** — `created`/`modified`/`by` (§2.5.3).
 
 **Commit 3 — the vocabulary, no behaviour change.**
@@ -620,6 +868,9 @@ composer, the entity-first AI law, and the library-count readout (charter
 extra rail, a "just one more tab" — all out, by construction.
 🚫 `crates/editor` (`dpl-editor`) is not touched — it is the engine behind ADD →
 Text.
+🚫 **Studio is not merged** (§3.9.1 amendment) — it stays a separate surface
+and shares the vocabulary, presets, Seed trait and signal stream. Only its
+blurb is corrected, to describe sequencing.
 🚫 wiredFRONT's editor (`wiredfront/editor`, the After-Effects video editor) is
 a **different product surface** and is not touched, renamed, or merged. Mixing
 those two is the error called out on 2026-07-31 01:54.
@@ -638,7 +889,7 @@ those two is the error called out on 2026-07-31 01:54.
   offers exactly that preset's `exposes` set — no path reaches an unexposed
   knob. Asserted on the state, so a stray control cannot regress it.
 - **Unit:** picking a preset publishes `CardStyled { preset }`; moving a knob
-  publishes `CardTraitChanged { trait_name }` with a registry name;
+  publishes `CardAxisChanged { axis }` with a registry name;
   `Bucket::ALL` asserts `slug() == label().to_lowercase()` for all four (the
   inversion can never come back); the census test still pins every bucket to a
   live registry.
@@ -657,7 +908,7 @@ those two is the error called out on 2026-07-31 01:54.
 - **Nav proof:** a shot of the Workbench nav showing **Library · Editor ·
   Episodes · Studio · Test Lab** — five rows, no "Author".
 - **Flow proof:** one `DPL_LEDGER=1` run of the whole §3.0 path capturing
-  `build.card-started` → `card-added` → `card-styled` → `card-trait-changed` →
+  `build.card-started` → `card-added` → `card-styled` → `card-axis-changed` →
   `card-saved`, in order. The ledger transcript *is* the spec, replayed.
 
 ## 7. Commit plan

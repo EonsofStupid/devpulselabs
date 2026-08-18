@@ -332,6 +332,13 @@ mod tests {
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
+        // Windows recycles PIDs, so a leftover db from a dead test
+        // process can alias this path and hand the test its own prior
+        // run's final state. A fresh fixture starts from nothing.
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(path.with_extension(format!("db{suffix}")));
+        }
+        let _ = std::fs::remove_file(&path);
         let ledger = ActivationLedger::open(&path).expect("ledger");
         (path, ledger)
     }

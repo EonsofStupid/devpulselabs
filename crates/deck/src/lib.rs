@@ -896,11 +896,13 @@ mod tests {
         let ctx = egui::Context::default();
         cl::apply_theme(&ctx);
         loop {
-            let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
+            ctx.run_ui(egui::RawInput::default(), |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     let _ = host.ui(ui);
                 });
-            });
+            })
+            .textures_delta
+            .clear();
             let before = host.position();
             host.press(egui::Key::ArrowRight);
             if host.position() == before {
@@ -910,10 +912,12 @@ mod tests {
         // And once with chrome hidden + navigator open — every chrome arm.
         host.press(egui::Key::H);
         host.press(egui::Key::G);
-        let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
+        ctx.run_ui(egui::RawInput::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
                 let _ = host.ui(ui);
             });
-        });
+        })
+        .textures_delta
+        .clear();
     }
 }

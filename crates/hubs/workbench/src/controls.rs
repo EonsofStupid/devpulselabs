@@ -23,14 +23,16 @@
 use dpl_coldlight::{self as cl, Tone};
 use egui::{Response, Sense, Ui};
 
+/// This surface's id in `tokens/roles.json`.
+pub(crate) const SURFACE: &str = "workbench";
+
 /// How loud a control is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Weight {
-    /// The ordinary control — an edge and a quiet fill.
-    Quiet,
-    /// The one thing on the surface you most likely want (`.btn.tone`).
-    Loud,
-}
+///
+/// RETIRED as a private vocabulary: this hub invented a two-value semantic
+/// layer and then hardcoded `"neubrutalist"` anyway. It is now a thin alias
+/// over the shared [`cl::Intent`], so the treatment comes from
+/// `tokens/roles.json` and re-dressing Workbench never touches this file.
+pub(crate) type Weight = cl::Intent;
 
 /// One pressable control: fill, edge, radius, and a real tap target.
 ///
@@ -64,9 +66,16 @@ pub(crate) fn control(
     } else {
         cl::TraitState::Idle
     };
-    // Actionable == neubrutalist (doctrine). The stack is empty: a control
-    // wears the base treatment, not a theme the operator picked for a card.
-    let style = cl::compose(tone, "neubrutalist", &[], state);
+    // The MEANING is the argument; which treatment paints it is authored in
+    // tokens/roles.json under this surface. Before this, the line below read
+    // `compose(tone, "neubrutalist", ..)` — a hardcode that made Workbench
+    // un-redressable.
+    let b = cl::binding(SURFACE, weight);
+    let tone = b
+        .tone
+        .and_then(|h| cl::Tone::ALL.iter().copied().find(|t| t.hue_id() == h))
+        .unwrap_or(tone);
+    let style = b.style(tone, state);
     let radius = egui::CornerRadius::same(style.radius);
     let painter = ui.painter();
 
@@ -80,7 +89,7 @@ pub(crate) fn control(
         );
     }
     painter.rect_filled(rect, radius, style.fill);
-    let edge = if selected || weight == Weight::Loud {
+    let edge = if selected || weight == Weight::Hero {
         egui::Stroke::new(2.0, tone.color())
     } else {
         style.edge
@@ -92,7 +101,7 @@ pub(crate) fn control(
             rect.center().y - galley.size().y * 0.5,
         ),
         galley,
-        if selected || weight == Weight::Loud {
+        if selected || weight == Weight::Hero {
             tone.color()
         } else {
             style.ink
@@ -146,7 +155,16 @@ pub(crate) fn stacked_control(
     } else {
         cl::TraitState::Idle
     };
-    let style = cl::compose(tone, "neubrutalist", &[], state);
+    // Same binding as `control()` — this fn was a SECOND hardcode of the
+    // treatment, which is precisely how a surface ends up with two
+    // implementations of the same pressable thing. A lane/shelf is always the
+    // ORDINARY kind: it is a thing you tap, not the surface's one big action.
+    let b = cl::binding(SURFACE, cl::Intent::Chrome);
+    let tone = b
+        .tone
+        .and_then(|h| cl::Tone::ALL.iter().copied().find(|t| t.hue_id() == h))
+        .unwrap_or(tone);
+    let style = b.style(tone, state);
     let radius = egui::CornerRadius::same(style.radius);
     let painter = ui.painter();
     for sh in &style.shadows {
@@ -192,7 +210,7 @@ mod tests {
         let mut harness = egui_kittest::Harness::builder()
             .with_size(egui::vec2(800.0, 600.0))
             .build_ui(|ui| {
-                let r = control(ui, "Put them in", false, Tone::Amber, Weight::Quiet);
+                let r = control(ui, "Put them in", false, Tone::Amber, Weight::Chrome);
                 let tap = cl::Fluid::of(ui.max_rect()).tap_min();
                 assert!(
                     r.rect.height() >= tap - 0.5,
@@ -211,7 +229,7 @@ mod tests {
         let mut harness = egui_kittest::Harness::builder()
             .with_size(egui::vec2(400.0, 200.0))
             .build_ui(|ui| {
-                control(ui, "Start a blank card", false, Tone::Amber, Weight::Loud);
+                control(ui, "Start a blank card", false, Tone::Amber, Weight::Hero);
             });
         harness.run();
         harness.get_by_label("Start a blank card");

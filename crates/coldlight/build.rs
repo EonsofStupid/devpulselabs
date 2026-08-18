@@ -97,6 +97,7 @@ fn main() {
     println!("cargo:rerun-if-changed=tokens/icons.json");
     println!("cargo:rerun-if-changed=assets/lucide");
     println!("cargo:rerun-if-changed=tokens/matrix.json");
+    println!("cargo:rerun-if-changed=tokens/roles.json");
     let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR");
 
     generate_ramps(&out_dir);
@@ -108,7 +109,209 @@ fn main() {
     generate_presets(&out_dir);
     generate_traits(&out_dir);
     generate_icons(&out_dir);
+    generate_roles(&out_dir);
     generate_matrix(&out_dir);
+}
+
+/// A coordinate is LEGAL when its lineage rules on every facet it names.
+///
+/// Shared by `generate_roles` and `generate_presets` so a role binding and an
+/// authored preset can never be validated by two different rules. Fails the
+/// BUILD rather than degrading: an illegal preset that ships is mush no one
+/// can explain, and the matrix exists precisely to make that impossible.
+fn assert_coordinate_legal(
+    matrix: &serde_json::Value,
+    ctx: &str,
+    anc: &str,
+    st: &str,
+    mt: &str,
+    at: &str,
+) {
+    let a = matrix["ancestors"]
+        .as_array()
+        .expect("matrix.json: ancestors[]")
+        .iter()
+        .find(|x| x["id"].as_str() == Some(anc))
+        .unwrap_or_else(|| panic!("{ctx}: unknown ancestor {anc:?}"));
+    for (facet, value) in [("structure", st), ("material", mt), ("atmosphere", at)] {
+        let in_set = |which: &str| -> bool {
+            a[which][facet]
+                .as_array()
+                .map(|x| x.iter().any(|v| v.as_str() == Some(value)))
+                .unwrap_or(false)
+        };
+        assert!(
+            !in_set("forbidden"),
+            "{ctx} is ILLEGAL — {anc} forbids {facet} {value:?}"
+        );
+        assert!(
+            a["native"][facet].as_str() == Some(value) || in_set("allowed"),
+            "{ctx} names {facet} {value:?}, which {anc} does not rule on"
+        );
+    }
+}
+
+/// tokens/roles.json → the SEMANTIC layer: role → treatment, per surface.
+///
+/// Three refusals, all at build time:
+/// 1. every role names a trait that EXISTS in traits.json;
+/// 2. a pinned `tone` names a real hue;
+/// 3. `default` carries every role — a surface may omit one and fall back,
+///    but there must always be something to fall back TO.
+fn generate_roles(out_dir: &str) {
+    let raw = std::fs::read_to_string("tokens/roles.json").expect("read roles.json");
+    let doc: serde_json::Value = serde_json::from_str(&raw).expect("parse roles.json");
+
+    // The treatments a role is allowed to point at.
+    let traits_raw = std::fs::read_to_string("tokens/traits.json").expect("read traits.json");
+    let traits_doc: serde_json::Value =
+        serde_json::from_str(&traits_raw).expect("parse traits.json");
+    let trait_ids: Vec<String> = traits_doc["traits"]
+        .as_array()
+        .expect("traits.json: traits[]")
+        .iter()
+        .map(|t| t["id"].as_str().expect("trait id").to_owned())
+        .collect();
+    let hues_raw = std::fs::read_to_string("tokens/hues.json").expect("read hues.json");
+    let hues_doc: serde_json::Value = serde_json::from_str(&hues_raw).expect("parse hues.json");
+
+    const ROLES: [&str; 4] = ["chrome", "hero", "quiet", "danger"];
+
+    // A role points at EITHER a legacy trait or a MATRIX COORDINATE. The
+    // coordinate form is checked here against the real facet pools AND the
+    // ancestor's own legality rulings, so an illegal preset cannot ship — it
+    // fails the build exactly as an unknown trait already does.
+    let matrix_raw = std::fs::read_to_string("tokens/matrix.json").expect("read matrix.json");
+    let matrix_doc: serde_json::Value =
+        serde_json::from_str(&matrix_raw).expect("parse matrix.json");
+
+    let binding = |scope: &str, role: &str, v: &serde_json::Value| -> String {
+        let dress = if let Some(c) = v.get("coordinate") {
+            let get = |k: &str| -> String {
+                c[k].as_str()
+                    .unwrap_or_else(|| panic!("roles.json: {scope}.{role}.coordinate needs {k:?}"))
+                    .to_owned()
+            };
+            let anc = get("ancestor");
+            let st = get("structure");
+            let mt = get("material");
+            let at = get("atmosphere");
+            let a = matrix_doc["ancestors"]
+                .as_array()
+                .expect("ancestors[]")
+                .iter()
+                .find(|x| x["id"].as_str() == Some(anc.as_str()))
+                .unwrap_or_else(|| {
+                    panic!("roles.json: {scope}.{role} names unknown ancestor {anc:?}")
+                });
+            let _ = a;
+            assert_coordinate_legal(
+                &matrix_doc,
+                &format!("roles.json: {scope}.{role}"),
+                &anc,
+                &st,
+                &mt,
+                &at,
+            );
+            format!(
+                "Dress::Coord(matrix::Coordinate {{ ancestor: {anc:?}, structure: {st:?}, \
+                 material: {mt:?}, atmosphere: {at:?} }})"
+            )
+        } else {
+            let t = v["trait"].as_str().unwrap_or_else(|| {
+                panic!("roles.json: {scope}.{role} names neither `trait` nor `coordinate`")
+            });
+            assert!(
+                trait_ids.iter().any(|x| x == t),
+                "roles.json: {scope}.{role} names unknown treatment {t:?}"
+            );
+            format!("Dress::Trait({t:?})")
+        };
+        let tone = match v.get("tone").and_then(|x| x.as_str()) {
+            Some(h) => {
+                assert!(
+                    hue_exists(&hues_doc, h),
+                    "roles.json: {scope}.{role} pins unknown hue {h:?}"
+                );
+                format!("Some({h:?})")
+            }
+            None => "None".to_string(),
+        };
+        format!("Binding {{ dress: {dress}, tone: {tone} }}")
+    };
+
+    let mut code = String::new();
+    writeln!(
+        code,
+        "// GENERATED by build.rs from tokens/roles.json — DO NOT EDIT."
+    )
+    .unwrap();
+
+    // ── default: every role, no exceptions ──
+    let def = doc["default"].as_object().expect("roles.json: default{}");
+    writeln!(code, "const DEFAULT_ROLES: [Binding; 4] = [").unwrap();
+    for role in ROLES {
+        let v = def.get(role).unwrap_or_else(|| {
+            panic!("roles.json: default is missing {role:?} — every role needs a fallback")
+        });
+        writeln!(code, "    {},", binding("default", role, v)).unwrap();
+    }
+    writeln!(code, "];").unwrap();
+
+    // ── surfaces: sparse, each role Option<Binding> ──
+    let surfaces = doc["surfaces"].as_object().expect("roles.json: surfaces{}");
+    writeln!(
+        code,
+        "const SURFACE_ROLES: &[(&str, [Option<Binding>; 4])] = &["
+    )
+    .unwrap();
+    for (sid, over) in surfaces {
+        let o = over
+            .as_object()
+            .unwrap_or_else(|| panic!("roles.json: surface {sid:?} is not an object"));
+        for k in o.keys() {
+            assert!(
+                ROLES.contains(&k.as_str()),
+                "roles.json: surface {sid:?} names unknown role {k:?}"
+            );
+        }
+        let cells: Vec<String> = ROLES
+            .iter()
+            .map(|r| match o.get(*r) {
+                Some(v) => format!("Some({})", binding(sid, r, v)),
+                None => "None".to_string(),
+            })
+            .collect();
+        writeln!(code, "    ({sid:?}, [{}]),", cells.join(", ")).unwrap();
+    }
+    writeln!(code, "];").unwrap();
+    writeln!(
+        code,
+        "pub const ROLE_COUNT: usize = {};
+pub const SURFACE_COUNT: usize = {};",
+        ROLES.len(),
+        surfaces.len()
+    )
+    .unwrap();
+
+    std::fs::write(Path::new(out_dir).join("roles_gen.rs"), code).expect("write roles_gen.rs");
+}
+
+/// Is `id` a hue in the authored pool? (roles.json may pin one.)
+fn hue_exists(hues: &serde_json::Value, id: &str) -> bool {
+    fn scan(v: &serde_json::Value, id: &str) -> bool {
+        match v {
+            serde_json::Value::Object(m) => {
+                if m.get("id").and_then(|x| x.as_str()) == Some(id) {
+                    return true;
+                }
+                m.values().any(|x| scan(x, id))
+            }
+            serde_json::Value::Array(a) => a.iter().any(|x| scan(x, id)),
+            _ => false,
+        }
+    }
+    scan(hues, id)
 }
 
 // ── the MATRIX — faceted classification (docs/design/coldlight-matrix.md) ──
@@ -224,16 +427,28 @@ fn generate_matrix(out_dir: &str) {
         }
     }
 
+    // ── emit the PAYLOADS, not just the ids ──────────────────────────
+    // Until now every authored value (radius, fill, shadows, …) was parsed
+    // for validation and discarded, so the matrix could be checked but never
+    // painted. The facet defs below reuse the SAME ColorRef/Axes primitives
+    // the traits emit, which is what lets `resolve()` and `compose()` produce
+    // byte-identical output for the same look.
+    let hue_ids = pool_hue_ids();
+    let obj = |key: &str| doc[key].as_array().expect("facet array");
+    let sq = |v: &serde_json::Value, k: &str| v[k].as_str().unwrap_or_default().to_owned();
+
     let mut code = String::new();
     writeln!(
         code,
         "// GENERATED by build.rs from tokens/matrix.json — DO NOT EDIT."
     )
     .unwrap();
+
+    // The id pools stay, so the census tests and any id-keyed lookup keep working.
     for (name, pool) in [
-        ("STRUCTURES", &structures),
-        ("MATERIALS", &materials),
-        ("ATMOSPHERES", &atmospheres),
+        ("STRUCTURE_IDS", &structures),
+        ("MATERIAL_IDS", &materials),
+        ("ATMOSPHERE_IDS", &atmospheres),
     ] {
         writeln!(code, "pub static {name}: &[&str] = &[").unwrap();
         for id in pool {
@@ -241,11 +456,129 @@ fn generate_matrix(out_dir: &str) {
         }
         writeln!(code, "];").unwrap();
     }
-    writeln!(code, "pub static ANCESTORS: &[&str] = &[").unwrap();
+    writeln!(code, "pub static ANCESTOR_IDS: &[&str] = &[").unwrap();
     for a in ancestors {
         writeln!(code, "    {:?},", a["id"].as_str().unwrap()).unwrap();
     }
     writeln!(code, "];").unwrap();
+
+    // STRUCTURE — geometry only: radius + edge WIDTH (the colour is the
+    // material's, which is matrix law M4: an edge is assembled from two facets).
+    writeln!(code, "pub static STRUCTURES: &[StructureDef] = &[").unwrap();
+    for v in obj("structures") {
+        writeln!(
+            code,
+            "    StructureDef {{ id: {:?}, label: {:?}, blurb: {:?}, radius: {}, edge_width: {} }},",
+            sq(v, "id"),
+            sq(v, "label"),
+            sq(v, "blurb"),
+            // egui's CornerRadius is u8 and treats 255 as fully rounded, so
+            // `pill`'s authored 999 clamps rather than overflowing. The
+            // authored value stays expressive; the emitted one stays legal.
+            v["radius"].as_u64().expect("structure.radius").min(255),
+            f32_lit_expr(v["edge_width"].as_f64().expect("structure.edge_width"))
+        )
+        .unwrap();
+    }
+    writeln!(code, "];").unwrap();
+
+    // MATERIAL — surface response. Every field is Option because law M2 says
+    // an axis a material does not declare falls back to the ancestor's native
+    // material (neon-glass declares no fill and inherits clay's on aero).
+    writeln!(code, "pub static MATERIALS: &[MaterialDef] = &[").unwrap();
+    for v in obj("materials") {
+        let id = sq(v, "id");
+        let opt = |k: &str| match v.get(k) {
+            Some(c) => format!(
+                "Some({})",
+                color_ref_expr(c, &format!("material[{id}].{k}"), &hue_ids)
+            ),
+            None => "None".to_string(),
+        };
+        writeln!(
+            code,
+            "    MaterialDef {{ id: {:?}, label: {:?}, blurb: {:?}, fill: {}, ink: {}, edge_color: {} }},",
+            id,
+            sq(v, "label"),
+            sq(v, "blurb"),
+            opt("fill"),
+            opt("ink"),
+            opt("edge_color")
+        )
+        .unwrap();
+    }
+    writeln!(code, "];").unwrap();
+
+    // ATMOSPHERE — the additive light: shadows, back-glow, tints, plus the
+    // state overlays. Emitted straight through `axes_expr`, so an atmosphere
+    // and a trait carry the identical shape.
+    writeln!(code, "pub static ATMOSPHERES: &[AtmosphereDef] = &[").unwrap();
+    for v in obj("atmospheres") {
+        let id = sq(v, "id");
+        let state = |k: &str| match v.get(k) {
+            Some(o) => format!(
+                "Some({})",
+                axes_expr(o, &format!("atmosphere[{id}].{k}"), &hue_ids)
+            ),
+            None => "None".to_string(),
+        };
+        writeln!(
+            code,
+            "    AtmosphereDef {{ id: {:?}, label: {:?}, blurb: {:?}, base: {}, hover: {}, active: {} }},",
+            id,
+            sq(v, "label"),
+            sq(v, "blurb"),
+            axes_expr(v, &format!("atmosphere[{id}]"), &hue_ids),
+            state("hover"),
+            state("active")
+        )
+        .unwrap();
+    }
+    writeln!(code, "];").unwrap();
+
+    // ANCESTOR — the lineage: its font (law M5, never a free knob), its
+    // natives (the M2 fallback target), and its legality sets.
+    writeln!(code, "pub static ANCESTORS: &[AncestorDef] = &[").unwrap();
+    for a in ancestors {
+        let aid = sq(a, "id");
+        let set = |which: &str, facet: &str| -> String {
+            let items: Vec<String> = a[which][facet]
+                .as_array()
+                .map(|v| {
+                    v.iter()
+                        .map(|x| format!("{:?}", x.as_str().expect("facet ref")))
+                        .collect()
+                })
+                .unwrap_or_default();
+            format!("&[{}]", items.join(", "))
+        };
+        let sets = |which: &str| {
+            format!(
+                "Sets {{ structures: {}, materials: {}, atmospheres: {} }}",
+                set(which, "structure"),
+                set(which, "material"),
+                set(which, "atmosphere")
+            )
+        };
+        writeln!(
+            code,
+            "    AncestorDef {{ id: {:?}, label: {:?}, blurb: {:?}, font: {:?}, \
+             native: Natives {{ structure: {:?}, material: {:?}, atmosphere: {:?} }}, \
+             allowed: {}, forbidden: {} }},",
+            aid,
+            sq(a, "label"),
+            sq(a, "blurb"),
+            sq(a, "font"),
+            a["native"]["structure"].as_str().unwrap(),
+            a["native"]["material"].as_str().unwrap(),
+            a["native"]["atmosphere"].as_str().unwrap(),
+            sets("allowed"),
+            sets("forbidden")
+        )
+        .unwrap();
+    }
+    writeln!(code, "];").unwrap();
+
     writeln!(
         code,
         "/// Authored legality rulings — every ancestor rules on every facet value."
@@ -544,7 +877,20 @@ fn generate_motion(out_dir: &str) {
         .unwrap();
     }
 
+    // The authored channel vocabulary — EXACTLY `Motion`'s fields. A typo in
+    // a track fails the build naming the effect, the same manifest⇄truth law
+    // icons and fonts already carry.
+    const CHANS: [(&str, &str); 6] = [
+        ("alpha", "Chan::Alpha"),
+        ("offset_x", "Chan::OffsetX"),
+        ("offset_y", "Chan::OffsetY"),
+        ("scale", "Chan::Scale"),
+        ("rotation", "Chan::Rotation"),
+        ("clip", "Chan::Clip"),
+    ];
+
     let mut match_arms = String::new();
+    let mut tracks = String::new();
     for (name, fx) in effects {
         let dur = fx["dur"].as_f64().expect("effect.dur");
         let delay = fx.get("delay").and_then(|v| v.as_f64()).unwrap_or(0.0);
@@ -552,14 +898,107 @@ fn generate_motion(out_dir: &str) {
         let looped = fx.get("loop").and_then(|v| v.as_bool()).unwrap_or(false);
         let ease = ease_of(fx["ease"].as_str().expect("effect.ease"));
         let konst = ident(name).to_uppercase();
+
+        // ── the optional keyframe track (docs/plans/keyframe-engine.md §3) ──
+        let track_ref = match fx.get("track").and_then(|t| t.as_array()) {
+            None => "None".to_string(),
+            Some(stops) => {
+                assert!(
+                    stops.len() >= 2,
+                    "effect {name:?}: a track needs at least 2 stops"
+                );
+                let mut emitted = String::new();
+                let mut prev_off = f32::NEG_INFINITY;
+                // Which channels the whole track touches, and whether the
+                // first / last stop pin them (law 4 — no implicit endpoints).
+                let mut seen: Vec<&str> = Vec::new();
+                let (mut first_ch, mut last_ch): (Vec<&str>, Vec<&str>) = (vec![], vec![]);
+
+                for (i, st) in stops.iter().enumerate() {
+                    let off = st["offset"].as_f64().unwrap_or_else(|| {
+                        panic!("effect {name:?}: stop {i} has no numeric offset")
+                    }) as f32;
+                    assert!(
+                        (0.0..=1.0).contains(&off),
+                        "effect {name:?}: stop {i} offset {off} is outside 0..=1"
+                    );
+                    assert!(
+                        off > prev_off,
+                        "effect {name:?}: stop {i} offset {off} is not ascending"
+                    );
+                    if i == 0 {
+                        assert!(off == 0.0, "effect {name:?}: first stop must be offset 0.0");
+                    }
+                    if i == stops.len() - 1 {
+                        assert!(off == 1.0, "effect {name:?}: last stop must be offset 1.0");
+                    }
+                    prev_off = off;
+
+                    // A stop's ease is optional; it defaults to the effect's.
+                    let st_ease = match st.get("ease").and_then(|e| e.as_str()) {
+                        Some(e) => ease_of(e),
+                        None => ease.clone(),
+                    };
+
+                    let mut pairs = String::new();
+                    for (key, variant) in CHANS {
+                        if let Some(v) = st.get(key).and_then(|v| v.as_f64()) {
+                            write!(pairs, "({variant}, {v}f32),").unwrap();
+                            if !seen.contains(&key) {
+                                seen.push(key);
+                            }
+                            if i == 0 {
+                                first_ch.push(key);
+                            }
+                            if i == stops.len() - 1 {
+                                last_ch.push(key);
+                            }
+                        }
+                    }
+                    // Anything that is not `offset`, `ease` or a real channel
+                    // is a typo — refuse it rather than ignoring it silently.
+                    for k in st.as_object().expect("track stop is an object").keys() {
+                        assert!(
+                            k == "offset" || k == "ease" || CHANS.iter().any(|(c, _)| c == k),
+                            "effect {name:?}: stop {i} has unknown channel {k:?}"
+                        );
+                    }
+                    writeln!(
+                        emitted,
+                        "    Stop {{ offset: {off}f32, ease: {st_ease}, ch: &[{pairs}] }},"
+                    )
+                    .unwrap();
+                }
+                for c in &seen {
+                    assert!(
+                        first_ch.contains(c) && last_ch.contains(c),
+                        "effect {name:?}: channel {c:?} must be declared on BOTH the \
+                         first and last stop so its endpoints are never implicit"
+                    );
+                }
+                // `const`, not `static`: the Effect consts reference these,
+                // and a const may not refer to a static (E0013). A `&CONST`
+                // promotes to 'static, which is exactly what we want.
+                writeln!(
+                    tracks,
+                    "const TRACK_{konst}: Track = Track {{ stops: &[\n{emitted}] }};"
+                )
+                .unwrap();
+                format!("Some(&TRACK_{konst})")
+            }
+        };
+
         writeln!(
             code,
             "pub const {konst}: Effect = Effect {{ dur: {dur}f32, delay: {delay}f32, \
-             stagger: {stagger}f32, ease: {ease}, looped: {looped} }};"
+             stagger: {stagger}f32, ease: {ease}, looped: {looped}, track: {track_ref} }};"
         )
         .unwrap();
         writeln!(match_arms, "        {name:?} => Some(&{konst}),").unwrap();
     }
+    // Tracks are statics the Effect consts point at — emitted first so the
+    // consts can reference them.
+    code.push_str(&tracks);
     writeln!(code, "pub const EFFECT_COUNT: usize = {};", effects.len()).unwrap();
     writeln!(
         code,
@@ -959,7 +1398,241 @@ fn generate_presets(out_dir: &str) {
     )
     .unwrap();
 
+    // ── the ANCESTRAL presets — the 4th kind, and the only one that is a
+    //    MATRIX COORDINATE rather than a bundle of refs. Every one is checked
+    //    against its lineage's own rulings, so an illegal look fails the build.
+    let matrix_for_presets: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string("tokens/matrix.json").expect("read matrix.json"),
+    )
+    .expect("parse matrix.json");
+    let hues_for_presets: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string("tokens/hues.json").expect("read hues.json"))
+            .expect("parse hues.json");
+
+    writeln!(
+        code,
+        "pub static ANCESTRAL_PRESETS: &[AncestralPreset] = &["
+    )
+    .unwrap();
+    let mut preset_ids: Vec<String> = Vec::new();
+    for p in doc["ancestral"]
+        .as_array()
+        .expect("presets.json: ancestral[]")
+    {
+        let id = p["id"].as_str().expect("ancestral.id").to_owned();
+        assert!(
+            !preset_ids.contains(&id),
+            "presets.json: duplicate ancestral preset {id:?}"
+        );
+        let c = &p["coordinate"];
+        let get = |k: &str| -> &str {
+            c[k].as_str()
+                .unwrap_or_else(|| panic!("presets.json: ancestral[{id}].coordinate needs {k:?}"))
+        };
+        let (anc, st, mt, at) = (
+            get("ancestor"),
+            get("structure"),
+            get("material"),
+            get("atmosphere"),
+        );
+        assert_coordinate_legal(
+            &matrix_for_presets,
+            &format!("presets.json: ancestral[{id}]"),
+            anc,
+            st,
+            mt,
+            at,
+        );
+        let tone = match p.get("tone").and_then(|t| t.as_str()) {
+            Some(h) => {
+                assert!(
+                    hue_exists(&hues_for_presets, h),
+                    "presets.json: ancestral[{id}] names unknown hue {h:?}"
+                );
+                format!("Some({h:?})")
+            }
+            None => "None".to_string(),
+        };
+        writeln!(
+            code,
+            "    AncestralPreset {{ id: {id:?}, label: {:?}, kicker: {:?}, blurb: {:?}, \
+             coord: matrix::Coordinate {{ ancestor: {anc:?}, structure: {st:?}, \
+             material: {mt:?}, atmosphere: {at:?} }}, tone: {tone} }},",
+            p["label"].as_str().expect("ancestral.label"),
+            p["kicker"].as_str().unwrap_or_default(),
+            p["blurb"].as_str().unwrap_or_default(),
+        )
+        .unwrap();
+        preset_ids.push(id);
+    }
+    writeln!(code, "];").unwrap();
+
     std::fs::write(Path::new(out_dir).join("presets_gen.rs"), code).expect("write presets_gen.rs");
+}
+
+// ── shared emitters: traits AND the matrix resolve through the SAME
+//    primitives, so a facet payload and a trait payload can never drift.
+
+/// Every hue id in the generated pool — the truth a color ref validates against.
+fn pool_hue_ids() -> Vec<String> {
+    let doc: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string("tokens/hues.json").expect("read hues.json"))
+            .expect("parse hues.json");
+    let mut ids = Vec::new();
+    for group in doc["groups"]
+        .as_object()
+        .expect("hues.json: groups")
+        .values()
+    {
+        for hue in group["hues"].as_array().expect("group.hues") {
+            ids.push(hue["id"].as_str().expect("hue.id").to_string());
+        }
+    }
+    ids
+}
+
+fn f32_lit_expr(v: f64) -> String {
+    format!("{}f32", v as f32)
+}
+
+const SURF_SLOTS: [&str; 5] = ["WELL", "BASE", "RAISED", "OVERLAY", "HAIRLINE"];
+const INK_SLOTS: [&str; 5] = ["STRONG", "BASE", "MUTED", "SUBTLE", "ANNOTATE"];
+
+fn color_ref_expr(v: &serde_json::Value, ctx: &str, hue_ids: &[String]) -> String {
+    let alpha = v.get("alpha").and_then(|a| a.as_u64()).unwrap_or(255);
+    assert!(alpha <= 255, "{ctx}: alpha {alpha} > 255");
+    let base = if let Some(step) = v.get("tone").and_then(|s| s.as_u64()) {
+        assert!(
+            LADDER_STEPS.contains(&(step as u32)),
+            "{ctx}: tone step {step} not in LADDER_STEPS"
+        );
+        format!("ColorBase::ToneStep({step})")
+    } else if let Some(hue) = v.get("hue").and_then(|h| h.as_str()) {
+        let step = v
+            .get("step")
+            .and_then(|s| s.as_u64())
+            .unwrap_or_else(|| panic!("{ctx}: hue ref needs a step"));
+        assert!(
+            hue_ids.iter().any(|h| h == hue),
+            "{ctx}: unknown hue {hue:?}"
+        );
+        assert!(
+            LADDER_STEPS.contains(&(step as u32)),
+            "{ctx}: hue step {step} not in LADDER_STEPS"
+        );
+        format!("ColorBase::Hue({hue:?}, {step})")
+    } else if let Some(slot) = v.get("surface").and_then(|s| s.as_str()) {
+        assert!(
+            SURF_SLOTS.contains(&slot),
+            "{ctx}: unknown surface slot {slot:?}"
+        );
+        format!("ColorBase::Fixed(surface::{slot})")
+    } else if let Some(slot) = v.get("ink").and_then(|s| s.as_str()) {
+        assert!(
+            INK_SLOTS.contains(&slot),
+            "{ctx}: unknown ink slot {slot:?}"
+        );
+        format!("ColorBase::Fixed(ink::{slot})")
+    } else if v.get("black").and_then(|b| b.as_bool()).unwrap_or(false) {
+        "ColorBase::Fixed(egui::Color32::BLACK)".to_string()
+    } else {
+        panic!("{ctx}: color ref names no base ({v})");
+    };
+    format!("ColorRef {{ base: {base}, alpha: {alpha} }}")
+}
+
+fn axes_expr(o: &serde_json::Value, ctx: &str, hue_ids: &[String]) -> String {
+    let opt_color = |key: &str| match o.get(key) {
+        Some(v) => format!(
+            "Some({})",
+            color_ref_expr(v, &format!("{ctx}.{key}"), hue_ids)
+        ),
+        None => "None".to_string(),
+    };
+    let edge = match o.get("edge") {
+        Some(e) => format!(
+            "Some(EdgeSpec {{ width: {}, color: {} }})",
+            f32_lit_expr(e["width"].as_f64().expect("edge.width")),
+            color_ref_expr(&e["color"], &format!("{ctx}.edge"), hue_ids)
+        ),
+        None => "None".to_string(),
+    };
+    let radius = match o.get("radius").and_then(|r| r.as_u64()) {
+        Some(r) => format!("Some({r})"),
+        None => "None".to_string(),
+    };
+    let font = match o.get("font").and_then(|f| f.as_str()) {
+        Some(f) => format!("Some({f:?})"),
+        None => "None".to_string(),
+    };
+    let shadows = match o.get("shadows").and_then(|s| s.as_array()) {
+        Some(arr) => {
+            let items: Vec<String> = arr
+                .iter()
+                .map(|s| {
+                    let off = s["offset"].as_array().expect("shadow.offset");
+                    format!(
+                        "ShadowSpec {{ offset: [{}, {}], blur: {}, spread: {}, color: {} }}",
+                        off[0].as_i64().expect("offset.0"),
+                        off[1].as_i64().expect("offset.1"),
+                        s["blur"].as_u64().expect("shadow.blur"),
+                        s["spread"].as_u64().expect("shadow.spread"),
+                        color_ref_expr(&s["color"], &format!("{ctx}.shadow"), hue_ids)
+                    )
+                })
+                .collect();
+            format!("Some(&[{}])", items.join(", "))
+        }
+        None => "None".to_string(),
+    };
+    let back_glow = match o.get("back_glow").and_then(|s| s.as_array()) {
+        Some(arr) => {
+            let items: Vec<String> = arr
+                .iter()
+                .map(|g| {
+                    format!(
+                        "GlowSpec {{ color: {}, spread: {} }}",
+                        color_ref_expr(&g["color"], &format!("{ctx}.back_glow"), hue_ids),
+                        f32_lit_expr(g["spread"].as_f64().expect("glow.spread"))
+                    )
+                })
+                .collect();
+            format!("Some(&[{}])", items.join(", "))
+        }
+        None => "None".to_string(),
+    };
+    let tints = match o.get("tints").and_then(|s| s.as_array()) {
+        Some(arr) => {
+            let items: Vec<String> = arr
+                .iter()
+                .map(|t| {
+                    format!(
+                        "TintSpec {{ color: {}, dir: {} }}",
+                        color_ref_expr(&t["color"], &format!("{ctx}.tint"), hue_ids),
+                        f32_lit_expr(t["dir"].as_f64().expect("tint.dir"))
+                    )
+                })
+                .collect();
+            format!("Some(&[{}])", items.join(", "))
+        }
+        None => "None".to_string(),
+    };
+    let anim = match o.get("anim").and_then(|s| s.as_array()) {
+        Some(arr) => {
+            let items: Vec<String> = arr
+                .iter()
+                .map(|a| format!("{:?}", a.as_str().expect("anim id")))
+                .collect();
+            format!("Some(&[{}])", items.join(", "))
+        }
+        None => "None".to_string(),
+    };
+    format!(
+        "Axes {{ fill: {}, edge: {edge}, radius: {radius}, ink: {}, font: {font}, \
+             shadows: {shadows}, back_glow: {back_glow}, tints: {tints}, anim: {anim} }}",
+        opt_color("fill"),
+        opt_color("ink")
+    )
 }
 
 // ── traits — the stackable partial themes (docs/design/doctrine.md) ───────
@@ -992,146 +1665,7 @@ fn generate_traits(out_dir: &str) {
         }
     }
 
-    const SURF_SLOTS: [&str; 5] = ["WELL", "BASE", "RAISED", "OVERLAY", "HAIRLINE"];
-    const INK_SLOTS: [&str; 5] = ["STRONG", "BASE", "MUTED", "SUBTLE", "ANNOTATE"];
-
-    // A color ref JSON → a `ColorRef` Rust expression. Validates every ref.
-    let color_ref = |v: &serde_json::Value, ctx: &str| -> String {
-        let alpha = v.get("alpha").and_then(|a| a.as_u64()).unwrap_or(255);
-        assert!(alpha <= 255, "{ctx}: alpha {alpha} > 255");
-        let base = if let Some(step) = v.get("tone").and_then(|s| s.as_u64()) {
-            assert!(
-                LADDER_STEPS.contains(&(step as u32)),
-                "{ctx}: tone step {step} not in LADDER_STEPS"
-            );
-            format!("ColorBase::ToneStep({step})")
-        } else if let Some(hue) = v.get("hue").and_then(|h| h.as_str()) {
-            let step = v
-                .get("step")
-                .and_then(|s| s.as_u64())
-                .unwrap_or_else(|| panic!("{ctx}: hue ref needs a step"));
-            assert!(
-                hue_ids.iter().any(|h| h == hue),
-                "{ctx}: unknown hue {hue:?}"
-            );
-            assert!(
-                LADDER_STEPS.contains(&(step as u32)),
-                "{ctx}: hue step {step} not in LADDER_STEPS"
-            );
-            format!("ColorBase::Hue({hue:?}, {step})")
-        } else if let Some(slot) = v.get("surface").and_then(|s| s.as_str()) {
-            assert!(
-                SURF_SLOTS.contains(&slot),
-                "{ctx}: unknown surface slot {slot:?}"
-            );
-            format!("ColorBase::Fixed(surface::{slot})")
-        } else if let Some(slot) = v.get("ink").and_then(|s| s.as_str()) {
-            assert!(
-                INK_SLOTS.contains(&slot),
-                "{ctx}: unknown ink slot {slot:?}"
-            );
-            format!("ColorBase::Fixed(ink::{slot})")
-        } else if v.get("black").and_then(|b| b.as_bool()).unwrap_or(false) {
-            "ColorBase::Fixed(egui::Color32::BLACK)".to_string()
-        } else {
-            panic!("{ctx}: color ref names no base ({v})");
-        };
-        format!("ColorRef {{ base: {base}, alpha: {alpha} }}")
-    };
-
-    let f32_lit = |v: f64| format!("{}f32", v as f32);
-
-    // An axes JSON object → an `Axes { .. }` Rust expression (every field Option).
-    let axes = |o: &serde_json::Value, ctx: &str| -> String {
-        let opt_color = |key: &str| match o.get(key) {
-            Some(v) => format!("Some({})", color_ref(v, &format!("{ctx}.{key}"))),
-            None => "None".to_string(),
-        };
-        let edge = match o.get("edge") {
-            Some(e) => format!(
-                "Some(EdgeSpec {{ width: {}, color: {} }})",
-                f32_lit(e["width"].as_f64().expect("edge.width")),
-                color_ref(&e["color"], &format!("{ctx}.edge"))
-            ),
-            None => "None".to_string(),
-        };
-        let radius = match o.get("radius").and_then(|r| r.as_u64()) {
-            Some(r) => format!("Some({r})"),
-            None => "None".to_string(),
-        };
-        let font = match o.get("font").and_then(|f| f.as_str()) {
-            Some(f) => format!("Some({f:?})"),
-            None => "None".to_string(),
-        };
-        let shadows = match o.get("shadows").and_then(|s| s.as_array()) {
-            Some(arr) => {
-                let items: Vec<String> = arr
-                    .iter()
-                    .map(|s| {
-                        let off = s["offset"].as_array().expect("shadow.offset");
-                        format!(
-                            "ShadowSpec {{ offset: [{}, {}], blur: {}, spread: {}, color: {} }}",
-                            off[0].as_i64().expect("offset.0"),
-                            off[1].as_i64().expect("offset.1"),
-                            s["blur"].as_u64().expect("shadow.blur"),
-                            s["spread"].as_u64().expect("shadow.spread"),
-                            color_ref(&s["color"], &format!("{ctx}.shadow"))
-                        )
-                    })
-                    .collect();
-                format!("Some(&[{}])", items.join(", "))
-            }
-            None => "None".to_string(),
-        };
-        let back_glow = match o.get("back_glow").and_then(|s| s.as_array()) {
-            Some(arr) => {
-                let items: Vec<String> = arr
-                    .iter()
-                    .map(|g| {
-                        format!(
-                            "GlowSpec {{ color: {}, spread: {} }}",
-                            color_ref(&g["color"], &format!("{ctx}.back_glow")),
-                            f32_lit(g["spread"].as_f64().expect("glow.spread"))
-                        )
-                    })
-                    .collect();
-                format!("Some(&[{}])", items.join(", "))
-            }
-            None => "None".to_string(),
-        };
-        let tints = match o.get("tints").and_then(|s| s.as_array()) {
-            Some(arr) => {
-                let items: Vec<String> = arr
-                    .iter()
-                    .map(|t| {
-                        format!(
-                            "TintSpec {{ color: {}, dir: {} }}",
-                            color_ref(&t["color"], &format!("{ctx}.tint")),
-                            f32_lit(t["dir"].as_f64().expect("tint.dir"))
-                        )
-                    })
-                    .collect();
-                format!("Some(&[{}])", items.join(", "))
-            }
-            None => "None".to_string(),
-        };
-        let anim = match o.get("anim").and_then(|s| s.as_array()) {
-            Some(arr) => {
-                let items: Vec<String> = arr
-                    .iter()
-                    .map(|a| format!("{:?}", a.as_str().expect("anim id")))
-                    .collect();
-                format!("Some(&[{}])", items.join(", "))
-            }
-            None => "None".to_string(),
-        };
-        format!(
-            "Axes {{ fill: {}, edge: {edge}, radius: {radius}, ink: {}, font: {font}, \
-             shadows: {shadows}, back_glow: {back_glow}, tints: {tints}, anim: {anim} }}",
-            opt_color("fill"),
-            opt_color("ink")
-        )
-    };
+    let axes = |o: &serde_json::Value, ctx: &str| axes_expr(o, ctx, &hue_ids);
 
     let mut code = String::new();
     writeln!(

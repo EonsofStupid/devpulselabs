@@ -378,9 +378,51 @@ impl Index {
     /// recursively) + its companions (sidecar; a video's poster), then
     /// SOFT-clear the row (history survives). Jailed to `root/inbox` BY
     /// CONSTRUCTION — a rel_path outside it is refused, never resolved.
+    /// Unlink a symlink ITSELF, never what it points at.
+    ///
+    /// Windows has two kinds of symlink and they are removed by different
+    /// calls: a DIRECTORY symlink must go through `remove_dir`, and
+    /// `remove_file` refuses it outright. Unix has one kind, which
+    /// `remove_file` unlinks. Neither call follows the link on either OS, so
+    /// the operator's original is untouched whichever branch runs.
+    ///
+    /// This existed as a bare `remove_file`, which meant a REFERENCED folder
+    /// could never be dumped on Windows — the operator's remove would fail and
+    /// the link would stay in their inbox. The file-symlink case worked, which
+    /// is why it went unnoticed.
+    fn remove_symlink(link: &Path) -> std::io::Result<()> {
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::FileTypeExt;
+            // `symlink_metadata` does not follow — we are asking what the LINK
+            // is, not what it points at.
+            if std::fs::symlink_metadata(link)?
+                .file_type()
+                .is_symlink_dir()
+            {
+                return std::fs::remove_dir(link);
+            }
+        }
+        std::fs::remove_file(link)
+    }
+
     pub fn dump(&self, root: &Path, rel_path: &str) -> Result<(), String> {
         let target = jail_inbox(root, rel_path)?;
-        if target.is_dir() {
+        // `symlink_metadata` does NOT follow — which is the whole point here.
+        // `Path::is_dir()` DOES follow, so a folder symlink would have sent a
+        // `remove_dir_all` straight into the operator's own directory.
+        let meta = std::fs::symlink_metadata(&target).map_err(|e| format!("dump: {e}"))?;
+        if meta.file_type().is_symlink() {
+            // A REFERENCED artifact: remove the LINK, never what it points at.
+            // The operator's original is somewhere outside `content/` and is
+            // not ours to delete — referencing was the promise that we would
+            // not copy it, and removing must keep that promise.
+            Self::remove_symlink(&target).map_err(|e| format!("dump link: {e}"))?;
+            let _ = std::fs::remove_file(sidecar::path_for(&target));
+            if kind_of(&target) == Some("video") {
+                let _ = std::fs::remove_file(target.with_extension("jpg"));
+            }
+        } else if meta.is_dir() {
             // A guide folder: everything inside it (frames, guide.json,
             // artifact.meta.json) goes together.
             std::fs::remove_dir_all(&target).map_err(|e| format!("dump: {e}"))?;
@@ -637,15 +679,35 @@ fn jail_inbox(root: &Path, rel_path: &str) -> Result<PathBuf, String> {
     if parts.next() != Some(std::path::Component::Normal("inbox".as_ref())) {
         return Err(format!("refused: {rel_path:?} is not in the inbox"));
     }
+    // Every remaining component must be a plain name — no `..`, no root, no
+    // prefix. That is what makes the LEXICAL jail below sound.
     if !parts.all(|c| matches!(c, std::path::Component::Normal(_))) {
         return Err(format!("refused: invalid path {rel_path:?}"));
     }
+    let linkish = root.join(rel);
+
+    // A REFERENCED artifact (`import_reference`) is a symlink INSIDE the inbox
+    // whose target is the operator's own file, deliberately outside
+    // `content/`. Canonicalizing it would point at that original — which made
+    // the containment check below refuse it, so a referenced clip could never
+    // be removed at all ("escapes the inbox", which reads like a security
+    // refusal rather than "this is a link"). Worse, had the check ever passed,
+    // dump would have deleted the operator's source.
+    //
+    // So a symlink is jailed LEXICALLY — the component check above already
+    // proves it cannot escape — and returned AS THE LINK, never resolved.
+    if std::fs::symlink_metadata(&linkish)
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        return Ok(linkish);
+    }
+
     let inbox = root
         .join("inbox")
         .canonicalize()
         .map_err(|e| format!("inbox missing: {e}"))?;
-    let target = root
-        .join(rel)
+    let target = linkish
         .canonicalize()
         .map_err(|e| format!("not found: {rel_path:?} ({e})"))?;
     if !target.starts_with(&inbox) {
@@ -1104,6 +1166,119 @@ mod tests {
 
         ix.dump(&root, "inbox/vix.mp4").unwrap();
         assert!(!inbox.join("vix.jpg").exists(), "the poster rides along");
+    }
+
+    /// Make a symlink for a test, or return false when the OS denies it.
+    /// Windows needs the create-symlink privilege (or Developer Mode) — the
+    /// same reason `import_reference` falls back to a copy — so a test must
+    /// SKIP rather than fail on a machine without it.
+    fn try_symlink(target: &Path, link: &Path) -> bool {
+        #[cfg(unix)]
+        let r = std::os::unix::fs::symlink(target, link);
+        #[cfg(windows)]
+        let r = if target.is_dir() {
+            std::os::windows::fs::symlink_dir(target, link)
+        } else {
+            std::os::windows::fs::symlink_file(target, link)
+        };
+        r.is_ok()
+    }
+
+    /// A REFERENCED artifact must be removable, and removing it must take the
+    /// LINK and leave the operator's original alone. Before this, canonicalize
+    /// resolved the link to their file, the containment check refused it, and
+    /// a referenced clip could never be removed at all.
+    #[test]
+    fn dumping_a_reference_removes_the_link_and_never_the_original() {
+        let root = scratch("dump-ref");
+        let inbox = root.join("inbox");
+        // The operator's own file, deliberately OUTSIDE content/.
+        let theirs = root.join("their-drive");
+        std::fs::create_dir_all(&theirs).unwrap();
+        let original = theirs.join("clip.mp4");
+        std::fs::write(&original, b"THEIR BYTES").unwrap();
+        // What import_reference lands: a single-file symlink in the inbox.
+        let link = inbox.join("clip.mp4");
+        if !try_symlink(&original, &link) {
+            // NOT A PASS. This machine cannot create symlinks (Windows
+            // without Developer Mode or admin), so the assertions below never
+            // run here — only CI, whose runner is privileged, truly exercises
+            // them. A silent skip reading as "ok" is exactly how a Windows
+            // folder-symlink bug survived a local `green` and died in CI.
+            eprintln!("SKIPPED (NOT PROOF): this OS denied symlink creation");
+            return;
+        }
+        sidecar::write(&link, &rec("inbox/clip.mp4", "video")).unwrap();
+
+        let ix = Index::open(&root.join("artifacts.db")).unwrap();
+        ix.reindex(&root).unwrap();
+
+        ix.dump(&root, "inbox/clip.mp4")
+            .expect("a referenced artifact must be removable");
+
+        assert!(
+            !link.exists() && std::fs::symlink_metadata(&link).is_err(),
+            "the LINK is gone"
+        );
+        assert!(original.is_file(), "the operator's original SURVIVES");
+        assert_eq!(
+            std::fs::read(&original).unwrap(),
+            b"THEIR BYTES",
+            "and is untouched"
+        );
+    }
+
+    /// `Path::is_dir()` follows symlinks, so a FOLDER symlink in the inbox
+    /// would have sent `remove_dir_all` into the operator's real directory.
+    /// `symlink_metadata` does not follow — this pins that.
+    #[test]
+    fn a_folder_symlink_is_unlinked_never_recursively_deleted() {
+        let root = scratch("dump-dirlink");
+        let inbox = root.join("inbox");
+        let theirs = root.join("their-folder");
+        std::fs::create_dir_all(&theirs).unwrap();
+        std::fs::write(theirs.join("precious.mp4"), b"KEEP").unwrap();
+        let link = inbox.join("pack");
+        if !try_symlink(&theirs, &link) {
+            // NOT A PASS. This machine cannot create symlinks (Windows
+            // without Developer Mode or admin), so the assertions below never
+            // run here — only CI, whose runner is privileged, truly exercises
+            // them. A silent skip reading as "ok" is exactly how a Windows
+            // folder-symlink bug survived a local `green` and died in CI.
+            eprintln!("SKIPPED (NOT PROOF): this OS denied symlink creation");
+            return;
+        }
+
+        let ix = Index::open(&root.join("artifacts.db")).unwrap();
+        // dump may or may not have a row; the FILESYSTEM outcome is the point.
+        let _ = ix.dump(&root, "inbox/pack");
+
+        assert!(
+            std::fs::symlink_metadata(&link).is_err(),
+            "the link is gone"
+        );
+        assert!(theirs.is_dir(), "their folder SURVIVES");
+        assert!(
+            theirs.join("precious.mp4").is_file(),
+            "and its contents survive"
+        );
+    }
+
+    /// The lexical jail still holds for links — `..` cannot smuggle a symlink
+    /// outside the inbox, so skipping canonicalize costs no safety.
+    #[test]
+    fn the_jail_still_refuses_traversal() {
+        // NOTE the distinct scratch tag: `scratch()` is keyed by tag and the
+        // suite runs in parallel, so reusing "jail" raced the neighbouring
+        // test and wiped its fixtures.
+        let root = scratch("jail-lexical");
+        for bad in [
+            "../secrets.png",
+            "inbox/../../etc/passwd",
+            "elsewhere/x.png",
+        ] {
+            assert!(jail_inbox(&root, bad).is_err(), "{bad:?} must be refused");
+        }
     }
 
     #[test]

@@ -320,7 +320,9 @@ X", and the demonstration records itself.
   `content\` (CONFIRMED) · `assets\` (WORKING, auto-filed captures) ·
   `.userdata\` (STATE: Turso index, cache/temp/profiles). Additive index
   migration; transactional promote (assets→content, explicit gesture
-  only). RING-2 follow-up: DuckDB analytics (own C-dep ADR) + the
+  only). RING-2 follow-up: Arrow/DataFusion analytics over the Parquet
+  the ledger already writes (ADR-014, amended 2026-08-03 — DuckDB is
+  superseded and needs no C-dep ADR) + the
   stale-assets report. UI surfacing rides the experience gate.
 - **P1** data_root law + runtime_status self-report; **P2**
   package-portable + portable drill (as a pilot scenario suite run against

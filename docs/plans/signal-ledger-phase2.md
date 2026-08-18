@@ -1,5 +1,16 @@
 # Phase 2 — the Signal Ledger (`dpl-ledger`)
 
+> **AMENDED 2026-08-03 — the analytics engine is Arrow/DataFusion over
+> Parquet, not DuckDB** (operator ruling; ADR-014 amendment). This document
+> predates that and its DuckDB references stand as the record of the
+> question, not the answer. Nothing else here changes: the ledger was always
+> "a file format and a schema, not a database", and keeping the engine
+> undecided is precisely what let it be answered later on evidence.
+> `dpl-ledger` already writes Parquet via Arrow, so DataFusion queries what
+> exists today with no C-dep and no migration.
+
+
+
 Status: planned this pass (2026-07-28), executing under
 `docs/plans/signal-ledger-and-lesson-foundation.md` §3–§5 / Phase 2 and
 the 2026-07-28 rulings in §9. PR #116 (determinism gate) is on main;

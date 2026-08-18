@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Preset bench — 8 ancestors × 3 presets</title>
+<style>
+  :root{
+    --well:#07090e; --base:#0a0c12; --raised:#11141d; --overlay:#181c27; --hairline:#232836;
+    --ink-strong:#eef2f9; --ink:#c2c9d6; --ink-muted:#8a93a6; --ink-subtle:#5b6478;
+    --mono:ui-monospace,"JetBrains Mono",Consolas,monospace;
+  }
+  *{box-sizing:border-box} html,body{margin:0}
+  body{background:var(--well);color:var(--ink);font:13px/1.5 system-ui,"Segoe UI",sans-serif}
+  .wrap{max-width:1560px;margin:0 auto;padding:22px}
+  .eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.26em;text-transform:uppercase;color:var(--ink-muted)}
+  h1{font-size:26px;color:var(--ink-strong);margin:.2em 0 .12em;font-weight:800}
+  .sub{color:var(--ink-muted);font-size:12.5px;max-width:104ch;margin:0 0 16px}
+  code{font-family:var(--mono);font-size:.9em;background:var(--base);border:1px solid var(--hairline);border-radius:3px;padding:.05em .32em}
+  .warn{color:#e6b98a}
+
+  .anc{margin:34px 0 0;padding-top:20px;border-top:1px solid var(--hairline)}
+  .anc:first-of-type{border-top:none}
+  .anc-h{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+  .anc-h h2{margin:0;font-size:21px;color:var(--ink-strong);letter-spacing:-.01em}
+  .anc-h .n{font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink-subtle)}
+  .anc-blurb{color:var(--ink-muted);font-size:12px;margin:3px 0 9px;max-width:100ch}
+  .legal{background:var(--base);border:1px solid var(--hairline);border-radius:7px;padding:9px 12px;
+    font-family:var(--mono);font-size:11px;margin-bottom:14px;line-height:1.75}
+  .legal b{color:var(--ink-strong)} .legal .nat{color:#9fe0f2} .legal .no{color:#7a6a6a}
+
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:15px}
+  .col h3{margin:0 0 1px;font-size:15px;color:var(--ink-strong)}
+  .col .k{font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-subtle)}
+  .col .coord{font-family:var(--mono);font-size:10.5px;color:#9fe0f2;margin:5px 0 6px}
+  .col .why{font-size:11.5px;color:var(--ink-muted);margin:0 0 10px;min-height:64px}
+
+  /* The shell is IDENTICAL in every column, so only the formula differs.
+     It wears the structure's radius CLAMPED — `pill` means pill-shaped
+     CONTROLS, never a pill-shaped window. */
+  .shell{height:296px;display:flex;flex-direction:column;overflow:hidden;
+    border-radius:var(--rad-shell);background:var(--well);border:1px solid var(--hairline)}
+  .bar{flex:none;padding:8px 12px;font-family:var(--font);font-size:12px;font-weight:600;
+    letter-spacing:var(--track);color:var(--ink-strong);background:var(--overlay);
+    border-bottom:1px solid var(--hairline)}
+  .bar.bot{border-bottom:none;border-top:1px solid var(--hairline);margin-top:auto;
+    font-size:10.5px;color:var(--ink-subtle);font-family:var(--mono)}
+  .body{flex:1;padding:13px;display:flex;flex-direction:column;gap:10px;overflow:hidden}
+
+  /* A control wearing the preset. The tint is composited ONTO the fill, never
+     behind it — a specular band under the fill is a band you cannot see. */
+  .ctl{display:inline-flex;align-items:center;gap:7px;padding:8px 14px;cursor:pointer;
+    font-family:var(--font);font-size:12px;font-weight:600;letter-spacing:var(--track);
+    color:var(--m-ink); background:var(--m-tint), var(--m-fill);
+    border:var(--m-ew) solid var(--m-edge); border-radius:var(--rad);
+    box-shadow:var(--m-shadow), var(--m-glow)}
+  .ctl svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  .plate{padding:10px 12px;background:var(--m-tint), var(--m-fill);
+    border:var(--m-ew) solid var(--m-edge);border-radius:var(--rad-shell);
+    box-shadow:var(--m-shadow);font-family:var(--font);font-size:11.5px;color:var(--m-ink)}
+  .plate .h{font-weight:700;margin-bottom:2px;font-size:12px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+
+  .props{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-top:9px}
+  .p{background:var(--well);border:1px solid var(--hairline);border-radius:4px;padding:4px 6px;overflow:hidden}
+  .p .k2{font-family:var(--mono);font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-subtle)}
+  .p .v{font-family:var(--mono);font-size:9.5px;color:var(--ink-strong);margin-top:1px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .findings{background:var(--base);border:1px solid var(--hairline);border-left:3px solid #e6b98a;
+    border-radius:7px;padding:12px 15px;margin:18px 0 6px}
+  .findings h4{margin:0 0 7px;font-size:13px;color:var(--ink-strong)}
+  .findings li{font-size:12px;color:var(--ink-muted);margin-bottom:6px}
+  footer{margin:34px 0 12px;font-family:var(--mono);font-size:10px;color:var(--ink-subtle)}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute"><defs>
+<symbol id="i-play" viewBox="0 0 24 24"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"/></symbol>
+<symbol id="i-layers" viewBox="0 0 24 24"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/></symbol>
+</defs></svg>
+
+<div class="wrap">
+  <div class="eyebrow">DevPULSE Labs · preset bench · 8 ancestors × 3 presets</div>
+  <h1>Every lineage, three ways</h1>
+  <p class="sub">A <b>preset</b> is a named look <i>within</i> a lineage — a legal coordinate on the matrix, never a
+  free-hand style. This page is <b>generated from the authored tokens</b> (<code>matrix.json</code> +
+  <code>hues.json</code>): the OKLCH ladders are computed with the real ColdLight curves, and the generator
+  <b>refuses to emit</b> a coordinate its ancestor forbids, or a set of three where two resolve to the same
+  material. The shell is identical everywhere, so <b>only the formula differs</b>.</p>
+
+  <div class="findings">
+    <h4>What building this exposed in the authored data — and what was done</h4>
+    <ul>
+      <li><b>Vibron is a coordinate now.</b> The operator ruled
+      <code>brutalist · massive · <b>plate</b> · hard-cast = Vibron</code>, and that it needed one new material.
+      <code>traits.json</code> even recorded the resolution in its blurb — but <code>plate</code> was never added, so
+      Vibron existed only as a trait in the parallel system. It decomposes exactly: radius 6 + edge 2.0 is
+      <code>massive</code>, shadow [3,3] blur 0 black@230 is <code>hard-cast</code>, and fill OVERLAY + ink BASE +
+      edge HAIRLINE is <code>plate</code>. The material is authored and ruled for all eight lineages.</li>
+      <li><b class="warn">bloom shipped a blur — fixed.</b> Aero's native atmosphere authored <code>blur: 12/16</code>,
+      violating doctrine law 6 (“No blur, ever”) <i>and</i> matrix §11.4's own ruling that aero is interpreted
+      no-blur. Re-authored as a painted <b>ring falloff</b> — concentric hard rings at falling alpha — plus two hard
+      directional shadows. Aero reads soft here without one blurred pixel.</li>
+      <li><b class="warn">The gloss band was invisible — fixed.</b> <code>sheen</code> and <code>bloom</code> painted
+      their specular band as <code>OVERLAY @ 90</code>: a <i>dark</i> surface on a <i>dark</i> fill, a measured
+      <b>4/255</b> delta. A specular band must be lit; both now use <code>ink STRONG</code>.</li>
+      <li><b class="warn">A third of the material axis was duplicate data — fixed.</b>
+      <code>matte ≡ raw</code>, <code>glass ≡ metallic</code> and <code>paper ≡ clay</code> were byte-identical in
+      fill, ink and edge: 9 materials that painted 6, which capped <code>bauhaus</code>, <code>swiss</code> and
+      <code>constructivist</code> at two distinct materials each. <b>10 materials now paint 10.</b>
+      <code>raw</code> and <code>paper</code> kept their fills because they carry ratified looks (neo, and the swiss
+      + editorial natives); the duplicates moved instead — <code>matte</code> went deep and absorbing,
+      <code>metallic</code> became dark metal with a lit rim, and <code>clay</code> became a RECESSED well, because
+      the doctrine says content sits <i>in</i> clay.</li>
+    </ul>
+  </div>
+
+  <div id="out"></div>
+
+  <footer>DevPULSE Labs · docs/design/mocks/preset-bench.html · GENERATED — edit <code>_preset-bench.tpl.html</code> + the generator, never this file · 2026-08-05</footer>
+</div>
+
+<script>
+const D = /*__DATA__*/null;
+
+/* ── the ColdLight OKLCH engine, mirrored from build.rs ── */
+const STEPS=[25,50,100,200,300,400,500,600,700,800,900,950,975],FLOOR=.10;
+const LC={brand:[.99,.98,.95,.90,.84,.79,.72,.62,.52,.42,.32,.22,.14],
+          luminous:[.99,.97,.94,.90,.86,.82,.78,.72,.60,.46,.34,.24,.15],
+          utility:[.98,.96,.92,.86,.79,.72,.65,.56,.47,.38,.29,.21,.14],
+          surface:[.97,.94,.89,.82,.74,.66,.58,.49,.40,.31,.23,.16,.11]};
+const CC={"linear-to-500":[.08,.15,.30,.55,.80,.95,1,1,.90,.75,.55,.35,.22],
+          bloom:[.45,.60,.75,.88,.96,1,.98,.88,.72,.55,.38,.24,.14],
+          flat:[1,1,1,1,1,1,1,1,1,1,1,1,1]};
+function ramp(id,s){const h=D.hues[id],i=STEPS.indexOf(s);
+  const L=(LC[h.curve]||LC.brand)[i], C=h.chroma*((CC[h.chromaCurve]||CC["linear-to-500"])[i]);
+  return `oklch(${Math.max(L,FLOOR).toFixed(3)} ${C.toFixed(4)} ${h.hue})`;}
+const mix=(c,a)=>a>=.999?c:`color-mix(in oklab, ${c} ${(a*100).toFixed(1)}%, transparent)`;
+const SURF={WELL:"#07090e",BASE:"#0a0c12",RAISED:"#11141d",OVERLAY:"#181c27",HAIRLINE:"#232836"};
+const INK={STRONG:"#eef2f9",BASE:"#c2c9d6",MUTED:"#8a93a6",SUBTLE:"#5b6478"};
+const FONTS={spacegrotesk:'"Space Grotesk",system-ui,sans-serif', michroma:'"Michroma",system-ui,sans-serif',
+  rajdhani:'"Rajdhani",system-ui,sans-serif', exo2:'"Exo 2",system-ui,sans-serif',
+  chakrapetch:'"Chakra Petch",system-ui,sans-serif', oxanium:'"Oxanium",system-ui,sans-serif'};
+
+function ref(r,tone){ if(!r) return null;
+  if(r.black) return "#000000";
+  if(r.surface) return SURF[r.surface];
+  if(r.ink) return INK[r.ink];
+  if(r.hue) return ramp(r.hue, r.step);
+  if(r.tone!==undefined) return ramp(tone, r.tone);
+  return null; }
+const alpha=r=>(r&&r.alpha!==undefined)?r.alpha/255:1;
+const by=(arr,id)=>arr.find(x=>x.id===id);
+
+/* A back-glow is NOT a blur. It is concentric hard rings at falling alpha —
+   exactly what the egui painter draws, and why this reads soft under a
+   no-blur doctrine. Smallest first: in CSS the first shadow paints on top. */
+const FALL=[1,.55,.3,.15];
+
+function resolve(anc,p){
+  const st=by(D.structures,p.c.structure), mt=by(D.materials,p.c.material),
+        at=by(D.atmospheres,p.c.atmosphere), nat=by(D.materials,anc.native.material), tone=p.tone;
+  const fill = ref(mt.fill||nat.fill,tone), ink=ref(mt.ink||nat.ink,tone), edge=ref(mt.edge_color||nat.edge_color,tone);
+  const shadow=(at.shadows||[]).map(s=>`${s.offset[0]}px ${s.offset[1]}px 0 ${s.spread||0}px ${mix(ref(s.color,tone),alpha(s.color))}`);
+  const glow=(at.back_glow||[]).flatMap(g=>{
+      const c=ref(g.color,tone), a=alpha(g.color);
+      return FALL.map((f,i)=>`0 0 0 ${(g.spread*(i+1)/FALL.length).toFixed(1)}px ${mix(c,a*f)}`);
+    }).reverse();
+  const t=(at.tints||[])[0];
+  const tint = t ? `linear-gradient(${t.dir}deg, ${mix(ref(t.color,tone),alpha(t.color))} 0%, transparent 46%)`
+                 : "linear-gradient(transparent,transparent)";
+  const rad = st.radius>100?999:st.radius;
+  return {fill,ink,edge,ew:st.edge_width+"px",rad:rad+"px",radShell:Math.min(rad,14)+"px",
+          shadow:shadow.length?shadow.join(", "):"none", glow:glow.length?glow.join(", "):"none",
+          tint, font:FONTS[anc.font]||"system-ui", track:anc.font==="michroma"?".08em":".02em",
+          hasShadow:!!shadow.length, hasGlow:!!glow.length, hasTint:!!t};
+}
+
+const AX=["structure","material","atmosphere"];
+document.getElementById("out").innerHTML = D.ancestors.map((a,ai)=>{
+  const legal = AX.map(ax=>{
+    const nat=a.native[ax], al=(a.allowed&&a.allowed[ax])||[];
+    const pad=ax==="structure"?"structure&nbsp;&nbsp;":ax==="material"?"material&nbsp;&nbsp;&nbsp;":"atmosphere";
+    return `${pad} : <span class="nat">${nat}*</span>${al.length?" · "+al.join(" · "):""}`;
+  }).join("<br>");
+  const forb=AX.flatMap(ax=>((a.forbidden&&a.forbidden[ax])||[])).join(" · ");
+  const n = AX.reduce((k,ax)=>k*(1+((a.allowed&&a.allowed[ax])||[]).length),1);
+  return `<section class="anc">
+    <div class="anc-h"><h2>${a.label}</h2><span class="n">${n} legal coordinates · ${a.font}</span></div>
+    <p class="anc-blurb">${a.blurb}</p>
+    <div class="legal">${legal}<br>${forb?`<b>forbidden</b>&nbsp;&nbsp;: <span class="no">${forb}</span>`:""}</div>
+    <div class="grid">${a.presets.map((p,pi)=>`
+      <div class="col">
+        <h3>${p.label}</h3><span class="k">${p.kicker}</span>
+        <div class="coord">${a.id} · ${p.c.structure} · ${p.c.material} · ${p.c.atmosphere} · ${p.tone}</div>
+        <div class="why">${p.why}</div>
+        <div class="shell" id="s-${ai}-${pi}">
+          <div class="bar">${p.label}</div>
+          <div class="body">
+            <div class="row">
+              <span class="ctl"><svg><use href="#i-play"/></svg>Preview</span>
+              <span class="ctl"><svg><use href="#i-layers"/></svg>Stack</span>
+            </div>
+            <div class="plate"><div class="h">Seeds</div>12 whole cards, ready to go</div>
+            <div class="plate"><div class="h">Combos</div>pieces that keep turning up together</div>
+          </div>
+          <div class="bar bot">${a.id}/${p.id}</div>
+        </div>
+        <div class="props" id="p-${ai}-${pi}"></div>
+      </div>`).join("")}</div>
+  </section>`;
+}).join("");
+
+D.ancestors.forEach((a,ai)=>a.presets.forEach((p,pi)=>{
+  const r=resolve(a,p), el=document.getElementById(`s-${ai}-${pi}`), set=(k,v)=>el.style.setProperty(k,v);
+  set("--m-fill",r.fill); set("--m-ink",r.ink); set("--m-edge",r.edge); set("--m-ew",r.ew);
+  set("--rad",r.rad); set("--rad-shell",r.radShell); set("--m-shadow",r.shadow);
+  set("--m-glow",r.glow); set("--m-tint",r.tint); set("--font",r.font); set("--track",r.track);
+  document.getElementById(`p-${ai}-${pi}`).innerHTML=
+    [["fill",r.fill],["ink",r.ink],["edge",r.edge],["radius",r.rad],
+     ["cast",r.hasShadow?"yes":"—"],["halo",r.hasGlow?"yes":"—"]]
+    .map(([k,v])=>`<div class="p"><div class="k2">${k}</div><div class="v" title="${v}">${v}</div></div>`).join("");
+}));
+</script>
+</body>
+</html>

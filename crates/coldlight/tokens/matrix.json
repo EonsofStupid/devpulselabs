@@ -1,6 +1,5 @@
 {
   "$description": "The ColdLight MATRIX (docs/design/coldlight-matrix.md). A THEME is a COORDINATE in this matrix, not a hand-authored bundle. Four facets: ANCESTOR (Personality, owns font) x STRUCTURE (Space, owns radius + edge.width) x MATERIAL (Matter, owns fill, ink, edge.color) x ATMOSPHERE (Energy, owns shadows, back_glow, tints, anim). GENERATED into Rust by build.rs; never hand-edited downstream.",
-
   "$laws": [
     "M1 - ONE value per facet, exactly. The untyped `stack: &[&str]` and the two-contradictory-bases bug are gone by construction.",
     "M2 - An ancestor ALONE is a complete look. Its `native` fills every facet, so a facet value need only declare the axes it changes; everything else falls back to the ancestor's natives. This is the same override/additive rule compose() already uses, one tier up.",
@@ -8,108 +7,828 @@
     "M4 - edge is SPLIT: width is geometry (STRUCTURE), colour is substance (MATERIAL). Without this an atmosphere has to reach outside its lane to recolour an edge, which is the exact defect the matrix exists to close.",
     "M5 - Typography belongs to the ANCESTOR and is never a free knob. It is the most identity-carrying choice a movement makes."
   ],
-
   "structures": [
-    { "id": "rectilinear", "label": "Rectilinear", "blurb": "Zero radius, hard corners, right angles.", "radius": 0, "edge_width": 1.0 },
-    { "id": "stepped", "label": "Stepped", "blurb": "Chamfered/ziggurat, vertical emphasis.", "radius": 2, "edge_width": 2.0 },
-    { "id": "massive", "label": "Massive", "blurb": "Thick heavy edge, large block, tight radius.", "radius": 6, "edge_width": 2.0 },
-    { "id": "measured", "label": "Measured", "blurb": "Restrained radius, strict grid, generous margin.", "radius": 4, "edge_width": 1.0 },
-    { "id": "rounded", "label": "Rounded", "blurb": "Generous uniform radius.", "radius": 16, "edge_width": 1.0 },
-    { "id": "pill", "label": "Pill", "blurb": "Fully rounded ends.", "radius": 999, "edge_width": 1.0 }
+    {
+      "id": "rectilinear",
+      "label": "Rectilinear",
+      "blurb": "Zero radius, hard corners, right angles.",
+      "radius": 0,
+      "edge_width": 1.0
+    },
+    {
+      "id": "stepped",
+      "label": "Stepped",
+      "blurb": "Chamfered/ziggurat, vertical emphasis.",
+      "radius": 2,
+      "edge_width": 2.0
+    },
+    {
+      "id": "massive",
+      "label": "Massive",
+      "blurb": "Thick heavy edge, large block, tight radius.",
+      "radius": 6,
+      "edge_width": 2.0
+    },
+    {
+      "id": "measured",
+      "label": "Measured",
+      "blurb": "Restrained radius, strict grid, generous margin.",
+      "radius": 4,
+      "edge_width": 1.0
+    },
+    {
+      "id": "rounded",
+      "label": "Rounded",
+      "blurb": "Generous uniform radius.",
+      "radius": 16,
+      "edge_width": 1.0
+    },
+    {
+      "id": "pill",
+      "label": "Pill",
+      "blurb": "Fully rounded ends.",
+      "radius": 999,
+      "edge_width": 1.0
+    }
   ],
-
   "materials": [
-    { "id": "matte", "label": "Matte", "blurb": "Flat, unmodulated colour plane.",
-      "fill": { "tone": 400 }, "ink": { "surface": "WELL" }, "edge_color": { "tone": 700 } },
-    { "id": "raw", "label": "Raw", "blurb": "Exposed, unfinished, concrete.",
-      "fill": { "tone": 400 }, "ink": { "surface": "WELL" }, "edge_color": { "tone": 700 } },
-    { "id": "lacquer", "label": "Lacquer", "blurb": "Deep high-gloss.",
-      "fill": { "tone": 600 }, "ink": { "ink": "STRONG" }, "edge_color": { "tone": 300 } },
-    { "id": "metallic", "label": "Metallic", "blurb": "Chrome / gold sheen.",
-      "fill": { "surface": "OVERLAY" }, "ink": { "ink": "STRONG" }, "edge_color": { "tone": 200 } },
-    { "id": "paper", "label": "Paper", "blurb": "Neutral flat, print-like.",
-      "fill": { "surface": "RAISED" }, "ink": { "ink": "BASE" }, "edge_color": { "surface": "HAIRLINE" } },
-    { "id": "glass", "label": "Glass", "blurb": "Translucent pane; gloss via banded gradient, never a blur (doctrine).",
-      "fill": { "surface": "OVERLAY" }, "ink": { "ink": "STRONG" }, "edge_color": { "tone": 200 } },
-    { "id": "clay", "label": "Clay", "blurb": "Soft extruded plane.",
-      "fill": { "surface": "RAISED" }, "ink": { "ink": "BASE" }, "edge_color": { "surface": "HAIRLINE" } },
-    { "id": "neon-glass", "label": "Neon glass", "blurb": "Cold translucent skin - cyan ink on a lit edge.",
-      "ink": { "hue": "cyan", "step": 100 }, "edge_color": { "hue": "cyan", "step": 400 } },
-    { "id": "amber-crt", "label": "Amber CRT", "blurb": "Phosphor glass - amber ink on a chunky amber edge.",
-      "ink": { "hue": "amber", "step": 200 }, "edge_color": { "hue": "amber", "step": 700 } }
+    {
+      "id": "matte",
+      "label": "Matte",
+      "blurb": "Deep pigment with the sheen knocked out — quiet, absorbing, no rim light.",
+      "fill": {
+        "tone": 800
+      },
+      "ink": {
+        "ink": "STRONG"
+      },
+      "edge_color": {
+        "tone": 600
+      }
+    },
+    {
+      "id": "raw",
+      "label": "Raw",
+      "blurb": "Saturated pigment applied straight, crisp dark rule. Beton brut by attitude: unrefined and loud. THE NEUBRUTALIST FILL — neo depends on it.",
+      "fill": {
+        "tone": 400
+      },
+      "ink": {
+        "surface": "WELL"
+      },
+      "edge_color": {
+        "tone": 700
+      }
+    },
+    {
+      "id": "lacquer",
+      "label": "Lacquer",
+      "blurb": "Deep gloss over colour, bright rim where the light catches the lip.",
+      "fill": {
+        "tone": 600
+      },
+      "ink": {
+        "ink": "STRONG"
+      },
+      "edge_color": {
+        "tone": 300
+      }
+    },
+    {
+      "id": "metallic",
+      "label": "Metallic",
+      "blurb": "Dark brushed metal with a lit rim — the body absorbs, the edge catches.",
+      "fill": {
+        "tone": 900
+      },
+      "ink": {
+        "ink": "STRONG"
+      },
+      "edge_color": {
+        "tone": 400
+      }
+    },
+    {
+      "id": "glass",
+      "label": "Glass",
+      "blurb": "Translucent panel, neutral body, bright tinted rim. Reads through to what is behind.",
+      "fill": {
+        "surface": "OVERLAY"
+      },
+      "ink": {
+        "ink": "STRONG"
+      },
+      "edge_color": {
+        "tone": 200
+      }
+    },
+    {
+      "id": "plate",
+      "label": "Plate",
+      "blurb": "A quiet neutral panel that is PROUD of the surface, with a visible fabricated rim. Its whole point is RESTRAINT — the plate says nothing so the one active control can. THE VIBRON MATERIAL (operator-ruled 2026-08-05): brutalist massive plate hard-cast IS Vibron.",
+      "fill": {
+        "surface": "OVERLAY"
+      },
+      "ink": {
+        "ink": "BASE"
+      },
+      "edge_color": {
+        "surface": "HAIRLINE"
+      }
+    },
+    {
+      "id": "paper",
+      "label": "Paper",
+      "blurb": "Flat fibrous stock, effectively edgeless — the rule is the same value as the sheet. What a page is made of.",
+      "fill": {
+        "surface": "RAISED"
+      },
+      "ink": {
+        "ink": "BASE"
+      },
+      "edge_color": {
+        "surface": "RAISED"
+      }
+    },
+    {
+      "id": "clay",
+      "label": "Clay",
+      "blurb": "A soft RECESSED well — content sits IN it, not on it, so the body drops below the surface and the ink softens.",
+      "fill": {
+        "surface": "BASE"
+      },
+      "ink": {
+        "ink": "MUTED"
+      },
+      "edge_color": {
+        "surface": "HAIRLINE"
+      }
+    },
+    {
+      "id": "neon-glass",
+      "label": "Neon glass",
+      "blurb": "Cold translucent skin - cyan ink on a lit edge.",
+      "ink": {
+        "hue": "cyan",
+        "step": 100
+      },
+      "edge_color": {
+        "hue": "cyan",
+        "step": 400
+      }
+    },
+    {
+      "id": "amber-crt",
+      "label": "Amber CRT",
+      "blurb": "Phosphor glass - amber ink on a chunky amber edge.",
+      "ink": {
+        "hue": "amber",
+        "step": 200
+      },
+      "edge_color": {
+        "hue": "amber",
+        "step": 700
+      }
+    }
   ],
-
   "atmospheres": [
-    { "id": "none", "label": "None", "blurb": "No shadow, no glow. Anti-atmospheric." },
-    { "id": "hard-cast", "label": "Hard cast", "blurb": "Hard offset shadow, zero blur.",
-      "shadows": [{ "offset": [3, 3], "blur": 0, "spread": 0, "color": { "black": true, "alpha": 230 } }],
-      "back_glow": [{ "color": { "tone": 300, "alpha": 60 }, "spread": 18.0 }],
-      "hover": { "shadows": [{ "offset": [4, 4], "blur": 0, "spread": 0, "color": { "black": true, "alpha": 235 } }],
-                 "back_glow": [{ "color": { "tone": 300, "alpha": 95 }, "spread": 24.0 }] },
-      "active": { "shadows": [{ "offset": [1, 1], "blur": 0, "spread": 0, "color": { "black": true, "alpha": 230 } }] } },
-    { "id": "sheen", "label": "Sheen", "blurb": "Directional specular band.",
-      "tints": [{ "color": { "surface": "OVERLAY", "alpha": 90 }, "dir": 135.0 }] },
-    { "id": "bloom", "label": "Bloom", "blurb": "Soft outer glow; directional double shadow.",
-      "shadows": [{ "offset": [-4, -4], "blur": 12, "spread": 0, "color": { "ink": "STRONG", "alpha": 12 } },
-                  { "offset": [6, 6], "blur": 16, "spread": 0, "color": { "black": true, "alpha": 150 } }],
-      "tints": [{ "color": { "surface": "OVERLAY", "alpha": 90 }, "dir": 135.0 }] },
-    { "id": "neon", "label": "Neon", "blurb": "Saturated glow bloom - painted falloff, zero blur.",
-      "back_glow": [{ "color": { "hue": "cyan", "step": 400, "alpha": 120 }, "spread": 14.0 },
-                    { "color": { "hue": "cyan", "step": 600, "alpha": 80 }, "spread": 28.0 }],
-      "tints": [{ "color": { "hue": "cyan", "step": 500, "alpha": 36 }, "dir": 180.0 }] },
-    { "id": "scanline", "label": "Scanline", "blurb": "CRT wash.",
-      "tints": [{ "color": { "hue": "amber", "step": 900, "alpha": 60 }, "dir": 0.0 }] }
+    {
+      "id": "none",
+      "label": "None",
+      "blurb": "No shadow, no glow. Anti-atmospheric."
+    },
+    {
+      "id": "hard-cast",
+      "label": "Hard cast",
+      "blurb": "One hard offset shadow, cast down-right, zero blur — a shape, never a glow. No halo: that is `lit-cast`. Carries the interaction convention — hover lifts the cast and strengthens the ink; ACTIVE washes the fill in the surface tone, lights the edge to it, and sinks onto the shadow, so exactly ONE control reads as live.",
+      "shadows": [
+        {
+          "offset": [
+            3,
+            3
+          ],
+          "blur": 0,
+          "spread": 0,
+          "color": {
+            "black": true,
+            "alpha": 230
+          }
+        }
+      ],
+      "hover": {
+        "shadows": [
+          {
+            "offset": [
+              4,
+              4
+            ],
+            "blur": 0,
+            "spread": 0,
+            "color": {
+              "black": true,
+              "alpha": 235
+            }
+          }
+        ],
+        "ink": {
+          "ink": "STRONG"
+        }
+      },
+      "active": {
+        "fill": {
+          "tone": 500,
+          "alpha": 36
+        },
+        "edge": {
+          "width": 2.0,
+          "color": {
+            "tone": 400
+          }
+        },
+        "ink": {
+          "ink": "STRONG"
+        },
+        "shadows": [
+          {
+            "offset": [
+              1,
+              1
+            ],
+            "blur": 0,
+            "spread": 0,
+            "color": {
+              "black": true,
+              "alpha": 230
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "lit-cast",
+      "label": "Lit cast",
+      "blurb": "A hard offset shadow AND a painted lit-from-behind pop. The neubrutalist move: it makes a saturated surface read as lit from directly behind. Never on a quiet material — the halo is what LOUD looks like.",
+      "shadows": [
+        {
+          "offset": [
+            3,
+            3
+          ],
+          "blur": 0,
+          "spread": 0,
+          "color": {
+            "black": true,
+            "alpha": 230
+          }
+        }
+      ],
+      "back_glow": [
+        {
+          "color": {
+            "tone": 300,
+            "alpha": 60
+          },
+          "spread": 18.0
+        }
+      ],
+      "hover": {
+        "shadows": [
+          {
+            "offset": [
+              4,
+              4
+            ],
+            "blur": 0,
+            "spread": 0,
+            "color": {
+              "black": true,
+              "alpha": 235
+            }
+          }
+        ],
+        "back_glow": [
+          {
+            "color": {
+              "tone": 300,
+              "alpha": 95
+            },
+            "spread": 24.0
+          }
+        ]
+      },
+      "active": {
+        "shadows": [
+          {
+            "offset": [
+              1,
+              1
+            ],
+            "blur": 0,
+            "spread": 0,
+            "color": {
+              "black": true,
+              "alpha": 230
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "sheen",
+      "label": "Sheen",
+      "blurb": "One hard specular band across the top-left — light, not dark. A gloss band must be LIT: OVERLAY@90 over RAISED is a 4/255 delta, i.e. invisible on the dark base, which is what this used to be.",
+      "tints": [
+        {
+          "color": {
+            "ink": "STRONG",
+            "alpha": 30
+          },
+          "dir": 135.0
+        }
+      ]
+    },
+    {
+      "id": "bloom",
+      "label": "Bloom",
+      "blurb": "Soft outer glow + directional double shadow — light from above-left. NO BLUR: doctrine law 6 and matrix §11.4's aero ruling both forbid it, so the softness is a painted RING FALLOFF (concentric back_glow at falling alpha) plus a banded tint — never a feathered shadow. This is what 'gloss via banded gradients and hard specular bands' means in data.",
+      "shadows": [
+        {
+          "offset": [
+            -3,
+            -3
+          ],
+          "blur": 0,
+          "spread": 0,
+          "color": {
+            "ink": "STRONG",
+            "alpha": 14
+          }
+        },
+        {
+          "offset": [
+            5,
+            5
+          ],
+          "blur": 0,
+          "spread": 0,
+          "color": {
+            "black": true,
+            "alpha": 160
+          }
+        }
+      ],
+      "tints": [
+        {
+          "color": {
+            "ink": "STRONG",
+            "alpha": 20
+          },
+          "dir": 135.0
+        }
+      ],
+      "back_glow": [
+        {
+          "color": {
+            "ink": "STRONG",
+            "alpha": 34
+          },
+          "spread": 10.0
+        },
+        {
+          "color": {
+            "ink": "STRONG",
+            "alpha": 18
+          },
+          "spread": 22.0
+        }
+      ]
+    },
+    {
+      "id": "neon",
+      "label": "Neon",
+      "blurb": "Saturated glow bloom - painted falloff, zero blur.",
+      "back_glow": [
+        {
+          "color": {
+            "hue": "cyan",
+            "step": 400,
+            "alpha": 120
+          },
+          "spread": 14.0
+        },
+        {
+          "color": {
+            "hue": "cyan",
+            "step": 600,
+            "alpha": 80
+          },
+          "spread": 28.0
+        }
+      ],
+      "tints": [
+        {
+          "color": {
+            "hue": "cyan",
+            "step": 500,
+            "alpha": 36
+          },
+          "dir": 180.0
+        }
+      ]
+    },
+    {
+      "id": "scanline",
+      "label": "Scanline",
+      "blurb": "CRT wash.",
+      "tints": [
+        {
+          "color": {
+            "hue": "amber",
+            "step": 900,
+            "alpha": 60
+          },
+          "dir": 0.0
+        }
+      ]
+    }
   ],
-
   "$ancestors_note": "EIGHT SEEDS, ratified 2026-07-31 (matrix §11.2). Every ancestor rules on every one of the 21 facet values, exactly once: 168 rulings. FONTS: the pool is display/tech sans only - `editorial` is a SERIF lineage with no serif face available, so it wears spacegrotesk as a PLACEHOLDER until matrix §10.2 lands via `xtask fonts`. That is a known lie, recorded rather than hidden.",
-
   "ancestors": [
-    { "id": "bauhaus", "label": "Bauhaus", "blurb": "1919-33 Weimar/Dessau. Primitives, asymmetric grid, ornament is the enemy.",
+    {
+      "id": "bauhaus",
+      "label": "Bauhaus",
+      "blurb": "1919-33 Weimar/Dessau. Primitives, asymmetric grid, ornament is the enemy.",
       "font": "spacegrotesk",
-      "native": { "structure": "rectilinear", "material": "matte", "atmosphere": "none" },
-      "allowed": { "structure": ["measured", "massive"], "material": ["paper", "raw"], "atmosphere": ["hard-cast"] },
-      "forbidden": { "structure": ["stepped", "rounded", "pill"], "material": ["lacquer", "metallic", "glass", "clay", "neon-glass", "amber-crt"], "atmosphere": ["sheen", "bloom", "neon", "scanline"] } },
-
-    { "id": "art-deco", "label": "Art Deco", "blurb": "1920s-30s. Symmetric, stepped, vertical emphasis, lacquer and chrome.",
+      "native": {
+        "structure": "rectilinear",
+        "material": "matte",
+        "atmosphere": "none"
+      },
+      "allowed": {
+        "structure": [
+          "measured",
+          "massive"
+        ],
+        "material": [
+          "paper",
+          "raw",
+          "plate"
+        ],
+        "atmosphere": [
+          "hard-cast",
+          "lit-cast"
+        ]
+      },
+      "forbidden": {
+        "structure": [
+          "stepped",
+          "rounded",
+          "pill"
+        ],
+        "material": [
+          "lacquer",
+          "metallic",
+          "glass",
+          "clay",
+          "neon-glass",
+          "amber-crt"
+        ],
+        "atmosphere": [
+          "sheen",
+          "bloom",
+          "neon",
+          "scanline"
+        ]
+      }
+    },
+    {
+      "id": "art-deco",
+      "label": "Art Deco",
+      "blurb": "1920s-30s. Symmetric, stepped, vertical emphasis, lacquer and chrome.",
       "font": "michroma",
-      "native": { "structure": "stepped", "material": "lacquer", "atmosphere": "sheen" },
-      "allowed": { "structure": ["rectilinear", "measured"], "material": ["metallic", "matte"], "atmosphere": ["hard-cast", "none"] },
-      "forbidden": { "structure": ["massive", "rounded", "pill"], "material": ["raw", "paper", "glass", "clay", "neon-glass", "amber-crt"], "atmosphere": ["bloom", "neon", "scanline"] } },
-
-    { "id": "brutalist", "label": "Brutalist", "blurb": "Beton brut, 1950s-70s. Massive blocks, thick edges, raw and unfinished.",
+      "native": {
+        "structure": "stepped",
+        "material": "lacquer",
+        "atmosphere": "sheen"
+      },
+      "allowed": {
+        "structure": [
+          "rectilinear",
+          "measured"
+        ],
+        "material": [
+          "metallic",
+          "matte"
+        ],
+        "atmosphere": [
+          "hard-cast",
+          "none"
+        ]
+      },
+      "forbidden": {
+        "structure": [
+          "massive",
+          "rounded",
+          "pill"
+        ],
+        "material": [
+          "raw",
+          "paper",
+          "glass",
+          "clay",
+          "neon-glass",
+          "amber-crt",
+          "plate"
+        ],
+        "atmosphere": [
+          "bloom",
+          "neon",
+          "scanline",
+          "lit-cast"
+        ]
+      }
+    },
+    {
+      "id": "brutalist",
+      "label": "Brutalist",
+      "blurb": "Beton brut, 1950s-70s. Massive blocks, thick edges, raw and unfinished.",
       "font": "spacegrotesk",
-      "native": { "structure": "massive", "material": "raw", "atmosphere": "hard-cast" },
-      "allowed": { "structure": ["rectilinear", "measured"], "material": ["matte", "paper", "neon-glass", "amber-crt"], "atmosphere": ["none", "neon", "scanline"] },
-      "forbidden": { "structure": ["stepped", "rounded", "pill"], "material": ["lacquer", "metallic", "glass", "clay"], "atmosphere": ["sheen", "bloom"] } },
-
-    { "id": "swiss", "label": "Swiss / International", "blurb": "Zurich-Basel, 1950s-. The mathematical grid; clarity over effect.",
+      "native": {
+        "structure": "massive",
+        "material": "raw",
+        "atmosphere": "hard-cast"
+      },
+      "allowed": {
+        "structure": [
+          "rectilinear",
+          "measured"
+        ],
+        "material": [
+          "matte",
+          "paper",
+          "neon-glass",
+          "amber-crt",
+          "plate"
+        ],
+        "atmosphere": [
+          "none",
+          "neon",
+          "scanline",
+          "lit-cast"
+        ]
+      },
+      "forbidden": {
+        "structure": [
+          "stepped",
+          "rounded",
+          "pill"
+        ],
+        "material": [
+          "lacquer",
+          "metallic",
+          "glass",
+          "clay"
+        ],
+        "atmosphere": [
+          "sheen",
+          "bloom"
+        ]
+      }
+    },
+    {
+      "id": "swiss",
+      "label": "Swiss / International",
+      "blurb": "Zurich-Basel, 1950s-. The mathematical grid; clarity over effect.",
       "font": "rajdhani",
-      "native": { "structure": "measured", "material": "paper", "atmosphere": "none" },
-      "allowed": { "structure": ["rectilinear"], "material": ["matte", "raw"], "atmosphere": ["hard-cast"] },
-      "forbidden": { "structure": ["stepped", "massive", "rounded", "pill"], "material": ["lacquer", "metallic", "glass", "clay", "neon-glass", "amber-crt"], "atmosphere": ["sheen", "bloom", "neon", "scanline"] } },
-
-    { "id": "aero", "label": "Aero", "blurb": "Frutiger Aero ~2004-13. Glass, gloss, pill forms. NO-BLUR reading (matrix §11.4): gloss via banded gradients and hard specular bands.",
+      "native": {
+        "structure": "measured",
+        "material": "paper",
+        "atmosphere": "none"
+      },
+      "allowed": {
+        "structure": [
+          "rectilinear"
+        ],
+        "material": [
+          "matte",
+          "raw",
+          "plate"
+        ],
+        "atmosphere": [
+          "hard-cast"
+        ]
+      },
+      "forbidden": {
+        "structure": [
+          "stepped",
+          "massive",
+          "rounded",
+          "pill"
+        ],
+        "material": [
+          "lacquer",
+          "metallic",
+          "glass",
+          "clay",
+          "neon-glass",
+          "amber-crt"
+        ],
+        "atmosphere": [
+          "sheen",
+          "bloom",
+          "neon",
+          "scanline",
+          "lit-cast"
+        ]
+      }
+    },
+    {
+      "id": "aero",
+      "label": "Aero",
+      "blurb": "Frutiger Aero ~2004-13. Glass, gloss, pill forms. NO-BLUR reading (matrix §11.4): gloss via banded gradients and hard specular bands.",
       "font": "exo2",
-      "native": { "structure": "rounded", "material": "clay", "atmosphere": "bloom" },
-      "allowed": { "structure": ["pill", "measured"], "material": ["glass", "paper", "neon-glass"], "atmosphere": ["sheen", "neon", "none"] },
-      "forbidden": { "structure": ["rectilinear", "stepped", "massive"], "material": ["matte", "raw", "lacquer", "metallic", "amber-crt"], "atmosphere": ["hard-cast", "scanline"] } },
-
-    { "id": "memphis", "label": "Memphis", "blurb": "Sottsass 1981-87. Playful, anti-grid, clashing pastel - the rebellion against Bauhaus and Swiss.",
+      "native": {
+        "structure": "rounded",
+        "material": "clay",
+        "atmosphere": "bloom"
+      },
+      "allowed": {
+        "structure": [
+          "pill",
+          "measured"
+        ],
+        "material": [
+          "glass",
+          "paper",
+          "neon-glass",
+          "plate"
+        ],
+        "atmosphere": [
+          "sheen",
+          "neon",
+          "none"
+        ]
+      },
+      "forbidden": {
+        "structure": [
+          "rectilinear",
+          "stepped",
+          "massive"
+        ],
+        "material": [
+          "matte",
+          "raw",
+          "lacquer",
+          "metallic",
+          "amber-crt"
+        ],
+        "atmosphere": [
+          "hard-cast",
+          "scanline",
+          "lit-cast"
+        ]
+      }
+    },
+    {
+      "id": "memphis",
+      "label": "Memphis",
+      "blurb": "Sottsass 1981-87. Playful, anti-grid, clashing pastel - the rebellion against Bauhaus and Swiss.",
       "font": "chakrapetch",
-      "native": { "structure": "rounded", "material": "matte", "atmosphere": "hard-cast" },
-      "allowed": { "structure": ["pill", "stepped", "rectilinear"], "material": ["lacquer", "paper", "clay"], "atmosphere": ["none", "sheen", "neon"] },
-      "forbidden": { "structure": ["massive", "measured"], "material": ["raw", "metallic", "glass", "neon-glass", "amber-crt"], "atmosphere": ["bloom", "scanline"] } },
-
-    { "id": "constructivist", "label": "Constructivist", "blurb": "Rodchenko, El Lissitzky 1917-30s. Diagonal, agitational, urgent - red and black.",
+      "native": {
+        "structure": "rounded",
+        "material": "matte",
+        "atmosphere": "hard-cast"
+      },
+      "allowed": {
+        "structure": [
+          "pill",
+          "stepped",
+          "rectilinear"
+        ],
+        "material": [
+          "lacquer",
+          "paper",
+          "clay"
+        ],
+        "atmosphere": [
+          "none",
+          "sheen",
+          "neon",
+          "lit-cast"
+        ]
+      },
+      "forbidden": {
+        "structure": [
+          "massive",
+          "measured"
+        ],
+        "material": [
+          "raw",
+          "metallic",
+          "glass",
+          "neon-glass",
+          "amber-crt",
+          "plate"
+        ],
+        "atmosphere": [
+          "bloom",
+          "scanline"
+        ]
+      }
+    },
+    {
+      "id": "constructivist",
+      "label": "Constructivist",
+      "blurb": "Rodchenko, El Lissitzky 1917-30s. Diagonal, agitational, urgent - red and black.",
       "font": "oxanium",
-      "native": { "structure": "rectilinear", "material": "raw", "atmosphere": "hard-cast" },
-      "allowed": { "structure": ["massive", "stepped"], "material": ["matte", "paper"], "atmosphere": ["none", "scanline"] },
-      "forbidden": { "structure": ["measured", "rounded", "pill"], "material": ["lacquer", "metallic", "glass", "clay", "neon-glass", "amber-crt"], "atmosphere": ["sheen", "bloom", "neon"] } },
-
-    { "id": "editorial", "label": "Editorial", "blurb": "Bodoni/Didot, fashion-press classicism. The ONLY serif lineage - and the pool has no serif yet (see $ancestors_note).",
+      "native": {
+        "structure": "rectilinear",
+        "material": "raw",
+        "atmosphere": "hard-cast"
+      },
+      "allowed": {
+        "structure": [
+          "massive",
+          "stepped"
+        ],
+        "material": [
+          "matte",
+          "paper",
+          "plate"
+        ],
+        "atmosphere": [
+          "none",
+          "scanline",
+          "lit-cast"
+        ]
+      },
+      "forbidden": {
+        "structure": [
+          "measured",
+          "rounded",
+          "pill"
+        ],
+        "material": [
+          "lacquer",
+          "metallic",
+          "glass",
+          "clay",
+          "neon-glass",
+          "amber-crt"
+        ],
+        "atmosphere": [
+          "sheen",
+          "bloom",
+          "neon"
+        ]
+      }
+    },
+    {
+      "id": "editorial",
+      "label": "Editorial",
+      "blurb": "Bodoni/Didot, fashion-press classicism. The ONLY serif lineage - and the pool has no serif yet (see $ancestors_note).",
       "font": "spacegrotesk",
-      "native": { "structure": "measured", "material": "paper", "atmosphere": "none" },
-      "allowed": { "structure": ["rectilinear", "rounded"], "material": ["matte", "lacquer", "metallic"], "atmosphere": ["sheen", "hard-cast"] },
-      "forbidden": { "structure": ["stepped", "massive", "pill"], "material": ["raw", "glass", "clay", "neon-glass", "amber-crt"], "atmosphere": ["bloom", "neon", "scanline"] } }
+      "native": {
+        "structure": "measured",
+        "material": "paper",
+        "atmosphere": "none"
+      },
+      "allowed": {
+        "structure": [
+          "rectilinear",
+          "rounded"
+        ],
+        "material": [
+          "matte",
+          "lacquer",
+          "metallic",
+          "plate"
+        ],
+        "atmosphere": [
+          "sheen",
+          "hard-cast"
+        ]
+      },
+      "forbidden": {
+        "structure": [
+          "stepped",
+          "massive",
+          "pill"
+        ],
+        "material": [
+          "raw",
+          "glass",
+          "clay",
+          "neon-glass",
+          "amber-crt"
+        ],
+        "atmosphere": [
+          "bloom",
+          "neon",
+          "scanline",
+          "lit-cast"
+        ]
+      }
+    }
   ]
 }

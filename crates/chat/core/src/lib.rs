@@ -5,7 +5,9 @@
 //! values — moved to `dpl-ai-core` at the kernel boundary. What stays here is
 //! chat's alone. See `docs/plans/kernel-boundary.md`.
 
-use dpl_ai_core::ProviderId;
+use dpl_ai_core::{
+    GuidedValue, GuidedValueConfidence, GuidedValueSensitivity, GuidedValueSource, ProviderId,
+};
 use std::fmt;
 
 pub const MAX_NATIVE_PAYLOAD_BYTES: usize = 8 * 1024;
@@ -401,9 +403,289 @@ pub struct ChatEvent {
     pub content: ChatEventContent,
 }
 
+// ── the command layer (BND1: the boundary between chat and AI) ──────────
+//
+// The window RECOGNIZES and RENDERS commands; this module is their
+// VOCABULARY — census, recognition, argument validation, guided seeds.
+// The host DISPATCHES. Nothing else enumerates commands, anywhere.
+
+/// What kind of value one command argument takes — each kind names the
+/// census its values are validated against. Out-of-census values refuse
+/// by naming what IS registered; free text never validates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandArgKind {
+    /// A `hub/sub` route from the platform's live route census.
+    RoutePick,
+    /// A registered provider id from the roster.
+    ProviderPick,
+    /// A registered workflow id from the workflow census.
+    WorkflowPick,
+    /// Free text (validated non-empty only when required).
+    Text,
+}
+
+/// One argument a command takes, in ask order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandArg {
+    pub id: &'static str,
+    /// The ask, in the operator's language — the strip shows this.
+    pub ask: &'static str,
+    pub kind: CommandArgKind,
+    pub required: bool,
+}
+
+/// One registered operator command. `privileged` commands route through
+/// the determinism gate's audited mint site and refuse synthetic input
+/// BEFORE the gate is touched — the registry never weakens that law.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandSpec {
+    /// The `/slug` (without the slash), kebab.
+    pub slug: &'static str,
+    pub label: &'static str,
+    pub blurb: &'static str,
+    /// Whole-buffer word aliases that also trigger (provenance law:
+    /// exact, trimmed, case-insensitive — a word in a sentence never
+    /// escalates).
+    pub aliases: &'static [&'static str],
+    pub args: &'static [CommandArg],
+    pub privileged: bool,
+}
+
+/// THE command census — one entry per command, nothing else enumerates.
+pub fn commands() -> Vec<CommandSpec> {
+    vec![
+        CommandSpec {
+            slug: "route",
+            label: "Go to route",
+            blurb: "Open any hub/sub route in the main window — loaded live from the platform.",
+            aliases: &[],
+            args: &[CommandArg {
+                id: "route",
+                ask: "Where to? (hub/sub)",
+                kind: CommandArgKind::RoutePick,
+                required: true,
+            }],
+            privileged: false,
+        },
+        CommandSpec {
+            slug: "model",
+            label: "Clyffy backing",
+            blurb: "Pick which signed-in provider powers the Clyffy session.",
+            aliases: &[],
+            args: &[CommandArg {
+                id: "provider",
+                ask: "Which provider?",
+                kind: CommandArgKind::ProviderPick,
+                required: true,
+            }],
+            privileged: false,
+        },
+        CommandSpec {
+            slug: "routines",
+            label: "Workflows",
+            blurb: "List the registered workflows and open the Workflows tab.",
+            aliases: &[],
+            args: &[],
+            privileged: false,
+        },
+        CommandSpec {
+            slug: "brainstorm",
+            label: "Brainstorm board",
+            blurb: "Open the phased brainstorm board right here.",
+            aliases: &["brainstorm", "brainstorming"],
+            args: &[],
+            privileged: false,
+        },
+        CommandSpec {
+            slug: "strict",
+            label: "Strict determinism",
+            blurb: "Demand strict determinism (operator-audited).",
+            aliases: &[],
+            args: &[],
+            privileged: true,
+        },
+        CommandSpec {
+            slug: "behavioral",
+            label: "Behavioral determinism",
+            blurb: "Return to behavioral determinism.",
+            aliases: &[],
+            args: &[],
+            privileged: true,
+        },
+    ]
+}
+
+/// Look one command up by slug.
+pub fn command(slug: &str) -> Option<CommandSpec> {
+    commands().into_iter().find(|c| c.slug == slug)
+}
+
+/// A recognized-at-submit command plus whatever argument text rode the
+/// buffer (`/route library/templates` → slug "route", rest
+/// "library/templates"). Argument VALIDATION happens later, against the
+/// live censuses the host owns — recognition never guesses.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandDraft {
+    pub slug: String,
+    pub rest: String,
+}
+
+/// Recognize a command from the operator's submit buffer — the ONE
+/// recognizer (provenance law verbatim): the trimmed buffer must START
+/// with `/slug` (followed by nothing or whitespace-separated args), or
+/// exactly equal a registered alias word. `/strict` buried in a
+/// sentence is just text; an unknown `/x` is just text.
+pub fn recognize(draft: &str) -> Option<CommandDraft> {
+    let trimmed = draft.trim();
+    if let Some(body) = trimmed.strip_prefix('/') {
+        let (slug, rest) = match body.split_once(char::is_whitespace) {
+            Some((slug, rest)) => (slug, rest.trim()),
+            None => (body, ""),
+        };
+        // Case-insensitive like the aliases — "/Strict" is a shift held
+        // a beat too long, not a message for the provider.
+        let spec = commands()
+            .into_iter()
+            .find(|c| c.slug.eq_ignore_ascii_case(slug))?;
+        return Some(CommandDraft {
+            slug: spec.slug.to_owned(),
+            rest: rest.to_owned(),
+        });
+    }
+    let spec = commands()
+        .into_iter()
+        .find(|c| c.aliases.iter().any(|a| trimmed.eq_ignore_ascii_case(a)))?;
+    Some(CommandDraft {
+        slug: spec.slug.to_owned(),
+        rest: String::new(),
+    })
+}
+
+/// The commands a partially-typed `/` draft offers — the typeahead's
+/// ONE source (derived from the census; no second filter table). A
+/// draft that already carries whitespace is past the slug and offers
+/// nothing; a non-slash draft offers nothing.
+pub fn matching_commands(draft: &str) -> Vec<CommandSpec> {
+    let trimmed = draft.trim_start();
+    let Some(body) = trimmed.strip_prefix('/') else {
+        return Vec::new();
+    };
+    if body.contains(char::is_whitespace) {
+        return Vec::new();
+    }
+    commands()
+        .into_iter()
+        .filter(|c| c.slug.starts_with(body))
+        .collect()
+}
+
+/// The live censuses argument validation runs against. The HOST fills
+/// this (it owns the route table, the roster, the workflow census);
+/// core never reaches for them itself.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CommandCensuses {
+    /// Every `hub/sub` route, in rail order.
+    pub routes: Vec<String>,
+    /// Every registered provider id.
+    pub providers: Vec<String>,
+    /// Every registered workflow id.
+    pub workflows: Vec<String>,
+}
+
+/// One named argument fault — `path` is the arg id, `message` names
+/// what IS registered (the census-naming refusal law).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandIssue {
+    pub path: String,
+    pub message: String,
+}
+
+/// Validate a draft's argument text against the spec and the live
+/// censuses. Refuses with EVERY fault named; a refusal changes nothing.
+pub fn validate_command(
+    draft: &CommandDraft,
+    censuses: &CommandCensuses,
+) -> Result<(), Vec<CommandIssue>> {
+    let Some(spec) = command(&draft.slug) else {
+        return Err(vec![CommandIssue {
+            path: "slug".into(),
+            message: format!(
+                "unknown command {:?} — registered: {}",
+                draft.slug,
+                commands()
+                    .iter()
+                    .map(|c| c.slug)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        }]);
+    };
+    let mut issues = Vec::new();
+    let value = draft.rest.trim();
+    if spec.args.is_empty() && !value.is_empty() {
+        issues.push(CommandIssue {
+            path: "rest".into(),
+            message: format!("/{} takes no arguments", spec.slug),
+        });
+    }
+    for arg in spec.args {
+        if value.is_empty() {
+            if arg.required {
+                issues.push(CommandIssue {
+                    path: arg.id.into(),
+                    message: format!("{} — this argument is required", arg.ask),
+                });
+            }
+            continue;
+        }
+        let (census, what): (&[String], &str) = match arg.kind {
+            CommandArgKind::RoutePick => (&censuses.routes, "route"),
+            CommandArgKind::ProviderPick => (&censuses.providers, "provider"),
+            CommandArgKind::WorkflowPick => (&censuses.workflows, "workflow"),
+            CommandArgKind::Text => continue,
+        };
+        if !census.iter().any(|c| c == value) {
+            issues.push(CommandIssue {
+                path: arg.id.into(),
+                message: format!(
+                    "unknown {what} {value:?} — registered: {}",
+                    census.join(", ")
+                ),
+            });
+        }
+    }
+    if issues.is_empty() {
+        Ok(())
+    } else {
+        Err(issues)
+    }
+}
+
+/// Seed one argument's value with provenance — the guided-value law:
+/// the platform proposes, the operator disposes. The host supplies the
+/// seed text from its live state (current route, selected provider).
+pub fn seed_arg(kind: CommandArgKind, seed: String) -> GuidedValue<String> {
+    let source = match kind {
+        CommandArgKind::RoutePick => GuidedValueSource::Route,
+        CommandArgKind::ProviderPick => GuidedValueSource::Provider,
+        CommandArgKind::WorkflowPick | CommandArgKind::Text => GuidedValueSource::Session,
+    };
+    GuidedValue::new(
+        seed,
+        source,
+        GuidedValueConfidence::Suggested(70),
+        true,
+        true,
+        GuidedValueSensitivity::Public,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Capability moved to dpl-ai-core at the kernel boundary; the slug
+    // round-trip proof stays here because chat is what persists the slugs.
+    use dpl_ai_core::Capability;
     #[test]
     fn typed_session_identity_has_a_stable_display_form() {
         assert_eq!(ChatSessionId(42).to_string(), "chat-42");
@@ -485,5 +767,158 @@ mod tests {
         assert_eq!(payload.redacted_summary, "éé");
         assert_eq!(payload.original_bytes, 6);
         assert!(payload.truncated);
+    }
+
+    #[test]
+    fn every_capability_slug_round_trips_and_is_unique() {
+        let mut seen = std::collections::BTreeSet::new();
+        for capability in Capability::ALL {
+            let slug = capability.slug();
+            assert!(
+                seen.insert(slug),
+                "{slug} is used by two capabilities — a stored set would be ambiguous"
+            );
+            assert_eq!(
+                Capability::from_slug(slug),
+                Some(capability),
+                "{slug} must resolve back to the capability that wrote it"
+            );
+        }
+        assert_eq!(
+            seen.len(),
+            Capability::ALL.len(),
+            "ALL must list every variant — it is what makes this proof exhaustive"
+        );
+    }
+
+    #[test]
+    fn an_unknown_capability_slug_is_dropped_not_invented() {
+        assert_eq!(Capability::from_slug("teleportation"), None);
+        assert_eq!(
+            Capability::from_slug("read sessions"),
+            None,
+            "the human label is not the wire name — only the slug resolves"
+        );
+    }
+
+    #[test]
+    fn the_command_registry_is_the_census() {
+        let all = commands();
+        assert_eq!(
+            all.len(),
+            6,
+            "route + model + routines + brainstorm + strict + behavioral (BND1 v1)"
+        );
+        let mut slugs = std::collections::BTreeSet::new();
+        for c in &all {
+            assert!(slugs.insert(c.slug), "duplicate command slug {}", c.slug);
+            assert!(!c.label.is_empty() && !c.blurb.is_empty());
+        }
+        assert!(command("route").is_some());
+        assert!(command("ghost").is_none());
+        let privileged: Vec<_> = all
+            .iter()
+            .filter(|c| c.privileged)
+            .map(|c| c.slug)
+            .collect();
+        assert_eq!(
+            privileged,
+            ["strict", "behavioral"],
+            "only the determinism pair is privileged"
+        );
+    }
+
+    #[test]
+    fn recognition_is_whole_buffer_and_never_escalates_patterns() {
+        assert_eq!(recognize("/route").unwrap().slug, "route");
+        assert_eq!(
+            recognize("  /route library/templates  ").unwrap(),
+            CommandDraft {
+                slug: "route".into(),
+                rest: "library/templates".into(),
+            }
+        );
+        assert_eq!(recognize("Brainstorming").unwrap().slug, "brainstorm");
+        assert_eq!(
+            recognize("/Strict").unwrap().slug,
+            "strict",
+            "a held shift is not a message for the provider"
+        );
+        assert!(
+            recognize("please /route home now").is_none(),
+            "pattern-in-string"
+        );
+        assert!(recognize("/router").is_none(), "prefix never matches");
+        assert!(recognize("/x unknown stays text").is_none());
+        assert!(recognize("let's do some brainstorming").is_none());
+        assert!(recognize("").is_none());
+    }
+
+    #[test]
+    fn out_of_census_arguments_refuse_naming_the_census() {
+        let censuses = CommandCensuses {
+            routes: vec!["home/shows".into(), "library/templates".into()],
+            providers: vec!["codex".into()],
+            workflows: vec!["storyboard".into()],
+        };
+        let bad = CommandDraft {
+            slug: "route".into(),
+            rest: "library/ghost".into(),
+        };
+        let issues = validate_command(&bad, &censuses).unwrap_err();
+        assert!(
+            issues[0].message.contains("library/templates"),
+            "names the census"
+        );
+        let missing = CommandDraft {
+            slug: "route".into(),
+            rest: String::new(),
+        };
+        assert!(
+            validate_command(&missing, &censuses).is_err(),
+            "required arg"
+        );
+        let good = CommandDraft {
+            slug: "route".into(),
+            rest: "home/shows".into(),
+        };
+        assert!(validate_command(&good, &censuses).is_ok());
+        let argless = CommandDraft {
+            slug: "routines".into(),
+            rest: String::new(),
+        };
+        assert!(validate_command(&argless, &censuses).is_ok());
+    }
+
+    #[test]
+    fn the_typeahead_offers_only_census_commands() {
+        let slugs = |d: &str| {
+            matching_commands(d)
+                .iter()
+                .map(|c| c.slug)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(slugs("/r"), ["route", "routines"], "registry order");
+        assert_eq!(slugs("/").len(), 6, "a bare slash offers the census");
+        assert!(slugs("/x").is_empty(), "unknown prefix offers nothing");
+        assert!(
+            slugs("/route lib").is_empty(),
+            "past the slug, the strip yields"
+        );
+        assert!(slugs("hello").is_empty());
+        assert!(slugs("").is_empty());
+    }
+
+    #[test]
+    fn seeds_carry_provenance_and_yield_to_the_operator() {
+        let mut seed = seed_arg(CommandArgKind::RoutePick, "home/shows".into());
+        assert_eq!(seed.source, GuidedValueSource::Route);
+        assert!(matches!(
+            seed.confidence,
+            GuidedValueConfidence::Suggested(_)
+        ));
+        assert!(seed.replace_by_operator("library/templates".into()));
+        assert_eq!(seed.source, GuidedValueSource::Operator);
+        assert!(seed.overridden);
     }
 }

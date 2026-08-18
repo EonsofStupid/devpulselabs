@@ -37,6 +37,17 @@ pub enum Tone {
 }
 
 impl Tone {
+    /// Every tone. ONE list, so a new tone cannot be half-added — the census
+    /// law applied to the smallest registry in the crate.
+    pub const ALL: [Tone; 6] = [
+        Tone::Cyan,
+        Tone::Lime,
+        Tone::Violet,
+        Tone::Amber,
+        Tone::Magenta,
+        Tone::Coral,
+    ];
+
     /// The hue id this tone resolves through in the pool.
     pub const fn hue_id(self) -> &'static str {
         match self {
@@ -362,10 +373,20 @@ fn step_on(hue: &str, step: u32) -> Color32 {
 }
 
 impl ColorRef {
-    /// Resolve against the surface's tone and the generated pool.
-    pub fn resolve(self, tone: Tone) -> Color32 {
+    /// Resolve against ANY hue in the generated pool.
+    ///
+    /// `Tone` names six hues; `hues.json` authors **53**. Everything below
+    /// this line was already string-addressed — `Tone::hue_id()` returns a
+    /// `&str` and [`step_on`] looks it up by name — so the six were never a
+    /// limit of the engine, only of the enum in front of it. A surface that
+    /// wants `teal-accent` asks for it here instead of picking the nearest of
+    /// six.
+    ///
+    /// An id absent from the pool degrades loudly in debug and to GRAY in
+    /// release, the same contract `step_on` already had.
+    pub fn resolve_on(self, hue: &str) -> Color32 {
         let base = match self.base {
-            ColorBase::ToneStep(step) => step_on(tone.hue_id(), step),
+            ColorBase::ToneStep(step) => step_on(hue, step),
             ColorBase::Hue(id, step) => step_on(id, step),
             ColorBase::Fixed(c) => c,
         };
@@ -374,6 +395,14 @@ impl ColorRef {
         } else {
             Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), self.alpha)
         }
+    }
+
+    /// Resolve against the surface's tone and the generated pool.
+    ///
+    /// Kept as-is so the 369 existing `Tone::*` call sites are untouched: this
+    /// is [`Self::resolve_on`] with the tone's own hue id.
+    pub fn resolve(self, tone: Tone) -> Color32 {
+        self.resolve_on(tone.hue_id())
     }
 }
 
@@ -446,14 +475,14 @@ pub enum TraitState {
 }
 
 /// A resolved back-glow (color already carries alpha; painter draws behind).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Glow {
     pub color: Color32,
     pub spread: f32,
 }
 
 /// A resolved tint layer.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Tint {
     pub color: Color32,
     pub dir: f32,
@@ -461,7 +490,7 @@ pub struct Tint {
 
 /// The concrete style a paint fn consumes — the compositor's output. Pure
 /// input → pure output, so it is cacheable by (tone, base, stack, state).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ResolvedStyle {
     pub fill: Color32,
     pub edge: Stroke,
@@ -488,18 +517,26 @@ fn merged(def: &TraitDef, state: TraitState) -> Axes {
         TraitState::Hover => def.hover,
         TraitState::Active => def.active,
     };
+    merged_axes(def.base, patch)
+}
+
+/// Overlay a state patch onto base axes: the patch REPLACES any axis it
+/// names (additive axes included), so a hover shadow replaces the idle
+/// shadow rather than stacking on itself. Shared by the trait compositor
+/// and `matrix::resolve` so the two can never drift apart.
+fn merged_axes(base: Axes, patch: Option<Axes>) -> Axes {
     match patch {
-        None => def.base,
+        None => base,
         Some(p) => Axes {
-            fill: p.fill.or(def.base.fill),
-            edge: p.edge.or(def.base.edge),
-            radius: p.radius.or(def.base.radius),
-            ink: p.ink.or(def.base.ink),
-            font: p.font.or(def.base.font),
-            shadows: p.shadows.or(def.base.shadows),
-            back_glow: p.back_glow.or(def.base.back_glow),
-            tints: p.tints.or(def.base.tints),
-            anim: p.anim.or(def.base.anim),
+            fill: p.fill.or(base.fill),
+            edge: p.edge.or(base.edge),
+            radius: p.radius.or(base.radius),
+            ink: p.ink.or(base.ink),
+            font: p.font.or(base.font),
+            shadows: p.shadows.or(base.shadows),
+            back_glow: p.back_glow.or(base.back_glow),
+            tints: p.tints.or(base.tints),
+            anim: p.anim.or(base.anim),
         },
     }
 }
@@ -601,8 +638,7 @@ impl ResolvedStyle {
 /// drop-in successor to `brutal_frame`/`clay_frame` — `.show(ui, |ui| …)`.
 pub struct Treated {
     tone: Tone,
-    base: &'static str,
-    stack: &'static [&'static str],
+    dress: Dress,
     state: TraitState,
     margin: egui::Margin,
 }
@@ -619,18 +655,287 @@ pub fn treated(
     } else {
         egui::Margin::symmetric(10, 6)
     };
+    debug_assert!(
+        stack.is_empty(),
+        "a trait STACK has no coordinate form; ask for a coordinate instead"
+    );
     Treated {
         tone,
-        base,
-        stack,
+        dress: Dress::Trait(base),
         state,
         margin,
+    }
+}
+
+/// Begin a treated surface from a MATRIX COORDINATE — the preset path.
+pub fn treated_coord(tone: Tone, coord: matrix::Coordinate, state: TraitState) -> Treated {
+    Treated {
+        tone,
+        dress: Dress::Coord(coord),
+        state,
+        margin: egui::Margin::symmetric(10, 6),
     }
 }
 
 /// The neubrutalist actionable surface (idle). Successor to `brutal_frame`.
 pub fn brutal(tone: Tone) -> Treated {
     treated(tone, "neubrutalist", &[], TraitState::Idle)
+}
+
+/// **VIBRON** (vibes + Tron) — the workhorse treatment, and the surface a
+/// dense tool screen wears by default.
+///
+/// A quiet dark plate: overlay fill, 2px hairline edge, hard offset shadow,
+/// body ink. Its defining move is RESTRAINT — the plate says nothing so the
+/// ONE active control can, and the content stays the loudest thing on screen.
+/// `TraitState::Active` swaps the edge to the surface's tone and washes the
+/// fill at ~14% (never a solid tone); press sinks it onto its own shadow.
+///
+/// That is the difference between a tool screen and a bag of pills. Values
+/// transcribed from `docs/design/mocks/wiredfront-editor-mock.html`; resolves
+/// to the matrix coordinate `brutalist · massive · plate · hard-cast`.
+pub fn vibron(tone: Tone, state: TraitState) -> Treated {
+    treated(tone, "vibron", &[], state)
+}
+
+/// A NAMED LEGAL COORDINATE — the authored form of a preset
+/// (`tokens/presets.json`, kind `ancestral`).
+///
+/// A preset is never a hand-authored bundle of colours; it is a point on the
+/// matrix, which is what makes 25 of them cost 25 JSON objects rather than 25
+/// stylesheets. `build.rs` checks each one against its lineage's own
+/// native/allowed/forbidden rulings, so an illegal preset fails the build.
+#[derive(Debug, Clone, Copy)]
+pub struct AncestralPreset {
+    pub id: &'static str,
+    pub label: &'static str,
+    /// Three or four words for the picker, under the label.
+    pub kicker: &'static str,
+    pub blurb: &'static str,
+    pub coord: matrix::Coordinate,
+    /// The tone this preset reads best in — a DEFAULT, not a pin.
+    pub tone: Option<&'static str>,
+}
+
+impl AncestralPreset {
+    /// What this preset paints, so a picker can show the real look rather
+    /// than a name.
+    pub fn style(&self, tone: Tone, state: TraitState) -> ResolvedStyle {
+        matrix::resolve(&self.coord, self.toned(tone), state)
+    }
+
+    /// The tone it paints in: its own default, or the caller's.
+    pub fn toned(&self, tone: Tone) -> Tone {
+        self.tone.and_then(tone_for_hue).unwrap_or(tone)
+    }
+}
+
+/// A preset by id.
+pub fn preset(id: &str) -> Option<&'static AncestralPreset> {
+    ANCESTRAL_PRESETS.iter().find(|p| p.id == id)
+}
+
+/// Every authored preset, in authored order (grouped by lineage).
+pub fn presets() -> &'static [AncestralPreset] {
+    ANCESTRAL_PRESETS
+}
+
+// ── the runtime override: which preset a surface's CHROME is wearing ────
+//
+// Authored `roles.json` is the default for every surface; this layer is what
+// the operator changes. It is CHROME-ONLY on purpose: hero/quiet/danger carry
+// MEANING, and a picker that could turn `danger` into a glossy pill would
+// break the semantic layer this was built for.
+
+type Overrides = std::sync::Mutex<Vec<(String, &'static str)>>;
+static CHROME_PRESET: std::sync::OnceLock<Overrides> = std::sync::OnceLock::new();
+
+fn overrides() -> &'static Overrides {
+    CHROME_PRESET.get_or_init(|| std::sync::Mutex::new(Vec::new()))
+}
+
+fn with_overrides<R>(f: impl FnOnce(&mut Vec<(String, &'static str)>) -> R) -> R {
+    let mut guard = overrides()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    f(&mut guard)
+}
+
+/// The preset a surface's chrome is currently overridden to, if any.
+pub fn chrome_preset(surface: &str) -> Option<&'static AncestralPreset> {
+    with_overrides(|o| {
+        o.iter()
+            .find(|(s, _)| s == surface)
+            .and_then(|(_, id)| preset(id))
+    })
+}
+
+/// Dress a surface's chrome in an authored preset. Returns whether it took.
+///
+/// An UNKNOWN id is REFUSED and the current look kept, rather than panicking:
+/// the realistic bad value is not a typo in code but a STALE PERSISTED id read
+/// back from `.userdata` after a preset was renamed. Losing a look is
+/// recoverable; killing a shipped exe over it is not. The `bool` is the
+/// report — callers that persist should check it.
+pub fn set_chrome_preset(surface: &str, id: &str) -> bool {
+    let Some(p) = preset(id) else {
+        return false;
+    };
+    with_overrides(|o| match o.iter_mut().find(|(s, _)| s == surface) {
+        Some(slot) => slot.1 = p.id,
+        None => o.push((surface.to_owned(), p.id)),
+    });
+    true
+}
+
+/// Every surface currently overridden, so the app can persist the set
+/// without coldlight ever touching the filesystem.
+pub fn chrome_choices() -> Vec<(String, &'static str)> {
+    with_overrides(|o| o.clone())
+}
+
+/// Put a surface back to whatever `roles.json` authored for it.
+pub fn clear_chrome_preset(surface: &str) {
+    with_overrides(|o| o.retain(|(s, _)| s != surface));
+}
+
+/// An ordinary control in whatever chrome the surface is wearing.
+pub fn chrome_treated(surface: &str, tone: Tone, state: TraitState) -> Treated {
+    dressed(surface, Intent::Chrome, tone, state)
+}
+
+// ── the SEMANTIC layer: what a control MEANS ────────────────────────────
+
+/// What a control means, which is the only thing a widget should have to
+/// know. The treatment that paints it is DATA (`tokens/roles.json`), so
+/// re-dressing the app never touches a widget.
+///
+/// Named `Intent` rather than `Role` on purpose: `egui_pilot_ai::protocol::
+/// Role` is already imported across these surfaces, and a second `Role`
+/// would be a readability trap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Intent {
+    /// The ordinary control. Most things.
+    Chrome,
+    /// The ONE primary action on a surface. If two things are heroes,
+    /// neither is.
+    Hero,
+    /// Passive — content sits in it rather than acting.
+    Quiet,
+    /// Destructive. Pins its own tone so a delete never turns lime because
+    /// the hub's tone is lime.
+    Danger,
+}
+
+impl Intent {
+    fn index(self) -> usize {
+        match self {
+            Intent::Chrome => 0,
+            Intent::Hero => 1,
+            Intent::Quiet => 2,
+            Intent::Danger => 3,
+        }
+    }
+}
+
+/// WHAT paints a role — a legacy trait id, or a point in the matrix.
+///
+/// Both resolve to the same `ResolvedStyle`, which is exactly what lets a
+/// surface be repointed from a trait to a coordinate in DATA, with not one
+/// widget touched.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Dress {
+    /// A treatment from `tokens/traits.json` (the original compositor).
+    Trait(&'static str),
+    /// A coordinate on the MATRIX — the preset form.
+    Coord(matrix::Coordinate),
+}
+
+impl Dress {
+    /// Resolve to the concrete style, whichever path this is.
+    pub fn style(self, tone: Tone, state: TraitState) -> ResolvedStyle {
+        match self {
+            Dress::Trait(id) => compose(tone, id, &[], state),
+            Dress::Coord(c) => matrix::resolve(&c, tone, state),
+        }
+    }
+
+    /// The trait id, when this is one — for call sites still naming traits.
+    pub fn trait_id(self) -> Option<&'static str> {
+        match self {
+            Dress::Trait(id) => Some(id),
+            Dress::Coord(_) => None,
+        }
+    }
+}
+
+/// One role's binding: what paints it, and whether it pins a tone.
+#[derive(Debug, Clone, Copy)]
+pub struct Binding {
+    pub dress: Dress,
+    /// `Some(hue)` overrides the caller's tone — danger is coral everywhere.
+    pub tone: Option<&'static str>,
+}
+
+impl Binding {
+    /// The style this binding paints, with its pinned tone honoured.
+    pub fn style(&self, tone: Tone, state: TraitState) -> ResolvedStyle {
+        self.dress.style(self.toned(tone), state)
+    }
+
+    /// The tone this binding actually paints in: its pin, or the caller's.
+    pub fn toned(&self, tone: Tone) -> Tone {
+        self.tone.and_then(tone_for_hue).unwrap_or(tone)
+    }
+}
+
+include!(concat!(env!("OUT_DIR"), "/roles_gen.rs"));
+
+/// The binding for a role on a surface: the surface's own if it states one,
+/// otherwise the default. A surface therefore declares only what it CHANGES.
+pub fn binding(surface: &str, intent: Intent) -> Binding {
+    // The operator's pick wins over the authored default — but only for
+    // chrome, so a preset can never redefine what `danger` MEANS.
+    if intent == Intent::Chrome {
+        if let Some(p) = chrome_preset(surface) {
+            return Binding {
+                dress: Dress::Coord(p.coord),
+                tone: p.tone,
+            };
+        }
+    }
+    let i = intent.index();
+    SURFACE_ROLES
+        .iter()
+        .find(|(s, _)| *s == surface)
+        .and_then(|(_, roles)| roles[i])
+        .unwrap_or(DEFAULT_ROLES[i])
+}
+
+/// A control dressed by what it MEANS on a given surface.
+///
+/// This is what widgets call. They name an [`Intent`]; which treatment paints
+/// it, and whether it keeps their tone, is authored data.
+pub fn dressed(surface: &str, intent: Intent, tone: Tone, state: TraitState) -> Treated {
+    let b = binding(surface, intent);
+    // A pinned tone wins: `danger` must read the same on every surface.
+    let margin = if b.dress == Dress::Trait("claymorphic") {
+        egui::Margin::same(16)
+    } else {
+        egui::Margin::symmetric(10, 6)
+    };
+    Treated {
+        tone: b.toned(tone),
+        dress: b.dress,
+        state,
+        margin,
+    }
+}
+
+/// The `Tone` that resolves through a given hue id, when one does. Roles pin
+/// hues by NAME in data; this maps that name back onto the tone vocabulary.
+fn tone_for_hue(hue: &str) -> Option<Tone> {
+    Tone::ALL.iter().copied().find(|t| t.hue_id() == hue)
 }
 
 /// The claymorphic passive plane. Successor to `clay_frame`. Claymorphic
@@ -655,7 +960,7 @@ impl Treated {
         ui: &mut egui::Ui,
         add_contents: impl FnOnce(&mut egui::Ui) -> R,
     ) -> egui::InnerResponse<R> {
-        let style = compose(self.tone, self.base, self.stack, self.state);
+        let style = self.dress.style(self.tone, self.state);
         let behind = ui.painter().add(egui::Shape::Noop);
         let mut frame = egui::Frame::new()
             .fill(style.fill)
@@ -1221,7 +1526,274 @@ include!(concat!(env!("OUT_DIR"), "/fluid_gen.rs"));
 /// facet value is left unclassified by any ancestor, so the matrix cannot rot
 /// as values are added.
 pub mod matrix {
+    // The generated payloads are written in the SAME primitives the traits
+    // are, which is the point: one set of specs, one resolver semantics.
+    use super::{
+        ink, merged_axes, surface, Axes, ColorBase, ColorRef, EdgeSpec, Glow, GlowSpec,
+        ResolvedStyle, ShadowSpec, Tint, TintSpec, Tone, TraitState,
+    };
+    use egui::{Shadow, Stroke};
+
+    /// STRUCTURE — geometry only. The edge WIDTH lives here and the edge
+    /// COLOUR lives on the material: an edge is assembled from two facets
+    /// (matrix law M4), which is why `EdgeSpec` cannot be carried whole.
+    #[derive(Debug, Clone, Copy)]
+    pub struct StructureDef {
+        pub id: &'static str,
+        pub label: &'static str,
+        pub blurb: &'static str,
+        pub radius: u8,
+        pub edge_width: f32,
+    }
+
+    /// MATERIAL — how the surface responds to light. Every field is `Option`
+    /// because law M2 says an axis a material does not declare falls back to
+    /// the ancestor's NATIVE material (`neon-glass` declares no fill, so on
+    /// `aero` it inherits `clay`'s).
+    #[derive(Debug, Clone, Copy)]
+    pub struct MaterialDef {
+        pub id: &'static str,
+        pub label: &'static str,
+        pub blurb: &'static str,
+        pub fill: Option<ColorRef>,
+        pub ink: Option<ColorRef>,
+        pub edge_color: Option<ColorRef>,
+    }
+
+    /// ATMOSPHERE — the additive light: shadows, back-glow, tints, and the
+    /// state overlays. Carries `Axes`, the identical shape a trait carries.
+    #[derive(Debug, Clone, Copy)]
+    pub struct AtmosphereDef {
+        pub id: &'static str,
+        pub label: &'static str,
+        pub blurb: &'static str,
+        pub base: Axes,
+        pub hover: Option<Axes>,
+        pub active: Option<Axes>,
+    }
+
+    /// The one value per facet an ancestor resolves to alone — and the
+    /// fallback target for law M2.
+    #[derive(Debug, Clone, Copy)]
+    pub struct Natives {
+        pub structure: &'static str,
+        pub material: &'static str,
+        pub atmosphere: &'static str,
+    }
+
+    /// One legality set (`allowed` or `forbidden`), per facet.
+    #[derive(Debug, Clone, Copy)]
+    pub struct Sets {
+        pub structures: &'static [&'static str],
+        pub materials: &'static [&'static str],
+        pub atmospheres: &'static [&'static str],
+    }
+
+    /// ANCESTOR — the lineage. Owns the font (law M5: typography belongs to
+    /// the lineage, never a free knob) and the legality rulings.
+    #[derive(Debug, Clone, Copy)]
+    pub struct AncestorDef {
+        pub id: &'static str,
+        pub label: &'static str,
+        pub blurb: &'static str,
+        pub font: &'static str,
+        pub native: Natives,
+        pub allowed: Sets,
+        pub forbidden: Sets,
+    }
+
     include!(concat!(env!("OUT_DIR"), "/matrix_gen.rs"));
+
+    /// A point in the matrix — **a theme is a COORDINATE, not a hand-authored
+    /// bundle** (matrix §1). This is what a preset is.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct Coordinate {
+        pub ancestor: &'static str,
+        pub structure: &'static str,
+        pub material: &'static str,
+        pub atmosphere: &'static str,
+    }
+
+    pub fn ancestor(id: &str) -> Option<&'static AncestorDef> {
+        ANCESTORS.iter().find(|a| a.id == id)
+    }
+    pub fn structure(id: &str) -> Option<&'static StructureDef> {
+        STRUCTURES.iter().find(|s| s.id == id)
+    }
+    pub fn material(id: &str) -> Option<&'static MaterialDef> {
+        MATERIALS.iter().find(|m| m.id == id)
+    }
+    pub fn atmosphere(id: &str) -> Option<&'static AtmosphereDef> {
+        ATMOSPHERES.iter().find(|a| a.id == id)
+    }
+
+    impl Coordinate {
+        /// The ancestor's own look — every facet at its native value.
+        pub fn native(ancestor_id: &'static str) -> Option<Self> {
+            let a = ancestor(ancestor_id)?;
+            Some(Self {
+                ancestor: a.id,
+                structure: a.native.structure,
+                material: a.native.material,
+                atmosphere: a.native.atmosphere,
+            })
+        }
+
+        /// Is this coordinate legal for its lineage? Authored presets are
+        /// build-checked; this is for coordinates assembled at RUNTIME (an
+        /// operator switching facets in a picker).
+        ///
+        /// A forbidden combination still PAINTS — it reports rather than
+        /// panicking, because the realistic bad value is a stale persisted
+        /// preset, and losing a look is recoverable where killing a shipped
+        /// exe is not.
+        pub fn legality(&self) -> Result<(), String> {
+            let a = ancestor(self.ancestor)
+                .ok_or_else(|| format!("unknown ancestor {:?}", self.ancestor))?;
+            for (facet, value, forbidden, allowed, native) in [
+                (
+                    "structure",
+                    self.structure,
+                    a.forbidden.structures,
+                    a.allowed.structures,
+                    a.native.structure,
+                ),
+                (
+                    "material",
+                    self.material,
+                    a.forbidden.materials,
+                    a.allowed.materials,
+                    a.native.material,
+                ),
+                (
+                    "atmosphere",
+                    self.atmosphere,
+                    a.forbidden.atmospheres,
+                    a.allowed.atmospheres,
+                    a.native.atmosphere,
+                ),
+            ] {
+                if forbidden.contains(&value) {
+                    return Err(format!("{} forbids {facet} {value:?}", a.id));
+                }
+                if value != native && !allowed.contains(&value) {
+                    return Err(format!("{} does not rule on {facet} {value:?}", a.id));
+                }
+            }
+            Ok(())
+        }
+    }
+
+    /// Resolve a coordinate into the SAME `ResolvedStyle` the trait
+    /// compositor produces, so both paths feed one painter.
+    ///
+    /// Order implements the matrix laws:
+    /// 1. font ← ancestor (M5).
+    /// 2. radius ← structure; **edge = structure.width + material.colour** (M4).
+    /// 3. fill/ink ← material, falling back to the ancestor's native material
+    ///    for any axis this material does not declare (M2).
+    /// 4. shadows/back-glow/tints ← atmosphere, ADDITIVE, exactly as `compose`.
+    /// 5. the atmosphere's hover/active patch REPLACES the axes it names.
+    ///
+    /// An unknown facet degrades to the ancestor's native rather than
+    /// panicking — the `compose()` precedent.
+    /// Resolve a coordinate against ANY of the 53 authored hues.
+    ///
+    /// The matrix classifies the LOOK; the hue is the one axis left free, and
+    /// restricting it to the six `Tone` variants was an accident of the enum,
+    /// not a law — nothing below this call was ever tone-shaped (see
+    /// [`ColorRef::resolve_on`]).
+    pub fn resolve_on(c: &Coordinate, hue: &'static str, state: TraitState) -> ResolvedStyle {
+        let mut rs = ResolvedStyle::default();
+        let Some(anc) = ancestor(c.ancestor) else {
+            debug_assert!(false, "unknown ancestor: {}", c.ancestor);
+            return rs;
+        };
+        rs.font = Some(anc.font);
+
+        let st = structure(c.structure)
+            .or_else(|| structure(anc.native.structure))
+            .expect("ancestor natives are build-checked");
+        let mat = material(c.material)
+            .or_else(|| material(anc.native.material))
+            .expect("ancestor natives are build-checked");
+        let atm = atmosphere(c.atmosphere)
+            .or_else(|| atmosphere(anc.native.atmosphere))
+            .expect("ancestor natives are build-checked");
+        // M2: the native material backs any axis this one leaves unnamed.
+        let base_mat = material(anc.native.material).expect("native material");
+
+        rs.radius = st.radius;
+        let edge_color = mat.edge_color.or(base_mat.edge_color);
+        rs.edge = match edge_color {
+            Some(cr) => Stroke::new(st.edge_width, cr.resolve_on(hue)),
+            None => Stroke::NONE,
+        };
+        if let Some(cr) = mat.fill.or(base_mat.fill) {
+            rs.fill = cr.resolve_on(hue);
+        }
+        if let Some(cr) = mat.ink.or(base_mat.ink) {
+            rs.ink = cr.resolve_on(hue);
+        }
+
+        let ax = merged_axes(atm.base, state_patch(atm, state));
+        apply_atmosphere(&mut rs, &ax, hue, st.edge_width);
+        rs
+    }
+
+    /// Resolve against a `Tone`. The six-variant path, kept so every existing
+    /// caller is untouched; it is [`resolve_on`] with the tone's hue id.
+    pub fn resolve(c: &Coordinate, tone: Tone, state: TraitState) -> ResolvedStyle {
+        resolve_on(c, tone.hue_id(), state)
+    }
+
+    fn state_patch(atm: &AtmosphereDef, state: TraitState) -> Option<Axes> {
+        match state {
+            TraitState::Idle => None,
+            TraitState::Hover => atm.hover,
+            TraitState::Active => atm.active,
+        }
+    }
+
+    /// The atmosphere's contribution. Colour axes it names OVERRIDE the
+    /// material (that is how `hard-cast`'s active state lights the edge);
+    /// shadow/glow/tint axes are ADDITIVE, matching `compose`.
+    fn apply_atmosphere(rs: &mut ResolvedStyle, ax: &Axes, hue: &str, edge_width: f32) {
+        if let Some(cr) = ax.fill {
+            rs.fill = cr.resolve_on(hue);
+        }
+        if let Some(cr) = ax.ink {
+            rs.ink = cr.resolve_on(hue);
+        }
+        // An atmosphere may relight the edge, but the WIDTH stays the
+        // structure's — geometry is never an atmosphere's to change (M4).
+        if let Some(e) = ax.edge {
+            rs.edge = Stroke::new(edge_width, e.color.resolve_on(hue));
+        }
+        if let Some(shadows) = ax.shadows {
+            rs.shadows.extend(shadows.iter().map(|s| Shadow {
+                offset: s.offset,
+                blur: s.blur,
+                spread: s.spread,
+                color: s.color.resolve_on(hue),
+            }));
+        }
+        if let Some(glows) = ax.back_glow {
+            rs.back_glow.extend(glows.iter().map(|g| Glow {
+                color: g.color.resolve_on(hue),
+                spread: g.spread,
+            }));
+        }
+        if let Some(tints) = ax.tints {
+            rs.tints.extend(tints.iter().map(|t| Tint {
+                color: t.color.resolve_on(hue),
+                dir: t.dir,
+            }));
+        }
+        if let Some(anim) = ax.anim {
+            rs.anim.extend(anim.iter().copied());
+        }
+    }
 
     #[cfg(test)]
     mod tests {
@@ -1234,11 +1806,246 @@ pub mod matrix {
         fn every_ancestor_rules_on_every_facet_value() {
             let values = STRUCTURES.len() + MATERIALS.len() + ATMOSPHERES.len();
             assert_eq!(ANCESTORS.len(), 8, "eight seeds, ratified 2026-07-31");
-            assert_eq!(values, 21, "6 structures + 9 materials + 6 atmospheres");
+            // 23 since 2026-08-05: `plate` joined the materials (the Vibron
+            // ruling), and `lit-cast` split the halo off `hard-cast` so a
+            // quiet plate can take a cast shadow without lighting up.
+            assert_eq!(values, 23, "6 structures + 10 materials + 7 atmospheres");
             assert_eq!(
                 RULING_COUNT,
                 ANCESTORS.len() * values,
                 "every ancestor must rule on every value"
+            );
+        }
+
+        /// **The migration proof.** The operator ruled
+        /// `brutalist · massive · plate · hard-cast = Vibron`; this asserts
+        /// the coordinate really does paint the trait, in every state and
+        /// against several tones — so repointing the editor at the matrix is
+        /// a reclassification, not a restyle.
+        ///
+        /// `font` is the ONE legitimate difference: law M5 gives typography
+        /// to the lineage, so the matrix ADDS a font the trait never carried.
+        #[test]
+        fn vibron_the_coordinate_paints_vibron_the_trait() {
+            let coord = Coordinate {
+                ancestor: "brutalist",
+                structure: "massive",
+                material: "plate",
+                atmosphere: "hard-cast",
+            };
+            coord
+                .legality()
+                .expect("the ruled coordinate must be legal");
+
+            for tone in [Tone::Cyan, Tone::Lime, Tone::Magenta] {
+                for state in [TraitState::Idle, TraitState::Hover, TraitState::Active] {
+                    let from_trait = crate::compose(tone, "vibron", &[], state);
+                    let from_matrix = resolve(&coord, tone, state);
+
+                    assert_eq!(
+                        from_matrix.font,
+                        Some("spacegrotesk"),
+                        "M5: the lineage owns the font"
+                    );
+                    assert_eq!(from_trait.font, None, "the trait never carried one");
+
+                    // Everything that reaches a pixel must be identical.
+                    let normalized = ResolvedStyle {
+                        font: None,
+                        ..from_matrix.clone()
+                    };
+                    assert_eq!(
+                        normalized, from_trait,
+                        "vibron diverged at tone {tone:?} state {state:?}"
+                    );
+                }
+            }
+        }
+
+        /// The halo is what LOUD looks like, so it must not ride on the
+        /// shadow. `hard-cast` casts; `lit-cast` casts AND pops.
+        #[test]
+        fn the_halo_belongs_to_lit_cast_not_hard_cast() {
+            let quiet = Coordinate {
+                ancestor: "brutalist",
+                structure: "massive",
+                material: "plate",
+                atmosphere: "hard-cast",
+            };
+            let loud = Coordinate {
+                atmosphere: "lit-cast",
+                material: "raw",
+                ..quiet
+            };
+            let q = resolve(&quiet, Tone::Cyan, TraitState::Idle);
+            let l = resolve(&loud, Tone::Lime, TraitState::Idle);
+            assert!(q.back_glow.is_empty(), "a quiet plate must not glow");
+            assert!(!l.back_glow.is_empty(), "a loud block must");
+            assert_eq!(q.shadows.len(), 1, "both still cast");
+            assert_eq!(l.shadows.len(), 1);
+        }
+
+        /// Law M2 — an axis a material does not declare falls back to the
+        /// ancestor's NATIVE material. `neon-glass` declares no fill, so on
+        /// `aero` it must inherit `clay`'s.
+        #[test]
+        fn unnamed_axes_fall_back_to_ancestor_natives() {
+            let c = Coordinate {
+                ancestor: "aero",
+                structure: "measured",
+                material: "neon-glass",
+                atmosphere: "neon",
+            };
+            c.legality().expect("the editor coordinate is legal");
+            let rs = resolve(&c, Tone::Cyan, TraitState::Idle);
+            let clay_fill = material("clay").unwrap().fill.unwrap().resolve(Tone::Cyan);
+            assert_eq!(rs.fill, clay_fill, "M2: neon-glass inherits clay's fill");
+            assert_ne!(rs.ink, clay_fill, "but keeps its own cyan ink");
+        }
+
+        /// Law M4 — an edge is assembled from TWO facets: the width is the
+        /// structure's, the colour is the material's.
+        #[test]
+        fn edge_is_assembled_from_two_facets() {
+            let c = Coordinate {
+                ancestor: "brutalist",
+                structure: "measured",
+                material: "plate",
+                atmosphere: "none",
+            };
+            let rs = resolve(&c, Tone::Cyan, TraitState::Idle);
+            assert_eq!(rs.edge.width, structure("measured").unwrap().edge_width);
+            assert_eq!(rs.radius, structure("measured").unwrap().radius);
+            assert_eq!(
+                rs.edge.color,
+                material("plate")
+                    .unwrap()
+                    .edge_color
+                    .unwrap()
+                    .resolve(Tone::Cyan)
+            );
+        }
+
+        /// Legality is enforced where it is authored and REPORTED where it is
+        /// assembled at runtime — a forbidden look still paints rather than
+        /// killing a shipped exe.
+        #[test]
+        fn a_forbidden_pairing_reports_but_still_paints() {
+            let bad = Coordinate {
+                ancestor: "swiss",
+                structure: "measured",
+                material: "glass",
+                atmosphere: "none",
+            };
+            let err = bad.legality().expect_err("swiss forbids glass");
+            assert!(err.contains("glass"), "the message names the value: {err}");
+            let rs = resolve(&bad, Tone::Cyan, TraitState::Idle);
+            assert_ne!(rs, ResolvedStyle::default(), "it still paints");
+        }
+
+        /// An unknown facet degrades to the lineage's native — never a panic.
+        #[test]
+        fn an_unknown_facet_degrades_without_panicking() {
+            let c = Coordinate {
+                ancestor: "brutalist",
+                structure: "nosuchstructure",
+                material: "plate",
+                atmosphere: "hard-cast",
+            };
+            let rs = resolve(&c, Tone::Cyan, TraitState::Idle);
+            let native = structure(ancestor("brutalist").unwrap().native.structure).unwrap();
+            assert_eq!(rs.radius, native.radius, "fell back to massive");
+        }
+
+        /// Every authored ancestor resolves on its own natives, in every
+        /// state — the census applied to painting rather than to counting.
+        #[test]
+        fn every_ancestor_paints_from_its_natives() {
+            for a in ANCESTORS {
+                let c = Coordinate::native(a.id).expect("native coordinate");
+                c.legality()
+                    .unwrap_or_else(|e| panic!("{}'s own natives are illegal: {e}", a.id));
+                for state in [TraitState::Idle, TraitState::Hover, TraitState::Active] {
+                    let rs = resolve(&c, Tone::Cyan, state);
+                    assert_eq!(rs.font, Some(a.font), "{} must wear its own font", a.id);
+                    assert!(rs.edge.width > 0.0, "{} resolved no edge", a.id);
+                }
+            }
+        }
+
+        /// THE UNLOCK. `Tone` names six hues; `hues.json` authors 53, and the
+        /// resolver was string-addressed the whole way down — so the six were
+        /// a limit of the enum, never of the engine. Every authored hue must
+        /// resolve through a coordinate, or the "colour" knob is a lie about
+        /// the size of the pool it draws from.
+        #[test]
+        fn a_coordinate_resolves_on_every_one_of_the_53_hues() {
+            let c = Coordinate::native("brutalist").expect("brutalist is authored");
+            let mut n = 0usize;
+            for (_, ids) in crate::HUE_GROUPS.iter() {
+                for id in ids.iter() {
+                    let rs = resolve_on(&c, id, TraitState::Idle);
+                    assert!(
+                        rs.fill != egui::Color32::GRAY,
+                        "hue {id} did not resolve — GRAY is the missing-from-pool fallback"
+                    );
+                    n += 1;
+                }
+            }
+            assert_eq!(n, crate::HUE_COUNT, "every authored hue must be reachable");
+            assert!(
+                n > Tone::ALL.len() * 8,
+                "{n} hues vs {} tones",
+                Tone::ALL.len()
+            );
+        }
+
+        /// The change is ADDITIVE: 369 existing `Tone::*` call sites keep their
+        /// exact pixels. If these two ever diverge, the six-tone path has been
+        /// quietly restyled underneath every surface in the app.
+        #[test]
+        fn the_tone_path_and_the_hue_path_agree() {
+            let c = Coordinate::native("aero").expect("aero is authored");
+            for t in Tone::ALL {
+                for st in [TraitState::Idle, TraitState::Hover, TraitState::Active] {
+                    let a = resolve(&c, t, st);
+                    let b = resolve_on(&c, t.hue_id(), st);
+                    assert_eq!(a.fill, b.fill, "{t:?}/{st:?} fill");
+                    assert_eq!(a.ink, b.ink, "{t:?}/{st:?} ink");
+                    assert_eq!(a.edge.color, b.edge.color, "{t:?}/{st:?} edge");
+                }
+            }
+        }
+
+        /// The operator asked for #097d71. It is `teal-accent`, which `Tone`
+        /// cannot name — this is the concrete thing the unlock buys.
+        #[test]
+        fn a_hue_outside_the_six_is_now_reachable() {
+            assert!(
+                !Tone::ALL.iter().any(|t| t.hue_id() == "teal-accent"),
+                "teal-accent is deliberately NOT one of the six"
+            );
+            // brutalist's native material is `raw`, whose fill is a TONE STEP
+            // (`{tone: 400}`) — so the hue drives it.
+            let c = Coordinate::native("brutalist").expect("brutalist is authored");
+            let teal = resolve_on(&c, "teal-accent", TraitState::Idle);
+            let amber = resolve_on(&c, "amber", TraitState::Idle);
+            assert_ne!(
+                teal.fill, amber.fill,
+                "the hue must actually change the fill"
+            );
+            assert_ne!(teal.fill, egui::Color32::GRAY);
+
+            // ...and the converse is deliberate, not a bug: `paper`'s fill is a
+            // SURFACE constant, so a paper material is hue-INDEPENDENT. Paper is
+            // paper in every tone. This assertion is here because the first
+            // draft of this test picked `swiss` (native `paper`) and read the
+            // correct behaviour as a failure.
+            let sw = Coordinate::native("swiss").expect("swiss is authored");
+            assert_eq!(
+                resolve_on(&sw, "teal-accent", TraitState::Idle).fill,
+                resolve_on(&sw, "amber", TraitState::Idle).fill,
+                "a surface-based material must not follow the hue"
             );
         }
 
@@ -1336,6 +2143,100 @@ pub mod motion {
         pub stagger: f32,
         pub ease: Ease,
         pub looped: bool,
+        /// The authored keyframe track, when the effect has one. `None` keeps
+        /// the legacy single-ramp reading — the two coexist so migration is
+        /// never big-bang (`docs/plans/keyframe-engine.md` §5).
+        pub track: Option<&'static Track>,
+    }
+
+    /// One animatable channel — EXACTLY [`Motion`]'s fields, so an authored
+    /// track can say everything the resolved struct can carry and nothing it
+    /// cannot.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum Chan {
+        Alpha,
+        OffsetX,
+        OffsetY,
+        Scale,
+        Rotation,
+        Clip,
+    }
+
+    /// One keyframe. `ease` applies FROM this stop UNTIL the next one that
+    /// declares the same channel — the Web Animations API rule, adopted so
+    /// the format is a standard rather than a house invention.
+    #[derive(Debug, Clone, Copy)]
+    pub struct Stop {
+        pub offset: f32,
+        pub ease: Ease,
+        pub ch: &'static [(Chan, f32)],
+    }
+
+    /// An authored keyframe track. Generated const data — no allocation, and
+    /// [`Track::sample`] is a pure function of progress, so `PilotClock` can
+    /// pin a frame for a deterministic proof shot (doctrine law 4).
+    #[derive(Debug, Clone, Copy)]
+    pub struct Track {
+        pub stops: &'static [Stop],
+    }
+
+    impl Track {
+        /// One channel's value at `p`. Channels interpolate INDEPENDENTLY:
+        /// only the stops that declare a channel bound its segments, so
+        /// `scale` may turn over at 0.62 while `alpha` runs straight 0→1.
+        /// That independence is the whole reason a track beats a single ramp.
+        fn channel(&self, c: Chan, p: f32) -> Option<f32> {
+            let mut prev: Option<(f32, f32, Ease)> = None;
+            for s in self.stops {
+                let Some(&(_, v)) = s.ch.iter().find(|(k, _)| *k == c) else {
+                    continue;
+                };
+                if p <= s.offset {
+                    return Some(match prev {
+                        // Before the first stop that declares it: hold.
+                        None => v,
+                        Some((po, pv, pe)) => {
+                            let span = s.offset - po;
+                            if span <= f32::EPSILON {
+                                v
+                            } else {
+                                let local = ((p - po) / span).clamp(0.0, 1.0);
+                                // The LEFT stop's ease owns the segment.
+                                pv + (v - pv) * pe.apply(local)
+                            }
+                        }
+                    });
+                }
+                prev = Some((s.offset, v, s.ease));
+            }
+            // Past the last stop that declares it: hold the final value.
+            prev.map(|(_, v, _)| v)
+        }
+
+        /// The resolved [`Motion`] at linear progress `p` (0..1). A channel no
+        /// stop declares stays at [`Motion::REST`] — an effect never has to
+        /// restate what it does not move.
+        pub fn sample(&self, p: f32) -> Motion {
+            let p = p.clamp(0.0, 1.0);
+            let rest = Motion::REST;
+            Motion {
+                alpha: self
+                    .channel(Chan::Alpha, p)
+                    .unwrap_or(rest.alpha)
+                    .clamp(0.0, 1.0),
+                // Unclamped: a spring must be able to overshoot in space.
+                offset: egui::vec2(
+                    self.channel(Chan::OffsetX, p).unwrap_or(rest.offset.x),
+                    self.channel(Chan::OffsetY, p).unwrap_or(rest.offset.y),
+                ),
+                scale: self.channel(Chan::Scale, p).unwrap_or(rest.scale),
+                rotation: self.channel(Chan::Rotation, p).unwrap_or(rest.rotation),
+                clip: self
+                    .channel(Chan::Clip, p)
+                    .unwrap_or(rest.clip)
+                    .clamp(0.0, 1.0),
+            }
+        }
     }
 
     impl Effect {
@@ -1355,12 +2256,36 @@ pub mod motion {
             }
         }
 
+        /// RAW progress — elapsed/dur, NO ease applied. One-shot clamps to
+        /// 0..1; looped wraps. This exists because an authored [`Track`] does
+        /// its own per-segment easing: feeding it [`Effect::at`] would ease
+        /// twice and quietly bend every curve.
+        pub fn progress(&self, now: f64, t0: f64, index: usize) -> f32 {
+            let elapsed = (now - t0) as f32 - self.delay - self.stagger * index as f32;
+            if self.dur <= 0.0 {
+                return 1.0;
+            }
+            let p = elapsed / self.dur;
+            if self.looped {
+                p.max(0.0).fract()
+            } else {
+                p.clamp(0.0, 1.0)
+            }
+        }
+
         /// The RESOLVED transform this effect asks for at a moment in time.
         ///
-        /// See [`Motion`] for why this exists. The interpretation here is the
-        /// one every call site was already applying by hand, written down
-        /// once: fade in, rise from below, reveal forward.
+        /// See [`Motion`] for why this exists. When the effect authors a
+        /// [`Track`], the track IS the interpretation — read from
+        /// `tokens/motion.json`, not from this file. Effects with no track
+        /// fall through to the legacy reading below (fade in, rise from
+        /// below, reveal forward), which is the one every call site was
+        /// already applying by hand.
         pub fn sample(&self, now: f64, t0: f64, index: usize) -> Motion {
+            if let Some(track) = self.track {
+                // The track eases per segment, so it gets LINEAR progress.
+                return track.sample(self.progress(now, t0, index));
+            }
             let p = self.at(now, t0, index);
             Motion {
                 alpha: p.clamp(0.0, 1.0),
@@ -1403,6 +2328,99 @@ pub mod motion {
                 assert!(e.apply(0.0).abs() < 0.01);
                 assert!((e.apply(1.0) - 1.0).abs() < 0.01);
             }
+        }
+
+        /// A 2-stop track reproduces the LEGACY reading exactly — so
+        /// migrating the 19 effects is a reclassification, not a restyle
+        /// (`docs/plans/keyframe-engine.md` §5). This is the guard that lets
+        /// the port happen at all.
+        #[test]
+        fn a_two_stop_track_reproduces_the_legacy_reading() {
+            // The legacy interpretation, written as data: fade in, rise from
+            // below, reveal forward.
+            const LEGACY: Track = Track {
+                stops: &[
+                    Stop {
+                        offset: 0.0,
+                        ease: EASE_EMPHASIZED,
+                        ch: &[(Chan::Alpha, 0.0), (Chan::OffsetY, 1.0), (Chan::Clip, 0.0)],
+                    },
+                    Stop {
+                        offset: 1.0,
+                        ease: EASE_EMPHASIZED,
+                        ch: &[(Chan::Alpha, 1.0), (Chan::OffsetY, 0.0), (Chan::Clip, 1.0)],
+                    },
+                ],
+            };
+            // ENTER_RISE wears EASE_EMPHASIZED and has no track, so it takes
+            // the legacy path — the exact pair we need to compare.
+            let legacy_fx = ENTER_RISE;
+            for step in 0..=8 {
+                let p = step as f32 / 8.0;
+                // Legacy: at() eases, then sample() interprets.
+                let now = legacy_fx.delay as f64 + (p * legacy_fx.dur) as f64;
+                let old = legacy_fx.sample(now, 0.0, 0);
+                // Track: raw progress in, per-segment ease inside.
+                let new = LEGACY.sample(legacy_fx.progress(now, 0.0, 0));
+                assert!(
+                    (old.alpha - new.alpha).abs() < 1e-5
+                        && (old.offset.y - new.offset.y).abs() < 1e-5
+                        && (old.clip - new.clip).abs() < 1e-5,
+                    "p={p}: legacy {old:?} != track {new:?}"
+                );
+            }
+        }
+
+        /// The capability a single ramp CANNOT express: two channels on two
+        /// schedules. `enter-bloom` runs alpha straight to 1 by 62% while
+        /// scale overshoots to 1.04 and settles back to 1.0.
+        #[test]
+        fn a_track_moves_channels_on_independent_schedules() {
+            let t = ENTER_BLOOM.track.expect("enter-bloom authors a track");
+            assert_eq!(t.stops.len(), 3);
+            let (start, mid, end) = (t.sample(0.0), t.sample(0.62), t.sample(1.0));
+            assert!((start.alpha - 0.0).abs() < 1e-5, "starts transparent");
+            assert!((start.scale - 0.86).abs() < 1e-5, "starts small");
+            assert!((mid.scale - 1.04).abs() < 1e-4, "overshoots at 62%");
+            assert!((end.scale - 1.0).abs() < 1e-5, "settles to natural size");
+            assert!((end.alpha - 1.0).abs() < 1e-5, "ends opaque");
+            // The overshoot is REAL — somewhere past mid, scale exceeds 1.
+            let peak = (0..=100)
+                .map(|i| t.sample(i as f32 / 100.0).scale)
+                .fold(0.0f32, f32::max);
+            assert!(peak > 1.0, "scale must overshoot, peaked at {peak}");
+            // A channel no stop declares stays at REST — never restated.
+            assert_eq!(end.rotation, Motion::REST.rotation);
+        }
+
+        /// Sampling is a pure function of progress — the property `PilotClock`
+        /// relies on to pin a frame for a deterministic proof shot (law 4).
+        #[test]
+        fn track_sampling_is_pure_and_bounded() {
+            let t = ENTER_BLOOM.track.expect("track");
+            for i in 0..=20 {
+                let p = i as f32 / 20.0;
+                assert_eq!(t.sample(p), t.sample(p), "same input, same output");
+            }
+            // Out-of-range progress clamps rather than extrapolating.
+            assert_eq!(t.sample(-1.0), t.sample(0.0));
+            assert_eq!(t.sample(2.0), t.sample(1.0));
+            // Opacity and clip are clamped even when a spring overshoots.
+            for i in 0..=40 {
+                let m = t.sample(i as f32 / 40.0);
+                assert!((0.0..=1.0).contains(&m.alpha), "alpha {} escaped", m.alpha);
+                assert!((0.0..=1.0).contains(&m.clip), "clip {} escaped", m.clip);
+            }
+        }
+
+        /// An effect with no track keeps the legacy path untouched, so the two
+        /// coexist and migration is never big-bang.
+        #[test]
+        fn untracked_effects_still_take_the_legacy_path() {
+            assert!(ENTER_FADE.track.is_none());
+            assert!(ENTER_BLOOM.track.is_some());
+            let m = ENTER_FADE.sample(10.0, 0.0, 0);
+            assert_eq!(m, Motion::REST, "a settled untracked effect rests");
         }
 
         #[test]
@@ -1465,6 +2483,7 @@ pub mod motion {
                 stagger: 0.0,
                 ease: EASE_SPRING_SOFT,
                 looped: false,
+                track: None,
             };
             let mut overshot = false;
             for i in 0..=40 {
@@ -1979,7 +2998,7 @@ mod tests {
     fn every_pool_font_lays_out_through_a_real_context() {
         let ctx = egui::Context::default();
         apply_theme(&ctx);
-        let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
+        ctx.run_ui(egui::RawInput::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
                 for def in FONTS {
                     ui.label(
@@ -1988,7 +3007,9 @@ mod tests {
                     );
                 }
             });
-        });
+        })
+        .textures_delta
+        .clear();
     }
 
     // ── V1: the dwell tier, the ink-bleed, and the brain ────────────────
@@ -2040,6 +3061,241 @@ mod tests {
             "the vendored brain.svg must tessellate to real geometry"
         );
         assert_eq!(def.label, "Providers");
+    }
+
+    /// The census law for the EDITOR's icon set: every id the composer
+    /// paints must resolve to real geometry. A dropped icons.json entry
+    /// would otherwise degrade silently to `draw_icon`'s hairline box on
+    /// a live surface — this fails the gate instead.
+    /// Chrome is a SETTING, not a hardcoded call — so the whole app can be
+    /// re-dressed later without touching a single widget helper.
+    /// A surface states only what it CHANGES; every other role falls back to
+    /// `default`. That fallback is what keeps roles.json small as surfaces
+    /// multiply.
+    #[test]
+    fn a_surface_states_only_what_it_changes() {
+        // wiredfront overrides chrome only.
+        assert_eq!(
+            binding("wiredfront", Intent::Chrome).dress,
+            Dress::Coord(matrix::Coordinate {
+                ancestor: "brutalist",
+                structure: "massive",
+                material: "plate",
+                atmosphere: "hard-cast",
+            }),
+            "the editor wears Vibron AS A COORDINATE"
+        );
+        assert_eq!(
+            binding("wiredfront", Intent::Hero).dress,
+            binding("nosuchsurface", Intent::Hero).dress,
+            "an unstated role falls back to default"
+        );
+        // An UNKNOWN surface is not an error — it simply wears the defaults,
+        // so a new hub paints correctly before anyone authors it.
+        for i in [Intent::Chrome, Intent::Hero, Intent::Quiet, Intent::Danger] {
+            let _ = binding("brand-new-hub", i).dress;
+        }
+        // Workbench genuinely differs from WiredFRONT.
+        assert_ne!(
+            binding("workbench", Intent::Chrome).dress,
+            binding("wiredfront", Intent::Chrome).dress,
+            "per-surface chrome must actually differ"
+        );
+    }
+
+    /// Danger pins its own tone, so a destructive control never takes the
+    /// hub's colour — "delete this" must not turn lime on a lime surface.
+    #[test]
+    fn danger_keeps_its_own_tone_against_any_caller() {
+        // Asserted through compose() on the resolved binding, so this checks
+        // the PAINTED colour rather than a wrapper's shape.
+        let painted = |surface: &str, caller: Tone| {
+            let b = binding(surface, Intent::Danger);
+            let tone = b
+                .tone
+                .and_then(|h| Tone::ALL.iter().copied().find(|t| t.hue_id() == h))
+                .unwrap_or(caller);
+            b.style(tone, TraitState::Idle).fill
+        };
+        assert_eq!(
+            painted("wiredfront", Tone::Lime),
+            painted("workbench", Tone::Cyan),
+            "danger ignores the caller's tone and reads the same everywhere"
+        );
+        // And it is genuinely NOT the caller's colour.
+        assert_ne!(
+            painted("wiredfront", Tone::Lime),
+            compose(Tone::Lime, "neubrutalist", &[], TraitState::Idle).fill,
+            "danger on a lime surface must not be lime"
+        );
+        // Chrome, by contrast, KEEPS the caller's tone.
+        assert!(binding("wiredfront", Intent::Chrome).tone.is_none());
+        assert_eq!(binding("wiredfront", Intent::Danger).tone, Some("coral"));
+    }
+
+    /// The tests below share one process-wide override table, so each one
+    /// clears what it set. They stay in a single test to keep that honest
+    /// rather than depending on test ordering.
+    #[test]
+    fn presets_switch_a_surface_and_survive_a_typo() {
+        // Authored default first: the editor wears Vibron from roles.json.
+        clear_chrome_preset("wiredfront");
+        let authored = binding("wiredfront", Intent::Chrome);
+        assert_eq!(
+            authored.dress,
+            Dress::Coord(matrix::Coordinate {
+                ancestor: "brutalist",
+                structure: "massive",
+                material: "plate",
+                atmosphere: "hard-cast",
+            })
+        );
+
+        // A pick really moves the PAINTED values, not just a wrapper.
+        let before = authored.style(Tone::Cyan, TraitState::Idle);
+        assert!(
+            set_chrome_preset("wiredfront", "gloss"),
+            "gloss is authored"
+        );
+        let after = binding("wiredfront", Intent::Chrome).style(Tone::Cyan, TraitState::Idle);
+        assert_ne!(
+            before, after,
+            "vibron is a square quiet plate; gloss is a rounded glass panel"
+        );
+        assert_eq!(after.radius, 16, "gloss wears aero's `rounded`");
+
+        // ONE surface moved. Workbench is untouched.
+        assert_eq!(
+            binding("workbench", Intent::Chrome).dress,
+            Dress::Trait("claymorphic"),
+            "dressing the editor must not dress the workbench"
+        );
+
+        // A stale persisted id is refused and the good look survives — the
+        // realistic failure is a renamed preset read back from .userdata.
+        assert!(!set_chrome_preset("wiredfront", "nosuchpreset"));
+        assert_eq!(
+            binding("wiredfront", Intent::Chrome).style(Tone::Cyan, TraitState::Idle),
+            after,
+            "a typo must not blank the surface"
+        );
+
+        // An override never reaches a role that carries MEANING.
+        for intent in [Intent::Hero, Intent::Quiet, Intent::Danger] {
+            let with = binding("wiredfront", intent);
+            clear_chrome_preset("wiredfront");
+            let without = binding("wiredfront", intent);
+            assert_eq!(
+                with.dress, without.dress,
+                "{intent:?} must not follow the chrome picker"
+            );
+            assert!(set_chrome_preset("wiredfront", "gloss"));
+        }
+        clear_chrome_preset("wiredfront");
+        assert_eq!(
+            binding("wiredfront", Intent::Chrome).dress,
+            authored.dress,
+            "clearing returns the surface to what roles.json authored"
+        );
+    }
+
+    #[test]
+    fn every_authored_preset_is_legal_and_paints() {
+        assert_eq!(presets().len(), 25, "25 authored coordinates");
+        for p in presets() {
+            p.coord
+                .legality()
+                .unwrap_or_else(|e| panic!("preset {}: {e}", p.id));
+            assert!(!p.label.is_empty(), "preset {} has no label", p.id);
+            for state in [TraitState::Idle, TraitState::Hover, TraitState::Active] {
+                let rs = p.style(Tone::Cyan, state);
+                assert_ne!(
+                    rs,
+                    ResolvedStyle::default(),
+                    "preset {} painted nothing in {state:?}",
+                    p.id
+                );
+                assert!(rs.font.is_some(), "preset {} wears no font", p.id);
+            }
+        }
+    }
+
+    /// The bench's own gate, in Rust: two presets that resolve to identical
+    /// paint are not two presets. This is what stops the library quietly
+    /// filling up with the same look under different names.
+    #[test]
+    fn the_authored_presets_are_visually_distinct() {
+        let mut seen: Vec<(&str, ResolvedStyle)> = Vec::new();
+        for p in presets() {
+            let rs = p.style(Tone::Cyan, TraitState::Idle);
+            if let Some((other, _)) = seen.iter().find(|(_, s)| *s == rs) {
+                panic!("presets {} and {} resolve to IDENTICAL paint", other, p.id);
+            }
+            seen.push((p.id, rs));
+        }
+    }
+
+    #[test]
+    fn the_editor_icon_set_is_whole() {
+        const EDITOR_ICONS: &[&str] = &[
+            // tool strip
+            "tool-select",
+            "tool-hand",
+            "tool-pen",
+            "tool-camera",
+            "tool-text",
+            "tool-null",
+            "tool-precomp",
+            "tool-track",
+            "tool-mblur",
+            "tool-3d",
+            // transport
+            "transport-start",
+            "transport-back",
+            "transport-play",
+            "transport-pause",
+            "transport-forward",
+            "transport-end",
+            // project panel
+            "browse",
+            "ref-link",
+            "ref-copy",
+            "proj-comp",
+            "proj-pack",
+            "proj-video",
+            "proj-image",
+            "proj-render",
+            "fx",
+            // fx pane + status
+            "search",
+            "info",
+            // timeline
+            "zoom-in",
+            "zoom-out",
+            "delete",
+            "group-open",
+            "group-closed",
+            // the mock's ⑦ switch columns
+            "layer-visible",
+            "layer-hidden",
+            "layer-lock",
+            "layer-parent",
+        ];
+        for id in EDITOR_ICONS {
+            let def = icon_def(id)
+                .unwrap_or_else(|| panic!("{id} must be authored in tokens/icons.json"));
+            assert!(
+                !def.vertices.is_empty() && !def.indices.is_empty(),
+                "{id} ({}) must tessellate to real geometry",
+                def.lucide
+            );
+        }
+        assert_eq!(
+            ICON_COUNT,
+            25 + EDITOR_ICONS.len(),
+            "the registry is the 25 chrome ids plus the editor set — \
+             update this count deliberately when either grows"
+        );
     }
 
     #[test]

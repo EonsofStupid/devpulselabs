@@ -1071,6 +1071,10 @@ impl WiredfrontHub {
     /// The `--fx-drill <clip-rel> <fx-rel>` harness seam (L3): one base
     /// cut + one transformed/tinted FX overlay, rendered synchronously —
     /// the headless alpha-overlay proof.
+    pub fn preview_drill(&mut self, rel: &str) {
+        self.composer.preview_drill(rel);
+    }
+
     pub fn fx_drill(&mut self, clip_rel: &str, fx_rel: &str) {
         self.composer.fx_drill(clip_rel, fx_rel);
     }
@@ -1078,6 +1082,11 @@ impl WiredfrontHub {
     /// The `--l4-drill` harness seam: graded base + screen leak + matted
     /// overlay from conventional scratch-root files, rendered
     /// synchronously — the headless blend/matte/LUT proof.
+    /// The motion-blur drill — see `Composer::mblur_drill`.
+    pub fn mblur_drill(&mut self) {
+        self.composer.mblur_drill();
+    }
+
     pub fn l4_drill(&mut self) {
         self.composer.l4_drill();
     }

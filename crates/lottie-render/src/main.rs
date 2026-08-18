@@ -19,6 +19,11 @@ mod engine {
         canvas: tvg::Tvg_Canvas,
         anim: tvg::Tvg_Animation,
         buf: Vec<u32>,
+        /// The frame ThorVG is currently sitting on. A freshly loaded
+        /// animation IS on frame 0 — that is precisely why asking for frame 0
+        /// used to fail. `update`/`draw`/`sync` still run on every render, so
+        /// skipping a redundant `set_frame` never leaves the canvas undrawn.
+        frame: f32,
         pub total_frames: f32,
         pub fps: f32,
     }
@@ -29,6 +34,20 @@ mod engine {
         } else {
             Err(format!("thorvg {what} failed: {r:?}"))
         }
+    }
+
+    /// Register a scalable font with ThorVG, keyed by the family name inside
+    /// the file — which is what a Lottie's `fonts.list[].fFamily` must match.
+    ///
+    /// **Text renders as NOTHING for a family ThorVG was never given, and it
+    /// does not complain.** Measured 2026-08-07: a text fixture rendered a
+    /// fully blank frame at exit code 0 because this call did not exist. So a
+    /// failure here is REPORTED — a silent font is the whole defect.
+    pub fn load_font(path: &std::path::Path) -> Result<(), String> {
+        let c = CString::new(path.to_string_lossy().as_ref())
+            .map_err(|e| format!("font path {}: {e}", path.display()))?;
+        unsafe { ok(tvg::tvg_font_load(c.as_ptr()), "font_load") }
+            .map_err(|e| format!("{e} ({})", path.display()))
     }
 
     impl Lottie {
@@ -105,10 +124,50 @@ mod engine {
                     canvas,
                     anim,
                     buf,
+                    frame: 0.0,
                     total_frames: total,
                     fps,
                 })
             }
+        }
+
+        /// Render `t` with MOTION BLUR, by averaging sub-frames across the
+        /// shutter interval.
+        ///
+        /// This is what a shutter physically does and what AE computes: the
+        /// sensor is open for a fraction of the frame, so the image is the
+        /// integral of everything that moved while it was open. Averaging
+        /// `samples` renders across `span` seconds IS that integral, sampled.
+        /// It is the same computation ffmpeg's `tmix` performs on the export —
+        /// done here so the operator SEES their blur instead of reading a
+        /// badge promising it.
+        ///
+        /// `samples <= 1` or a zero span degrades to a plain render, so a
+        /// blur-off layer costs exactly what it did before.
+        pub fn rgba_blurred(
+            &mut self,
+            t_secs: f32,
+            samples: u32,
+            span: f32,
+        ) -> Result<Vec<u8>, String> {
+            if samples <= 1 || span <= 0.0 {
+                return self.rgba_at(t_secs);
+            }
+            // Accumulate in u32 so 8 samples cannot wrap a u8 channel.
+            let mut sum: Vec<u32> = Vec::new();
+            for i in 0..samples {
+                // Centred on `t`: the shutter opens before and closes after,
+                // so the blur trails and leads rather than only lagging.
+                let offset = (f64::from(i) / f64::from(samples - 1) - 0.5) as f32 * span;
+                let frame = self.rgba_at(t_secs + offset)?;
+                if sum.is_empty() {
+                    sum = vec![0u32; frame.len()];
+                }
+                for (slot, byte) in sum.iter_mut().zip(&frame) {
+                    *slot += u32::from(*byte);
+                }
+            }
+            Ok(sum.iter().map(|v| (v / samples) as u8).collect())
         }
 
         /// Render the frame at `t` seconds (clamped) and return packed RGBA8.
@@ -116,7 +175,22 @@ mod engine {
             let last = (self.total_frames - 1.0).max(0.0);
             let frame = (t_secs.max(0.0) * self.fps).clamp(0.0, last);
             unsafe {
-                ok(tvg::tvg_animation_set_frame(self.anim, frame), "set_frame")?;
+                // `tvg_animation_set_frame` reports INSUFFICIENT_CONDITION when
+                // the requested frame is ALREADY the current one. That is a
+                // no-op, not a failure — and the animation loads sitting on
+                // frame 0, so treating it as fatal made **frame 0 of every
+                // Lottie unrenderable**: `frame … 0.0` always died, `export`
+                // died on its first frame and produced nothing at all, and
+                // `serve` died whenever the operator scrubbed to the same time
+                // twice. Measured 2026-08-07 against a real animated fixture.
+                //
+                // Skipping the call when the frame has not moved is the honest
+                // fix: it makes the no-op a no-op instead of asking ThorVG to
+                // report one.
+                if self.frame != frame {
+                    ok(tvg::tvg_animation_set_frame(self.anim, frame), "set_frame")?;
+                    self.frame = frame;
+                }
                 ok(tvg::tvg_canvas_update(self.canvas), "update")?;
                 ok(tvg::tvg_canvas_draw(self.canvas, true), "draw")?;
                 ok(tvg::tvg_canvas_sync(self.canvas), "sync")?;
@@ -150,9 +224,57 @@ fn die(msg: &str) -> ! {
     std::process::exit(1);
 }
 
+/// Split `--font <path>` / `--fonts <dir>` out of argv, returning the font
+/// files to register and the remaining POSITIONAL args untouched — so the
+/// existing `<mode> <lottie> <w> <h> …` grammar is unchanged for every caller
+/// that passes no fonts.
+fn take_font_args(argv: &[String]) -> (Vec<std::path::PathBuf>, Vec<String>) {
+    let mut fonts = Vec::new();
+    let mut rest = Vec::new();
+    let mut i = 0;
+    while i < argv.len() {
+        match argv[i].as_str() {
+            "--font" => {
+                if let Some(p) = argv.get(i + 1) {
+                    fonts.push(std::path::PathBuf::from(p));
+                }
+                i += 2;
+            }
+            "--fonts" => {
+                if let Some(dir) = argv.get(i + 1) {
+                    // Every scalable font in the directory, sorted so the load
+                    // order is the same on every machine.
+                    let mut found: Vec<_> = std::fs::read_dir(dir)
+                        .into_iter()
+                        .flatten()
+                        .flatten()
+                        .map(|e| e.path())
+                        .filter(|p| {
+                            matches!(
+                                p.extension().and_then(|x| x.to_str()),
+                                Some("ttf" | "otf" | "ttc")
+                            )
+                        })
+                        .collect();
+                    found.sort();
+                    fonts.extend(found);
+                }
+                i += 2;
+            }
+            _ => {
+                rest.push(argv[i].clone());
+                i += 1;
+            }
+        }
+    }
+    (fonts, rest)
+}
+
 fn main() {
-    let a: Vec<String> = std::env::args().collect();
-    let usage = "usage: dpl-lottie-render <frame|export|serve> <lottie> <w> <h> [args]";
+    let argv: Vec<String> = std::env::args().collect();
+    let (fonts, a) = take_font_args(&argv);
+    let usage =
+        "usage: dpl-lottie-render <frame|export|serve> <lottie> <w> <h> [args] [--fonts <dir>] [--font <file>]";
     let mode = a.get(1).map(String::as_str).unwrap_or_else(|| die(usage));
     let src = a.get(2).unwrap_or_else(|| die(usage));
     let w: u32 = a
@@ -165,13 +287,25 @@ fn main() {
         .unwrap_or_else(|| die(usage));
     let data = std::fs::read(src).unwrap_or_else(|e| die(&format!("read {src}: {e}")));
     let mut lottie = engine::Lottie::new(&data, w, h).unwrap_or_else(|e| die(&e));
+    // AFTER `Lottie::new`, which owns `tvg_engine_init` — ThorVG will not
+    // accept a font before its engine exists. Loud on failure: an unloaded
+    // font renders text as nothing, at exit code 0 (see `load_font`).
+    for font in &fonts {
+        engine::load_font(font).unwrap_or_else(|e| die(&e));
+    }
 
     match mode {
         // frame <lottie> <w> <h> <t_secs> <out.png>
         "frame" => {
             let t: f32 = a.get(5).and_then(|s| s.parse().ok()).unwrap_or(0.0);
             let out = a.get(6).map(String::as_str).unwrap_or("frame.png");
-            let rgba = lottie.rgba_at(t).unwrap_or_else(|e| die(&e));
+            // Optional trailing <samples> <span> — motion blur, same maths as
+            // the serve path and as ffmpeg's tmix.
+            let samples: u32 = a.get(7).and_then(|s| s.parse().ok()).unwrap_or(1);
+            let span: f32 = a.get(8).and_then(|s| s.parse().ok()).unwrap_or(0.0);
+            let rgba = lottie
+                .rgba_blurred(t, samples, span)
+                .unwrap_or_else(|e| die(&e));
             image::save_buffer(out, &rgba, w, h, image::ColorType::Rgba8)
                 .unwrap_or_else(|e| die(&format!("png: {e}")));
             println!(
@@ -214,8 +348,16 @@ fn main() {
                 if line == "q" || line.is_empty() {
                     break;
                 }
-                let t: f32 = line.parse().unwrap_or(0.0);
-                let rgba = lottie.rgba_at(t).unwrap_or_else(|e| die(&e));
+                // "<t>" renders plainly; "<t> <samples> <span>" renders with
+                // motion blur. Additive on purpose — an older caller sending
+                // a bare time behaves exactly as before.
+                let mut parts = line.split_whitespace();
+                let t: f32 = parts.next().and_then(|v| v.parse().ok()).unwrap_or(0.0);
+                let samples: u32 = parts.next().and_then(|v| v.parse().ok()).unwrap_or(1);
+                let span: f32 = parts.next().and_then(|v| v.parse().ok()).unwrap_or(0.0);
+                let rgba = lottie
+                    .rgba_blurred(t, samples, span)
+                    .unwrap_or_else(|e| die(&e));
                 if out.write_all(&rgba).is_err() {
                     break;
                 }

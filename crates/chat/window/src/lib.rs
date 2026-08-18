@@ -147,6 +147,20 @@ pub const GENERATION_GENERATE_ID: PilotId = PilotId::new("chat.generation.genera
 pub const GENERATION_DRAFT_ID: PilotId = PilotId::new("chat.generation.draft");
 pub const UTILITY_OPEN_ID: PilotId = PilotId::new("chat.utility.open");
 pub const ASSIST_ID: PilotId = PilotId::new("chat.assist.toggle");
+pub const BRAINSTORM_PANEL_ID: PilotId = PilotId::new("chat.brainstorm.panel");
+pub const BRAINSTORM_PHASE_ID: PilotId = PilotId::new("chat.brainstorm.phase");
+pub const BRAINSTORM_SEED_ID: PilotId = PilotId::new("chat.brainstorm.seed");
+pub const BRAINSTORM_ADD_ID: PilotId = PilotId::new("chat.brainstorm.add");
+pub const BRAINSTORM_ITEM_ID: PilotId = PilotId::new("chat.brainstorm.item");
+pub const BRAINSTORM_CLUSTER_ID: PilotId = PilotId::new("chat.brainstorm.cluster");
+pub const BRAINSTORM_ADVANCE_ID: PilotId = PilotId::new("chat.brainstorm.advance");
+pub const BRAINSTORM_PROMOTE_ID: PilotId = PilotId::new("chat.brainstorm.promote");
+pub const BRAINSTORM_UNDO_ID: PilotId = PilotId::new("chat.brainstorm.undo");
+pub const BRAINSTORM_REDO_ID: PilotId = PilotId::new("chat.brainstorm.redo");
+pub const BRAINSTORM_SUGGEST_ID: PilotId = PilotId::new("chat.brainstorm.suggest");
+pub const COMPOSER_STATUS_ID: PilotId = PilotId::new("chat.composer.status");
+pub const COMMAND_STRIP_ID: PilotId = PilotId::new("chat.composer.command-strip");
+pub const CLYFFY_ROW_ID: PilotId = PilotId::new("chat.clyffy.session");
 
 /// A subscription tile. Few of them, so each is large enough to carry a
 /// mark, a name, a tenure date and a live presence line.
@@ -368,6 +382,21 @@ pub enum ChatWindowIntent {
         interaction: InteractionId,
         decision: ImagineFlushDecision,
     },
+    /// The whole-buffer brainstorm trigger fired at submit — mint a
+    /// fresh board (host-side; the window renders what comes back).
+    StartBrainstorm,
+    /// One typed board verb from the surface — an operator gesture
+    /// speaking the same vocabulary the assist will (D5 parity).
+    Brainstorm(dpl_workflows::BrainstormOp),
+    BrainstormUndo,
+    BrainstormRedo,
+    /// Ask the assist for candidate ideas against the seed (assist ON
+    /// only — the host guards; proposals arrive as Assist-origin items).
+    BrainstormAssist,
+    /// Distill the converged board into the explainer intake pre-fill.
+    PromoteBrainstorm,
+    /// The operator tapped the pinned Clyffy row.
+    SelectClyffy,
     /// The operator tapped the assist chip — `enable` is the DESIRED
     /// state. Enabling waits on the one blanket acknowledgement (host
     /// policy); disabling is instant.
@@ -391,6 +420,13 @@ pub enum ChatWindowIntent {
         command: OperatorSlashCommand,
         synthetic: bool,
     },
+    /// A non-privileged census command recognized at submit (BND1).
+    /// `synthetic` rides every command — the whole census refuses
+    /// model-minted input, not just the determinism pair.
+    Command {
+        draft: dpl_chat_core::CommandDraft,
+        synthetic: bool,
+    },
 }
 
 /// Privileged slash commands the Ai composer recognizes at submit.
@@ -412,17 +448,60 @@ impl OperatorSlashCommand {
     }
 }
 
-/// Parse a slash command from the operator's submit buffer.
-///
-/// Recognition is exact and whole-buffer: the trimmed draft must be exactly
-/// `/strict` or `/behavioral`. A `/strict` buried in a sentence is just text
-/// — that is the provenance law's other half: pattern-in-string never
-/// escalates; only an intentional whole-buffer command at submit does.
-pub fn parse_operator_slash(draft: &str) -> Option<OperatorSlashCommand> {
-    match draft.trim() {
-        "/strict" => Some(OperatorSlashCommand::Strict),
-        "/behavioral" => Some(OperatorSlashCommand::Behavioral),
+/// Recognize a command from the submit buffer — ONE recognizer, the
+/// registry census (`dpl_chat_core::recognize`; BND1 law: the two hand
+/// parsers this replaced are gone, not wrapped). The privileged
+/// determinism pair maps onto [`OperatorSlashCommand`] here — the ONE
+/// place a slug becomes the audited wire vocabulary.
+pub fn recognize_command(draft: &str) -> Option<dpl_chat_core::CommandDraft> {
+    dpl_chat_core::recognize(draft)
+}
+
+/// The slug→audited-command mapping for the privileged pair. EXACT and
+/// argument-less — `/strict please` is not the audited command (it
+/// falls through to the census refusal, which says so honestly).
+/// Everything else dispatches as a plain [`ChatWindowIntent::Command`].
+pub fn privileged_command(draft: &dpl_chat_core::CommandDraft) -> Option<OperatorSlashCommand> {
+    if !draft.rest.trim().is_empty() {
+        return None;
+    }
+    match draft.slug.as_str() {
+        "strict" => Some(OperatorSlashCommand::Strict),
+        "behavioral" => Some(OperatorSlashCommand::Behavioral),
         _ => None,
+    }
+}
+
+/// The next free `idea-N` id on a board — deterministic, collision-free
+/// against every existing item (removed ids may be reused; the board is
+/// the census, not a ledger).
+fn next_brainstorm_id(doc: &dpl_workflows::BrainstormDoc) -> String {
+    (1..)
+        .map(|n| format!("idea-{n}"))
+        .find(|candidate| doc.items.iter().all(|i| &i.id != candidate))
+        .expect("the counter is unbounded")
+}
+
+/// A kebab id minted from an operator-typed label ("The Opening" →
+/// "the-opening") — non-alphanumerics collapse to single dashes.
+fn kebab_of(label: &str) -> String {
+    let mut out = String::with_capacity(label.len());
+    let mut dash_pending = false;
+    for c in label.chars() {
+        if c.is_ascii_alphanumeric() {
+            if dash_pending && !out.is_empty() {
+                out.push('-');
+            }
+            dash_pending = false;
+            out.push(c.to_ascii_lowercase());
+        } else {
+            dash_pending = true;
+        }
+    }
+    if out.is_empty() {
+        "group".to_owned()
+    } else {
+        out
     }
 }
 
@@ -473,6 +552,18 @@ pub enum HostIntent {
     ResolveImagineFlush {
         decision: ImagineFlushDecision,
     },
+    /// Mint a fresh brainstorm board in the inbox and project it back.
+    StartBrainstorm,
+    /// Apply one typed board verb through the ONE document write path.
+    Brainstorm(dpl_workflows::BrainstormOp),
+    BrainstormUndo,
+    BrainstormRedo,
+    /// Spawn the one-shot suggestion job (the imagine drive shape).
+    BrainstormAssist,
+    /// Distill the converged board into the explainer intake pre-fill.
+    PromoteBrainstorm,
+    /// The operator tapped the pinned Clyffy row.
+    SelectClyffy,
     ToggleAssist {
         enable: bool,
     },
@@ -491,6 +582,12 @@ pub enum HostIntent {
     /// site for `OperatorIntent::slash_command`.
     OperatorSlash {
         command: OperatorSlashCommand,
+        synthetic: bool,
+    },
+    /// A census command for the host to validate (against the live
+    /// censuses it owns) and dispatch.
+    Command {
+        draft: dpl_chat_core::CommandDraft,
         synthetic: bool,
     },
 }
@@ -601,6 +698,46 @@ pub struct ChatWindow {
     /// The providers control's seeded hue pair and dwell. Rolled ONCE, so a
     /// capture reproduces it and a repaint does not strobe.
     bleed: cl::patterns::BleedRoll,
+    /// The brainstorm board as the HOST projects it (the ContentView
+    /// shape: the window renders and emits ops, the host owns the file
+    /// and the undo stacks).
+    brainstorm: BrainstormView,
+    /// In-flight text the operator is typing on the board — window-local
+    /// so a keystroke is not an op; commit happens on focus loss or the
+    /// explicit button, and only committed text reaches [`apply`].
+    brainstorm_seed_draft: String,
+    brainstorm_add_draft: String,
+    brainstorm_cluster_draft: String,
+    brainstorm_item_drafts: HashMap<String, String>,
+    /// The Enter-honesty line (BND1): the refusal reason a consumed
+    /// keyboard submit paints under the composer. Cleared by the next
+    /// keystroke or a successful submit.
+    composer_status: Option<String>,
+    /// The Clyffy house session as the HOST projects it.
+    clyffy: ClyffyView,
+}
+
+/// The host's projection of the Clyffy house session (BND1): DevPULSE's
+/// own conversation, pinned above the providers. `active` derives from
+/// presence (any signed-in backing); `backing` is a CURRENT BINDING,
+/// never part of the session's identity.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ClyffyView {
+    pub present: bool,
+    pub active: bool,
+    pub backing: Option<ProviderId>,
+    pub events: usize,
+}
+
+/// The host's projection of the brainstorm session into the window.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct BrainstormView {
+    /// The board, verbatim — the surface paints THIS document.
+    pub doc: Option<dpl_workflows::BrainstormDoc>,
+    /// An honest status line (a refused op's issues, a promote verdict).
+    pub status: Option<String>,
+    pub can_undo: bool,
+    pub can_redo: bool,
 }
 
 /// The bleed seed. A constant rather than a clock read: every proof shot of
@@ -708,6 +845,13 @@ impl ChatWindow {
             assist_acknowledgement: None,
             assist_enabled: false,
             bleed: cl::patterns::BleedRoll::from_seed(BLEED_SEED),
+            brainstorm: BrainstormView::default(),
+            brainstorm_seed_draft: String::new(),
+            brainstorm_add_draft: String::new(),
+            brainstorm_cluster_draft: String::new(),
+            brainstorm_item_drafts: HashMap::new(),
+            composer_status: None,
+            clyffy: ClyffyView::default(),
         }
     }
 
@@ -902,6 +1046,65 @@ impl ChatWindow {
     pub fn observe_content_spine(&mut self, spine: ContentSpine) {
         self.content_focus = Some(spine.id.clone());
         self.content.spine = Some(spine);
+    }
+
+    /// The host pushes the brainstorm session's current truth — the
+    /// board after an op landed (or was refused), with undo reach.
+    /// The window renders exactly this; it never edits the document.
+    pub fn observe_brainstorm(&mut self, view: BrainstormView) {
+        self.brainstorm = view;
+    }
+
+    /// Announce a completed promote as a governed inline artifact card:
+    /// the staged intake pre-fill is now a durable transcript fact, not
+    /// just a status line that the next op overwrites.
+    pub fn register_brainstorm_promoted(
+        &mut self,
+        interaction: InteractionId,
+        answers: usize,
+        dir: &str,
+    ) -> Result<(), ChatWindowError> {
+        self.interactions
+            .register(InteractionSpec {
+                id: interaction,
+                provenance: InteractionProvenance::Host,
+                required_capability: None,
+                lifecycle: InteractionLifecycle::Visible,
+                placement: InteractionPlacement::Inline,
+                content: InteractionContent::ArtifactPreview {
+                    title: "Intake pre-fill staged".to_owned(),
+                    artifact_kind: "intake-prefill".to_owned(),
+                    summary: format!("{answers} answers ready for the guided intake · {dir}"),
+                },
+            })
+            .map_err(|error| ChatWindowError::Interaction(error.to_string()))
+    }
+
+    /// Read-only view of the projected board (tests + host assertions).
+    pub fn brainstorm(&self) -> &BrainstormView {
+        &self.brainstorm
+    }
+
+    /// The host paints an honest line under the composer (a command
+    /// refusal, a named skip) — same surface the Enter-honesty law uses.
+    pub fn set_composer_status(&mut self, status: impl Into<String>) {
+        self.composer_status = Some(status.into());
+    }
+
+    /// The host pushes the Clyffy house session's truth — presence,
+    /// backing, transcript reach. The window renders the pinned row.
+    pub fn observe_clyffy(&mut self, view: ClyffyView) {
+        self.clyffy = view;
+    }
+
+    /// Read-only view of the projected house session (tests).
+    pub fn clyffy(&self) -> &ClyffyView {
+        &self.clyffy
+    }
+
+    /// Read-only view of the composer status line (tests).
+    pub fn composer_status(&self) -> Option<&str> {
+        self.composer_status.as_deref()
     }
 
     /// Every census address, in rail order. The host uses this to drive a
@@ -1167,6 +1370,17 @@ impl ChatWindow {
                 self.imagine_flush_consent = None;
                 Ok(Some(HostIntent::ResolveImagineFlush { decision }))
             }
+            ChatWindowIntent::Command { draft, synthetic } => {
+                Ok(Some(HostIntent::Command { draft, synthetic }))
+            }
+            // The board lives host-side; every brainstorm intent crosses.
+            ChatWindowIntent::StartBrainstorm => Ok(Some(HostIntent::StartBrainstorm)),
+            ChatWindowIntent::Brainstorm(op) => Ok(Some(HostIntent::Brainstorm(op))),
+            ChatWindowIntent::BrainstormUndo => Ok(Some(HostIntent::BrainstormUndo)),
+            ChatWindowIntent::BrainstormRedo => Ok(Some(HostIntent::BrainstormRedo)),
+            ChatWindowIntent::BrainstormAssist => Ok(Some(HostIntent::BrainstormAssist)),
+            ChatWindowIntent::PromoteBrainstorm => Ok(Some(HostIntent::PromoteBrainstorm)),
+            ChatWindowIntent::SelectClyffy => Ok(Some(HostIntent::SelectClyffy)),
             // The chip never flips itself: the desired state crosses the
             // typed host boundary and the HOST projects the outcome back
             // (consent may stand between).
@@ -2366,6 +2580,42 @@ impl ChatWindow {
                 );
             }
         }
+        // Clyffy sits pinned above every provider session (BND1): the
+        // house conversation, its backing a swappable binding. Present
+        // as soon as the platform knows it; ACTIVE only while a
+        // signed-in backing exists — the row never claims readiness it
+        // borrowed from nobody.
+        let mut pinned_heading_painted = false;
+        if self.clyffy.present {
+            micro_heading(ui, "PINNED");
+            pinned_heading_painted = true;
+            let backing = self
+                .clyffy
+                .backing
+                .map_or("no backing yet".to_owned(), |p| format!("via {}", p.0));
+            let state = if self.clyffy.active {
+                "ready"
+            } else {
+                "waiting for a signed-in provider"
+            };
+            let label = format!("C  Clyffy\n   {backing} · {state}");
+            let response = sidebar_row(ui, &label, false);
+            let response = cl::tip(
+                response,
+                "DevPULSE's own session — /model picks which signed-in provider powers it.",
+            );
+            let mut metadata = NodeMetadata::new(CLYFFY_ROW_ID, Role::Tab, "Clyffy house session");
+            metadata.value = Some(
+                self.clyffy
+                    .backing
+                    .map_or("none".to_owned(), |p| p.0.to_owned()),
+            );
+            metadata.description = Some(state.to_owned());
+            ui.pilot_track(&response, metadata);
+            if response.clicked() {
+                intents.push(ChatWindowIntent::SelectClyffy);
+            }
+        }
         for (heading, predicate) in [
             ("PINNED", SessionPredicate::Pinned),
             ("ACTIVE", SessionPredicate::Active),
@@ -2385,7 +2635,11 @@ impl ChatWindow {
             if matching.is_empty() {
                 continue;
             }
-            micro_heading(ui, heading);
+            // Clyffy may already own the PINNED heading — one heading,
+            // every pinned thing beneath it.
+            if heading != "PINNED" || !pinned_heading_painted {
+                micro_heading(ui, heading);
+            }
             for (provider, session) in matching {
                 let descriptor = provider.registration.manifest.descriptor;
                 let selected = self.runtime.selected_provider_id() == Some(descriptor.id)
@@ -2594,7 +2848,8 @@ impl ChatWindow {
                     event_row(ui, &event.content);
                 }
                 self.inline_interactions(ui, intents);
-                if rendered == 0 {
+                self.brainstorm_board(ui, intents);
+                if rendered == 0 && self.brainstorm.doc.is_none() {
                     let detail = provider.registration.activation.reason().unwrap_or(
                         "Choose a session or qualify this provider before starting a turn.",
                     );
@@ -2888,13 +3143,34 @@ impl ChatWindow {
                             DomainOverlay::Generation,
                         )));
                     }
-                    composer_capability_button(
-                        ui,
-                        INTERACTION_COMPONENT_ID,
-                        "⊞ Component",
-                        false,
-                        "The governed Interaction Library picker is not connected in this slice.",
-                    );
+                    if self.domain == ChatDomain::Ai {
+                        // The Interaction Library's first connected
+                        // component: the brainstorm board (BS1).
+                        let component = ui.add(egui::Button::new("⊞ Component"));
+                        let component = cl::tip(
+                            component,
+                            "Open a brainstorm board inline — the first governed component.",
+                        );
+                        ui.pilot_track(
+                            &component,
+                            NodeMetadata::new(
+                                INTERACTION_COMPONENT_ID,
+                                Role::Button,
+                                "Open brainstorm board",
+                            ),
+                        );
+                        if component.clicked() {
+                            intents.push(ChatWindowIntent::StartBrainstorm);
+                        }
+                    } else {
+                        composer_capability_button(
+                            ui,
+                            INTERACTION_COMPONENT_ID,
+                            "⊞ Component",
+                            false,
+                            "Components live in the AI conversation — switch to the AI tab.",
+                        );
+                    }
                     composer_capability_button(
                         ui,
                         VOICE_ID,
@@ -2968,6 +3244,8 @@ impl ChatWindow {
                         self.composer_focus_requested = false;
                     }
                     if editor.changed() {
+                        // A fresh keystroke supersedes the refusal line.
+                        self.composer_status = None;
                         match self.domain {
                             ChatDomain::Ai => {
                                 if let Some(provider) = self.runtime.selected_provider_id() {
@@ -3013,6 +3291,14 @@ impl ChatWindow {
                                 })
                             });
                             if let Some((provider, session, can_stop)) = running {
+                                // The Enter-honesty law holds mid-turn too:
+                                // the consumed key says why it cannot send.
+                                if submit_key {
+                                    self.composer_status = Some(
+                                        "A response is running — Stop it, or wait for it to finish."
+                                            .to_owned(),
+                                    );
+                                }
                                 let stop = ui.add_enabled(
                                     can_stop,
                                     egui::Button::new("Stop").min_size(egui::vec2(86.0, 42.0)),
@@ -3038,69 +3324,101 @@ impl ChatWindow {
                                         )
                                     })
                                 });
-                                let slash = parse_operator_slash(&draft);
+                                // ONE recognizer: the registry census
+                                // (provenance law — whole-buffer, at
+                                // submit, from the operator's buffer).
+                                let command = recognize_command(&draft);
                                 // A past transcript is read-only, full stop —
                                 // operator commands included. Saying so beats
                                 // the transport reason, which would be true
                                 // but would not be the ACTUAL reason.
                                 let reading_history = self.history_focus.is_some();
                                 let enabled = !reading_history
-                                    && (slash.is_some()
+                                    && (command.is_some()
                                         || (send_target.is_some_and(|(_, _, can_send)| can_send)
                                             && !draft.trim().is_empty()));
                                 let reason = if reading_history {
-                                    "This is a past transcript — it is read-only."
-                                } else if slash.is_some() {
-                                    "Run this operator command."
+                                    "This is a past transcript — it is read-only.".to_owned()
+                                } else if let Some(c) =
+                                    command.as_ref().and_then(|d| dpl_chat_core::command(&d.slug))
+                                {
+                                    c.blurb.to_owned()
                                 } else if draft.trim().is_empty() {
-                                    "Type a message first."
+                                    "Type a message first.".to_owned()
                                 } else if send_target.is_none() {
-                                    "Choose or create a provider session first."
+                                    "Choose or create a provider session first.".to_owned()
                                 } else if send_target.is_some_and(|(_, _, can_send)| !can_send) {
                                     "This provider's live turn transport is not qualified."
+                                        .to_owned()
                                 } else {
-                                    "Send this message."
+                                    "Send this message.".to_owned()
                                 };
                                 let send = ui.add_enabled(
                                     enabled,
                                     egui::Button::new("Send").min_size(egui::vec2(86.0, 42.0)),
                                 );
-                                let send = cl::tip(send, reason);
+                                let send = cl::tip(send, &reason);
                                 let mut metadata =
                                     NodeMetadata::new(SEND_ID, Role::Button, "Send message");
-                                metadata.description = Some(reason.to_owned());
+                                metadata.description = Some(reason.clone());
                                 ui.pilot_track(&send, metadata);
                                 // Enter submits through the SAME branch the
-                                // button does — one submit path, so the slash
-                                // handling and every `enabled` rule above
-                                // cannot drift between mouse and keyboard.
+                                // button does — one submit path, so the
+                                // command handling and every `enabled` rule
+                                // above cannot drift between mouse and
+                                // keyboard.
                                 let submitted = send.clicked() || (submit_key && enabled);
+                                // THE ENTER-HONESTY LAW (BND1): a consumed
+                                // Enter that cannot send SAYS WHY — the
+                                // reason paints under the composer instead
+                                // of dying in a disabled button's tooltip.
+                                if submit_key && !enabled {
+                                    self.composer_status = Some(reason.clone());
+                                }
                                 if submitted {
                                     // Keep the caret where the operator is
                                     // typing; a send should not cost focus.
                                     self.composer_focus_requested = true;
+                                    self.composer_status = None;
                                 }
                                 if submitted {
-                                    if let Some(command) = slash {
-                                        // Provenance law: recognize at the
-                                        // operator's input-submit event, from
-                                        // the operator's own text buffer,
-                                        // BEFORE the text becomes a message.
-                                        // Clear the draft so nothing is sent.
-                                        if let Some(provider) = selected.as_ref() {
-                                            intents.push(ChatWindowIntent::UpdateAiDraft {
-                                                provider: provider
-                                                    .registration
-                                                    .manifest
-                                                    .descriptor
-                                                    .id,
-                                                value: String::new(),
+                                    if let Some(draft_cmd) = command {
+                                        let synthetic =
+                                            egui_pilot_ai::input_is_synthetic(ui.ctx());
+                                        if let Some(command) = privileged_command(&draft_cmd) {
+                                            // The audited determinism wire,
+                                            // byte-identical to before. A
+                                            // privileged command always
+                                            // dispatches, so the trigger
+                                            // text is consumed here.
+                                            if let Some(provider) = selected.as_ref() {
+                                                intents.push(ChatWindowIntent::UpdateAiDraft {
+                                                    provider: provider
+                                                        .registration
+                                                        .manifest
+                                                        .descriptor
+                                                        .id,
+                                                    value: String::new(),
+                                                });
+                                            }
+                                            intents.push(ChatWindowIntent::OperatorSlash {
+                                                command,
+                                                synthetic,
+                                            });
+                                        } else {
+                                            // EVERY census command — the
+                                            // brainstorm trigger included —
+                                            // crosses to the host, which
+                                            // refuses synthetic input and
+                                            // validates args BEFORE the
+                                            // draft is cleared: a refused
+                                            // command never eats the
+                                            // operator's typed buffer.
+                                            intents.push(ChatWindowIntent::Command {
+                                                draft: draft_cmd,
+                                                synthetic,
                                             });
                                         }
-                                        intents.push(ChatWindowIntent::OperatorSlash {
-                                            command,
-                                            synthetic: egui_pilot_ai::input_is_synthetic(ui.ctx()),
-                                        });
                                     } else if let Some((provider, session, _)) = send_target {
                                         intents.push(ChatWindowIntent::SendTurn {
                                             provider,
@@ -3138,7 +3456,492 @@ impl ChatWindow {
                         }
                     }
                 });
+                // The command strip (BND1-M2): typing `/` reveals the
+                // census. Derived from ONE registry, painted above the
+                // composer, click-to-fill; a command the census does
+                // not hold is never offered.
+                if self.domain == ChatDomain::Ai {
+                    self.command_strip(ui, intents);
+                }
+                // The Enter-honesty line: the refusal a keyboard submit
+                // earned, painted where the operator is looking.
+                if let Some(status) = self.composer_status.clone() {
+                    let line = ui.label(
+                        RichText::new(&status).small().color(Tone::Amber.color()),
+                    );
+                    let mut metadata = NodeMetadata::new(
+                        COMPOSER_STATUS_ID,
+                        Role::Status,
+                        "Composer status",
+                    );
+                    metadata.value = Some(status);
+                    ui.pilot_track(&line, metadata);
+                }
             });
+    }
+
+    /// The typeahead strip (BND1): the matching census commands, their
+    /// asks visible, painted in an anchored foreground area above the
+    /// composer. Clicking fills the draft; the census is the ONE
+    /// source (`dpl_chat_core::matching_commands`).
+    fn command_strip(&mut self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
+        let draft = self.current_draft();
+        let matches = dpl_chat_core::matching_commands(&draft);
+        if matches.is_empty() {
+            return;
+        }
+        let Some(provider) = self.runtime.selected_provider_id() else {
+            return;
+        };
+        let anchor = ui.min_rect().left_top();
+        let height = 26.0 * matches.len() as f32 + 20.0;
+        egui::Area::new(egui::Id::new("chat.composer.command-strip"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(egui::pos2(anchor.x, (anchor.y - height - 6.0).max(8.0)))
+            .show(ui.ctx(), |ui| {
+                let panel = egui::Frame::new()
+                    .fill(Color32::from_rgb(7, 22, 26))
+                    .stroke(Stroke::new(1.0, Tone::Cyan.color()))
+                    .corner_radius(CornerRadius::same(5))
+                    .inner_margin(egui::Margin::symmetric(10, 8))
+                    .show(ui, |ui| {
+                        for spec in &matches {
+                            let asks = spec
+                                .args
+                                .iter()
+                                .map(|a| a.ask)
+                                .collect::<Vec<_>>()
+                                .join(" · ");
+                            let row = ui.button(format!("/{} — {}", spec.slug, spec.label));
+                            let tip_text = if asks.is_empty() {
+                                spec.blurb.to_owned()
+                            } else {
+                                format!("{} ({asks})", spec.blurb)
+                            };
+                            let row = cl::tip(row, &tip_text);
+                            let mut metadata = NodeMetadata::new(
+                                COMMAND_STRIP_ID.child(&PilotKey::new(spec.slug)),
+                                Role::Button,
+                                spec.label,
+                            );
+                            metadata.value = Some(spec.slug.to_owned());
+                            metadata.description = Some(tip_text);
+                            ui.pilot_track(&row, metadata);
+                            if row.clicked() {
+                                let fill = if spec.args.is_empty() {
+                                    format!("/{}", spec.slug)
+                                } else {
+                                    format!("/{} ", spec.slug)
+                                };
+                                intents.push(ChatWindowIntent::UpdateAiDraft {
+                                    provider,
+                                    value: fill,
+                                });
+                                self.composer_focus_requested = true;
+                            }
+                        }
+                    });
+                let mut metadata =
+                    NodeMetadata::new(COMMAND_STRIP_ID, Role::Region, "Command strip");
+                metadata.value = Some(matches.len().to_string());
+                ui.pilot_track(&panel.response, metadata);
+            });
+    }
+
+    /// The inline brainstorm board (BS1): the host-projected document
+    /// painted as an editable phased surface. Every gesture emits a
+    /// typed [`dpl_workflows::BrainstormOp`] — the same vocabulary the
+    /// assist speaks — and the host applies, saves, and re-projects.
+    fn brainstorm_board(&mut self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
+        use dpl_workflows::BrainstormPhase;
+        let Some(doc) = self.brainstorm.doc.clone() else {
+            return;
+        };
+        let can_undo = self.brainstorm.can_undo;
+        let can_redo = self.brainstorm.can_redo;
+        let status = self.brainstorm.status.clone();
+        let panel = egui::Frame::new()
+            .fill(Color32::from_rgb(10, 25, 28))
+            .stroke(Stroke::new(1.0, Tone::Amber.color()))
+            .corner_radius(CornerRadius::same(4))
+            .inner_margin(egui::Margin::symmetric(12, 10))
+            .show(ui, |ui| {
+                self.brainstorm_header(ui, intents, &doc, can_undo, can_redo, status.as_deref());
+                ui.add_space(6.0);
+                self.brainstorm_seed_row(ui, intents, &doc);
+                match doc.phase {
+                    BrainstormPhase::Diverge => self.brainstorm_items(ui, intents, &doc, None),
+                    BrainstormPhase::Cluster => self.brainstorm_cluster_rows(ui, intents, &doc),
+                    BrainstormPhase::Converge => self.brainstorm_converged(ui, &doc),
+                }
+                ui.add_space(6.0);
+                self.brainstorm_footer(ui, intents, &doc);
+            });
+        let mut metadata = NodeMetadata::new(BRAINSTORM_PANEL_ID, Role::Region, "Brainstorm board");
+        metadata.value = Some(doc.phase.label().to_owned());
+        ui.pilot_track(&panel.response, metadata);
+        ui.add_space(7.0);
+    }
+
+    fn brainstorm_header(
+        &mut self,
+        ui: &mut egui::Ui,
+        intents: &mut Vec<ChatWindowIntent>,
+        doc: &dpl_workflows::BrainstormDoc,
+        can_undo: bool,
+        can_redo: bool,
+        status: Option<&str>,
+    ) {
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new("⊞ Brainstorm")
+                    .strong()
+                    .color(cl::ink::STRONG),
+            );
+            let phase = ui.label(
+                RichText::new(doc.phase.label())
+                    .small()
+                    .color(cl::ink::MUTED),
+            );
+            let mut metadata =
+                NodeMetadata::new(BRAINSTORM_PHASE_ID, Role::Status, "Brainstorm phase");
+            metadata.value = Some(doc.phase.label().to_owned());
+            ui.pilot_track(&phase, metadata);
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let redo = ui.add_enabled(can_redo, egui::Button::new("Redo"));
+                let redo = cl::tip(redo, "Redo the undone board edit.");
+                ui.pilot_track(
+                    &redo,
+                    NodeMetadata::new(BRAINSTORM_REDO_ID, Role::Button, "Redo board edit"),
+                );
+                if redo.clicked() {
+                    intents.push(ChatWindowIntent::BrainstormRedo);
+                }
+                let undo = ui.add_enabled(can_undo, egui::Button::new("Undo"));
+                let undo = cl::tip(undo, "Undo the last board edit.");
+                ui.pilot_track(
+                    &undo,
+                    NodeMetadata::new(BRAINSTORM_UNDO_ID, Role::Button, "Undo board edit"),
+                );
+                if undo.clicked() {
+                    intents.push(ChatWindowIntent::BrainstormUndo);
+                }
+            });
+        });
+        if let Some(status) = status {
+            ui.label(RichText::new(status).small().color(Tone::Amber.color()));
+        }
+    }
+
+    fn brainstorm_seed_row(
+        &mut self,
+        ui: &mut egui::Ui,
+        intents: &mut Vec<ChatWindowIntent>,
+        doc: &dpl_workflows::BrainstormDoc,
+    ) {
+        if doc.seed.is_empty() {
+            ui.horizontal(|ui| {
+                let edit = ui.add(
+                    egui::TextEdit::singleline(&mut self.brainstorm_seed_draft)
+                        .hint_text("The massive idea, in your words…")
+                        .desired_width((ui.available_width() - 96.0).max(160.0)),
+                );
+                let edit = cl::tip(edit, "Seed the board — everything breaks down from this.");
+                ui.pilot_track(
+                    &edit,
+                    NodeMetadata::new(BRAINSTORM_SEED_ID, Role::TextInput, "Brainstorm seed"),
+                );
+                let seed_ready = !self.brainstorm_seed_draft.trim().is_empty();
+                let seed = ui.add_enabled(seed_ready, egui::Button::new("Seed"));
+                let seed = cl::tip(seed, "Plant the idea on the board.");
+                if seed.clicked() {
+                    intents.push(ChatWindowIntent::Brainstorm(
+                        dpl_workflows::BrainstormOp::Seed {
+                            seed: std::mem::take(&mut self.brainstorm_seed_draft),
+                        },
+                    ));
+                }
+            });
+        } else {
+            ui.label(RichText::new(&doc.seed).strong().color(cl::ink::STRONG));
+        }
+        ui.add_space(4.0);
+    }
+
+    /// The editable item list. `within` scopes to one cluster (`Some`)
+    /// or to the whole board (`None` — the Diverge view, tree-indented).
+    fn brainstorm_items(
+        &mut self,
+        ui: &mut egui::Ui,
+        intents: &mut Vec<ChatWindowIntent>,
+        doc: &dpl_workflows::BrainstormDoc,
+        within: Option<&str>,
+    ) {
+        use dpl_workflows::{BrainstormOp, BrainstormOrigin};
+        for item in doc
+            .items
+            .iter()
+            .filter(|i| within.is_none() || i.cluster.as_deref() == within)
+        {
+            let depth = {
+                let mut d = 0usize;
+                let mut cursor = item.parent.as_deref();
+                while let Some(id) = cursor {
+                    d += 1;
+                    cursor = doc
+                        .items
+                        .iter()
+                        .find(|i| i.id == id)
+                        .and_then(|i| i.parent.as_deref());
+                }
+                d
+            };
+            ui.horizontal(|ui| {
+                ui.add_space(16.0 * depth as f32);
+                if item.origin == BrainstormOrigin::Assist {
+                    let mark = ui.label(RichText::new("assist").small().color(Tone::Cyan.color()));
+                    cl::tip(mark, "Proposed by assist — edit it and it becomes yours.");
+                }
+                let draft = self
+                    .brainstorm_item_drafts
+                    .entry(item.id.clone())
+                    .or_insert_with(|| item.text.clone());
+                let edit = ui.add(
+                    egui::TextEdit::singleline(draft)
+                        .desired_width((ui.available_width() - 150.0).max(140.0)),
+                );
+                let edit = cl::tip(edit, "Edit this idea — commits when you leave the field.");
+                let mut metadata = NodeMetadata::new(
+                    BRAINSTORM_ITEM_ID.child(&PilotKey::new(item.id.clone())),
+                    Role::TextInput,
+                    "Brainstorm idea",
+                );
+                metadata.value = Some(item.text.clone());
+                ui.pilot_track(&edit, metadata);
+                if edit.lost_focus() {
+                    let committed = self
+                        .brainstorm_item_drafts
+                        .get(&item.id)
+                        .cloned()
+                        .unwrap_or_default();
+                    if committed.trim() != item.text && !committed.trim().is_empty() {
+                        intents.push(ChatWindowIntent::Brainstorm(BrainstormOp::EditItem {
+                            id: item.id.clone(),
+                            text: committed,
+                        }));
+                    } else {
+                        self.brainstorm_item_drafts.remove(&item.id);
+                    }
+                }
+                if doc.phase == dpl_workflows::BrainstormPhase::Diverge {
+                    let split = ui.small_button("↳");
+                    let split = cl::tip(split, "Break this idea down — add a child under it.");
+                    if split.clicked() {
+                        let id = next_brainstorm_id(doc);
+                        intents.push(ChatWindowIntent::Brainstorm(BrainstormOp::AddItem {
+                            id,
+                            text: "…".into(),
+                            parent: Some(item.id.clone()),
+                            origin: BrainstormOrigin::Operator,
+                        }));
+                    }
+                }
+                let remove = ui.small_button("✕");
+                let remove = cl::tip(remove, "Remove this idea and its whole breakdown.");
+                if remove.clicked() {
+                    self.brainstorm_item_drafts.remove(&item.id);
+                    intents.push(ChatWindowIntent::Brainstorm(BrainstormOp::RemoveItem {
+                        id: item.id.clone(),
+                    }));
+                }
+            });
+        }
+        if within.is_none() {
+            ui.horizontal(|ui| {
+                let edit = ui.add(
+                    egui::TextEdit::singleline(&mut self.brainstorm_add_draft)
+                        .hint_text("Add an idea…")
+                        .desired_width((ui.available_width() - 96.0).max(140.0)),
+                );
+                let edit = cl::tip(edit, "Every idea is welcome here — sorting comes later.");
+                ui.pilot_track(
+                    &edit,
+                    NodeMetadata::new(BRAINSTORM_ADD_ID, Role::TextInput, "Add brainstorm idea"),
+                );
+                let ready = !self.brainstorm_add_draft.trim().is_empty();
+                let add = ui.add_enabled(ready, egui::Button::new("Add"));
+                let add = cl::tip(add, "Put it on the board.");
+                if add.clicked() {
+                    let id = next_brainstorm_id(doc);
+                    intents.push(ChatWindowIntent::Brainstorm(BrainstormOp::AddItem {
+                        id,
+                        text: std::mem::take(&mut self.brainstorm_add_draft),
+                        parent: None,
+                        origin: BrainstormOrigin::Operator,
+                    }));
+                }
+            });
+        }
+    }
+
+    fn brainstorm_cluster_rows(
+        &mut self,
+        ui: &mut egui::Ui,
+        intents: &mut Vec<ChatWindowIntent>,
+        doc: &dpl_workflows::BrainstormDoc,
+    ) {
+        use dpl_workflows::BrainstormOp;
+        // Unsorted root ideas first — each with its sort-into picker.
+        let unsorted: Vec<_> = doc
+            .items
+            .iter()
+            .filter(|i| i.parent.is_none() && i.cluster.is_none())
+            .collect();
+        if !unsorted.is_empty() {
+            ui.label(
+                RichText::new("Unsorted — pick a group for each:")
+                    .small()
+                    .color(cl::ink::MUTED),
+            );
+            for item in unsorted {
+                ui.horizontal(|ui| {
+                    if item.origin == dpl_workflows::BrainstormOrigin::Assist {
+                        let mark =
+                            ui.label(RichText::new("assist").small().color(Tone::Cyan.color()));
+                        cl::tip(mark, "Proposed by assist — edit it and it becomes yours.");
+                    }
+                    ui.label(RichText::new(&item.text).color(cl::ink::STRONG));
+                    for cluster in &doc.clusters {
+                        let into = ui.small_button(cluster.label.as_str());
+                        let into = cl::tip(into, "Sort this idea into the group.");
+                        if into.clicked() {
+                            intents.push(ChatWindowIntent::Brainstorm(
+                                BrainstormOp::AssignCluster {
+                                    id: item.id.clone(),
+                                    cluster: Some(cluster.id.clone()),
+                                },
+                            ));
+                        }
+                    }
+                });
+            }
+            ui.add_space(4.0);
+        }
+        for cluster in &doc.clusters {
+            let heading = ui.label(
+                RichText::new(&cluster.label)
+                    .strong()
+                    .color(Tone::Cyan.color()),
+            );
+            let mut metadata = NodeMetadata::new(
+                BRAINSTORM_CLUSTER_ID.child(&PilotKey::new(cluster.id.clone())),
+                Role::Status,
+                "Brainstorm group",
+            );
+            metadata.value = Some(cluster.label.clone());
+            ui.pilot_track(&heading, metadata);
+            self.brainstorm_items(ui, intents, doc, Some(cluster.id.as_str()));
+        }
+        ui.horizontal(|ui| {
+            let edit = ui.add(
+                egui::TextEdit::singleline(&mut self.brainstorm_cluster_draft)
+                    .hint_text("Name a group…")
+                    .desired_width((ui.available_width() - 130.0).max(120.0)),
+            );
+            cl::tip(edit, "Groups become the beats of your storyboard.");
+            let ready = !self.brainstorm_cluster_draft.trim().is_empty();
+            let add = ui.add_enabled(ready, egui::Button::new("Add group"));
+            let add = cl::tip(add, "Add this group to sort into.");
+            if add.clicked() {
+                let label = std::mem::take(&mut self.brainstorm_cluster_draft);
+                let id = kebab_of(&label);
+                intents.push(ChatWindowIntent::Brainstorm(BrainstormOp::AddCluster {
+                    id,
+                    label,
+                }));
+            }
+        });
+    }
+
+    /// The Converge read-through: groups in order, their ideas beneath —
+    /// what Promote will turn into intake answers.
+    fn brainstorm_converged(&mut self, ui: &mut egui::Ui, doc: &dpl_workflows::BrainstormDoc) {
+        for cluster in &doc.clusters {
+            ui.label(
+                RichText::new(&cluster.label)
+                    .strong()
+                    .color(Tone::Cyan.color()),
+            );
+            for item in doc
+                .items
+                .iter()
+                .filter(|i| i.cluster.as_deref() == Some(cluster.id.as_str()))
+            {
+                ui.label(RichText::new(format!("  · {}", item.text)).color(cl::ink::STRONG));
+            }
+        }
+    }
+
+    fn brainstorm_footer(
+        &mut self,
+        ui: &mut egui::Ui,
+        intents: &mut Vec<ChatWindowIntent>,
+        doc: &dpl_workflows::BrainstormDoc,
+    ) {
+        use dpl_workflows::BrainstormPhase;
+        ui.horizontal(|ui| {
+            if doc.phase == BrainstormPhase::Converge {
+                let promote = ui.add(egui::Button::new("Promote to intake"));
+                let promote = cl::tip(
+                    promote,
+                    "Distill the board into explainer-intake answers, staged for the guided flow.",
+                );
+                ui.pilot_track(
+                    &promote,
+                    NodeMetadata::new(BRAINSTORM_PROMOTE_ID, Role::Button, "Promote brainstorm"),
+                );
+                if promote.clicked() {
+                    intents.push(ChatWindowIntent::PromoteBrainstorm);
+                }
+            } else {
+                if doc.phase == BrainstormPhase::Diverge && self.assist_enabled {
+                    let suggest = ui.add(egui::Button::new("✦ Suggest ideas"));
+                    let suggest = cl::tip(
+                        suggest,
+                        "Ask the assist for angles on your seed — proposals arrive marked, editable, yours to keep or cut.",
+                    );
+                    ui.pilot_track(
+                        &suggest,
+                        NodeMetadata::new(
+                            BRAINSTORM_SUGGEST_ID,
+                            Role::Button,
+                            "Suggest brainstorm ideas",
+                        ),
+                    );
+                    if suggest.clicked() {
+                        intents.push(ChatWindowIntent::BrainstormAssist);
+                    }
+                }
+                let label = match doc.phase {
+                    BrainstormPhase::Diverge => "Start grouping",
+                    _ => "Lock the order",
+                };
+                let advance = ui.add(egui::Button::new(label));
+                let advance = cl::tip(
+                    advance,
+                    "Step the board to its next phase — it will say what's missing.",
+                );
+                ui.pilot_track(
+                    &advance,
+                    NodeMetadata::new(BRAINSTORM_ADVANCE_ID, Role::Button, "Advance brainstorm"),
+                );
+                if advance.clicked() {
+                    intents.push(ChatWindowIntent::Brainstorm(
+                        dpl_workflows::BrainstormOp::AdvancePhase,
+                    ));
+                }
+            }
+        });
     }
 
     fn current_draft(&self) -> String {
@@ -5895,6 +6698,77 @@ mod tests {
     }
 
     #[test]
+    fn the_brainstorm_trigger_is_whole_buffer_only() {
+        let slug = |d: &str| recognize_command(d).map(|c| c.slug);
+        assert_eq!(slug("brainstorming").as_deref(), Some("brainstorm"));
+        assert_eq!(slug("  Brainstorm  ").as_deref(), Some("brainstorm"));
+        assert_eq!(slug("/brainstorm").as_deref(), Some("brainstorm"));
+        assert_eq!(
+            slug("let's do some brainstorming"),
+            None,
+            "pattern-in-string never escalates (the provenance law)"
+        );
+        assert_eq!(slug("/brainstorming"), None, "unknown /x stays text");
+        assert_eq!(slug(""), None);
+    }
+
+    #[test]
+    fn brainstorm_intents_cross_to_the_host_verbatim() {
+        let fixture = dpl_chat_testkit::authored_chat();
+        let mut window = ChatWindow::with_models(
+            ChatRuntime::try_from_registrations(fixture.providers).expect("runtime"),
+            ROUTE,
+            &HistoryCatalog::default(),
+            vec![("Library".into(), ROUTE)],
+            fixture.social,
+            InteractionRegistry::default(),
+        );
+        assert_eq!(
+            window.apply(ChatWindowIntent::StartBrainstorm).expect("ok"),
+            Some(HostIntent::StartBrainstorm)
+        );
+        let op = dpl_workflows::BrainstormOp::Seed {
+            seed: "the idea".into(),
+        };
+        assert_eq!(
+            window
+                .apply(ChatWindowIntent::Brainstorm(op.clone()))
+                .expect("ok"),
+            Some(HostIntent::Brainstorm(op))
+        );
+        assert_eq!(
+            window
+                .apply(ChatWindowIntent::PromoteBrainstorm)
+                .expect("ok"),
+            Some(HostIntent::PromoteBrainstorm)
+        );
+    }
+
+    #[test]
+    fn observe_brainstorm_projects_the_board_verbatim() {
+        let fixture = dpl_chat_testkit::authored_chat();
+        let mut window = ChatWindow::with_models(
+            ChatRuntime::try_from_registrations(fixture.providers).expect("runtime"),
+            ROUTE,
+            &HistoryCatalog::default(),
+            vec![("Library".into(), ROUTE)],
+            fixture.social,
+            InteractionRegistry::default(),
+        );
+        assert!(window.brainstorm().doc.is_none());
+        let scaffold = dpl_workflows::brainstorm_scaffold("breakdown").expect("registered");
+        let doc = dpl_workflows::mint_brainstorm(&scaffold, "proof");
+        window.observe_brainstorm(BrainstormView {
+            doc: Some(doc.clone()),
+            status: Some("Board opened.".into()),
+            can_undo: false,
+            can_redo: true,
+        });
+        assert_eq!(window.brainstorm().doc.as_ref(), Some(&doc));
+        assert!(window.brainstorm().can_redo);
+    }
+
+    #[test]
     fn dismissing_an_approval_queues_its_real_focus_origin() {
         let fixture = dpl_chat_testkit::authored_chat();
         let mut window = ChatWindow::with_models(
@@ -6221,20 +7095,68 @@ mod tests {
 
     #[test]
     fn slash_parse_is_exact_and_whole_buffer() {
+        let privileged = |d: &str| recognize_command(d).and_then(|c| privileged_command(&c));
+        assert_eq!(privileged("/strict"), Some(OperatorSlashCommand::Strict));
         assert_eq!(
-            parse_operator_slash("/strict"),
-            Some(OperatorSlashCommand::Strict)
-        );
-        assert_eq!(
-            parse_operator_slash("  /behavioral  "),
+            privileged("  /behavioral  "),
             Some(OperatorSlashCommand::Behavioral)
         );
         // Buried in a sentence — inert. Pattern-in-string never escalates.
-        assert_eq!(parse_operator_slash("please /strict now"), None);
-        assert_eq!(parse_operator_slash("/strict please"), None);
-        assert_eq!(parse_operator_slash("/stricter"), None);
-        assert_eq!(parse_operator_slash("strict"), None);
-        assert_eq!(parse_operator_slash(""), None);
+        assert_eq!(privileged("please /strict now"), None);
+        assert!(recognize_command("please /strict now").is_none());
+        // Trailing text is NOT the audited command — it recognizes and
+        // then refuses honestly ("takes no arguments"), never escalates.
+        assert_eq!(privileged("/strict please"), None);
+        assert!(recognize_command("/strict please").is_some());
+        assert_eq!(privileged("/stricter"), None);
+        assert!(recognize_command("/stricter").is_none());
+        assert_eq!(privileged("strict"), None);
+        assert_eq!(privileged(""), None);
+    }
+
+    /// THE ENTER-HONESTY PIN (BND1 V7): a consumed keyboard submit that
+    /// cannot send SAYS WHY — the reason lands in `composer_status` (and
+    /// paints under the composer), instead of dying in a disabled
+    /// button's hover tooltip.
+    #[test]
+    fn a_refused_enter_paints_its_reason() {
+        let fixture = dpl_chat_testkit::authored_chat();
+        let window = ChatWindow::with_models(
+            ChatRuntime::try_from_registrations(fixture.providers).expect("runtime"),
+            ROUTE,
+            &HistoryCatalog::default(),
+            vec![("Library".into(), ROUTE)],
+            fixture.social,
+            InteractionRegistry::default(),
+        );
+        let mut harness = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(1040.0, 640.0))
+            .build_ui_state(
+                |ui, window: &mut ChatWindow| {
+                    let _ = window.ui(ui);
+                },
+                window,
+            );
+        harness.run_steps(2);
+        // Focus the composer (the draft is empty — Enter cannot send),
+        // then press bare Enter.
+        harness
+            .ctx
+            .memory_mut(|m| m.request_focus(egui::Id::new("dpl_chat_composer")));
+        harness.run_steps(1);
+        harness.input_mut().events.push(egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        harness.run_steps(2);
+        assert_eq!(
+            harness.state().composer_status(),
+            Some("Type a message first."),
+            "the refusal must be painted, not hover-only"
+        );
     }
 
     #[test]
@@ -6256,7 +7178,12 @@ mod tests {
             repeat: false,
             modifiers,
         });
-        let _ = ctx.run_ui(input, |_| {});
+        // epaint 0.36 PANICS when a `TexturesDelta` is dropped with unapplied
+        // deltas — dropping the whole `FullOutput` on the floor used to be
+        // fine and now is not. This test drives input and paints nothing, so
+        // clearing is the honest disposal rather than pretending to upload.
+        let mut output = ctx.run_ui(input, |_| {});
+        output.textures_delta.clear();
         let submitted = ctx.input_mut(take_composer_submit);
         // Whatever is left is what the text widget would act on.
         let survives = ctx.input(|i| {

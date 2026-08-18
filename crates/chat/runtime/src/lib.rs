@@ -1,7 +1,9 @@
 //! Provider registry and provider-neutral Chat state.
 //!
-//! CH1 contains no process transport. Live provider ownership is blocked on
-//! the Chat provider-runtime ADR.
+//! CH1 contained no process transport, and live provider ownership was
+//! blocked on the Chat provider-runtime ADR. [`seam`] is that seam: one
+//! provider-neutral runtime vocabulary every live provider implements, so the
+//! host drives them all through one path and emits ONE set of signals.
 
 use dpl_ai_core::{
     AccountSummary, ActivationState, Capability, ProviderId, ProviderManifest, RecoveryAction,
@@ -11,6 +13,8 @@ use dpl_chat_core::{
     ChatEvent, ChatEventContent, ChatEventId, ChatSessionId, SessionGroup, SessionState,
     SessionSummary, TurnId,
 };
+pub mod seam;
+
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt;
 

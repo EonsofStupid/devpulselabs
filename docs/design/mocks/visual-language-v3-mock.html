@@ -53,7 +53,7 @@
 
   /* CLAYMORPHIC (base, passive) -- traits.json verbatim: RAISED fill / hairline /
      r16 / light top-left, dark bottom-right / 135deg diffuse tint. Never a button. */
-  .clay{background:var(--raised);border:1px solid var(--hairline);border-radius:16px;color:var(--ink);
+  .clay{position:relative;background:var(--raised);border:1px solid var(--hairline);border-radius:16px;color:var(--ink);
     background-image:linear-gradient(135deg, rgba(24,28,39,.42), transparent 55%);
     box-shadow:inset 0 1px 0 rgba(238,242,249,.08), -6px -6px 16px rgba(238,242,249,.06), 8px 10px 22px rgba(0,0,0,.66)}
   /* clay pill + tile (reference: claymorphism-icons-examples.png) -- DEEP extrusion,
@@ -116,7 +116,7 @@
   .col{flex:1 1 340px;min-width:300px}
   .panel{padding:18px}
   .panel h3{margin:0 0 2px;font-size:15px;color:inherit}
-  .panel .k{font-family:var(--font-mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;opacity:.75}
+  .panel .k,.seedgrid .k,.stopcard .k{font-family:var(--font-mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;opacity:.75}
   .panel p{font-size:12.5px;margin:.5em 0 0;opacity:.9}
   .chiprow{display:flex;gap:14px;flex-wrap:wrap;margin-top:14px}
   .chip{display:inline-flex;align-items:center;gap:8px;padding:9px 13px;font-family:var(--font-mono);font-size:12px;font-weight:700;letter-spacing:.04em}
@@ -243,18 +243,37 @@
 </svg>
 
 <div class="wrap">
-  <div class="eyebrow">DevPULSE Labs &middot; visual-experience POAM &middot; V3 vision mock &middot; for ratification</div>
-  <h1>The <span class="lit">visual language</span> &mdash; icons, bases, mixes</h1>
+  <div class="eyebrow">DevPULSE Labs &middot; visual-experience POAM &middot; V3 vision mock &middot; AMENDED 2026-08-05</div>
+  <h1>The <span class="lit">visual language</span> &mdash; the matrix, materials, seeds</h1>
   <p class="lede">Every color on this page is computed by the REAL ColdLight engine (the same lightness &times; chroma
   curves, floor, and authored overrides as <code>build.rs</code>). Icons are the pinned Lucide set
-  (<code>lucide@1.27.0</code>) &mdash; the same geometry the generated registry will carry. The clay depth, neon
-  ink, comic-brutal texture, and console notes are translated from YOUR reference set
-  (<code>docs/design/references/</code>). Nothing here uses backdrop blur: what you see is what egui can paint.</p>
-  <div class="tagline">bases: NEUBRUTALIST (actionable) &middot; CLAYMORPHIC (passive) &middot; LIQUID GLASS (proposed) &mdash; stacks: CYBER &middot; RETRO</div>
+  (<code>lucide@1.27.0</code>) &mdash; the registry now carries <b>57</b> baked ids over a
+  <b>1,756</b>-icon vendored pool. Nothing here uses backdrop blur: what you see is what egui can paint.</p>
+  <p class="lede" style="margin-top:10px"><b style="color:var(--annotate)">AMENDED 2026-08-05.</b> The original
+  page (2026-07-29) predated the MATRIX. Operator ruling: <i>&ldquo;for now align to v3 visual then but technically
+  both should be in the system in the matrix&rdquo;</i> &mdash; so the matrix is the spine and this page now leads
+  with it. Three things changed: <b>liquid glass was never a fifth base</b> (it is <code>material: glass</code>,
+  already authored); <b>materials carry the weight</b> and today three pairs are byte-identical; and a material now
+  has <b>three stops on a scale</b> plus a <b>layer model</b>. Sections 3&ndash;5 are new; the rest stands.</p>
+  <div class="tagline">matrix: ANCESTOR &times; STRUCTURE &times; MATERIAL &times; ATMOSPHERE (+ runtime STATE) &mdash; a theme is a COORDINATE</div>
 
-  <h2>1 &middot; The three bases</h2>
-  <p class="sub">Neubrutalist and claymorphic are ratified trait data today. Liquid glass is the NEW base this mock
-  proposes: translucent overlay fill, specular top edge, painted diagonal sheen &mdash; floats over mood washes.</p>
+  <h2>1 &middot; The matrix &mdash; the spine</h2>
+  <p class="sub">A theme is not a hand-authored bundle; it is a <b>coordinate</b> across four independent facets
+  (Ranganathan&rsquo;s faceted classification, <code>docs/design/coldlight-matrix.md</code>). Each facet owns
+  specific axes, and the partition is total and disjoint &mdash; which is what lets the compositor stay unchanged.
+  <b>8 ancestors &times; 21 facet values = 168 legality rulings</b>, every one authored and build-enforced today.</p>
+  <div class="row" id="facets"></div>
+  <p class="sub" style="margin-top:12px"><b>Legality is DATA, not taste.</b> Every ancestor rules on every facet
+  value as <code>native</code> / <code>allowed</code> / <code>forbidden</code>; an unclassified value fails the
+  build. That is what stops the matrix rotting as values are added &mdash; and it is why only <b>aero</b> can wear
+  glass.</p>
+
+  <h2>2 &middot; The bases, reclassified</h2>
+  <p class="sub">Neubrutalist and claymorphic are ratified trait data today. Under the matrix they are no longer
+  &ldquo;bases&rdquo; but COORDINATES: <code>neubrutalist</code> = <code>brutalist &middot; massive &middot; raw
+  &middot; hard-cast</code>, <code>claymorphic</code> = <code>aero &middot; rounded &middot; clay &middot; bloom</code>.
+  Liquid glass is the third card only because the 2026-07-29 page put it here &mdash; it is a MATERIAL, corrected
+  below.</p>
   <div class="row">
     <div class="col panel brutal tone-cyan">
       <span class="badge">trait data &middot; law</span>
@@ -285,9 +304,12 @@
       <p style="font-size:11px;opacity:.75">From your reference: DEEP clay + neon ink turns the pill actionable &mdash; the doctrine question in &sect;6.</p>
     </div>
     <div class="col panel glass">
-      <span class="badge new">PROPOSED &middot; new trait</span>
-      <h3>Liquid glass</h3><span class="k">base &middot; floating</span>
-      <p>Translucent pane with a specular top edge and a painted sheen band. Reads as glass WITHOUT blurring what's behind &mdash; alpha + gradients only, so it costs nothing and obeys the no-blur doctrine.</p>
+      <span class="badge">RESOLVED &middot; a MATERIAL</span>
+      <h3>Liquid glass</h3><span class="k">material &middot; not a base</span>
+      <p>Translucent pane, specular top edge, painted sheen band &mdash; glass WITHOUT blurring what is behind, so it
+      obeys the no-blur doctrine. <b>The 2026-07-29 page proposed this as a fifth trait; that was wrong.</b> It is
+      <code>material: glass</code> in <code>tokens/matrix.json</code> and has been authored all along &mdash; the
+      four-trait system simply had no vocabulary for it.</p>
       <div class="chiprow">
         <span class="chip glass"><svg style="color:var(--cyan-ice-300)"><use href="#i-monitor-play"/></svg>overlay chrome</span>
         <span class="chip glass"><svg style="color:var(--ink-strong)"><use href="#i-scan"/></svg>capture HUD</span>
@@ -295,7 +317,103 @@
     </div>
   </div>
 
-  <h2>2 &middot; The mixes</h2>
+<style>
+  .mtable{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+  .mtable th{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--ink-subtle);text-align:left;padding:5px 8px;border-bottom:1px solid var(--hairline)}
+  .mtable td{padding:5px 8px;border-bottom:1px solid rgba(35,40,54,.5);font-family:var(--font-mono);font-size:11px}
+  .mtable td.id{color:var(--ink-strong)}
+  .dupe{color:#e6b98a}
+  .stops3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:10px}
+  .stopcard{background:var(--base);border:1px solid var(--hairline);border-radius:8px;padding:12px}
+  .stopcard.def{border-color:#3c6d80}
+  .stopdemo{border-radius:7px;padding:18px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+    background:linear-gradient(140deg,#0d1524,#170f22 60%,#1d0f18);border:1px solid var(--hairline)}
+  .gcomp{position:relative;isolation:isolate;display:inline-flex;align-items:center;gap:8px;padding:9px 14px;
+    border-radius:var(--g-rad);background:var(--g-fill);border:var(--g-ew) solid var(--g-edge);
+    box-shadow:var(--g-elev),var(--g-glow);font-family:var(--font-mono);font-size:11.5px;font-weight:700;
+    letter-spacing:.05em;color:var(--g-ink)}
+  .gcomp::before{content:"";position:absolute;inset:0;border-radius:inherit;z-index:-1;background:var(--g-sheen)}
+  .gcomp svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round}
+  .seedgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:10px}
+  .shellm{height:250px;display:flex;flex-direction:column;overflow:hidden;background:var(--w-ground);
+    border:var(--w-sw) solid var(--w-shelledge);border-radius:var(--w-rad)}
+  .shellm .barm{flex:none;padding:var(--w-barpad);background:var(--w-bar);color:var(--w-barink);
+    border-bottom:var(--w-ew) solid var(--w-edge);font-family:var(--w-font);font-size:var(--w-barsize);
+    font-weight:var(--w-barweight);text-transform:var(--w-case);letter-spacing:var(--w-track)}
+  .shellm .barm.bot{border-bottom:none;border-top:var(--w-ew) solid var(--w-edge);margin-top:auto;
+    color:var(--w-mutedink);font-size:calc(var(--w-barsize) - 1px)}
+  .shellm .bodym{flex:1;padding:11px;display:flex;flex-direction:column;gap:9px;overflow:hidden}
+  .wbtn{display:inline-flex;align-items:center;gap:6px;padding:var(--w-btnpad);font-family:var(--w-font);
+    font-size:var(--w-btnsize);font-weight:var(--w-btnweight);text-transform:var(--w-case);
+    letter-spacing:var(--w-track);color:var(--w-btnink);background:var(--w-btnfill);
+    border:var(--w-ew) solid var(--w-btnedge);border-radius:var(--w-rad);box-shadow:var(--w-elev)}
+  .wbtn.sel{background:var(--w-selfill);color:var(--w-selink);border-color:var(--w-seledge)}
+  .wplate{padding:8px 10px;background:var(--w-plate);border:var(--w-ew) solid var(--w-edge);
+    border-radius:var(--w-rad);box-shadow:var(--w-plateelev);font-family:var(--w-font);
+    font-size:11px;color:var(--w-ink)}
+  .layers{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+  .laybox{border:1px dashed var(--hairline);border-radius:7px;padding:9px 12px;font-family:var(--font-mono);
+    font-size:10.5px;color:var(--ink-muted)}
+  .laybox b{color:var(--ink-strong);display:block;font-size:11px;margin-bottom:3px}
+  .laybox.law{border-style:solid;border-color:#3c6d80}
+  .statepills{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .sp{font-family:var(--font-mono);font-size:10px;border:1px solid var(--hairline);border-radius:4px;
+    padding:3px 8px;color:var(--ink-muted)}
+  .sp.grp{color:var(--cyan-300);border-color:#2f5c6d}
+</style>
+
+  <h2>3 &middot; Materials &mdash; the contract, and the weight it is missing</h2>
+  <p class="sub">The operator&rsquo;s ruling: <b>the material IS the contract &mdash; that is what binds the impact.</b>
+  Pick <code>glass</code> and it binds what a component can be. But a material today declares only three keys, so
+  <b>three pairs are byte-identical</b> &mdash; nine names, six actual materials. The blurbs promise concrete, chrome,
+  high-gloss; the data delivers two colours and a border.</p>
+  <table class="mtable">
+    <tr><th>material</th><th>fill</th><th>ink</th><th>edge_color</th><th>verdict</th></tr>
+    <tr><td class="id">matte</td><td>{tone:400}</td><td>{WELL}</td><td>{tone:700}</td><td></td></tr>
+    <tr><td class="id">raw</td><td>{tone:400}</td><td>{WELL}</td><td>{tone:700}</td><td class="dupe">== matte</td></tr>
+    <tr><td class="id">metallic</td><td>{OVERLAY}</td><td>{STRONG}</td><td>{tone:200}</td><td></td></tr>
+    <tr><td class="id">glass</td><td>{OVERLAY}</td><td>{STRONG}</td><td>{tone:200}</td><td class="dupe">== metallic</td></tr>
+    <tr><td class="id">paper</td><td>{RAISED}</td><td>{BASE}</td><td>{HAIRLINE}</td><td></td></tr>
+    <tr><td class="id">clay</td><td>{RAISED}</td><td>{BASE}</td><td>{HAIRLINE}</td><td class="dupe">== paper</td></tr>
+  </table>
+  <p class="sub" style="margin-top:12px">The axes that make a material actually <i>be</i> that material &mdash; every
+  one paintable in egui with zero blur: <code>alpha</code> (the only thing that makes glass glass) &middot;
+  <code>sheen</code> (painted band) &middot; <code>texture</code> (grain / halftone / hatch / brushed / fibre)
+  &middot; <code>rim</code> (top-light / directional band) &middot; <code>depth</code> (flat / extruded / inset)
+  &middot; <code>edge_quality</code> (crisp / bevel / soft). With those, <code>raw</code> is grain+flat+crisp while
+  <code>matte</code> is none+flat+crisp &mdash; genuinely different.</p>
+
+  <h2>4 &middot; Three stops on one scale &mdash; GLASS worked through</h2>
+  <p class="sub">A material carries <b>three configured presets that define a scale</b>; everything between is
+  interpolated, so a component sits anywhere without minting a new preset (Apple ships this exact model as
+  ultraThin/thin/regular/thick). <b>Default is the operator&rsquo;s preferred baseline: hard elevation, crisp edge,
+  no glow.</b></p>
+  <div class="stops3" id="glassstops"></div>
+
+  <h2>5 &middot; Layers &amp; states &mdash; the component contract</h2>
+  <p class="sub">A component is <b>two layers</b>. Surface motion rides layer 0 only &mdash; the label never moves.
+  States are <b>conditions</b>; the knobs set the <b>values</b> that activate when a condition is met, and every
+  knob is bounded by schema (glow radius <code>0&ndash;24px</code>, refused outside).</p>
+  <div class="layers">
+    <div class="laybox"><b>layer 0 &mdash; surface</b>fill &middot; alpha &middot; edge &middot; elevation &middot; sheen &middot; texture &middot; motion</div>
+    <div class="laybox"><b>layer 1 &mdash; content</b>ink &middot; font &middot; case &middot; tracking &middot; interaction shift</div>
+    <div class="laybox law"><b>the law</b>motion rides layer 0 ONLY;<br>the chip/label is its own layer on top</div>
+  </div>
+  <div class="statepills">
+    <span class="sp grp">interaction</span><span class="sp">isHovered</span><span class="sp">isPressed</span><span class="sp">isFocusVisible</span>
+    <span class="sp grp">status</span><span class="sp">isInvalid</span><span class="sp">isDisabled</span><span class="sp">isReadOnly</span>
+    <span class="sp grp">structure</span><span class="sp">isSelected</span><span class="sp">isOpen</span><span class="sp">isExpanded</span>
+  </div>
+
+  <h2>6 &middot; BRUTALIST &mdash; one category, three seeds</h2>
+  <p class="sub">Brutalist is a <b>category</b> that breaks out to three seeds. The shell is the same skeleton in
+  every one &mdash; <b>rectangles across the top and bottom</b>, body between &mdash; so what changes is purely the
+  seed&rsquo;s formula, not a code path. Selecting a seed on a container <b>cascades to its children</b>, and a child
+  may still override with its own material (glass inside brutalist).</p>
+  <div class="seedgrid" id="brutseeds"></div>
+
+  <h2>7 &middot; The mixes</h2>
   <p class="sub">Stacks ride on bases &mdash; override axes last-wins (edge, radius, ink), additive axes concatenate
   (glows, washes, scanlines). These three are the operator-named mixtures, shown over a live mood wash.</p>
   <div class="stage" id="mix-stage">
@@ -331,7 +449,7 @@
     </div>
   </div>
 
-  <h2>3 &middot; The icon language &mdash; 24 meanings, every treatment</h2>
+  <h2>8 &middot; The icon language &mdash; every meaning, every treatment</h2>
   <p class="sub">The Lucide geometry, tinted per hub tone, switched through the treatments. This is the registry
   the rail (V3b) and chrome will consume &mdash; click the modes.</p>
   <div class="modes" id="modes">
@@ -346,7 +464,7 @@
   </div>
   <div class="grid" data-mode="plain" id="icon-grid"></div>
 
-  <h2>4 &middot; The rail, wearing it (V3b + V4 preview)</h2>
+  <h2>9 &middot; The rail, wearing it (V3b + V4 preview)</h2>
   <p class="sub">Icon-only rail as ACTUAL clear buttons over the WELL &mdash; pick a lane: <b>A</b> neubrutalist per-hub
   tone, or <b>B</b> the deep-clay neon tiles from your reference. Content floats on a static mood wash &mdash; a clay
   card and a glass pane side by side. First frame is the finished look.</p>
@@ -387,12 +505,12 @@
     </div>
   </div>
 
-  <h2>5 &middot; The ten moods &mdash; static washes (V1/V2 raw material)</h2>
+  <h2>10 &middot; The ten moods &mdash; static washes (V1/V2 raw material)</h2>
   <p class="sub">The authored mood registry, rendered as the static washes every non-Home route gets. Cards derive
   their backgrounds from these &mdash; animation stays a Home privilege.</p>
   <div class="moodrow" id="moods"></div>
 
-  <h2>6 &middot; What ratifying this mock means</h2>
+  <h2>11 &middot; What ratifying this mock means</h2>
   <ul class="notes">
     <li><span class="law">Already law:</span> neubrutalist, claymorphic, cyber, retro are trait DATA (<code>tokens/traits.json</code>) &mdash; the mixes above are <code>compose()</code> doing what it already does. No new machinery.</li>
     <li><span class="new">NEW &mdash; liquid glass:</span> one added base trait (translucent fill + specular edge + sheen tint). Needs a small vocabulary addition: a specular-edge axis or a sheen element. Authored as data, regenerated &mdash; never hand-rolled.</li>
@@ -400,6 +518,22 @@
     <li><span class="law">Doctrine holds:</span> zero real blur anywhere on this page &mdash; glows are ring falloffs, glass is alpha + gradients, scanlines are painted lines. Everything here is first-frame cheap in egui.</li>
     <li><span class="law">Translated from your references</span> (<code>docs/design/references/</code>): clay goes DEEPER &mdash; rim light, heavier extrusion, NEON INK (painted multi-copy bloom, never a blur pass) &mdash; the pills and rail option B; neubrutalist gains the comic energy &mdash; bevel slabs, halftone print texture, starburst glow (all painted); the metal machine-console look (<code>claymorphism-cyber.png</code>) is a candidate flavor for the Present / show-machine surface, its own later pass; the two editor shots map to flat wells + liquid-glass/cyber chrome + glow spotlights (WiredFRONT, Guide Workbench).</li>
     <li><span class="law">RULED (operator, 2026-07-30): clay IS a button.</span> The "clay is never a button" line was the port's inference, never operator law &mdash; retired in <code>doctrine.md</code>. Both bases are actionable: brutal presses ONTO its shadow, clay sinks INTO its extrusion, neon ink carries clay's tappability. Clay hover/active state data lands in <code>traits.json</code> with the trait pass.</li>
+    <li><span class="new">AMENDED 2026-08-05 &mdash; THE MATRIX IS THE SPINE.</span> Operator ruling. Both
+      visual languages live in it as COORDINATES; neither is deleted. Align to v3 now; the editor-mock palette
+      becomes its own coordinate later. A preset is <i>a named coordinate plus the facets left free</i>.</li>
+    <li><span class="new">AMENDED 2026-08-05 &mdash; liquid glass was never a base.</span> It is
+      <code>material: glass</code>, authored in <code>tokens/matrix.json</code> since the matrix landed. &sect;2&rsquo;s
+      third card is corrected. The real gap is that the matrix has <b>no resolver</b>:
+      <code>resolve(&amp;Coordinate, state)</code> does not exist and <code>generate_matrix</code> emits 765 bytes of
+      id lists, discarding every authored value (<code>docs/plans/matrix-resolve.md</code>).</li>
+    <li><span class="new">AMENDED 2026-08-05 &mdash; the editor&rsquo;s coordinate.</span>
+      <code>aero &middot; measured &middot; neon-glass &middot; neon</code>, legality-checked: only <b>aero</b>
+      permits glass. This is the reading of &ldquo;flat wells + liquid-glass/cyber chrome + glow spotlights&rdquo;.</li>
+    <li><span class="new">AMENDED 2026-08-05 &mdash; claymorphism-cyber belongs to WORKBENCH,</span> not
+      Present/show-machine as the 2026-07-29 text said. Operator&rsquo;s word supersedes. <b>Present is now
+      unassigned.</b></li>
+    <li><span class="new">OPEN &mdash; materials carry no weight yet.</span> Three pairs byte-identical (&sect;3).
+      The axes are proposed, not authored; each of the nine gets researched and rendered one at a time.</li>
     <li><span class="law">Sequence after ratification:</span> V3a (registry + variants, no UI) &rarr; V3b+V4 (the rail wears icons as clear buttons) &rarr; liquid-glass trait pass &rarr; V5 Home showcase composes all of it.</li>
   </ul>
 
@@ -500,6 +634,108 @@ document.getElementById("modes").addEventListener("click",e=>{
   const b=e.target.closest(".mode");if(!b)return;
   document.querySelectorAll(".mode").forEach(m=>m.classList.toggle("on",m===b));
   grid.dataset.mode=b.dataset.mode;
+});
+
+/* ===================== AMENDED 2026-08-05 ===================== */
+const V=(n)=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const mixc=(c,a)=>a>=1?c:`color-mix(in oklab, ${c} ${Math.round(a*100)}%, transparent)`;
+
+/* --- §1 the four facets, from tokens/matrix.json --- */
+const FACETS=[
+ ["ANCESTOR","Personality","owns <code>font</code> + the natives for every other facet",
+  "bauhaus · art-deco · brutalist · swiss · aero · memphis · constructivist · editorial"],
+ ["STRUCTURE","Space","owns <code>radius</code>, <code>edge.width</code>",
+  "rectilinear · stepped · massive · measured · rounded · pill"],
+ ["MATERIAL","Matter","owns <code>fill</code>, <code>ink</code>, <code>edge.color</code>",
+  "matte · raw · lacquer · metallic · paper · glass · clay · neon-glass · amber-crt"],
+ ["ATMOSPHERE","Energy","owns <code>shadows</code>, <code>back_glow</code>, <code>tints</code>, <code>anim</code>",
+  "none · hard-cast · sheen · bloom · neon · scanline"]];
+document.getElementById("facets").innerHTML=FACETS.map(([id,pmest,owns,vals])=>
+ `<div class="col panel clay" style="flex:1 1 240px;min-width:220px">
+    <h3 style="color:var(--ink-strong)">${id}</h3><span class="k">${pmest}</span>
+    <p style="margin-top:6px">${owns}</p>
+    <p style="font-size:11px;opacity:.8;font-family:var(--font-mono);line-height:1.6">${vals}</p>
+  </div>`).join("");
+
+/* --- §4 GLASS: three authored stops on one scale --- */
+const GSTOPS=[
+ {l:"Thin",t:"stop 0",why:"Chrome that must not compete — HUD overlays, transient palettes.",
+  a:.34,es:200,ea:.45,ew:1,r:4,el:[2,2],sh:.06,ink:200,glow:0},
+ {l:"Default",t:"preferred",def:1,why:"Hard elevation, crisp edge, no glow. What every component gets unless it earns more.",
+  a:.55,es:200,ea:.85,ew:1,r:4,el:[3,3],sh:.10,ink:100,glow:0},
+ {l:"Thick",t:"stop 2",why:"Dense and lit — the primary action, or the surface that must read as focus.",
+  a:.72,es:400,ea:1,ew:1.5,r:4,el:[4,4],sh:.16,ink:100,glow:14}];
+document.getElementById("glassstops").innerHTML=GSTOPS.map((s,i)=>
+ `<div class="stopcard${s.def?" def":""}">
+    <h3 style="margin:0;font-size:14px;color:var(--ink-strong)">${s.l}
+      <span class="badge" style="position:static;margin-left:6px">${s.t}</span></h3>
+    <p style="font-size:11.5px;color:var(--ink-muted);margin:6px 0 10px;min-height:40px">${s.why}</p>
+    <div class="stopdemo" id="gs-${i}">
+      <span class="gcomp"><svg><use href="#i-monitor-play"/></svg>RENDER</span>
+    </div>
+  </div>`).join("");
+GSTOPS.forEach((s,i)=>{
+  const d=document.getElementById("gs-"+i), st=(n)=>V(`--cyan-${n}`);
+  d.style.setProperty("--g-fill", mixc(V("--overlay"), s.a));
+  d.style.setProperty("--g-edge", mixc(st(s.es), s.ea));
+  d.style.setProperty("--g-ew", s.ew+"px");
+  d.style.setProperty("--g-rad", s.r+"px");
+  d.style.setProperty("--g-ink", st(s.ink));
+  d.style.setProperty("--g-elev", `${s.el[0]}px ${s.el[1]}px 0 0 rgba(0,0,0,.90)`);
+  d.style.setProperty("--g-glow", s.glow? `0 0 0 4px ${mixc(st(400),.22)}, 0 0 0 9px ${mixc(st(600),.11)}` : "none");
+  d.style.setProperty("--g-sheen", `linear-gradient(115deg,transparent 38%,${mixc("#ffffff",s.sh)} 48%,transparent 58%)`);
+});
+
+/* --- §6 BRUTALIST: one category, three seeds --- */
+const BSEEDS=[
+ {id:"neo",l:"Neo-Brute",k:"the 2020s web revival",tone:"lime",
+  why:"Fat black borders, big hard offset shadows, saturated flat fills, heavy grotesque caps.",
+  v:{"--w-font":'system-ui,sans-serif',"--w-case":"uppercase","--w-track":".04em","--w-rad":"2px",
+     "--w-ew":"3px","--w-sw":"3px","--w-ground":"#0d1014","--w-bar":T=>V(`--${T}-400`),"--w-barink":"#07090e",
+     "--w-shelledge":"#000","--w-edge":"#000","--w-mutedink":"#0b0e12","--w-barpad":"9px 12px",
+     "--w-barsize":"12px","--w-barweight":"800","--w-btnpad":"8px 13px","--w-btnsize":"11.5px",
+     "--w-btnweight":"800","--w-btnfill":"#eef2f9","--w-btnink":"#07090e","--w-btnedge":"#000",
+     "--w-elev":"6px 6px 0 0 #000","--w-plate":"#11141d","--w-plateelev":"5px 5px 0 0 #000",
+     "--w-ink":"#c2c9d6","--w-selfill":T=>V(`--${T}-400`),"--w-selink":"#07090e","--w-seledge":"#000"}},
+ {id:"hack",l:"Dev / Hacker-Brute",k:"the terminal",tone:"cyan",
+  why:"Monospace everything, hairline rules, zero radius, zero shadow. Density IS the aesthetic.",
+  v:{"--w-font":'ui-monospace,Consolas,monospace',"--w-case":"none","--w-track":".02em","--w-rad":"0px",
+     "--w-ew":"1px","--w-sw":"1px","--w-ground":"#07090e","--w-bar":"#0a0c12","--w-barink":T=>V(`--${T}-300`),
+     "--w-shelledge":T=>mixc(V(`--${T}-700`),.85),"--w-edge":T=>mixc(V(`--${T}-800`),.9),
+     "--w-mutedink":"#5b6478","--w-barpad":"5px 9px","--w-barsize":"11px","--w-barweight":"500",
+     "--w-btnpad":"4px 9px","--w-btnsize":"11px","--w-btnweight":"500","--w-btnfill":"transparent",
+     "--w-btnink":T=>V(`--${T}-300`),"--w-btnedge":T=>mixc(V(`--${T}-700`),.9),"--w-elev":"none",
+     "--w-plate":"#0a0c12","--w-plateelev":"none","--w-ink":"#8a93a6",
+     "--w-selfill":T=>mixc(V(`--${T}-500`),.22),"--w-selink":T=>V(`--${T}-100`),"--w-seledge":T=>V(`--${T}-400`)}},
+ {id:"retro",l:"Retro OS Brute",k:"Win95 / System 7",tone:"graphite",
+  why:"Beveled chrome — light top-left, dark bottom-right. The bevel IS the button.",
+  v:{"--w-font":'system-ui,Tahoma,sans-serif',"--w-case":"none","--w-track":"0","--w-rad":"0px",
+     "--w-ew":"2px","--w-sw":"2px","--w-ground":"#2a2c30","--w-bar":"#3a3d43","--w-barink":"#eef2f9",
+     "--w-shelledge":"#0a0c12","--w-edge":"#16181c","--w-mutedink":"#c2c9d6","--w-barpad":"5px 9px",
+     "--w-barsize":"12px","--w-barweight":"700","--w-btnpad":"6px 13px","--w-btnsize":"12px",
+     "--w-btnweight":"400","--w-btnfill":"#c9cdd4","--w-btnink":"#0a0c12","--w-btnedge":"#0a0c12",
+     "--w-elev":"inset -2px -2px 0 0 #6e737c, inset 2px 2px 0 0 #f4f6fa, 1px 1px 0 0 #0a0c12",
+     "--w-plate":"#c9cdd4","--w-plateelev":"inset -2px -2px 0 0 #6e737c, inset 2px 2px 0 0 #f4f6fa",
+     "--w-ink":"#2a2c30","--w-selfill":"#1e3f6b","--w-selink":"#fff","--w-seledge":"#0a0c12"}}];
+document.getElementById("brutseeds").innerHTML=BSEEDS.map(s=>
+ `<div>
+    <h3 style="margin:0;font-size:14px;color:var(--ink-strong)">${s.l}</h3>
+    <span class="k">${s.k}</span>
+    <p style="font-size:11.5px;color:var(--ink-muted);margin:6px 0 9px;min-height:44px">${s.why}</p>
+    <div class="shellm" id="bs-${s.id}">
+      <div class="barm">WiredFRONT — Editor</div>
+      <div class="bodym">
+        <div style="display:flex;gap:7px;flex-wrap:wrap">
+          <span class="wbtn">Render</span><span class="wbtn sel">Save</span></div>
+        <div class="wplate">Composition · 5 layers · 0:34</div>
+        <div style="margin-top:auto"><span class="chip glass" style="font-size:10px">glass, nested</span></div>
+      </div>
+      <div class="barm bot">Saved · autosave on</div>
+    </div>
+  </div>`).join("");
+BSEEDS.forEach(s=>{
+  const el=document.getElementById("bs-"+s.id);
+  for(const [k,v] of Object.entries(s.v)) el.style.setProperty(k, typeof v==="function"? v(s.tone): v);
 });
 </script>
 </body>

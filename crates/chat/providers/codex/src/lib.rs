@@ -1,9 +1,14 @@
-//! Codex provider descriptor.
+//! Codex provider descriptor, activation coordinator, and conversation
+//! transport.
 //!
-//! Live app-server integration is CH4. The runtime exception is ratified, but
-//! process launch stays fail-closed until every ADR launch gate passes.
+//! `runtime.rs` speaks `codex app-server` (JSON-RPC over stdio) and implements
+//! the provider seam, so the host drives Codex through the same path it drives
+//! every other live provider. Both the probes and the app-server child are
+//! built by `activation::profiled_command`, so they cannot drift into
+//! different environments.
 
 mod activation;
+pub mod runtime;
 
 pub use activation::{
     CodexActivationCoordinator, CodexActivationError, CodexDiscoveryError, CodexLoginExit,

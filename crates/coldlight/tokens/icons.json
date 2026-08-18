@@ -1,5 +1,5 @@
 {
-  "$comment": "The 8th authored source (ADR-015): semantic icon ids resolved from the vendored Lucide 1.27.0 pool (assets/lucide/icons). One entry per MEANING \u2014 the same law the old glyph consts carried. An entry whose SVG is missing fails the build.",
+  "$comment": "The 8th authored source (ADR-015): semantic icon ids resolved from the vendored Lucide 1.27.0 pool (assets/lucide/icons). One entry per MEANING — the same law the old glyph consts carried. An entry whose SVG is missing fails the build.",
   "icons": [
     {
       "id": "home",
@@ -150,6 +150,222 @@
       "lucide": "brain",
       "label": "Providers",
       "blurb": "the frontier AI on this machine"
+    },
+    {
+      "id": "tool-select",
+      "lucide": "mouse-pointer-2",
+      "label": "Select",
+      "blurb": "pick and move things"
+    },
+    {
+      "id": "tool-hand",
+      "lucide": "hand",
+      "label": "Hand",
+      "blurb": "pan the view"
+    },
+    {
+      "id": "tool-pen",
+      "lucide": "pen-tool",
+      "label": "Pen",
+      "blurb": "draw masks and paths"
+    },
+    {
+      "id": "tool-camera",
+      "lucide": "video",
+      "label": "Camera",
+      "blurb": "orbit the 3D view"
+    },
+    {
+      "id": "tool-text",
+      "lucide": "type",
+      "label": "Text",
+      "blurb": "type on the comp"
+    },
+    {
+      "id": "tool-null",
+      "lucide": "crosshair",
+      "label": "Null object",
+      "blurb": "a handle other layers can be parented to"
+    },
+    {
+      "id": "tool-precomp",
+      "lucide": "group",
+      "label": "Pre-compose",
+      "blurb": "nest the chosen layers as one"
+    },
+    {
+      "id": "tool-track",
+      "lucide": "scan-line",
+      "label": "Tracker",
+      "blurb": "follow motion and pin layers to it"
+    },
+    {
+      "id": "tool-mblur",
+      "lucide": "aperture",
+      "label": "Motion blur",
+      "blurb": "smear fast movement the way a real camera does"
+    },
+    {
+      "id": "tool-3d",
+      "lucide": "box",
+      "label": "3D",
+      "blurb": "give layers depth in space"
+    },
+    {
+      "id": "transport-start",
+      "lucide": "skip-back",
+      "label": "Jump to start",
+      "blurb": "go to the very beginning"
+    },
+    {
+      "id": "transport-back",
+      "lucide": "rewind",
+      "label": "Step back",
+      "blurb": "nudge backwards one second"
+    },
+    {
+      "id": "transport-play",
+      "lucide": "play",
+      "label": "Play",
+      "blurb": "start playing from here"
+    },
+    {
+      "id": "transport-pause",
+      "lucide": "pause",
+      "label": "Pause",
+      "blurb": "hold here"
+    },
+    {
+      "id": "transport-forward",
+      "lucide": "fast-forward",
+      "label": "Step forward",
+      "blurb": "nudge forwards one second"
+    },
+    {
+      "id": "transport-end",
+      "lucide": "skip-forward",
+      "label": "Jump to end",
+      "blurb": "go to the very end"
+    },
+    {
+      "id": "browse",
+      "lucide": "folder-open",
+      "label": "Browse",
+      "blurb": "open a window onto one of your folders"
+    },
+    {
+      "id": "ref-link",
+      "lucide": "link",
+      "label": "Use in place",
+      "blurb": "the file stays where it lives; nothing is copied"
+    },
+    {
+      "id": "ref-copy",
+      "lucide": "copy",
+      "label": "Copy in",
+      "blurb": "a copy is brought into your library"
+    },
+    {
+      "id": "proj-comp",
+      "lucide": "film",
+      "label": "Composition",
+      "blurb": "a sequence you have built"
+    },
+    {
+      "id": "proj-pack",
+      "lucide": "package",
+      "label": "Pack",
+      "blurb": "a pinned folder of elements"
+    },
+    {
+      "id": "proj-video",
+      "lucide": "file-video-camera",
+      "label": "Clip",
+      "blurb": "a piece of video footage"
+    },
+    {
+      "id": "proj-image",
+      "lucide": "image",
+      "label": "Still",
+      "blurb": "a picture"
+    },
+    {
+      "id": "proj-render",
+      "lucide": "videotape",
+      "label": "Render",
+      "blurb": "a finished video this app made"
+    },
+    {
+      "id": "fx",
+      "lucide": "sliders-horizontal",
+      "label": "Overlay",
+      "blurb": "lay this on top at the playhead"
+    },
+    {
+      "id": "search",
+      "lucide": "search",
+      "label": "Search",
+      "blurb": "find something by name"
+    },
+    {
+      "id": "info",
+      "lucide": "info",
+      "label": "Info",
+      "blurb": "the facts about what is selected"
+    },
+    {
+      "id": "zoom-in",
+      "lucide": "zoom-in",
+      "label": "Zoom in",
+      "blurb": "spread the timeline out"
+    },
+    {
+      "id": "zoom-out",
+      "lucide": "zoom-out",
+      "label": "Zoom out",
+      "blurb": "fit more of the timeline on screen"
+    },
+    {
+      "id": "delete",
+      "lucide": "trash-2",
+      "label": "Remove",
+      "blurb": "take this out of the composition"
+    },
+    {
+      "id": "group-open",
+      "lucide": "chevron-down",
+      "label": "Collapse",
+      "blurb": "fold these details away"
+    },
+    {
+      "id": "group-closed",
+      "lucide": "chevron-right",
+      "label": "Expand",
+      "blurb": "show what is inside"
+    },
+    {
+      "id": "layer-visible",
+      "lucide": "eye",
+      "label": "Visible",
+      "blurb": "this layer is showing — tap to hide it"
+    },
+    {
+      "id": "layer-hidden",
+      "lucide": "eye-off",
+      "label": "Hidden",
+      "blurb": "this layer is hidden — tap to show it again"
+    },
+    {
+      "id": "layer-lock",
+      "lucide": "lock",
+      "label": "Locked",
+      "blurb": "stop this layer being moved or removed by accident"
+    },
+    {
+      "id": "layer-parent",
+      "lucide": "link-2",
+      "label": "Parent",
+      "blurb": "make this layer ride another one's movement"
     }
   ]
 }
