@@ -25,6 +25,14 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::mpsc::{self, Receiver, TryRecvError, TrySendError};
 use std::thread::{self, JoinHandle};
 
+/// The composer modes this adapter can put on the wire: NONE.
+///
+/// GrokRuntimeCommand::Prompt carries `{ provider_session_id, text }`
+/// and the ACP prompt has no per-turn mode field, so every standing
+/// mode is refused by name rather than silently dropped. Adding one
+/// means a real field on the wire first.
+pub const HONOURED_MODES: &[&str] = &[];
+
 pub const PROVIDER: ProviderId = ProviderId("grok");
 
 /// Grok's CLI has `login`/`logout` but no `status`, so presence is read off

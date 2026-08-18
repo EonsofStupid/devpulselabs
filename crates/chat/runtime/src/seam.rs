@@ -155,6 +155,12 @@ pub enum RuntimeCommand {
     Prompt {
         provider_session_id: String,
         text: String,
+        /// The modes standing on the composer when this turn was sent.
+        ///
+        /// Carried as canonical slugs so an adapter maps ONE vocabulary to its
+        /// own wire, and so a mode a provider cannot honour can be named back
+        /// to the operator rather than dropped in silence.
+        modes: dpl_ai_core::composer::ComposerModes,
     },
     Cancel {
         provider_session_id: String,

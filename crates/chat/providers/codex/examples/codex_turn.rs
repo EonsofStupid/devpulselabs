@@ -76,6 +76,7 @@ fn main() {
                             RuntimeCommand::Prompt {
                                 provider_session_id,
                                 text: prompt.clone(),
+                                modes: Default::default(),
                             },
                         );
                     }

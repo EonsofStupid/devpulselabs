@@ -40,6 +40,31 @@ pub const METHODS_USED: &[&str] = &["initialize", "thread/start", "turn/start", 
 
 /// Every notification this adapter maps. Anything else is kept as
 /// `RuntimeUpdate::Other` — an unknown frame is evidence, never a drop.
+/// The composer modes this adapter can actually put on the wire, and the
+/// `turn/start` field each one becomes.
+///
+/// Read out of the pinned CLI's own schema, not guessed:
+/// `codex app-server generate-json-schema` gives TurnStartParams with
+/// `effort: ReasoningEffort` and `personality: Personality` among its optional
+/// fields. Everything else the composer offers — web search, research, canvas,
+/// agent mode — has NO field there, so this adapter refuses those by name
+/// instead of pretending.
+///
+/// Adding one is the same shape as any other method here: a mapping, plus the
+/// capability that admits it.
+pub const HONOURED_MODES: &[&str] = &["extended-thinking", "style"];
+
+/// `Personality` is a CLOSED enum in the schema — `none | friendly |
+/// pragmatic` — so this value is verifiable and safe to send.
+const STYLE_PERSONALITY: &str = "friendly";
+
+/// `ReasoningEffort` is documented as "a non-empty reasoning effort value
+/// ADVERTISED BY THE MODEL", i.e. an open string whose valid set is per-model
+/// rather than fixed. "high" is what Codex's current models advertise; a model
+/// that does not will reject the turn loudly, which is the honest failure —
+/// but it is the reason this one is a named constant and not scattered.
+const THINKING_EFFORT: &str = "high";
+
 pub const NOTIFICATIONS_MAPPED: &[&str] = &[
     "thread/started",
     "turn/started",
@@ -80,13 +105,27 @@ pub fn outbound_for(command: &RuntimeCommand) -> Option<Outbound> {
         RuntimeCommand::Prompt {
             provider_session_id,
             text,
-        } => Some(Outbound::Request {
-            method: "turn/start",
-            params: json!({
+            modes,
+        } => {
+            let mut params = json!({
                 "threadId": provider_session_id,
                 "input": [{ "type": "text", "text": text }],
-            }),
-        }),
+            });
+            let object = params.as_object_mut().expect("json! built an object");
+            // Only what the schema has a field for. A mode that is OFF sends
+            // nothing at all, so the operator's own ~/.codex/config.toml stays
+            // the default — this app does not silently re-configure their CLI.
+            if modes.is_active("extended-thinking") {
+                object.insert("effort".to_owned(), json!(THINKING_EFFORT));
+            }
+            if modes.is_active("style") {
+                object.insert("personality".to_owned(), json!(STYLE_PERSONALITY));
+            }
+            Some(Outbound::Request {
+                method: "turn/start",
+                params,
+            })
+        }
         RuntimeCommand::Cancel {
             provider_session_id,
         } => Some(Outbound::Request {
@@ -563,6 +602,7 @@ pub fn initialize_params() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dpl_ai_core::composer::ComposerModes;
     use dpl_ai_core::Capability;
     use dpl_chat_runtime::seam::qualified_capabilities;
 
@@ -571,6 +611,7 @@ mod tests {
         let outbound = outbound_for(&RuntimeCommand::Prompt {
             provider_session_id: "th-1".into(),
             text: "ship it".into(),
+            modes: ComposerModes::default(),
         })
         .expect("prompt is implemented");
         assert_eq!(
@@ -582,6 +623,74 @@ mod tests {
                     "input": [{ "type": "text", "text": "ship it" }],
                 }),
             }
+        );
+    }
+
+    /// No mode standing sends NO extra field, so the operator's own
+    /// ~/.codex/config.toml remains the default. Adding a field only when a
+    /// mode is on is what keeps this adapter from re-configuring their CLI.
+    #[test]
+    fn a_standing_mode_becomes_the_field_the_schema_has_for_it() {
+        let mut modes = ComposerModes::default();
+        modes.toggle("extended-thinking").expect("sticky");
+        modes.toggle("style").expect("sticky");
+        let outbound = outbound_for(&RuntimeCommand::Prompt {
+            provider_session_id: "th-1".into(),
+            text: "ship it".into(),
+            modes,
+        })
+        .expect("prompt is implemented");
+        assert_eq!(
+            outbound,
+            Outbound::Request {
+                method: "turn/start",
+                params: json!({
+                    "threadId": "th-1",
+                    "input": [{ "type": "text", "text": "ship it" }],
+                    "effort": "high",
+                    "personality": "friendly",
+                }),
+            }
+        );
+    }
+
+    /// The refusal half, pinned. Web search has NO field in TurnStartParams —
+    /// checked against the pinned CLI's own generated schema — so it must come
+    /// back nameable rather than ride along doing nothing.
+    #[test]
+    fn a_mode_with_no_field_on_this_wire_is_refused_by_name() {
+        let mut modes = ComposerModes::default();
+        modes.toggle("web-search").expect("sticky");
+        modes.toggle("extended-thinking").expect("sticky");
+
+        let (carried, refused) = modes.split(HONOURED_MODES);
+        assert_eq!(
+            carried.iter().map(|a| a.slug).collect::<Vec<_>>(),
+            ["extended-thinking"]
+        );
+        assert_eq!(
+            refused.iter().map(|a| a.slug).collect::<Vec<_>>(),
+            ["web-search"]
+        );
+
+        // And the wire really does not carry it.
+        let outbound = outbound_for(&RuntimeCommand::Prompt {
+            provider_session_id: "th-1".into(),
+            text: "ship it".into(),
+            modes,
+        })
+        .expect("prompt is implemented");
+        let Outbound::Request { params, .. } = outbound else {
+            panic!("a prompt is a request");
+        };
+        assert!(params.get("effort").is_some(), "the honoured one is there");
+        assert!(
+            params
+                .as_object()
+                .expect("object")
+                .keys()
+                .all(|k| k != "search"),
+            "and nothing was invented for the refused one"
         );
     }
 

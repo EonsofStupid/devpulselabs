@@ -1597,22 +1597,37 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
             // slug so a later read can tell what was requested — and said out
             // loud, because no provider protocol carries them yet and a mode
             // the operator believes is on is worse than one they know is not.
+            // Split against THIS adapter's own honoured list before sending.
+            // The refused half is named to the operator: a mode that rides
+            // along doing nothing is the exact failure the census exists for.
             if !modes.is_empty() {
-                let named: Vec<_> = modes.active().iter().map(|a| a.label).collect();
+                let honoured: &[&str] = if provider == dpl_chat_grok::PROVIDER {
+                    dpl_chat_grok::HONOURED_MODES
+                } else if provider == dpl_chat_codex::PROVIDER {
+                    dpl_chat_codex::runtime::HONOURED_MODES
+                } else {
+                    &[]
+                };
+                let (carried, refused) = modes.split(honoured);
                 tracing::info!(
                     %provider,
-                    modes = ?modes.active().iter().map(|a| a.slug).collect::<Vec<_>>(),
-                    "turn requested with composer modes"
+                    carried = ?carried.iter().map(|a| a.slug).collect::<Vec<_>>(),
+                    refused = ?refused.iter().map(|a| a.slug).collect::<Vec<_>>(),
+                    "turn sent with composer modes"
                 );
-                state.window.set_composer_status(format!(
-                    "Sent asking for {} — no provider protocol carries modes yet.",
-                    named.join(", ")
-                ));
+                if !refused.is_empty() {
+                    let names: Vec<_> = refused.iter().map(|a| a.label).collect();
+                    state.window.set_composer_status(format!(
+                        "{} cannot be carried to {} — sent without it.",
+                        names.join(", "),
+                        provider.0
+                    ));
+                }
             }
             if provider == dpl_chat_grok::PROVIDER {
                 send_grok_turn(&mut state, session, text);
             } else if state.runtimes.contains_key(&provider) {
-                send_seam_turn(&mut state, provider, session, text);
+                send_seam_turn(&mut state, provider, session, text, modes);
             } else {
                 tracing::warn!(%provider, "live turn runtime is not qualified");
                 return;
@@ -4363,7 +4378,13 @@ fn send_seam_command(state: &mut Shared, provider: ProviderId, command: RuntimeC
     }
 }
 
-fn send_seam_turn(state: &mut Shared, provider: ProviderId, session: ChatSessionId, text: String) {
+fn send_seam_turn(
+    state: &mut Shared,
+    provider: ProviderId,
+    session: ChatSessionId,
+    text: String,
+    modes: dpl_ai_core::composer::ComposerModes,
+) {
     let Some(provider_session_id) = provider_session_id(state, provider, session) else {
         tracing::warn!(%provider, %session, "provider session binding is missing");
         return;
@@ -4383,6 +4404,7 @@ fn send_seam_turn(state: &mut Shared, provider: ProviderId, session: ChatSession
         RuntimeCommand::Prompt {
             provider_session_id: provider_session_id.clone(),
             text,
+            modes,
         },
     ) {
         return;

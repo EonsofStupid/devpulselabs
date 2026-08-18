@@ -374,6 +374,22 @@ impl ComposerModes {
         self.active.clear();
     }
 
+    /// Split the standing modes into what this adapter puts on the wire and
+    /// what it cannot.
+    ///
+    /// `honoured` is the adapter's own list of canonical slugs — read from its
+    /// protocol schema, never assumed. The refused half exists so the operator
+    /// is TOLD; a mode that silently does nothing is the failure this whole
+    /// census was built to prevent.
+    pub fn split(
+        &self,
+        honoured: &[&str],
+    ) -> (Vec<&'static ComposerAction>, Vec<&'static ComposerAction>) {
+        self.active()
+            .into_iter()
+            .partition(|a| honoured.contains(&a.slug))
+    }
+
     /// Drop any mode the backing cannot honour, and say which went.
     ///
     /// THE point of this type. Switching to a provider without web search must
@@ -503,6 +519,29 @@ mod tests {
         // A backing that declares nothing keeps nothing.
         assert_eq!(modes.retain_offered(&[]).len(), 1);
         assert!(modes.is_empty());
+    }
+
+    #[test]
+    fn an_adapter_splits_what_it_can_carry_from_what_it_must_refuse() {
+        let mut modes = ComposerModes::new();
+        for slug in ["extended-thinking", "style", "web-search"] {
+            modes.toggle(slug).unwrap();
+        }
+        // Codex's real list, read from its own `turn/start` schema.
+        let (carried, refused) = modes.split(&["extended-thinking", "style"]);
+        assert_eq!(
+            carried.iter().map(|a| a.slug).collect::<Vec<_>>(),
+            ["extended-thinking", "style"]
+        );
+        assert_eq!(
+            refused.iter().map(|a| a.slug).collect::<Vec<_>>(),
+            ["web-search"],
+            "the one with no field on the wire must come back nameable"
+        );
+        // An adapter that honours nothing refuses everything — loudly.
+        let (none, all) = modes.split(&[]);
+        assert!(none.is_empty());
+        assert_eq!(all.len(), 3);
     }
 
     #[test]

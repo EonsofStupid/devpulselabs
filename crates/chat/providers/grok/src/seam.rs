@@ -100,6 +100,11 @@ impl From<RuntimeCommand> for GrokRuntimeCommand {
             RuntimeCommand::Prompt {
                 provider_session_id,
                 text,
+                // Grok's ACP command has no field for any of them. Dropped
+                // HERE rather than carried and ignored, so the refusal is a
+                // fact of the translation instead of a surprise later — see
+                // HONOURED_MODES, which is empty and says why.
+                modes: _,
             } => Self::Prompt {
                 provider_session_id,
                 text,
@@ -300,6 +305,7 @@ mod tests {
         let command = GrokRuntimeCommand::from(RuntimeCommand::Prompt {
             provider_session_id: "s-2".into(),
             text: "ship it".into(),
+            modes: Default::default(),
         });
         assert_eq!(
             command,
