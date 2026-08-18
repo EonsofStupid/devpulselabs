@@ -4,7 +4,7 @@
 //! It does not create viewports, publish signals, navigate Main, scan stores,
 //! launch providers, or implement Social transport.
 
-use dpl_ai_core::composer::{offered_for, ComposerGroup};
+use dpl_ai_core::composer::{offered_for, ComposerGroup, ComposerModes};
 use dpl_ai_core::{ActivationState, Capability, ProviderAccent, ProviderId, RecoveryActionKind};
 use dpl_chat_context::RouteContextState;
 use dpl_chat_core::{
@@ -368,6 +368,10 @@ pub enum ChatWindowIntent {
         provider: ProviderId,
         session: ChatSessionId,
         text: String,
+        /// The modes standing when this turn was sent. Carried so a host tells
+        /// the provider what was asked for — a mode that does not ride on the
+        /// send is a light on a surface, not a fact about the turn.
+        modes: ComposerModes,
     },
     CancelTurn {
         provider: ProviderId,
@@ -548,6 +552,10 @@ pub enum HostIntent {
         provider: ProviderId,
         session: ChatSessionId,
         text: String,
+        /// The modes standing when this turn was sent. Carried so a host tells
+        /// the provider what was asked for — a mode that does not ride on the
+        /// send is a light on a surface, not a fact about the turn.
+        modes: ComposerModes,
     },
     CancelTurn {
         provider: ProviderId,
@@ -733,6 +741,8 @@ pub struct ChatWindow {
     composer_status: Option<String>,
     /// The backing's declared capabilities, for gating the `+` menu.
     composer_capabilities: Vec<Capability>,
+    /// The modes standing on the composer, ridden by the next send.
+    composer_modes: ComposerModes,
     /// The Clyffy house session as the HOST projects it.
     clyffy: ClyffyView,
 }
@@ -872,6 +882,7 @@ impl ChatWindow {
             brainstorm_item_drafts: HashMap::new(),
             composer_status: None,
             composer_capabilities: Vec::new(),
+            composer_modes: ComposerModes::default(),
             clyffy: ClyffyView::default(),
         }
     }
@@ -887,12 +898,35 @@ impl ChatWindow {
     /// backing offers only the actions that are ours.
     pub fn set_composer_capabilities(&mut self, capabilities: Vec<Capability>) {
         self.composer_capabilities = capabilities;
+        // Switching backing must not leave a mode lit that the new one cannot
+        // honour. Dropped modes are NAMED, never removed quietly.
+        let dropped = self
+            .composer_modes
+            .retain_offered(&self.composer_capabilities);
+        if !dropped.is_empty() {
+            let names: Vec<_> = dropped.iter().map(|a| a.label).collect();
+            self.composer_status = Some(format!(
+                "{} turned off — this backing did not declare it.",
+                names.join(", ")
+            ));
+        }
+    }
+
+    /// The modes standing on the composer right now.
+    pub fn composer_modes(&self) -> &ComposerModes {
+        &self.composer_modes
     }
 
     /// Open the providers catalog overlay from outside the window.
     pub fn open_provider_catalog(&mut self) {
         self.domain = ChatDomain::Ai;
         self.domain_states.ai.overlay = Some(DomainOverlay::ProviderCatalog);
+    }
+
+    /// Open the Imagine generation panel from outside the window.
+    pub fn open_generation(&mut self) {
+        self.domain = ChatDomain::Ai;
+        self.domain_states.ai.overlay = Some(DomainOverlay::Generation);
     }
 
     /// Assist mode as the host's policy truth — projected, never derived.
@@ -1355,10 +1389,12 @@ impl ChatWindow {
                 provider,
                 session,
                 text,
+                modes,
             } => Ok(Some(HostIntent::SendTurn {
                 provider,
                 session,
                 text,
+                modes,
             })),
             ChatWindowIntent::OperatorSlash { command, synthetic } => {
                 Ok(Some(HostIntent::OperatorSlash { command, synthetic }))
@@ -3297,6 +3333,13 @@ impl ChatWindow {
                                         .button(format!("{}  {}", action.glyph, action.label))
                                         .on_hover_text(action.blurb);
                                     if row.clicked() {
+                                        // A sticky pick is state this surface
+                                        // owns, so it flips here and shows the
+                                        // same frame. One-shot picks are the
+                                        // host's to perform.
+                                        if action.sticky {
+                                            let _ = self.composer_modes.toggle(action.slug);
+                                        }
                                         intents.push(ChatWindowIntent::ComposerAction(
                                             action.slug,
                                         ));
@@ -3304,6 +3347,17 @@ impl ChatWindow {
                                 }
                             }
                         });
+                    // What is standing, beside the control that set it. A mode
+                    // the operator cannot SEE is one they will forget is on,
+                    // and then be surprised by the bill or the answer.
+                    for action in self.composer_modes.active() {
+                        ui.label(
+                            RichText::new(format!("{} {}", action.glyph, action.label))
+                                .small()
+                                .color(Tone::Cyan.color()),
+                        )
+                        .on_hover_text(action.blurb);
+                    }
                     let mut draft = self.current_draft();
                     // SUBMIT ON ENTER — the convention every chat client the
                     // operator uses already obeys.
@@ -3526,6 +3580,7 @@ impl ChatWindow {
                                             provider,
                                             session,
                                             text: draft,
+                                            modes: self.composer_modes.clone(),
                                         });
                                     }
                                 }
@@ -7363,5 +7418,40 @@ mod tests {
             !with_attachments.iter().any(|a| a.slug == "create-image"),
             "attachments must not imply images"
         );
+    }
+
+    /// Sticky picks are the surface's own state and must show the same frame,
+    /// while one-shot picks stay the host's to perform.
+    #[test]
+    fn a_sticky_pick_stands_on_the_composer_and_rides_the_next_send() {
+        let mut window = window();
+        window.set_composer_capabilities(vec![Capability::Tools, Capability::Modes]);
+        assert!(window.composer_modes().is_empty());
+
+        window.composer_modes.toggle("web-search").unwrap();
+        assert!(window.composer_modes().is_active("web-search"));
+        // And by the name either vendor taught the operator.
+        assert!(window.composer_modes().is_active("Search the web"));
+
+        // A one-shot action is refused as a mode rather than stored.
+        assert!(window.composer_modes.toggle("create-image").is_err());
+    }
+
+    /// Changing backing must not leave a mode lit that the new one cannot
+    /// honour — and the operator has to be TOLD, not quietly corrected.
+    #[test]
+    fn switching_to_a_weaker_backing_drops_the_mode_and_says_so() {
+        let mut window = window();
+        window.set_composer_capabilities(vec![Capability::Tools, Capability::Modes]);
+        window.composer_modes.toggle("web-search").unwrap();
+        assert!(window.composer_modes().is_active("web-search"));
+
+        window.set_composer_capabilities(vec![Capability::Modes]);
+        assert!(
+            !window.composer_modes().is_active("web-search"),
+            "a mode the backing cannot honour must not survive the switch"
+        );
+        let said = window.composer_status().expect("the drop is announced");
+        assert!(said.contains("Web search"), "named, not silent: {said}");
     }
 }

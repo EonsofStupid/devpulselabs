@@ -214,6 +214,18 @@ pub const COMPOSER_ACTIONS: &[ComposerAction] = &[
         ],
     },
     ComposerAction {
+        slug: "brainstorm",
+        label: "Brainstorm board",
+        blurb: "Open the phased board — seeds, clusters, and a promote step.",
+        glyph: "◇",
+        group: ComposerGroup::Mode,
+        // Ours, and no vendor has it: a board the operator and every seat work
+        // on together is the point of holding several providers at once.
+        requires: None,
+        sticky: false,
+        aliases: &["brainstorming", "board", "group discussion"],
+    },
+    ComposerAction {
         slug: "canvas",
         label: "Canvas",
         blurb: "Work on a document beside the conversation instead of inside it.",
@@ -288,6 +300,100 @@ pub fn resolve(name: &str) -> Option<&'static ComposerAction> {
     })
 }
 
+/// A sticky action was toggled onto something that cannot carry it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ModeError {
+    /// No action answers to that name.
+    Unknown(String),
+    /// The action exists but happens once — it is not a mode to leave on.
+    NotSticky(&'static str),
+}
+
+impl core::fmt::Display for ModeError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Unknown(name) => write!(f, "{name} is not a composer action"),
+            Self::NotSticky(slug) => write!(f, "{slug} happens once; it is not a mode"),
+        }
+    }
+}
+
+/// The modes standing on this composer — what the NEXT turn will be run with.
+///
+/// Held as canonical slugs so the set survives a vendor renaming its label, and
+/// so a turn carries names a host can match on.
+///
+/// ## Why this is state and not a checkbox on a widget
+///
+/// A mode the operator switched on has to reach the turn or it is decoration.
+/// [`ComposerModes`] rides on the send, which is what makes "web search is on"
+/// a fact the provider is told rather than a light on the surface.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ComposerModes {
+    active: std::collections::BTreeSet<&'static str>,
+}
+
+impl ComposerModes {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Turn a sticky action on or off. Returns the new state.
+    ///
+    /// Refuses a one-shot action rather than quietly storing it: "create image"
+    /// left switched on would mean every later turn silently generates one.
+    pub fn toggle(&mut self, name: &str) -> Result<bool, ModeError> {
+        let action = resolve(name).ok_or_else(|| ModeError::Unknown(name.to_owned()))?;
+        if !action.sticky {
+            return Err(ModeError::NotSticky(action.slug));
+        }
+        let now_on = !self.active.remove(action.slug);
+        if now_on {
+            self.active.insert(action.slug);
+        }
+        Ok(now_on)
+    }
+
+    pub fn is_active(&self, name: &str) -> bool {
+        resolve(name).is_some_and(|a| self.active.contains(a.slug))
+    }
+
+    /// The standing modes, in census order so a surface paints them stably.
+    pub fn active(&self) -> Vec<&'static ComposerAction> {
+        COMPOSER_ACTIONS
+            .iter()
+            .filter(|a| self.active.contains(a.slug))
+            .collect()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.active.is_empty()
+    }
+
+    pub fn clear(&mut self) {
+        self.active.clear();
+    }
+
+    /// Drop any mode the backing cannot honour, and say which went.
+    ///
+    /// THE point of this type. Switching to a provider without web search must
+    /// not leave "web search" lit — the operator would be told the turn
+    /// searched when it could not. A mode that cannot be honoured is removed
+    /// and named, never carried silently.
+    pub fn retain_offered(&mut self, capabilities: &[Capability]) -> Vec<&'static ComposerAction> {
+        let offered = offered_for(capabilities);
+        let dropped: Vec<_> = self
+            .active()
+            .into_iter()
+            .filter(|a| !offered.iter().any(|o| o.slug == a.slug))
+            .collect();
+        for action in &dropped {
+            self.active.remove(action.slug);
+        }
+        dropped
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -349,6 +455,69 @@ mod tests {
             let b = resolve(claude).unwrap_or_else(|| panic!("{claude} unresolved"));
             assert_eq!(a, b, "{chatgpt} and {claude} are one action");
         }
+    }
+
+    #[test]
+    fn only_sticky_actions_become_modes() {
+        let mut modes = ComposerModes::new();
+        assert!(modes.toggle("web-search").unwrap(), "on");
+        assert!(modes.is_active("web-search"));
+        // The alias reaches the same mode — that is the whole point of one store.
+        assert!(modes.is_active("search the web"));
+        assert!(!modes.toggle("Web search").unwrap(), "off again");
+        assert!(modes.is_empty());
+
+        // A one-shot action left switched on would fire every later turn.
+        assert_eq!(
+            modes.toggle("create-image"),
+            Err(ModeError::NotSticky("create-image"))
+        );
+        assert_eq!(
+            modes.toggle("nonsense"),
+            Err(ModeError::Unknown("nonsense".to_owned()))
+        );
+        assert!(modes.is_empty());
+    }
+
+    #[test]
+    fn a_mode_the_backing_cannot_honour_is_dropped_and_named() {
+        // The rule this type exists for. Switching to a provider without web
+        // search must not leave it lit — the operator would be told the turn
+        // searched when it could not.
+        let mut modes = ComposerModes::new();
+        modes.toggle("web-search").unwrap();
+        modes.toggle("extended-thinking").unwrap();
+
+        let kept = modes.retain_offered(&[Capability::Tools, Capability::Modes]);
+        assert!(kept.is_empty(), "both are honourable here");
+
+        let dropped = modes.retain_offered(&[Capability::Modes]);
+        assert_eq!(dropped.len(), 1);
+        assert_eq!(dropped[0].slug, "web-search");
+        assert!(!modes.is_active("web-search"), "and it is actually off");
+        assert!(
+            modes.is_active("extended-thinking"),
+            "the honourable one stays"
+        );
+
+        // A backing that declares nothing keeps nothing.
+        assert_eq!(modes.retain_offered(&[]).len(), 1);
+        assert!(modes.is_empty());
+    }
+
+    #[test]
+    fn active_modes_come_back_in_census_order() {
+        let mut modes = ComposerModes::new();
+        for slug in ["canvas", "web-search", "extended-thinking"] {
+            modes.toggle(slug).unwrap();
+        }
+        let order: Vec<_> = modes.active().iter().map(|a| a.slug).collect();
+        let census: Vec<_> = COMPOSER_ACTIONS
+            .iter()
+            .filter(|a| order.contains(&a.slug))
+            .map(|a| a.slug)
+            .collect();
+        assert_eq!(order, census, "a surface must paint them stably");
     }
 
     #[test]

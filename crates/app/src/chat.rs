@@ -1432,6 +1432,27 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
         HostIntent::ComposerAction(slug) => {
             let mut state = lock(shared);
             match slug {
+                // Sticky modes already flipped in the window; the host only
+                // needs to say what standing now means.
+                slug if dpl_ai_core::composer::resolve(slug).is_some_and(|a| a.sticky) => {
+                    let on = state.window.composer_modes().is_active(slug);
+                    let label =
+                        dpl_ai_core::composer::resolve(slug).map_or(slug, |action| action.label);
+                    state.window.set_composer_status(if on {
+                        format!("{label} is on for the next turn.")
+                    } else {
+                        format!("{label} is off.")
+                    });
+                }
+                "brainstorm" => {
+                    // The board is fully built — ops, undo, redo, promote.
+                    drop(state);
+                    apply_host_intent(ctx, shared, HostIntent::StartBrainstorm);
+                    return;
+                }
+                "create-image" => {
+                    state.window.open_generation();
+                }
                 "connectors" | "plugins" => {
                     state.window.open_provider_catalog();
                     state.window.set_composer_status(
@@ -1569,8 +1590,25 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
             provider,
             session,
             text,
+            modes,
         } => {
             let mut state = lock(shared);
+            // The turn is going out WITH these asked for. Traced by canonical
+            // slug so a later read can tell what was requested — and said out
+            // loud, because no provider protocol carries them yet and a mode
+            // the operator believes is on is worse than one they know is not.
+            if !modes.is_empty() {
+                let named: Vec<_> = modes.active().iter().map(|a| a.label).collect();
+                tracing::info!(
+                    %provider,
+                    modes = ?modes.active().iter().map(|a| a.slug).collect::<Vec<_>>(),
+                    "turn requested with composer modes"
+                );
+                state.window.set_composer_status(format!(
+                    "Sent asking for {} — no provider protocol carries modes yet.",
+                    named.join(", ")
+                ));
+            }
             if provider == dpl_chat_grok::PROVIDER {
                 send_grok_turn(&mut state, session, text);
             } else if state.runtimes.contains_key(&provider) {
