@@ -1444,8 +1444,8 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
                         .set_composer_status("This conversation is already in this workspace.");
                 }
                 other => {
-                    let label = dpl_ai_core::composer::resolve(other)
-                        .map_or(other, |action| action.label);
+                    let label =
+                        dpl_ai_core::composer::resolve(other).map_or(other, |action| action.label);
                     tracing::info!(action = other, "composer action is not wired yet");
                     state
                         .window

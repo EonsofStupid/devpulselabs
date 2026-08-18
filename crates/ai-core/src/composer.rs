@@ -195,12 +195,7 @@ pub const COMPOSER_ACTIONS: &[ComposerAction] = &[
         group: ComposerGroup::Mode,
         requires: Some(Capability::Modes),
         sticky: true,
-        aliases: &[
-            "think longer",
-            "extended thinking",
-            "thinking",
-            "reasoning",
-        ],
+        aliases: &["think longer", "extended thinking", "thinking", "reasoning"],
     },
     ComposerAction {
         slug: "create-image",
@@ -210,7 +205,13 @@ pub const COMPOSER_ACTIONS: &[ComposerAction] = &[
         group: ComposerGroup::Mode,
         requires: Some(Capability::Images),
         sticky: false,
-        aliases: &["create image", "create an image", "image", "imagine", "draw"],
+        aliases: &[
+            "create image",
+            "create an image",
+            "image",
+            "imagine",
+            "draw",
+        ],
     },
     ComposerAction {
         slug: "canvas",
@@ -263,7 +264,10 @@ pub fn offered_for(capabilities: &[Capability]) -> Vec<&'static ComposerAction> 
 
 /// Actions in one group, for a surface drawing sections.
 pub fn in_group(group: ComposerGroup) -> Vec<&'static ComposerAction> {
-    COMPOSER_ACTIONS.iter().filter(|a| a.group == group).collect()
+    COMPOSER_ACTIONS
+        .iter()
+        .filter(|a| a.group == group)
+        .collect()
 }
 
 /// Resolve a canonical slug or any vendor spelling to its action.
@@ -278,7 +282,9 @@ pub fn resolve(name: &str) -> Option<&'static ComposerAction> {
     COMPOSER_ACTIONS.iter().find(|a| {
         a.slug.eq_ignore_ascii_case(&needle)
             || a.label.eq_ignore_ascii_case(&needle)
-            || a.aliases.iter().any(|alias| alias.eq_ignore_ascii_case(&needle))
+            || a.aliases
+                .iter()
+                .any(|alias| alias.eq_ignore_ascii_case(&needle))
     })
 }
 

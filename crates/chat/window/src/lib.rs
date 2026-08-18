@@ -5,9 +5,7 @@
 //! launch providers, or implement Social transport.
 
 use dpl_ai_core::composer::{offered_for, ComposerGroup};
-use dpl_ai_core::{
-    ActivationState, Capability, ProviderAccent, ProviderId, RecoveryActionKind,
-};
+use dpl_ai_core::{ActivationState, Capability, ProviderAccent, ProviderId, RecoveryActionKind};
 use dpl_chat_context::RouteContextState;
 use dpl_chat_core::{
     ChatDomain, ChatEvent, ChatEventContent, ChatEventId, ChatSessionId, ContentEpisode,
@@ -1238,9 +1236,7 @@ impl ChatWindow {
         intent: ChatWindowIntent,
     ) -> Result<Option<HostIntent>, ChatWindowError> {
         match intent {
-            ChatWindowIntent::ComposerAction(slug) => {
-                Ok(Some(HostIntent::ComposerAction(slug)))
-            }
+            ChatWindowIntent::ComposerAction(slug) => Ok(Some(HostIntent::ComposerAction(slug))),
             ChatWindowIntent::SelectDomain(domain) => {
                 self.domain = domain;
                 self.provider_tab = None;
