@@ -172,6 +172,31 @@ pub enum RuntimeCommand {
     Shutdown,
 }
 
+/// What one model will actually accept, as the provider advertises it.
+///
+/// Provider-neutral on purpose: every adapter that can describe its models
+/// fills this in, and an adapter that cannot leaves it `None` — which is read
+/// as "nothing verified", never as "anything goes".
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ModelCapabilities {
+    pub id: String,
+    pub display_name: String,
+    pub is_default: bool,
+    /// The reasoning-effort values THIS model advertises. Opaque strings by
+    /// design — the protocol calls them "advertised by the model", so a set
+    /// hardcoded here would be a guess with a version number on it.
+    pub reasoning_efforts: Vec<String>,
+    pub default_reasoning_effort: Option<String>,
+    pub supports_personality: bool,
+}
+
+impl ModelCapabilities {
+    /// Does this model advertise the named effort, exactly?
+    pub fn advertises_effort(&self, effort: &str) -> bool {
+        self.reasoning_efforts.iter().any(|e| e == effort)
+    }
+}
+
 /// What the provider says back.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RuntimeEvent {

@@ -16,8 +16,8 @@
 
 use crate::CodexRuntimeProfile;
 use dpl_chat_runtime::seam::{
-    ProviderRuntime, RuntimeCapabilities, RuntimeCommand, RuntimeEvent, RuntimeFailure,
-    RuntimeFailureKind, RuntimeSendError, RuntimeUpdate,
+    ModelCapabilities, ProviderRuntime, RuntimeCapabilities, RuntimeCommand, RuntimeEvent,
+    RuntimeFailure, RuntimeFailureKind, RuntimeSendError, RuntimeUpdate,
 };
 use serde_json::{json, Value};
 use std::io::{self, BufRead, BufReader, Write};
@@ -55,15 +55,40 @@ pub const METHODS_USED: &[&str] = &["initialize", "thread/start", "turn/start", 
 pub const HONOURED_MODES: &[&str] = &["extended-thinking", "style"];
 
 /// `Personality` is a CLOSED enum in the schema — `none | friendly |
-/// pragmatic` — so this value is verifiable and safe to send.
+/// pragmatic` — so the VALUE is verifiable. Whether a given model accepts one
+/// at all is not: `Model.supportsPersonality` decides that, per model.
 const STYLE_PERSONALITY: &str = "friendly";
 
+/// The effort `extended-thinking` asks for, IF the model advertises it.
+///
 /// `ReasoningEffort` is documented as "a non-empty reasoning effort value
-/// ADVERTISED BY THE MODEL", i.e. an open string whose valid set is per-model
-/// rather than fixed. "high" is what Codex's current models advertise; a model
-/// that does not will reject the turn loudly, which is the honest failure —
-/// but it is the reason this one is a named constant and not scattered.
+/// ADVERTISED BY THE MODEL" — an open string whose valid set is per-model, not
+/// a fixed enum. So this is a preference checked against
+/// `Model.supportedReasoningEfforts`, never a value sent on faith. A model
+/// that advertises something else entirely refuses the mode by name; adding
+/// that name here is a one-line change once a real model advertises it.
 const THINKING_EFFORT: &str = "high";
+
+/// The modes this adapter can honour FOR A GIVEN MODEL.
+///
+/// [`HONOURED_MODES`] is what the adapter could ever carry; this is what it
+/// can carry right now, against what the model actually advertises. `None`
+/// means nothing has been verified, and nothing unverified is sent — the
+/// operator is told the mode was refused instead of being given a turn that
+/// silently ignored it, or one the CLI rejects outright.
+pub fn honoured_for(model: Option<&ModelCapabilities>) -> Vec<&'static str> {
+    let Some(model) = model else {
+        return Vec::new();
+    };
+    let mut honoured = Vec::new();
+    if model.advertises_effort(THINKING_EFFORT) {
+        honoured.push("extended-thinking");
+    }
+    if model.supports_personality {
+        honoured.push("style");
+    }
+    honoured
+}
 
 pub const NOTIFICATIONS_MAPPED: &[&str] = &[
     "thread/started",
@@ -93,7 +118,10 @@ pub enum Outbound {
 /// Returns `None` for a command this adapter does not implement. That is not
 /// a silent drop: the capability was never advertised (see
 /// [`advertised_capabilities`]), so the surface never offered it.
-pub fn outbound_for(command: &RuntimeCommand) -> Option<Outbound> {
+pub fn outbound_for(
+    command: &RuntimeCommand,
+    model: Option<&ModelCapabilities>,
+) -> Option<Outbound> {
     match command {
         RuntimeCommand::NewSession => Some(Outbound::Request {
             method: "thread/start",
@@ -115,10 +143,11 @@ pub fn outbound_for(command: &RuntimeCommand) -> Option<Outbound> {
             // Only what the schema has a field for. A mode that is OFF sends
             // nothing at all, so the operator's own ~/.codex/config.toml stays
             // the default — this app does not silently re-configure their CLI.
-            if modes.is_active("extended-thinking") {
+            let honoured = honoured_for(model);
+            if modes.is_active("extended-thinking") && honoured.contains(&"extended-thinking") {
                 object.insert("effort".to_owned(), json!(THINKING_EFFORT));
             }
-            if modes.is_active("style") {
+            if modes.is_active("style") && honoured.contains(&"style") {
                 object.insert("personality".to_owned(), json!(STYLE_PERSONALITY));
             }
             Some(Outbound::Request {
@@ -329,6 +358,12 @@ pub struct CodexAppServerRuntime {
     commands: SyncSender<Outbound>,
     events: Mutex<Receiver<RuntimeEvent>>,
     capabilities: Mutex<Option<RuntimeCapabilities>>,
+    /// What the chosen model advertises, once anything has verified it.
+    ///
+    /// `None` until then, and `None` is read strictly: no mode field is put on
+    /// a turn on the strength of an assumption. `model/list` is what fills
+    /// this in, and until that lands every mode here is refused by name.
+    model: Mutex<Option<ModelCapabilities>>,
     /// The child this runtime spawned, kept so `Drop` can reap it. `None` for
     /// a [`CodexAppServerRuntime::from_parts`] runtime, which owns no process.
     child: Mutex<Option<Child>>,
@@ -348,6 +383,7 @@ impl CodexAppServerRuntime {
             commands,
             events: Mutex::new(events),
             capabilities: Mutex::new(None),
+            model: Mutex::new(None),
             child: Mutex::new(None),
         }
     }
@@ -452,6 +488,7 @@ impl CodexAppServerRuntime {
             commands: command_tx,
             events: Mutex::new(event_rx),
             capabilities: Mutex::new(None),
+            model: Mutex::new(None),
             child: Mutex::new(Some(child)),
         })
     }
@@ -549,7 +586,8 @@ impl ProviderRuntime for CodexAppServerRuntime {
     }
 
     fn try_send(&self, command: RuntimeCommand) -> Result<(), RuntimeSendError> {
-        let Some(outbound) = outbound_for(&command) else {
+        let model = self.model.lock().ok().and_then(|held| held.clone());
+        let Some(outbound) = outbound_for(&command, model.as_ref()) else {
             // Unimplemented AND unadvertised. Refusing loudly beats pretending.
             return Err(RuntimeSendError::Closed);
         };
@@ -608,11 +646,14 @@ mod tests {
 
     #[test]
     fn a_prompt_becomes_a_turn_start_on_its_thread() {
-        let outbound = outbound_for(&RuntimeCommand::Prompt {
-            provider_session_id: "th-1".into(),
-            text: "ship it".into(),
-            modes: ComposerModes::default(),
-        })
+        let outbound = outbound_for(
+            &RuntimeCommand::Prompt {
+                provider_session_id: "th-1".into(),
+                text: "ship it".into(),
+                modes: ComposerModes::default(),
+            },
+            None,
+        )
         .expect("prompt is implemented");
         assert_eq!(
             outbound,
@@ -634,11 +675,14 @@ mod tests {
         let mut modes = ComposerModes::default();
         modes.toggle("extended-thinking").expect("sticky");
         modes.toggle("style").expect("sticky");
-        let outbound = outbound_for(&RuntimeCommand::Prompt {
-            provider_session_id: "th-1".into(),
-            text: "ship it".into(),
-            modes,
-        })
+        let outbound = outbound_for(
+            &RuntimeCommand::Prompt {
+                provider_session_id: "th-1".into(),
+                text: "ship it".into(),
+                modes,
+            },
+            Some(&capable_model()),
+        )
         .expect("prompt is implemented");
         assert_eq!(
             outbound,
@@ -654,6 +698,71 @@ mod tests {
         );
     }
 
+    fn capable_model() -> ModelCapabilities {
+        ModelCapabilities {
+            id: "gpt-x".into(),
+            display_name: "GPT-X".into(),
+            is_default: true,
+            reasoning_efforts: vec!["low".into(), "medium".into(), "high".into()],
+            default_reasoning_effort: Some("medium".into()),
+            supports_personality: true,
+        }
+    }
+
+    /// Nothing advertised means nothing sent. This is the whole point of the
+    /// gate: an unverified `effort` is a turn the CLI may reject outright, and
+    /// an unverified `personality` is one the model quietly ignores.
+    #[test]
+    fn an_unverified_model_gets_no_mode_fields_at_all() {
+        let mut modes = ComposerModes::default();
+        modes.toggle("extended-thinking").expect("sticky");
+        modes.toggle("style").expect("sticky");
+
+        assert!(
+            honoured_for(None).is_empty(),
+            "nothing is honoured on faith"
+        );
+
+        let outbound = outbound_for(
+            &RuntimeCommand::Prompt {
+                provider_session_id: "th-1".into(),
+                text: "ship it".into(),
+                modes,
+            },
+            None,
+        )
+        .expect("prompt is implemented");
+        assert_eq!(
+            outbound,
+            Outbound::Request {
+                method: "turn/start",
+                params: json!({
+                    "threadId": "th-1",
+                    "input": [{ "type": "text", "text": "ship it" }],
+                }),
+            }
+        );
+    }
+
+    /// Each field is gated by ITS own advertisement, independently.
+    #[test]
+    fn each_field_is_gated_by_its_own_advertisement() {
+        let mut no_personality = capable_model();
+        no_personality.supports_personality = false;
+        assert_eq!(honoured_for(Some(&no_personality)), ["extended-thinking"]);
+
+        let mut other_efforts = capable_model();
+        other_efforts.reasoning_efforts = vec!["minimal".into(), "medium".into()];
+        assert_eq!(
+            honoured_for(Some(&other_efforts)),
+            ["style"],
+            "a model that does not advertise `high` refuses the mode by name"
+        );
+
+        let bare = ModelCapabilities::default();
+        assert!(honoured_for(Some(&bare)).is_empty());
+    }
+
     /// The refusal half, pinned. Web search has NO field in TurnStartParams —
     /// checked against the pinned CLI's own generated schema — so it must come
     /// back nameable rather than ride along doing nothing.
@@ -663,7 +772,7 @@ mod tests {
         modes.toggle("web-search").expect("sticky");
         modes.toggle("extended-thinking").expect("sticky");
 
-        let (carried, refused) = modes.split(HONOURED_MODES);
+        let (carried, refused) = modes.split(&honoured_for(Some(&capable_model())));
         assert_eq!(
             carried.iter().map(|a| a.slug).collect::<Vec<_>>(),
             ["extended-thinking"]
@@ -673,12 +782,17 @@ mod tests {
             ["web-search"]
         );
 
-        // And the wire really does not carry it.
-        let outbound = outbound_for(&RuntimeCommand::Prompt {
-            provider_session_id: "th-1".into(),
-            text: "ship it".into(),
-            modes,
-        })
+        // And the wire really does not carry it — against a model that DOES
+        // advertise the honoured one, so the absence is about the field not
+        // existing rather than about the model being unverified.
+        let outbound = outbound_for(
+            &RuntimeCommand::Prompt {
+                provider_session_id: "th-1".into(),
+                text: "ship it".into(),
+                modes,
+            },
+            Some(&capable_model()),
+        )
         .expect("prompt is implemented");
         let Outbound::Request { params, .. } = outbound else {
             panic!("a prompt is a request");
@@ -791,10 +905,13 @@ mod tests {
     /// advertised, so the surface never offers it.
     #[test]
     fn unimplemented_commands_are_never_advertised() {
-        assert!(outbound_for(&RuntimeCommand::ListSessions { cursor: None }).is_none());
-        assert!(outbound_for(&RuntimeCommand::LoadSession {
-            provider_session_id: "x".into()
-        })
+        assert!(outbound_for(&RuntimeCommand::ListSessions { cursor: None }, None).is_none());
+        assert!(outbound_for(
+            &RuntimeCommand::LoadSession {
+                provider_session_id: "x".into()
+            },
+            None
+        )
         .is_none());
 
         let qualified = qualified_capabilities(advertised_capabilities());

@@ -1601,10 +1601,15 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
             // The refused half is named to the operator: a mode that rides
             // along doing nothing is the exact failure the census exists for.
             if !modes.is_empty() {
+                let codex_honoured = dpl_chat_codex::runtime::honoured_for(None);
                 let honoured: &[&str] = if provider == dpl_chat_grok::PROVIDER {
                     dpl_chat_grok::HONOURED_MODES
                 } else if provider == dpl_chat_codex::PROVIDER {
-                    dpl_chat_codex::runtime::HONOURED_MODES
+                    // Model-aware, not adapter-aware: until model/list has
+                    // verified what this model advertises, NOTHING is
+                    // honoured, and the operator is told so rather than being
+                    // given a turn that silently dropped the mode.
+                    &codex_honoured
                 } else {
                     &[]
                 };
