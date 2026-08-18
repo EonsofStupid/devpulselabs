@@ -21,3 +21,6 @@ proof-*.png
 # Milestone-loop ledger: local operator telemetry, never committed
 .claude/ledger/ledger.jsonl
 .claude/ledger/last-session.txt
+
+# chatmirror — local AI session mirrors (never commit: may contain tokens)
+.chat/
