@@ -32,7 +32,7 @@ use std::thread;
 pub const APP_SERVER_ARGS: &[&str] = &["app-server"];
 
 /// The CLI the vendored schema under `schema/` was generated from.
-pub const PINNED_CLI_VERSION: &str = "0.146.0-alpha.3.1";
+pub const PINNED_CLI_VERSION: &str = "0.147.0";
 
 /// Every method this adapter calls. Pinned so a Codex upgrade that removes
 /// one fails a TEST with the method's name, rather than a turn that hangs.
@@ -318,8 +318,22 @@ pub fn event_for(method: &str, params: &Value) -> Option<RuntimeEvent> {
 /// fed to the notification mapper and silently becomes an `Other` update.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Frame {
-    Notification { method: String, params: Value },
-    Response { id: u64, failed: bool },
+    Notification {
+        method: String,
+        params: Value,
+    },
+    Response {
+        id: u64,
+        failed: bool,
+    },
+    /// The agent asking US for something — an approval, a tool call, an
+    /// elicitation. It carries an `id` and EXPECTS a reply echoing it, and the
+    /// spec is explicit that the server pauses until one arrives.
+    ServerRequest {
+        id: u64,
+        method: String,
+        params: Value,
+    },
 }
 
 /// Classify one line of the server's stdout.
@@ -328,10 +342,29 @@ pub enum Frame {
 /// a CLI that also prints diagnostics, never a protocol event.
 pub fn classify(line: &str) -> Option<Frame> {
     let frame: Value = serde_json::from_str(line.trim()).ok()?;
+    let params = || frame.get("params").cloned().unwrap_or(Value::Null);
+    // The rule is the vendored envelope's, not an approximation of it
+    // (`schema/JSONRPCMessage.json`):
+    //
+    //   JSONRPCRequest       id + method     ← the agent asking US
+    //   JSONRPCNotification  method          ← no id, ever
+    //   JSONRPCResponse      id + result
+    //   JSONRPCError         id + error
+    //
+    // `id` is what separates a server request from a notification, and this
+    // used to read any `method` as a notification. An approval would have
+    // become an `Other` update and never been answered, and the spec says the
+    // server BLOCKS until the client replies — so that was a hung turn waiting
+    // for the day approvals are advertised.
     match (frame.get("method").and_then(Value::as_str), frame.get("id")) {
-        (Some(method), _) => Some(Frame::Notification {
+        (Some(method), Some(id)) => Some(Frame::ServerRequest {
+            id: id.as_u64()?,
             method: method.to_owned(),
-            params: frame.get("params").cloned().unwrap_or(Value::Null),
+            params: params(),
+        }),
+        (Some(method), None) => Some(Frame::Notification {
+            method: method.to_owned(),
+            params: params(),
         }),
         (None, Some(id)) => Some(Frame::Response {
             id: id.as_u64()?,
@@ -536,6 +569,24 @@ fn read_frames(
             // Every other response is an acknowledgement; the work it started
             // reports through notifications.
             Frame::Response { .. } => None,
+            // The agent is asking US for something and, per the spec, is now
+            // BLOCKED until it gets a reply. This adapter advertises none of
+            // the capabilities that produce one (`advertised_capabilities`),
+            // so reaching here means the agent asked anyway.
+            //
+            // Answering needs the writer's stdin, which this thread does not
+            // hold. Until that plumbing exists, say so by name: a turn that
+            // stalls with "approval requested, nobody can answer" is
+            // diagnosable, and one that just stops is not.
+            Frame::ServerRequest { method, .. } => {
+                Some(RuntimeEvent::Failure(RuntimeFailure::new(
+                    RuntimeFailureKind::Protocol,
+                    format!(
+                        "codex asked for `{method}` and this adapter cannot answer it; \
+                         the turn will not continue"
+                    ),
+                )))
+            }
         };
         if let Some(event) = event {
             if events.send(event).is_err() {
@@ -1004,6 +1055,91 @@ mod tests {
         // protocol.
         assert_eq!(classify("Listening on stdio"), None);
         assert_eq!(classify(""), None);
+    }
+
+    /// `id` is the ONLY thing separating a server request from a
+    /// notification, and reading one as the other is a hung turn: the spec
+    /// says the agent blocks until the client replies with that id.
+    #[test]
+    fn a_server_request_is_told_from_a_notification_by_its_id() {
+        assert_eq!(
+            classify(
+                r#"{"id":9,"method":"item/commandExecution/requestApproval","params":{"itemId":"i1"}}"#
+            ),
+            Some(Frame::ServerRequest {
+                id: 9,
+                method: "item/commandExecution/requestApproval".to_owned(),
+                params: json!({"itemId":"i1"}),
+            })
+        );
+        // Same method shape, no id — a notification, and nobody is waiting.
+        assert_eq!(
+            classify(r#"{"method":"turn/started","params":{"threadId":"th"}}"#),
+            Some(Frame::Notification {
+                method: "turn/started".to_owned(),
+                params: json!({"threadId":"th"}),
+            })
+        );
+    }
+
+    /// The classification rule is the VENDORED envelope's, so it cannot drift
+    /// from the protocol without this failing.
+    #[test]
+    fn the_frame_rule_matches_the_vendored_envelope() {
+        let envelope: Value = serde_json::from_str(include_str!("../schema/JSONRPCMessage.json"))
+            .expect("vendored envelope parses");
+        let defs = envelope
+            .get("definitions")
+            .and_then(Value::as_object)
+            .expect("definitions");
+        let required = |name: &str| -> Vec<String> {
+            let mut r: Vec<String> = defs[name]["required"]
+                .as_array()
+                .expect("required")
+                .iter()
+                .map(|v| v.as_str().expect("string").to_owned())
+                .collect();
+            r.sort();
+            r
+        };
+        assert_eq!(
+            required("JSONRPCRequest"),
+            ["id", "method"],
+            "server request"
+        );
+        assert_eq!(required("JSONRPCNotification"), ["method"], "no id, ever");
+        assert_eq!(required("JSONRPCResponse"), ["id", "result"]);
+        assert_eq!(required("JSONRPCError"), ["error", "id"]);
+    }
+
+    /// The policy is to run the LATEST Codex, so the vendored schema and the
+    /// installed CLI must agree. When this fails the fix is to re-vendor, not
+    /// to move the pin.
+    ///
+    /// Skipped where codex is not installed — CI without the CLI is a missing
+    /// check, not a failing one, and pretending otherwise would make the suite
+    /// red for a reason it cannot act on.
+    #[test]
+    fn the_vendored_schema_matches_the_installed_cli() {
+        let vendored = include_str!("../schema/VERSION").trim().to_owned();
+        assert!(
+            vendored.contains(PINNED_CLI_VERSION),
+            "VERSION ({vendored}) and PINNED_CLI_VERSION ({PINNED_CLI_VERSION}) disagree"
+        );
+        // Through dpl_proc::quiet like every other spawn in this workspace: on
+        // Windows a bare Command flashes a console, and a test is not an
+        // excuse for the one law that has no exceptions worth taking.
+        let mut probe = std::process::Command::new("codex");
+        let Ok(output) = dpl_proc::quiet(probe.arg("--version")).output() else {
+            eprintln!("codex not installed — drift unchecked");
+            return;
+        };
+        let installed = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+        assert_eq!(
+            installed, vendored,
+            "installed codex has moved; re-vendor with \
+             `codex app-server generate-json-schema --out crates/chat/providers/codex/schema`"
+        );
     }
 
     /// A request the writer emits must carry `jsonrpc` and the id the reader
