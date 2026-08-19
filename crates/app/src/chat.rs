@@ -204,9 +204,13 @@ struct BrainstormSession {
     redo: Vec<dpl_workflows::BrainstormDoc>,
     /// The last honest status line (a refusal's issues, a promote note).
     status: Option<String>,
-    /// The in-flight suggestion call, if any (the imagine correlation
-    /// shape: job minted at dispatch, one terminal transition).
-    assist: Option<BrainstormAssistCall>,
+    /// The suggestion waves in flight — one per seat, not one at a time.
+    ///
+    /// A board several seats work at once is the point, and that means several
+    /// answers landing at different moments. Each wave keeps its own job, its
+    /// own seat and its own checkpoint, so one seat's proposals are one undo
+    /// step and a slow seat never blocks a fast one.
+    assist: Vec<BrainstormAssistCall>,
 }
 
 struct BrainstormAssistCall {
@@ -2783,7 +2787,7 @@ fn start_brainstorm(state: &mut Shared) {
         undo: Vec::new(),
         redo: Vec::new(),
         status,
-        assist: None,
+        assist: Vec::new(),
     });
     project_brainstorm(state);
 }
@@ -2802,8 +2806,14 @@ fn brainstorm_assist(state: &mut Shared) {
     let Some(session) = &mut state.brainstorm else {
         return;
     };
-    if session.assist.is_some() {
-        session.status = Some("The assist is already thinking…".to_owned());
+    // Per SEAT, not per board: another seat already thinking is no reason to
+    // refuse this one — that refusal is what made the board single-voice.
+    if session
+        .assist
+        .iter()
+        .any(|call| call.seat == propose_seat())
+    {
+        session.status = Some(format!("{} is already thinking…", propose_seat().label()));
         project_brainstorm(state);
         return;
     }
@@ -2813,8 +2823,22 @@ fn brainstorm_assist(state: &mut Shared) {
         return;
     }
     let Some(key) = dpl_chat_imagine::resolve_api_key() else {
-        session.status =
-            Some("No XAI_API_KEY in this session — suggestions stay off, honestly.".to_owned());
+        // Names the roster, so "why is nobody proposing" has an answer rather
+        // than a shrug.
+        let roster = proposing_seats();
+        session.status = Some(if roster.is_empty() {
+            "No seat can propose right now — Imagine needs XAI_API_KEY in this              session, and the CLI seats cannot propose yet."
+                .to_owned()
+        } else {
+            format!(
+                "Only {} can propose right now.",
+                roster
+                    .iter()
+                    .map(dpl_seat::Seat::label)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        });
         project_brainstorm(state);
         return;
     };
@@ -2835,16 +2859,38 @@ fn brainstorm_assist(state: &mut Shared) {
         project_brainstorm(state);
         return;
     }
-    // Imagine is a metered API call, not a subscription seat — `usage` is the
-    // measured truth here, not a guess.
-    let seat = dpl_seat::Seat::agent("imagine", dpl_seat::Basis::Usage);
-    session.assist = Some(BrainstormAssistCall { job, rx, seat });
-    session.status = Some("Assist is thinking…".to_owned());
+    let seat = propose_seat();
+    let waiting = seat.label();
+    session.assist.push(BrainstormAssistCall { job, rx, seat });
+    session.status = Some(format!("{waiting} is thinking…"));
     state.fabric.publish_job(dpl_fabric::JobEvent::Queued {
         job,
         label: "brainstorm · populate".to_owned(),
     });
     project_brainstorm(state);
+}
+
+/// The seat Imagine proposes as.
+///
+/// A metered API call, not a subscription — `usage` is the measured truth
+/// here, and calling it a subscription would be the one promotion `dpl-seat`
+/// refuses for exactly this reason.
+fn propose_seat() -> dpl_seat::Seat {
+    dpl_seat::Seat::agent("imagine", dpl_seat::Basis::Usage)
+}
+
+/// Which seats can propose to the board RIGHT NOW.
+///
+/// Answered honestly rather than aspirationally. Imagine can when a key is in
+/// this session; the ACP providers cannot yet — their suggestion path is a
+/// turn on a session whose text nobody accumulates, which is a build and not a
+/// registration. A roster that listed them would be a crowd that never speaks.
+fn proposing_seats() -> Vec<dpl_seat::Seat> {
+    let mut seats = Vec::new();
+    if dpl_chat_imagine::resolve_api_key().is_some() {
+        seats.push(propose_seat());
+    }
+    seats
 }
 
 /// Drain the suggestion call: proposals land as Assist-origin items
@@ -2854,19 +2900,35 @@ fn poll_brainstorm_assist(state: &mut Shared) -> bool {
     let Some(session) = &mut state.brainstorm else {
         return false;
     };
-    let Some(call) = &session.assist else {
+    // The FIRST wave with an answer, taken in ONE receive.
+    //
+    // Probing with try_recv and then receiving again would drop the value on
+    // the floor — the probe IS the receive. So the result is kept as it is
+    // found, and only then is the wave removed.
+    //
+    // One wave per poll, so each keeps its own checkpoint: batching two seats
+    // into one undo step would make an operator cutting one seat's ideas lose
+    // the other's too.
+    let mut ready: Option<(usize, Result<Vec<String>, String>)> = None;
+    for (index, call) in session.assist.iter().enumerate() {
+        match call.rx.try_recv() {
+            Ok(result) => {
+                ready = Some((index, result));
+                break;
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => continue,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                ready = Some((index, Err("the suggestion worker vanished".to_owned())));
+                break;
+            }
+        }
+    }
+    let Some((index, result)) = ready else {
         return false;
     };
-    let result = match call.rx.try_recv() {
-        Ok(result) => result,
-        Err(std::sync::mpsc::TryRecvError::Empty) => return false,
-        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-            Err("the suggestion worker vanished".to_owned())
-        }
-    };
+    let call = session.assist.remove(index);
     let job = call.job;
     let seat = call.seat.clone();
-    session.assist = None;
     match result {
         Ok(ideas) => {
             session.checkpoint();
@@ -5620,5 +5682,34 @@ mod slash_mint_tests {
     fn already_behavioral_is_silent() {
         let gate = dpl_intent::DeterminismGate::default();
         assert!(resolve_operator_slash(&gate, OperatorSlashCommand::Behavioral, false).is_none());
+    }
+}
+
+#[cfg(test)]
+mod brainstorm_seat_tests {
+    use super::*;
+
+    /// The roster answers what is TRUE, not what is planned. Today that is
+    /// Imagine when a key exists and nothing otherwise — and a roster that
+    /// listed the CLI seats would be a crowd that never speaks.
+    #[test]
+    fn the_roster_only_lists_seats_that_can_actually_propose() {
+        let roster = proposing_seats();
+        // Whatever the environment, every listed seat is one we can dispatch
+        // to — the roster never contains an aspiration.
+        for seat in &roster {
+            assert!(seat.is_agent(), "a proposing seat is an agent seat");
+            assert_eq!(seat, &propose_seat());
+        }
+        assert!(roster.len() <= 1, "only Imagine can propose today");
+    }
+
+    /// Imagine is metered. Recording it as a subscription would be the exact
+    /// promotion dpl-seat refuses, and it would misreport the bill.
+    #[test]
+    fn imagine_proposes_on_a_measured_usage_basis() {
+        let seat = propose_seat();
+        assert_eq!(seat.basis, dpl_seat::Basis::Usage);
+        assert_eq!(seat.label(), "imagine");
     }
 }
