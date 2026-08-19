@@ -132,6 +132,19 @@ struct Shared {
     /// session string — an unkeyed map would splice two conversations into one
     /// transcript.
     seam_sessions: BTreeMap<(ProviderId, String), ChatSessionId>,
+    /// Sessions the BOARD owns, one per provider.
+    ///
+    /// Kept apart from the operator's chats on purpose. A brainstorm prompt
+    /// and its reply belong to the board, not to a conversation somebody is
+    /// having — and a board wave interleaving with an operator turn on one
+    /// session would corrupt both.
+    brainstorm_sessions: BTreeMap<ProviderId, String>,
+    /// Providers whose board session has been asked for but has not arrived.
+    /// The NEXT SessionReady from one of these is the board's, not a chat.
+    brainstorm_session_pending: std::collections::BTreeSet<ProviderId>,
+    /// Assistant text arriving on a BOARD session, accumulated until the turn
+    /// ends. Chunks are per-token; a board item needs the whole reply.
+    brainstorm_reply: BTreeMap<ProviderId, String>,
     seam_turns: BTreeMap<(ProviderId, String), TurnId>,
     /// The default model each provider advertised. Absent until `model/list`
     /// has answered, and absence is read strictly: no composer mode is put on
@@ -933,6 +946,9 @@ impl ChatWindowCoordinator {
             grok_permissions: BTreeMap::new(),
             runtimes: BTreeMap::new(),
             seam_sessions: BTreeMap::new(),
+            brainstorm_sessions: BTreeMap::new(),
+            brainstorm_session_pending: std::collections::BTreeSet::new(),
+            brainstorm_reply: BTreeMap::new(),
             seam_turns: BTreeMap::new(),
             provider_models: BTreeMap::new(),
             provider_mcp: BTreeMap::new(),
@@ -2870,6 +2886,62 @@ fn brainstorm_assist(state: &mut Shared) {
     project_brainstorm(state);
 }
 
+/// A board session's turn finished — read it, or say why it was unusable.
+///
+/// Goes through the SAME line parser the API path uses, so a CLI seat cannot
+/// drift into a second notion of what an idea line is. That parser refuses
+/// prose, which matters most here: these are coding agents with tools, and a
+/// reply that narrates rather than lists would otherwise fill the board with
+/// items nobody wrote.
+fn land_board_reply(state: &mut Shared, provider: ProviderId, reply: &str) {
+    let seat = dpl_seat::Seat::agent(provider.0, dpl_seat::Basis::Subscription);
+    let Some(session) = &mut state.brainstorm else {
+        return;
+    };
+    let existing: Vec<String> = session.doc.items.iter().map(|i| i.text.clone()).collect();
+    match dpl_chat_imagine::ideas_from_lines(reply, &existing) {
+        Ok(ideas) => {
+            session.checkpoint();
+            let mut landed = 0usize;
+            for text in ideas {
+                let id = (1..)
+                    .map(|n| format!("idea-{n}"))
+                    .find(|c| session.doc.items.iter().all(|i| &i.id != c))
+                    .expect("unbounded");
+                if dpl_workflows::apply(
+                    &mut session.doc,
+                    &dpl_workflows::BrainstormOp::AddItem {
+                        id,
+                        text,
+                        parent: None,
+                        origin: dpl_workflows::BrainstormOrigin::Assist,
+                        seat: Some(seat.clone()),
+                    },
+                )
+                .is_ok()
+                {
+                    landed += 1;
+                }
+            }
+            session.status = Some(format!(
+                "{} proposed {landed} ideas — yours to keep or cut.",
+                seat.label()
+            ));
+            if let Err(error) = dpl_workflows::save_brainstorm(&session.dir, &session.doc) {
+                tracing::warn!(%error, "the board could not be saved");
+            }
+        }
+        Err(reason) => {
+            // Named, not swallowed. A seat that answered with prose is a
+            // different problem from one that never answered, and only one of
+            // them is worth asking again.
+            tracing::info!(%provider, %reason, "board reply held no ideas");
+            session.status = Some(format!("{} answered, but {reason}.", seat.label()));
+        }
+    }
+    project_brainstorm(state);
+}
+
 /// The seat Imagine proposes as.
 ///
 /// A metered API call, not a subscription — `usage` is the measured truth
@@ -4361,6 +4433,17 @@ fn project_seam_event(state: &mut Shared, provider: ProviderId, event: RuntimeEv
             provider_session_id,
             is_new,
         } => {
+            // The board asked for this one, so it never becomes a chat the
+            // operator did not start. Claimed BEFORE any projection — a
+            // session that reached the list and was removed afterwards would
+            // still have flickered there.
+            if state.brainstorm_session_pending.remove(&provider) {
+                tracing::info!(%provider, "board session ready");
+                state
+                    .brainstorm_sessions
+                    .insert(provider, provider_session_id);
+                return;
+            }
             let session = seam_chat_session_id(state, provider, &provider_session_id);
             let summary = SessionSummary {
                 id: session,
@@ -4429,6 +4512,11 @@ fn project_seam_event(state: &mut Shared, provider: ProviderId, event: RuntimeEv
             provider_session_id,
             stop_reason: _,
         } => {
+            if state.brainstorm_sessions.get(&provider) == Some(&provider_session_id) {
+                let reply = state.brainstorm_reply.remove(&provider).unwrap_or_default();
+                land_board_reply(state, provider, &reply);
+                return;
+            }
             append_seam_event(
                 state,
                 provider,
@@ -4501,6 +4589,19 @@ fn project_seam_update(
             // a successful enqueue.
         }
         RuntimeUpdate::AssistantText(chunk) => {
+            // A board session's words belong to the board, not to a
+            // conversation. Branch first and early: this is the hot path of
+            // ordinary chat, and it must not grow a condition per feature.
+            if state.brainstorm_sessions.get(&provider).map(String::as_str)
+                == Some(provider_session_id)
+            {
+                state
+                    .brainstorm_reply
+                    .entry(provider)
+                    .or_default()
+                    .push_str(&chunk);
+                return;
+            }
             ai_first_token(state, provider_session_id);
             let Some(session) = state.seam_sessions.get(&key).copied() else {
                 return;

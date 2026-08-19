@@ -300,6 +300,25 @@ pub fn parse_suggest_response(body: &str, existing: &[String]) -> Result<Vec<Str
         .and_then(|message| message.get("content"))
         .and_then(|content| content.as_str())
         .ok_or_else(|| "the suggestion response carried no text".to_owned())?;
+    ideas_from_lines(content, existing)
+}
+
+/// The longest a line can be and still be an IDEA rather than a paragraph.
+///
+/// This guard matters more for a CLI seat than for the API one. Codex and grok
+/// are coding agents with tools; asked to brainstorm they may answer in prose,
+/// ask a question, or narrate what they are doing. Splitting that on newlines
+/// yields items that LOOK like ideas and are not — a board full of shredded
+/// prose is work to undo, and worse than a board with nothing on it.
+const MAX_IDEA_LEN: usize = 140;
+
+/// Read idea lines out of a plain-text reply.
+///
+/// Shared by every seat that proposes, so the API path and a CLI seat cannot
+/// drift into two different notions of what an idea line is. Strips list
+/// bullets, drops what is already on the board (case-insensitively), refuses
+/// paragraphs, and caps at [`MAX_SUGGESTIONS`].
+pub fn ideas_from_lines(content: &str, existing: &[String]) -> Result<Vec<String>, String> {
     let mut seen: Vec<String> = existing.to_vec();
     let mut ideas = Vec::new();
     for line in content.lines() {
@@ -308,7 +327,19 @@ pub fn parse_suggest_response(body: &str, existing: &[String]) -> Result<Vec<Str
             .trim_start_matches(['-', '*', '•'])
             .trim()
             .to_owned();
-        if line.is_empty() || seen.iter().any(|s| s.eq_ignore_ascii_case(&line)) {
+        // A line that INTRODUCES a list is not an item in it. "Here are some
+        // angles:" is short enough to pass a length guard, so length alone
+        // cannot catch it — the colon is what marks it as a lead-in.
+        //
+        // Heuristic, and honest about being one: a chatty seat can still slip
+        // a short sentence through. The guard buys the common cases, and the
+        // operator can cut what it misses. What it must never do is let a
+        // PARAGRAPH through, because that is the one that fills the board with
+        // work to undo.
+        if line.is_empty() || line.chars().count() > MAX_IDEA_LEN || line.ends_with(':') {
+            continue;
+        }
+        if seen.iter().any(|s| s.eq_ignore_ascii_case(&line)) {
             continue;
         }
         seen.push(line.clone());
@@ -318,7 +349,7 @@ pub fn parse_suggest_response(body: &str, existing: &[String]) -> Result<Vec<Str
         }
     }
     if ideas.is_empty() {
-        return Err("the suggestion response held no usable idea lines".to_owned());
+        return Err("the reply held no usable idea lines".to_owned());
     }
     Ok(ideas)
 }
@@ -389,6 +420,81 @@ impl ImagineClient for SystemImagineClient {
 
 #[cfg(test)]
 mod tests {
+    /// A CLI seat is a coding agent, not an idea generator. Asked to
+    /// brainstorm it may narrate, ask a question, or answer in paragraphs —
+    /// and shredding that on newlines produces items that LOOK like ideas.
+    /// A board full of those is work to undo.
+    #[test]
+    fn prose_is_refused_rather_than_shredded_into_items() {
+        let paragraph = "I'll help you brainstorm angles for this explainer. \
+                         Before I start, it would be useful to know who the \
+                         audience is and roughly how long the video should run, \
+                         because the framing changes a great deal between a \
+                         thirty-second teaser and a five-minute walkthrough.";
+        assert!(
+            ideas_from_lines(paragraph, &[]).is_err(),
+            "one long paragraph is not a list of ideas"
+        );
+    }
+
+    /// The guard is per LINE, so a real list survives a chatty preamble.
+    #[test]
+    fn a_list_survives_a_preamble_that_does_not() {
+        let reply = "Sure — here are some angles I think could work well for \
+                     this, based on what you have on the board already:\n\
+                     - Open on the failure\n\
+                     - Show the fix in one take\n\
+                     * Close on the cost saved";
+        let ideas = ideas_from_lines(reply, &[]).expect("the list is there");
+        assert_eq!(
+            ideas,
+            [
+                "Open on the failure",
+                "Show the fix in one take",
+                "Close on the cost saved"
+            ],
+            "bullets stripped, preamble dropped for being a paragraph"
+        );
+    }
+
+    #[test]
+    fn what_is_already_on_the_board_is_not_proposed_again() {
+        let reply = "Open on the failure\nSomething new\nOPEN ON THE FAILURE";
+        let ideas =
+            ideas_from_lines(reply, &["open on the failure".to_owned()]).expect("one new idea");
+        assert_eq!(
+            ideas,
+            ["Something new"],
+            "case-insensitive, both directions"
+        );
+    }
+
+    #[test]
+    fn the_cap_is_the_cap() {
+        let many = (1..=20)
+            .map(|n| format!("idea {n}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(
+            ideas_from_lines(&many, &[]).expect("some").len(),
+            MAX_SUGGESTIONS
+        );
+    }
+
+    /// Both paths read lines the SAME way — that is why the parser was
+    /// extracted rather than copied.
+    #[test]
+    fn the_api_path_and_the_line_parser_agree() {
+        let body = serde_json::json!({
+            "choices": [{ "message": { "content": "- One\n- Two" } }]
+        })
+        .to_string();
+        assert_eq!(
+            parse_suggest_response(&body, &[]).expect("parsed"),
+            ideas_from_lines("- One\n- Two", &[]).expect("parsed")
+        );
+    }
+
     use super::*;
 
     fn temp_cache(name: &str) -> ImagineCache {
