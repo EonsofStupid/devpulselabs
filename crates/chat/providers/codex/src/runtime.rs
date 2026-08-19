@@ -16,8 +16,9 @@
 
 use crate::CodexRuntimeProfile;
 use dpl_chat_runtime::seam::{
-    ModelCapabilities, ProviderRuntime, RuntimeCapabilities, RuntimeCommand, RuntimeEvent,
-    RuntimeFailure, RuntimeFailureKind, RuntimeSendError, RuntimeUpdate,
+    McpAuthStatus, McpServerStatus, McpStartupState, ModelCapabilities, ProviderRuntime,
+    RuntimeCapabilities, RuntimeCommand, RuntimeEvent, RuntimeFailure, RuntimeFailureKind,
+    RuntimeSendError, RuntimeUpdate,
 };
 use std::collections::HashMap;
 
@@ -44,6 +45,9 @@ pub const METHODS_USED: &[&str] = &[
     "turn/start",
     "turn/interrupt",
     "model/list",
+    "mcpServerStatus/list",
+    "mcpServer/oauth/login",
+    "config/mcpServer/reload",
 ];
 
 /// Every notification this adapter maps. Anything else is kept as
@@ -99,6 +103,8 @@ pub fn honoured_for(model: Option<&ModelCapabilities>) -> Vec<&'static str> {
 }
 
 pub const NOTIFICATIONS_MAPPED: &[&str] = &[
+    "mcpServer/startupStatus/updated",
+    "mcpServer/oauthLogin/completed",
     "thread/started",
     "turn/started",
     "turn/completed",
@@ -168,6 +174,23 @@ pub fn outbound_for(
         // off the response is in `schema/v2/ModelListResponse.json`.
         RuntimeCommand::ListModels => Some(Outbound::Request {
             method: "model/list",
+            params: json!({}),
+        }),
+        // Which connectors this Codex holds, how each authenticates, and what
+        // tools they bring. The tools are the point: a mode like web search is
+        // not a flag on a turn, it is whether a connected server does it.
+        RuntimeCommand::ListMcpServers => Some(Outbound::Request {
+            method: "mcpServerStatus/list",
+            params: json!({}),
+        }),
+        // The answer is an authorizationUrl for the operator to open; the
+        // outcome arrives later as `mcpServer/oauthLogin/completed`.
+        RuntimeCommand::McpOauthLogin { name } => Some(Outbound::Request {
+            method: "mcpServer/oauth/login",
+            params: json!({ "name": name }),
+        }),
+        RuntimeCommand::ReloadMcpServers => Some(Outbound::Request {
+            method: "config/mcpServer/reload",
             params: json!({}),
         }),
         RuntimeCommand::Cancel {
@@ -253,6 +276,57 @@ pub fn models_from(result: &Value) -> Vec<ModelCapabilities> {
         .collect()
 }
 
+/// Read `mcpServerStatus/list`'s answer into the seam's shape.
+///
+/// Field names from `schema/v2/ListMcpServerStatusResponse.json`:
+/// `{ data: McpServerStatus[] }` with `McpServerStatus { name, authStatus,
+/// tools: { <name>: Tool }, resources, resourceTemplates, serverInfo? }` and
+/// `McpServerInfo { name, version, description?, ... }`.
+///
+/// `tools` is a MAP keyed by tool name, so the names are its keys. Sorted,
+/// because a surface that reorders itself between frames is unreadable.
+///
+/// A server with no `name` is skipped: an unnameable connector cannot be shown
+/// to an operator or signed into, so claiming it exists helps nobody.
+pub fn mcp_servers_from(result: &Value) -> Vec<McpServerStatus> {
+    let Some(data) = result.get("data").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    data.iter()
+        .filter_map(|server| {
+            let info = server.get("serverInfo");
+            let mut tools: Vec<String> = server
+                .get("tools")
+                .and_then(Value::as_object)
+                .map(|map| map.keys().cloned().collect())
+                .unwrap_or_default();
+            tools.sort();
+            Some(McpServerStatus {
+                name: server.get("name").and_then(Value::as_str)?.to_owned(),
+                auth: server
+                    .get("authStatus")
+                    .and_then(Value::as_str)
+                    .map(McpAuthStatus::from_wire)
+                    .unwrap_or_default(),
+                tools,
+                version: info
+                    .and_then(|i| i.get("version"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                description: info
+                    .and_then(|i| i.get("description"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                // The list response carries no startup field — it arrives via
+                // `mcpServer/startupStatus/updated`. Unreported, never assumed
+                // ready.
+                startup: McpStartupState::Unreported,
+                failure: None,
+            })
+        })
+        .collect()
+}
+
 /// Map one server notification onto the seam.
 ///
 /// Field names come from the vendored schema:
@@ -272,6 +346,36 @@ pub fn event_for(method: &str, params: &Value) -> Option<RuntimeEvent> {
             .to_owned()
     };
     match method {
+        // A connector's process changed state. Unprompted, and the reason a
+        // list alone is not enough: a server can die after it was listed and
+        // nothing would ever say so.
+        "mcpServer/startupStatus/updated" => Some(RuntimeEvent::McpServerStartup {
+            name: params.get("name").and_then(Value::as_str)?.to_owned(),
+            startup: params
+                .get("status")
+                .and_then(Value::as_str)
+                .map(McpStartupState::from_wire)
+                .unwrap_or_default(),
+            // `error` is the human sentence; `failureReason` is the typed
+            // cause. Prefer the sentence, fall back to the cause, because an
+            // operator can act on the first and only recognise the second.
+            failure: params
+                .get("error")
+                .and_then(Value::as_str)
+                .or_else(|| params.get("failureReason").and_then(Value::as_str))
+                .map(str::to_owned),
+        }),
+        "mcpServer/oauthLogin/completed" => Some(RuntimeEvent::McpOauthCompleted {
+            name: params.get("name").and_then(Value::as_str)?.to_owned(),
+            success: params
+                .get("success")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            error: params
+                .get("error")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+        }),
         "thread/started" => {
             // The id lives on the Thread object, not at the top level.
             let id = params
@@ -677,6 +781,37 @@ fn read_frames(
                     // A failed model/list leaves capabilities unverified, and
                     // unverified means every mode stays refused. Said out loud
                     // rather than left as silence.
+                    Some("mcpServer/oauth/login") if !failed => result
+                        .get("authorizationUrl")
+                        .and_then(Value::as_str)
+                        .map(|url| RuntimeEvent::McpOauthUrl {
+                            // The name is not echoed in the response, so the
+                            // in-flight map would have to carry it to name it
+                            // here. Left empty and filled by the host, which
+                            // knows what it asked for.
+                            name: String::new(),
+                            url: url.to_owned(),
+                        }),
+                    Some("mcpServer/oauth/login") => {
+                        Some(RuntimeEvent::Failure(RuntimeFailure::new(
+                            RuntimeFailureKind::Protocol,
+                            "codex refused the connector sign-in",
+                        )))
+                    }
+                    // A reload answers with nothing; the list that follows is
+                    // where the change shows up.
+                    Some("config/mcpServer/reload") => None,
+                    Some("mcpServerStatus/list") if !failed => {
+                        Some(RuntimeEvent::McpServersListed {
+                            servers: mcp_servers_from(&result),
+                        })
+                    }
+                    Some("mcpServerStatus/list") => {
+                        Some(RuntimeEvent::Failure(RuntimeFailure::new(
+                            RuntimeFailureKind::Protocol,
+                            "codex refused mcpServerStatus/list; connectors stay unknown",
+                        )))
+                    }
                     Some("model/list") => Some(RuntimeEvent::Failure(RuntimeFailure::new(
                         RuntimeFailureKind::Protocol,
                         "codex refused model/list; composer modes stay unverified",
@@ -1390,6 +1525,109 @@ mod tests {
             )),
             "the refusal is reported by name: {events:?}"
         );
+    }
+
+    /// Connectors come back typed, with the tool NAMES lifted out of the map
+    /// they are keyed by.
+    #[test]
+    fn a_connector_list_is_claimed_and_read() {
+        let (tx, rx) = sync_channel(64);
+        let tail = Arc::new(Mutex::new(String::new()));
+        let pending = Arc::new(Mutex::new(HashMap::from([(3_u64, "mcpServerStatus/list")])));
+        let line = json!({
+            "id": 3,
+            "result": { "data": [
+                {
+                    "name": "brave",
+                    "authStatus": "oAuth",
+                    "tools": { "brave_web_search": {}, "brave_local": {} },
+                    "resources": [], "resourceTemplates": [],
+                    "serverInfo": { "name": "brave", "version": "1.2.0",
+                                    "description": "Search the web" }
+                },
+                {
+                    "name": "github",
+                    "authStatus": "notLoggedIn",
+                    "tools": { "search_issues": {} },
+                    "resources": [], "resourceTemplates": []
+                }
+            ]}
+        })
+        .to_string();
+        read_frames(
+            BufReader::new(format!("{line}\n").as_bytes()),
+            &tx,
+            &tail,
+            &pending,
+        );
+        drop(tx);
+        let events: Vec<_> = rx.into_iter().collect();
+        let servers = events
+            .iter()
+            .find_map(|e| match e {
+                RuntimeEvent::McpServersListed { servers } => Some(servers),
+                _ => None,
+            })
+            .expect("the claimed response was read");
+        assert_eq!(servers.len(), 2);
+        assert_eq!(servers[0].name, "brave");
+        assert_eq!(servers[0].auth, McpAuthStatus::OAuth);
+        // Keys of the tools map, sorted.
+        assert_eq!(servers[0].tools, ["brave_local", "brave_web_search"]);
+        assert_eq!(servers[0].version.as_deref(), Some("1.2.0"));
+        assert_eq!(servers[1].auth, McpAuthStatus::NotLoggedIn);
+        assert!(!servers[1].is_usable(), "configured is not signed in");
+    }
+
+    /// A list is a snapshot; this is what keeps it true.
+    #[test]
+    fn a_startup_notification_carries_the_state_and_the_reason() {
+        let event = event_for(
+            "mcpServer/startupStatus/updated",
+            &json!({ "name": "brave", "status": "failed", "error": "port already in use" }),
+        )
+        .expect("mapped");
+        assert_eq!(
+            event,
+            RuntimeEvent::McpServerStartup {
+                name: "brave".to_owned(),
+                startup: McpStartupState::Failed,
+                failure: Some("port already in use".to_owned()),
+            }
+        );
+        // `failureReason` is the typed fallback when there is no sentence.
+        let typed = event_for(
+            "mcpServer/startupStatus/updated",
+            &json!({ "name": "brave", "status": "failed", "failureReason": "spawnFailed" }),
+        )
+        .expect("mapped");
+        assert!(matches!(
+            typed,
+            RuntimeEvent::McpServerStartup { failure: Some(reason), .. } if reason == "spawnFailed"
+        ));
+    }
+
+    #[test]
+    fn an_oauth_completion_is_mapped_both_ways() {
+        assert_eq!(
+            event_for(
+                "mcpServer/oauthLogin/completed",
+                &json!({"name":"brave","success":true})
+            )
+            .expect("mapped"),
+            RuntimeEvent::McpOauthCompleted {
+                name: "brave".to_owned(),
+                success: true,
+                error: None,
+            }
+        );
+        assert!(matches!(
+            event_for(
+                "mcpServer/oauthLogin/completed",
+                &json!({"name":"brave","success":false,"error":"denied"})
+            ),
+            Some(RuntimeEvent::McpOauthCompleted { success: false, .. })
+        ));
     }
 
     /// An unclaimed id stays an acknowledgement, exactly as before: only

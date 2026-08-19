@@ -58,7 +58,13 @@ impl ProviderRuntime for GrokRuntimeSeam {
         // would have to be mapped to some real one — and mapping "list your
         // models" onto anything that acts is how a runtime gets told to do
         // something nobody asked for.
-        if matches!(command, RuntimeCommand::ListModels) {
+        if matches!(
+            command,
+            RuntimeCommand::ListModels
+                | RuntimeCommand::ListMcpServers
+                | RuntimeCommand::McpOauthLogin { .. }
+                | RuntimeCommand::ReloadMcpServers
+        ) {
             return Err(RuntimeSendError::Closed);
         }
         self.inner.try_send(command.into()).map_err(Into::into)
@@ -125,7 +131,10 @@ impl From<RuntimeCommand> for GrokRuntimeCommand {
             // Unreachable: `try_send` refuses it above. Kept explicit so
             // adding a Grok model catalogue is a compile error here, not a
             // silent fallthrough.
-            RuntimeCommand::ListModels => Self::Cancel {
+            RuntimeCommand::ListModels
+            | RuntimeCommand::ListMcpServers
+            | RuntimeCommand::McpOauthLogin { .. }
+            | RuntimeCommand::ReloadMcpServers => Self::Cancel {
                 provider_session_id: String::new(),
             },
             RuntimeCommand::ResolvePermission {

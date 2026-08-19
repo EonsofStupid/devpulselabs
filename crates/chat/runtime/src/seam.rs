@@ -151,6 +151,16 @@ pub enum RuntimeCommand {
     NewSession,
     /// Ask what models exist and what each one accepts.
     ListModels,
+    /// Ask which MCP servers are configured, how they authenticate, and what
+    /// tools they bring.
+    ListMcpServers,
+    /// Begin OAuth for one server. The answer is a URL for the operator to
+    /// open; completion arrives later as a notification.
+    McpOauthLogin {
+        name: String,
+    },
+    /// Re-read the MCP server configuration from disk.
+    ReloadMcpServers,
     LoadSession {
         provider_session_id: String,
     },
@@ -199,6 +209,189 @@ impl ModelCapabilities {
     }
 }
 
+/// How a connected MCP server is authenticated, as the provider reports it.
+///
+/// `schema/v2/ListMcpServerStatusResponse.json`: unknown | unsupported |
+/// notLoggedIn | bearerToken | oAuth. Anything unrecognised reads as
+/// [`Self::Unknown`] rather than being guessed into a state — "we do not know"
+/// is a real answer and the operator can act on it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum McpAuthStatus {
+    #[default]
+    Unknown,
+    Unsupported,
+    NotLoggedIn,
+    BearerToken,
+    OAuth,
+}
+
+impl McpAuthStatus {
+    pub fn from_wire(value: &str) -> Self {
+        match value {
+            "unsupported" => Self::Unsupported,
+            "notLoggedIn" => Self::NotLoggedIn,
+            "bearerToken" => Self::BearerToken,
+            "oAuth" => Self::OAuth,
+            _ => Self::Unknown,
+        }
+    }
+
+    /// Is this server usable right now?
+    ///
+    /// `NotLoggedIn` is the one that matters: the server is configured, its
+    /// tools are listed, and NONE of them will work until somebody signs in.
+    /// A surface that showed it as connected would be lying by omission.
+    ///
+    /// Auth ONLY. Whether the process is up is a separate question with a
+    /// separate answer — see [`McpServerStatus::is_usable`], which is the one
+    /// callers should ask.
+    pub const fn is_authenticated(self) -> bool {
+        matches!(self, Self::BearerToken | Self::OAuth | Self::Unsupported)
+    }
+}
+
+/// Whether the server process actually came up.
+///
+/// `schema/v2/...`: starting | ready | failed | cancelled. ORTHOGONAL to
+/// authentication — a server can be perfectly signed in and still have crashed
+/// on boot, and asking only about auth is how a dead connector gets reported
+/// as usable.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum McpStartupState {
+    /// Nothing has said yet. Not the same as broken: the list response carries
+    /// no startup field, so this is where every server begins.
+    #[default]
+    Unreported,
+    Starting,
+    Ready,
+    Failed,
+    Cancelled,
+}
+
+impl McpStartupState {
+    pub fn from_wire(value: &str) -> Self {
+        match value {
+            "starting" => Self::Starting,
+            "ready" => Self::Ready,
+            "failed" => Self::Failed,
+            "cancelled" => Self::Cancelled,
+            _ => Self::Unreported,
+        }
+    }
+
+    /// Has this server definitively failed to come up?
+    ///
+    /// `Unreported` is deliberately NOT a failure. The list response has no
+    /// startup field, so a server that answered with its tools is evidence it
+    /// is running; treating silence as broken would hide every working
+    /// connector until a notification happened to arrive.
+    pub const fn is_down(self) -> bool {
+        matches!(self, Self::Failed | Self::Cancelled)
+    }
+}
+
+/// One MCP server the provider has, and what it brings.
+///
+/// `tools` is the load-bearing field: a mode like web search is not a flag on
+/// a turn, it is whether some connected server exposes a tool that does it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct McpServerStatus {
+    pub name: String,
+    pub auth: McpAuthStatus,
+    /// Tool names, sorted so a surface paints them stably.
+    pub tools: Vec<String>,
+    pub version: Option<String>,
+    pub description: Option<String>,
+    /// Whether the process came up. Filled by
+    /// `mcpServer/startupStatus/updated`, so it stays live rather than being
+    /// a snapshot from whenever the list was last asked.
+    pub startup: McpStartupState,
+    /// Why it failed, when it did. Shown verbatim — a connector that is down
+    /// for a reason the operator can fix is only fixable if they are told it.
+    pub failure: Option<String>,
+}
+
+/// Which composer modes a connected MCP server makes AVAILABLE to the agent.
+///
+/// Read the word carefully: available, not carried, and not enforced.
+///
+/// A connected search tool means the agent CAN search. It does not mean this
+/// turn will. No protocol here has a field that compels a tool call, so a
+/// toggle cannot make one happen — the agent decides, per turn, from the
+/// prompt.
+///
+/// Treating available as carried is the trap. It removes the honest refusal
+/// and replaces it with silence: the operator flips web search, nothing
+/// objects, and nothing searches. That is worse than the refusal it replaced,
+/// which is why [`ModeStanding`] has three states and not two.
+///
+/// Matching is on the tool name containing the marker, because MCP tool naming
+/// is a convention rather than a registry: `web_search`, `brave_web_search`
+/// and `search_web` all mean the same thing and no vendor coordinates them.
+/// The cost of the loose match is a false positive on a tool that merely has
+/// "search" in its name; the cost of an exact list is a connector that works
+/// and is reported as absent.
+pub fn modes_from_tools(servers: &[McpServerStatus]) -> Vec<&'static str> {
+    let usable: Vec<&str> = servers
+        .iter()
+        .filter(|server| server.is_usable())
+        .flat_map(|server| server.tools.iter().map(String::as_str))
+        .collect();
+    let has = |marker: &str| {
+        usable
+            .iter()
+            .any(|tool| tool.to_ascii_lowercase().contains(marker))
+    };
+    let mut modes = Vec::new();
+    if has("search") {
+        modes.push("web-search");
+    }
+    if has("research") || has("deep_research") {
+        modes.push("research");
+    }
+    modes
+}
+
+/// Where one standing mode actually got to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModeStanding {
+    /// On the wire. The provider was told, in a field its schema defines.
+    Carried,
+    /// A connected tool can do this, but nothing compels the agent to use it
+    /// on this turn. Honest middle ground, and the one that did not exist.
+    Available,
+    /// Neither. The operator is told, by name.
+    Refused,
+}
+
+impl McpServerStatus {
+    /// Can this server's tools actually run right now?
+    ///
+    /// BOTH questions, because either one alone is a half-truth: signed in but
+    /// crashed is not usable, and running but signed out is not usable. The
+    /// first version of this asked only about auth, which would have reported
+    /// a dead connector as ready to serve.
+    pub fn is_usable(&self) -> bool {
+        self.auth.is_authenticated() && !self.startup.is_down()
+    }
+
+    /// Why this server cannot serve, in words for an operator. `None` when it
+    /// can.
+    pub fn blocked_reason(&self) -> Option<String> {
+        if self.startup.is_down() {
+            return Some(
+                self.failure
+                    .clone()
+                    .unwrap_or_else(|| format!("{} did not start", self.name)),
+            );
+        }
+        if !self.auth.is_authenticated() {
+            return Some(format!("{} is not signed in", self.name));
+        }
+        None
+    }
+}
+
 /// What the provider says back.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RuntimeEvent {
@@ -217,6 +410,29 @@ pub enum RuntimeEvent {
     /// this adapter will actually put on a turn.
     ModelsListed {
         models: Vec<ModelCapabilities>,
+    },
+    /// The MCP servers this provider holds. Not session-scoped: a connector is
+    /// a property of the provider, not of one thread.
+    McpServersListed {
+        servers: Vec<McpServerStatus>,
+    },
+    /// One server's process state changed. Arrives unprompted, which is the
+    /// point: a list is a snapshot and a connector can die after it was taken.
+    McpServerStartup {
+        name: String,
+        startup: McpStartupState,
+        failure: Option<String>,
+    },
+    /// An OAuth sign-in finished, for good or ill.
+    McpOauthCompleted {
+        name: String,
+        success: bool,
+        error: Option<String>,
+    },
+    /// Where to send the operator to authorise a server.
+    McpOauthUrl {
+        name: String,
+        url: String,
     },
     SessionReady {
         provider_session_id: String,
@@ -354,5 +570,156 @@ mod tests {
         let scoped =
             RuntimeFailure::for_session(RuntimeFailureKind::Protocol, "bad frame", "session-1");
         assert_eq!(scoped.provider_session_id.as_deref(), Some("session-1"));
+    }
+}
+
+#[cfg(test)]
+mod composer_mode_tests {
+    use super::*;
+
+    fn server(name: &str, auth: McpAuthStatus, tools: &[&str]) -> McpServerStatus {
+        McpServerStatus {
+            name: name.to_owned(),
+            auth,
+            tools: tools.iter().map(|t| (*t).to_owned()).collect(),
+            version: None,
+            description: None,
+            startup: McpStartupState::Unreported,
+            failure: None,
+        }
+    }
+
+    fn down(name: &str) -> McpServerStatus {
+        let mut server = server(name, McpAuthStatus::OAuth, &["web_search"]);
+        server.startup = McpStartupState::Failed;
+        server.failure = Some("port already in use".to_owned());
+        server
+    }
+
+    /// The whole point of Phase 1: web search becomes real because a CONNECTOR
+    /// does it, not because a turn carries a flag.
+    #[test]
+    fn a_signed_in_search_tool_makes_web_search_honourable() {
+        let connected = [server("brave", McpAuthStatus::OAuth, &["brave_web_search"])];
+        assert_eq!(modes_from_tools(&connected), ["web-search"]);
+    }
+
+    /// The trap this exists to close: configured, tools listed, and NOTHING
+    /// works because nobody signed in. It must not count.
+    #[test]
+    fn a_signed_out_server_honours_nothing() {
+        let waiting = [server(
+            "brave",
+            McpAuthStatus::NotLoggedIn,
+            &["brave_web_search"],
+        )];
+        assert!(modes_from_tools(&waiting).is_empty());
+        let unknown = [server("x", McpAuthStatus::Unknown, &["web_search"])];
+        assert!(modes_from_tools(&unknown).is_empty());
+    }
+
+    #[test]
+    fn tool_naming_is_a_convention_so_the_match_is_loose() {
+        for name in [
+            "web_search",
+            "brave_web_search",
+            "search_web",
+            "SearchTheWeb",
+        ] {
+            let connected = [server("s", McpAuthStatus::BearerToken, &[name])];
+            assert_eq!(modes_from_tools(&connected), ["web-search"], "{name}");
+        }
+        let none = [server(
+            "s",
+            McpAuthStatus::OAuth,
+            &["read_file", "write_file"],
+        )];
+        assert!(
+            modes_from_tools(&none).is_empty(),
+            "no search tool, no mode"
+        );
+    }
+
+    /// The regression this file exists to prevent, written down.
+    ///
+    /// A connected tool must NEVER end up in the carried list. Carried means
+    /// the provider was told in a field its schema defines; a tool means the
+    /// agent could choose to. Folding the second into the first deletes the
+    /// refusal and puts nothing in its place — the operator flips web search,
+    /// nothing objects, and nothing searches.
+    #[test]
+    fn a_tool_is_available_and_never_carried() {
+        let connected = [server("brave", McpAuthStatus::OAuth, &["brave_web_search"])];
+        let from_tools = modes_from_tools(&connected);
+        assert_eq!(from_tools, ["web-search"], "available");
+
+        // What the WIRE carries is a different question with a different
+        // answer, and nothing here may widen it.
+        let wire_carried = ["extended-thinking", "style"];
+        for mode in &from_tools {
+            assert!(
+                !wire_carried.contains(mode),
+                "{mode} came from a tool and must not be treated as carried"
+            );
+        }
+    }
+
+    /// The gap the first version of this had: it asked only about auth, so a
+    /// signed-in connector that crashed on boot counted as usable.
+    #[test]
+    fn a_crashed_server_is_not_usable_however_well_signed_in() {
+        let dead = down("brave");
+        assert!(dead.auth.is_authenticated(), "auth really is fine");
+        assert!(!dead.is_usable(), "and it still cannot serve");
+        assert_eq!(
+            dead.blocked_reason().as_deref(),
+            Some("port already in use")
+        );
+        assert!(
+            modes_from_tools(&[dead]).is_empty(),
+            "a dead server offers no modes, whatever tools it listed"
+        );
+    }
+
+    /// Unreported is not broken. The list response carries no startup field,
+    /// so treating silence as failure would hide every working connector.
+    #[test]
+    fn an_unreported_startup_is_not_a_failure() {
+        let fresh = server("brave", McpAuthStatus::OAuth, &["web_search"]);
+        assert_eq!(fresh.startup, McpStartupState::Unreported);
+        assert!(fresh.is_usable());
+        assert_eq!(fresh.blocked_reason(), None);
+        assert_eq!(modes_from_tools(&[fresh]), ["web-search"]);
+    }
+
+    /// Both blockers are reported with their OWN reason. "not signed in" and
+    /// "did not start" are different problems with different fixes, and one
+    /// vague line would send the operator after the wrong one.
+    #[test]
+    fn each_blocker_names_itself() {
+        let signed_out = server("github", McpAuthStatus::NotLoggedIn, &["search_issues"]);
+        assert_eq!(
+            signed_out.blocked_reason().as_deref(),
+            Some("github is not signed in")
+        );
+        let mut crashed_no_reason = server("x", McpAuthStatus::OAuth, &[]);
+        crashed_no_reason.startup = McpStartupState::Cancelled;
+        assert_eq!(
+            crashed_no_reason.blocked_reason().as_deref(),
+            Some("x did not start"),
+            "no message from the provider still gets a sentence"
+        );
+    }
+
+    #[test]
+    fn research_is_its_own_tool_not_implied_by_search() {
+        let search_only = [server("s", McpAuthStatus::OAuth, &["web_search"])];
+        assert_eq!(modes_from_tools(&search_only), ["web-search"]);
+        let both = [server(
+            "s",
+            McpAuthStatus::OAuth,
+            &["web_search", "deep_research"],
+        )];
+        assert_eq!(modes_from_tools(&both), ["web-search", "research"]);
     }
 }

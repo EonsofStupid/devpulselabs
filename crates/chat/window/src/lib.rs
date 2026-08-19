@@ -206,6 +206,9 @@ impl Composition {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DomainOverlay {
     Picker,
+    /// The connectors panel: which MCP servers this provider holds, whether
+    /// each can actually serve, and what to do about the ones that cannot.
+    Connectors,
     ProviderCatalog,
     ProviderConfiguration(ProviderConfigurationKind),
     Provider(ProviderId),
@@ -312,6 +315,12 @@ impl ChatDomainStates {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChatWindowIntent {
+    /// Begin OAuth for one connector.
+    McpSignIn(String),
+    /// Re-read the connector configuration from disk.
+    McpReload,
+    /// Open the authorisation URL the provider handed back.
+    McpOpenAuth,
     /// A composer `+` entry was chosen. Carries the canonical slug from
     /// `dpl_ai_core::composer` — never a label, because labels are what the
     /// aliases exist to absorb.
@@ -521,6 +530,11 @@ fn kebab_of(label: &str) -> String {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostIntent {
+    /// Begin OAuth for one connector. The window cannot authorise anything —
+    /// a surface does not do IO — so it names the server and the host asks.
+    McpSignIn(String),
+    McpReload,
+    McpOpenAuth,
     /// A composer `+` entry was picked. The slug is canonical
     /// (`dpl_ai_core::composer`), so a host matches on one stable name no
     /// matter which product's word the operator arrived with.
@@ -741,6 +755,11 @@ pub struct ChatWindow {
     composer_status: Option<String>,
     /// The backing's declared capabilities, for gating the `+` menu.
     composer_capabilities: Vec<Capability>,
+    /// The connectors, as the host projects them. Never derived here: whether
+    /// a server can serve is the provider's answer, not this surface's guess.
+    mcp_servers: Vec<dpl_chat_runtime::seam::McpServerStatus>,
+    /// An authorisation URL waiting to be opened, if one is.
+    pending_mcp_auth: Option<String>,
     /// The modes standing on the composer, ridden by the next send.
     composer_modes: ComposerModes,
     /// The Clyffy house session as the HOST projects it.
@@ -882,6 +901,8 @@ impl ChatWindow {
             brainstorm_item_drafts: HashMap::new(),
             composer_status: None,
             composer_capabilities: Vec::new(),
+            mcp_servers: Vec::new(),
+            pending_mcp_auth: None,
             composer_modes: ComposerModes::default(),
             clyffy: ClyffyView::default(),
         }
@@ -921,6 +942,21 @@ impl ChatWindow {
     pub fn open_provider_catalog(&mut self) {
         self.domain = ChatDomain::Ai;
         self.domain_states.ai.overlay = Some(DomainOverlay::ProviderCatalog);
+    }
+
+    /// The connectors the host read from the provider.
+    pub fn set_mcp_servers(&mut self, servers: Vec<dpl_chat_runtime::seam::McpServerStatus>) {
+        self.mcp_servers = servers;
+    }
+
+    /// An authorisation URL the operator can open, or `None`.
+    pub fn set_pending_mcp_auth(&mut self, url: Option<String>) {
+        self.pending_mcp_auth = url;
+    }
+
+    pub fn open_connectors(&mut self) {
+        self.domain = ChatDomain::Ai;
+        self.domain_states.ai.overlay = Some(DomainOverlay::Connectors);
     }
 
     /// Open the Imagine generation panel from outside the window.
@@ -1270,6 +1306,9 @@ impl ChatWindow {
         intent: ChatWindowIntent,
     ) -> Result<Option<HostIntent>, ChatWindowError> {
         match intent {
+            ChatWindowIntent::McpSignIn(name) => Ok(Some(HostIntent::McpSignIn(name))),
+            ChatWindowIntent::McpReload => Ok(Some(HostIntent::McpReload)),
+            ChatWindowIntent::McpOpenAuth => Ok(Some(HostIntent::McpOpenAuth)),
             ChatWindowIntent::ComposerAction(slug) => Ok(Some(HostIntent::ComposerAction(slug))),
             ChatWindowIntent::SelectDomain(domain) => {
                 self.domain = domain;
@@ -1519,6 +1558,7 @@ impl ChatWindow {
 
         self.provider_hover_overlay(ui, &mut intents);
         self.provider_carousel_overlay(ui, &mut intents);
+        self.connectors_overlay(ui, &mut intents);
         self.provider_configuration_overlay(ui, &mut intents);
         self.generation_overlay(ui, &mut intents);
         self.compact_picker_overlay(ui, &mut intents);
@@ -4252,6 +4292,125 @@ impl ChatWindow {
     /// `provider_activation_ceremony` in the conversation pane, which already
     /// exists and already says the right thing per activation state — so this
     /// surface builds no sign-in UI of its own.
+    /// The connectors panel.
+    ///
+    /// Every line is the PROVIDER's answer, projected: this surface derives no
+    /// status of its own. A server that cannot serve says why in its own words
+    /// — "not signed in" and "did not start" are different problems with
+    /// different fixes, and a single "unavailable" would send somebody after
+    /// the wrong one.
+    fn connectors_overlay(&self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
+        if self.domain_states.ai.overlay != Some(DomainOverlay::Connectors) {
+            return;
+        }
+        let screen = ui.ctx().content_rect();
+        let id = egui::Id::new("chat.connectors");
+        egui::Modal::new(id)
+            .backdrop_color(Color32::from_black_alpha(205))
+            .frame(
+                egui::Frame::new()
+                    .fill(Color32::from_rgb(5, 14, 17))
+                    .stroke(Stroke::new(1.0, teal_hairline()))
+                    .corner_radius(CornerRadius::same(5))
+                    .inner_margin(egui::Margin::symmetric(18, 14)),
+            )
+            .area(
+                egui::Modal::default_area(id)
+                    .fixed_pos(screen.min + egui::vec2(8.0, 8.0))
+                    .default_width(screen.width() - 16.0),
+            )
+            .show(ui.ctx(), |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Connectors").size(15.0));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("Close").clicked() {
+                            intents.push(ChatWindowIntent::SetOverlay(None));
+                        }
+                        if ui
+                            .button("Reload")
+                            .on_hover_text("Re-read the connector configuration from disk")
+                            .clicked()
+                        {
+                            intents.push(ChatWindowIntent::McpReload);
+                        }
+                    });
+                });
+                ui.separator();
+
+                if let Some(url) = &self.pending_mcp_auth {
+                    // Held, not launched: the operator opens it, because a
+                    // browser window nobody asked for is a worse surprise than
+                    // an extra click.
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new("A sign-in is waiting")
+                                .small()
+                                .color(Tone::Amber.color()),
+                        );
+                        if ui.button("Open in browser").clicked() {
+                            intents.push(ChatWindowIntent::McpOpenAuth);
+                        }
+                    })
+                    .response
+                    .on_hover_text(url.as_str());
+                    ui.separator();
+                }
+
+                if self.mcp_servers.is_empty() {
+                    // Never a blank panel: nothing configured and nothing
+                    // ASKED YET look identical to an operator, and only one of
+                    // them is their problem to fix.
+                    ui.label(
+                        RichText::new(
+                            "No connectors reported. Either none are configured, or this \
+                             provider has not answered yet.",
+                        )
+                        .small()
+                        .color(cl::ink::SUBTLE),
+                    );
+                    return;
+                }
+
+                for server in &self.mcp_servers {
+                    ui.horizontal(|ui| {
+                        let usable = server.is_usable();
+                        ui.label(
+                            RichText::new(if usable { "●" } else { "○" }).color(if usable {
+                                Tone::Lime.color()
+                            } else {
+                                Tone::Amber.color()
+                            }),
+                        );
+                        ui.label(RichText::new(&server.name).strong());
+                        if let Some(version) = &server.version {
+                            ui.label(RichText::new(version).small().color(cl::ink::SUBTLE));
+                        }
+                        ui.label(
+                            RichText::new(format!("{} tools", server.tools.len()))
+                                .small()
+                                .color(cl::ink::SUBTLE),
+                        )
+                        .on_hover_text(if server.tools.is_empty() {
+                            "none reported".to_owned()
+                        } else {
+                            server.tools.join("\n")
+                        });
+                        // The action that unblocks it, offered only when it is
+                        // the action that would help.
+                        if !server.auth.is_authenticated() && ui.button("Sign in").clicked() {
+                            intents.push(ChatWindowIntent::McpSignIn(server.name.clone()));
+                        }
+                    });
+                    if let Some(reason) = server.blocked_reason() {
+                        ui.label(RichText::new(reason).small().color(Tone::Amber.color()));
+                    } else if let Some(description) = &server.description {
+                        ui.label(RichText::new(description).small().color(cl::ink::SUBTLE));
+                    }
+                    ui.add_space(6.0);
+                }
+            });
+    }
+
     fn provider_carousel_overlay(&self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
         if self.domain_states.ai.overlay != Some(DomainOverlay::ProviderCatalog) {
             return;
@@ -7453,5 +7612,82 @@ mod tests {
         );
         let said = window.composer_status().expect("the drop is announced");
         assert!(said.contains("Web search"), "named, not silent: {said}");
+    }
+
+    /// The `+` entry opens the connectors panel, not the providers catalog it
+    /// used to borrow.
+    #[test]
+    fn the_connectors_entry_opens_the_connectors_panel() {
+        let mut window = window();
+        window.open_connectors();
+        assert_eq!(
+            window.domain_states.ai.overlay,
+            Some(DomainOverlay::Connectors)
+        );
+    }
+
+    /// Every connector action reaches the host — a surface does not do IO, so
+    /// naming the server and asking is the whole of its job here.
+    #[test]
+    fn connector_actions_reach_the_host() {
+        let mut window = window();
+        assert_eq!(
+            window
+                .apply(ChatWindowIntent::McpSignIn("brave".into()))
+                .expect("not a window error"),
+            Some(HostIntent::McpSignIn("brave".into()))
+        );
+        assert_eq!(
+            window.apply(ChatWindowIntent::McpReload).expect("ok"),
+            Some(HostIntent::McpReload)
+        );
+        assert_eq!(
+            window.apply(ChatWindowIntent::McpOpenAuth).expect("ok"),
+            Some(HostIntent::McpOpenAuth)
+        );
+    }
+
+    /// The window holds no opinion about whether a connector works — it
+    /// renders what the host projected, including the reason it is blocked.
+    #[test]
+    fn the_window_projects_connector_state_rather_than_deriving_it() {
+        use dpl_chat_runtime::seam::{McpAuthStatus, McpServerStatus, McpStartupState};
+
+        let mut window = window();
+        assert!(window.mcp_servers.is_empty());
+
+        let mut crashed = McpServerStatus {
+            name: "brave".into(),
+            auth: McpAuthStatus::OAuth,
+            tools: vec!["web_search".into()],
+            version: Some("1.0".into()),
+            description: None,
+            startup: McpStartupState::Failed,
+            failure: Some("port already in use".into()),
+        };
+        window.set_mcp_servers(vec![crashed.clone()]);
+        assert_eq!(window.mcp_servers.len(), 1);
+        assert!(!window.mcp_servers[0].is_usable(), "signed in but down");
+        assert_eq!(
+            window.mcp_servers[0].blocked_reason().as_deref(),
+            Some("port already in use"),
+            "the reason is the provider's words, not ours"
+        );
+
+        crashed.startup = McpStartupState::Ready;
+        crashed.failure = None;
+        window.set_mcp_servers(vec![crashed]);
+        assert!(window.mcp_servers[0].is_usable(), "recovered");
+        assert_eq!(window.mcp_servers[0].blocked_reason(), None);
+    }
+
+    #[test]
+    fn a_pending_sign_in_is_held_until_the_operator_opens_it() {
+        let mut window = window();
+        assert!(window.pending_mcp_auth.is_none());
+        window.set_pending_mcp_auth(Some("https://example.test/auth".into()));
+        assert!(window.pending_mcp_auth.is_some());
+        window.set_pending_mcp_auth(None);
+        assert!(window.pending_mcp_auth.is_none(), "used means gone");
     }
 }

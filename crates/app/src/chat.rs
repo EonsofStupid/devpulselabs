@@ -137,6 +137,13 @@ struct Shared {
     /// has answered, and absence is read strictly: no composer mode is put on
     /// a turn for a provider that has not said what it accepts.
     provider_models: BTreeMap<ProviderId, dpl_chat_runtime::seam::ModelCapabilities>,
+    /// The MCP servers each provider holds. Empty until asked, and empty is
+    /// read strictly: a mode that needs a tool stays refused until a server
+    /// that carries one is known to be connected AND usable.
+    provider_mcp: BTreeMap<ProviderId, Vec<dpl_chat_runtime::seam::McpServerStatus>>,
+    /// An authorisation URL waiting for the operator to open it. One at a
+    /// time, because a queue of half-finished sign-ins helps nobody.
+    pending_mcp_auth: Option<(ProviderId, String)>,
     /// In-flight AI calls keyed by provider session id — the AI domain's
     /// correlation state. Mint at dispatch, first-token once, finish once.
     ai_calls: BTreeMap<String, AiCall>,
@@ -915,6 +922,8 @@ impl ChatWindowCoordinator {
             seam_sessions: BTreeMap::new(),
             seam_turns: BTreeMap::new(),
             provider_models: BTreeMap::new(),
+            provider_mcp: BTreeMap::new(),
+            pending_mcp_auth: None,
             grok_attempt: None,
             codex_attempt: None,
             imagine,
@@ -1430,6 +1439,52 @@ fn read_content_spine(id: &ContentEpisodeId) -> Option<ContentSpine> {
 
 fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: HostIntent) {
     match intent {
+        HostIntent::McpSignIn(name) => {
+            let mut state = lock(shared);
+            let Some(provider) = state.window.selected_provider_id() else {
+                state
+                    .window
+                    .set_composer_status("Select a provider before signing a connector in.");
+                return;
+            };
+            let Some(runtime) = state.runtimes.get(&provider) else {
+                state
+                    .window
+                    .set_composer_status("No provider is connected to sign that in.");
+                return;
+            };
+            if let Err(error) =
+                runtime.try_send(RuntimeCommand::McpOauthLogin { name: name.clone() })
+            {
+                tracing::warn!(%name, ?error, "connector sign-in could not be requested");
+                state
+                    .window
+                    .set_composer_status(format!("{name} cannot be signed in from here."));
+            }
+            ctx.request_repaint();
+        }
+        HostIntent::McpReload => {
+            let mut state = lock(shared);
+            let selected = state.window.selected_provider_id();
+            if let Some(runtime) = selected.and_then(|p| state.runtimes.get(&p)) {
+                let _ = runtime.try_send(RuntimeCommand::ReloadMcpServers);
+                // The reload answers with nothing, so ask again — the list is
+                // where a config change actually becomes visible.
+                let _ = runtime.try_send(RuntimeCommand::ListMcpServers);
+            }
+            state.window.set_composer_status("Re-reading connectors…");
+            ctx.request_repaint();
+        }
+        HostIntent::McpOpenAuth => {
+            let mut state = lock(shared);
+            // Cleared as it opens: a URL that has been used is not still
+            // waiting, and leaving the banner up would say otherwise.
+            if let Some((_, url)) = state.pending_mcp_auth.take() {
+                ctx.open_url(egui::OpenUrl::new_tab(url));
+                state.window.set_pending_mcp_auth(None);
+            }
+            ctx.request_repaint();
+        }
         // The census names the action; the host performs it. Only the two we
         // already have surfaces for are wired — the rest SAY they are not,
         // because a menu entry that silently does nothing is worse than one
@@ -1459,10 +1514,7 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
                     state.window.open_generation();
                 }
                 "connectors" | "plugins" => {
-                    state.window.open_provider_catalog();
-                    state.window.set_composer_status(
-                        "Connectors and plugins live in the providers catalog for now.",
-                    );
+                    state.window.open_connectors();
                 }
                 "add-to-project" => {
                     state
@@ -1606,6 +1658,13 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
             // The refused half is named to the operator: a mode that rides
             // along doing nothing is the exact failure the census exists for.
             if !modes.is_empty() {
+                // Two sources, one list: what the MODEL accepts as a turn
+                // field, plus what a connected-and-signed-in CONNECTOR can do
+                // as a tool. Web search was never going to be the first kind.
+                // CARRIED is only what the wire has a field for. A connected
+                // tool does NOT belong in this list: folding it in here drops
+                // the refusal and says nothing in its place, which is how a
+                // mode comes to look accepted while doing nothing at all.
                 let codex_honoured =
                     dpl_chat_codex::runtime::honoured_for(state.provider_models.get(&provider));
                 let honoured: &[&str] = if provider == dpl_chat_grok::PROVIDER {
@@ -1619,20 +1678,46 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
                 } else {
                     &[]
                 };
-                let (carried, refused) = modes.split(honoured);
+                let (carried, rest) = modes.split(honoured);
+                // What the wire cannot carry may still be AVAILABLE: a
+                // signed-in connector whose tools can do it. Available is not
+                // carried — the agent chooses, per turn — so it gets its own
+                // sentence instead of being counted as either success or
+                // failure.
+                let available_slugs = state
+                    .provider_mcp
+                    .get(&provider)
+                    .map(|servers| dpl_chat_runtime::seam::modes_from_tools(servers))
+                    .unwrap_or_default();
+                type Standing = Vec<&'static dpl_ai_core::composer::ComposerAction>;
+                let (available, refused): (Standing, Standing) = rest
+                    .into_iter()
+                    .partition(|action| available_slugs.contains(&action.slug));
                 tracing::info!(
                     %provider,
                     carried = ?carried.iter().map(|a| a.slug).collect::<Vec<_>>(),
+                    available = ?available.iter().map(|a| a.slug).collect::<Vec<_>>(),
                     refused = ?refused.iter().map(|a| a.slug).collect::<Vec<_>>(),
                     "turn sent with composer modes"
                 );
+                let mut said: Vec<String> = Vec::new();
+                if !available.is_empty() {
+                    let names: Vec<_> = available.iter().map(|a| a.label).collect();
+                    said.push(format!(
+                        "{} is available as a tool — the agent may use it; this turn does not compel it.",
+                        names.join(", ")
+                    ));
+                }
                 if !refused.is_empty() {
                     let names: Vec<_> = refused.iter().map(|a| a.label).collect();
-                    state.window.set_composer_status(format!(
+                    said.push(format!(
                         "{} cannot be carried to {} — sent without it.",
                         names.join(", "),
                         provider.0
                     ));
+                }
+                if !said.is_empty() {
+                    state.window.set_composer_status(said.join(" "));
                 }
             }
             if provider == dpl_chat_grok::PROVIDER {
@@ -4046,6 +4131,87 @@ fn take_seam_event(state: &mut Shared, provider: ProviderId) -> Option<RuntimeEv
 
 fn project_seam_event(state: &mut Shared, provider: ProviderId, event: RuntimeEvent) {
     match event {
+        RuntimeEvent::McpServersListed { servers } => {
+            let usable = servers.iter().filter(|s| s.is_usable()).count();
+            // Whole-server, not auth-only: a signed-in connector that crashed
+            // on boot is as unusable as one nobody signed into, and each is
+            // named with ITS OWN reason rather than a single vague line.
+            let waiting: Vec<String> = servers.iter().filter_map(|s| s.blocked_reason()).collect();
+            tracing::info!(
+                %provider,
+                servers = servers.len(),
+                usable,
+                tools = servers.iter().map(|s| s.tools.len()).sum::<usize>(),
+                "connectors read"
+            );
+            // A configured-but-signed-out server is the trap: its tools are
+            // listed and none of them work. Said out loud rather than counted
+            // as connected.
+            if !waiting.is_empty() {
+                state.window.set_composer_status(format!(
+                    "{} — those tools will not run.",
+                    waiting.join("; ")
+                ));
+            }
+            state.window.set_mcp_servers(servers.clone());
+            state.provider_mcp.insert(provider, servers);
+        }
+        RuntimeEvent::McpServerStartup {
+            name,
+            startup,
+            failure,
+        } => {
+            // Applied in place, so what the composer offers next turn reflects
+            // a connector that just died rather than one that was alive when
+            // the list happened to be taken.
+            let servers = state.provider_mcp.entry(provider).or_default();
+            if let Some(server) = servers.iter_mut().find(|s| s.name == name) {
+                server.startup = startup;
+                server.failure = failure.clone();
+            }
+            let projected = servers.clone();
+            state.window.set_mcp_servers(projected);
+            if startup.is_down() {
+                tracing::warn!(%provider, %name, ?failure, "connector went down");
+                state.window.set_composer_status(
+                    failure.unwrap_or_else(|| format!("{name} stopped running.")),
+                );
+            }
+        }
+        RuntimeEvent::McpOauthUrl { url, .. } => {
+            // Held, not launched. Authorisation happens in a browser and the
+            // operator opens it — a panel that throws a browser window at
+            // somebody who did not ask is the kind of surprise this product is
+            // supposed to be the opposite of.
+            tracing::info!(%provider, "connector authorisation url received");
+            state
+                .window
+                .set_composer_status("Connector sign-in is ready — open it from Connectors.");
+            state.window.set_pending_mcp_auth(Some(url.clone()));
+            state.pending_mcp_auth = Some((provider, url));
+        }
+        RuntimeEvent::McpOauthCompleted {
+            name,
+            success,
+            error,
+        } => {
+            if success {
+                // Re-ask rather than assume: the authoritative answer to what
+                // a server can do now is the server's, not ours.
+                if let Some(runtime) = state.runtimes.get(&provider) {
+                    let _ = runtime.try_send(RuntimeCommand::ListMcpServers);
+                }
+                state
+                    .window
+                    .set_composer_status(format!("{name} is signed in."));
+            } else {
+                let reason = error.unwrap_or_else(|| "no reason given".to_owned());
+                tracing::warn!(%provider, %name, %reason, "connector sign-in failed");
+                state
+                    .window
+                    .set_composer_status(format!("{name} sign-in failed — {reason}"));
+            }
+        }
         RuntimeEvent::ModelsListed { models } => {
             // The default is the one a turn will use, so it is the one whose
             // advertisement decides what a mode may carry.
@@ -4073,6 +4239,9 @@ fn project_seam_event(state: &mut Shared, provider: ProviderId, event: RuntimeEv
             if let Some(runtime) = state.runtimes.get(&provider) {
                 if let Err(error) = runtime.try_send(RuntimeCommand::ListModels) {
                     tracing::warn!(%provider, ?error, "model catalogue could not be requested");
+                }
+                if let Err(error) = runtime.try_send(RuntimeCommand::ListMcpServers) {
+                    tracing::warn!(%provider, ?error, "connectors could not be requested");
                 }
             }
             if let Err(error) = state
