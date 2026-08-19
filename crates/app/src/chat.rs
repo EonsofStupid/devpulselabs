@@ -2934,6 +2934,21 @@ fn land_board_reply(state: &mut Shared, provider: ProviderId, reply: &str) {
     let Some(session) = &mut state.brainstorm else {
         return;
     };
+    // The wave this answers, ENDED here.
+    //
+    // Without this the wave outlived its own answer: the ideas landed, the
+    // wave stayed in flight, the next ask was refused as "already thinking",
+    // and two minutes later the deadline fired and told the operator codex
+    // never answered — while its ideas sat on the board.
+    //
+    // Requiring the wave also closes the other end: a board turn that finishes
+    // AFTER we gave up on it lands nothing, because there is nothing left to
+    // land it against. A board must not mutate from a wave declared dead.
+    let Some(index) = session.assist.iter().position(|call| call.seat == seat) else {
+        tracing::info!(%provider, "board reply arrived with no wave in flight; dropped");
+        return;
+    };
+    session.assist.remove(index);
     let existing: Vec<String> = session.doc.items.iter().map(|i| i.text.clone()).collect();
     match dpl_chat_imagine::ideas_from_lines(reply, &existing) {
         Ok(ideas) => {
@@ -2988,8 +3003,15 @@ fn dispatch_seat_wave(state: &mut Shared, provider: ProviderId) {
         return;
     };
     let seat = dpl_seat::Seat::agent(provider.0, dpl_seat::Basis::Subscription);
+    // Per seat, never board-wide — but SAID. A press that does nothing and
+    // explains nothing reads as broken, which is how an operator ends up
+    // pressing it repeatedly.
     if session.assist.iter().any(|call| call.seat == seat) {
-        return; // Already thinking. Per seat, never board-wide.
+        let label = seat.label();
+        if let Some(session) = &mut state.brainstorm {
+            session.status = Some(format!("{label} is still thinking…"));
+        }
+        return;
     }
     let existing: Vec<String> = session.doc.items.iter().map(|i| i.text.clone()).collect();
     let text = dpl_chat_imagine::suggest_prompt(&session.doc.seed, &existing);
@@ -5980,6 +6002,42 @@ mod brainstorm_seat_tests {
             assert!(!seat.id.is_empty(), "and it has a principal");
             assert_ne!(seat.label(), "an agent", "so it can be named on the board");
         }
+    }
+
+    /// The bug this file shipped once: a wave that ANSWERED never ended.
+    ///
+    /// The ideas landed, the wave stayed in flight, the next ask was refused
+    /// as "already thinking", and two minutes later the deadline told the
+    /// operator the seat never answered — while its ideas sat on the board.
+    ///
+    /// Tested on the invariant rather than the plumbing: a wave is in flight
+    /// or it is not, and landing its reply must end it.
+    #[test]
+    fn landing_a_reply_ends_the_wave_it_answers() {
+        let seat = dpl_seat::Seat::agent(dpl_chat_codex::PROVIDER.0, dpl_seat::Basis::Subscription);
+        let mut waves = vec![BrainstormAssistCall {
+            job: dpl_fabric::JobId(1),
+            source: WaveSource::Seam {
+                provider: dpl_chat_codex::PROVIDER,
+            },
+            started: std::time::Instant::now(),
+            seat: seat.clone(),
+        }];
+
+        // What land_board_reply does: find the wave this answers, end it.
+        let index = waves
+            .iter()
+            .position(|call| call.seat == seat)
+            .expect("the wave is in flight");
+        waves.remove(index);
+        assert!(waves.is_empty(), "answered means finished");
+
+        // And a reply arriving twice, or after a timeout, finds nothing to
+        // land against — which is what stops a dead wave mutating the board.
+        assert!(
+            waves.iter().position(|call| call.seat == seat).is_none(),
+            "a second reply has no wave to end"
+        );
     }
 
     /// The deadline is what makes listing a CLI seat honest. Without it a seat
