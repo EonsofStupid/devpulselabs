@@ -133,6 +133,10 @@ struct Shared {
     /// transcript.
     seam_sessions: BTreeMap<(ProviderId, String), ChatSessionId>,
     seam_turns: BTreeMap<(ProviderId, String), TurnId>,
+    /// The default model each provider advertised. Absent until `model/list`
+    /// has answered, and absence is read strictly: no composer mode is put on
+    /// a turn for a provider that has not said what it accepts.
+    provider_models: BTreeMap<ProviderId, dpl_chat_runtime::seam::ModelCapabilities>,
     /// In-flight AI calls keyed by provider session id — the AI domain's
     /// correlation state. Mint at dispatch, first-token once, finish once.
     ai_calls: BTreeMap<String, AiCall>,
@@ -910,6 +914,7 @@ impl ChatWindowCoordinator {
             runtimes: BTreeMap::new(),
             seam_sessions: BTreeMap::new(),
             seam_turns: BTreeMap::new(),
+            provider_models: BTreeMap::new(),
             grok_attempt: None,
             codex_attempt: None,
             imagine,
@@ -1601,7 +1606,8 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
             // The refused half is named to the operator: a mode that rides
             // along doing nothing is the exact failure the census exists for.
             if !modes.is_empty() {
-                let codex_honoured = dpl_chat_codex::runtime::honoured_for(None);
+                let codex_honoured =
+                    dpl_chat_codex::runtime::honoured_for(state.provider_models.get(&provider));
                 let honoured: &[&str] = if provider == dpl_chat_grok::PROVIDER {
                     dpl_chat_grok::HONOURED_MODES
                 } else if provider == dpl_chat_codex::PROVIDER {
@@ -4040,7 +4046,35 @@ fn take_seam_event(state: &mut Shared, provider: ProviderId) -> Option<RuntimeEv
 
 fn project_seam_event(state: &mut Shared, provider: ProviderId, event: RuntimeEvent) {
     match event {
+        RuntimeEvent::ModelsListed { models } => {
+            // The default is the one a turn will use, so it is the one whose
+            // advertisement decides what a mode may carry.
+            let Some(model) = models
+                .iter()
+                .find(|m| m.is_default)
+                .or_else(|| models.first())
+            else {
+                tracing::warn!(%provider, "model catalogue was empty; modes stay unverified");
+                return;
+            };
+            tracing::info!(
+                %provider,
+                model = %model.id,
+                efforts = ?model.reasoning_efforts,
+                personality = model.supports_personality,
+                "model catalogue read"
+            );
+            state.provider_models.insert(provider, model.clone());
+        }
         RuntimeEvent::Connected { capabilities } => {
+            // Ask what the models accept the moment the runtime can hear it.
+            // Until this answers, every composer mode is refused — so the
+            // sooner it is asked, the sooner the modes are real.
+            if let Some(runtime) = state.runtimes.get(&provider) {
+                if let Err(error) = runtime.try_send(RuntimeCommand::ListModels) {
+                    tracing::warn!(%provider, ?error, "model catalogue could not be requested");
+                }
+            }
             if let Err(error) = state
                 .window
                 .set_provider_activation(provider, ActivationState::Ready)

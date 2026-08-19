@@ -19,6 +19,8 @@ use dpl_chat_runtime::seam::{
     ModelCapabilities, ProviderRuntime, RuntimeCapabilities, RuntimeCommand, RuntimeEvent,
     RuntimeFailure, RuntimeFailureKind, RuntimeSendError, RuntimeUpdate,
 };
+use std::collections::HashMap;
+
 use serde_json::{json, Value};
 use std::io::{self, BufRead, BufReader, Write};
 use std::process::{Child, Stdio};
@@ -36,7 +38,13 @@ pub const PINNED_CLI_VERSION: &str = "0.147.0";
 
 /// Every method this adapter calls. Pinned so a Codex upgrade that removes
 /// one fails a TEST with the method's name, rather than a turn that hangs.
-pub const METHODS_USED: &[&str] = &["initialize", "thread/start", "turn/start", "turn/interrupt"];
+pub const METHODS_USED: &[&str] = &[
+    "initialize",
+    "thread/start",
+    "turn/start",
+    "turn/interrupt",
+    "model/list",
+];
 
 /// Every notification this adapter maps. Anything else is kept as
 /// `RuntimeUpdate::Other` — an unknown frame is evidence, never a drop.
@@ -155,6 +163,13 @@ pub fn outbound_for(
                 params,
             })
         }
+        // What each model accepts is the ONLY thing that makes `effort` and
+        // `personality` safe to send — see `honoured_for`. Every field we read
+        // off the response is in `schema/v2/ModelListResponse.json`.
+        RuntimeCommand::ListModels => Some(Outbound::Request {
+            method: "model/list",
+            params: json!({}),
+        }),
         RuntimeCommand::Cancel {
             provider_session_id,
         } => Some(Outbound::Request {
@@ -182,6 +197,60 @@ pub const fn advertised_capabilities() -> RuntimeCapabilities {
         load_session: false,
         list_sessions: false,
     }
+}
+
+/// Read `model/list`'s answer into the seam's shape.
+///
+/// Field names come from `schema/v2/ModelListResponse.json`: `{ data: Model[] }`
+/// with `Model { id, displayName, isDefault, supportedReasoningEfforts:
+/// ReasoningEffortOption[], defaultReasoningEffort, supportsPersonality }` and
+/// `ReasoningEffortOption { description, reasoningEffort }`.
+///
+/// A model with no `id` is SKIPPED rather than defaulted. A model we cannot
+/// read is one we must not claim capabilities for — the whole point of Phase
+/// 0a was that an unverified capability is worse than an absent one.
+pub fn models_from(result: &Value) -> Vec<ModelCapabilities> {
+    let Some(data) = result.get("data").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    data.iter()
+        .filter_map(|model| {
+            Some(ModelCapabilities {
+                id: model.get("id").and_then(Value::as_str)?.to_owned(),
+                display_name: model
+                    .get("displayName")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned(),
+                is_default: model
+                    .get("isDefault")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                reasoning_efforts: model
+                    .get("supportedReasoningEfforts")
+                    .and_then(Value::as_array)
+                    .map(|efforts| {
+                        efforts
+                            .iter()
+                            .filter_map(|e| {
+                                e.get("reasoningEffort")
+                                    .and_then(Value::as_str)
+                                    .map(str::to_owned)
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                default_reasoning_effort: model
+                    .get("defaultReasoningEffort")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                supports_personality: model
+                    .get("supportsPersonality")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            })
+        })
+        .collect()
 }
 
 /// Map one server notification onto the seam.
@@ -325,6 +394,9 @@ pub enum Frame {
     Response {
         id: u64,
         failed: bool,
+        /// The `result` body. Previously discarded, which is why no request
+        /// but `initialize` could ever be acted on.
+        result: Value,
     },
     /// The agent asking US for something — an approval, a tool call, an
     /// elicitation. It carries an `id` and EXPECTS a reply echoing it, and the
@@ -369,6 +441,7 @@ pub fn classify(line: &str) -> Option<Frame> {
         (None, Some(id)) => Some(Frame::Response {
             id: id.as_u64()?,
             failed: frame.get("error").is_some(),
+            result: frame.get("result").cloned().unwrap_or(Value::Null),
         }),
         (None, None) => None,
     }
@@ -471,11 +544,24 @@ impl CodexAppServerRuntime {
                 })?;
         }
 
+        // id → the method it asked. Shared by the writer that assigns ids and
+        // the reader that sees them answered; without it a response body has
+        // no meaning even now that we keep it.
+        let pending: Arc<Mutex<HashMap<u64, &'static str>>> = Arc::new(Mutex::new(HashMap::new()));
+        let reader_pending = Arc::clone(&pending);
+
         let reader_events = event_tx.clone();
         let reader_tail = Arc::clone(&stderr_tail);
         thread::Builder::new()
             .name("devpulse-codex-reader".to_owned())
-            .spawn(move || read_frames(BufReader::new(stdout), &reader_events, &reader_tail))?;
+            .spawn(move || {
+                read_frames(
+                    BufReader::new(stdout),
+                    &reader_events,
+                    &reader_tail,
+                    &reader_pending,
+                )
+            })?;
 
         thread::Builder::new()
             .name("devpulse-codex-writer".to_owned())
@@ -497,6 +583,14 @@ impl CodexAppServerRuntime {
                     }
                 }
                 let mut next_id = INITIALIZE_ID + 1;
+                // The writer assigns ids; the reader sees them come back. This
+                // map is the only thing that connects the two, and without it
+                // a response is an anonymous acknowledgement — which is
+                // exactly why nothing but `initialize` could ever be acted on.
+                //
+                // Entries are REMOVED when claimed, so the map is bounded by
+                // what is genuinely in flight rather than growing per request.
+                let in_flight = Arc::clone(&pending);
                 // A blocking recv: the writer sleeps until the host speaks, and
                 // holds stdin open the entire time.
                 while let Ok(outbound) = command_rx.recv() {
@@ -504,6 +598,9 @@ impl CodexAppServerRuntime {
                         break; // Shutdown: fall through and release stdin.
                     };
                     let line = request_line(next_id, method, &params);
+                    if let Ok(mut map) = in_flight.lock() {
+                        map.insert(next_id, method);
+                    }
                     next_id = next_id.saturating_add(1);
                     if writeln!(stdin, "{line}")
                         .and_then(|()| stdin.flush())
@@ -541,6 +638,7 @@ fn read_frames(
     stdout: impl BufRead,
     events: &SyncSender<RuntimeEvent>,
     stderr_tail: &Arc<Mutex<String>>,
+    pending: &Arc<Mutex<HashMap<u64, &'static str>>>,
 ) {
     let mut connected = false;
     for line in stdout.lines().map_while(Result::ok) {
@@ -553,7 +651,7 @@ fn read_frames(
             // process spawned. Capability comes from what this adapter can
             // honour, which is the seam's guarantee (see
             // `advertised_capabilities`).
-            Frame::Response { id, failed } if id == INITIALIZE_ID => {
+            Frame::Response { id, failed, .. } if id == INITIALIZE_ID => {
                 connected = true;
                 Some(if failed {
                     RuntimeEvent::Failure(RuntimeFailure::new(
@@ -566,9 +664,26 @@ fn read_frames(
                     }
                 })
             }
-            // Every other response is an acknowledgement; the work it started
-            // reports through notifications.
-            Frame::Response { .. } => None,
+            // Every other response is claimed from the in-flight map. A
+            // method we mapped gets read; anything else stays what it always
+            // was — an acknowledgement, with the work reporting through
+            // notifications.
+            Frame::Response { id, failed, result } => {
+                let asked = pending.lock().ok().and_then(|mut map| map.remove(&id));
+                match asked {
+                    Some("model/list") if !failed => Some(RuntimeEvent::ModelsListed {
+                        models: models_from(&result),
+                    }),
+                    // A failed model/list leaves capabilities unverified, and
+                    // unverified means every mode stays refused. Said out loud
+                    // rather than left as silence.
+                    Some("model/list") => Some(RuntimeEvent::Failure(RuntimeFailure::new(
+                        RuntimeFailureKind::Protocol,
+                        "codex refused model/list; composer modes stay unverified",
+                    ))),
+                    _ => None,
+                }
+            }
             // The agent is asking US for something and, per the spec, is now
             // BLOCKED until it gets a reply. This adapter advertises none of
             // the capabilities that produce one (`advertised_capabilities`),
@@ -1034,14 +1149,16 @@ mod tests {
             classify(r#"{"id":1,"result":{"userAgent":"codex"}}"#),
             Some(Frame::Response {
                 id: 1,
-                failed: false
+                failed: false,
+                result: json!({"userAgent":"codex"}),
             })
         );
         assert_eq!(
             classify(r#"{"id":7,"error":{"code":-32601,"message":"nope"}}"#),
             Some(Frame::Response {
                 id: 7,
-                failed: true
+                failed: true,
+                result: Value::Null,
             })
         );
         assert_eq!(
@@ -1162,7 +1279,12 @@ mod tests {
         let drain = |lines: &str| {
             let (tx, rx) = sync_channel(64);
             let tail = Arc::new(Mutex::new(String::new()));
-            read_frames(BufReader::new(lines.as_bytes()), &tx, &tail);
+            read_frames(
+                BufReader::new(lines.as_bytes()),
+                &tx,
+                &tail,
+                &Arc::new(Mutex::new(HashMap::new())),
+            );
             drop(tx);
             rx.into_iter().collect::<Vec<_>>()
         };
@@ -1193,8 +1315,86 @@ mod tests {
         ));
     }
 
-    /// An acknowledgement is not an event: only `initialize`'s response means
-    /// anything to the host, and the rest report through notifications.
+    /// The whole point of the in-flight map: a response body means nothing
+    /// until you know which request it answers.
+    #[test]
+    fn a_model_list_response_is_claimed_and_read() {
+        let (tx, rx) = sync_channel(64);
+        let tail = Arc::new(Mutex::new(String::new()));
+        let pending = Arc::new(Mutex::new(HashMap::from([(2_u64, "model/list")])));
+        let line = json!({
+            "id": 2,
+            "result": {
+                "data": [{
+                    "id": "gpt-x",
+                    "displayName": "GPT-X",
+                    "isDefault": true,
+                    "supportedReasoningEfforts": [
+                        {"description": "quick", "reasoningEffort": "low"},
+                        {"description": "thorough", "reasoningEffort": "high"}
+                    ],
+                    "defaultReasoningEffort": "low",
+                    "supportsPersonality": true
+                }]
+            }
+        })
+        .to_string();
+        read_frames(
+            BufReader::new(format!("{line}\n").as_bytes()),
+            &tx,
+            &tail,
+            &pending,
+        );
+        drop(tx);
+        let events: Vec<_> = rx.into_iter().collect();
+        let listed = events
+            .iter()
+            .find_map(|e| match e {
+                RuntimeEvent::ModelsListed { models } => Some(models),
+                _ => None,
+            })
+            .expect("the claimed response was read");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, "gpt-x");
+        assert!(listed[0].advertises_effort("high"));
+        assert!(!listed[0].advertises_effort("xhigh"), "only what it said");
+        assert!(listed[0].supports_personality);
+        assert!(listed[0].is_default);
+
+        // Claimed means claimed — the id is gone, so a duplicate reply cannot
+        // be read twice.
+        assert!(pending.lock().expect("lock").is_empty());
+    }
+
+    /// A refused catalogue leaves capabilities unverified, and unverified
+    /// means every mode stays refused. It must SAY so.
+    #[test]
+    fn a_failed_model_list_is_named_not_swallowed() {
+        let (tx, rx) = sync_channel(64);
+        let tail = Arc::new(Mutex::new(String::new()));
+        let pending = Arc::new(Mutex::new(HashMap::from([(2_u64, "model/list")])));
+        read_frames(
+            BufReader::new(
+                "{\"id\":2,\"error\":{\"code\":-32601,\"message\":\"nope\"}}\n".as_bytes(),
+            ),
+            &tx,
+            &tail,
+            &pending,
+        );
+        drop(tx);
+        let events: Vec<_> = rx.into_iter().collect();
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                RuntimeEvent::Failure(failure) if failure.reason.contains("model/list")
+            )),
+            "the refusal is reported by name: {events:?}"
+        );
+    }
+
+    /// An unclaimed id stays an acknowledgement, exactly as before: only
+    /// `initialize`'s response means anything to the host on its own, and the
+    /// rest report through notifications.
     #[test]
     fn a_plain_acknowledgement_produces_no_event() {
         let (tx, rx) = sync_channel(64);
@@ -1203,6 +1403,7 @@ mod tests {
             BufReader::new("{\"id\":1,\"result\":{}}\n{\"id\":2,\"result\":{}}\n".as_bytes()),
             &tx,
             &tail,
+            &Arc::new(Mutex::new(HashMap::new())),
         );
         drop(tx);
         let events = rx.into_iter().collect::<Vec<_>>();

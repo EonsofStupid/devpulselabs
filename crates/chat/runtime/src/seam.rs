@@ -149,6 +149,8 @@ pub enum RuntimeCommand {
         cursor: Option<String>,
     },
     NewSession,
+    /// Ask what models exist and what each one accepts.
+    ListModels,
     LoadSession {
         provider_session_id: String,
     },
@@ -207,6 +209,14 @@ pub enum RuntimeEvent {
         sessions: Vec<RuntimeSessionSummary>,
         next_cursor: Option<String>,
         replace: bool,
+    },
+    /// What the provider's default model advertises, once it has said so.
+    ///
+    /// Not session-scoped: the answer is about the model, not a thread, and it
+    /// is what turns a composer mode from "refused, unverified" into something
+    /// this adapter will actually put on a turn.
+    ModelsListed {
+        models: Vec<ModelCapabilities>,
     },
     SessionReady {
         provider_session_id: String,

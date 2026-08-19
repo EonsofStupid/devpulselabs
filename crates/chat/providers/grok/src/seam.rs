@@ -53,6 +53,14 @@ impl ProviderRuntime for GrokRuntimeSeam {
     }
 
     fn try_send(&self, command: RuntimeCommand) -> Result<(), RuntimeSendError> {
+        // Refused HERE, before the conversion. `From<RuntimeCommand>` is total
+        // and has no refusal variant, so a command with no Grok equivalent
+        // would have to be mapped to some real one — and mapping "list your
+        // models" onto anything that acts is how a runtime gets told to do
+        // something nobody asked for.
+        if matches!(command, RuntimeCommand::ListModels) {
+            return Err(RuntimeSendError::Closed);
+        }
         self.inner.try_send(command.into()).map_err(Into::into)
     }
 
@@ -113,6 +121,12 @@ impl From<RuntimeCommand> for GrokRuntimeCommand {
                 provider_session_id,
             } => Self::Cancel {
                 provider_session_id,
+            },
+            // Unreachable: `try_send` refuses it above. Kept explicit so
+            // adding a Grok model catalogue is a compile error here, not a
+            // silent fallthrough.
+            RuntimeCommand::ListModels => Self::Cancel {
+                provider_session_id: String::new(),
             },
             RuntimeCommand::ResolvePermission {
                 request_id,
