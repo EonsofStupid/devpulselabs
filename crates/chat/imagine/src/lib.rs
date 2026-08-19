@@ -269,23 +269,12 @@ pub const CHAT_ENDPOINT: &str = "https://api.x.ai/v1/chat/completions";
 const MAX_SUGGESTIONS: usize = 6;
 
 pub fn suggest_request_json(seed: &str, existing: &[String]) -> serde_json::Value {
-    let taken = if existing.is_empty() {
-        String::new()
-    } else {
-        format!(
-            " Already on the board (do not repeat): {}.",
-            existing.join("; ")
-        )
-    };
     serde_json::json!({
         "model": SUGGEST_MODEL,
         "messages": [{
             "role": "user",
-            "content": format!(
-                "Brainstorm concrete angles for an explainer video about: {seed}.{taken} \
-                 Answer with up to {MAX_SUGGESTIONS} short idea lines, one per line, \
-                 no numbering, no prose."
-            ),
+            // The SAME words a CLI seat is given — see `suggest_prompt`.
+            "content": suggest_prompt(seed, existing),
         }],
     })
 }
@@ -301,6 +290,31 @@ pub fn parse_suggest_response(body: &str, existing: &[String]) -> Result<Vec<Str
         .and_then(|content| content.as_str())
         .ok_or_else(|| "the suggestion response carried no text".to_owned())?;
     ideas_from_lines(content, existing)
+}
+
+/// The instruction every proposing seat is given.
+///
+/// One wording for the API path and the CLI seats alike. They read replies
+/// through one parser ([`ideas_from_lines`]); asking them differently would
+/// reintroduce the drift extracting that parser removed.
+///
+/// The shape of the ask is doing real work: "one per line, no numbering, no
+/// prose" is what makes a coding agent's answer parseable at all, and the
+/// parser refuses what comes back when it is ignored.
+pub fn suggest_prompt(seed: &str, existing: &[String]) -> String {
+    let taken = if existing.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " Already on the board (do not repeat): {}.",
+            existing.join("; ")
+        )
+    };
+    format!(
+        "Brainstorm concrete angles for an explainer video about: {seed}.{taken} \
+         Answer with up to {MAX_SUGGESTIONS} short idea lines, one per line, \
+         no numbering, no prose."
+    )
 }
 
 /// The longest a line can be and still be an IDEA rather than a paragraph.

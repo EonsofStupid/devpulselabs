@@ -145,6 +145,12 @@ struct Shared {
     /// Assistant text arriving on a BOARD session, accumulated until the turn
     /// ends. Chunks are per-token; a board item needs the whole reply.
     brainstorm_reply: BTreeMap<ProviderId, String>,
+    /// A board prompt waiting for its session to exist.
+    ///
+    /// Sending `NewSession` and asking the operator to press again would be a
+    /// gesture that appears to do nothing, so the prompt is held and sent the
+    /// moment the session lands.
+    brainstorm_pending_prompt: BTreeMap<ProviderId, String>,
     seam_turns: BTreeMap<(ProviderId, String), TurnId>,
     /// The default model each provider advertised. Absent until `model/list`
     /// has answered, and absence is read strictly: no composer mode is put on
@@ -226,9 +232,27 @@ struct BrainstormSession {
     assist: Vec<BrainstormAssistCall>,
 }
 
+/// How a wave's answer comes back.
+///
+/// Imagine is request/response on a worker thread; a CLI seat is a turn whose
+/// text arrives through the event stream and lands in `land_board_reply`. One
+/// wave type, two arrivals — otherwise the board would need two notions of
+/// "in flight" and only one of them would get the deadline.
+enum WaveSource {
+    Channel(std::sync::mpsc::Receiver<Result<Vec<String>, String>>),
+    Seam { provider: ProviderId },
+}
+
 struct BrainstormAssistCall {
     job: dpl_fabric::JobId,
-    rx: std::sync::mpsc::Receiver<Result<Vec<String>, String>>,
+    source: WaveSource,
+    /// When this wave was asked for.
+    ///
+    /// A CLI seat can take a long time or never answer at all. Without a
+    /// deadline it sits in the roster saying "thinking…" forever, which is
+    /// indistinguishable from working and is the exact hang this codebase
+    /// keeps refusing to ship.
+    started: std::time::Instant,
     /// The seat this wave was asked of, recorded at DISPATCH.
     ///
     /// Minted here rather than at landing because by the time the answers
@@ -949,6 +973,7 @@ impl ChatWindowCoordinator {
             brainstorm_sessions: BTreeMap::new(),
             brainstorm_session_pending: std::collections::BTreeSet::new(),
             brainstorm_reply: BTreeMap::new(),
+            brainstorm_pending_prompt: BTreeMap::new(),
             seam_turns: BTreeMap::new(),
             provider_models: BTreeMap::new(),
             provider_mcp: BTreeMap::new(),
@@ -2819,6 +2844,11 @@ fn brainstorm_assist(state: &mut Shared) {
         project_brainstorm(state);
         return;
     }
+    // Read the roster BEFORE the session borrow, and ask every CLI seat while
+    // we are here — this is what makes the board a discussion rather than one
+    // voice at a time.
+    let roster = proposing_seats(state);
+    dispatch_all_waves(state);
     let Some(session) = &mut state.brainstorm else {
         return;
     };
@@ -2839,11 +2869,12 @@ fn brainstorm_assist(state: &mut Shared) {
         return;
     }
     let Some(key) = dpl_chat_imagine::resolve_api_key() else {
-        // Names the roster, so "why is nobody proposing" has an answer rather
-        // than a shrug.
-        let roster = proposing_seats();
+        // Imagine cannot be asked, but a CLI seat may already have been. Names
+        // who CAN, so "why is nobody proposing" has an answer rather than a
+        // shrug.
         session.status = Some(if roster.is_empty() {
-            "No seat can propose right now — Imagine needs XAI_API_KEY in this              session, and the CLI seats cannot propose yet."
+            "No seat can propose right now — no provider is connected and \
+             Imagine needs XAI_API_KEY in this session."
                 .to_owned()
         } else {
             format!(
@@ -2877,7 +2908,12 @@ fn brainstorm_assist(state: &mut Shared) {
     }
     let seat = propose_seat();
     let waiting = seat.label();
-    session.assist.push(BrainstormAssistCall { job, rx, seat });
+    session.assist.push(BrainstormAssistCall {
+        job,
+        source: WaveSource::Channel(rx),
+        started: std::time::Instant::now(),
+        seat,
+    });
     session.status = Some(format!("{waiting} is thinking…"));
     state.fabric.publish_job(dpl_fabric::JobEvent::Queued {
         job,
@@ -2942,6 +2978,73 @@ fn land_board_reply(state: &mut Shared, provider: ProviderId, reply: &str) {
     project_brainstorm(state);
 }
 
+/// Ask one connected seat for ideas.
+///
+/// Mints the board's own session for that provider if there is not one yet and
+/// parks the prompt until it arrives — a press that silently needs a second
+/// press is worse than one that takes a moment.
+fn dispatch_seat_wave(state: &mut Shared, provider: ProviderId) {
+    let Some(session) = &state.brainstorm else {
+        return;
+    };
+    let seat = dpl_seat::Seat::agent(provider.0, dpl_seat::Basis::Subscription);
+    if session.assist.iter().any(|call| call.seat == seat) {
+        return; // Already thinking. Per seat, never board-wide.
+    }
+    let existing: Vec<String> = session.doc.items.iter().map(|i| i.text.clone()).collect();
+    let text = dpl_chat_imagine::suggest_prompt(&session.doc.seed, &existing);
+    let job = state.fabric.mint_job();
+
+    // Whether the ask actually went out. A wave registered for a command that
+    // was never sent is a phantom "thinking…" until the deadline expires.
+    let dispatched = match state.brainstorm_sessions.get(&provider).cloned() {
+        Some(provider_session_id) => send_seam_command(
+            state,
+            provider,
+            RuntimeCommand::Prompt {
+                provider_session_id,
+                text,
+                modes: Default::default(),
+            },
+        ),
+        None => {
+            state.brainstorm_pending_prompt.insert(provider, text);
+            state.brainstorm_session_pending.insert(provider);
+            send_seam_command(state, provider, RuntimeCommand::NewSession)
+        }
+    };
+    if !dispatched {
+        // Undo the parking, or the next SessionReady would fire a prompt for a
+        // wave nobody is tracking.
+        state.brainstorm_pending_prompt.remove(&provider);
+        state.brainstorm_session_pending.remove(&provider);
+        if let Some(session) = &mut state.brainstorm {
+            session.status = Some(format!("{} could not be asked.", provider.0));
+        }
+        return;
+    }
+
+    if let Some(session) = &mut state.brainstorm {
+        session.assist.push(BrainstormAssistCall {
+            job,
+            source: WaveSource::Seam { provider },
+            started: std::time::Instant::now(),
+            seat,
+        });
+    }
+    state.fabric.publish_job(dpl_fabric::JobEvent::Queued {
+        job,
+        label: format!("brainstorm · {}", provider.0),
+    });
+}
+
+/// How long any seat gets before its wave is given up on.
+///
+/// Generous, because a CLI seat may think for a while and cutting it off early
+/// wastes a real answer. Bounded, because the alternative is a roster entry
+/// that says "thinking…" until the app restarts.
+const WAVE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(120);
+
 /// The seat Imagine proposes as.
 ///
 /// A metered API call, not a subscription — `usage` is the measured truth
@@ -2957,12 +3060,30 @@ fn propose_seat() -> dpl_seat::Seat {
 /// this session; the ACP providers cannot yet — their suggestion path is a
 /// turn on a session whose text nobody accumulates, which is a build and not a
 /// registration. A roster that listed them would be a crowd that never speaks.
-fn proposing_seats() -> Vec<dpl_seat::Seat> {
+fn proposing_seats(state: &Shared) -> Vec<dpl_seat::Seat> {
     let mut seats = Vec::new();
     if dpl_chat_imagine::resolve_api_key().is_some() {
         seats.push(propose_seat());
     }
+    // Connected CLI seats, listed only now that a wave has a DEADLINE. Adding
+    // them earlier would have put a seat in the roster that can hang with no
+    // way out — which is the failure this codebase keeps refusing to ship.
+    for provider in state.runtimes.keys() {
+        seats.push(dpl_seat::Seat::agent(
+            provider.0,
+            dpl_seat::Basis::Subscription,
+        ));
+    }
     seats
+}
+
+/// Ask EVERY seat that can propose. This is the group discussion: one board,
+/// several seats, each answer landing under its own name and its own undo.
+fn dispatch_all_waves(state: &mut Shared) {
+    let providers: Vec<ProviderId> = state.runtimes.keys().copied().collect();
+    for provider in providers {
+        dispatch_seat_wave(state, provider);
+    }
 }
 
 /// Drain the suggestion call: proposals land as Assist-origin items
@@ -2983,7 +3104,25 @@ fn poll_brainstorm_assist(state: &mut Shared) -> bool {
     // the other's too.
     let mut ready: Option<(usize, Result<Vec<String>, String>)> = None;
     for (index, call) in session.assist.iter().enumerate() {
-        match call.rx.try_recv() {
+        // Overdue first, whatever the source. A seat that never answers is the
+        // failure mode with no natural end, so it needs the one check that
+        // does not depend on anything arriving.
+        if call.started.elapsed() > WAVE_DEADLINE {
+            ready = Some((
+                index,
+                Err(format!(
+                    "did not answer within {}s",
+                    WAVE_DEADLINE.as_secs()
+                )),
+            ));
+            break;
+        }
+        let WaveSource::Channel(rx) = &call.source else {
+            // A seam wave lands through `land_board_reply` when its turn ends.
+            // Nothing to drain here, and draining is not how it finishes.
+            continue;
+        };
+        match rx.try_recv() {
             Ok(result) => {
                 ready = Some((index, result));
                 break;
@@ -2999,6 +3138,14 @@ fn poll_brainstorm_assist(state: &mut Shared) -> bool {
         return false;
     };
     let call = session.assist.remove(index);
+    // A seam wave that is being given up on must be told to stop. Dropping our
+    // side of it while the agent keeps thinking wastes its turn and leaves a
+    // reply that will arrive to a wave nobody is tracking — which
+    // `land_board_reply` would then apply, long after we said it timed out.
+    let abandoned = match (&call.source, result.is_err()) {
+        (WaveSource::Seam { provider }, true) => Some(*provider),
+        _ => None,
+    };
     let job = call.job;
     let seat = call.seat.clone();
     match result {
@@ -3045,6 +3192,20 @@ fn poll_brainstorm_assist(state: &mut Shared) -> bool {
                 .fabric
                 .publish_job(dpl_fabric::JobEvent::Failed { job, error });
         }
+    }
+    if let Some(provider) = abandoned {
+        if let Some(provider_session_id) = state.brainstorm_sessions.get(&provider).cloned() {
+            send_seam_command(
+                state,
+                provider,
+                RuntimeCommand::Cancel {
+                    provider_session_id,
+                },
+            );
+        }
+        // And forget the half-written reply, or the next wave would inherit
+        // whatever this one had streamed so far.
+        state.brainstorm_reply.remove(&provider);
     }
     project_brainstorm(state);
     true
@@ -4441,7 +4602,19 @@ fn project_seam_event(state: &mut Shared, provider: ProviderId, event: RuntimeEv
                 tracing::info!(%provider, "board session ready");
                 state
                     .brainstorm_sessions
-                    .insert(provider, provider_session_id);
+                    .insert(provider, provider_session_id.clone());
+                // The ask that was waiting on it. One press, one wave.
+                if let Some(text) = state.brainstorm_pending_prompt.remove(&provider) {
+                    send_seam_command(
+                        state,
+                        provider,
+                        RuntimeCommand::Prompt {
+                            provider_session_id,
+                            text,
+                            modes: Default::default(),
+                        },
+                    );
+                }
                 return;
             }
             let session = seam_chat_session_id(state, provider, &provider_session_id);
@@ -5790,19 +5963,51 @@ mod slash_mint_tests {
 mod brainstorm_seat_tests {
     use super::*;
 
-    /// The roster answers what is TRUE, not what is planned. Today that is
-    /// Imagine when a key exists and nothing otherwise — and a roster that
-    /// listed the CLI seats would be a crowd that never speaks.
+    /// The roster answers what is TRUE, not what is planned. It now lists CLI
+    /// seats as well as Imagine — which is only honest because every wave is
+    /// bounded by a deadline (below). Listing them first would have been a
+    /// crowd that could hang with no way out.
+    ///
+    /// Every entry is an AGENT seat with a principal, because a roster entry
+    /// with no name cannot be dispatched to or attributed from.
     #[test]
-    fn the_roster_only_lists_seats_that_can_actually_propose() {
-        let roster = proposing_seats();
-        // Whatever the environment, every listed seat is one we can dispatch
-        // to — the roster never contains an aspiration.
-        for seat in &roster {
+    fn every_roster_entry_is_a_named_agent_seat() {
+        for seat in [
+            propose_seat(),
+            dpl_seat::Seat::agent(dpl_chat_codex::PROVIDER.0, dpl_seat::Basis::Subscription),
+        ] {
             assert!(seat.is_agent(), "a proposing seat is an agent seat");
-            assert_eq!(seat, &propose_seat());
+            assert!(!seat.id.is_empty(), "and it has a principal");
+            assert_ne!(seat.label(), "an agent", "so it can be named on the board");
         }
-        assert!(roster.len() <= 1, "only Imagine can propose today");
+    }
+
+    /// The deadline is what makes listing a CLI seat honest. Without it a seat
+    /// that never answers sits in the roster saying "thinking…" until the app
+    /// restarts, which is indistinguishable from working.
+    #[test]
+    fn every_wave_is_bounded_by_a_deadline() {
+        assert!(
+            WAVE_DEADLINE.as_secs() >= 30,
+            "generous enough not to cut off a real answer"
+        );
+        assert!(
+            WAVE_DEADLINE.as_secs() <= 600,
+            "bounded enough that a hung seat ends"
+        );
+    }
+
+    /// A seam wave finishes through `land_board_reply`, not by draining a
+    /// channel. Confusing the two would leave it in flight forever.
+    #[test]
+    fn a_seam_wave_carries_no_channel_to_drain() {
+        let wave = WaveSource::Seam {
+            provider: dpl_chat_codex::PROVIDER,
+        };
+        assert!(
+            matches!(wave, WaveSource::Seam { .. }),
+            "a seat's answer arrives on the event stream"
+        );
     }
 
     /// Imagine is metered. Recording it as a subscription would be the exact
