@@ -5,20 +5,44 @@
   "description": "The wire contract for dpl-workflows BrainstormDoc v1 - the chat-triggered brainstorm board: the seed idea, its phased breakdown (diverge/cluster/converge), items with breakdown parentage and disclosed origin (operator vs assist), and named clusters. Strict: unknown fields are drift. The Rust shape and this schema are pinned together by test. v2 will sit BESIDE this file, never replace it (docs/design/workflow-doctrine.md).",
   "type": "object",
   "additionalProperties": false,
-  "required": ["v", "id", "template", "phase"],
+  "required": [
+    "v",
+    "id",
+    "template",
+    "phase"
+  ],
   "properties": {
-    "v": { "const": 1 },
-    "id": { "$ref": "#/$defs/kebab" },
-    "template": { "$ref": "#/$defs/kebab" },
-    "seed": { "type": "string", "minLength": 1 },
-    "phase": { "enum": ["diverge", "cluster", "converge"] },
+    "v": {
+      "const": 1
+    },
+    "id": {
+      "$ref": "#/$defs/kebab"
+    },
+    "template": {
+      "$ref": "#/$defs/kebab"
+    },
+    "seed": {
+      "type": "string",
+      "minLength": 1
+    },
+    "phase": {
+      "enum": [
+        "diverge",
+        "cluster",
+        "converge"
+      ]
+    },
     "items": {
       "type": "array",
-      "items": { "$ref": "#/$defs/item" }
+      "items": {
+        "$ref": "#/$defs/item"
+      }
     },
     "clusters": {
       "type": "array",
-      "items": { "$ref": "#/$defs/cluster" }
+      "items": {
+        "$ref": "#/$defs/cluster"
+      }
     }
   },
   "$defs": {
@@ -29,22 +53,79 @@
     "item": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "text", "origin"],
+      "required": [
+        "id",
+        "text",
+        "origin"
+      ],
       "properties": {
-        "id": { "$ref": "#/$defs/kebab" },
-        "text": { "type": "string", "minLength": 1 },
-        "parent": { "$ref": "#/$defs/kebab" },
-        "cluster": { "$ref": "#/$defs/kebab" },
-        "origin": { "enum": ["operator", "assist"] }
+        "id": {
+          "$ref": "#/$defs/kebab"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parent": {
+          "$ref": "#/$defs/kebab"
+        },
+        "cluster": {
+          "$ref": "#/$defs/kebab"
+        },
+        "origin": {
+          "enum": [
+            "operator",
+            "assist"
+          ]
+        },
+        "seat": {
+          "$ref": "#/$defs/seat"
+        }
       }
     },
     "cluster": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "label"],
+      "required": [
+        "id",
+        "label"
+      ],
       "properties": {
-        "id": { "$ref": "#/$defs/kebab" },
-        "label": { "type": "string", "minLength": 1 }
+        "id": {
+          "$ref": "#/$defs/kebab"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "seat": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A licensed occupant of a workspace: who contributed, on two independent axes.",
+      "required": [
+        "occupant"
+      ],
+      "properties": {
+        "occupant": {
+          "enum": [
+            "human",
+            "agent"
+          ]
+        },
+        "basis": {
+          "enum": [
+            "subscription",
+            "usage",
+            "local",
+            "unknown"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "description": "The principal \u2014 a provider id for an agent, the operator's id for a human."
+        }
       }
     }
   }

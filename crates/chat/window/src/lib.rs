@@ -3896,8 +3896,20 @@ impl ChatWindow {
             ui.horizontal(|ui| {
                 ui.add_space(16.0 * depth as f32);
                 if item.origin == BrainstormOrigin::Assist {
-                    let mark = ui.label(RichText::new("assist").small().color(Tone::Cyan.color()));
-                    cl::tip(mark, "Proposed by assist — edit it and it becomes yours.");
+                    // WHICH agent, when the board knows. Several seats can work
+                    // one board, and "assist" alone stops being useful the
+                    // moment there is more than one of them.
+                    let seat = item.seat_or_implied();
+                    let mark = ui.label(
+                        RichText::new(seat.label())
+                            .small()
+                            .color(Tone::Cyan.color()),
+                    );
+                    let tip = format!(
+                        "Proposed by {} — edit it and it becomes yours.",
+                        seat.label()
+                    );
+                    cl::tip(mark, &tip);
                 }
                 let draft = self
                     .brainstorm_item_drafts
@@ -3940,6 +3952,7 @@ impl ChatWindow {
                             text: "…".into(),
                             parent: Some(item.id.clone()),
                             origin: BrainstormOrigin::Operator,
+                            seat: None,
                         }));
                     }
                 }
@@ -3975,6 +3988,7 @@ impl ChatWindow {
                         text: std::mem::take(&mut self.brainstorm_add_draft),
                         parent: None,
                         origin: BrainstormOrigin::Operator,
+                        seat: None,
                     }));
                 }
             });

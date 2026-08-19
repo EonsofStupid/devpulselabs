@@ -437,18 +437,21 @@ fn main() -> eframe::Result {
                 text: "Name the pain".into(),
                 parent: None,
                 origin: Origin::Operator,
+                seat: None,
             },
             Op::AddItem {
                 id: "demo".into(),
                 text: "Show it working".into(),
                 parent: None,
                 origin: Origin::Assist,
+                seat: None,
             },
             Op::AddItem {
                 id: "demo-fail".into(),
                 text: "Show the old way failing first".into(),
                 parent: Some("demo".into()),
                 origin: Origin::Assist,
+                seat: None,
             },
             Op::AdvancePhase,
             Op::AddCluster {

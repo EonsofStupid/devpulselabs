@@ -98,6 +98,7 @@ add it. Full reasoning: `docs/plans/kernel-boundary.md`.
 | dpl-estate | fjall, moka, serde, serde_json | Ring-0 persistence, no app types |
 | dpl-intent | ∅ | the operator-intent proof must never learn to serialize, clone, or arrive over a wire (signal-ledger plan §9.3) |
 | dpl-svg | ∅ | the icon-subset SVG law is dependency-free — parsing, flattening, and stroking are owned (ADR-015) |
+| dpl-seat | serde, serde_json | the canonical seat definition — a licensed occupant of a workspace, on two independent axes. A LEAF because two layers need it and neither may depend on the other: the document layer attributes a board item to whoever put it there, the AI subsystem knows a provider is an agent seat, `dpl-workflows` cannot reach `dpl-ai-core` through its own ceiling, and `dpl-ai-core` depending on a document crate would invert the stack |
 
 Adding an edge to these crates is a DECISION: amend the table here + in
 the audit, same commit, with the reason.

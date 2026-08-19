@@ -15,6 +15,7 @@
 //! side of the two-libraries law its artifacts belong to (`Surface`), and
 //! the hubs mount accordingly — the engine makes no hub assumptions.
 
+use dpl_seat::{Occupant, Seat};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -614,6 +615,46 @@ pub struct BrainstormItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cluster: Option<String>,
     pub origin: BrainstormOrigin,
+    /// WHICH contributor, when it is known.
+    ///
+    /// `origin` says operator-or-assist — the disclosure rule, and it stays
+    /// required because every existing board has it. This says who: the seat
+    /// that put the item here, so several agents can work one board and it is
+    /// legible whose idea was whose.
+    ///
+    /// Optional because a board written before seats existed has none, and a
+    /// missing seat is honest about that rather than inventing an author.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seat: Option<Seat>,
+}
+
+impl BrainstormItem {
+    /// The seat, or the axis `origin` implies when none was recorded.
+    ///
+    /// Never invents a principal — an old assist item comes back as an agent
+    /// with no id, which is exactly what is known about it.
+    pub fn seat_or_implied(&self) -> Seat {
+        self.seat.clone().unwrap_or(match self.origin {
+            BrainstormOrigin::Operator => Seat::operator(),
+            BrainstormOrigin::Assist => Seat {
+                occupant: Occupant::Agent,
+                ..Seat::default()
+            },
+        })
+    }
+}
+
+/// Does this seat agree with the origin it was filed under?
+///
+/// Two fields describing one fact can drift, and a drifted pair is a lie about
+/// who contributed — an item marked operator while naming an agent seat would
+/// launder an assist proposal into the operator's own work, which is the exact
+/// thing D5 parity exists to prevent.
+fn seat_agrees(origin: BrainstormOrigin, seat: &Seat) -> bool {
+    match origin {
+        BrainstormOrigin::Operator => seat.is_human(),
+        BrainstormOrigin::Assist => seat.is_agent(),
+    }
 }
 
 /// One named group the Cluster phase sorts items into.
@@ -755,6 +796,10 @@ pub enum BrainstormOp {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         parent: Option<String>,
         origin: BrainstormOrigin,
+        /// WHICH contributor. Optional, and REFUSED when it disagrees with
+        /// `origin` — see `seat_agrees`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        seat: Option<Seat>,
     },
     /// Rewrite an item's text. An operator edit CLAIMS an assist item —
     /// touched work is the operator's work.
@@ -800,6 +845,7 @@ pub fn apply(doc: &mut BrainstormDoc, op: &BrainstormOp) -> Result<(), Vec<Issue
             text,
             parent,
             origin,
+            seat,
         } => {
             if !kebab_ok(id) {
                 return refuse("id", format!("item id {id:?} is not kebab-case"));
@@ -815,12 +861,25 @@ pub fn apply(doc: &mut BrainstormDoc, op: &BrainstormOp) -> Result<(), Vec<Issue
                     return refuse("parent", format!("parent {parent:?} does not exist"));
                 }
             }
+            // Two fields describing one fact must not disagree. An item filed
+            // as the operator's while naming an agent seat would launder an
+            // assist proposal into the operator's own work — the exact thing
+            // D5 parity exists to stop.
+            if let Some(seat) = seat {
+                if !seat_agrees(*origin, seat) {
+                    return refuse(
+                        "seat",
+                        format!("seat {:?} does not match origin {origin:?}", seat.occupant),
+                    );
+                }
+            }
             doc.items.push(BrainstormItem {
                 id: id.clone(),
                 text: text.trim().to_owned(),
                 parent: parent.clone(),
                 cluster: None,
                 origin: *origin,
+                seat: seat.clone(),
             });
         }
         BrainstormOp::EditItem { id, text } => {
@@ -831,7 +890,11 @@ pub fn apply(doc: &mut BrainstormDoc, op: &BrainstormOp) -> Result<(), Vec<Issue
                 return refuse("id", format!("item {id:?} does not exist"));
             };
             item.text = text.trim().to_owned();
+            // Touched work is the operator's work — and that has to move the
+            // SEAT too. Claiming the origin while leaving an agent's seat on
+            // the item would keep attributing it to them.
             item.origin = BrainstormOrigin::Operator;
+            item.seat = Some(Seat::operator());
         }
         BrainstormOp::RemoveItem { id } => {
             if !doc.items.iter().any(|i| &i.id == id) {
@@ -1768,6 +1831,142 @@ impl StageRunner for DryRunner {
 
 #[cfg(test)]
 mod tests {
+    /// Several seats on one board, and it stays legible whose idea was whose.
+    /// This is what seat attribution is FOR.
+    #[test]
+    fn several_agent_seats_can_work_one_board() {
+        use dpl_seat::{Basis, Seat};
+
+        let scaffold = brainstorm_scaffold("breakdown").expect("registered");
+        let mut doc = mint_brainstorm(&scaffold, "seats");
+        apply(
+            &mut doc,
+            &BrainstormOp::Seed {
+                seed: "a launch".into(),
+            },
+        )
+        .expect("seed");
+        for (id, who, basis) in [
+            ("a", "codex", Basis::Subscription),
+            ("b", "grok", Basis::Subscription),
+            ("c", "imagine", Basis::Usage),
+        ] {
+            apply(
+                &mut doc,
+                &BrainstormOp::AddItem {
+                    id: id.into(),
+                    text: format!("idea from {who}"),
+                    parent: None,
+                    origin: BrainstormOrigin::Assist,
+                    seat: Some(Seat::agent(who, basis)),
+                },
+            )
+            .unwrap_or_else(|e| panic!("{who}: {e:?}"));
+        }
+        let named: Vec<_> = doc
+            .items
+            .iter()
+            .map(|i| i.seat_or_implied().label())
+            .collect();
+        assert_eq!(named, ["codex", "grok", "imagine"]);
+        // The axes survive the round trip, not just the name.
+        assert_eq!(doc.items[2].seat_or_implied().basis, Basis::Usage);
+    }
+
+    /// Two fields describing one fact must not disagree. An item filed as the
+    /// operator's while naming an agent seat would launder an assist proposal
+    /// into the operator's own work.
+    #[test]
+    fn a_seat_that_contradicts_its_origin_is_refused() {
+        use dpl_seat::{Basis, Seat};
+
+        let scaffold = brainstorm_scaffold("breakdown").expect("registered");
+        let mut doc = mint_brainstorm(&scaffold, "seats");
+        apply(&mut doc, &BrainstormOp::Seed { seed: "x".into() }).expect("seed");
+        let laundered = apply(
+            &mut doc,
+            &BrainstormOp::AddItem {
+                id: "a".into(),
+                text: "not really mine".into(),
+                parent: None,
+                origin: BrainstormOrigin::Operator,
+                seat: Some(Seat::agent("codex", Basis::Subscription)),
+            },
+        );
+        assert!(
+            laundered.is_err(),
+            "operator origin cannot carry an agent seat"
+        );
+        assert!(doc.items.is_empty(), "and nothing landed");
+
+        // The mirror case is refused too.
+        assert!(apply(
+            &mut doc,
+            &BrainstormOp::AddItem {
+                id: "b".into(),
+                text: "not really theirs".into(),
+                parent: None,
+                origin: BrainstormOrigin::Assist,
+                seat: Some(Seat::operator()),
+            },
+        )
+        .is_err());
+    }
+
+    /// Touched work is the operator's work — and that has to move the SEAT.
+    /// Claiming the origin while leaving an agent's seat behind would keep
+    /// attributing the item to them.
+    #[test]
+    fn an_operator_edit_claims_the_seat_as_well_as_the_origin() {
+        use dpl_seat::{Basis, Seat};
+
+        let scaffold = brainstorm_scaffold("breakdown").expect("registered");
+        let mut doc = mint_brainstorm(&scaffold, "seats");
+        apply(&mut doc, &BrainstormOp::Seed { seed: "x".into() }).expect("seed");
+        apply(
+            &mut doc,
+            &BrainstormOp::AddItem {
+                id: "a".into(),
+                text: "theirs".into(),
+                parent: None,
+                origin: BrainstormOrigin::Assist,
+                seat: Some(Seat::agent("codex", Basis::Subscription)),
+            },
+        )
+        .expect("added");
+        assert_eq!(doc.items[0].seat_or_implied().label(), "codex");
+
+        apply(
+            &mut doc,
+            &BrainstormOp::EditItem {
+                id: "a".into(),
+                text: "mine now".into(),
+            },
+        )
+        .expect("edited");
+        assert_eq!(doc.items[0].origin, BrainstormOrigin::Operator);
+        assert!(
+            doc.items[0].seat_or_implied().is_human(),
+            "the seat moved too, or the item still says codex wrote it"
+        );
+    }
+
+    /// A board written before seats existed must still load, and must not have
+    /// an author invented for it.
+    #[test]
+    fn a_board_without_seats_still_loads_and_claims_no_author() {
+        let legacy = serde_json::json!({
+            "id": "a", "text": "old idea", "origin": "assist"
+        });
+        let item: BrainstormItem = serde_json::from_value(legacy).expect("legacy item loads");
+        assert_eq!(item.origin, BrainstormOrigin::Assist);
+        assert!(item.seat.is_none(), "nothing was recorded");
+        let implied = item.seat_or_implied();
+        assert!(implied.is_agent(), "and the axis is still known");
+        assert!(implied.id.is_empty(), "but no principal is invented");
+        assert_eq!(implied.label(), "an agent");
+    }
+
     use super::*;
 
     fn scratch(name: &str) -> PathBuf {
@@ -2068,18 +2267,21 @@ mod tests {
                 text: "Name the pain".into(),
                 parent: None,
                 origin: BrainstormOrigin::Operator,
+                seat: None,
             },
             BrainstormOp::AddItem {
                 id: "demo".into(),
                 text: "Show it working".into(),
                 parent: None,
                 origin: BrainstormOrigin::Assist,
+                seat: None,
             },
             BrainstormOp::AddItem {
                 id: "demo-fail".into(),
                 text: "Show the old way failing first".into(),
                 parent: Some("demo".into()),
                 origin: BrainstormOrigin::Assist,
+                seat: None,
             },
             BrainstormOp::AdvancePhase,
             BrainstormOp::AddCluster {
@@ -2167,6 +2369,7 @@ mod tests {
             text: format!("idea {id}"),
             parent: None,
             origin: BrainstormOrigin::Operator,
+            seat: None,
         };
         apply(&mut doc, &add("one")).unwrap();
         assert!(apply(&mut doc, &add("one")).is_err(), "duplicate id");
@@ -2177,6 +2380,7 @@ mod tests {
                 text: "x".into(),
                 parent: Some("ghost".into()),
                 origin: BrainstormOrigin::Operator,
+                seat: None,
             }
         )
         .is_err());
@@ -2616,6 +2820,7 @@ mod schema_pin {
                     parent: None,
                     cluster: Some("open".into()),
                     origin: BrainstormOrigin::Operator,
+                    seat: None,
                 },
                 BrainstormItem {
                     id: "demo-fail".into(),
@@ -2623,6 +2828,7 @@ mod schema_pin {
                     parent: Some("pain".into()),
                     cluster: None,
                     origin: BrainstormOrigin::Assist,
+                    seat: None,
                 },
             ],
             clusters: vec![BrainstormCluster {

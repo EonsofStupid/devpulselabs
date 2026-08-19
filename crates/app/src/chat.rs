@@ -212,6 +212,13 @@ struct BrainstormSession {
 struct BrainstormAssistCall {
     job: dpl_fabric::JobId,
     rx: std::sync::mpsc::Receiver<Result<Vec<String>, String>>,
+    /// The seat this wave was asked of, recorded at DISPATCH.
+    ///
+    /// Minted here rather than at landing because by the time the answers
+    /// arrive the operator may have switched backing, and attributing one
+    /// agent's ideas to another is the failure multi-seat attribution exists
+    /// to prevent.
+    seat: dpl_seat::Seat,
 }
 
 const BRAINSTORM_UNDO_CAP: usize = 100;
@@ -752,12 +759,14 @@ impl ChatWindowCoordinator {
                             text: "Name the pain".into(),
                             parent: None,
                             origin: Origin::Operator,
+                            seat: None,
                         },
                         Op::AddItem {
                             id: "demo".into(),
                             text: "Show it working".into(),
                             parent: None,
                             origin: Origin::Assist,
+                            seat: None,
                         },
                         Op::AdvancePhase,
                         Op::AddCluster {
@@ -2826,7 +2835,10 @@ fn brainstorm_assist(state: &mut Shared) {
         project_brainstorm(state);
         return;
     }
-    session.assist = Some(BrainstormAssistCall { job, rx });
+    // Imagine is a metered API call, not a subscription seat — `usage` is the
+    // measured truth here, not a guess.
+    let seat = dpl_seat::Seat::agent("imagine", dpl_seat::Basis::Usage);
+    session.assist = Some(BrainstormAssistCall { job, rx, seat });
     session.status = Some("Assist is thinking…".to_owned());
     state.fabric.publish_job(dpl_fabric::JobEvent::Queued {
         job,
@@ -2853,6 +2865,7 @@ fn poll_brainstorm_assist(state: &mut Shared) -> bool {
         }
     };
     let job = call.job;
+    let seat = call.seat.clone();
     session.assist = None;
     match result {
         Ok(ideas) => {
@@ -2870,6 +2883,10 @@ fn poll_brainstorm_assist(state: &mut Shared) -> bool {
                         text: text.clone(),
                         parent: None,
                         origin: dpl_workflows::BrainstormOrigin::Assist,
+                        // WHICH agent, not just "an agent". This is the whole
+                        // point of seats on the board: several can work it at
+                        // once and it stays legible whose idea was whose.
+                        seat: Some(seat.clone()),
                     },
                 )
                 .is_ok()

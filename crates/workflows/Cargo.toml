@@ -12,6 +12,7 @@ serde.workspace = true
 serde_json.workspace = true
 dpl-comp.workspace = true
 dpl-doc.workspace = true
+dpl-seat.workspace = true
 
 [dev-dependencies]
 # Schema-pin tests (workflow-doctrine law 3): the wire contract in

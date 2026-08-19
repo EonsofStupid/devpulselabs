@@ -1808,6 +1808,7 @@ dependencies = [
  "dpl-ledger",
  "dpl-proc",
  "dpl-seam",
+ "dpl-seat",
  "dpl-shell",
  "dpl-tools-deps",
  "dpl-video",
@@ -2110,6 +2111,7 @@ dependencies = [
  "dpl-coldlight",
  "dpl-fabric",
  "dpl-hub",
+ "dpl-seat",
  "dpl-workflows",
  "egui",
  "egui-pilot-ai",
@@ -2545,6 +2547,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "dpl-seat"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "dpl-shell"
 version = "0.1.0"
 dependencies = [
@@ -2622,6 +2632,7 @@ version = "0.1.0"
 dependencies = [
  "dpl-comp",
  "dpl-doc",
+ "dpl-seat",
  "jsonschema",
  "serde",
  "serde_json",

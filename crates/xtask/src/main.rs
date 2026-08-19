@@ -867,13 +867,14 @@ fn structure_audit() -> Result<(), String> {
         ("dpl-comp", &["serde", "serde_json"]),
         (
             "dpl-workflows",
-            &["dpl-comp", "dpl-doc", "serde", "serde_json"],
+            &["dpl-comp", "dpl-doc", "dpl-seat", "serde", "serde_json"],
         ),
         ("dpl-doc", &["dpl-coldlight", "serde", "serde_json"]),
         ("dpl-tools-deps", &["serde", "serde_json", "sha2"]),
         ("dpl-landing", &["serde", "serde_json"]),
         ("dpl-estate", &["fjall", "moka", "serde", "serde_json"]),
         ("dpl-intent", &[]),
+        ("dpl-seat", &["serde", "serde_json"]),
         ("dpl-svg", &[]),
     ];
     // The egui-free census (architecture.md §1): document/engine/service
@@ -881,6 +882,7 @@ fn structure_audit() -> Result<(), String> {
     // conscious one-line amendment, like registering a slide.
     const EGUI_FREE: &[&str] = &[
         "dpl-proc",
+        "dpl-seat",
         "dpl-comp",
         "dpl-doc",
         "dpl-workflows",

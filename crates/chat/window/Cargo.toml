@@ -18,6 +18,7 @@ dpl-coldlight.workspace = true
 dpl-fabric.workspace = true
 dpl-hub.workspace = true
 dpl-workflows.workspace = true
+dpl-seat.workspace = true
 egui-pilot-ai.workspace = true
 
 [dev-dependencies]
