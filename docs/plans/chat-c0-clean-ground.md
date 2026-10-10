@@ -111,7 +111,43 @@ file. No crate, edge or manifest changes.
 
 ## 8. Evidence
 
-- Park commit `d063e87` (local). The tree is clean apart from this pass's
-  docs.
-- Depot search, gate run, PR checks and exe mtime: filled below as they
-  complete.
+- **Park commit** `d063e87` (local only). After it, `main`'s tree was clean
+  apart from this pass's docs.
+- **Local gate.** `cargo green` on `chat/c0-clean-ground` (`91f0725`) passed
+  end to end: fmt, audits, clippy `-D warnings`, workspace tests, release,
+  and smoke (real pixels). Output: `green ✔ exe:
+  D:\localdev\devpulselabs\target\release\devpulselabs.exe`.
+- **Exe.** `target\release\devpulselabs.exe` moved from **Sep 27 14:27** to
+  **Oct 10 12:34**. `dpl-lottie-render.exe` was unchanged; its sources had
+  not changed, so there was nothing to relink.
+- **Gate hook gap.** This clone had `core.hooksPath` empty, so the pre-push
+  gate never ran from it. It is now `.githooks`.
+- **Depot search.** A search of both drives found the operator's depot at
+  `D:\projects\dptools-deps\artifacts\windows-x86_64` (inventory row 56).
+  `sources.local.toml` was written against it; all five paths exist and each
+  binary reports its expected version (`codex-cli 0.145.0-alpha.18`, `grok
+  0.2.112`, `ffmpeg 8.1.2-full_build`).
+- **Depot staging.** `cargo xtask stage-tool-deps target/release` staged
+  codex, grok, chromium (tree), ffmpeg and pdftoppm (tree), writing
+  `manifest.json` (schema 2, SHA-256 per payload). The run ended with
+  "DevPULSE tool depot verified".
+- **Real-exe proof.** The release exe ran with `--window 1600x900
+  --screenshot … --no-seam`:
+  - It logs `verified embedded ffmpeg resolved …\dptools-deps\media\ffmpeg\8.1.2`
+    and `verified embedded pdftoppm resolved`.
+  - The UI paints with the footer visible at that size, stamped `91f0725`.
+  - Codex and Grok report "no prior activation evidence"; signing in is C2.
+- **Orphan check.** No `devpulselabs.exe`, depot `codex.exe` or `grok.exe`
+  was left running. The four running `codex.exe` processes are the
+  operator's OpenAI Codex desktop app (0.162.1 and its own install), not
+  DevPULSE (inventory row 59).
+- **Found and recorded, not acted on** (rows 55, 58): a second clone at
+  `D:\projects\devpulselabs`, and a second old-app copy at
+  `D:\projects\devpulse labs`.
+- **CI.** The `green` workflow ignores docs-only PRs, so #256 had no
+  automatic checks. A `workflow_dispatch` on the branch (run `38079544559`)
+  supplied both lanes on head `91f0725`: `green-linux` and `green-windows`
+  both COMPLETED SUCCESS. #256 was squash-merged as `3ae1dd3`. This
+  close-out (evidence, inventory rows 55–59, CLAUDE.md depot and
+  second-clone note, STATE, CURRENT) lands as its own PR on the same
+  double-green rule.

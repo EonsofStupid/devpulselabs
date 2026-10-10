@@ -1,5 +1,56 @@
 # Resume pack — CURRENT
 
+## Session 2026-10-10 — CHAT NATIVE PROGRAM: C0 landed. READ THIS FIRST.
+
+**The governing ruling (operator, 2026-10-10):**
+- Chat is built **from scratch inside this app** from the operator's own
+  quoted requirements. Never copy from, link to, or run beside
+  chatmaton/automaton/Shippin.
+- **Anything reaching outside this repo** must be listed in
+  `docs/plans/external-reach-inventory.md` (59 rows) for operator
+  confirmation.
+- The program is `docs/plans/chat-native-program.md`. Its requirements
+  ledger is §4.1, R1–R28, each tied to a quote. Its decisions Q1–Q12 were
+  adopted on recommendation (*"whatever fine"*) and remain revisitable.
+
+**Where things are:**
+- **C0 is DONE** (`docs/plans/chat-c0-clean-ground.md` §8).
+- **Parked, never merge:** the 10-09 Codex `ProcessManager` work is on the
+  LOCAL-ONLY branch `park/codex-subprocess-lifecycle-2026-10-09`.
+- **Depot:** the source is `D:\projects\dptools-deps`, through the
+  gitignored `dptools-deps/sources.local.toml`. It is staged at
+  `target/release/dptools-deps`.
+  - `cargo clean` deletes it. Re-stage with `cargo xtask stage-tool-deps
+    target/release`, which refuses an existing root.
+- **The gate hook is wired** on this clone now (`core.hooksPath =
+  .githooks`).
+- **Docs-only PRs get no automatic CI.** Run `gh workflow run green.yml
+  --ref <branch>` to get both lanes before merging.
+- **Do not touch:** the second clone `D:\projects\devpulselabs` (inventory
+  row 55) and the old-app copies.
+- **Codex versions:**
+  - The depot codex is 0.145.0-alpha.18, which the current version gate
+    accepts.
+  - The operator's system codex is 0.160.1, and their Codex desktop app runs
+    its own 0.162.1 daemons.
+  - The gate fix belongs to C2.
+
+**Next, in order:**
+1. **C1** — the chat mock: `docs/design/mocks/chat-mock.html`, built to
+   R1/R2/R7/R17/R20/R21. Mock **both** Q2 options (a provider's own tab vs a
+   sidebar that extends down), plus an experience-inventory section for
+   chat. Run the `coldlight-system` gate. The operator red-pens it before
+   any window code.
+2. **C2** — `ai/core` + `ai/host` (the real supervisor) + the Codex
+   individual.
+   - Fix the version gate.
+   - Answer server requests.
+   - Add a turn timeout.
+   - Make presence and sign-in depot-only.
+   - Add the first real-turn pilot scenario.
+
+---
+
 **Updated:** 2026-08-11 (**S2 protocol rehoming LANDED** — operator
 `gfo` approved the plan; built in an ephemeral worktree
 `../devpulselabs-s2` on `feat/coach-seam-s2-protocol` so the operator's

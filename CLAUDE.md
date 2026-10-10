@@ -8,9 +8,15 @@ Default ops: Claude skill `milestone-loop` + Cursor skill `session-os`
 
 ## The one checkout
 
-This is THE checkout (`D:\localdev\devpulselabs`), on `main`. There is no
-other worktree. The operator double-clicks `target\release\devpulselabs.exe`
-— a pass is NOT done until that exe is rebuilt and its mtime moved.
+This is THE checkout (`D:\localdev\devpulselabs`), on `main`. A second
+clone exists at `D:\projects\devpulselabs` (found 2026-10-10; which one the
+operator runs is pending — `docs/plans/external-reach-inventory.md` row 55);
+never work in it without the operator saying so. The operator double-clicks
+`target\release\devpulselabs.exe` — a pass is NOT done until that exe is
+rebuilt and its mtime moved. The tool depot is staged beside it from
+`dptools-deps/sources.local.toml` (gitignored) via
+`cargo xtask stage-tool-deps target/release`; the depot source is
+`D:\projects\dptools-deps` (row 56).
 
 ## Non-negotiable laws
 

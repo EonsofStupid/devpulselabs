@@ -48,6 +48,40 @@ we got here.
 >   where it runs, and names the hypervisor blast radius that follows from
 >   that choice (see `devbox-bootstrap.sh` §"Where this runs").
 
+**2026-10-10 — CHAT IS BUILT HERE, NOT BORROWED: C0 CLEAN GROUND (#256 +
+close-out; program `chat-native-program.md`, pass `chat-c0-clean-ground.md`,
+`green ✔`, exe rebuilt 12:34):**
+- **The operator's ruling:** chat is built from scratch inside this app,
+  from the operator's own requirements. It is not copied from, linked to or
+  run beside chatmaton/automaton/Shippin. The 08-11 merge plan and its
+  journal are marked SUPERSEDED.
+- **The chat program.** `chat-native-program.md` carries 28 requirements
+  (R1–R27 are the operator's verbatim quotes re-read at their lines; R28 is
+  the portable/subprocess rule). It has an in-repo `ai/*` + `chat/*` shape, a
+  real supervisor, and passes C0–C10. The operator approved proceeding on
+  the recommendations (*"whatever fine"*).
+- **The external-reach inventory.** `external-reach-inventory.md` lists 59
+  numbered reaches outside the repo, each with file:line evidence.
+- **The 10-09 Codex work** (a placebo `ProcessManager` that spawned bare
+  ffmpeg/lottie-render and failed fmt and clippy) is parked on the
+  LOCAL-ONLY branch `park/codex-subprocess-lifecycle-2026-10-09` (`d063e87`).
+  It was never on `main`.
+- **True paths.** The checkout is `D:\localdev\devpulselabs`; the old app's
+  full source is `D:\localdev\review-archive\devpulse labs`. A **second clone
+  exists at `D:\projects\devpulselabs`** (row 55, pending the operator's
+  ruling on which clone is used).
+- **The depot is staged.** The source is `D:\projects\dptools-deps`
+  (`sources.local.toml`, gitignored). `cargo xtask stage-tool-deps
+  target/release` staged codex 0.145.0-alpha.18, grok 0.2.112, chromium
+  150, ffmpeg 8.1.2 and pdftoppm 26.02.0, each SHA-verified. The real exe at
+  1600×900 logs `verified embedded ffmpeg resolved` and `… pdftoppm
+  resolved`. It leaves no orphan processes; the running `codex.exe`
+  processes are the operator's own Codex desktop app.
+- **The gate hook was never wired on this clone** (`core.hooksPath` was
+  empty), so pushes from here skipped the local gate. It is now wired. The
+  `green` workflow skips docs-only PRs, so C0's double-green came from a
+  `workflow_dispatch` on the branch.
+
 **2026-08-11 — THE EGUI CONTRACT, THE NAMING LAW, AND THE INSTRUMENT THAT
 CAN SEE DEAD TOKENS (#245, #248, #249, spec `design-system.md` rev
 2026-08-09, plan `coverage-audit.md`, `green ✔`, exe rebuilt):**
