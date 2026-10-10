@@ -1,5 +1,15 @@
 # One AI kernel — merging DevPULSE's chat layer and automaton, completely
 
+> **SUPERSEDED 2026-10-10 — do not execute.** Operator: *"it should properly
+> build chat from scratch inside the fucking app like i asked from the start
+> and not just blindly copy that one but properly look at my requirements for
+> it and get it actually planned and implemented."* Chat (and the AI layer it
+> sits on) is built natively in this repo: `docs/plans/chat-native-program.md`.
+> automaton (now `EonsofStupid/chatmaton`) and Shippin are NOT dependencies,
+> sources, or sidecars (`docs/plans/external-reach-inventory.md` rows 1–3).
+> Phase 2+ never ran here; nothing in this repo depends on `mato-*`. The
+> text below is kept unedited as history.
+
 Program (multi-pass), not a single change. Cross-repo:
 `EonsofStupid/automaton` (the kernel) ⇄ `EonsofStupid/devpulselabs` (a consumer).
 

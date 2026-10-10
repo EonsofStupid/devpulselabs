@@ -24,9 +24,14 @@ Normal production builds contain no overlay endpoint; C2b lands behind the
 same discipline as EguiPilot's inherited pipe.
 
 Chat's primary UI is an independent native peer window, never a hub route.
-The canonical product, visual, route, and generated-surface contract is
-`docs/plans/chat-window-product-vision.md`; architecture and delivery remain
-canonical in `docs/plans/chat-architecture.md`.
+Chat is built natively in THIS repo from the operator's own quoted
+requirements — never copied from, linked to, or run beside chatmaton,
+automaton or Shippin (operator ruling 2026-10-10). The canonical program is
+`docs/plans/chat-native-program.md` (requirements ledger §4.1).
+`chat-window-product-vision.md` and `chat-architecture.md` are history:
+their items count only where §4.1 carries an operator quote.
+Anything reaching outside this repo must be listed in
+`docs/plans/external-reach-inventory.md` for operator confirmation first.
 
 ## Session OS / milestone-loop (every agent)
 
@@ -78,5 +83,5 @@ executing only its own part:
 ## Reference
 
 - `docs/foundation-plan.md` — the ratified start-over plan, salvage map included.
-- The prior app (`C:\localdev\devpulse labs`) is the salvage source: engine
+- The prior app (`D:\localdev\review-archive\devpulse labs`) is the salvage source: engine
   Rust, token JSON, ADRs, research. Read from it; never build on it.

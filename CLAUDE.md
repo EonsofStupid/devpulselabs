@@ -8,7 +8,7 @@ Default ops: Claude skill `milestone-loop` + Cursor skill `session-os`
 
 ## The one checkout
 
-This is THE checkout (`C:\localdev\devpulselabs`), on `main`. There is no
+This is THE checkout (`D:\localdev\devpulselabs`), on `main`. There is no
 other worktree. The operator double-clicks `target\release\devpulselabs.exe`
 — a pass is NOT done until that exe is rebuilt and its mtime moved.
 
@@ -30,7 +30,7 @@ other worktree. The operator double-clicks `target\release\devpulselabs.exe`
   duplicate it.
 - **The product is the EXPERIENCE, not the feature list.** Layman-friendly,
   touch-first, tooltips on controls, finesse. A pass that works but looks/
-  feels worse than the old app (`C:\localdev\devpulse labs`, READ-ONLY
+  feels worse than the old app (`D:\localdev\review-archive\devpulse labs`, READ-ONLY
   reference) is a regression. The experience inventory (docs/plans/
   experience-inventory.md, once authored) gates UI passes.
 - **Proof on the real exe**: `cargo green` (fmt+clippy+tests+release build),

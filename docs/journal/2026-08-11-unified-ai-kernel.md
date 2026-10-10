@@ -1,5 +1,9 @@
 # 2026-08-11 — Unified AI kernel: merging DevPULSE chat + automaton
 
+> **SUPERSEDED 2026-10-10.** The merge is cancelled by operator ruling; chat
+> is built natively in this repo (`docs/plans/chat-native-program.md`). Its
+> "exact next step" list below must NOT be resumed. Kept as history.
+
 Cross-repo program. `EonsofStupid/automaton` (the kernel) ⇄ this repo (a
 consumer). Also carries the day's DevPULSE work (egui 0.36, gates, sccache).
 

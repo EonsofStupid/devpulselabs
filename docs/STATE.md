@@ -7,6 +7,16 @@ we got here.
 
 > **SUPERSEDED CLAIMS — anywhere below, these are stale by design (history
 > is not rewritten):**
+> - **the unified AI kernel / automaton merge** (2026-08-11, Decisions A/B/C;
+>   now `chatmaton`) and any Shippin control-plane or "seat" model — chat is
+>   built natively in this repo from the operator's quoted requirements
+>   (operator ruling 2026-10-10; `docs/plans/chat-native-program.md`);
+>   `chat-window-product-vision.md` / `chat-architecture.md` are no longer
+>   canonical for chat;
+> - the checkout at `C:\localdev\devpulselabs` and the old app at
+>   `C:\localdev\devpulse labs` — this machine has no `C:\localdev`; the
+>   checkout is `D:\localdev\devpulselabs`, the old app's full source is
+>   `D:\localdev\review-archive\devpulse labs` (2026-10-10);
 > - the capability roster persisting to the estate's `Tree::Agents` — chat
 >   owns its store (ADR-017 amendment, 2026-08-03);
 > - DuckDB as the analytics engine — it is Arrow/DataFusion over Parquet
