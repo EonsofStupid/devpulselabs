@@ -1,16 +1,15 @@
 ---
 name: port-capture
-description: Senior-dev salvage audit — review the prior repo (C:\localdev\devpulse labs), faithfully capture ONE subsystem's full capability surface, and produce the approved port plan targeting the egui/Rust structure. Nothing dropped silently.
+description: Senior-dev salvage audit — review the prior repo (D:\localdev\review-archive\devpulse labs), faithfully capture ONE subsystem's full capability surface, and produce the approved port plan targeting the egui/Rust structure. Nothing dropped silently.
 ---
 
 # port-capture — the faithful-capture plan builder
 
-> **ASSUMPTION BROKEN (ground-truthed 2026-07-27):** the reference checkout at
-> `C:\localdev\devpulse labs` is BUILD OUTPUT ONLY — no source tree, no `.git`.
-> The source-capture premise below is dead until a source checkout is restored
-> (location = open question, per memory). Salvage that still exists there: old
-> exes, `artifacts.db`, `content/shows`. Do not run this skill's source
-> inventory against that path; report the gap instead.
+> **SOURCE RESTORED (ground-truthed 2026-10-10):** the prior app's full source
+> checkout (TS/TanStack/Tauri, `src/domains/*`, `.git` at `98babf4`) is at
+> `D:\localdev\review-archive\devpulse labs`. The 2026-07-27 note that the
+> reference was "BUILD OUTPUT ONLY" described a `C:\localdev` copy that no
+> longer exists. READ-ONLY: never write there.
 
 **Argument:** the subsystem to capture (e.g. `slides`, `steps-recorder`, `capture-engine`,
 `editor`, `chat`, `guides`, `infographics`). One subsystem per invocation — one plan,
@@ -18,8 +17,8 @@ one reviewable pass.
 
 ## Mission
 
-The prior app (`C:\localdev\devpulse labs`, TypeScript/React/Tauri) is the **salvage
-source**. The current app (`C:\localdev\devpulselabs`, pure-Rust egui workspace) is the
+The prior app (`D:\localdev\review-archive\devpulse labs`, TypeScript/React/Tauri) is the **salvage
+source**. The current app (`D:\localdev\devpulselabs`, pure-Rust egui workspace) is the
 **target**. This skill's whole job is to prevent the half-capture failure mode: features
 that existed, were paid for in effort, and silently never arrived in the new app
 (the "18 tones generated, 3 used" recurrence). You are the senior dev doing the audit —
@@ -40,7 +39,7 @@ explicit disposition. **The plan IS this skill's deliverable.** No code edits he
 
 ### 1. Inventory the old repo — read, don't remember
 
-- Locate the subsystem: `Glob`/`Grep` under `C:\localdev\devpulse labs\src\domains\`,
+- Locate the subsystem: `Glob`/`Grep` under `D:\localdev\review-archive\devpulse labs\src\domains\`,
   `src\lib\`, `src-tauri\src\`, `docs\`, `tokens\`, `content\`/`data\`.
 - Read every implicated file **in full, this session**. A compaction summary or a memory
   of a file is not the file.
