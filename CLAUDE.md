@@ -8,15 +8,16 @@ Default ops: Claude skill `milestone-loop` + Cursor skill `session-os`
 
 ## The one checkout
 
-This is THE checkout (`D:\localdev\devpulselabs`), on `main`. A second
-clone exists at `D:\projects\devpulselabs` (found 2026-10-10; which one the
-operator runs is pending — `docs/plans/external-reach-inventory.md` row 55);
-never work in it without the operator saying so. The operator double-clicks
+This is THE checkout (`D:\projects\devpulselabs`), on `main` — operator
+ruling 2026-10-10. It holds the operator's library (`content/` at the repo
+root — operator data, see below), its `.userdata/`, and the staged depot. The
+clone at `D:\localdev\devpulselabs` is NOT used (empty library); never work
+in it, never delete it. The operator double-clicks
 `target\release\devpulselabs.exe` — a pass is NOT done until that exe is
 rebuilt and its mtime moved. The tool depot is staged beside it from
 `dptools-deps/sources.local.toml` (gitignored) via
-`cargo xtask stage-tool-deps target/release`; the depot source is
-`D:\projects\dptools-deps` (row 56).
+`cargo xtask stage-tool-deps <new root>`; the depot source is
+`D:\projects\dptools-deps` (inventory row 56).
 
 ## Non-negotiable laws
 

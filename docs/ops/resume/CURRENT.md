@@ -26,8 +26,20 @@
   .githooks`).
 - **Docs-only PRs get no automatic CI.** Run `gh workflow run green.yml
   --ref <branch>` to get both lanes before merging.
-- **Do not touch:** the second clone `D:\projects\devpulselabs` (inventory
-  row 55) and the old-app copies.
+- **THE checkout is `D:\projects\devpulselabs`** (operator, 2026-10-10;
+  inventory row 55). It holds the operator's library (`content/`), its
+  `.userdata/`, and the staged depot. Never work in
+  `D:\localdev\devpulselabs`; it has an empty library. Do not touch the
+  old-app copies.
+- **Chat is PAUSED behind D0** (operator, 2026-10-10: *"I DO NOT WANT THIS
+  RUNNING IF MY FUCKING DEPS ARE NOT LOADING MY CAMERA MY FFMPEG MY FUCKING
+  FILES GET LOADED PROPERLY CONFIGURED ON THIS LAPTOP"*). D0 proves every
+  real media and file path on the real exe, and adds a startup dependency
+  check that refuses to open the workspace when a required dependency fails.
+  It also builds camera support (all four: face-cam over screen recordings,
+  webcam clips, live preview, camera and mic health in the check).
+  `content/artifacts.db.corrupt` exists and needs investigating first.
+  C1 work is shelved on local branch `wip/c1-paused`.
 - **Codex versions:**
   - The depot codex is 0.145.0-alpha.18, which the current version gate
     accepts.
@@ -36,18 +48,19 @@
   - The gate fix belongs to C2.
 
 **Next, in order:**
-1. **C1** — the chat mock: `docs/design/mocks/chat-mock.html`, built to
-   R1/R2/R7/R17/R20/R21. Mock **both** Q2 options (a provider's own tab vs a
-   sidebar that extends down), plus an experience-inventory section for
-   chat. Run the `coldlight-system` gate. The operator red-pens it before
-   any window code.
-2. **C2** — `ai/core` + `ai/host` (the real supervisor) + the Codex
-   individual.
-   - Fix the version gate.
-   - Answer server requests.
-   - Add a turn timeout.
-   - Make presence and sign-in depot-only.
-   - Add the first real-turn pilot scenario.
+1. **D0** — this laptop's deps, proven (plan `docs/plans/d0-laptop-deps.md`,
+   authored next and needing operator approval):
+   - the startup dependency check that refuses to open the workspace when a
+     required dependency fails;
+   - every real path run on the real exe: screen record, clip decode,
+     audio and camera devices, PDF, Lottie, the operator's library;
+   - `content/artifacts.db.corrupt` investigated;
+   - camera support: face-cam picture-in-picture, webcam clip, live
+     preview, and device health in the check.
+2. **G1** — the ignored drills run against the depot (no reward hacking).
+3. Then chat resumes. **C1** is the mock (shelved on `wip/c1-paused`; the
+   program amendments there move the order to Codex, then Claude Code, and
+   one tab that opens the extended sidebar). **C2** follows.
 
 ---
 

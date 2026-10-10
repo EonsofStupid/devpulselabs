@@ -141,9 +141,19 @@ file. No crate, edge or manifest changes.
   was left running. The four running `codex.exe` processes are the
   operator's OpenAI Codex desktop app (0.162.1 and its own install), not
   DevPULSE (inventory row 59).
-- **Found and recorded, not acted on** (rows 55, 58): a second clone at
+- **Found and recorded** (rows 55, 58): a second clone at
   `D:\projects\devpulselabs`, and a second old-app copy at
   `D:\projects\devpulse labs`.
+- **CORRECTION (operator ruling, same day): `D:\projects\devpulselabs` IS THE
+  checkout.** It holds the operator's library (62 files / 150 MB). This
+  pass's §3 "the checkout is `D:\localdev\devpulselabs`", and the
+  depot/exe evidence above, describe the unused clone. The real checkout was
+  fast-forwarded to `3ae1dd3`, and its `sources.local.toml` repointed to
+  `D:/projects/dptools-deps` (all five sources verified). Its staged depot
+  is the same five payloads. The exe rebuild and real-exe proof for THIS
+  checkout come with this PR.
+- **The operator paused chat behind D0** (deps on this laptop first:
+  camera, ffmpeg, files).
 - **CI.** The `green` workflow ignores docs-only PRs, so #256 had no
   automatic checks. A `workflow_dispatch` on the branch (run `38079544559`)
   supplied both lanes on head `91f0725`: `green-linux` and `green-windows`

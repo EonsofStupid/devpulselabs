@@ -14,8 +14,9 @@ we got here.
 >   `chat-window-product-vision.md` / `chat-architecture.md` are no longer
 >   canonical for chat;
 > - the checkout at `C:\localdev\devpulselabs` and the old app at
->   `C:\localdev\devpulse labs` — this machine has no `C:\localdev`; the
->   checkout is `D:\localdev\devpulselabs`, the old app's full source is
+>   `C:\localdev\devpulse labs` — this machine has no `C:\localdev`; THE
+>   checkout is `D:\projects\devpulselabs` (operator ruling 2026-10-10; it
+>   holds the operator's library), the old app's full source is
 >   `D:\localdev\review-archive\devpulse labs` (2026-10-10);
 > - the capability roster persisting to the estate's `Tree::Agents` — chat
 >   owns its store (ADR-017 amendment, 2026-08-03);
@@ -66,10 +67,13 @@ close-out; program `chat-native-program.md`, pass `chat-c0-clean-ground.md`,
   ffmpeg/lottie-render and failed fmt and clippy) is parked on the
   LOCAL-ONLY branch `park/codex-subprocess-lifecycle-2026-10-09` (`d063e87`).
   It was never on `main`.
-- **True paths.** The checkout is `D:\localdev\devpulselabs`; the old app's
-  full source is `D:\localdev\review-archive\devpulse labs`. A **second clone
-  exists at `D:\projects\devpulselabs`** (row 55, pending the operator's
-  ruling on which clone is used).
+- **True paths.** THE checkout is **`D:\projects\devpulselabs`** (operator
+  ruling, same day; it holds the operator's library). C0's first PR was
+  authored in the unused `D:\localdev\devpulselabs` clone and corrected
+  here. The old app's full source is `D:\localdev\review-archive\devpulse
+  labs`.
+- **Chat is PAUSED behind D0.** The operator: deps (camera, ffmpeg, files)
+  must load and be configured on this laptop first. See CURRENT.md.
 - **The depot is staged.** The source is `D:\projects\dptools-deps`
   (`sources.local.toml`, gitignored). `cargo xtask stage-tool-deps
   target/release` staged codex 0.145.0-alpha.18, grok 0.2.112, chromium
