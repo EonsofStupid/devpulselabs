@@ -6,7 +6,7 @@ DISPLAY=:1 APP=gnome-calculator
 daemon ok
 
 ```
-{"adr":"docs/plans/coach-control-plane-adr.md","bind":"127.0.0.1","ok":true,"service":"dpl-coach-daemon","verbs_adr":"docs/plans/coach-operator-verb-catalog-adr.md"}
+{"adr":"docs-history-2026-10-12:docs/plans/coach-control-plane-adr.md","bind":"127.0.0.1","ok":true,"service":"dpl-coach-daemon","verbs_adr":"docs/plans/coach-operator-verb-catalog-adr.md"}
 
 ```
 

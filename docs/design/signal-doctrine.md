@@ -136,7 +136,7 @@ doctrine completes it.
    idle — the render-pill pattern).
 
 6. **The JOBS domain — established at W8, MIGRATED 2026-07-28
-   (`docs/plans/jobs-board-migration.md`).** Long-running work (stitch
+   (`docs-history-2026-10-12:docs/plans/jobs-board-migration.md`).** Long-running work (stitch
    render, pack ingest, guide export, workflow stages, AE
    orchestration, future gen backends) speaks `JobEvent {
    Queued{job,label} · Done{job,out} · Failed{job,error} }` keyed by a
@@ -156,7 +156,7 @@ doctrine completes it.
    every consumer for free.
 
 10. **The COACH domain (established 2026-07-28, Phase 1.5 of
-   `docs/plans/signal-ledger-and-lesson-foundation.md`).** Touchpoint
+   `docs-history-2026-10-12:docs/plans/signal-ledger-and-lesson-foundation.md`).** Touchpoint
    lifecycle facts from the operator coach — `CoachEvent { Armed ·
    Mounted · Triggered{trigger,actor} · Satisfied · Unmounted{reason} }`
    — stamped like every other fact domain. The PUBLISHER is the
@@ -170,7 +170,7 @@ doctrine completes it.
    waiting on a coach event would self-trigger.
 
 11. **The INTENT domain (established 2026-07-28,
-   `docs/plans/determinism-intent-gate.md`).** Privileged-mode transitions
+   `docs-history-2026-10-12:docs/plans/determinism-intent-gate.md`).** Privileged-mode transitions
    and their refusals — `IntentEvent { DeterminismChanged{mode,cause} ·
    IntentRefused{action,reason} }` — stamped like every other fact domain.
    The PUBLISHERS are the two greppable mint sites: the chat composer's

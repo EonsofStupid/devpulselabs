@@ -44,8 +44,9 @@ A ported catalog item is not done until BOTH exist:
 6. **Verify vs original** (`true-verify`) — screenshot the ported slide at real
    window sizes and set it beside the original's look. Feel-bar: matches the first
    app's polish, or it's not done.
-7. **Commit** one item per PR (or a tight category batch). Update `docs/STATE.md`
-   catalog checklist. Rebuild the operator exe + move its mtime.
+7. **Commit** one item per PR (or a tight category batch). Rewrite
+   `docs/status.md` (catalog progress under Now). Rebuild the operator exe +
+   move its mtime.
 
 ## Catalog checklist (tick as ported — the "capture ALL slides" contract)
 

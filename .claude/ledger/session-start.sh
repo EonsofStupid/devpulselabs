@@ -1,7 +1,7 @@
 #!/bin/sh
 # Milestone-loop RE-ENGAGEMENT feed (SessionStart hook). Everything this
-# prints reaches the fresh session at zero tool-call cost: STATE, the
-# latest journal, and the PREVIOUS session's transcript tail (recorded by
+# prints reaches the fresh session at zero tool-call cost: docs/status.md,
+# the latest journal, and the PREVIOUS session's transcript tail (recorded by
 # pre-compact.sh / session-end.sh). The loop contract lives in
 # .claude/skills/milestone-loop/SKILL.md; signals in ledger/README.md.
 input=$(cat)
@@ -13,12 +13,8 @@ fi
 [ -n "$src" ] || src=unknown
 sh .claude/ledger/emit.sh session.reengaged "" "source=$src"
 
-echo "=== STATE (docs/STATE.md) ==="
-cat docs/STATE.md
-echo "=== SESSION (docs/ops/SESSION.md) — shared durable index with Cursor Session OS ==="
-if [ -f docs/ops/SESSION.md ]; then cat docs/ops/SESSION.md; else echo '(none)'; fi
-echo "=== RESUME (docs/ops/resume/CURRENT.md) ==="
-if [ -f docs/ops/resume/CURRENT.md ]; then cat docs/ops/resume/CURRENT.md; else echo '(none)'; fi
+echo "=== STATUS (docs/status.md) — where we are. Then read docs/requirements.md (the operator's words) and docs/README.md (the doc map) ==="
+if [ -f docs/status.md ]; then cat docs/status.md; else echo '(none)'; fi
 echo "=== adopt skill milestone-loop (Claude) / session-os (Cursor); ops ledger != product dpl-ledger ==="
 echo "=== last 5 commits ==="
 git log --oneline -5

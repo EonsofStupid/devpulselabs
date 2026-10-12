@@ -1,7 +1,7 @@
 //! Does `mouse_passthrough` deliver clicks to a window underneath?
 //!
 //! Companion to `overlay-probe` (transparency). Plan:
-//! `docs/plans/p2b-overlay-passthrough.md`.
+//! `docs-history-2026-10-12:docs/plans/p2b-overlay-passthrough.md`.
 //!
 //! Roles of this one binary:
 //! - **witness** — opaque hit target; writes `--hit-file` on primary click

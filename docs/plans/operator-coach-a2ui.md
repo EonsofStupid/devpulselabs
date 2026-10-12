@@ -267,12 +267,12 @@ internalize what we actually use.
 4. **C2a — coach-overlay ADR** (boundary, launch gates, forbidden set).
    **RATIFIED 2026-07-30** — [`coach-overlay-adr.md`](coach-overlay-adr.md).
    **C2b — daemon** pass-1 self-test **PASS** (#158) —
-   [`coach-c2b-overlay-daemon.md`](coach-c2b-overlay-daemon.md);
-   journal [`../journal/2026-07-30-c2b-coach-overlay.md`](../journal/2026-07-30-c2b-coach-overlay.md).
+   [`docs-history-2026-10-12:docs/plans/coach-c2b-overlay-daemon.md`](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/plans/coach-c2b-overlay-daemon.md);
+   journal [`../journal/2026-07-30-c2b-coach-overlay.md`](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/journal/2026-07-30-c2b-coach-overlay.md).
    X11 first; Windows second; layer-shell third. **Pass-2 stdio PARKED**
    (Advanced — not product NEXT).
 4b. **C2c–C2f — Operator Coach experience** (product spine) —
-   [`coach-operator-experience.md`](coach-operator-experience.md).
+   [`docs-history-2026-10-12:docs/plans/coach-operator-experience.md`](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/plans/coach-operator-experience.md).
    Mock → lightweight inventory → fabric mint (Tier A) → wire to overlay.
    Dual surface: Operator vs Advanced/EguiPilot. **THIS IS NEXT.**
 5. **C3 — ColdLight catalog + Surface commands**, in-app renderer first.
@@ -329,7 +329,7 @@ the program map.
   it as its own pass, carrying this §3.2 amendment. C1.5b is deferred.
   C2a ADR + C2b self-test land together (ratified + proven #158);
   Pass-2 stdio is PARKED. Product NEXT = C2c–C2f
-  ([`coach-operator-experience.md`](coach-operator-experience.md)).
+  ([`docs-history-2026-10-12:docs/plans/coach-operator-experience.md`](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/plans/coach-operator-experience.md)).
 
 ## 8. Evidence — grounding cheat sheet (2026-07-26)
 

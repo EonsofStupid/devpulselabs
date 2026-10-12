@@ -76,7 +76,7 @@ requirement, not a nicety.
 ## 4. Pass breakdown (proposal)
 
 - **DG-B — browser driver. ✅ LANDED 2026-07-25**
-  (`docs/plans/demo-browser-driver.md`, ADR-013): `dpl-engine-browser`
+  (`docs-history-2026-10-12:docs/plans/demo-browser-driver.md`, ADR-013): `dpl-engine-browser`
   drives an installed Chrome/Edge headless over CDP — the external
   tier's capture vehicle. Screencast-to-clip is additive on this seam.
 - **DG-B.1 — persistent demo profile. ✅ LANDED same-day** (operator:
@@ -88,7 +88,7 @@ requirement, not a nicety.
   passwords.
 
 - **DG1 — mixed-media guide. ✅ LANDED 2026-07-25**
-  (`docs/plans/dg1-mixed-media-guide.md`): `Step.kind:"replay"` +
+  (`docs-history-2026-10-12:docs/plans/dg1-mixed-media-guide.md`): `Step.kind:"replay"` +
   `clipIn`/`clipOut`/`clip` (recorder guides parse unchanged); export
   cuts each segment from the ORIGINAL session (`render_clip_cut`,
   replay-light) into `step-00N.mp4` ordered in place; the player's
@@ -171,7 +171,7 @@ Under **Program DEMO**, after the in-app/external tier bullets:
   `ExportOpts.embed_video`/`make_gif`, `session.mp4` copy path.
 - `crates/guide/src/lib.rs:419-495` — `export_guide`: one session,
   `replay.gif`, `guide-video.mp4`.
-- `docs/plans/roadmap.md:194-220` — Program G (G1/G2, closed-bundle
+- `docs-history-2026-10-12:docs/plans/roadmap.md:194-220` — Program G (G1/G2, closed-bundle
   pilot law); `:292-314` — Program DEMO (ledger #117, in-app tier
   waits on F3, external tier needs its own ADR).
 - `docs/design/wiredfront-capture-share-spec.md` — PixVix/capture

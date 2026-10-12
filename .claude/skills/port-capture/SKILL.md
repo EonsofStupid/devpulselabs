@@ -29,8 +29,9 @@ explicit disposition. **The plan IS this skill's deliverable.** No code edits he
 
 - The old repo is **read-only**. Never build on it, never edit it, never move files out
   of it. Copy, never move. Never delete content.
-- ADR-009 (ffmpeg = subprocess, never a crate dep) and ADR-010 (editor spec,
-  `devpulse labs/docs/wiredfront/editor-spec.md`) carry as law into every plan.
+- ADR-009 (ffmpeg = subprocess, never a crate dep) carries as law into every
+  plan. The WiredFRONT editor's truth is the doc `docs/README.md` names for it.
+- Every requirement traces to the operator's words in `docs/requirements.md`.
 - Content (`data/`, captures, guides, episodes) is never mutated by any plan.
 - Plans follow the plan-code-change discipline: 7 sections, ground-truthed, executable
   by a dev who has never seen either repo.
@@ -52,8 +53,8 @@ explicit disposition. **The plan IS this skill's deliverable.** No code edits he
 ### 2. Survey the target
 
 - Read the current state of the target crates (`crates/hub`, `coldlight`, `shell`,
-  `hubs/*`, plus any crate the port would create) and `docs/foundation-plan.md`'s
-  salvage map. What already landed? What does the contract (`Hub`, `HubSpec`, tones
+  `hubs/*`, plus any crate the port would create) and `docs/status.md`. What
+  already landed? What does the contract (`Hub`, `HubSpec`, tones
   from the generated pool, `Fluid::of`) require of the ported design?
 
 ### 3. Disposition table — the no-silent-drop gate

@@ -338,7 +338,7 @@ same way, using the charter's own vocabulary rather than an invented one:
 | meaning | the word, from here on |
 |---|---|
 | the 4-7 editable knobs (operator's word, drawn on screen) | **traits** |
-| `neubrutalist`/`claymorphic`/`cyber`/`retro` (internal, in the Effects bucket) | **treatments** — already the word in charter §1 and `pass0-coldlight-treatments.md` |
+| `neubrutalist`/`claymorphic`/`cyber`/`retro` (internal, in the Effects bucket) | **treatments** — already the word in charter §1 and `docs-history-2026-10-12:docs/plans/pass0-coldlight-treatments.md` |
 
 `cl::TRAITS` → `cl::TREATMENTS`. Generated-code rename in `coldlight/build.rs`
 plus its call sites; no token file changes shape.
@@ -853,7 +853,7 @@ exists; it is v1.
 14. **`CLAUDE.md`** harness-flag list + **`docs/design/architecture.md`** + the
     `structure_audit()` table in `crates/xtask/src/main.rs` — same commit
     (the same-commit law).
-15. **Docs** — `docs/STATE.md` corrected; every `author-*.md` plan stamped
+15. **Docs** — `docs-history-2026-10-12:docs/STATE.md` corrected; every `author-*.md` plan stamped
     `SUPERSEDED by workbench-editor.md` (never deleted — the history is why
     this happened); doctrine §1.3 gets the §3.6 note that the `seeds/` folder
     rename is a named follow-up.
@@ -928,7 +928,7 @@ per-entity tone, and a real quote, the flow cannot be built at all.
 
 `gh pr list` first (parallel-session law). PR → `gh pr checks --watch` →
 **merge only on double-green** → rebuild `target/release/devpulselabs.exe`
-HERE + verify mtime → update `docs/STATE.md`.
+HERE + verify mtime → update `docs-history-2026-10-12:docs/STATE.md`.
 
 ## 8. Evidence
 

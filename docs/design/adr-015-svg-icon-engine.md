@@ -5,8 +5,8 @@ the time to pull lucide and then properly own it as part of coldlight, we
 will have the SVG engine that is based off the airbnb engine airvx and
 establish baselines for our diverse and default polished stylings").
 **Deciders:** operator + this pass. **Gated by:** the visual-experience
-POAM V3 (`docs/plans/poam-visual-experience.md`); executes as
-`docs/plans/lucide-icon-engine.md`.
+POAM V3 (`docs-history-2026-10-12:docs/plans/poam-visual-experience.md`); executes as
+`docs-history-2026-10-12:docs/plans/lucide-icon-engine.md`.
 
 ## Context
 

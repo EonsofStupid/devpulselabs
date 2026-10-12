@@ -15,7 +15,7 @@ dpl-doc.workspace = true
 dpl-guide.workspace = true
 # The artifact INDEX — the Picture tab's picker. Every `Record.rel_path` is
 # already content-root-relative, so the media content-jail cannot be violated
-# by construction (author-tab-picture.md §2).
+# by construction (docs-history-2026-10-12:docs/plans/author-tab-picture.md §2).
 dpl-index.workspace = true
 dpl-slides.workspace = true
 dpl-editor.workspace = true

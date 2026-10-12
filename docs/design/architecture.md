@@ -108,8 +108,8 @@ the audit, same commit, with the reason.
   `egui_pilot_ai_protocol::seam::seam_verb_catalog()`; this crate is
   the engine behind the verbs, not the vocabulary.
 - **crates/coach-daemon/** (`dpl-coach-daemon`): localhost Axum
-  TRANSLATOR onto the protocol seam (ADR `coach-control-plane-adr.md` +
-  S2 `coach-seam-s2-protocol-rehoming.md`); never a dep of `app`; agent
+  TRANSLATOR onto the protocol seam (ADR `docs-history-2026-10-12:docs/plans/coach-control-plane-adr.md` +
+  S2 `docs-history-2026-10-12:docs/plans/coach-seam-s2-protocol-rehoming.md`); never a dep of `app`; agent
   hop = HTTP; app hop = runtime AT-SPI; overlay remains painter-only
   under overlay ADR. May depend on `egui-pilot-ai-protocol` (verbs
   parse to `seam::SeamVerb` at the HTTP edge; answers are

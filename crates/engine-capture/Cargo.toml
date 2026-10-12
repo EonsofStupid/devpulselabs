@@ -19,7 +19,7 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 # use — licensing is not a constraint on the codec choice.)
 webp = "0.3"
 
-# Headless verification of the capture pipeline (no GUI) — see docs/screen-capture.md.
+# Headless verification of the capture pipeline (no GUI) — see old-app:docs/screen-capture.md.
 [[bin]]
 name = "capture-cli"
 path = "src/bin/capture_cli.rs"

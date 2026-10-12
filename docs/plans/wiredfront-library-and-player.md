@@ -116,7 +116,7 @@ the active element**, and everything else is a quiet plate.
 `brutalist + neo` on `lime` stays authored and selectable — it is an option,
 and the seed bench already carries its formula.
 
-It rides `cl::treated` today; when `resolve()` lands (`matrix-resolve.md`) it
+It rides `cl::treated` today; when `resolve()` lands (`docs-history-2026-10-12:docs/plans/matrix-resolve.md`) it
 becomes the coordinate proper with no visual change.
 
 ### B — add a folder, then consent to caching

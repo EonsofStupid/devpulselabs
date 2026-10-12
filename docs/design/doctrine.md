@@ -2,7 +2,7 @@
 
 This is the contract the first app carried in feel. It is no longer a two-word
 invention: it is the original's **stackable trait system** faithfully ported to
-egui. Ratified in `docs/plans/pass0-coldlight-treatments.md`; gated by the
+egui. Ratified in `docs-history-2026-10-12:docs/plans/pass0-coldlight-treatments.md`; gated by the
 `coldlight-system` skill (formerly `dpl-style`). The ONLY implementation is
 ColdLight — surfaces never hand-roll treatments.
 

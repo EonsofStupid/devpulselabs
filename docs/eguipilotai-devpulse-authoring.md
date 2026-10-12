@@ -168,7 +168,7 @@ never reported as a click, keystroke or drag.
 
 - Architecture: `docs/plans/eguipilotai.md`
 - Playwright parity/gaps: `docs/eguipilotai-playwright-review.md`
-- Standing product roadmap: `docs/plans/roadmap.md`
+- Standing product roadmap: `docs-history-2026-10-12:docs/plans/roadmap.md`
 - Engineering research index: `docs/research/eguipilotai/README.md`
 - Dependency-ordered delivery: `docs/plans/eguipilotai-v1-delivery.md`
 - Launch matrix: `.eguipilotai.toml`

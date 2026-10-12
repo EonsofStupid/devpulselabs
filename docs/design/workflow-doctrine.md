@@ -7,7 +7,7 @@ same standing `signal-doctrine.md` has for signals.
 
 ## Where this comes from
 
-WF1 (`docs/plans/wf1-workflow-engine.md`, `crates/workflows`) established
+WF1 (`docs-history-2026-10-12:docs/plans/wf1-workflow-engine.md`, `crates/workflows`) established
 the founding decision: **a workflow is a typed, declarative DOCUMENT
 executed by one engine — never a bespoke code path.** This doctrine
 ratifies the patterns WF1 proved and adds the wire contract that keeps

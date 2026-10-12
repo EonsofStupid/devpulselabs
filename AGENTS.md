@@ -27,21 +27,27 @@ Chat's primary UI is an independent native peer window, never a hub route.
 Chat is built natively in THIS repo from the operator's own quoted
 requirements — never copied from, linked to, or run beside chatmaton,
 automaton or Shippin (operator ruling 2026-10-10). The canonical program is
-`docs/plans/chat-native-program.md` (requirements ledger §4.1).
-`chat-window-product-vision.md` and `chat-architecture.md` are history:
-their items count only where §4.1 carries an operator quote.
+`docs/plans/chat-native-program.md`. The earlier chat visions were deleted
+(readable at `git show docs-history-2026-10-12:<path>`): a chat item counts
+only where `docs/requirements.md` carries the operator's words.
 Anything reaching outside this repo must be listed in
 `docs/plans/external-reach-inventory.md` for operator confirmation first.
 
 ## Session OS / milestone-loop (every agent)
 
-One loop, two surfaces. Durable index: `docs/STATE.md` →
-`docs/ops/SESSION.md` → `docs/ops/resume/CURRENT.md`. Cursor skill
-`session-os` + hooks/agents under `.cursor/`; Claude skill `milestone-loop`
-+ `.claude/ledger/` hooks. Journal near ~75–85% context / end of cut;
-after compact or clear, trust the resume pack over chat memory. Ops ledger
-≠ product `dpl-ledger`. Plans: `docs/plans/session-os.md` +
-`docs/journal/2026-07-28-milestone-loop-ledger.md`.
+One loop, two surfaces. Read, in order:
+1. `docs/status.md` (where we are);
+2. `docs/requirements.md` (the operator's words);
+3. `docs/README.md` (the doc map: one doc per subject).
+
+The surfaces:
+- Cursor: skill `session-os`, with hooks and agents under `.cursor/`.
+- Claude: skill `milestone-loop`, with hooks under `.claude/ledger/`.
+
+Journal at about 75–85% context or at the end of a cut. After a compact or
+clear, trust `status.md` and the newest journal over chat memory. The ops
+ledger is not the product `dpl-ledger`. The loop contracts are the skills
+themselves.
 
 ## Laws
 
@@ -62,8 +68,7 @@ after compact or clear, trust the resume pack over chat memory. Ops ledger
    never backdrop blur.
 7. **Never delete content; copy, never move; never clobber.** Carried verbatim.
 8. **ffmpeg is a subprocess, never a crate dep** (ADR-009, still law). The
-   editor follows ADR-010 (`devpulse labs/docs/wiredfront/editor-spec.md`)
-   with its render/job design intact.
+   WiredFRONT editor's truth is the doc `docs/README.md` names for it.
 
 ## The migration pipeline (skills — `.claude/skills/`)
 
@@ -82,6 +87,6 @@ executing only its own part:
 
 ## Reference
 
-- `docs/foundation-plan.md` — the ratified start-over plan, salvage map included.
+- `docs/README.md` — the map of every doc, and the one truth for each subject.
 - The prior app (`D:\localdev\review-archive\devpulse labs`) is the salvage source: engine
   Rust, token JSON, ADRs, research. Read from it; never build on it.

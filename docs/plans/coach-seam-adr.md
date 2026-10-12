@@ -9,10 +9,10 @@ without a breaking change).
 **Related:** [`coach-operator-verb-catalog-adr.md`](coach-operator-verb-catalog-adr.md) ·
 [`coach-overlay-adr.md`](coach-overlay-adr.md) ·
 [`eguipilotai.md`](eguipilotai.md) ·
-[`signal-ledger-and-lesson-foundation.md`](signal-ledger-and-lesson-foundation.md) ·
+[`docs-history-2026-10-12:docs/plans/signal-ledger-and-lesson-foundation.md`](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/plans/signal-ledger-and-lesson-foundation.md) ·
 [`../research/coach/seam-real-world-challenge.md`](../research/coach/seam-real-world-challenge.md) ·
 [`../design/mocks/coach-seam-mock.html`](../design/mocks/coach-seam-mock.html) (rev 3, 7 stages) ·
-[`../journal/2026-08-07-coach-seam-audit.md`](../journal/2026-08-07-coach-seam-audit.md)
+[`../journal/2026-08-07-coach-seam-audit.md`](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/journal/2026-08-07-coach-seam-audit.md)
 
 ## 1. Context
 
@@ -226,7 +226,7 @@ seams above cost their design now and near-zero code; anything beyond
    daemon's verb enum deleted, daemon translates to protocol types;
    capability entries added; existing verb battery re-run green over the
    new shape (now WITH reliability stats, per S1). **LANDED 2026-08-11**
-   (plan `coach-seam-s2-protocol-rehoming.md`): protocol v2.7 ships
+   (plan `docs-history-2026-10-12:docs/plans/coach-seam-s2-protocol-rehoming.md`): protocol v2.7 ships
    `seam::{AppId, CellKey, PackId, SeamVerb, SeamTarget, TransportRung,
    EffectContract, SeamEvent}` + the 21-verb catalog (`geom` cataloged);
    the identity spine MOVED out of `dpl-coach-pack` (no shims); the
@@ -258,7 +258,7 @@ versioning; S4 the content-addressed registry layout; S5 cards-as-data).
   capability catalog).
 - Ledger ground-truth: `crates/ledger/src/lib.rs` — domain-keyed Parquet
   segments, drains every stamped domain; `seam` rides for free.
-- Audit: `docs/journal/2026-08-07-coach-seam-audit.md` (three parallel
+- Audit: `docs-history-2026-10-12:docs/journal/2026-08-07-coach-seam-audit.md` (three parallel
   investigations, C2s §3.4 violation confirmed).
 - Challenge: `docs/research/coach/seam-real-world-challenge.md` (five gates,
   Foundry pipeline, trace sink ruling).

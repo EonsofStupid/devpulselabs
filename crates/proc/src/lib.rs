@@ -1,4 +1,4 @@
-//! dpl-proc — the QUIET-SPAWN law (W8, docs/plans/w8-faithfulness.md).
+//! dpl-proc — the QUIET-SPAWN law (W8, docs-history-2026-10-12:docs/plans/w8-faithfulness.md).
 //!
 //! Every subprocess a GUI-reachable crate spawns goes through `quiet`,
 //! so no child ever pops a console window over the app (the GUI exe is

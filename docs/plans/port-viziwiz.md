@@ -329,7 +329,7 @@ package). W-CAP gates everything (operator order).
 One PR per §4 phase: `feat(viziwiz): claymorphism`, `feat(viziwiz): ai-guide
 sink`, `feat(doc): guide slide`, `feat(guide-format): the .guide package`,
 `feat(guide-player): native runtime skeleton`, `feat(guide-export): compiler +
-portable exe` — each green + proof-shot, operator exe rebuilt, STATE.md updated.
+portable exe` — each green + proof-shot, operator exe rebuilt, docs-history-2026-10-12:docs/STATE.md updated.
 W-CAP must land before the rest.
 
 ## 8. Disposition table — the no-silent-drop gate

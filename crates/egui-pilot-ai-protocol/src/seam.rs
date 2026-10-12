@@ -1,5 +1,5 @@
 //! The foreign-app seam vocabulary (coach seam ADR §2.1–2.2, executed by
-//! S2: `docs/plans/coach-seam-s2-protocol-rehoming.md`).
+//! S2: `docs-history-2026-10-12:docs/plans/coach-seam-s2-protocol-rehoming.md`).
 //!
 //! ONE typed vocabulary with two capability-gated consumers: the
 //! EguiPilot testing/demo lane (which does NOT execute foreign verbs —

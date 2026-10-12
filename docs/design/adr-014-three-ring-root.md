@@ -3,7 +3,7 @@
 | Field | Value |
 |-------|-------|
 | **Status** | ACCEPTED (operator ratification 2026-07-25; senior-review conditions 1–6 folded in) · **AMENDED 2026-08-03: analytics is Arrow/DataFusion over Parquet, not DuckDB** (operator ruling; see Amendment below) |
-| **Owner** | `dpl-engine-capture` (the root owner) · pass plan `docs/plans/three-ring-root.md` |
+| **Owner** | `dpl-engine-capture` (the root owner) · pass plan `docs-history-2026-10-12:docs/plans/three-ring-root.md` |
 
 ## Decision
 
@@ -61,7 +61,7 @@ What does NOT change: the ring boundaries, root-relative paths, the
 transactional promotion law, and law 3 — retention stays a report. The
 query engine changed; the contract did not.
 
-**Downstream:** `docs/plans/coach-lab-experiment-program.md` names "DuckDB
+**Downstream:** `docs-history-2026-10-12:docs/plans/coach-lab-experiment-program.md` names "DuckDB
 baselines" for Lab analytics. That plan is owned by another workstream —
 flagged here rather than edited, so its owner rules on it.
 

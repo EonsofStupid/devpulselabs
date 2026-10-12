@@ -13,7 +13,7 @@
 //! Phase 1 is everything that needs no running AE. Enumeration (Phase 2),
 //! rendering (Phase 3), and the ffmpeg export selector (Phase 4) build on
 //! this. Ground truth (aerender 26.3x87, verified 2026-07-25) lives in
-//! `docs/plans/aep-orchestrator.md`.
+//! `docs-history-2026-10-12:docs/plans/aep-orchestrator.md`.
 
 use std::path::{Path, PathBuf};
 

@@ -157,7 +157,7 @@ deleted and `author.rs` moved onto the element · the editor's `chip`,
 5. The editor's `big_button` site → the element with `Disabled`; **delete**
    `big_button`. Assert a disabled control does not report a click.
 6. `look_tray`'s 150×84 → `Fluid`-derived.
-7. `cargo green`; proof shots at 1280×800 and 1100×700; §8; `docs/STATE.md`.
+7. `cargo green`; proof shots at 1280×800 and 1100×700; §8; `docs-history-2026-10-12:docs/STATE.md`.
 
 ## 6. Risks
 

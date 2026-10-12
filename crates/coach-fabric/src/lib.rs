@@ -2,7 +2,7 @@
 //!
 //! Deep-walks **one** selected AT-SPI app under hard caps. Inventory
 //! (`dpl-coach-inventory`) stays desktop-root-only — this crate owns Phase 2.
-//! Plan: `docs/plans/coach-c2e-fabric-mint.md`.
+//! Plan: `docs-history-2026-10-12:docs/plans/coach-c2e-fabric-mint.md`.
 
 #![forbid(unsafe_code)]
 

@@ -2,7 +2,7 @@
 //!
 //! Lessons address apps via `dpl-coach-runtime` (resolve / invoke / Mount
 //! spec). Foreign paint uses the `dpl-coach-overlay` **binary** only (ADR).
-//! Plans: `coach-c2f-operator-import-ui.md` · `coach-bridge-fabric-runtime.md`.
+//! Plans: `docs-history-2026-10-12:docs/plans/coach-c2f-operator-import-ui.md` · `docs-history-2026-10-12:docs/plans/coach-bridge-fabric-runtime.md`.
 
 #![forbid(unsafe_code)]
 

@@ -179,37 +179,37 @@ window.
 
 | R | Requirement | Source |
 |---|---|---|
-| R1 | Layman-friendly, frictionless, touch-first (75" touchscreen) | `authoring-architecture.md:142-148` |
-| R2 | A **window**, from the **status bar**, Steam-like, **portable lite**, **loads routes** | `chat-consolidation.md:8-10` |
-| R3 | Route-aware; manage/control the editor; add library elements | `chat-creation-and-workflows-vision.md:13-16` |
+| R1 | Layman-friendly, frictionless, touch-first (75" touchscreen) | `docs-history-2026-10-12:docs/plans/authoring-architecture.md:142-148` |
+| R2 | A **window**, from the **status bar**, Steam-like, **portable lite**, **loads routes** | `docs-history-2026-10-12:docs/plans/chat-consolidation.md:8-10` |
+| R3 | Route-aware; manage/control the editor; add library elements | `docs-history-2026-10-12:docs/plans/chat-creation-and-workflows-vision.md:13-16` |
 | R4 | Grok mode button: create image/video, preview drafts, 30-day flush with consent | same, l.35-40 |
-| R5 | Assist = one clear, simple acknowledgement for all providers | `chat-assist-mode.md:3-5` |
+| R5 | Assist = one clear, simple acknowledgement for all providers | `docs-history-2026-10-12:docs/plans/chat-assist-mode.md:3-5` |
 | R6 | Guided explainer workflow from chat | `explainer-guided-workflow.md:5-11` |
-| R7 | One-click provider selection; sign in inside chat; once connected, **its own tab** with sessions | `chat-provider-easy-select.md:7-9`, `chat-connected-provider-tabs.md:9-10` |
-| R8 | **Full access to the platform**, as the point of operations | `chat-operations-console.md:3-6` |
-| R9 | **All chats in one system** | `chat-histories-in-one-system.md:10-11` |
-| R10 | Providers activated in chat are **available to the whole platform** | `chat-providers-become-platform.md:21-23` |
-| R11 | Each provider built **as an individual** | `phase3-analytics-program.md:219-222` |
+| R7 | One-click provider selection; sign in inside chat; once connected, **its own tab** with sessions | `docs-history-2026-10-12:docs/plans/chat-provider-easy-select.md:7-9`, `docs-history-2026-10-12:docs/plans/chat-connected-provider-tabs.md:9-10` |
+| R8 | **Full access to the platform**, as the point of operations | `docs-history-2026-10-12:docs/plans/chat-operations-console.md:3-6` |
+| R9 | **All chats in one system** | `docs-history-2026-10-12:docs/plans/chat-histories-in-one-system.md:10-11` |
+| R10 | Providers activated in chat are **available to the whole platform** | `docs-history-2026-10-12:docs/plans/chat-providers-become-platform.md:21-23` |
+| R11 | Each provider built **as an individual** | `docs-history-2026-10-12:docs/plans/phase3-analytics-program.md:219-222` |
 | R12 | **Piggyback** existing active sessions | same, l.278-279 |
-| R13 | Presence awareness at launch; sign-in in the **laptop's own browser** | `providers-presence-and-the-brain.md:12-19` |
+| R13 | Presence awareness at launch; sign-in in the **laptop's own browser** | `docs-history-2026-10-12:docs/plans/providers-presence-and-the-brain.md:12-19` |
 | R14 | The known frontier AIs become space for our sessions | same, l.21-22 |
 | R15 | The Providers control: ink-bleed hover, thumbnails, provider modal | same, l.24-34 |
-| R16 | **Clyffy**: face of the AI; not in group chat; own session, powered by any provider | same, l.239-241; `chat-boundary.md:5-13` |
-| R17 | A **secondary cockpit**: load routes, **popup windows**, **task windows** that minimize and restore | `providers-presence-and-the-brain.md:281-285` |
+| R16 | **Clyffy**: face of the AI; not in group chat; own session, powered by any provider | same, l.239-241; `docs-history-2026-10-12:docs/plans/chat-boundary.md:5-13` |
+| R17 | A **secondary cockpit**: load routes, **popup windows**, **task windows** that minimize and restore | `docs-history-2026-10-12:docs/plans/providers-presence-and-the-brain.md:281-285` |
 | R18 | **Chat owns its store** | `adr-017-provider-capability-registry.md:156` |
-| R19 | **Chat separated from AI**; AI powers the platform; social later | `ai-chat-social-separation.md:10-12`; `chat-boundary.md` |
-| R20 | **Commands work, Enter sends**: `/route`, `/model`, `/routines`, with guided values | `chat-boundary.md:5-13` |
-| R21 | If ChatGPT is active it **shows active and I can chat** | `codex-conversation-transport.md:10-11,230` |
+| R19 | **Chat separated from AI**; AI powers the platform; social later | `docs-history-2026-10-12:docs/plans/ai-chat-social-separation.md:10-12`; `docs-history-2026-10-12:docs/plans/chat-boundary.md` |
+| R20 | **Commands work, Enter sends**: `/route`, `/model`, `/routines`, with guided values | `docs-history-2026-10-12:docs/plans/chat-boundary.md:5-13` |
+| R21 | If ChatGPT is active it **shows active and I can chat** | `docs-history-2026-10-12:docs/plans/codex-conversation-transport.md:10-11,230` |
 | R22 | Bleeding-edge transport is fine | same, l.141-142 |
-| R23 | Brainstorm: editable visual components; sessions spawn; counterpoints | `brainstorm-and-clyffy-drive-capture.md:9-17` |
+| R23 | Brainstorm: editable visual components; sessions spawn; counterpoints | `docs-history-2026-10-12:docs/plans/brainstorm-and-clyffy-drive-capture.md:9-17` |
 | R24 | Clyffy may drive the app, behind manual-approval gates | same, l.19-25 |
 | R25 | A true **council** of grok/chatgpt/gemini/claude | `product-vision.md:24-37` |
 | R26 | Mocks first | `product-vision.md:307-308` |
-| R27 | Work in passes; **new boundaries go to the operator** | `providers-presence-and-the-brain.md:377-381` |
+| R27 | Work in passes; **new boundaries go to the operator** | `docs-history-2026-10-12:docs/plans/providers-presence-and-the-brain.md:377-381` |
 | R28 | Portable; external tools are subprocesses | ADR-009 + 2026-10-10 |
 
-**ORIGIN, 2026-07-21** (old app's `docs/plans/chat-agent-console-plan.md:15-25`,
-`fabric-plan.md:19-21`; re-read at the lines)
+**ORIGIN, 2026-07-21** (`old-app:docs/plans/chat-agent-console-plan.md:15-25`,
+`old-app:docs/plans/fabric-plan.md:19-21`; re-read at the lines)
 
 | R | Requirement | Operator, verbatim |
 |---|---|---|
@@ -540,8 +540,8 @@ Each pass:
 - An orphan-process check before and after.
 - **Real turns on this laptop** with the operator's logins. CI cannot hold
   vendor credentials; that is stated, never faked.
-- The exe is rebuilt in THE checkout and its mtime checked; `STATE.md` and
-  `CURRENT.md` are updated.
+- The exe is rebuilt in THE checkout and its mtime checked; `docs-history-2026-10-12:docs/STATE.md` and
+  `docs-history-2026-10-12:docs/ops/resume/CURRENT.md` are updated.
 
 ## 7. Risks
 

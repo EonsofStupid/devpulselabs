@@ -1,14 +1,14 @@
 # Coach research census
 
 **Updated:** 2026-08-01  
-**Program:** [`../../plans/coach-lab-experiment-program.md`](../../plans/coach-lab-experiment-program.md)  
-**Import process:** [`import-process.md`](import-process.md)  
-**Bleeding-edge control planes:** [`bleeding-edge-control-plane.md`](bleeding-edge-control-plane.md)  
+**Program:** [`../../plans/coach-lab-experiment-program.md`](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/plans/coach-lab-experiment-program.md)  
+**Import process:** [`docs-history-2026-10-12:docs/research/coach/import-process.md`](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/research/coach/import-process.md)  
+**Bleeding-edge control planes:** [`docs-history-2026-10-12:docs/research/coach/bleeding-edge-control-plane.md`](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/research/coach/bleeding-edge-control-plane.md)  
 **Verb catalog ADR (draft):** [`../../plans/coach-operator-verb-catalog-adr.md`](../../plans/coach-operator-verb-catalog-adr.md)  
 **EguiPilot census (related):** [`../eguipilotai/README.md`](../eguipilotai/README.md)
 
 Living index for Coach Lab experiments and industry grounding. Product
-truth remains in plans + `docs/STATE.md`. This folder is **research +
+truth remains in plans + `docs-history-2026-10-12:docs/STATE.md`. This folder is **research +
 experiment registry**, not the Operator hub UI.
 
 ## Experiment registry
@@ -43,7 +43,7 @@ Register new rows **before** spike code. Manifest fields: see program §3.3.
 | ActionEngine / Murphy / AUTO-Explorer papers | Offline crawl → state-machine fabric; hours OK for dark apps |
 | [OmniParser](https://github.com/microsoft/OmniParser) | Structured vision as **import** grounding, not lesson eyes |
 | AccessKit + egui | In-app fabric for DevPULSE itself; not foreign-app crawler |
-| Full table | [`bleeding-edge-control-plane.md`](bleeding-edge-control-plane.md) |
+| Full table | [`docs-history-2026-10-12:docs/research/coach/bleeding-edge-control-plane.md`](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/research/coach/bleeding-edge-control-plane.md) |
 
 ## Laws carried from research
 

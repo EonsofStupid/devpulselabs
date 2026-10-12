@@ -1,5 +1,5 @@
 //! RTFX-aware ingest enrichment (L3) — the videohive naming grammar,
-//! census-derived (docs/plans/l3-alpha-overlay.md §2: 711 prerendered
+//! census-derived (docs-history-2026-10-12:docs/plans/l3-alpha-overlay.md §2: 711 prerendered
 //! files + 703 SFX enumerated 2026-07-27), parsed into index tags so a
 //! 440-element pack browses by category and an agent can ask for "a fire
 //! flash" by tag.

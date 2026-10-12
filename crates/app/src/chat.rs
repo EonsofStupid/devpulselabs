@@ -3844,7 +3844,7 @@ fn append_grok_event(state: &mut Shared, provider_session_id: &str, content: Cha
 // transport costs a `start()` and nothing here.
 //
 // Grok deliberately does NOT flow through this path yet: it works, and
-// converging it is its own pass (docs/plans/codex-host-wiring.md §5).
+// converging it is its own pass (docs-history-2026-10-12:docs/plans/codex-host-wiring.md §5).
 
 /// Start Codex's app-server runtime once activation says the operator is
 /// actually signed in.

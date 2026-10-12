@@ -11,7 +11,7 @@
 //! `set_ffmpeg_path` (the app shell resolves the verified private payload),
 //! all output paths
 //! use forward slashes. Linux X11 is expected-good; Wayland is the known gap
-//! (docs/screen-capture.md, open item #18).
+//! (old-app:docs/screen-capture.md, open item #18).
 use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Write};

@@ -1,5 +1,5 @@
 //! Does `mouse_passthrough` deliver clicks to a window underneath?
-//! Linux/X11 only (XTEST). Plan: `docs/plans/p2b-overlay-passthrough.md`.
+//! Linux/X11 only (XTEST). Plan: `docs-history-2026-10-12:docs/plans/p2b-overlay-passthrough.md`.
 
 #[cfg(target_os = "linux")]
 #[path = "passthrough_probe_linux.rs"]

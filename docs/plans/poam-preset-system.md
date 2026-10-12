@@ -4,7 +4,7 @@
 ratified 2026-07-27), §1 elements, §7 build order steps 2–3.
 **Reference implementation:** `PORT/devpulse labs/` — RenderForge and its
 generated availability manifest.
-**Sibling program:** `docs/plans/poam-visual-experience.md` (V1–V5). Its MOCK
+**Sibling program:** `docs-history-2026-10-12:docs/plans/poam-visual-experience.md` (V1–V5). Its MOCK
 GATE governs *styling* passes; P1/P2 here change no pixels and are not gated.
 
 ## Objective
@@ -141,7 +141,7 @@ look tile's literals go with it.
 **Depends on:** P1 (there must be a preset to wear) and P2 (it must be
 offerable).
 **GATED by the MOCK GATE** — this is a visible styling pass, and
-`poam-visual-experience.md` V4 already scopes it.
+`docs-history-2026-10-12:docs/plans/poam-visual-experience.md` V4 already scopes it.
 **Evidence gate:** `git grep 'fn chip\|fn big_button' crates/editor/` empty;
 `controls::` gone; tap-min test at two window sizes; a **disabled control
 reports no click**; proof shots 1280×800 and 1100×700.
@@ -185,7 +185,7 @@ P1 and P3 are startable tonight; neither paints anything new.
 
 Every milestone is its own pass: plan-before-code (`docs/plans/<pass>.md`,
 7 sections + §8), the ColdLight gate before UI is touched, PR → double-green →
-merge, proof on the real exe at real window sizes, `docs/STATE.md` updated.
+merge, proof on the real exe at real window sizes, `docs-history-2026-10-12:docs/STATE.md` updated.
 
 ## Open decisions (operator)
 

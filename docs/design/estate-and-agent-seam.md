@@ -32,7 +32,7 @@ by Moka on the read path where it helps.
 ## §2 — The agent seam (axum) — PARTIAL
 
 The localhost **axum** seam (`dpl-seam`, R1v/R1w) bridges typed `Fabric` ↔
-HTTP. **Estate-backed today** (`docs/plans/estate-seam-wire.md`):
+HTTP. **Estate-backed today** (`docs-history-2026-10-12:docs/plans/estate-seam-wire.md`):
 
 - `GET /state` — `{ version, route, hubs, estate, lastComp }` where `route`
   hydrates from / dual-writes `Tree::State` key `shell/route`, and

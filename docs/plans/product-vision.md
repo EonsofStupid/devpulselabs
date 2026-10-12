@@ -7,9 +7,9 @@ ratification/redline
 and how the five pillars compose. Every pillar already has its own deeper
 plan; this names the spine they hang from.
 **Sits over:**
-[`chat-creation-and-workflows-vision.md`](chat-creation-and-workflows-vision.md) ·
-[`chat-window-product-vision.md`](chat-window-product-vision.md) ·
-[`coach-operator-experience.md`](coach-operator-experience.md) ·
+[`docs-history-2026-10-12:docs/plans/chat-creation-and-workflows-vision.md`](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/plans/chat-creation-and-workflows-vision.md) ·
+[`docs-history-2026-10-12:docs/plans/chat-window-product-vision.md`](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/plans/chat-window-product-vision.md) ·
+[`docs-history-2026-10-12:docs/plans/coach-operator-experience.md`](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/plans/coach-operator-experience.md) ·
 [`authoring-charter.md`](authoring-charter.md) ·
 [`../design/workflow-doctrine.md`](../design/workflow-doctrine.md)
 **Bound by:** the two-libraries law (Workbench ColdLight ingredients vs
@@ -148,7 +148,7 @@ to be addressed. That is the arc's next real pass, and it should be
 specified before it is coded, because "triggered naturally" is exactly the
 kind of phrase that becomes a guessing game in implementation.
 
-> **KNOWN, open (from STATE.md 2026-07-29):** `chat-peer-window.toml` fails
+> **KNOWN, open (from docs-history-2026-10-12:docs/STATE.md 2026-07-29):** `chat-peer-window.toml` fails
 > on `main` — `chat.context.route` reads `workbench` where the scenario
 > expects `wiredfront`. Bisected against unmodified `faf5132`; the default
 > landing route appears to have moved under #155/#156. Stale expectation vs

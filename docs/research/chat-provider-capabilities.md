@@ -6,7 +6,7 @@
 real-executable conformance
 
 This document records the official integration surfaces that informed
-[`chat-architecture.md`](../plans/chat-architecture.md). It is intentionally
+[`docs-history-2026-10-12:docs/plans/chat-architecture.md`](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/plans/chat-architecture.md). It is intentionally
 separate from the product plan: provider commands and capabilities will
 change, while DevPULSE's typed UI and state contracts should remain boring and
 stable.

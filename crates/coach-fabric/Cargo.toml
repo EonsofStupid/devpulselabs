@@ -7,7 +7,7 @@ autobins = false
 
 # Budgeted Tier A fabric mint (C2e). Egui-free. Never a dep of
 # `crates/app` until the Coach hub lands. Plan:
-# docs/plans/coach-c2e-fabric-mint.md
+# docs-history-2026-10-12:docs/plans/coach-c2e-fabric-mint.md
 
 [lints]
 workspace = true

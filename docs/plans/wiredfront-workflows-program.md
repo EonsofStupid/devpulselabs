@@ -1,7 +1,7 @@
 # WiredFRONT Workflows — the program map
 
 **Status:** ARCHITECTED — deep-plan complete 2026-07-27; WF1 plan authored
-(`wf1-workflow-engine.md`); awaiting operator ratification of the asks in §Ratification
+(`docs-history-2026-10-12:docs/plans/wf1-workflow-engine.md`); awaiting operator ratification of the asks in §Ratification
 **Date:** 2026-07-27
 **Operator's ask (verbatim, 2026-07-27):** "I need this editor to be built
 up so it has all the capabilities of After Effects, but then can be AI
@@ -11,7 +11,7 @@ with our fabric, have clear signals, and then allow us to even really have
 an integration and an A2UI experience."
 **Extends:** `wiredfront-experience.md` (the friction ladder — this program
 adds tiers, it does not replace the ladder),
-`chat-creation-and-workflows-vision.md` §3, `operator-coach-a2ui.md` (C3).
+`docs-history-2026-10-12:docs/plans/chat-creation-and-workflows-vision.md` §3, `operator-coach-a2ui.md` (C3).
 
 ## Decisions (Fable-owned; evidence may refine, not reverse)
 
@@ -143,7 +143,7 @@ the deep-plan law). Verified headlines:
   Drive Browse (OAuth ask first).
 - **T2 — WF1, the first pass**: `dpl-workflows` + Workflows tab +
   storyboarding walking skeleton + `--run-workflow`. Full plan:
-  `docs/plans/wf1-workflow-engine.md`.
+  `docs-history-2026-10-12:docs/plans/wf1-workflow-engine.md`.
 - **T3 — the ratified workflows**: storyboard→episode full · how-to/
   explainer · LinkedIn PDF carousel (**prereq: poppler staged into the
   depot** — also closes W11's local gap) · episode (stitching/ads/post,

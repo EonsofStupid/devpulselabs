@@ -1,6 +1,6 @@
 //! The operator intent gate — the provenance law as a type.
 //!
-//! Ratified 2026-07-28 (`docs/plans/signal-ledger-and-lesson-foundation.md`
+//! Ratified 2026-07-28 (`docs-history-2026-10-12:docs/plans/signal-ledger-and-lesson-foundation.md`
 //! §9.3). Privileged transitions — strict determinism on demand, and every
 //! future state change expensive enough to require unambiguous operator
 //! intent — are authorized by **the provenance of the keystroke, not the

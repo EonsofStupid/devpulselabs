@@ -182,7 +182,7 @@ Using one copies it into `content/` first, so the shipped set is never mutated
    under the session temp dir; test that no drill resolves to the ambient root.
 9. **Docs** — ADR-014 amended with the `target` refusal and the embedded
    provenance; `release-contract.md` states what ships in `embedded/`;
-   `docs/STATE.md`; journal.
+   `docs-history-2026-10-12:docs/STATE.md`; journal.
 
 ## 5. Boundaries
 

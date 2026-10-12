@@ -5,11 +5,11 @@ build… fully built out"); C2b implementation unlocked under the gates below
 **Date:** 2026-07-30  
 **Owner:** DevPULSE operator  
 **Program map:** [`operator-coach-a2ui.md`](operator-coach-a2ui.md) §3.4 / §4 item 4  
-**Spike evidence:** [`coach-c2s-foreign-target-spike.md`](coach-c2s-foreign-target-spike.md) §9–§10  
-**Live proof:** [`../journal/2026-07-30-c2s-triggered-live.md`](../journal/2026-07-30-c2s-triggered-live.md)  
+**Spike evidence:** [`docs-history-2026-10-12:docs/plans/coach-c2s-foreign-target-spike.md`](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/plans/coach-c2s-foreign-target-spike.md) §9–§10  
+**Live proof:** [`../journal/2026-07-30-c2s-triggered-live.md`](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/journal/2026-07-30-c2s-triggered-live.md)  
 **Sibling exception (template):** [`chat-provider-runtime-adr.md`](chat-provider-runtime-adr.md)  
-**Overlay spike:** [`lesson-overlay-spike.md`](lesson-overlay-spike.md) (operator ruling: own process)
-**C2b plan:** [`coach-c2b-overlay-daemon.md`](coach-c2b-overlay-daemon.md)
+**Overlay spike:** [`docs-history-2026-10-12:docs/plans/lesson-overlay-spike.md`](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/plans/lesson-overlay-spike.md) (operator ruling: own process)
+**C2b plan:** [`docs-history-2026-10-12:docs/plans/coach-c2b-overlay-daemon.md`](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/plans/coach-c2b-overlay-daemon.md)
 
 ## Ratification record
 
@@ -56,7 +56,7 @@ ship claims, or production (non-devtools) wiring.
 
 - **Transparent root required.** Measured: Vulkan/X11 + egui-wgpu share
   one transparent-backbuffer decision from the root viewport
-  (`lesson-overlay-spike.md`). A peer viewport inside the main exe is the
+  (`docs-history-2026-10-12:docs/plans/lesson-overlay-spike.md`). A peer viewport inside the main exe is the
   wrong shape.
 - **Foreign geometry is OS-local.** GTK4 AT-SPI `SCREEN` extents lie
   (`(0,0)`); compose is WINDOW + X11 origin + `_GTK_FRAME_EXTENTS`. That
@@ -155,7 +155,7 @@ dpl-coach-overlay
   share a process or a wgpu device.
 - **Operator Coach UX** (picker, inventory, fabric mint, tips) is **not**
   this process — it is the in-app product surface described in
-  [`coach-operator-experience.md`](coach-operator-experience.md) (C2c–C2f).
+  [`docs-history-2026-10-12:docs/plans/coach-operator-experience.md`](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/plans/coach-operator-experience.md) (C2c–C2f).
   Overlay remains the foreign/monitor **painter/observer** under these
   launch gates. Devtools-only here does **not** mean “no Operator product.”
 - `Target::ScreenRect` / foreign `SemanticNode` emission remain **C3** —
@@ -189,7 +189,7 @@ foreign-target-probe spotlight --name 7 --seconds 60 --message "Press 7" --debug
 
 On ratify: tip `AGENTS.md` with a one-line pointer (devtools-only overlay
 process; chat providers remain the production-process exception);
-Status = RATIFIED; C2b plan = [`coach-c2b-overlay-daemon.md`](coach-c2b-overlay-daemon.md).
+Status = RATIFIED; C2b plan = [`docs-history-2026-10-12:docs/plans/coach-c2b-overlay-daemon.md`](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/plans/coach-c2b-overlay-daemon.md).
 
 ## 10. Boundaries (summary)
 

@@ -34,7 +34,7 @@ and where it ends:
 
 ### What P1 was planned as, and why that was wrong
 
-`docs/plans/chat-providers-become-platform.md` scoped the roster to two
+`docs-history-2026-10-12:docs/plans/chat-providers-become-platform.md` scoped the roster to two
 booleans (`can_send`, `can_read_history`) folded onto the fabric, with a
 shell status chip as its consumer. That is a chat feature wearing a
 platform's clothes. It cannot answer *"who can do X"*, it does not persist,
@@ -118,7 +118,7 @@ not shaped in a way that makes it impossible.
 
 ## Consequences
 
-**P1 is re-scoped** — see `docs/plans/chat-providers-become-platform.md`,
+**P1 is re-scoped** — see `docs-history-2026-10-12:docs/plans/chat-providers-become-platform.md`,
 amended in the same commit as this ADR. Its first consumer stays small (the
 shell naming what is available) because a publication with no consumer
 proves nothing, but its TYPE is now the platform shape, not a chip's

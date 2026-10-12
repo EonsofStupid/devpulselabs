@@ -1,6 +1,6 @@
 //! CLI proof for C2e — budgeted fabric mint for one selected target.
 //!
-//! Plan: `docs/plans/coach-c2e-fabric-mint.md`
+//! Plan: `docs-history-2026-10-12:docs/plans/coach-c2e-fabric-mint.md`
 //!
 //! ```text
 //! coach-fabric-mint --name Calculator

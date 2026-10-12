@@ -438,7 +438,7 @@ failure.
 - **Orphan check:** before and after each drill, no stray `ffmpeg.exe` or
   `devpulselabs.exe`.
 - **Every PR:** both CI lanes green before merge (docs-only PRs via
-  `workflow_dispatch`). `STATE.md` and `CURRENT.md` are updated.
+  `workflow_dispatch`). `docs-history-2026-10-12:docs/STATE.md` and `docs-history-2026-10-12:docs/ops/resume/CURRENT.md` are updated.
 
 ## 7. Risks
 

@@ -122,12 +122,12 @@ SHOWS (the Shows rail) ──▶ PRESENT (play) · export · social post
 
 ## 6. The rebuild passes — ALL EXECUTED (2026-07-23)
 
-- ✅ **L1a — the accordion rail** (docs/plans/l1a-accordion-rail.md).
-- ✅ **L1b — seeds into class folders** (l1b-seed-class-folders.md).
+- ✅ **L1a — the accordion rail** (docs-history-2026-10-12:docs/plans/l1a-accordion-rail.md).
+- ✅ **L1b — seeds into class folders** (docs-history-2026-10-12:docs/plans/l1b-seed-class-folders.md).
 - ✅ **L1c — Workbench/Library rebuilt; the Library hub dissolved**
-  (l1c-workbench-library.md).
-- ✅ **L1d — the Shows rail entry** (l1d-shows-rail.md).
-- ✅ **L1e — Gallery plays sessions in place** (l1e-gallery-replay.md).
+  (docs-history-2026-10-12:docs/plans/l1c-workbench-library.md).
+- ✅ **L1d — the Shows rail entry** (docs-history-2026-10-12:docs/plans/l1d-shows-rail.md).
+- ✅ **L1e — Gallery plays sessions in place** (docs-history-2026-10-12:docs/plans/l1e-gallery-replay.md).
 Each: plan → green → real-exe proof → commit → push. Program L (#118)
 is COMPLETE; the roadmap resumes.
 
