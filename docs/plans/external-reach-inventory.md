@@ -47,7 +47,7 @@ Answer by number: e.g. "confirm 11, 14; reject 1, 2, 3; 4 = D:\localdev\devpulse
 | 19 | **Chrome / Edge / Chromium** | `engine-browser/src/lib.rs:52-120` | System installs, ProgramFiles, PATH, `/snap` — **never the depot's chromium**. Not linked into the app (browser-cli + tests) | **Decide:** depot-only, or system browser allowed. |
 | 20 | **After Effects** `aerender` / `AfterFX` | `engine-ae/src/lib.rs:145-193` | Located in ProgramFiles; never spawned; not in app | Decide (park?). |
 | 21 | Linux coach: `xdotool`, `kill`, `.desktop` `Exec=` apps, hardcoded `gnome-calculator` fallback | `coach-runtime/src/linux_interact.rs:29,158`; `linux_lifecycle.rs:28-30,65,278-280` | PATH; linked into the app on Linux | Decide. |
-| 22 | **Placebo spawns** (uncommitted 10-09 work): bare `ffmpeg` / `dpl-lottie-render` with no args on every "activate"; `cmd /C exit 0` fallback | `crates/proc/src/process_manager.rs:121,193,239-246` | Uncommitted | **Reject** — park as a patch, discard. |
+| 22 | **Placebo spawns** (uncommitted 10-09 work): bare `ffmpeg` / `dpl-lottie-render` with no args on every "activate"; `cmd /C exit 0` fallback | `crates/proc/src/process_manager.rs:121,193,239-246` | **DONE in C0:** parked on the local-only branch `park/codex-subprocess-lifecycle-2026-10-09` (`d063e87`); `main` never had it | Rejected. |
 
 ## C · Vendor-owned and user locations read or written
 
@@ -96,7 +96,7 @@ Answer by number: e.g. "confirm 11, 14; reject 1, 2, 3; 4 = D:\localdev\devpulse
 |---|---|---|---|
 | 44 | Estate runners: Proxmox VM 119 `dpl-win`, LXC 121 `dpl-linux` on **server1** (`ssh.clyffy.ai`) | `.github/workflows/green.yml:64,118`; `docs/runbook/ci-runners.md` | Confirm (both online 2026-10-10). |
 | 45 | **Nightly runs on GitHub-HOSTED runners** (`windows-latest`, `ubuntu-latest`, `ubuntu-24.04-arm`) — metered on a private repo | `.github/workflows/nightly.yml:29,97,184` | Decide (move to estate or keep). |
-| 46 | Tool depot source: `C:\localdev\dptools-deps` and `sources.local.toml` | `dptools-deps/README.md:20`; `sources.example.toml` (`C:/private-tools/...`) | **Neither exists on this machine** → no Windows build can do media. Tell me where the Windows payloads live. |
+| 46 | Tool depot source: `C:\localdev\dptools-deps` and `sources.local.toml` | `dptools-deps/README.md:20`; `sources.example.toml` (`C:/private-tools/...`) | **RESOLVED in C0:** the depot is at `D:\projects\dptools-deps` (row 56). Staged into `target/release/dptools-deps`; the exe logs `verified embedded ffmpeg/pdftoppm resolved`. |
 | 47 | sccache `D:\sccache` (absent) and `/root/.cache/sccache` on server1 | `docs/runbook/sccache-shared-build-cache.md` | Decide. |
 | 48 | **Repo visibility contradiction**: CLAUDE.md says PRIVATE (2026-08-07); README, product-vision, nightly.yml, release-contract §5.4 say PUBLIC | `CLAUDE.md:80-91`; `README.md:148-170`; `release-contract.md` §5.4 | Confirm PRIVATE; fix the docs. |
 | 49 | EguiPilot CI Dockerfile pins Rust 1.92.0; repo pins 1.97.1 | `ci/`; `rust-toolchain.toml` | Fix. |
@@ -110,6 +110,16 @@ Answer by number: e.g. "confirm 11, 14; reject 1, 2, 3; 4 = D:\localdev\devpulse
 | 52 | Agent definitions/skills naming external models and missing skills (`clyffy-plan`, `clyffy-verify` not present) | `.claude/agents/*.md`; `.cursor/agents/*.md`; `.claude/skills/session-os/SKILL.md:93` | Decide. |
 | 53 | **Stale absolute paths**: the checkout is `D:\localdev\devpulselabs`, but docs say `C:\localdev\devpulselabs`; sibling worktrees `C:\localdev\{dpl-main,devpulselabs-fx,dpl-lane-lucide,automaton}`; `/home/hades/…`, `/home/wardenop/…`, `/root/dev/devpulselabs` | `CLAUDE.md:11`; `AGENTS.md:81`; ~12 plans; journals | Fix CLAUDE.md/AGENTS.md now; historical journals stay as history. |
 | 54 | Tests that assert on machine-local vendor history (`~/.claude/projects`, `~/.codex/sessions`) | `tests/eguipilotai/chat-local-histories.toml:13`; `platform-sees-providers.toml:9` | Decide (feeds chat plan). |
+
+## I · Found during C0 (2026-10-10, drive-wide search)
+
+| # | Reach | Evidence | Recommendation |
+|---|---|---|---|
+| 55 | **A second clone of this repo at `D:\projects\devpulselabs`.** Same origin, on `main` at `14d083d`. Its exe was built **Oct 2**, newer than this clone's Sep 27 exe before C0. It has its own staged depot and a `sources.local.toml` still pointing at the dead `C:/localdev/dptools-deps`. CLAUDE.md says "There is no other worktree"; that is false. | `D:\projects\devpulselabs\target\release\devpulselabs.exe`; `…\dptools-deps\sources.local.toml` | **RESOLVED 2026-10-10 — operator: `D:\projects\devpulselabs` IS THE checkout.** It holds the operator's library (`content/`, 62 files / 150 MB). The `D:\localdev\devpulselabs` clone (empty library) is not used; C0's first PR was authored there and is corrected here. This clone's `sources.local.toml` now points at `D:/projects/dptools-deps`. |
+| 56 | **The operator's Central Supply Depot is at `D:\projects\dptools-deps`** (`artifacts/windows-x86_64/`: chromium 150.0.7871.129, codex 0.145.0-alpha.18, ffmpeg 8.1.2, gemini 0.54.4, grok 0.2.112, pdftoppm 26.02.0). It moved from `C:\localdev\dptools-deps`. | this clone's `dptools-deps/sources.local.toml` (gitignored) now points here; staged into `target/release/dptools-deps` and SHA-verified | Confirm. Resolves row 46. |
+| 57 | gemini 0.54.4 in the depot is a **Node.js bundle** (`bundle/*.js`). Running it means a Node runtime, which is not a DevPULSE tool id. | `D:\projects\dptools-deps\artifacts\windows-x86_64\gemini\0.54.4\` | Decide in chat pass C5 (bundle Node in the depot, or not). |
+| 58 | Another copy of the old app at `D:\projects\devpulse labs` (origin `EonsofStupid/vibe-flow`, HEAD `98babf4`, the same commit as the review-archive copy in row 4). | `git -C "D:\projects\devpulse labs" log -1` | Decide which copy is the read-only reference (C0 points docs at the review-archive copy). |
+| 59 | Your OpenAI Codex desktop app runs its own `codex app-server` daemons (0.162.1, `~/.codex/packages/…`). These are separate from DevPULSE's depot codex. "ChatGPT is open" (R21) means *that* app is signed in, not necessarily the depot CLI. | process list 2026-10-10 | Informs C2's plain-words sign-in states. |
 
 ---
 

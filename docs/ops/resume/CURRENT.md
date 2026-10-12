@@ -1,5 +1,80 @@
 # Resume pack — CURRENT
 
+## Session 2026-10-10 — CHAT NATIVE PROGRAM: C0 landed. READ THIS FIRST.
+
+**The governing ruling (operator, 2026-10-10):**
+- Chat is built **from scratch inside this app** from the operator's own
+  quoted requirements. Never copy from, link to, or run beside
+  chatmaton/automaton/Shippin.
+- **Anything reaching outside this repo** must be listed in
+  `docs/plans/external-reach-inventory.md` (59 rows) for operator
+  confirmation.
+- The program is `docs/plans/chat-native-program.md`. Its requirements
+  ledger is §4.1, R1–R28, each tied to a quote. Its decisions Q1–Q12 were
+  adopted on recommendation (*"whatever fine"*) and remain revisitable.
+
+**Where things are:**
+- **C0 is DONE** (`docs/plans/chat-c0-clean-ground.md` §8).
+- **Parked, never merge:** the 10-09 Codex `ProcessManager` work is on the
+  LOCAL-ONLY branch `park/codex-subprocess-lifecycle-2026-10-09`.
+- **Depot:** the source is `D:\projects\dptools-deps`, through the
+  gitignored `dptools-deps/sources.local.toml`. It is staged at
+  `target/release/dptools-deps`.
+  - `cargo clean` deletes it. Re-stage with `cargo xtask stage-tool-deps
+    target/release`, which refuses an existing root.
+- **The gate hook is wired** on this clone now (`core.hooksPath =
+  .githooks`).
+- **Docs-only PRs get no automatic CI.** Run `gh workflow run green.yml
+  --ref <branch>` to get both lanes before merging.
+- **THE checkout is `D:\projects\devpulselabs`** (operator, 2026-10-10;
+  inventory row 55). It holds the operator's library (`content/`), its
+  `.userdata/`, and the staged depot. Never work in
+  `D:\localdev\devpulselabs`; it has an empty library. Do not touch the
+  old-app copies.
+- **Chat is PAUSED behind D0** (operator, 2026-10-10: *"I DO NOT WANT THIS
+  RUNNING IF MY FUCKING DEPS ARE NOT LOADING MY CAMERA MY FFMPEG MY FUCKING
+  FILES GET LOADED PROPERLY CONFIGURED ON THIS LAPTOP"*). D0 proves every
+  real media and file path on the real exe, and adds a startup dependency
+  check that refuses to open the workspace when a required dependency fails.
+  It also builds camera support (all four: face-cam over screen recordings,
+  webcam clips, live preview, camera and mic health in the check).
+  `content/artifacts.db.corrupt` exists and needs investigating first.
+  C1 work is shelved on local branch `wip/c1-paused`.
+- **Codex versions:**
+  - The depot codex is 0.145.0-alpha.18, which the current version gate
+    accepts.
+  - The operator's system codex is 0.160.1, and their Codex desktop app runs
+    its own 0.162.1 daemons.
+  - The gate fix belongs to C2.
+
+**Next, in order** (both plans APPROVED 2026-10-11, operator: *"execute"*):
+1. **D0**, `docs/plans/d0-laptop-deps.md`:
+   - D0.0, the clean rebuild of THE checkout (`cargo clean` done
+     2026-10-10, 57.5 GiB) + land #257;
+   - D0.1, honest media paths;
+   - D0.2, the startup dependency check (refuses to open the workspace on
+     a failed dependency);
+   - D0.3 / D0.4, camera (engine, then UI);
+   - D0.5, gate truth (ignored drills run against the depot);
+   - D0.6, a portable release with the depot bundled.
+2. **CHAT + AI**, `docs/plans/chat-native-program.md` §4.4:
+   - **K1**, design-system 3′;
+   - **K2**, chat tokens;
+   - **A1**, the AI boundary: providers and subscriptions under
+     `crates/ai/*`;
+   - **A2**, host + Codex done right;
+   - **A3**, the update path;
+   - **A4**, Claude Code;
+   - **A5**, WezTerm terminal mode;
+   - **A6**, desktop wrap;
+   - **C1**, chat store;
+   - **C2**, chat UI colocated in `chat/window` (the real egui window is
+     the mock);
+   - and on through the plan.
+3. **Shelved:** `wip/c1-paused`'s HTML-mock C1 is superseded (no web, R38).
+
+---
+
 **Updated:** 2026-08-11 (**S2 protocol rehoming LANDED** — operator
 `gfo` approved the plan; built in an ephemeral worktree
 `../devpulselabs-s2` on `feat/coach-seam-s2-protocol` so the operator's
