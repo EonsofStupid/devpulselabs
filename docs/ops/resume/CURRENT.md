@@ -51,7 +51,12 @@
 1. **D0**, `docs/plans/d0-laptop-deps.md`:
    - D0.0, the clean rebuild of THE checkout (`cargo clean` done
      2026-10-10, 57.5 GiB) + land #257;
-   - D0.1, honest media paths;
+   - D0.1, honest media paths:
+     - D0.1a landed (#258);
+     - D0.1b is depot-only helper tools (branch `d0/1b-depot-only`, real-exe
+       proof in plan §8);
+     - **D0.1c next**, the roots rule, with its design SHOWN to the operator
+       before any code;
    - D0.2, the startup dependency check (refuses to open the workspace on
      a failed dependency);
    - D0.3 / D0.4, camera (engine, then UI);
@@ -72,6 +77,8 @@
      the mock);
    - and on through the plan.
 3. **Shelved:** `wip/c1-paused`'s HTML-mock C1 is superseded (no web, R38).
+4. **Found 2026-10-12, needs its own small pass:** the editor status bar's
+   fixed height clips its second line (STATE KNOWN BROKEN #6).
 
 ---
 

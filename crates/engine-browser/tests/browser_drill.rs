@@ -1,16 +1,18 @@
 //! LIVE browser drill — ignored in the gate (no browser assumption in CI).
-//! Run it deliberately: `cargo test -p dpl-engine-browser -- --ignored`.
+//! Run it deliberately, naming the depot's Chromium (a test binary has no
+//! depot beside it): `DPL_BROWSER=<release>/dptools-deps/…/chrome.exe
+//! cargo test -p dpl-engine-browser -- --ignored`.
 //!
-//! Proves the whole spine on the real installed browser: resolve → launch
+//! Proves the whole spine on the real bundled browser: resolve → launch
 //! headless with an ephemeral profile → navigate → evaluate → screenshot
 //! (real PNG bytes) → close (child actually gone).
 
 use dpl_engine_browser::{resolve, Browser, BrowserConfig};
 
 #[test]
-#[ignore = "live drill: launches the real installed browser"]
+#[ignore = "live drill: launches the real bundled browser (set DPL_BROWSER)"]
 fn headless_launch_navigate_evaluate_screenshot() {
-    let (bin, source) = resolve().expect("no chromium-family browser installed");
+    let (bin, source) = resolve().expect("name the depot's Chromium with DPL_BROWSER");
     eprintln!("drill: resolved {} ({source})", bin.display());
 
     let mut browser = Browser::launch(&BrowserConfig {

@@ -90,7 +90,8 @@ fn main() {
 }
 
 fn render(src: &Path, w: u32, h: u32, t: f32, out: &Path, fonts: &Path) {
-    let mut cmd = std::process::Command::new(dpl_lottie::helper_path());
+    let mut cmd =
+        std::process::Command::new(dpl_lottie::helper_path().expect("locate the Lottie renderer"));
     // The quiet-spawn law (W8) applies to a proof run too — a console flash
     // is a console flash.
     dpl_proc::quiet(&mut cmd);

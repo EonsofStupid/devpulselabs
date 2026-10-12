@@ -12,7 +12,6 @@ use dpl_coach_runtime::{invoke, mount_spec, resolve_seed, AgencyMode, FabricSess
 use dpl_coldlight::{self as cl, Tone};
 use dpl_hub::{Hub, HubId, HubSpec, Route, SubId, SubRoute};
 use egui::RichText;
-use std::path::PathBuf;
 use std::process::Command;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::thread;
@@ -67,26 +66,6 @@ fn mint_seed_name(item: &InventoryItem) -> Option<String> {
     } else {
         None
     }
-}
-
-fn overlay_bin() -> PathBuf {
-    if let Ok(p) = std::env::var("DPL_COACH_OVERLAY") {
-        return PathBuf::from(p);
-    }
-    let name = if cfg!(windows) {
-        "dpl-coach-overlay.exe"
-    } else {
-        "dpl-coach-overlay"
-    };
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            let p = dir.join(name);
-            if p.is_file() {
-                return p;
-            }
-        }
-    }
-    PathBuf::from(name)
 }
 
 #[derive(Debug)]
@@ -344,7 +323,16 @@ impl CoachHub {
             }
         };
 
-        let bin = overlay_bin();
+        let bin = match dpl_coach_runtime::overlay_path() {
+            Ok(bin) => bin,
+            Err(reason) => {
+                self.phase = Phase::Refused {
+                    reason,
+                    tip: "Build `dpl-coach-overlay` so it ships beside the app.".into(),
+                };
+                return;
+            }
+        };
         let rect = spec.window_rect.as_csv();
         let mut cmd = Command::new(&bin);
         dpl_proc::quiet(&mut cmd);
@@ -375,9 +363,9 @@ impl CoachHub {
             }
             Err(e) => {
                 self.phase = Phase::Refused {
-                    reason: format!("could not start overlay painter: {e}"),
+                    reason: format!("the overlay painter could not run ({}): {e}", bin.display()),
                     tip: format!(
-                        "Build `dpl-coach-overlay` beside the exe. Bridge resolved {:?} at {}.",
+                        "Rebuild `dpl-coach-overlay` beside the app. Bridge resolved {:?} at {}.",
                         spec.expected_name, rect
                     ),
                 };

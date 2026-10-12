@@ -1627,9 +1627,9 @@ fn init_ffmpeg() {
 }
 
 /// Resolve the verified app-relative poppler tree and inject pdftoppm into
-/// the composer's PDF rasterizer (the ffmpeg pattern). Unavailability is a
-/// warn, not a failure — the rasterizer degrades to the PATH name and its
-/// absence stays an honest per-call error.
+/// the composer's PDF rasterizer (the ffmpeg pattern). There is no PATH
+/// fallback: without the bundled tool every PDF import returns the honest
+/// `PDFTOPPM_MISSING` error (the D0.2 startup check will refuse to open).
 fn init_pdftoppm() {
     match dpl_tools_deps::resolve_current(dpl_tools_deps::PDFTOPPM) {
         Ok(dependency) => {
@@ -1645,7 +1645,7 @@ fn init_pdftoppm() {
         Err(error) => {
             tracing::warn!(
                 %error,
-                "verified embedded pdftoppm is unavailable; PDF slides fall back to PATH"
+                "verified embedded pdftoppm is unavailable; PDF import will refuse"
             );
         }
     }

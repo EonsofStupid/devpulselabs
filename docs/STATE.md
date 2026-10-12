@@ -49,6 +49,41 @@ we got here.
 >   where it runs, and names the hypervisor blast radius that follows from
 >   that choice (see `devbox-bootstrap.sh` §"Where this runs").
 
+**2026-10-12 — D0.1: THE MEDIA PATHS STOP LYING, AND EVERY HELPER COMES
+FROM THE APP'S OWN FOLDER (#258 D0.1a; D0.1b on `d0/1b-depot-only`; plan
+`d0-laptop-deps.md` §8):**
+- **D0.1a (#258).**
+  - The mic device list parses ffmpeg 8.1.2's inline dshow format
+    (fixtures captured on this laptop).
+  - A recording is only "saved" when ffmpeg exited cleanly and the file
+    verifies with real frames; a failure carries ffmpeg's last stderr line.
+  - Capture pacing runs on frame deadlines, not sleeps.
+  - Real exe: mp4/vp9/av1 at 149 frames, drift 0.000 s. Mic 60 s: 1798
+    frames, drift 0.001 s, with an AAC stream. A write-denied folder now
+    fails honestly; it used to print "saved".
+- **#259:** the chat program amendment (vendor coverage, naming defects,
+  the canonical `crates/ai/*` layout).
+- **D0.1b: no helper is found on PATH or a system install any more.**
+  - pdftoppm comes from the injected depot path only.
+  - The Lottie renderer and the coach overlay painter come from an
+    explicit override or beside the exe. One shared `overlay_path()`
+    replaces the hub's and the daemon's private copies.
+  - The browser comes from an override or the depot's SHA-verified
+    Chromium; the Chrome/Edge/PATH/snap search is deleted.
+  - A miss is an error naming the exact expected path.
+  - The composer had been swallowing the renderer's error (`.ok()?`), so a
+    missing renderer left a blank Lottie lane. It now shows on the status
+    line, which truncates so a long error can never push the bar off the
+    window.
+  - Real exe: a Lottie render through the renderer beside the exe, a PDF
+    → 1275×1650 page slide through the depot pdftoppm (the first Windows
+    proof of W11's PDF path), and an exe copy with no renderer showing the
+    honest error at 1600×900 and 1280×800.
+- **Found:** the editor status bar's fixed height clips its second line
+  (KNOWN BROKEN #6). Three scratch roots under one parent share one index,
+  because the three-ring layout puts `assets/` and `.userdata/` beside the
+  root; this is an input to D0.1c.
+
 **2026-10-10 — CHAT IS BUILT HERE, NOT BORROWED: C0 CLEAN GROUND (#256 +
 close-out; program `chat-native-program.md`, pass `chat-c0-clean-ground.md`,
 `green ✔`, exe rebuilt 12:34):**
@@ -2586,6 +2621,13 @@ is DELETED. Memory: `chat-is-a-peer-window`.
    the Workbench editor reads, the experience-inventory doc, then the
    `slide-catalog-pass` loop (~27 slides). Skills: `coldlight-system` +
    `slide-catalog-pass`. Memory: `port-fidelity-standard`.
+6. **The editor's status bar is too short for its two lines (found
+   2026-10-12, D0.1b).** `status_h = 58.0` (`composer/src/lib.rs:3445`,
+   since `60db7be`) is a fixed height. After the padding is taken off,
+   line 2 (*"NEXT: …"* and the comp facts) straddles the bar's bottom edge
+   at 1600×900 and 1280×800. A dark mood backdrop hides the edge. FIX: size
+   the bar from its content and prove it at real window sizes (its own
+   small pass; `d0-laptop-deps.md` §8 D0.1b).
 
 ## CI + process (live as of github-repo-hardening)
 
