@@ -5,9 +5,10 @@ description: The DevPULSE Labs visual-language gate AND the composable-ingredien
 
 # ColdLight — the composable styling system + the gate
 
-Read `docs/design/doctrine.md` first (the authored treatment doctrine, ratified
-in `docs/plans/pass0-coldlight-treatments.md`). This skill is BOTH the foundation
-guarantee and the per-surface gate. It supersedes `dpl-style`.
+Read `docs/design/design-system.md` first (the canonical design system; see
+`docs/README.md`), then `docs/design/doctrine.md` (the paint laws). This skill
+is BOTH the foundation guarantee and the per-surface gate. It supersedes
+`dpl-style`.
 
 ## The architecture (the concept, ported to egui — do not fight it)
 
@@ -88,5 +89,5 @@ If an ingredient is missing → build IT first (same discipline), then proceed.
 
 ## Record
 
-Doctrine deviations go in the plan's §8. Update `docs/STATE.md` for surfaces still
-un-migrated. Every UI/slide pass MUST invoke this skill.
+Doctrine deviations go in the plan's §8. List surfaces still un-migrated under
+known broken in `docs/status.md`. Every UI/slide pass MUST invoke this skill.

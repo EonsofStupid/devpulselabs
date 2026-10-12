@@ -514,7 +514,7 @@
   <ul class="notes">
     <li><span class="law">Already law:</span> neubrutalist, claymorphic, cyber, retro are trait DATA (<code>tokens/traits.json</code>) &mdash; the mixes above are <code>compose()</code> doing what it already does. No new machinery.</li>
     <li><span class="new">NEW &mdash; liquid glass:</span> one added base trait (translucent fill + specular edge + sheen tint). Needs a small vocabulary addition: a specular-edge axis or a sheen element. Authored as data, regenerated &mdash; never hand-rolled.</li>
-    <li><span class="new">NEW &mdash; the icon language:</span> Lucide sources &rarr; generated stroke registry (<code>ADR-015</code>, plan <code>icon-language-v3a.md</code>). Styled at PAINT time (brutal offset-dup, clay/glass chips) &mdash; assets stay pure geometry, so your own SVGs later inherit every treatment for free.</li>
+    <li><span class="new">NEW &mdash; the icon language:</span> Lucide sources &rarr; generated stroke registry (<code>ADR-015</code>, plan <code>docs-history-2026-10-12:docs/plans/icon-language-v3a.md</code>). Styled at PAINT time (brutal offset-dup, clay/glass chips) &mdash; assets stay pure geometry, so your own SVGs later inherit every treatment for free.</li>
     <li><span class="law">Doctrine holds:</span> zero real blur anywhere on this page &mdash; glows are ring falloffs, glass is alpha + gradients, scanlines are painted lines. Everything here is first-frame cheap in egui.</li>
     <li><span class="law">Translated from your references</span> (<code>docs/design/references/</code>): clay goes DEEPER &mdash; rim light, heavier extrusion, NEON INK (painted multi-copy bloom, never a blur pass) &mdash; the pills and rail option B; neubrutalist gains the comic energy &mdash; bevel slabs, halftone print texture, starburst glow (all painted); the metal machine-console look (<code>claymorphism-cyber.png</code>) is a candidate flavor for the Present / show-machine surface, its own later pass; the two editor shots map to flat wells + liquid-glass/cyber chrome + glow spotlights (WiredFRONT, Guide Workbench).</li>
     <li><span class="law">RULED (operator, 2026-07-30): clay IS a button.</span> The "clay is never a button" line was the port's inference, never operator law &mdash; retired in <code>doctrine.md</code>. Both bases are actionable: brutal presses ONTO its shadow, clay sinks INTO its extrusion, neon ink carries clay's tappability. Clay hover/active state data lands in <code>traits.json</code> with the trait pass.</li>
@@ -525,7 +525,7 @@
       <code>material: glass</code>, authored in <code>tokens/matrix.json</code> since the matrix landed. &sect;2&rsquo;s
       third card is corrected. The real gap is that the matrix has <b>no resolver</b>:
       <code>resolve(&amp;Coordinate, state)</code> does not exist and <code>generate_matrix</code> emits 765 bytes of
-      id lists, discarding every authored value (<code>docs/plans/matrix-resolve.md</code>).</li>
+      id lists, discarding every authored value (<code>docs-history-2026-10-12:docs/plans/matrix-resolve.md</code>).</li>
     <li><span class="new">AMENDED 2026-08-05 &mdash; the editor&rsquo;s coordinate.</span>
       <code>aero &middot; measured &middot; neon-glass &middot; neon</code>, legality-checked: only <b>aero</b>
       permits glass. This is the reading of &ldquo;flat wells + liquid-glass/cyber chrome + glow spotlights&rdquo;.</li>

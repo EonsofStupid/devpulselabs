@@ -1,6 +1,6 @@
 //! C2s foreign-target spike — Linux/X11 only.
 //!
-//! Plan: `docs/plans/coach-c2s-foreign-target-spike.md`.
+//! Plan: `docs-history-2026-10-12:docs/plans/coach-c2s-foreign-target-spike.md`.
 
 #[cfg(target_os = "linux")]
 #[path = "foreign_target_probe_linux.rs"]

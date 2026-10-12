@@ -11,11 +11,11 @@ ENGINE, the protocol owns the VOCABULARY, and the daemon is a
 translator (verbs parse at the HTTP edge; answers are typed
 `EffectContract`s; `/events` emits typed `SeamEvent`s). Extension verbs
 ride the `x.<namespace>.<verb>` arm — additive, never a breaking bump.
-Plan: [`coach-seam-s2-protocol-rehoming.md`](coach-seam-s2-protocol-rehoming.md).
+Plan: [`docs-history-2026-10-12:docs/plans/coach-seam-s2-protocol-rehoming.md`](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/plans/coach-seam-s2-protocol-rehoming.md).
 
-**Related:** [`coach-control-plane-adr.md`](coach-control-plane-adr.md) ·
-[`coach-bridge-fabric-runtime.md`](coach-bridge-fabric-runtime.md) ·
-[`../research/coach/bleeding-edge-control-plane.md`](../research/coach/bleeding-edge-control-plane.md)
+**Related:** [`docs-history-2026-10-12:docs/plans/coach-control-plane-adr.md`](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/plans/coach-control-plane-adr.md) ·
+[`docs-history-2026-10-12:docs/plans/coach-bridge-fabric-runtime.md`](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/plans/coach-bridge-fabric-runtime.md) ·
+[`../research/coach/bleeding-edge-control-plane.md`](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/research/coach/bleeding-edge-control-plane.md)
 
 ## 1. Context
 

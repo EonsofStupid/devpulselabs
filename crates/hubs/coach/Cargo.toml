@@ -6,7 +6,7 @@ publish.workspace = true
 
 # Operator Coach hub — Import Process UI + fabric bridge lesson wire.
 # Never depends on dpl-coach-overlay (ADR: spawn binary only).
-# Plans: coach-c2f-operator-import-ui.md · coach-bridge-fabric-runtime.md
+# Plans: docs-history-2026-10-12:docs/plans/coach-c2f-operator-import-ui.md · docs-history-2026-10-12:docs/plans/coach-bridge-fabric-runtime.md
 
 [dependencies]
 egui.workspace = true

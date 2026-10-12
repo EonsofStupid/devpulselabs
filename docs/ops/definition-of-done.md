@@ -80,7 +80,7 @@ In rough order of force:
    which an instruction can. The pre-push gate and the pre-compact journal
    already work this way.
 4. **`.claude/skills/`** — named workflows the operator invokes by name.
-5. **`docs/ops/resume/CURRENT.md`** — what is true right now.
+5. **`docs-history-2026-10-12:docs/ops/resume/CURRENT.md`** — what is true right now.
 6. **The memory directory** — durable operator preferences across sessions.
 
 The strongest of these is (3). An instruction is followed most of the time; a

@@ -5,7 +5,7 @@ alwaysApply: true
 
 # Session OS (boot only)
 
-1. Read `docs/STATE.md` (top), then `docs/ops/SESSION.md`, then `docs/ops/resume/CURRENT.md`.
+1. Read `docs/status.md`, then `docs/requirements.md` (the operator's words), then `docs/README.md` (the doc map).
 2. Adopt skill `session-os` for the full loop (journal ~75–85%, compact/clear resume, multi-model caps).
-3. Do not steal parallel lanes named in SESSION. Product laws in `AGENTS.md` still win.
+3. Do not steal a parallel lane (`active_lane` in `docs/status.md`; `gh pr list`). Product laws in `AGENTS.md` still win.
 4. Ops ledger ≠ product `dpl-ledger`.

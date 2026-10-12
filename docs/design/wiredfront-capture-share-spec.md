@@ -3,7 +3,7 @@
 > **Repo note (DevPULSE Labs, 2026-07-13):** operator-provided spec, filed verbatim
 > below. THIS repo implements the **rrweb session-capture slice** of the vision:
 > capture (in-app window + browser extension) → inbox → review keep/dump → library
-> (see docs/desktop.md, Pass W). The platform engine concerns — scap/str0m forks,
+> (see old-app:docs/desktop.md, Pass W). The platform engine concerns — scap/str0m forks,
 > DevPulse Live P2P, Turso/Qortex gallery metadata, AI tagging/highlights, channels —
 > live in the DevPulse platform, not here. Do not implement them from this file alone.
 

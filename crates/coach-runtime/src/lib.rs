@@ -2,7 +2,7 @@
 //!
 //! Viewport-independent control uses Tier A Action (`doAction`), not click-xy.
 //! Overlay paint is optional Mount feedback. Plan:
-//! `docs/plans/coach-bridge-fabric-runtime.md`.
+//! `docs-history-2026-10-12:docs/plans/coach-bridge-fabric-runtime.md`.
 
 #![forbid(unsafe_code)]
 

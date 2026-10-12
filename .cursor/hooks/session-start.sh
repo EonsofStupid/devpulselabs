@@ -2,15 +2,12 @@
 # Session OS — sessionStart: env + resume pointer (disk is source of truth).
 set -euo pipefail
 ROOT="${CURSOR_PROJECT_DIR:-$(pwd)}"
-RESUME="$ROOT/docs/ops/resume/CURRENT.md"
-SESSION="$ROOT/docs/ops/SESSION.md"
-STATE="$ROOT/docs/STATE.md"
+STATUS="$ROOT/docs/status.md"
 INPUT="$(cat)"
 
 DPL_OPS_ROOT="$ROOT/docs/ops" \
-DPL_OPS_RESUME="$RESUME" \
-DPL_OPS_SESSION="$SESSION" \
-DPL_OPS_STATE="$STATE" \
+DPL_OPS_STATUS="$STATUS" \
+DPL_DOCS_JOURNAL="$ROOT/docs/journal" \
 HOOK_INPUT="$INPUT" \
 python3 <<'PY'
 import json, os, pathlib
@@ -24,16 +21,18 @@ if raw.strip():
         payload = {}
 
 sid = payload.get("session_id") or payload.get("conversation_id") or ""
-state = pathlib.Path(os.environ["DPL_OPS_STATE"])
-session = pathlib.Path(os.environ["DPL_OPS_SESSION"])
-resume = pathlib.Path(os.environ["DPL_OPS_RESUME"])
+status = pathlib.Path(os.environ["DPL_OPS_STATUS"])
+journals = sorted(
+    pathlib.Path(os.environ["DPL_DOCS_JOURNAL"]).glob("*.md"),
+    key=lambda p: p.stat().st_mtime,
+)
 
 lines = [
-    "Session OS boot: read docs/STATE.md, docs/ops/SESSION.md, docs/ops/resume/CURRENT.md before acting.",
+    "Session OS boot: read docs/status.md, then docs/requirements.md (the operator's words), then docs/README.md (the doc map) before acting.",
     "Adopt skill session-os. Ops ledger ≠ product dpl-ledger.",
 ]
-for label, path in (("STATE", state), ("SESSION", session), ("RESUME", resume)):
-    if path.is_file():
+for label, path in (("STATUS", status), ("LATEST JOURNAL", journals[-1] if journals else None)):
+    if path is not None and path.is_file():
         text = path.read_text(encoding="utf-8", errors="replace")
         snippet = text if len(text) <= 4000 else text[:4000] + "\n…[truncated; read full file]\n"
         lines.append(f"\n--- {label} ({path.name}) ---\n{snippet}")
@@ -43,8 +42,7 @@ print(
         {
             "env": {
                 "DPL_OPS_ROOT": os.environ["DPL_OPS_ROOT"],
-                "DPL_OPS_RESUME": str(resume),
-                "DPL_OPS_SESSION": str(session),
+                "DPL_OPS_STATUS": str(status),
                 "DPL_OPS_SESSION_ID": sid,
             },
             "additional_context": "\n".join(lines),

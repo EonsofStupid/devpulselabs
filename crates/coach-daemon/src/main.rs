@@ -1,13 +1,13 @@
 //! dpl-coach-daemon — localhost Axum TRANSLATOR onto the protocol seam.
 //!
 //! Agent hop: HTTP on 127.0.0.1. App hop: AT-SPI / X11 via dpl-coach-runtime.
-//! Since S2 (docs/plans/coach-seam-s2-protocol-rehoming.md) the daemon
+//! Since S2 (docs-history-2026-10-12:docs/plans/coach-seam-s2-protocol-rehoming.md) the daemon
 //! speaks `egui_pilot_ai_protocol::seam` end to end: `body.verb` parses
 //! to a typed `SeamVerb` at the HTTP edge (bare strings die here),
 //! `/verbs` derives from `seam_verb_catalog()`, every mutating verb
 //! answers with a protocol `EffectContract`, and `/events` emits typed
 //! protocol `SeamEvent` facts.
-//! Reality gates refuse ghost AT-SPI. ADR: docs/plans/coach-control-plane-adr.md
+//! Reality gates refuse ghost AT-SPI. ADR: docs-history-2026-10-12:docs/plans/coach-control-plane-adr.md
 //! Verb catalog: docs/plans/coach-operator-verb-catalog-adr.md
 //!
 //! ```text
@@ -282,7 +282,7 @@ async fn health() -> Json<Value> {
         "ok": true,
         "service": "dpl-coach-daemon",
         "bind": "127.0.0.1",
-        "adr": "docs/plans/coach-control-plane-adr.md",
+        "adr": "docs/plans/coach-seam-adr.md",
         "verbs_adr": "docs/plans/coach-operator-verb-catalog-adr.md"
     }))
 }

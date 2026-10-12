@@ -1,6 +1,6 @@
 //! Does a window show the desktop through it on this machine?
 //!
-//! `docs/plans/lesson-overlay-spike.md` §3. Measurement says no on X11 with
+//! `docs-history-2026-10-12:docs/plans/lesson-overlay-spike.md` §3. Measurement says no on X11 with
 //! wgpu — Vulkan offers only opaque and inherit composite alpha, and
 //! `egui-wgpu` asks for pre- or post-multiplied. This probe is the real
 //! artifact that confirms or refutes that reading, because a design this

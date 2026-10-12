@@ -6,7 +6,7 @@ powering generation. First live generation (key provisioned + one click)
 remains the final checklist tick.
 **Date:** 2026-07-27
 **Owner:** DevPULSE operator
-**Sits under:** [`../plans/chat-creation-and-workflows-vision.md`](../plans/chat-creation-and-workflows-vision.md)
+**Sits under:** [`../plans/chat-creation-and-workflows-vision.md`](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/plans/chat-creation-and-workflows-vision.md)
 **Sibling exception:** [`../plans/chat-provider-runtime-adr.md`](../plans/chat-provider-runtime-adr.md)
 
 ## Context

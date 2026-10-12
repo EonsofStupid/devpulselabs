@@ -162,7 +162,7 @@ pub fn optimize_image(src: &Path, out_dir: &Path) -> Result<Outputs, String> {
 }
 
 /// The cutout ladder — alpha preserved: avif + webp + PNG, never JPEG
-/// ("JPEG can't hold an alpha channel" — docs/media.md).
+/// ("JPEG can't hold an alpha channel" — old-app:docs/media.md).
 pub fn optimize_cutout(src: &Path, out_dir: &Path) -> Result<Outputs, String> {
     fn encode_png(img: &image::DynamicImage, out: &Path) -> Result<(), String> {
         img.to_rgba8()
@@ -398,7 +398,7 @@ pub fn render_stitch(
 // ── the COMP render (L3) — the base concat + alpha overlays, ONE pass ────
 //
 // Ground truth proven live on ffmpeg 8.1.2 against real RTFX elements
-// (docs/plans/l3-alpha-overlay.md §2/§8): bare `overlay` composites
+// (docs-history-2026-10-12:docs/plans/l3-alpha-overlay.md §2/§8): bare `overlay` composites
 // straight (unassociated) alpha correctly — no premultiply handling;
 // `setpts=PTS-STARTPTS+at/TB` places a trimmed leg at timeline time;
 // `enable='between(t,a,b)'` + `eof_action=pass` bound the window (the

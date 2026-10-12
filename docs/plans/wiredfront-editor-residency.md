@@ -585,7 +585,7 @@ operator's word on the feel bar is the gate.
 ## 7. Commit plan
 
 **ONE PR** — `branch → gh pr create → double-green → merge`, branch
-deleted after (the one-target-one-PR law). `docs/STATE.md` updated after
+deleted after (the one-target-one-PR law). `docs-history-2026-10-12:docs/STATE.md` updated after
 the merge; `target\release\devpulselabs.exe` rebuilt **here** and its
 mtime verified at session end.
 

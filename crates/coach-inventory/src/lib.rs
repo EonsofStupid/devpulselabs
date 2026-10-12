@@ -2,7 +2,7 @@
 //! Phase 1 (AT-SPI desktop-root census only).
 //!
 //! **Hard law (C2d):** never call `GetChildren` below the desktop root.
-//! Deep fabric mint is C2e. Plan: `docs/plans/coach-c2d-lightweight-inventory.md`.
+//! Deep fabric mint is C2e. Plan: `docs-history-2026-10-12:docs/plans/coach-c2d-lightweight-inventory.md`.
 
 #![forbid(unsafe_code)]
 

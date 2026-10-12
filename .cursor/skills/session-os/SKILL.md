@@ -18,9 +18,11 @@ Claude Code runs the same loop via skill `milestone-loop` +
 
 ## Boot (every session — do this first)
 
-1. Read `docs/STATE.md` (top entries only unless needed).
-2. Read `docs/ops/SESSION.md` (active lane, NEXT, opens, `dirty`).
-3. Read `docs/ops/resume/CURRENT.md`.
+1. Read `docs/status.md`: now, known broken, next, plus its `active_lane`
+   and `dirty` frontmatter.
+2. Read `docs/requirements.md`, the operator's words. Nothing else is built.
+3. Read `docs/README.md`, the map: the one doc that is the truth for each
+   subject.
 4. Append `session.boot` + `resume.loaded` to `docs/ops/signals.jsonl`.
 5. Identify opens (git status/branch, open PRs for the lane) → `open.identified`.
 6. Confirm NEXT with the operator if ambiguous; do not steal parallel lanes.
@@ -57,10 +59,12 @@ project law: plan in `docs/plans/<pass>.md`, approve before code.
 
 When the context ring is high, a cut ends, or compact/clear is likely:
 
-1. Set `dirty: true` in SESSION frontmatter while writing.
-2. Update `docs/ops/resume/CURRENT.md` (goal / done / next / blockers / files).
-3. Append a short `docs/journal/YYYY-MM-DD-<topic>.md` if the arc needs narrative.
-4. Update SESSION opens/NEXT; `dirty: false`; emit `journal.wrote`.
+1. Set `dirty: true` in the `docs/status.md` frontmatter while writing.
+2. Rewrite `docs/status.md`: now / known broken / next. Rewrite it, never
+   append.
+3. Write `docs/journal/YYYY-MM-DD-<topic>.md` (the handoff). Only the newest
+   journal is kept; the previous one is deleted, and git keeps it.
+4. Set `dirty: false` and emit `journal.wrote`.
 5. Prefer stopping cleanly over pushing one more large tool storm.
 
 `preCompact` may fire first — treat disk resume as truth after summary.
@@ -68,7 +72,8 @@ When the context ring is high, a cut ends, or compact/clear is likely:
 ### After compact or clear
 
 There is **no** chat-clear hook. New chat → Boot again. Trust
-`resume/CURRENT.md` + STATE over memory. Optionally `@Past Chats` if needed.
+`docs/status.md` and the newest journal over memory. Optionally `@Past Chats`
+if needed.
 
 ## Signals
 
@@ -80,25 +85,14 @@ Vocabulary: [references/signals.md](references/signals.md) → also
 
 | Hook | Role |
 |---|---|
-| `sessionStart` | Sets `DPL_OPS_*` env; attempts resume pointer inject |
-| `preCompact` | Snapshots usage % + transcript tail → resume raw; user_message |
-| `stop` | If SESSION `dirty: true`, one followup nudge to journal |
+| `sessionStart` | Sets `DPL_OPS_*` env; injects `docs/status.md` + the newest journal |
+| `preCompact` | Snapshots usage % + transcript tail → `docs/ops/resume/raw`; user_message |
+| `stop` | If `docs/status.md` has `dirty: true`, one followup nudge to journal |
 
 Disk wins if inject fails.
 
 ## Alignment
 
-- Product laws: `AGENTS.md`, `CLAUDE.md`, `docs/STATE.md`
+- Product laws: `AGENTS.md`, `CLAUDE.md`, `docs/requirements.md`
+- The doc map (one doc per subject): `docs/README.md`
 - Plan/verify craft: clyffy-plan / clyffy-verify (invoke, do not replace)
-- Lane backlogs: journals under `docs/journal/`; SESSION only indexes
-
-## Dry-run checklist (p6 first live cycle)
-
-When operator says go on coach lane:
-
-1. Boot Session OS
-2. NEXT = p6 Library section harness
-3. Spawn grounder → gap-closer (≤3 plan / ≤2 web)
-4. Halt for approve with `docs/plans/...`
-5. Spawn executor for one cut
-6. Journal + clear dirty

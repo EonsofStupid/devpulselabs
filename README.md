@@ -134,20 +134,18 @@ Full law, ceilings, and the standing exceptions:
 
 | | |
 |---|---|
-| [`docs/STATE.md`](docs/STATE.md) | The living ledger — current state, known-broken, next. Read first. |
+| [`docs/status.md`](docs/status.md) | Where we are: now, known broken, next. Read first. |
+| [`docs/requirements.md`](docs/requirements.md) | The operator's requirements, verbatim: what gets built |
+| [`docs/README.md`](docs/README.md) | The map: the one doc that is the truth for each subject |
 | [`docs/design/architecture.md`](docs/design/architecture.md) | The layer law, gate-enforced |
-| [`docs/plans/product-vision.md`](docs/plans/product-vision.md) | What the product is and how the pillars compose |
-| [`docs/design/`](docs/design/) | ADRs, doctrine, the design system |
-| [`docs/runbook/`](docs/runbook/) | CI runners, bootstrap scripts |
 | `CLAUDE.md` / `AGENTS.md` | The operating contract for AI agents working in this repo |
 
 ---
 
 ## Contributing
 
-This is a personal project in pre-release and is not currently accepting
-outside contributions. It is public so the work can be read, not because it is
-ready to be built on.
+This is a personal project in pre-release and is not accepting outside
+contributions. The repository is private (since 2026-08-07).
 
 If you are working in it:
 
@@ -163,9 +161,8 @@ If you are working in it:
 
 **Closed — all rights reserved.** See [`LICENSE`](LICENSE).
 
-The repository is public so the work can be **read**. That is the only right
-granted: no use, copying, modification, or redistribution. This is deliberate
-and temporary — a license will be chosen and published when the project is
-ready for one.
+The repository is private. No right is granted: no use, copying,
+modification, or redistribution. A license will be chosen and published when
+the project is ready for one.
 
 [ADR-009]: docs/design/

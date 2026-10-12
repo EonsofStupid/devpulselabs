@@ -334,7 +334,7 @@ left free"* — which is exactly this, named consistently across lineages.
 — like every other ancestor, it has **no authored values reaching the runtime**
 (the `generate_matrix` payload-discard defect, C2b). *"It needs to actually
 exist"* is therefore the same blocker as everything else: `resolve()` plus
-payload emission (`docs/plans/matrix-resolve.md`).
+payload emission (`docs-history-2026-10-12:docs/plans/matrix-resolve.md`).
 
 ## 4 · Surface → treatment assignment
 
@@ -438,7 +438,7 @@ Ordered by what blocks the most. **C1 and C4 are RULED; C2 dissolved.**
 
 `resolve()` + migration test → confirm coordinate → re-treat the editor
 → then the deferred passes (icon pool residency, browse reach, the layer
-switches in `editor-layer-switches.md`). Styling before machinery is what
+switches in `docs-history-2026-10-12:docs/plans/editor-layer-switches.md`). Styling before machinery is what
 produced `2b0dacc`'s wrong base; this order prevents the repeat.
 
 ## 8 · Files this document supersedes or amends

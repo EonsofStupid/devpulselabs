@@ -3,7 +3,7 @@
 #
 # THIS SCENARIO INVERTED ON 2026-08-06. It used to assert that conversation
 # actions stay DISABLED, because "Codex is activation-only until the CH4
-# app-server pass". That pass landed (docs/plans/codex-host-wiring.md): Codex
+# app-server pass". That pass landed (docs-history-2026-10-12:docs/plans/codex-host-wiring.md): Codex
 # now has a live transport, the host drives it through the provider seam, and
 # a connected runtime advertises `StreamTurns`. Ready-and-unsendable was the
 # defect the operator named from the program's first message — "it shows

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Session OS — stop: nudge once if SESSION dirty.
+# Session OS — stop: nudge once if docs/status.md is dirty.
 set -euo pipefail
 ROOT="${CURSOR_PROJECT_DIR:-$(pwd)}"
-SESSION="$ROOT/docs/ops/SESSION.md"
+SESSION="$ROOT/docs/status.md"
 INPUT="$(cat)"
 
 DPL_OPS_SESSION="$SESSION" \
@@ -30,8 +30,8 @@ if session.is_file():
 out = {}
 if dirty and loop_count < 1:
     out["followup_message"] = (
-        "Session OS: docs/ops/SESSION.md is dirty: true. "
-        "Before stopping, refresh docs/ops/resume/CURRENT.md, append journal if needed, "
+        "Session OS: docs/status.md is dirty: true. "
+        "Before stopping, rewrite docs/status.md (now / known broken / next), write the journal if needed, "
         "emit journal.wrote, set dirty: false."
     )
 print(json.dumps(out))

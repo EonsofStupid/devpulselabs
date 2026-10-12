@@ -1,7 +1,7 @@
 //! C2s foreign-target spike — resolve / locate / paint / observe / invoke
 //! against a Tier A app (`gnome-calculator`) we did not write.
 //!
-//! Plan: `docs/plans/coach-c2s-foreign-target-spike.md`.
+//! Plan: `docs-history-2026-10-12:docs/plans/coach-c2s-foreign-target-spike.md`.
 //!
 //! Subcommands:
 //! - `locate` — print composed screen rect (or refuse)

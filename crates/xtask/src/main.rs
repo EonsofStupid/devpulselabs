@@ -1214,7 +1214,7 @@ fn structure_audit() -> Result<(), String> {
 /// - the matrix paints exactly ONE role in the whole app;
 /// - 1 of 19 effects has a keyframe `track`.
 ///
-/// **Two axes, never conflated** (`docs/plans/coverage-audit.md` §4.1). REACH
+/// **Two axes, never conflated** (`docs-history-2026-10-12:docs/plans/coverage-audit.md` §4.1). REACH
 /// asks "does anything reference this id at all"; DEPTH asks "does it use the
 /// capability the system offers". Effects are the proof that one number lies:
 /// reach is 17/19 and depth is 1/19, so a reach-only audit would print a tick

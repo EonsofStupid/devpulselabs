@@ -14,7 +14,7 @@ proof-*.png
 # The old Tauri app kept only as a READ-ONLY reference — never committed.
 /PORT/
 
-# Session OS: bulky transcript tails (CURRENT.md stays committed).
+# Session OS: bulky transcript tails (docs/status.md stays committed).
 /docs/ops/resume/raw/
 /docs/ops/resume/LAST_COMPACT.txt
 

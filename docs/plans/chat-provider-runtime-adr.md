@@ -3,7 +3,7 @@
 **Status:** RATIFIED — implementation allowed; live launch remains gated
 **Date:** 2026-07-23
 **Owner:** DevPULSE operator
-**Architecture:** [`chat-architecture.md`](chat-architecture.md)
+**Architecture:** [`docs-history-2026-10-12:docs/plans/chat-architecture.md`](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/plans/chat-architecture.md)
 **Evidence:** [`chat-provider-capabilities.md`](../research/chat-provider-capabilities.md)
 
 ## Ratification record
@@ -195,9 +195,9 @@ qualifies only `SubscriptionAuth`/`DeviceCodeAuth`; it cannot silently enable
 sessions, turns, tools, approvals, or send.
 
 The first such slices are the bounded official browser-login paths for
-[ChatGPT / Codex](chat-codex-activation.md) and
-[Grok Build](chat-grok-activation.md). Grok's activation entry is now extended
+[ChatGPT / Codex](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/plans/chat-codex-activation.md) and
+[Grok Build](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/plans/chat-grok-activation.md). Grok's activation entry is now extended
 by the named ACP implementation in
-[`chat-provider-workspaces.md`](chat-provider-workspaces.md): browser-login
+[`docs-history-2026-10-12:docs/plans/chat-provider-workspaces.md`](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/plans/chat-provider-workspaces.md): browser-login
 success restarts ACP but cannot set `Ready` by itself. Codex app-server remains
 blocked until its separate implementation and qualification pass.

@@ -101,7 +101,7 @@ Anything that lands via PixVix MUST land organized. Concretely:
   index carries `tags` + bucket so the library groups mirror the folders.
 - **Buckets are working-sets with SUGGESTED seed values** — the picker
   offers a starter list (show categories + a dated `shoot-…` + `scratch`),
-  any new name is just a kebab-forced folder. See `w9-capture-landing.md`
+  any new name is just a kebab-forced folder. See `docs-history-2026-10-12:docs/plans/w9-capture-landing.md`
   §3d.
 - **The library is a curated store, not an intake dump.** The inbox
   remains the machine-tier landing, but with organization applied on the
@@ -130,13 +130,13 @@ Anything that lands via PixVix MUST land organized. Concretely:
   Landing Policy + LandingCard, organize-on-landing, index+signal
   write-through, editor auto-pickup (already works). Browser capture
   on-spine is a scoped fast-follow (W9.1), not core W9. Plan:
-  `docs/plans/w9-capture-landing.md`.
+  `docs-history-2026-10-12:docs/plans/w9-capture-landing.md`.
 - **W10 — Workbench finished-slide association.** The sibling flow: a
   finished slide → guided ASSOCIATE with an episode/presentation, same
   policy/component, organizing into the content confirmed-library under
   the right show/episode (with live episode budgets, and no orphan
   slides). Designed here, built after W9. Plan:
-  `docs/plans/w10-slide-association.md` (AUTHORED 2026-07-26).
+  `docs-history-2026-10-12:docs/plans/w10-slide-association.md` (AUTHORED 2026-07-26).
 
 **Resolved by W10 (the shared-module decision):** `landing.rs` lives in a
 SHARED crate, not viziwiz-local, because the `Destination` type must

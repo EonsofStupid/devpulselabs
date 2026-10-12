@@ -152,7 +152,7 @@ shorten, never lengthen.
    (`60db7be`). Rows 3, 4 closed.
 3. **R1z — never lose work**: comp autosave + reopen-last + undo/redo +
    the keyboard map. Rows 1, 8. ✅ LANDED
-   (`docs/plans/r1z-editor-safety.md`).
+   (`docs-history-2026-10-12:docs/plans/r1z-editor-safety.md`).
 4. **R2a — my AE elements live here** (ratified R1c): ingest the gigs into
    `content/elements/<pack>/`, index, elements shelf + overlay lane. Row 6.
 5. **R2b — cuts feel finished** (R1d slice): transition/effect registry v1
@@ -181,7 +181,7 @@ peer windows fail honestly (never silently embed).
 ## 8. Ratification asks (operator)
 
 1. Ratify this contract + the §6 ladder order.
-2. R1y plan approval (`r1y-media-windows.md`). — retired with rung 2 (shipped as W2).
+2. R1y plan approval (`docs-history-2026-10-12:docs/plans/r1y-media-windows.md`). — retired with rung 2 (shipped as W2).
 3. "Import my After Effects": is tier (b) `.aep` project parsing required,
    or do rendered elements (a) + Lottie (c) cover the real workflow?
    (Partial answer landed: Lottie (c) shipped natively as L2, #99.)

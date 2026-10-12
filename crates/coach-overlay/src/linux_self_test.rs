@@ -1,6 +1,6 @@
 //! C2b `dpl-coach-overlay` — Linux/X11 backend (devtools-only).
 //!
-//! ADR: `docs/plans/coach-overlay-adr.md`. Plan: `docs/plans/coach-c2b-overlay-daemon.md`.
+//! ADR: `docs/plans/coach-overlay-adr.md`. Plan: `docs-history-2026-10-12:docs/plans/coach-c2b-overlay-daemon.md`.
 //!
 //! Subcommands:
 //! - `self-test` — locate + stream-verify + WINDOW paint + Sync-grab + XTEST → Triggered

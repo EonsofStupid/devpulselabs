@@ -121,7 +121,7 @@ pub fn press_edge_in_hotspot(
 mod tests {
     use super::*;
 
-    /// Measured constants from `docs/plans/coach-c2s-foreign-target-spike.md` §2.
+    /// Measured constants from `docs-history-2026-10-12:docs/plans/coach-c2s-foreign-target-spike.md` §2.
     #[test]
     fn section_2_reconciliation_and_button_seven() {
         let extents = FrameExtents {

@@ -5,9 +5,9 @@ edition.workspace = true
 publish.workspace = true
 
 # S3a of the seam ADR (docs/plans/coach-seam-adr.md §3, §7.4, §7.7;
-# pass plan docs/plans/coach-seam-s3a-identity-spine.md): the pack
+# pass plan docs-history-2026-10-12:docs/plans/coach-seam-s3a-identity-spine.md): the pack
 # registry + evidence resolver over the protocol's seam identity types
-# (rehomed there by S2, docs/plans/coach-seam-s2-protocol-rehoming.md).
+# (rehomed there by S2, docs-history-2026-10-12:docs/plans/coach-seam-s2-protocol-rehoming.md).
 # Egui-free; never a dep of `app` directly; consumed by dpl-hub-coach +
 # the Foundry (S3b).
 

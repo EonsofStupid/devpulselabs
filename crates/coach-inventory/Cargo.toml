@@ -7,7 +7,7 @@ autobins = false
 
 # Lightweight Coach target inventory (C2d). Egui-free. Never a dep of
 # `crates/app` until the Coach hub lands. Plan:
-# docs/plans/coach-c2d-lightweight-inventory.md
+# docs-history-2026-10-12:docs/plans/coach-c2d-lightweight-inventory.md
 
 [lints]
 workspace = true

@@ -23,7 +23,7 @@
 //!
 //! Same split as "card" for `dpl_doc::Slide`. The stack is invisible — a
 //! layman never has to learn that a small label is called an eyebrow
-//! (docs/plans/authoring-architecture.md, the UI law).
+//! (docs-history-2026-10-12:docs/plans/authoring-architecture.md, the UI law).
 
 use super::SPEC;
 use dpl_coldlight::{self as cl, Tone};
@@ -85,7 +85,7 @@ impl LibSection {
     }
 
     /// What the OPERATOR reads on the chip. Plain words only — the stack is
-    /// invisible (docs/plans/authoring-architecture.md, the UI law). "Combos"
+    /// invisible (docs-history-2026-10-12:docs/plans/authoring-architecture.md, the UI law). "Combos"
     /// and "Pieces" are what the code files under `blocks/` and `elements/`;
     /// the operator has no reason to learn either word.
     pub(crate) fn label(self) -> &'static str {

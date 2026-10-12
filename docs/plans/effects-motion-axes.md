@@ -144,7 +144,7 @@ generated pool size.
 4. `build.rs` generates the pool + skip rules + alias resolution; `EFFECT_COUNT`
    becomes the pool size; census test fails on drift.
 5. `sample()` reads the real axes instead of the derived approximation.
-6. `cargo green`; proof shots at 1280×800 and 1100×700; §8; STATE.md.
+6. `cargo green`; proof shots at 1280×800 and 1100×700; §8; docs-history-2026-10-12:docs/STATE.md.
 
 Steps 1–2 are behaviour-preserving and land first on purpose: the risky part
 (re-authoring the data) then has a green baseline to move against.

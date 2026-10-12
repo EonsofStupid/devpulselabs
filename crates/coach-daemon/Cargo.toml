@@ -6,13 +6,13 @@ publish.workspace = true
 autobins = false
 
 # Localhost Axum control plane for Coach (agent hop). Never a dep of
-# `crates/app`. ADR: docs/plans/coach-control-plane-adr.md
+# `crates/app`. ADR: docs-history-2026-10-12:docs/plans/coach-control-plane-adr.md
 
 [lints]
 workspace = true
 
 [dependencies]
-# S2 (docs/plans/coach-seam-s2-protocol-rehoming.md): the daemon is a
+# S2 (docs-history-2026-10-12:docs/plans/coach-seam-s2-protocol-rehoming.md): the daemon is a
 # TRANSLATOR — HTTP JSON in, protocol seam types through, runtime engine,
 # protocol EffectContract out. Bare verb strings die at the HTTP edge.
 egui-pilot-ai-protocol.workspace = true

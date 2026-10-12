@@ -1,6 +1,6 @@
 //! CLI proof for C2d — cold (+ optional live) inventory list.
 //!
-//! Plan: `docs/plans/coach-c2d-lightweight-inventory.md`
+//! Plan: `docs-history-2026-10-12:docs/plans/coach-c2d-lightweight-inventory.md`
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();

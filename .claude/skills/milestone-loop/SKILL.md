@@ -12,9 +12,9 @@ the repo root). The vocabulary and the operator's tuning recipes live in
 wraps `plan-code-change` / `deep-plan` / `eguipilotai`, never replaces
 them.
 
-Shared durable index with Cursor Session OS: `docs/ops/SESSION.md` +
-`docs/ops/resume/CURRENT.md` (read on every re-engage; do not maintain a
-second NEXT list).
+Shared durable index with Cursor Session OS: `docs/status.md`, plus
+`docs/requirements.md` (the operator's words) and `docs/README.md` (the doc
+map). Read them on every re-engage, and do not keep a second NEXT list.
 
 ## The loop
 
@@ -39,12 +39,14 @@ and write `docs/journal/<yyyy-mm-dd>-<slug>.md`:
   (operator WIP, moved checkouts, half-applied edits, env quirks).
 - **Verify commands** — how the fresh session proves state before moving.
 
-Emit `journal.written <slug> "path=<journal>"`. Then let the clear
-happen — never fight compaction with more work.
+Delete the previous journal in the same commit: only the newest handoff
+lives in `docs/journal/`, and git keeps the rest. Emit `journal.written
+<slug> "path=<journal>"`. Then let the clear happen; never fight compaction
+with more work.
 
 ### 4. RE-ENGAGE (fresh context)
-The SessionStart hook feeds — at ZERO tool-call cost — STATE, the latest
-journal, and the text tail of the previous session's transcript (~500
+The SessionStart hook feeds — at ZERO tool-call cost — `docs/status.md`, the
+latest journal, and the text tail of the previous session's transcript (~500
 entries; `transcript.reviewed` is emitted for you). Protocol:
 
 1. Absorb the journal FIRST; emit `journal.absorbed <slug>`.

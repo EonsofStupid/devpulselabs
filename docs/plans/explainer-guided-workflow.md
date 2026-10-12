@@ -191,7 +191,7 @@ milestone slice (each gate-clean: fmt+clippy+tests in-lane before
 push — the server1 gate-hole law), pushed via server1, PR opened as
 DRAFT at M1-end and kept current; squash-merge ONLY on double-green
 after M4. Journal entries `docs/journal/explainer-m<N>.md` per
-milestone; STATE.md close-out rides the final merge.
+milestone; docs-history-2026-10-12:docs/STATE.md close-out rides the final merge.
 
 ## 8 · Evidence & provenance
 

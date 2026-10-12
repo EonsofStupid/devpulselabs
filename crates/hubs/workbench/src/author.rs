@@ -1004,7 +1004,7 @@ impl CardTab {
     /// slide to select what to edit — so a second card beside it, only one of
     /// which answers a tap, would be worse than one. This is a deliberate
     /// deviation from the mock's uniform two-pane body, recorded in
-    /// `docs/plans/author-overlay-live-pane.md` §8.
+    /// `docs-history-2026-10-12:docs/plans/author-overlay-live-pane.md` §8.
     fn shows_live_card(self) -> bool {
         !matches!(self, CardTab::Words)
     }

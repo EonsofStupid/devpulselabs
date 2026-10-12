@@ -88,7 +88,7 @@ except OSError:
 msg = (
     f"Session OS: compaction ({trigger}) at ~{pct}% context. "
     f"Transcript tail → {tail_note}. "
-    "Re-read docs/ops/resume/CURRENT.md (and refresh journal if dirty) before continuing."
+    "Re-read docs/status.md (and refresh the journal if dirty) before continuing."
 )
 print(json.dumps({"user_message": msg}))
 PY

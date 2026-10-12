@@ -63,7 +63,7 @@ Non-goal: add new automation behavior.
 
 Implementation: **core complete and exercised through a real DevPULSE child
 process.** The evidence record is
-`docs/research/eguipilotai/slice-1-protocol-v2-evidence.md`. The pinned
+`docs-history-2026-10-12:docs/research/eguipilotai/slice-1-protocol-v2-evidence.md`. The pinned
 Lavapipe fifty-capture job is an explicit `workflow_dispatch` qualification
 and still requires an assigned Linux runner before its separate renderer
 qualification can be claimed.

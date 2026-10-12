@@ -1,7 +1,7 @@
 //! `dpl-coach-overlay` — foreign / whole-monitor coach chrome (devtools-only).
 //!
 //! ADR: `docs/plans/coach-overlay-adr.md`
-//! Plan: `docs/plans/coach-c2b-overlay-daemon.md`
+//! Plan: `docs-history-2026-10-12:docs/plans/coach-c2b-overlay-daemon.md`
 
 #[cfg(target_os = "linux")]
 #[path = "../linux_self_test.rs"]

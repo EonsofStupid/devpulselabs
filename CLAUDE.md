@@ -1,10 +1,10 @@
 # DevPULSE Labs — agent operating contract
 
-Read `docs/STATE.md` FIRST — it is the living ledger (current state, known
-broken, next). Then `docs/ops/SESSION.md` + `docs/ops/resume/CURRENT.md`
-(shared durable ops index). Then `docs/plans/roadmap.md` for the program map.
-Default ops: Claude skill `milestone-loop` + Cursor skill `session-os`
-(same loop; different surfaces).
+Read `docs/status.md` FIRST — where we are (now, known broken, next). Then
+`docs/requirements.md` — the operator's words, verbatim; nothing else is
+built. Then `docs/README.md` — the map: which ONE doc is the truth for each
+subject. Default ops: Claude skill `milestone-loop` + Cursor skill
+`session-os` (same loop; different surfaces).
 
 ## The one checkout
 
@@ -23,6 +23,16 @@ rebuilt and its mtime moved. The tool depot is staged beside it from
 
 - **Plan before code** (docs/plans/<pass>.md, 7 sections + §8 evidence).
   Ground-truth by reading the real files in-session; never code from memory.
+- **One truth** (operator, 2026-10-12: *"STOP PARALLEL STOP LEAVING OLD STOP
+  DOING LEGACY … IT IS ALL ONE"*):
+  - one doc per subject, listed in `docs/README.md`;
+  - an operator quote lives only in `docs/requirements.md`, and other docs
+    cite its R-id;
+  - a replaced doc or code path is deleted in the same PR, never left
+    marked "superseded";
+  - a pass plan is deleted when it lands (its evidence lives in the PR and
+    `status.md`).
+  - Deleted docs stay readable at `git show docs-history-2026-10-12:<path>`.
 - **PRs, not direct pushes**: branch → `gh pr create` → merge. Pre-release
   means move fast, not push blind.
 - **MERGE ONLY ON DOUBLE-GREEN** (2026-07-29 incident law): never merge a
@@ -108,4 +118,5 @@ rebuilt and its mtime moved. The tool depot is staged beside it from
 ## Session end (every session, no exceptions)
 
 1. Land the work on `main` via PR. 2. Rebuild `target\release\
-devpulselabs.exe` HERE and verify mtime. 3. Update `docs/STATE.md`.
+devpulselabs.exe` HERE and verify mtime. 3. Rewrite `docs/status.md` (now /
+known broken / next — rewritten, never appended).

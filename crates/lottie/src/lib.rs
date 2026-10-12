@@ -8,7 +8,7 @@
 //! frame at time `t` on demand (the timeline scrub path — the `ClipPlayer`
 //! analog); `export_sequence` runs the helper's batch mode for ffmpeg.
 //!
-//! Scope law (`docs/plans/native-lottie.md`): Lottie carries shapes,
+//! Scope law (`docs-history-2026-10-12:docs/plans/native-lottie.md`): Lottie carries shapes,
 //! keyframes, masks, mattes, gradients, and text — NOT effects, 3D, or
 //! expressions (those stay the AE orchestrator's job).
 

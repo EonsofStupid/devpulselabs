@@ -26,14 +26,14 @@ complexity required to make that path reliable belongs in the toolkit.
    timeouts, assertions, fixtures, scheduling, retries, sharding, and reports.
 6. [`traces-artifacts-visuals.md`](traces-artifacts-visuals.md) defines the
    evidence model, deterministic replay, and immutable visual approval.
-7. [`devpulse-census.md`](devpulse-census.md) maps the live application onto
+7. [`docs-history-2026-10-12:docs/research/eguipilotai/devpulse-census.md`](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/research/eguipilotai/devpulse-census.md) maps the live application onto
    those contracts and records the actual instrumentation gap.
 8. [`../../plans/eguipilotai-v1-delivery.md`](../../plans/eguipilotai-v1-delivery.md)
    converts the findings into dependency-ordered implementation slices.
-9. [`slice-0-shell-baseline.md`](slice-0-shell-baseline.md) freezes the first
+9. [`docs-history-2026-10-12:docs/research/eguipilotai/slice-0-shell-baseline.md`](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/research/eguipilotai/slice-0-shell-baseline.md) freezes the first
    native DevPULSE launch evidence without misrepresenting it as a frame-time
    or long-run memory qualification result.
-10. [`slice-1-protocol-v2-evidence.md`](slice-1-protocol-v2-evidence.md)
+10. [`docs-history-2026-10-12:docs/research/eguipilotai/slice-1-protocol-v2-evidence.md`](https://github.com/EonsofStupid/devpulselabs/blob/docs-history-2026-10-12/docs/research/eguipilotai/slice-1-protocol-v2-evidence.md)
    records the frozen v1 evidence, protocol v2 conformance, real child-process
    proof, and the exact frontier left for Slice 2.
 

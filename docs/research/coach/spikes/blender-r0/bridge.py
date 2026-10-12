@@ -4,7 +4,7 @@
 # the main thread via bpy.app.timers (bpy is not thread-safe). Blender's
 # own handlers emit timestamped facts (selection/load) to a JSONL file —
 # the operator-pace stream. Spike plan:
-# docs/plans/coach-seam-s4-spike-blender-r0.md
+# docs-history-2026-10-12:docs/plans/coach-seam-s4-spike-blender-r0.md
 
 import json
 import os
