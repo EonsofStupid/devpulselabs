@@ -1899,7 +1899,10 @@ mod honest_media_tests {
     #[test]
     fn a_failure_carries_ffmpegs_last_word() {
         assert_eq!(
-            with_reason("the recording failed", "line one\nCould not open device\n\n"),
+            with_reason(
+                "the recording failed",
+                "line one\nCould not open device\n\n"
+            ),
             "the recording failed: Could not open device"
         );
         assert_eq!(with_reason("no frames", ""), "no frames");

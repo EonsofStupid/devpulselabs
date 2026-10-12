@@ -414,8 +414,7 @@ pub(crate) fn palette(
                                         }
                                     }
                                 });
-                            if cl::tip(ui.button("↻"), "Scan for audio devices again").clicked()
-                            {
+                            if cl::tip(ui.button("↻"), "Scan for audio devices again").clicked() {
                                 actions.refresh_audio = true;
                             }
                         });
