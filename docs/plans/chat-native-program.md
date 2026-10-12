@@ -14,6 +14,20 @@ Rewritten 2026-10-11 in THE checkout (`D:\projects\devpulselabs`). It
 supersedes every earlier version of this file and the `wip/c1-paused`
 amendments.
 
+**Amended 2026-10-11 (operator: *"update the existing if wrong and ensure
+you plan against the existing code to implement canonical consistent naming
+and file and folder patterns"*):**
+- §3.2a measures what each vendor exposes against what we cover.
+- §3.2b lists the naming and layout defects in the existing code.
+- §4.3 replaces the "one contract" with:
+  - a three-tier `Event` (core · extension · lossless native);
+  - the per-provider coverage census as a gate;
+  - one identical file pattern per provider;
+  - a mechanical rename map;
+  - a `Participant` in the model from day one.
+- A1–A4 are updated to match, and the Claude fact is corrected (the
+  official CLI is installed; only the PATH entry is an impostor).
+
 **What this plan obeys** (the operator's own law, read in full 2026-10-10):
 - `docs/design/architecture.md`: the layers, ceilings, §4 laws and §5
   new-crate checklist.
@@ -102,7 +116,7 @@ Operator, 2026-10-10/11, verbatim:
 | Vendor | Desktop app | CLI | Notes |
 |---|---|---|---|
 | OpenAI Codex | **Store app `OpenAI.Codex` 26.1007.2314.0** (+ `CodexBeta` 26.727). It runs its own **`codex app-server` daemon 0.162.1** (`~/.codex/packages/app-server-daemon/…`, `--listen unix://`). | Depot `0.145.0-alpha.18`; system `0.160.1` (`AppData\Local\Programs\OpenAI\Codex\bin`) | The depot copy only passes today's stale gate (`>=0.145,<0.146`). |
-| Anthropic Claude | **Store app `Claude` 2.31226.1.0** | **The `claude` on PATH is NOT Anthropic's Claude Code.** It is an npm package that errors *"ANTHROPIC_API_KEY not set in .env file"*. Today's presence probe runs exactly that. | The official Claude Code CLI must be sourced into the depot. |
+| Anthropic Claude | **Store app `Claude` 2.31226.1.0** | **The official Claude Code CLI IS installed:**<br>• `~\.local\bin\claude.exe` → `2.1.283 (Claude Code)` (Anthropic's native installer)<br>• `~\.vscode\extensions\anthropic.claude-code-2.1.296-win32-x64\resources\native-binary\claude.exe` → `2.1.296`<br>**But the `claude` that PATH resolves first is not Claude Code:** `AppData\Roaming\npm\claude.ps1` is an npm package that errors *"ANTHROPIC_API_KEY not set in .env file"*, and today's presence probe runs exactly that. | Source the native binary into the depot (decision 3); never resolve `claude` from PATH. |
 | xAI Grok | **"Grok Bot" 0.63.0** (publisher SpaceXAI), `C:\Program Files\Grok Bot\Grok Bot.exe` | Depot Grok Build `0.2.112`; `~/.grok` exists | |
 | Google Gemini | — | Depot `0.54.4` is a **Node bundle** | Needs a Node runtime in the depot. |
 | WezTerm (our TTY) | **Not installed** | — | Must be **installed** (portable) into the depot (R36). |
@@ -115,6 +129,33 @@ Operator, 2026-10-10/11, verbatim:
   environment (`app/src/presence.rs:47,165`), while the runtime uses the
   depot.
 - **Conversations are never persisted.**
+
+### 3.2a What each vendor actually exposes vs what we cover (measured 2026-10-11)
+
+| Vendor | Programmatic surface (evidence) | Our adapter covers today | Not reachable programmatically (stated, not promised) |
+|---|---|---|---|
+| Codex | `codex app-server` JSON-RPC. Vendored schema `codex-cli 0.146.0-alpha.3.1`: **89 client requests, 70 server notifications** (`crates/chat/providers/codex/schema/{ClientRequest,ServerNotification}.json`). Server requests (approvals) are **not vendored**. | **3 requests** (`thread/start`, `turn/start`, `turn/interrupt`) + `initialize`; **~8 notifications** (`runtime.rs`). Missing: thread list/read/resume/fork, `model/list`, command/file-change items, `turn/diff/updated`, `turn/plan/updated`, MCP, rate limits, review, the `thread/realtime/*` voice notifications. | ChatGPT consumer-app features; Codex is the coding agent, not the ChatGPT app. |
+| Claude | Claude Code CLI 2.1.283/2.1.296 (`--help` read in-session): `-p` with `--input-format stream-json --output-format stream-json`, `--include-partial-messages`, `--replay-user-messages`, `-r/--resume`, `-c/--continue`, `--fork-session`, `--session-id`, `--permission-mode`, `--permission-prompt-tool`, `--model`, `--mcp-config`, `--agents`, `--allowed-tools`/`--disallowed-tools`, `--add-dir`, `--settings` | **Nothing** (no runtime; history decoder only) | **Claude Desktop's own features** (Projects, Artifacts, Research, connectors). No programmatic surface found on this laptop. "Wrap" is launch/focus until the A6 probe proves more. |
+| Grok | Grok Build `0.2.112`, ACP over `agent stdio`. ACP schema (`agent-client-protocol-schema` in the cargo registry): `initialize`, `authenticate`, `session/{new,load,list,resume,fork,close,delete,prompt,cancel,set_mode,set_config_option,request_permission,update}`, `fs/{read,write}_text_file`, `terminal/{create,output,wait_for_exit,kill,release}` | **About half**: initialize, authenticate, prompt, load/list sessions, cancel, fs read/write, terminals, permissions. Missing: resume, fork, close, delete, set_mode, set_config_option | Grok Bot desktop features; Imagine only through the xAI API key (ADR-011). |
+| Gemini | Node bundle `0.54.4`; protocol **unprobed** | Nothing (descriptor only) | Unknown until probed (A8) |
+
+**Group chat does not exist on any vendor side.** A council is DevPULSE
+orchestrating separate vendor sessions, feeding each participant the shared,
+attributed transcript under a turn policy (round-robin, the operator's
+2026-08-03 ruling). It is bounded by each provider's latency and context
+window.
+
+### 3.2b Naming and layout defects in the existing code (read 2026-10-11)
+
+| Defect | Evidence |
+|---|---|
+| **Two parallel type systems for one concept** | Generic `RuntimeCommand/RuntimeEvent/RuntimeFailure/RuntimePermissionOption` (`chat/runtime/src/seam.rs`) **and** Grok's own `GrokRuntimeCommand/GrokRuntimeEvent/GrokRuntimeFailure/GrokPermissionOption` (`grok/src/runtime.rs`). Grok bypasses the generic set; `GrokRuntimeSeam` (`grok/src/seam.rs`) is dead. |
+| **One concept, two names** | "How to launch the CLI" is `CodexRuntimeProfile` (Codex) and `GrokLaunchSpec` (Grok). The login process is `CodexLoginExit/Process/Launcher` in Codex but unprefixed `LoginExit/Process/Launcher` in Grok. |
+| **"seam" means four things** | The `dpl-seam` agent HTTP crate (`architecture.md:33`); `egui_pilot_ai_protocol::seam` (coach); `chat/runtime/src/seam.rs`; `grok/src/seam.rs`. The naming law (`design-system.md` §0.6) forbids a term with two meanings. |
+| **"terminal" is about to mean two things** | `grok/src/terminal.rs` is ACP's agent-requested terminal; the operator's WezTerm TTY (R41) is a different thing. |
+| **`chat/core` mixes two boundaries** | AI: `ProviderDescriptor`, `ProviderManifest`, `Capability`, `PresenceSpec/Verdict`, `ActivationState`, `DeviceAuthorizationPrompt`, `AccountSummary`, `RecoveryAction(Kind)`, `ProviderSessionId`, `SessionState/Group/Summary`, `TokenUsage`, `BoundedNativePayload`. Chat: `ChatSessionId`, `ChatEventId`, `ChatEvent*`, `EventPresentation`, `Command*`, `Content*`, `GuidedValue*`. |
+| **No shared per-provider file pattern** | Codex: `lib, activation, runtime`. Grok: `lib, runtime, seam, terminal, retry`. Claude, Gemini, Cursor: `lib` only. The chat window is a single 6,959-line `lib.rs`. |
+| **Stuttering names** | `dpl_chat_codex::CodexAppServerRuntime`, `dpl_chat_grok::GrokAcpRuntime`: the crate path already says the vendor. |
 
 ### 3.3 The design system (the operator's law, read 2026-10-10)
 
@@ -221,10 +262,23 @@ crates/chat/window/src/
   approvals.rs      agent requests: Approve / Decline, deadline (R24, R5)
   status.rs         plain-words provider states + what to do (R13, R21)
   tasks.rs          task-window strip, minimize/restore (R17, R32)
-crates/chat/renderers/   event rows (message / tool / result / quota) — rebuilt, wired in
+crates/chat/renderers/   event rows (message / tool / result / quota / native) — rebuilt, wired in
 crates/chat/windows/     peer + utility window lifecycle (unchanged boundary)
-crates/chat/store/       chat's OWN conversation store + the one list of all chats (R18, R9)
+crates/chat/core/        CHAT's domain only after A1: ChatSessionId · ChatEvent* · EventPresentation ·
+                         Command* (slash commands) · Content* (episode spine) · GuidedValue*
+crates/chat/store/       chat's OWN conversation store + the one list of all chats (R18, R9),
+                         plus the in-memory chat state from the retired chat/runtime
+crates/chat/interactions/ · crates/chat/context/   unchanged boundaries (overlay rules, route context)
 ```
+
+**Naming inside chat** follows the same rules as AI:
+- one module per concept;
+- no stuttering (`dpl_chat_window::composer`, not `ChatComposerWindow`);
+- vendor names never appear in chat code, which knows only `ProviderId`
+  and the `dpl-ai-core` types.
+
+A renderer for the `Native` event tier means a not-yet-mapped vendor event
+is still shown, never dropped.
 
 **Paint law (the operator's design system):**
 - Every component paints through ColdLight: `Intent` →
@@ -247,25 +301,128 @@ crates/chat/store/       chat's OWN conversation store + the one list of all cha
 
 ### 4.3 AI — providers and subscriptions (R39, R40, R41)
 
+**AMENDED 2026-10-11.** The first draft promised "the ONE command/event
+contract". A single lowest-common-denominator contract would silently drop
+what only some vendors do (Codex diffs and plans, Claude's agents and hooks,
+ACP's session fork). That would make "vendor updates are just a seam update"
+false. The corrections below are grounded in §3.2a and §3.2b.
+
+#### 4.3.1 The boundary and its crates (names pass the audit: `dpl-` + leaf folder)
+
 ```
 crates/ai/
-  core/        dpl-ai-core      provider identity · subscription/activation model · capabilities
-                                · the ONE command/event contract · usage — pure, no IO
-  host/        dpl-ai-host      the supervisor: start on first use, health, restart w/ backoff,
-                                idle stop, no orphans (Job Object on Windows), every server
-                                request answered, turn deadline; presence + sign-in through the
-                                depot only; publishes activation on the fabric (R10) so the
-                                WHOLE platform can use a connected provider
-  accounts/    dpl-ai-accounts  (moved from chat/accounts)   activation evidence
-  profiles/    dpl-ai-profiles  (moved from chat/profiles)   operator-authored profiles
-  browser-auth/ dpl-ai-browser-auth (moved from chat/browser-auth) — sign-in in the laptop's browser (R13)
-  imagine/     dpl-ai-imagine   (moved from chat/imagine)    xAI media (R4)
+  core/          dpl-ai-core          the single source of truth (contract types only — pure, no IO)
+  host/          dpl-ai-host          supervisor · registry · depot resolution · update path · fabric publish
+  accounts/      dpl-ai-accounts      (moved from chat/accounts)      activation evidence ledger
+  profiles/      dpl-ai-profiles      (moved from chat/profiles)      operator-authored profiles
+  browser-auth/  dpl-ai-browser-auth  (moved from chat/browser-auth)  sign-in in the laptop's browser (R13)
+  imagine/       dpl-ai-imagine       (moved from chat/imagine)       xAI media (R4)
   providers/
-    codex/ claude/ grok/ gemini/   dpl-ai-<provider> — one individual each (R11)
+    codex/ claude/ grok/ gemini/      dpl-ai-<provider> — one individual each (R11)
 ```
 
-**Each provider crate holds up to three adapters (R41)**, behind the one
-contract in `ai/core`:
+`chat/providers/cursor` is retired: no operator mandate (R33).
+`chat/runtime` is retired:
+- its contract (`seam.rs`) becomes `dpl-ai-core::adapter`;
+- its registry becomes `dpl-ai-host::registry`;
+- its in-memory chat state becomes `dpl-chat-store`.
+
+#### 4.3.2 `dpl-ai-core`: the single source of truth, one module per concept
+
+| Module | Owns |
+|---|---|
+| `provider.rs` | `ProviderId` (open newtype, per the 2026-08-11 decision B), `Manifest`, `Accent` |
+| `capability.rs` | `Capability`, plus the declared-vs-earned qualification (`qualified_capabilities`) |
+| `presence.rs` | `PresenceSpec`, `PresenceVerdict` |
+| `activation.rs` | `ActivationState`, `DeviceAuthorizationPrompt`, `AccountSummary`, `RecoveryAction(Kind)` |
+| `session.rs` | `SessionId`, `SessionState`, `SessionGroup`, `SessionSummary` |
+| `turn.rs` | `TurnId`, `TurnInput` (text, attachments, the route context chat offers) |
+| `event.rs` | **`Event`, three tiers.** **(1) Core:** turn started/completed, text delta, reasoning delta, tool call, plan, diff, usage, error. **(2) Extension:** capability-flagged events only some vendors emit, typed. **(3) `Native`:** the vendor's original payload, preserved **losslessly** for anything not yet mapped. It is shown and logged, never dropped (bounded by the existing `BoundedNativePayload`). |
+| `request.rs` | `Request` (outbound: start session, send turn, interrupt, steer, resume, fork, answer approval) + `SendError` |
+| `approval.rs` | `ApprovalRequest`, `ApprovalOption(Kind)`, `ApprovalDecision`. This merges `RuntimePermissionOption*` and `GrokPermissionOption*`. |
+| `usage.rs` | `TokenUsage`, `UsageReporting`, `ProviderUsage`, `SessionUsage` |
+| `history.rs` | the `HistoryDecoder` port + `DecodedHistoryEvent`, `DecodeOutcome` (each provider implements it) |
+| `participant.rs` | `Participant` { Operator · Provider(`ProviderId`) · Clyffy }. Every message carries its speaker from day one, so the council (R25) is not a retrofit. |
+| `adapter.rs` | **the port:** `trait Adapter` (what `ProviderRuntime` was), plus `Failure`/`FailureKind` |
+| `census.rs` | the protocol **coverage census** types: `ProtocolItem { kind: Request \| Notification \| ServerRequest, name }`, `Coverage { Mapped(&'static str) \| Unused { reason } \| Unmapped }` |
+
+#### 4.3.3 Every provider crate has the SAME files. A mode a vendor lacks is an absent file, never a stub.
+
+```
+crates/ai/providers/<vendor>/
+  Cargo.toml        dpl-ai-<vendor>
+  schema/<vendor-version>/   vendored protocol schema, GENERATED from the exact depot binary
+                             (`cargo xtask vendor-schema <vendor>`); a VERSION file names it
+  src/
+    lib.rs          the `Manifest` const + module declarations — no logic
+    launch.rs       `LaunchSpec`: depot binary, args, env allow-list, working folder
+                    (merges `CodexRuntimeProfile` + `GrokLaunchSpec`)
+    activation.rs   presence probe + sign-in ceremony, through the depot only
+    protocol.rs     wire types for this vendor (Codex: JSON-RPC frames from the vendored
+                    schema; Grok: the `agent-client-protocol` crate's types, used directly)
+    transport.rs    the process's stdio framing — the bytes, nothing semantic
+    adapter.rs      `impl dpl_ai_core::Adapter` — the ONLY place vendor ⇄ canonical mapping lives
+    census.rs       every protocol item of the pinned version, classified (Mapped / Unused+reason)
+    history.rs      `impl HistoryDecoder` for the vendor's transcripts
+    usage.rs        the vendor's usage dialect
+    tty.rs          the vendor's own TUI in our WezTerm (R41 terminal mode)
+    desktop.rs      desktop-app wrap — ONLY once the A6 probe proves a capability
+    terminal.rs     (ACP vendors) agent-requested terminals; distinct from tty.rs
+```
+
+Type names are **unprefixed inside a provider crate** and read through the
+path: `dpl_ai_codex::Adapter`, `dpl_ai_grok::Adapter`. This follows the Rust
+API Guidelines (no stuttering), and the same shape means a reader of one
+provider can read them all. The supervisor's restart policy (today's
+`grok/src/retry.rs`) moves to `dpl-ai-host::retry` because it is not
+vendor-specific.
+
+#### 4.3.4 The coverage census: what makes "a vendor update only needs our contract to cover it" real
+
+- **Every item is classified.** Each provider's `census.rs` lists every
+  request, notification and server request of its pinned protocol version:
+  `Mapped` (to which canonical item), or `Unused { reason }`.
+- **A test fails on drift.** It regenerates the item list from the vendored
+  schema and **fails when any item is unclassified**: a new vendor method, or
+  one removed while still mapped. `cargo green` runs it.
+- **A vendor update reads as a red list.** Staging a new vendor version
+  (A3) regenerates the schema. The census then prints exactly what is new,
+  changed or gone. That list is the update's to-do, and nothing reaches the
+  operator half-mapped.
+- **Today's baseline (§3.2a)** is roughly 12 of 159+ Codex items mapped and
+  about half of ACP. The census makes that gap visible and enforced instead
+  of hidden.
+- **Approvals.** Codex's server-request schema (approvals) is vendored with
+  the rest, and every server request is answered (A2).
+
+#### 4.3.5 Rename map (A1, mechanical, no shims; callers move in the same commit)
+
+| Today | Becomes |
+|---|---|
+| `dpl_chat_runtime::seam::{ProviderRuntime, RuntimeCommand, RuntimeEvent, RuntimeUpdate, RuntimeFailure(Kind), RuntimeSendError, RuntimeCapabilities, RuntimeSessionSummary, RuntimePermissionOption(Kind)}` | `dpl_ai_core::{Adapter, Request, Event, Event(core tier), Failure(Kind), SendError, Capability set, SessionSummary, ApprovalOption(Kind)}` |
+| `GrokRuntimeCommand/Event/Failure(Kind)/SendError/PermissionOption(Kind)/SessionUpdate/SessionSummary/AcpCapabilities` | **deleted.** Grok maps onto the core types in its `adapter.rs` (this retires the Grok-only host path) |
+| `GrokRuntimeSeam` | deleted (dead) |
+| `CodexAppServerRuntime`, `GrokAcpRuntime` | `dpl_ai_codex::Adapter`, `dpl_ai_grok::Adapter` |
+| `CodexRuntimeProfile`, `GrokLaunchSpec` | `dpl_ai_codex::LaunchSpec`, `dpl_ai_grok::LaunchSpec` |
+| `CodexActivationCoordinator`, `GrokActivationCoordinator` | `dpl_ai_<vendor>::activation::Coordinator` |
+| `CodexLogin{Exit,Process,Launcher}`, Grok `Login{Exit,Process,Launcher}` | `dpl_ai_<vendor>::activation::{LoginExit, LoginProcess, LoginLauncher}` |
+| `CodexHistoryDecoder`, `ClaudeHistoryDecoder` | `dpl_ai_<vendor>::history::Decoder` |
+| `CodexUsage`, `ClaudeUsage`, `GrokUsage` | `dpl_ai_<vendor>::usage::Usage` |
+| `GrokRuntimeRetryState`, `GrokRuntimeFailureDisposition`, `GrokVerificationOrigin` | `dpl_ai_host::retry::{RetryState, FailureDisposition, VerificationOrigin}` |
+| `dpl_chat_runtime::{ProviderRegistration, ProviderView, RegistryError}` | `dpl_ai_host::registry::{Registration, View, RegistryError}` |
+| AI types in `dpl_chat_core` (§3.2b list) | `dpl_ai_core::<module>` per §4.3.2 |
+| `dpl_chat_store::{HistoryDecoder, DecodedHistoryEvent, DecodeOutcome, UsageReporting, ProviderUsage, SessionUsage}` | `dpl_ai_core::{history, usage}` |
+
+**Naming law (`design-system.md` §0.6).**
+- **Industry terms** (meaning (b)): adapter (ports and adapters),
+  transport, protocol, session, turn, request, event, capability, manifest,
+  presence, tty.
+- **Repo terms** (meaning (c)): `census` (the architecture.md census law),
+  `activation`, `participant`. A1 adds a definition row for each to
+  §0.6 **before** the code that uses them.
+- **"seam" is not used anywhere under `crates/ai/`.**
+
+#### 4.3.6 The three ways in, per provider crate (R41)
 
 | Mode | What it is | Per vendor (probed first, honest about limits) |
 |---|---|---|
@@ -275,13 +432,13 @@ contract in `ai/core`:
 
 **Updates that keep subscriptions working (R40)**, the per-provider update
 path:
-1. **Compatibility is proven, not hard-coded.** Each adapter declares the
-   protocol surface it uses (methods, notifications, server requests). On
-   staging a vendor version, a **compatibility probe** runs against that
-   exact binary: handshake, schema regeneration (e.g. `codex app-server
-   generate-json-schema`), and a diff against the adapter's surface. The
-   result is written into the depot manifest beside the payload. This
-   replaces stale constants like `>=0.145,<0.146`.
+1. **Compatibility is proven, not hard-coded.** Each provider's census
+   (§4.3.4) classifies its whole protocol surface. On staging a vendor
+   version, a **compatibility probe** runs against that exact binary: the
+   handshake, then schema regeneration (`cargo xtask vendor-schema
+   <vendor>`, e.g. `codex app-server generate-json-schema`), then the
+   census diff. The result is written into the depot manifest beside the
+   payload. This replaces stale constants like `>=0.145,<0.146`.
 2. **One "Update" control per provider**, in AI's provider panel and reached
    from chat (R37). It shows the depot version, the newer versions found
    (on this machine first: the vendor's own installed copy, e.g. Codex
@@ -301,10 +458,10 @@ path:
 | **D0** | The laptop's deps (`d0-laptop-deps.md`, approved): startup check, honest media, camera, portable release | As that plan states |
 | **K1 = design-system 3′** | The operator's ordering law: the naming merge + `coldlight` module split, pixel-identical | `cargo green`; before and after shots at 1100×700 and maximized |
 | **K2** | ColdLight token extensions for chat (`roles.json` chat surface, icons, caret/busy motion) | Generated; census tests; Library walls show them |
-| **A1 = the AI boundary** | Create `crates/ai/*`. Move accounts, profiles, browser-auth, imagine and providers/* under it. Split `chat/core`, `chat/runtime` and `chat/store` along the §3.1 lines. Move presence, usage and backfill out of the app. **No shims; behaviour unchanged.** `architecture.md` + the xtask audit are amended in the same commit. | `cargo green`; existing chat drills unchanged; real-exe shot; the structure audit shows chat ↛ provider internals |
-| **A2 = host + Codex done right** | `dpl-ai-host` supervisor; Codex CLI mode: depot-only presence and sign-in, server requests answered, turn deadline, real compatibility probe | **A real turn on this laptop** with the operator's login; orphan check clean |
-| **A3 = the update path** | Probe + manifest + "Update" control; Codex updated from the depot's 0.145-alpha to a current version through it | Update proven end to end; refusal proven against a deliberately incompatible build kept in a scratch depot |
-| **A4 = Claude Code** | The official Claude Code CLI sourced into the depot (not the PATH impostor); `stream-json` adapter; presence and sign-in through the depot | Real Claude turn |
+| **A1 = the AI boundary, canonical** | Create `crates/ai/*` (§4.3.1). Move accounts, profiles, browser-auth, imagine and providers/* under it. Split `chat/core`, `chat/runtime` and `chat/store` (§3.1, §4.3.5). Apply the **rename map** and the **same-files pattern** (§4.3.3) to every existing provider. Author `dpl-ai-core` per §4.3.2: the three-tier `Event`, `Participant`, the `census` types. Move presence, usage and backfill out of the app. Add the §0.6 definition rows. **No shims; behaviour unchanged.** `architecture.md` + the xtask audit are amended in the same commit. | `cargo green`; existing chat drills unchanged; real-exe shot; the structure audit shows chat ↛ provider crates; a grep shows no `seam` under `crates/ai/` and no vendor name under `crates/chat/` |
+| **A2 = host + Codex done right** | `dpl-ai-host` supervisor. Codex CLI mode: depot-only presence and sign-in; **the server-request schema vendored and every server request answered**; turn deadline. **The Codex census** classifies all 89 requests, 70 notifications and the server requests (Mapped / Unused+reason), and the core history/resume/models/diff/plan items are mapped. `cargo xtask vendor-schema codex`. | **A real turn on this laptop** with the operator's login; the census test is green on the pinned version; orphan check clean |
+| **A3 = the update path** | Probe (handshake + `vendor-schema` + **census diff**) + manifest + "Update" control. Codex is moved from the depot's 0.145-alpha to the operator's current version through it. | Update proven end to end, with the census red-list shown for the version jump. A refusal is proven against a deliberately incompatible build kept in a scratch depot. |
+| **A4 = Claude Code** | The official Claude Code native binary (installed at `~\.local\bin\claude.exe` 2.1.283; never the PATH impostor) sourced into the depot. A `stream-json` adapter (both directions, `--include-partial-messages`, `--resume`/`--fork-session`, `--permission-prompt-tool` for approvals). A census over its documented flags and message types. Presence and sign-in through the depot. | Real Claude turn |
 | **A5 = Terminal mode** | Portable WezTerm **installed** into the depot (new tool id, `terminal` family); "Open in terminal" for Codex, Claude and Grok | Launches the depot binary with our config; closes clean |
 | **A6 = Desktop wrap** | Probe each desktop app (Codex daemon attach, Claude Desktop, Grok Bot); build only what the probe proves | Each proven capability demonstrated; unproven ones stated |
 | **C1 = chat store** | Conversations persisted under `.userdata/chat/` (document law: `v`, refuse newer, tmp → bak → rename); the one list across DevPULSE + vendor history (through AI's decoders) | Quit and relaunch; history is there; vendor chats in the same list |
@@ -352,6 +509,15 @@ Each is listed before it is relied on.
 **Depot:**
 - new ids `wezterm` (terminal family) and `claude` (provider);
 - `node` if Gemini is approved.
+
+**Tooling and gate (A1–A3):**
+- `cargo xtask vendor-schema <vendor>` regenerates `schema/<version>/` from
+  the exact staged depot binary.
+- Each provider's census test runs inside `cargo green`, so an unclassified
+  protocol item fails the gate on both CI lanes.
+- The structure audit gains two checks:
+  - no `chat/*` → `ai/providers/*` edge;
+  - no vendor name under `crates/chat/`.
 
 **Rules for every new or moved crate:**
 - the §5 checklist;
@@ -408,4 +574,22 @@ Each pass:
   - the PATH `claude` is a non-Anthropic npm package (*"ANTHROPIC_API_KEY
     not set in .env file"*);
   - the Codex desktop daemon is running (0.162.1, `--listen unix://`).
+- **Measured 2026-10-11 (§3.2a, §3.2b amendment):**
+  - **Codex protocol.** Parsed the vendored `ClientRequest.json` and
+    `ServerNotification.json` (`oneOf` → `method`): **89 requests, 70
+    notifications**. A grep of `codex/src/runtime.rs` finds 3 requests sent
+    and about 8 notifications mapped.
+  - **ACP protocol.** A grep of `agent-client-protocol-schema` (cargo
+    registry) gives the method list in §3.2a. A grep of
+    `crates/chat/providers/grok/src/*.rs` shows the methods used.
+  - **Claude Code CLI.** `claude.exe --version` returns `2.1.296 (Claude
+    Code)` (VS Code extension native binary) and `2.1.283 (Claude Code)`
+    (`~\.local\bin`). `--help` was read for the stream-json, resume, fork,
+    permission, model, MCP and agents flags.
+  - **Naming defects.** A `pub struct|enum|trait` inventory of
+    `chat/{core,runtime,store,accounts,profiles}` and `providers/{codex,grok,claude}`
+    (§3.2b), plus a grep of `docs/design` for the four meanings of "seam".
+  - **Naming audit rule.** `crates/xtask/src/main.rs:1063-1090`: crate =
+    `dpl-` + a name ending in the leaf folder, so `dpl-ai-codex` for
+    `crates/ai/providers/codex` passes.
 - R1–R35 were re-read at their cited lines; R36–R41 are from 2026-10-10/11.
