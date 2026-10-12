@@ -47,20 +47,31 @@
     its own 0.162.1 daemons.
   - The gate fix belongs to C2.
 
-**Next, in order:**
-1. **D0** — this laptop's deps, proven (plan `docs/plans/d0-laptop-deps.md`,
-   authored next and needing operator approval):
-   - the startup dependency check that refuses to open the workspace when a
-     required dependency fails;
-   - every real path run on the real exe: screen record, clip decode,
-     audio and camera devices, PDF, Lottie, the operator's library;
-   - `content/artifacts.db.corrupt` investigated;
-   - camera support: face-cam picture-in-picture, webcam clip, live
-     preview, and device health in the check.
-2. **G1** — the ignored drills run against the depot (no reward hacking).
-3. Then chat resumes. **C1** is the mock (shelved on `wip/c1-paused`; the
-   program amendments there move the order to Codex, then Claude Code, and
-   one tab that opens the extended sidebar). **C2** follows.
+**Next, in order** (both plans APPROVED 2026-10-11, operator: *"execute"*):
+1. **D0**, `docs/plans/d0-laptop-deps.md`:
+   - D0.0, the clean rebuild of THE checkout (`cargo clean` done
+     2026-10-10, 57.5 GiB) + land #257;
+   - D0.1, honest media paths;
+   - D0.2, the startup dependency check (refuses to open the workspace on
+     a failed dependency);
+   - D0.3 / D0.4, camera (engine, then UI);
+   - D0.5, gate truth (ignored drills run against the depot);
+   - D0.6, a portable release with the depot bundled.
+2. **CHAT + AI**, `docs/plans/chat-native-program.md` §4.4:
+   - **K1**, design-system 3′;
+   - **K2**, chat tokens;
+   - **A1**, the AI boundary: providers and subscriptions under
+     `crates/ai/*`;
+   - **A2**, host + Codex done right;
+   - **A3**, the update path;
+   - **A4**, Claude Code;
+   - **A5**, WezTerm terminal mode;
+   - **A6**, desktop wrap;
+   - **C1**, chat store;
+   - **C2**, chat UI colocated in `chat/window` (the real egui window is
+     the mock);
+   - and on through the plan.
+3. **Shelved:** `wip/c1-paused`'s HTML-mock C1 is superseded (no web, R38).
 
 ---
 
