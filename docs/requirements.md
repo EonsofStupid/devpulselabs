@@ -25,13 +25,13 @@ an operator quote: other docs cite the R-id, and they never re-quote it.
 | 3 | [WiredFRONT, Workbench, presets and the visual language](#3-wiredfront-workbench-presets-and-the-visual-language) | 85 |
 | 4 | [Slides, presenting, shows and episodes](#4-slides-presenting-shows-and-episodes) | 3 |
 | 5 | [Capture — ViziWiz, sessions, steps, guides](#5-capture--viziwiz-sessions-steps-guides) | 12 |
-| 6 | [Chat and AI providers](#6-chat-and-ai-providers) | 31 |
+| 6 | [Chat and AI providers](#6-chat-and-ai-providers) | 32 |
 | 7 | [Coach](#7-coach) | 14 |
 | 8 | [Signals, analytics and the rest](#8-signals-analytics-and-the-rest) | 21 |
 | 9 | [Portability and dependencies](#9-portability-and-dependencies) | 20 |
 | 10 | [How we work](#10-how-we-work) | 32 |
 
-**275 quoted requirements.** A quote that touches several subjects
+**276 quoted requirements.** A quote that touches several subjects
 sits under the first of them in this order.
 
 ## 1. The library — one universe of content
@@ -1287,6 +1287,19 @@ Source: `docs-history-2026-10-12:docs/plans/chat-native-program.md:49`
 Source: `docs-history-2026-10-12:docs/plans/chat-native-program.md:3`
 
 Note: The operator's one-word approval of chat-native-program.md (status line: APPROVED 2026-10-11, operator: "execute"); the §4.6 decisions were adopted as recommended.
+
+### R275 · 2026-10-12
+
+> am i going to be able to start having codex and claude chat each on their own subscription, eventually I need to then consider how to group and vector storage or vectorDB them so we can have them used for rag/inference as well but i know that each of them is reality their own session so we need a hook that feeds perhaps or test this out and have clear devtools to make this research and optimizeable and can help brainstorm
+
+Source: the operator's message in the Claude Code session of 2026-10-12 (first recorded here)
+
+Note: Facts at the time of recording:
+- Each provider signs in with its own subscription through its own vendor CLI (R39–R41), after A2 (Codex) and A4 (Claude Code). The order follows R33.
+- `crates/chat/store` already normalizes both providers' native session files into `ChatEvent` pages (`HistoryIndex`/`HistoryPage`). That is the feed point.
+- Subscriptions do not include embeddings: embeddings need a local model as a subprocess, or a separate API key.
+- The vector store (Turso/libSQL vectors vs LanceDB) is unresearched.
+- The devtools home is Workbench `/experiments` (R139, R140).
 
 ## 7. Coach
 

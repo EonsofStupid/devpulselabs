@@ -23,7 +23,7 @@ organized set, and the library becomes one.
 
 | Pass | What | State |
 |---|---|---|
-| P1 | requirements ledger (275, verified verbatim) · this page · the doc map · 247 finished/superseded/stale docs deleted (tagged first) · every reference fixed (0 dangling) | **in PR** (branch `docs/one-truth`) |
+| P1 | requirements ledger (276 verbatim; R275 added from the operator's RAG question) · this page · the doc map · 247 finished/superseded/stale docs deleted (tagged first) · every reference fixed (0 dangling) | **in PR** (branch `docs/one-truth`) |
 | P2 | one design doc per subject; ADRs into `adr/` | next |
 | P3 | `design/library.md`, the one-library law, for operator approval | after P2 |
 | L1… | code passes that make the library one | after P3 approval |
@@ -94,4 +94,14 @@ the one-truth program, because D0.1c is now library work.
 1. P1 lands (this branch): gate, both lanes through `workflow_dispatch`,
    merge.
 2. P2, then P3 for operator approval.
-3. The L passes (one library), then D0.2 onward, then CHAT + AI.
+3. The L passes (one library), then D0.2 onward, then CHAT + AI. Codex (A2)
+   and Claude Code (A4) each run on their own subscription first (R33).
+4. Then **chat memory (R275)**: its own plan, with research first. It
+   covers:
+   - feeding every Codex/Claude turn (already normalized by
+     `chat/store`'s `HistoryIndex`) into embeddings, grouped by provider,
+     session and project;
+   - a local embedder subprocess, or a separate API key (subscriptions
+     carry no embeddings);
+   - Turso/libSQL vectors vs LanceDB;
+   - a retrieval lab in Workbench `/experiments` (R139, R140).
