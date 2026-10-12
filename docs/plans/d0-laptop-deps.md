@@ -172,6 +172,42 @@ items above.
 
 ### 4.2 D0.1 — honest media paths
 
+**Amended 2026-10-11 (re-grounded before code): D0.1 lands as two PRs.**
+
+**D0.1a covers items 1–3 below.**
+- **Devices.** `engine-capture` gains `pub enum DeviceKind { Video, Audio }`,
+  `pub struct CaptureDevice { name, alt_name: Option<String>, kind }`, and
+  `pub fn list_capture_devices() -> Result<Vec<CaptureDevice>, String>`.
+  - It returns an honest `Err` when the probe fails, not an empty list.
+  - The pure parser `parse_dshow_devices(&str)` reads the ffmpeg-8
+    `"Name" (video|audio)` + `Alternative name "…"` format, and the older
+    header format the previous parser targeted.
+  - `list_audio_devices` is **removed** and its two ViziWiz callers
+    (`viziwiz/src/lib.rs:1354,1364`) move to the new API (no shim).
+  - The device **id** passed to dshow is the `alt_name` (unique, e.g.
+    `audio=@device_cm_…`); the UI shows the `name`.
+  - The fixture is this laptop's verbatim listing, CRLF preserved:
+    `crates/engine-capture/tests/fixtures/dshow-list-ffmpeg-8.1.2.txt`.
+- **Honest recordings, in both `record_monitor_ctl` and `record_monitor`.**
+  - ffmpeg runs with `-hide_banner -nostats -loglevel error`. stderr is
+    piped and drained into the last 64 lines; the exit status is checked.
+  - `frames == 0` is an `Err`.
+  - Before `Ok`, the output is verified: it exists, it is non-empty, and
+    `ffmpeg -i` shows a Video stream, plus an Audio stream when audio was
+    requested.
+  - So ViziWiz's "saved …" (`lib.rs:1114-1121`) and the session's
+    "session saved" (`:1148`) can only follow a real file.
+- **Pacing.** Tick-indexed deadlines `start + n/30 s` replace the
+  accumulating 33 ms sleep, in both recorders.
+- **Drill.** A new harness flag, `--video-audio <none|mic|system>` (CLAUDE.md
+  flag list + structure census, same commit). `--video-drill` then exits 0
+  only on a verified save. The 60 s mic run measures |video − audio|
+  duration.
+
+**D0.1b covers items 4–5:** depot-only Chromium/pdftoppm/Lottie, and the
+single library rule (`roots.toml`, `xtask stage-roots`, no parent walk or
+CWD, `locate_asset` on injected roots).
+
 1. **Device listing.**
    - `list_capture_devices() -> Vec<CaptureDevice { name, alt_name, kind:
      Video|Audio }>` reads the trailing `(video)`/`(audio)` tag and the
@@ -398,4 +434,53 @@ failure.
     That is **stored evidence, not a live check**; A2 owns the live proof.
   - The editor's Project panel lists the operator's footage.
   - The footer is visible, stamped `a10d80e`. No orphan `devpulselabs.exe`.
+### D0.1a — honest media paths (2026-10-11)
+
+**Fixtures (real bytes).** Three files are captured from the depot ffmpeg
+8.1.2 on this laptop:
+- `crates/engine-capture/tests/fixtures/dshow-list-ffmpeg-8.1.2.txt`, the
+  verbatim device listing, kept CRLF by a new `.gitattributes` rule for that
+  folder only;
+- `ffmpeg-i-video-audio-8.1.2.txt` and `ffmpeg-i-video-only-8.1.2.txt`,
+  `ffmpeg -i` of real lavfi-generated clips.
+
+**Unit tests:** 9 new in `honest_media_tests`, 14/14 in
+`dpl-engine-capture` lib. They cover:
+- the ffmpeg-8 inline listing parses all three devices, CRLF and LF;
+- the older header format still parses;
+- the device id is the unique alternative name;
+- `parse_streams` tells video+audio from video-only;
+- frame deadlines are exact (tick 30 = 1 s, tick 1800 = 60 s);
+- drift catches the old pacing (1818 frames / 60 s > 0.5 s);
+- a failure carries ffmpeg's last stderr line.
+
+**Static checks.** clippy `-D warnings` is clean on `dpl-engine-capture`,
+`dpl-viziwiz` and `devpulselabs`. The structure audit reports **48 flags in
+census** (`--video-audio` added to `main.rs` and CLAUDE.md together).
+
+**Real-exe drills.** Each ran into a scratch `--content-root`, never the
+operator's library, one at a time:
+
+| Drill | Result |
+|---|---|
+| `--video-drill 5` mp4 · vp9 · av1 | each **saved 149 frames**, file verified; `149 frames = 4.967s of video over 4.967s of wall clock · drift 0.000s` |
+| `--video-drill 60 --video-audio mic` | **saved 1798 frames**, `59.933s of video over 59.934s of wall clock · drift 0.001s`; `ffmpeg -i`: `Video: h264 … 30 fps` + `Audio: aac (LC) 44100 Hz` (the Realtek microphone) |
+| failure (output folder write-denied via `icacls`) | exit 1: `video: the recording failed (ffmpeg exit code: 0xfffffff3): Error opening output files: Permission denied`; no file; this previously printed "saved" |
+| orphan check, after every drill | no `ffmpeg.exe` left |
+
+**Corrected in-session, recorded (R36).** The first mic run reported
+`video 59.960s · audio 59.960s · |Δ| 0.000s` by measuring file stream
+durations. That was **not evidence**: the recorder's `-shortest` trims both
+streams to equal length whatever the drift. It was replaced by the engine's
+`Recorded { frames, seconds }`: frames ÷ 30 against the loop's measured
+wall clock, which the old 33 ms pacing fails.
+
+**Also fixed in the touched code:**
+- A failed ffmpeg spawn now stops the already-started screen recorder.
+- The palette tooltip "Theme for audio devices again" now reads "Scan for
+  audio devices again".
+
+**Privacy.** The drill recordings, including the mic ones, were deleted from
+the scratchpad after measurement.
+
 - Later sub-passes are filled in as they land.

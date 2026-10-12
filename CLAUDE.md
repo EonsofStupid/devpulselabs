@@ -67,7 +67,7 @@ rebuilt and its mtime moved. The tool depot is staged beside it from
   --author-draft <n> --card-tab <slug>
   --window <w>x<h> --mood 0 --viziwiz --viziwiz-snap --present <id>
   --presenter-drill <n> --session-drill <s> --steps-hotkey-drill
-  --video-drill <s> [--video-format <f>] --open-rail <hub>
+  --video-drill <s> [--video-format <f>] [--video-audio <mode>] --open-rail <hub>
   --open-episode <e> --open-session <s> --open-replay <rel>
   --clone-seed <seed> <show> <ep> --import-drill <dir> --pin-pack <dir>
   --save-comp <name> --export-guide <guide-rel> [<session-rel>]

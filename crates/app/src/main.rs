@@ -257,6 +257,13 @@ fn main() -> eframe::Result {
         .position(|a| a == "--video-format")
         .and_then(|i| args.get(i + 1))
         .cloned();
+    // `--video-audio <none|system|mic>` (D0.1a) pins the audio mode so the
+    // drill proves the microphone really lands in the file, in sync.
+    let video_audio: Option<String> = args
+        .iter()
+        .position(|a| a == "--video-audio")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
     // `--steps-drill <n>` (W5.3) — the AI-driven Steps proof: start the
     // recorder through the REAL handler (self-capture allowed), mark n
     // real moments (each a real focused-window capture), stop, and SAVE
@@ -649,6 +656,7 @@ fn main() -> eframe::Result {
                 steps_drill,
                 video_drill,
                 video_format,
+                video_audio,
                 mood,
                 present,
                 presenter_drill,
@@ -706,6 +714,7 @@ struct Boot {
     steps_drill: Option<u32>,
     video_drill: Option<u32>,
     video_format: Option<String>,
+    video_audio: Option<String>,
     mood: Option<usize>,
     present: Option<String>,
     presenter_drill: Option<usize>,
@@ -759,6 +768,7 @@ struct App {
     sd_marks: u32,
     video_drill: Option<u32>,
     video_format: Option<String>,
+    video_audio: Option<String>,
     video_frames: u32,
     video_started: Option<std::time::Instant>,
     session_drill: Option<u32>,
@@ -805,6 +815,7 @@ impl App {
             steps_drill,
             video_drill,
             video_format,
+            video_audio,
             mood,
             present,
             presenter_drill,
@@ -1255,6 +1266,7 @@ impl App {
             sd_marks: 0,
             video_drill,
             video_format,
+            video_audio,
             video_frames: 0,
             video_started: None,
             session_drill,
@@ -1563,6 +1575,29 @@ fn configure_pilot_adapter(mut options: eframe::NativeOptions) -> eframe::Native
         })
     }));
     options
+}
+
+/// `--video-drill`: after a VERIFIED save (the engine already refused a file
+/// without its video — and, when asked, audio — stream), check the video
+/// timeline against the wall clock a live microphone records on, and fail
+/// past one frame (1/30 s). File durations cannot show this: the recorder's
+/// `-shortest` trims both streams to the same length however far apart they
+/// drifted. Returns the process exit code.
+fn video_drill_sync(saved: Option<(&std::path::Path, dpl_engine_capture::Recorded)>) -> i32 {
+    let Some((path, recorded)) = saved else {
+        eprintln!("video-drill: saved, but the recording was not reported");
+        return 1;
+    };
+    let limit = 1.0 / 30.0;
+    let drift = recorded.drift_seconds();
+    eprintln!(
+        "video-drill: {} · {} frames = {:.3}s of video over {:.3}s of wall clock · drift {drift:.3}s (limit {limit:.3}s)",
+        path.display(),
+        recorded.frames,
+        f64::from(recorded.frames) / 30.0,
+        recorded.seconds
+    );
+    i32::from(drift > limit)
 }
 
 /// Resolve the verified app-relative ffmpeg payload and inject that one
@@ -1886,13 +1921,19 @@ impl eframe::App for App {
         }
 
         // `--video-drill <secs>`: fire the REAL Record handler (C3 —
-        // format pinned by `--video-format`), stop after the window,
-        // exit on the recorder's own reported status.
+        // format pinned by `--video-format`, audio by `--video-audio`), stop
+        // after the window, exit on the recorder's own reported status. Since
+        // D0.1a "saved" means the engine VERIFIED the file, and the drill then
+        // fails if the video timeline strays past one frame from the clock.
         if let Some(secs) = self.video_drill {
             self.video_frames += 1;
             if self.video_frames == 30 {
                 let format = self.video_format.clone();
-                let msg = self.viziwiz.video_start_now(format.as_deref()).to_string();
+                let audio = self.video_audio.clone();
+                let msg = self
+                    .viziwiz
+                    .video_start_now(format.as_deref(), audio.as_deref())
+                    .to_string();
                 eprintln!("video-drill: {msg}");
                 if !msg.starts_with("recording") {
                     std::process::exit(1);
@@ -1906,7 +1947,10 @@ impl eframe::App for App {
                 if !self.viziwiz.video_active() {
                     let msg = self.viziwiz.status_text().to_string();
                     eprintln!("video-drill: {msg}");
-                    std::process::exit(if msg.starts_with("saved") { 0 } else { 1 });
+                    if !msg.starts_with("saved") {
+                        std::process::exit(1);
+                    }
+                    std::process::exit(video_drill_sync(self.viziwiz.last_video()));
                 }
                 if t0.elapsed().as_secs() > u64::from(secs) + 60 {
                     eprintln!(

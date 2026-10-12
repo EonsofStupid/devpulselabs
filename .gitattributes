@@ -7,3 +7,6 @@
 *.webp binary
 *.avif binary
 Cargo.zip filter=lfs diff=lfs merge=lfs -text
+# Captured tool output, kept byte-for-byte (ffmpeg on Windows writes CRLF):
+# a parser test is only honest against the bytes the tool really emits.
+crates/engine-capture/tests/fixtures/** -text

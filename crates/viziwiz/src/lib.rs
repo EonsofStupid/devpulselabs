@@ -61,7 +61,7 @@ struct VideoRec {
     stop: Arc<AtomicBool>,
     started: Instant,
     out: PathBuf,
-    done: Arc<Mutex<Option<Result<u32, String>>>>,
+    done: Arc<Mutex<Option<Result<cap::Recorded, String>>>>,
 }
 
 /// The C3 video matrix — engine ids + chip labels. AV1 is offered but
@@ -130,9 +130,12 @@ pub struct Viziwiz {
     video_cap: usize,
     /// false = primary screen, true = the picked window.
     video_window: bool,
-    /// ffmpeg-enumerated audio devices; filled when audio leaves Silent.
-    audio_devices: Vec<String>,
+    /// ffmpeg-enumerated microphones; filled when audio leaves Silent.
+    audio_devices: Vec<cap::CaptureDevice>,
     picked_audio: usize,
+    /// The last recording the engine verified and filed, with what it proved
+    /// (frames + wall seconds) — what a drill measures after "saved".
+    last_video: Option<(PathBuf, cap::Recorded)>,
     /// The capture delay in seconds — one chip cycles 0 → 3 → 5 → 10 (C1).
     delay: u8,
     /// A snap waiting out the delay; the status line counts it down.
@@ -199,6 +202,7 @@ impl Viziwiz {
             video_window: false,
             audio_devices: Vec::new(),
             picked_audio: 0,
+            last_video: None,
             delay: 0,
             delay_armed: None,
             last: None,
@@ -910,7 +914,7 @@ impl Viziwiz {
             self.audio_devices
                 .get(self.picked_audio)
                 .or_else(|| self.audio_devices.first())
-                .cloned()
+                .map(|d| d.id().to_string())
         };
         let result = self
             .land_target(CaptureKind::Video, cap::ext_for_format(format_id), None)
@@ -961,9 +965,24 @@ impl Viziwiz {
         }
     }
 
+    /// Re-scan microphones through the bundled ffmpeg and return how many it
+    /// found. A scan that cannot run is an error the status line shows — never
+    /// a silently empty picker.
+    fn refresh_audio_devices(&mut self) -> Result<usize, String> {
+        let devices = cap::list_capture_devices()?;
+        self.audio_devices = devices
+            .into_iter()
+            .filter(|d| d.kind == cap::DeviceKind::Audio)
+            .collect();
+        Ok(self.audio_devices.len())
+    }
+
     /// Harness: start a recording through the REAL handler, optionally
-    /// pinning the format (`--video-drill`).
-    pub fn video_start_now(&mut self, format: Option<&str>) -> &str {
+    /// pinning the format (`--video-format`) and the audio mode
+    /// (`--video-audio`). A mode with audio scans the real devices first and
+    /// uses the first one found — exactly what the palette does when the
+    /// operator leaves Silent without picking.
+    pub fn video_start_now(&mut self, format: Option<&str>, audio: Option<&str>) -> &str {
         if let Some(f) = format {
             match FORMATS.iter().position(|(id, _)| *id == f) {
                 Some(i) => self.video_format = i,
@@ -973,8 +992,35 @@ impl Viziwiz {
                 }
             }
         }
+        if let Some(a) = audio {
+            match AUDIO.iter().position(|(id, _)| *id == a) {
+                Some(i) => self.video_audio = i,
+                None => {
+                    self.status = format!("unknown audio mode {a:?}");
+                    return &self.status;
+                }
+            }
+            if a != "none" {
+                match self.refresh_audio_devices() {
+                    Ok(0) => {
+                        self.status = format!("audio {a}: no audio devices found");
+                        return &self.status;
+                    }
+                    Ok(_) => self.picked_audio = 0,
+                    Err(e) => {
+                        self.status = format!("audio devices: {e}");
+                        return &self.status;
+                    }
+                }
+            }
+        }
         self.start_video();
         &self.status
+    }
+
+    /// The last recording the engine verified and filed, with what it proved.
+    pub fn last_video(&self) -> Option<(&Path, cap::Recorded)> {
+        self.last_video.as_ref().map(|(p, r)| (p.as_path(), *r))
     }
 
     /// True while a recording runs or its thread is still closing.
@@ -1111,7 +1157,9 @@ impl Viziwiz {
             if let Some(result) = done {
                 let out = v.out.clone();
                 self.status = match result {
-                    Ok(frames) => {
+                    Ok(recorded) => {
+                        let frames = recorded.frames;
+                        self.last_video = Some((out.clone(), recorded));
                         let pending = self.seed_pending(CaptureKind::Video, out.clone(), None, 0);
                         match self.land(pending) {
                             LandOutcome::Filed(warn) => {
@@ -1145,9 +1193,10 @@ impl Viziwiz {
                     LandOutcome::Pending => " — review on the Save card".into(),
                 };
                 self.status = match result {
-                    Ok(frames) => format!(
-                        "session saved {} ({frames} frames · {n} events){suffix}",
-                        dir.display()
+                    Ok(recorded) => format!(
+                        "session saved {} ({} frames · {n} events){suffix}",
+                        dir.display(),
+                        recorded.frames
                     ),
                     Err(e) => format!("session video: {e} · partial kept ({n} events){suffix}",),
                 };
@@ -1351,18 +1400,23 @@ impl Viziwiz {
             self.status = format!("audio {}", AUDIO[self.video_audio].1);
             // Leaving Silent needs the device list; enumerate once.
             if AUDIO[self.video_audio].0 != "none" && self.audio_devices.is_empty() {
-                self.audio_devices = cap::list_audio_devices();
-                if self.audio_devices.is_empty() {
-                    self.status = format!(
-                        "audio {} · no devices found (system needs a loopback device)",
-                        AUDIO[self.video_audio].1
-                    );
+                match self.refresh_audio_devices() {
+                    Ok(0) => {
+                        self.status = format!(
+                            "audio {} · no devices found (system needs a loopback device)",
+                            AUDIO[self.video_audio].1
+                        );
+                    }
+                    Ok(_) => {}
+                    Err(e) => self.status = format!("audio devices: {e}"),
                 }
             }
         }
         if actions.refresh_audio {
-            self.audio_devices = cap::list_audio_devices();
-            self.status = format!("{} audio devices", self.audio_devices.len());
+            self.status = match self.refresh_audio_devices() {
+                Ok(n) => format!("{n} audio devices"),
+                Err(e) => format!("audio devices: {e}"),
+            };
         }
         if let Some(idx) = actions.pick_audio {
             self.picked_audio = idx;
