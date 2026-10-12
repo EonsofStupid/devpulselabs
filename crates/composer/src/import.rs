@@ -65,14 +65,18 @@ pub fn set_pdftoppm_path(p: PathBuf) {
     let _ = PDFTOPPM.set(p);
 }
 
+/// What PDF import says when the app was not given its bundled pdftoppm.
+/// There is no PATH fallback: a tool the app did not ship is not the app's.
+pub const PDFTOPPM_MISSING: &str = "PDF import needs the bundled pdftoppm, and it is missing \
+     from this app's tool folder (dptools-deps)";
+
 /// Rasterize each page of a PDF to a PNG via `pdftoppm` — a SUBPROCESS
 /// (ADR-009, the ffmpeg pattern: NEVER a crate PDF parser) wrapped in the
 /// quiet-spawn law. Pages land in `out_dir` as `<stem>-<n>.png` (pdftoppm
 /// zero-pads within a document, so a lexical sort is page order). Returns
-/// the page paths in order. The tool is the injected depot payload
-/// ([`set_pdftoppm_path`]); without one it degrades to the bare PATH name
-/// (the Linux-gate box installs poppler-utils via apt) and absence stays an
-/// HONEST error naming the fix.
+/// the page paths in order. The tool is ONLY the injected depot payload
+/// ([`set_pdftoppm_path`]); without one this is an honest error
+/// ([`PDFTOPPM_MISSING`]), and a failed run carries pdftoppm's own reason.
 pub fn rasterize_pdf(pdf: &Path, out_dir: &Path, stem: &str) -> Result<Vec<PathBuf>, String> {
     let is_pdf = pdf
         .extension()
@@ -85,21 +89,33 @@ pub fn rasterize_pdf(pdf: &Path, out_dir: &Path, stem: &str) -> Result<Vec<PathB
     if !pdf.is_file() {
         return Err(format!("pdf not found: {}", pdf.display()));
     }
+    let tool = PDFTOPPM.get().ok_or(PDFTOPPM_MISSING)?;
     std::fs::create_dir_all(out_dir).map_err(|e| format!("stage dir: {e}"))?;
     let prefix = out_dir.join(stem);
 
-    let mut cmd = std::process::Command::new(
-        PDFTOPPM
-            .get()
-            .map(PathBuf::as_path)
-            .unwrap_or_else(|| Path::new("pdftoppm")),
-    );
-    cmd.arg("-png").arg("-r").arg("150").arg(pdf).arg(&prefix);
-    let status = dpl_proc::quiet(&mut cmd).status().map_err(|e| {
-        format!("pdftoppm unavailable ({e}) — install poppler-utils or stage it in dptools-deps")
+    let mut cmd = std::process::Command::new(tool);
+    cmd.arg("-png")
+        .arg("-r")
+        .arg("150")
+        .arg(pdf)
+        .arg(&prefix)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null());
+    let out = dpl_proc::quiet(&mut cmd).output().map_err(|e| {
+        format!(
+            "the bundled pdftoppm could not run ({}): {e}",
+            tool.display()
+        )
     })?;
-    if !status.success() {
-        return Err(format!("pdftoppm failed on {}", pdf.display()));
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let reason = stderr
+            .lines()
+            .rev()
+            .map(str::trim)
+            .find(|l| !l.is_empty())
+            .unwrap_or("no reason given");
+        return Err(format!("pdftoppm failed on {}: {reason}", pdf.display()));
     }
 
     let mut pages: Vec<PathBuf> = std::fs::read_dir(out_dir)
@@ -356,11 +372,26 @@ mod tests {
         pdf
     }
 
-    /// A real-`pdftoppm` drill (ADR-009): a 2-page PDF explodes to 2 ORDERED
-    /// page PNGs. `#[ignore]` — poppler-utils must be installed; it runs where
-    /// the tool exists, exactly like the ffmpeg drills.
+    /// No bundled pdftoppm injected → an honest error, never a PATH lookup.
     #[test]
-    #[ignore = "needs pdftoppm (poppler-utils) installed"]
+    fn pdf_import_without_the_bundled_tool_is_an_honest_error() {
+        let base = std::env::temp_dir().join(format!("dpl-pdf-missing-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let pdf = base.join("report.pdf");
+        std::fs::write(&pdf, two_page_pdf()).unwrap();
+        assert_eq!(
+            rasterize_pdf(&pdf, &base.join("stage"), "report"),
+            Err(PDFTOPPM_MISSING.to_string())
+        );
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// A real-`pdftoppm` drill (ADR-009): a 2-page PDF explodes to 2 ORDERED
+    /// page PNGs. `#[ignore]` — it needs the bundled pdftoppm injected; D0.5
+    /// runs it against the staged depot inside the gate.
+    #[test]
+    #[ignore = "needs the bundled pdftoppm injected (D0.5 runs it against the depot)"]
     fn rasterize_pdf_explodes_ordered_pages() {
         let base = std::env::temp_dir().join(format!("dpl-pdf-drill-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);

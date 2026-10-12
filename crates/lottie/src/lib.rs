@@ -27,21 +27,39 @@ fn helper_name() -> &'static str {
     }
 }
 
-/// Locate the helper: beside the running exe first (where the app ships it,
-/// like ffmpeg/aerender), then a `DPL_LOTTIE_RENDER` override, else PATH.
-pub fn helper_path() -> PathBuf {
-    if let Ok(p) = std::env::var("DPL_LOTTIE_RENDER") {
-        return PathBuf::from(p);
+/// Locate the helper: the explicit `DPL_LOTTIE_RENDER` override (a named
+/// drill/dev seam) first, else beside the running exe — where every build
+/// ships it (ADR-009). Never PATH: a helper the app did not ship is not the
+/// app's, and its absence is an honest error naming where it was expected.
+pub fn helper_path() -> Result<PathBuf, String> {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(Path::to_path_buf));
+    resolve_helper(
+        std::env::var_os("DPL_LOTTIE_RENDER").map(PathBuf::from),
+        exe_dir.as_deref(),
+    )
+}
+
+/// The resolution itself, free of process state so it is testable.
+fn resolve_helper(
+    override_path: Option<PathBuf>,
+    exe_dir: Option<&Path>,
+) -> Result<PathBuf, String> {
+    if let Some(path) = override_path {
+        return Ok(path);
     }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            let p = dir.join(helper_name());
-            if p.is_file() {
-                return p;
-            }
-        }
+    let dir =
+        exe_dir.ok_or("the Lottie renderer cannot be located: the app's own folder is unknown")?;
+    let path = dir.join(helper_name());
+    if path.is_file() {
+        Ok(path)
+    } else {
+        Err(format!(
+            "the Lottie renderer (dpl-lottie-render) is missing beside the app — expected {}",
+            path.display()
+        ))
     }
-    PathBuf::from(helper_name())
 }
 
 /// One rendered frame — packed RGBA8, row-major (upload as an egui texture
@@ -88,7 +106,8 @@ impl Player {
         h: u32,
         fonts: Option<&Path>,
     ) -> Result<Self, String> {
-        let mut cmd = Command::new(helper_path());
+        let helper = helper_path()?;
+        let mut cmd = Command::new(&helper);
         dpl_proc::quiet(&mut cmd);
         cmd.arg("serve")
             .arg(lottie)
@@ -102,17 +121,28 @@ impl Player {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .map_err(|e| format!("spawn lottie helper: {e}"))?;
+            .map_err(|e| format!("spawn lottie helper ({}): {e}", helper.display()))?;
 
         let stdin = child.stdin.take().ok_or("helper stdin")?;
         let mut stdout = BufReader::new(child.stdout.take().ok_or("helper stdout")?);
 
         let mut header = String::new();
-        stdout
+        let ready = stdout
             .read_line(&mut header)
-            .map_err(|e| format!("read READY: {e}"))?;
-        let (width, height, fps, total) =
-            parse_ready(&header).ok_or_else(|| format!("bad READY header: {header:?}"))?;
+            .map_err(|e| format!("read READY: {e}"))
+            .and_then(|_| {
+                parse_ready(&header).ok_or_else(|| format!("bad READY header: {header:?}"))
+            });
+        let (width, height, fps, total) = match ready {
+            Ok(parsed) => parsed,
+            Err(e) => {
+                // The helper is already running: reap it, so a bad start
+                // never leaves an orphan behind.
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(e);
+            }
+        };
 
         Ok(Self {
             child,
@@ -189,7 +219,8 @@ pub fn export_sequence_with_fonts(
     out_dir: &Path,
     fonts: Option<&Path>,
 ) -> Result<String, String> {
-    let mut cmd = Command::new(helper_path());
+    let helper = helper_path()?;
+    let mut cmd = Command::new(&helper);
     dpl_proc::quiet(&mut cmd);
     cmd.arg("export")
         .arg(lottie)
@@ -202,7 +233,7 @@ pub fn export_sequence_with_fonts(
     }
     let out = cmd
         .output()
-        .map_err(|e| format!("spawn lottie export: {e}"))?;
+        .map_err(|e| format!("spawn lottie export ({}): {e}", helper.display()))?;
     if !out.status.success() {
         return Err(format!(
             "lottie export failed: {}",
@@ -327,6 +358,36 @@ mod tests {
         let n = helper_name();
         assert!(n.starts_with("dpl-lottie-render"));
         assert_eq!(n.ends_with(".exe"), cfg!(windows));
+    }
+
+    #[test]
+    fn a_missing_helper_is_an_honest_error_never_a_path_lookup() {
+        let empty = std::env::temp_dir().join(format!("dpl-lottie-empty-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&empty);
+        std::fs::create_dir_all(&empty).unwrap();
+        let err = resolve_helper(None, Some(&empty)).expect_err("nothing beside the app");
+        assert!(err.contains("missing beside the app"), "{err}");
+        assert!(
+            err.contains(helper_name()),
+            "names the expected file: {err}"
+        );
+        assert!(resolve_helper(None, None).is_err());
+        let _ = std::fs::remove_dir_all(&empty);
+    }
+
+    #[test]
+    fn the_helper_beside_the_app_resolves_and_an_override_wins() {
+        let dir = std::env::temp_dir().join(format!("dpl-lottie-beside-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(helper_name()), b"stand-in").unwrap();
+        assert_eq!(
+            resolve_helper(None, Some(&dir)),
+            Ok(dir.join(helper_name()))
+        );
+        let named = PathBuf::from("named-by-the-drill");
+        assert_eq!(resolve_helper(Some(named.clone()), Some(&dir)), Ok(named));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

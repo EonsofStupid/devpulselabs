@@ -2,9 +2,9 @@
 //! tier driver.
 //!
 //! The browser is a SUBPROCESS, never a crate dep (ADR-013 — the pattern
-//! ffmpeg and aerender already follow). We RESOLVE an installed
-//! chromium-family binary (injected path → `DPL_BROWSER` → bundled →
-//! Chrome installs → Edge, the Windows zero-install fallback → PATH),
+//! ffmpeg and aerender already follow). We RESOLVE the depot's Chromium
+//! (injected path → `DPL_BROWSER` → the SHA-verified `dptools-deps`
+//! bundle; never a system install or PATH — see [`resolve`]),
 //! launch it `--headless=new` with a FRESH ephemeral profile and
 //! `--remote-debugging-port=0`, read the real port from the
 //! `DevToolsActivePort` file (never guess, never race), and speak the
@@ -40,107 +40,45 @@ pub fn set_browser_path(p: PathBuf) {
     let _ = BROWSER.set(p);
 }
 
-fn find_on_path(bin: &str) -> Option<PathBuf> {
-    std::env::var_os("PATH").and_then(|paths| {
-        std::env::split_paths(&paths)
-            .map(|d| d.join(bin))
-            .find(|p| p.is_file())
+/// The browser this process drives, with its source tag for honest logs.
+/// An explicit override wins — an injected path, then `DPL_BROWSER` (a
+/// named drill seam) — and must exist. Otherwise ONLY the depot's
+/// SHA-verified Chromium answers. Never a system Chrome/Edge install, PATH
+/// or snap: a browser the app did not ship is not the app's (DQ4, no
+/// silent fallbacks).
+pub fn resolve() -> Result<(PathBuf, &'static str), String> {
+    let override_path = BROWSER
+        .get()
+        .map(|p| (p.clone(), "injected"))
+        .or_else(|| std::env::var_os("DPL_BROWSER").map(|p| (PathBuf::from(p), "env DPL_BROWSER")));
+    resolve_from(override_path, || {
+        dpl_tools_deps::resolve_current(dpl_tools_deps::CHROMIUM)
+            .map(|dependency| dependency.path().to_path_buf())
+            .map_err(|e| e.to_string())
     })
 }
 
-/// Every place we theme, in order, tagged with a source label for honest
-/// logs and honest errors.
-pub fn candidates() -> Vec<(PathBuf, &'static str)> {
-    let mut c: Vec<(PathBuf, &'static str)> = Vec::new();
-    if let Some(p) = BROWSER.get() {
-        c.push((p.clone(), "injected"));
-    }
-    if let Some(p) = std::env::var_os("DPL_BROWSER") {
-        c.push((PathBuf::from(p), "env DPL_BROWSER"));
-    }
-    if let Some(dir) = std::env::current_exe()
-        .ok()
-        .and_then(|e| e.parent().map(Path::to_path_buf))
-    {
-        let bundled = if cfg!(windows) {
-            "chrome.exe"
+/// The resolution itself, with the depot passed in so it is testable.
+fn resolve_from(
+    override_path: Option<(PathBuf, &'static str)>,
+    depot: impl FnOnce() -> Result<PathBuf, String>,
+) -> Result<(PathBuf, &'static str), String> {
+    if let Some((path, source)) = override_path {
+        return if path.is_file() {
+            Ok((path, source))
         } else {
-            "chrome"
+            Err(format!(
+                "the browser named by {source} is not a file: {}",
+                path.display()
+            ))
         };
-        c.push((dir.join("bin").join(bundled), "bundled"));
     }
-    if cfg!(windows) {
-        for root in ["LOCALAPPDATA", "ProgramFiles", "ProgramFiles(x86)"] {
-            if let Some(base) = std::env::var_os(root) {
-                c.push((
-                    Path::new(&base)
-                        .join("Google")
-                        .join("Chrome")
-                        .join("Application")
-                        .join("chrome.exe"),
-                    "chrome-install",
-                ));
-            }
-        }
-        // Edge is chromium and ships with Windows — the zero-install
-        // fallback that makes the driver work on any operator box.
-        for root in ["ProgramFiles(x86)", "ProgramFiles"] {
-            if let Some(base) = std::env::var_os(root) {
-                c.push((
-                    Path::new(&base)
-                        .join("Microsoft")
-                        .join("Edge")
-                        .join("Application")
-                        .join("msedge.exe"),
-                    "edge-install",
-                ));
-            }
-        }
-        for bin in ["chrome.exe", "msedge.exe"] {
-            if let Some(p) = find_on_path(bin) {
-                c.push((p, "PATH"));
-            }
-        }
-    } else {
-        // The Wayland/Ubuntu lane — cross-support is a product
-        // requirement, not a nicety.
-        for bin in [
-            "google-chrome",
-            "google-chrome-stable",
-            "chromium",
-            "chromium-browser",
-            "microsoft-edge",
-        ] {
-            if let Some(p) = find_on_path(bin) {
-                c.push((p, "PATH"));
-            }
-        }
-        c.push((PathBuf::from("/snap/bin/chromium"), "snap"));
-    }
-    c
-}
-
-fn missing_error(cands: &[(PathBuf, &'static str)]) -> String {
-    let checked: Vec<String> = cands
-        .iter()
-        .map(|(p, tag)| format!("{} ({tag})", p.display()))
-        .collect();
-    format!(
-        "no chromium-family browser found — checked: {}. Install Chrome \
-         or set DPL_BROWSER to a chromium-family binary.",
-        checked.join(", ")
-    )
-}
-
-/// First candidate that exists on disk, with its source tag. A miss names
-/// every checked location (the managed-ffmpeg law).
-pub fn resolve() -> Result<(PathBuf, &'static str), String> {
-    let cands = candidates();
-    cands
-        .iter()
-        .find(|(p, _)| p.is_file())
-        .cloned()
-        .ok_or_else(|| missing_error(&cands))
+    depot().map(|path| (path, "depot")).map_err(|reason| {
+        format!(
+            "the bundled Chromium is unavailable ({reason}). It ships in this \
+             app's tool folder (dptools-deps); a drill may name one with DPL_BROWSER."
+        )
+    })
 }
 
 // ─────────────────────────────── launch ─────────────────────────────────
@@ -149,9 +87,8 @@ pub fn resolve() -> Result<(PathBuf, &'static str), String> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BrowserConfig {
     pub window: (u32, u32),
-    /// Exact executable selected by the embedding application. Provider
-    /// authorization uses a path verified by `dpl-tools-deps`; `None` keeps
-    /// the broader developer/demo resolver for non-production drills.
+    /// Exact executable selected by the embedding application. `None`
+    /// resolves through [`resolve`]: an override, else the depot.
     pub executable: Option<PathBuf>,
     /// `None` → a fresh ephemeral temp profile, removed on close.
     /// `Some(dir)` → a persistent NAMED demo profile (DG-B.1): kept
@@ -700,31 +637,43 @@ mod tests {
     }
 
     #[test]
-    fn env_override_outranks_installs_in_candidate_order() {
-        std::env::set_var("DPL_BROWSER", "Z:/definitely/custom/browser.exe");
-        let c = candidates();
-        let env_pos = c
-            .iter()
-            .position(|(_, tag)| *tag == "env DPL_BROWSER")
-            .expect("env candidate present");
-        let first_install = c
-            .iter()
-            .position(|(_, tag)| matches!(*tag, "chrome-install" | "edge-install" | "PATH"));
-        if let Some(install_pos) = first_install {
-            assert!(env_pos < install_pos, "env override must outrank installs");
-        }
-        std::env::remove_var("DPL_BROWSER");
+    fn an_override_wins_and_a_missing_one_is_an_honest_error() {
+        let dir = std::env::temp_dir().join(format!("dpl-browser-override-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let named = dir.join("browser.exe");
+        std::fs::write(&named, b"stand-in").unwrap();
+        let depot_unused =
+            || -> Result<PathBuf, String> { panic!("an override never asks the depot") };
+        assert_eq!(
+            resolve_from(Some((named.clone(), "env DPL_BROWSER")), depot_unused),
+            Ok((named, "env DPL_BROWSER"))
+        );
+        let missing = dir.join("gone.exe");
+        let e = resolve_from(Some((missing.clone(), "injected")), depot_unused)
+            .expect_err("a missing override never falls through");
+        assert!(
+            e.contains("injected") && e.contains(&missing.display().to_string()),
+            "{e}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn a_miss_names_every_checked_location() {
-        let cands = vec![
-            (PathBuf::from("C:/nope/chrome.exe"), "chrome-install"),
-            (PathBuf::from("C:/nada/msedge.exe"), "edge-install"),
-        ];
-        let e = missing_error(&cands);
-        assert!(e.contains("C:/nope/chrome.exe (chrome-install)"), "{e}");
-        assert!(e.contains("C:/nada/msedge.exe (edge-install)"), "{e}");
+    fn without_an_override_only_the_depot_answers() {
+        let depot = PathBuf::from("dptools-deps/browsers/chromium/chrome.exe");
+        assert_eq!(
+            resolve_from(None, || Ok(depot.clone())),
+            Ok((depot, "depot"))
+        );
+        // A depot miss is the final answer — even on a machine with Chrome
+        // or Edge installed, nothing else is consulted.
+        let e = resolve_from(None, || Err("manifest unavailable".into()))
+            .expect_err("no system browser fallback");
+        assert!(
+            e.contains("bundled Chromium is unavailable (manifest unavailable)"),
+            "{e}"
+        );
         assert!(e.contains("DPL_BROWSER"), "{e}");
     }
 }

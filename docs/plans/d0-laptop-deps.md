@@ -204,9 +204,74 @@ items above.
   only on a verified save. The 60 s mic run measures |video − audio|
   duration.
 
-**D0.1b covers items 4–5:** depot-only Chromium/pdftoppm/Lottie, and the
-single library rule (`roots.toml`, `xtask stage-roots`, no parent walk or
-CWD, `locate_asset` on injected roots).
+**Amended again 2026-10-12 (re-grounded): item 4 is D0.1b, item 5 is
+D0.1c.** Each lands as its own PR.
+
+**D0.1b — depot-only helper tools.** Grounded 2026-10-12. **Approved by the
+operator 2026-10-12 ("go").**
+
+| Tool | Today (file:line) | D0.1b |
+|---|---|---|
+| **pdftoppm** | `composer/src/import.rs:91-102`: if nothing was injected, it runs the bare name `pdftoppm` (**PATH**). `.status()` discards stderr, so a failure says only *"pdftoppm failed on <file>"*. The error advises *"install poppler-utils"*, a system install. `app/src/main.rs` `init_pdftoppm` warns *"PDF slides fall back to PATH"*. | Injected depot path only; uninjected is an honest error: *"PDF import needs the bundled pdftoppm, and it is missing from this app's tool folder (dptools-deps)"*. Run with `.output()`, and a failure carries pdftoppm's last stderr line. The PATH advice and the "fall back to PATH" warning are removed. |
+| **Lottie helper** | `lottie/src/lib.rs:32-45` `helper_path()`: `DPL_LOTTIE_RENDER` env → beside the exe → **bare name on PATH**. The doc comment states the order wrongly. Spawned at `:91`, `:192` and `examples/preset_controls.rs:93`. | `helper_path() -> Result<PathBuf, String>`: the explicit `DPL_LOTTIE_RENDER` override (a named dev/drill seam, kept), then beside the exe. Otherwise an honest error naming the exact path it expected. No PATH. The doc comment is corrected. Callers handle the `Err`. |
+| **Coach overlay helper** | `hubs/coach/src/lib.rs:72-90` `overlay_bin()`: `DPL_COACH_OVERLAY` → beside the exe → **bare name on PATH** (inventory row 18). | The same rule as Lottie: override, then beside the exe, otherwise an honest error. No PATH. |
+| **Chromium** | `engine-browser/src/lib.rs:36-121`: injected → `DPL_BROWSER` → `<exe>/bin/chrome` → **Chrome/Edge system installs → PATH → `/snap`**. `set_browser_path` has **no caller**. The crate is **not linked into the app**: only `dpl-guide` (dev-dependency, tests) and the `browser-cli` dev binary use it. | Injected → `DPL_BROWSER` → the **depot** (`dpl_tools_deps::resolve_current(CHROMIUM)`; `dpl-tools-deps` becomes a dependency of `dpl-engine-browser`, an engine→engine edge). Otherwise an honest error. The system-install, PATH and snap searches are **removed** (DQ4). **Correction to DQ4:** Chromium is **not** a startup requirement, because the app never uses a browser. Requiring it would fail the check on something irrelevant. It stays SHA-verified with the rest of the depot. |
+
+**D0.1b proof:**
+- Unit tests:
+  - uninjected pdftoppm → the honest error;
+  - Lottie and overlay resolution from an empty folder → `Err` naming the
+    expected path;
+  - browser: without an override only the depot answers (a depot miss is
+    the final answer, even with Chrome/Edge installed), and a missing
+    override is an error, never a fall-through.
+- The real exe: a Lottie render through the helper beside it (the
+  existing `--lottie-import` drill on a repo fixture into a scratch root),
+  and a PDF explode through the depot pdftoppm (`--make-slide <rel>.pdf`
+  on a generated one-page PDF inside a scratch content root).
+- A deliberately missing helper (a scratch copy of the exe dir without
+  `dpl-lottie-render.exe`) gives the honest error, not a PATH hit.
+
+**Amended 2026-10-12 while implementing (re-grounded):**
+- The PDF proof flag was wrong. `--import-drill` → `Composer::import_dir`
+  never rasterizes a PDF; the PDF path is `--make-slide` →
+  `make_slide_from_rel` → `make_slides_from_pdf` → `rasterize_pdf`
+  (`composer/src/lib.rs:2585`).
+- **A swallowed error found and fixed in scope** ("callers handle the
+  `Err`"): `composer/src/lib.rs` `LottiePlayer::open` dropped the helper's
+  error with `.ok()?`, so a missing helper showed a silently blank Lottie
+  lane. It now returns `Result`; both callers (the overlay lanes and the
+  selected-layer preview) put *"Lottie preview failed: <reason>"* on the
+  composer status line.
+- The browser proof's shape changed: `candidates()` is **deleted** rather
+  than filtered. `resolve()` is now override-or-depot by construction, so
+  the test proves the depot answer is final. The corrupted *"Every place
+  we theme"* comment went with it.
+- **Found, not fixed here:** a helper that *exists but fails* (for
+  example a bad READY header) is re-opened on every tick by both Lottie
+  callers, which means one subprocess spawn per frame. A missing helper
+  fails fast (no spawn), and D0.2's startup check refuses to open without
+  the helper. The exists-but-broken case needs a remembered failure per
+  layer: a D0.2 follow-up.
+
+**Also fixed in D0.1b:** two code comments corrupted by an old "look" →
+"theme" replace: `engine-browser/src/lib.rs:51` *"Every place we theme"*
+and `desktop-spike/src/bin/passthrough_probe_linux.rs:340` *"will theme
+like"*. The third instance, a user-visible tooltip, was fixed in D0.1a.
+A repo grep found no others.
+
+**D0.1c — one explicit roots rule** (designed and shown before code, after
+D0.1b lands): library, working assets, `.userdata` **and the bundle**
+(`assets/backdrops/*`, `seeds/*`) come from `--content-root` →
+`CONTENT_ROOT` → a `roots.toml` beside the exe (`cargo xtask stage-roots`) →
+beside the exe. There is no parent walk and no CWD. That retires three
+walkers:
+- `engine-capture` `content_root` (`lib.rs:93-180`);
+- `dpl-video` `locate_asset` (`video/src/lib.rs:280-317`);
+- `dpl-doc` `find_upward` for seeds (`doc/src/lib.rs:444-465`).
+
+It also retires the uncalled `dpl-comp::find_upward`. The values are
+injected at boot, so no dependency ceiling changes.
 
 1. **Device listing.**
    - `list_capture_devices() -> Vec<CaptureDevice { name, alt_name, kind:
@@ -266,7 +331,7 @@ CWD, `locate_asset` on injected roots).
 | Microphone | yes | At least one audio device is listed |
 | Library | yes | Roots are resolved by the rule in §4.2 item 5; content exists and is readable. The file count is shown. |
 | `.userdata` | yes | Writable: a probe file is written and deleted |
-| Chromium | DQ4 | Depot payload verified and injected |
+| Chromium | **no**: the app uses no browser (corrected 2026-10-12, D0.1b) | Covered by the depot-manifest row (SHA-verified); depot-only resolution in `dpl-engine-browser` for its dev users |
 | Codex / Grok | no (DQ5) | Shown, but chat owns their states |
 
 3. **After boot:** a **Tools** status-bar cell shows the result; clicking it
@@ -321,7 +386,7 @@ CWD, `locate_asset` on injected roots).
 | DQ1 | Library rule: drop the parent-walk/CWD fallbacks and use an explicit `roots.toml` beside the exe (written by `xtask stage-roots`)? | **Yes.** Never silent again. The screen shows the chosen root. |
 | DQ2 | Camera at boot: presence only (no camera light every launch), or really open it for 1 frame every launch (the light flashes)? | Presence at every launch. A real 1-frame open when camera features open, and in `--deps-check`. |
 | DQ3 | CI runners have no camera or mic. | A named **CI profile** (`--deps-profile ci`) that marks camera and mic as not checked. It is printed on every CI screenshot and log, and is never used on your machine. The alternative is installing virtual devices on the runners. |
-| DQ4 | Browser: depot Chromium only, or also allow system Chrome/Edge? | Depot only, required (R36: no silent fallbacks). |
+| DQ4 | Browser: depot Chromium only, or also allow system Chrome/Edge? | Depot only (R36: no silent fallbacks). **Corrected 2026-10-12:** not a *startup* requirement; the app links no browser (only `dpl-guide` tests and the `browser-cli` dev binary do). |
 | DQ5 | Codex/Grok required to open the app? | No. They are chat providers; chat shows their state. |
 | DQ6 | Preview during recording: keep it live through the recorder (split), or pause the preview while recording? | Keep it live (split): one process owns the camera. |
 
@@ -482,5 +547,60 @@ wall clock, which the old 33 ms pacing fails.
 
 **Privacy.** The drill recordings, including the mic ones, were deleted from
 the scratchpad after measurement.
+
+### D0.1b — depot-only helper tools (2026-10-12)
+
+**Unit tests: 7 new, all pass.** The six touched crates' suites are green
+(`cargo test -p dpl-composer -p dpl-lottie -p dpl-coach-runtime
+-p dpl-engine-browser -p dpl-hub-coach -p dpl-coach-daemon`, exit 0):
+- `composer` `pdf_import_without_the_bundled_tool_is_an_honest_error`;
+- `lottie` `a_missing_helper_is_an_honest_error_never_a_path_lookup`,
+  `the_helper_beside_the_app_resolves_and_an_override_wins`;
+- `coach-runtime` `overlay::a_missing_painter_is_an_honest_error_never_a_path_lookup`,
+  `overlay::the_painter_beside_the_app_resolves_and_an_override_wins`;
+- `engine-browser` `without_an_override_only_the_depot_answers`,
+  `an_override_wins_and_a_missing_one_is_an_honest_error`.
+
+**Static checks.** `cargo fmt --all -- --check` is clean. clippy
+`-D warnings --all-targets` is clean on `dpl-composer`, `dpl-lottie`,
+`dpl-coach-runtime`, `dpl-hub-coach`, `dpl-coach-daemon`,
+`dpl-engine-browser` and `devpulselabs`. The first clippy run caught a real
+compile error (`ResolvedDependency::path` is private; the accessor is
+`path()`), and it was fixed before anything else ran.
+
+**Real-exe drills.** The release exe was rebuilt with the renderer
+(`cargo build --release -p devpulselabs -p dpl-lottie-render`). Each drill
+used a scratch `--content-root`, never the operator's library, and ran one
+at a time:
+
+| Drill | Result |
+|---|---|
+| A · `--lottie-import d01b-box.json --route wiredfront/editor --window 1600x900` (a 512×512, 60-frame shape Lottie authored for the drill; the repo tracks none) | The viewer shows the rounded cyan square, drawn by `dpl-lottie-render.exe` beside the exe. Status: *"Added d01b-box — native Lottie, 2.0s."* Boot log: `verified embedded ffmpeg resolved … 8.1.2` and `… pdftoppm resolved … 26.02.0`, both SHA-verified. Proof: `docs/proof/d0-1b-lottie-1600x900.png` |
+| B · `--make-slide drill/one-page.pdf` (a valid one-page PDF generated in the scratchpad) | `make-slide: 1 slide(s) minted: …\inbox\one-page-1`. The page is a real PNG, **1275×1650** (US Letter at 150 dpi), with the text intact. The slide is a v2 `template:"media"` slide pointing at `inbox/one-page-1.png`, and the staging folder was removed. Proof: `docs/proof/d0-1b-pdf-page-1.png`. This is the first Windows proof of W11's PDF path; W11 §8 had left its release-exe proof as an unfinished "Windows-side close-out". |
+| C · a scratch folder holding **only** `devpulselabs.exe`, with the drill A import | The status line reads *"Lottie preview failed: the Lottie renderer (dpl-lottie-render) is missing beside the app — expected <scratch>\exe-no-helper\dpl-lottie-render.exe"*. There is no PATH hit and no silently blank lane. The boot log honestly warns that the depot's ffmpeg and pdftoppm are unavailable (no `dptools-deps` beside the copy). Run at 1600×900 and 1280×800. Proof: `docs/proof/d0-1b-missing-renderer-1280x800.png` |
+| orphan check, after every drill | no `devpulselabs`, `dpl-lottie-render` or `pdftoppm` process left |
+
+**Corrected in-session, recorded (R36):**
+- **The first drill C run showed a regression this pass caused.** The newly
+  visible error was a long label that widened the status bar past the
+  window at 1600×900 and pushed the comp facts off-screen; before, the
+  error was swallowed, so nothing overflowed. The status label now
+  **truncates** into the row's remaining width (egui 0.36.1 shows the full
+  text on hover by default, `label.rs:42`), the same idiom line 2's NEXT
+  hint already used (RR2). Re-run at both sizes: the facts stay on screen.
+- **Drill hygiene.** The first runs put three scratch content roots under
+  one parent folder. The three-ring layout puts `assets/` and `.userdata/`
+  *beside* the content root, so the roots shared one index: drill B's
+  `one-page-1` showed up in drill C's FOOTAGE. The re-run gave each root
+  its own parent. This is an input to D0.1c (the roots rule).
+
+**Found, not fixed here (pre-existing, outside D0.1b):** the editor's
+status bar has a fixed height (`status_h = 58.0`, `composer/src/lib.rs:3445`,
+since `60db7be`, 2026-07-24). After the padding is taken off it is too
+short for a chip row plus line 2, so line 2 (*"NEXT: …"* and the comp
+facts) straddles the bar's bottom edge at 1600×900 and 1280×800. A dark
+mood backdrop hides the edge, so it reads as fine on some boots. It needs
+its own small pass: size the bar from its content, then prove it at real
+window sizes.
 
 - Later sub-passes are filled in as they land.

@@ -1047,7 +1047,10 @@ fn spawn_overlay_mount(
     spec: &MountSpec,
     seconds: u64,
 ) -> Result<String, dpl_coach_fabric::Refused> {
-    let bin = overlay_bin();
+    let bin = dpl_coach_runtime::overlay_path().map_err(|reason| dpl_coach_fabric::Refused {
+        reason,
+        tip: "Build dpl-coach-overlay so it ships beside the daemon.".into(),
+    })?;
     let rect = spec.window_rect.as_csv();
     let mut cmd = Command::new(&bin);
     dpl_proc::quiet(&mut cmd);
@@ -1070,30 +1073,10 @@ fn spawn_overlay_mount(
             bin.display()
         )),
         Err(e) => Err(dpl_coach_fabric::Refused {
-            reason: format!("overlay spawn failed: {e}"),
-            tip: "Build dpl-coach-overlay beside the daemon or set DPL_COACH_OVERLAY.".into(),
+            reason: format!("the overlay painter could not run ({}): {e}", bin.display()),
+            tip: "Rebuild dpl-coach-overlay beside the daemon.".into(),
         }),
     }
-}
-
-fn overlay_bin() -> PathBuf {
-    if let Ok(p) = std::env::var("DPL_COACH_OVERLAY") {
-        return PathBuf::from(p);
-    }
-    let name = if cfg!(windows) {
-        "dpl-coach-overlay.exe"
-    } else {
-        "dpl-coach-overlay"
-    };
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            let p = dir.join(name);
-            if p.is_file() {
-                return p;
-            }
-        }
-    }
-    PathBuf::from(name)
 }
 
 fn parse_agency(s: Option<&str>) -> AgencyMode {

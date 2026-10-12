@@ -2277,6 +2277,7 @@ version = "0.1.0"
 dependencies = [
  "dpl-engine-capture",
  "dpl-proc",
+ "dpl-tools-deps",
  "serde",
  "serde_json",
  "tungstenite",

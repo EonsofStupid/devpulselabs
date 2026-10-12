@@ -6,6 +6,7 @@
 
 #![forbid(unsafe_code)]
 
+mod overlay;
 mod presence;
 mod resolve;
 
@@ -20,6 +21,7 @@ mod linux_presence;
 #[cfg(target_os = "linux")]
 mod linux_window;
 
+pub use overlay::overlay_path;
 pub use presence::{probe_presence, x11_class_needle, TargetPresence};
 // The verb catalog's one home is `egui_pilot_ai_protocol::seam` — S2
 // retired this crate's `verbs.rs` (absorbed whole; the protocol crate's

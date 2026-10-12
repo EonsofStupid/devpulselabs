@@ -956,8 +956,12 @@ impl Composer {
                     let idx = match have {
                         Some(i) => i,
                         None => {
-                            let Some(lp) = LottiePlayer::open(&path) else {
-                                continue;
+                            let lp = match LottiePlayer::open(&path) {
+                                Ok(lp) => lp,
+                                Err(e) => {
+                                    self.status = format!("Lottie preview failed: {e}");
+                                    continue;
+                                }
                             };
                             self.overlay_lanes
                                 .push((id.clone(), OverlayLane::Lottie(lp)));
@@ -1349,7 +1353,13 @@ impl Composer {
             // differing preset.
             let key = format!("{lid}\u{1}{}", path.display());
             if self.preview_lottie.as_ref().map(|(k, _)| k.as_str()) != Some(key.as_str()) {
-                self.preview_lottie = LottiePlayer::open(&path).map(|p| (key.clone(), p));
+                self.preview_lottie = match LottiePlayer::open(&path) {
+                    Ok(p) => Some((key.clone(), p)),
+                    Err(e) => {
+                        self.status = format!("Lottie preview failed: {e}");
+                        None
+                    }
+                };
             }
             let blur = self.layer_blur(&lid);
             if let Some((_, lp)) = self.preview_lottie.as_mut() {
@@ -5120,11 +5130,15 @@ impl Composer {
             {
                 *act = Some(Act::Render);
             }
-            if let Some((text, color)) = pill {
-                ui.label(RichText::new(text).small().color(color));
-            } else {
-                ui.label(RichText::new(&self.status).small().color(cl::ink::SUBTLE));
-            }
+            // The status TRUNCATES into what is left of the row (the full
+            // text shows on hover), the RR2 idiom of line 2: a long honest
+            // error naming a path must never widen the bar past the window
+            // and push the comp facts off-screen (D0.1b, seen at 1600×900).
+            let status = match &pill {
+                Some((text, color)) => RichText::new(text).small().color(*color),
+                None => RichText::new(&self.status).small().color(cl::ink::SUBTLE),
+            };
+            ui.add(egui::Label::new(status).truncate());
             if done {
                 self.keep_chips(ui, act);
             }
@@ -6728,13 +6742,15 @@ struct LottiePlayer {
 
 impl LottiePlayer {
     /// Open at a preview size derived from the Lottie's NATIVE aspect,
-    /// capped so a scrub frame stays a cheap pipe read. None if the file
-    /// isn't a readable Lottie or the helper won't start.
-    fn open(path: &Path) -> Option<Self> {
-        let meta = dpl_lottie::lottie_meta(path)?;
+    /// capped so a scrub frame stays a cheap pipe read. An unreadable
+    /// Lottie or a helper that is missing or will not start is an honest
+    /// error for the status line — never a silently blank lane.
+    fn open(path: &Path) -> Result<Self, String> {
+        let meta = dpl_lottie::lottie_meta(path)
+            .ok_or_else(|| format!("{} is not a readable Lottie", path.display()))?;
         let (render_w, render_h) = preview_size(meta.width, meta.height);
-        let player = dpl_lottie::Player::open(path, render_w, render_h).ok()?;
-        Some(Self {
+        let player = dpl_lottie::Player::open(path, render_w, render_h)?;
+        Ok(Self {
             player,
             handle: None,
             last_t: f32::NAN,
