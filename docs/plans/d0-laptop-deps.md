@@ -373,4 +373,29 @@ failure.
 - **Oct 2 portability logs.** The summary's `screenshot=False` is wrong
   (each log shows `screenshot written`). The portable run resolved the
   repo's `content/`.
-- Filled per sub-pass.
+### D0.0 — clean rebuild of THE checkout (2026-10-10/11)
+
+- **Cache inspected first.** `target/tmp/` was empty; `target/tmp-h.png` was
+  a Jul 31 harness shot (build `16e9d9c`), backed up to the session
+  scratchpad. Then `cargo clean` removed **124,679 files, 57.5 GiB**.
+- **The cold gate passed.** The `cargo green` that ran when pushing
+  `a10d80e` went 21:48 → 22:06 with every phase green: fmt · lock · spawn
+  audit · structure · coverage · clippy · tests **997 passed, 0 failed, 6
+  ignored** (the six ignored are D0.5's subject) · release · smoke. Output:
+  `green ✔ exe: D:\projects\devpulselabs\target\release\devpulselabs.exe`
+  (Oct 11 22:06). `dpl-lottie-render.exe` was rebuilt (21:58).
+  - The earlier failure (`icon::tests::the_whole_vendored_pool_tessellates`,
+    with `C:\localdev` paths baked into old test binaries) is gone. It was
+    the stale cache, not code.
+- **Depot re-staged.** `cargo xtask stage-tool-deps target/release` staged
+  codex, grok, chromium, ffmpeg and pdftoppm, and ended with *"DevPULSE tool
+  depot verified"*.
+- **Real exe, 1600×900** (`docs/proof/d0-0-boot-1600x900.png`):
+  - Library: `three-ring root ready content=D:\projects\devpulselabs\content`
+    (found by the parent walk that D0.1 replaces).
+  - ffmpeg and pdftoppm: `verified embedded … resolved` from the depot.
+  - Codex and Grok: `loaded non-secret … activation evidence state=Ready`.
+    That is **stored evidence, not a live check**; A2 owns the live proof.
+  - The editor's Project panel lists the operator's footage.
+  - The footer is visible, stamped `a10d80e`. No orphan `devpulselabs.exe`.
+- Later sub-passes are filled in as they land.
