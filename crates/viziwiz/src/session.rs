@@ -151,7 +151,7 @@ pub struct SessionRec {
     pub dir: PathBuf,
     pub stop: Arc<AtomicBool>,
     pub started: Instant,
-    pub done: Arc<Mutex<Option<Result<u32, String>>>>,
+    pub done: Arc<Mutex<Option<Result<cap::Recorded, String>>>>,
     pub rx: ShellReceiver,
     /// Capture-domain ears — saves/failures land in the flight recorder.
     pub rx_capture: CaptureReceiver,
@@ -195,7 +195,7 @@ pub fn session_dir_in(parent: &Path, stem: &str) -> PathBuf {
 pub fn spawn_video(
     dir: &Path,
     stop: Arc<AtomicBool>,
-    done: Arc<Mutex<Option<Result<u32, String>>>>,
+    done: Arc<Mutex<Option<Result<cap::Recorded, String>>>>,
 ) -> Result<(), String> {
     let primary = cap::list_targets()
         .0

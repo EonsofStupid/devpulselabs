@@ -130,7 +130,7 @@ pub(crate) struct PaletteView<'a> {
     pub(crate) audio_label: &'static str,
     pub(crate) audio_silent: bool,
     pub(crate) cap_label: &'static str,
-    pub(crate) audio_devices: &'a [String],
+    pub(crate) audio_devices: &'a [dpl_engine_capture::CaptureDevice],
     pub(crate) picked_audio: usize,
     pub(crate) session_state: Option<(u64, usize)>,
     pub(crate) steps_note: &'a str,
@@ -397,23 +397,24 @@ pub(crate) fn palette(
                         ui.horizontal(|ui| {
                             let current = audio_devices
                                 .get(picked_audio)
-                                .cloned()
-                                .unwrap_or_else(|| "no audio devices found".into());
+                                .map_or("no audio devices found", |d| d.name.as_str());
                             egui::ComboBox::from_id_salt("viziwiz-audio-device")
                                 .width(220.0)
-                                .selected_text(RichText::new(truncate(&current, 30)).small())
+                                .selected_text(RichText::new(truncate(current, 30)).small())
                                 .show_ui(ui, |ui| {
                                     for (i, d) in audio_devices.iter().enumerate() {
                                         if ui
-                                            .selectable_label(i == picked_audio, truncate(d, 44))
+                                            .selectable_label(
+                                                i == picked_audio,
+                                                truncate(&d.name, 44),
+                                            )
                                             .clicked()
                                         {
                                             actions.pick_audio = Some(i);
                                         }
                                     }
                                 });
-                            if cl::tip(ui.button("↻"), "Theme for audio devices again").clicked()
-                            {
+                            if cl::tip(ui.button("↻"), "Scan for audio devices again").clicked() {
                                 actions.refresh_audio = true;
                             }
                         });

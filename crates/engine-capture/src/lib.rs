@@ -13,10 +13,10 @@
 //! use forward slashes. Linux X11 is expected-good; Wayland is the known gap
 //! (docs/screen-capture.md, open item #18).
 use serde::Serialize;
-use std::collections::HashMap;
-use std::io::Write;
+use std::collections::{HashMap, VecDeque};
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::{Mutex, OnceLock};
@@ -355,6 +355,164 @@ fn crop_frame(full: &[u8], full_w: u32, crop: &CropRect, dst: &mut [u8]) -> bool
     true
 }
 
+/// ffmpeg's flags for a recording: errors only — no banner, no progress — so
+/// the stderr we keep is the reason a recording failed and nothing else.
+const FFMPEG_ERRORS_ONLY: [&str; 4] = ["-hide_banner", "-nostats", "-loglevel", "error"];
+
+/// How many of ffmpeg's last stderr lines a recording keeps.
+const STDERR_TAIL_LINES: usize = 64;
+
+/// The last lines a child wrote to stderr, drained on its own thread so an
+/// encoder can never stall on a full pipe.
+struct StderrTail(Option<std::thread::JoinHandle<Vec<String>>>);
+
+impl StderrTail {
+    fn drain(child: &mut Child) -> Self {
+        let Some(err) = child.stderr.take() else {
+            return Self(None);
+        };
+        let handle = std::thread::Builder::new()
+            .name("ffmpeg-stderr".into())
+            .spawn(move || {
+                let mut tail = VecDeque::with_capacity(STDERR_TAIL_LINES);
+                for line in BufReader::new(err).lines().map_while(Result::ok) {
+                    if tail.len() == STDERR_TAIL_LINES {
+                        tail.pop_front();
+                    }
+                    tail.push_back(line);
+                }
+                tail.into_iter().collect()
+            })
+            .ok();
+        Self(handle)
+    }
+
+    /// Everything kept, once the child has exited and closed its stderr.
+    fn text(self) -> String {
+        self.0
+            .and_then(|h| h.join().ok())
+            .map(|lines| lines.join("\n"))
+            .unwrap_or_default()
+    }
+}
+
+/// `what`, plus ffmpeg's own last word on it when it said one.
+fn with_reason(what: &str, stderr: &str) -> String {
+    match stderr.lines().rev().map(str::trim).find(|l| !l.is_empty()) {
+        Some(last) => format!("{what}: {last}"),
+        None => what.to_string(),
+    }
+}
+
+/// The streams `ffmpeg -i` reports for a file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct MediaStreams {
+    pub video: bool,
+    pub audio: bool,
+}
+
+/// Read the `Stream #…: Video:` / `Stream #…: Audio:` lines of `ffmpeg -i`.
+pub fn parse_streams(text: &str) -> MediaStreams {
+    let mut streams = MediaStreams::default();
+    for line in text.lines().map(str::trim_start) {
+        if !line.starts_with("Stream #") {
+            continue;
+        }
+        streams.video |= line.contains(": Video:");
+        streams.audio |= line.contains(": Audio:");
+    }
+    streams
+}
+
+/// Ask the bundled ffmpeg which streams a written file really has.
+pub fn probe_streams(path: &str) -> Result<MediaStreams, String> {
+    let out = ffmpeg_cmd()
+        .args(["-hide_banner", "-i", path])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| format!("ffmpeg could not run ({}): {e}", ffmpeg_display()))?;
+    Ok(parse_streams(&String::from_utf8_lossy(&out.stderr)))
+}
+
+/// What a finished recording proves about itself.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Recorded {
+    /// Frames written at the fixed 30 fps.
+    pub frames: u32,
+    /// Wall-clock seconds the recording loop actually ran.
+    pub seconds: f64,
+}
+
+impl Recorded {
+    /// How far the video timeline (frames ÷ 30) strays from the wall clock a
+    /// live microphone records against. File durations cannot show this:
+    /// `-shortest` trims both streams to the same length however far apart
+    /// they drifted.
+    pub fn drift_seconds(&self) -> f64 {
+        (f64::from(self.frames) / 30.0 - self.seconds).abs()
+    }
+}
+
+/// A recording counts only once its file exists, has bytes, and holds the
+/// streams that were asked for.
+fn verify_recording(out_path: &str, want_audio: bool) -> Result<(), String> {
+    let bytes = std::fs::metadata(out_path)
+        .map(|m| m.len())
+        .map_err(|_| format!("the recording file was not written ({out_path})"))?;
+    if bytes == 0 {
+        return Err(format!("the recording file is empty ({out_path})"));
+    }
+    let streams = probe_streams(out_path)?;
+    if !streams.video {
+        return Err(format!("the recording has no video stream ({out_path})"));
+    }
+    if want_audio && !streams.audio {
+        return Err(format!(
+            "the recording has no audio stream — the microphone was not captured ({out_path})"
+        ));
+    }
+    Ok(())
+}
+
+/// Close a recording honestly: zero frames, a failed encoder, and a bad file
+/// are each an error carrying ffmpeg's own reason — never "saved".
+fn finish_recording(
+    mut ff: Child,
+    tail: StderrTail,
+    recorded: Recorded,
+    out_path: &str,
+    want_audio: bool,
+) -> Result<Recorded, String> {
+    let frames = recorded.frames;
+    let status = ff
+        .wait()
+        .map_err(|e| format!("ffmpeg did not finish: {e}"))?;
+    let stderr = tail.text();
+    if frames == 0 {
+        return Err(with_reason(
+            "no screen frames were captured, so nothing was recorded",
+            &stderr,
+        ));
+    }
+    if !status.success() {
+        return Err(with_reason(
+            &format!("the recording failed (ffmpeg {status})"),
+            &stderr,
+        ));
+    }
+    verify_recording(out_path, want_audio)?;
+    Ok(recorded)
+}
+
+/// The instant frame `tick` is due at exactly 30 fps. Computed from the start,
+/// never accumulated, so the clip's timeline matches the wall clock a
+/// microphone records against.
+fn frame_deadline(start: Instant, tick: u64) -> Instant {
+    start + Duration::from_nanos(tick.saturating_mul(1_000_000_000) / 30)
+}
+
 /// Record a monitor to `out_path` for `seconds`, optionally cropping every
 /// frame to `crop`. Shared by full-display and region capture. Returns the
 /// number of frames written, or an error string.
@@ -375,6 +533,7 @@ fn record_monitor(
     }
 
     let mut ff = ffmpeg_cmd()
+        .args(FFMPEG_ERRORS_ONLY)
         .args([
             "-y",
             "-f",
@@ -396,9 +555,10 @@ fn record_monitor(
             out_path,
         ])
         .stdin(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("ffmpeg spawn failed ({}): {e}", ffmpeg_display()))?;
+    let tail = StderrTail::drain(&mut ff);
     let mut stdin = ff.stdin.take().ok_or("ffmpeg stdin")?;
 
     let (recorder, rx) = mon
@@ -409,12 +569,11 @@ fn record_monitor(
     // Constant-fps pacing: the WGC recorder is change-driven, so drive a 30fps
     // wall clock and (re)write the latest frame each tick — duplicating while
     // the screen is idle so the clip has a correct duration + steady framerate.
-    let frame_dur = Duration::from_millis(33);
     let start = Instant::now();
+    let mut tick = 0u64;
     let mut frames = 0u32;
     let mut last: Option<Vec<u8>> = None;
     let mut crop_buf = crop.map(|c| vec![0u8; (c.w * c.h * 4) as usize]);
-    let mut next = Instant::now();
     while start.elapsed() < Duration::from_secs(seconds.max(1) as u64) {
         while let Ok(f) = rx.try_recv() {
             last = Some(f.raw);
@@ -440,16 +599,17 @@ fn record_monitor(
             }
             frames += 1;
         }
-        next += frame_dur;
+        tick += 1;
+        let next = frame_deadline(start, tick);
         let now = Instant::now();
         if next > now {
             std::thread::sleep(next - now);
         }
     }
+    let seconds = start.elapsed().as_secs_f64();
     recorder.stop().ok();
     drop(stdin);
-    let _ = ff.wait();
-    Ok(frames)
+    finish_recording(ff, tail, Recorded { frames, seconds }, out_path, false).map(|r| r.frames)
 }
 
 fn primary_monitor() -> Result<Monitor, String> {
@@ -1168,10 +1328,92 @@ fn audio_input_args(audio: &str, device: Option<&str>) -> Result<Option<Vec<Stri
     }
 }
 
-/// Enumerate capture-audio device names for the mic/system pickers. Best-effort:
-/// returns an empty list rather than erroring when the probe fails.
+/// What a capture device records.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum DeviceKind {
+    Video,
+    Audio,
+}
+
+/// One capture device as the bundled ffmpeg reports it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CaptureDevice {
+    /// The friendly name a person recognises ("Integrated Camera").
+    pub name: String,
+    /// ffmpeg's unique alternative name (`@device_cm_…`), when it printed one.
+    pub alt_name: Option<String>,
+    pub kind: DeviceKind,
+}
+
+impl CaptureDevice {
+    /// The handle ffmpeg is given: the unique alternative name when there is
+    /// one (two devices may share a friendly name), else the friendly name.
+    pub fn id(&self) -> &str {
+        self.alt_name.as_deref().unwrap_or(&self.name)
+    }
+}
+
+/// The first `"…"` span in a line, without the quotes.
+fn first_quoted(line: &str) -> Option<(&str, &str)> {
+    let open = line.find('"')?;
+    let rest = &line[open + 1..];
+    let close = rest.find('"')?;
+    Some((&rest[..close], &rest[close + 1..]))
+}
+
+/// Parse ffmpeg's `-list_devices true -f dshow -i dummy` stderr.
+///
+/// Two formats are real: ffmpeg 8.x tags each device inline —
+/// `[in#0 @ …] "Integrated Camera" (video)` — while older builds printed
+/// `DirectShow video devices` / `DirectShow audio devices` section headers
+/// above untagged `[dshow @ …] "Name"` lines. Both print an indented
+/// `Alternative name "…"` line under each device; it belongs to the device
+/// just above it.
+pub fn parse_dshow_devices(text: &str) -> Vec<CaptureDevice> {
+    let mut devices: Vec<CaptureDevice> = Vec::new();
+    let mut section: Option<DeviceKind> = None;
+    for line in text.lines() {
+        if line.contains("DirectShow video devices") {
+            section = Some(DeviceKind::Video);
+            continue;
+        }
+        if line.contains("DirectShow audio devices") {
+            section = Some(DeviceKind::Audio);
+            continue;
+        }
+        let Some((quoted, after)) = first_quoted(line) else {
+            continue;
+        };
+        if line.contains("Alternative name") {
+            if let Some(last) = devices.last_mut() {
+                if last.alt_name.is_none() {
+                    last.alt_name = Some(quoted.to_string());
+                }
+            }
+            continue;
+        }
+        let kind = if after.contains("(video)") {
+            Some(DeviceKind::Video)
+        } else if after.contains("(audio)") {
+            Some(DeviceKind::Audio)
+        } else {
+            section
+        };
+        if let (Some(kind), false) = (kind, quoted.is_empty()) {
+            devices.push(CaptureDevice {
+                name: quoted.to_string(),
+                alt_name: None,
+                kind,
+            });
+        }
+    }
+    devices
+}
+
+/// Every camera and microphone the bundled ffmpeg can open on this machine.
+/// An ffmpeg that cannot run is an error, never a silently empty list.
 #[cfg(target_os = "windows")]
-pub fn list_audio_devices() -> Vec<String> {
+pub fn list_capture_devices() -> Result<Vec<CaptureDevice>, String> {
     let out = ffmpeg_cmd()
         .args([
             "-hide_banner",
@@ -1182,61 +1424,44 @@ pub fn list_audio_devices() -> Vec<String> {
             "-i",
             "dummy",
         ])
+        .stdin(Stdio::null())
         .stderr(Stdio::piped())
         .stdout(Stdio::null())
-        .output();
-    let Ok(out) = out else {
-        return Vec::new();
-    };
-    let text = String::from_utf8_lossy(&out.stderr);
-    let mut devices = Vec::new();
-    let mut in_audio = false;
-    for line in text.lines() {
-        let l = line.trim();
-        if l.contains("DirectShow audio devices") {
-            in_audio = true;
-            continue;
-        }
-        if l.contains("DirectShow video devices") {
-            in_audio = false;
-            continue;
-        }
-        if !in_audio || l.contains("Alternative name") {
-            continue;
-        }
-        // ffmpeg prints:  [dshow @ ..] "Microphone (Realtek)"  — grab the quoted name.
-        if let (Some(a), Some(b)) = (l.find('"'), l.rfind('"')) {
-            if b > a + 1 {
-                devices.push(l[a + 1..b].to_string());
-            }
-        }
-    }
-    devices
+        .output()
+        .map_err(|e| format!("ffmpeg could not run ({}): {e}", ffmpeg_display()))?;
+    // Listing always "fails" on the dummy input; the device lines are the
+    // answer, so the exit status carries nothing here.
+    Ok(parse_dshow_devices(&String::from_utf8_lossy(&out.stderr)))
 }
 
+/// Linux: the bundled ffmpeg enumerates PulseAudio sources itself
+/// (`-sources pulse`), so the app never shells out to pactl. Cameras (v4l2)
+/// arrive with the camera pass (D0.3). An ffmpeg that cannot run is an error.
 #[cfg(not(target_os = "windows"))]
-pub fn list_audio_devices() -> Vec<String> {
-    // The bundled ffmpeg enumerates PulseAudio sources itself (`-sources pulse`)
-    // so the app never shells out to pactl — the last PATH dependency is gone.
-    // Output lines theme like:  "alsa_output.pci-….monitor [Monitor of Built-in] (monitor)"
+pub fn list_capture_devices() -> Result<Vec<CaptureDevice>, String> {
+    // Output lines look like:  "alsa_output.pci-….monitor [Monitor of Built-in] (monitor)"
     // and may land on stdout or stderr depending on the build; scan both.
     let out = ffmpeg_cmd()
         .args(["-hide_banner", "-sources", "pulse"])
-        .output();
-    let Ok(out) = out else {
-        return Vec::new();
-    };
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("ffmpeg could not run ({}): {e}", ffmpeg_display()))?;
     let mut text = String::from_utf8_lossy(&out.stdout).to_string();
     text.push('\n');
     text.push_str(&String::from_utf8_lossy(&out.stderr));
-    text.lines()
+    Ok(text
+        .lines()
         .map(str::trim)
         .filter(|l| !l.is_empty() && !l.starts_with("Auto-detected") && !l.ends_with(':'))
         .filter_map(|l| {
             let name = l.trim_start_matches('*').split_whitespace().next()?;
-            (name.contains('.') || name.contains('_')).then(|| name.to_string())
+            (name.contains('.') || name.contains('_')).then(|| CaptureDevice {
+                name: name.to_string(),
+                alt_name: None,
+                kind: DeviceKind::Audio,
+            })
         })
-        .collect()
+        .collect())
 }
 
 /// Long-lived DXGI recorders, one per monitor id, reused across clips.
@@ -1258,14 +1483,15 @@ fn recorders() -> &'static Mutex<HashMap<u32, (VideoRecorder, Receiver<Frame>)>>
 /// The Start/Stop recorder: same constant-fps xcap→ffmpeg pipe as `record_monitor`,
 /// but the loop runs until `stop` is set (or `opts.max_seconds` elapses), the
 /// encoder/container/scale come from `opts`, and an optional audio device is muxed
-/// in as a second input. Returns frames written.
+/// in as a second input. Returns what the verified recording proves: frames
+/// written and the wall-clock seconds the loop ran.
 fn record_monitor_ctl(
     mon: &Monitor,
     crop: Option<CropRect>,
     out_path: &str,
     opts: &VideoOpts,
     stop: &AtomicBool,
-) -> Result<u32, String> {
+) -> Result<Recorded, String> {
     let full_w = mon.width().map_err(|e| format!("width: {e}"))?;
     let full_h = mon.height().map_err(|e| format!("height: {e}"))?;
     let (src_w, src_h) = match crop {
@@ -1276,8 +1502,9 @@ fn record_monitor_ctl(
         return Err("zero output size".into());
     }
 
-    let mut args: Vec<String> = ["-y", "-f", "rawvideo", "-pix_fmt", "rgba"]
+    let mut args: Vec<String> = FFMPEG_ERRORS_ONLY
         .iter()
+        .chain(["-y", "-f", "rawvideo", "-pix_fmt", "rgba"].iter())
         .map(|s| (*s).to_string())
         .collect();
     args.push("-s".into());
@@ -1339,20 +1566,28 @@ fn record_monitor_ctl(
     while rx.try_recv().is_ok() {}
     recorder.start().map_err(|_| "recorder start failed")?;
 
-    let mut ff = ffmpeg_cmd()
+    let mut ff = match ffmpeg_cmd()
         .args(&args)
         .stdin(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("ffmpeg spawn failed ({}): {e}", ffmpeg_display()))?;
+    {
+        Ok(child) => child,
+        Err(e) => {
+            // The recorder is already running — put it back to sleep so a
+            // failed start leaves nothing capturing.
+            recorder.stop().ok();
+            return Err(format!("ffmpeg spawn failed ({}): {e}", ffmpeg_display()));
+        }
+    };
+    let tail = StderrTail::drain(&mut ff);
     let mut stdin = ff.stdin.take().ok_or("ffmpeg stdin")?;
 
-    let frame_dur = Duration::from_millis(33);
     let start = Instant::now();
+    let mut tick = 0u64;
     let mut frames = 0u32;
     let mut last: Option<Vec<u8>> = None;
     let mut crop_buf = crop.map(|c| vec![0u8; (c.w * c.h * 4) as usize]);
-    let mut next = Instant::now();
     loop {
         if stop.load(Ordering::Relaxed) {
             break;
@@ -1386,19 +1621,20 @@ fn record_monitor_ctl(
             }
             frames += 1;
         }
-        next += frame_dur;
+        tick += 1;
+        let next = frame_deadline(start, tick);
         let now = Instant::now();
         if next > now {
             std::thread::sleep(next - now);
         }
     }
+    let seconds = start.elapsed().as_secs_f64();
     recorder.stop().ok();
     // Keep the recorder + frame channel CACHED in RECORDERS for the next clip —
     // dropping them would leak xcap's capture thread and burn this monitor's one
     // DXGI duplication. Just release the registry lock (at scope end) + ffmpeg.
     drop(stdin);
-    let _ = ff.wait();
-    Ok(frames)
+    finish_recording(ff, tail, Recorded { frames, seconds }, out_path, has_audio)
 }
 
 /// Resolve a `RecTarget` to a monitor + optional crop, then record it Start/Stop
@@ -1408,7 +1644,7 @@ pub fn record_ctl_to(
     target: RecTarget,
     opts: &VideoOpts,
     stop: &AtomicBool,
-) -> Result<u32, String> {
+) -> Result<Recorded, String> {
     match target {
         RecTarget::Monitor(id) => {
             let mon = monitor_by_id(id)?;
@@ -1531,5 +1767,144 @@ mod root_tests {
             out.iter().all(|s| !s.contains('\\')),
             "forward-slash display: {out:?}"
         );
+    }
+}
+
+/// D0.1a — every parser here is tested against bytes the bundled ffmpeg
+/// 8.1.2 really printed on the operator's laptop (`tests/fixtures/`, kept
+/// CRLF by `.gitattributes`), never against hand-typed approximations.
+#[cfg(test)]
+mod honest_media_tests {
+    use super::*;
+
+    const DSHOW_8: &str = include_str!("../tests/fixtures/dshow-list-ffmpeg-8.1.2.txt");
+    const PROBE_AV: &str = include_str!("../tests/fixtures/ffmpeg-i-video-audio-8.1.2.txt");
+    const PROBE_V: &str = include_str!("../tests/fixtures/ffmpeg-i-video-only-8.1.2.txt");
+
+    fn laptop_devices(devices: &[CaptureDevice]) {
+        assert_eq!(devices.len(), 3, "{devices:?}");
+        assert_eq!(devices[0].name, "Integrated Camera");
+        assert_eq!(devices[0].kind, DeviceKind::Video);
+        assert!(devices[0]
+            .alt_name
+            .as_deref()
+            .is_some_and(|a| a.starts_with("@device_pnp_")));
+        assert_eq!(devices[1].name, "OBS Virtual Camera");
+        assert_eq!(devices[1].kind, DeviceKind::Video);
+        // A name with its own parentheses survives whole.
+        assert_eq!(devices[2].name, "Microphone Array (Realtek(R) Audio)");
+        assert_eq!(devices[2].kind, DeviceKind::Audio);
+        assert!(devices[2]
+            .alt_name
+            .as_deref()
+            .is_some_and(|a| a.starts_with("@device_cm_")));
+    }
+
+    #[test]
+    fn the_fixture_is_still_the_crlf_bytes_ffmpeg_wrote() {
+        assert!(DSHOW_8.contains("\r\n"), "fixture was normalised to LF");
+    }
+
+    #[test]
+    fn ffmpeg_8_inline_tagged_listing_parses_every_device() {
+        laptop_devices(&parse_dshow_devices(DSHOW_8));
+    }
+
+    #[test]
+    fn the_same_listing_with_lf_endings_parses_identically() {
+        laptop_devices(&parse_dshow_devices(&DSHOW_8.replace("\r\n", "\n")));
+    }
+
+    #[test]
+    fn the_older_section_header_format_still_parses() {
+        // The layout the previous parser was written against: untagged names
+        // under "DirectShow video/audio devices" headers.
+        let older = "[dshow @ 0000020f] DirectShow video devices (some may be both video and audio devices)\n\
+                     [dshow @ 0000020f]  \"Integrated Camera\"\n\
+                     [dshow @ 0000020f]     Alternative name \"@device_pnp_cam\"\n\
+                     [dshow @ 0000020f] DirectShow audio devices\n\
+                     [dshow @ 0000020f]  \"Microphone (Realtek)\"\n\
+                     [dshow @ 0000020f]     Alternative name \"@device_cm_mic\"\n";
+        let devices = parse_dshow_devices(older);
+        assert_eq!(devices.len(), 2, "{devices:?}");
+        assert_eq!(devices[0].kind, DeviceKind::Video);
+        assert_eq!(devices[0].id(), "@device_pnp_cam");
+        assert_eq!(devices[1].kind, DeviceKind::Audio);
+        assert_eq!(devices[1].name, "Microphone (Realtek)");
+        assert_eq!(devices[1].id(), "@device_cm_mic");
+    }
+
+    #[test]
+    fn a_device_id_is_its_unique_alternative_name_when_ffmpeg_gave_one() {
+        let devices = parse_dshow_devices(DSHOW_8);
+        assert!(devices[2].id().starts_with("@device_cm_"));
+        let bare = CaptureDevice {
+            name: "Mic".into(),
+            alt_name: None,
+            kind: DeviceKind::Audio,
+        };
+        assert_eq!(bare.id(), "Mic");
+    }
+
+    #[test]
+    fn stream_probe_sees_video_and_audio_only_when_both_exist() {
+        assert_eq!(
+            parse_streams(PROBE_AV),
+            MediaStreams {
+                video: true,
+                audio: true
+            }
+        );
+        assert_eq!(
+            parse_streams(PROBE_V),
+            MediaStreams {
+                video: true,
+                audio: false
+            }
+        );
+        assert_eq!(parse_streams(DSHOW_8), MediaStreams::default());
+    }
+
+    #[test]
+    fn drift_compares_the_video_timeline_to_the_wall_clock() {
+        // The 2026-10-11 mic drill: 1799 frames over a 60 s window.
+        let on_clock = Recorded {
+            frames: 1799,
+            seconds: 59.98,
+        };
+        assert!(on_clock.drift_seconds() < 1.0 / 30.0);
+        // The old fixed 33 ms step wrote ~1818 frames a minute: the video ran
+        // ~0.6 s ahead of the microphone, and the drill must fail it.
+        let old_pacing = Recorded {
+            frames: 1818,
+            seconds: 60.0,
+        };
+        assert!(old_pacing.drift_seconds() > 0.5);
+    }
+
+    #[test]
+    fn frame_deadlines_are_exact_at_thirty_per_second() {
+        let start = Instant::now();
+        assert_eq!(frame_deadline(start, 0), start);
+        assert_eq!(frame_deadline(start, 30) - start, Duration::from_secs(1));
+        assert_eq!(frame_deadline(start, 1800) - start, Duration::from_secs(60));
+        // The old fixed 33 ms step drifted 0.6 s a minute; computed deadlines
+        // land on the wall clock every whole second.
+        assert_eq!(
+            frame_deadline(start, 1) - start,
+            Duration::from_nanos(33_333_333)
+        );
+    }
+
+    #[test]
+    fn a_failure_carries_ffmpegs_last_word() {
+        assert_eq!(
+            with_reason(
+                "the recording failed",
+                "line one\nCould not open device\n\n"
+            ),
+            "the recording failed: Could not open device"
+        );
+        assert_eq!(with_reason("no frames", ""), "no frames");
     }
 }
