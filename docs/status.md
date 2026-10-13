@@ -108,15 +108,26 @@ the one-truth program, because D0.1c is now library work.
 
 ## Next, in order
 
-1. **Awaiting the operator's go** on the proposed order:
-   - finish PR #222 (job board, preset looks, dry run; *"build the missing
-     consumer, never delete"*) on the new docs;
-   - `cargo xtask dev`;
-   - get the incomplete items working.
-2. P2, then P3 for operator approval.
-3. The L passes (one library), then D0.2 onward, then CHAT + AI. Codex (A2)
+The operator's direction (2026-10-13, R278): **develop on a dev run; finish
+everything incomplete first, each fully tested.**
+
+1. **`cargo xtask dev`**, the dev run. It comes first because it is how
+   everything below gets developed and tested. It builds the debug app plus
+   its helpers (`dpl-lottie-render`, `dpl-coach-overlay`), stages the depot
+   into `target\debug`, and opens the operator's library.
+2. **Finish the incomplete work**, each with unit tests and real-run drills:
+   - **PR #222**: the job board, preset looks and workflow dry run, finished
+     on the new docs (*"build the missing consumer, never delete"*);
+   - **chat tabs**: close and clear a tab (only "New chat" exists today), and
+     prove New chat works on the real run;
+   - **every vendor CLI a registered, updatable depot subprocess**: Claude
+     Code (none today; A4), and an in-place, SHA-verified tool update path
+     (`stage-tool-deps` refuses an existing root);
+   - the known-broken list above.
+3. P2, then P3 for operator approval.
+4. The L passes (one library), then D0.2 onward, then CHAT + AI. Codex (A2)
    and Claude Code (A4) each run on their own subscription first (R33).
-4. Then **the knowledge engine (R275–R277)**: its own plan, from the
+5. Then **the knowledge engine (R275–R277)**: its own plan, from the
    2026-10-13 sourced research.
    - One store with a project id on every row; projects proposed from
      where sessions ran, confirmed in one tap.

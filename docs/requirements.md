@@ -25,13 +25,13 @@ an operator quote: other docs cite the R-id, and they never re-quote it.
 | 3 | [WiredFRONT, Workbench, presets and the visual language](#3-wiredfront-workbench-presets-and-the-visual-language) | 85 |
 | 4 | [Slides, presenting, shows and episodes](#4-slides-presenting-shows-and-episodes) | 3 |
 | 5 | [Capture — ViziWiz, sessions, steps, guides](#5-capture--viziwiz-sessions-steps-guides) | 12 |
-| 6 | [Chat and AI providers](#6-chat-and-ai-providers) | 34 |
+| 6 | [Chat and AI providers](#6-chat-and-ai-providers) | 35 |
 | 7 | [Coach](#7-coach) | 14 |
 | 8 | [Signals, analytics and the rest](#8-signals-analytics-and-the-rest) | 21 |
 | 9 | [Portability and dependencies](#9-portability-and-dependencies) | 20 |
 | 10 | [How we work](#10-how-we-work) | 32 |
 
-**278 quoted requirements.** A quote that touches several subjects
+**279 quoted requirements.** A quote that touches several subjects
 sits under the first of them in this order.
 
 ## 1. The library — one universe of content
@@ -1338,6 +1338,20 @@ Note: Context at the time of recording:
   - per-project LoRA adapters swapped at runtime.
 - The engine would be a depot subprocess (llama.cpp), with experiments and devtools in Workbench `/experiments` (R139, R140).
 - Hardware: this laptop has an RTX 5090 Laptop GPU (the app's wgpu boot log), and the operator has 32/64/128 GB machines.
+
+### R278 · 2026-10-13
+
+> update our existing notes.  I was wrong to only expect the binary we must adopt proper dev practices running it while we dev and focus on all incomplete first that get full testing this also means I need to be able to clear create new tabs in the chat and that chat better be rebuilt properly inside the repo and not using chatmaton you better not be reaching outside of this repo i swear to god and processes better be properly registered as sub processes that can be easily updated once they have the binary
+
+Source: the operator's message in the Claude Code session of 2026-10-13 (first recorded here)
+
+Note: Facts verified 2026-10-13, and what changed:
+- CLAUDE.md now carries the dev practice: develop on a dev run, incomplete first with full testing, and still rebuild the release exe at landing.
+- No chatmaton/automaton/Shippin/`mato-*` dependency exists in `Cargo.lock` or the code.
+- Chat has "New chat" (`ChatWindowIntent::NewSession`) but **no close or clear for a tab**.
+- **Registered subprocesses:** Codex and Grok resolve only from the SHA-verified depot (`dpl_tools_deps::resolve_current`). Their environment passes the vendor's own home (`LOCALAPPDATA`/`USERPROFILE`), where the vendor CLI keeps its own subscription login.
+- **Claude has no subprocess yet:** A4 is not built, and the depot has no Claude Code CLI. Gemini and Cursor have none either.
+- **Updating a tool is friction:** `cargo xtask stage-tool-deps` refuses an existing root, so a new vendor binary means a new root. "Easily updated" (with R40) needs an in-place, SHA-verified update path.
 
 ## 7. Coach
 
