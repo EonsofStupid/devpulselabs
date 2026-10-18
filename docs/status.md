@@ -1,5 +1,5 @@
 ---
-updated: 2026-10-12
+updated: 2026-10-13
 active_lane: docs-one-truth
 dirty: false
 ---
@@ -13,8 +13,8 @@ reorganization).
 Read in this order: this page → [`requirements.md`](requirements.md) (the
 operator's words) → [`README.md`](README.md) (the map of every doc).
 
-**Updated:** 2026-10-12, main at `aa81b7d`, exe rebuilt 03:49 and verified
-on the real exe.
+**Updated:** 2026-10-13, main at `d3c0a73` (#262). The exe was rebuilt
+2026-10-12 10:49 and verified on the real exe (footer `d3c0a73`).
 
 ## Now
 
@@ -23,7 +23,7 @@ organized set, and the library becomes one.
 
 | Pass | What | State |
 |---|---|---|
-| P1 | requirements ledger (276 verbatim; R275 added from the operator's RAG question) · this page · the doc map · 247 finished/superseded/stale docs deleted (tagged first) · every reference fixed (0 dangling) | **in PR** (branch `docs/one-truth`) |
+| P1 | requirements ledger · this page · the doc map · 247 finished/superseded/stale docs deleted (tagged first) · every reference fixed (0 dangling) | **merged** (#262, double-green) |
 | P2 | one design doc per subject; ADRs into `adr/` | next |
 | P3 | `design/library.md`, the one-library law, for operator approval | after P2 |
 | L1… | code passes that make the library one | after P3 approval |
@@ -79,6 +79,23 @@ the one-truth program, because D0.1c is now library work.
     Locked`) and the seam port bind (os error 10048), then opens anyway.
     The operator asked (2026-08-05) for the app to bring the running window
     to the front. This needs its own PR.
+13. **No engine shows its startup** (R276). The library index, chat accounts
+    and chat profiles (three in-process Turso files), the estate (`fjall`),
+    the tool depot and providers start silently, and a failure is only a
+    log line. Per-engine states (Starting / Ready / Error, plus progress for
+    long work) → D0.2.
+14. **Analytics can write but not query.** DataFusion (R241) is not in the
+    dependency tree; only the Parquet writer exists.
+15. **The UI still states the old split.**
+    - The wiredFRONT hub blurb says *"ADR-010 is this hub's law"*, but
+      ADR-010 is the stale, unratified draft that was deleted.
+    - The Library card says *"Raw material, never app ingredients"*, the
+      agent-coined "two-libraries law" that contradicts "it is all one".
+    - → L passes.
+16. **No dev run.** Since D0.1b every helper must sit beside the exe, and
+    `target\debug` has no depot, no Lottie renderer and no debug build. A
+    `cargo xtask dev` (debug app + helpers + staged depot, the operator's
+    library) is proposed.
 
 ## Hazards outside this repo
 
@@ -91,17 +108,34 @@ the one-truth program, because D0.1c is now library work.
 
 ## Next, in order
 
-1. P1 lands (this branch): gate, both lanes through `workflow_dispatch`,
-   merge.
-2. P2, then P3 for operator approval.
-3. The L passes (one library), then D0.2 onward, then CHAT + AI. Codex (A2)
+The operator's direction (2026-10-13, R278): **develop on a dev run; finish
+everything incomplete first, each fully tested.**
+
+1. **`cargo xtask dev`**, the dev run. It comes first because it is how
+   everything below gets developed and tested. It builds the debug app plus
+   its helpers (`dpl-lottie-render`, `dpl-coach-overlay`), stages the depot
+   into `target\debug`, and opens the operator's library.
+2. **Finish the incomplete work**, each with unit tests and real-run drills:
+   - **PR #222**: the job board, preset looks and workflow dry run, finished
+     on the new docs (*"build the missing consumer, never delete"*);
+   - **chat tabs**: close and clear a tab (only "New chat" exists today), and
+     prove New chat works on the real run;
+   - **every vendor CLI a registered, updatable depot subprocess**: Claude
+     Code (none today; A4), and an in-place, SHA-verified tool update path
+     (`stage-tool-deps` refuses an existing root);
+   - the known-broken list above.
+3. P2, then P3 for operator approval.
+4. The L passes (one library), then D0.2 onward, then CHAT + AI. Codex (A2)
    and Claude Code (A4) each run on their own subscription first (R33).
-4. Then **chat memory (R275)**: its own plan, with research first. It
-   covers:
-   - feeding every Codex/Claude turn (already normalized by
-     `chat/store`'s `HistoryIndex`) into embeddings, grouped by provider,
-     session and project;
-   - a local embedder subprocess, or a separate API key (subscriptions
-     carry no embeddings);
-   - Turso/libSQL vectors vs LanceDB;
-   - a retrieval lab in Workbench `/experiments` (R139, R140).
+5. Then **the knowledge engine (R275–R277)**: its own plan, from the
+   2026-10-13 sourced research.
+   - One store with a project id on every row; projects proposed from
+     where sessions ran, confirmed in one tap.
+   - Keyword search first; embeddings are one datapoint among keyword,
+     project, provider and time (R277).
+   - In-process Turso in its own derived-data file (the `turso` crate has
+     no dense ANN index: exact scan).
+   - `llama-server --embedding` as a depot subprocess.
+   - Honest per-engine startup states.
+   - An LLM lab in Workbench `/experiments` (R139, R140) for the layer and
+     shard experiments of R277.

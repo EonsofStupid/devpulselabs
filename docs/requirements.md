@@ -25,13 +25,13 @@ an operator quote: other docs cite the R-id, and they never re-quote it.
 | 3 | [WiredFRONT, Workbench, presets and the visual language](#3-wiredfront-workbench-presets-and-the-visual-language) | 85 |
 | 4 | [Slides, presenting, shows and episodes](#4-slides-presenting-shows-and-episodes) | 3 |
 | 5 | [Capture — ViziWiz, sessions, steps, guides](#5-capture--viziwiz-sessions-steps-guides) | 12 |
-| 6 | [Chat and AI providers](#6-chat-and-ai-providers) | 32 |
+| 6 | [Chat and AI providers](#6-chat-and-ai-providers) | 35 |
 | 7 | [Coach](#7-coach) | 14 |
 | 8 | [Signals, analytics and the rest](#8-signals-analytics-and-the-rest) | 21 |
 | 9 | [Portability and dependencies](#9-portability-and-dependencies) | 20 |
 | 10 | [How we work](#10-how-we-work) | 32 |
 
-**276 quoted requirements.** A quote that touches several subjects
+**279 quoted requirements.** A quote that touches several subjects
 sits under the first of them in this order.
 
 ## 1. The library — one universe of content
@@ -1300,6 +1300,58 @@ Note: Facts at the time of recording:
 - Subscriptions do not include embeddings: embeddings need a local model as a subprocess, or a separate API key.
 - The vector store (Turso/libSQL vectors vs LanceDB) is unresearched.
 - The devtools home is Workbench `/experiments` (R139, R140).
+
+### R276 · 2026-10-13
+
+> Why are we adding a project like this, the checkbox does not work, and then I have to checkbox and then say add to devpulse.  Look research online how knowledge engines are handling per project scope as well as ensuring right if it takes awhile to load, I should see the turso local DB starting up, duckdb, each of these are dedicated subprocesses to be running alongside devpulse am i wrong?
+
+Source: the operator's message in the Claude Code session of 2026-10-13 (first recorded here)
+
+Note: Facts at the time of recording (from `Cargo.lock` and the code):
+- Turso runs **in-process**, not as a subprocess. It opens three separate database files: the library index, chat accounts and chat profiles (`turso::Builder::new_local`).
+- The estate (`fjall`) is in-process too.
+- DuckDB is gone: R241 (2026-08-03) supersedes the R239 sidecar ruling (2026-07-29).
+- DataFusion is not built: only the Parquet writer exists.
+- No engine's startup is shown to the operator; a failure is only a log line. Startup visibility belongs to D0.2's dependency screen.
+- The checkbox + "add to devpulse" screen is not found in this repo's code (no such string); a screenshot was requested.
+- Web research on per-project scope in knowledge engines, local vector stores, in-process vs subprocess, and local embeddings was done 2026-10-13 (sourced report). Its findings:
+  - one store with a project id per row;
+  - projects detected from session folders;
+  - keyword search first;
+  - the `turso` crate has no dense ANN index (exact scan only);
+  - embeddings via `llama-server --embedding` as a depot subprocess;
+  - honest per-engine startup states.
+
+### R277 · 2026-10-13
+
+> No, for me I want embeddings to just be a datapoint and I want to eventually experiment with building an LLM on the fly where we research if we could build some type of flat file LLM where we do 6-9 attention layers and have it in shards/chunks allowing it to not have to load the full 16 layers but only the top 1 or 2 that KVCache is hitting  if that makes any sense
+
+Source: the operator's message in the Claude Code session of 2026-10-13 (first recorded here)
+
+Note: Context at the time of recording:
+- Embeddings are one signal among keyword, project, provider and time, not an embeddings-first design.
+- Technically, every token passes through every layer, and the KV cache holds past keys/values for all layers. It does not select layers.
+- The idea maps to real research lines, to be verified in a research pass before any plan:
+  - memory-mapped flat-file weights and layer streaming (GGUF, AirLLM, FlexGen);
+  - running only some layers per token (early exit: CALM, LayerSkip; Mixture-of-Depths);
+  - sparse shards (Mixture-of-Experts with offloaded experts);
+  - per-project LoRA adapters swapped at runtime.
+- The engine would be a depot subprocess (llama.cpp), with experiments and devtools in Workbench `/experiments` (R139, R140).
+- Hardware: this laptop has an RTX 5090 Laptop GPU (the app's wgpu boot log), and the operator has 32/64/128 GB machines.
+
+### R278 · 2026-10-13
+
+> update our existing notes.  I was wrong to only expect the binary we must adopt proper dev practices running it while we dev and focus on all incomplete first that get full testing this also means I need to be able to clear create new tabs in the chat and that chat better be rebuilt properly inside the repo and not using chatmaton you better not be reaching outside of this repo i swear to god and processes better be properly registered as sub processes that can be easily updated once they have the binary
+
+Source: the operator's message in the Claude Code session of 2026-10-13 (first recorded here)
+
+Note: Facts verified 2026-10-13, and what changed:
+- CLAUDE.md now carries the dev practice: develop on a dev run, incomplete first with full testing, and still rebuild the release exe at landing.
+- No chatmaton/automaton/Shippin/`mato-*` dependency exists in `Cargo.lock` or the code.
+- Chat has "New chat" (`ChatWindowIntent::NewSession`) but **no close or clear for a tab**.
+- **Registered subprocesses:** Codex and Grok resolve only from the SHA-verified depot (`dpl_tools_deps::resolve_current`). Their environment passes the vendor's own home (`LOCALAPPDATA`/`USERPROFILE`), where the vendor CLI keeps its own subscription login.
+- **Claude has no subprocess yet:** A4 is not built, and the depot has no Claude Code CLI. Gemini and Cursor have none either.
+- **Updating a tool is friction:** `cargo xtask stage-tool-deps` refuses an existing root, so a new vendor binary means a new root. "Easily updated" (with R40) needs an in-place, SHA-verified update path.
 
 ## 7. Coach
 

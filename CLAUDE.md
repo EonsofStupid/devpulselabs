@@ -12,9 +12,20 @@ This is THE checkout (`D:\projects\devpulselabs`), on `main` — operator
 ruling 2026-10-10. It holds the operator's library (`content/` at the repo
 root — operator data, see below), its `.userdata/`, and the staged depot. The
 clone at `D:\localdev\devpulselabs` is NOT used (empty library); never work
-in it, never delete it. The operator double-clicks
-`target\release\devpulselabs.exe` — a pass is NOT done until that exe is
-rebuilt and its mtime moved. The tool depot is staged beside it from
+in it, never delete it.
+
+**Dev practice** (operator, 2026-10-13, R278: *"I was wrong to only expect
+the binary we must adopt proper dev practices running it while we dev and
+focus on all incomplete first that get full testing"*):
+- Develop on a **dev run** of the app, with the helpers and the depot beside
+  the debug exe and the operator's library open (`cargo xtask dev`, once
+  built). Do not develop only against the release exe.
+- **Incomplete work comes first**, each piece with full testing (unit tests
+  plus real-run drills), before anything new.
+- The operator double-clicks `target\release\devpulselabs.exe`, so a pass
+  still lands with that exe rebuilt and its mtime moved.
+
+The tool depot is staged beside it from
 `dptools-deps/sources.local.toml` (gitignored) via
 `cargo xtask stage-tool-deps <new root>`; the depot source is
 `D:\projects\dptools-deps` (inventory row 56).
