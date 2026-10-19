@@ -18,8 +18,8 @@ in it, never delete it.
 the binary we must adopt proper dev practices running it while we dev and
 focus on all incomplete first that get full testing"*):
 - Develop on a **dev run** of the app, with the helpers and the depot beside
-  the debug exe and the operator's library open (`cargo xtask dev`, once
-  built). Do not develop only against the release exe.
+  the debug exe and the operator's library open (`cargo xtask dev`). Do not
+  develop only against the release exe.
 - **Incomplete work comes first**, each piece with full testing (unit tests
   plus real-run drills), before anything new.
 - The operator double-clicks `target\release\devpulselabs.exe`, so a pass
@@ -78,6 +78,12 @@ The tool depot is staged beside it from
 
 - Gate: `cargo green` · exe: `cargo build --release -p devpulselabs -p dpl-lottie-render`
   (the Lottie render helper ships BESIDE the exe — the façade spawns it, ADR-009)
+- Dev run: `cargo xtask dev [-- <app flags>]`.
+  - It builds the debug app with `dpl-lottie-render` and `dpl-coach-overlay`,
+    and stages the depot into `target\debug` on the first run.
+  - It launches the app detached on the operator's library and exits; the
+    log is `target\debug\dev-run.log`.
+  - Proof and drill runs pass a scratch `--content-root`, which always wins.
 - The gate is WIRED as a pre-push hook (`.githooks/pre-push`; fresh
   clones run `git config core.hooksPath .githooks` once). Never bypass
   with --no-verify. The hook proves the pusher's own OS only — the two
