@@ -427,7 +427,7 @@ vendor-specific.
 | Mode | What it is | Per vendor (probed first, honest about limits) |
 |---|---|---|
 | **CLI (background)** | The vendor CLI as a supervised subprocess from the depot, driven over its protocol | Codex `app-server` JSON-RPC · Claude Code `stream-json` · Grok `agent stdio` (ACP) · Gemini headless (multi-turn to be probed) |
-| **Desktop wrap** | Attach to, or launch and focus, the vendor's installed desktop app; reuse its signed-in session (R12 piggyback) | Codex desktop: its local **`app-server` daemon** is running; attaching to it is the candidate. Claude Desktop and Grok Bot: **probe first** what can be attached or driven. Only proven capabilities are shown (R36). |
+| **Desktop wrap** | Attach to, or launch and focus, the vendor's installed desktop app; reuse its signed-in session (R12 piggyback) | Codex desktop: its local **`app-server` daemon** is running; attaching to it is the candidate. Claude Desktop and Grok Bot: **probe first** what can be attached or driven. Only proven capabilities are shown (R36). **Terms gate (2026-10-18):** driving Anthropic's own desktop app from DevPULSE sits near the Consumer Terms' "automated or non-human means" clause. Nothing beyond launch/focus is built for it without a clean reading of the terms, put to the operator first. |
 | **Terminal (TTY)** | The vendor's own terminal UI in **our WezTerm**, portable, from the depot, a subprocess with a DevPULSE-owned config | `codex` · `claude` · `grok` interactive TUIs. Opened from chat's UI ("Open in terminal"), never by typing a command (R37). |
 
 **Updates that keep subscriptions working (R40)**, the per-provider update
@@ -450,6 +450,75 @@ path:
 3. **Schema-pin tests** are regenerated from the staged binary in the same
    PR as any adapter change.
 
+#### 4.3.7 Subscriptions done right, one shared conversation, roles and routines (R279, R280)
+
+**AMENDED 2026-10-18** from a sourced research pass. The vendors' terms were
+re-verified at their sources the same day, and the evidence and links are in
+`docs/requirements.md` R279–R280.
+
+**What the vendors allow. This is binding on every provider pass.**
+
+| Vendor | Allowed | Not allowed |
+|---|---|---|
+| OpenAI | Codex `app-server` (OpenAI's first-class embedding path), with the CLI managing its own ChatGPT login | DevPULSE holding tokens; exposing the subscription as an API to other tools; rotating accounts |
+| Anthropic | The **unmodified** `claude` binary, with the operator signing in through Anthropic's own flow in a real terminal. Use stays "ordinary, individual". | DevPULSE collecting, storing or intermediating Claude credentials or tokens; a DevPULSE-owned "Sign in with Claude" |
+| xAI | `grok agent stdio` (ACP), as documented | Account sharing (no third-party clause was found) |
+| Google | **Gemini CLI on a paid Gemini API key**, funded by the subscription's Developer Program credits (AI Pro $10/month, Ultra up to $100/month, usable "towards Gemini API"), or the free API tier. The key is entered in the CLI's own setup. | Driving Antigravity or any Google consumer OAuth from DevPULSE (Antigravity terms §6). Revisit if Google ships official ACP support. |
+
+**Auth health (one state machine for every provider).** States:
+- Ready;
+- Limited (until the reset time);
+- Stale (a "signed in but rejected" login, which the CLI must restart);
+- Needs sign-in (a terminal opens on the vendor's own sign-in command).
+
+Built on each CLI's real signals:
+- **Codex:** `account/read`, `account/rateLimits/read` and `…/updated`;
+  turn errors `Unauthorized` and `UsageLimitExceeded`. After
+  `codex login --device-auth` the supervisor **restarts app-server**
+  (openai/codex#47456).
+- **Claude:** `claude auth status` (exit code); stream-json
+  `rate_limit_event` and `error: authentication_failed`.
+- **ACP vendors:** `authenticate` / auth_required.
+
+There are no retry loops: a 429 backs off until `resetsAt`. This lives in
+`dpl-ai-host` with per-vendor signal mapping in each provider's
+`activation.rs`. It lands with A2 (Codex), A4 (Claude) and A7/A8 (Grok,
+Gemini).
+
+**One shared conversation (the room).**
+- **The transcript.** DevPULSE owns the room's transcript in `dpl-chat-store`
+  (C1): who spoke, their role, the text, and a summary of their tool calls,
+  never the payloads.
+- **Native sessions.** Each vendor keeps its **native** session (a Codex
+  thread, a Claude `--session-id`, an ACP session).
+- **Deltas.** Before a participant's turn, the host sends only what is new
+  since it last spoke: Codex via `thread/inject_items`, Claude and ACP
+  vendors as a user message.
+- **A local stdio "room" MCP server** is given to every participant
+  (`room.read(since)`, `room.note`, a shared scratchpad).
+- **A scribe role** keeps a rolling digest. The digest replaces the full
+  history when a participant nears its context limit (Codex
+  `ContextWindowExceeded`, ACP `usage_update`, Claude result `usage`).
+
+**Roles and routines.**
+- **Roles.** Each participant gets a role prompt. The UI shows a roster
+  with role chips and @-mentions, and DevPULSE moderates who speaks.
+- **Routines, built in this order.**
+
+| # | Routine | Why first (evidence in R279) |
+|---|---|---|
+| 1 | **Council: select, never blend.** Parallel answers, anonymized ranking (no model ranks its own), then a chairman **selects** and lightly edits. A cheaper mode runs "best model × N". | Voting and selection carry the gains of debate. Judge selection beat Mixture-of-Agents synthesis. LLM judges prefer their own outputs. |
+| 2 | **Author plus a cross-vendor critic** with fixed lenses (correctness, security, tests) | Verification failures dominate multi-agent failures. Single executors do better on sequential work. |
+| 3 | **Router**: @-mention, or task-type rules; escalate to the Council only for judgment-heavy questions | Routers cut cost 2× or more. Multi-agent setups lose on sequential tasks. |
+
+**Not built yet:** open-ended multi-round debate and layered answer blending
+(MoA synthesis).
+
+**"MoE" in this program** means agent-level orchestration. Model-internal
+experts cannot be changed in vendor models. A local open-weight MoE model
+(llama.cpp, a depot subprocess) is a terms-free candidate for the scribe or
+router role, and belongs to R277's lab.
+
 ### 4.4 Passes (each: plan doc, 7 sections + §8; PR; double-green; real-exe proof; exe rebuilt; STATE)
 
 | Pass | Scope | Done means |
@@ -468,8 +537,8 @@ path:
 | **C2 = chat UI** | `chat/window` rebuilt as in §4.2, on ColdLight, colocated. **This real egui window is the mock the operator red-pens (R26, R38).** | Shots at 1100×700 and maximized; a pilot scenario drives every control; a grep proves zero raw colour/frames in `crates/chat/**` |
 | **C3** | Commands with guided values; popup + task windows (R17, R20, R32) | Pilot scenario per command; minimize/restore proof |
 | **C4** | Platform reach: AI available platform-wide; Assist; content actions (R5, R8, R10) | A non-chat surface runs a turn; round-trip proof |
-| **A7 / A8** | Grok onto the host (retire its separate path); Gemini with Node **installed** into the depot | Real turns |
-| **C5 / C6 / later** | Grok media (R4); Clyffy (R16); Council (R25), brainstorm (R23), Clyffy drive (R24) | Each gets its own plan |
+| **A7 / A8** | Grok onto the host (retire its separate path). Gemini with Node **installed** into the depot, **on a paid Gemini API key** funded by the subscription's Developer Program credits, never on Google consumer OAuth (§4.3.7, R280). Each gets §4.3.7 auth health. | Real turns; an auth-health state shown for each |
+| **C5 / C6 / later** | Grok media (R4); Clyffy (R16); **the room and routines (§4.3.7)**: the shared conversation, then Council (select, never blend; R25), then Author plus critic, then Router; brainstorm (R23); Clyffy drive (R24) | Each gets its own plan. The Council comes after Codex and Claude each work on their own (R33). |
 
 ### 4.5 External reaches this plan adds (to `external-reach-inventory.md`)
 
@@ -491,7 +560,7 @@ Each is listed before it is relied on.
 | 3 | Official Claude Code CLI into the depot: Anthropic's native binary, or the npm package (which needs Node) | The **native binary**, so no Node dependency for Claude |
 | 4 | WezTerm as our TTY: portable build installed into the depot | **Yes** |
 | 5 | Where new vendor versions come from | This machine's installed copies first; official downloads per vendor with your OK |
-| 6 | Provider order | Codex → Claude Code → Grok → Gemini; Council last (R33) |
+| 6 | Provider order | Codex → Claude Code → Grok → Gemini (on a paid API key funded by Developer Program credits, R280); then the room and the routines of §4.3.7, Council first (R33). **Amended 2026-10-18:** the operator approved the §4.3.7 design. |
 
 ## 5. Wiring
 

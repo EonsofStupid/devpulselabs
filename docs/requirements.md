@@ -25,13 +25,13 @@ an operator quote: other docs cite the R-id, and they never re-quote it.
 | 3 | [WiredFRONT, Workbench, presets and the visual language](#3-wiredfront-workbench-presets-and-the-visual-language) | 85 |
 | 4 | [Slides, presenting, shows and episodes](#4-slides-presenting-shows-and-episodes) | 3 |
 | 5 | [Capture — ViziWiz, sessions, steps, guides](#5-capture--viziwiz-sessions-steps-guides) | 12 |
-| 6 | [Chat and AI providers](#6-chat-and-ai-providers) | 35 |
+| 6 | [Chat and AI providers](#6-chat-and-ai-providers) | 37 |
 | 7 | [Coach](#7-coach) | 14 |
 | 8 | [Signals, analytics and the rest](#8-signals-analytics-and-the-rest) | 21 |
 | 9 | [Portability and dependencies](#9-portability-and-dependencies) | 20 |
 | 10 | [How we work](#10-how-we-work) | 32 |
 
-**279 quoted requirements.** A quote that touches several subjects
+**281 quoted requirements.** A quote that touches several subjects
 sits under the first of them in this order.
 
 ## 1. The library — one universe of content
@@ -1352,6 +1352,59 @@ Note: Facts verified 2026-10-13, and what changed:
 - **Registered subprocesses:** Codex and Grok resolve only from the SHA-verified depot (`dpl_tools_deps::resolve_current`). Their environment passes the vendor's own home (`LOCALAPPDATA`/`USERPROFILE`), where the vendor CLI keeps its own subscription login.
 - **Claude has no subprocess yet:** A4 is not built, and the depot has no Claude Code CLI. Gemini and Cursor have none either.
 - **Updating a tool is friction:** `cargo xtask stage-tool-deps` refuses an existing root, so a new vendor binary means a new root. "Easily updated" (with R40) needs an in-place, SHA-verified update path.
+
+### R279 · 2026-10-18
+
+> we need to absorb the latest tricks and practices in subscription use and implementation so we can truly get shared state between frontierAI and have chats with assigned roles and cutting edge multi llm routines, MoE,
+
+Source: the operator's message in the Claude Code session of 2026-10-18 (first recorded here)
+
+Note: Context at the time of recording:
+- Said right after the operator's Codex CLI showed "workspace routing discovery unauthorized (401)". That is a stale or revoked ChatGPT login the CLI still reports as signed in (openai/codex#47456).
+  - The login file was last written 2026-10-16 22:01 by the Codex desktop app.
+  - Two 0.163.0 app-server daemons had been running since 13:12.
+  - Detecting "signed in but rejected" and offering the re-sign-in is part of what R279 asks for.
+- A sourced web-research pass was started 2026-10-18 on:
+  - subscription use through official CLIs/SDKs and the vendors' terms;
+  - auth health;
+  - shared state across providers (normalized transcript, MCP, ACP);
+  - roles and multi-LLM routines (Mixture-of-Agents, debate, council, routers);
+  - model-level MoE vs agent-level orchestration.
+- The existing order stands: R33, the council after Claude Code and Codex each work well on their own.
+- **Research findings (2026-10-18). The terms clauses were re-verified at their sources the same day:**
+  - **Anthropic** ([legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)): an end user may sign in "to the unmodified Claude Code binary with their own Claude subscription, including where a platform hosts Claude Code". Developers "may not collect, store, or intermediate Claude.ai credentials or session tokens — sign-in to a Claude account must complete through Anthropic's own flow". Usage limits "assume ordinary, individual usage". So: the unmodified `claude` binary, the operator signs in in a real terminal, and DevPULSE never touches the token.
+  - **Google** ([gemini-cli#27274](https://github.com/google-gemini/gemini-cli/discussions/27274)): "On June 18, 2026, Gemini CLI will stop serving requests for Google AI Pro and Ultra, as well as those using it free of charge"; paid Gemini API keys still work. [Antigravity terms §6](https://antigravity.google/terms): "using the Service in connection with products not provided by us" / "Using third party software, tools, or services to access the Service … is a breach", which "may be grounds for suspension or termination". **Driving a Google consumer subscription from DevPULSE is not allowed.** Google is reachable only by a paid API key. This bears on R34 (a gemini tab).
+  - **OpenAI:** Codex `app-server` is its documented first-class embedding path, with the CLI managing its own ChatGPT login.
+  - **xAI:** `grok agent stdio` (ACP) is documented. No third-party-app clause was found (not verified).
+  - **Auth health signals:**
+    - Codex: `account/read`, `account/rateLimits/read`, `account/rateLimits/updated`; turn errors `Unauthorized` and `UsageLimitExceeded`. After `codex login --device-auth`, **restart the long-running app-server** (openai/codex#47456).
+    - Claude: `claude auth status` (exit code); stream-json `rate_limit_event` and `error: authentication_failed`.
+    - ACP: `authenticate` / auth_required.
+  - **Multi-LLM evidence:**
+    - Majority voting accounts for most of the gains credited to debate (arXiv 2508.17536).
+    - Judge *selection* beat Mixture-of-Agents *synthesis* (arXiv 2603.20324).
+    - Self-MoA beat mixed MoA (arXiv 2502.00674).
+    - Multi-agent setups lose on sequential tasks (Google scaling study).
+    - Routers cut cost 2× or more (RouteLLM).
+  - **"MoE":** model-internal Mixture-of-Experts cannot be changed in vendor models. Agent-level orchestration can be built, and local open-weight MoE models can run under llama.cpp.
+
+### R280 · 2026-10-18
+
+> i bet if we look into gemini AI subscription as of october 2026 we can find a way to include it, so we cant use the CLI i would double check and this is again a private chat tool why cant that be allowed as it should be for persoinal use
+
+Source: the operator's answer in the Claude Code session of 2026-10-18 (first recorded here). It was the reply to "what should the Gemini tab (R34) be?". The same answer approved amending the chat program with the R279 design.
+
+Note: Re-checked 2026-10-18:
+- **Allowed path, paid for by the subscription.** Google AI Pro/Ultra include Google Developer Program premium (since 2026-01-27): "$10 per month in Google Cloud credits for Google AI Pro subscribers and $100 per month for Google AI Ultra subscribers", which you can "use … towards Gemini API" ([Google blog](https://blog.google/innovation-and-ai/technology/developers-tools/gdp-premium-ai-pro-ultra/)).
+  - Gemini CLI still serves paid API keys, so the unmodified Gemini CLI on that key is a depot subprocess like the others.
+  - The key is entered in the CLI's own setup; DevPULSE never holds it.
+  - To verify on the operator's account: whether prepay accounts need purchased credit first, and the Ultra amount.
+- **Free path:** the Gemini API free tier (an AI Studio key). Its limits are no longer published, and free-tier data "may be used to improve Google products".
+- **Not yet:** driving Antigravity on the subscription.
+  - Its terms (§6) name "using third party software, tools, or services to access the Service" as a breach, with no personal-use exception, and the penalty can reach the Antigravity and Gemini CLI accounts.
+  - The only "compliant" answer on Google's developer forum is an unbadged reply with no cited clause.
+  - Native ACP for the Antigravity CLI is still an open request (google-antigravity/antigravity-cli#31).
+  - Revisit if Google ships official ACP support, which would be the intended path.
 
 ## 7. Coach
 
