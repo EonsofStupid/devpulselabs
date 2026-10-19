@@ -2990,14 +2990,19 @@ impl Composer {
             ui.painter()
                 .rect_filled(body, CornerRadius::same(cl::RADIUS), cl::surface::WELL);
         }
-        let mut mk = |rect: Rect| ui.new_child(UiBuilder::new().max_rect(rect.shrink(pad)));
-        self.tab_strip(&mut mk(tabbar_rect), &mut act);
+        // Each panel child is salted with its own name: unsalted siblings
+        // derive the same IDs, and their widgets (scroll areas first)
+        // collide and share state.
+        let mut mk = |name: &str, rect: Rect| {
+            ui.new_child(UiBuilder::new().id_salt(name).max_rect(rect.shrink(pad)))
+        };
+        self.tab_strip(&mut mk("tabs", tabbar_rect), &mut act);
         match self.tab {
             Tab::Editor => self.ae_screen(ui, body, &mut act),
-            Tab::Annotate => self.annotate_tab(&mut mk(body), &mut act),
-            Tab::Guide => self.guide_tab(&mut mk(body)),
-            Tab::Workflows => self.workflows_tab(&mut mk(body), &mut act),
-            other => tab_stub(&mut mk(body), other),
+            Tab::Annotate => self.annotate_tab(&mut mk("annotate", body), &mut act),
+            Tab::Guide => self.guide_tab(&mut mk("guide", body)),
+            Tab::Workflows => self.workflows_tab(&mut mk("workflows", body), &mut act),
+            other => tab_stub(&mut mk("tab-stub", body), other),
         }
 
         match act {
@@ -3513,16 +3518,21 @@ impl Composer {
             ui.painter()
                 .rect_filled(r, CornerRadius::same(cl::RADIUS), cl::surface::BASE);
         }
-        let mut mk = |r: Rect| ui.new_child(UiBuilder::new().max_rect(r.shrink(pad)));
-        self.tool_strip(&mut mk(tools_rect), act);
-        self.project_panel(&mut mk(project_rect), act);
-        self.viewer_pane(&mut mk(viewer_rect), act);
+        // One salt per panel, so no widget in one panel can share an ID with
+        // a widget in a sibling (unsalted, the Project and Effects scroll
+        // areas shared one, and with it their scroll state).
+        let mut mk = |name: &str, r: Rect| {
+            ui.new_child(UiBuilder::new().id_salt(name).max_rect(r.shrink(pad)))
+        };
+        self.tool_strip(&mut mk("tools", tools_rect), act);
+        self.project_panel(&mut mk("project", project_rect), act);
+        self.viewer_pane(&mut mk("viewer", viewer_rect), act);
         if let Some(info) = info_rect {
-            self.info_pane(&mut mk(info), act);
+            self.info_pane(&mut mk("info", info), act);
         }
-        self.fx_pane(&mut mk(fx_rect));
-        self.timeline_panel(&mut mk(timeline_rect), act);
-        self.status_row(&mut mk(status_rect), act);
+        self.fx_pane(&mut mk("fx", fx_rect));
+        self.timeline_panel(&mut mk("timeline", timeline_rect), act);
+        self.status_row(&mut mk("status", status_rect), act);
         // Explorer drag-drop affordance: hovering files lights the whole
         // editor as the drop target; the drop itself drains next frame.
         if ui.ctx().input(|i| !i.raw.hovered_files.is_empty()) {
@@ -6931,6 +6941,62 @@ fn fmt_secs(secs: Option<u32>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The editor's sibling panels were once children of one parent with
+    /// no salt, so they derived the same widget IDs (the Project and
+    /// Effects scroll areas shared one, and with it their scroll state).
+    /// egui paints "First/Second/Double use of … ID" over every clash in
+    /// debug builds; no tab of the editor may paint one.
+    #[test]
+    fn no_editor_tab_paints_a_widget_id_clash() {
+        for tab in Tab::ALL {
+            let ctx = egui::Context::default();
+            ctx.options_mut(|options| options.warn_on_id_clash = true);
+            let mut composer = Composer::default();
+            composer.tab = tab;
+            let mut clashes = Vec::new();
+            // A few frames, so panels that size themselves from the
+            // previous frame are laid out at their settled size.
+            for _ in 0..3 {
+                let input = egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1600.0, 900.0),
+                    )),
+                    ..Default::default()
+                };
+                let mut output = ctx.run_ui(input, |ui| composer.ui(ui));
+                clashes = id_clash_warnings(&output.shapes);
+                output.textures_delta.clear();
+            }
+            assert!(
+                clashes.is_empty(),
+                "{} tab: egui flagged {clashes:?}",
+                tab.label()
+            );
+        }
+    }
+
+    /// Every ID-clash warning egui painted in one frame.
+    fn id_clash_warnings(shapes: &[egui::epaint::ClippedShape]) -> Vec<String> {
+        fn walk(shape: &egui::Shape, found: &mut Vec<String>) {
+            match shape {
+                egui::Shape::Vec(shapes) => shapes.iter().for_each(|shape| walk(shape, found)),
+                egui::Shape::Text(text) => {
+                    let text = text.galley.text();
+                    if text.contains("use of ") && text.contains(" ID ") {
+                        found.push(text.to_owned());
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut found = Vec::new();
+        for clipped in shapes {
+            walk(&clipped.shape, &mut found);
+        }
+        found
+    }
 
     /// WF1: the app-side runner materializes the storyboard workflow into
     /// a scratch run folder — slides minted per slot, board filled, comp

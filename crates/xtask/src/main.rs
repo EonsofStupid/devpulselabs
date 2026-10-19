@@ -11,7 +11,7 @@
 //! `cargo xtask fix` = fmt + clippy --fix (the tidy loop).
 //! `cargo xtask dev [-- <app flags>]` = the dev run: the debug app and its
 //!   helpers, the tool depot beside the debug exe, launched detached on the
-//!   operator's library (docs/plans/dev-run.md).
+//!   operator's library (R278).
 //! `cargo xtask coverage` = the coverage audit alone, with the depth rules
 //!   printed. It also runs inside `green`, where it REPORTS and never gates
 //!   (pass 1) — the one phase that can see authored data nothing consumes.
@@ -681,8 +681,8 @@ fn stage_tool_dependencies(arguments: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-/// THE DEV RUN — `cargo xtask dev [-- <app flags>]` (docs/plans/dev-run.md,
-/// R278: "proper dev practices running it while we dev").
+/// THE DEV RUN — `cargo xtask dev [-- <app flags>]` (R278:
+/// "proper dev practices running it while we dev").
 ///
 /// Builds the debug app with the helpers it spawns, makes sure the tool depot
 /// sits beside the debug exe (D0.1b: every helper resolves beside the exe),
@@ -1948,7 +1948,7 @@ fn main() -> ExitCode {
         // is that it catches what three commits already got wrong.
         "lock" => lock_audit(),
         "stage-tool-deps" => stage_tool_dependencies(&arguments),
-        // The dev run (docs/plans/dev-run.md, R278): develop on a running
+        // The dev run (R278): develop on a running
         // debug app, not only the release exe.
         "dev" => dev(&arguments),
         "fix" => run("fmt", &["fmt", "--all"]).and_then(|()| {
