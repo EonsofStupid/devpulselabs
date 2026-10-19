@@ -25,13 +25,13 @@ an operator quote: other docs cite the R-id, and they never re-quote it.
 | 3 | [WiredFRONT, Workbench, presets and the visual language](#3-wiredfront-workbench-presets-and-the-visual-language) | 85 |
 | 4 | [Slides, presenting, shows and episodes](#4-slides-presenting-shows-and-episodes) | 3 |
 | 5 | [Capture — ViziWiz, sessions, steps, guides](#5-capture--viziwiz-sessions-steps-guides) | 12 |
-| 6 | [Chat and AI providers](#6-chat-and-ai-providers) | 37 |
+| 6 | [Chat and AI providers](#6-chat-and-ai-providers) | 38 |
 | 7 | [Coach](#7-coach) | 14 |
 | 8 | [Signals, analytics and the rest](#8-signals-analytics-and-the-rest) | 21 |
 | 9 | [Portability and dependencies](#9-portability-and-dependencies) | 20 |
 | 10 | [How we work](#10-how-we-work) | 32 |
 
-**281 quoted requirements.** A quote that touches several subjects
+**282 quoted requirements.** A quote that touches several subjects
 sits under the first of them in this order.
 
 ## 1. The library — one universe of content
@@ -1405,6 +1405,28 @@ Note: Re-checked 2026-10-18:
   - The only "compliant" answer on Google's developer forum is an unbadged reply with no cited clause.
   - Native ACP for the Antigravity CLI is still an open request (google-antigravity/antigravity-cli#31).
   - Revisit if Google ships official ACP support, which would be the intended path.
+  - **Superseded by R281** the same day: Google's officially documented headless mode was found and the operator ruled.
+
+### R281 · 2026-10-18
+
+> please triple check for gemini any subscription opportuniies for private use not commercial
+
+Source: the operator's message in the Claude Code session of 2026-10-18 (first recorded here). **Operator ruling the same day:** "Both, subscription first". Antigravity headless on the subscription is the default Gemini participant, and the credit-funded Gemini API is the one-tap fallback.
+
+Note: Triple-checked 2026-10-18 against Google's own pages wherever possible:
+- **Antigravity CLI headless: the subscription path, documented by Google** ([headless docs](https://antigravity.google/docs/cli/headless/)).
+  - Print mode (`agy -p`, `--output-format stream-json`, `--input-format stream-json`, `--continue`/`--conversation`) is for "whenever you need the agent's output in a program instead of a terminal UI", with a Python subprocess example.
+  - It "uses your cached credentials" from the operator's own interactive `agy` sign-in.
+  - It runs on the AI Pro ("Expanded" agent requests) and Ultra Antigravity quotas ([plan page](https://one.google.com/intl/en/about/google-ai-plans/)).
+  - **Terms reading:** §6 bans "third party software … to access the Service (e.g. using OpenClaw with Antigravity OAuth)", which is token reuse against the backend. DevPULSE runs Google's own unmodified binary in its documented mode and never touches its credentials.
+  - **Residual risk:** §6's "in connection with products not provided by us". Google has no explicit sentence permitting an app that hosts the binary. The 2026-02 enforcement restricted Antigravity access only, and was later reversed for returning users (secondary sources).
+- **Gemini API on Developer Program credits: clean.** The current plan page lists "$10 in monthly Google Cloud credits" (Pro) and $40 (Ultra). [Gemini API plans doc](https://ai.google.dev/gemini-api/docs/google-ai-plans) (updated 2026-10-16) says the credits cover the Gemini API, and **prepay users need a paid balance above $0 in AI Studio to activate them**.
+- **Jules** (included with AI Pro/Ultra; expanded task limits; Jules Tools CLI; alpha REST API with keys from Jules settings) is a candidate *task* participant later. Its API terms are not yet checked.
+- **Ruled out:**
+  - AI Studio's subscriber limits ("apply only within the Google AI Studio web interface");
+  - Gemini CLI on Pro/Ultra/free (ended 2026-06-18);
+  - Gemini Code Assist (business-only, $19/user/month annual).
+- The plans doc also says access to "agents, including the Antigravity Preview, is not included in Google AI plans and requires a paid API key". That concerns AI Studio's agent preview. The plan page lists Antigravity agent requests under AI Pro/Ultra. Re-check if the two conflict at build time.
 
 ## 7. Coach
 

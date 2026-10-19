@@ -463,7 +463,7 @@ re-verified at their sources the same day, and the evidence and links are in
 | OpenAI | Codex `app-server` (OpenAI's first-class embedding path), with the CLI managing its own ChatGPT login | DevPULSE holding tokens; exposing the subscription as an API to other tools; rotating accounts |
 | Anthropic | The **unmodified** `claude` binary, with the operator signing in through Anthropic's own flow in a real terminal. Use stays "ordinary, individual". | DevPULSE collecting, storing or intermediating Claude credentials or tokens; a DevPULSE-owned "Sign in with Claude" |
 | xAI | `grok agent stdio` (ACP), as documented | Account sharing (no third-party clause was found) |
-| Google | **Gemini CLI on a paid Gemini API key**, funded by the subscription's Developer Program credits (AI Pro $10/month, Ultra up to $100/month, usable "towards Gemini API"), or the free API tier. The key is entered in the CLI's own setup. | Driving Antigravity or any Google consumer OAuth from DevPULSE (Antigravity terms §6). Revisit if Google ships official ACP support. |
+| Google | **The default (operator ruling, 2026-10-18, R281):** Google's **unmodified Antigravity CLI** in its **officially documented headless mode** (`agy -p --input-format stream-json --output-format stream-json`, `--conversation` to resume), on the AI Pro/Ultra Antigravity quota. The operator signs in once with interactive `agy` in a real terminal, and DevPULSE never touches its cached credentials. Its panel discloses the §6 wording. **The one-tap fallback:** Gemini CLI on a paid Gemini API key funded by the subscription's Developer Program credits (Pro $10, Ultra $40 a month on the current plan page; prepay accounts need a balance above $0 to activate them), or the free API tier. The key is entered in the CLI's own setup. | Reusing Antigravity's OAuth tokens or calling Google's backend outside the official binary (the OpenClaw pattern banned by §6); modifying `agy`; DevPULSE holding any Google credential or key |
 
 **Auth health (one state machine for every provider).** States:
 - Ready;
@@ -537,7 +537,7 @@ router role, and belongs to R277's lab.
 | **C2 = chat UI** | `chat/window` rebuilt as in §4.2, on ColdLight, colocated. **This real egui window is the mock the operator red-pens (R26, R38).** | Shots at 1100×700 and maximized; a pilot scenario drives every control; a grep proves zero raw colour/frames in `crates/chat/**` |
 | **C3** | Commands with guided values; popup + task windows (R17, R20, R32) | Pilot scenario per command; minimize/restore proof |
 | **C4** | Platform reach: AI available platform-wide; Assist; content actions (R5, R8, R10) | A non-chat surface runs a turn; round-trip proof |
-| **A7 / A8** | Grok onto the host (retire its separate path). Gemini with Node **installed** into the depot, **on a paid Gemini API key** funded by the subscription's Developer Program credits, never on Google consumer OAuth (§4.3.7, R280). Each gets §4.3.7 auth health. | Real turns; an auth-health state shown for each |
+| **A7 / A8** | Grok onto the host (retire its separate path). **Gemini (R281):** the default is Google's unmodified Antigravity CLI (`agy`), sourced into the depot and driven in its documented headless stream-json mode on the operator's subscription; the one-tap fallback is Gemini CLI (Node **installed** into the depot) on the credit-funded paid API key. Each gets §4.3.7 auth health. | A real Antigravity-headless turn on the operator's subscription; a real fallback turn on the API key; an auth-health state shown for each |
 | **C5 / C6 / later** | Grok media (R4); Clyffy (R16); **the room and routines (§4.3.7)**: the shared conversation, then Council (select, never blend; R25), then Author plus critic, then Router; brainstorm (R23); Clyffy drive (R24) | Each gets its own plan. The Council comes after Codex and Claude each work on their own (R33). |
 
 ### 4.5 External reaches this plan adds (to `external-reach-inventory.md`)
@@ -546,7 +546,9 @@ router role, and belongs to R277's lab.
 - **Codex desktop's local app-server daemon**: attached to.
 - **The Claude Desktop and Grok Bot apps**: wrapped.
 - **The official Claude Code CLI**: sourced into the depot.
-- **A Node runtime** for Gemini.
+- **A Node runtime** for Gemini CLI (the API-key fallback).
+- **Google's Antigravity CLI (`agy`)**: sourced into the depot for the
+  default Gemini path (R281, operator ruling 2026-10-18).
 - **Vendor download sources**: only with per-vendor operator OK.
 
 Each is listed before it is relied on.
@@ -560,7 +562,7 @@ Each is listed before it is relied on.
 | 3 | Official Claude Code CLI into the depot: Anthropic's native binary, or the npm package (which needs Node) | The **native binary**, so no Node dependency for Claude |
 | 4 | WezTerm as our TTY: portable build installed into the depot | **Yes** |
 | 5 | Where new vendor versions come from | This machine's installed copies first; official downloads per vendor with your OK |
-| 6 | Provider order | Codex → Claude Code → Grok → Gemini (on a paid API key funded by Developer Program credits, R280); then the room and the routines of §4.3.7, Council first (R33). **Amended 2026-10-18:** the operator approved the §4.3.7 design. |
+| 6 | Provider order | Codex → Claude Code → Grok → Gemini (Antigravity headless on the subscription, with the credit-funded API key as fallback; R281); then the room and the routines of §4.3.7, Council first (R33). **Amended 2026-10-18:** the operator approved the §4.3.7 design and ruled "Both, subscription first" for Gemini. |
 
 ## 5. Wiring
 
