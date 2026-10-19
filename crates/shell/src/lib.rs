@@ -28,7 +28,7 @@ use dpl_coldlight::{self as cl, Tone};
 use dpl_fabric::{AppWindowAction, AppWindowKey, Fabric, ShellEvent};
 use dpl_hub::{Hub, HubId, Route, SubId};
 use egui::{Align, Color32, CornerRadius, Layout, Rect, RichText, Sense};
-use egui_pilot_ai::{NodeMetadata, PilotId, PilotKey, UiPilotExt};
+use egui_pilot_ai::{protocol::Role, NodeMetadata, PilotId, PilotKey, UiPilotExt};
 
 /// The five named zones (docs/shell.md), captured from the REAL panel rects
 /// every frame — the layout is observable, therefore testable.
@@ -312,52 +312,233 @@ impl Shell {
             self.presets_open = false;
         }
     }
+
+    /// Close every status-bar popup (Providers, presets, the job board).
+    fn close_status_menus(&mut self) {
+        self.providers_open = false;
+        self.presets_open = false;
+        self.jobs_open = false;
+    }
+
+    /// The job board: the missing consumer of the fabric's JobBoard
+    /// (R282: an uncalled implementation is finished, never deleted).
+    ///
+    /// Every row the board holds, from every route: running rows with their
+    /// live progress counters, finished rows waiting to be cleared. Clearing
+    /// IS `ack_job`, the board's contract ("the consumer that showed the
+    /// outcome acknowledges it"), so outcomes from routes that never show
+    /// them still get seen and cleared. Every control is pilot-tracked, so
+    /// the coach plane can mount on the board and see the operator's clicks.
+    fn jobs_popup(&mut self, ui: &mut egui::Ui, status: Rect, just_toggled: bool) {
+        if !self.jobs_open {
+            return;
+        }
+        let surface = self.route.hub.0;
+        let tone = self.active_tone();
+        let rows = self.fabric.jobs();
+        let running = self.fabric.jobs_running();
+        // The jobs cell sits on the status bar's right, so the board opens
+        // there, above its own cell (the Providers popup's idiom).
+        let width = 360.0;
+        let area = egui::Area::new(egui::Id::new("dpl_jobs_popup"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(egui::pos2(
+                (status.max.x - width - cl::space::S4).max(status.min.x),
+                status.min.y - cl::space::S3,
+            ))
+            .pivot(egui::Align2::LEFT_BOTTOM);
+        let mut clear: Option<dpl_fabric::JobId> = None;
+        let response = area.show(ui.ctx(), |ui| {
+            ui.set_width(width);
+            egui::Frame::new()
+                .fill(cl::surface::OVERLAY)
+                .corner_radius(egui::CornerRadius::same(cl::RADIUS_LG))
+                .inner_margin(egui::Margin::same(cl::space::S3 as i8))
+                .stroke(egui::Stroke::new(1.0, cl::surface::RAISED))
+                .show(ui, |ui| {
+                    let title = match running {
+                        0 => "Jobs — nothing running".to_owned(),
+                        n => format!("Jobs — {n} running"),
+                    };
+                    ui.label(
+                        egui::RichText::new(title)
+                            .small()
+                            .strong()
+                            .color(cl::ink::STRONG),
+                    );
+                    ui.add_space(cl::space::S1);
+                    if rows.is_empty() {
+                        ui.label(
+                            egui::RichText::new(
+                                "Nothing has run yet. Renders, imports and exports \
+                                 show up here while they work.",
+                            )
+                            .small()
+                            .color(cl::ink::SUBTLE),
+                        );
+                    }
+                    egui::ScrollArea::vertical()
+                        .id_salt("dpl_jobs_rows")
+                        .max_height(360.0)
+                        .show(ui, |ui| {
+                            for row in &rows {
+                                if job_row(ui, row, surface, tone) {
+                                    clear = Some(row.job);
+                                }
+                            }
+                        });
+                })
+                .inner
+        });
+        if let Some(job) = clear {
+            self.fabric.ack_job(job);
+        }
+        // Progress counters tick without a signal — keep the board live.
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(300));
+        // Click-outside and Esc both close, the way every menu here does.
+        if !just_toggled && response.response.clicked_elsewhere() {
+            self.jobs_open = false;
+        }
+        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.jobs_open = false;
+        }
+    }
 }
 
-/// One row of the picker: a swatch painted in the preset's OWN resolved
-/// style, its name, and what it is for. Returns whether it was chosen.
+/// One row of the job board: what the job is, how it went, and, once it has
+/// finished, a Clear chip. The text truncates (its tooltip keeps the whole
+/// line) so a long output path never pushes the chip off the board.
+/// Returns whether Clear was tapped.
+fn job_row(ui: &mut egui::Ui, row: &dpl_fabric::JobRow, surface: &str, tone: cl::Tone) -> bool {
+    let mut cleared = false;
+    ui.horizontal(|ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if !row.running() {
+                // The whole dressed plate is the hit target (touch law);
+                // prior-frame hover lights it, the way the preset rows do.
+                let id = egui::Id::new(("dpl_jobs_clear", row.job.0));
+                let state = surface_state(false, last_hovered(ui, id));
+                let plate = cl::dressed(surface, cl::Intent::Chrome, tone, state).show(ui, |ui| {
+                    ui.label(egui::RichText::new("Clear").small().strong());
+                });
+                let chip = cl::tip(
+                    ui.interact(plate.response.rect, id, egui::Sense::click()),
+                    "Clear this finished job from the list",
+                );
+                ui.pilot_track(
+                    &chip,
+                    NodeMetadata::new(
+                        PilotId::new("shell.jobs")
+                            .child(&PilotKey::new(format!("clear-{}", row.job.0))),
+                        Role::Button,
+                        format!("Clear {}", row.label),
+                    )
+                    .value(row.label.clone()),
+                );
+                cleared = chip.clicked();
+            }
+            ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                let (title, detail, detail_ink) = match &row.state {
+                    dpl_fabric::JobState::Running => {
+                        let n = row.progress.load(std::sync::atomic::Ordering::Relaxed);
+                        let title = if n > 0 {
+                            format!("{} · {n}", row.label)
+                        } else {
+                            row.label.clone()
+                        };
+                        (title, "Working…".to_owned(), cl::ink::SUBTLE)
+                    }
+                    dpl_fabric::JobState::Done { out } => {
+                        (row.label.clone(), format!("Done · {out}"), cl::ink::SUBTLE)
+                    }
+                    dpl_fabric::JobState::Failed { error } => (
+                        row.label.clone(),
+                        format!("Failed · {error}"),
+                        cl::ink::BASE,
+                    ),
+                };
+                ui.horizontal(|ui| {
+                    if row.running() {
+                        cl::tone_dot(ui, tone);
+                    }
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(title)
+                                .small()
+                                .strong()
+                                .color(cl::ink::STRONG),
+                        )
+                        .truncate(),
+                    );
+                });
+                ui.add(
+                    egui::Label::new(egui::RichText::new(detail).small().color(detail_ink))
+                        .truncate(),
+                );
+            });
+        });
+    });
+    ui.add_space(cl::space::S1);
+    cleared
+}
+
+/// Was the widget `id` hovered last frame? Prior-frame hover drives this
+/// frame's trait state (the standard egui two-pass trick); the first frame
+/// has no response yet and reads as not hovered.
+fn last_hovered(ui: &egui::Ui, id: egui::Id) -> bool {
+    ui.ctx().read_response(id).is_some_and(|r| r.hovered())
+}
+
+/// The trait state a tappable surface paints in: the chosen one sits
+/// Active, a hovered one previews Hover, the rest are Idle.
+fn surface_state(chosen: bool, hovered: bool) -> cl::TraitState {
+    if chosen {
+        cl::TraitState::Active
+    } else if hovered {
+        cl::TraitState::Hover
+    } else {
+        cl::TraitState::Idle
+    }
+}
+
+/// One row of the picker: a surface WEARING the preset — the full treatment
+/// (back-glow, shadows, fill, edge, tints) through `cl::treated_coord`, not a
+/// color chip. Picking a look means seeing the look; hover previews its hover
+/// state, the worn preset sits Active. Returns whether it was chosen.
 fn preset_row(
     ui: &mut egui::Ui,
     preset: &'static cl::AncestralPreset,
     tone: cl::Tone,
     worn: bool,
 ) -> bool {
-    let style = preset.style(tone, cl::TraitState::Idle);
-    let response = ui
-        .scope(|ui| {
-            ui.horizontal(|ui| {
-                let (rect, _) =
-                    ui.allocate_exact_size(egui::vec2(34.0, 22.0), egui::Sense::hover());
-                let painter = ui.painter();
-                painter.rect_filled(rect, egui::CornerRadius::same(style.radius), style.fill);
-                painter.rect_stroke(
-                    rect,
-                    egui::CornerRadius::same(style.radius),
-                    style.edge,
-                    egui::StrokeKind::Inside,
+    let id = egui::Id::new(("dpl_preset_row", preset.id));
+    let state = surface_state(worn, last_hovered(ui, id));
+    // The row's inks come from the preset's OWN resolution, so the text stays
+    // legible on whatever fill the coordinate paints.
+    let style = preset.style(tone, state);
+    let response = cl::treated_coord(preset.toned(tone), preset.coord, state)
+        .margin(egui::Margin::symmetric(10, 6))
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                ui.label(
+                    egui::RichText::new(preset.label)
+                        .small()
+                        .strong()
+                        .color(style.ink),
                 );
-                ui.vertical(|ui| {
-                    ui.spacing_mut().item_spacing.y = 0.0;
-                    ui.label(
-                        egui::RichText::new(preset.label)
-                            .small()
-                            .strong()
-                            .color(if worn { cl::ink::STRONG } else { cl::ink::BASE }),
-                    );
-                    ui.label(
-                        egui::RichText::new(preset.kicker)
-                            .size(9.5)
-                            .color(cl::ink::SUBTLE),
-                    );
-                });
+                ui.label(
+                    egui::RichText::new(preset.kicker)
+                        .small()
+                        .color(style.ink.gamma_multiply(0.7)),
+                );
             });
         })
         .response;
-    let hit = ui.interact(
-        response.rect,
-        egui::Id::new(("dpl_preset_row", preset.id)),
-        egui::Sense::click(),
-    );
+    let hit = ui.interact(response.rect, id, egui::Sense::click());
     cl::tip(hit.clone(), preset.blurb);
     hit.clicked()
 }
@@ -492,6 +673,9 @@ pub struct Shell {
     /// Is the Providers roster popup open (V2)?
     providers_open: bool,
     presets_open: bool,
+    /// Is the job board open? (the fabric JobBoard's missing consumer: the
+    /// surface where finished jobs are seen and cleared.)
+    jobs_open: bool,
     /// Which provider's summary modal is open (V3), if any.
     provider_modal: Option<dpl_fabric::ProviderId>,
     /// The accordion's ONE open house (doctrine §5.2) — its subroutes
@@ -568,6 +752,7 @@ impl Shell {
             bleed: providers::BleedRoll::from_seed(dpl_backdrop::random_mood_index() as u64),
             providers_open: false,
             presets_open: false,
+            jobs_open: false,
             provider_modal: None,
             open_house: None,
             rail_reveal_pending: false,
@@ -817,18 +1002,32 @@ impl Shell {
                         action: AppWindowAction::OpenOrFocus,
                     });
                 }
+                // The status bar's popups are menus: opening one closes the
+                // others. (`just_toggled` spares the opener from its own
+                // click-outside close, so it cannot close the others.)
                 status::StatusAction::ToggleProviders => {
-                    self.providers_open = !self.providers_open;
+                    let open = !self.providers_open;
+                    self.close_status_menus();
+                    self.providers_open = open;
                     just_toggled = true;
                 }
                 status::StatusAction::TogglePresets => {
-                    self.presets_open = !self.presets_open;
+                    let open = !self.presets_open;
+                    self.close_status_menus();
+                    self.presets_open = open;
+                    just_toggled = true;
+                }
+                status::StatusAction::ToggleJobs => {
+                    let open = !self.jobs_open;
+                    self.close_status_menus();
+                    self.jobs_open = open;
                     just_toggled = true;
                 }
             }
         }
         self.providers_popup(ui, status_rect, just_toggled);
         self.presets_popup(ui, status_rect, just_toggled);
+        self.jobs_popup(ui, status_rect, just_toggled);
         self.provider_summary(ui.ctx());
         let (rail, clicked) = self.rail(ui, &fl);
         if let Some(route) = clicked {
@@ -949,12 +1148,9 @@ impl Shell {
         // The JobBoard's "working…" truth: one running job names itself
         // (with its latest-wins progress count when reported); several
         // running jobs just count themselves.
-        let running: Vec<dpl_fabric::JobRow> = self
-            .fabric
-            .jobs()
-            .into_iter()
-            .filter(|r| r.running())
-            .collect();
+        let board = self.fabric.jobs();
+        let jobs_unacked = board.iter().filter(|r| !r.running()).count();
+        let running: Vec<dpl_fabric::JobRow> = board.into_iter().filter(|r| r.running()).collect();
         let working = match running.as_slice() {
             [] => None,
             [one] => {
@@ -987,6 +1183,7 @@ impl Shell {
                     build: self.build,
                     mood: self.backdrop.mood(),
                     working,
+                    jobs_unacked,
                     providers: provider_chip(&self.fabric),
                     bleed: self.bleed,
                 };
@@ -1802,6 +1999,208 @@ mod tests {
             ),
             rx,
         )
+    }
+
+    /// A shell whose fabric holds `n` finished jobs nobody has cleared yet.
+    /// The fabric is returned too: it is the same board the shell reads.
+    fn shell_with_finished_jobs(n: usize) -> (Shell, Fabric, Vec<dpl_fabric::JobId>) {
+        let fabric = Fabric::new();
+        let jobs = (0..n)
+            .map(|i| {
+                let job = fabric.mint_job();
+                fabric.publish_job(dpl_fabric::JobEvent::Queued {
+                    job,
+                    label: format!("render {i}"),
+                });
+                fabric.publish_job(dpl_fabric::JobEvent::Done {
+                    job,
+                    out: format!("inbox/render-{i}.mp4"),
+                });
+                job
+            })
+            .collect();
+        let sh = Shell::new(
+            vec![Box::new(Fake(&SPEC_A)), Box::new(Fake(&SPEC_B))],
+            fabric.clone(),
+        );
+        (sh, fabric, jobs)
+    }
+
+    /// Every ID-clash warning egui painted in one frame.
+    fn id_clash_warnings(shapes: &[egui::epaint::ClippedShape]) -> Vec<String> {
+        fn walk(shape: &egui::Shape, found: &mut Vec<String>) {
+            match shape {
+                egui::Shape::Vec(shapes) => shapes.iter().for_each(|shape| walk(shape, found)),
+                egui::Shape::Text(text) => {
+                    let text = text.galley.text();
+                    if text.contains("use of ") && text.contains(" ID ") {
+                        found.push(text.to_owned());
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut found = Vec::new();
+        for clipped in shapes {
+            walk(&clipped.shape, &mut found);
+        }
+        found
+    }
+
+    /// The trait state every tappable surface paints in: the worn preset
+    /// sits Active whatever the pointer does, hover previews, the rest idle.
+    #[test]
+    fn the_chosen_surface_sits_active_and_hover_previews() {
+        assert_eq!(surface_state(true, false), cl::TraitState::Active);
+        assert_eq!(surface_state(true, true), cl::TraitState::Active);
+        assert_eq!(surface_state(false, true), cl::TraitState::Hover);
+        assert_eq!(surface_state(false, false), cl::TraitState::Idle);
+    }
+
+    /// The job board the way the operator meets it: finished jobs make the
+    /// status cell say so, tapping the cell opens the board, and Clear
+    /// removes the row from the fabric's board (Clear IS `ack_job`).
+    #[test]
+    fn the_jobs_cell_opens_the_board_and_clear_removes_the_row() {
+        use egui_kittest::kittest::{NodeT, Queryable};
+        // The cell's accessible name says what it does; its value is what
+        // it shows.
+        let cell = |harness: &egui_kittest::Harness<'_, Shell>| {
+            harness
+                .get_by_label("Open the job board")
+                .accesskit_node()
+                .value()
+        };
+        let (sh, fabric, jobs) = shell_with_finished_jobs(2);
+        let mut harness = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(1280.0, 800.0))
+            .build_ui_state(|ui, sh: &mut Shell| sh.ui(ui), sh);
+        harness.run_steps(3);
+        assert_eq!(cell(&harness).as_deref(), Some("2 jobs done"));
+        harness.get_by_label("Open the job board").click();
+        harness.run_steps(3);
+        assert!(
+            harness.state().jobs_open,
+            "tapping the cell opens the board"
+        );
+        assert!(
+            harness
+                .query_by_label("Done · inbox/render-1.mp4")
+                .is_some(),
+            "the board lists each finished job with its output"
+        );
+        harness.get_by_label("Clear render 0").click();
+        harness.run_steps(3);
+        assert!(fabric.job(jobs[0]).is_none(), "Clear removes its row");
+        assert!(fabric.job(jobs[1]).is_some(), "and only its row");
+        assert_eq!(
+            cell(&harness).as_deref(),
+            Some("1 job done"),
+            "the cell counts what is left"
+        );
+    }
+
+    /// With the job board and the preset picker both open, no widget in the
+    /// shell shares an ID with another (unsalted siblings silently share
+    /// state; the editor's scroll areas did).
+    #[test]
+    fn the_open_popups_paint_no_widget_id_clash() {
+        let (mut sh, _fabric, _jobs) = shell_with_finished_jobs(2);
+        sh.jobs_open = true;
+        sh.presets_open = true;
+        let mut harness = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(1280.0, 800.0))
+            .build_ui_state(|ui, sh: &mut Shell| sh.ui(ui), sh);
+        harness
+            .ctx
+            .options_mut(|options| options.warn_on_id_clash = true);
+        harness.run_steps(3);
+        let clashes = id_clash_warnings(&harness.output().shapes);
+        assert!(clashes.is_empty(), "egui flagged {clashes:?}");
+    }
+
+    /// The status bar's popups are menus: with the job board open, opening
+    /// the preset picker closes the board instead of stacking on top of it
+    /// (found on the real exe, 2026-10-19).
+    #[test]
+    fn opening_one_status_menu_closes_the_others() {
+        use egui_kittest::kittest::Queryable;
+        let (sh, _fabric, _jobs) = shell_with_finished_jobs(1);
+        let mut harness = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(1280.0, 800.0))
+            .build_ui_state(|ui, sh: &mut Shell| sh.ui(ui), sh);
+        harness.run_steps(3);
+        harness.get_by_label("Open the job board").click();
+        harness.run_steps(3);
+        assert!(harness.state().jobs_open);
+        harness
+            .get_by_label("Open the ColdLight preset picker")
+            .click();
+        harness.run_steps(3);
+        assert!(harness.state().presets_open, "the picker opens");
+        assert!(!harness.state().jobs_open, "and the board closes");
+    }
+
+    /// At the 1100x700 minimum, with finished jobs widening the right lane,
+    /// nothing in the status bar paints over anything else. (With three
+    /// equal lanes the right lane ran into the center one and the mood name
+    /// was drawn over the build stamp; found on the real exe, 2026-10-19.)
+    #[test]
+    fn status_cells_never_overlap_at_the_minimum_window() {
+        use egui_kittest::kittest::{By, NodeT, Queryable};
+        let (mut sh, fabric, _jobs) = shell_with_finished_jobs(2);
+        // Load the right lane the way the app does: a window launcher, the
+        // Providers control and a real-length build stamp ride there beside
+        // the jobs cell.
+        fabric.publish_provider_roster(vec![
+            capability("claude", "Claude Code", true, None),
+            capability("codex", "Codex", true, None),
+        ]);
+        sh.register_window_accessory(status::WindowAccessory {
+            key: AppWindowKey("test.chat"),
+            pilot_id: PilotId::new("shell.window.chat"),
+            glyph: "C",
+            label: "Chat",
+            tone: Tone::Cyan,
+            tooltip: "Open the chat window",
+        })
+        .expect("one accessory");
+        sh.set_build("7eb0a5b · 2026-10-19 18:20z");
+        let mut harness = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(1100.0, 700.0))
+            .build_ui_state(|ui, sh: &mut Shell| sh.ui(ui), sh);
+        // The app's own text sizes, so the cells are as wide as they really are.
+        cl::apply_theme(&harness.ctx);
+        harness.run_steps(4);
+        let bar = harness.state().zones().status;
+        let cells: Vec<(String, Rect)> = harness
+            .query_all(By::new())
+            .filter(|node| node.children().next().is_none())
+            .filter_map(|node| {
+                // Containers like the root carry no box; a test frame is at
+                // 1 pixel per point, so the box is already in points.
+                let b = node.accesskit_node().bounding_box()?;
+                let rect = Rect::from_min_max(
+                    egui::pos2(b.x0 as f32, b.y0 as f32),
+                    egui::pos2(b.x1 as f32, b.y1 as f32),
+                );
+                // A plain label carries its text as the value, not a name.
+                let ak = node.accesskit_node();
+                let name = ak.label().or_else(|| ak.value()).unwrap_or_default();
+                Some((name, rect))
+            })
+            .filter(|(_, rect)| bar.contains_rect(*rect) && rect.area() > 0.0)
+            .collect();
+        assert!(cells.len() >= 3, "the bar's cells were found: {cells:?}");
+        for (i, (a, ra)) in cells.iter().enumerate() {
+            for (b, rb) in &cells[i + 1..] {
+                let hit = ra.intersect(*rb);
+                assert!(
+                    !hit.is_positive() || hit.area() < 1.0,
+                    "{a:?} {ra:?} overlaps {b:?} {rb:?}"
+                );
+            }
+        }
     }
 
     #[test]

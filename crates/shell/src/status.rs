@@ -1,6 +1,6 @@
 //! The STATUS zone as a data-driven indicator grid — the operator's
 //! "well established grids so i can evolve... cssgrid for all of my status
-//! indicators", as a registry (Law 4): the bar is three lane columns, a cell
+//! indicators", as a registry (Law 4): the bar is three lanes, a cell
 //! is one `StatusCell` in [`CELLS`], and adding an indicator is adding ONE
 //! entry there. Cells paint; the shell mutates — a cell answers with a
 //! [`StatusAction`] and the owner executes it (the PaletteActions pattern).
@@ -10,9 +10,9 @@ use dpl_fabric::AppWindowKey;
 use egui::{Align, Layout, Rect, RichText, Ui, UiBuilder};
 use egui_pilot_ai::{protocol::Role, NodeMetadata, PilotId, UiPilotExt};
 
-/// The three columns of the bar. Left and Right pack from their outer edge;
-/// Center packs from the middle column's center.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The three lanes of the bar. Left and Right pack from their outer edge and
+/// take what their cells need; Center is centered in the room between them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Lane {
     Left,
     Center,
@@ -31,6 +31,8 @@ pub enum StatusAction {
     ToggleProviders,
     /// Toggle the ColdLight preset picker — how THIS screen is dressed.
     TogglePresets,
+    /// Toggle the job board: every row the fabric holds, finished ones clearable.
+    ToggleJobs,
 }
 
 /// Data-only description of an app-owned window accessory.
@@ -59,6 +61,9 @@ pub struct StatusCtx<'a> {
     pub mood: &'static Mood,
     /// The JobBoard's "working…" truth — None = nothing running.
     pub working: Option<String>,
+    /// Resolved board rows nobody has acknowledged yet — the quiet reminder
+    /// that outcomes are waiting on the board after the work stops.
+    pub jobs_unacked: usize,
     /// THE ROSTER's truth — None = no provider is activated, and the control
     /// is absent rather than claiming an empty capability.
     pub providers: Option<ProviderChip>,
@@ -129,63 +134,88 @@ pub static CELLS: &[StatusCell] = &[
     },
 ];
 
-/// Lay the bar as three lane columns and run every registered cell.
+/// Lay out the bar and run every registered cell.
+///
+/// The outer lanes pack from their edges and take what their cells need,
+/// the right lane first because it carries the most. The center lane gets
+/// only the room left between them, centered there. When its cells do not
+/// fit that room (a narrow window, a busy right lane) it steps aside for the
+/// frame instead of painting over its neighbours. Whether it fits is judged
+/// by the width it used the last time it was shown (egui's two-pass trick).
 pub fn grid(
     ui: &mut Ui,
     cx: &StatusCtx,
     window_accessories: &[WindowAccessory],
 ) -> Vec<StatusAction> {
     let bar = ui.max_rect();
-    let third = bar.width() / 3.0;
-    let lane_rect = |i: f32| {
-        Rect::from_min_max(
-            egui::pos2(bar.min.x + third * i, bar.min.y),
-            egui::pos2(bar.min.x + third * (i + 1.0), bar.max.y),
-        )
-    };
     let mut actions = Vec::new();
-    for (lane, rect) in [
-        (Lane::Left, lane_rect(0.0)),
-        (Lane::Center, lane_rect(1.0)),
-        (Lane::Right, lane_rect(2.0)),
-    ] {
-        let layout = match lane {
-            Lane::Right => Layout::right_to_left(Align::Center),
-            Lane::Center => Layout::left_to_right(Align::Center).with_main_align(Align::Center),
-            Lane::Left => Layout::left_to_right(Align::Center),
-        };
-        let mut child = ui.new_child(UiBuilder::new().max_rect(rect).layout(layout));
-        if lane == Lane::Right {
-            for accessory in window_accessories {
-                let response = crate::launcher_chip(
-                    &mut child,
-                    accessory.glyph,
-                    accessory.label,
-                    accessory.tone,
-                    accessory.tooltip,
-                );
-                child.pilot_track(
-                    &response,
-                    NodeMetadata::new(
-                        accessory.pilot_id,
-                        Role::Button,
-                        format!("Open {}", accessory.label),
-                    ),
-                );
-                if response.clicked() {
-                    actions.push(StatusAction::Window(accessory.key));
-                }
-                child.add_space(cl::space::S3);
-            }
-        }
-        for cell in CELLS.iter().filter(|c| c.lane == lane) {
-            if let Some(action) = (cell.render)(&mut child, cx) {
-                actions.push(action);
-            }
-            child.add_space(cl::space::S3);
-        }
+    let right = lane(ui, bar, Lane::Right, cx, window_accessories, &mut actions);
+    let left_room = Rect::from_min_max(bar.min, egui::pos2(right.min.x, bar.max.y));
+    let left = lane(ui, left_room, Lane::Left, cx, &[], &mut actions);
+    let middle = Rect::from_min_max(
+        egui::pos2(left.max.x + cl::space::S3, bar.min.y),
+        egui::pos2(right.min.x - cl::space::S3, bar.max.y),
+    );
+    let needed_id = ui.id().with("dpl_status_center_needed");
+    let needed: f32 = ui.ctx().data(|d| d.get_temp(needed_id)).unwrap_or(0.0);
+    if middle.width() >= needed {
+        let used = lane(ui, middle, Lane::Center, cx, &[], &mut actions);
+        ui.ctx()
+            .data_mut(|d| d.insert_temp(needed_id, used.width()));
     }
     actions
+}
+
+/// Run one lane's cells inside `room`, packed the lane's way, and return the
+/// rect they used. Window accessories ride at the head of the lane passed
+/// them (the right lane).
+fn lane(
+    ui: &mut Ui,
+    room: Rect,
+    lane: Lane,
+    cx: &StatusCtx,
+    window_accessories: &[WindowAccessory],
+    actions: &mut Vec<StatusAction>,
+) -> Rect {
+    let layout = match lane {
+        Lane::Right => Layout::right_to_left(Align::Center),
+        Lane::Center => Layout::left_to_right(Align::Center).with_main_align(Align::Center),
+        Lane::Left => Layout::left_to_right(Align::Center),
+    };
+    let mut child = ui.new_child(
+        UiBuilder::new()
+            .id_salt(("dpl_status_lane", lane))
+            .max_rect(room)
+            .layout(layout),
+    );
+    for accessory in window_accessories {
+        let response = crate::launcher_chip(
+            &mut child,
+            accessory.glyph,
+            accessory.label,
+            accessory.tone,
+            accessory.tooltip,
+        );
+        child.pilot_track(
+            &response,
+            NodeMetadata::new(
+                accessory.pilot_id,
+                Role::Button,
+                format!("Open {}", accessory.label),
+            ),
+        );
+        if response.clicked() {
+            actions.push(StatusAction::Window(accessory.key));
+        }
+        child.add_space(cl::space::S3);
+    }
+    for cell in CELLS.iter().filter(|c| c.lane == lane) {
+        if let Some(action) = (cell.render)(&mut child, cx) {
+            actions.push(action);
+        }
+        child.add_space(cl::space::S3);
+    }
+    child.min_rect()
 }
 
 // ── the cells ───────────────────────────────────────────────────────────
@@ -261,16 +291,40 @@ fn signals(ui: &mut Ui, cx: &StatusCtx) -> Option<StatusAction> {
 }
 
 /// The JobBoard's honest "working…" truth — a render, ingest, or export in
-/// flight is visible from EVERY route, not only the surface that started it.
+/// flight is visible from EVERY route, not only the surface that started it —
+/// and the way INTO the board: clicking the cell opens the job board. Quiet
+/// when the board is empty; when finished jobs wait to be cleared it says so
+/// instead of going silent.
 fn jobs(ui: &mut Ui, cx: &StatusCtx) -> Option<StatusAction> {
-    if let Some(text) = &cx.working {
-        cl::tone_dot(ui, cx.tone);
-        ui.label(RichText::new(text).small().color(cl::ink::BASE));
-        // Progress counters tick without a signal — keep the bar live.
-        ui.ctx()
-            .request_repaint_after(std::time::Duration::from_millis(300));
-    }
-    None
+    let text = match (&cx.working, cx.jobs_unacked) {
+        (Some(text), _) => {
+            cl::tone_dot(ui, cx.tone);
+            // Progress counters tick without a signal — keep the bar live.
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(300));
+            text.clone()
+        }
+        (None, 1) => "1 job done".to_owned(),
+        (None, n) if n > 1 => format!("{n} jobs done"),
+        (None, _) => return None,
+    };
+    let response = cl::tip(
+        ui.add(
+            egui::Label::new(RichText::new(&text).small().color(cl::ink::BASE))
+                .sense(egui::Sense::click()),
+        ),
+        "See what is running and what finished, and clear finished jobs",
+    );
+    ui.pilot_track(
+        &response,
+        NodeMetadata::new(
+            PilotId::new("shell.status").child(&egui_pilot_ai::PilotKey::new("jobs")),
+            Role::Button,
+            "Open the job board",
+        )
+        .value(text),
+    );
+    response.clicked().then_some(StatusAction::ToggleJobs)
 }
 
 /// The PROVIDERS control (V1) — brain + "Providers" + the `ai` circle, the

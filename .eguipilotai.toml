@@ -131,3 +131,20 @@ adapter_policy = "hardware-required"
 required = false
 workers = 1
 retries = 0
+
+# The job board over a SCRATCH content root: the scenario taps Run on the
+# storyboard workflow, which publishes one job per stage that no route
+# clears, so the board has real rows. (No `--run-workflow` here: that drill
+# prints its verdict to stdout, which is the pilot transport.) Maximized and
+# the 1100x700 minimum are the ColdLight gate's two sizes.
+[fixtures.jobs-board]
+arguments = ["--route", "wiredfront/editor", "--mood", "0"]
+
+[fixtures.jobs-board.environment]
+CONTENT_ROOT = "target/eguipilotai/jobs-board/content"
+
+[fixtures.jobs-board-small]
+arguments = ["--route", "wiredfront/editor", "--mood", "0", "--window", "1100x700"]
+
+[fixtures.jobs-board-small.environment]
+CONTENT_ROOT = "target/eguipilotai/jobs-board-small/content"

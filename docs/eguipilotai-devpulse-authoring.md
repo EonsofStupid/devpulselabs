@@ -45,10 +45,13 @@ durable scenario selects the declared ID.
 
 ## 2. Instrument the real response
 
-Use `UiPilotExt` for standard widgets. The target custom-painted path is
-`pilot_interact`, which creates the real response with stable pilot/egui/
-AccessKit identity in one call. Until that helper lands, `pilot_track` must be
-attached to the real response and treated as partial accessibility coverage.
+Use `UiPilotExt` for standard widgets. The custom-painted path is
+`pilot_track(&response, metadata)`, attached to the real response the owner
+already creates: it feeds egui's `WidgetInfo` and the pilot semantic tree but
+records no egui/AccessKit ID correlation, so treat it as partial accessibility
+coverage. A one-call helper that would also create the response with stable
+pilot/egui/AccessKit identity was only ever described in prose and has never
+been built.
 Register the smallest truthful semantics: role, accessible name, value/state,
 supported actions, parent region and actual response rectangle. Do not build a
 second invisible control tree.

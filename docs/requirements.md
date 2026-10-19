@@ -1936,6 +1936,14 @@ Source: `docs-history-2026-10-12:docs/plans/crate-consolidation-review.md:194`
 
 Source: `docs-history-2026-10-12:docs/journal/2026-08-07-coach-seam-audit.md:5`
 
+### R282 · 2026-08-07
+
+> If it's not being called it's because the implementation was half-assed — get it implemented, don't delete it. Find out why it was even implemented.
+
+Source: `f44c6c9:docs/plans/loss-recovery-program.md:214` (PR #222, never merged, so the tag does not hold it; read it with `git show f44c6c9:<path>`; first recorded here 2026-10-19)
+
+Note: An uncalled implementation is a half-finished ask. Its original intent is found, then its missing consumer is built; it is never deleted as dead code.
+
 ### R262 · 2026-08-08
 
 > trigger off the actual app being scanned, alias to align to our source of truth.

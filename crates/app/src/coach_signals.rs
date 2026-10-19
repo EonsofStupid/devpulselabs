@@ -270,7 +270,11 @@ const COARSE: &[&str] = &[
     PROVIDERS_EXPIRED,
     BUILD_SLIDE_PLACED,
     BUILD_EPISODE_CHANGED,
-    BUILD_CARD_AUTHORED,
+    BUILD_CARD_STARTED,
+    BUILD_CARD_ADDED,
+    BUILD_CARD_STYLED,
+    BUILD_CARD_AXIS_CHANGED,
+    BUILD_CARD_SAVED,
 ];
 
 /// The declared catalog: every id an agent can wait for in THIS build.
