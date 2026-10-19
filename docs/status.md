@@ -1,6 +1,6 @@
 ---
 updated: 2026-10-19
-active_lane: incomplete-first
+active_lane: chat-first
 dirty: false
 ---
 
@@ -13,40 +13,50 @@ reorganization).
 Read in this order: this page → [`requirements.md`](requirements.md) (the
 operator's words) → [`README.md`](README.md) (the map of every doc).
 
-**Updated:** 2026-10-19, main at `7eb0a5b` (#267) plus the dev run's two
-findings (this pass). The release exe was rebuilt 2026-10-19 03:08 from
-`7eb0a5b` and verified on the real exe (footer `7eb0a5b`); it is rebuilt
-again when this pass lands.
+**Updated:** 2026-10-19, main at `b72926f` (#276). The release exe was
+rebuilt 2026-10-19 15:03 from `b72926f` and its build stamp verified
+(`b72926f · 2026-10-19 19:02z`). This page lands with the #222 port
+(job board, preset looks, workflow dry run).
 
 ## Now
 
-**Incomplete work first, on the dev run** (R278): `cargo xtask dev` is merged
-(#267), its two findings are closed (below), and the incomplete list in
-"Next" is the queue.
+**Chat first (R283, ruled 2026-10-19: "Approve, Codex first").** On the
+real app, chat does not work end to end (the R283 note has the evidence).
+Every step now ends with a real message working in the real app
+(`docs/plans/chat-native-program.md` §4.4, "The order"):
 
-**`docs/plans/docs-one-truth.md`** (approved 2026-10-12): the docs become one
-organized set, and the library becomes one. P2 waits behind the incomplete
-work.
-
-| Pass | What | State |
+| Step | What | State |
 |---|---|---|
-| P1 | requirements ledger · this page · the doc map · 247 finished/superseded/stale docs deleted (tagged first) · every reference fixed (0 dangling) | **merged** (#262, double-green) |
-| P2 | one design doc per subject; ADRs into `adr/` | after the incomplete work |
-| P3 | `design/library.md`, the one-library law, for operator approval | after P2 |
-| L1… | code passes that make the library one | after P3 approval |
+| CW1 | Codex on the operator's subscription: an in-place, SHA-verified depot update to the operator's current Codex, the schema re-vendored and the gate re-pinned, server requests answered, honest auth health, plain-language failures | **plan next**, for approval |
+| CW2 | Claude Code on the operator's subscription (A4): the official binary in the depot, a stream-json adapter, presence from the depot | after CW1 |
+| CW3 | The shared room: a saved conversation every provider reads and writes, each turn carrying the room's transcript; tabs as conversations (New, Close, Clear); survives restart | after CW2 |
+| then | Grok and Gemini auth health (A7/A8), the routines (Council, Author + critic, Router), C2–C4 | |
 
-**D0, laptop dependencies** (`docs/plans/d0-laptop-deps.md`): paused behind
-the one-truth program, because D0.1c is now library work.
-- D0.0 clean rebuild: done.
-- D0.1a honest media (#258): done.
-- D0.1b depot-only helpers (#260): done.
-- D0.1c roots: folded into the L passes.
-- D0.2 startup dependency check, D0.3/D0.4 camera, D0.5 gate truth, D0.6
-  portable release: still to come.
+K1, K2 and A1 no longer gate anything: each step moves only the code it
+touches, straight to the final layout.
 
-**CHAT + AI** (`docs/plans/chat-native-program.md`): paused behind D0.
+**The #222 port** lands in the background in this PR: the job board, preset
+looks and workflow dry run (R282), plus two defects found on the real exe
+(the status bar's lanes overlapped at 1100×700; the devtools build had not
+compiled since #248).
 
-## Known broken (verified 2026-10-12)
+**`docs/plans/docs-one-truth.md`** (approved 2026-10-12): P1 merged (#262).
+P2 (one design doc per subject; ADRs into `adr/`) and P3 (`design/library.md`)
+wait behind chat. P2 inherits:
+- **#222's R8**, the coach unification program and ADR-019: folded into the
+  coach design doc as a proposal for approval (operator, 2026-10-19);
+- **two ADR-011s**: `docs/plans/rendering-stack.md` still titles itself
+  ADR-011, which is Imagine generation (`docs/design/adr-011-imagine-generation.md`);
+- **`docs/plans/wiredfront-library-and-player.md`**: parts A and C landed
+  (#211); part B (the library caches) never landed and is
+  `media-experience-program.md` Arc A.
+
+**D0, laptop dependencies** (`docs/plans/d0-laptop-deps.md`): D0.0, D0.1a
+(#258) and D0.1b (#260) are done; D0.1c is folded into the L passes; D0.2
+(startup check), D0.3/D0.4 (camera), D0.5 (gate truth) and D0.6 (portable
+release) are still to come.
+
+## Known broken (verified 2026-10-12 unless dated)
 
 1. **A Gallery rescan hides material that is still on disk.**
    - `reindex` scans only the top level of `content/inbox`
@@ -58,47 +68,60 @@ the one-truth program, because D0.1c is now library work.
    - `import_reference` falls back to a full copy and still records
      `source:"reference"` (`crates/composer/src/import.rs:230-234`).
    - Developer Mode was turned on 2026-10-12, and the app can now create
-     symlinks unprivileged (proven: `cmd mklink`, and `dpl-index`'s symlink
-     test runs instead of skipping). The silent copy must still go.
-     → L passes and D0.2.
+     symlinks unprivileged. The silent copy must still go. → L passes and
+     D0.2.
 3. **The library is about 15 parallel systems, not one.** WiredFRONT and
-   Workbench see different material: inbox slides never reach Workbench, a
-   Kept guide vanishes from Workbench, and Pictures is cut to the newest 61
-   before filtering. → `docs-one-truth.md` §3, L passes.
+   Workbench see different material. → `docs-one-truth.md` §3, L passes.
 4. **Four folder-finding walkers disagree** (content root, `locate_asset`,
-   `dpl-doc` seeds, a dead `dpl-comp` copy). An exe copied into the repo
-   (`out/portable-test`) adopted the operator's real library. → L passes.
+   `dpl-doc` seeds, a dead `dpl-comp` copy). → L passes.
 5. **The shipped bundle shares `assets/` with the working ring.**
-   `promote_asset` would delete a shipped backdrop (latent; no runtime
-   caller). DQ7 ruled: separate them now. → L passes.
+   `promote_asset` would delete a shipped backdrop (latent: it is reached
+   only from `tests/promote_drill.rs`). DQ7 ruled: separate them. → L passes.
 6. **The editor status bar is too short for its two lines.**
-   `status_h = 58.0`, `crates/composer/src/lib.rs:3445`. Line 2 straddles
-   the frame at 1600×900 and 1280×800.
-7. **A Lottie renderer that exists but fails is re-opened every frame.** That
-   is one spawn per tick. A missing renderer fails fast. → D0.2 follow-up.
+   `status_h = 58.0` in `crates/composer/src/lib.rs`. Line 2 straddles the
+   frame at 1600×900 and 1280×800.
+7. **A Lottie renderer that exists but fails is re-opened every frame.** → D0.2
+   follow-up.
 8. **`content/artifacts.db.corrupt`** (2026-07-24) is unexplained. Never
    delete it; investigate it read-only.
 9. **The release zip ships without the tool depot.** → D0.6.
 10. **Six ignored drills do not run against the depot.** → D0.5.
-11. **The Codex version gate** and unhandled server requests. → chat A2.
+11. **Chat does not work end to end** (2026-10-19, the R283 note). A Codex
+    turn fails (the depot's Codex 0.145-alpha is too old for the model the
+    operator's config selects; the gate refuses newer versions; there is no
+    in-place update); Claude has no runtime; there is no shared state, no
+    saved conversation, and no tab close or clear; failures hide (Ready
+    regardless of sign-in, dropped JSON-RPC errors, unanswered approvals).
+    → CW1–CW3.
 12. **A second launch opens a second, half-broken window** instead of raising
-    the running one. The new instance fails the estate lock (`FjallError:
-    Locked`) and the seam port bind (os error 10048), then opens anyway.
-    The operator asked (2026-08-05) for the app to bring the running window
-    to the front. This needs its own PR.
-13. **No engine shows its startup** (R276). The library index, chat accounts
-    and chat profiles (three in-process Turso files), the estate (`fjall`),
-    the tool depot and providers start silently, and a failure is only a
-    log line. Per-engine states (Starting / Ready / Error, plus progress for
-    long work) → D0.2.
+    the running one (`FjallError: Locked`, seam port bind os error 10048).
+    The operator asked (2026-08-05) for the running window to come to the
+    front. This needs its own PR.
+13. **No engine shows its startup** (R276). Per-engine states (Starting /
+    Ready / Error, plus progress) → D0.2.
 14. **Analytics can write but not query.** DataFusion (R241) is not in the
-    dependency tree; only the Parquet writer exists.
-15. **The UI still states the old split.**
-    - The wiredFRONT hub blurb says *"ADR-010 is this hub's law"*, but
-      ADR-010 is the stale, unratified draft that was deleted.
-    - The Library card says *"Raw material, never app ingredients"*, the
-      agent-coined "two-libraries law" that contradicts "it is all one".
-    - → L passes.
+    dependency tree.
+15. **The UI still states the old split** (the wiredFRONT blurb's
+    "ADR-010 is this hub's law"; the Library card's "Raw material, never app
+    ingredients"). → L passes.
+16. **`cargo green` never builds the `eguipilotai-devtools` feature**
+    (2026-10-19). That is how #248's rename left it uncompilable for two
+    months. → D0.5 (gate truth).
+17. **Harness drills that print to stdout break EguiPilotAI** (2026-10-19).
+    `--run-workflow` and `--dry-run-workflow` print their verdict to stdout,
+    which is the pilot's stdio transport, so a fixture cannot use them.
+18. **Grok shows "Not installed"** (2026-10-19) although the depot ships
+    0.2.112. Presence runs bare names from PATH while the runtimes use the
+    depot, and Grok's cached sign-in is not detected. → A7.
+19. **#222's open orphans** (each finished per R282, each with its own plan;
+    re-checked 2026-10-19):
+    - `dpl-estate`'s `Tree::Docs` and `Tree::Manifest`: no reader or
+      writer;
+    - `engine-media::ink`: kept for a presenter annotate-and-save that never
+      landed;
+    - `dpl-engine-ae`: no dependent crate;
+    - `RemoveProviderWorkspace`: never built (→ the chat program);
+    - `promote_asset`: see #5.
 
 ## Hazards outside this repo
 
@@ -108,52 +131,30 @@ the one-truth program, because D0.1c is now library work.
   check its `run-dev.log`, then re-run. Never touch that project.
 - **A screenshot's pixel size is the window times the attached display's
   scale.** `--window <w>x<h>` is in points, and the footer shows the `dpr`.
-  This laptop has run on a 150% display (shots of 2400×1350 for
-  `--window 1600x900`) and on a 2560×1440 monitor at 100% (1600×900).
+  This laptop has run on a 150% display and on a 2560×1440 monitor at 100%.
   Compare runs by the footer's `dpr`, never by pixel size across days.
-  A "debug renders at 1.0, release at 1.5" finding (2026-10-19) was two
-  displays, not two builds: both builds are per-monitor DPI aware and give
-  the same shot on the same display.
+- **The Windows CI lane takes 40 to 70 minutes** on the estate runner (#276:
+  1 h 6 min). A slow run is not a hung one; check the job's steps first.
 - **The second clone, `D:\localdev\devpulselabs`**, is unused. Never work
   there, and never push its local branches (`wip/c1-paused`, `park/…`).
 
 ## Next, in order
 
-The operator's direction (2026-10-13, R278): **develop on a dev run; finish
-everything incomplete first, each fully tested.**
-
-1. **`cargo xtask dev [-- <app flags>]`, the dev run: merged** (#267). It
-   builds the debug app with both helpers, stages the depot into
-   `target\debug` on the first run, and launches detached on the operator's
-   library. The log is `target\debug\dev-run.log`. Its two findings are
-   closed: the editor panels' widget-ID clash is fixed, with a regression
-   test over every editor tab; the "debug DPI scale" was two displays (see
-   Hazards).
-2. **Finish the incomplete work** on the dev run, each with unit tests and
-   real-run drills:
-   - **PR #222**: the job board, preset looks and workflow dry run, finished
-     on the new docs (*"build the missing consumer, never delete"*);
-   - **chat tabs**: close and clear a tab (only "New chat" exists today), and
-     prove New chat works on the real run;
-   - **every vendor CLI a registered, updatable depot subprocess**: Claude
-     Code (none today; A4), and an in-place, SHA-verified tool update path
-     (`stage-tool-deps` refuses an existing root);
-   - **the eight open dependency PRs** (#268–#275: ACP 2→3.4, arrow and
-     parquet 59→60, zip 8→9, jsonschema 0.49→0.58, thorvg-sys 0.3→0.4,
-     egui 0.36.2), each adopted properly, never parked;
-   - the known-broken list above.
-3. P2, then P3 for operator approval.
-4. The L passes (one library), then D0.2 onward, then CHAT + AI. Codex (A2)
-   and Claude Code (A4) each run on their own subscription first (R33).
-5. Then **the knowledge engine (R275–R277)**: its own plan, from the
-   2026-10-13 sourced research.
-   - One store with a project id on every row; projects proposed from
-     where sessions ran, confirmed in one tap.
-   - Keyword search first; embeddings are one datapoint among keyword,
-     project, provider and time (R277).
-   - In-process Turso in its own derived-data file (the `turso` crate has
-     no dense ANN index: exact scan).
-   - `llama-server --embedding` as a depot subprocess.
-   - Honest per-engine startup states.
-   - An LLM lab in Workbench `/experiments` (R139, R140) for the layer and
-     shard experiments of R277.
+1. **CW1, Codex on the operator's subscription**: its plan, for operator
+   approval, then the work. Done means a real Codex turn in the real app.
+2. **CW2, Claude Code** on the operator's subscription. Done means a real
+   Claude turn.
+3. **CW3, the shared room**, saved conversations, and tabs as conversations
+   (New, Close, Clear). Done means Claude answers about Codex's reply in the
+   same conversation, and it is all still there after a restart.
+4. Grok and Gemini auth health; then the routines.
+5. The rest of the incomplete work, each with unit tests and real-run
+   drills: the eight dependency PRs (#268–#275: ACP 2→3.4, arrow and parquet
+   59→60, zip 8→9, jsonschema 0.49→0.58, thorvg-sys 0.3→0.4, egui 0.36.2),
+   adopted properly; #222's open orphans; the known-broken list.
+6. P2, then P3 for operator approval; the L passes; D0.2 onward.
+7. **The knowledge engine (R275–R277)**: its own plan, from the 2026-10-13
+   sourced research (one store with a project id on every row; keyword
+   search first, embeddings one datapoint; `llama-server --embedding` as a
+   depot subprocess; honest per-engine startup; an LLM lab in Workbench
+   `/experiments`).

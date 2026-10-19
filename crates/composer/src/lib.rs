@@ -3572,8 +3572,8 @@ impl Composer {
                 .rect_filled(r, CornerRadius::same(cl::RADIUS), cl::surface::BASE);
         }
         // One salt per panel, so no widget in one panel can share an ID with
-        // a widget in a sibling (unsalted, the Project and Effects scroll
-        // areas shared one, and with it their scroll state).
+        // a widget in a sibling (unsalted, the tool strip, Project and
+        // Effects scroll areas shared one, and with it their scroll state).
         let mut mk = |name: &str, r: Rect| {
             ui.new_child(UiBuilder::new().id_salt(name).max_rect(r.shrink(pad)))
         };
@@ -6996,8 +6996,8 @@ mod tests {
     use super::*;
 
     /// The editor's sibling panels were once children of one parent with
-    /// no salt, so they derived the same widget IDs (the Project and
-    /// Effects scroll areas shared one, and with it their scroll state).
+    /// no salt, so they derived the same widget IDs (the tool strip, Project
+    /// and Effects scroll areas shared one, and with it their scroll state).
     /// egui paints "First/Second/Double use of … ID" over every clash in
     /// debug builds; no tab of the editor may paint one.
     #[test]
