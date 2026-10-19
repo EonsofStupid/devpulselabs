@@ -92,10 +92,15 @@ the one-truth program, because D0.1c is now library work.
     - The Library card says *"Raw material, never app ingredients"*, the
       agent-coined "two-libraries law" that contradicts "it is all one".
     - → L passes.
-16. **No dev run.** Since D0.1b every helper must sit beside the exe, and
-    `target\debug` has no depot, no Lottie renderer and no debug build. A
-    `cargo xtask dev` (debug app + helpers + staged depot, the operator's
-    library) is proposed.
+16. **A ScrollArea ID clash** (found by the first dev run, 2026-10-19). In
+    debug, egui flags "First use of ScrollArea ID EF0B" in the WiredFRONT
+    Project panel and "Second use …" in Effects & Presets. The two scroll
+    areas share one ID, so in release they silently share scroll state.
+17. **The debug build renders at `dpr 1.0` on this 150% display, and release
+    at 1.5.** For `--window 1600x900`, debug gives 1600×900 and release
+    2400×1350. It is debug vs release (a direct debug launch does the same),
+    and the cause is not yet diagnosed. UI judged on a dev run is at a
+    different scale than the operator sees.
 
 ## Hazards outside this repo
 
@@ -111,11 +116,14 @@ the one-truth program, because D0.1c is now library work.
 The operator's direction (2026-10-13, R278): **develop on a dev run; finish
 everything incomplete first, each fully tested.**
 
-1. **`cargo xtask dev`**, the dev run. It comes first because it is how
-   everything below gets developed and tested. It builds the debug app plus
-   its helpers (`dpl-lottie-render`, `dpl-coach-overlay`), stages the depot
-   into `target\debug`, and opens the operator's library.
-2. **Finish the incomplete work**, each with unit tests and real-run drills:
+1. **`cargo xtask dev [-- <app flags>]`, the dev run: built** (`feat/xtask-dev`,
+   proven on real runs; `docs/plans/dev-run.md` §8). It builds the debug app
+   with both helpers, stages the depot into `target\debug` on the first run,
+   and launches detached on the operator's library. The log is
+   `target\debug\dev-run.log`.
+2. **Finish the incomplete work** on the dev run, each with unit tests and
+   real-run drills. The dev run's own findings come first (known broken #16
+   ScrollArea ID clash, #17 debug DPI scale). Then:
    - **PR #222**: the job board, preset looks and workflow dry run, finished
      on the new docs (*"build the missing consumer, never delete"*);
    - **chat tabs**: close and clear a tab (only "New chat" exists today), and

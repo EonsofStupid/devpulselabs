@@ -9,6 +9,9 @@
 //!      stale-exe killer.
 //!
 //! `cargo xtask fix` = fmt + clippy --fix (the tidy loop).
+//! `cargo xtask dev [-- <app flags>]` = the dev run: the debug app and its
+//!   helpers, the tool depot beside the debug exe, launched detached on the
+//!   operator's library (docs/plans/dev-run.md).
 //! `cargo xtask coverage` = the coverage audit alone, with the depth rules
 //!   printed. It also runs inside `green`, where it REPORTS and never gates
 //!   (pass 1) — the one phase that can see authored data nothing consumes.
@@ -676,6 +679,136 @@ fn stage_tool_dependencies(arguments: &[String]) -> Result<(), String> {
         tools_root.display()
     );
     Ok(())
+}
+
+/// THE DEV RUN — `cargo xtask dev [-- <app flags>]` (docs/plans/dev-run.md,
+/// R278: "proper dev practices running it while we dev").
+///
+/// Builds the debug app with the helpers it spawns, makes sure the tool depot
+/// sits beside the debug exe (D0.1b: every helper resolves beside the exe),
+/// then launches the app DETACHED and exits. Detached, and this process gone
+/// at once, because another project's `xtask run-dev` reaper runs
+/// `taskkill /F /T` on every `xtask.exe`: an app held as a live child of this
+/// one would die with it.
+fn dev(arguments: &[String]) -> Result<(), String> {
+    let library = workspace_root().join("content");
+    let app_args = dev_app_args(
+        arguments,
+        &library,
+        std::env::var_os("CONTENT_ROOT").is_some(),
+    );
+    run(
+        "dev build",
+        &[
+            "build",
+            "-p",
+            "devpulselabs",
+            "-p",
+            "dpl-lottie-render",
+            "-p",
+            "dpl-coach-overlay",
+        ],
+    )?;
+
+    let debug = target_dir().join("debug");
+    if debug.join(dpl_tools_deps::TOOLS_DIRECTORY).exists() {
+        println!(
+            "depot: {} is staged (the app SHA-verifies each tool when it resolves it)",
+            debug.join(dpl_tools_deps::TOOLS_DIRECTORY).display()
+        );
+    } else {
+        println!("depot: staging into {} (first dev run)", debug.display());
+        stage_tool_dependencies(&[debug.to_string_lossy().into_owned()])?;
+    }
+
+    let exe = debug.join(format!("devpulselabs{}", std::env::consts::EXE_SUFFIX));
+    let log_path = debug.join("dev-run.log");
+    let log = fs::File::create(&log_path)
+        .map_err(|error| format!("dev: {}: {error}", log_path.display()))?;
+    let log_err = log
+        .try_clone()
+        .map_err(|error| format!("dev: {}: {error}", log_path.display()))?;
+    let mut command = Command::new(&exe);
+    command
+        .args(&app_args)
+        .current_dir(workspace_root())
+        .stdin(Stdio::null())
+        .stdout(log)
+        .stderr(log_err);
+    // spawn-audit: exempt(dev run — DETACHED_PROCESS gives the debug console
+    // app no console window at all, and outlives this xtask.exe)
+    detach(&mut command);
+    let child = command
+        .spawn()
+        .map_err(|error| format!("dev: could not start {}: {error}", exe.display()))?;
+    println!(
+        "dev run: pid {} · log {} · {}",
+        child.id(),
+        log_path.display(),
+        dev_library_note(&app_args)
+    );
+    Ok(())
+}
+
+/// The app's arguments for a dev run: whatever followed `--`, plus the
+/// operator's library as an EXPLICIT `--content-root` unless the caller (or
+/// `CONTENT_ROOT`) already names one, so a drill's scratch root always wins.
+fn dev_app_args(arguments: &[String], library: &Path, env_names_root: bool) -> Vec<String> {
+    let mut args: Vec<String> = arguments
+        .iter()
+        .skip_while(|a| a.as_str() == "--")
+        .cloned()
+        .collect();
+    let named = args
+        .iter()
+        .any(|a| a == "--content-root" || a.starts_with("--content-root="));
+    if !named && !env_names_root {
+        args.splice(
+            0..0,
+            ["--content-root".to_owned(), library.display().to_string()],
+        );
+    }
+    args
+}
+
+/// Plain words for which library the dev run opened.
+fn dev_library_note(app_args: &[String]) -> String {
+    let mut iter = app_args.iter();
+    while let Some(arg) = iter.next() {
+        if arg == "--content-root" {
+            if let Some(path) = iter.next() {
+                return format!("library {path}");
+            }
+        }
+        if let Some(path) = arg.strip_prefix("--content-root=") {
+            return format!("library {path}");
+        }
+    }
+    "library from CONTENT_ROOT".to_owned()
+}
+
+/// The repo root: xtask lives at `crates/xtask`.
+fn workspace_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
+}
+
+/// Start the child in its own process group with no console, so it survives
+/// this process and any reaper that kills `xtask.exe` trees.
+#[cfg(windows)]
+fn detach(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    const DETACHED_PROCESS: u32 = 0x0000_0008;
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+    command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+}
+
+#[cfg(unix)]
+fn detach(command: &mut Command) {
+    use std::os::unix::process::CommandExt;
+    command.process_group(0);
 }
 
 fn validate_source_segment(field: &str, value: &str) -> Result<(), String> {
@@ -1815,6 +1948,9 @@ fn main() -> ExitCode {
         // is that it catches what three commits already got wrong.
         "lock" => lock_audit(),
         "stage-tool-deps" => stage_tool_dependencies(&arguments),
+        // The dev run (docs/plans/dev-run.md, R278): develop on a running
+        // debug app, not only the release exe.
+        "dev" => dev(&arguments),
         "fix" => run("fmt", &["fmt", "--all"]).and_then(|()| {
             run(
                 "clippy --fix",
@@ -1828,7 +1964,7 @@ fn main() -> ExitCode {
             )
         }),
         other => Err(format!(
-            "unknown task \"{other}\" — tasks: green, sweep, docs-status, structure, coverage, smoke, lock, stage-tool-deps, fix"
+            "unknown task \"{other}\" — tasks: green, sweep, docs-status, structure, coverage, smoke, lock, stage-tool-deps, dev, fix"
         )),
     };
     match result {
@@ -1837,6 +1973,59 @@ fn main() -> ExitCode {
             eprintln!("xtask: {e}");
             ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+mod dev_tests {
+    use super::{dev_app_args, dev_library_note};
+    use std::path::Path;
+
+    fn strings(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    #[test]
+    fn a_bare_dev_run_opens_the_operators_library_explicitly() {
+        let args = dev_app_args(&[], Path::new("D:/lib/content"), false);
+        assert_eq!(args, strings(&["--content-root", "D:/lib/content"]));
+        assert_eq!(dev_library_note(&args), "library D:/lib/content");
+    }
+
+    #[test]
+    fn flags_after_the_separator_pass_through_and_keep_the_library() {
+        let args = dev_app_args(
+            &strings(&["--", "--window", "1600x900"]),
+            Path::new("D:/lib/content"),
+            false,
+        );
+        assert_eq!(
+            args,
+            strings(&["--content-root", "D:/lib/content", "--window", "1600x900"])
+        );
+    }
+
+    #[test]
+    fn a_drill_scratch_root_always_wins() {
+        let named = dev_app_args(
+            &strings(&["--", "--content-root", "S:/scratch"]),
+            Path::new("D:/lib/content"),
+            false,
+        );
+        assert_eq!(named, strings(&["--content-root", "S:/scratch"]));
+        let joined = dev_app_args(
+            &strings(&["--content-root=S:/scratch"]),
+            Path::new("D:/lib/content"),
+            false,
+        );
+        assert_eq!(dev_library_note(&joined), "library S:/scratch");
+        let from_env = dev_app_args(
+            &strings(&["--", "--ledger"]),
+            Path::new("D:/lib/content"),
+            true,
+        );
+        assert_eq!(from_env, strings(&["--ledger"]));
+        assert_eq!(dev_library_note(&from_env), "library from CONTENT_ROOT");
     }
 }
 
