@@ -1,6 +1,6 @@
 ---
-updated: 2026-10-13
-active_lane: docs-one-truth
+updated: 2026-10-19
+active_lane: incomplete-first
 dirty: false
 ---
 
@@ -13,18 +13,25 @@ reorganization).
 Read in this order: this page → [`requirements.md`](requirements.md) (the
 operator's words) → [`README.md`](README.md) (the map of every doc).
 
-**Updated:** 2026-10-13, main at `d3c0a73` (#262). The exe was rebuilt
-2026-10-12 10:49 and verified on the real exe (footer `d3c0a73`).
+**Updated:** 2026-10-19, main at `7eb0a5b` (#267) plus the dev run's two
+findings (this pass). The release exe was rebuilt 2026-10-19 03:08 from
+`7eb0a5b` and verified on the real exe (footer `7eb0a5b`); it is rebuilt
+again when this pass lands.
 
 ## Now
 
+**Incomplete work first, on the dev run** (R278): `cargo xtask dev` is merged
+(#267), its two findings are closed (below), and the incomplete list in
+"Next" is the queue.
+
 **`docs/plans/docs-one-truth.md`** (approved 2026-10-12): the docs become one
-organized set, and the library becomes one.
+organized set, and the library becomes one. P2 waits behind the incomplete
+work.
 
 | Pass | What | State |
 |---|---|---|
 | P1 | requirements ledger · this page · the doc map · 247 finished/superseded/stale docs deleted (tagged first) · every reference fixed (0 dangling) | **merged** (#262, double-green) |
-| P2 | one design doc per subject; ADRs into `adr/` | next |
+| P2 | one design doc per subject; ADRs into `adr/` | after the incomplete work |
 | P3 | `design/library.md`, the one-library law, for operator approval | after P2 |
 | L1… | code passes that make the library one | after P3 approval |
 
@@ -92,15 +99,6 @@ the one-truth program, because D0.1c is now library work.
     - The Library card says *"Raw material, never app ingredients"*, the
       agent-coined "two-libraries law" that contradicts "it is all one".
     - → L passes.
-16. **A ScrollArea ID clash** (found by the first dev run, 2026-10-19). In
-    debug, egui flags "First use of ScrollArea ID EF0B" in the WiredFRONT
-    Project panel and "Second use …" in Effects & Presets. The two scroll
-    areas share one ID, so in release they silently share scroll state.
-17. **The debug build renders at `dpr 1.0` on this 150% display, and release
-    at 1.5.** For `--window 1600x900`, debug gives 1600×900 and release
-    2400×1350. It is debug vs release (a direct debug launch does the same),
-    and the cause is not yet diagnosed. UI judged on a dev run is at a
-    different scale than the operator sees.
 
 ## Hazards outside this repo
 
@@ -108,6 +106,14 @@ the one-truth program, because D0.1c is now library work.
   parallel Claude session) runs `taskkill /F /T` on **every** `xtask.exe` at
   startup. A `cargo green` that dies silently with exit 1 was killed by it:
   check its `run-dev.log`, then re-run. Never touch that project.
+- **A screenshot's pixel size is the window times the attached display's
+  scale.** `--window <w>x<h>` is in points, and the footer shows the `dpr`.
+  This laptop has run on a 150% display (shots of 2400×1350 for
+  `--window 1600x900`) and on a 2560×1440 monitor at 100% (1600×900).
+  Compare runs by the footer's `dpr`, never by pixel size across days.
+  A "debug renders at 1.0, release at 1.5" finding (2026-10-19) was two
+  displays, not two builds: both builds are per-monitor DPI aware and give
+  the same shot on the same display.
 - **The second clone, `D:\localdev\devpulselabs`**, is unused. Never work
   there, and never push its local branches (`wip/c1-paused`, `park/…`).
 
@@ -116,14 +122,15 @@ the one-truth program, because D0.1c is now library work.
 The operator's direction (2026-10-13, R278): **develop on a dev run; finish
 everything incomplete first, each fully tested.**
 
-1. **`cargo xtask dev [-- <app flags>]`, the dev run: built** (`feat/xtask-dev`,
-   proven on real runs; `docs/plans/dev-run.md` §8). It builds the debug app
-   with both helpers, stages the depot into `target\debug` on the first run,
-   and launches detached on the operator's library. The log is
-   `target\debug\dev-run.log`.
+1. **`cargo xtask dev [-- <app flags>]`, the dev run: merged** (#267). It
+   builds the debug app with both helpers, stages the depot into
+   `target\debug` on the first run, and launches detached on the operator's
+   library. The log is `target\debug\dev-run.log`. Its two findings are
+   closed: the editor panels' widget-ID clash is fixed, with a regression
+   test over every editor tab; the "debug DPI scale" was two displays (see
+   Hazards).
 2. **Finish the incomplete work** on the dev run, each with unit tests and
-   real-run drills. The dev run's own findings come first (known broken #16
-   ScrollArea ID clash, #17 debug DPI scale). Then:
+   real-run drills:
    - **PR #222**: the job board, preset looks and workflow dry run, finished
      on the new docs (*"build the missing consumer, never delete"*);
    - **chat tabs**: close and clear a tab (only "New chat" exists today), and
@@ -131,6 +138,9 @@ everything incomplete first, each fully tested.**
    - **every vendor CLI a registered, updatable depot subprocess**: Claude
      Code (none today; A4), and an in-place, SHA-verified tool update path
      (`stage-tool-deps` refuses an existing root);
+   - **the eight open dependency PRs** (#268–#275: ACP 2→3.4, arrow and
+     parquet 59→60, zip 8→9, jsonschema 0.49→0.58, thorvg-sys 0.3→0.4,
+     egui 0.36.2), each adopted properly, never parked;
    - the known-broken list above.
 3. P2, then P3 for operator approval.
 4. The L passes (one library), then D0.2 onward, then CHAT + AI. Codex (A2)
