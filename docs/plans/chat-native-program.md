@@ -521,6 +521,26 @@ router role, and belongs to R277's lab.
 
 ### 4.4 Passes (each: plan doc, 7 sections + §8; PR; double-green; real-exe proof; exe rebuilt; STATE)
 
+**The order (R283, ruled 2026-10-19): every step ends with a real message
+working in the real app.** The table below is the scope catalogue; this is
+the order.
+
+1. **CW1: Codex on the operator's subscription.** A2's Codex work (server
+   requests answered, a turn deadline, honest auth health, plain-language
+   failures) plus A3's update path for Codex: an in-place, SHA-verified
+   depot update to the operator's current version, with the schema
+   re-vendored and the version gate re-pinned.
+2. **CW2: Claude Code on the operator's subscription.** A4.
+3. **CW3: the shared room.** C1 (the chat store), the room of §4.3.7
+   (participants; every turn carries the room's transcript) and tabs as
+   conversations (New, Close, Clear).
+4. Then A7/A8 (Grok and Gemini auth health), then the routines (C5/C6),
+   then C2–C4.
+
+K1, K2 and A1 no longer gate anything. Each step moves only the code it
+touches, straight to the final layout (no shims), and amends
+`architecture.md` and the structure audit in the same commit.
+
 | Pass | Scope | Done means |
 |---|---|---|
 | **P0** | This plan approved (with §4.6) | Operator approval |

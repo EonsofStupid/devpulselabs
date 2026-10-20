@@ -1,0 +1,152 @@
+id = "jobs-board"
+fixture = "jobs-board"
+record = true
+
+# The job board (R282: the fabric JobBoard's missing consumer), driven the
+# operator's way on a scratch content root. A Dry run publishes nothing, so
+# the status bar stays quiet; Run publishes one job per stage (five) that no
+# route clears, so the status bar says so, and tapping it opens a board that
+# lists them and clears them one by one.
+
+[[steps]]
+kind = "wait"
+milliseconds = 2500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "count"
+value = 0
+
+[steps.expectation.target]
+id = "root/shell.status/jobs"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/composer.tab/Workflows"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/composer.workflows.dry/storyboard"
+
+[[steps]]
+kind = "wait"
+milliseconds = 500
+
+# A dry run touches nothing and publishes nothing.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "count"
+value = 0
+
+[steps.expectation.target]
+id = "root/shell.status/jobs"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/composer.workflows.run/storyboard"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+# The cell's name says what it does; its value is what it shows.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "5 jobs done"
+
+[steps.expectation.target]
+id = "root/shell.status/jobs"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/shell.status/jobs"
+
+[[steps]]
+kind = "wait"
+milliseconds = 500
+
+[[steps]]
+kind = "capture"
+name = "jobs-board-open"
+
+[steps.viewport]
+key = "root"
+
+# Clearing a row acknowledges that job on the fabric's board.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+role = "button"
+name = "Clear workflow storyboard · outline"
+
+[steps.action.target.viewport]
+key = "root"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "4 jobs done"
+
+[steps.expectation.target]
+id = "root/shell.status/jobs"
+
+[[steps]]
+kind = "capture"
+name = "jobs-board-cleared-one"
+
+[steps.viewport]
+key = "root"
+
+# The preset picker: each row wears its own look (treated_coord).
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/shell.status/presets"
+
+[[steps]]
+kind = "wait"
+milliseconds = 500
+
+[[steps]]
+kind = "capture"
+name = "preset-picker-open"
+
+[steps.viewport]
+key = "root"

@@ -45,7 +45,7 @@ ref** resolved against the surface's runtime `Tone`, so one trait dresses any hu
   Actionable clay = deep extrusion + top rim light + NEON INK (the glow is the
   ink itself: ~5 offset glyph copies at falling alpha — painted bloom, law 6
   holds); hover brightens the ink, active sinks the extrusion inward (inset).
-  Reference: `docs/design/references/claymorphism-icons-examples.png`. The
+  Reference: `docs/design/references/aero-morphism.png`. The
   `hover`/`active` state data for claymorphic lands in `tokens/traits.json`
   with the next trait pass — until then `compose()` simply has no clay press
   state, which is a gap, not a rule.

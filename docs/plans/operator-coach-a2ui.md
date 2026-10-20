@@ -251,11 +251,18 @@ internalize what we actually use.
    Router-shaped protocol arms from day one (`Mount`/`Unmount`/`Triggered`
    + roundtrip tests) but only `visual: Spotlight`, `on: Press` implemented
    → runtime handling + resolver → egui Foreground renderer (ColdLight) →
-   CLI verb `eguipilotai coach mount <node> --message <s> --once` →
-   scenario TOML step (`coach.mount` + `expect triggered`) → Test Lab
-   "coach" tab reusing the same commands. Unimplemented `TriggerKind`s
-   answer `Refused { Unsupported }` — no silent stubs. Amends delivery-doc
-   Slice 8 rather than forking it.
+   CLI coach verb → scenario TOML step (`coach.mount` + `expect
+   triggered`). Unimplemented `TriggerKind`s answer
+   `Refused { Unsupported }` — no silent stubs. Amends delivery-doc Slice 8
+   rather than forking it.
+   The CLI grammar is `coach <profile> <node-id> [--fixture <name>]
+   [--message <text>] [--on <trigger>] [--wait-ms <n>] [--ttl-ms <n>]`
+   (`crates/egui-pilot-ai-cli/src/main.rs`); `once` exists only as a
+   scenario TOML touchpoint field. The Test Lab has no "coach" tab (its
+   tabs are Agent tree / Full tree / Runs / Trace / Visual,
+   `crates/egui-pilot-ai-lab/src/lib.rs`): §9 records why. Test Lab holds
+   no live session, so the coach tab waits for Slice 8's
+   `test-lab.live-control`.
 2. **C1.5a — dynamic triggers (in-app).** `NodeAppeared` / `ValueChanged`
    evaluated in `coach::run_pass` against the committed nodes it already
    receives; `FabricEvent` fed by the app-side push. `Armed` for unresolved

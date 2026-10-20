@@ -1428,6 +1428,18 @@ Note: Triple-checked 2026-10-18 against Google's own pages wherever possible:
   - Gemini Code Assist (business-only, $19/user/month annual).
 - The plans doc also says access to "agents, including the Antigravity Preview, is not included in Google AI plans and requires a paid API key". That concerns AI Studio's agent preview. The plan page lists Antigravity agent requests under AI Pro/Ultra. Re-check if the two conflict at build time.
 
+### R283 · 2026-10-19
+
+> yeah but we are not properly capturing shared chat state and using subscriptions we are not properly building it for success nothing works
+
+Source: the operator's message in the Claude Code session of 2026-10-19 (first recorded here). **Operator ruling the same day:** "Approve, Codex first". The chat program is reordered so that every step ends with a real message working in the real app: (1) Codex on the operator's subscription, (2) Claude Code on the operator's subscription, (3) the shared room. Renames and restructures stop being gates (`docs/plans/chat-native-program.md` §4.4).
+
+Note: Verified on the real app 2026-10-19, and what was found:
+- **Codex: a turn fails.** One test message returned HTTP 400, "The 'gpt-6-astra' model requires a newer version of Codex". The app's depot runs Codex 0.145.0-alpha.18 and its version gate accepts only `>=0.145.0,<0.146.0`. The operator runs 0.163.0, and the model chosen in the operator's own Codex config needs a newer CLI. There is no in-place depot update. The window showed the raw JSON error, and the status stayed "Ready".
+- **Claude Code: no runtime.** A signed-in Claude shows as "Experimental", and a Claude turn is dropped with a log line. Presence is checked through PATH; the depot has no Claude binary. The operator runs 2.1.296.
+- **Shared state: none.** Each session is bound to one provider, and the runtime rejects events from another. A turn sends only the new text, never the app's transcript. Conversations are not saved, so they are lost on restart. Tabs are fixed categories, with no close or clear. There is no participant or room type.
+- **Hidden failures.** Ready is set as soon as Codex's app-server answers `initialize`, whatever the sign-in state. JSON-RPC error responses are dropped. Approval requests are never answered.
+
 ## 7. Coach
 
 ### R195 · 2026-07-26 (doc authored 2026-07-26)
@@ -1935,6 +1947,14 @@ Source: `docs-history-2026-10-12:docs/plans/crate-consolidation-review.md:194`
 > get a true mock made … it properly extends eguiPilot … stop handwaving me.
 
 Source: `docs-history-2026-10-12:docs/journal/2026-08-07-coach-seam-audit.md:5`
+
+### R282 · 2026-08-07
+
+> If it's not being called it's because the implementation was half-assed — get it implemented, don't delete it. Find out why it was even implemented.
+
+Source: `f44c6c9:docs/plans/loss-recovery-program.md:214` (PR #222, never merged, so the tag does not hold it; read it with `git show f44c6c9:<path>`; first recorded here 2026-10-19)
+
+Note: An uncalled implementation is a half-finished ask. Its original intent is found, then its missing consumer is built; it is never deleted as dead code.
 
 ### R262 · 2026-08-08
 

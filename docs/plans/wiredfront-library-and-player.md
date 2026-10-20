@@ -95,7 +95,7 @@ on `lime` remains a selectable OPTION.
 ### A — the editor wears `aero` + `hacker`
 
 The default is the v3 language: **flat wells, liquid-glass/cyber chrome, glow
-used as a SPOTLIGHT on the active thing** — the `editor.png` read. Resolved
+used as a SPOTLIGHT on the active thing** — the `WORKBENCH-editor.png` read. Resolved
 from `matrix.json`, every value authored, nothing hand-picked:
 
 | element | today | aero + hacker |
@@ -179,7 +179,7 @@ popup stays open so several items can be added in a row.
 2. Same file — `ae_screen`'s panel rects take the flat `WELL`/`RAISED`
    treatment with a hairline edge; no saturated fills anywhere.
 3. Proof: `--route wiredfront/editor` at maximized, `1100x700`, `1600x900`;
-   compare against `docs/design/references/editor.png` and v3 §4's glass
+   compare against `docs/design/references/WORKBENCH-editor.png` and v3 §4's glass
    stops region by region.
 
 **B — the library caches** (needs no new dependency)
@@ -229,7 +229,8 @@ popup stays open so several items can be added in a row.
 ## 6. Verification
 
 - `cargo green` exits 0.
-- **A:** proof shots at three sizes beside `docs/design/references/editor.png`;
+- **A:** proof shots at three sizes beside
+  `docs/design/references/WORKBENCH-editor.png`;
   the feel bar is the gate — **glow marks the active thing and nothing else**,
   every other control a quiet plate.
 - **B:** add a real folder of ~50 videos → the prompt states the count →

@@ -135,7 +135,7 @@ shorten, never lengthen.
 | 8 | Undo/redo | ✅ R1z: snapshot undo/redo (cap 100, one step per drag) + Ctrl+Z/Ctrl+Shift+Z/Ctrl+Y + Space/Delete/arrows | DONE (R1z) |
 | 9 | Chat edits the open comp | PARTIAL: seam drives comps end-to-end (R1v/w) but no editor-side proposal UI | T4d (= ratified R1f) |
 | 10 | Renders/library correct | ✅ W1.2 (`9a95fc7`): the two-libraries un-crossing | DONE (W1.2) |
-| 11 | Google Drive | `ureq` landed (#98, ADR-011) — the HTTP-client blocker is gone; needs OAuth + the Drive Browse window | T1h (R2d) |
+| 11 | Google Drive | `ureq` landed (#98, Imagine ADR-011) — the HTTP-client blocker is gone; needs OAuth + the Drive Browse window | T1h (R2d) |
 | 12 | Background removal | Not started (ort mini-ADR owed) | R2e (= ratified R1e) |
 | 13 | Double-click Library → editor | ✅ W6: the Library is the real thumbnailed shelf; double-click sends video → timeline / image → FOOTAGE (honest) and navigates to the Editor | DONE (W6) |
 | 14 | ffmpeg found without PATH | ✅ W6: managed boot resolution (bin/ beside exe → PATH → winget links) injected into all three engine seams | DONE (W6) |
@@ -186,5 +186,6 @@ peer windows fail honestly (never silently embed).
    or do rendered elements (a) + Lottie (c) cover the real workflow?
    (Partial answer landed: Lottie (c) shipped natively as L2, #99.)
 4. ~~R2d dependency: approve adding an HTTP client crate when it
-   schedules.~~ RETIRED 2026-07-27: `ureq` landed under ADR-011 (#98);
+   schedules.~~ RETIRED 2026-07-27: `ureq` landed under the
+   Imagine ADR-011 (#98);
    the remaining R2d ask is OAuth custody, not the client.

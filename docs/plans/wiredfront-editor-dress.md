@@ -11,9 +11,10 @@ Operator, 2026-08-05:
 > `docs/design/mocks/wiredfront-editor-mock.html` … EDITOR.PNG IS FUCKING PART
 > OF WORKBENCH IM RENAMING THAT RIGHT NOW"
 
-**The target is the mock, not a reference shot.** `editor.png` and
-`editor-2.png` are **Workbench** and were wrongly recorded in
-`visual-language.md` as the WiredFRONT target; that is now corrected.
+**The target is the mock, not a reference shot.** `WORKBENCH-editor.png` and
+`WORKBENCH-editor-2.png` (renamed per the quote above) are **Workbench** and
+were wrongly recorded in `visual-language.md` as the WiredFRONT target; that
+is now corrected.
 
 ### 1.1 What this invalidates — stated plainly
 
@@ -172,8 +173,8 @@ as **forbidden** (`matrix.json:95`) while every surface in the mock casts one.
 - Changing the mock's magenta active accent to another tone.
 
 **Out of scope**
-- Workbench's dress (`editor.png`/`editor-2.png` are its references — its own
-  pass).
+- Workbench's dress (`WORKBENCH-editor.png`/`WORKBENCH-editor-2.png` are its
+  references — its own pass).
 - `resolve()` — this rides `cl::treated` and converts later with no visual
   change.
 

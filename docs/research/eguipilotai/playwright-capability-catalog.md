@@ -130,7 +130,7 @@ DevPULSE should customize the toolkit only through these stable seams:
 
 | Seam | Owns | Must not own |
 |---|---|---|
-| `UiPilotExt` / `pilot_interact` | Identity, semantics, actions, bounds, focus, motion association | Test assertions or runner lifecycle |
+| `UiPilotExt` / `pilot_track` plus motion registration beside authorship | Identity, semantics, actions, bounds, focus, motion association | Test assertions or runner lifecycle |
 | `ScrollAdapter` | Deterministic reveal plan for a registered custom/virtual surface | Arbitrary state mutation |
 | `ValueAdapter` | Accessible value/action translation for a custom control | Direct test-only model access |
 | `MotionAdapter` | Terminal/canonical phase and status for custom motion | Wall-clock sleeps or screenshot comparison |

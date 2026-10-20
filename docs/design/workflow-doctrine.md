@@ -80,7 +80,7 @@ the Nth workflow shaped like the 1st.
    slides/episodes); hubs mount by it, the ENGINE never branches on it.
    A workflow that needs both sides is two workflows.
 
-9. **Dry-run never spends (ADR-011).** Generation runs only inside an
+9. **Dry-run never spends (Imagine ADR-011).** Generation runs only inside an
    operator-started run; keyless or dry runs produce an honest
    `Skipped{reason}` row — visible in the report, the jobs feed, and
    the panel. A silent skip is a bug.
