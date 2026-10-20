@@ -349,7 +349,9 @@ fn windows_signature(_file: &Path) -> Result<Signature, String> {
     Err("signature checks run on Windows only".to_owned())
 }
 
-/// `Valid|CN="OpenAI OpCo, LLC", O=…` → its two halves.
+/// `Valid|CN="OpenAI OpCo, LLC", O=…` → its two halves. Only Windows asks
+/// (and the tests check the parsing on every OS).
+#[cfg(any(windows, test))]
 fn parse_signature(output: &str) -> Result<Signature, String> {
     let (status, subject) = output
         .trim()
