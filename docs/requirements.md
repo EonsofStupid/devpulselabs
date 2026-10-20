@@ -1440,6 +1440,27 @@ Note: Verified on the real app 2026-10-19, and what was found:
 - **Shared state: none.** Each session is bound to one provider, and the runtime rejects events from another. A turn sends only the new text, never the app's transcript. Conversations are not saved, so they are lost on restart. Tabs are fixed categories, with no close or clear. There is no participant or room type.
 - **Hidden failures.** Ready is set as soon as Codex's app-server answers `initialize`, whatever the sign-in state. JSON-RPC error responses are dropped. Approval requests are never answered.
 
+### R284 · 2026-10-20
+
+> can we research this so we can truly offer a way to truly have codex/chatgpt, local llm endpoints, and other frontierAI where we can have specific rooms in the chat that provide guidance and assign roles like skeptic, realist, dreamer and based of latest resaerch proper roles that have schemas to define and scale and grow. capturing our experitse and knowledge now ahead of time so the app can scale and grow easily
+
+Source: the operator's message in the Claude Code session of 2026-10-20 (first recorded here). **Operator rulings the same day:** "Approve" (the RM1 plan and the rooms order: RM1 the library, RM2 the room log and tabs, RM3 participants and local endpoints, RM4 Council, RM5 the rest) and "Council" (the first room that runs).
+
+Note: The research is `docs/research/chat-rooms-and-roles.md` (2026-10-20). What it settled:
+- **Independent answers, then selection.** Select one answer, never blend them. The selector is blind, judges in both orders, and comes from a vendor that wrote none of the answers.
+- **Roles are defined by method and output contract, not persona.** Each role names its method, what it must produce, how it is judged, what it must never do, and the sources behind it, graded by evidence.
+- **How each AI joins:**
+  - native adapters for Codex and Claude;
+  - one ACP client for Grok, Gemini and the rest;
+  - local models through OpenAI-compatible `/v1/chat/completions` (Ollama first).
+- **One context packet per turn:** pinned facts, a rolling summary, the newest messages and the ask. Other participants' words are tagged with a random per-room suffix; only the operator's messages are instructions.
+
+RM1 landed the library as data:
+- the schemas `dpl.role/1` and `dpl.room/1`;
+- 11 built-in roles and 5 rooms, each citing its research sources;
+- the operator's own role and room files, loaded from `.userdata/chat/library/`;
+- a read-only "Rooms & roles" view in the chat window.
+
 ## 7. Coach
 
 ### R195 · 2026-07-26 (doc authored 2026-07-26)

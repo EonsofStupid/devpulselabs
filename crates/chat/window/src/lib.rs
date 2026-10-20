@@ -40,6 +40,8 @@ use std::fmt;
 pub const WINDOW_KEY: AppWindowKey = AppWindowKey("chat.primary");
 pub const LAUNCHER_ID: PilotId = PilotId::new("shell.window.chat");
 pub const AI_MODE_ID: PilotId = PilotId::new("chat.mode.ai");
+pub const ROOM_LIBRARY_ID: PilotId = PilotId::new("chat.library");
+
 pub const SOCIAL_MODE_ID: PilotId = PilotId::new("chat.mode.social");
 pub const CONTENT_MODE_ID: PilotId = PilotId::new("chat.mode.content");
 pub const PROVIDER_TAB_ID: PilotId = PilotId::new("chat.mode.provider");
@@ -362,6 +364,10 @@ pub enum ChatWindowIntent {
         provider: ProviderId,
         mode: PermissionMode,
     },
+    /// Show or hide the Rooms & roles library.
+    ToggleRoomLibrary,
+    /// Open the folder where the operator's own roles and rooms live.
+    OpenRoomLibraryFolder,
     RequestImageGeneration {
         prompt: String,
     },
@@ -538,6 +544,8 @@ pub enum HostIntent {
         provider: ProviderId,
         mode: PermissionMode,
     },
+    /// Open (creating it if needed) the operator's role and room folder.
+    OpenRoomLibraryFolder,
     RequestImageGeneration {
         prompt: String,
     },
@@ -670,6 +678,13 @@ pub struct ChatWindow {
     provider_permissions: HashMap<InteractionId, ProviderPermissionBinding>,
     /// Providers offered a permission selector, with their current mode.
     permission_modes: BTreeMap<ProviderId, PermissionMode>,
+    /// The roles and rooms the operator can use (built-ins plus their own).
+    room_library: dpl_chat_core::rooms::Library,
+    /// Is the Rooms & roles library showing in the AI pane?
+    library_open: bool,
+    /// The library's filters: one room type, one stance, or everything.
+    library_room_filter: Option<dpl_chat_core::rooms::RoomType>,
+    library_role_filter: Option<dpl_chat_core::rooms::Stance>,
     provider_trace: VecDeque<Stamped<ProviderEvent>>,
     provider_trace_expanded: HashMap<ProviderId, bool>,
     composer_focus_requested: bool,
@@ -820,6 +835,10 @@ impl ChatWindow {
             pending_focus_return: None,
             provider_permissions: HashMap::new(),
             permission_modes: BTreeMap::new(),
+            room_library: dpl_chat_core::rooms::Library::builtin(),
+            library_open: false,
+            library_room_filter: None,
+            library_role_filter: None,
             provider_trace: VecDeque::new(),
             provider_trace_expanded: HashMap::new(),
             composer_focus_requested: false,
@@ -1345,6 +1364,11 @@ impl ChatWindow {
                 self.permission_modes.insert(provider, mode);
                 Ok(Some(HostIntent::SetPermissionMode { provider, mode }))
             }
+            ChatWindowIntent::ToggleRoomLibrary => {
+                self.library_open = !self.library_open;
+                Ok(None)
+            }
+            ChatWindowIntent::OpenRoomLibraryFolder => Ok(Some(HostIntent::OpenRoomLibraryFolder)),
             ChatWindowIntent::RequestImageGeneration { prompt } => {
                 Ok(Some(HostIntent::RequestImageGeneration { prompt }))
             }
@@ -1458,6 +1482,12 @@ impl ChatWindow {
     ) -> Result<(), ChatWindowError> {
         self.runtime.set_activation(provider, activation)?;
         Ok(())
+    }
+
+    /// The library the host loaded: the built-ins plus the operator's own
+    /// role and room files (the host reads disk; the window never does).
+    pub fn set_room_library(&mut self, library: dpl_chat_core::rooms::Library) {
+        self.room_library = library;
     }
 
     /// Offer (`Some`, with the current mode) or withdraw (`None`) the
@@ -1933,7 +1963,17 @@ impl ChatWindow {
                 sidebar_destination(ui, "⚙  Settings", false);
                 sidebar_destination(ui, "⊞  Interaction Library", false);
                 sidebar_destination(ui, "♙  People", false);
-                sidebar_destination(ui, "♜  Councils · not qualified", true);
+                let rooms = cl::tip(
+                    sidebar_destination_button(ui, "♜  Rooms & roles", true),
+                    "The roles (skeptic, realist, dreamer…) and rooms (council, debate…) AIs can work in, with the research behind each",
+                );
+                ui.pilot_track(
+                    &rooms,
+                    NodeMetadata::new(ROOM_LIBRARY_ID, Role::Button, "Rooms & roles"),
+                );
+                if rooms.clicked() {
+                    intents.push(ChatWindowIntent::ToggleRoomLibrary);
+                }
                 let selected = self.runtime.selected_provider();
                 let target = selected.as_ref().map(|provider| {
                     (
@@ -2707,7 +2747,273 @@ impl ChatWindow {
         );
     }
 
+    /// Rooms & roles (R284): every room and role the operator can use, with
+    /// its method, what it must produce, how it is judged, and the research
+    /// behind it. Read-only: roles are added as files, not edited here.
+    fn room_library_view(&mut self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
+        use dpl_chat_core::rooms::{Provenance, RoleCard, RoomSpec};
+        let mut room_types = Vec::new();
+        for room in &self.room_library.rooms {
+            if !room_types.contains(&room.room_type) {
+                room_types.push(room.room_type);
+            }
+        }
+        let mut stances = Vec::new();
+        for role in &self.room_library.roles {
+            if !stances.contains(&role.stance) {
+                stances.push(role.stance);
+            }
+        }
+        let room_filter = &mut self.library_room_filter;
+        let role_filter = &mut self.library_role_filter;
+        let library = &self.room_library;
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new("Rooms & roles")
+                    .strong()
+                    .size(18.0)
+                    .color(cl::ink::STRONG),
+            );
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let back = cl::tip(ui.button("‹ Back to chat"), "Return to the conversation");
+                ui.pilot_track(
+                    &back,
+                    NodeMetadata::new(
+                        ROOM_LIBRARY_ID.child(&PilotKey::new("back")),
+                        Role::Button,
+                        "Back to chat",
+                    ),
+                );
+                if back.clicked() {
+                    intents.push(ChatWindowIntent::ToggleRoomLibrary);
+                }
+                let folder = cl::tip(
+                    ui.button("Open library folder"),
+                    "Your own roles and rooms live here as JSON files; a new role is a new file",
+                );
+                ui.pilot_track(
+                    &folder,
+                    NodeMetadata::new(
+                        ROOM_LIBRARY_ID.child(&PilotKey::new("folder")),
+                        Role::Button,
+                        "Open library folder",
+                    ),
+                );
+                if folder.clicked() {
+                    intents.push(ChatWindowIntent::OpenRoomLibraryFolder);
+                }
+            });
+        });
+        ui.label(
+            RichText::new(
+                "Roles are defined by their method and what they must produce, never by a persona. \
+                 A room says who sits in it, in what order they speak, and how ONE answer is chosen: \
+                 select, never blend.",
+            )
+            .small()
+            .color(cl::ink::MUTED),
+        );
+        ui.separator();
+        let sources = |provenance: &Provenance| {
+            let keys = provenance
+                .sources
+                .iter()
+                .map(|key| format!("[{key}]"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            format!("{} · sources {keys}", provenance.evidence.label())
+        };
+        egui::ScrollArea::vertical()
+            .id_salt("dpl_chat_room_library")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                if !library.rejected.is_empty() {
+                    ui.label(
+                        RichText::new("Not loaded")
+                            .small()
+                            .strong()
+                            .color(cl::ink::STRONG),
+                    );
+                    for issue in library.rejected.iter().flat_map(|(_, issues)| issues) {
+                        ui.label(
+                            RichText::new(issue.to_string())
+                                .small()
+                                .color(cl::ink::BASE),
+                        );
+                    }
+                    ui.separator();
+                }
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(
+                        RichText::new("Rooms")
+                            .small()
+                            .strong()
+                            .color(cl::ink::STRONG),
+                    );
+                    library_filter(ui, room_filter, &room_types, "room", |kind| {
+                        (kind.as_str(), kind.label())
+                    });
+                });
+                let rooms = library
+                    .rooms
+                    .iter()
+                    .filter(|room| room_filter.is_none_or(|kind| room.room_type == kind));
+                for room in rooms {
+                    let room: &RoomSpec = room;
+                    let header = egui::CollapsingHeader::new(
+                        RichText::new(format!("{}  ·  {}", room.name, room.room_type.label()))
+                            .color(cl::ink::STRONG),
+                    )
+                    .id_salt(("dpl_chat_room", room.id.as_str()))
+                    .show(ui, |ui| {
+                        ui.label(RichText::new(&room.summary).color(cl::ink::BASE));
+                        for seat in &room.seats {
+                            ui.label(
+                                RichText::new(format!(
+                                    "Seat {} × {}: {}",
+                                    seat.seat, seat.count, seat.role
+                                ))
+                                .small()
+                                .color(cl::ink::MUTED),
+                            );
+                        }
+                        for phase in &room.phases {
+                            ui.label(
+                                RichText::new(format!(
+                                    "Phase {}: {}, {}; each {}",
+                                    phase.name,
+                                    phase.seats.join(", "),
+                                    phase.mode.label(),
+                                    phase.visibility.label()
+                                ))
+                                .small()
+                                .color(cl::ink::MUTED),
+                            );
+                        }
+                        if let Some(selection) = &room.selection {
+                            ui.label(
+                                RichText::new(format!(
+                                    "Chosen by {}: {}{}{}",
+                                    selection.seat,
+                                    if selection.blind { "blind, " } else { "" },
+                                    if selection.swap_order {
+                                        "both orders, "
+                                    } else {
+                                        ""
+                                    },
+                                    if selection.exclude_author_vendors {
+                                        "never the authors' vendor"
+                                    } else {
+                                        "any vendor"
+                                    }
+                                ))
+                                .small()
+                                .color(cl::ink::MUTED),
+                            );
+                        }
+                        ui.label(
+                            RichText::new(sources(&room.provenance))
+                                .small()
+                                .color(cl::ink::SUBTLE),
+                        );
+                    });
+                    ui.pilot_track(
+                        &header.header_response,
+                        NodeMetadata::new(
+                            ROOM_LIBRARY_ID
+                                .child(&PilotKey::new("room"))
+                                .child(&PilotKey::new(room.id.as_str())),
+                            Role::Button,
+                            format!("{} room", room.name),
+                        ),
+                    );
+                }
+                ui.separator();
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(
+                        RichText::new("Roles")
+                            .small()
+                            .strong()
+                            .color(cl::ink::STRONG),
+                    );
+                    library_filter(ui, role_filter, &stances, "stance", |stance| {
+                        (stance.as_str(), stance.label())
+                    });
+                });
+                let roles = library
+                    .roles
+                    .iter()
+                    .filter(|role| role_filter.is_none_or(|stance| role.stance == stance));
+                for role in roles {
+                    let role: &RoleCard = role;
+                    let header = egui::CollapsingHeader::new(
+                        RichText::new(format!("{}  ·  {}", role.name, role.stance.label()))
+                            .color(cl::ink::STRONG),
+                    )
+                    .id_salt(("dpl_chat_role", role.id.as_str()))
+                    .show(ui, |ui| {
+                        ui.label(RichText::new(&role.summary).color(cl::ink::BASE));
+                        ui.label(
+                            RichText::new(format!("Method: {}", role.method.name))
+                                .small()
+                                .strong()
+                                .color(cl::ink::BASE),
+                        );
+                        for (index, step) in role.method.steps.iter().enumerate() {
+                            ui.label(
+                                RichText::new(format!("{}. {step}", index + 1))
+                                    .small()
+                                    .color(cl::ink::MUTED),
+                            );
+                        }
+                        let fields = role.output_fields();
+                        if !fields.is_empty() {
+                            ui.label(
+                                RichText::new(format!("Must produce: {}", fields.join(", ")))
+                                    .small()
+                                    .color(cl::ink::MUTED),
+                            );
+                        }
+                        ui.label(
+                            RichText::new(format!("Judged on: {}", role.rubric.join("; ")))
+                                .small()
+                                .color(cl::ink::MUTED),
+                        );
+                        if !role.must_not.is_empty() {
+                            ui.label(
+                                RichText::new(format!("Never: {}", role.must_not.join("; ")))
+                                    .small()
+                                    .color(cl::ink::MUTED),
+                            );
+                        }
+                        ui.label(
+                            RichText::new(sources(&role.provenance))
+                                .small()
+                                .color(cl::ink::SUBTLE),
+                        );
+                        if let Some(note) = &role.provenance.note {
+                            ui.label(RichText::new(note).small().color(cl::ink::SUBTLE));
+                        }
+                    });
+                    ui.pilot_track(
+                        &header.header_response,
+                        NodeMetadata::new(
+                            ROOM_LIBRARY_ID
+                                .child(&PilotKey::new("role"))
+                                .child(&PilotKey::new(role.id.as_str())),
+                            Role::Button,
+                            format!("{} role", role.name),
+                        ),
+                    );
+                }
+            });
+    }
+
     fn ai_conversation(&mut self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
+        if self.library_open {
+            self.room_library_view(ui, intents);
+            return;
+        }
         let Some(provider) = self.runtime.selected_provider() else {
             empty_state(
                 ui,
@@ -5368,6 +5674,57 @@ fn sidebar_destination(ui: &mut egui::Ui, label: &str, muted: bool) {
     }));
 }
 
+/// One filter row of the Rooms & roles library: "All" plus every value the
+/// library actually holds (only what exists is offered).
+fn library_filter<T: Copy + PartialEq>(
+    ui: &mut egui::Ui,
+    filter: &mut Option<T>,
+    values: &[T],
+    key: &str,
+    // A value's stable id (its schema name) and its plain-word label.
+    name: impl Fn(T) -> (&'static str, &'static str),
+) {
+    let all = cl::tip(
+        ui.selectable_label(filter.is_none(), "All"),
+        "Show every one",
+    );
+    ui.pilot_track(
+        &all,
+        NodeMetadata::new(
+            ROOM_LIBRARY_ID
+                .child(&PilotKey::new("filter"))
+                .child(&PilotKey::new(key))
+                .child(&PilotKey::new("all")),
+            Role::Button,
+            format!("All {key}s"),
+        ),
+    );
+    if all.clicked() {
+        *filter = None;
+    }
+    for &value in values {
+        let (id, label) = name(value);
+        let chip = cl::tip(
+            ui.selectable_label(*filter == Some(value), label),
+            "Show only these",
+        );
+        ui.pilot_track(
+            &chip,
+            NodeMetadata::new(
+                ROOM_LIBRARY_ID
+                    .child(&PilotKey::new("filter"))
+                    .child(&PilotKey::new(key))
+                    .child(&PilotKey::new(id)),
+                Role::Button,
+                label,
+            ),
+        );
+        if chip.clicked() {
+            *filter = Some(value);
+        }
+    }
+}
+
 fn sidebar_destination_button(ui: &mut egui::Ui, label: &str, enabled: bool) -> egui::Response {
     ui.add_space(3.0);
     let response = ui.add_enabled(
@@ -6655,6 +7012,64 @@ mod tests {
         ));
         assert!(harness.ctx.memory(|memory| memory.has_focus(expected)));
         assert_eq!(harness.state().pending_focus_return, None);
+    }
+
+    // ---- RM1: the Rooms & roles library ----------------------------------
+
+    #[test]
+    fn rooms_and_roles_opens_the_library_and_names_every_builtin() {
+        use egui_kittest::kittest::Queryable;
+        let library = dpl_chat_core::rooms::Library::builtin();
+        let mut harness = Harness::builder()
+            .with_size([1280.0, 800.0])
+            .build_ui_state(
+                |ui, window: &mut ChatWindow| {
+                    for intent in window.ui(ui) {
+                        let _ = window.apply(intent);
+                    }
+                },
+                window(),
+            );
+        harness.run_steps(2);
+        assert!(!harness.state().library_open);
+
+        harness.get_by_label_contains("Rooms & roles").click();
+        harness.run_steps(2);
+        assert!(harness.state().library_open);
+        // Every built-in is listed, by the name the pilot tracks it under.
+        for room in &library.rooms {
+            harness.get_by_label(&format!("{} room", room.name));
+        }
+        for role in &library.roles {
+            harness.get_by_label(&format!("{} role", role.name));
+        }
+
+        harness.get_by_label("Critiques").click();
+        harness.run_steps(2);
+        let skeptic = library.role("skeptic").expect("built-in skeptic");
+        let dreamer = library.role("dreamer").expect("built-in dreamer");
+        harness.get_by_label(&format!("{} role", skeptic.name));
+        assert!(harness
+            .query_by_label(&format!("{} role", dreamer.name))
+            .is_none());
+        harness.get_by_label("All stances").click();
+        harness.run_steps(2);
+        harness.get_by_label(&format!("{} role", dreamer.name));
+
+        harness.get_by_label("Back to chat").click();
+        harness.run_steps(2);
+        assert!(!harness.state().library_open);
+    }
+
+    #[test]
+    fn opening_the_library_folder_is_the_hosts_job() {
+        let mut window = window();
+        assert_eq!(
+            window.apply(ChatWindowIntent::OpenRoomLibraryFolder),
+            Ok(Some(HostIntent::OpenRoomLibraryFolder))
+        );
+        assert_eq!(window.apply(ChatWindowIntent::ToggleRoomLibrary), Ok(None));
+        assert!(window.library_open);
     }
 
     // ---- H1: local transcripts become rows -------------------------------

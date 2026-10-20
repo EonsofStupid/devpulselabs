@@ -97,6 +97,7 @@ named first and the others are marked **P2**: they merge into it during
 | [`design/adr-017-provider-capability-registry.md`](design/adr-017-provider-capability-registry.md) | The provider capability registry (§2 superseded). |
 | [`plans/explainer-guided-workflow.md`](plans/explainer-guided-workflow.md) | The guided explainer (M2/M3 open). |
 | [`research/chat-provider-capabilities.md`](research/chat-provider-capabilities.md) | Provider capability research (cited by 4 crates). |
+| [`research/chat-rooms-and-roles.md`](research/chat-rooms-and-roles.md) | Rooms and roles research (R284): what makes a group of AIs better, the role and room schemas, how each AI joins (cited by the built-in library and its tests). |
 
 ## Coach
 

@@ -173,21 +173,22 @@ row, activation paths, connected providers earning their own tab in the
 title-bar strip, and the Grok authorization proofs at the repo root.
 
 **"A true council" is the unbuilt part, and it is the interesting one.**
-Today `ChatDomain::Council` exists and the sidebar honestly reads
-`♜ Councils · not qualified`. A council is not a provider picker and not a
-group chat — it is several subscribed models deliberating on one question
-with a resolution the operator can inspect. What it needs before code:
+A council is not a provider picker and not a group chat. It is several
+subscribed models working on one question, with a result the operator can
+inspect. The research (`docs/research/chat-rooms-and-roles.md`, R284,
+2026-10-20) answered the questions this section used to ask:
 
-- What a council **produces** — a synthesis, a ranked set, a dissent record?
-- How disagreement is **surfaced** rather than averaged away;
-- Whether members see each other's answers (debate) or answer blind (panel);
-- Which providers **qualify** for membership, and what "not qualified"
-  concretely means today;
-- How a council result re-enters the pipeline — does it become a workflow
-  input, a storyboard, a slide?
+- **What it produces:** one selected answer, never a blend, with the
+  runner-up, the reasons, and the dissent recorded.
+- **How disagreement surfaces:** members answer blind. A selector from
+  another vendor judges in both orders, and "none passes" is a valid result.
+- **Who qualifies:** the participants of RM3 (Codex, Claude, local models,
+  then the ACP providers).
+- **Still open:** how a council result re-enters the pipeline (a workflow
+  input, a storyboard, a slide).
 
-Until those are answered, "not qualified" is the honest state and should
-stay on screen.
+The sidebar's "♜ Rooms & roles" opens the library of roles and rooms
+(RM1). Council is the first room that runs (RM4).
 
 ### 2.4 Workflows — schemas and tasks the AI must fulfill
 

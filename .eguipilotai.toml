@@ -90,6 +90,14 @@ arguments = ["--chat-open", "--chat-authored", "--chat-proof", "brainstorm", "--
 [fixtures.chat-commands]
 arguments = ["--chat-open", "--chat-authored", "--chat-proof", "commands", "--mood", "0"]
 
+# RM1: the Rooms & roles library open in the AI pane. A scratch content
+# root, so the operator's own library folder is never read.
+[fixtures.chat-library]
+arguments = ["--chat-open", "--chat-authored", "--chat-proof", "library", "--mood", "0"]
+
+[fixtures.chat-library.environment]
+CONTENT_ROOT = "target/eguipilotai/rooms-library/content"
+
 [fixtures.wiredfront-editor]
 arguments = ["--route", "wiredfront/editor", "--mood", "0"]
 

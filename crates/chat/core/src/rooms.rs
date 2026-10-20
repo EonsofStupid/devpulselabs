@@ -70,6 +70,18 @@ pub enum Stance {
 }
 
 impl Stance {
+    /// The schema's name for it (`critique`, `generate`…).
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Generate => "generate",
+            Self::Ground => "ground",
+            Self::Critique => "critique",
+            Self::Adversarial => "adversarial",
+            Self::Plan => "plan",
+            Self::Select => "select",
+        }
+    }
+
     pub const fn label(self) -> &'static str {
         match self {
             Self::Generate => "Generates",
@@ -88,6 +100,17 @@ pub enum Visibility {
     None,
     Anonymized,
     Full,
+}
+
+impl Visibility {
+    /// What a seat sees of the others, in plain words.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::None => "sees no other answers",
+            Self::Anonymized => "sees others' answers without names",
+            Self::Full => "sees everything said",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -194,6 +217,22 @@ pub struct RoleCard {
     pub provenance: Provenance,
 }
 
+impl RoleCard {
+    /// The fields the role's output contract requires, in order.
+    pub fn output_fields(&self) -> Vec<&str> {
+        self.output_contract
+            .get("required")
+            .and_then(serde_json::Value::as_array)
+            .map(|fields| {
+                fields
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RoomType {
@@ -205,6 +244,17 @@ pub enum RoomType {
 }
 
 impl RoomType {
+    /// The schema's name for it (`council`, `author-critic`…).
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Council => "council",
+            Self::Debate => "debate",
+            Self::AuthorCritic => "author-critic",
+            Self::Router => "router",
+            Self::Brainstorm => "brainstorm",
+        }
+    }
+
     pub const fn label(self) -> &'static str {
         match self {
             Self::Council => "Council",
@@ -232,6 +282,15 @@ pub struct Seat {
 pub enum PhaseMode {
     Parallel,
     Sequential,
+}
+
+impl PhaseMode {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Parallel => "all at once",
+            Self::Sequential => "one after another",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -778,6 +837,29 @@ mod tests {
     }
 
     /// Select, never blend: a selecting role that may merge is refused.
+    #[test]
+    fn the_plain_names_are_the_schema_names() {
+        for stance in [
+            Stance::Generate,
+            Stance::Ground,
+            Stance::Critique,
+            Stance::Adversarial,
+            Stance::Plan,
+            Stance::Select,
+        ] {
+            assert_eq!(serde_json::to_value(stance).unwrap(), stance.as_str());
+        }
+        for kind in [
+            RoomType::Council,
+            RoomType::Debate,
+            RoomType::AuthorCritic,
+            RoomType::Router,
+            RoomType::Brainstorm,
+        ] {
+            assert_eq!(serde_json::to_value(kind).unwrap(), kind.as_str());
+        }
+    }
+
     #[test]
     fn a_selector_that_may_merge_is_refused() {
         let mut role: RoleCard = serde_json::from_str(&selector_text()).expect("selector");

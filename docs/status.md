@@ -1,5 +1,5 @@
 ---
-updated: 2026-10-19
+updated: 2026-10-20
 active_lane: chat-first
 dirty: false
 ---
@@ -13,9 +13,9 @@ reorganization).
 Read in this order: this page → [`requirements.md`](requirements.md) (the
 operator's words) → [`README.md`](README.md) (the map of every doc).
 
-**Updated:** 2026-10-20, main at `51e1600` (#277). The release exe was
-rebuilt 2026-10-20 11:01 from `51e1600` and its build stamp verified
-(`51e1600 · 2026-10-20 15:00z`). This page lands with CW1.
+**Updated:** 2026-10-20, main at `1c472a2` (#278). The release exe was
+rebuilt 2026-10-20 14:15 from `1c472a2` and its build stamp verified
+(`1c472a2 · 2026-10-20 18:13z`). This page lands with RM1.
 
 ## Now
 
@@ -26,16 +26,18 @@ Every step now ends with a real message working in the real app
 
 | Step | What | State |
 |---|---|---|
-| CW1 | Codex on the operator's subscription: the operator's own Codex adopted into the depot (OpenAI's signature, its version, its protocol), every server request answered, honest auth health, configurable permissions, plain-language failures, Update Codex | **in PR**; a real Codex turn answers on the operator's ChatGPT Pro |
-| CW2 | Claude Code on the operator's subscription (A4): the official binary in the depot, a stream-json adapter, presence from the depot | after CW1 |
-| CW3 | The shared room: a saved conversation every provider reads and writes, each turn carrying the room's transcript; tabs as conversations (New, Close, Clear); survives restart | after CW2 |
-| then | Grok and Gemini auth health (A7/A8), the routines (Council, Author + critic, Router), C2–C4 | |
+| CW1 | Codex on the operator's subscription: the operator's own Codex adopted into the depot (OpenAI's signature, its version, its protocol), every server request answered, honest auth health, configurable permissions, plain-language failures, Update Codex | **done** (#278): a real Codex turn answers on the operator's ChatGPT Pro. Four checks are owed on the operator's own clicks: Workspace mode creates a file without a card; Read only declines with a note; the mode survives a restart; Update Codex works |
+| RM1 | Roles and rooms as data (R284): the `dpl.role/1` and `dpl.room/1` schemas, 11 built-in roles and 5 rooms citing their research, the operator's own files, the Rooms & roles view | **in PR** |
+| CW2 | Claude Code on the operator's subscription (A4): the official binary in the depot, a stream-json adapter, presence from the depot | next |
+| CW3 | The shared room, built as the rooms passes: RM2 the room log (saved conversations; tabs as conversations with New, Close, Clear), RM3 participants, the context packet and local endpoints (Ollama first), RM4 Council, RM5 the other rooms | after CW2 (RM4 needs Claude) |
+| then | Grok and Gemini auth health (A7/A8), C2–C4 | |
 
-**Rooms and roles** (operator, 2026-10-20): research-backed role schemas
-(skeptic, realist, dreamer and more) and room types for Codex, Claude,
-Gemini, Grok and local endpoints, captured as authored data so the library
-grows without code. Research ran 2026-10-20; its plan comes for approval and
-shapes CW3.
+**Rooms and roles** (R284, 2026-10-20): research-backed roles (skeptic,
+realist, dreamer and more) and rooms (council, debate, author + critic,
+router, brainstorm) for Codex, Claude, Gemini, Grok and local endpoints. They
+are authored data, so the library grows without code. The research is
+`docs/research/chat-rooms-and-roles.md`. The operator approved the rooms
+order, with Council as the first room that runs.
 
 K1, K2 and A1 no longer gate anything: each step moves only the code it
 touches, straight to the final layout.
@@ -91,11 +93,12 @@ release) are still to come.
    delete it; investigate it read-only.
 9. **The release zip ships without the tool depot.** → D0.6.
 10. **Six ignored drills do not run against the depot.** → D0.5.
-11. **Chat is not whole yet** (2026-10-20). Codex works with CW1. Still
-    missing: Claude has no runtime (CW2); there is no shared state, no saved
-    conversation, and no tab close or clear (CW3). Until CW1 merges, the
-    release exe's depot already holds Codex 0.163 while `main`'s gate still
-    wants 0.145, so Codex reads "Version unsupported" there.
+11. **Chat is not whole yet** (2026-10-20). Codex works (CW1, #278). Still
+    missing:
+    - Claude has no runtime (CW2);
+    - there is no shared state, no saved conversation, and no tab close or
+      clear (RM2);
+    - rooms cannot run yet (RM3, RM4).
 12. **A second launch opens a second, half-broken window** instead of raising
     the running one (`FjallError: Locked`, seam port bind os error 10048).
     The operator asked (2026-08-05) for the running window to come to the
@@ -143,14 +146,18 @@ release) are still to come.
 
 ## Next, in order
 
-1. **CW1, Codex on the operator's subscription**: its plan, for operator
-   approval, then the work. Done means a real Codex turn in the real app.
+1. **RM1, roles and rooms as data**: in PR. Done means the Rooms & roles
+   view lists the library on the real app.
 2. **CW2, Claude Code** on the operator's subscription. Done means a real
    Claude turn.
-3. **CW3, the shared room**, saved conversations, and tabs as conversations
-   (New, Close, Clear). Done means Claude answers about Codex's reply in the
-   same conversation, and it is all still there after a restart.
-4. Grok and Gemini auth health; then the routines.
+3. **CW3, as the rooms passes**:
+   - RM2, the room log. Done means Claude answers about Codex's reply in the
+     same conversation, and it is all still there after a restart.
+   - RM3, participants and local endpoints. Done means a local model cites
+     Codex's reply.
+   - RM4, a real Council.
+   - RM5, the other rooms.
+4. Grok and Gemini auth health.
 5. The rest of the incomplete work, each with unit tests and real-run
    drills: the eight dependency PRs (#268–#275: ACP 2→3.4, arrow and parquet
    59→60, zip 8→9, jsonschema 0.49→0.58, thorvg-sys 0.3→0.4, egui 0.36.2),

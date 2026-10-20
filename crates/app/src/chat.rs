@@ -41,6 +41,7 @@ use egui_pilot_ai::{
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
+    path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard},
     time::Instant,
 };
@@ -74,6 +75,8 @@ pub enum ChatProofMode {
     /// The command strip open over a `/ro` draft (BND1) — the census
     /// offering /route and /routines.
     Commands,
+    /// The Rooms & roles library open in the AI pane (RM1).
+    Library,
 }
 
 #[cfg(feature = "eguipilotai-devtools")]
@@ -96,6 +99,7 @@ impl ChatProofMode {
             "history" => Some(Self::History),
             "brainstorm" => Some(Self::Brainstorm),
             "commands" => Some(Self::Commands),
+            "library" => Some(Self::Library),
             _ => None,
         }
     }
@@ -591,6 +595,7 @@ impl ChatWindowCoordinator {
             None => ChatWindow::new(runtime, initial_route, &catalog, routes),
         };
         window.replace_provider_profiles(provider_profiles);
+        window.set_room_library(load_room_library(&room_library_root()));
         // Trigger 0 of the content refresh policy (D1 plan §3.4): seed the
         // census at CONSTRUCTION. The window has more than one way to be
         // opened — `--chat-open` never raises a WindowRequest — so the open
@@ -788,6 +793,11 @@ impl ChatWindowCoordinator {
                             value: "/ro".to_owned(),
                         })
                         .expect("the authored codex draft is valid");
+                }
+                ChatProofMode::Library => {
+                    window
+                        .apply(dpl_chat_window::ChatWindowIntent::ToggleRoomLibrary)
+                        .expect("the library opens");
                 }
                 ChatProofMode::Approval
                 | ChatProofMode::Ai
@@ -1677,6 +1687,15 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
                 RuntimeCommand::SetPermissionMode { mode },
             );
             ctx.request_repaint();
+        }
+        HostIntent::OpenRoomLibraryFolder => {
+            let root = room_library_root();
+            let made = ["roles", "rooms"]
+                .iter()
+                .try_for_each(|kind| std::fs::create_dir_all(root.join(kind)));
+            if let Err(error) = made.and_then(|()| reveal_folder(&root)) {
+                tracing::warn!(path = %root.display(), %error, "room library folder could not be opened");
+            }
         }
         HostIntent::RequestImageGeneration { prompt } => {
             let mut state = lock(shared);
@@ -4531,6 +4550,71 @@ fn plain_failure(reason: &str) -> PlainFailure {
 /// its version, its protocol) into the depot beside this exe, then bring
 /// Codex back on the new build. Off the frame thread: it copies a large
 /// binary and asks Windows to vouch for it.
+/// Where the operator's own roles and rooms live (R284): one JSON file
+/// each, under `roles/` and `rooms/`.
+fn room_library_root() -> PathBuf {
+    dpl_engine_capture::userdata_root()
+        .join("chat")
+        .join("library")
+}
+
+/// The built-in library plus every role and room file the operator added.
+/// A file that cannot be read, or fails its schema or rules, is named in the
+/// Rooms & roles view and never loaded.
+fn load_room_library(root: &Path) -> dpl_chat_core::rooms::Library {
+    let mut unreadable = Vec::new();
+    let mut read = |kind: &str| {
+        let mut files = Vec::new();
+        let Ok(entries) = std::fs::read_dir(root.join(kind)) else {
+            return files;
+        };
+        for path in entries.flatten().map(|entry| entry.path()) {
+            if path.extension().and_then(|x| x.to_str()) != Some("json") {
+                continue;
+            }
+            let name = format!(
+                "{kind}/{}",
+                path.file_name().unwrap_or_default().to_string_lossy()
+            );
+            match std::fs::read_to_string(&path) {
+                Ok(text) => files.push((name, text)),
+                Err(error) => unreadable.push((
+                    name.clone(),
+                    vec![dpl_chat_core::rooms::LibraryIssue {
+                        at: name,
+                        problem: format!("could not be read: {error}"),
+                    }],
+                )),
+            }
+        }
+        files.sort();
+        files
+    };
+    let roles = read("roles");
+    let rooms = read("rooms");
+    let mut library = dpl_chat_core::rooms::Library::with_user(&roles, &rooms);
+    library.rejected.extend(unreadable);
+    for issue in library.rejected.iter().flat_map(|(_, issues)| issues) {
+        tracing::warn!(%issue, "room library file not loaded");
+    }
+    library
+}
+
+/// Show a folder in the system's file manager.
+fn reveal_folder(path: &Path) -> std::io::Result<()> {
+    #[cfg(windows)]
+    let mut command = std::process::Command::new("explorer.exe");
+    #[cfg(target_os = "macos")]
+    let mut command = std::process::Command::new("open");
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = std::process::Command::new("xdg-open");
+    command.arg(path);
+    let mut child = dpl_proc::quiet(&mut command).spawn()?;
+    // Reap it off the UI thread; the file manager outlives nothing we own.
+    std::thread::spawn(move || child.wait());
+    Ok(())
+}
+
 fn update_codex(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>) {
     let Some(installed) = dpl_chat_codex::adoption::installed_codex() else {
         return;
@@ -5742,5 +5826,57 @@ mod slash_mint_tests {
     fn already_behavioral_is_silent() {
         let gate = dpl_intent::DeterminismGate::default();
         assert!(resolve_operator_slash(&gate, OperatorSlashCommand::Behavioral, false).is_none());
+    }
+}
+
+#[cfg(test)]
+mod room_library_tests {
+    use super::*;
+
+    #[test]
+    fn the_operators_files_join_the_library_and_a_broken_one_is_named() {
+        let root = std::env::temp_dir().join(format!("dpl-room-library-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let roles = root.join("roles");
+        std::fs::create_dir_all(&roles).expect("roles folder");
+        std::fs::create_dir_all(root.join("rooms")).expect("rooms folder");
+
+        let builtin = dpl_chat_core::rooms::Library::builtin();
+        let mut skeptic = builtin.role("skeptic").expect("built-in skeptic").clone();
+        skeptic.version = "1.1.0".to_owned();
+        skeptic.summary = "The operator's own skeptic.".to_owned();
+        std::fs::write(
+            roles.join("skeptic.json"),
+            serde_json::to_string_pretty(&skeptic).expect("serialize"),
+        )
+        .expect("write skeptic");
+        std::fs::write(roles.join("broken.json"), "{").expect("write broken");
+        std::fs::write(roles.join("notes.txt"), "not a role").expect("write notes");
+
+        let library = load_room_library(&root);
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert_eq!(
+            library.role("skeptic").map(|role| role.summary.as_str()),
+            Some("The operator's own skeptic.")
+        );
+        assert_eq!(library.roles.len(), builtin.roles.len());
+        let rejected: Vec<&str> = library
+            .rejected
+            .iter()
+            .map(|(file, _)| file.as_str())
+            .collect();
+        assert_eq!(rejected, ["roles/broken.json"]);
+    }
+
+    #[test]
+    fn no_library_folder_means_the_builtins_alone() {
+        let root =
+            std::env::temp_dir().join(format!("dpl-room-library-none-{}", std::process::id()));
+        let library = load_room_library(&root);
+        let builtin = dpl_chat_core::rooms::Library::builtin();
+        assert_eq!(library.roles.len(), builtin.roles.len());
+        assert_eq!(library.rooms.len(), builtin.rooms.len());
+        assert!(library.rejected.is_empty());
     }
 }
