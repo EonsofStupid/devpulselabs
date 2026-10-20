@@ -1,109 +1,56 @@
-# 2026-10-20 — chat-cw1-codex: Codex on the operator's subscription
+# 2026-10-20 — chat-cw1-codex lands; rooms and roles researched next
 
-Milestone `chat-cw1-codex`. The plan is `docs/plans/chat-cw1-codex.md`,
-APPROVED 2026-10-19 (Q1 "Approve"; Q2 "configurable permissions").
-Checkout: **`D:\projects\devpulselabs`**, branch `feat/chat-cw1-codex` from
-`b72926f`. Uncommitted until the CW1 PR; #277 owns the committed journal
-until then.
+Milestones `chat-cw1-codex` (in PR) and `chat-cw3-rooms` (research done
+2026-10-20, plan next). Checkout: **`D:\projects\devpulselabs`**.
 
 ## Done so far
 
-- **#276 merged** (`b72926f`). The exe was rebuilt 15:03 with the stamp
-  `b72926f · 2026-10-19 19:02z`.
-- **#277** (the #222 port, plus chat-first docs R283) is open. CI was running
-  at handoff (`gh pr checks 277`). On double-green: merge, rebuild the exe,
-  and close #222 with a pointer comment.
-- **CW1 grounding, verified in-session:**
-  - the operator's Codex `C:\Users\jessa\AppData\Local\Programs\OpenAI\Codex\bin\codex.exe`
-    0.163.0 and `codex-code-mode-host.exe` have valid Authenticode signatures
-    ("OpenAI OpCo") and SHA-256s equal to GitHub's published `rust-v0.163.0`
-    digests (`2692c8c7…`, `07f3869f…`);
-  - the 0.163 schema is generated at
-    `D:\.usr\Temp\claude\d--localdev-devpulselabs\d0ec6155-b7fb-480f-b3ea-5b7ca10f26c7\scratchpad\cw1\schema-0.163`;
-  - every method and notification the adapter uses still exists in 0.163;
-  - 0.163 has 10 server requests (5 approval kinds, tool call/input, MCP
-    elicitation, attestation, `account/chatgptAuthTokens/refresh`), and
-    `account/read` returns `{requiresOpenaiAuth, account: apiKey | chatgpt{email, planType} | amazonBedrock}`.
+- **#277 merged** (`51e1600`, double-green). #222 was closed with a pointer
+  comment. The exe was rebuilt 11:01 with the stamp
+  `51e1600 · 2026-10-20 15:00z`.
+- **CW1, branch `feat/chat-cw1-codex`** (plan `docs/plans/chat-cw1-codex.md`,
+  approved 2026-10-19; never committed, deleted when it lands):
+  - **Adoption** (`crates/chat/providers/codex/src/adoption.rs`): the
+    operator's installed Codex is proven by Windows checking OpenAI's
+    Authenticode signature on every file, by its version, and by its own
+    protocol schema. `dpl-tools-deps` gains `place_tool`, `write_manifest`,
+    `install_tool` and `reload_current`. xtask gains `adopt-tool`,
+    `update-tool-deps` and `vendor-schema`.
+  - **Codex 0.163.0 adopted** into the central depot (row 61 of the reach
+    inventory) and into `target/debug` and `target/release`.
+  - **The runtime:** every server request is answered (approvals become
+    cards, the rest are refused by name); refused requests fail their own
+    turn; a 120 s deadline; `account/read`.
+  - **Permission modes** (Ask first / Work in the workspace / Read only),
+    saved per provider and chosen in the chat header.
+  - **The host:** Ready means the account ("Ready · ChatGPT Pro"); failures
+    read in plain words; Update Codex.
+  - **Real app (debug, scratch workspace) proved:**
+    - "Reply with the single word OK." gets "OK";
+    - the account line and the selector show;
+    - an Ask-first request shows the card and waits;
+    - Deny refuses.
+- **Rooms and roles:** two research passes ran on 2026-10-20 (the science
+  and frameworks of roles and rooms; participant plumbing for Codex, Claude,
+  Gemini, Grok and local endpoints). Their findings feed the CW3 rooms plan.
 
-## Design decisions made while grounding (record them in the plan's §4 amendments)
+## Exact next step
 
-- **No in-process WinVerifyTrust.** The workspace denies `unsafe_code` and
-  `#[allow]` is banned, so the signature check runs Windows' own
-  `Get-AuthenticodeSignature` through a quiet subprocess and parses the
-  status and signer.
-- **Adoption is split.**
-  - `dpl-tools-deps` stays spawn-free (its ceiling is serde, serde_json,
-    sha2). It gains only the pure-IO install: copy, hash, an atomic manifest
-    rewrite, removal of the old version, and a reload of `resolve_current`
-    (today a `OnceLock`).
-  - The signature, version and protocol checks live in a new
-    `crates/chat/providers/codex/src/adoption.rs`. CW2 moves the shared part
-    to its final home in the AI boundary when Claude needs it.
-
-## CW1a DONE (local commits `5f1956a`, `d47c083` on `feat/chat-cw1-codex`)
-
-- The schema is re-vendored at 0.163.0, the version range is gone (the
-  minimum is the pinned build), and `adoption.rs` exists (with 7 tests).
-  `dpl-tools-deps` has `place_tool`, `write_manifest`, `install_tool` and
-  `reload_current`; xtask has `adopt-tool` and `update-tool-deps`.
-- The operator's Codex 0.163.0 was **adopted for real** (the Windows
-  signature check passed). The central depot now has
-  `artifacts/windows-x86_64/codex/0.163.0` (the old 0.145 artifact is left,
-  as it is the operator's). `sources.local.toml` was rewritten (a backup is
-  in the scratchpad at `cw1/sources.local.toml.bak`). `target/debug` and
-  `target/release` were updated in place.
-- **A real Codex turn works:** "Reply with the single word OK." gave "OK",
-  usage 30040 of 258400.
-
-## CW1b (local commit `fd94a7a`)
-
-- **Runtime:** server requests answered (approvals become cards, the rest
-  refused by name), refused requests fail their own turn, a 120 s deadline
-  (paused while a card waits), and `account/read`.
-- **Seam:** `SetPermissionMode` and `Account`.
-- **Settings:** `PermissionMode` is saved in the accounts store and chosen
-  in the provider header.
-- **Host:** Ready means the account, failures read in plain words, and
-  "Update Codex" adopts the operator's build in the background.
-- **Real app (debug, scratch workspace) proved:**
-  - "Ready · ChatGPT Pro" and the "Ask first" selector;
-  - an Ask-first request shows the card and waits (nothing ran);
-  - Deny refuses (no file).
-  The first card was approved by a click from either the harness or the
-  operator (unclear).
-- **Stopped:** the operator is using the machine. A capture caught their
-  Discord window (deleted unread), and SendKeys could type into their apps
-  (memory: desktop-automation-while-operator-present). Still to prove,
-  with the operator's consent or by the operator's own clicks: Workspace
-  mode creates the file without a card; Read only declines with a note;
-  the mode survives a restart; Update Codex from the button.
-- The devtools build fails on this branch only because it predates #277's
-  coach-signal fix; a rebase on #277 resolves it.
-
-## Was: the exact next step (CW1a: a working turn)
-
-1. `cargo xtask vendor-schema codex <codex.exe>`: regenerate `codex/schema/`
-   (add `ServerRequest.json`, `VERSION` 0.163.0), plus a census test.
-2. Delete the version range (`activation.rs:10-11,43-60,125-128`); the gate
-   becomes the protocol check.
-3. `dpl-tools-deps`: `install_tool` plus the resolver reload; xtask's
-   `stage_tool_dependencies` uses the same copy and hash.
-4. `adoption.rs` and `cargo xtask adopt-tool codex <dir>`. Adopt 0.163 into
-   `D:\projects\dptools-deps`, re-stage `target/debug` and `target/release`.
-5. Prove a real Codex turn on a dev run (scratch content root).
-
-Then CW1b: server requests (`runtime.rs` `classify` misreads requests as
-notifications; responses drop errors), the deadline, `account/read` health,
-the permission modes (`PermissionMode` in chat-core; the accounts store's
-`chat_provider_settings`), and the window's Update, Sign-in and Permissions
-controls.
+1. Watch CW1's two lanes. Merge on double-green, rebuild the exe from the
+   merge, and verify the stamp.
+2. The operator owes four real-app checks, by their own clicks or with
+   consent to drive the desktop:
+   - Workspace mode writes a file with no card;
+   - Read only declines with a note;
+   - the mode survives a restart;
+   - Update Codex from the button.
+3. The rooms and roles plan (CW3), from the research, for approval.
 
 ## Landmines
 
-- Never read vendor credential files. Never run `codex login` or `logout`
-  for the operator.
-- Capture the chat window from the screen by its process window handle
-  (`grab-window` pattern); EguiPilotAI cannot shoot that peer viewport.
+- **Never drive the operator's live desktop** (SendKeys, clicks, screen
+  grabs) without consent (memory: desktop-automation-while-operator-present).
+- EguiPilotAI cannot capture the chat peer viewport.
 - `platform_devpulse`'s reaper kills every `xtask.exe`: a silent exit 1
   means re-run.
 - The Windows CI lane takes 40 to 70 minutes.
@@ -111,6 +58,7 @@ controls.
 ## Verify commands
 
 ```sh
-cd /d/projects/devpulselabs && git status -sb && gh pr checks 277
+cd /d/projects/devpulselabs && git status -sb && gh pr list --state open
 /c/Users/jessa/AppData/Local/Programs/OpenAI/Codex/bin/codex --version
+cargo test -p dpl-chat-codex -p dpl-tools-deps -p dpl-chat-accounts
 ```
