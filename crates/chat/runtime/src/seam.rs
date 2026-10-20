@@ -40,6 +40,9 @@ use std::path::PathBuf;
 pub struct RuntimeCapabilities {
     pub load_session: bool,
     pub list_sessions: bool,
+    /// The runtime honours [`RuntimeCommand::SetPermissionMode`]. A runtime
+    /// that does not is never sent one, so no setting is silently ignored.
+    pub permission_modes: bool,
 }
 
 /// One session as the PROVIDER describes it.
@@ -163,6 +166,10 @@ pub enum RuntimeCommand {
         request_id: u64,
         option_id: Option<String>,
     },
+    /// What the provider may do from now on (applies from the next turn).
+    SetPermissionMode {
+        mode: dpl_chat_core::PermissionMode,
+    },
     Shutdown,
 }
 
@@ -198,6 +205,10 @@ pub enum RuntimeEvent {
         provider_session_id: String,
         stop_reason: String,
     },
+    /// The account the provider's own CLI is signed in with, as the CLI
+    /// reports it. `None` means signed out: nothing can be sent until the
+    /// operator signs in, however healthy the process looks.
+    Account(Option<dpl_chat_core::AccountSummary>),
     Failure(RuntimeFailure),
     Stopped,
 }
@@ -292,6 +303,7 @@ mod tests {
         let full = qualified_capabilities(RuntimeCapabilities {
             load_session: true,
             list_sessions: true,
+            permission_modes: true,
         });
         assert!(full.contains(&Capability::ReadSessions));
         assert!(full.contains(&Capability::ResumeSession));

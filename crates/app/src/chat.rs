@@ -3,8 +3,8 @@ use dpl_chat_browser_auth::{BrowserAuthCoordinator, BrowserAuthError, BrowserAut
 use dpl_chat_core::{
     ActivationState, BoundedNativePayload, Capability, ChatEvent, ChatEventContent, ChatEventId,
     ChatSessionId, ContentChapter, ContentEpisode, ContentEpisodeId, ContentSlide, ContentSpine,
-    ContentView, ProviderId, ProviderSessionId, RecoveryAction, RecoveryActionKind, SessionGroup,
-    SessionState, SessionSummary, TokenUsage, TurnId,
+    ContentView, PermissionMode, ProviderId, ProviderSessionId, RecoveryAction, RecoveryActionKind,
+    SessionGroup, SessionState, SessionSummary, TokenUsage, TurnId,
 };
 #[cfg(feature = "eguipilotai-devtools")]
 use dpl_chat_core::{ChatDomain, DeviceAuthorizationPrompt, GuidedValue, GuidedValueSensitivity};
@@ -15,7 +15,7 @@ use dpl_chat_interactions::{
 use dpl_chat_profiles::{ProfileStore, ProviderProfileDraft};
 use dpl_chat_runtime::seam::{
     qualified_capabilities, ProviderRuntime, RuntimeCommand, RuntimeEvent, RuntimeFailureKind,
-    RuntimeUpdate,
+    RuntimePermissionOptionKind, RuntimeUpdate,
 };
 use dpl_chat_runtime::ChatRuntime;
 use dpl_chat_social::SocialModel;
@@ -133,6 +133,10 @@ struct Shared {
     /// transcript.
     seam_sessions: BTreeMap<(ProviderId, String), ChatSessionId>,
     seam_turns: BTreeMap<(ProviderId, String), TurnId>,
+    /// Approval cards a seam provider (Codex) is waiting on.
+    seam_permissions: BTreeMap<(ProviderId, u64), PendingSeamPermission>,
+    /// What each provider may do from chat: the operator's setting.
+    permission_modes: BTreeMap<ProviderId, PermissionMode>,
     /// In-flight AI calls keyed by provider session id — the AI domain's
     /// correlation state. Mint at dispatch, first-token once, finish once.
     ai_calls: BTreeMap<String, AiCall>,
@@ -220,6 +224,13 @@ impl BrainstormSession {
 }
 
 struct PendingGrokPermission {
+    interaction: InteractionId,
+    provider_session_id: String,
+    allow_options: BTreeSet<String>,
+}
+
+/// One approval card a seam provider is waiting on.
+struct PendingSeamPermission {
     interaction: InteractionId,
     provider_session_id: String,
     allow_options: BTreeSet<String>,
@@ -800,6 +811,7 @@ impl ChatWindowCoordinator {
             });
         let probe_grok_cached_subscription =
             provider_runtime_enabled && grok_activation.activation_capability_qualified();
+        let mut saved_permission_modes = BTreeMap::new();
         let activation_ledger = match ActivationLedger::open_default() {
             Ok(ledger) => {
                 match ledger.get(dpl_chat_grok::PROVIDER) {
@@ -821,6 +833,17 @@ impl ChatWindowCoordinator {
                     ),
                     Ok(None) => tracing::info!("no prior Codex activation evidence"),
                     Err(error) => tracing::warn!(%error, "Codex activation evidence unreadable"),
+                }
+                for provider in [dpl_chat_codex::PROVIDER] {
+                    match ledger.permission_mode(provider) {
+                        Ok(Some(mode)) => {
+                            saved_permission_modes.insert(provider, mode);
+                        }
+                        Ok(None) => {}
+                        Err(error) => {
+                            tracing::warn!(%provider, %error, "saved permission mode unreadable");
+                        }
+                    }
                 }
                 Some(ledger)
             }
@@ -910,6 +933,8 @@ impl ChatWindowCoordinator {
             runtimes: BTreeMap::new(),
             seam_sessions: BTreeMap::new(),
             seam_turns: BTreeMap::new(),
+            seam_permissions: BTreeMap::new(),
+            permission_modes: saved_permission_modes,
             grok_attempt: None,
             codex_attempt: None,
             imagine,
@@ -1470,6 +1495,12 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
             }
             ctx.request_repaint();
         }
+        HostIntent::OpenProviderSetup(provider)
+            if provider == dpl_chat_codex::PROVIDER
+                && dpl_chat_codex::adoption::installed_codex().is_some() =>
+        {
+            update_codex(ctx, shared);
+        }
         HostIntent::OpenProviderSetup(provider) => {
             let url = match provider {
                 id if id == dpl_chat_codex::PROVIDER => dpl_chat_codex::SETUP_URL,
@@ -1586,7 +1617,29 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
             option_id,
         } => {
             if provider != dpl_chat_grok::PROVIDER {
-                tracing::warn!(%provider, "provider permission runtime is not qualified");
+                let mut state = lock(shared);
+                if let Some(pending) = state.seam_permissions.remove(&(provider, request_id)) {
+                    let accepted = option_id
+                        .as_ref()
+                        .is_some_and(|option| pending.allow_options.contains(option));
+                    append_seam_event(
+                        &mut state,
+                        provider,
+                        &pending.provider_session_id,
+                        ChatEventContent::ApprovalResolved { accepted },
+                    );
+                    send_seam_command(
+                        &mut state,
+                        provider,
+                        RuntimeCommand::ResolvePermission {
+                            request_id,
+                            option_id,
+                        },
+                    );
+                } else {
+                    tracing::warn!(%provider, request_id, "no approval is waiting on that request");
+                }
+                ctx.request_repaint();
                 return;
             }
             let mut state = lock(shared);
@@ -1606,6 +1659,22 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
                     request_id,
                     option_id,
                 },
+            );
+            ctx.request_repaint();
+        }
+        HostIntent::SetPermissionMode { provider, mode } => {
+            let mut state = lock(shared);
+            state.permission_modes.insert(provider, mode);
+            if let Some(ledger) = state.activation_ledger.as_ref() {
+                if let Err(error) = ledger.set_permission_mode(provider, mode) {
+                    tracing::warn!(%provider, %error, "permission mode could not be saved");
+                }
+            }
+            tracing::info!(%provider, mode = mode.as_str(), "permission mode chosen");
+            send_seam_command(
+                &mut state,
+                provider,
+                RuntimeCommand::SetPermissionMode { mode },
             );
             ctx.request_repaint();
         }
@@ -3980,8 +4049,51 @@ fn project_seam_event(state: &mut Shared, provider: ProviderId, event: RuntimeEv
             {
                 tracing::warn!(%provider, %error, "provider capabilities could not be projected");
             }
+            // The operator's permission mode rides from the first turn, for a
+            // runtime that can honour it (one that cannot never advertised it).
+            if capabilities.permission_modes {
+                let mode = state
+                    .permission_modes
+                    .get(&provider)
+                    .copied()
+                    .unwrap_or_default();
+                state
+                    .window
+                    .set_provider_permission_mode(provider, Some(mode));
+                send_seam_command(state, provider, RuntimeCommand::SetPermissionMode { mode });
+            }
             // A conversation needs a session; ask for one the moment we can.
             send_seam_command(state, provider, RuntimeCommand::NewSession);
+        }
+        RuntimeEvent::Account(account) => {
+            // "Ready" is the ACCOUNT, not the process: a healthy app-server
+            // whose CLI is signed out can send nothing.
+            let activation = match &account {
+                Some(account) => {
+                    tracing::info!(
+                        %provider,
+                        account = %account.display_name,
+                        plan = account.plan.as_deref().unwrap_or("none"),
+                        "provider account"
+                    );
+                    ActivationState::Ready
+                }
+                None => ActivationState::SignedOut {
+                    reason: "Not signed in. Sign in with your own account, then press Retry."
+                        .to_owned(),
+                    recovery: vec![
+                        RecoveryAction::new(RecoveryActionKind::SignIn, "Sign in"),
+                        RecoveryAction::new(RecoveryActionKind::Retry, "Retry"),
+                    ],
+                },
+            };
+            if let Err(error) = state
+                .window
+                .set_provider_account(provider, account)
+                .and_then(|()| state.window.set_provider_activation(provider, activation))
+            {
+                tracing::warn!(%provider, %error, "provider account could not be projected");
+            }
         }
         RuntimeEvent::SessionsPage { .. } => {
             // Never reached today: no seam provider advertises `list_sessions`,
@@ -4040,22 +4152,17 @@ fn project_seam_event(state: &mut Shared, provider: ProviderId, event: RuntimeEv
         } => project_seam_update(state, provider, &provider_session_id, update),
         RuntimeEvent::PermissionRequested {
             request_id,
-            provider_session_id: _,
-            summary: _,
-            options: _,
-        } => {
-            // Approvals are an interaction design, not a mapping, and no seam
-            // provider advertises them yet. DECLINING is the honest response —
-            // silently allowing would act on the operator's behalf.
-            send_seam_command(
-                state,
-                provider,
-                RuntimeCommand::ResolvePermission {
-                    request_id,
-                    option_id: None,
-                },
-            );
-        }
+            provider_session_id,
+            summary,
+            options,
+        } => project_seam_permission(
+            state,
+            provider,
+            request_id,
+            provider_session_id,
+            summary,
+            options,
+        ),
         RuntimeEvent::TurnFinished {
             provider_session_id,
             stop_reason: _,
@@ -4073,12 +4180,19 @@ fn project_seam_event(state: &mut Shared, provider: ProviderId, event: RuntimeEv
         RuntimeEvent::Failure(failure) => {
             tracing::warn!(%provider, kind = ?failure.kind, reason = %failure.reason, "provider runtime failure");
             if let Some(provider_session_id) = failure.provider_session_id.clone() {
+                cancel_seam_permissions(state, provider, &provider_session_id);
+                let plain = plain_failure(&failure.reason);
+                if let Some(activation) = plain.activation.clone() {
+                    if let Err(error) = state.window.set_provider_activation(provider, activation) {
+                        tracing::warn!(%provider, %error, "failure state could not be projected");
+                    }
+                }
                 append_seam_event(
                     state,
                     provider,
                     &provider_session_id,
                     ChatEventContent::TurnFailed {
-                        message: failure.reason,
+                        message: plain.message,
                     },
                 );
                 ai_call_finished(
@@ -4346,6 +4460,290 @@ fn set_grok_session_idle(state: &mut Shared, provider_session_id: &str) {
         SessionState::Idle,
     ) {
         tracing::warn!(%error, "Grok idle state could not be projected");
+    }
+}
+
+/// A failed turn, in words the operator can act on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PlainFailure {
+    message: String,
+    /// The state the provider moves to when the fix is the operator's.
+    activation: Option<ActivationState>,
+}
+
+/// Translate a provider's failure into a sentence. The provider's own words
+/// stay in the log; raw JSON never reaches the chat.
+fn plain_failure(reason: &str) -> PlainFailure {
+    // Codex sometimes forwards the whole API error as JSON; its message is
+    // the part a person can read.
+    let message =
+        serde_json::from_str::<serde_json::Value>(reason.trim_start_matches(|c: char| c != '{'))
+            .ok()
+            .and_then(|value| {
+                value
+                    .pointer("/error/message")
+                    .or_else(|| value.get("message"))
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned)
+            })
+            .unwrap_or_else(|| reason.to_owned());
+    let lower = message.to_ascii_lowercase();
+    if lower.contains("requires a newer version of codex") {
+        let sentence = "Codex needs an update for this model. Choose Update Codex, then try again.";
+        return PlainFailure {
+            message: sentence.to_owned(),
+            activation: Some(ActivationState::VersionUnsupported {
+                reason: sentence.to_owned(),
+                recovery: vec![RecoveryAction::new(
+                    RecoveryActionKind::UpdateProvider,
+                    "Update Codex",
+                )],
+            }),
+        };
+    }
+    if lower.contains("unauthorized") || lower.contains("401") || lower.contains("not logged in") {
+        let sentence = "Codex is not signed in, or its sign-in expired. Sign in, then try again.";
+        return PlainFailure {
+            message: sentence.to_owned(),
+            activation: Some(ActivationState::SignedOut {
+                reason: sentence.to_owned(),
+                recovery: vec![
+                    RecoveryAction::new(RecoveryActionKind::SignIn, "Sign in"),
+                    RecoveryAction::new(RecoveryActionKind::Retry, "Retry"),
+                ],
+            }),
+        };
+    }
+    if lower.contains("usage limit") || lower.contains("rate limit") {
+        return PlainFailure {
+            message: "You have reached this provider's usage limit for now. Try again later."
+                .to_owned(),
+            activation: None,
+        };
+    }
+    PlainFailure {
+        message,
+        activation: None,
+    }
+}
+
+/// "Update Codex": adopt the operator's installed Codex (OpenAI's signature,
+/// its version, its protocol) into the depot beside this exe, then bring
+/// Codex back on the new build. Off the frame thread: it copies a large
+/// binary and asks Windows to vouch for it.
+fn update_codex(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>) {
+    let Some(installed) = dpl_chat_codex::adoption::installed_codex() else {
+        return;
+    };
+    let tools_root = match std::env::current_exe() {
+        Ok(exe) => match exe.parent() {
+            Some(folder) => folder.join(dpl_tools_deps::TOOLS_DIRECTORY),
+            None => return,
+        },
+        Err(error) => {
+            tracing::warn!(%error, "the running exe could not be located for the update");
+            return;
+        }
+    };
+    {
+        let mut state = lock(shared);
+        // Stop Codex first, so the old build is not in use while it is replaced.
+        state.runtimes.remove(&dpl_chat_codex::PROVIDER);
+        let _ = state
+            .window
+            .set_provider_activation(dpl_chat_codex::PROVIDER, ActivationState::Verifying);
+    }
+    let shared = Arc::clone(shared);
+    let ctx = ctx.clone();
+    let spawned = std::thread::Builder::new()
+        .name("devpulse-codex-update".to_owned())
+        .spawn(move || {
+            let outcome = dpl_chat_codex::adoption::adopt(
+                &installed,
+                &tools_root,
+                &dpl_chat_codex::adoption::SystemInspector,
+            );
+            let mut state = lock(&shared);
+            match outcome {
+                Ok((verified, installed)) => {
+                    dpl_tools_deps::reload_current();
+                    tracing::info!(
+                        version = %verified.version,
+                        replaced = installed.replaced.as_deref().unwrap_or("none"),
+                        "Codex updated from the operator's installed build"
+                    );
+                    if let Some(folder) = installed.left_behind {
+                        tracing::info!(folder = %folder.display(), "the old Codex stays until the next update");
+                    }
+                    match state.codex_activation.refresh_discovery() {
+                        Ok(_) => {
+                            let activation = state.codex_activation.activation().clone();
+                            let _ = state
+                                .window
+                                .set_provider_activation(dpl_chat_codex::PROVIDER, activation);
+                        }
+                        Err(error) => tracing::warn!(%error, "Codex rediscovery was rejected"),
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "Codex update refused");
+                    let _ = state.window.set_provider_activation(
+                        dpl_chat_codex::PROVIDER,
+                        ActivationState::VersionUnsupported {
+                            reason: error.to_string(),
+                            recovery: vec![RecoveryAction::new(
+                                RecoveryActionKind::UpdateProvider,
+                                "Update Codex",
+                            )],
+                        },
+                    );
+                }
+            }
+            drop(state);
+            ctx.request_repaint();
+        });
+    if let Err(error) = spawned {
+        tracing::warn!(%error, "the Codex update could not start");
+    }
+}
+
+/// An approval request from a seam provider becomes the operator's card, or
+/// (Read only) a decline the chat records.
+fn project_seam_permission(
+    state: &mut Shared,
+    provider: ProviderId,
+    request_id: u64,
+    provider_session_id: String,
+    summary: String,
+    options: Vec<dpl_chat_runtime::seam::RuntimePermissionOption>,
+) {
+    let mode = state
+        .permission_modes
+        .get(&provider)
+        .copied()
+        .unwrap_or_default();
+    let session = state
+        .seam_sessions
+        .get(&(provider, provider_session_id.clone()))
+        .copied();
+    let decline = |state: &mut Shared, summary: String| {
+        append_seam_event(
+            state,
+            provider,
+            &provider_session_id,
+            ChatEventContent::ApprovalRequested { summary },
+        );
+        append_seam_event(
+            state,
+            provider,
+            &provider_session_id,
+            ChatEventContent::ApprovalResolved { accepted: false },
+        );
+        send_seam_command(
+            state,
+            provider,
+            RuntimeCommand::ResolvePermission {
+                request_id,
+                option_id: None,
+            },
+        );
+    };
+    if mode == PermissionMode::ReadOnly {
+        decline(
+            state,
+            format!("{summary}. Declined: this chat is set to Read only."),
+        );
+        return;
+    }
+    let Some(session) = session else {
+        // No session to show a card in: declining is the honest answer.
+        decline(state, summary);
+        return;
+    };
+    let interaction = InteractionId(state.next_interaction_id);
+    state.next_interaction_id = state.next_interaction_id.saturating_add(1);
+    let allow_options = options
+        .iter()
+        .filter(|option| {
+            matches!(
+                option.kind,
+                RuntimePermissionOptionKind::AllowOnce | RuntimePermissionOptionKind::AllowAlways
+            )
+        })
+        .map(|option| option.option_id.clone())
+        .collect::<BTreeSet<_>>();
+    let choices = options
+        .into_iter()
+        .map(|option| ProviderPermissionChoice {
+            option_id: option.option_id,
+            label: option.label,
+            kind: match option.kind {
+                RuntimePermissionOptionKind::AllowOnce => ProviderPermissionChoiceKind::AllowOnce,
+                RuntimePermissionOptionKind::AllowAlways => {
+                    ProviderPermissionChoiceKind::AllowAlways
+                }
+                RuntimePermissionOptionKind::RejectOnce => ProviderPermissionChoiceKind::RejectOnce,
+                RuntimePermissionOptionKind::RejectAlways => {
+                    ProviderPermissionChoiceKind::RejectAlways
+                }
+            },
+        })
+        .collect::<Vec<_>>();
+    if let Err(error) = state.window.register_provider_permission(
+        interaction,
+        provider,
+        session,
+        request_id,
+        summary.clone(),
+        choices,
+    ) {
+        tracing::warn!(%provider, %error, "approval card could not be shown; declining");
+        decline(state, summary);
+        return;
+    }
+    state.seam_permissions.insert(
+        (provider, request_id),
+        PendingSeamPermission {
+            interaction,
+            provider_session_id: provider_session_id.clone(),
+            allow_options,
+        },
+    );
+    append_seam_event(
+        state,
+        provider,
+        &provider_session_id,
+        ChatEventContent::ApprovalRequested { summary },
+    );
+}
+
+/// Retire the cards a session was waiting on when its turn ends badly, so no
+/// stale Approve button outlives the turn that asked.
+fn cancel_seam_permissions(state: &mut Shared, provider: ProviderId, provider_session_id: &str) {
+    let pending = state
+        .seam_permissions
+        .iter()
+        .filter(|((owner, _), pending)| {
+            *owner == provider && pending.provider_session_id == provider_session_id
+        })
+        .map(|((_, request_id), pending)| (*request_id, pending.interaction))
+        .collect::<Vec<_>>();
+    for (request_id, interaction) in pending {
+        let _ = state.window.apply(
+            dpl_chat_window::ChatWindowIntent::ResolveProviderPermission {
+                interaction,
+                provider,
+                request_id,
+                option_id: None,
+            },
+        );
+        state.seam_permissions.remove(&(provider, request_id));
+        append_seam_event(
+            state,
+            provider,
+            provider_session_id,
+            ChatEventContent::ApprovalResolved { accepted: false },
+        );
     }
 }
 
@@ -5078,6 +5476,44 @@ fn lock<T>(value: &Mutex<T>) -> MutexGuard<'_, T> {
     value
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+#[cfg(test)]
+mod plain_failure_tests {
+    use super::*;
+
+    /// The failure the operator hit on 2026-10-19: raw JSON in the chat.
+    #[test]
+    fn an_outdated_codex_reads_as_an_update_with_the_button() {
+        let plain = plain_failure(
+            r#"{"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The 'gpt-6-astra' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again."}}"#,
+        );
+        assert!(!plain.message.contains('{'), "no raw JSON reaches the chat");
+        assert!(plain.message.starts_with("Codex needs an update"));
+        assert!(matches!(
+            plain.activation,
+            Some(ActivationState::VersionUnsupported { recovery, .. })
+                if recovery.first().map(|action| action.kind)
+                    == Some(RecoveryActionKind::UpdateProvider)
+        ));
+    }
+
+    #[test]
+    fn an_expired_sign_in_moves_the_provider_to_sign_in() {
+        let plain =
+            plain_failure("unexpected status 401 Unauthorized: workspace routing discovery");
+        assert!(matches!(
+            plain.activation,
+            Some(ActivationState::SignedOut { .. })
+        ));
+    }
+
+    #[test]
+    fn anything_else_keeps_the_providers_own_words() {
+        let plain = plain_failure("Codex refused turn/start: thread not found");
+        assert_eq!(plain.message, "Codex refused turn/start: thread not found");
+        assert_eq!(plain.activation, None);
+    }
 }
 
 #[cfg(test)]

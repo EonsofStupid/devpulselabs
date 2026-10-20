@@ -451,6 +451,22 @@ impl ChatRuntime {
         Ok(())
     }
 
+    /// The account the provider's own CLI reports it is signed in with
+    /// (`None` = signed out or not reported).
+    pub fn set_account(
+        &mut self,
+        provider_id: ProviderId,
+        account: Option<AccountSummary>,
+    ) -> Result<(), RegistryError> {
+        let entry = self
+            .providers
+            .iter_mut()
+            .find(|entry| entry.registration.manifest.descriptor.id == provider_id)
+            .ok_or(RegistryError::UnknownProvider(provider_id))?;
+        entry.registration.account = account;
+        Ok(())
+    }
+
     pub fn set_draft(
         &mut self,
         provider_id: ProviderId,

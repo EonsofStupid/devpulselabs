@@ -6,10 +6,10 @@
 
 use dpl_chat_context::RouteContextState;
 use dpl_chat_core::{
-    ActivationState, Capability, ChatDomain, ChatEvent, ChatEventContent, ChatEventId,
-    ChatSessionId, ContentEpisode, ContentEpisodeId, ContentSpine, ContentView, EventPresentation,
-    ProviderAccent, ProviderId, RecoveryActionKind, SessionGroup, SessionState, SessionSummary,
-    TurnId,
+    AccountSummary, ActivationState, Capability, ChatDomain, ChatEvent, ChatEventContent,
+    ChatEventId, ChatSessionId, ContentEpisode, ContentEpisodeId, ContentSpine, ContentView,
+    EventPresentation, PermissionMode, ProviderAccent, ProviderId, RecoveryActionKind,
+    SessionGroup, SessionState, SessionSummary, TurnId,
 };
 use dpl_chat_interactions::{
     InteractionContent, InteractionId, InteractionLifecycle, InteractionPlacement,
@@ -34,7 +34,7 @@ use egui_pilot_ai::{
     protocol::{PilotViewportKey, Role},
     NodeMetadata, PilotId, PilotKey, PilotPath, UiPilotExt,
 };
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fmt;
 
 pub const WINDOW_KEY: AppWindowKey = AppWindowKey("chat.primary");
@@ -357,6 +357,11 @@ pub enum ChatWindowIntent {
         request_id: u64,
         option_id: Option<String>,
     },
+    /// The operator chose what a provider may do from chat.
+    SetPermissionMode {
+        provider: ProviderId,
+        mode: PermissionMode,
+    },
     RequestImageGeneration {
         prompt: String,
     },
@@ -528,6 +533,11 @@ pub enum HostIntent {
         request_id: u64,
         option_id: Option<String>,
     },
+    /// Save and apply what a provider may do from chat.
+    SetPermissionMode {
+        provider: ProviderId,
+        mode: PermissionMode,
+    },
     RequestImageGeneration {
         prompt: String,
     },
@@ -658,6 +668,8 @@ pub struct ChatWindow {
     approval_focus_origin: Option<InteractionId>,
     pending_focus_return: Option<InteractionId>,
     provider_permissions: HashMap<InteractionId, ProviderPermissionBinding>,
+    /// Providers offered a permission selector, with their current mode.
+    permission_modes: BTreeMap<ProviderId, PermissionMode>,
     provider_trace: VecDeque<Stamped<ProviderEvent>>,
     provider_trace_expanded: HashMap<ProviderId, bool>,
     composer_focus_requested: bool,
@@ -807,6 +819,7 @@ impl ChatWindow {
             approval_focus_origin,
             pending_focus_return: None,
             provider_permissions: HashMap::new(),
+            permission_modes: BTreeMap::new(),
             provider_trace: VecDeque::new(),
             provider_trace_expanded: HashMap::new(),
             composer_focus_requested: false,
@@ -1328,6 +1341,10 @@ impl ChatWindow {
                     option_id,
                 }))
             }
+            ChatWindowIntent::SetPermissionMode { provider, mode } => {
+                self.permission_modes.insert(provider, mode);
+                Ok(Some(HostIntent::SetPermissionMode { provider, mode }))
+            }
             ChatWindowIntent::RequestImageGeneration { prompt } => {
                 Ok(Some(HostIntent::RequestImageGeneration { prompt }))
             }
@@ -1440,6 +1457,35 @@ impl ChatWindow {
         activation: ActivationState,
     ) -> Result<(), ChatWindowError> {
         self.runtime.set_activation(provider, activation)?;
+        Ok(())
+    }
+
+    /// Offer (`Some`, with the current mode) or withdraw (`None`) the
+    /// permission selector for `provider`. Only a provider whose runtime
+    /// honours modes is offered one, so no setting is ever silently ignored.
+    pub fn set_provider_permission_mode(
+        &mut self,
+        provider: ProviderId,
+        mode: Option<PermissionMode>,
+    ) {
+        match mode {
+            Some(mode) => {
+                self.permission_modes.insert(provider, mode);
+            }
+            None => {
+                self.permission_modes.remove(&provider);
+            }
+        }
+    }
+
+    /// The account the provider reports (shown beside "Ready", so the
+    /// operator sees WHICH subscription a turn spends).
+    pub fn set_provider_account(
+        &mut self,
+        provider: ProviderId,
+        account: Option<AccountSummary>,
+    ) -> Result<(), ChatWindowError> {
+        self.runtime.set_account(provider, account)?;
         Ok(())
     }
 
@@ -2367,7 +2413,7 @@ impl ChatWindow {
                                     ),
                                 );
                                 ui.label(
-                                    RichText::new(provider.registration.activation.label())
+                                    RichText::new(provider_status(&provider.registration))
                                         .small()
                                         .color(cl::ink::MUTED),
                                 );
@@ -2402,7 +2448,7 @@ impl ChatWindow {
             descriptor.label,
         );
         metadata.selected = Some(selected);
-        metadata.value = Some(provider.registration.activation.label().to_owned());
+        metadata.value = Some(provider_status(&provider.registration));
         ui.pilot_track(&response, metadata);
         if response.clicked() {
             intents.push(ChatWindowIntent::SelectProvider(descriptor.id));
@@ -2679,19 +2725,23 @@ impl ChatWindow {
                     .color(cl::ink::STRONG),
             );
             ui.label(
-                RichText::new(provider.registration.activation.label())
+                RichText::new(provider_status(&provider.registration))
                     .small()
                     .color(activation_color(
                         &provider.registration.activation,
                         provider_tone(descriptor.accent),
                     )),
             );
+            let offered = self.permission_modes.get(&descriptor.id).copied();
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.label(
                     RichText::new("route-aware")
                         .small()
                         .color(Tone::Cyan.color()),
                 );
+                if let Some(current) = offered {
+                    permission_selector(ui, descriptor.id, descriptor.label, current, intents);
+                }
             });
         });
         if let Some(session) = provider.active_session.and_then(|id| {
@@ -3869,7 +3919,7 @@ impl ChatWindow {
                                 .color(cl::ink::STRONG),
                         );
                         ui.label(
-                            RichText::new(provider.registration.activation.label())
+                            RichText::new(provider_status(&provider.registration))
                                 .small()
                                 .color(activation_color(
                                     &provider.registration.activation,
@@ -5617,6 +5667,57 @@ fn provider_tone(accent: ProviderAccent) -> Tone {
         ProviderAccent::Violet => Tone::Violet,
         ProviderAccent::Magenta => Tone::Magenta,
         ProviderAccent::Lime => Tone::Lime,
+    }
+}
+
+/// What `provider` may do from this chat (CW1: "configurable permissions").
+/// Each choice carries its own plain-words tooltip; a change applies from the
+/// next message.
+fn permission_selector(
+    ui: &mut egui::Ui,
+    provider: ProviderId,
+    label: &str,
+    current: PermissionMode,
+    intents: &mut Vec<ChatWindowIntent>,
+) {
+    let response = egui::ComboBox::from_id_salt(("dpl_chat_permission_mode", provider.0))
+        .selected_text(RichText::new(current.label()).small())
+        .show_ui(ui, |ui| {
+            for mode in PermissionMode::ALL {
+                let option = cl::tip(
+                    ui.selectable_label(mode == current, mode.label()),
+                    mode.tooltip(),
+                );
+                if option.clicked() && mode != current {
+                    intents.push(ChatWindowIntent::SetPermissionMode { provider, mode });
+                }
+            }
+        })
+        .response;
+    let response = cl::tip(
+        response,
+        "What this AI may do from this chat: read only, ask before acting, or work in its workspace",
+    );
+    ui.pilot_track(
+        &response,
+        NodeMetadata::new(
+            PilotId::new("chat.permissions").child(&PilotKey::new(provider.0)),
+            Role::ComboBox,
+            format!("{label} permissions"),
+        )
+        .value(current.label()),
+    );
+}
+
+/// A provider's status as the operator reads it: "Ready · ChatGPT Plus" when
+/// its CLI reported the account a turn will spend, otherwise the state.
+fn provider_status(registration: &dpl_chat_runtime::ProviderRegistration) -> String {
+    match (&registration.activation, &registration.account) {
+        (ActivationState::Ready, Some(account)) => match &account.plan {
+            Some(plan) => format!("Ready · {} {plan}", account.display_name),
+            None => format!("Ready · {}", account.display_name),
+        },
+        (activation, _) => activation.label().to_owned(),
     }
 }
 
