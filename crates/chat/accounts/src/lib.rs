@@ -4,7 +4,7 @@
 //! its official runtime. It never stores credentials, device codes,
 //! authorization URLs, cookies, auth-file contents, or provider output.
 
-use dpl_chat_core::ProviderId;
+use dpl_chat_core::{PermissionMode, ProviderId};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use turso::Value;
@@ -118,6 +118,54 @@ impl ActivationLedger {
                 failure_class: text(&row, 6),
                 updated_at_ms: integer(&row, 7).unwrap_or_default() as u64,
             }))
+        })
+    }
+
+    /// The operator's permission mode for `provider`, when one was saved.
+    pub fn permission_mode(&self, provider: ProviderId) -> Result<Option<PermissionMode>, String> {
+        self.runtime.block_on(async {
+            let connection = Self::connect(&self.path).await?;
+            let mut rows = connection
+                .query(
+                    "SELECT permission_mode FROM chat_provider_settings WHERE provider_id = ?1",
+                    turso::params![provider.0.to_owned()],
+                )
+                .await
+                .map_err(|error| error.to_string())?;
+            let Some(row) = rows.next().await.map_err(|error| error.to_string())? else {
+                return Ok(None);
+            };
+            let stored = text(&row, 0).unwrap_or_default();
+            PermissionMode::parse(&stored)
+                .map(Some)
+                .ok_or_else(|| format!("unknown permission mode `{stored}`"))
+        })
+    }
+
+    /// Save the operator's permission mode for `provider`.
+    pub fn set_permission_mode(
+        &self,
+        provider: ProviderId,
+        mode: PermissionMode,
+    ) -> Result<(), String> {
+        self.runtime.block_on(async {
+            let connection = Self::connect(&self.path).await?;
+            connection
+                .execute(
+                    "INSERT INTO chat_provider_settings (provider_id, permission_mode, updated_at_ms)
+                     VALUES (?1, ?2, ?3)
+                     ON CONFLICT(provider_id) DO UPDATE SET
+                         permission_mode = excluded.permission_mode,
+                         updated_at_ms = excluded.updated_at_ms",
+                    turso::params![
+                        provider.0.to_owned(),
+                        mode.as_str().to_owned(),
+                        unix_time_ms() as i64,
+                    ],
+                )
+                .await
+                .map_err(|error| error.to_string())?;
+            Ok(())
         })
     }
 
@@ -261,6 +309,19 @@ impl ActivationLedger {
                 )
                 .await
                 .map_err(|error| error.to_string())?;
+            // The operator's per-provider settings (CW1: the permission
+            // mode). Non-secret, like everything in this file.
+            connection
+                .execute(
+                    "CREATE TABLE IF NOT EXISTS chat_provider_settings (
+                         provider_id TEXT PRIMARY KEY NOT NULL,
+                         permission_mode TEXT NOT NULL,
+                         updated_at_ms INTEGER NOT NULL
+                     )",
+                    (),
+                )
+                .await
+                .map_err(|error| error.to_string())?;
             let mut rows = connection
                 .query("PRAGMA table_info(chat_provider_activation)", ())
                 .await
@@ -341,6 +402,26 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let ledger = ActivationLedger::open(&path).expect("ledger");
         (path, ledger)
+    }
+
+    /// The operator's permission setting is remembered per provider, and
+    /// survives a restart (a reopened store).
+    #[test]
+    fn the_permission_mode_survives_reopen_and_replaces_in_place() {
+        let (path, ledger) = ledger("permission");
+        assert_eq!(ledger.permission_mode(GROK).expect("get"), None);
+        ledger
+            .set_permission_mode(GROK, PermissionMode::Workspace)
+            .expect("set");
+        ledger
+            .set_permission_mode(GROK, PermissionMode::ReadOnly)
+            .expect("replace");
+        drop(ledger);
+        let reopened = ActivationLedger::open(&path).expect("reopen");
+        assert_eq!(
+            reopened.permission_mode(GROK).expect("get"),
+            Some(PermissionMode::ReadOnly)
+        );
     }
 
     #[test]

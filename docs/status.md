@@ -13,10 +13,9 @@ reorganization).
 Read in this order: this page → [`requirements.md`](requirements.md) (the
 operator's words) → [`README.md`](README.md) (the map of every doc).
 
-**Updated:** 2026-10-19, main at `b72926f` (#276). The release exe was
-rebuilt 2026-10-19 15:03 from `b72926f` and its build stamp verified
-(`b72926f · 2026-10-19 19:02z`). This page lands with the #222 port
-(job board, preset looks, workflow dry run).
+**Updated:** 2026-10-20, main at `51e1600` (#277). The release exe was
+rebuilt 2026-10-20 11:01 from `51e1600` and its build stamp verified
+(`51e1600 · 2026-10-20 15:00z`). This page lands with CW1.
 
 ## Now
 
@@ -27,10 +26,16 @@ Every step now ends with a real message working in the real app
 
 | Step | What | State |
 |---|---|---|
-| CW1 | Codex on the operator's subscription: an in-place, SHA-verified depot update to the operator's current Codex, the schema re-vendored and the gate re-pinned, server requests answered, honest auth health, plain-language failures | **plan next**, for approval |
+| CW1 | Codex on the operator's subscription: the operator's own Codex adopted into the depot (OpenAI's signature, its version, its protocol), every server request answered, honest auth health, configurable permissions, plain-language failures, Update Codex | **in PR**; a real Codex turn answers on the operator's ChatGPT Pro |
 | CW2 | Claude Code on the operator's subscription (A4): the official binary in the depot, a stream-json adapter, presence from the depot | after CW1 |
 | CW3 | The shared room: a saved conversation every provider reads and writes, each turn carrying the room's transcript; tabs as conversations (New, Close, Clear); survives restart | after CW2 |
 | then | Grok and Gemini auth health (A7/A8), the routines (Council, Author + critic, Router), C2–C4 | |
+
+**Rooms and roles** (operator, 2026-10-20): research-backed role schemas
+(skeptic, realist, dreamer and more) and room types for Codex, Claude,
+Gemini, Grok and local endpoints, captured as authored data so the library
+grows without code. Research ran 2026-10-20; its plan comes for approval and
+shapes CW3.
 
 K1, K2 and A1 no longer gate anything: each step moves only the code it
 touches, straight to the final layout.
@@ -86,13 +91,11 @@ release) are still to come.
    delete it; investigate it read-only.
 9. **The release zip ships without the tool depot.** → D0.6.
 10. **Six ignored drills do not run against the depot.** → D0.5.
-11. **Chat does not work end to end** (2026-10-19, the R283 note). A Codex
-    turn fails (the depot's Codex 0.145-alpha is too old for the model the
-    operator's config selects; the gate refuses newer versions; there is no
-    in-place update); Claude has no runtime; there is no shared state, no
-    saved conversation, and no tab close or clear; failures hide (Ready
-    regardless of sign-in, dropped JSON-RPC errors, unanswered approvals).
-    → CW1–CW3.
+11. **Chat is not whole yet** (2026-10-20). Codex works with CW1. Still
+    missing: Claude has no runtime (CW2); there is no shared state, no saved
+    conversation, and no tab close or clear (CW3). Until CW1 merges, the
+    release exe's depot already holds Codex 0.163 while `main`'s gate still
+    wants 0.145, so Codex reads "Version unsupported" there.
 12. **A second launch opens a second, half-broken window** instead of raising
     the running one (`FjallError: Locked`, seam port bind os error 10048).
     The operator asked (2026-08-05) for the running window to come to the

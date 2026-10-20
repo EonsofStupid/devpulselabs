@@ -12,7 +12,7 @@ use std::fmt;
 use std::fs;
 use std::io::{self, Read};
 use std::path::{Component, Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 pub const MANIFEST_SCHEMA: u32 = 2;
 pub const MANIFEST_FILE: &str = "manifest.json";
@@ -189,6 +189,12 @@ impl Resolver {
         })?;
         let manifest: Manifest = serde_json::from_slice(&bytes)
             .map_err(|error| ResolveError::ManifestInvalid(error.to_string()))?;
+        Self::with_manifest(root, manifest)
+    }
+
+    /// A resolver over `root` that trusts `manifest` instead of reading one,
+    /// so [`install_tool`] can verify a manifest BEFORE it is written.
+    fn with_manifest(root: PathBuf, manifest: Manifest) -> Result<Self, ResolveError> {
         validate_manifest(&manifest)?;
         Ok(Self {
             root,
@@ -317,15 +323,26 @@ impl Resolver {
     }
 }
 
+/// The process-wide resolver over the bundle beside the running executable.
+/// `None` until first use, and again after [`reload_current`].
+static CURRENT: Mutex<Option<Arc<Result<Resolver, ResolveError>>>> = Mutex::new(None);
+
 /// Resolves from one process-wide manifest/cache. Every private binary is
-/// hashed at most once per DevPULSE process.
+/// hashed at most once per DevPULSE process (per manifest; see
+/// [`reload_current`]).
 pub fn resolve_current(id: DependencyId) -> Result<ResolvedDependency, ResolveError> {
-    static CURRENT: OnceLock<Result<Resolver, ResolveError>> = OnceLock::new();
-    CURRENT
-        .get_or_init(Resolver::for_current_process)
-        .as_ref()
-        .map_err(Clone::clone)?
-        .resolve(id)
+    let current = {
+        let mut slot = lock(&CURRENT);
+        Arc::clone(slot.get_or_insert_with(|| Arc::new(Resolver::for_current_process())))
+    };
+    current.as_ref().as_ref().map_err(Clone::clone)?.resolve(id)
+}
+
+/// Forgets the process-wide resolver, so the next [`resolve_current`] reads
+/// the manifest again. Called after [`install_tool`] rewrites the manifest
+/// beside the running executable (an in-app update).
+pub fn reload_current() {
+    *lock(&CURRENT) = None;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -587,6 +604,235 @@ fn collect_tree_files(
         }
     }
     Ok(())
+}
+
+// ── Installing into a depot ─────────────────────────────────────────────────
+//
+// The ONE place a tool's bytes enter a depot: `cargo xtask stage-tool-deps`
+// builds a new bundle with `place_tool` + `write_manifest`, and an in-place
+// update (`install_tool`) swaps one tool in an existing bundle. Both hash the
+// COPIED bytes, which are what the resolver will verify. This crate never
+// spawns: whoever installs proves the tool first (signature, version,
+// protocol) and only then hands it here.
+
+/// One tool to place into a depot.
+#[derive(Debug, Clone, Copy)]
+pub struct ToolSource<'a> {
+    pub id: DependencyId,
+    pub version: &'a str,
+    /// A single executable, or a directory shipped whole (a tree).
+    pub path: &'a Path,
+    /// The executable inside a directory source; `None` for a single file.
+    pub entrypoint: Option<&'a Path>,
+}
+
+/// Copies `source` to `<tools_root>/<family>/<id>/<version>/` (replacing a
+/// folder of that version left by an earlier attempt) and returns its
+/// manifest entry.
+pub fn place_tool(
+    tools_root: &Path,
+    source: &ToolSource<'_>,
+) -> Result<ManifestDependency, String> {
+    let id = source.id.as_str();
+    validate_segment("version", source.version).map_err(|error| error.to_string())?;
+    let family_root = Path::new(source.id.family().directory())
+        .join(id)
+        .join(source.version);
+    let version_root = tools_root.join(&family_root);
+    if version_root.exists() {
+        fs::remove_dir_all(&version_root)
+            .map_err(|error| format!("{}: {error}", version_root.display()))?;
+    }
+    let (relative, tree) = match (
+        source.path.is_file(),
+        source.path.is_dir(),
+        source.entrypoint,
+    ) {
+        (true, false, None) => {
+            let relative = family_root.join(format!("{id}{}", std::env::consts::EXE_SUFFIX));
+            fs::create_dir_all(&version_root)
+                .map_err(|error| format!("{}: {error}", version_root.display()))?;
+            let destination = tools_root.join(&relative);
+            fs::copy(source.path, &destination).map_err(|error| {
+                format!(
+                    "copy {} -> {}: {error}",
+                    source.path.display(),
+                    destination.display()
+                )
+            })?;
+            (relative, None)
+        }
+        (false, true, Some(entrypoint)) => {
+            let entrypoint = validate_relative_path(&entrypoint.to_string_lossy())
+                .map_err(|error| error.to_string())?;
+            copy_tree(source.path, &version_root)?;
+            let (bytes, sha256) = sha256_tree(&version_root)
+                .map_err(|error| format!("{}: {error}", version_root.display()))?;
+            (
+                family_root.join(entrypoint),
+                Some(ManifestTree {
+                    root: slashed(&family_root),
+                    bytes,
+                    sha256,
+                }),
+            )
+        }
+        (false, true, None) => {
+            return Err(format!(
+                "{} is a directory, so it needs an entrypoint",
+                source.path.display()
+            ))
+        }
+        (true, false, Some(_)) => {
+            return Err(format!(
+                "{} is a single file, so it takes no entrypoint",
+                source.path.display()
+            ))
+        }
+        _ => {
+            return Err(format!(
+                "{} is not a file or directory",
+                source.path.display()
+            ))
+        }
+    };
+    let destination = tools_root.join(&relative);
+    let metadata = destination
+        .metadata()
+        .map_err(|error| format!("{}: {error}", destination.display()))?;
+    if !metadata.is_file() {
+        return Err(format!("{} is not a file", destination.display()));
+    }
+    let sha256 =
+        sha256_file(&destination).map_err(|error| format!("{}: {error}", destination.display()))?;
+    Ok(ManifestDependency {
+        id: id.to_owned(),
+        family: source.id.family(),
+        version: source.version.to_owned(),
+        path: slashed(&relative),
+        bytes: metadata.len(),
+        sha256,
+        tree,
+    })
+}
+
+/// Writes `manifest` into `tools_root` atomically: a temporary file, then a
+/// rename over the old one, so a crash never leaves half a manifest.
+pub fn write_manifest(tools_root: &Path, manifest: &Manifest) -> Result<(), String> {
+    let bytes = serde_json::to_vec_pretty(manifest)
+        .map_err(|error| format!("serialize manifest: {error}"))?;
+    let path = tools_root.join(MANIFEST_FILE);
+    let temporary = tools_root.join(format!("{MANIFEST_FILE}.tmp"));
+    fs::write(&temporary, bytes).map_err(|error| format!("{}: {error}", temporary.display()))?;
+    fs::rename(&temporary, &path).map_err(|error| format!("{}: {error}", path.display()))
+}
+
+/// What an in-place install did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Installed {
+    pub entry: ManifestDependency,
+    /// The version this install replaced, when the tool was already there.
+    pub replaced: Option<String>,
+    /// An older version folder that could not be deleted (a program was
+    /// still running from it). The next install of this tool removes it.
+    pub left_behind: Option<PathBuf>,
+}
+
+/// Installs one tool into an EXISTING depot, in place.
+///
+/// 1. The tool is placed beside the current version.
+/// 2. The new manifest is verified through the production resolver while it
+///    is still in memory; on any refusal the depot is unchanged.
+/// 3. The manifest is rewritten atomically, so the new version is current.
+/// 4. Every other version of the tool is deleted: one baseline, never two
+///    versions side by side.
+pub fn install_tool(tools_root: &Path, source: &ToolSource<'_>) -> Result<Installed, String> {
+    let root = fs::canonicalize(tools_root)
+        .map_err(|error| format!("{}: {error}", tools_root.display()))?;
+    let manifest_path = root.join(MANIFEST_FILE);
+    let bytes = fs::read(&manifest_path)
+        .map_err(|error| format!("{}: {error}", manifest_path.display()))?;
+    let current: Manifest = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("{}: {error}", manifest_path.display()))?;
+    validate_manifest(&current).map_err(|error| error.to_string())?;
+
+    let entry = place_tool(&root, source)?;
+    let replaced = current
+        .dependencies
+        .iter()
+        .find(|dependency| dependency.id == entry.id)
+        .map(|dependency| dependency.version.clone());
+    let mut next = current;
+    next.dependencies
+        .retain(|dependency| dependency.id != entry.id);
+    next.dependencies.push(entry.clone());
+    next.dependencies
+        .sort_by(|left, right| left.id.cmp(&right.id));
+
+    Resolver::with_manifest(root.clone(), next.clone())
+        .and_then(|resolver| resolver.resolve(source.id))
+        .map_err(|error| format!("the installed {} was refused: {error}", entry.id))?;
+    write_manifest(&root, &next)?;
+
+    let tool_root = root
+        .join(source.id.family().directory())
+        .join(source.id.as_str());
+    let mut left_behind = None;
+    let others = fs::read_dir(&tool_root)
+        .map_err(|error| format!("{}: {error}", tool_root.display()))?
+        .filter_map(Result::ok)
+        .filter(|folder| folder.file_name().to_string_lossy() != entry.version);
+    for folder in others {
+        if fs::remove_dir_all(folder.path()).is_err() && left_behind.is_none() {
+            left_behind = Some(folder.path());
+        }
+    }
+    Ok(Installed {
+        entry,
+        replaced,
+        left_behind,
+    })
+}
+
+/// Copies a tool tree, refusing symlinks (a tree must not point outside
+/// itself once installed).
+fn copy_tree(source: &Path, destination: &Path) -> Result<(), String> {
+    fs::create_dir_all(destination)
+        .map_err(|error| format!("{}: {error}", destination.display()))?;
+    let mut entries = fs::read_dir(source)
+        .map_err(|error| format!("{}: {error}", source.display()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("{}: {error}", source.display()))?;
+    entries.sort_by_key(std::fs::DirEntry::file_name);
+    for entry in entries {
+        let file_type = entry
+            .file_type()
+            .map_err(|error| format!("{}: {error}", entry.path().display()))?;
+        if file_type.is_symlink() {
+            return Err(format!(
+                "{}: tool trees cannot contain symlinks",
+                entry.path().display()
+            ));
+        }
+        let target = destination.join(entry.file_name());
+        if file_type.is_dir() {
+            copy_tree(&entry.path(), &target)?;
+        } else if file_type.is_file() {
+            fs::copy(entry.path(), &target).map_err(|error| {
+                format!(
+                    "copy {} -> {}: {error}",
+                    entry.path().display(),
+                    target.display()
+                )
+            })?;
+        }
+    }
+    Ok(())
+}
+
+/// A relative path as the manifest spells it: forward slashes on every OS.
+fn slashed(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
 }
 
 fn validate_manifest(manifest: &Manifest) -> Result<(), ResolveError> {
@@ -963,5 +1209,143 @@ mod tests {
             resolver.resolve(CODEX),
             Err(ResolveError::MissingDependency("codex".to_owned()))
         );
+    }
+
+    /// A source tree outside any depot: an executable and one companion,
+    /// the shape of an official CLI shipped with a helper beside it.
+    fn source_tree(name: &str, payload: &[u8]) -> (PathBuf, PathBuf) {
+        let sequence = NEXT.fetch_add(1, Ordering::Relaxed);
+        let source = std::env::temp_dir().join(format!(
+            "dpl-tools-deps-src-{name}-{}-{sequence}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&source).expect("source");
+        let entrypoint = PathBuf::from(format!("codex{}", std::env::consts::EXE_SUFFIX));
+        let executable = source.join(&entrypoint);
+        fs::write(&executable, payload).expect("executable");
+        fs::write(source.join("companion.bin"), b"helper").expect("companion");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&executable, fs::Permissions::from_mode(0o755))
+                .expect("executable permission");
+        }
+        (source, entrypoint)
+    }
+
+    fn codex_bundle(name: &str) -> PathBuf {
+        let root = release_root(name);
+        let relative = format!(
+            "providers/codex/0.145.0/codex{}",
+            std::env::consts::EXE_SUFFIX
+        );
+        write_bundle(
+            &root,
+            "codex",
+            DependencyFamily::Provider,
+            "0.145.0",
+            &relative,
+            b"old codex",
+        );
+        root
+    }
+
+    #[test]
+    fn an_in_place_install_makes_the_new_version_current_and_removes_the_old() {
+        let root = codex_bundle("install");
+        let tools = root.join(TOOLS_DIRECTORY);
+        let (source, entrypoint) = source_tree("install", b"new codex");
+        let installed = install_tool(
+            &tools,
+            &ToolSource {
+                id: CODEX,
+                version: "0.163.0",
+                path: &source,
+                entrypoint: Some(&entrypoint),
+            },
+        )
+        .expect("install");
+        assert_eq!(installed.replaced.as_deref(), Some("0.145.0"));
+        assert_eq!(installed.left_behind, None);
+        let resolver = Resolver::from_release_root(&root).expect("resolver");
+        let codex = resolver.resolve(CODEX).expect("codex");
+        assert_eq!(codex.version(), "0.163.0");
+        assert_eq!(fs::read(codex.path()).expect("bytes"), b"new codex");
+        assert!(
+            codex.path().with_file_name("companion.bin").is_file(),
+            "the companion ships with the executable"
+        );
+        assert!(
+            !tools.join("providers/codex/0.145.0").exists(),
+            "one baseline: the replaced version is gone"
+        );
+        assert!(
+            !tools.join(format!("{MANIFEST_FILE}.tmp")).exists(),
+            "the manifest switched by rename, leaving no temporary file"
+        );
+    }
+
+    #[test]
+    fn a_refused_install_leaves_the_depot_as_it_was() {
+        let root = codex_bundle("refused");
+        let tools = root.join(TOOLS_DIRECTORY);
+        let before = fs::read(tools.join(MANIFEST_FILE)).expect("manifest");
+        let (source, _) = source_tree("refused", b"new codex");
+        let refused = install_tool(
+            &tools,
+            &ToolSource {
+                id: CODEX,
+                version: "0.163.0",
+                path: &source,
+                entrypoint: Some(Path::new("missing.exe")),
+            },
+        );
+        assert!(
+            refused.is_err(),
+            "an entrypoint that is not there is refused"
+        );
+        assert_eq!(
+            fs::read(tools.join(MANIFEST_FILE)).expect("manifest"),
+            before,
+            "the manifest is untouched"
+        );
+        let resolver = Resolver::from_release_root(&root).expect("resolver");
+        assert_eq!(resolver.resolve(CODEX).expect("codex").version(), "0.145.0");
+    }
+
+    #[test]
+    fn a_single_file_source_takes_no_entrypoint() {
+        let root = release_root("single");
+        let tools = root.join(TOOLS_DIRECTORY);
+        let (source, entrypoint) = source_tree("single", b"codex");
+        let executable = source.join(&entrypoint);
+        let placed = place_tool(
+            &tools,
+            &ToolSource {
+                id: CODEX,
+                version: "0.163.0",
+                path: &executable,
+                entrypoint: None,
+            },
+        )
+        .expect("placed");
+        assert_eq!(
+            placed.path,
+            format!(
+                "providers/codex/0.163.0/codex{}",
+                std::env::consts::EXE_SUFFIX
+            )
+        );
+        assert_eq!(placed.tree, None);
+        assert!(place_tool(
+            &tools,
+            &ToolSource {
+                id: CODEX,
+                version: "0.163.0",
+                path: &executable,
+                entrypoint: Some(&entrypoint),
+            },
+        )
+        .is_err());
     }
 }

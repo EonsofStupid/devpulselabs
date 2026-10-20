@@ -53,7 +53,10 @@ impl ProviderRuntime for GrokRuntimeSeam {
     }
 
     fn try_send(&self, command: RuntimeCommand) -> Result<(), RuntimeSendError> {
-        self.inner.try_send(command.into()).map_err(Into::into)
+        // A command Grok cannot honour was never advertised; refusing it
+        // loudly beats pretending it was applied.
+        let command = GrokRuntimeCommand::try_from(command)?;
+        self.inner.try_send(command).map_err(Into::into)
     }
 
     fn try_event(&self) -> Result<Option<RuntimeEvent>, RuntimeSendError> {
@@ -87,9 +90,11 @@ impl ProviderRuntime for GrokRuntimeSeam {
 // it has been mapped. Silent loss of a provider event is how a turn appears
 // to hang.
 
-impl From<RuntimeCommand> for GrokRuntimeCommand {
-    fn from(command: RuntimeCommand) -> Self {
-        match command {
+impl TryFrom<RuntimeCommand> for GrokRuntimeCommand {
+    type Error = RuntimeSendError;
+
+    fn try_from(command: RuntimeCommand) -> Result<Self, Self::Error> {
+        Ok(match command {
             RuntimeCommand::ListSessions { cursor } => Self::ListSessions { cursor },
             RuntimeCommand::NewSession => Self::NewSession,
             RuntimeCommand::LoadSession {
@@ -117,7 +122,10 @@ impl From<RuntimeCommand> for GrokRuntimeCommand {
                 option_id,
             },
             RuntimeCommand::Shutdown => Self::Shutdown,
-        }
+            // Grok's ACP modes are not mapped yet, so `permission_modes` is
+            // not advertised and the host never sends this.
+            RuntimeCommand::SetPermissionMode { .. } => return Err(RuntimeSendError::Closed),
+        })
     }
 }
 
@@ -135,6 +143,7 @@ impl From<GrokAcpCapabilities> for RuntimeCapabilities {
         Self {
             load_session: capabilities.load_session,
             list_sessions: capabilities.list_sessions,
+            permission_modes: false,
         }
     }
 }
@@ -297,10 +306,11 @@ mod tests {
 
     #[test]
     fn a_prompt_survives_the_round_trip_into_grok_vocabulary() {
-        let command = GrokRuntimeCommand::from(RuntimeCommand::Prompt {
+        let command = GrokRuntimeCommand::try_from(RuntimeCommand::Prompt {
             provider_session_id: "s-2".into(),
             text: "ship it".into(),
-        });
+        })
+        .expect("a prompt maps");
         assert_eq!(
             command,
             GrokRuntimeCommand::Prompt {
