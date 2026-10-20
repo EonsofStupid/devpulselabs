@@ -578,68 +578,28 @@ fn stage_tool_dependencies(arguments: &[String]) -> Result<(), String> {
         .map_err(|error| format!("{}: {error}", tools_root.display()))?;
     let mut dependencies = Vec::with_capacity(selected.len());
     for source in selected {
-        let family_root = Path::new(source.family.directory())
-            .join(&source.id)
-            .join(&source.version);
-        let (relative, destination, tree) = if source.source.is_dir() {
-            let tree_destination = tools_root.join(&family_root);
-            copy_tool_tree(&source.source, &tree_destination)?;
-            let entrypoint = source.entrypoint.as_deref().ok_or_else(|| {
-                format!(
-                    "{} directory source has no entrypoint",
-                    source.source.display()
-                )
-            })?;
-            let relative = family_root.join(entrypoint);
-            let destination = tools_root.join(&relative);
-            let (bytes, sha256) = dpl_tools_deps::sha256_tree(&tree_destination)
-                .map_err(|error| format!("{}: {error}", tree_destination.display()))?;
-            (
-                relative,
-                destination,
-                Some(dpl_tools_deps::ManifestTree {
-                    root: family_root.to_string_lossy().replace('\\', "/"),
-                    bytes,
-                    sha256,
-                }),
-            )
-        } else {
-            let relative = family_root.join(dependency_file_name(&source.id));
-            let destination = tools_root.join(&relative);
-            let parent = destination
-                .parent()
-                .ok_or_else(|| format!("{} has no parent", destination.display()))?;
-            fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
-            fs::copy(&source.source, &destination).map_err(|error| {
-                format!(
-                    "copy {} -> {}: {error}",
-                    source.source.display(),
-                    destination.display()
-                )
-            })?;
-            (relative, destination, None)
-        };
+        let id = dependency_id(&source.id)
+            .ok_or_else(|| format!("unsupported DevPULSE tool `{}`", source.id))?;
+        // The same placement an in-place update uses (`install_tool`), so a
+        // staged bundle and an updated one cannot be built two ways.
+        let entry = dpl_tools_deps::place_tool(
+            &tools_root,
+            &dpl_tools_deps::ToolSource {
+                id,
+                version: &source.version,
+                path: &source.source,
+                entrypoint: source.entrypoint.as_deref(),
+            },
+        )?;
+        let destination = tools_root.join(&entry.path);
         verify_staged_version(&source.id, &source.version, &destination)?;
-        let metadata = destination
-            .metadata()
-            .map_err(|error| format!("{}: {error}", destination.display()))?;
-        let sha256 = dpl_tools_deps::sha256_file(&destination)
-            .map_err(|error| format!("{}: {error}", destination.display()))?;
-        dependencies.push(dpl_tools_deps::ManifestDependency {
-            id: source.id.clone(),
-            family: source.family,
-            version: source.version.clone(),
-            path: relative.to_string_lossy().replace('\\', "/"),
-            bytes: metadata.len(),
-            sha256,
-            tree,
-        });
         println!(
             "staged {} {} -> {}",
             source.id,
             source.version,
             destination.display()
         );
+        dependencies.push(entry);
     }
     dependencies.sort_by(|left, right| left.id.cmp(&right.id));
     let manifest = dpl_tools_deps::Manifest {
@@ -647,13 +607,7 @@ fn stage_tool_dependencies(arguments: &[String]) -> Result<(), String> {
         target: target.to_owned(),
         dependencies,
     };
-    let manifest_path = tools_root.join(dpl_tools_deps::MANIFEST_FILE);
-    fs::write(
-        &manifest_path,
-        serde_json::to_vec_pretty(&manifest)
-            .map_err(|error| format!("serialize manifest: {error}"))?,
-    )
-    .map_err(|error| format!("{}: {error}", manifest_path.display()))?;
+    dpl_tools_deps::write_manifest(&tools_root, &manifest)?;
 
     let resolver = dpl_tools_deps::Resolver::from_release_root(release_root)
         .map_err(|error| format!("staged bundle rejected: {error}"))?;
@@ -843,40 +797,6 @@ fn validate_source_relative_path(field: &str, value: &Path) -> Result<(), String
     }
 }
 
-fn copy_tool_tree(source: &Path, destination: &Path) -> Result<(), String> {
-    fs::create_dir_all(destination)
-        .map_err(|error| format!("{}: {error}", destination.display()))?;
-    let mut entries = fs::read_dir(source)
-        .map_err(|error| format!("{}: {error}", source.display()))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| format!("{}: {error}", source.display()))?;
-    entries.sort_by_key(std::fs::DirEntry::file_name);
-    for entry in entries {
-        let file_type = entry
-            .file_type()
-            .map_err(|error| format!("{}: {error}", entry.path().display()))?;
-        if file_type.is_symlink() {
-            return Err(format!(
-                "{}: tool trees cannot contain symlinks",
-                entry.path().display()
-            ));
-        }
-        let target = destination.join(entry.file_name());
-        if file_type.is_dir() {
-            copy_tool_tree(&entry.path(), &target)?;
-        } else if file_type.is_file() {
-            fs::copy(entry.path(), &target).map_err(|error| {
-                format!(
-                    "copy {} -> {}: {error}",
-                    entry.path().display(),
-                    target.display()
-                )
-            })?;
-        }
-    }
-    Ok(())
-}
-
 fn dependency_id(id: &str) -> Option<dpl_tools_deps::DependencyId> {
     match id {
         "codex" => Some(dpl_tools_deps::CODEX),
@@ -886,10 +806,6 @@ fn dependency_id(id: &str) -> Option<dpl_tools_deps::DependencyId> {
         "pdftoppm" => Some(dpl_tools_deps::PDFTOPPM),
         _ => None,
     }
-}
-
-fn dependency_file_name(id: &str) -> String {
-    format!("{id}{}", std::env::consts::EXE_SUFFIX)
 }
 
 fn verify_staged_version(id: &str, expected: &str, executable: &Path) -> Result<(), String> {

@@ -32,7 +32,7 @@ use std::thread;
 pub const APP_SERVER_ARGS: &[&str] = &["app-server"];
 
 /// The CLI the vendored schema under `schema/` was generated from.
-pub const PINNED_CLI_VERSION: &str = "0.146.0-alpha.3.1";
+pub const PINNED_CLI_VERSION: &str = "0.163.0";
 
 /// Every method this adapter calls. Pinned so a Codex upgrade that removes
 /// one fails a TEST with the method's name, rather than a turn that hangs.
@@ -49,6 +49,23 @@ pub const NOTIFICATIONS_MAPPED: &[&str] = &[
     "item/reasoning/summaryTextDelta",
     "thread/tokenUsage/updated",
     "error",
+];
+
+/// Every request the SERVER may send that this adapter answers. A server
+/// request left unanswered stalls the turn that asked it, so each one gets a
+/// response: the approval kinds become the operator's Approve / Deny card,
+/// and the rest are refused by name.
+pub const SERVER_REQUESTS_HANDLED: &[&str] = &[
+    "item/commandExecution/requestApproval",
+    "item/fileChange/requestApproval",
+    "item/permissions/requestApproval",
+    "applyPatchApproval",
+    "execCommandApproval",
+    "item/tool/call",
+    "item/tool/requestUserInput",
+    "mcpServer/elicitation/request",
+    "attestation/generate",
+    "account/chatgptAuthTokens/refresh",
 ];
 
 /// A frame going out, before it is given a JSON-RPC id.
@@ -867,5 +884,14 @@ mod tests {
                 "{notification} is gone from the pinned schema ({PINNED_CLI_VERSION})"
             );
         }
+    }
+
+    /// The constant and the vendored files move together: `vendor-schema`
+    /// writes `VERSION`, and this is what keeps the code from claiming a
+    /// different build than the schema it was checked against.
+    #[test]
+    fn the_pinned_version_is_the_version_the_schema_came_from() {
+        let vendored = include_str!("../schema/VERSION").trim();
+        assert_eq!(vendored, format!("codex-cli {PINNED_CLI_VERSION}"));
     }
 }

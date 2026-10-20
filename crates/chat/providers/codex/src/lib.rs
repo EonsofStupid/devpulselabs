@@ -8,6 +8,7 @@
 //! different environments.
 
 mod activation;
+pub mod adoption;
 pub mod runtime;
 
 pub use activation::{

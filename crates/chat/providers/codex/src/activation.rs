@@ -7,8 +7,12 @@ use std::process::{Child, Command, ExitStatus, Output, Stdio};
 
 pub const SETUP_URL: &str = "https://developers.openai.com/codex/";
 
-const MINIMUM_VERSION: CodexVersion = CodexVersion::new(0, 145, 0);
-const EXCLUSIVE_MAXIMUM_VERSION: CodexVersion = CodexVersion::new(0, 146, 0);
+/// The oldest Codex this adapter runs: the build its vendored schema came
+/// from (`runtime::PINNED_CLI_VERSION`). An older build may lack a method the
+/// adapter calls. There is no maximum: a newer build is admitted when its own
+/// schema still declares everything the adapter uses (`adoption`), so an
+/// update needs no code change unless the protocol really moved.
+const MINIMUM_VERSION: CodexVersion = CodexVersion::new(0, 163, 0);
 const MAX_STATUS_BYTES: usize = 512;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -41,7 +45,7 @@ impl CodexVersion {
     }
 
     pub const fn is_activation_supported(self) -> bool {
-        version_at_least(self, MINIMUM_VERSION) && version_before(self, EXCLUSIVE_MAXIMUM_VERSION)
+        version_at_least(self, MINIMUM_VERSION)
     }
 }
 
@@ -50,13 +54,6 @@ const fn version_at_least(value: CodexVersion, minimum: CodexVersion) -> bool {
         || (value.major == minimum.major
             && (value.minor > minimum.minor
                 || (value.minor == minimum.minor && value.patch >= minimum.patch)))
-}
-
-const fn version_before(value: CodexVersion, maximum: CodexVersion) -> bool {
-    value.major < maximum.major
-        || (value.major == maximum.major
-            && (value.minor < maximum.minor
-                || (value.minor == maximum.minor && value.patch < maximum.patch)))
 }
 
 impl fmt::Display for CodexVersion {
@@ -124,7 +121,7 @@ impl fmt::Display for CodexDiscoveryError {
             }
             Self::VersionUnsupported(version) => write!(
                 f,
-                "Codex {version} is outside the activation-qualified range >= {MINIMUM_VERSION}, < {EXCLUSIVE_MAXIMUM_VERSION}"
+                "Codex {version} is older than {MINIMUM_VERSION}, the build this adapter was checked against"
             ),
         }
     }
@@ -541,7 +538,7 @@ fn discover_executable() -> Result<PathBuf, CodexDiscoveryError> {
         .map_err(|error| CodexDiscoveryError::EmbeddedDependency(error.to_string()))
 }
 
-fn probe_version(
+pub(crate) fn probe_version(
     executable: &Path,
     working_directory: &Path,
 ) -> Result<CodexVersion, CodexDiscoveryError> {
@@ -794,12 +791,20 @@ mod tests {
     #[test]
     fn versions_and_login_status_are_fail_closed() {
         assert_eq!(
-            CodexVersion::parse("codex-cli 0.145.0-alpha.18"),
+            CodexVersion::parse("codex-cli 0.163.0"),
             Some(MINIMUM_VERSION)
         );
+        assert_eq!(
+            CodexVersion::parse(crate::runtime::PINNED_CLI_VERSION),
+            Some(MINIMUM_VERSION),
+            "the minimum is the build the vendored schema came from"
+        );
         assert!(MINIMUM_VERSION.is_activation_supported());
-        assert!(!CodexVersion::new(0, 144, 9).is_activation_supported());
-        assert!(!CodexVersion::new(0, 146, 0).is_activation_supported());
+        assert!(!CodexVersion::new(0, 145, 0).is_activation_supported());
+        assert!(
+            CodexVersion::new(0, 164, 0).is_activation_supported(),
+            "a newer build is admitted by the protocol check, not refused by a range"
+        );
         assert_eq!(
             parse_login_status("Logged in using ChatGPT"),
             Some(CodexLoginStatus::ChatGpt)
