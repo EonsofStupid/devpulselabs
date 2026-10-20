@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://devpulselabs.local/schemas/role.v1.schema.json",
+  "title": "dpl.role/1 — one role a participant plays in a chat room",
+  "description": "Defined by method and output contract, never by persona (docs/research/chat-rooms-and-roles.md §1.3). A new role is a new file.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "id",
+    "version",
+    "name",
+    "summary",
+    "purpose",
+    "stance",
+    "method",
+    "instructions",
+    "must_not",
+    "output_contract",
+    "rubric",
+    "speaks_when",
+    "visibility",
+    "permissions",
+    "model_prefs",
+    "budget",
+    "tags",
+    "provenance"
+  ],
+  "properties": {
+    "schema": { "const": "dpl.role/1" },
+    "id": {
+      "description": "Stable kebab-case key.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+    },
+    "version": {
+      "description": "Semver; a breaking change bumps the major.",
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "name": { "type": "string", "minLength": 1, "maxLength": 40 },
+    "summary": {
+      "description": "One line a router or selector uses to pick this seat.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "purpose": { "description": "The job.", "type": "string", "minLength": 1 },
+    "stance": {
+      "enum": ["generate", "ground", "critique", "adversarial", "plan", "select"]
+    },
+    "method": {
+      "description": "The named technique and its steps.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "steps"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "instructions": {
+      "description": "The role's prompt. No backstory padding: personas add nothing.",
+      "type": "string",
+      "minLength": 1
+    },
+    "must_not": {
+      "description": "Hard limits.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "output_contract": {
+      "description": "JSON Schema of what the role must produce.",
+      "type": "object"
+    },
+    "rubric": {
+      "description": "Pass/fail criteria its output is scored against.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "speaks_when": {
+      "description": "The room phases or triggers it answers in.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "visibility": {
+      "description": "What it sees of its peers before it answers.",
+      "enum": ["none", "anonymized", "full"]
+    },
+    "permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["talk_only", "tools_allowed"],
+      "properties": {
+        "talk_only": {
+          "description": "No tools, no files: the role only answers.",
+          "type": "boolean"
+        },
+        "tools_allowed": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "model_prefs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["avoid_same_vendor_as"],
+      "properties": {
+        "preferred_vendors": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "avoid_same_vendor_as": {
+          "description": "Role ids whose vendor this seat must differ from (a critic never shares the author's vendor).",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "effort": { "enum": ["low", "medium", "high"] }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_turns"],
+      "properties": {
+        "max_turns": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "max_output_tokens": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "examples": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "parameters": {
+      "description": "Values a room fills in (e.g. a domain expert's domain).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "description"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "description": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "provenance": {
+      "description": "Where the role comes from and how strong the evidence is.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sources", "evidence"],
+      "properties": {
+        "sources": {
+          "description": "Reference keys in docs/research/chat-rooms-and-roles.md ([n] or a lettered key).",
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "pattern": "^([0-9]+|[A-Z][0-9]+)$" }
+        },
+        "evidence": { "enum": ["strong", "moderate", "practice"] },
+        "note": { "type": "string" }
+      }
+    }
+  }
+}

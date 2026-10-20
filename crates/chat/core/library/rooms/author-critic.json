@@ -1,0 +1,85 @@
+{
+  "schema": "dpl.room/1",
+  "id": "author-critic",
+  "version": "1.0.0",
+  "name": "Author + Critic",
+  "type": "author-critic",
+  "summary": "An author drafts, a critic from another vendor finds defects, up to three rounds; the best draft is selected.",
+  "seats": [
+    {
+      "seat": "author",
+      "role": "domain-expert@1",
+      "count": 1,
+      "parameters": {
+        "domain": "the operator's task"
+      }
+    },
+    {
+      "seat": "critic",
+      "role": "skeptic@1",
+      "count": 1
+    },
+    {
+      "seat": "selector",
+      "role": "selector@1",
+      "count": 1
+    }
+  ],
+  "phases": [
+    {
+      "name": "draft",
+      "seats": [
+        "author"
+      ],
+      "mode": "sequential",
+      "visibility": "full",
+      "max_turns": 1
+    },
+    {
+      "name": "critique",
+      "seats": [
+        "critic"
+      ],
+      "mode": "sequential",
+      "visibility": "full",
+      "max_turns": 1
+    },
+    {
+      "name": "select",
+      "seats": [
+        "selector"
+      ],
+      "mode": "sequential",
+      "visibility": "anonymized",
+      "max_turns": 1
+    }
+  ],
+  "turn_policy": "fixed",
+  "stop": {
+    "max_rounds": 3,
+    "pass_threshold": true
+  },
+  "selection": {
+    "method": "judge",
+    "seat": "selector",
+    "blind": true,
+    "swap_order": true,
+    "exclude_author_vendors": true,
+    "allow_none": false
+  },
+  "carry_forward": "structured-outputs",
+  "record": [
+    "winner",
+    "runner-up",
+    "rationale"
+  ],
+  "provenance": {
+    "sources": [
+      "26",
+      "24",
+      "11"
+    ],
+    "evidence": "moderate",
+    "note": "A later draft is not always better [11], so every draft is a candidate."
+  }
+}

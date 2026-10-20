@@ -1,0 +1,59 @@
+{
+  "schema": "dpl.room/1",
+  "id": "router",
+  "version": "1.0.0",
+  "name": "Router",
+  "type": "router",
+  "summary": "The Planner sends the question to the one best-suited seat; a hard question escalates to a Council.",
+  "seats": [
+    {
+      "seat": "router",
+      "role": "planner@1",
+      "count": 1
+    },
+    {
+      "seat": "expert",
+      "role": "domain-expert@1",
+      "count": 3,
+      "parameters": {
+        "domain": "the operator's question"
+      }
+    }
+  ],
+  "phases": [
+    {
+      "name": "route",
+      "seats": [
+        "router"
+      ],
+      "mode": "sequential",
+      "visibility": "full",
+      "max_turns": 1
+    },
+    {
+      "name": "answer",
+      "seats": [
+        "expert"
+      ],
+      "mode": "sequential",
+      "visibility": "full",
+      "max_turns": 1
+    }
+  ],
+  "turn_policy": "router",
+  "stop": {
+    "max_rounds": 1
+  },
+  "carry_forward": "full-transcript",
+  "record": [
+    "rationale"
+  ],
+  "provenance": {
+    "sources": [
+      "26",
+      "30",
+      "36"
+    ],
+    "evidence": "practice"
+  }
+}

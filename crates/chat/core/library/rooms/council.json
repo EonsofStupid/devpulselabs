@@ -1,0 +1,73 @@
+{
+  "schema": "dpl.room/1",
+  "id": "council",
+  "version": "1.0.0",
+  "name": "Council",
+  "type": "council",
+  "summary": "Everyone answers blind; a Selector from another vendor picks one answer. The strongest evidence of any room.",
+  "seats": [
+    {
+      "seat": "answerer",
+      "role": "domain-expert@1",
+      "count": 3,
+      "parameters": {
+        "domain": "the operator's question"
+      }
+    },
+    {
+      "seat": "selector",
+      "role": "selector@1",
+      "count": 1
+    }
+  ],
+  "phases": [
+    {
+      "name": "answer",
+      "seats": [
+        "answerer"
+      ],
+      "mode": "parallel",
+      "visibility": "none",
+      "max_turns": 1
+    },
+    {
+      "name": "select",
+      "seats": [
+        "selector"
+      ],
+      "mode": "sequential",
+      "visibility": "anonymized",
+      "max_turns": 1
+    }
+  ],
+  "turn_policy": "fixed",
+  "stop": {
+    "max_rounds": 1
+  },
+  "selection": {
+    "method": "judge",
+    "seat": "selector",
+    "blind": true,
+    "swap_order": true,
+    "exclude_author_vendors": true,
+    "allow_none": true
+  },
+  "carry_forward": "structured-outputs",
+  "record": [
+    "winner",
+    "runner-up",
+    "rationale",
+    "dissent"
+  ],
+  "provenance": {
+    "sources": [
+      "8",
+      "7",
+      "17",
+      "6",
+      "40"
+    ],
+    "evidence": "strong",
+    "note": "Karpathy's council synthesizes [6]; this one selects."
+  }
+}

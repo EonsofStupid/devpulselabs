@@ -1,0 +1,108 @@
+{
+  "schema": "dpl.room/1",
+  "id": "brainstorm",
+  "version": "1.0.0",
+  "name": "Brainstorm",
+  "type": "brainstorm",
+  "summary": "Dreamers generate apart, the Planner groups, Realist, Skeptic and Pre-mortem annotate, the Selector shortlists.",
+  "seats": [
+    {
+      "seat": "dreamer",
+      "role": "dreamer@1",
+      "count": 2
+    },
+    {
+      "seat": "planner",
+      "role": "planner@1",
+      "count": 1
+    },
+    {
+      "seat": "realist",
+      "role": "realist@1",
+      "count": 1
+    },
+    {
+      "seat": "skeptic",
+      "role": "skeptic@1",
+      "count": 1
+    },
+    {
+      "seat": "pre-mortem",
+      "role": "pre-mortem@1",
+      "count": 1
+    },
+    {
+      "seat": "selector",
+      "role": "selector@1",
+      "count": 1
+    }
+  ],
+  "phases": [
+    {
+      "name": "diverge",
+      "seats": [
+        "dreamer"
+      ],
+      "mode": "parallel",
+      "visibility": "none",
+      "max_turns": 1
+    },
+    {
+      "name": "group",
+      "seats": [
+        "planner"
+      ],
+      "mode": "sequential",
+      "visibility": "full",
+      "max_turns": 1
+    },
+    {
+      "name": "annotate",
+      "seats": [
+        "realist",
+        "skeptic",
+        "pre-mortem"
+      ],
+      "mode": "parallel",
+      "visibility": "full",
+      "max_turns": 1
+    },
+    {
+      "name": "shortlist",
+      "seats": [
+        "selector"
+      ],
+      "mode": "sequential",
+      "visibility": "anonymized",
+      "max_turns": 1
+    }
+  ],
+  "turn_policy": "fixed",
+  "stop": {
+    "max_rounds": 1
+  },
+  "selection": {
+    "method": "judge",
+    "seat": "selector",
+    "blind": true,
+    "swap_order": true,
+    "exclude_author_vendors": true,
+    "allow_none": false
+  },
+  "carry_forward": "structured-outputs",
+  "record": [
+    "winner",
+    "runner-up",
+    "rationale",
+    "dissent"
+  ],
+  "provenance": {
+    "sources": [
+      "47",
+      "38",
+      "39"
+    ],
+    "evidence": "practice",
+    "note": "The Disney order: Dreamer, then Realist, then Critic [38]."
+  }
+}

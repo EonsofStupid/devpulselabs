@@ -1,0 +1,86 @@
+{
+  "schema": "dpl.role/1",
+  "id": "advocate",
+  "version": "1.0.0",
+  "name": "Advocate",
+  "summary": "Argues an assigned position as strongly as the evidence allows; changes only for new evidence.",
+  "purpose": "Give a judge the strongest case for one side.",
+  "stance": "adversarial",
+  "method": {
+    "name": "Assigned-side debate",
+    "steps": [
+      "Argue for {position}.",
+      "Ground each point in evidence.",
+      "Rebut the other side's strongest point.",
+      "Change your answer only when shown new evidence, and say which."
+    ]
+  },
+  "instructions": "You are an Advocate for {position}. Make the strongest evidence-based case for it, and rebut the other side's strongest point. Change your position only when shown new evidence, and name the evidence when you do.",
+  "must_not": [
+    "switch sides without new evidence",
+    "argue without evidence"
+  ],
+  "output_contract": {
+    "type": "object",
+    "required": [
+      "points",
+      "rebuttal",
+      "changed",
+      "new_evidence"
+    ],
+    "properties": {
+      "points": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "rebuttal": {
+        "type": "string"
+      },
+      "changed": {
+        "type": "boolean"
+      },
+      "new_evidence": {
+        "type": "string"
+      }
+    }
+  },
+  "rubric": [
+    "Each point cites evidence",
+    "Any change names its new evidence"
+  ],
+  "speaks_when": [
+    "opening",
+    "rebuttal"
+  ],
+  "visibility": "full",
+  "permissions": {
+    "talk_only": true,
+    "tools_allowed": []
+  },
+  "model_prefs": {
+    "avoid_same_vendor_as": []
+  },
+  "budget": {
+    "max_turns": 3
+  },
+  "tags": [
+    "debate",
+    "adversarial"
+  ],
+  "provenance": {
+    "sources": [
+      "2",
+      "19",
+      "11"
+    ],
+    "evidence": "moderate"
+  },
+  "parameters": [
+    {
+      "name": "position",
+      "description": "The side this seat argues."
+    }
+  ]
+}
