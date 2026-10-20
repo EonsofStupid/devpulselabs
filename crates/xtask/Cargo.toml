@@ -7,6 +7,9 @@ description = "Workspace automation (the cargo-xtask pattern): `cargo green` is 
 
 [dependencies]
 dpl-tools-deps.workspace = true
+# `adopt-tool codex`: the adapter proves a candidate (signature, version,
+# protocol) with the same checks the app runs before an in-app update.
+dpl-chat-codex.workspace = true
 # The smoke phase decodes what the renderers actually PRODUCED. Counting
 # opaque pixels is the whole point: three separate failures shipped behind an
 # exit code of 0, and only the pixels would have caught them.

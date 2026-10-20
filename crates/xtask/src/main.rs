@@ -9,6 +9,13 @@
 //!      stale-exe killer.
 //!
 //! `cargo xtask fix` = fmt + clippy --fix (the tidy loop).
+//! `cargo xtask adopt-tool codex <codex.exe>` = prove the operator's official
+//!   Codex (OpenAI's signature, its version, its protocol) and make it the
+//!   central depot's Codex, by pointing `dptools-deps/sources.local.toml` at
+//!   a copy beside the current one.
+//! `cargo xtask update-tool-deps <release-root>` = bring an existing staged
+//!   depot up to `sources.local.toml` in place (one tool at a time, verified,
+//!   the replaced version deleted).
 //! `cargo xtask dev [-- <app flags>]` = the dev run: the debug app and its
 //!   helpers, the tool depot beside the debug exe, launched detached on the
 //!   operator's library (R278).
@@ -459,22 +466,11 @@ struct DependencySource {
     entrypoint: Option<PathBuf>,
 }
 
-fn stage_tool_dependencies(arguments: &[String]) -> Result<(), String> {
-    let release_root = arguments.first().ok_or_else(|| {
-        "stage-tool-deps requires a new release root; optional second argument is the source TOML"
-            .to_owned()
-    })?;
-    let release_root = Path::new(release_root);
-    let sources_path = arguments
-        .get(1)
-        .map_or_else(|| Path::new("dptools-deps/sources.local.toml"), Path::new);
-    if release_root.join(dpl_tools_deps::TOOLS_DIRECTORY).exists() {
-        return Err(format!(
-            "{} already contains dptools-deps; choose a new release root",
-            release_root.display()
-        ));
-    }
-
+/// This machine's tool sources for the current target, validated: one per
+/// tool, absolute, a file or an entrypointed tree, and the required tools
+/// present. Shared by `stage-tool-deps` (a new bundle) and
+/// `update-tool-deps` (an existing one, in place).
+fn read_tool_sources(sources_path: &Path) -> Result<Vec<DependencySource>, String> {
     let sources_text = fs::read_to_string(sources_path)
         .map_err(|error| format!("{}: {error}", sources_path.display()))?;
     let sources: DependencySources = toml::from_str(&sources_text)
@@ -490,7 +486,7 @@ fn stage_tool_dependencies(arguments: &[String]) -> Result<(), String> {
     let target = dpl_tools_deps::current_target();
     let selected = sources
         .dependency
-        .iter()
+        .into_iter()
         .filter(|dependency| dependency.target == target)
         .collect::<Vec<_>>();
     if selected.is_empty() {
@@ -572,6 +568,239 @@ fn stage_tool_dependencies(arguments: &[String]) -> Result<(), String> {
             ));
         }
     }
+
+    Ok(selected)
+}
+
+/// `cargo xtask adopt-tool codex <codex.exe>`.
+///
+/// The executable's whole folder is proven (OpenAI's signature on every
+/// file, its version, its own protocol schema) and copied into the central
+/// artifacts store beside the Codex `sources.local.toml` names today. The
+/// old artifact stays: that store is outside the repo and is the
+/// operator's. Staged depots follow with `update-tool-deps`.
+fn adopt_tool(arguments: &[String]) -> Result<(), String> {
+    let [tool, executable] = arguments else {
+        return Err(
+            "adopt-tool requires a tool and its executable: adopt-tool codex <codex.exe>"
+                .to_owned(),
+        );
+    };
+    if tool != "codex" {
+        return Err(format!("`{tool}` cannot be adopted yet; only codex can"));
+    }
+    let verified = dpl_chat_codex::adoption::verify(
+        Path::new(executable),
+        &dpl_chat_codex::adoption::SystemInspector,
+    )
+    .map_err(|error| error.to_string())?;
+    let version = verified.version.to_string();
+    println!("verified Codex {version}: every file signed by OpenAI, the protocol intact");
+
+    let sources_path = Path::new("dptools-deps/sources.local.toml");
+    let current = read_tool_sources(sources_path)?
+        .into_iter()
+        .find(|source| source.id == "codex")
+        .ok_or_else(|| format!("{} names no codex", sources_path.display()))?;
+    let current_version_folder = if current.source.is_dir() {
+        current.source.clone()
+    } else {
+        current
+            .source
+            .parent()
+            .ok_or_else(|| format!("{} has no folder", current.source.display()))?
+            .to_path_buf()
+    };
+    let store = current_version_folder.parent().ok_or_else(|| {
+        format!(
+            "{} has no artifacts folder above it",
+            current_version_folder.display()
+        )
+    })?;
+    let destination = store.join(&version);
+    fs::create_dir_all(&destination)
+        .map_err(|error| format!("{}: {error}", destination.display()))?;
+    let entries = fs::read_dir(&verified.folder)
+        .map_err(|error| format!("{}: {error}", verified.folder.display()))?;
+    for entry in entries
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().is_file())
+    {
+        let target = destination.join(entry.file_name());
+        fs::copy(entry.path(), &target).map_err(|error| {
+            format!(
+                "copy {} -> {}: {error}",
+                entry.path().display(),
+                target.display()
+            )
+        })?;
+    }
+    let text = fs::read_to_string(sources_path)
+        .map_err(|error| format!("{}: {error}", sources_path.display()))?;
+    let rewritten = rewrite_source_entry(
+        &text,
+        &SourceEntry {
+            id: "codex",
+            target: dpl_tools_deps::current_target(),
+            version: &version,
+            source: &destination,
+            entrypoint: &verified.entrypoint,
+        },
+    )?;
+    fs::write(sources_path, rewritten)
+        .map_err(|error| format!("{}: {error}", sources_path.display()))?;
+    println!(
+        "{} now names Codex {version} at {}",
+        sources_path.display(),
+        destination.display()
+    );
+    println!("next: cargo xtask update-tool-deps target/debug (and target/release)");
+    Ok(())
+}
+
+/// The values one `[[dependency]]` block is rewritten to.
+struct SourceEntry<'a> {
+    id: &'a str,
+    target: &'a str,
+    version: &'a str,
+    source: &'a Path,
+    entrypoint: &'a Path,
+}
+
+/// Rewrite one `[[dependency]]` block of a sources TOML in place, keeping
+/// every comment and every other block exactly as written.
+fn rewrite_source_entry(text: &str, entry: &SourceEntry<'_>) -> Result<String, String> {
+    let quoted = |key: &str, value: &str| format!("{key} = \"{value}\"");
+    let mut blocks: Vec<String> = text.split("[[dependency]]").map(str::to_owned).collect();
+    let position = blocks
+        .iter()
+        .skip(1)
+        .position(|block| {
+            block
+                .lines()
+                .any(|line| line.trim() == quoted("id", entry.id))
+                && block
+                    .lines()
+                    .any(|line| line.trim() == quoted("target", entry.target))
+        })
+        .map(|index| index + 1)
+        .ok_or_else(|| format!("no [[dependency]] for {} on {}", entry.id, entry.target))?;
+    let source_text = entry.source.to_string_lossy().replace('\\', "/");
+    let entrypoint_text = entry.entrypoint.to_string_lossy().replace('\\', "/");
+    let block = &blocks[position];
+    let mut lines: Vec<String> = Vec::new();
+    for line in block.lines() {
+        match line.split('=').next().unwrap_or_default().trim() {
+            "version" => lines.push(quoted("version", entry.version)),
+            "source" => lines.push(quoted("source", &source_text)),
+            "entrypoint" => {}
+            _ => lines.push(line.to_owned()),
+        }
+    }
+    let at = lines
+        .iter()
+        .rposition(|line| line.trim_start().starts_with("source ="))
+        .ok_or_else(|| format!("the {} entry has no source line", entry.id))?;
+    lines.insert(at + 1, quoted("entrypoint", &entrypoint_text));
+    let mut rebuilt = lines.join("\n");
+    if block.ends_with('\n') {
+        rebuilt.push('\n');
+    }
+    blocks[position] = rebuilt;
+    Ok(blocks.join("[[dependency]]"))
+}
+
+/// `cargo xtask update-tool-deps <release-root>`: bring an EXISTING staged
+/// depot up to `sources.local.toml`, one tool at a time, through the same
+/// verified in-place install the app uses for "Update".
+fn update_tool_dependencies(arguments: &[String]) -> Result<(), String> {
+    let release_root = arguments
+        .first()
+        .ok_or_else(|| "update-tool-deps requires an existing release root".to_owned())?;
+    let tools_root = Path::new(release_root).join(dpl_tools_deps::TOOLS_DIRECTORY);
+    let staged = dpl_tools_deps::Resolver::from_tools_root(&tools_root)
+        .map_err(|error| {
+            format!(
+                "{} is not a staged depot ({error}); stage it with stage-tool-deps",
+                tools_root.display()
+            )
+        })?
+        .manifest()
+        .clone();
+    let sources = read_tool_sources(Path::new("dptools-deps/sources.local.toml"))?;
+    for source in &sources {
+        let current = staged
+            .dependencies
+            .iter()
+            .find(|dependency| dependency.id == source.id)
+            .map(|dependency| dependency.version.clone());
+        if current.as_deref() == Some(source.version.as_str()) {
+            println!("{} {} is current", source.id, source.version);
+            continue;
+        }
+        let id = dependency_id(&source.id)
+            .ok_or_else(|| format!("unsupported DevPULSE tool `{}`", source.id))?;
+        let installed = dpl_tools_deps::install_tool(
+            &tools_root,
+            &dpl_tools_deps::ToolSource {
+                id,
+                version: &source.version,
+                path: &source.source,
+                entrypoint: source.entrypoint.as_deref(),
+            },
+        )?;
+        verify_staged_version(
+            &source.id,
+            &source.version,
+            &tools_root.join(&installed.entry.path),
+        )?;
+        println!(
+            "updated {} {} -> {}",
+            source.id,
+            installed.replaced.as_deref().unwrap_or("(none)"),
+            source.version
+        );
+        if let Some(folder) = installed.left_behind {
+            println!(
+                "note: {} is still in use and stays until the next update",
+                folder.display()
+            );
+        }
+    }
+    let resolver = dpl_tools_deps::Resolver::from_tools_root(&tools_root)
+        .map_err(|error| format!("updated depot rejected: {error}"))?;
+    for dependency in &resolver.manifest().dependencies {
+        let id = dependency_id(&dependency.id)
+            .ok_or_else(|| format!("staged unknown tool `{}`", dependency.id))?;
+        resolver
+            .resolve(id)
+            .map_err(|error| format!("`{id}` rejected: {error}"))?;
+    }
+    println!(
+        "DevPULSE tool depot verified - root: {}",
+        tools_root.display()
+    );
+    Ok(())
+}
+
+fn stage_tool_dependencies(arguments: &[String]) -> Result<(), String> {
+    let release_root = arguments.first().ok_or_else(|| {
+        "stage-tool-deps requires a new release root; optional second argument is the source TOML"
+            .to_owned()
+    })?;
+    let release_root = Path::new(release_root);
+    let sources_path = arguments
+        .get(1)
+        .map_or_else(|| Path::new("dptools-deps/sources.local.toml"), Path::new);
+    if release_root.join(dpl_tools_deps::TOOLS_DIRECTORY).exists() {
+        return Err(format!(
+            "{} already contains dptools-deps; choose a new release root",
+            release_root.display()
+        ));
+    }
+
+    let selected = read_tool_sources(sources_path)?;
+    let target = dpl_tools_deps::current_target();
 
     let tools_root = release_root.join(dpl_tools_deps::TOOLS_DIRECTORY);
     fs::create_dir_all(&tools_root)
@@ -1864,6 +2093,8 @@ fn main() -> ExitCode {
         // is that it catches what three commits already got wrong.
         "lock" => lock_audit(),
         "stage-tool-deps" => stage_tool_dependencies(&arguments),
+        "adopt-tool" => adopt_tool(&arguments),
+        "update-tool-deps" => update_tool_dependencies(&arguments),
         // The dev run (R278): develop on a running
         // debug app, not only the release exe.
         "dev" => dev(&arguments),
@@ -1880,7 +2111,7 @@ fn main() -> ExitCode {
             )
         }),
         other => Err(format!(
-            "unknown task \"{other}\" — tasks: green, sweep, docs-status, structure, coverage, smoke, lock, stage-tool-deps, dev, fix"
+            "unknown task \"{other}\" — tasks: green, sweep, docs-status, structure, coverage, smoke, lock, stage-tool-deps, adopt-tool, update-tool-deps, dev, fix"
         )),
     };
     match result {
@@ -1889,6 +2120,51 @@ fn main() -> ExitCode {
             eprintln!("xtask: {e}");
             ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+mod source_entry_tests {
+    use super::{rewrite_source_entry, SourceEntry};
+    use std::path::Path;
+
+    const SOURCES: &str = "schema = 1\n\n# the operator's note\n\n[[dependency]]\nid = \"codex\"\nfamily = \"provider\"\nversion = \"0.145.0-alpha.18\"\ntarget = \"x86_64-pc-windows-msvc\"\nsource = \"D:/depot/codex/0.145.0-alpha.18/codex.exe\"\n\n[[dependency]]\nid = \"grok\"\nfamily = \"provider\"\nversion = \"0.2.112\"\ntarget = \"x86_64-pc-windows-msvc\"\nsource = \"D:/depot/grok/0.2.112/grok.exe\"\n";
+
+    #[test]
+    fn adopting_rewrites_only_its_own_entry_and_keeps_comments() {
+        let rewritten = rewrite_source_entry(
+            SOURCES,
+            &SourceEntry {
+                id: "codex",
+                target: "x86_64-pc-windows-msvc",
+                version: "0.163.0",
+                source: Path::new("D:/depot/codex/0.163.0"),
+                entrypoint: Path::new("codex.exe"),
+            },
+        )
+        .expect("rewritten");
+        assert!(rewritten.contains("# the operator's note"));
+        assert!(rewritten.contains("version = \"0.163.0\"\ntarget = \"x86_64-pc-windows-msvc\"\nsource = \"D:/depot/codex/0.163.0\"\nentrypoint = \"codex.exe\""));
+        assert!(
+            rewritten.contains("source = \"D:/depot/grok/0.2.112/grok.exe\""),
+            "grok is untouched"
+        );
+        assert!(!rewritten.contains("0.145.0-alpha.18"));
+    }
+
+    #[test]
+    fn a_tool_that_is_not_listed_is_an_error() {
+        assert!(rewrite_source_entry(
+            SOURCES,
+            &SourceEntry {
+                id: "claude",
+                target: "x86_64-pc-windows-msvc",
+                version: "2.1.296",
+                source: Path::new("D:/depot/claude"),
+                entrypoint: Path::new("claude.exe"),
+            },
+        )
+        .is_err());
     }
 }
 
