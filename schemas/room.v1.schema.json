@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://devpulselabs.local/schemas/room.v1.schema.json",
+  "title": "dpl.room/1 — a room: who sits in it, in what order they speak, and how one answer is chosen",
+  "description": "Select, never blend (R25): a room with a selection names a Selector seat (docs/research/chat-rooms-and-roles.md §1.5).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "id",
+    "version",
+    "name",
+    "type",
+    "summary",
+    "seats",
+    "phases",
+    "turn_policy",
+    "stop",
+    "carry_forward",
+    "record",
+    "provenance"
+  ],
+  "properties": {
+    "schema": { "const": "dpl.room/1" },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 40 },
+    "type": { "enum": ["council", "debate", "author-critic", "router", "brainstorm"] },
+    "summary": { "type": "string", "minLength": 1, "maxLength": 240 },
+    "seats": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["seat", "role", "count"],
+        "properties": {
+          "seat": {
+            "description": "The seat's name in this room; phases refer to it.",
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+          },
+          "role": {
+            "description": "role-id@major (e.g. skeptic@1).",
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*@[0-9]+$"
+          },
+          "count": { "type": "integer", "minimum": 1, "maximum": 6 },
+          "parameters": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          }
+        }
+      }
+    },
+    "phases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "seats", "mode", "visibility", "max_turns"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$" },
+          "seats": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string" }
+          },
+          "mode": { "enum": ["parallel", "sequential"] },
+          "visibility": { "enum": ["none", "anonymized", "full"] },
+          "max_turns": { "type": "integer", "minimum": 1, "maximum": 10 }
+        }
+      }
+    },
+    "turn_policy": { "enum": ["fixed", "round-robin", "selector", "router"] },
+    "stop": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_rounds"],
+      "properties": {
+        "max_rounds": { "type": "integer", "minimum": 1, "maximum": 10 },
+        "budget_tokens": { "type": "integer", "minimum": 1 },
+        "stability": {
+          "description": "Stop when no answer changed in a round.",
+          "type": "boolean"
+        },
+        "pass_threshold": {
+          "description": "Stop when the rubric passes.",
+          "type": "boolean"
+        }
+      }
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "seat", "blind", "swap_order", "exclude_author_vendors", "allow_none"],
+      "properties": {
+        "method": { "enum": ["judge", "panel", "vote", "human"] },
+        "seat": { "description": "The Selector's seat.", "type": "string" },
+        "blind": { "type": "boolean" },
+        "swap_order": {
+          "description": "Judge in both orders; a disagreement is a tie or a rerun.",
+          "type": "boolean"
+        },
+        "exclude_author_vendors": { "type": "boolean" },
+        "allow_none": {
+          "description": "\"None passes\" is a valid outcome.",
+          "type": "boolean"
+        }
+      }
+    },
+    "carry_forward": {
+      "description": "What passes from one phase to the next.",
+      "enum": ["structured-outputs", "full-transcript"]
+    },
+    "record": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "enum": ["winner", "runner-up", "rationale", "dissent", "flips"] }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sources", "evidence"],
+      "properties": {
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "pattern": "^([0-9]+|[A-Z][0-9]+)$" }
+        },
+        "evidence": { "enum": ["strong", "moderate", "practice"] },
+        "note": { "type": "string" }
+      }
+    }
+  }
+}

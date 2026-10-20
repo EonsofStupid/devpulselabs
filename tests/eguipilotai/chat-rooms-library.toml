@@ -1,0 +1,99 @@
+# RM1: the Rooms & roles library on the real app. The proof preset
+# `library` opens it at boot, so this scenario only reads: no clicks and no
+# focus-viewport (a raised window would take the operator's keyboard). The
+# button that opens it is proven by the window's kittest
+# `rooms_and_roles_opens_the_library_and_names_every_builtin`. The filter
+# chips live under `filter/`: a "Council" chip and the Council room once
+# shared `room/council`, which the pilot runtime refuses.
+id = "chat-rooms-library"
+fixture = "chat-library"
+record = true
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "open"
+
+[steps.expectation.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "wait"
+milliseconds = 750
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.library/back"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.library/folder"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.library/filter/room/all"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.library/filter/stance/all"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.library/room/council"
+
+# Below the fold at the default size: present, not on screen.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "count"
+value = 1
+
+[steps.expectation.target]
+id = "chat.primary/chat.library/role/skeptic"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "count"
+value = 1
+
+[steps.expectation.target]
+id = "chat.primary/chat.library/role/selector"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.library/filter/room/author-critic"

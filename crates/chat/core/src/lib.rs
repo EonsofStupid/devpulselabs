@@ -3,6 +3,8 @@
 //! This crate deliberately knows nothing about egui, provider processes,
 //! filesystem discovery, or transport protocols.
 
+pub mod rooms;
+
 use std::fmt;
 
 pub const MAX_NATIVE_PAYLOAD_BYTES: usize = 8 * 1024;

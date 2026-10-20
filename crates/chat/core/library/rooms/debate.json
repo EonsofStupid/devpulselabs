@@ -1,0 +1,89 @@
+{
+  "schema": "dpl.room/1",
+  "id": "debate",
+  "version": "1.0.0",
+  "name": "Debate",
+  "type": "debate",
+  "summary": "Two Advocates argue assigned sides for at most three rounds; a judge selects the winner.",
+  "seats": [
+    {
+      "seat": "pro",
+      "role": "advocate@1",
+      "count": 1,
+      "parameters": {
+        "position": "the proposal"
+      }
+    },
+    {
+      "seat": "con",
+      "role": "advocate@1",
+      "count": 1,
+      "parameters": {
+        "position": "against the proposal"
+      }
+    },
+    {
+      "seat": "judge",
+      "role": "selector@1",
+      "count": 1
+    }
+  ],
+  "phases": [
+    {
+      "name": "opening",
+      "seats": [
+        "pro",
+        "con"
+      ],
+      "mode": "parallel",
+      "visibility": "none",
+      "max_turns": 1
+    },
+    {
+      "name": "rebuttal",
+      "seats": [
+        "pro",
+        "con"
+      ],
+      "mode": "sequential",
+      "visibility": "full",
+      "max_turns": 2
+    },
+    {
+      "name": "judgement",
+      "seats": [
+        "judge"
+      ],
+      "mode": "sequential",
+      "visibility": "full",
+      "max_turns": 1
+    }
+  ],
+  "turn_policy": "round-robin",
+  "stop": {
+    "max_rounds": 3,
+    "stability": true
+  },
+  "selection": {
+    "method": "judge",
+    "seat": "judge",
+    "blind": false,
+    "swap_order": true,
+    "exclude_author_vendors": true,
+    "allow_none": false
+  },
+  "carry_forward": "full-transcript",
+  "record": [
+    "winner",
+    "rationale",
+    "flips"
+  ],
+  "provenance": {
+    "sources": [
+      "2",
+      "19",
+      "11"
+    ],
+    "evidence": "moderate"
+  }
+}

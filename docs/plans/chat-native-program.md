@@ -514,6 +514,24 @@ Gemini).
 **Not built yet:** open-ended multi-round debate and layered answer blending
 (MoA synthesis).
 
+**Amended 2026-10-20 (R284): roles and rooms are data.** The research is
+`docs/research/chat-rooms-and-roles.md`.
+- **Schemas.** A role is a `dpl.role/1` document
+  (`schemas/role.v1.schema.json`): its method, output contract, rubric, what
+  it must never do, permissions, model preferences, budget, and graded
+  sources. A room is a `dpl.room/1` document (`schemas/room.v1.schema.json`):
+  seats, phases, turn policy, stop rule, selection, and what it records.
+- **The library.** The built-ins (11 roles, 5 rooms) ship in
+  `crates/chat/core/library/`. The operator adds their own as files under
+  `.userdata/chat/library/{roles,rooms}/`. A broken file is named and never
+  loaded.
+- **The participant contract and context packet** come from research §2.4.
+- **How each AI joins:** native adapters for Codex and Claude; one ACP
+  client for the rest; local endpoints through OpenAI-compatible
+  chat/completions (Ollama first).
+- **Debate** is a room type, but a bounded one: a judge selects, rounds are
+  capped, and answers are never blended. It is built last (RM5).
+
 **"MoE" in this program** means agent-level orchestration. Model-internal
 experts cannot be changed in vendor models. A local open-weight MoE model
 (llama.cpp, a depot subprocess) is a terms-free candidate for the scribe or
@@ -533,7 +551,15 @@ the order.
 2. **CW2: Claude Code on the operator's subscription.** A4.
 3. **CW3: the shared room.** C1 (the chat store), the room of §4.3.7
    (participants; every turn carries the room's transcript) and tabs as
-   conversations (New, Close, Clear).
+   conversations (New, Close, Clear). **Amended 2026-10-20 (R284; operator
+   rulings "Approve" and "Council"):** CW3 is built as the rooms passes, each
+   with its own plan:
+   - **RM1** the library as data (schemas, built-ins, the operator's files,
+     the Rooms & roles view);
+   - **RM2** the room log (absorbs C1 and the tabs);
+   - **RM3** participants, the context packet, and local endpoints;
+   - **RM4** Council, the first room that runs;
+   - **RM5** Brainstorm, Author + Critic, Router, then Debate.
 4. Then A7/A8 (Grok and Gemini auth health), then the routines (C5/C6),
    then C2–C4.
 
