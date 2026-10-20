@@ -254,6 +254,35 @@ impl Inspector for SystemInspector {
     }
 }
 
+/// Regenerate this adapter's vendored schema from `executable` (the build the
+/// minimum moves to): the three schema files plus `VERSION`, written into
+/// `schema_dir`. `cargo xtask vendor-schema codex` runs it; the census tests
+/// then check the adapter against what was written.
+pub fn vendor_schema(executable: &Path, schema_dir: &Path) -> Result<CodexVersion, String> {
+    let version =
+        probe_version(executable, &std::env::temp_dir()).map_err(|error| error.to_string())?;
+    let out = std::env::temp_dir().join(format!("dpl-codex-vendor-{}", std::process::id()));
+    let protocol = generate_protocol(executable, &out);
+    let _ = fs::remove_dir_all(&out);
+    let protocol = protocol?;
+    for (name, text) in [
+        ("ClientRequest.json", &protocol.client_requests),
+        ("ServerNotification.json", &protocol.server_notifications),
+        ("ServerRequest.json", &protocol.server_requests),
+    ] {
+        fs::write(schema_dir.join(name), text).map_err(|error| format!("{name}: {error}"))?;
+    }
+    fs::write(
+        schema_dir.join("VERSION"),
+        format!(
+            "codex-cli {version}
+"
+        ),
+    )
+    .map_err(|error| format!("VERSION: {error}"))?;
+    Ok(version)
+}
+
 fn generate_protocol(executable: &Path, out: &Path) -> Result<Protocol, String> {
     fs::create_dir_all(out).map_err(|error| format!("{}: {error}", out.display()))?;
     let mut command = profiled_command(executable, out);

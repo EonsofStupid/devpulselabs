@@ -13,6 +13,8 @@
 //!   Codex (OpenAI's signature, its version, its protocol) and make it the
 //!   central depot's Codex, by pointing `dptools-deps/sources.local.toml` at
 //!   a copy beside the current one.
+//! `cargo xtask vendor-schema codex <codex.exe>` = regenerate the Codex
+//!   adapter's vendored protocol schema (and `VERSION`) from that build.
 //! `cargo xtask update-tool-deps <release-root>` = bring an existing staged
 //!   depot up to `sources.local.toml` in place (one tool at a time, verified,
 //!   the replaced version deleted).
@@ -570,6 +572,28 @@ fn read_tool_sources(sources_path: &Path) -> Result<Vec<DependencySource>, Strin
     }
 
     Ok(selected)
+}
+
+/// `cargo xtask vendor-schema codex <codex.exe>`: move the adapter's pinned
+/// schema to that build. Bump `MINIMUM_VERSION` and `PINNED_CLI_VERSION` to
+/// match; the census tests say what else moved.
+fn vendor_schema(arguments: &[String]) -> Result<(), String> {
+    let [tool, executable] = arguments else {
+        return Err(
+            "vendor-schema requires a tool and its executable: vendor-schema codex <codex.exe>"
+                .to_owned(),
+        );
+    };
+    if tool != "codex" {
+        return Err(format!("`{tool}` has no vendored schema"));
+    }
+    let schema_dir = workspace_root().join("crates/chat/providers/codex/schema");
+    let version = dpl_chat_codex::adoption::vendor_schema(Path::new(executable), &schema_dir)?;
+    println!(
+        "vendored the Codex {version} schema into {}; update MINIMUM_VERSION and PINNED_CLI_VERSION to {version}, then run the codex tests",
+        schema_dir.display()
+    );
+    Ok(())
 }
 
 /// `cargo xtask adopt-tool codex <codex.exe>`.
@@ -2094,6 +2118,7 @@ fn main() -> ExitCode {
         "lock" => lock_audit(),
         "stage-tool-deps" => stage_tool_dependencies(&arguments),
         "adopt-tool" => adopt_tool(&arguments),
+        "vendor-schema" => vendor_schema(&arguments),
         "update-tool-deps" => update_tool_dependencies(&arguments),
         // The dev run (R278): develop on a running
         // debug app, not only the release exe.
@@ -2111,7 +2136,7 @@ fn main() -> ExitCode {
             )
         }),
         other => Err(format!(
-            "unknown task \"{other}\" — tasks: green, sweep, docs-status, structure, coverage, smoke, lock, stage-tool-deps, adopt-tool, update-tool-deps, dev, fix"
+            "unknown task \"{other}\" — tasks: green, sweep, docs-status, structure, coverage, smoke, lock, stage-tool-deps, adopt-tool, update-tool-deps, vendor-schema, dev, fix"
         )),
     };
     match result {
