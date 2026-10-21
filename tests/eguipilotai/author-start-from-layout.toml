@@ -1,0 +1,66 @@
+# LS2a (R285): tapping a Layout starts the card FROM that layout — the new
+# library slide fills the component's first example (before LS2a every tap
+# minted the same blank title card). Fixture `author-ls2` runs over a
+# scratch content root holding copies of old v2 drafts, so the first-launch
+# upgrade runs too. Pilot clicks are events inside the app's own window
+# (no desktop input). The disk is checked after the run: a new
+# library/slides/<id>/slide.json with component quote@1 and a real quote block.
+id = "author-start-from-layout"
+fixture = "author-ls2"
+record = true
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.lane/make"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.shelf/templates"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.author.card/templates/quote"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.card/templates/quote"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "capture"
+name = "author-start-from-layout"

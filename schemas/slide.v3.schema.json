@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://devpulselabs.local/schemas/slide.v3.schema.json",
+  "title": "dpl.slide/3 — one slide: its own identity, the component it fills, and one block per filled slot",
+  "description": "Blocks ARE the component's slots (a block's id is a slot id); every block is an entity with its own preset ref and sparse overrides, as the card is (operator ruling 2026-07-31). Styling is sparse: absent inherits. docs/plans/lesson-schema-ls2.md §4.1.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "rev", "component", "blocks"],
+  "$defs": {
+    "slot_id": { "type": "string", "minLength": 1 },
+    "ref": { "type": "string", "minLength": 1 },
+    "background": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "moods", "motion"],
+          "properties": {
+            "kind": { "const": "mood-blend" },
+            "moods": { "type": "array", "items": { "type": "string" } },
+            "motion": { "type": "string" },
+            "ambience": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "mood"],
+          "properties": { "kind": { "const": "mood" }, "mood": { "type": "string" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": { "kind": { "const": "none" } }
+        }
+      ]
+    },
+    "words": {
+      "required": ["kind", "id", "text"],
+      "properties": {
+        "id": { "$ref": "#/$defs/slot_id" },
+        "preset": { "$ref": "#/$defs/ref" },
+        "tone": { "$ref": "#/$defs/ref" },
+        "text": { "type": "string" },
+        "font": { "$ref": "#/$defs/ref" },
+        "size": { "$ref": "#/$defs/ref" },
+        "ink": { "$ref": "#/$defs/ref" }
+      }
+    },
+    "block": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/words",
+          "type": "object",
+          "unevaluatedProperties": false,
+          "properties": { "kind": { "const": "text" } }
+        },
+        {
+          "$ref": "#/$defs/words",
+          "type": "object",
+          "unevaluatedProperties": false,
+          "properties": { "kind": { "const": "quote" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "id", "as", "src"],
+          "properties": {
+            "kind": { "const": "media" },
+            "id": { "$ref": "#/$defs/slot_id" },
+            "preset": { "$ref": "#/$defs/ref" },
+            "tone": { "$ref": "#/$defs/ref" },
+            "as": { "enum": ["image", "video"] },
+            "src": { "type": "string", "minLength": 1 },
+            "fit": { "enum": ["cover", "contain"] },
+            "poster": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "id", "value"],
+          "properties": {
+            "kind": { "const": "data" },
+            "id": { "$ref": "#/$defs/slot_id" },
+            "value": {}
+          }
+        }
+      ]
+    }
+  },
+  "properties": {
+    "schema": { "const": "dpl.slide/3" },
+    "id": {
+      "description": "A ULID: sortable by the time the slide was made, never a folder name.",
+      "type": "string",
+      "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+    },
+    "rev": { "description": "Raised by one on every saved change.", "type": "integer", "minimum": 1 },
+    "title": { "type": "string" },
+    "component": {
+      "description": "The component contract it fills, id@major.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*@[0-9]+$"
+    },
+    "variant": { "type": "object", "additionalProperties": { "type": "string" } },
+    "preset": { "$ref": "#/$defs/ref" },
+    "tone": { "$ref": "#/$defs/ref" },
+    "background": { "$ref": "#/$defs/background" },
+    "blocks": { "type": "array", "items": { "$ref": "#/$defs/block" } },
+    "enter": { "$ref": "#/$defs/ref" },
+    "reveals": { "type": "array", "items": { "$ref": "#/$defs/slot_id" } },
+    "objective_ids": { "type": "array", "items": { "type": "string" } },
+    "role": {
+      "description": "Gagné's events of instruction.",
+      "enum": ["attention", "objective", "recall", "present", "guide", "practice", "feedback", "assess", "retain"]
+    },
+    "tags": { "type": "array", "items": { "type": "string" } },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "forked_from": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "rev"],
+          "properties": {
+            "id": { "type": "string" },
+            "rev": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "upgraded_from": { "type": "string" }
+      }
+    },
+    "recipe": { "$ref": "#/$defs/ref" },
+    "ext": { "type": "object" }
+  }
+}

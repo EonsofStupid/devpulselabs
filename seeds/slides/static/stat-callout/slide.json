@@ -1,6 +1,8 @@
 {
-  "v": 1,
-  "template": "stat",
+  "schema": "dpl.slide/3",
+  "id": "01M5FYCBYDJX6M2X93PYV8A8S4",
+  "rev": 1,
+  "component": "stat@1",
   "background": {
     "kind": "mood-blend",
     "moods": [
@@ -12,7 +14,7 @@
   "blocks": [
     {
       "kind": "text",
-      "id": "label",
+      "id": "eyebrow",
       "text": "Tokens per second, one H100",
       "font": "rajdhani",
       "size": "h4",
@@ -20,7 +22,7 @@
     },
     {
       "kind": "text",
-      "id": "number",
+      "id": "value",
       "text": "18,400",
       "font": "audiowide",
       "size": "display-xl",
@@ -28,12 +30,15 @@
     },
     {
       "kind": "text",
-      "id": "caption",
+      "id": "label",
       "text": "and your question uses about forty of them",
       "font": "spacegrotesk",
       "size": "body-lg",
       "ink": "subtle"
     }
   ],
-  "enter": "rise"
+  "enter": "rise",
+  "provenance": {
+    "upgraded_from": "v1"
+  }
 }

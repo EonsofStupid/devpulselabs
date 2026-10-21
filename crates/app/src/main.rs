@@ -109,6 +109,23 @@ fn main() -> eframe::Result {
             ),
             Err(e) => tracing::warn!(error = %e, "three-ring root could not be created"),
         }
+        // LS2 (ruled 2026-10-21, "upgrade once, keep backups"): every old
+        // slide upgrades to dpl.slide/3 ONCE, its original kept beside it;
+        // inbox drafts move into the library. A slide that cannot upgrade is
+        // left exactly as it was, and named.
+        let (upgraded, failed) =
+            dpl_doc::legacy::upgrade_content(&dpl_engine_capture::content_root());
+        for slide in &upgraded {
+            tracing::info!(
+                from = %slide.from.display(),
+                to = %slide.to.display(),
+                id = %slide.id,
+                "slide upgraded to dpl.slide/3 (the original is kept beside it)"
+            );
+        }
+        for (dir, error) in &failed {
+            tracing::warn!(dir = %dir.display(), %error, "slide NOT upgraded — left as it was");
+        }
         // Same honesty law, applied to AI accounting: name which providers
         // report usage and which do not, so an empty cost column is
         // explained rather than mysterious.

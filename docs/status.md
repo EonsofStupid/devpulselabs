@@ -30,8 +30,9 @@ refreshed without touching content. The research is
 
 | Pass | What | State |
 |---|---|---|
-| LS1 | Component contracts: `dpl.component/1`, a `component.json` beside each of the 28 templates, the gallery demo built from each contract's first example, the Workbench reading the contracts, the `contracts` phase of `cargo green` | **in PR** |
-| LS2 | Slides by id (`dpl.slide/3`): the library folder, presets as references (no more baking), the one-time upgrade of the six v2 drafts with backups | next |
+| LS1 | Component contracts: `dpl.component/1`, a `component.json` beside each of the 28 templates, the gallery demo built from each contract's first example, the Workbench reading the contracts, the `contracts` phase of `cargo green` | **in PR #280** (CI waiting: the estate runners are offline) |
+| LS2a | Slides by id (`dpl.slide/3`): its own id and revision, blocks as the component's slots, the library folder, Layout and Starter taps that start from what was tapped, read-only seeds, the one-time upgrade of the six v2 drafts with backups | **built**, stacked on LS1 |
+| LS2b | Presets by reference: card presets with `for` and `exposes`, the look tray stores a reference instead of baking | after LS2a |
 | LS3 | Lessons (`dpl.lesson/1`) and episodes built from lessons (`dpl.episode/2`), by reference, with "Update available" | |
 | LS4 | Components render their slots and variant axes | |
 | LS5 | Render locks for exports; Lottie slots | |
@@ -127,27 +128,31 @@ release) are still to come.
     - **Still to build:** Claude has no runtime (CW2); there is no shared
       state, no saved conversation, and no tab close or clear (RM2); rooms
       cannot run yet (RM3, RM4).
-12. **A second launch opens a second, half-broken window** instead of raising
+12. **A card made from a layout shows the layout's words, not its look**
+    (2026-10-21, LS2a). The document renderer paints every slide as a plain
+    stack, so until text presets (LS2b) and component rendering (LS4) land,
+    the lines all share one size.
+13. **A second launch opens a second, half-broken window** instead of raising
     the running one (`FjallError: Locked`, seam port bind os error 10048).
     The operator asked (2026-08-05) for the running window to come to the
     front. This needs its own PR.
-13. **No engine shows its startup** (R276). Per-engine states (Starting /
+14. **No engine shows its startup** (R276). Per-engine states (Starting /
     Ready / Error, plus progress) → D0.2.
-14. **Analytics can write but not query.** DataFusion (R241) is not in the
+15. **Analytics can write but not query.** DataFusion (R241) is not in the
     dependency tree.
-15. **The UI still states the old split** (the wiredFRONT blurb's
+16. **The UI still states the old split** (the wiredFRONT blurb's
     "ADR-010 is this hub's law"; the Library card's "Raw material, never app
     ingredients"). → L passes.
-16. **`cargo green` never builds the `eguipilotai-devtools` feature**
+17. **`cargo green` never builds the `eguipilotai-devtools` feature**
     (2026-10-19). That is how #248's rename left it uncompilable for two
     months. → D0.5 (gate truth).
-17. **Harness drills that print to stdout break EguiPilotAI** (2026-10-19).
+18. **Harness drills that print to stdout break EguiPilotAI** (2026-10-19).
     `--run-workflow` and `--dry-run-workflow` print their verdict to stdout,
     which is the pilot's stdio transport, so a fixture cannot use them.
-18. **Grok shows "Not installed"** (2026-10-19) although the depot ships
+19. **Grok shows "Not installed"** (2026-10-19) although the depot ships
     0.2.112. Presence runs bare names from PATH while the runtimes use the
     depot, and Grok's cached sign-in is not detected. → A7.
-19. **#222's open orphans** (each finished per R282, each with its own plan;
+20. **#222's open orphans** (each finished per R282, each with its own plan;
     re-checked 2026-10-19):
     - `dpl-estate`'s `Tree::Docs` and `Tree::Manifest`: no reader or
       writer;
@@ -158,6 +163,11 @@ release) are still to come.
     - `promote_asset`: see #5.
 
 ## Hazards outside this repo
+
+- **Both estate CI runners are OFFLINE** (2026-10-21): `devpulse-runner-win-01`
+  and `devpulse-runner-lnx-01`. PR #280's lanes have queued since 15:11Z.
+  Nothing merges until the operator brings Proxmox VM 119 and LXC 121 back
+  and both lanes pass (the double-green law).
 
 - **`D:\localdev\platform_devpulse`'s `cargo xtask run-dev`** (often a
   parallel Claude session) runs `taskkill /F /T` on **every** `xtask.exe` at

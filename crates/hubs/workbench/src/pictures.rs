@@ -188,20 +188,12 @@ mod tests {
         for kind in PictureKind::ALL {
             let shelf = pictures(kind);
             for item in &shelf.items {
-                let slide = dpl_doc::Slide {
-                    v: dpl_doc::SCHEMA_V,
-                    template: "media".into(),
-                    background: None,
-                    blocks: vec![dpl_doc::Block::Media {
-                        id: "picture".into(),
-                        show: item.show.clone(),
-                        src: item.slug.clone(),
-                        fit: None,
-                        poster: None,
-                    }],
-                    enter: None,
-                    reveals: Vec::new(),
-                };
+                let mut slide = dpl_doc::Slide::new("media@1");
+                slide.blocks = vec![dpl_doc::Block::media(
+                    "media",
+                    item.show.clone(),
+                    item.slug.clone(),
+                )];
                 assert!(
                     dpl_doc::validate(&slide).is_empty(),
                     "{} is offered but does not validate: {:?}",

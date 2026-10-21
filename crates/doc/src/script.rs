@@ -271,10 +271,8 @@ you've explained to somebody at a dinner what AI "really is." Let them nod.
 
     #[test]
     fn parity_follows_the_step_semantics() {
-        let mut slide: Slide = serde_json::from_str(
-            r#"{ "v": 1, "template": "headline", "blocks": [], "reveals": ["subtitle"] }"#,
-        )
-        .unwrap();
+        let mut slide = Slide::new("title@1");
+        slide.reveals = vec!["subtitle".into()];
         let good = parse_script(
             "---\nslideId: s\ntitle: T\nbeats:\n  - id: setup\n    cue: a\n  - id: subtitle\n    cue: b\n---\n",
         )

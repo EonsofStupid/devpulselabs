@@ -6,34 +6,60 @@
 //! ref and saves. Pure data — no egui in this crate.
 
 pub mod component;
+pub mod id;
+pub mod legacy;
 pub mod script;
 
+pub use id::{is_id, new_id};
+
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-/// Current schema version. Bump on breaking shape changes; `load` refuses
-/// newer versions honestly instead of misreading them.
-///
-/// v2 (W11): the `media` block joined [`Block`]. A v2 slide carrying a media
-/// block on an old (v1) build fails LOUD as [`DocError::Version`], not a
-/// silent misparse — the whole point of the bump.
+/// The version of `episode.json` and `theme.json`. Bump on breaking shape
+/// changes; their loaders refuse newer versions honestly instead of
+/// misreading them. A slide versions alone ([`SLIDE_SCHEMA`]).
 pub const SCHEMA_V: u32 = 2;
 
-/// One slide document — the editable truth of `<slide-dir>/slide.json`.
+/// The `schema` every slide document carries (LS2, R285).
+pub const SLIDE_SCHEMA: &str = "dpl.slide/3";
+
+/// One slide document — `<slide-dir>/slide.json` (`dpl.slide/3`).
 ///
-/// Styling fields are SPARSE (W3b): absent means "inherit the show's
-/// [`Theme`]"; present means a deliberate override. Exactly two cascade
-/// levels — episode theme, then slide — resolved by [`resolve`].
+/// A slide has its own identity (`id`, `rev`) and names the component it
+/// fills (`component`, `id@major`). Its BLOCKS are the component's slots —
+/// each block's id is a slot id — and every block is an entity with its own
+/// preset ref and sparse overrides, as the card (the slide itself) is
+/// (operator ruling 2026-07-31: everything is an entity). Styling fields
+/// are SPARSE: absent means inherit (the show theme; the preset tier lands
+/// with LS2b), present means a deliberate override.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Slide {
-    pub v: u32,
-    /// Which registered template renders this document (W2 resolves;
-    /// unknown degrades to a labeled plate, never a crash).
-    pub template: String,
+    pub schema: String,
+    /// Permanent ULID ([`new_id`]) — never a folder name.
+    pub id: String,
+    /// Raised by one on every content save; a lesson pins it (LS3).
+    pub rev: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// The component contract this slide fills: `id@major` (`title@1`).
+    pub component: String,
+    /// Chosen variant axes; an absent axis takes the contract's default.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub variant: BTreeMap<String, String>,
+    /// The CARD entity's preset ref (the cascade's preset tier is LS2b).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<String>,
+    /// The card's colour — a hue id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tone: Option<String>,
     /// None = inherit the show theme's background. An explicit
     /// `{"kind": "none"}` is the deliberately bare well.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background: Option<Background>,
+    /// One block per filled slot; a block's id is its slot id.
     pub blocks: Vec<Block>,
     /// Entrance ref: None = inherit the theme; "none" = explicitly
     /// static; "rise" = the entrance.
@@ -45,9 +71,109 @@ pub struct Slide {
     /// Empty = a single-step slide; callers never branch.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reveals: Vec<String>,
+    /// The lesson objectives this slide serves (LS3 names them).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub objective_ids: Vec<String>,
+    /// The slide's job in a lesson — one of [`roles`] (Gagné's events).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "SlideProvenance::is_empty")]
+    pub provenance: SlideProvenance,
+    /// Reserved (ruling #4): the interaction recipe, unused this pass.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recipe: Option<String>,
+    /// Room for experiments; never read by the app.
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
+    pub ext: Map<String, Value>,
+}
+
+/// Where a slide came from.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SlideProvenance {
+    /// The slide (and its revision) this one was copied from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forked_from: Option<SlidePin>,
+    /// The old format this slide was upgraded from (`"v2"`), once.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upgraded_from: Option<String>,
+}
+
+impl SlideProvenance {
+    pub fn is_empty(&self) -> bool {
+        self.forked_from.is_none() && self.upgraded_from.is_none()
+    }
+}
+
+/// One slide at one revision.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SlidePin {
+    pub id: String,
+    pub rev: u32,
 }
 
 impl Slide {
+    /// A fresh, empty slide filling `component` (`id@major`).
+    pub fn new(component: impl Into<String>) -> Self {
+        Self {
+            schema: SLIDE_SCHEMA.to_owned(),
+            id: new_id(),
+            rev: 1,
+            title: None,
+            component: component.into(),
+            variant: BTreeMap::new(),
+            preset: None,
+            tone: None,
+            background: None,
+            blocks: Vec::new(),
+            enter: None,
+            reveals: Vec::new(),
+            objective_ids: Vec::new(),
+            role: None,
+            tags: Vec::new(),
+            provenance: SlideProvenance::default(),
+            recipe: None,
+            ext: Map::new(),
+        }
+    }
+
+    /// A copy with its own identity that remembers where it came from.
+    pub fn fork(&self) -> Self {
+        let mut copy = self.clone();
+        copy.id = new_id();
+        copy.rev = 1;
+        copy.provenance.forked_from = Some(SlidePin {
+            id: self.id.clone(),
+            rev: self.rev,
+        });
+        // The copy was never upgraded itself; its source's history is the
+        // source's.
+        copy.provenance.upgraded_from = None;
+        copy
+    }
+
+    /// The component's id, without its major (`title` of `title@1`).
+    pub fn component_id(&self) -> &str {
+        self.component
+            .split_once('@')
+            .map_or(self.component.as_str(), |(id, _)| id)
+    }
+
+    /// The component's major version (`1` of `title@1`).
+    pub fn component_major(&self) -> Option<u64> {
+        self.component
+            .split_once('@')
+            .and_then(|(_, major)| major.parse().ok())
+    }
+
+    /// The block filling slot `id`.
+    pub fn block(&self, id: &str) -> Option<&Block> {
+        self.blocks.iter().find(|block| block.id() == id)
+    }
+
     /// The deck's step count for this slide: `reveals + 1` (step 0 =
     /// setup). Never zero.
     pub fn step_count(&self) -> usize {
@@ -73,23 +199,27 @@ pub enum Background {
     None,
 }
 
-/// One content block. Additive by design — new kinds join as W-passes
-/// need them (the `media` block landed in W11).
+/// One filled slot. Every block is an ENTITY (ruling 2026-07-31): its own
+/// `preset` ref and `tone`, then sparse overrides.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum Block {
     Text {
         id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        preset: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tone: Option<String>,
         text: String,
-        /// Font pool id (`cl::FONTS`). None = inherit the theme's font.
+        /// Font pool id (`cl::FONTS`). None = inherit.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         font: Option<String>,
         /// Fluid type ref, `fs-` stripped: "display", "h3", "eyebrow"…
-        /// REQUIRED — size is structural (an eyebrow is not an h1),
-        /// never a show-wide default.
-        size: String,
-        /// Semantic ink: strong | base | muted | subtle | tone.
-        /// None = inherit the theme's ink.
+        /// None = inherit (the preset, from LS2b; the renderer's default
+        /// until then). A present value is a deliberate override.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        size: Option<String>,
+        /// Semantic ink: strong | base | muted | subtle | tone. None = inherit.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         ink: Option<String>,
     },
@@ -102,6 +232,10 @@ pub enum Block {
     /// `Video` `src` pointed at the session's light `.mp4`.
     Media {
         id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        preset: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tone: Option<String>,
         /// "image" | "video" — structural, AUTHORED not guessed from the
         /// extension, so the doctor can name a mismatch.
         #[serde(rename = "as")]
@@ -118,16 +252,143 @@ pub enum Block {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         poster: Option<String>,
     },
+    /// A quotation (ruling #3: a real block, not a convention over text).
+    /// Who said it and where live in the component's own slots.
+    Quote {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        preset: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tone: Option<String>,
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        font: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        size: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ink: Option<String>,
+    },
+    /// A list or data slot's value (checked against its contract). The
+    /// document renderer leaves it to the component (LS4).
+    Data { id: String, value: Value },
 }
 
 impl Block {
-    /// Every block carries an id — the reveal grammar (D2) and the editor
-    /// reference blocks by it. One accessor so callers never match the variant.
+    /// Every block carries an id — its slot. The reveal grammar (D2) and
+    /// the editor reference blocks by it. One accessor so callers never
+    /// match the variant.
     pub fn id(&self) -> &str {
         match self {
-            Block::Text { id, .. } | Block::Media { id, .. } => id,
+            Block::Text { id, .. }
+            | Block::Media { id, .. }
+            | Block::Quote { id, .. }
+            | Block::Data { id, .. } => id,
         }
     }
+
+    /// The words of a text or quote block — what the paint path flows.
+    pub fn words(&self) -> Option<Words<'_>> {
+        match self {
+            Block::Text {
+                id,
+                text,
+                font,
+                size,
+                ink,
+                ..
+            }
+            | Block::Quote {
+                id,
+                text,
+                font,
+                size,
+                ink,
+                ..
+            } => Some(Words {
+                id,
+                text,
+                font: font.as_deref(),
+                size: size.as_deref(),
+                ink: ink.as_deref(),
+            }),
+            Block::Media { .. } | Block::Data { .. } => None,
+        }
+    }
+
+    /// The words of a text or quote block, to edit in place.
+    pub fn words_mut(&mut self) -> Option<WordsMut<'_>> {
+        match self {
+            Block::Text {
+                id,
+                text,
+                font,
+                size,
+                ink,
+                ..
+            }
+            | Block::Quote {
+                id,
+                text,
+                font,
+                size,
+                ink,
+                ..
+            } => Some(WordsMut {
+                id,
+                text,
+                font,
+                size,
+                ink,
+            }),
+            Block::Media { .. } | Block::Data { .. } => None,
+        }
+    }
+
+    /// A plain text block, everything inherited.
+    pub fn text(id: impl Into<String>, text: impl Into<String>) -> Self {
+        Block::Text {
+            id: id.into(),
+            preset: None,
+            tone: None,
+            text: text.into(),
+            font: None,
+            size: None,
+            ink: None,
+        }
+    }
+
+    /// An image or video block, fit and poster inherited.
+    pub fn media(id: impl Into<String>, show: impl Into<String>, src: impl Into<String>) -> Self {
+        Block::Media {
+            id: id.into(),
+            preset: None,
+            tone: None,
+            show: show.into(),
+            src: src.into(),
+            fit: None,
+            poster: None,
+        }
+    }
+}
+
+/// A text or quote block's words and their (resolved or sparse) styling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Words<'a> {
+    pub id: &'a str,
+    pub text: &'a str,
+    pub font: Option<&'a str>,
+    pub size: Option<&'a str>,
+    pub ink: Option<&'a str>,
+}
+
+/// A text or quote block's words and styling, editable in place.
+#[derive(Debug)]
+pub struct WordsMut<'a> {
+    pub id: &'a str,
+    pub text: &'a mut String,
+    pub font: &'a mut Option<String>,
+    pub size: &'a mut Option<String>,
+    pub ink: &'a mut Option<String>,
 }
 
 /// A validation finding: the path names WHERE, the message WHAT. Findings
@@ -143,8 +404,13 @@ pub struct Issue {
 pub enum DocError {
     Io(std::io::Error),
     Parse(serde_json::Error),
-    /// The file's `v` is newer than this build understands.
+    /// An episode or theme whose `v` is newer than this build understands.
     Version(u32),
+    /// A slide in the old `v` format: [`legacy::upgrade_dir`] upgrades it
+    /// once (with a backup); it is never read as if it were current.
+    UpgradeNeeded(u32),
+    /// A slide whose `schema` this build does not read.
+    Schema(String),
 }
 
 impl std::fmt::Display for DocError {
@@ -153,7 +419,19 @@ impl std::fmt::Display for DocError {
             DocError::Io(e) => write!(f, "io: {e}"),
             DocError::Parse(e) => write!(f, "parse: {e}"),
             DocError::Version(v) => {
-                write!(f, "slide.json is schema v{v}; this build reads v{SCHEMA_V}")
+                write!(f, "document is v{v}; this build reads up to v{SCHEMA_V}")
+            }
+            DocError::UpgradeNeeded(v) => {
+                write!(
+                    f,
+                    "slide.json is the old v{v} format; it needs its one-time upgrade"
+                )
+            }
+            DocError::Schema(schema) => {
+                write!(
+                    f,
+                    "slide.json is {schema:?}; this build reads {SLIDE_SCHEMA:?}"
+                )
             }
         }
     }
@@ -163,14 +441,27 @@ impl std::error::Error for DocError {}
 
 const FILE: &str = "slide.json";
 
-/// Load `<dir>/slide.json`.
+/// Load `<dir>/slide.json`. The `schema` is read FIRST: an old `v` file is
+/// [`DocError::UpgradeNeeded`] and a different schema is
+/// [`DocError::Schema`] — never a misread (the struct is closed).
 pub fn load(dir: &Path) -> Result<Slide, DocError> {
     let raw = std::fs::read_to_string(dir.join(FILE)).map_err(DocError::Io)?;
-    let slide: Slide = serde_json::from_str(&raw).map_err(DocError::Parse)?;
-    if slide.v > SCHEMA_V {
-        return Err(DocError::Version(slide.v));
+    parse_slide(&raw)
+}
+
+/// Parse a slide document's text (see [`load`]).
+pub fn parse_slide(raw: &str) -> Result<Slide, DocError> {
+    let value: Value = serde_json::from_str(raw).map_err(DocError::Parse)?;
+    match value.get("schema").and_then(Value::as_str) {
+        Some(SLIDE_SCHEMA) => serde_json::from_value(value).map_err(DocError::Parse),
+        Some(other) => Err(DocError::Schema(other.to_owned())),
+        None => match value.get("v").and_then(Value::as_u64) {
+            Some(v) => Err(DocError::UpgradeNeeded(
+                u32::try_from(v).unwrap_or(u32::MAX),
+            )),
+            None => Err(DocError::Schema("none".into())),
+        },
     }
-    Ok(slide)
 }
 
 /// Crash-safe pretty-JSON+LF write: the full content lands in a sibling
@@ -220,35 +511,25 @@ pub fn enters() -> &'static [&'static str] {
     ENTERS
 }
 
-/// A quote is a CONVENTION over text blocks, not a [`Block`] kind
-/// (operator-ratified 2026-07-29).
-///
-/// The codebase already worked this way: every seed names its blocks by ROLE
-/// — `eyebrow`/`title`/`subtitle`, `label`/`number`/`caption` — and the
-/// renderer flows them, sizing each from its own ref. It never reads
-/// [`Slide::template`]. So three text blocks with reserved ids need no new
-/// variant, no schema bump and no degrade path; they render today.
-///
-/// `(id, size, ink)` in the order the lines read. The size and ink are the
-/// DEFAULTS a picker writes — they are ordinary text blocks afterwards, and
-/// restyling one through the editor is expected, not a corruption.
-const QUOTE_LINES: [(&str, &str, &str); 3] = [
-    ("quote", "h2", "strong"),
-    ("said-by", "body-lg", "tone"),
-    ("source", "body-sm", "subtle"),
+/// A slide's role in a lesson — Gagné's nine events of instruction
+/// (docs/research/lesson-slide-schema.md §4.7), in teaching order.
+const ROLES: &[&str] = &[
+    "attention",
+    "objective",
+    "recall",
+    "present",
+    "guide",
+    "practice",
+    "feedback",
+    "assess",
+    "retain",
 ];
 
-/// The shape of a quote — see [`QUOTE_LINES`].
-///
-/// Exposed for the same reason as [`enters`]: a surface that hand-listed
-/// these would drift from the validator the day one changed.
-pub fn quote_lines() -> &'static [(&'static str, &'static str, &'static str)] {
-    &QUOTE_LINES
+/// Every role a slide may name — the SAME list [`validate`] enforces.
+pub fn roles() -> &'static [&'static str] {
+    ROLES
 }
 
-/// What `template` a quote card declares itself as. The renderer ignores it
-/// today; the doctor and any future template-aware path can use it.
-pub const QUOTE_TEMPLATE: &str = "quote";
 /// The media block's `as` discriminator (W11) — image or looping video.
 const MEDIA_SHOWS: &[&str] = &["image", "video"];
 /// The media stage fit — fill (cover) or letterbox (contain).
@@ -327,11 +608,63 @@ fn validate_background(bg: &Background, at: &str, issues: &mut Vec<Issue>) {
     }
 }
 
+fn tone_ok(id: &str) -> bool {
+    component::tone_from_id(id).is_some()
+}
+
 /// Name every unknown ref in the document. Empty = clean. Absent styling
-/// fields are LEGAL (they inherit the show theme) — only present refs are
-/// checked.
+/// fields are LEGAL (they inherit) — only present refs are checked.
 pub fn validate(slide: &Slide) -> Vec<Issue> {
     let mut issues = Vec::new();
+    // The document-level checks borrow `issues` through `push`; the
+    // scope ends the borrow before the block checks below.
+    {
+        let mut push = |path: &str, message: String| {
+            issues.push(Issue {
+                path: path.to_owned(),
+                message,
+            })
+        };
+
+        if slide.schema != SLIDE_SCHEMA {
+            push("schema", format!("must be {SLIDE_SCHEMA:?}"));
+        }
+        if !is_id(&slide.id) {
+            push("id", format!("{:?} is not a slide id", slide.id));
+        }
+        if slide.rev == 0 {
+            push("rev", "revisions start at 1".into());
+        }
+        if slide.component_major().is_none() || slide.component_id().is_empty() {
+            push(
+                "component",
+                format!("{:?} must be id@major", slide.component),
+            );
+        }
+        if let Some(tone) = &slide.tone {
+            if !tone_ok(tone) {
+                push("tone", format!("unknown tone {tone:?}"));
+            }
+        }
+        if let Some(role) = &slide.role {
+            if !ROLES.contains(&role.as_str()) {
+                push("role", format!("unknown role {role:?}"));
+            }
+        }
+        for tag in &slide.tags {
+            if !kebab_ok(tag) {
+                push("tags", format!("tag {tag:?} must be kebab-case"));
+            }
+        }
+        if let Some(fork) = &slide.provenance.forked_from {
+            if !is_id(&fork.id) {
+                push(
+                    "provenance.forked_from",
+                    format!("{:?} is not a slide id", fork.id),
+                );
+            }
+        }
+    }
 
     if let Some(bg) = &slide.background {
         validate_background(bg, "background", &mut issues);
@@ -342,29 +675,45 @@ pub fn validate(slide: &Slide) -> Vec<Issue> {
             .iter()
             .any(|n| *n == format!("fs-{name}"))
     };
+    let mut seen_block = std::collections::BTreeSet::new();
     for block in &slide.blocks {
+        let at = format!("blocks.{}", block.id());
+        let mut push = |message: String| {
+            issues.push(Issue {
+                path: at.clone(),
+                message,
+            })
+        };
+        if !seen_block.insert(block.id().to_owned()) {
+            push("a slot is filled twice".into());
+        }
+        let tone = match block {
+            Block::Text { tone, .. } | Block::Media { tone, .. } | Block::Quote { tone, .. } => {
+                tone.as_deref()
+            }
+            Block::Data { .. } => None,
+        };
+        if let Some(tone) = tone {
+            if !tone_ok(tone) {
+                push(format!("unknown tone {tone:?}"));
+            }
+        }
         match block {
             Block::Text {
-                id,
-                font,
-                size,
-                ink,
-                ..
+                font, size, ink, ..
+            }
+            | Block::Quote {
+                font, size, ink, ..
             } => {
-                let at = format!("blocks.{id}");
-                let mut push = |message: String| {
-                    issues.push(Issue {
-                        path: at.clone(),
-                        message,
-                    })
-                };
                 if let Some(font) = font {
                     if !font_ok(font) {
                         push(format!("unknown font {font:?}"));
                     }
                 }
-                if !size_ok(size) {
-                    push(format!("unknown size {size:?} (fluid fs-* ref)"));
+                if let Some(size) = size {
+                    if !size_ok(size) {
+                        push(format!("unknown size {size:?} (fluid fs-* ref)"));
+                    }
                 }
                 if let Some(ink) = ink {
                     if !INKS.contains(&ink.as_str()) {
@@ -373,19 +722,12 @@ pub fn validate(slide: &Slide) -> Vec<Issue> {
                 }
             }
             Block::Media {
-                id,
                 show,
                 src,
                 fit,
                 poster,
+                ..
             } => {
-                let at = format!("blocks.{id}");
-                let mut push = |message: String| {
-                    issues.push(Issue {
-                        path: at.clone(),
-                        message,
-                    })
-                };
                 if !MEDIA_SHOWS.contains(&show.as_str()) {
                     push(format!("unknown media kind {show:?} (image | video)"));
                 }
@@ -405,6 +747,7 @@ pub fn validate(slide: &Slide) -> Vec<Issue> {
                     }
                 }
             }
+            Block::Data { .. } => {}
         }
     }
 
@@ -437,6 +780,190 @@ pub fn validate(slide: &Slide) -> Vec<Issue> {
 
     issues
 }
+
+/// The slide against the component it fills (LS2): the component and its
+/// major match, every block fills a real slot with the right kind and fits
+/// its limits, required slots are filled, and variant choices exist.
+/// Findings are warnings, like [`validate`]'s — a half-made draft is legal.
+pub fn validate_against(slide: &Slide, contract: &component::ComponentContract) -> Vec<Issue> {
+    use component::Entity;
+    let mut issues = Vec::new();
+    let mut push = |path: String, message: String| issues.push(Issue { path, message });
+    if slide.component_id() != contract.id {
+        push(
+            "component".into(),
+            format!(
+                "fills {:?}, checked against {:?}",
+                slide.component_id(),
+                contract.id
+            ),
+        );
+    }
+    let major = component::semver(&contract.version).map(|(major, _, _)| major);
+    if slide.component_major() != major {
+        push(
+            "component".into(),
+            format!(
+                "{:?} is not the contract's major ({})",
+                slide.component, contract.version
+            ),
+        );
+    }
+    for block in &slide.blocks {
+        let at = format!("blocks.{}", block.id());
+        let Some(slot) = contract.slots.iter().find(|slot| slot.id == block.id()) else {
+            push(
+                at,
+                format!("{:?} is not a slot of {}", block.id(), contract.id),
+            );
+            continue;
+        };
+        let fits = matches!(
+            (slot.entity, block),
+            (Entity::Text, Block::Text { .. })
+                | (Entity::Quote, Block::Quote { .. })
+                | (Entity::Picture, Block::Media { .. })
+                | (Entity::List | Entity::Data, Block::Data { .. })
+        );
+        if !fits {
+            push(
+                at.clone(),
+                format!("a {:?} slot cannot hold this block", slot.entity),
+            );
+            continue;
+        }
+        let value = match block {
+            Block::Text { text, .. } | Block::Quote { text, .. } => Value::String(text.clone()),
+            Block::Data { value, .. } => value.clone(),
+            Block::Media { .. } => continue,
+        };
+        if let Some(problem) = component::slot_value_issue(slot, &value) {
+            push(at, problem);
+        }
+    }
+    for slot in contract.slots.iter().filter(|slot| slot.required) {
+        let filled = slide.block(&slot.id).is_some_and(|block| match block {
+            Block::Text { text, .. } | Block::Quote { text, .. } => !text.trim().is_empty(),
+            Block::Data { value, .. } => {
+                !(value.is_null() || value.as_array().is_some_and(Vec::is_empty))
+            }
+            Block::Media { .. } => true,
+        });
+        if !filled {
+            push(
+                format!("blocks.{}", slot.id),
+                "a required slot is empty".into(),
+            );
+        }
+    }
+    for (axis_id, option) in &slide.variant {
+        match contract
+            .variant_axes
+            .iter()
+            .find(|axis| &axis.id == axis_id)
+        {
+            Some(axis) if axis.options.iter().any(|o| &o.id == option) => {}
+            Some(_) => push(
+                format!("variant.{axis_id}"),
+                format!("{axis_id} has no option {option:?}"),
+            ),
+            None => push(
+                format!("variant.{axis_id}"),
+                format!("{} has no axis {axis_id:?}", contract.id),
+            ),
+        }
+    }
+    issues
+}
+
+/// A fresh slide filled from a component's example — what tapping a Layout
+/// starts from. Text slots become text blocks, a quote slot a quote block,
+/// a picture a media block, lists and data their values; props and axes the
+/// example sets ride as the slide's variant (props are LS4's).
+pub fn slide_from_example(contract: &component::ComponentContract, index: usize) -> Option<Slide> {
+    use component::Entity;
+    let example = contract.examples.get(index)?;
+    let major = component::semver(&contract.version)?.0;
+    let mut slide = Slide::new(format!("{}@{major}", contract.id));
+    for slot in &contract.slots {
+        let Some(value) = example.content.get(&slot.id).filter(|v| !v.is_null()) else {
+            continue;
+        };
+        let block = match (slot.entity, value) {
+            (Entity::Text, Value::String(text)) => Block::text(&slot.id, text),
+            (Entity::Quote, Value::String(text)) => Block::Quote {
+                id: slot.id.clone(),
+                preset: None,
+                tone: None,
+                text: text.clone(),
+                font: None,
+                size: None,
+                ink: None,
+            },
+            (Entity::Picture, picture) => {
+                let kind = picture.get("kind").and_then(Value::as_str);
+                let src = picture.get("src").and_then(Value::as_str);
+                match (kind, src) {
+                    (Some(kind @ ("image" | "video")), Some(src)) => {
+                        Block::media(&slot.id, kind, src)
+                    }
+                    // A moving pattern is the card's ambience, not a block.
+                    _ => continue,
+                }
+            }
+            (Entity::List | Entity::Data, value) => Block::Data {
+                id: slot.id.clone(),
+                value: value.clone(),
+            },
+            _ => continue,
+        };
+        slide.blocks.push(block);
+    }
+    slide.variant = example.variant.clone();
+    Some(slide)
+}
+
+/// Where the library keeps a slide: `<content>/library/slides/<id>/`.
+pub fn library_slide_dir(content_root: &Path, id: &str) -> PathBuf {
+    content_root.join(LIBRARY).join("slides").join(id)
+}
+
+/// Every slide folder in the library, newest first (ids sort by time).
+pub fn library_slides(content_root: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(content_root.join(LIBRARY).join("slides")) else {
+        return Vec::new();
+    };
+    let mut dirs: Vec<PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.join(FILE).is_file())
+        .collect();
+    dirs.sort();
+    dirs.reverse();
+    dirs
+}
+
+/// Is `dir` inside the repo's seeds? Seeds are read-only starting points
+/// (LS2, ruled 2026-10-21): they are copied, never edited.
+pub fn is_seed_dir(dir: &Path) -> bool {
+    let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    seeds_root().is_some_and(|seeds| canonical(dir).starts_with(canonical(&seeds)))
+}
+
+/// Copy the slide folder at `src` into the library as the operator's own
+/// slide: a fresh id that remembers its source, with the folder's notes,
+/// script and assets alongside. Returns the new folder.
+pub fn fork_into_library(src: &Path, content_root: &Path) -> Result<PathBuf, String> {
+    let slide = load(src).map_err(|e| format!("{}: {e}", src.display()))?;
+    let copy = slide.fork();
+    let dest = library_slide_dir(content_root, &copy.id);
+    copy_dir(src, &dest)?;
+    save(&dest, &copy).map_err(|e| format!("save copy: {e}"))?;
+    Ok(dest)
+}
+
+/// The library folder under the content root — never a show.
+pub const LIBRARY: &str = "library";
 
 /// Walk from the exe's directory upward, then from the CWD upward, for a
 /// relative path — the same discovery pattern the asset loaders use
@@ -536,7 +1063,14 @@ pub fn episode_slides(dir: &Path, ep: &Episode) -> Vec<SlideRef> {
 // The FOLDER CONTRACT (W3b): each folder holds reserved names only, one
 // concern per file, so "auto-growing" stays strict — a new concern claims
 // a reserved name here, it never squats. The doctor flags everything else.
-const SLIDE_RESERVED: &[&str] = &["slide.json", "ink.json", "notes.md", "script.mdx", "assets"];
+const SLIDE_RESERVED: &[&str] = &[
+    "slide.json",
+    legacy::BACKUP_FILE,
+    "ink.json",
+    "notes.md",
+    "script.mdx",
+    "assets",
+];
 const EPISODE_RESERVED: &[&str] = &["episode.json", "theme.json", "assets"];
 
 /// Contract-check one folder's entries: leftover save transients and
@@ -771,8 +1305,8 @@ pub fn resolve(slide: &Slide, theme: &Theme) -> Slide {
         out.enter = theme.enter.clone();
     }
     for b in &mut out.blocks {
-        // Only text blocks cascade font/ink; media carries neither.
-        if let Block::Text { font, ink, .. } = b {
+        // Only words cascade font/ink; media and data carry neither.
+        if let Block::Text { font, ink, .. } | Block::Quote { font, ink, .. } = b {
             if font.is_none() {
                 *font = Some(theme.font.clone());
             }
@@ -952,6 +1486,7 @@ pub fn list_shows(content_root: &Path) -> Vec<(String, PathBuf)> {
             let name = e.file_name().to_string_lossy().into_owned();
             let dir = e.path();
             name != "inbox"
+                && name != LIBRARY
                 && !name.starts_with("artifacts.db")
                 && dir.is_dir()
                 && holds_an_episode(&dir)
@@ -1045,6 +1580,13 @@ pub fn clone_episode(
     }
     copy_dir(seed_dir, &dest)?;
     std::fs::create_dir_all(dest.join("assets")).map_err(|e| format!("assets: {e}"))?;
+    // Each copied slide is its own slide now: a fresh id that remembers
+    // the seed it came from (LS3 turns placing into references).
+    let ep = load_episode(&dest).map_err(|e| format!("cloned episode: {e}"))?;
+    for slide_ref in episode_slides(&dest, &ep) {
+        let slide = load(&slide_ref.dir).map_err(|e| format!("{}: {e}", slide_ref.name))?;
+        save(&slide_ref.dir, &slide.fork()).map_err(|e| format!("{}: {e}", slide_ref.name))?;
+    }
     Ok(dest)
 }
 
@@ -1105,11 +1647,17 @@ pub fn place_slide(
         .position(|c| c.id == chapter_id)
         .ok_or_else(|| format!("chapter {chapter_id:?} not in episode"))?;
 
+    // A library slide's folder is its id; the episode names the copy after
+    // its component instead ("title", "title-2"…).
     let base_name = slide_dir
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .filter(|n| kebab_ok(n))
-        .unwrap_or_else(|| "slide".into());
+        .unwrap_or_else(|| {
+            Some(slide.component_id().to_owned())
+                .filter(|id| kebab_ok(id))
+                .unwrap_or_else(|| "slide".into())
+        });
     let name = mint_slide_name(&ep_dir, &base_name);
     let dest = ep_dir.join(&name);
 
@@ -1117,6 +1665,11 @@ pub fn place_slide(
         .map_err(|e| format!("snapshot episode.json: {e}"))?;
 
     copy_dir(slide_dir, &dest)?;
+    // The placed copy is its own slide: a fresh id that remembers its source.
+    if let Err(e) = save(&dest, &slide.fork()) {
+        let _ = std::fs::remove_dir_all(&dest);
+        return Err(format!("placed copy: {e}"));
+    }
 
     let slides = &mut ep.chapters[chapter_ix].slides;
     match slot {
@@ -1207,68 +1760,58 @@ mod tests {
         }
     }
 
-    /// The quote convention has to be usable: distinct ids, and sizes and
-    /// inks the validator itself accepts. A default that failed validation
-    /// would hand the operator a document the app refuses to load.
+    /// A quote is a real block (ruling #3): it round-trips, cascades like
+    /// text, and validates with text's own refs.
     #[test]
-    fn the_quote_convention_writes_a_valid_document() {
-        let lines = quote_lines();
-        assert_eq!(lines.len(), 3);
-        let ids: Vec<&str> = lines.iter().map(|(id, _, _)| *id).collect();
-        let mut sorted = ids.clone();
-        sorted.sort_unstable();
-        sorted.dedup();
-        assert_eq!(
-            sorted.len(),
-            ids.len(),
-            "two quote lines share an id: {ids:?}"
-        );
-
-        let slide = Slide {
-            v: SCHEMA_V,
-            template: QUOTE_TEMPLATE.into(),
-            background: None,
-            blocks: lines
-                .iter()
-                .map(|(id, size, ink)| Block::Text {
-                    id: (*id).into(),
-                    text: "x".into(),
-                    font: None,
-                    size: (*size).into(),
-                    ink: Some((*ink).into()),
-                })
-                .collect(),
-            enter: None,
-            reveals: Vec::new(),
-        };
-        assert!(
-            validate(&slide).is_empty(),
-            "the convention's own defaults must validate: {:?}",
-            validate(&slide)
-        );
+    fn a_quote_block_round_trips_and_validates() {
+        let dir = scratch("quote");
+        let mut slide = Slide::new("quote@1");
+        slide.blocks = vec![
+            Block::Quote {
+                id: "quote".into(),
+                preset: None,
+                tone: Some("violet".into()),
+                text: "Ship it.".into(),
+                font: None,
+                size: Some("h2".into()),
+                ink: Some("strong".into()),
+            },
+            Block::text("name", "Somebody"),
+        ];
+        save(&dir, &slide).unwrap();
+        assert_eq!(load(&dir).unwrap(), slide);
+        assert_eq!(validate(&slide), Vec::new());
+        let resolved = resolve(&slide, &Theme::fallback());
+        assert!(matches!(
+            resolved.block("quote"),
+            Some(Block::Quote {
+                font: Some(_),
+                ink: Some(_),
+                ..
+            })
+        ));
     }
 
     /// Fully specified on purpose — every field `Some` so the round-trip
     /// and validation tests keep their pre-W3b meaning.
     fn sample() -> Slide {
-        Slide {
-            v: SCHEMA_V,
-            template: "title".into(),
-            background: Some(Background::MoodBlend {
-                moods: vec!["ember-drift".into(), "deep-lagoon".into()],
-                motion: "blend-drift".into(),
-                ambience: Some("pulse".into()),
-            }),
-            blocks: vec![Block::Text {
-                id: "title".into(),
-                text: "The stack, laid bare".into(),
-                font: Some("orbitron".into()),
-                size: "display".into(),
-                ink: Some("strong".into()),
-            }],
-            enter: Some("rise".into()),
-            reveals: Vec::new(),
-        }
+        let mut slide = Slide::new("title@1");
+        slide.background = Some(Background::MoodBlend {
+            moods: vec!["ember-drift".into(), "deep-lagoon".into()],
+            motion: "blend-drift".into(),
+            ambience: Some("pulse".into()),
+        });
+        slide.blocks = vec![Block::Text {
+            id: "title".into(),
+            preset: None,
+            tone: None,
+            text: "The stack, laid bare".into(),
+            font: Some("orbitron".into()),
+            size: Some("display".into()),
+            ink: Some("strong".into()),
+        }];
+        slide.enter = Some("rise".into());
+        slide
     }
 
     fn scratch(name: &str) -> PathBuf {
@@ -1299,19 +1842,28 @@ mod tests {
         save(&dir, &sample()).unwrap();
         let raw = std::fs::read_to_string(dir.join("slide.json")).unwrap();
         assert!(raw.ends_with('\n'));
+        assert!(raw.contains("\"schema\": \"dpl.slide/3\""));
         assert!(raw.contains("\"kind\": \"mood-blend\""));
         assert!(raw.contains("\"font\": \"orbitron\""));
         // Refs, never values: no hex colors, no pixel numbers for style.
         assert!(!raw.contains('#'));
     }
 
+    /// The schema is read FIRST: an old `v` file is "upgrade needed" and a
+    /// foreign schema is named — neither is ever misread.
     #[test]
-    fn a_newer_schema_version_is_refused_honestly() {
-        let dir = scratch("version");
-        let mut slide = sample();
-        slide.v = SCHEMA_V + 1;
-        save(&dir, &slide).unwrap();
-        assert!(matches!(load(&dir), Err(DocError::Version(v)) if v == SCHEMA_V + 1));
+    fn an_old_or_foreign_slide_is_refused_honestly() {
+        let old = r#"{"v": 2, "template": "title", "blocks": []}"#;
+        assert!(matches!(parse_slide(old), Err(DocError::UpgradeNeeded(2))));
+        let foreign = r#"{"schema": "dpl.slide/9", "id": "x"}"#;
+        assert!(matches!(parse_slide(foreign), Err(DocError::Schema(s)) if s == "dpl.slide/9"));
+        // A v3 file with a field this build does not know is refused too.
+        let mut raw = serde_json::to_value(sample()).unwrap();
+        raw["mystery"] = Value::Bool(true);
+        assert!(matches!(
+            parse_slide(&raw.to_string()),
+            Err(DocError::Parse(_))
+        ));
     }
 
     #[test]
@@ -1329,12 +1881,16 @@ mod tests {
         });
         slide.blocks = vec![Block::Text {
             id: "t".into(),
+            preset: None,
+            tone: Some("chartreuse-tone".into()),
             text: "x".into(),
             font: Some("comic-sans".into()),
-            size: "gigantic".into(),
+            size: Some("gigantic".into()),
             ink: Some("chartreuse".into()),
         }];
         slide.enter = Some("teleport".into());
+        slide.role = Some("vibes".into());
+        slide.id = "not-an-id".into();
         let issues = validate(&slide);
         let all = issues
             .iter()
@@ -1349,7 +1905,10 @@ mod tests {
             "comic-sans",
             "gigantic",
             "chartreuse",
+            "chartreuse-tone",
             "teleport",
+            "vibes",
+            "not-an-id",
         ] {
             assert!(all.contains(needle), "missing finding for {needle}: {all}");
         }
@@ -1360,29 +1919,29 @@ mod tests {
     #[test]
     fn a_media_slide_round_trips_and_validates_clean() {
         let dir = scratch("media");
-        let slide = Slide {
-            v: SCHEMA_V,
-            template: "media".into(),
-            background: Some(Background::None),
-            blocks: vec![
-                Block::Media {
-                    id: "page-01".into(),
-                    show: "image".into(),
-                    src: "inbox/report/page-01.png".into(),
-                    fit: Some("contain".into()),
-                    poster: None,
-                },
-                Block::Media {
-                    id: "clip".into(),
-                    show: "video".into(),
-                    src: "inbox/demo/render.mp4".into(),
-                    fit: None,
-                    poster: Some("inbox/demo/render-poster.png".into()),
-                },
-            ],
-            enter: Some("none".into()),
-            reveals: Vec::new(),
-        };
+        let mut slide = Slide::new("media@1");
+        slide.background = Some(Background::None);
+        slide.blocks = vec![
+            Block::Media {
+                id: "page-01".into(),
+                preset: None,
+                tone: None,
+                show: "image".into(),
+                src: "inbox/report/page-01.png".into(),
+                fit: Some("contain".into()),
+                poster: None,
+            },
+            Block::Media {
+                id: "clip".into(),
+                preset: None,
+                tone: None,
+                show: "video".into(),
+                src: "inbox/demo/render.mp4".into(),
+                fit: None,
+                poster: Some("inbox/demo/render-poster.png".into()),
+            },
+        ];
+        slide.enter = Some("none".into());
         save(&dir, &slide).unwrap();
         assert_eq!(load(&dir).unwrap(), slide);
         assert_eq!(validate(&slide), Vec::new());
@@ -1399,19 +1958,19 @@ mod tests {
     /// kind, and an unknown fit are all NAMED, never followed.
     #[test]
     fn media_jail_and_ref_violations_are_named() {
-        let escaping = |src: &str| Slide {
-            v: SCHEMA_V,
-            template: "media".into(),
-            background: Some(Background::None),
-            blocks: vec![Block::Media {
+        let escaping = |src: &str| {
+            let mut slide = Slide::new("media@1");
+            slide.background = Some(Background::None);
+            slide.blocks = vec![Block::Media {
                 id: "m".into(),
+                preset: None,
+                tone: None,
                 show: "hologram".into(),
                 src: src.into(),
                 fit: Some("stretch".into()),
                 poster: Some("../secret.png".into()),
-            }],
-            enter: None,
-            reveals: Vec::new(),
+            }];
+            slide
         };
         for bad_src in ["/etc/passwd", "C:\\Users\\x.png", "../../escape.png"] {
             let issues = escaping(bad_src);
@@ -1427,26 +1986,98 @@ mod tests {
         }
     }
 
+    /// Every seed, a fresh slide and an upgraded old one pass the published
+    /// JSON Schema — the schema and the Rust shape never drift.
     #[test]
-    fn a_media_v2_slide_is_refused_by_a_v1_build() {
-        let dir = scratch("mediaver");
-        let mut slide = Slide {
-            v: SCHEMA_V,
-            template: "media".into(),
-            background: Some(Background::None),
-            blocks: vec![Block::Media {
-                id: "m".into(),
-                show: "image".into(),
-                src: "inbox/x.png".into(),
-                fit: None,
-                poster: None,
-            }],
-            enter: None,
-            reveals: Vec::new(),
-        };
-        slide.v = SCHEMA_V + 1;
-        save(&dir, &slide).unwrap();
-        assert!(matches!(load(&dir), Err(DocError::Version(v)) if v == SCHEMA_V + 1));
+    fn slides_pass_the_slide_schema() {
+        let schema: Value = serde_json::from_str(
+            &std::fs::read_to_string(
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/slide.v3.schema.json"),
+            )
+            .expect("the slide schema"),
+        )
+        .expect("the schema is JSON");
+        let validator = jsonschema::validator_for(&schema).expect("the schema compiles");
+        let mut docs: Vec<(String, Value)> = list_seeds()
+            .into_iter()
+            .map(|seed| {
+                let raw = std::fs::read_to_string(seed.dir.join(FILE)).unwrap();
+                (seed.id, serde_json::from_str(&raw).unwrap())
+            })
+            .collect();
+        let mut quote = sample();
+        quote.role = Some("present".into());
+        quote.blocks.push(Block::Quote {
+            id: "quote".into(),
+            preset: None,
+            tone: None,
+            text: "q".into(),
+            font: None,
+            size: None,
+            ink: None,
+        });
+        quote.blocks.push(Block::Data {
+            id: "items".into(),
+            value: serde_json::json!(["a", "b"]),
+        });
+        quote.provenance.forked_from = Some(SlidePin {
+            id: new_id(),
+            rev: 2,
+        });
+        docs.push(("sample".into(), serde_json::to_value(&quote).unwrap()));
+        for (name, doc) in docs {
+            let errors: Vec<String> = validator.iter_errors(&doc).map(|e| e.to_string()).collect();
+            assert!(errors.is_empty(), "{name}: {errors:?}");
+        }
+        // And the schema refuses what the type refuses.
+        let mut bad = serde_json::to_value(sample()).unwrap();
+        bad["v"] = Value::from(2);
+        assert!(!validator.is_valid(&bad));
+    }
+
+    /// Forking a seed lands in the library and leaves the seed untouched.
+    #[test]
+    fn a_seed_forks_into_the_library_untouched() {
+        let seed = list_seeds().into_iter().next().expect("a seed");
+        assert!(is_seed_dir(&seed.dir));
+        let before = std::fs::read_to_string(seed.dir.join(FILE)).unwrap();
+        let content = scratch("fork-content");
+        let copy = fork_into_library(&seed.dir, &content).unwrap();
+        assert!(copy.starts_with(content.join(LIBRARY)));
+        assert!(!is_seed_dir(&copy));
+        let original = load(&seed.dir).unwrap();
+        let forked = load(&copy).unwrap();
+        assert_eq!(
+            forked.provenance.forked_from,
+            Some(SlidePin {
+                id: original.id.clone(),
+                rev: original.rev
+            })
+        );
+        assert_eq!(forked.blocks, original.blocks);
+        assert_eq!(
+            std::fs::read_to_string(seed.dir.join(FILE)).unwrap(),
+            before
+        );
+        let _ = std::fs::remove_dir_all(&content);
+    }
+
+    /// A copy is its own slide that remembers where it came from.
+    #[test]
+    fn a_fork_has_a_fresh_id_and_its_source() {
+        let mut original = sample();
+        original.rev = 4;
+        let copy = original.fork();
+        assert_ne!(copy.id, original.id);
+        assert_eq!(copy.rev, 1);
+        assert_eq!(
+            copy.provenance.forked_from,
+            Some(SlidePin {
+                id: original.id.clone(),
+                rev: 4
+            })
+        );
+        assert_eq!(validate(&copy), Vec::new());
     }
 
     #[test]
@@ -1649,9 +2280,11 @@ mod tests {
         let mut bad = sample();
         bad.blocks[0] = Block::Text {
             id: "t".into(),
+            preset: None,
+            tone: None,
             text: "x".into(),
             font: Some("comic-sans".into()),
-            size: "display".into(),
+            size: Some("display".into()),
             ink: Some("strong".into()),
         };
         save(&dir.join("a"), &bad).unwrap();
@@ -1712,29 +2345,19 @@ mod tests {
     #[test]
     fn resolve_prefers_the_slide_override_and_fills_the_rest() {
         let theme = Theme::fallback();
-        let sparse = Slide {
-            v: SCHEMA_V,
-            template: "title".into(),
-            background: None,
-            blocks: vec![
-                Block::Text {
-                    id: "a".into(),
-                    text: "override".into(),
-                    font: Some("orbitron".into()),
-                    size: "h1".into(),
-                    ink: None,
-                },
-                Block::Text {
-                    id: "b".into(),
-                    text: "inherit".into(),
-                    font: None,
-                    size: "body".into(),
-                    ink: None,
-                },
-            ],
-            enter: None,
-            reveals: Vec::new(),
-        };
+        let mut sparse = Slide::new("title@1");
+        sparse.blocks = vec![
+            Block::Text {
+                id: "a".into(),
+                preset: None,
+                tone: None,
+                text: "override".into(),
+                font: Some("orbitron".into()),
+                size: Some("h1".into()),
+                ink: None,
+            },
+            Block::text("b", "inherit"),
+        ];
         let r = resolve(&sparse, &theme);
         assert_eq!(r.background, Some(theme.background.clone()));
         assert_eq!(r.enter, theme.enter);
@@ -1748,7 +2371,8 @@ mod tests {
         };
         assert_eq!(font.as_deref(), Some(theme.font.as_str()), "inherited");
         // A fully-specified slide is a fixed point.
-        assert_eq!(resolve(&sample(), &theme), sample());
+        let full = sample();
+        assert_eq!(resolve(&full, &theme), full);
         // The resolved sparse slide validates clean.
         assert_eq!(validate(&r), Vec::new());
     }
@@ -1756,23 +2380,19 @@ mod tests {
     #[test]
     fn a_sparse_slide_saves_without_the_absent_fields() {
         let dir = scratch("sparse");
-        let sparse = Slide {
-            v: SCHEMA_V,
-            template: "title".into(),
-            background: None,
-            blocks: vec![Block::Text {
-                id: "t".into(),
-                text: "words only".into(),
-                font: None,
-                size: "h2".into(),
-                ink: None,
-            }],
-            enter: None,
-            reveals: Vec::new(),
-        };
+        let mut sparse = Slide::new("title@1");
+        sparse.blocks = vec![Block::text("t", "words only")];
         save(&dir, &sparse).unwrap();
         let raw = std::fs::read_to_string(dir.join("slide.json")).unwrap();
-        for absent in ["\"background\"", "\"font\"", "\"ink\"", "\"enter\""] {
+        for absent in [
+            "\"background\"",
+            "\"font\"",
+            "\"size\"",
+            "\"ink\"",
+            "\"enter\"",
+            "\"preset\"",
+            "\"provenance\"",
+        ] {
             assert!(!raw.contains(absent), "{absent} must be absent: {raw}");
         }
         assert_eq!(load(&dir).unwrap(), sparse);
@@ -1781,7 +2401,7 @@ mod tests {
     }
 
     #[test]
-    fn a_v1_fully_specified_file_still_loads() {
+    fn a_v1_file_upgrades_once_and_keeps_its_styles() {
         // The pre-W3b shape: every styling field present. No version bump.
         let dir = scratch("compat");
         std::fs::create_dir_all(&dir).unwrap();
@@ -1796,13 +2416,22 @@ mod tests {
                  "enter": "rise" }"#,
         )
         .unwrap();
+        // An old file is never read as current: it waits for its one-time
+        // upgrade, which keeps every style value and the original beside it.
+        assert!(matches!(load(&dir), Err(DocError::UpgradeNeeded(1))));
+        legacy::upgrade_dir(&dir).unwrap();
         let slide = load(&dir).unwrap();
-        let Block::Text { font, ink, .. } = &slide.blocks[0] else {
+        let Block::Text {
+            font, size, ink, ..
+        } = &slide.blocks[0]
+        else {
             panic!("block 0 is text");
         };
         assert_eq!(font.as_deref(), Some("orbitron"));
+        assert_eq!(size.as_deref(), Some("h1"));
         assert_eq!(ink.as_deref(), Some("strong"));
         assert!(slide.background.is_some());
+        assert!(dir.join(legacy::BACKUP_FILE).is_file());
         assert_eq!(validate(&slide), Vec::new());
     }
 
@@ -2021,14 +2650,17 @@ mod tests {
         );
         // validate() does not gate on template id — unfinished = ref issues.
         let bad = ep_scratch("unfinished-slide");
-        std::fs::create_dir_all(&bad).unwrap();
-        std::fs::write(
-            bad.join(FILE),
-            r#"{ "v": 1, "template": "title",
-                 "blocks": [ { "kind": "text", "id": "t", "text": "x",
-                   "size": "not-a-size" } ] }"#,
-        )
-        .unwrap();
+        let mut unfinished = Slide::new("title@1");
+        unfinished.blocks = vec![Block::Text {
+            id: "t".into(),
+            preset: None,
+            tone: None,
+            text: "x".into(),
+            font: None,
+            size: Some("not-a-size".into()),
+            ink: None,
+        }];
+        save(&bad, &unfinished).unwrap();
         assert!(
             place_slide(&content, &bad, "devpulse-news", "ep1", "intro", None)
                 .unwrap_err()

@@ -2255,6 +2255,7 @@ name = "dpl-doc"
 version = "0.1.0"
 dependencies = [
  "dpl-coldlight",
+ "jsonschema",
  "serde",
  "serde_json",
 ]

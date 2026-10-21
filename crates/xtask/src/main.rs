@@ -1154,6 +1154,31 @@ fn spawn_audit() -> Result<(), String> {
     }
 }
 
+/// LS2's one-time slide upgrade (v1/v2 → `dpl.slide/3`) over a folder tree —
+/// the same `dpl_doc::legacy::upgrade_content` the app runs on the
+/// operator's content at first launch. Used once for the repo's seeds; it
+/// goes with the legacy module.
+fn upgrade_slides(root: Option<&str>) -> Result<(), String> {
+    let root = root.ok_or("usage: cargo xtask upgrade-slides <dir>")?;
+    let (done, failed) = dpl_doc::legacy::upgrade_content(Path::new(root));
+    for upgraded in &done {
+        println!(
+            "upgraded {} → {} ({})",
+            upgraded.from.display(),
+            upgraded.to.display(),
+            upgraded.id
+        );
+    }
+    for (dir, error) in &failed {
+        println!("NOT upgraded {}: {error}", dir.display());
+    }
+    if failed.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("{} slide(s) not upgraded", failed.len()))
+    }
+}
+
 /// Where component contracts live: one `component.json` beside each slide
 /// template's code (`dpl.component/1`).
 const CONTRACT_ROOT: &str = "crates/slides/src";
@@ -2239,6 +2264,7 @@ fn main() -> ExitCode {
         "docs-status" => docs_status(),
         "structure" => structure_audit(),
         "contracts" => contracts_audit(),
+        "upgrade-slides" => upgrade_slides(arguments.first().map(String::as_str)),
         // Standalone prints the depth RULE beside each pool — `green` prints
         // only the counts, so the gate stays one screen.
         "coverage" => coverage_audit(true),

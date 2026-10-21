@@ -1,6 +1,8 @@
 {
-  "v": 1,
-  "template": "title",
+  "schema": "dpl.slide/3",
+  "id": "01M5FYCBY8FP5HMFB9FFTKHFHQ",
+  "rev": 1,
+  "component": "title@1",
   "blocks": [
     {
       "kind": "text",
@@ -26,5 +28,8 @@
   ],
   "reveals": [
     "subtitle"
-  ]
+  ],
+  "provenance": {
+    "upgraded_from": "v1"
+  }
 }

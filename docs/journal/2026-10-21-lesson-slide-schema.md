@@ -75,15 +75,59 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
     `-1100` (fixture `library-1100`) both pass;
   - shots in `docs/proof/ls1-component-contract-{1440x900,1100x700}.png`.
 
+## LS1 in PR, LS2a built (2026-10-21)
+
+- **LS1 is PR #280** (`7320100`). The local gate passed. **CI is blocked:
+  both estate runners are OFFLINE** (`devpulse-runner-win-01`,
+  `devpulse-runner-lnx-01`; `gh api repos/EonsofStupid/devpulselabs/actions/runners`).
+  The jobs have queued since 15:11Z. The operator must bring Proxmox VM 119
+  and LXC 121 back; never merge without double-green.
+- **The LS2 plan** (`docs/plans/lesson-schema-ls2.md`, untracked) was
+  APPROVED 2026-10-21:
+  - Q1 "two PRs";
+  - Q2 "bring me a proposed list";
+  - Q3 "seeds read-only".
+  It was amended to the operator's ratified blocks shape: blocks ARE the
+  slots, and every block is an entity.
+- **LS2a**, on branch `feat/ls2a-slides-by-id` stacked on LS1:
+  - **`dpl.slide/3`:** `id` (ULID, `crates/doc/src/id.rs`), `rev`,
+    `component id@major`, `variant`, per-entity preset and tone,
+    `Block::{Text, Media, Quote, Data}` with an optional size,
+    `objective_ids`, `role` (Gagné), tags, provenance, recipe, ext.
+  - **The loader** reads the schema first: an old file is `UpgradeNeeded`,
+    a foreign one is `Schema`.
+  - **New in `dpl-doc`:**
+    - `validate_against` the contract;
+    - `slide_from_example`;
+    - the library at `content/library/slides/<id>/`;
+    - `fork` and `fork_into_library`; `place_slide` and `clone_episode`
+      fork their copies.
+  - **`crates/doc/src/legacy.rs`:** the one-time upgrade (title, stat and
+    quote id maps; every size kept; a `slide.v2.json` backup; inbox drafts
+    move into the library). The app runs it at startup (`main.rs`). The 8
+    seeds were upgraded with `cargo xtask upgrade-slides seeds`; their
+    backups were removed, since git history is theirs.
+  - **Writers:**
+    - the editor raises `rev` on every change, undo is a new revision, quotes
+      are a real block plus name and role slots, and the picture goes in the
+      `media` slot;
+    - the Workbench mints into the library and starts from the tapped Layout
+      or Starter;
+    - the seed picker forks;
+    - composer make-slide goes into the library;
+    - workflows' `slide_for_slot` uses the title and subtitle slots.
+  - **`schemas/slide.v3.schema.json`** is checked by `dpl-doc` tests.
+
 ## Exact next step
 
-1. Commit, then `git push -u origin feat/ls1-component-contracts` (the
-   gate). Then `gh pr create --body-file scratchpad/cw1/pr-ls1.md`, then
-   `gh pr checks <n> --watch`. Merge only on double-green, then rebuild the
-   exe.
-2. Delete the untracked plan `docs/plans/lesson-schema-ls1.md`.
-3. Plan LS2, slides by id (`dpl.slide/3`). It needs the operator's approval;
-   the six v2 drafts upgrade once, with backups.
+1. Wait for the background check (fmt, clippy both ways, workspace tests),
+   then drills on a scratch `--content-root`: `--author-draft`,
+   `--author-editor`, `--card-tab`, `--make-slide`, `--clone-seed`.
+2. An EguiPilotAI scenario: tap a Layout, and the card is that layout's
+   example.
+3. Commit LS2a. Push only once #280 has merged (stacked), then rebase onto
+   `main`, open the PR and get double-green.
+4. LS2b: card presets by reference.
 
 ## Landmines
 

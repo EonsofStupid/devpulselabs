@@ -114,18 +114,12 @@ fn film_tile(
     resp
 }
 
-/// The most recently named card in the inbox, if there is one. Sorted by
-/// name, which is mint order — `authored-draft-2` follows `authored-draft-1`.
+/// The most recently made card in the library, if there is one. A slide's
+/// id sorts by the time it was made, so the newest really is the last.
 fn newest_draft() -> Option<std::path::PathBuf> {
-    let inbox = dpl_engine_capture::content_root().join("inbox");
-    let mut dirs: Vec<std::path::PathBuf> = std::fs::read_dir(inbox)
-        .ok()?
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.join("slide.json").is_file())
-        .collect();
-    dirs.sort();
-    dirs.pop()
+    dpl_doc::library_slides(&dpl_engine_capture::content_root())
+        .into_iter()
+        .next()
 }
 
 /// One tab chip. Shared by both rail orientations so a reworded tab, a pilot
@@ -484,7 +478,7 @@ fn quote_tab(ui: &mut egui::Ui, ed: &mut CardEditor) {
         .blocks
         .iter()
         .map(|b| b.id().to_string())
-        .filter(|id| !dpl_doc::quote_lines().iter().any(|(q, _, _)| q == id))
+        .filter(|id| !dpl_editor::QUOTE_SLOTS.contains(&id.as_str()))
         .collect();
     if !other.is_empty() {
         ui.add_space(cl::space::S2);
@@ -1122,9 +1116,6 @@ pub(crate) struct AuthorSurface {
     intent: String,
     /// The last action's honest result line.
     status: String,
-    /// A hint for the next draft index; `mint_draft` still probes disk for a
-    /// free folder so nothing is ever clobbered.
-    next_ix: u32,
     /// Which shelf the carousel is showing.
     shelf: Shelf,
     /// Off, the carousel stops at the end of the shelf. On, it cycles so a
@@ -1172,6 +1163,16 @@ pub(crate) struct AuthorSurface {
 /// One card started in this sitting: what it is called, and where on disk it
 /// actually is. The strip lists these; placing them into the container is a
 /// real mutation and its own pass.
+/// What a new card starts from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Start {
+    Blank,
+    /// A component's id: its contract's first example.
+    Layout(String),
+    /// A seed's id: copied as the operator's own slide.
+    Starter(String),
+}
+
 struct Draft {
     /// The inbox folder name — machine-side.
     slide: String,
@@ -1309,6 +1310,18 @@ impl AuthorSurface {
                         _ => "Everything you can build with, on one wall",
                     },
                 );
+                ui.pilot_track(
+                    &hit,
+                    NodeMetadata::new(
+                        PilotId::new("workbench.author.lane").child(&PilotKey::new(match ix {
+                            0 => "make",
+                            1 => "resume",
+                            _ => "build",
+                        })),
+                        egui_pilot_ai::protocol::Role::Button,
+                        title,
+                    ),
+                );
                 if hit.clicked() {
                     // Lane 3 belongs to M9's platform lane, which does not
                     // exist. The Library IS "what you can build with", so it
@@ -1444,8 +1457,15 @@ impl AuthorSurface {
         // so a card minted by a tap is the same real document as any other.
         let request = picked.or_else(|| seed.clicked().then(|| ("blank".to_string(), None)));
         if let Some((from, label)) = request {
-            self.start_card(label, fabric);
-            let _ = from;
+            // What was tapped is what the card starts from (LS2): a Layout
+            // fills its component's example, a Starter is copied as your own.
+            let start = match self.shelf {
+                _ if from == "blank" => Start::Blank,
+                Shelf::Layouts => Start::Layout(from),
+                Shelf::Starters => Start::Starter(from),
+                _ => Start::Blank,
+            };
+            self.start_card(start, label, fabric);
         }
 
         if !self.status.is_empty() {
@@ -1462,7 +1482,7 @@ impl AuthorSurface {
         if self.filmstrip(ui) {
             // The strip's own tile is the same authoring path as everything
             // else — not a second way to make a card.
-            self.start_card(None, fabric);
+            self.start_card(Start::Blank, None, fabric);
         }
 
         // Last, so the scrim sits over everything drawn above it.
@@ -1524,20 +1544,22 @@ impl AuthorSurface {
     /// Start a card: write the document, remember it, open its editor, then
     /// publish the fact. The ONE path — every control that starts a card
     /// comes through here.
-    fn start_card(&mut self, label: Option<String>, fabric: &Option<dpl_fabric::Fabric>) {
-        match self.mint_draft() {
-            Ok(slide) => {
+    fn start_card(
+        &mut self,
+        start: Start,
+        label: Option<String>,
+        fabric: &Option<dpl_fabric::Fabric>,
+    ) {
+        match self.mint_draft(&start) {
+            Ok((slide, dir)) => {
                 self.status = match &label {
-                    Some(l) => format!("started “{l}” — saved as inbox/{slide}"),
-                    None => format!("started a blank card — saved as inbox/{slide}"),
+                    Some(l) => format!("started “{l}” — saved in your library"),
+                    None => "started a blank card — saved in your library".to_string(),
                 };
                 // Straight into the editor. Starting a card and then having
                 // to go find it is exactly the friction this surface exists
                 // to remove, and the document is already on disk — so the
                 // editor opens on a real file, not a buffer hoping to be one.
-                let dir = dpl_engine_capture::content_root()
-                    .join("inbox")
-                    .join(&slide);
                 let title = label.unwrap_or_else(|| "New card".to_string());
                 // Remembered BEFORE the editor opens, so the strip shows it
                 // whether or not the editor could be opened on it.
@@ -1570,7 +1592,7 @@ impl AuthorSurface {
     pub(crate) fn open_editor_drill(&mut self) {
         // The same path a tap takes — a drill that minted differently would
         // prove a code path the operator never walks.
-        self.start_card(None, &None);
+        self.start_card(Start::Blank, None, &None);
         self.screen = Screen::Content;
     }
 
@@ -1609,7 +1631,7 @@ impl AuthorSurface {
     /// Same mint, then the overlay is dismissed so the band is visible.
     pub(crate) fn draft_drill(&mut self, n: usize) {
         for _ in 0..n {
-            self.start_card(None, &None);
+            self.start_card(Start::Blank, None, &None);
         }
         self.editing = None;
         self.screen = Screen::Content;
@@ -2742,47 +2764,47 @@ impl AuthorSurface {
     ///
     /// No-clobber: probes `authored-draft-<n>` for the first free folder, so a
     /// second tap never overwrites the first (mirrors the composer's mint law).
-    fn mint_draft(&mut self) -> Result<String, String> {
-        let inbox = dpl_engine_capture::content_root().join("inbox");
-
-        let mut n = self.next_ix.max(1);
-        let (id, dir) = loop {
-            let id = format!("authored-draft-{n}");
-            let dir = inbox.join(&id);
-            if !dir.exists() {
-                break (id, dir);
+    /// Mint the card into the library (`library/slides/<id>/`) and return
+    /// its id and folder. A Layout starts from its component's first
+    /// example; a Starter is copied as the operator's own slide (it remembers
+    /// the seed it came from — seeds are never edited); a blank card is the
+    /// title component holding the operator's words, if any.
+    fn mint_draft(&mut self, start: &Start) -> Result<(String, std::path::PathBuf), String> {
+        let slide = match start {
+            Start::Layout(id) => {
+                let contract = dpl_slides::components()
+                    .into_iter()
+                    .find(|contract| contract.id == *id)
+                    .ok_or_else(|| format!("no layout {id:?}"))?;
+                dpl_doc::slide_from_example(contract, 0)
+                    .ok_or_else(|| format!("layout {id:?} has no example"))?
             }
-            n += 1;
-            if n > 100_000 {
-                return Err("inbox is full of drafts".into());
+            Start::Starter(id) => self
+                .seeds
+                .iter()
+                .find(|(seed, _)| seed == id)
+                .map(|(_, doc)| doc.slide.fork())
+                .ok_or_else(|| format!("no starter {id:?}"))?,
+            Start::Blank => {
+                let mut slide = dpl_doc::Slide::new("title@1");
+                let intent = self.intent.trim();
+                if !intent.is_empty() {
+                    slide.blocks.push(dpl_doc::Block::Text {
+                        id: "title".into(),
+                        preset: None,
+                        tone: None,
+                        text: intent.to_string(),
+                        font: None,
+                        size: Some("h3".into()),
+                        ink: None,
+                    });
+                }
+                slide
             }
         };
-        self.next_ix = n + 1;
-
-        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-
-        let intent = self.intent.trim();
-        let blocks = if intent.is_empty() {
-            Vec::new()
-        } else {
-            vec![dpl_doc::Block::Text {
-                id: "intent".into(),
-                text: intent.to_string(),
-                font: None,
-                size: "h3".into(),
-                ink: None,
-            }]
-        };
-        let slide = dpl_doc::Slide {
-            v: dpl_doc::SCHEMA_V,
-            template: "title".into(),
-            background: None,
-            blocks,
-            enter: None,
-            reveals: Vec::new(),
-        };
+        let dir = dpl_doc::library_slide_dir(&dpl_engine_capture::content_root(), &slide.id);
         dpl_doc::save(&dir, &slide).map_err(|e| e.to_string())?;
-        Ok(id)
+        Ok((slide.id, dir))
     }
 }
 
@@ -2796,14 +2818,8 @@ pub(crate) mod background_tests {
         let dir = std::env::temp_dir().join(format!("dpl-bg-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let slide = dpl_doc::Slide {
-            v: dpl_doc::SCHEMA_V,
-            template: "title-card".into(),
-            background,
-            blocks: Vec::new(),
-            enter: None,
-            reveals: Vec::new(),
-        };
+        let mut slide = dpl_doc::Slide::new("title@1");
+        slide.background = background;
         dpl_doc::save(&dir, &slide).unwrap();
         dir
     }
@@ -3093,8 +3109,12 @@ mod quote_tests {
         let after = dpl_doc::load(&dir).unwrap();
         std::fs::remove_dir_all(&dir).ok();
 
-        assert_eq!(text_ids(&after), ["quote", "said-by", "source"]);
-        assert_eq!(after.template, dpl_doc::QUOTE_TEMPLATE);
+        assert_eq!(text_ids(&after), dpl_editor::QUOTE_SLOTS);
+        assert_eq!(after.component, "quote@1");
+        assert!(matches!(
+            after.block("quote"),
+            Some(dpl_doc::Block::Quote { .. })
+        ));
         assert!(
             dpl_doc::validate(&after).is_empty(),
             "{:?}",
@@ -3113,11 +3133,7 @@ mod quote_tests {
         let after = dpl_doc::load(&dir).unwrap();
         std::fs::remove_dir_all(&dir).ok();
 
-        assert_eq!(
-            text_ids(&after),
-            ["quote", "source"],
-            "said-by should be gone"
-        );
+        assert_eq!(text_ids(&after), ["quote", "role"], "name should be gone");
         assert!(dpl_doc::validate(&after).is_empty());
     }
 
@@ -3134,8 +3150,8 @@ mod quote_tests {
 
         assert_eq!(text_ids(&after), ["quote"]);
         match &after.blocks[0] {
-            dpl_doc::Block::Text { text, .. } => assert_eq!(text, "Second"),
-            other => panic!("expected a text block, got {other:?}"),
+            dpl_doc::Block::Quote { text, .. } => assert_eq!(text, "Second"),
+            other => panic!("expected the quote block, got {other:?}"),
         }
     }
 
@@ -3153,9 +3169,11 @@ mod quote_tests {
                 0,
                 dpl_doc::Block::Text {
                     id: "title".into(),
+                    preset: None,
+                    tone: None,
                     text: "A card that was here first".into(),
                     font: None,
-                    size: "h1".into(),
+                    size: Some("h1".into()),
                     ink: Some("strong".into()),
                 },
             );
@@ -3289,20 +3307,8 @@ mod picture_tests {
     #[test]
     fn an_escaping_ref_would_not_validate() {
         for bad in ["/etc/passwd", "C:\\x.png", "../../escape.png"] {
-            let slide = dpl_doc::Slide {
-                v: dpl_doc::SCHEMA_V,
-                template: "media".into(),
-                background: None,
-                blocks: vec![dpl_doc::Block::Media {
-                    id: "picture".into(),
-                    show: "image".into(),
-                    src: bad.into(),
-                    fit: None,
-                    poster: None,
-                }],
-                enter: None,
-                reveals: Vec::new(),
-            };
+            let mut slide = dpl_doc::Slide::new("media@1");
+            slide.blocks = vec![dpl_doc::Block::media("media", "image", bad)];
             assert!(
                 !dpl_doc::validate(&slide).is_empty(),
                 "{bad} should be refused by the content jail"
@@ -3344,18 +3350,9 @@ mod place_tests {
     ) -> std::path::PathBuf {
         let dir = root.join("inbox").join(name);
         std::fs::create_dir_all(&dir).unwrap();
-        dpl_doc::save(
-            &dir,
-            &dpl_doc::Slide {
-                v: dpl_doc::SCHEMA_V,
-                template: "title".into(),
-                background: None,
-                blocks,
-                enter: None,
-                reveals: Vec::new(),
-            },
-        )
-        .unwrap();
+        let mut slide = dpl_doc::Slide::new("title@1");
+        slide.blocks = blocks;
+        dpl_doc::save(&dir, &slide).unwrap();
         dir
     }
 
@@ -3388,9 +3385,11 @@ mod place_tests {
             "authored-draft-1",
             vec![dpl_doc::Block::Text {
                 id: "title".into(),
+                preset: None,
+                tone: None,
                 text: "hi".into(),
                 font: None,
-                size: "not-a-size".into(),
+                size: Some("not-a-size".into()),
                 ink: None,
             }],
         );
@@ -3478,9 +3477,11 @@ mod place_tests {
             "authored-draft-1",
             vec![dpl_doc::Block::Text {
                 id: "title".into(),
+                preset: None,
+                tone: None,
                 text: "hi".into(),
                 font: None,
-                size: "not-a-size".into(),
+                size: Some("not-a-size".into()),
                 ink: None,
             }],
         );

@@ -1,6 +1,8 @@
 {
-  "v": 1,
-  "template": "title",
+  "schema": "dpl.slide/3",
+  "id": "01M5FYCBYAMNTGEQKZ5F7RRBD0",
+  "rev": 1,
+  "component": "title@1",
   "background": {
     "kind": "mood-blend",
     "moods": [
@@ -35,5 +37,8 @@
       "size": "h3",
       "ink": "muted"
     }
-  ]
+  ],
+  "provenance": {
+    "upgraded_from": "v1"
+  }
 }
