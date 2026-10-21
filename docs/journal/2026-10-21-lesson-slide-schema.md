@@ -120,16 +120,22 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
 
 ## Exact next step
 
-1. Wait for the background check (fmt, clippy both ways, workspace tests),
-   then drills on a scratch `--content-root`: `--author-draft`,
-   `--author-editor`, `--card-tab`, `--make-slide`, `--clone-seed`.
-2. An EguiPilotAI scenario: tap a Layout, and the card is that layout's
-   example.
-3. Commit LS2a. Push only once #280 has merged (stacked), then rebase onto
-   `main`, open the PR and get double-green.
-4. LS2b: card presets by reference.
+1. **LS2a is draft PR #281** (`337da8b`), stacked on #280; the local gate
+   passed. When the runners return:
+   - #280 runs its double-green; merge it and rebuild the exe;
+   - then retarget #281 to `main` (`gh pr edit 281 --base main`) and rebase
+     it if needed; mark it ready; double-green; merge; rebuild the exe.
+2. **LS2b** (card presets by reference), stacked on LS2a. It is approved in
+   the LS2 plan; then propose the text, picture and quote preset sets (Q2).
+3. Delete the untracked plans as each pass lands.
 
 ## Landmines
+
+- **The pre-push gate rebuilds `target/release/devpulselabs.exe` from the
+  BRANCH.** LS2a's exe upgrades content at startup, so after every push,
+  rebuild from `main`: `git checkout main && cargo build --release -p
+  devpulselabs -p dpl-lottie-render`, check the stamp, then check the branch
+  out again. Done 2026-10-21 15:52 (stamp `4ee638b · 2026-10-21 19:51z`).
 
 - **Codex findings of 2026-10-20 (not yet in any doc; they go into
   `status.md` with LS1):**
