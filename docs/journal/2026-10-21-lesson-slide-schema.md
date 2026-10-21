@@ -118,16 +118,39 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
     - workflows' `slide_for_slot` uses the title and subtitle slots.
   - **`schemas/slide.v3.schema.json`** is checked by `dpl-doc` tests.
 
+## LS2b built (2026-10-21)
+
+- **Operator ruling 2026-10-21:** "Card look keeps a font default", like a
+  slide master. It is recorded in the LS2 plan §4.4.
+- **On `feat/ls2b-presets-by-reference`, stacked on LS2a:**
+  - `presets.json`: the 5 theme looks gain `for: card`, `exposes` (5 knobs)
+    and `tone`. `build.rs` checks the entity, 4–7 knobs, colour, legal
+    knobs per entity, and the tone against the hues.
+  - `dpl_doc::card_preset` plus a three-tier `resolve`: slide → look
+    (background, tone, font as the line default) → show. Unknown presets
+    are named; block presets are refused until the text, picture and quote
+    sets are approved.
+  - **Editor:**
+    - `apply_look` is deleted, and `use_look` stores the id and clears the
+      overrides it governs;
+    - the tray marks the chosen look and lists its knobs in plain words;
+    - the inherited background and font go through the cascade;
+    - look cards carry pilot ids (`editor.look/<id>`) and accessibility
+      labels.
+  - **Proof:**
+    - 1079 workspace tests; clippy clean both ways;
+    - EguiPilotAI `editor-look-by-reference` passes: the slide stores
+      `preset: neon-intro` at rev 2, with nothing copied;
+    - shot: `docs/proof/ls2b-look-by-reference.png`.
+
 ## Exact next step
 
-1. **LS2a is draft PR #281** (`337da8b`), stacked on #280; the local gate
-   passed. When the runners return:
-   - #280 runs its double-green; merge it and rebuild the exe;
-   - then retarget #281 to `main` (`gh pr edit 281 --base main`) and rebase
-     it if needed; mark it ready; double-green; merge; rebuild the exe.
-2. **LS2b** (card presets by reference), stacked on LS2a. It is approved in
-   the LS2 plan; then propose the text, picture and quote preset sets (Q2).
-3. Delete the untracked plans as each pass lands.
+1. Commit LS2b, push it (the gate), **rebuild the release exe from `main`**
+   (the landmine below), and open a draft PR stacked on #281.
+2. When the runners return, merge in order: #280 → #281 → LS2b, each
+   retargeted to `main` and double-green, with the exe rebuilt after each.
+3. Then propose the text, picture and quote preset sets (Q2: "bring me a
+   proposed list"), then LS3 (lessons and episodes by reference).
 
 ## Landmines
 

@@ -1249,6 +1249,23 @@ fn generate_presets(out_dir: &str) {
         .cloned()
         .collect();
     const AMBIENCES: [&str; 3] = ["pulse", "drift", "rings"];
+    // Entity-scoped presets (ruling 2026-07-31; LS2b): what each entity's
+    // preset may expose. `font` on the card is the operator's 2026-10-21
+    // ruling — a card look carries a default font for its lines.
+    const KNOBS: [(&str, &[&str]); 4] = [
+        (
+            "card",
+            &["background", "ambience", "motion", "colour", "font"],
+        ),
+        ("text", &["font", "size", "ink", "colour", "motion"]),
+        ("picture", &["fit", "colour", "motion"]),
+        ("quote", &["font", "size", "ink", "colour"]),
+    ];
+    let hues_doc: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string("tokens/hues.json").expect("read hues.json"))
+            .expect("parse hues.json");
+    let mut hue_ids: Vec<String> = Vec::new();
+    collect_ids(&hues_doc, &mut hue_ids);
 
     let mut code = String::new();
     writeln!(
@@ -1272,6 +1289,42 @@ fn generate_presets(out_dir: &str) {
         );
         let motion = p["motion"].as_str().expect("theme.motion");
         let ambience = p["ambience"].as_str();
+        let entity = p["for"].as_str().expect("theme.for");
+        let tone = p["tone"].as_str().expect("theme.tone");
+        let exposes: Vec<&str> = p["exposes"]
+            .as_array()
+            .expect("theme.exposes")
+            .iter()
+            .map(|k| k.as_str().expect("knob"))
+            .collect();
+        let legal = KNOBS
+            .iter()
+            .find(|(e, _)| *e == entity)
+            .map(|(_, knobs)| *knobs)
+            .unwrap_or_else(|| panic!("theme {id}: unknown entity {entity:?}"));
+        assert_eq!(
+            entity, "card",
+            "theme {id}: a one-tap look is a card preset"
+        );
+        assert!(
+            (4..=7).contains(&exposes.len()),
+            "theme {id}: exposes {} knobs; a preset exposes 4-7",
+            exposes.len()
+        );
+        assert!(
+            exposes.contains(&"colour"),
+            "theme {id}: colour is always one of the knobs"
+        );
+        for knob in &exposes {
+            assert!(
+                legal.contains(knob),
+                "theme {id}: a {entity} has no knob {knob:?}"
+            );
+        }
+        assert!(
+            hue_ids.iter().any(|h| h == tone),
+            "theme {id}: unknown tone {tone:?}"
+        );
         assert!(
             font_ids.iter().any(|f| f == font),
             "theme {id}: unknown font {font:?}"
@@ -1299,7 +1352,8 @@ fn generate_presets(out_dir: &str) {
         writeln!(
             code,
             "    ThemePreset {{ id: {id:?}, label: {label:?}, blurb: {blurb:?}, font: {font:?}, \
-             moods: ({a:?}, {b:?}), motion: {motion:?}, ambience: {amb_code} }},"
+             moods: ({a:?}, {b:?}), motion: {motion:?}, ambience: {amb_code}, \
+             entity: {entity:?}, exposes: &{exposes:?}, tone: {tone:?} }},"
         )
         .unwrap();
     }
@@ -1703,4 +1757,20 @@ fn generate_traits(out_dir: &str) {
     writeln!(code, "pub const TRAIT_COUNT: usize = {};", traits.len()).unwrap();
 
     std::fs::write(Path::new(out_dir).join("traits_gen.rs"), code).expect("write traits_gen.rs");
+}
+
+/// Every `"id"` string anywhere in a token document (hues are grouped).
+fn collect_ids(value: &serde_json::Value, out: &mut Vec<String>) {
+    match value {
+        serde_json::Value::Object(map) => {
+            if let Some(id) = map.get("id").and_then(|v| v.as_str()) {
+                out.push(id.to_string());
+            }
+            for v in map.values() {
+                collect_ids(v, out);
+            }
+        }
+        serde_json::Value::Array(items) => items.iter().for_each(|v| collect_ids(v, out)),
+        _ => {}
+    }
 }

@@ -13,6 +13,7 @@
 use dpl_coldlight::{self as cl};
 use dpl_slides::document;
 use egui::{Align2, Color32, CornerRadius, FontId, Rect, RichText, Sense, Stroke, StrokeKind, Ui};
+use egui_pilot_ai::{NodeMetadata, PilotId, PilotKey, UiPilotExt};
 use std::path::{Path, PathBuf};
 
 /// What the operator has tapped.
@@ -416,6 +417,28 @@ impl Editor {
     /// Nothing selected → the LOOK presets (W3), applied whole.
     fn look_tray(&mut self, ui: &mut Ui) {
         ui.label(tray_title("Themes — tap to restyle the whole slide"));
+        // The chosen look's knobs, in plain words (its `exposes`): what the
+        // tabs above may change without leaving the look.
+        if let Some(look) = dpl_doc::card_preset(&self.slide) {
+            let knobs: Vec<&str> = look
+                .exposes
+                .iter()
+                .map(|knob| match *knob {
+                    "ambience" => "moving pattern",
+                    "motion" => "movement",
+                    other => other,
+                })
+                .collect();
+            ui.label(
+                RichText::new(format!(
+                    "Using {} — you can change its {}",
+                    look.label,
+                    knobs.join(", ")
+                ))
+                .small()
+                .color(cl::ink::MUTED),
+            );
+        }
         egui::ScrollArea::horizontal()
             .auto_shrink([false, false])
             .show(ui, |ui| {
@@ -434,10 +457,32 @@ impl Editor {
                             FontId::new(15.0, cl::font_family(p.font)),
                             cl::ink::STRONG,
                         );
-                        card_edge(&painter, rect, resp.hovered());
+                        let chosen = self.slide.preset.as_deref() == Some(p.id);
+                        card_edge(&painter, rect, resp.hovered() || chosen);
+                        resp.widget_info(|| {
+                            egui::WidgetInfo::selected(
+                                egui::WidgetType::Button,
+                                true,
+                                chosen,
+                                p.label,
+                            )
+                        });
+                        ui.pilot_track(
+                            &resp,
+                            NodeMetadata::new(
+                                PilotId::new("editor.look").child(&PilotKey::new(p.id)),
+                                egui_pilot_ai::protocol::Role::Button,
+                                p.label,
+                            ),
+                        );
+                        let resp = resp.on_hover_text(if chosen {
+                            "This slide's look — its background, colour and font come from it"
+                        } else {
+                            "Use this look: the slide follows it, and improving the look updates every slide that uses it"
+                        });
                         if resp.clicked() {
-                            let p = *p;
-                            self.mutate(|s| apply_look(s, &p));
+                            let id = p.id;
+                            self.mutate(|s| use_look(s, id));
                         }
                     }
                 });
@@ -454,11 +499,7 @@ impl Editor {
                 self.mutate(|s| s.background = None);
             }
         });
-        let resolved = self
-            .slide
-            .background
-            .clone()
-            .unwrap_or_else(|| self.theme.background.clone());
+        let resolved = self.inherited_background();
         let (cur_a, cur_b, cur_amb) = match &resolved {
             dpl_doc::Background::MoodBlend {
                 moods, ambience, ..
@@ -604,15 +645,24 @@ impl Editor {
 
     // ── mutation helpers ────────────────────────────────────────────────
 
+    /// The background the slide shows: its own, else its look's, else the
+    /// show's — the cascade's answer, preset tier included.
+    fn inherited_background(&self) -> dpl_doc::Background {
+        dpl_doc::resolve(&self.slide, &self.theme)
+            .background
+            .unwrap_or_else(|| self.theme.background.clone())
+    }
+
     /// A block's fields RESOLVED through the theme, plus whether font/ink
     /// are slide-level overrides (vs inherited from the show).
     fn text_fields(&self, id: &str) -> Option<TextFields> {
         let words = self.slide.block(id)?.words()?;
+        // What an unset font inherits: the card's look, then the show.
+        let inherited_font = dpl_doc::card_preset(&self.slide)
+            .map_or_else(|| self.theme.font.clone(), |look| look.font.to_owned());
         Some(TextFields {
             text: words.text.to_owned(),
-            font: words
-                .font
-                .map_or_else(|| self.theme.font.clone(), str::to_owned),
+            font: words.font.map_or(inherited_font, str::to_owned),
             size: words.size.unwrap_or(DEFAULT_SIZE).to_owned(),
             ink: words
                 .ink
@@ -649,11 +699,7 @@ impl Editor {
     fn set_blend_mood(&mut self, slot: usize, pick: String) {
         // Editing an INHERITED background starts from the theme's values —
         // the first touch materializes an override with the show as base.
-        let base = self
-            .slide
-            .background
-            .clone()
-            .unwrap_or_else(|| self.theme.background.clone());
+        let base = self.inherited_background();
         self.mutate(move |s| {
             let (mut a, mut b, motion, ambience) = match &base {
                 dpl_doc::Background::MoodBlend {
@@ -687,11 +733,7 @@ impl Editor {
     }
 
     fn set_ambience(&mut self, amb: Option<String>) {
-        let base = self
-            .slide
-            .background
-            .clone()
-            .unwrap_or_else(|| self.theme.background.clone());
+        let base = self.inherited_background();
         self.mutate(move |s| {
             let mut bg = base;
             if let dpl_doc::Background::MoodBlend { ambience, .. } = &mut bg {
@@ -704,19 +746,19 @@ impl Editor {
 
 // ── free helpers ────────────────────────────────────────────────────────
 
-/// Applying a preset to a slide is an explicit whole-slide OVERRIDE —
-/// every write is `Some`, deliberately.
-fn apply_look(s: &mut dpl_doc::Slide, p: &cl::ThemePreset) {
-    s.background = Some(dpl_doc::Background::MoodBlend {
-        moods: vec![p.moods.0.to_string(), p.moods.1.to_string()],
-        motion: p.motion.to_string(),
-        ambience: p.ambience.map(str::to_string),
-    });
-    for b in &mut s.blocks {
-        let dpl_doc::Block::Text { font, .. } = b else {
-            continue;
-        };
-        *font = Some(p.font.to_string());
+/// Use a card look (LS2b): the slide stores the preset's REFERENCE, never
+/// a copy of its values (the July ruling, "not bake"). Picking a look
+/// adopts it: the overrides it governs — the background, the colour and
+/// each line's font — are cleared, so the look shows (Keynote's "change
+/// theme" without keeping style changes). Size and ink stay the slide's.
+fn use_look(s: &mut dpl_doc::Slide, id: &str) {
+    s.preset = Some(id.to_owned());
+    s.background = None;
+    s.tone = None;
+    for block in &mut s.blocks {
+        if let Some(words) = block.words_mut() {
+            *words.font = None;
+        }
     }
 }
 
@@ -1031,22 +1073,35 @@ mod tests {
         ));
     }
 
+    /// Picking a look stores the REFERENCE (LS2b, the July ruling "not
+    /// bake"): the file names the preset and holds none of its values, and
+    /// the slide resolves to the look's background and font.
     #[test]
-    fn applying_a_look_sets_every_text_font_and_the_background() {
+    fn picking_a_look_stores_the_reference() {
         let dir = scratch("theme");
         dpl_doc::save(&dir, &seed()).unwrap();
         let mut ed = Editor::open(&dir).unwrap();
         let p = cl::THEME_PRESETS[0];
-        ed.mutate(|s| apply_look(s, &p));
+        ed.mutate(|s| use_look(s, p.id));
         let on_disk = dpl_doc::load(&dir).unwrap();
+        assert_eq!(on_disk.preset.as_deref(), Some(p.id));
+        assert_eq!(
+            on_disk.background, None,
+            "the look's background is not copied"
+        );
         let dpl_doc::Block::Text { font, .. } = &on_disk.blocks[0] else {
             panic!("block 0 is text");
         };
+        assert_eq!(*font, None, "the look's font is not copied");
+        let resolved = dpl_doc::resolve(&on_disk, &dpl_doc::Theme::fallback());
+        let dpl_doc::Block::Text { font, .. } = &resolved.blocks[0] else {
+            panic!("block 0 is text");
+        };
         assert_eq!(font.as_deref(), Some(p.font));
-        if let Some(dpl_doc::Background::MoodBlend { moods, .. }) = &on_disk.background {
+        if let Some(dpl_doc::Background::MoodBlend { moods, .. }) = &resolved.background {
             assert_eq!(moods, &vec![p.moods.0.to_string(), p.moods.1.to_string()]);
         } else {
-            panic!("theme must set a mood-blend background");
+            panic!("the look gives a mood-blend background");
         }
         assert!(dpl_doc::validate(&on_disk).is_empty());
     }

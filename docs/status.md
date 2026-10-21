@@ -31,8 +31,8 @@ refreshed without touching content. The research is
 | Pass | What | State |
 |---|---|---|
 | LS1 | Component contracts: `dpl.component/1`, a `component.json` beside each of the 28 templates, the gallery demo built from each contract's first example, the Workbench reading the contracts, the `contracts` phase of `cargo green` | **in PR #280** (CI waiting: the estate runners are offline) |
-| LS2a | Slides by id (`dpl.slide/3`): its own id and revision, blocks as the component's slots, the library folder, Layout and Starter taps that start from what was tapped, read-only seeds, the one-time upgrade of the six v2 drafts with backups | **built**, stacked on LS1 |
-| LS2b | Presets by reference: card presets with `for` and `exposes`, the look tray stores a reference instead of baking | after LS2a |
+| LS2a | Slides by id (`dpl.slide/3`): its own id and revision, blocks as the component's slots, the library folder, Layout and Starter taps that start from what was tapped, read-only seeds, the one-time upgrade of the six v2 drafts with backups | **draft PR #281**, stacked on LS1 |
+| LS2b | Presets by reference: the five looks are card presets (`for`, `exposes`, `tone`, and a font default for their lines, ruled 2026-10-21); a slide stores the look's id; the cascade is slide → look → show | **built**, stacked on LS2a |
 | LS3 | Lessons (`dpl.lesson/1`) and episodes built from lessons (`dpl.episode/2`), by reference, with "Update available" | |
 | LS4 | Components render their slots and variant axes | |
 | LS5 | Render locks for exports; Lottie slots | |

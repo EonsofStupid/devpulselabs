@@ -9,6 +9,8 @@ egui.workspace = true
 dpl-coldlight.workspace = true
 dpl-doc.workspace = true
 dpl-slides.workspace = true
+# Pilot ids on the editor's controls (the look tray first, LS2b).
+egui-pilot-ai.workspace = true
 
 [lints]
 workspace = true
