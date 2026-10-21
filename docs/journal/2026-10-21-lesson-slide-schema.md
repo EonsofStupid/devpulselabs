@@ -145,12 +145,20 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
 
 ## Exact next step
 
-1. Commit LS2b, push it (the gate), **rebuild the release exe from `main`**
-   (the landmine below), and open a draft PR stacked on #281.
-2. When the runners return, merge in order: #280 → #281 → LS2b, each
-   retargeted to `main` and double-green, with the exe rebuilt after each.
-3. Then propose the text, picture and quote preset sets (Q2: "bring me a
-   proposed list"), then LS3 (lessons and episodes by reference).
+1. **LS2b is draft PR #282**, stacked on #281, which is stacked on #280.
+   The exe was rebuilt from `main` at 18:01 (stamp
+   `4ee638b · 2026-10-21 21:59z`).
+2. **The proposal is waiting on the operator:**
+   `docs/plans/lesson-schema-preset-sets.md` (untracked) lists 14 text, 6
+   quote and 5 picture presets, made only from existing fonts, sizes, inks
+   and tones. After approval: add them to `presets.json` with `for` set to
+   text, quote or picture; lift the "block presets are refused" rule in
+   `dpl_doc::validate`; the editor's text tray offers them.
+3. **When the runners return**, merge in order #280 → #281 → #282. Retarget
+   each to `main` after its parent merges, wait for double-green, and
+   rebuild the exe after each merge. The watcher task (bz2mu1rfp) polls
+   #280.
+4. Then LS3: lessons and episodes by reference.
 
 ## Landmines
 
