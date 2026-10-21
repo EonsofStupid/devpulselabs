@@ -1,0 +1,73 @@
+{
+  "schema": "dpl.component/1",
+  "id": "features",
+  "version": "1.0.0",
+  "name": "Feature grid",
+  "summary": "A 2×2 board of feature cards — tone glyph, title, one-liner. Diagonal fade-in.",
+  "class": "split",
+  "tags": ["grid", "features"],
+  "slots": [
+    {
+      "id": "heading",
+      "label": "Heading",
+      "entity": "text",
+      "required": true,
+      "tooltip": "The line across the top that says what these features have in common",
+      "limits": { "max_chars": 60 }
+    },
+    {
+      "id": "features",
+      "label": "Feature cards",
+      "entity": "list",
+      "required": true,
+      "tooltip": "Up to four cards laid out two by two, each with a symbol, a name and one short line",
+      "limits": { "min_items": 2, "max_items": 4 },
+      "item": [
+        {
+          "id": "glyph",
+          "label": "Symbol",
+          "kind": "text",
+          "tooltip": "One or two plain keyboard characters shown in the coloured badge, like >< or @"
+        },
+        {
+          "id": "title",
+          "label": "Name",
+          "kind": "text",
+          "tooltip": "The feature's name, one or two words"
+        },
+        {
+          "id": "body",
+          "label": "One-liner",
+          "kind": "text",
+          "tooltip": "One short sentence saying what the feature does for you"
+        }
+      ]
+    }
+  ],
+  "props": [
+    {
+      "id": "tone",
+      "label": "Colour",
+      "kind": "tone",
+      "default": "magenta",
+      "tooltip": "The colour of the symbol badges"
+    }
+  ],
+  "variant_axes": [],
+  "examples": [
+    {
+      "id": "demo",
+      "label": "What the runtime gives you",
+      "content": {
+        "heading": "What the runtime gives you",
+        "features": [
+          { "glyph": "><", "title": "Streaming", "body": "Tokens arrive as they're decided" },
+          { "glyph": "[]", "title": "Tools", "body": "The model calls your functions" },
+          { "glyph": "@", "title": "Memory", "body": "Context that survives the turn" },
+          { "glyph": "//", "title": "Local", "body": "Runs on the box in front of you" }
+        ]
+      }
+    }
+  ],
+  "provenance": {}
+}

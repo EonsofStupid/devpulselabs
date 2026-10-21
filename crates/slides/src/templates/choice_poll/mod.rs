@@ -7,58 +7,49 @@
 
 use dpl_coldlight::{self as cl, Tone};
 use egui::{Align2, FontId, Rect, Sense, Ui};
+use serde::{Deserialize, Serialize};
 
 use crate::elements::eyebrow::tracked;
 use crate::frame::Stage;
-use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
+use crate::registry::SlideTemplate;
+use dpl_doc::component::ComponentContract;
 
-static SPEC: TemplateSpec = TemplateSpec {
-    id: TemplateId("choice"),
-    label: "Choice poll",
-    class: TemplateClass::Interactive,
-    blurb: "Predict-then-reveal A/B: the room commits, the truth lands with a reward pulse.",
-};
-
+/// One plate: its big word and the short line under it.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ChoiceOption {
-    pub label: &'static str,
-    pub detail: &'static str,
+    pub label: String,
+    #[serde(default)]
+    pub detail: String,
 }
 
+/// Fields are the contract's slots, props and axes (`component.json`).
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ChoicePoll {
+    #[serde(with = "crate::contract::tone")]
     pub tone: Tone,
-    pub prompt: &'static str,
+    pub prompt: String,
     pub a: ChoiceOption,
     pub b: ChoiceOption,
     /// Which side is the truth.
     pub answer: usize,
-    pub reveal: &'static str,
+    pub reveal: String,
+    #[serde(skip)]
     called: Option<(usize, f64)>,
 }
 
 impl ChoicePoll {
+    crate::component_contract!(include_str!("component.json"));
+
     pub fn demo() -> Self {
-        Self {
-            tone: Tone::Amber,
-            prompt: "Which costs more to answer one question?",
-            a: ChoiceOption {
-                label: "Frontier API",
-                detail: "someone else's GPUs",
-            },
-            b: ChoiceOption {
-                label: "Your box",
-                detail: "electricity only",
-            },
-            answer: 0,
-            reveal:
-                "The API wins on peak quality — your box wins on cost, privacy, and it's yours.",
-            called: None,
-        }
+        crate::contract::instantiate(Self::contract(), 0).expect("the choice demo is its example")
     }
 }
 
 impl SlideTemplate for ChoicePoll {
-    fn spec(&self) -> &'static TemplateSpec {
-        &SPEC
+    fn spec(&self) -> &'static ComponentContract {
+        Self::contract()
     }
 
     fn restart(&mut self) {
@@ -74,7 +65,7 @@ impl SlideTemplate for ChoicePoll {
         painter.text(
             egui::pos2(stage.rect.center().x, stage.rect.min.y),
             Align2::CENTER_TOP,
-            self.prompt,
+            &self.prompt,
             FontId::proportional(fluid.fs_h2()),
             cl::ink::STRONG,
         );
@@ -175,14 +166,14 @@ impl SlideTemplate for ChoicePoll {
             painter.text(
                 egui::pos2(plate.center().x, plate.center().y - fluid.fs_h3() * 0.4),
                 Align2::CENTER_CENTER,
-                opt.label,
+                &opt.label,
                 FontId::proportional(fluid.fs_h3()),
                 key_ink,
             );
             painter.text(
                 egui::pos2(plate.center().x, plate.center().y + fluid.fs_h3() * 0.8),
                 Align2::CENTER_CENTER,
-                opt.detail,
+                &opt.detail,
                 FontId::proportional(fluid.fs_body()),
                 body_ink,
             );
@@ -202,7 +193,7 @@ impl SlideTemplate for ChoicePoll {
                 painter.text(
                     foot,
                     Align2::CENTER_BOTTOM,
-                    self.reveal,
+                    &self.reveal,
                     FontId::proportional(fluid.fs_h4()),
                     cl::ink::BASE.gamma_multiply(p),
                 );

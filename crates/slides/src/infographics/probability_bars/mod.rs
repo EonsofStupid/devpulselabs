@@ -7,73 +7,51 @@
 
 use dpl_coldlight::{self as cl, Fluid, Tone};
 use egui::{Align2, FontId, Rect, Ui};
+use serde::{Deserialize, Serialize};
 
 use crate::elements::eyebrow::tracked;
 use crate::motion::Clock;
-use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
+use crate::registry::SlideTemplate;
+use dpl_doc::component::ComponentContract;
 
-static SPEC: TemplateSpec = TemplateSpec {
-    id: TemplateId("probability-bars"),
-    label: "Probability bars",
-    class: TemplateClass::Static,
-    blurb: "Ranked next-word predictions: wash tracks, halo on the top pick, magenta joke tail.",
-};
-
+/// One ranked row — an item of the `predictions` list slot.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Prediction {
-    pub token: &'static str,
+    pub token: String,
     /// 0..100
     pub pct: f32,
+    /// `None` = the slide's tone.
+    #[serde(default, with = "crate::contract::tone_opt")]
     pub tone: Option<Tone>,
 }
 
+/// Fields are the contract's slots and props (`component.json`); its demo
+/// example is the authored beat-A demo, carried (moon and tax return
+/// included).
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProbabilityBars {
+    #[serde(with = "crate::contract::tone")]
     pub tone: Tone,
-    pub prompt: &'static str,
+    pub prompt: String,
     pub predictions: Vec<Prediction>,
+    #[serde(skip)]
     clock: Clock,
 }
 
 impl ProbabilityBars {
-    /// The authored beat-A demo, carried (moon and tax return included).
+    crate::component_contract!(include_str!("component.json"));
+
     pub fn demo() -> Self {
-        Self {
-            tone: Tone::Amber,
-            prompt: "The cat sat on the ___",
-            predictions: vec![
-                Prediction {
-                    token: "mat",
-                    pct: 62.0,
-                    tone: None,
-                },
-                Prediction {
-                    token: "floor",
-                    pct: 21.0,
-                    tone: None,
-                },
-                Prediction {
-                    token: "couch",
-                    pct: 9.0,
-                    tone: None,
-                },
-                Prediction {
-                    token: "moon",
-                    pct: 0.4,
-                    tone: Some(Tone::Magenta),
-                },
-                Prediction {
-                    token: "tax return",
-                    pct: 0.1,
-                    tone: Some(Tone::Magenta),
-                },
-            ],
-            clock: Clock::default(),
-        }
+        crate::contract::instantiate(Self::contract(), 0)
+            .expect("the probability-bars demo is its example")
     }
 }
 
 impl SlideTemplate for ProbabilityBars {
-    fn spec(&self) -> &'static TemplateSpec {
-        &SPEC
+    fn spec(&self) -> &'static ComponentContract {
+        Self::contract()
     }
 
     fn restart(&mut self) {
@@ -133,7 +111,7 @@ impl SlideTemplate for ProbabilityBars {
             painter.text(
                 egui::pos2(area.min.x + token_w, y + row_h * 0.5),
                 Align2::RIGHT_CENTER,
-                p.token,
+                &p.token,
                 FontId::monospace(fluid.fs_body()),
                 ink,
             );

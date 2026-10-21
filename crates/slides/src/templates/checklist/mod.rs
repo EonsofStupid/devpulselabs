@@ -5,42 +5,35 @@
 
 use dpl_coldlight::{self as cl, Tone};
 use egui::{Align2, FontId, Rect, Sense, Ui};
+use serde::{Deserialize, Serialize};
 
 use crate::elements::bar::bar;
 use crate::elements::eyebrow::tracked;
 use crate::frame::Stage;
-use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
+use crate::registry::SlideTemplate;
+use dpl_doc::component::ComponentContract;
 
-static SPEC: TemplateSpec = TemplateSpec {
-    id: TemplateId("checklist"),
-    label: "Checklist",
-    class: TemplateClass::Interactive,
-    blurb: "Tap to tick items off one at a time; each pops, and a meter fills as you go.",
-};
-
+/// Fields are the contract's slots, props and axes (`component.json`).
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Checklist {
+    #[serde(with = "crate::contract::tone")]
     pub tone: Tone,
-    pub heading: &'static str,
-    pub items: Vec<&'static str>,
-    /// When each item was checked — the per-item pop clock.
+    pub heading: String,
+    pub items: Vec<String>,
+    /// When each item was checked — the per-item pop clock. Sized from
+    /// `items` by `restart()` (which `instantiate` runs on every fresh
+    /// instance), so it always has one entry per item.
+    #[serde(skip)]
     checked_at: Vec<Option<f64>>,
 }
 
 impl Checklist {
+    crate::component_contract!(include_str!("component.json"));
+
     pub fn demo() -> Self {
-        let items = vec![
-            "Pick a model that fits your box",
-            "Wire the streaming loop",
-            "Give it your tools",
-            "Ship it behind a real task",
-        ];
-        let n = items.len();
-        Self {
-            tone: Tone::Lime,
-            heading: "Ship your first agent",
-            items,
-            checked_at: vec![None; n],
-        }
+        crate::contract::instantiate(Self::contract(), 0)
+            .expect("the checklist demo is its example")
     }
 
     fn done(&self) -> usize {
@@ -56,14 +49,12 @@ impl Checklist {
 }
 
 impl SlideTemplate for Checklist {
-    fn spec(&self) -> &'static TemplateSpec {
-        &SPEC
+    fn spec(&self) -> &'static ComponentContract {
+        Self::contract()
     }
 
     fn restart(&mut self) {
-        for t in self.checked_at.iter_mut() {
-            *t = None;
-        }
+        self.checked_at = vec![None; self.items.len()];
     }
 
     fn ui(&mut self, ui: &mut Ui) {
@@ -77,7 +68,7 @@ impl SlideTemplate for Checklist {
         painter.text(
             egui::pos2(stage.rect.min.x, stage.rect.min.y),
             Align2::LEFT_TOP,
-            self.heading,
+            &self.heading,
             FontId::proportional(fluid.fs_h2()),
             cl::ink::STRONG,
         );
@@ -145,7 +136,7 @@ impl SlideTemplate for Checklist {
             painter.text(
                 egui::pos2(tx, row.center().y),
                 Align2::LEFT_CENTER,
-                *item,
+                item,
                 FontId::proportional(fluid.fs_h4()),
                 ink,
             );
@@ -198,5 +189,11 @@ mod tests {
         assert_eq!(c.done(), 4, "advance clamps at the item count");
         c.restart();
         assert_eq!(c.done(), 0);
+    }
+
+    #[test]
+    fn restart_sizes_the_checks_from_the_items() {
+        let c = Checklist::demo();
+        assert_eq!(c.checked_at.len(), c.items.len());
     }
 }

@@ -2590,10 +2590,10 @@ impl AuthorSurface {
                 .map(|d| {
                     let spec = d.spec();
                     ShelfItem {
-                        id: spec.id.0.to_string(),
-                        label: spec.label.to_string(),
-                        blurb: spec.blurb.to_string(),
-                        tip: format!("Tap to start a {} card", spec.label.to_lowercase()),
+                        id: spec.id.clone(),
+                        label: spec.name.clone(),
+                        blurb: spec.summary.clone(),
+                        tip: format!("Tap to start a {} card", spec.name.to_lowercase()),
                     }
                 })
                 .collect(),
@@ -2651,7 +2651,7 @@ impl AuthorSurface {
                 }
             }
             Shelf::Layouts => {
-                if let Some(demo) = self.demos.iter_mut().find(|d| d.spec().id.0 == item.id) {
+                if let Some(demo) = self.demos.iter_mut().find(|d| d.spec().id == item.id) {
                     demo.ui(ui);
                 }
             }

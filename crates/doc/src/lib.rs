@@ -5,6 +5,7 @@
 //! or a font path. The editor (W4) is a view over this data: it swaps a
 //! ref and saves. Pure data — no egui in this crate.
 
+pub mod component;
 pub mod script;
 
 use serde::{Deserialize, Serialize};
@@ -837,10 +838,8 @@ pub fn list_episodes() -> Vec<(String, PathBuf)> {
     eps
 }
 
-/// The seed CLASS folders (doctrine §1.3): `seeds/slides/<class>/<id>/`.
-/// The doc layer restates the registry's `TemplateClass` vocabulary as
-/// folder law — like `kebab_ok`, doc never depends on the slides crate;
-/// a slides-side test pins the two in sync.
+/// The seed CLASS folders (doctrine §1.3): `seeds/slides/<class>/<id>/` —
+/// [`component::TemplateClass`]'s labels as folder law (a test pins the two).
 pub const SEED_CLASSES: [&str; 4] = ["static", "split", "animation", "interactive"];
 
 /// One seed slide document, classed by its folder.

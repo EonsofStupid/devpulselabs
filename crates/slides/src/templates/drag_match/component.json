@@ -1,0 +1,108 @@
+{
+  "schema": "dpl.component/1",
+  "id": "drag-match",
+  "version": "1.0.0",
+  "name": "Drag match",
+  "summary": "Drag chips onto their buckets: correct locks with a pulse, wrong shakes home.",
+  "class": "interactive",
+  "tags": ["sort", "drag", "game"],
+  "slots": [
+    {
+      "id": "prompt",
+      "label": "Headline",
+      "entity": "text",
+      "required": true,
+      "tooltip": "The line across the top that tells the room what to sort",
+      "limits": { "max_chars": 60 }
+    },
+    {
+      "id": "items",
+      "label": "Chips",
+      "entity": "list",
+      "required": true,
+      "tooltip": "The short claims people drag into a bucket. They sit in one row, so keep them short",
+      "limits": { "min_items": 2, "max_items": 6 },
+      "item": [
+        {
+          "id": "label",
+          "label": "Chip text",
+          "kind": "text",
+          "tooltip": "A few words written on the chip"
+        },
+        {
+          "id": "target",
+          "label": "Right bucket",
+          "kind": "number",
+          "tooltip": "Which bucket this chip belongs in, counting from 0 for the first bucket"
+        },
+        {
+          "id": "tone",
+          "label": "Chip colour",
+          "kind": "tone",
+          "tooltip": "The ring colour while the chip is dragged. Leave empty to use the slide's colour"
+        }
+      ]
+    },
+    {
+      "id": "targets",
+      "label": "Buckets",
+      "entity": "list",
+      "required": true,
+      "tooltip": "The boxes across the middle that chips are dropped into, left to right",
+      "limits": { "min_items": 2, "max_items": 4 },
+      "item": [
+        {
+          "id": "label",
+          "label": "Bucket name",
+          "kind": "text",
+          "tooltip": "The short name at the top of the bucket"
+        },
+        {
+          "id": "tone",
+          "label": "Bucket colour",
+          "kind": "tone",
+          "tooltip": "The colour of this bucket and the chips locked inside it"
+        }
+      ]
+    },
+    {
+      "id": "reveal",
+      "label": "Closing line",
+      "entity": "text",
+      "required": false,
+      "tooltip": "The takeaway that blooms in at the bottom once every chip is in its bucket",
+      "limits": { "max_chars": 90 }
+    }
+  ],
+  "props": [
+    {
+      "id": "tone",
+      "label": "Colour",
+      "kind": "tone",
+      "default": "lime",
+      "tooltip": "The ring colour of a chip while it is dragged, unless the chip sets its own"
+    }
+  ],
+  "variant_axes": [],
+  "examples": [
+    {
+      "id": "demo",
+      "label": "Local or cloud",
+      "content": {
+        "prompt": "Local or cloud — sort the claims",
+        "items": [
+          { "label": "Runs on your GPU", "target": 0 },
+          { "label": "Someone else's weights", "target": 1 },
+          { "label": "Zero bytes leave home", "target": 0 },
+          { "label": "Pay per token", "target": 1 }
+        ],
+        "targets": [
+          { "label": "Local", "tone": "lime" },
+          { "label": "Cloud", "tone": "cyan" }
+        ],
+        "reveal": "If you can sort these, you already know which workloads belong on your box."
+      }
+    }
+  ],
+  "provenance": {}
+}

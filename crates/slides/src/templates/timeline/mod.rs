@@ -5,62 +5,45 @@
 
 use dpl_coldlight::{self as cl, Tone};
 use egui::{Align2, FontId, Pos2, Stroke, Ui};
+use serde::{Deserialize, Serialize};
 
 use crate::elements::eyebrow::tracked;
 use crate::frame::Stage;
 use crate::motion::Clock;
-use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
+use crate::registry::SlideTemplate;
+use dpl_doc::component::ComponentContract;
 
-static SPEC: TemplateSpec = TemplateSpec {
-    id: TemplateId("timeline"),
-    label: "Timeline",
-    class: TemplateClass::Animation,
-    blurb: "Milestones on a baseline that draws in, dots popping in order — the 'how we got here'.",
-};
-
+/// One stop on the line — an item of the `stops` list slot.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Milestone {
-    pub when: &'static str,
-    pub what: &'static str,
+    pub when: String,
+    pub what: String,
 }
 
+/// Fields are the contract's slots and props (`component.json`).
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Timeline {
+    #[serde(with = "crate::contract::tone")]
     pub tone: Tone,
-    pub heading: &'static str,
+    pub heading: String,
     pub stops: Vec<Milestone>,
+    #[serde(skip)]
     clock: Clock,
 }
 
 impl Timeline {
+    crate::component_contract!(include_str!("component.json"));
+
     pub fn demo() -> Self {
-        Self {
-            tone: Tone::Cyan,
-            heading: "Four years, one idea",
-            stops: vec![
-                Milestone {
-                    when: "2017",
-                    what: "Attention is all you need",
-                },
-                Milestone {
-                    when: "2020",
-                    what: "Scale surprises everyone",
-                },
-                Milestone {
-                    when: "2023",
-                    what: "Everyone has one in a tab",
-                },
-                Milestone {
-                    when: "2026",
-                    what: "It runs on your desk",
-                },
-            ],
-            clock: Clock::default(),
-        }
+        crate::contract::instantiate(Self::contract(), 0).expect("the timeline demo is its example")
     }
 }
 
 impl SlideTemplate for Timeline {
-    fn spec(&self) -> &'static TemplateSpec {
-        &SPEC
+    fn spec(&self) -> &'static ComponentContract {
+        Self::contract()
     }
 
     fn restart(&mut self) {
@@ -84,7 +67,7 @@ impl SlideTemplate for Timeline {
         painter.text(
             egui::pos2(stage.rect.min.x, stage.rect.min.y),
             Align2::LEFT_TOP,
-            self.heading,
+            &self.heading,
             FontId::proportional(fluid.fs_h2()),
             cl::ink::STRONG,
         );
@@ -143,7 +126,7 @@ impl SlideTemplate for Timeline {
             painter.text(
                 Pos2::new(cx, ly),
                 anchor,
-                tracked(stop.when),
+                tracked(&stop.when),
                 FontId::monospace(fluid.fs_eyebrow()),
                 tone.gamma_multiply(p),
             );
@@ -153,7 +136,7 @@ impl SlideTemplate for Timeline {
                 ly + fluid.fs_eyebrow() + fluid.sp_1()
             };
             let galley = painter.layout(
-                stop.what.to_string(),
+                stop.what.clone(),
                 FontId::proportional(fluid.fs_body()),
                 cl::ink::BASE.gamma_multiply(p),
                 span / n as f32 * 0.9,

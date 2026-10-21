@@ -1,0 +1,75 @@
+{
+  "schema": "dpl.component/1",
+  "id": "reveal",
+  "version": "1.0.0",
+  "name": "Reveal list",
+  "summary": "Tap anywhere to reveal the next beat; each line pops in and holds forever.",
+  "class": "interactive",
+  "tags": ["list", "build-up", "presenter-paced"],
+  "slots": [
+    {
+      "id": "heading",
+      "label": "Heading",
+      "entity": "text",
+      "required": true,
+      "tooltip": "The line at the top that frames the points you are about to reveal",
+      "limits": { "max_chars": 48 }
+    },
+    {
+      "id": "hint",
+      "label": "Tap hint",
+      "entity": "text",
+      "required": false,
+      "tooltip": "The small prompt at the bottom, shown until every point is out, like Tap to reveal",
+      "limits": { "max_chars": 24 }
+    },
+    {
+      "id": "items",
+      "label": "Points",
+      "entity": "list",
+      "required": true,
+      "tooltip": "The points, in order; each tap on the slide reveals the next one",
+      "limits": { "min_items": 1, "max_items": 5 },
+      "item": [
+        {
+          "id": "text",
+          "label": "Point",
+          "kind": "text",
+          "tooltip": "The main line of this point"
+        },
+        {
+          "id": "sub",
+          "label": "Small print",
+          "kind": "text",
+          "tooltip": "A quieter line under the point"
+        }
+      ]
+    }
+  ],
+  "props": [
+    {
+      "id": "tone",
+      "label": "Colour",
+      "kind": "tone",
+      "default": "cyan",
+      "tooltip": "The accent colour of the point numbers"
+    }
+  ],
+  "variant_axes": [],
+  "examples": [
+    {
+      "id": "demo",
+      "label": "Three true things",
+      "content": {
+        "heading": "Three things that are actually true",
+        "hint": "Tap to reveal",
+        "items": [
+          { "text": "It predicts the next word", "sub": "that's the whole trick" },
+          { "text": "Scale made it feel like thinking", "sub": "same trick, more of it" },
+          { "text": "Your box can run it now", "sub": "open weights changed the deal" }
+        ]
+      }
+    }
+  ],
+  "provenance": {}
+}

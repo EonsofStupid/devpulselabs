@@ -18,7 +18,7 @@
 use dpl_coldlight::{self as cl, Tone};
 use egui::Ui;
 
-/// Element identity — never a bare string (mirrors `TemplateId`).
+/// Element identity — never a bare string (mirrors a component contract's `id`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ElementId(pub &'static str);
 

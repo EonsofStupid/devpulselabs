@@ -34,6 +34,7 @@
 //!   preview pane and on the 75" kiosk.
 
 pub mod blocks;
+pub mod contract;
 pub mod document;
 pub mod elements;
 pub mod frame;
@@ -42,10 +43,11 @@ pub mod motion;
 pub mod registry;
 pub mod templates;
 
-pub use registry::{demos, SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
+pub use registry::{components, demos, SlideTemplate};
 
 /// The two-notch authoring knob. Spacing and type slots only — never color.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Density {
     #[default]
     Comfy,

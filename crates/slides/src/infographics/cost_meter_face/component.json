@@ -1,0 +1,58 @@
+{
+  "schema": "dpl.component/1",
+  "id": "cost-meter-face",
+  "version": "1.0.0",
+  "name": "Cost meter face",
+  "summary": "Static gauge: track arc, tone fill sweeping to its level, needle, wall-sized readout.",
+  "class": "static",
+  "tags": ["infographic", "gauge", "cost"],
+  "slots": [
+    {
+      "id": "level",
+      "label": "Needle level",
+      "entity": "data",
+      "required": true,
+      "tooltip": "How far round the arc the fill and needle go: a number from 0 (empty) to 1 (full)"
+    },
+    {
+      "id": "readout",
+      "label": "Readout",
+      "entity": "text",
+      "required": true,
+      "tooltip": "The big figure under the gauge, like $4.20",
+      "limits": { "max_chars": 12 }
+    },
+    {
+      "id": "label",
+      "label": "Caption",
+      "entity": "text",
+      "required": false,
+      "tooltip": "The small line under the figure that says what it measures",
+      "limits": { "max_chars": 40 }
+    }
+  ],
+  "props": [
+    {
+      "id": "tone",
+      "label": "Colour",
+      "kind": "tone",
+      "default": "amber",
+      "tooltip": "The colour of the arc's fill and the big figure"
+    }
+  ],
+  "variant_axes": [],
+  "examples": [
+    {
+      "id": "demo",
+      "label": "Session cost, climbing",
+      "content": {
+        "level": 0.72,
+        "readout": "$4.20",
+        "label": "session cost — and climbing"
+      }
+    }
+  ],
+  "provenance": {
+    "note": "The demo is the authored beat-C face."
+  }
+}

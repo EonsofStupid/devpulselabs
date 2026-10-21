@@ -1,0 +1,47 @@
+{
+  "schema": "dpl.component/1",
+  "id": "media",
+  "version": "1.0.0",
+  "name": "Media frame",
+  "summary": "Drop-anything slide: an image, video, PDF page, or session replay — full-bleed.",
+  "class": "static",
+  "tags": ["media", "full-bleed"],
+  "slots": [
+    {
+      "id": "media",
+      "label": "Picture or video",
+      "entity": "picture",
+      "required": true,
+      "tooltip": "The image, video or moving pattern that fills the whole slide"
+    },
+    {
+      "id": "caption",
+      "label": "Caption",
+      "entity": "text",
+      "required": false,
+      "tooltip": "A small line of text in the bottom-left corner, like where the picture came from",
+      "limits": { "max_chars": 60 }
+    }
+  ],
+  "props": [
+    {
+      "id": "tone",
+      "label": "Colour",
+      "kind": "tone",
+      "default": "cyan",
+      "tooltip": "The accent colour of the caption and any moving pattern"
+    }
+  ],
+  "variant_axes": [],
+  "examples": [
+    {
+      "id": "demo",
+      "label": "The poster, full-bleed",
+      "content": {
+        "media": { "kind": "image", "src": "assets/generated/dpl-poster.webp" },
+        "caption": "any image · video · PDF page · replay"
+      }
+    }
+  ],
+  "provenance": {}
+}

@@ -7,56 +7,43 @@
 
 use dpl_coldlight::{self as cl, Tone};
 use egui::{Align2, FontId, Rect, Sense, Ui};
+use serde::{Deserialize, Serialize};
 
 use crate::elements::eyebrow::tracked;
 use crate::frame::Stage;
-use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
+use crate::registry::SlideTemplate;
+use dpl_doc::component::ComponentContract;
 
-static SPEC: TemplateSpec = TemplateSpec {
-    id: TemplateId("reveal"),
-    label: "Reveal list",
-    class: TemplateClass::Interactive,
-    blurb: "Tap anywhere to reveal the next beat; each line pops in and holds forever.",
-};
-
+/// One beat — an item of the `items` list slot.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RevealItem {
-    pub text: &'static str,
-    pub sub: &'static str,
+    pub text: String,
+    #[serde(default)]
+    pub sub: String,
 }
 
+/// Fields are the contract's slots and props (`component.json`).
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RevealList {
+    #[serde(with = "crate::contract::tone")]
     pub tone: Tone,
-    pub heading: &'static str,
-    pub hint: &'static str,
+    pub heading: String,
+    #[serde(default)]
+    pub hint: String,
     pub items: Vec<RevealItem>,
-    /// When each item was revealed — the per-item pop clock.
+    /// When each item was revealed — the per-item pop clock. Sized from
+    /// `items` by `restart()`.
+    #[serde(skip)]
     revealed_at: Vec<Option<f64>>,
 }
 
 impl RevealList {
+    crate::component_contract!(include_str!("component.json"));
+
     pub fn demo() -> Self {
-        let items = vec![
-            RevealItem {
-                text: "It predicts the next word",
-                sub: "that's the whole trick",
-            },
-            RevealItem {
-                text: "Scale made it feel like thinking",
-                sub: "same trick, more of it",
-            },
-            RevealItem {
-                text: "Your box can run it now",
-                sub: "open weights changed the deal",
-            },
-        ];
-        let n = items.len();
-        Self {
-            tone: Tone::Cyan,
-            heading: "Three things that are actually true",
-            hint: "Tap to reveal",
-            items,
-            revealed_at: vec![None; n],
-        }
+        crate::contract::instantiate(Self::contract(), 0).expect("the reveal demo is its example")
     }
 
     fn shown(&self) -> usize {
@@ -72,14 +59,13 @@ impl RevealList {
 }
 
 impl SlideTemplate for RevealList {
-    fn spec(&self) -> &'static TemplateSpec {
-        &SPEC
+    fn spec(&self) -> &'static ComponentContract {
+        Self::contract()
     }
 
+    /// Every item back to its ghost plate — one unrevealed slot per item.
     fn restart(&mut self) {
-        for t in self.revealed_at.iter_mut() {
-            *t = None;
-        }
+        self.revealed_at = vec![None; self.items.len()];
     }
 
     fn ui(&mut self, ui: &mut Ui) {
@@ -93,7 +79,7 @@ impl SlideTemplate for RevealList {
         painter.text(
             egui::pos2(stage.rect.center().x, stage.rect.min.y),
             Align2::CENTER_TOP,
-            self.heading,
+            &self.heading,
             FontId::proportional(heading_size),
             cl::ink::STRONG,
         );
@@ -143,14 +129,14 @@ impl SlideTemplate for RevealList {
                     painter.text(
                         egui::pos2(tx, scaled.center().y - fluid.fs_body() * 0.75),
                         Align2::LEFT_TOP,
-                        item.text,
+                        &item.text,
                         FontId::proportional(fluid.fs_h4()),
                         cl::ink::STRONG.gamma_multiply(alpha),
                     );
                     painter.text(
                         egui::pos2(tx, scaled.center().y + fluid.fs_body() * 0.55),
                         Align2::LEFT_TOP,
-                        item.sub,
+                        &item.sub,
                         FontId::proportional(fluid.fs_body_sm()),
                         cl::ink::MUTED.gamma_multiply(alpha),
                     );

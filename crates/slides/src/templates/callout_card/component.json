@@ -1,0 +1,65 @@
+{
+  "schema": "dpl.component/1",
+  "id": "callout",
+  "version": "1.0.0",
+  "name": "Callout card",
+  "summary": "One emphasized statement: tone bar, sheen, kicker eyebrow — rises in on the settle.",
+  "class": "static",
+  "tags": ["emphasis"],
+  "slots": [
+    {
+      "id": "kicker",
+      "label": "Kicker",
+      "entity": "text",
+      "required": false,
+      "tooltip": "A small coloured label at the top of the card, like \"the catch\"",
+      "limits": { "max_chars": 32 }
+    },
+    {
+      "id": "title",
+      "label": "Statement",
+      "entity": "text",
+      "required": true,
+      "tooltip": "The one big line you want the room to remember",
+      "limits": { "max_chars": 48 }
+    },
+    {
+      "id": "body",
+      "label": "Supporting line",
+      "entity": "text",
+      "required": false,
+      "tooltip": "One quieter line under the statement that backs it up",
+      "limits": { "max_chars": 90 }
+    },
+    {
+      "id": "media",
+      "label": "Backdrop",
+      "entity": "picture",
+      "required": false,
+      "tooltip": "An image, video or moving pattern behind the card"
+    }
+  ],
+  "props": [
+    {
+      "id": "tone",
+      "label": "Colour",
+      "kind": "tone",
+      "default": "magenta",
+      "tooltip": "The colour of the side bar, the kicker and the backdrop"
+    }
+  ],
+  "variant_axes": [],
+  "examples": [
+    {
+      "id": "demo",
+      "label": "The catch",
+      "content": {
+        "kicker": "the catch",
+        "title": "Free tiers are the demo, not the product",
+        "body": "Every hosted model you don't pay for is pricing you in tokens of patience.",
+        "media": { "kind": "anim", "ambient": "drift" }
+      }
+    }
+  ],
+  "provenance": {}
+}

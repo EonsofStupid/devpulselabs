@@ -5,47 +5,45 @@
 
 use dpl_coldlight::{self as cl, Tone};
 use egui::{Align2, FontId, Rect, Ui};
+use serde::{Deserialize, Serialize};
 
 use crate::elements::eyebrow::tracked;
-use crate::elements::{media_backdrop, Ambient, Media};
+use crate::elements::{media_backdrop, Media};
 use crate::frame::Stage;
 use crate::motion::Clock;
-use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
+use crate::registry::SlideTemplate;
+use dpl_doc::component::ComponentContract;
 
-static SPEC: TemplateSpec = TemplateSpec {
-    id: TemplateId("callout"),
-    label: "Callout card",
-    class: TemplateClass::Static,
-    blurb: "One emphasized statement: tone bar, sheen, kicker eyebrow — rises in on the settle.",
-};
-
+/// Fields are the contract's slots, props and axes (`component.json`).
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CalloutCard {
+    #[serde(with = "crate::contract::tone")]
     pub tone: Tone,
-    pub kicker: &'static str,
-    pub title: &'static str,
-    pub body: &'static str,
+    #[serde(default)]
+    pub kicker: String,
+    pub title: String,
+    #[serde(default)]
+    pub body: String,
+    /// The demo's Drift is a SLIDE ambience (ratified 2026-07-22) — this
+    /// demo is its gallery-gate surface.
+    #[serde(default)]
     pub media: Option<Media>,
+    #[serde(skip)]
     clock: Clock,
 }
 
 impl CalloutCard {
+    crate::component_contract!(include_str!("component.json"));
+
     pub fn demo() -> Self {
-        Self {
-            tone: Tone::Magenta,
-            kicker: "the catch",
-            title: "Free tiers are the demo, not the product",
-            body: "Every hosted model you don't pay for is pricing you in tokens of patience.",
-            // Drift is a SLIDE ambience (ratified 2026-07-22) — this demo is
-            // its gallery-gate surface.
-            media: Some(Media::Anim(Ambient::Drift)),
-            clock: Clock::default(),
-        }
+        crate::contract::instantiate(Self::contract(), 0).expect("the callout demo is its example")
     }
 }
 
 impl SlideTemplate for CalloutCard {
-    fn spec(&self) -> &'static TemplateSpec {
-        &SPEC
+    fn spec(&self) -> &'static ComponentContract {
+        Self::contract()
     }
 
     fn restart(&mut self) {
@@ -57,7 +55,7 @@ impl SlideTemplate for CalloutCard {
         let fluid = &stage.fluid;
         let now = ui.input(|i| i.time);
         let t0 = self.clock.tick(now);
-        if let Some(m) = self.media {
+        if let Some(m) = &self.media {
             media_backdrop(ui, ui.max_rect(), m, self.tone, now, t0);
         }
         let painter = ui.painter();
@@ -99,7 +97,7 @@ impl SlideTemplate for CalloutCard {
         painter.text(
             egui::pos2(x, y),
             Align2::LEFT_TOP,
-            tracked(self.kicker),
+            tracked(&self.kicker),
             FontId::monospace(fluid.fs_eyebrow()),
             c.gamma_multiply(alpha),
         );
@@ -107,7 +105,7 @@ impl SlideTemplate for CalloutCard {
         painter.text(
             egui::pos2(x, y),
             Align2::LEFT_TOP,
-            self.title,
+            &self.title,
             FontId::proportional(fluid.fs_h2()),
             cl::ink::STRONG.gamma_multiply(alpha),
         );
@@ -115,7 +113,7 @@ impl SlideTemplate for CalloutCard {
         painter.text(
             egui::pos2(x, y),
             Align2::LEFT_TOP,
-            self.body,
+            &self.body,
             FontId::proportional(fluid.fs_body_lg()),
             cl::ink::MUTED.gamma_multiply(alpha),
         );

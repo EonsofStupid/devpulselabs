@@ -10,6 +10,14 @@ dpl-coldlight.workspace = true
 dpl-vector.workspace = true
 dpl-video.workspace = true
 dpl-doc.workspace = true
+# Component contracts (`component.json`, dpl.component/1) and the
+# templates' props are authored JSON.
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+# Every contract is checked against `schemas/component.v1.schema.json`.
+jsonschema.workspace = true
 
 [lints]
 workspace = true

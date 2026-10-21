@@ -8,51 +8,49 @@
 use dpl_coldlight::Tone;
 use dpl_coldlight::{self as cl};
 use egui::{Align2, FontId, Ui};
+use serde::{Deserialize, Serialize};
 
 use crate::elements::eyebrow::tracked;
-use crate::elements::{media_backdrop, Ambient, Media};
+use crate::elements::{media_backdrop, Media};
 use crate::frame::Stage;
 use crate::motion::Clock;
-use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
+use crate::registry::SlideTemplate;
 use crate::Density;
+use dpl_doc::component::ComponentContract;
 
-static SPEC: TemplateSpec = TemplateSpec {
-    id: TemplateId("stat"),
-    label: "Big number",
-    class: TemplateClass::Static,
-    blurb: "The receipt: one verified wall-sized number, label, and the source footnote.",
-};
-
+/// Fields are the contract's slots, props and axes (`component.json`).
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BigNumber {
+    #[serde(with = "crate::contract::tone")]
     pub tone: Tone,
     pub density: Density,
-    pub eyebrow: &'static str,
-    pub value: &'static str,
-    pub label: &'static str,
-    pub footnote: &'static str,
+    #[serde(default)]
+    pub eyebrow: String,
+    pub value: String,
+    pub label: String,
+    /// Where the source/verification note lives (the doctrine above).
+    #[serde(default)]
+    pub footnote: String,
+    /// The demo's Pulse is a SLIDE ambience (ratified 2026-07-22) — this
+    /// demo is its gallery-gate surface.
+    #[serde(default)]
     pub media: Option<Media>,
+    #[serde(skip)]
     clock: Clock,
 }
 
 impl BigNumber {
+    crate::component_contract!(include_str!("component.json"));
+
     pub fn demo() -> Self {
-        Self {
-            tone: Tone::Lime,
-            density: Density::Comfy,
-            eyebrow: "the receipt",
-            value: "70×",
-            label: "local capability per dollar since 2022",
-            footnote: "source: EOS-001 CH02 — verified against public inference pricing",
-            // Pulse is a SLIDE ambience (ratified 2026-07-22) — gallery gate.
-            media: Some(Media::Anim(Ambient::Pulse)),
-            clock: Clock::default(),
-        }
+        crate::contract::instantiate(Self::contract(), 0).expect("the stat demo is its example")
     }
 }
 
 impl SlideTemplate for BigNumber {
-    fn spec(&self) -> &'static TemplateSpec {
-        &SPEC
+    fn spec(&self) -> &'static ComponentContract {
+        Self::contract()
     }
 
     fn restart(&mut self) {
@@ -63,7 +61,7 @@ impl SlideTemplate for BigNumber {
         let stage = Stage::of(ui.max_rect());
         let now = ui.input(|i| i.time);
         let t0 = self.clock.tick(now);
-        if let Some(m) = self.media {
+        if let Some(m) = &self.media {
             media_backdrop(ui, ui.max_rect(), m, self.tone, now, t0);
         }
         // Entrance: the receipt BLOOMS (spring overshoot on scale), the
@@ -92,7 +90,7 @@ impl SlideTemplate for BigNumber {
         painter.text(
             egui::pos2(cx, y),
             Align2::CENTER_TOP,
-            tracked(self.eyebrow),
+            tracked(&self.eyebrow),
             FontId::monospace(eyebrow_size),
             cl::ink::MUTED.gamma_multiply(fade),
         );
@@ -100,7 +98,7 @@ impl SlideTemplate for BigNumber {
         painter.text(
             egui::pos2(cx, y),
             Align2::CENTER_TOP,
-            self.value,
+            &self.value,
             FontId::proportional(value_size * (0.85 + 0.15 * bloom).max(0.05)),
             self.tone.color().gamma_multiply(bloom.clamp(0.0, 1.0)),
         );
@@ -108,7 +106,7 @@ impl SlideTemplate for BigNumber {
         painter.text(
             egui::pos2(cx, y),
             Align2::CENTER_TOP,
-            self.label,
+            &self.label,
             FontId::proportional(label_size),
             cl::ink::BASE.gamma_multiply(fade),
         );
@@ -116,7 +114,7 @@ impl SlideTemplate for BigNumber {
         painter.text(
             egui::pos2(cx, y),
             Align2::CENTER_TOP,
-            self.footnote,
+            &self.footnote,
             FontId::proportional(foot_size),
             cl::ink::MUTED.gamma_multiply(fade),
         );

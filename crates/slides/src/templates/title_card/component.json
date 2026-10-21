@@ -1,0 +1,76 @@
+{
+  "schema": "dpl.component/1",
+  "id": "title",
+  "version": "1.0.0",
+  "name": "Title card",
+  "summary": "Episode/segment opener: toned eyebrow, display title, muted subtitle.",
+  "class": "static",
+  "tags": ["opener"],
+  "slots": [
+    {
+      "id": "eyebrow",
+      "label": "Eyebrow",
+      "entity": "text",
+      "required": true,
+      "tooltip": "The small label above the title, like the show or segment name",
+      "limits": { "max_chars": 40 }
+    },
+    {
+      "id": "title",
+      "label": "Title",
+      "entity": "text",
+      "required": true,
+      "tooltip": "The big line everyone reads first",
+      "limits": { "max_chars": 60 }
+    },
+    {
+      "id": "subtitle",
+      "label": "Subtitle",
+      "entity": "text",
+      "required": false,
+      "tooltip": "One quieter line under the title",
+      "limits": { "max_chars": 120 }
+    },
+    {
+      "id": "media",
+      "label": "Backdrop",
+      "entity": "picture",
+      "required": false,
+      "tooltip": "An image, video or moving pattern behind the words"
+    }
+  ],
+  "props": [
+    {
+      "id": "tone",
+      "label": "Colour",
+      "kind": "tone",
+      "default": "amber",
+      "tooltip": "The accent colour of the eyebrow and backdrop"
+    }
+  ],
+  "variant_axes": [
+    {
+      "id": "align",
+      "label": "Alignment",
+      "tooltip": "Line the words up on the left or in the middle",
+      "options": [
+        { "id": "left", "label": "Left" },
+        { "id": "center", "label": "Centered" }
+      ],
+      "default": "left"
+    }
+  ],
+  "examples": [
+    {
+      "id": "demo",
+      "label": "The stack, laid bare",
+      "content": {
+        "eyebrow": "Echoes of Sentience",
+        "title": "The stack, laid bare",
+        "subtitle": "What actually runs when you ask a model a question — and what it costs.",
+        "media": { "kind": "image", "src": "assets/generated/dpl-poster.webp" }
+      }
+    }
+  ],
+  "provenance": {}
+}

@@ -1,0 +1,138 @@
+{
+  "schema": "dpl.component/1",
+  "id": "compare",
+  "version": "1.0.0",
+  "name": "Compare vs",
+  "summary": "Head-to-head A/B: two panels with toned strength meters and points, a VS in the gutter.",
+  "class": "split",
+  "tags": [
+    "comparison",
+    "head-to-head"
+  ],
+  "slots": [
+    {
+      "id": "heading",
+      "label": "Heading",
+      "entity": "text",
+      "required": true,
+      "tooltip": "The question over both panels, like \"Run it where?\"",
+      "limits": {
+        "max_chars": 50
+      }
+    },
+    {
+      "id": "left",
+      "label": "Left contender",
+      "entity": "data",
+      "required": true,
+      "tooltip": "The left panel: its name, its colour, a strength from 0 to 1 for the meter, and a few short points",
+      "item": [
+        {
+          "id": "name",
+          "label": "Name",
+          "kind": "text",
+          "tooltip": "What this side is"
+        },
+        {
+          "id": "tone",
+          "label": "Colour",
+          "kind": "tone",
+          "tooltip": "This side's colour"
+        },
+        {
+          "id": "score",
+          "label": "Score",
+          "kind": "number",
+          "tooltip": "How strong this side is, from 0 to 1"
+        },
+        {
+          "id": "points",
+          "label": "Points",
+          "kind": "list",
+          "tooltip": "Short points for this side",
+          "item": [
+            {
+              "id": "line",
+              "label": "Line",
+              "kind": "text",
+              "tooltip": "One short point"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "right",
+      "label": "Right contender",
+      "entity": "data",
+      "required": true,
+      "tooltip": "The right panel: its name, its colour, a strength from 0 to 1 for the meter, and a few short points",
+      "item": [
+        {
+          "id": "name",
+          "label": "Name",
+          "kind": "text",
+          "tooltip": "What this side is"
+        },
+        {
+          "id": "tone",
+          "label": "Colour",
+          "kind": "tone",
+          "tooltip": "This side's colour"
+        },
+        {
+          "id": "score",
+          "label": "Score",
+          "kind": "number",
+          "tooltip": "How strong this side is, from 0 to 1"
+        },
+        {
+          "id": "points",
+          "label": "Points",
+          "kind": "list",
+          "tooltip": "Short points for this side",
+          "item": [
+            {
+              "id": "line",
+              "label": "Line",
+              "kind": "text",
+              "tooltip": "One short point"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "props": [],
+  "variant_axes": [],
+  "examples": [
+    {
+      "id": "demo",
+      "label": "Run it where?",
+      "content": {
+        "heading": "Run it where?",
+        "left": {
+          "name": "Hosted API",
+          "tone": "violet",
+          "score": 0.62,
+          "points": [
+            "Zero setup",
+            "Pay per token",
+            "Your data leaves the box"
+          ]
+        },
+        "right": {
+          "name": "Local weights",
+          "tone": "lime",
+          "score": 0.78,
+          "points": [
+            "Runs offline",
+            "Fixed cost",
+            "Nothing leaves the room"
+          ]
+        }
+      }
+    }
+  ],
+  "provenance": {}
+}

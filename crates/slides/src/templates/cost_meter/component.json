@@ -1,0 +1,142 @@
+{
+  "schema": "dpl.component/1",
+  "id": "cost-meter",
+  "version": "1.0.0",
+  "name": "Cost meter",
+  "summary": "SEND fills the meter exchange by exchange; then the flip lands the same ask for pennies.",
+  "class": "interactive",
+  "tags": [
+    "meter",
+    "reveal",
+    "cost"
+  ],
+  "slots": [
+    {
+      "id": "prompt",
+      "label": "Headline",
+      "entity": "text",
+      "required": true,
+      "tooltip": "The line across the top that says what is being priced",
+      "limits": {
+        "max_chars": 60
+      }
+    },
+    {
+      "id": "unit",
+      "label": "Unit",
+      "entity": "text",
+      "required": false,
+      "tooltip": "What the numbers count, shown after every number, like tokens or dollars",
+      "limits": {
+        "max_chars": 12
+      }
+    },
+    {
+      "id": "exchanges",
+      "label": "Messages sent",
+      "entity": "list",
+      "required": true,
+      "tooltip": "Each tap of Send adds the next one to the log and its cost to the meter, in this order",
+      "limits": {
+        "min_items": 1,
+        "max_items": 6
+      },
+      "item": [
+        {
+          "id": "label",
+          "label": "Message",
+          "kind": "text",
+          "tooltip": "A short line naming what was asked"
+        },
+        {
+          "id": "cost",
+          "label": "Cost",
+          "kind": "number",
+          "tooltip": "How much this one message adds to the running total"
+        }
+      ]
+    },
+    {
+      "id": "call_it",
+      "label": "Guess-it line",
+      "entity": "text",
+      "required": false,
+      "tooltip": "Shown after the last Send: the question the room answers out loud before the twist",
+      "limits": {
+        "max_chars": 80
+      }
+    },
+    {
+      "id": "flip",
+      "label": "The twist",
+      "entity": "data",
+      "required": true,
+      "tooltip": "The same ask done another way, with its much smaller cost — a label and a number that land last",
+      "item": [
+        {
+          "id": "label",
+          "label": "Label",
+          "kind": "text",
+          "tooltip": "What the cheaper way is"
+        },
+        {
+          "id": "cost",
+          "label": "Cost",
+          "kind": "number",
+          "tooltip": "What the cheaper way costs"
+        }
+      ]
+    },
+    {
+      "id": "reveal",
+      "label": "Closing line",
+      "entity": "text",
+      "required": false,
+      "tooltip": "The takeaway that fades in under the twist and stays on screen",
+      "limits": {
+        "max_chars": 90
+      }
+    }
+  ],
+  "props": [
+    {
+      "id": "tone",
+      "label": "Colour",
+      "kind": "tone",
+      "default": "amber",
+      "tooltip": "The colour of the meter, the Send button and the twist's highlight"
+    }
+  ],
+  "variant_axes": [],
+  "examples": [
+    {
+      "id": "demo",
+      "label": "Same chat, priced per exchange",
+      "content": {
+        "prompt": "Same chat, priced per exchange",
+        "unit": "tokens",
+        "exchanges": [
+          {
+            "label": "\"Write my bio\"",
+            "cost": 900
+          },
+          {
+            "label": "\"Make it funnier\"",
+            "cost": 2400
+          },
+          {
+            "label": "\"Now the whole thread as context\"",
+            "cost": 9800
+          }
+        ],
+        "call_it": "Call it: what does the SAME ask cost on your own box?",
+        "flip": {
+          "label": "Your box, same ask",
+          "cost": 12
+        },
+        "reveal": "The meter only ever runs one way in the cloud — locally it rounds to zero."
+      }
+    }
+  ],
+  "provenance": {}
+}

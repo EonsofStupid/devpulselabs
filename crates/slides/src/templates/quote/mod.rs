@@ -7,46 +7,43 @@
 
 use dpl_coldlight::{self as cl, Tone};
 use egui::{Align2, Color32, FontId, Ui};
+use serde::{Deserialize, Serialize};
 
 use crate::elements::divider::rule;
 use crate::elements::eyebrow::tracked;
 use crate::frame::Stage;
 use crate::motion::Clock;
-use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
+use crate::registry::SlideTemplate;
+use dpl_doc::component::ComponentContract;
 
-static SPEC: TemplateSpec = TemplateSpec {
-    id: TemplateId("quote"),
-    label: "Pull quote",
-    class: TemplateClass::Static,
-    blurb:
-        "An oversized mark, the line in display type, and an attribution — testimonial or thesis.",
-};
-
+/// Fields are the contract's slots, props and axes (`component.json`).
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Quote {
+    #[serde(with = "crate::contract::tone")]
     pub tone: Tone,
-    pub kicker: &'static str,
-    pub quote: &'static str,
-    pub name: &'static str,
-    pub role: &'static str,
+    #[serde(default)]
+    pub kicker: String,
+    pub quote: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub role: String,
+    #[serde(skip)]
     clock: Clock,
 }
 
 impl Quote {
+    crate::component_contract!(include_str!("component.json"));
+
     pub fn demo() -> Self {
-        Self {
-            tone: Tone::Violet,
-            kicker: "What changed",
-            quote: "The bottleneck was never typing code. It was deciding what to build — and now the machine waits on exactly that.",
-            name: "A working developer",
-            role: "shipping with agents, 2026",
-            clock: Clock::default(),
-        }
+        crate::contract::instantiate(Self::contract(), 0).expect("the quote demo is its example")
     }
 }
 
 impl SlideTemplate for Quote {
-    fn spec(&self) -> &'static TemplateSpec {
-        &SPEC
+    fn spec(&self) -> &'static ComponentContract {
+        Self::contract()
     }
 
     fn restart(&mut self) {
@@ -85,7 +82,7 @@ impl SlideTemplate for Quote {
                 stage.rect.min.y + fluid.fs_display() * 0.9 + lift,
             ),
             Align2::LEFT_TOP,
-            tracked(self.kicker),
+            tracked(&self.kicker),
             FontId::monospace(fluid.fs_eyebrow()),
             tone.gamma_multiply(alpha),
         );
@@ -93,7 +90,7 @@ impl SlideTemplate for Quote {
         // The quote body, wrapped in display type, centered vertically.
         let wrap = stage.rect.width() * 0.92;
         let galley = painter.layout(
-            self.quote.to_string(),
+            self.quote.clone(),
             FontId::proportional(fluid.fs_h1()),
             cl::ink::STRONG.gamma_multiply(alpha),
             wrap,
@@ -118,14 +115,14 @@ impl SlideTemplate for Quote {
         painter.text(
             egui::pos2(stage.rect.min.x, ay + fluid.sp_4()),
             Align2::LEFT_TOP,
-            self.name,
+            &self.name,
             FontId::proportional(fluid.fs_h4()),
             cl::ink::STRONG.gamma_multiply(alpha),
         );
         painter.text(
             egui::pos2(stage.rect.min.x, ay + fluid.sp_4() + fluid.fs_h4() * 1.2),
             Align2::LEFT_TOP,
-            tracked(self.role),
+            tracked(&self.role),
             FontId::monospace(fluid.fs_eyebrow()),
             cl::ink::MUTED.gamma_multiply(alpha),
         );

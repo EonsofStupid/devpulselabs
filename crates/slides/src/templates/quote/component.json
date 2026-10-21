@@ -1,0 +1,66 @@
+{
+  "schema": "dpl.component/1",
+  "id": "quote",
+  "version": "1.0.0",
+  "name": "Pull quote",
+  "summary": "An oversized mark, the line in display type, and an attribution — testimonial or thesis.",
+  "class": "static",
+  "tags": ["quote", "testimonial"],
+  "slots": [
+    {
+      "id": "kicker",
+      "label": "Kicker",
+      "entity": "text",
+      "required": false,
+      "tooltip": "A small coloured label above the quote, like the topic it belongs to",
+      "limits": { "max_chars": 40 }
+    },
+    {
+      "id": "quote",
+      "label": "Quote",
+      "entity": "quote",
+      "required": true,
+      "tooltip": "The words being quoted, shown big in the middle of the slide",
+      "limits": { "max_chars": 200 }
+    },
+    {
+      "id": "name",
+      "label": "Who said it",
+      "entity": "text",
+      "required": false,
+      "tooltip": "The name of the person (or kind of person) the quote comes from",
+      "limits": { "max_chars": 60 }
+    },
+    {
+      "id": "role",
+      "label": "Their role",
+      "entity": "text",
+      "required": false,
+      "tooltip": "A small line under the name: their job, company or when they said it",
+      "limits": { "max_chars": 50 }
+    }
+  ],
+  "props": [
+    {
+      "id": "tone",
+      "label": "Colour",
+      "kind": "tone",
+      "default": "violet",
+      "tooltip": "The accent colour of the quote mark, the kicker and the divider line"
+    }
+  ],
+  "variant_axes": [],
+  "examples": [
+    {
+      "id": "demo",
+      "label": "What changed",
+      "content": {
+        "kicker": "What changed",
+        "quote": "The bottleneck was never typing code. It was deciding what to build — and now the machine waits on exactly that.",
+        "name": "A working developer",
+        "role": "shipping with agents, 2026"
+      }
+    }
+  ],
+  "provenance": {}
+}

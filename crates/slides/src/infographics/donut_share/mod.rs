@@ -10,62 +10,51 @@
 use dpl_coldlight::{self as cl, Tone};
 use dpl_vector::ring_sector;
 use egui::{Align2, Sense, Ui};
+use serde::{Deserialize, Serialize};
 use std::f32::consts::{FRAC_PI_2, TAU};
 
 use super::stage::{ChartStage, LOGICAL_H, LOGICAL_W};
 use super::tone_cycle::series_tone;
 use crate::motion::Clock;
-use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
+use crate::registry::SlideTemplate;
+use dpl_doc::component::ComponentContract;
 
-static SPEC: TemplateSpec = TemplateSpec {
-    id: TemplateId("donut-share"),
-    label: "Donut share",
-    class: TemplateClass::Static,
-    blurb: "Share-of-whole donut; slices sweep in from the pool, tap a slice for its readout.",
-};
-
+/// One slice — an item of the `slices` list slot.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Slice {
-    pub label: &'static str,
+    pub label: String,
+    /// Any scale: a slice is drawn as its share of the slices' sum.
     pub value: f32,
+    /// `None` = the series cycle under the slide's tone.
+    #[serde(default, with = "crate::contract::tone_opt")]
     pub tone: Option<Tone>,
 }
 
+/// Fields are the contract's slots and props (`component.json`); its demo
+/// example is the authored EOS-001 data, carried.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DonutShare {
+    #[serde(with = "crate::contract::tone")]
     pub tone: Tone,
-    pub center: &'static str,
-    pub center_note: &'static str,
+    #[serde(default)]
+    pub center: String,
+    #[serde(default)]
+    pub center_note: String,
     pub slices: Vec<Slice>,
+    #[serde(skip)]
     clock: Clock,
+    #[serde(skip)]
     selected: Option<usize>,
 }
 
 impl DonutShare {
-    /// The authored EOS-001 demo data, carried.
+    crate::component_contract!(include_str!("component.json"));
+
     pub fn demo() -> Self {
-        Self {
-            tone: Tone::Amber,
-            center: "2026",
-            center_note: "where inference runs",
-            slices: vec![
-                Slice {
-                    label: "Big cloud",
-                    value: 62.0,
-                    tone: None,
-                },
-                Slice {
-                    label: "Local / edge",
-                    value: 26.0,
-                    tone: Some(Tone::Lime),
-                },
-                Slice {
-                    label: "Hybrid",
-                    value: 12.0,
-                    tone: Some(Tone::Cyan),
-                },
-            ],
-            clock: Clock::default(),
-            selected: None,
-        }
+        crate::contract::instantiate(Self::contract(), 0)
+            .expect("the donut-share demo is its example")
     }
 
     fn slice_tone(&self, i: usize) -> Tone {
@@ -83,8 +72,8 @@ fn slice_colors(tone: Tone) -> (egui::Color32, egui::Color32) {
 }
 
 impl SlideTemplate for DonutShare {
-    fn spec(&self) -> &'static TemplateSpec {
-        &SPEC
+    fn spec(&self) -> &'static ComponentContract {
+        Self::contract()
     }
 
     fn restart(&mut self) {
@@ -183,7 +172,7 @@ impl SlideTemplate for DonutShare {
                     painter,
                     (LOGICAL_W * 0.5, LOGICAL_H * 0.5 + 34.0),
                     Align2::CENTER_CENTER,
-                    self.slices[i].label,
+                    &self.slices[i].label,
                     13.0,
                     cl::ink::MUTED,
                 );
@@ -193,7 +182,7 @@ impl SlideTemplate for DonutShare {
                     painter,
                     (LOGICAL_W * 0.5, LOGICAL_H * 0.5 - 10.0),
                     Align2::CENTER_CENTER,
-                    self.center,
+                    &self.center,
                     58.0,
                     self.tone.color(),
                 );
@@ -202,7 +191,7 @@ impl SlideTemplate for DonutShare {
                     painter,
                     (LOGICAL_W * 0.5, LOGICAL_H * 0.5 + 36.0),
                     Align2::CENTER_CENTER,
-                    self.center_note,
+                    &self.center_note,
                     12.0,
                     cl::ink::MUTED,
                 );

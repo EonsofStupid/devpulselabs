@@ -1,0 +1,83 @@
+{
+  "schema": "dpl.component/1",
+  "id": "quiz",
+  "version": "1.0.0",
+  "name": "Quiz panel",
+  "summary": "Commit-then-explain: pick, lock it in, the truth highlights and the explanation lands.",
+  "class": "interactive",
+  "tags": ["quiz", "recap"],
+  "slots": [
+    {
+      "id": "prompt",
+      "label": "Question",
+      "entity": "text",
+      "required": true,
+      "tooltip": "The question across the top of the slide",
+      "limits": { "max_chars": 60 }
+    },
+    {
+      "id": "choices",
+      "label": "Answers",
+      "entity": "list",
+      "required": true,
+      "tooltip": "The answers to pick from, one row each. Tick the right one (or the right ones)",
+      "limits": { "min_items": 2, "max_items": 6 },
+      "item": [
+        {
+          "id": "label",
+          "label": "Answer",
+          "kind": "text",
+          "tooltip": "The words of this answer, one short line"
+        },
+        {
+          "id": "correct",
+          "label": "Right answer",
+          "kind": "bool",
+          "tooltip": "Tick if this answer is right. It lights up after the room locks in"
+        }
+      ]
+    },
+    {
+      "id": "explanation",
+      "label": "Explanation",
+      "entity": "text",
+      "required": false,
+      "tooltip": "One line explaining the answer, shown only after the room locks in its pick",
+      "limits": { "max_chars": 110 }
+    }
+  ],
+  "props": [
+    {
+      "id": "select",
+      "label": "Answers to pick",
+      "kind": "enum",
+      "default": "single",
+      "options": ["single", "multi"],
+      "tooltip": "Single: the room picks one answer. Multi: the room must pick every right answer, and only those"
+    },
+    {
+      "id": "tone",
+      "label": "Colour",
+      "kind": "tone",
+      "default": "violet",
+      "tooltip": "The colour of the picked ring, the Lock it in button and the right answer's highlight"
+    }
+  ],
+  "variant_axes": [],
+  "examples": [
+    {
+      "id": "demo",
+      "label": "What is the model doing?",
+      "content": {
+        "prompt": "What is the model actually doing?",
+        "choices": [
+          { "label": "It looks up answers in a database", "correct": false },
+          { "label": "It predicts the next token, over and over", "correct": true },
+          { "label": "It reasons like a person, just faster", "correct": false }
+        ],
+        "explanation": "Every reply is next-token prediction in a loop — scale is what makes it feel like more."
+      }
+    }
+  ],
+  "provenance": {}
+}

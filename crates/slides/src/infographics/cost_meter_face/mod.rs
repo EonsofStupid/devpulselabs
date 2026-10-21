@@ -8,44 +8,42 @@
 use dpl_coldlight::{self as cl, Tone};
 use dpl_vector::arc_stroke;
 use egui::{Align2, Ui};
+use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 
 use super::stage::{ChartStage, LOGICAL_W};
 use crate::motion::Clock;
-use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
+use crate::registry::SlideTemplate;
+use dpl_doc::component::ComponentContract;
 
-static SPEC: TemplateSpec = TemplateSpec {
-    id: TemplateId("cost-meter-face"),
-    label: "Cost meter face",
-    class: TemplateClass::Static,
-    blurb: "Static gauge: track arc, tone fill sweeping to its level, needle, wall-sized readout.",
-};
-
+/// Fields are the contract's slots and props (`component.json`). The demo
+/// is the authored beat-C face, carried.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CostMeterFace {
+    #[serde(with = "crate::contract::tone")]
     pub tone: Tone,
     /// 0..1 needle position along the arc.
     pub level: f32,
-    pub readout: &'static str,
-    pub label: &'static str,
+    pub readout: String,
+    #[serde(default)]
+    pub label: String,
+    #[serde(skip)]
     clock: Clock,
 }
 
 impl CostMeterFace {
-    /// The authored beat-C face, carried.
+    crate::component_contract!(include_str!("component.json"));
+
     pub fn demo() -> Self {
-        Self {
-            tone: Tone::Amber,
-            level: 0.72,
-            readout: "$4.20",
-            label: "session cost — and climbing",
-            clock: Clock::default(),
-        }
+        crate::contract::instantiate(Self::contract(), 0)
+            .expect("the cost-meter-face demo is its example")
     }
 }
 
 impl SlideTemplate for CostMeterFace {
-    fn spec(&self) -> &'static TemplateSpec {
-        &SPEC
+    fn spec(&self) -> &'static ComponentContract {
+        Self::contract()
     }
 
     fn restart(&mut self) {
@@ -105,7 +103,7 @@ impl SlideTemplate for CostMeterFace {
             painter,
             (LOGICAL_W * 0.5, 452.0),
             Align2::CENTER_TOP,
-            self.readout,
+            &self.readout,
             56.0,
             paint,
         );
@@ -113,7 +111,7 @@ impl SlideTemplate for CostMeterFace {
             painter,
             (LOGICAL_W * 0.5, 516.0),
             Align2::CENTER_TOP,
-            self.label,
+            &self.label,
             17.0,
             cl::ink::MUTED,
         );

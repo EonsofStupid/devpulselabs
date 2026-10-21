@@ -8,60 +8,53 @@
 use dpl_coldlight::{self as cl, Tone};
 use dpl_vector::{area_fill, polyline_stroke, sample_monotone};
 use egui::{Align2, Pos2, Ui};
+use serde::{Deserialize, Serialize};
 
 use super::stage::ChartStage;
 use super::tone_cycle::series_tone;
 use crate::motion::Clock;
-use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
+use crate::registry::SlideTemplate;
+use dpl_doc::component::ComponentContract;
 
-static SPEC: TemplateSpec = TemplateSpec {
-    id: TemplateId("line-trend"),
-    label: "Line trend",
-    class: TemplateClass::Static,
-    blurb: "1–2 series over time: monotone curve draw-in, gradient area wash, end-of-line labels.",
-};
-
+/// One line — an item of the `series` list slot.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Series {
-    pub name: &'static str,
+    pub name: String,
+    /// One value per x label, in order.
     pub values: Vec<f32>,
+    /// `None` = the series cycle under the slide's tone.
+    #[serde(default, with = "crate::contract::tone_opt")]
     pub tone: Option<Tone>,
 }
 
+/// Fields are the contract's slots and props (`component.json`); its demo
+/// example is the authored "capability per dollar" chart, carried.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LineTrend {
+    #[serde(with = "crate::contract::tone")]
     pub tone: Tone,
-    pub unit: &'static str,
-    pub labels: Vec<&'static str>,
+    #[serde(default)]
+    pub unit: String,
+    pub labels: Vec<String>,
     pub series: Vec<Series>,
+    #[serde(skip)]
     clock: Clock,
 }
 
 impl LineTrend {
-    /// The authored "capability per dollar" demo, carried.
+    crate::component_contract!(include_str!("component.json"));
+
     pub fn demo() -> Self {
-        Self {
-            tone: Tone::Amber,
-            unit: "capability per dollar",
-            labels: vec!["2022", "2023", "2024", "2025", "2026"],
-            series: vec![
-                Series {
-                    name: "frontier per $",
-                    values: vec![1.0, 3.0, 9.0, 24.0, 60.0],
-                    tone: None,
-                },
-                Series {
-                    name: "local per $",
-                    values: vec![0.2, 1.0, 6.0, 22.0, 70.0],
-                    tone: Some(Tone::Lime),
-                },
-            ],
-            clock: Clock::default(),
-        }
+        crate::contract::instantiate(Self::contract(), 0)
+            .expect("the line-trend demo is its example")
     }
 }
 
 impl SlideTemplate for LineTrend {
-    fn spec(&self) -> &'static TemplateSpec {
-        &SPEC
+    fn spec(&self) -> &'static ComponentContract {
+        Self::contract()
     }
 
     fn restart(&mut self) {
@@ -81,7 +74,7 @@ impl SlideTemplate for LineTrend {
             painter,
             ((x0 + x1) * 0.5, y0 - 4.0),
             Align2::CENTER_BOTTOM,
-            self.unit,
+            &self.unit,
             17.0,
             cl::ink::MUTED,
         );
@@ -156,7 +149,7 @@ impl SlideTemplate for LineTrend {
                 painter.text(
                     *end - egui::vec2(0.0, stage.len(14.0)),
                     Align2::RIGHT_BOTTOM,
-                    s.name,
+                    &s.name,
                     egui::FontId::proportional(stage.len(22.0)),
                     paint,
                 );

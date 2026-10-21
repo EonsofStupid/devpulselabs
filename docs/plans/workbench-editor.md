@@ -175,6 +175,12 @@ honest rather than misreading — which is exactly what the v1→v2 bump was for
 
 ### 2.4 RATIFIED — everything is an ENTITY; presets are entity-scoped
 
+> **2026-10-21 (R285):** these rulings stand and are carried into the
+> five-layer model of `docs/research/lesson-slide-schema.md` §5. The v3
+> slide below gains identity (`id`, `rev`), a component reference and
+> slot-keyed content as `dpl.slide/3` in LS2; the entity presets keep
+> `for` and `exposes` exactly as ruled here.
+
 **OPERATOR RULING 2026-07-31: "colour lives per entity."** Colour is one of the
 4-7, so the 4-7 are the *selected entity's* traits — which makes the preset
 entity-scoped too. You add text, then you style **that text**. The card is

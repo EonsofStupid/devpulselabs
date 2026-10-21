@@ -6,10 +6,12 @@
 use dpl_coldlight::{self as cl, Tone};
 use dpl_vector::arc_stroke;
 use egui::{Align2, Rect, Ui};
+use serde::{Deserialize, Serialize};
 use std::f32::consts::TAU;
 
 /// Pre-made vector ambiences — named, pool-colored, motion-runtime driven.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Ambient {
     /// Concentric rings breathing outward behind content (hotspot-pulse loop).
     Rings,
@@ -19,25 +21,27 @@ pub enum Ambient {
     Pulse,
 }
 
-/// What a slide's media slot can carry.
-#[derive(Debug, Clone, Copy)]
+/// What a slide's media slot can carry — authored as
+/// `{"kind": "image" | "video", "src": …}` or `{"kind": "anim", "ambient": …}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
 pub enum Media {
     /// Absolute or repo-relative path, rendered via the installed file loader.
-    Image(&'static str),
+    Image { src: String },
     /// Honest placeholder until the engine pass delivers frames (ADR-009).
-    Video(&'static str),
+    Video { src: String },
     /// A named pre-made vector animation.
-    Anim(Ambient),
+    Anim { ambient: Ambient },
 }
 
 /// Paint the media as a BACKDROP inside `rect` (under the template's
 /// content). `now`/`t0` come from the slide's clock so replay restarts
 /// ambience too.
-pub fn media_backdrop(ui: &mut Ui, rect: Rect, media: Media, tone: Tone, now: f64, t0: f64) {
+pub fn media_backdrop(ui: &mut Ui, rect: Rect, media: &Media, tone: Tone, now: f64, t0: f64) {
     match media {
-        Media::Image(path) => paint_image(ui, rect, path),
-        Media::Video(path) => paint_video(ui, rect, path, None),
-        Media::Anim(amb) => ambient_backdrop(ui, rect, amb, tone.color(), now, t0),
+        Media::Image { src } => paint_image(ui, rect, src),
+        Media::Video { src } => paint_video(ui, rect, src, None),
+        Media::Anim { ambient } => ambient_backdrop(ui, rect, *ambient, tone.color(), now, t0),
     }
 }
 

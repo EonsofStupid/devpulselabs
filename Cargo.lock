@@ -2550,6 +2550,9 @@ dependencies = [
  "dpl-vector",
  "dpl-video",
  "egui",
+ "jsonschema",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -9389,6 +9392,7 @@ name = "xtask"
 version = "0.1.0"
 dependencies = [
  "dpl-chat-codex",
+ "dpl-doc",
  "dpl-tools-deps",
  "image",
  "pelite",

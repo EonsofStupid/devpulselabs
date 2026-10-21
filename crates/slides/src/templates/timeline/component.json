@@ -1,0 +1,67 @@
+{
+  "schema": "dpl.component/1",
+  "id": "timeline",
+  "version": "1.0.0",
+  "name": "Timeline",
+  "summary": "Milestones on a baseline that draws in, dots popping in order — the 'how we got here'.",
+  "class": "animation",
+  "tags": ["timeline", "history"],
+  "slots": [
+    {
+      "id": "heading",
+      "label": "Heading",
+      "entity": "text",
+      "required": true,
+      "tooltip": "The line at the top that says what this timeline is about",
+      "limits": { "max_chars": 48 }
+    },
+    {
+      "id": "stops",
+      "label": "Milestones",
+      "entity": "list",
+      "required": true,
+      "tooltip": "The moments along the line, left to right in order; their labels take turns above and below",
+      "limits": { "min_items": 1, "max_items": 6 },
+      "item": [
+        {
+          "id": "when",
+          "label": "When",
+          "kind": "text",
+          "tooltip": "The short date or step name by the dot, like 2017"
+        },
+        {
+          "id": "what",
+          "label": "What happened",
+          "kind": "text",
+          "tooltip": "A few words on what happened then; long lines wrap"
+        }
+      ]
+    }
+  ],
+  "props": [
+    {
+      "id": "tone",
+      "label": "Colour",
+      "kind": "tone",
+      "default": "cyan",
+      "tooltip": "The accent colour of the dots and the dates"
+    }
+  ],
+  "variant_axes": [],
+  "examples": [
+    {
+      "id": "demo",
+      "label": "Four years, one idea",
+      "content": {
+        "heading": "Four years, one idea",
+        "stops": [
+          { "when": "2017", "what": "Attention is all you need" },
+          { "when": "2020", "what": "Scale surprises everyone" },
+          { "when": "2023", "what": "Everyone has one in a tab" },
+          { "when": "2026", "what": "It runs on your desk" }
+        ]
+      }
+    }
+  ],
+  "provenance": {}
+}

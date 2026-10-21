@@ -1,0 +1,61 @@
+{
+  "schema": "dpl.component/1",
+  "id": "checklist",
+  "version": "1.0.0",
+  "name": "Checklist",
+  "summary": "Tap to tick items off one at a time; each pops, and a meter fills as you go.",
+  "class": "interactive",
+  "tags": ["steps", "progress"],
+  "slots": [
+    {
+      "id": "heading",
+      "label": "Heading",
+      "entity": "text",
+      "required": true,
+      "tooltip": "The line above the list, like \"Ship your first agent\"",
+      "limits": { "max_chars": 48 }
+    },
+    {
+      "id": "items",
+      "label": "Checklist items",
+      "entity": "list",
+      "required": true,
+      "tooltip": "The steps to tick off, in order. Each tap on the slide ticks the next one.",
+      "limits": { "min_items": 1, "max_items": 6 },
+      "item": [
+        {
+          "id": "text",
+          "label": "Item",
+          "kind": "text",
+          "tooltip": "One step, in a few words"
+        }
+      ]
+    }
+  ],
+  "props": [
+    {
+      "id": "tone",
+      "label": "Colour",
+      "kind": "tone",
+      "default": "lime",
+      "tooltip": "The colour of the ticks and the progress bar"
+    }
+  ],
+  "variant_axes": [],
+  "examples": [
+    {
+      "id": "demo",
+      "label": "Ship your first agent",
+      "content": {
+        "heading": "Ship your first agent",
+        "items": [
+          "Pick a model that fits your box",
+          "Wire the streaming loop",
+          "Give it your tools",
+          "Ship it behind a real task"
+        ]
+      }
+    }
+  ],
+  "provenance": {}
+}
