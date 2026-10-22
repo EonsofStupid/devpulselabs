@@ -95,8 +95,8 @@ pub fn upgrade(raw: &str) -> Result<Slide, String> {
     slide.enter = old.enter;
     slide.reveals = old.reveals.iter().map(|id| rename(id)).collect();
     slide.provenance = SlideProvenance {
-        forked_from: None,
         upgraded_from: Some(format!("v{}", old.v)),
+        ..SlideProvenance::default()
     };
     for block in old.blocks {
         slide.blocks.push(match block {

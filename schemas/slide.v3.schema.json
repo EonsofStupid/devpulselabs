@@ -130,7 +130,11 @@
             "rev": { "type": "integer", "minimum": 1 }
           }
         },
-        "upgraded_from": { "type": "string" }
+        "upgraded_from": { "type": "string" },
+        "unlinked_from": {
+          "description": "The look this slide stopped following (LK1).",
+          "type": "string"
+        }
       }
     },
     "recipe": { "$ref": "#/$defs/ref" },

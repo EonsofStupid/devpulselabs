@@ -159,14 +159,46 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
   value that is yours; try-before-keep; "More controls" gated by `exposes`;
   one revision per edit burst.
 
+## LK1 built (2026-10-22)
+
+- **`dpl_doc::link`** (new): `Source`, `Knob`, `LinkState` (derived, never
+  stored), `source`, `changes`, `link_state`, `reset`, `reset_all`,
+  `stop_following` (copies the look's values, so nothing changes on screen,
+  and sets `provenance.unlinked_from`), `follow_again(keep_my_changes)`.
+  The schema gains `unlinked_from`.
+- **Departures from the plan's letter (same truth, recorded for the PR):**
+  - `resolve_traced` became `link::source(slide, knob)`, one knob at a
+    time; `resolve` stays the paint path.
+  - The dot opens a small floating sheet ("Yours: … / The look's: …"),
+    and the "Use the look's" chip beside it is the one-tap way back. The
+    first cut gave the value back on a dot tap, which surprised; the sheet
+    is what the plan described.
+  - The stage long-press compare is not built; Keep / Cancel covers looks.
+- **The editor:** the look chip ("Trying: Neon intro" while a look is on
+  trial) and its menu; Keep in the Hero weight; the dot, sheet and give-back
+  chip on Background, Font, Size and Ink; "More controls"; typing settles
+  into one revision after a 1.5 s pause; tooltips and pilot ids on every
+  touched control (`editor/*`, `editor.yours/*`, `editor.compare/*`,
+  `editor.font/*`, `workbench.author.swatch/*`).
+- **The Workbench:** every tab but Words shows the chip and Undo; the
+  Background tab shows the background the slide SHOWS, with the dot.
+- **Proof:**
+  - tests: doc 56, editor 11, Workbench 55; clippy clean;
+  - EguiPilotAI `linked-looks` and `linked-looks-1100` pass (47 steps each),
+    and `editor-look-by-reference` passes with its new Keep step;
+  - on disk the run ends at rev 6 with `preset: neon-intro`, no background
+    and no `unlinked_from` (follow again cleared it);
+  - shots: `docs/proof/lk1-trying.png`, `lk1-one-change.png`,
+    `lk1-compare-1100.png`, `lk1-own-style-1100.png`.
+
 ## Exact next step
 
-1. **LK1 on `feat/lk1-linked-looks`**, stacked on LS2b (#282). Plan §2
-   items 1–8, in order: `dpl-doc` first (`Source`, `resolve_traced`, the
-   verbs, `provenance.unlinked_from` plus the schema), then the editor
-   (chip, dots, try-before-keep, More controls, settle revisions, tooltips
-   and pilot ids), then the Workbench tabs.
-2. The merge order once the runners return: #280 → #281 → #282 → LK1.
+1. **Commit LK1 on `feat/lk1-linked-looks`**, push through the gate,
+   rebuild the exe from `main`, and open a draft PR based on
+   `feat/ls2b-presets-by-reference` (#282).
+2. The merge order once the runners return: #280 → #281 → #282 → LK1, each
+   retargeted to `main`, double-green, the exe rebuilt after each.
+3. Then LK2 (your own looks) gets its own plan.
 
 ## Landmines
 
@@ -202,6 +234,8 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
   entrance ends shows almost no text. Scenarios wait 1.5 s before capturing.
 - **The title card's subtitle does not wrap.** At 1100x700 with the contract
   open, it is clipped at the stage edge. Real slot layout comes with LS4.
+- **Tapping a look only TRIES it now (LK1).** Any scenario that picks a look
+  must click `root/editor/keep` after it.
 
 ## Verify commands
 

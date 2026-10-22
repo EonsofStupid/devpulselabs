@@ -1017,6 +1017,23 @@ LS1 landed the component layer:
 - the Workbench reading names and summaries from the contracts;
 - the `contracts` phase of `cargo green`, so a contract can only grow.
 
+### R286 · 2026-10-21
+
+> we want to make it advance so we link them but more advanced users can break the link and have full grainular control but we want to fold the latest UI trends for UI making it effortless
+
+Source: the operator's message in the Claude Code session of 2026-10-21 (first recorded here). **Operator rulings 2026-10-21:**
+- "Approve": linked by default, with three derived states (follows · follows with changes · own style), LK1 first, then LK2 (your own looks) and LK3 (text, quote and picture looks);
+- "Your version replaces it for you": in LK2, pushing changes back to a built-in look saves your version in your library, it replaces the built-in for you, and "Back to the built-in" is always there;
+- "Approve as written": the proposed text, quote and picture looks land in LK3.
+
+Note: The research is §4.9 of `docs/research/lesson-slide-schema.md`. LK1 landed the pattern on card looks:
+- **The look chip** says what the slide follows: "Look: Neon intro", "Look: Neon intro · 1 change", "Own style (was Neon intro)" or "The show's style". Its menu lists your changes, each with its own way back, plus "Undo all my changes" and "Stop following this look" / "Follow the look again" (keep my changes, or start fresh).
+- **A dot marks every value that is yours**, where you edit it. Tapping it compares the two values in words; "Use the look's" (or "Use the show's") gives it back in one tap.
+- **Try before you keep:** tapping a look shows it on the slide with Keep / Cancel; nothing is saved until Keep.
+- **More controls** shows every knob without leaving the look.
+- **Typing is one revision**, and Undo is on every tab.
+- The state is worked out from the slide's own values, never stored; stopping changes nothing on screen and remembers the look (`provenance.unlinked_from`).
+
 ## 5. Capture — ViziWiz, sessions, steps, guides
 
 ### R178 · 2026-07-23

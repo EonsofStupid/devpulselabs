@@ -111,6 +111,13 @@ arguments = ["--route", "workbench/author", "--mood", "0"]
 [fixtures.author-ls2.environment]
 CONTENT_ROOT = "target/eguipilotai/ls2a/content"
 
+# LK1: the same scratch author surface at the minimum real window.
+[fixtures.author-ls2-1100]
+arguments = ["--route", "workbench/author", "--window", "1100x700", "--mood", "0"]
+
+[fixtures.author-ls2-1100.environment]
+CONTENT_ROOT = "target/eguipilotai/ls2a/content"
+
 [fixtures.wiredfront-editor]
 arguments = ["--route", "wiredfront/editor", "--mood", "0"]
 

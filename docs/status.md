@@ -32,7 +32,10 @@ refreshed without touching content. The research is
 |---|---|---|
 | LS1 | Component contracts: `dpl.component/1`, a `component.json` beside each of the 28 templates, the gallery demo built from each contract's first example, the Workbench reading the contracts, the `contracts` phase of `cargo green` | **in PR #280** (CI waiting: the estate runners are offline) |
 | LS2a | Slides by id (`dpl.slide/3`): its own id and revision, blocks as the component's slots, the library folder, Layout and Starter taps that start from what was tapped, read-only seeds, the one-time upgrade of the six v2 drafts with backups | **draft PR #281**, stacked on LS1 |
-| LS2b | Presets by reference: the five looks are card presets (`for`, `exposes`, `tone`, and a font default for their lines, ruled 2026-10-21); a slide stores the look's id; the cascade is slide → look → show | **built**, stacked on LS2a |
+| LS2b | Presets by reference: the five looks are card presets (`for`, `exposes`, `tone`, and a font default for their lines, ruled 2026-10-21); a slide stores the look's id; the cascade is slide → look → show | **draft PR #282**, stacked on LS2a |
+| LK1 | Linked looks (R286): the look chip and its menu (your changes, Undo all my changes, Stop following / Follow the look again), a dot on every value that is yours with a comparison and a one-tap way back, try-before-keep, More controls, one revision per typing burst, Undo on every tab | **built**, stacked on LS2b |
+| LK2 | Your own looks (`dpl.look/1`): Save as a new look, push changes back to a look ("changes 12 slides", before and after), a built-in replaced by your version with "Back to the built-in" | |
+| LK3 | Text, quote and picture looks (the approved sets) with the same chip, dots and stop-following, per block | |
 | LS3 | Lessons (`dpl.lesson/1`) and episodes built from lessons (`dpl.episode/2`), by reference, with "Update available" | |
 | LS4 | Components render their slots and variant axes | |
 | LS5 | Render locks for exports; Lottie slots | |
@@ -130,7 +133,7 @@ release) are still to come.
       cannot run yet (RM3, RM4).
 12. **A card made from a layout shows the layout's words, not its look**
     (2026-10-21, LS2a). The document renderer paints every slide as a plain
-    stack, so until text presets (LS2b) and component rendering (LS4) land,
+    stack, so until text looks (LK3) and component rendering (LS4) land,
     the lines all share one size.
 13. **A second launch opens a second, half-broken window** instead of raising
     the running one (`FjallError: Locked`, seam port bind os error 10048).
