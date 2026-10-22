@@ -193,12 +193,13 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
 
 ## Exact next step
 
-1. **Commit LK1 on `feat/lk1-linked-looks`**, push through the gate,
-   rebuild the exe from `main`, and open a draft PR based on
-   `feat/ls2b-presets-by-reference` (#282).
-2. The merge order once the runners return: #280 → #281 → #282 → LK1, each
-   retargeted to `main`, double-green, the exe rebuilt after each.
-3. Then LK2 (your own looks) gets its own plan.
+1. **LK1 is draft PR #283** (a6a2378, base `feat/ls2b-presets-by-reference`);
+   the gate passed on push. This journal update is a local commit on top,
+   pushed with the next change.
+2. The merge order once the runners return: #280 → #281 → #282 → #283, each
+   retargeted to `main` (`gh pr edit <n> --base main`), double-green, the
+   exe rebuilt after each, each plan file deleted as it lands.
+3. Then LK2 (your own looks) gets its own plan, for the operator to approve.
 
 ## Landmines
 
@@ -206,7 +207,8 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
   BRANCH.** LS2a's exe upgrades content at startup, so after every push,
   rebuild from `main`: `git checkout main && cargo build --release -p
   devpulselabs -p dpl-lottie-render`, check the stamp, then check the branch
-  out again. Done 2026-10-21 15:52 (stamp `4ee638b · 2026-10-21 19:51z`).
+  out again. Last done 2026-10-22 00:18 after the LK1 push (stamp
+  `4ee638b · 2026-10-22 04:14z`).
 
 - **Codex findings of 2026-10-20 (not yet in any doc; they go into
   `status.md` with LS1):**
