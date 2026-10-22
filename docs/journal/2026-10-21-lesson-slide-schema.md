@@ -143,22 +143,30 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
       `preset: neon-intro` at rev 2, with nothing copied;
     - shot: `docs/proof/ls2b-look-by-reference.png`.
 
+## Linked looks (milestone `linked-overrides`, 2026-10-21)
+
+- **The operator (R286):** "link them, but advanced users can break the link
+  and have full granular control … latest UI trends, effortless".
+- **Research and grounding are done.** The plan is
+  `docs/plans/linked-looks-lk1.md` (untracked), APPROVED with:
+  - Q1 "Approve";
+  - Q2 a built-in look the operator pushes back to becomes their own
+    version, replacing it for them, with "Back to the built-in";
+  - Q3 the preset sets approved as written (LK3).
+- **The model:** a derived state (follows · with changes · own style);
+  `resolve_traced` with a source per knob; reset, reset all,
+  stop_following and follow_again; the look chip and menu; a dot on every
+  value that is yours; try-before-keep; "More controls" gated by `exposes`;
+  one revision per edit burst.
+
 ## Exact next step
 
-1. **LS2b is draft PR #282**, stacked on #281, which is stacked on #280.
-   The exe was rebuilt from `main` at 18:01 (stamp
-   `4ee638b · 2026-10-21 21:59z`).
-2. **The proposal is waiting on the operator:**
-   `docs/plans/lesson-schema-preset-sets.md` (untracked) lists 14 text, 6
-   quote and 5 picture presets, made only from existing fonts, sizes, inks
-   and tones. After approval: add them to `presets.json` with `for` set to
-   text, quote or picture; lift the "block presets are refused" rule in
-   `dpl_doc::validate`; the editor's text tray offers them.
-3. **When the runners return**, merge in order #280 → #281 → #282. Retarget
-   each to `main` after its parent merges, wait for double-green, and
-   rebuild the exe after each merge. The watcher task (bz2mu1rfp) polls
-   #280.
-4. Then LS3: lessons and episodes by reference.
+1. **LK1 on `feat/lk1-linked-looks`**, stacked on LS2b (#282). Plan §2
+   items 1–8, in order: `dpl-doc` first (`Source`, `resolve_traced`, the
+   verbs, `provenance.unlinked_from` plus the schema), then the editor
+   (chip, dots, try-before-keep, More controls, settle revisions, tooltips
+   and pilot ids), then the Workbench tabs.
+2. The merge order once the runners return: #280 → #281 → #282 → LK1.
 
 ## Landmines
 
