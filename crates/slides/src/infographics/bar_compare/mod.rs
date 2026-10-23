@@ -7,67 +7,52 @@
 
 use dpl_coldlight::{self as cl, Tone};
 use egui::{Align2, Rect, Ui};
+use serde::{Deserialize, Serialize};
 
 use super::stage::ChartStage;
 use super::tone_cycle::series_tone;
 use crate::motion::Clock;
-use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
+use crate::registry::SlideTemplate;
+use dpl_doc::component::ComponentContract;
 
-static SPEC: TemplateSpec = TemplateSpec {
-    id: TemplateId("bar-compare"),
-    label: "Bar compare",
-    class: TemplateClass::Static,
-    blurb: "Labeled value bars with rise-in stagger; per-bar tone override; the receipt chart.",
-};
-
+/// One bar — an item of the `bars` list slot.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BarDatum {
-    pub label: &'static str,
+    pub label: String,
     pub value: f32,
-    pub display: &'static str,
+    pub display: String,
+    /// `None` = the next tone of the series cycle.
+    #[serde(default, with = "crate::contract::tone_opt")]
     pub tone: Option<Tone>,
 }
 
+/// Fields are the contract's slots and props (`component.json`). The demo
+/// is the authored EOS-001 CH02 receipt, carried.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BarCompare {
+    #[serde(with = "crate::contract::tone")]
     pub tone: Tone,
-    pub unit: &'static str,
+    #[serde(default)]
+    pub unit: String,
     pub bars: Vec<BarDatum>,
+    #[serde(skip)]
     clock: Clock,
 }
 
 impl BarCompare {
-    /// The authored EOS-001 CH02 receipt, carried.
+    crate::component_contract!(include_str!("component.json"));
+
     pub fn demo() -> Self {
-        Self {
-            tone: Tone::Amber,
-            unit: "$ per million tokens",
-            bars: vec![
-                BarDatum {
-                    label: "Frontier API",
-                    value: 15.0,
-                    display: "$15",
-                    tone: None,
-                },
-                BarDatum {
-                    label: "Cheap tier",
-                    value: 3.0,
-                    display: "$3",
-                    tone: Some(Tone::Cyan),
-                },
-                BarDatum {
-                    label: "Your box",
-                    value: 0.4,
-                    display: "~$0.40 power",
-                    tone: Some(Tone::Lime),
-                },
-            ],
-            clock: Clock::default(),
-        }
+        crate::contract::instantiate(Self::contract(), 0)
+            .expect("the bar-compare demo is its example")
     }
 }
 
 impl SlideTemplate for BarCompare {
-    fn spec(&self) -> &'static TemplateSpec {
-        &SPEC
+    fn spec(&self) -> &'static ComponentContract {
+        Self::contract()
     }
 
     fn restart(&mut self) {
@@ -87,7 +72,7 @@ impl SlideTemplate for BarCompare {
             painter,
             ((x0 + x1) * 0.5, y0 - 4.0),
             Align2::CENTER_BOTTOM,
-            self.unit,
+            &self.unit,
             17.0,
             cl::ink::MUTED,
         );
@@ -146,7 +131,7 @@ impl SlideTemplate for BarCompare {
                 painter,
                 (bx + bw * 0.5, y1 - full_h * rise - 14.0),
                 Align2::CENTER_BOTTOM,
-                bar.display,
+                &bar.display,
                 30.0,
                 paint,
             );
@@ -155,7 +140,7 @@ impl SlideTemplate for BarCompare {
                 painter,
                 (bx + bw * 0.5, y1 + 20.0),
                 Align2::CENTER_TOP,
-                bar.label,
+                &bar.label,
                 17.0,
                 cl::ink::MUTED,
             );

@@ -1,0 +1,74 @@
+{
+  "schema": "dpl.component/1",
+  "id": "code",
+  "version": "1.0.0",
+  "name": "Code block",
+  "summary": "Raw code plate: gutter numbers, tone-washed highlight lines, Copy with a held rest.",
+  "class": "static",
+  "tags": ["code"],
+  "slots": [
+    {
+      "id": "title",
+      "label": "File name",
+      "entity": "text",
+      "required": false,
+      "tooltip": "The name shown at the top of the plate, like run-local.sh",
+      "limits": { "max_chars": 40 }
+    },
+    {
+      "id": "language",
+      "label": "Language",
+      "entity": "text",
+      "required": false,
+      "tooltip": "A small tag next to the file name saying what kind of code it is, like bash",
+      "limits": { "max_chars": 20 }
+    },
+    {
+      "id": "code",
+      "label": "Code",
+      "entity": "text",
+      "required": true,
+      "tooltip": "The code exactly as it should appear. About 12 short lines fit; longer code is cut off at the bottom.",
+      "limits": { "max_chars": 800 }
+    },
+    {
+      "id": "highlights",
+      "label": "Highlighted lines",
+      "entity": "list",
+      "required": false,
+      "tooltip": "Line numbers to light up in the slide's colour, counting the first line as 1",
+      "limits": { "min_items": 0, "max_items": 12 },
+      "item": [
+        {
+          "id": "line",
+          "label": "Line number",
+          "kind": "number",
+          "tooltip": "Which line to light up (the first line is 1)"
+        }
+      ]
+    }
+  ],
+  "props": [
+    {
+      "id": "tone",
+      "label": "Colour",
+      "kind": "tone",
+      "default": "cyan",
+      "tooltip": "The colour of the highlighted lines and the Copied button"
+    }
+  ],
+  "variant_axes": [],
+  "examples": [
+    {
+      "id": "demo",
+      "label": "Run it locally",
+      "content": {
+        "title": "run-local.sh",
+        "language": "bash",
+        "code": "# pull an open-weights model and talk to it\nollama pull llama3.1:8b\n\n# that's the whole setup\nollama run llama3.1:8b \\\n  \"explain quantization like I stream games\"",
+        "highlights": [2, 5]
+      }
+    }
+  ],
+  "provenance": {}
+}

@@ -1,0 +1,128 @@
+{
+  "schema": "dpl.component/1",
+  "id": "line-trend",
+  "version": "1.0.0",
+  "name": "Line trend",
+  "summary": "1–2 series over time: monotone curve draw-in, gradient area wash, end-of-line labels.",
+  "class": "static",
+  "tags": [
+    "infographic",
+    "chart",
+    "trend",
+    "time-series"
+  ],
+  "slots": [
+    {
+      "id": "unit",
+      "label": "What is measured",
+      "entity": "text",
+      "required": false,
+      "tooltip": "A short caption over the chart that says what the lines measure, like capability per dollar",
+      "limits": {
+        "max_chars": 40
+      }
+    },
+    {
+      "id": "labels",
+      "label": "Time labels",
+      "entity": "list",
+      "required": true,
+      "tooltip": "The marks along the bottom, left to right, like years or months. Each line needs one number per mark",
+      "limits": {
+        "min_items": 2,
+        "max_items": 12
+      },
+      "item": [
+        {
+          "id": "label",
+          "label": "Mark",
+          "kind": "text",
+          "tooltip": "One mark along the bottom, like 2024 or Mar"
+        }
+      ]
+    },
+    {
+      "id": "series",
+      "label": "Lines",
+      "entity": "list",
+      "required": true,
+      "tooltip": "One or two lines to draw across the chart. Each has a name and its numbers",
+      "limits": {
+        "min_items": 1,
+        "max_items": 2
+      },
+      "item": [
+        {
+          "id": "name",
+          "label": "Name",
+          "kind": "text",
+          "tooltip": "What this line stands for, written at its right-hand end"
+        },
+        {
+          "id": "values",
+          "label": "Numbers",
+          "kind": "numbers",
+          "tooltip": "The line's numbers, one for each time label, left to right"
+        },
+        {
+          "id": "tone",
+          "label": "Colour",
+          "kind": "tone",
+          "tooltip": "Pick a colour for this line, or leave it empty to take the next colour after the slide's"
+        }
+      ]
+    }
+  ],
+  "props": [
+    {
+      "id": "tone",
+      "label": "Colour",
+      "kind": "tone",
+      "default": "amber",
+      "tooltip": "The slide's accent colour: the first line wears it"
+    }
+  ],
+  "variant_axes": [],
+  "examples": [
+    {
+      "id": "demo",
+      "label": "Capability per dollar",
+      "content": {
+        "unit": "capability per dollar",
+        "labels": [
+          "2022",
+          "2023",
+          "2024",
+          "2025",
+          "2026"
+        ],
+        "series": [
+          {
+            "name": "frontier per $",
+            "values": [
+              1.0,
+              3.0,
+              9.0,
+              24.0,
+              60.0
+            ]
+          },
+          {
+            "name": "local per $",
+            "values": [
+              0.2,
+              1.0,
+              6.0,
+              22.0,
+              70.0
+            ],
+            "tone": "lime"
+          }
+        ]
+      }
+    }
+  ],
+  "provenance": {
+    "note": "The demo is the authored \"capability per dollar\" chart, carried."
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "schema": "dpl.component/1",
+  "id": "section",
+  "version": "1.0.0",
+  "name": "Section divider",
+  "summary": "A giant tone section number, a display title, and a rule — the chapter break.",
+  "class": "static",
+  "tags": ["divider", "chapter-break"],
+  "slots": [
+    {
+      "id": "number",
+      "label": "Section number",
+      "entity": "text",
+      "required": true,
+      "tooltip": "The giant number in the top corner, like 02 — the part of the talk you are starting",
+      "limits": { "max_chars": 4 }
+    },
+    {
+      "id": "kicker",
+      "label": "Kicker",
+      "entity": "text",
+      "required": false,
+      "tooltip": "The small label above the title, like Part two",
+      "limits": { "max_chars": 32 }
+    },
+    {
+      "id": "title",
+      "label": "Section title",
+      "entity": "text",
+      "required": true,
+      "tooltip": "The big name of the section, on one line near the bottom",
+      "limits": { "max_chars": 28 }
+    }
+  ],
+  "props": [
+    {
+      "id": "tone",
+      "label": "Colour",
+      "kind": "tone",
+      "default": "amber",
+      "tooltip": "The accent colour of the number, the kicker and the rule"
+    }
+  ],
+  "variant_axes": [],
+  "examples": [
+    {
+      "id": "demo",
+      "label": "Part two: what it costs",
+      "content": {
+        "number": "02",
+        "kicker": "Part two",
+        "title": "What it actually costs"
+      }
+    }
+  ],
+  "provenance": {}
+}

@@ -5,60 +5,50 @@
 
 use dpl_coldlight::{self as cl, Tone};
 use egui::{Align2, FontId, Rect, Ui};
+use serde::{Deserialize, Serialize};
 
 use crate::elements::bar::bar;
 use crate::elements::eyebrow::tracked;
 use crate::frame::Stage;
 use crate::motion::Clock;
-use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
+use crate::registry::SlideTemplate;
+use dpl_doc::component::ComponentContract;
 
-static SPEC: TemplateSpec = TemplateSpec {
-    id: TemplateId("compare"),
-    label: "Compare vs",
-    class: TemplateClass::Split,
-    blurb:
-        "Head-to-head A/B: two panels with toned strength meters and points, a VS in the gutter.",
-};
-
+/// One side of the head-to-head.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Contender {
-    pub name: &'static str,
+    pub name: String,
+    #[serde(with = "crate::contract::tone")]
     pub tone: Tone,
     /// 0..1 strength meter.
     pub score: f32,
-    pub points: Vec<&'static str>,
+    #[serde(default)]
+    pub points: Vec<String>,
 }
 
+/// Fields are the contract's slots, props and axes (`component.json`).
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CompareVs {
-    pub heading: &'static str,
+    pub heading: String,
     pub left: Contender,
     pub right: Contender,
+    #[serde(skip)]
     clock: Clock,
 }
 
 impl CompareVs {
+    crate::component_contract!(include_str!("component.json"));
+
     pub fn demo() -> Self {
-        Self {
-            heading: "Run it where?",
-            left: Contender {
-                name: "Hosted API",
-                tone: Tone::Violet,
-                score: 0.62,
-                points: vec!["Zero setup", "Pay per token", "Your data leaves the box"],
-            },
-            right: Contender {
-                name: "Local weights",
-                tone: Tone::Lime,
-                score: 0.78,
-                points: vec!["Runs offline", "Fixed cost", "Nothing leaves the room"],
-            },
-            clock: Clock::default(),
-        }
+        crate::contract::instantiate(Self::contract(), 0).expect("the compare demo is its example")
     }
 }
 
 impl SlideTemplate for CompareVs {
-    fn spec(&self) -> &'static TemplateSpec {
-        &SPEC
+    fn spec(&self) -> &'static ComponentContract {
+        Self::contract()
     }
 
     fn restart(&mut self) {
@@ -81,7 +71,7 @@ impl SlideTemplate for CompareVs {
         painter.text(
             egui::pos2(stage.rect.center().x, stage.rect.min.y),
             Align2::CENTER_TOP,
-            self.heading,
+            &self.heading,
             FontId::proportional(fluid.fs_h2()),
             cl::ink::STRONG,
         );
@@ -120,7 +110,7 @@ impl SlideTemplate for CompareVs {
             painter.text(
                 egui::pos2(x, col.min.y + fluid.sp_5()),
                 Align2::LEFT_TOP,
-                side.name,
+                &side.name,
                 FontId::proportional(fluid.fs_h3()),
                 cl::ink::STRONG.gamma_multiply(alpha),
             );

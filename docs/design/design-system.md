@@ -353,6 +353,11 @@ line, specified — and it is the **source of truth** the operator asked for:
 behind the scenes. When we want to extend the properties and capabilities of
 that slide it has a source of truth."*
 
+> **2026-10-21 (R285):** the authored format is now the component contract
+> (`dpl.component/1`, LS1) plus the slide of `dpl.slide/3` (LS2), per
+> `docs/research/lesson-slide-schema.md` §5. The `Node` tree below becomes
+> what a component's slots RENDER INTO (LS4), not what is authored.
+
 ### 4.0 Why it must change — the ground truth
 
 `crates/slides/src/document.rs:309-463`, `render_inner`, is the ONE path every

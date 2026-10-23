@@ -7,43 +7,41 @@
 use dpl_coldlight::{self as cl, Tone};
 use dpl_vector::arc_stroke;
 use egui::{Align2, Sense, Stroke, Ui, Vec2};
+use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 
 use super::stage::{ChartStage, LOGICAL_H, LOGICAL_W};
 use crate::motion::Clock;
-use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
+use crate::registry::SlideTemplate;
+use dpl_doc::component::ComponentContract;
 
-static SPEC: TemplateSpec = TemplateSpec {
-    id: TemplateId("gauge-dial"),
-    label: "Gauge dial",
-    class: TemplateClass::Animation,
-    blurb: "A 180° dial: a needle sweeps to the value over a toned arc, big center readout.",
-};
-
+/// Fields are the contract's slots and props (`component.json`).
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GaugeDial {
+    #[serde(with = "crate::contract::tone")]
     pub tone: Tone,
     /// 0..1 of the dial's span.
     pub frac: f32,
-    pub value: &'static str,
-    pub label: &'static str,
+    pub value: String,
+    #[serde(default)]
+    pub label: String,
+    #[serde(skip)]
     clock: Clock,
 }
 
 impl GaugeDial {
+    crate::component_contract!(include_str!("component.json"));
+
     pub fn demo() -> Self {
-        Self {
-            tone: Tone::Coral,
-            frac: 0.73,
-            value: "73%",
-            label: "GPU utilization",
-            clock: Clock::default(),
-        }
+        crate::contract::instantiate(Self::contract(), 0)
+            .expect("the gauge-dial demo is its example")
     }
 }
 
 impl SlideTemplate for GaugeDial {
-    fn spec(&self) -> &'static TemplateSpec {
-        &SPEC
+    fn spec(&self) -> &'static ComponentContract {
+        Self::contract()
     }
 
     fn restart(&mut self) {
@@ -110,7 +108,7 @@ impl SlideTemplate for GaugeDial {
             painter,
             (LOGICAL_W * 0.5, LOGICAL_H * 0.72),
             Align2::CENTER_CENTER,
-            self.value,
+            &self.value,
             64.0,
             tone,
         );
@@ -118,7 +116,7 @@ impl SlideTemplate for GaugeDial {
             painter,
             (LOGICAL_W * 0.5, LOGICAL_H * 0.86),
             Align2::CENTER_CENTER,
-            self.label,
+            &self.label,
             14.0,
             cl::ink::MUTED,
         );

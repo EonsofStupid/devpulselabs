@@ -1,0 +1,160 @@
+{
+  "schema": "dpl.component/1",
+  "id": "split",
+  "version": "1.0.0",
+  "name": "Split panel",
+  "summary": "Then→now A/B: left = the hype, right = the truth (accent ring). Staggered fade-in.",
+  "class": "split",
+  "tags": [
+    "compare",
+    "then-now",
+    "two-column"
+  ],
+  "slots": [
+    {
+      "id": "heading",
+      "label": "Heading",
+      "entity": "text",
+      "required": true,
+      "tooltip": "The claim or question across the top that both columns answer",
+      "limits": {
+        "max_chars": 48
+      }
+    },
+    {
+      "id": "left",
+      "label": "Left column",
+      "entity": "data",
+      "required": true,
+      "tooltip": "The 'then' side, or the hype: a header, a small tag beside it, and its lines (about eight fit)",
+      "item": [
+        {
+          "id": "label",
+          "label": "Label",
+          "kind": "text",
+          "tooltip": "The column's heading"
+        },
+        {
+          "id": "sub",
+          "label": "Subtitle",
+          "kind": "text",
+          "tooltip": "A short line under the heading"
+        },
+        {
+          "id": "body",
+          "label": "Lines",
+          "kind": "list",
+          "tooltip": "The column's lines, top to bottom",
+          "item": [
+            {
+              "id": "line",
+              "label": "Line",
+              "kind": "text",
+              "tooltip": "One line in the column"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "right",
+      "label": "Right column",
+      "entity": "data",
+      "required": true,
+      "tooltip": "The 'now' side, or the truth: a header, a small tag beside it, and its lines (about eight fit)",
+      "item": [
+        {
+          "id": "label",
+          "label": "Label",
+          "kind": "text",
+          "tooltip": "The column's heading"
+        },
+        {
+          "id": "sub",
+          "label": "Subtitle",
+          "kind": "text",
+          "tooltip": "A short line under the heading"
+        },
+        {
+          "id": "body",
+          "label": "Lines",
+          "kind": "list",
+          "tooltip": "The column's lines, top to bottom",
+          "item": [
+            {
+              "id": "line",
+              "label": "Line",
+              "kind": "text",
+              "tooltip": "One line in the column"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "props": [
+    {
+      "id": "tone",
+      "label": "Colour",
+      "kind": "tone",
+      "default": "lime",
+      "tooltip": "The colour of the highlighted column's ring and tag"
+    }
+  ],
+  "variant_axes": [
+    {
+      "id": "accent",
+      "label": "Highlighted column",
+      "tooltip": "Which column wears the coloured ring — usually the right, where the truth lands",
+      "options": [
+        {
+          "id": "left",
+          "label": "Left"
+        },
+        {
+          "id": "right",
+          "label": "Right"
+        },
+        {
+          "id": "both",
+          "label": "Both"
+        },
+        {
+          "id": "neither",
+          "label": "Neither"
+        }
+      ],
+      "default": "right"
+    }
+  ],
+  "examples": [
+    {
+      "id": "demo",
+      "label": "AI will replace developers",
+      "content": {
+        "heading": "\"AI will replace developers\"",
+        "left": {
+          "label": "2023 said",
+          "sub": "the hype",
+          "body": [
+            "Prompt in, product out",
+            "No more code review",
+            "One person = a whole team"
+          ]
+        },
+        "right": {
+          "label": "2026 says",
+          "sub": "the truth",
+          "body": [
+            "Developers who drive agents ship 10×",
+            "Review matters MORE, not less",
+            "The bottleneck moved to judgment"
+          ]
+        }
+      }
+    }
+  ],
+  "provenance": {
+    "note": "Each side's accent flag became the `accent` axis; the columns' words stay in `left` and `right`."
+  }
+}

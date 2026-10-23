@@ -4,67 +4,46 @@
 
 use dpl_coldlight::{self as cl, Tone};
 use egui::{Align2, FontId, Rect, Ui};
+use serde::{Deserialize, Serialize};
 
 use crate::frame::Stage;
 use crate::motion::Clock;
-use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
+use crate::registry::SlideTemplate;
+use dpl_doc::component::ComponentContract;
 
-static SPEC: TemplateSpec = TemplateSpec {
-    id: TemplateId("features"),
-    label: "Feature grid",
-    class: TemplateClass::Split,
-    blurb: "A 2×2 board of feature cards — tone glyph, title, one-liner. Diagonal fade-in.",
-};
-
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Feature {
     /// A short font-safe glyph label (1–2 chars) — no tofu boxes.
-    pub glyph: &'static str,
-    pub title: &'static str,
-    pub body: &'static str,
+    pub glyph: String,
+    pub title: String,
+    pub body: String,
 }
 
+/// Fields are the contract's slots, props and axes (`component.json`).
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FeatureGrid {
+    #[serde(with = "crate::contract::tone")]
     pub tone: Tone,
-    pub heading: &'static str,
+    pub heading: String,
+    /// The board paints the first four (2×2).
     pub features: Vec<Feature>,
+    #[serde(skip)]
     clock: Clock,
 }
 
 impl FeatureGrid {
+    crate::component_contract!(include_str!("component.json"));
+
     pub fn demo() -> Self {
-        Self {
-            tone: Tone::Magenta,
-            heading: "What the runtime gives you",
-            features: vec![
-                Feature {
-                    glyph: "><",
-                    title: "Streaming",
-                    body: "Tokens arrive as they're decided",
-                },
-                Feature {
-                    glyph: "[]",
-                    title: "Tools",
-                    body: "The model calls your functions",
-                },
-                Feature {
-                    glyph: "@",
-                    title: "Memory",
-                    body: "Context that survives the turn",
-                },
-                Feature {
-                    glyph: "//",
-                    title: "Local",
-                    body: "Runs on the box in front of you",
-                },
-            ],
-            clock: Clock::default(),
-        }
+        crate::contract::instantiate(Self::contract(), 0).expect("the features demo is its example")
     }
 }
 
 impl SlideTemplate for FeatureGrid {
-    fn spec(&self) -> &'static TemplateSpec {
-        &SPEC
+    fn spec(&self) -> &'static ComponentContract {
+        Self::contract()
     }
 
     fn restart(&mut self) {
@@ -86,7 +65,7 @@ impl SlideTemplate for FeatureGrid {
         painter.text(
             egui::pos2(stage.rect.min.x, stage.rect.min.y),
             Align2::LEFT_TOP,
-            self.heading,
+            &self.heading,
             FontId::proportional(fluid.fs_h2()),
             cl::ink::STRONG,
         );
@@ -142,7 +121,7 @@ impl SlideTemplate for FeatureGrid {
             painter.text(
                 bc,
                 Align2::CENTER_CENTER,
-                feat.glyph,
+                &feat.glyph,
                 FontId::monospace(fluid.fs_h4()),
                 cl::surface::WELL.gamma_multiply(alpha),
             );
@@ -152,14 +131,14 @@ impl SlideTemplate for FeatureGrid {
             painter.text(
                 egui::pos2(tx, ty),
                 Align2::LEFT_TOP,
-                feat.title,
+                &feat.title,
                 FontId::proportional(fluid.fs_h4()),
                 cl::ink::STRONG.gamma_multiply(alpha),
             );
             painter.text(
                 egui::pos2(tx, ty + fluid.fs_h4() * 1.3),
                 Align2::LEFT_TOP,
-                feat.body,
+                &feat.body,
                 FontId::proportional(fluid.fs_body()),
                 cl::ink::MUTED.gamma_multiply(alpha),
             );

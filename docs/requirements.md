@@ -990,6 +990,33 @@ Note: Retires capture-subroute ink (RETIRE #25); ink becomes presenter equipment
 
 Source: `docs-history-2026-10-12:docs/plans/authoring-lane-poam.md:157`
 
+### R285 · 2026-10-20
+
+> we need to properly research and ensure that we are building the schema that we can then build out our lessons and mix and match individual slides but allow for variants so we can always refresh visuals and expand our ilbrary for components,
+
+Source: the operator's message in the Claude Code session of 2026-10-20 (first recorded here). **Operator rulings 2026-10-21:**
+- "Approve": the model and the order of passes, LS1 to LS6;
+- "Lessons build episodes";
+- "Upgrade once, keep backups": the v2 drafts move to the new format at LS2;
+- "Components first, real and gated": the scope of LS1.
+
+Note: The research is `docs/research/lesson-slide-schema.md` (2026-10-20). The model:
+- **Five layers**, each its own versioned document:
+  - look;
+  - component (`dpl.component/1`);
+  - entity preset (the 2026-07-31 ruling: a reference, never a bake);
+  - slide (`dpl.slide/3`, with its own id);
+  - lesson and episode (`dpl.lesson/1`, `dpl.episode/2`).
+- **Pin content, float presentation.** Lessons pin a slide's revision, and a newer one shows "Update available". Looks, presets and components float, so refreshing visuals never touches a lesson.
+- **Variants are chosen at the point of use**, never copied into content. A real content difference is a fork that records where it came from.
+- **Exports record a render lock.**
+
+LS1 landed the component layer:
+- a contract (`component.json`) beside each of the 28 templates;
+- the gallery demo built from each contract's first example;
+- the Workbench reading names and summaries from the contracts;
+- the `contracts` phase of `cargo green`, so a contract can only grow.
+
 ## 5. Capture — ViziWiz, sessions, steps, guides
 
 ### R178 · 2026-07-23

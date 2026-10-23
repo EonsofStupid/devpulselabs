@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://devpulselabs.local/schemas/component.v1.schema.json",
+  "title": "dpl.component/1 — a slide component's contract: its slots, props, variant axes and examples",
+  "description": "Content goes in slots, choices in props, looks in variant axes; never colours or positions. Ids are permanent: a later version keeps every slot, prop, axis and option (the contracts gate). docs/research/lesson-slide-schema.md §5.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "id",
+    "version",
+    "name",
+    "summary",
+    "class",
+    "slots",
+    "props",
+    "variant_axes",
+    "examples",
+    "provenance"
+  ],
+  "$defs": {
+    "field_id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$" },
+    "label": { "type": "string", "minLength": 1, "maxLength": 40 },
+    "tooltip": {
+      "description": "Plain words for the operator (the tooltip law).",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "field": {
+      "description": "One field of a list slot's items, or of a data slot's object. A `list` field names its own item fields.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "kind", "tooltip"],
+      "properties": {
+        "id": { "$ref": "#/$defs/field_id" },
+        "label": { "$ref": "#/$defs/label" },
+        "kind": { "enum": ["text", "number", "bool", "tone", "numbers", "list"] },
+        "tooltip": { "$ref": "#/$defs/tooltip" },
+        "item": { "type": "array", "items": { "$ref": "#/$defs/field" } }
+      }
+    }
+  },
+  "properties": {
+    "schema": { "const": "dpl.component/1" },
+    "id": {
+      "description": "Permanent; equals the template id the registry knows.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+    },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "name": { "$ref": "#/$defs/label" },
+    "summary": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "class": {
+      "description": "The doctrine's template class; the episode's interactive budget counts `interactive`.",
+      "enum": ["static", "split", "animation", "interactive"]
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$" }
+    },
+    "slots": {
+      "description": "Where content goes. Each slot is an entity, so presets and overrides (LS2) address it by name.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "entity", "required", "tooltip"],
+        "properties": {
+          "id": { "$ref": "#/$defs/field_id" },
+          "label": { "$ref": "#/$defs/label" },
+          "entity": { "enum": ["text", "picture", "quote", "data", "list"] },
+          "required": { "type": "boolean" },
+          "tooltip": { "$ref": "#/$defs/tooltip" },
+          "limits": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "max_chars": { "type": "integer", "minimum": 1 },
+              "min_items": { "type": "integer", "minimum": 0 },
+              "max_items": { "type": "integer", "minimum": 1 }
+            }
+          },
+          "item": {
+            "description": "A list slot's item fields, or the fields of the one object a data slot holds.",
+            "type": "array",
+            "items": { "$ref": "#/$defs/field" }
+          }
+        }
+      }
+    },
+    "props": {
+      "description": "Choices that are not content and not looks (a quiz's single or multi select, the slide's tone).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "kind", "default", "tooltip"],
+        "properties": {
+          "id": { "$ref": "#/$defs/field_id" },
+          "label": { "$ref": "#/$defs/label" },
+          "kind": { "enum": ["text", "number", "bool", "enum", "tone"] },
+          "default": {},
+          "tooltip": { "$ref": "#/$defs/tooltip" },
+          "min": { "type": "number" },
+          "max": { "type": "number" },
+          "options": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "variant_axes": {
+      "description": "Independent visual choices, each with a default. Never one variant per look: looks are presets.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "tooltip", "options", "default"],
+        "properties": {
+          "id": { "$ref": "#/$defs/field_id" },
+          "label": { "$ref": "#/$defs/label" },
+          "tooltip": { "$ref": "#/$defs/tooltip" },
+          "options": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "label"],
+              "properties": {
+                "id": { "$ref": "#/$defs/field_id" },
+                "label": { "$ref": "#/$defs/label" }
+              }
+            }
+          },
+          "default": { "$ref": "#/$defs/field_id" }
+        }
+      }
+    },
+    "forbidden": {
+      "description": "Sparse exceptions: axis combinations this component cannot paint.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["when"],
+        "properties": {
+          "when": {
+            "type": "object",
+            "minProperties": 2,
+            "additionalProperties": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "examples": {
+      "description": "Named fills; the first is the gallery demo. Keys are slot, prop and axis ids.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label"],
+        "properties": {
+          "id": { "$ref": "#/$defs/field_id" },
+          "label": { "$ref": "#/$defs/label" },
+          "content": { "type": "object" },
+          "props": { "type": "object" },
+          "variant": { "type": "object", "additionalProperties": { "type": "string" } }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "forked_from": {
+          "description": "The component this one was derived from, `id@x.y.z`.",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*@[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "note": { "type": "string" }
+      }
+    }
+  }
+}

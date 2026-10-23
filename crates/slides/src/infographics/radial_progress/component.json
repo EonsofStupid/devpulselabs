@@ -1,0 +1,47 @@
+{
+  "schema": "dpl.component/1",
+  "id": "radial-progress",
+  "version": "1.0.0",
+  "name": "Radial progress",
+  "summary": "A progress ring that sweeps to a percent over a hairline track, big center number.",
+  "class": "animation",
+  "tags": ["infographic", "progress", "single-metric"],
+  "slots": [
+    {
+      "id": "frac",
+      "label": "How full",
+      "entity": "data",
+      "required": true,
+      "tooltip": "How much of the ring fills in, from 0 (empty) to 1 (full). 0.68 fills 68% and the center shows 68%"
+    },
+    {
+      "id": "label",
+      "label": "Caption",
+      "entity": "text",
+      "required": false,
+      "tooltip": "A short line under the big percent that says what is filling up",
+      "limits": { "max_chars": 28 }
+    }
+  ],
+  "props": [
+    {
+      "id": "tone",
+      "label": "Colour",
+      "kind": "tone",
+      "default": "cyan",
+      "tooltip": "The colour of the ring and the big percent"
+    }
+  ],
+  "variant_axes": [],
+  "examples": [
+    {
+      "id": "demo",
+      "label": "Context window used",
+      "content": {
+        "frac": 0.68,
+        "label": "context window used"
+      }
+    }
+  ],
+  "provenance": {}
+}

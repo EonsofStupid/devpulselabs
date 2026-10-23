@@ -51,6 +51,11 @@ arguments = ["--route", "workbench/experiments", "--mood", "0"]
 [fixtures.library]
 arguments = ["--route", "workbench/library", "--focus", "title", "--mood", "0"]
 
+# LS1: the soloed title card with its contract beside it, at the small
+# real window size the footer bug once hid behind.
+[fixtures.library-1100]
+arguments = ["--route", "workbench/library", "--focus", "title", "--window", "1100x700", "--mood", "0"]
+
 # The gallery WALL, not a soloed template — the long surface where
 # reachability (scrolling to a node) is a real question.
 [fixtures.library-wall]

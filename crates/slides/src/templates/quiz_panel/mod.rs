@@ -7,65 +7,50 @@
 
 use dpl_coldlight::{self as cl, Tone};
 use egui::{Align2, FontId, Rect, Sense, Ui};
+use serde::{Deserialize, Serialize};
 
 use crate::elements::eyebrow::tracked;
 use crate::frame::Stage;
-use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
+use crate::registry::SlideTemplate;
+use dpl_doc::component::ComponentContract;
 
-static SPEC: TemplateSpec = TemplateSpec {
-    id: TemplateId("quiz"),
-    label: "Quiz panel",
-    class: TemplateClass::Interactive,
-    blurb: "Commit-then-explain: pick, lock it in, the truth highlights and the explanation lands.",
-};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Select {
     Single,
     Multi,
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct QuizChoice {
-    pub label: &'static str,
+    pub label: String,
     pub correct: bool,
 }
 
+/// Fields are the contract's slots, props and axes (`component.json`).
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct QuizPanel {
+    #[serde(with = "crate::contract::tone")]
     pub tone: Tone,
-    pub prompt: &'static str,
+    pub prompt: String,
     pub select: Select,
     pub choices: Vec<QuizChoice>,
-    pub explanation: &'static str,
+    #[serde(default)]
+    pub explanation: String,
+    /// One flag per choice — sized from `choices` by `restart`.
+    #[serde(skip)]
     picked: Vec<bool>,
+    #[serde(skip)]
     committed: Option<f64>,
 }
 
 impl QuizPanel {
+    crate::component_contract!(include_str!("component.json"));
+
     pub fn demo() -> Self {
-        let choices = vec![
-            QuizChoice {
-                label: "It looks up answers in a database",
-                correct: false,
-            },
-            QuizChoice {
-                label: "It predicts the next token, over and over",
-                correct: true,
-            },
-            QuizChoice {
-                label: "It reasons like a person, just faster",
-                correct: false,
-            },
-        ];
-        let n = choices.len();
-        Self {
-            tone: Tone::Violet,
-            prompt: "What is the model actually doing?",
-            select: Select::Single,
-            choices,
-            explanation: "Every reply is next-token prediction in a loop — scale is what makes it feel like more.",
-            picked: vec![false; n],
-            committed: None,
-        }
+        crate::contract::instantiate(Self::contract(), 0).expect("the quiz demo is its example")
     }
 
     /// Toggle choice `i` per the select mode (pure — tested).
@@ -97,12 +82,12 @@ impl QuizPanel {
 }
 
 impl SlideTemplate for QuizPanel {
-    fn spec(&self) -> &'static TemplateSpec {
-        &SPEC
+    fn spec(&self) -> &'static ComponentContract {
+        Self::contract()
     }
 
     fn restart(&mut self) {
-        self.picked.iter_mut().for_each(|p| *p = false);
+        self.picked = vec![false; self.choices.len()];
         self.committed = None;
     }
 
@@ -117,7 +102,7 @@ impl SlideTemplate for QuizPanel {
         painter.text(
             egui::pos2(stage.rect.center().x, stage.rect.min.y),
             Align2::CENTER_TOP,
-            self.prompt,
+            &self.prompt,
             FontId::proportional(fluid.fs_h2()),
             cl::ink::STRONG,
         );
@@ -185,7 +170,7 @@ impl SlideTemplate for QuizPanel {
             painter.text(
                 egui::pos2(mark.x + fluid.sp_5(), plate.center().y),
                 Align2::LEFT_CENTER,
-                choice.label,
+                &choice.label,
                 FontId::proportional(fluid.fs_h4()),
                 ink,
             );
@@ -277,7 +262,7 @@ impl SlideTemplate for QuizPanel {
                 painter.text(
                     egui::pos2(foot_center.x, foot_center.y + fluid.fs_body() * 0.6),
                     Align2::CENTER_CENTER,
-                    self.explanation,
+                    &self.explanation,
                     FontId::proportional(fluid.fs_body_lg()),
                     cl::ink::BASE.gamma_multiply(p),
                 );

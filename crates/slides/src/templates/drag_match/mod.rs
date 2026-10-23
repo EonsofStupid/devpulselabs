@@ -10,88 +10,61 @@
 
 use dpl_coldlight::{self as cl, Tone};
 use egui::{Align2, FontId, Rect, Sense, Ui};
+use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 
 use crate::elements::eyebrow::tracked;
 use crate::frame::Stage;
-use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
+use crate::registry::SlideTemplate;
+use dpl_doc::component::ComponentContract;
 
-static SPEC: TemplateSpec = TemplateSpec {
-    id: TemplateId("drag-match"),
-    label: "Drag match",
-    class: TemplateClass::Interactive,
-    blurb: "Drag chips onto their buckets: correct locks with a pulse, wrong shakes home.",
-};
-
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DragItem {
-    pub label: &'static str,
+    pub label: String,
     /// Index into `targets`.
     pub target: usize,
+    /// The chip's drag ring; absent = the slide's tone.
+    #[serde(default, with = "crate::contract::tone_opt")]
     pub tone: Option<Tone>,
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DragTarget {
-    pub label: &'static str,
+    pub label: String,
+    #[serde(with = "crate::contract::tone")]
     pub tone: Tone,
 }
 
+/// Fields are the contract's slots, props and axes (`component.json`).
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DragMatch {
+    #[serde(with = "crate::contract::tone")]
     pub tone: Tone,
-    pub prompt: &'static str,
+    pub prompt: String,
     pub items: Vec<DragItem>,
     pub targets: Vec<DragTarget>,
-    pub reveal: &'static str,
+    #[serde(default)]
+    pub reveal: String,
+    /// One flag per item — sized from `items` by `restart`.
+    #[serde(skip)]
     placed: Vec<bool>,
+    #[serde(skip)]
     pulse: Option<(usize, f64)>,
+    #[serde(skip)]
     shake: Option<(usize, f64)>,
+    #[serde(skip)]
     done_at: Option<f64>,
 }
 
 impl DragMatch {
+    crate::component_contract!(include_str!("component.json"));
+
     pub fn demo() -> Self {
-        let items = vec![
-            DragItem {
-                label: "Runs on your GPU",
-                target: 0,
-                tone: None,
-            },
-            DragItem {
-                label: "Someone else's weights",
-                target: 1,
-                tone: None,
-            },
-            DragItem {
-                label: "Zero bytes leave home",
-                target: 0,
-                tone: None,
-            },
-            DragItem {
-                label: "Pay per token",
-                target: 1,
-                tone: None,
-            },
-        ];
-        let n = items.len();
-        Self {
-            tone: Tone::Lime,
-            prompt: "Local or cloud — sort the claims",
-            items,
-            targets: vec![
-                DragTarget {
-                    label: "Local",
-                    tone: Tone::Lime,
-                },
-                DragTarget {
-                    label: "Cloud",
-                    tone: Tone::Cyan,
-                },
-            ],
-            reveal: "If you can sort these, you already know which workloads belong on your box.",
-            placed: vec![false; n],
-            pulse: None,
-            shake: None,
-            done_at: None,
-        }
+        crate::contract::instantiate(Self::contract(), 0)
+            .expect("the drag-match demo is its example")
     }
 
     /// Resolve a drop of item `i` on target `hit` (pure — tested).
@@ -110,12 +83,12 @@ impl DragMatch {
 }
 
 impl SlideTemplate for DragMatch {
-    fn spec(&self) -> &'static TemplateSpec {
-        &SPEC
+    fn spec(&self) -> &'static ComponentContract {
+        Self::contract()
     }
 
     fn restart(&mut self) {
-        self.placed.iter_mut().for_each(|p| *p = false);
+        self.placed = vec![false; self.items.len()];
         self.pulse = None;
         self.shake = None;
         self.done_at = None;
@@ -130,7 +103,7 @@ impl SlideTemplate for DragMatch {
         painter.text(
             egui::pos2(stage.rect.center().x, stage.rect.min.y),
             Align2::CENTER_TOP,
-            self.prompt,
+            &self.prompt,
             FontId::proportional(fluid.fs_h2()),
             cl::ink::STRONG,
         );
@@ -183,7 +156,7 @@ impl SlideTemplate for DragMatch {
             painter.text(
                 egui::pos2(bucket.center().x, bucket.min.y + fluid.sp_3()),
                 Align2::CENTER_TOP,
-                tracked(target.label),
+                tracked(&target.label),
                 FontId::monospace(fluid.fs_eyebrow()),
                 target.tone.color(),
             );
@@ -199,7 +172,7 @@ impl SlideTemplate for DragMatch {
                     painter.text(
                         chip.center(),
                         Align2::CENTER_CENTER,
-                        item.label,
+                        &item.label,
                         FontId::proportional(fluid.fs_body()),
                         cl::ink::STRONG,
                     );
@@ -219,7 +192,7 @@ impl SlideTemplate for DragMatch {
             }
             let tone = item.tone.unwrap_or(self.tone);
             let galley = painter.layout_no_wrap(
-                item.label.into(),
+                item.label.clone(),
                 FontId::proportional(fluid.fs_body_lg()),
                 cl::ink::STRONG,
             );
@@ -285,7 +258,7 @@ impl SlideTemplate for DragMatch {
                 painter.text(
                     egui::pos2(foot.x, foot.y - land_h * 0.5),
                     Align2::CENTER_CENTER,
-                    self.reveal,
+                    &self.reveal,
                     FontId::proportional(fluid.fs_h4() * (0.92 + 0.12 * p).max(0.05)),
                     cl::ink::BASE.gamma_multiply(p.clamp(0.0, 1.0)),
                 );

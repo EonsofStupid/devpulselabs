@@ -1,0 +1,56 @@
+{
+  "schema": "dpl.component/1",
+  "id": "gauge-dial",
+  "version": "1.0.0",
+  "name": "Gauge dial",
+  "summary": "A 180° dial: a needle sweeps to the value over a toned arc, big center readout.",
+  "class": "animation",
+  "tags": ["infographic", "gauge", "single-metric"],
+  "slots": [
+    {
+      "id": "frac",
+      "label": "How far round",
+      "entity": "data",
+      "required": true,
+      "tooltip": "Where the needle stops, from 0 (far left, empty) to 1 (far right, full). 0.73 means 73% of the way round"
+    },
+    {
+      "id": "value",
+      "label": "Readout",
+      "entity": "text",
+      "required": true,
+      "tooltip": "The big number written under the needle, like 73% or 92°C",
+      "limits": { "max_chars": 10 }
+    },
+    {
+      "id": "label",
+      "label": "Caption",
+      "entity": "text",
+      "required": false,
+      "tooltip": "A short line under the readout that says what the dial measures",
+      "limits": { "max_chars": 40 }
+    }
+  ],
+  "props": [
+    {
+      "id": "tone",
+      "label": "Colour",
+      "kind": "tone",
+      "default": "coral",
+      "tooltip": "The colour of the arc, the needle and the readout"
+    }
+  ],
+  "variant_axes": [],
+  "examples": [
+    {
+      "id": "demo",
+      "label": "GPU utilization",
+      "content": {
+        "frac": 0.73,
+        "value": "73%",
+        "label": "GPU utilization"
+      }
+    }
+  ],
+  "provenance": {}
+}

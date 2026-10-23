@@ -146,6 +146,13 @@ the audit, same commit, with the reason.
   list drift. Nothing else enumerates.
 - **Document law**: persisted JSON carries `v` (schema version); `load`
   refuses newer; `save` is pretty-LF via tmp → bak-step-aside → rename.
+- **Component law** (LS1, R285): every slide template carries a
+  `component.json` (`dpl.component/1`, `schemas/component.v1.schema.json`)
+  beside its code — its slots, props, variant axes and examples, and the one
+  source of its gallery demo. A contract only grows: the `contracts` phase
+  of `cargo green` compares each with its copy on `main` (same version means
+  unchanged; a raised version keeps every slot, prop, axis and option),
+  using `dpl_doc::component::evolution_problems`.
 - **ADR-009**: external capability = subprocess/service behind a seam
   (ffmpeg, pdftoppm, aerender, ThorVG, ComfyUI). `-sys` FFI links are
   allowed in exactly one leaf: `dpl-lottie-render`.

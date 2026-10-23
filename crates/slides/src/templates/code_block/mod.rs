@@ -6,49 +6,47 @@
 
 use dpl_coldlight::{self as cl, Tone};
 use egui::{Align2, FontId, Rect, Sense, Ui};
+use serde::{Deserialize, Serialize};
 
 use crate::elements::eyebrow::tracked;
 use crate::frame::Stage;
 use crate::motion::Clock;
-use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
-
-static SPEC: TemplateSpec = TemplateSpec {
-    id: TemplateId("code"),
-    label: "Code block",
-    class: TemplateClass::Static,
-    blurb: "Raw code plate: gutter numbers, tone-washed highlight lines, Copy with a held rest.",
-};
+use crate::registry::SlideTemplate;
+use dpl_doc::component::ComponentContract;
 
 const COPIED_HOLD: f64 = 1.4;
 
+/// Fields are the contract's slots, props and axes (`component.json`).
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CodeBlock {
+    #[serde(with = "crate::contract::tone")]
     pub tone: Tone,
-    pub title: &'static str,
-    pub language: &'static str,
-    pub code: &'static str,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub language: String,
+    pub code: String,
     /// 1-indexed highlighted lines, carried convention.
+    #[serde(default)]
     pub highlights: Vec<usize>,
+    #[serde(skip)]
     copied_at: Option<f64>,
+    #[serde(skip)]
     clock: Clock,
 }
 
 impl CodeBlock {
+    crate::component_contract!(include_str!("component.json"));
+
     pub fn demo() -> Self {
-        Self {
-            tone: Tone::Cyan,
-            title: "run-local.sh",
-            language: "bash",
-            code: "# pull an open-weights model and talk to it\nollama pull llama3.1:8b\n\n# that's the whole setup\nollama run llama3.1:8b \\\n  \"explain quantization like I stream games\"",
-            highlights: vec![2, 5],
-            copied_at: None,
-            clock: Clock::default(),
-        }
+        crate::contract::instantiate(Self::contract(), 0).expect("the code demo is its example")
     }
 }
 
 impl SlideTemplate for CodeBlock {
-    fn spec(&self) -> &'static TemplateSpec {
-        &SPEC
+    fn spec(&self) -> &'static ComponentContract {
+        Self::contract()
     }
 
     fn restart(&mut self) {
@@ -83,13 +81,13 @@ impl SlideTemplate for CodeBlock {
         painter.text(
             egui::pos2(hx, plate.min.y + head_h * 0.5),
             Align2::LEFT_CENTER,
-            self.title,
+            &self.title,
             FontId::proportional(fluid.fs_h4()),
             cl::ink::STRONG.gamma_multiply(alpha),
         );
         let title_w = painter
             .layout_no_wrap(
-                self.title.into(),
+                self.title.clone(),
                 FontId::proportional(fluid.fs_h4()),
                 cl::ink::BASE,
             )
@@ -98,7 +96,7 @@ impl SlideTemplate for CodeBlock {
         painter.text(
             egui::pos2(hx + title_w + fluid.sp_4(), plate.min.y + head_h * 0.5),
             Align2::LEFT_CENTER,
-            tracked(self.language),
+            tracked(&self.language),
             FontId::monospace(fluid.fs_eyebrow()),
             cl::ink::MUTED.gamma_multiply(alpha),
         );
@@ -142,7 +140,7 @@ impl SlideTemplate for CodeBlock {
             },
         );
         if resp.clicked() {
-            ui.ctx().copy_text(self.code.to_string());
+            ui.ctx().copy_text(self.code.clone());
             self.copied_at = Some(now);
             ui.ctx().request_repaint();
         }

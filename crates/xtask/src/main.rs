@@ -192,6 +192,7 @@ fn green() -> Result<(), String> {
     docs_status()?;
     spawn_audit()?;
     structure_audit()?;
+    contracts_audit()?;
     // Reports; does not gate (pass 1). See its doc comment for why a phase
     // that is red on arrival is worse than one that only tells the truth.
     coverage_audit(false)?;
@@ -1153,6 +1154,136 @@ fn spawn_audit() -> Result<(), String> {
     }
 }
 
+/// Where component contracts live: one `component.json` beside each slide
+/// template's code (`dpl.component/1`).
+const CONTRACT_ROOT: &str = "crates/slides/src";
+
+/// THE CONTRACTS PHASE (LS1) — a component's contract only grows, so a slide
+/// made with it keeps rendering. Every `component.json` is compared with its
+/// copy on `main`: the same version must mean the same contract, and a
+/// raised version must keep every slot, prop, axis and option
+/// (`dpl_doc::component::evolution_problems`, the ONE rule the slides tests
+/// share). A contract new on this branch has nothing to compare and passes
+/// here; the slides census tests validate it.
+fn contracts_audit() -> Result<(), String> {
+    println!("── contracts ─────────────────────────────────");
+    let base = contracts_base()?;
+    let mut files = Vec::new();
+    collect_contracts(Path::new(CONTRACT_ROOT), &mut files);
+    files.sort();
+    let mut problems = Vec::new();
+    let mut compared = 0;
+    for file in &files {
+        let rel = file
+            .to_string_lossy()
+            .replace(std::path::MAIN_SEPARATOR, "/");
+        let text = fs::read_to_string(file).map_err(|e| format!("{rel}: {e}"))?;
+        let after = match dpl_doc::component::parse(&text) {
+            Ok(contract) => contract,
+            Err(error) => {
+                problems.push(format!("{rel}: {error}"));
+                continue;
+            }
+        };
+        let Some(before_text) = git_show(&base, &rel)? else {
+            continue;
+        };
+        let before = dpl_doc::component::parse(&before_text)
+            .map_err(|e| format!("{rel} on {base} does not parse: {e}"))?;
+        compared += 1;
+        for problem in dpl_doc::component::evolution_problems(&before, &after) {
+            problems.push(format!("{rel} ({}): {problem}", after.id));
+        }
+    }
+    if problems.is_empty() {
+        println!(
+            "contracts: {} found, {compared} compared with {base} — every one only grew",
+            files.len()
+        );
+        Ok(())
+    } else {
+        Err(format!(
+            "contracts FAILED — a contract must only grow (raise its version, keep every slot, prop, axis and option):\n  {}",
+            problems.join("\n  ")
+        ))
+    }
+}
+
+fn collect_contracts(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_contracts(&path, out);
+        } else if path
+            .file_name()
+            .is_some_and(|name| name == "component.json")
+        {
+            out.push(path);
+        }
+    }
+}
+
+/// The ref to compare with: `origin/main`, fetched when this clone does not
+/// have it (CI checks out one commit). No base is a failure, never a skip —
+/// a gate that silently compares nothing proves nothing.
+fn contracts_base() -> Result<String, String> {
+    const BASE: &str = "origin/main";
+    let has = |reference: &str| {
+        Command::new("git")
+            .args(["rev-parse", "--verify", "--quiet", reference])
+            .output()
+            .is_ok_and(|output| output.status.success())
+    };
+    if has(BASE) {
+        return Ok(BASE.to_owned());
+    }
+    let fetch = Command::new("git")
+        .args([
+            "fetch",
+            "--depth=1",
+            "origin",
+            "+refs/heads/main:refs/remotes/origin/main",
+        ])
+        .output()
+        .map_err(|e| format!("contracts: cannot run git: {e}"))?;
+    if fetch.status.success() && has(BASE) {
+        Ok(BASE.to_owned())
+    } else {
+        Err(format!(
+            "contracts: no {BASE} to compare with, and fetching it failed: {}",
+            String::from_utf8_lossy(&fetch.stderr).trim()
+        ))
+    }
+}
+
+/// A file's text at `base`, or `None` when it does not exist there.
+fn git_show(base: &str, rel: &str) -> Result<Option<String>, String> {
+    let exists = Command::new("git")
+        .args(["cat-file", "-e", &format!("{base}:{rel}")])
+        .output()
+        .map_err(|e| format!("contracts: cannot run git: {e}"))?;
+    if !exists.status.success() {
+        return Ok(None);
+    }
+    let shown = Command::new("git")
+        .args(["show", &format!("{base}:{rel}")])
+        .output()
+        .map_err(|e| format!("contracts: cannot run git: {e}"))?;
+    if shown.status.success() {
+        String::from_utf8(shown.stdout)
+            .map(Some)
+            .map_err(|e| format!("{rel} on {base} is not UTF-8: {e}"))
+    } else {
+        Err(format!(
+            "contracts: git show {base}:{rel} failed: {}",
+            String::from_utf8_lossy(&shown.stderr).trim()
+        ))
+    }
+}
+
 /// The STRUCTURE audit — the layer law of `docs/design/architecture.md`,
 /// enforced as fitness functions (amending a table there means amending
 /// the matching table HERE in the same commit). Graph shape only: exact
@@ -2107,6 +2238,7 @@ fn main() -> ExitCode {
         "sweep" => sweep(&arguments),
         "docs-status" => docs_status(),
         "structure" => structure_audit(),
+        "contracts" => contracts_audit(),
         // Standalone prints the depth RULE beside each pool — `green` prints
         // only the counts, so the gate stays one screen.
         "coverage" => coverage_audit(true),

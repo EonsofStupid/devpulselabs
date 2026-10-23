@@ -1,0 +1,74 @@
+{
+  "schema": "dpl.component/1",
+  "id": "probability-bars",
+  "version": "1.0.0",
+  "name": "Probability bars",
+  "summary": "Ranked next-word predictions: wash tracks, halo on the top pick, magenta joke tail.",
+  "class": "static",
+  "tags": ["infographic", "chart", "ranking", "prediction"],
+  "slots": [
+    {
+      "id": "prompt",
+      "label": "Prompt",
+      "entity": "text",
+      "required": true,
+      "tooltip": "The unfinished sentence at the top. Write ___ where the missing word goes; the blank shows in the slide's colour",
+      "limits": { "max_chars": 40 }
+    },
+    {
+      "id": "predictions",
+      "label": "Guesses",
+      "entity": "list",
+      "required": true,
+      "tooltip": "The possible next words, most likely first. The top one glows; rows that do not fit on a small screen are left off",
+      "limits": { "min_items": 2, "max_items": 8 },
+      "item": [
+        {
+          "id": "token",
+          "label": "Word",
+          "kind": "text",
+          "tooltip": "The guessed next word, shown at the left of its bar"
+        },
+        {
+          "id": "pct",
+          "label": "Chance (%)",
+          "kind": "number",
+          "tooltip": "How likely this word is, from 0 to 100. Bars are sized against the most likely word"
+        },
+        {
+          "id": "tone",
+          "label": "Colour",
+          "kind": "tone",
+          "tooltip": "Pick a colour for this bar, like magenta for a joke guess, or leave it empty to use the slide's colour"
+        }
+      ]
+    }
+  ],
+  "props": [
+    {
+      "id": "tone",
+      "label": "Colour",
+      "kind": "tone",
+      "default": "amber",
+      "tooltip": "The slide's accent colour: the blank in the prompt and every bar without its own colour"
+    }
+  ],
+  "variant_axes": [],
+  "examples": [
+    {
+      "id": "demo",
+      "label": "The cat sat on the ___",
+      "content": {
+        "prompt": "The cat sat on the ___",
+        "predictions": [
+          { "token": "mat", "pct": 62.0 },
+          { "token": "floor", "pct": 21.0 },
+          { "token": "couch", "pct": 9.0 },
+          { "token": "moon", "pct": 0.4, "tone": "magenta" },
+          { "token": "tax return", "pct": 0.1, "tone": "magenta" }
+        ]
+      }
+    }
+  ],
+  "provenance": { "note": "The demo is the authored beat-A demo, carried (moon and tax return included)." }
+}

@@ -1,0 +1,80 @@
+{
+  "schema": "dpl.component/1",
+  "id": "bar-compare",
+  "version": "1.0.0",
+  "name": "Bar compare",
+  "summary": "Labeled value bars with rise-in stagger; per-bar tone override; the receipt chart.",
+  "class": "static",
+  "tags": ["infographic", "chart", "compare"],
+  "slots": [
+    {
+      "id": "unit",
+      "label": "Unit",
+      "entity": "text",
+      "required": false,
+      "tooltip": "What the bars measure, shown small above the chart, like $ per million tokens",
+      "limits": { "max_chars": 40 }
+    },
+    {
+      "id": "bars",
+      "label": "Bars",
+      "entity": "list",
+      "required": true,
+      "tooltip": "The bars, left to right; each grows to its value next to the tallest",
+      "limits": { "min_items": 1, "max_items": 5 },
+      "item": [
+        {
+          "id": "label",
+          "label": "Name",
+          "kind": "text",
+          "tooltip": "The short name under the bar"
+        },
+        {
+          "id": "value",
+          "label": "Value",
+          "kind": "number",
+          "tooltip": "The number that sets the bar's height"
+        },
+        {
+          "id": "display",
+          "label": "Shown value",
+          "kind": "text",
+          "tooltip": "The value written above the bar, as you want it read, like $15"
+        },
+        {
+          "id": "tone",
+          "label": "Bar colour",
+          "kind": "tone",
+          "tooltip": "This bar's colour; leave it empty to take the next colour in the set"
+        }
+      ]
+    }
+  ],
+  "props": [
+    {
+      "id": "tone",
+      "label": "Colour",
+      "kind": "tone",
+      "default": "amber",
+      "tooltip": "The first bar's colour; the colours after it follow from this one"
+    }
+  ],
+  "variant_axes": [],
+  "examples": [
+    {
+      "id": "demo",
+      "label": "What a million tokens costs",
+      "content": {
+        "unit": "$ per million tokens",
+        "bars": [
+          { "label": "Frontier API", "value": 15.0, "display": "$15" },
+          { "label": "Cheap tier", "value": 3.0, "display": "$3", "tone": "cyan" },
+          { "label": "Your box", "value": 0.4, "display": "~$0.40 power", "tone": "lime" }
+        ]
+      }
+    }
+  ],
+  "provenance": {
+    "note": "The demo is the authored EOS-001 CH02 receipt."
+  }
+}

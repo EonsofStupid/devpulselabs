@@ -1,0 +1,114 @@
+{
+  "schema": "dpl.component/1",
+  "id": "choice",
+  "version": "1.0.0",
+  "name": "Choice poll",
+  "summary": "Predict-then-reveal A/B: the room commits, the truth lands with a reward pulse.",
+  "class": "interactive",
+  "tags": [
+    "poll",
+    "predict-reveal"
+  ],
+  "slots": [
+    {
+      "id": "prompt",
+      "label": "Question",
+      "entity": "text",
+      "required": true,
+      "tooltip": "The question the room answers before you reveal the truth",
+      "limits": {
+        "max_chars": 50
+      }
+    },
+    {
+      "id": "a",
+      "label": "Left choice",
+      "entity": "data",
+      "required": true,
+      "tooltip": "The left plate: a big word (label) and a short line under it (detail)",
+      "item": [
+        {
+          "id": "label",
+          "label": "Label",
+          "kind": "text",
+          "tooltip": "The option's name"
+        },
+        {
+          "id": "detail",
+          "label": "Detail",
+          "kind": "text",
+          "tooltip": "One short line about this option"
+        }
+      ]
+    },
+    {
+      "id": "b",
+      "label": "Right choice",
+      "entity": "data",
+      "required": true,
+      "tooltip": "The right plate: a big word (label) and a short line under it (detail)",
+      "item": [
+        {
+          "id": "label",
+          "label": "Label",
+          "kind": "text",
+          "tooltip": "The option's name"
+        },
+        {
+          "id": "detail",
+          "label": "Detail",
+          "kind": "text",
+          "tooltip": "One short line about this option"
+        }
+      ]
+    },
+    {
+      "id": "reveal",
+      "label": "The reveal",
+      "entity": "text",
+      "required": true,
+      "tooltip": "The line that fades in after the room has called it — the takeaway",
+      "limits": {
+        "max_chars": 90
+      }
+    }
+  ],
+  "props": [
+    {
+      "id": "tone",
+      "label": "Colour",
+      "kind": "tone",
+      "default": "amber",
+      "tooltip": "The colour the true plate lights up in"
+    },
+    {
+      "id": "answer",
+      "label": "Right answer",
+      "kind": "number",
+      "default": 0,
+      "min": 0,
+      "max": 1,
+      "tooltip": "Which choice is true: 0 for the left plate, 1 for the right plate"
+    }
+  ],
+  "variant_axes": [],
+  "examples": [
+    {
+      "id": "demo",
+      "label": "API or your box?",
+      "content": {
+        "prompt": "Which costs more to answer one question?",
+        "a": {
+          "label": "Frontier API",
+          "detail": "someone else's GPUs"
+        },
+        "b": {
+          "label": "Your box",
+          "detail": "electricity only"
+        },
+        "reveal": "The API wins on peak quality — your box wins on cost, privacy, and it's yours."
+      }
+    }
+  ],
+  "provenance": {}
+}

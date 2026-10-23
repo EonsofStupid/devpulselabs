@@ -1,0 +1,67 @@
+{
+  "schema": "dpl.component/1",
+  "id": "agenda",
+  "version": "1.0.0",
+  "name": "Agenda",
+  "summary": "A numbered running order — tone chips, titles, one-line subs. Staggered fade-in.",
+  "class": "static",
+  "tags": ["opener", "running-order"],
+  "slots": [
+    {
+      "id": "heading",
+      "label": "Heading",
+      "entity": "text",
+      "required": true,
+      "tooltip": "The line above the list, like \"Where we're going\"",
+      "limits": { "max_chars": 48 }
+    },
+    {
+      "id": "items",
+      "label": "Agenda rows",
+      "entity": "list",
+      "required": true,
+      "tooltip": "The stops in order. Each row gets a number chip, a title and a short line under it.",
+      "limits": { "min_items": 1, "max_items": 6 },
+      "item": [
+        {
+          "id": "title",
+          "label": "Title",
+          "kind": "text",
+          "tooltip": "What this part of the show is about"
+        },
+        {
+          "id": "sub",
+          "label": "Short line",
+          "kind": "text",
+          "tooltip": "A few small words under the title"
+        }
+      ]
+    }
+  ],
+  "props": [
+    {
+      "id": "tone",
+      "label": "Colour",
+      "kind": "tone",
+      "default": "cyan",
+      "tooltip": "The accent colour of the number chips"
+    }
+  ],
+  "variant_axes": [],
+  "examples": [
+    {
+      "id": "demo",
+      "label": "Where we're going",
+      "content": {
+        "heading": "Where we're going",
+        "items": [
+          { "title": "How a model actually runs", "sub": "the stack, laid bare" },
+          { "title": "What a question costs", "sub": "tokens, watts, dollars" },
+          { "title": "Running it on your own box", "sub": "open weights, real hardware" },
+          { "title": "Where the news comes from", "sub": "reading the primary sources" }
+        ]
+      }
+    }
+  ],
+  "provenance": {}
+}

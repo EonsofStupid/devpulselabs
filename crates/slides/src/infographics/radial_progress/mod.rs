@@ -7,41 +7,40 @@
 use dpl_coldlight::{self as cl, Tone};
 use dpl_vector::arc_stroke;
 use egui::{Align2, Sense, Ui};
+use serde::{Deserialize, Serialize};
 use std::f32::consts::{FRAC_PI_2, TAU};
 
 use super::stage::{ChartStage, LOGICAL_H, LOGICAL_W};
 use crate::motion::Clock;
-use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
+use crate::registry::SlideTemplate;
+use dpl_doc::component::ComponentContract;
 
-static SPEC: TemplateSpec = TemplateSpec {
-    id: TemplateId("radial-progress"),
-    label: "Radial progress",
-    class: TemplateClass::Animation,
-    blurb: "A progress ring that sweeps to a percent over a hairline track, big center number.",
-};
-
+/// Fields are the contract's slots and props (`component.json`).
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RadialProgress {
+    #[serde(with = "crate::contract::tone")]
     pub tone: Tone,
     /// 0..1 fill.
     pub frac: f32,
-    pub label: &'static str,
+    #[serde(default)]
+    pub label: String,
+    #[serde(skip)]
     clock: Clock,
 }
 
 impl RadialProgress {
+    crate::component_contract!(include_str!("component.json"));
+
     pub fn demo() -> Self {
-        Self {
-            tone: Tone::Cyan,
-            frac: 0.68,
-            label: "context window used",
-            clock: Clock::default(),
-        }
+        crate::contract::instantiate(Self::contract(), 0)
+            .expect("the radial-progress demo is its example")
     }
 }
 
 impl SlideTemplate for RadialProgress {
-    fn spec(&self) -> &'static TemplateSpec {
-        &SPEC
+    fn spec(&self) -> &'static ComponentContract {
+        Self::contract()
     }
 
     fn restart(&mut self) {
@@ -101,7 +100,7 @@ impl SlideTemplate for RadialProgress {
             painter,
             (LOGICAL_W * 0.5, LOGICAL_H * 0.5 + 44.0),
             Align2::CENTER_CENTER,
-            self.label,
+            &self.label,
             13.0,
             cl::ink::MUTED,
         );

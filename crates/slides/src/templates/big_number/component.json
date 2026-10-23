@@ -1,0 +1,85 @@
+{
+  "schema": "dpl.component/1",
+  "id": "stat",
+  "version": "1.0.0",
+  "name": "Big number",
+  "summary": "The receipt: one verified wall-sized number, label, and the source footnote.",
+  "class": "static",
+  "tags": ["receipt", "number"],
+  "slots": [
+    {
+      "id": "eyebrow",
+      "label": "Eyebrow",
+      "entity": "text",
+      "required": false,
+      "tooltip": "A small label above the number, like \"the receipt\"",
+      "limits": { "max_chars": 40 }
+    },
+    {
+      "id": "value",
+      "label": "The number",
+      "entity": "text",
+      "required": true,
+      "tooltip": "The one wall-sized number, written as you want it shown (e.g. 70× or $0.02). Keep it short.",
+      "limits": { "max_chars": 10 }
+    },
+    {
+      "id": "label",
+      "label": "What it means",
+      "entity": "text",
+      "required": true,
+      "tooltip": "One line under the number saying what it measures",
+      "limits": { "max_chars": 50 }
+    },
+    {
+      "id": "footnote",
+      "label": "Source note",
+      "entity": "text",
+      "required": false,
+      "tooltip": "Where the number comes from and how it was checked. Only show numbers you have verified.",
+      "limits": { "max_chars": 90 }
+    },
+    {
+      "id": "media",
+      "label": "Backdrop",
+      "entity": "picture",
+      "required": false,
+      "tooltip": "An image, video or moving pattern behind the number"
+    }
+  ],
+  "props": [
+    {
+      "id": "tone",
+      "label": "Colour",
+      "kind": "tone",
+      "default": "lime",
+      "tooltip": "The colour of the big number and the backdrop"
+    }
+  ],
+  "variant_axes": [
+    {
+      "id": "density",
+      "label": "Spacing",
+      "tooltip": "Roomy gives the number the whole wall; tight makes it smaller with less space between lines",
+      "options": [
+        { "id": "comfy", "label": "Roomy" },
+        { "id": "compact", "label": "Tight" }
+      ],
+      "default": "comfy"
+    }
+  ],
+  "examples": [
+    {
+      "id": "demo",
+      "label": "70× since 2022",
+      "content": {
+        "eyebrow": "the receipt",
+        "value": "70×",
+        "label": "local capability per dollar since 2022",
+        "footnote": "source: EOS-001 CH02 — verified against public inference pricing",
+        "media": { "kind": "anim", "ambient": "pulse" }
+      }
+    }
+  ],
+  "provenance": {}
+}

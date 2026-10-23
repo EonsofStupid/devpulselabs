@@ -1,0 +1,35 @@
+# LS1 (R285): a soloed template shows its contract beside the stage — what
+# it takes, its choices and its looks, read from its component.json. Reads
+# only: no clicks, no focus-viewport. Fixture `library` (default size, wide
+# enough that the panel opens beside the stage); the 1100x700 run is
+# `workbench-component-contract-1100.toml`.
+id = "workbench-component-contract"
+fixture = "library"
+record = true
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.library.template/contract"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.library.template/back"
+
+# The title card's lines rise in once (S1b); capture it at rest.
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "capture"
+name = "workbench-component-contract"

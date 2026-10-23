@@ -7,89 +7,67 @@
 
 use dpl_coldlight::{self as cl, Tone};
 use egui::{Align2, FontId, Rect, Sense, Ui};
+use serde::{Deserialize, Serialize};
 
 use crate::elements::eyebrow::tracked;
-use crate::elements::{media_backdrop, Ambient, Media};
+use crate::elements::{media_backdrop, Media};
 use crate::frame::Stage;
 use crate::motion::Clock;
-use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
+use crate::registry::SlideTemplate;
+use dpl_doc::component::ComponentContract;
 
-static SPEC: TemplateSpec = TemplateSpec {
-    id: TemplateId("stats"),
-    label: "Stats grid",
-    class: TemplateClass::Static,
-    blurb: "The ensemble: a grid of toned numbers; tap a card to crossfade to its detail back.",
-};
-
+/// One card — an item of the `stats` list slot.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StatItem {
-    pub value: &'static str,
-    pub label: &'static str,
+    pub value: String,
+    pub label: String,
     /// `None` = a plain, non-flippable plate.
-    pub detail: Option<&'static str>,
+    #[serde(default)]
+    pub detail: Option<String>,
+    /// `None` = the slide's tone.
+    #[serde(default, with = "crate::contract::tone_opt")]
     pub tone: Option<Tone>,
 }
 
+/// Fields are the contract's slots and props (`component.json`).
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StatsGrid {
+    #[serde(with = "crate::contract::tone")]
     pub tone: Tone,
-    pub title: &'static str,
+    pub title: String,
     pub stats: Vec<StatItem>,
+    /// The demo's rings are a SLIDE ambience (ratified 2026-07-22) — the
+    /// gallery gate for it.
+    #[serde(default)]
     pub media: Option<Media>,
-    /// (flipped, when-toggled) per card — the crossfade clocks.
+    /// (flipped, when-toggled) per card — the crossfade clocks. Sized from
+    /// `stats` by `restart()`.
+    #[serde(skip)]
     flips: Vec<(bool, f64)>,
+    #[serde(skip)]
     clock: Clock,
 }
 
 impl StatsGrid {
+    crate::component_contract!(include_str!("component.json"));
+
     pub fn demo() -> Self {
-        let stats = vec![
-            StatItem {
-                value: "8B",
-                label: "params your GPU runs",
-                detail: Some("Llama-class open weights, quantized — 6 GB of VRAM"),
-                tone: Some(Tone::Lime),
-            },
-            StatItem {
-                value: "43×",
-                label: "cheaper per token vs 2023",
-                detail: Some("frontier API list price, same benchmark tier"),
-                tone: Some(Tone::Cyan),
-            },
-            StatItem {
-                value: "0",
-                label: "bytes leaving your network",
-                detail: Some("local inference — the privacy number that matters"),
-                tone: Some(Tone::Amber),
-            },
-            StatItem {
-                value: "1",
-                label: "GPU is enough to start",
-                detail: None,
-                tone: None,
-            },
-        ];
-        let n = stats.len();
-        Self {
-            tone: Tone::Cyan,
-            title: "The local numbers",
-            stats,
-            // Rings is a SLIDE ambience (ratified 2026-07-22) — gallery gate.
-            media: Some(Media::Anim(Ambient::Rings)),
-            flips: vec![(false, f64::NEG_INFINITY); n],
-            clock: Clock::default(),
-        }
+        crate::contract::instantiate(Self::contract(), 0).expect("the stats demo is its example")
     }
 }
 
 impl SlideTemplate for StatsGrid {
-    fn spec(&self) -> &'static TemplateSpec {
-        &SPEC
+    fn spec(&self) -> &'static ComponentContract {
+        Self::contract()
     }
 
+    /// The clock from zero and every card on its front — one flip clock per
+    /// card.
     fn restart(&mut self) {
         self.clock.restart();
-        self.flips
-            .iter_mut()
-            .for_each(|f| *f = (false, f64::NEG_INFINITY));
+        self.flips = vec![(false, f64::NEG_INFINITY); self.stats.len()];
     }
 
     fn ui(&mut self, ui: &mut Ui) {
@@ -97,7 +75,7 @@ impl SlideTemplate for StatsGrid {
         let fluid = &stage.fluid;
         let now = ui.input(|i| i.time);
         let t0 = self.clock.tick(now);
-        if let Some(m) = self.media {
+        if let Some(m) = &self.media {
             media_backdrop(ui, ui.max_rect(), m, self.tone, now, t0);
         }
         let painter = ui.painter().clone();
@@ -110,7 +88,7 @@ impl SlideTemplate for StatsGrid {
         painter.text(
             egui::pos2(stage.rect.center().x, stage.rect.min.y),
             Align2::CENTER_TOP,
-            self.title,
+            &self.title,
             FontId::proportional(fluid.fs_h2()),
             cl::ink::STRONG,
         );
@@ -164,20 +142,20 @@ impl SlideTemplate for StatsGrid {
                 painter.text(
                     egui::pos2(card.center().x, card.center().y - fluid.fs_h2() * 0.35),
                     Align2::CENTER_CENTER,
-                    stat.value,
+                    &stat.value,
                     FontId::proportional(fluid.fs_h1()),
                     tone.color().gamma_multiply(a),
                 );
                 painter.text(
                     egui::pos2(card.center().x, card.center().y + fluid.fs_h2() * 0.75),
                     Align2::CENTER_CENTER,
-                    stat.label,
+                    &stat.label,
                     FontId::proportional(fluid.fs_body()),
                     cl::ink::BASE.gamma_multiply(a),
                 );
             }
             if back_a > 0.01 {
-                if let Some(detail) = stat.detail {
+                if let Some(detail) = &stat.detail {
                     painter.text(
                         card.center(),
                         Align2::CENTER_CENTER,

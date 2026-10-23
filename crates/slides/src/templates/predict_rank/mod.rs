@@ -5,66 +5,49 @@
 
 use dpl_coldlight::{self as cl, Tone};
 use egui::{Align2, FontId, Rect, Sense, Ui};
+use serde::{Deserialize, Serialize};
 
 use crate::elements::eyebrow::tracked;
 use crate::frame::Stage;
-use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
+use crate::registry::SlideTemplate;
+use dpl_doc::component::ComponentContract;
 
-static SPEC: TemplateSpec = TemplateSpec {
-    id: TemplateId("predict"),
-    label: "Predict rank",
-    class: TemplateClass::Interactive,
-    blurb: "The room calls the next word out loud, THEN the ranked probabilities land.",
-};
-
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Guess {
-    pub token: &'static str,
+    pub token: String,
     pub pct: f32,
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PredictRound {
-    pub prompt: &'static str,
+    pub prompt: String,
     /// Pre-sorted descending — the ranking as it lands.
     pub guesses: Vec<Guess>,
 }
 
+/// Fields are the contract's slots, props and axes (`component.json`).
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PredictRank {
+    #[serde(with = "crate::contract::tone")]
     pub tone: Tone,
-    pub heading: &'static str,
+    pub heading: String,
     pub rounds: Vec<PredictRound>,
-    pub reveal: &'static str,
+    #[serde(default)]
+    pub reveal: String,
+    #[serde(skip)]
     round: usize,
+    #[serde(skip)]
     revealed: Option<f64>,
 }
 
 impl PredictRank {
+    crate::component_contract!(include_str!("component.json"));
+
     pub fn demo() -> Self {
-        Self {
-            tone: Tone::Violet,
-            heading: "Call the next word",
-            rounds: vec![
-                PredictRound {
-                    prompt: "The stream starts in five ___",
-                    guesses: vec![
-                        Guess { token: "minutes", pct: 71.0 },
-                        Guess { token: "seconds", pct: 18.0 },
-                        Guess { token: "hours", pct: 6.0 },
-                        Guess { token: "bananas", pct: 0.2 },
-                    ],
-                },
-                PredictRound {
-                    prompt: "Like and ___",
-                    guesses: vec![
-                        Guess { token: "subscribe", pct: 88.0 },
-                        Guess { token: "share", pct: 7.0 },
-                        Guess { token: "comment", pct: 4.0 },
-                    ],
-                },
-            ],
-            reveal: "You just did what the model does — ranked the likely next words. It's that, at scale.",
-            round: 0,
-            revealed: None,
-        }
+        crate::contract::instantiate(Self::contract(), 0).expect("the predict demo is its example")
     }
 
     fn last_round(&self) -> bool {
@@ -81,8 +64,8 @@ impl PredictRank {
 }
 
 impl SlideTemplate for PredictRank {
-    fn spec(&self) -> &'static TemplateSpec {
-        &SPEC
+    fn spec(&self) -> &'static ComponentContract {
+        Self::contract()
     }
 
     fn restart(&mut self) {
@@ -101,7 +84,7 @@ impl SlideTemplate for PredictRank {
         painter.text(
             egui::pos2(stage.rect.center().x, stage.rect.min.y),
             Align2::CENTER_TOP,
-            self.heading,
+            &self.heading,
             FontId::proportional(fluid.fs_h2()),
             cl::ink::STRONG,
         );
@@ -145,7 +128,7 @@ impl SlideTemplate for PredictRank {
                     painter.text(
                         egui::pos2(stage.rect.min.x + token_w, y + row_h * 0.5),
                         Align2::RIGHT_CENTER,
-                        g.token,
+                        &g.token,
                         FontId::proportional(fluid.fs_h4()),
                         if i == 0 {
                             cl::ink::STRONG
@@ -264,7 +247,7 @@ impl SlideTemplate for PredictRank {
                     painter.text(
                         foot,
                         Align2::CENTER_BOTTOM,
-                        self.reveal,
+                        &self.reveal,
                         FontId::proportional(fluid.fs_h4()),
                         cl::ink::BASE.gamma_multiply(p),
                     );

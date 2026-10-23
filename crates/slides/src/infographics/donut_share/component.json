@@ -1,0 +1,81 @@
+{
+  "schema": "dpl.component/1",
+  "id": "donut-share",
+  "version": "1.0.0",
+  "name": "Donut share",
+  "summary": "Share-of-whole donut; slices sweep in from the pool, tap a slice for its readout.",
+  "class": "static",
+  "tags": ["infographic", "chart", "share-of-whole"],
+  "slots": [
+    {
+      "id": "center",
+      "label": "Center number",
+      "entity": "text",
+      "required": false,
+      "tooltip": "The big word or number in the hole of the donut, like a year or a total",
+      "limits": { "max_chars": 8 }
+    },
+    {
+      "id": "center_note",
+      "label": "Center note",
+      "entity": "text",
+      "required": false,
+      "tooltip": "A short line under the center number that says what the donut shows",
+      "limits": { "max_chars": 24 }
+    },
+    {
+      "id": "slices",
+      "label": "Slices",
+      "entity": "list",
+      "required": true,
+      "tooltip": "The parts of the whole. Each slice gets a name and a size; sizes are shown as percentages of their total",
+      "limits": { "min_items": 2, "max_items": 6 },
+      "item": [
+        {
+          "id": "label",
+          "label": "Name",
+          "kind": "text",
+          "tooltip": "What this slice stands for, shown next to it with its percentage"
+        },
+        {
+          "id": "value",
+          "label": "Size",
+          "kind": "number",
+          "tooltip": "How big this slice is. Any scale works: each slice is drawn as its share of all the sizes added up"
+        },
+        {
+          "id": "tone",
+          "label": "Colour",
+          "kind": "tone",
+          "tooltip": "Pick a colour for this slice, or leave it empty to take the next colour after the slide's"
+        }
+      ]
+    }
+  ],
+  "props": [
+    {
+      "id": "tone",
+      "label": "Colour",
+      "kind": "tone",
+      "default": "amber",
+      "tooltip": "The slide's accent colour: the first slice and the center number wear it"
+    }
+  ],
+  "variant_axes": [],
+  "examples": [
+    {
+      "id": "demo",
+      "label": "Where inference runs",
+      "content": {
+        "center": "2026",
+        "center_note": "where inference runs",
+        "slices": [
+          { "label": "Big cloud", "value": 62.0 },
+          { "label": "Local / edge", "value": 26.0, "tone": "lime" },
+          { "label": "Hybrid", "value": 12.0, "tone": "cyan" }
+        ]
+      }
+    }
+  ],
+  "provenance": { "note": "The demo is the authored EOS-001 data, carried." }
+}

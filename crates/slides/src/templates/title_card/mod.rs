@@ -8,56 +8,53 @@
 use dpl_coldlight::Tone;
 use dpl_coldlight::{self as cl};
 use egui::{Align2, FontId, Ui};
+use serde::{Deserialize, Serialize};
 
 use crate::elements::eyebrow::tracked;
 use crate::elements::{media_backdrop, Media};
 use crate::frame::Stage;
 use crate::motion::Clock;
-use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
+use crate::registry::SlideTemplate;
+use dpl_doc::component::ComponentContract;
 
-static SPEC: TemplateSpec = TemplateSpec {
-    id: TemplateId("title"),
-    label: "Title card",
-    class: TemplateClass::Static,
-    blurb: "Episode/segment opener: toned eyebrow, display title, muted subtitle.",
-};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum TitleAlign {
     Left,
     Center,
 }
 
+/// Fields are the contract's slots, props and axes (`component.json`).
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TitleCard {
+    #[serde(with = "crate::contract::tone")]
     pub tone: Tone,
-    pub eyebrow: &'static str,
-    pub title: &'static str,
-    pub subtitle: &'static str,
+    pub eyebrow: String,
+    pub title: String,
+    #[serde(default)]
+    pub subtitle: String,
     pub align: TitleAlign,
+    /// The demo's poster is a REAL pipeline artifact (media-cli output), so
+    /// the demo doubles as the gallery gate for webp display. A missing file
+    /// degrades to the labeled plate, never a crash.
+    #[serde(default)]
     pub media: Option<Media>,
+    #[serde(skip)]
     clock: Clock,
 }
 
 impl TitleCard {
+    crate::component_contract!(include_str!("component.json"));
+
     pub fn demo() -> Self {
-        Self {
-            tone: Tone::Amber,
-            eyebrow: "Echoes of Sentience",
-            title: "The stack, laid bare",
-            subtitle: "What actually runs when you ask a model a question — and what it costs.",
-            align: TitleAlign::Left,
-            // A REAL pipeline artifact (media-cli output) — the demo doubles
-            // as the gallery gate for webp display. Missing file degrades to
-            // the labeled plate, never a crash.
-            media: Some(Media::Image("assets/generated/dpl-poster.webp")),
-            clock: Clock::default(),
-        }
+        crate::contract::instantiate(Self::contract(), 0).expect("the title demo is its example")
     }
 }
 
 impl SlideTemplate for TitleCard {
-    fn spec(&self) -> &'static TemplateSpec {
-        &SPEC
+    fn spec(&self) -> &'static ComponentContract {
+        Self::contract()
     }
 
     fn restart(&mut self) {
@@ -68,7 +65,7 @@ impl SlideTemplate for TitleCard {
         let stage = Stage::of(ui.max_rect());
         let now = ui.input(|i| i.time);
         let t0 = self.clock.tick(now);
-        if let Some(m) = self.media {
+        if let Some(m) = &self.media {
             media_backdrop(ui, ui.max_rect(), m, self.tone, now, t0);
         }
         let fluid = &stage.fluid;
@@ -98,14 +95,14 @@ impl SlideTemplate for TitleCard {
         painter.text(
             egui::pos2(x, top + lift(p0)),
             anchor,
-            tracked(self.eyebrow),
+            tracked(&self.eyebrow),
             FontId::monospace(eyebrow_size),
             self.tone.color().gamma_multiply(p0),
         );
         painter.text(
             egui::pos2(x, top + eyebrow_size + fluid.sp_5() + lift(p1)),
             anchor,
-            self.title,
+            &self.title,
             FontId::proportional(title_size),
             cl::ink::STRONG.gamma_multiply(p1),
         );
@@ -115,7 +112,7 @@ impl SlideTemplate for TitleCard {
                 top + eyebrow_size + fluid.sp_5() + title_size * 0.95 + fluid.sp_6() + lift(p2),
             ),
             anchor,
-            self.subtitle,
+            &self.subtitle,
             FontId::proportional(sub_size),
             cl::ink::MUTED.gamma_multiply(p2),
         );

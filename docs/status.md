@@ -1,6 +1,6 @@
 ---
-updated: 2026-10-20
-active_lane: chat-first
+updated: 2026-10-21
+active_lane: lesson-schema
 dirty: false
 ---
 
@@ -13,39 +13,52 @@ reorganization).
 Read in this order: this page → [`requirements.md`](requirements.md) (the
 operator's words) → [`README.md`](README.md) (the map of every doc).
 
-**Updated:** 2026-10-20, main at `1c472a2` (#278). The release exe was
-rebuilt 2026-10-20 14:15 from `1c472a2` and its build stamp verified
-(`1c472a2 · 2026-10-20 18:13z`). This page lands with RM1.
+**Updated:** 2026-10-21, main at `4ee638b` (#279). The release exe was
+rebuilt 2026-10-20 15:46 from `4ee638b` and its build stamp verified
+(`4ee638b · 2026-10-20 19:45z`). This page lands with LS1.
 
 ## Now
 
-**Chat first (R283, ruled 2026-10-19: "Approve, Codex first").** On the
-real app, chat does not work end to end (the R283 note has the evidence).
-Every step now ends with a real message working in the real app
-(`docs/plans/chat-native-program.md` §4.4, "The order"):
+**Lessons, slides and components (R285, ruled 2026-10-21).** The schema
+comes first, so lessons can mix and match slides and visuals can be
+refreshed without touching content. The research is
+`docs/research/lesson-slide-schema.md`.
+- **Five layers:** look, component, entity preset, slide, and lesson or
+  episode. Lessons build episodes.
+- **Pin content, float presentation:** a lesson pins a slide's revision and
+  offers "Update available"; looks, presets and components float.
+
+| Pass | What | State |
+|---|---|---|
+| LS1 | Component contracts: `dpl.component/1`, a `component.json` beside each of the 28 templates, the gallery demo built from each contract's first example, the Workbench reading the contracts, the `contracts` phase of `cargo green` | **in PR** |
+| LS2 | Slides by id (`dpl.slide/3`): the library folder, presets as references (no more baking), the one-time upgrade of the six v2 drafts with backups | next |
+| LS3 | Lessons (`dpl.lesson/1`) and episodes built from lessons (`dpl.episode/2`), by reference, with "Update available" | |
+| LS4 | Components render their slots and variant axes | |
+| LS5 | Render locks for exports; Lottie slots | |
+| LS6 | The teaching components and their lints | |
+
+**Chat is parked after RM1** (#279; R283 order). What comes next there:
+1. A pass to make Codex smooth. It was offered on 2026-10-20 and is not yet
+   approved; the findings are known broken #11.
+2. CW2 (Claude Code).
+3. RM2–RM5, the rooms.
+
+The shared-state research of 2026-10-20 settled the design:
+- **No driving the desktop apps.** The app's room log is the truth.
+- **Codex** gets it injected through `thread/inject_items`.
+- **Claude** runs one persistent stream-json session.
+- **Optionally**, a local MCP "room" server lets the desktop apps join as
+  guests.
 
 | Step | What | State |
 |---|---|---|
-| CW1 | Codex on the operator's subscription: the operator's own Codex adopted into the depot (OpenAI's signature, its version, its protocol), every server request answered, honest auth health, configurable permissions, plain-language failures, Update Codex | **done** (#278): a real Codex turn answers on the operator's ChatGPT Pro. Four checks are owed on the operator's own clicks: Workspace mode creates a file without a card; Read only declines with a note; the mode survives a restart; Update Codex works |
-| RM1 | Roles and rooms as data (R284): the `dpl.role/1` and `dpl.room/1` schemas, 11 built-in roles and 5 rooms citing their research, the operator's own files, the Rooms & roles view | **in PR** |
-| CW2 | Claude Code on the operator's subscription (A4): the official binary in the depot, a stream-json adapter, presence from the depot | next |
-| CW3 | The shared room, built as the rooms passes: RM2 the room log (saved conversations; tabs as conversations with New, Close, Clear), RM3 participants, the context packet and local endpoints (Ollama first), RM4 Council, RM5 the other rooms | after CW2 (RM4 needs Claude) |
-| then | Grok and Gemini auth health (A7/A8), C2–C4 | |
-
-**Rooms and roles** (R284, 2026-10-20): research-backed roles (skeptic,
-realist, dreamer and more) and rooms (council, debate, author + critic,
-router, brainstorm) for Codex, Claude, Gemini, Grok and local endpoints. They
-are authored data, so the library grows without code. The research is
-`docs/research/chat-rooms-and-roles.md`. The operator approved the rooms
-order, with Council as the first room that runs.
+| CW1 | Codex on the operator's subscription | **done** (#278). Four checks are owed on the operator's own clicks: Workspace mode creates a file without a card; Read only declines with a note; the mode survives a restart; Update Codex works |
+| RM1 | Roles and rooms as data (R284), and the Rooms & roles view | **done** (#279) |
+| CW2 | Claude Code on the operator's subscription | after the Codex pass |
+| CW3 | The rooms passes: RM2 room log and tabs, RM3 participants and local endpoints, RM4 Council, RM5 the rest | after CW2 |
 
 K1, K2 and A1 no longer gate anything: each step moves only the code it
 touches, straight to the final layout.
-
-**The #222 port** lands in the background in this PR: the job board, preset
-looks and workflow dry run (R282), plus two defects found on the real exe
-(the status bar's lanes overlapped at 1100×700; the devtools build had not
-compiled since #248).
 
 **`docs/plans/docs-one-truth.md`** (approved 2026-10-12): P1 merged (#262).
 P2 (one design doc per subject; ADRs into `adr/`) and P3 (`design/library.md`)
@@ -93,12 +106,27 @@ release) are still to come.
    delete it; investigate it read-only.
 9. **The release zip ships without the tool depot.** → D0.6.
 10. **Six ignored drills do not run against the depot.** → D0.5.
-11. **Chat is not whole yet** (2026-10-20). Codex works (CW1, #278). Still
-    missing:
-    - Claude has no runtime (CW2);
-    - there is no shared state, no saved conversation, and no tab close or
-      clear (RM2);
-    - rooms cannot run yet (RM3, RM4).
+11. **Chat is not whole yet, and Codex is not smooth** (verified
+    2026-10-20 with a headless probe turn, run A/B).
+    - **The depot's Codex is incomplete.** Adoption copied only `bin/`.
+      The Codex package (layout v1) also has `codex-resources/`, which holds
+      `codex-command-runner.exe` and `codex-windows-sandbox-setup.exe`, and
+      `codex-path/`, which holds `rg.exe`. Without them, a sandboxed shell
+      command fails ("sandbox helper is missing") and asks to run
+      unsandboxed. The operator's full install ran the same turn with no
+      card.
+    - **Noise:** each unmapped app-server notification becomes an UNKNOWN
+      card, about 14 per short turn (`item/started`, `item/completed`,
+      `thread/status/changed`…). The work Codex did is not shown in plain
+      words.
+    - **The wrong folder:** Codex works in the app's current directory (the
+      build folder when the exe is double-clicked), and `thread/start` sends
+      no `cwd`.
+    - **Nothing carries over:** there is no `thread/resume` or `thread/list`,
+      so every launch starts a new thread.
+    - **Still to build:** Claude has no runtime (CW2); there is no shared
+      state, no saved conversation, and no tab close or clear (RM2); rooms
+      cannot run yet (RM3, RM4).
 12. **A second launch opens a second, half-broken window** instead of raising
     the running one (`FjallError: Locked`, seam port bind os error 10048).
     The operator asked (2026-08-05) for the running window to come to the
@@ -146,17 +174,14 @@ release) are still to come.
 
 ## Next, in order
 
-1. **RM1, roles and rooms as data**: in PR. Done means the Rooms & roles
-   view lists the library on the real app.
-2. **CW2, Claude Code** on the operator's subscription. Done means a real
-   Claude turn.
-3. **CW3, as the rooms passes**:
-   - RM2, the room log. Done means Claude answers about Codex's reply in the
-     same conversation, and it is all still there after a restart.
-   - RM3, participants and local endpoints. Done means a local model cites
-     Codex's reply.
-   - RM4, a real Council.
-   - RM5, the other rooms.
+1. **LS1, component contracts**: in PR. Done means every template has a
+   contract that the gallery demo is built from, and the contracts gate is
+   green.
+2. **LS2–LS6**, each with its own plan (the table under Now).
+3. **Chat**, when the operator returns to it:
+   - the Codex-smoothness pass (known broken #11), for approval;
+   - CW2, Claude Code;
+   - RM2–RM5, the rooms.
 4. Grok and Gemini auth health.
 5. The rest of the incomplete work, each with unit tests and real-run
    drills: the eight dependency PRs (#268–#275: ACP 2→3.4, arrow and parquet

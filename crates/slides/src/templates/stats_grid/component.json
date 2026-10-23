@@ -1,0 +1,102 @@
+{
+  "schema": "dpl.component/1",
+  "id": "stats",
+  "version": "1.0.0",
+  "name": "Stats grid",
+  "summary": "The ensemble: a grid of toned numbers; tap a card to crossfade to its detail back.",
+  "class": "static",
+  "tags": ["numbers", "grid", "flip-card"],
+  "slots": [
+    {
+      "id": "title",
+      "label": "Title",
+      "entity": "text",
+      "required": true,
+      "tooltip": "The line at the top that says what these numbers are about",
+      "limits": { "max_chars": 48 }
+    },
+    {
+      "id": "stats",
+      "label": "Number cards",
+      "entity": "list",
+      "required": true,
+      "tooltip": "The cards, two to a row; a card with a detail flips over to it when tapped",
+      "limits": { "min_items": 1, "max_items": 6 },
+      "item": [
+        {
+          "id": "value",
+          "label": "Number",
+          "kind": "text",
+          "tooltip": "The big number on the card, written as you want it read, like 43×"
+        },
+        {
+          "id": "label",
+          "label": "What it counts",
+          "kind": "text",
+          "tooltip": "The short line under the number that says what it is"
+        },
+        {
+          "id": "detail",
+          "label": "Back of the card",
+          "kind": "text",
+          "tooltip": "The explanation shown when the card is tapped; leave it empty for a card that does not flip"
+        },
+        {
+          "id": "tone",
+          "label": "Card colour",
+          "kind": "tone",
+          "tooltip": "The colour of this card's number; leave it empty to use the slide's colour"
+        }
+      ]
+    },
+    {
+      "id": "media",
+      "label": "Backdrop",
+      "entity": "picture",
+      "required": false,
+      "tooltip": "An image, video or moving pattern behind the cards"
+    }
+  ],
+  "props": [
+    {
+      "id": "tone",
+      "label": "Colour",
+      "kind": "tone",
+      "default": "cyan",
+      "tooltip": "The slide's accent colour: numbers without their own colour, and the backdrop"
+    }
+  ],
+  "variant_axes": [],
+  "examples": [
+    {
+      "id": "demo",
+      "label": "The local numbers",
+      "content": {
+        "title": "The local numbers",
+        "stats": [
+          {
+            "value": "8B",
+            "label": "params your GPU runs",
+            "detail": "Llama-class open weights, quantized — 6 GB of VRAM",
+            "tone": "lime"
+          },
+          {
+            "value": "43×",
+            "label": "cheaper per token vs 2023",
+            "detail": "frontier API list price, same benchmark tier",
+            "tone": "cyan"
+          },
+          {
+            "value": "0",
+            "label": "bytes leaving your network",
+            "detail": "local inference — the privacy number that matters",
+            "tone": "amber"
+          },
+          { "value": "1", "label": "GPU is enough to start" }
+        ],
+        "media": { "kind": "anim", "ambient": "rings" }
+      }
+    }
+  ],
+  "provenance": {}
+}

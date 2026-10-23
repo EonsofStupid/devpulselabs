@@ -47,6 +47,7 @@ named first and the others are marked **P2**: they merge into it during
 | [`plans/l1-library-doctrine.md`](plans/l1-library-doctrine.md) | The library's information architecture. **P3** source. |
 | [`plans/guided-landing-charter.md`](plans/guided-landing-charter.md) | Where captures land, guided. **P3** source. |
 | [`design/estate-and-agent-seam.md`](design/estate-and-agent-seam.md) | The estate store and the agent seam. |
+| [`research/lesson-slide-schema.md`](research/lesson-slide-schema.md) | Lessons, slides, components and variants (R285): the five-layer model (look, component, entity preset, slide, lesson and episode), pin content and float presentation, render locks. **P3** source; LS1 built its component layer (`schemas/component.v1.schema.json`). |
 
 ## Design system (ColdLight)
 

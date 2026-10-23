@@ -1,0 +1,134 @@
+{
+  "schema": "dpl.component/1",
+  "id": "predict",
+  "version": "1.0.0",
+  "name": "Predict rank",
+  "summary": "The room calls the next word out loud, THEN the ranked probabilities land.",
+  "class": "interactive",
+  "tags": [
+    "predict",
+    "reveal",
+    "game"
+  ],
+  "slots": [
+    {
+      "id": "heading",
+      "label": "Headline",
+      "entity": "text",
+      "required": true,
+      "tooltip": "The line across the top that tells the room what to do",
+      "limits": {
+        "max_chars": 60
+      }
+    },
+    {
+      "id": "rounds",
+      "label": "Rounds",
+      "entity": "list",
+      "required": true,
+      "tooltip": "One or more rounds, played in order. Each has an unfinished sentence and its likely next words, most likely first, each with a percentage",
+      "item": [
+        {
+          "id": "prompt",
+          "label": "Prompt",
+          "kind": "text",
+          "tooltip": "The sentence with a blank for the model to fill"
+        },
+        {
+          "id": "guesses",
+          "label": "Guesses",
+          "kind": "list",
+          "tooltip": "The model's top guesses for the blank, with how likely each is",
+          "item": [
+            {
+              "id": "token",
+              "label": "Word",
+              "kind": "text",
+              "tooltip": "One guessed word"
+            },
+            {
+              "id": "pct",
+              "label": "Chance",
+              "kind": "number",
+              "tooltip": "How likely this guess is, in percent"
+            }
+          ]
+        }
+      ],
+      "limits": {
+        "min_items": 1
+      }
+    },
+    {
+      "id": "reveal",
+      "label": "Closing line",
+      "entity": "text",
+      "required": false,
+      "tooltip": "The takeaway that fades in at the bottom after the last round's ranking is shown",
+      "limits": {
+        "max_chars": 100
+      }
+    }
+  ],
+  "props": [
+    {
+      "id": "tone",
+      "label": "Colour",
+      "kind": "tone",
+      "default": "violet",
+      "tooltip": "The colour of the winning bar and the Reveal button"
+    }
+  ],
+  "variant_axes": [],
+  "examples": [
+    {
+      "id": "demo",
+      "label": "Call the next word",
+      "content": {
+        "heading": "Call the next word",
+        "rounds": [
+          {
+            "prompt": "The stream starts in five ___",
+            "guesses": [
+              {
+                "token": "minutes",
+                "pct": 71
+              },
+              {
+                "token": "seconds",
+                "pct": 18
+              },
+              {
+                "token": "hours",
+                "pct": 6
+              },
+              {
+                "token": "bananas",
+                "pct": 0.2
+              }
+            ]
+          },
+          {
+            "prompt": "Like and ___",
+            "guesses": [
+              {
+                "token": "subscribe",
+                "pct": 88
+              },
+              {
+                "token": "share",
+                "pct": 7
+              },
+              {
+                "token": "comment",
+                "pct": 4
+              }
+            ]
+          }
+        ],
+        "reveal": "You just did what the model does — ranked the likely next words. It's that, at scale."
+      }
+    }
+  ],
+  "provenance": {}
+}

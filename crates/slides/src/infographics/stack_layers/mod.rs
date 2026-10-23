@@ -7,64 +7,46 @@
 
 use dpl_coldlight::{self as cl, Fluid, Tone};
 use egui::{Align2, FontId, Rect, Ui};
+use serde::{Deserialize, Serialize};
 
 use crate::elements::eyebrow::tracked;
 use crate::motion::{Beat, Clock};
-use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
+use crate::registry::SlideTemplate;
+use dpl_doc::component::ComponentContract;
 
-static SPEC: TemplateSpec = TemplateSpec {
-    id: TemplateId("stack-layers"),
-    label: "Stack layers",
-    class: TemplateClass::Static,
-    blurb: "Two columns of layer plates (their stack vs yours); the owned layer wears the tone.",
-};
-
+/// One column — the value of the `left` and `right` slots.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StackColumn {
-    pub title: &'static str,
-    pub sub: &'static str,
+    pub title: String,
+    #[serde(default)]
+    pub sub: String,
+    /// `None` = the slide's tone.
+    #[serde(default, with = "crate::contract::tone_opt")]
     pub tone: Option<Tone>,
     /// Top → bottom, ported convention.
-    pub layers: Vec<&'static str>,
+    pub layers: Vec<String>,
 }
 
+/// Fields are the contract's slots and props (`component.json`); its demo
+/// example is the authored CH02 concept beat, carried.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StackLayers {
+    #[serde(with = "crate::contract::tone")]
     pub tone: Tone,
     pub left: StackColumn,
     pub right: StackColumn,
+    #[serde(skip)]
     clock: Clock,
 }
 
 impl StackLayers {
-    /// The authored CH02 concept beat, carried.
+    crate::component_contract!(include_str!("component.json"));
+
     pub fn demo() -> Self {
-        Self {
-            tone: Tone::Amber,
-            left: StackColumn {
-                title: "Frontier API",
-                sub: "their stack",
-                tone: None,
-                layers: vec![
-                    "Your app",
-                    "SDK / API calls",
-                    "Their cloud",
-                    "Their weights",
-                    "Their GPUs",
-                ],
-            },
-            right: StackColumn {
-                title: "Local box",
-                sub: "your stack",
-                tone: Some(Tone::Lime),
-                layers: vec![
-                    "Your app",
-                    "Local runtime",
-                    "Your machine",
-                    "Open weights",
-                    "Your GPU",
-                ],
-            },
-            clock: Clock::default(),
-        }
+        crate::contract::instantiate(Self::contract(), 0)
+            .expect("the stack-layers demo is its example")
     }
 }
 
@@ -84,14 +66,14 @@ fn column(
     painter.text(
         rect.min,
         Align2::LEFT_TOP,
-        col.title,
+        &col.title,
         FontId::proportional(title_size),
         cl::ink::STRONG,
     );
     painter.text(
         egui::pos2(rect.max.x, rect.min.y + title_size * 0.75),
         Align2::RIGHT_BOTTOM,
-        tracked(col.sub),
+        tracked(&col.sub),
         FontId::monospace(fluid.fs_eyebrow()),
         cl::ink::MUTED,
     );
@@ -158,7 +140,7 @@ fn column(
         painter.text(
             plate.center(),
             Align2::CENTER_CENTER,
-            *layer,
+            layer,
             FontId::proportional(fluid.fs_body()),
             egui::Color32::from_rgba_unmultiplied(0xee, 0xf2, 0xf9, alpha(255)),
         );
@@ -167,8 +149,8 @@ fn column(
 }
 
 impl SlideTemplate for StackLayers {
-    fn spec(&self) -> &'static TemplateSpec {
-        &SPEC
+    fn spec(&self) -> &'static ComponentContract {
+        Self::contract()
     }
 
     fn restart(&mut self) {

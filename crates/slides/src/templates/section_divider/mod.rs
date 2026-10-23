@@ -6,43 +6,40 @@
 
 use dpl_coldlight::{self as cl, Tone};
 use egui::{Align2, FontId, Ui};
+use serde::{Deserialize, Serialize};
 
 use crate::elements::divider::rule;
 use crate::elements::eyebrow::tracked;
 use crate::frame::Stage;
 use crate::motion::Clock;
-use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
+use crate::registry::SlideTemplate;
+use dpl_doc::component::ComponentContract;
 
-static SPEC: TemplateSpec = TemplateSpec {
-    id: TemplateId("section"),
-    label: "Section divider",
-    class: TemplateClass::Static,
-    blurb: "A giant tone section number, a display title, and a rule — the chapter break.",
-};
-
+/// Fields are the contract's slots and props (`component.json`).
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SectionDivider {
+    #[serde(with = "crate::contract::tone")]
     pub tone: Tone,
-    pub number: &'static str,
-    pub kicker: &'static str,
-    pub title: &'static str,
+    pub number: String,
+    #[serde(default)]
+    pub kicker: String,
+    pub title: String,
+    #[serde(skip)]
     clock: Clock,
 }
 
 impl SectionDivider {
+    crate::component_contract!(include_str!("component.json"));
+
     pub fn demo() -> Self {
-        Self {
-            tone: Tone::Amber,
-            number: "02",
-            kicker: "Part two",
-            title: "What it actually costs",
-            clock: Clock::default(),
-        }
+        crate::contract::instantiate(Self::contract(), 0).expect("the section demo is its example")
     }
 }
 
 impl SlideTemplate for SectionDivider {
-    fn spec(&self) -> &'static TemplateSpec {
-        &SPEC
+    fn spec(&self) -> &'static ComponentContract {
+        Self::contract()
     }
 
     fn restart(&mut self) {
@@ -69,7 +66,7 @@ impl SlideTemplate for SectionDivider {
         painter.text(
             egui::pos2(stage.rect.min.x, stage.rect.min.y + lift),
             Align2::LEFT_TOP,
-            self.number,
+            &self.number,
             FontId::proportional(fluid.fs_display_xl()),
             tone.gamma_multiply(alpha),
         );
@@ -87,7 +84,7 @@ impl SlideTemplate for SectionDivider {
         painter.text(
             egui::pos2(stage.rect.min.x, ky - lift),
             Align2::LEFT_TOP,
-            tracked(self.kicker),
+            tracked(&self.kicker),
             FontId::monospace(fluid.fs_eyebrow()),
             tone.gamma_multiply(alpha),
         );
@@ -97,7 +94,7 @@ impl SlideTemplate for SectionDivider {
                 ky + fluid.fs_eyebrow() + fluid.sp_2() - lift,
             ),
             Align2::LEFT_TOP,
-            self.title,
+            &self.title,
             FontId::proportional(fluid.fs_display()),
             cl::ink::STRONG.gamma_multiply(alpha),
         );

@@ -27,7 +27,8 @@
 
 use super::SPEC;
 use dpl_coldlight::{self as cl, Tone};
-use dpl_slides::{SlideTemplate, TemplateClass};
+use dpl_doc::component::{ComponentContract, Entity, TemplateClass};
+use dpl_slides::SlideTemplate;
 use egui::RichText;
 use egui_pilot_ai::{NodeMetadata, PilotId, PilotKey, UiPilotExt};
 
@@ -233,6 +234,130 @@ pub(crate) fn chip_row(ui: &mut egui::Ui, current: &mut LibSection) {
     ui.add_space(cl::space::S2);
 }
 
+/// The solo view's width at which the contract opens beside the stage by
+/// default (logical points): below it, the stage keeps the room.
+const CONTRACT_BESIDE_MIN_WIDTH: f32 = 1100.0;
+
+/// A template's contract in plain words: what it takes ("Fill in"), the
+/// choices it offers, and its looks — each line's tooltip is the contract's
+/// own. Read-only; slides fill these in from LS2.
+fn contract_panel(ui: &mut egui::Ui, spec: &ComponentContract) {
+    let id = PilotId::new("workbench.library.template").child(&PilotKey::new("contract"));
+    let header = |ui: &mut egui::Ui, text: &str| {
+        ui.add_space(cl::space::S2);
+        ui.label(
+            RichText::new(text)
+                .small()
+                .strong()
+                .color(SPEC.tone.color()),
+        );
+    };
+    let line = |ui: &mut egui::Ui, text: String, tooltip: &str| {
+        cl::tip(
+            ui.label(RichText::new(text).small().color(cl::ink::BASE)),
+            tooltip,
+        );
+    };
+    let response = egui::Frame::new()
+        .fill(cl::surface::WELL)
+        .stroke(egui::Stroke::new(1.0, cl::surface::HAIRLINE))
+        .corner_radius(cl::RADIUS)
+        .inner_margin(egui::Margin::same(10))
+        .show(ui, |ui| {
+            ui.set_min_size(ui.available_size());
+            egui::ScrollArea::vertical()
+                .id_salt(("workbench.library.contract", spec.id.as_str()))
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    cl::tip(
+                        ui.label(
+                            RichText::new(format!("{} · v{}", spec.name, spec.version))
+                                .strong()
+                                .color(cl::ink::STRONG),
+                        ),
+                        "This template's contract: everything below comes from its component.json",
+                    );
+                    ui.label(RichText::new(&spec.summary).small().color(cl::ink::MUTED));
+
+                    header(ui, "FILL IN");
+                    for slot in &spec.slots {
+                        let mut text = format!("• {}", slot.label);
+                        if !slot.item.is_empty() {
+                            let fields: Vec<&str> =
+                                slot.item.iter().map(|field| field.label.as_str()).collect();
+                            text.push_str(&format!(" ({})", fields.join(", ")));
+                        }
+                        if let Some(max) = slot.limits.max_chars {
+                            text.push_str(&format!(" · up to {max} letters"));
+                        }
+                        if slot.entity == Entity::List {
+                            match (slot.limits.min_items, slot.limits.max_items) {
+                                (Some(min), Some(max)) => {
+                                    text.push_str(&format!(" · {min} to {max} items"));
+                                }
+                                (None, Some(max)) => {
+                                    text.push_str(&format!(" · up to {max} items"))
+                                }
+                                _ => {}
+                            }
+                        }
+                        if slot.required {
+                            text.push_str(" · needed");
+                        }
+                        line(ui, text, &slot.tooltip);
+                    }
+
+                    header(ui, "CHOICES");
+                    if spec.props.is_empty() {
+                        ui.label(RichText::new("None").small().color(cl::ink::SUBTLE));
+                    }
+                    for prop in &spec.props {
+                        let value = prop
+                            .default
+                            .as_str()
+                            .map_or_else(|| prop.default.to_string(), str::to_owned);
+                        line(ui, format!("• {}: {value}", prop.label), &prop.tooltip);
+                    }
+
+                    header(ui, "LOOKS");
+                    if spec.variant_axes.is_empty() {
+                        ui.label(
+                            RichText::new("One look so far")
+                                .small()
+                                .color(cl::ink::SUBTLE),
+                        );
+                    }
+                    for axis in &spec.variant_axes {
+                        let options: Vec<String> = axis
+                            .options
+                            .iter()
+                            .map(|option| {
+                                if option.id == axis.default {
+                                    format!("{} (default)", option.label)
+                                } else {
+                                    option.label.clone()
+                                }
+                            })
+                            .collect();
+                        line(
+                            ui,
+                            format!("• {}: {}", axis.label, options.join(" / ")),
+                            &axis.tooltip,
+                        );
+                    }
+                });
+        })
+        .response;
+    ui.pilot_track(
+        &response,
+        NodeMetadata::new(
+            id,
+            egui_pilot_ai::protocol::Role::Region,
+            format!("{} contract", spec.name),
+        ),
+    );
+}
+
 /// The live template gallery: every `registry::demos()` entry on a 16:9
 /// stage over the WELL, labeled with its id and class. Interactions and
 /// sweeps run for real — this IS the app surface, not a picture of it.
@@ -244,12 +369,17 @@ pub(crate) fn templates_gallery(
 ) {
     // Solo view: one template on the full stage.
     if let Some(id) = focus.clone() {
-        if let Some(demo) = demos.iter_mut().find(|d| d.spec().id.0 == id) {
+        if let Some(demo) = demos.iter_mut().find(|d| d.spec().id == id) {
             let spec = demo.spec();
+            // The contract panel opens by default only where the stage keeps
+            // room for the template beside it; the toggle opens it anywhere.
+            let open_id = egui::Id::new("workbench.library.contract.open");
+            let wide = ui.available_width() >= CONTRACT_BESIDE_MIN_WIDTH;
+            let contract_open = ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(wide);
             let back = ui.horizontal(|ui| {
                 let back = cl::tip(
                     ui.label(
-                        RichText::new(format!("« {}", spec.label))
+                        RichText::new(format!("« {}", spec.name))
                             .strong()
                             .color(cl::ink::STRONG),
                     )
@@ -263,7 +393,7 @@ pub(crate) fn templates_gallery(
                         .color(SPEC.tone.color()),
                 );
                 ui.label(
-                    RichText::new(spec.id.0)
+                    RichText::new(spec.id.as_str())
                         .monospace()
                         .small()
                         .color(cl::ink::SUBTLE),
@@ -294,9 +424,53 @@ pub(crate) fn templates_gallery(
                         "replay",
                     ),
                 );
+                let contract = cl::tip(
+                    ui.label(
+                        RichText::new(if contract_open {
+                            "hide contract"
+                        } else {
+                            "contract"
+                        })
+                        .monospace()
+                        .small()
+                        .color(SPEC.tone.color()),
+                    )
+                    .interact(egui::Sense::click()),
+                    "Show or hide what this template takes and what you can change",
+                );
+                ui.pilot_track(
+                    &contract,
+                    NodeMetadata::new(
+                        PilotId::new("workbench.library.template")
+                            .child(&PilotKey::new("contract-toggle")),
+                        egui_pilot_ai::protocol::Role::Button,
+                        "contract",
+                    ),
+                );
+                if contract.clicked() {
+                    ui.data_mut(|d| d.insert_temp(open_id, !contract_open));
+                }
                 (back, replay)
             });
-            let stage = ui.available_rect_before_wrap().shrink(cl::space::S2);
+            // The stage, and beside it the contract: what this template takes
+            // and what you can change (R285 — the contract is the truth).
+            let area = ui.available_rect_before_wrap().shrink(cl::space::S2);
+            let stage = if contract_open {
+                let panel_w = (area.width() * 0.28).clamp(200.0, 320.0);
+                let panel = egui::Rect::from_min_max(
+                    egui::pos2(area.max.x - panel_w, area.min.y),
+                    area.max,
+                );
+                ui.scope_builder(egui::UiBuilder::new().max_rect(panel), |ui| {
+                    contract_panel(ui, spec);
+                });
+                egui::Rect::from_min_max(
+                    area.min,
+                    egui::pos2(area.max.x - panel_w - cl::space::S3, area.max.y),
+                )
+            } else {
+                area
+            };
             ui.painter()
                 .rect_filled(stage, cl::RADIUS, cl::surface::WELL);
             ui.painter().rect_stroke(
@@ -306,6 +480,8 @@ pub(crate) fn templates_gallery(
                 egui::StrokeKind::Inside,
             );
             ui.scope_builder(egui::UiBuilder::new().max_rect(stage.shrink(2.0)), |ui| {
+                // A template paints inside its stage, never over its neighbours.
+                ui.set_clip_rect(stage.shrink(2.0));
                 demo.ui(ui);
             });
             let (back, replay) = back.inner;
@@ -376,7 +552,7 @@ pub(crate) fn templates_gallery(
                 ui.horizontal(|ui| {
                     let title = cl::tip(
                         ui.label(
-                            RichText::new(spec.label)
+                            RichText::new(spec.name.as_str())
                                 .size(fluid.fs_h4())
                                 .strong()
                                 .color(cl::ink::STRONG),
@@ -388,23 +564,27 @@ pub(crate) fn templates_gallery(
                         &title,
                         NodeMetadata::new(
                             PilotId::new("workbench.library.template")
-                                .child(&PilotKey::new(spec.id.0)),
+                                .child(&PilotKey::new(spec.id.as_str())),
                             egui_pilot_ai::protocol::Role::Button,
-                            spec.label,
+                            spec.name.clone(),
                         ),
                     );
                     if title.clicked() {
-                        focus_request = Some(spec.id.0.to_string());
+                        focus_request = Some(spec.id.clone());
                         demo.restart();
                     }
                     ui.label(
-                        RichText::new(spec.id.0)
+                        RichText::new(spec.id.as_str())
                             .monospace()
                             .small()
                             .color(cl::ink::SUBTLE),
                     );
                 });
-                ui.label(RichText::new(spec.blurb).small().color(cl::ink::MUTED));
+                ui.label(
+                    RichText::new(spec.summary.as_str())
+                        .small()
+                        .color(cl::ink::MUTED),
+                );
                 ui.add_space(cl::space::S1);
 
                 let (stage, _) =

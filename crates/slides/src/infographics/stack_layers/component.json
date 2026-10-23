@@ -1,0 +1,141 @@
+{
+  "schema": "dpl.component/1",
+  "id": "stack-layers",
+  "version": "1.0.0",
+  "name": "Stack layers",
+  "summary": "Two columns of layer plates (their stack vs yours); the owned layer wears the tone.",
+  "class": "static",
+  "tags": [
+    "infographic",
+    "comparison",
+    "layers"
+  ],
+  "slots": [
+    {
+      "id": "left",
+      "label": "Left stack",
+      "entity": "data",
+      "required": true,
+      "tooltip": "The left column: a title, a small note, an optional colour, and its layers from top to bottom (up to about 8). The bottom layer is highlighted",
+      "item": [
+        {
+          "id": "title",
+          "label": "Title",
+          "kind": "text",
+          "tooltip": "The column's heading"
+        },
+        {
+          "id": "sub",
+          "label": "Subtitle",
+          "kind": "text",
+          "tooltip": "A short line under the heading"
+        },
+        {
+          "id": "tone",
+          "label": "Colour",
+          "kind": "tone",
+          "tooltip": "This column's colour; leave empty to use the slide's colour"
+        },
+        {
+          "id": "layers",
+          "label": "Layers",
+          "kind": "list",
+          "tooltip": "The stack, from top to bottom",
+          "item": [
+            {
+              "id": "line",
+              "label": "Line",
+              "kind": "text",
+              "tooltip": "One layer of the stack"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "right",
+      "label": "Right stack",
+      "entity": "data",
+      "required": true,
+      "tooltip": "The right column: a title, a small note, an optional colour, and its layers from top to bottom (up to about 8). The bottom layer is highlighted",
+      "item": [
+        {
+          "id": "title",
+          "label": "Title",
+          "kind": "text",
+          "tooltip": "The column's heading"
+        },
+        {
+          "id": "sub",
+          "label": "Subtitle",
+          "kind": "text",
+          "tooltip": "A short line under the heading"
+        },
+        {
+          "id": "tone",
+          "label": "Colour",
+          "kind": "tone",
+          "tooltip": "This column's colour; leave empty to use the slide's colour"
+        },
+        {
+          "id": "layers",
+          "label": "Layers",
+          "kind": "list",
+          "tooltip": "The stack, from top to bottom",
+          "item": [
+            {
+              "id": "line",
+              "label": "Line",
+              "kind": "text",
+              "tooltip": "One layer of the stack"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "props": [
+    {
+      "id": "tone",
+      "label": "Colour",
+      "kind": "tone",
+      "default": "amber",
+      "tooltip": "The slide's accent colour: it highlights the bottom layer of any column without its own colour"
+    }
+  ],
+  "variant_axes": [],
+  "examples": [
+    {
+      "id": "demo",
+      "label": "Frontier API vs local box",
+      "content": {
+        "left": {
+          "title": "Frontier API",
+          "sub": "their stack",
+          "layers": [
+            "Your app",
+            "SDK / API calls",
+            "Their cloud",
+            "Their weights",
+            "Their GPUs"
+          ]
+        },
+        "right": {
+          "title": "Local box",
+          "sub": "your stack",
+          "tone": "lime",
+          "layers": [
+            "Your app",
+            "Local runtime",
+            "Your machine",
+            "Open weights",
+            "Your GPU"
+          ]
+        }
+      }
+    }
+  ],
+  "provenance": {
+    "note": "The demo is the authored CH02 concept beat, carried."
+  }
+}

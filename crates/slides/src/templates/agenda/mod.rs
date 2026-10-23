@@ -5,62 +5,46 @@
 
 use dpl_coldlight::{self as cl, Tone};
 use egui::{Align2, FontId, Rect, Ui};
+use serde::{Deserialize, Serialize};
 
 use crate::elements::eyebrow::tracked;
 use crate::frame::Stage;
 use crate::motion::Clock;
-use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
+use crate::registry::SlideTemplate;
+use dpl_doc::component::ComponentContract;
 
-static SPEC: TemplateSpec = TemplateSpec {
-    id: TemplateId("agenda"),
-    label: "Agenda",
-    class: TemplateClass::Static,
-    blurb: "A numbered running order — tone chips, titles, one-line subs. Staggered fade-in.",
-};
-
+/// One row of the running order (the `items` slot's item fields).
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AgendaItem {
-    pub title: &'static str,
-    pub sub: &'static str,
+    pub title: String,
+    #[serde(default)]
+    pub sub: String,
 }
 
+/// Fields are the contract's slots, props and axes (`component.json`).
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Agenda {
+    #[serde(with = "crate::contract::tone")]
     pub tone: Tone,
-    pub heading: &'static str,
+    pub heading: String,
     pub items: Vec<AgendaItem>,
+    #[serde(skip)]
     clock: Clock,
 }
 
 impl Agenda {
+    crate::component_contract!(include_str!("component.json"));
+
     pub fn demo() -> Self {
-        Self {
-            tone: Tone::Cyan,
-            heading: "Where we're going",
-            items: vec![
-                AgendaItem {
-                    title: "How a model actually runs",
-                    sub: "the stack, laid bare",
-                },
-                AgendaItem {
-                    title: "What a question costs",
-                    sub: "tokens, watts, dollars",
-                },
-                AgendaItem {
-                    title: "Running it on your own box",
-                    sub: "open weights, real hardware",
-                },
-                AgendaItem {
-                    title: "Where the news comes from",
-                    sub: "reading the primary sources",
-                },
-            ],
-            clock: Clock::default(),
-        }
+        crate::contract::instantiate(Self::contract(), 0).expect("the agenda demo is its example")
     }
 }
 
 impl SlideTemplate for Agenda {
-    fn spec(&self) -> &'static TemplateSpec {
-        &SPEC
+    fn spec(&self) -> &'static ComponentContract {
+        Self::contract()
     }
 
     fn restart(&mut self) {
@@ -82,7 +66,7 @@ impl SlideTemplate for Agenda {
         painter.text(
             egui::pos2(stage.rect.min.x, stage.rect.min.y),
             Align2::LEFT_TOP,
-            self.heading,
+            &self.heading,
             FontId::proportional(fluid.fs_h2()),
             cl::ink::STRONG,
         );
@@ -128,14 +112,14 @@ impl SlideTemplate for Agenda {
             painter.text(
                 egui::pos2(tx, row.center().y - fluid.fs_body() * 0.75),
                 Align2::LEFT_TOP,
-                item.title,
+                &item.title,
                 FontId::proportional(fluid.fs_h4()),
                 cl::ink::STRONG.gamma_multiply(alpha),
             );
             painter.text(
                 egui::pos2(tx, row.center().y + fluid.fs_body() * 0.5),
                 Align2::LEFT_TOP,
-                tracked(item.sub),
+                tracked(&item.sub),
                 FontId::monospace(fluid.fs_eyebrow()),
                 cl::ink::MUTED.gamma_multiply(alpha),
             );

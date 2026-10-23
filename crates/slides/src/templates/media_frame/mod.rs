@@ -11,43 +11,42 @@
 
 use dpl_coldlight::{self as cl, Tone};
 use egui::{Align2, FontId, Ui};
+use serde::{Deserialize, Serialize};
 
 use crate::elements::{media_backdrop, Media};
 use crate::frame::Stage;
 use crate::motion::Clock;
-use crate::registry::{SlideTemplate, TemplateClass, TemplateId, TemplateSpec};
+use crate::registry::SlideTemplate;
+use dpl_doc::component::ComponentContract;
 
-static SPEC: TemplateSpec = TemplateSpec {
-    id: TemplateId("media"),
-    label: "Media frame",
-    class: TemplateClass::Static,
-    blurb: "Drop-anything slide: an image, video, PDF page, or session replay — full-bleed.",
-};
-
+/// Fields are the contract's slots, props and axes (`component.json`).
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MediaFrame {
+    #[serde(with = "crate::contract::tone")]
     pub tone: Tone,
+    /// The demo's poster is a REAL pipeline artifact — it doubles as the
+    /// gallery gate for the media path. A missing file degrades to the
+    /// labeled plate, never a crash (the same honesty the image slot carries
+    /// everywhere).
     pub media: Media,
-    pub caption: &'static str,
+    #[serde(default)]
+    pub caption: String,
+    #[serde(skip)]
     clock: Clock,
 }
 
 impl MediaFrame {
+    crate::component_contract!(include_str!("component.json"));
+
     pub fn demo() -> Self {
-        Self {
-            tone: Tone::Cyan,
-            // A REAL pipeline artifact — doubles as the gallery gate for the
-            // media path. A missing file degrades to the labeled plate, never
-            // a crash (the same honesty the image slot carries everywhere).
-            media: Media::Image("assets/generated/dpl-poster.webp"),
-            caption: "any image · video · PDF page · replay",
-            clock: Clock::default(),
-        }
+        crate::contract::instantiate(Self::contract(), 0).expect("the media demo is its example")
     }
 }
 
 impl SlideTemplate for MediaFrame {
-    fn spec(&self) -> &'static TemplateSpec {
-        &SPEC
+    fn spec(&self) -> &'static ComponentContract {
+        Self::contract()
     }
 
     fn restart(&mut self) {
@@ -61,7 +60,7 @@ impl SlideTemplate for MediaFrame {
         let t0 = self.clock.tick(now);
 
         // The whole stage is the media — the media_frame is a full-bleed slot.
-        media_backdrop(ui, stage.rect, self.media, self.tone, now, t0);
+        media_backdrop(ui, stage.rect, &self.media, self.tone, now, t0);
 
         // A quiet corner caption naming what a media slide carries. It rises
         // once with the entrance, then rests.
@@ -78,7 +77,7 @@ impl SlideTemplate for MediaFrame {
         ui.painter().text(
             pos,
             Align2::LEFT_BOTTOM,
-            self.caption,
+            &self.caption,
             FontId::monospace(fluid.fs_eyebrow()),
             self.tone.color().gamma_multiply(alpha),
         );
