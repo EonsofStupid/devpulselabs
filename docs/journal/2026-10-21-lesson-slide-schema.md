@@ -217,11 +217,11 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
    LK2a, each retargeted to `main` (`gh pr edit <n> --base main`),
    double-green, the exe rebuilt after each, each plan file deleted as it
    lands.
-4. **LK2b is built on `feat/lk2b-spread`** (from LK2a): the spread sheet,
-   Undo steps that carry a look, your version and Back to the built-in,
-   Open the look. Proof in the plan's §8. Next: commit, push with the LK2a
-   branch (its journal commit 60f5f91 rides along), rebuild the exe from
-   `main`, draft PR based on `feat/lk2a-own-looks`.
+4. **LK2b is draft PR #285** (f12d240, base `feat/lk2a-own-looks`): the
+   spread sheet, Undo steps that carry a look, your version and Back to the
+   built-in, Open the look. Proof in the plan's §8. The gate passed on
+   push; the exe was rebuilt from `main` (stamp `4ee638b · 2026-10-23
+   03:23z`). Merge order: #280 → #281 → #282 → #283 → #284 → #285.
 5. Then LK3 (text, quote and picture looks) needs its own plan.
 
 ## Landmines
