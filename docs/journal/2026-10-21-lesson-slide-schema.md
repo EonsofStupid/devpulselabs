@@ -233,11 +233,11 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
    **LK3b** ("Approve wider LK3b": fit was not painted at all) **is built on
    `feat/lk3b-picture-looks`** (from LK3a): fit, frame and entrance made
    real, the 5 picture looks, picture controls on tap and on the Picture
-   tab, the Library section; proof in the plan's §8. Next: commit, push
-   with the LK3a branch (its journal commit 8afa4a3 rides along), rebuild
-   the exe from `main`, draft PR based on `feat/lk3a-line-looks`. That
-   closes the looks program (LK1–LK3); LS3 (lessons) is next in R285's
-   order, with its own plan.
+   tab, the Library section; proof in the plan's §8. **LK3b is draft PR
+   #287** (355c581 + b57c8a0 fmt, base `feat/lk3a-line-looks`); the gate
+   passed; the exe was rebuilt from `main` (stamp `4ee638b · 2026-10-23
+   18:25z`). The looks program (LK1–LK3) is built: merge order #280 → …
+   → #287. LS3 (lessons) is next in R285's order, with its own plan.
 
 ## Landmines
 
