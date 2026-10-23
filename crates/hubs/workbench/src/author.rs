@@ -294,7 +294,6 @@ fn picture_tab(ui: &mut egui::Ui, ed: &mut CardEditor) {
         return;
     }
 
-
     let tile_w = fluid.ctl_thumb_w() * 1.6;
     let tile_h = tile_w * 9.0 / 16.0;
     ui.horizontal_wrapped(|ui| {
