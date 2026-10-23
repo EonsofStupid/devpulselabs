@@ -209,8 +209,10 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
 ## Exact next step
 
 1. **LK1 is draft PR #283** (a6a2378, base `feat/ls2b-presets-by-reference`).
-2. **LK2a:** commit on `feat/lk2a-own-looks`, push through the gate, rebuild
-   the exe from `main`, open a draft PR based on `feat/lk1-linked-looks`.
+2. **LK2a is draft PR #284** (cb37774, base `feat/lk1-linked-looks`); the
+   gate passed on push and the exe was rebuilt from `main` (stamp
+   `4ee638b · 2026-10-23 02:53z`). This journal line is a local commit on
+   top, pushed with the next change.
 3. The merge order once the runners return: #280 → #281 → #282 → #283 →
    LK2a, each retargeted to `main` (`gh pr edit <n> --base main`),
    double-green, the exe rebuilt after each, each plan file deleted as it
