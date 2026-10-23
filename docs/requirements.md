@@ -1042,6 +1042,12 @@ LK2a landed your own looks:
 - **Your looks lead the look tray**, marked "Yours", and the Library's presets show them too.
 - A look that cannot be found shows the show's style, and the chip says "Look missing — the show's style".
 
+LK2b landed changes that spread:
+- **Make these the look's new style…** opens a sheet first: "This changes 1 other slide", one of those slides before and after, then **Make it the look's style** or Cancel. The look takes the slide's background, colour and agreed font as its next revision; on a built-in that makes **your version**, and the chip says so.
+- **Back to the built-in** goes through the same sheet. Your version steps aside to `replaced/` (kept, never deleted).
+- **Open the look** edits the look inside the card editor: the chip becomes "Editing the look Neon intro — shows on 2 slides" with Done, and background, colour and font changes land in the look while the slide keeps following.
+- **One Undo** takes back a change that spread: the look's earlier revision and the slide together.
+
 ## 5. Capture — ViziWiz, sessions, steps, guides
 
 ### R178 · 2026-07-23

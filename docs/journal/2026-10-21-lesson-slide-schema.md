@@ -184,7 +184,7 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
   Background tab shows the background the slide SHOWS, with the dot.
 - **Proof:**
   - tests: doc 56, editor 11, Workbench 55; clippy clean;
-  - EguiPilotAI `linked-looks` and `linked-looks-1100` pass (47 steps each),
+  - EguiPilotAI `linked-looks` and `linked-looks-1100` pass (46 steps each),
     and `editor-look-by-reference` passes with its new Keep step;
   - on disk the run ends at rev 6 with `preset: neon-intro`, no background
     and no `unlinked_from` (follow again cleared it);
@@ -217,9 +217,12 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
    LK2a, each retargeted to `main` (`gh pr edit <n> --base main`),
    double-green, the exe rebuilt after each, each plan file deleted as it
    lands.
-4. Then LK2b (plan §4.4–4.6): the spread sheet with its count, before and
-   after, the two-part undo step, your version of a built-in, Back to the
-   built-in, and editing the look in the card editor.
+4. **LK2b is built on `feat/lk2b-spread`** (from LK2a): the spread sheet,
+   Undo steps that carry a look, your version and Back to the built-in,
+   Open the look. Proof in the plan's §8. Next: commit, push with the LK2a
+   branch (its journal commit 60f5f91 rides along), rebuild the exe from
+   `main`, draft PR based on `feat/lk2a-own-looks`.
+5. Then LK3 (text, quote and picture looks) needs its own plan.
 
 ## Landmines
 
@@ -258,6 +261,11 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
   open, it is clipped at the stage edge. Real slot layout comes with LS4.
 - **Tapping a look only TRIES it now (LK1).** Any scenario that picks a look
   must click `root/editor/keep` after it.
+- **A run has 30 s in all** (the profile's `timeout_ms`). A long scenario
+  that runs past it looks like a stall ("target did not answer request");
+  keep click waits short (`look-spread` uses 0.4 s) and wait 1.5 s only
+  before captures. `look-spread` needs a cleared scratch `library` so its
+  count is exact.
 - **Own-look scenarios find the look by its name** (`role = "button"`,
   `name = "Orchid intro"`), and name locators are strict: clear
   `target/eguipilotai/ls2a/content/library/looks` before each run.

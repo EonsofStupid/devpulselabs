@@ -216,6 +216,12 @@ impl Looks {
         self.yours.retain(|have| have.id != look.id);
         self.yours.insert(0, look);
     }
+
+    /// Forget the operator's look `id` in memory, after it stepped aside
+    /// ([`retire_look`]): a built-in it replaced shows again.
+    pub fn retire(&mut self, id: &str) {
+        self.yours.retain(|look| look.id != id);
+    }
 }
 
 /// Where the library keeps looks: `<content>/library/looks/`.
@@ -378,6 +384,94 @@ pub fn save_as_new_look(slide: &mut Slide, theme: &Theme, looks: &Looks, label: 
     slide.provenance.unlinked_from = None;
     crate::link::give_back_matching(slide, &look);
     look
+}
+
+/// The one font all of the slide's own line fonts agree on, when they do.
+fn agreed_font(slide: &Slide) -> Option<String> {
+    let own: Vec<&str> = slide
+        .blocks
+        .iter()
+        .filter_map(|block| block.words().and_then(|words| words.font))
+        .collect();
+    match own.first() {
+        Some(first) if own.iter().all(|font| font == first) => Some((*first).to_owned()),
+        _ => None,
+    }
+}
+
+/// Does the slide hold a change `look` could take as its new style — its
+/// own background or colour, or one font all its own line fonts share?
+pub fn holds_style_for(slide: &Slide, look: &Look) -> bool {
+    slide
+        .background
+        .as_ref()
+        .is_some_and(|background| *background != look.background)
+        || slide.tone.as_ref().is_some_and(|tone| *tone != look.tone)
+        || agreed_font(slide).is_some_and(|font| font != look.font)
+}
+
+/// "Make these the look's new style" (LK2b): the look takes the slide's own
+/// background, colour and — when its lines agree — font, as its next
+/// revision (for a built-in, the operator's version at revision 1). The
+/// slide gives those values back, so it follows with no changes but what a
+/// look cannot hold. Returns the look to save.
+pub fn push_back(slide: &mut Slide, look: &Look) -> Look {
+    let mut next = look.clone();
+    next.rev = look.rev + 1;
+    if let Some(background) = &slide.background {
+        next.background = background.clone();
+    }
+    if let Some(tone) = &slide.tone {
+        next.tone = tone.clone();
+    }
+    if let Some(font) = agreed_font(slide) {
+        next.font = font;
+    }
+    crate::link::give_back_matching(slide, &next);
+    next
+}
+
+/// "Back to the built-in" (LK2b): the operator's version steps aside to
+/// `<look>/replaced/<rev>.json` — kept, never deleted — so the built-in
+/// shows again. Returns where it went.
+pub fn retire_look(content_root: &Path, id: &str) -> Result<PathBuf, DocError> {
+    let dir = look_dir(content_root, id);
+    let look = load_look(&dir)?;
+    let replaced = dir.join("replaced");
+    std::fs::create_dir_all(&replaced).map_err(DocError::Io)?;
+    let mut dest = replaced.join(format!("{}.json", look.rev));
+    let mut n = 1;
+    while dest.exists() {
+        dest = replaced.join(format!("{}-{n}.json", look.rev));
+        n += 1;
+    }
+    std::fs::rename(dir.join(LOOK_FILE), &dest).map_err(DocError::Io)?;
+    Ok(dest)
+}
+
+/// Every slide of the operator's that follows the look `id`: the
+/// library's (newest first), then every episode's. The read-only seeds
+/// are not counted — a change to a look never edits them.
+pub fn slides_following(content_root: &Path, id: &str) -> Vec<PathBuf> {
+    let mut dirs = crate::library_slides(content_root);
+    for entry in crate::all_episodes(content_root) {
+        if crate::is_seed_dir(&entry.dir) {
+            continue;
+        }
+        if let Ok(episode) = crate::load_episode(&entry.dir) {
+            dirs.extend(
+                crate::episode_slides(&entry.dir, &episode)
+                    .into_iter()
+                    .map(|slide| slide.dir),
+            );
+        }
+    }
+    let mut seen = std::collections::HashSet::new();
+    dirs.retain(|dir| {
+        seen.insert(dir.clone())
+            && crate::load(dir).is_ok_and(|slide| slide.preset.as_deref() == Some(id))
+    });
+    dirs
 }
 
 #[cfg(test)]
@@ -559,5 +653,91 @@ mod tests {
             link::link_state(&slide, &looks),
             link::LinkState::Missing { .. }
         ));
+    }
+
+    /// Pushing a change back to a built-in makes the operator's version at
+    /// revision 1; the slide then follows it with no changes.
+    #[test]
+    fn pushing_back_to_a_builtin_makes_your_version() {
+        let looks = Looks::builtin_only();
+        let neon = looks.get("neon-intro").unwrap().clone();
+        let mut slide = card();
+        slide.preset = Some(neon.id.clone());
+        assert!(!holds_style_for(&slide, &neon), "nothing to push yet");
+        slide.background = Some(Background::Mood {
+            mood: "orchid-haze".into(),
+        });
+        assert!(holds_style_for(&slide, &neon));
+        let mine = push_back(&mut slide, &neon);
+        assert_eq!((mine.id.as_str(), mine.rev), ("neon-intro", 1));
+        assert_eq!(
+            mine.background,
+            Background::Mood {
+                mood: "orchid-haze".into()
+            }
+        );
+        assert_eq!(
+            (mine.tone.as_str(), mine.font.as_str()),
+            (neon.tone.as_str(), neon.font.as_str())
+        );
+        assert_eq!(link::changes(&slide), Vec::new());
+        assert_eq!(validate_look(&mine), Vec::new());
+    }
+
+    /// A look takes one font only when the slide's lines agree on it; what
+    /// it cannot hold stays the slide's.
+    #[test]
+    fn pushing_back_leaves_what_a_look_cannot_hold() {
+        let looks = Looks::builtin_only();
+        let neon = looks.get("neon-intro").unwrap().clone();
+        let mut slide = card();
+        slide.preset = Some(neon.id.clone());
+        slide.blocks[0] = Block::Text {
+            id: "title".into(),
+            preset: None,
+            tone: None,
+            text: "Hello".into(),
+            font: Some("vt323".into()),
+            size: Some("h1".into()),
+            ink: None,
+        };
+        slide.tone = Some("lime".into());
+        let next = push_back(&mut slide, &neon);
+        assert_eq!(next.font, "vt323", "the only own font is agreed");
+        assert_eq!(next.tone, "lime");
+        assert_eq!(
+            link::changes(&slide),
+            vec![link::Knob::Line {
+                id: "title".into(),
+                field: link::LineField::Size
+            }]
+        );
+    }
+
+    /// Back to the built-in: your version steps aside (kept on disk) and
+    /// the built-in shows again; only the operator's own slides follow.
+    #[test]
+    fn your_version_steps_aside_and_only_your_slides_are_counted() {
+        let root = scratch("retire");
+        let looks = Looks::builtin_only();
+        let mut mine = looks.get("neon-intro").unwrap().clone();
+        mine.rev = 1;
+        mine.tone = "lime".into();
+        save_look(&look_dir(&root, &mine.id), &mine).unwrap();
+        assert!(Looks::load(&root).replaces_builtin("neon-intro"));
+        let kept = retire_look(&root, "neon-intro").unwrap();
+        assert!(kept.is_file(), "your version is kept, not deleted");
+        let after = Looks::load(&root);
+        assert!(!after.is_yours("neon-intro"));
+        assert_eq!(after.get("neon-intro").unwrap().tone, "amber");
+
+        // Two library slides follow it; a third does not.
+        for preset in [Some("neon-intro"), Some("neon-intro"), None] {
+            let mut slide = card();
+            slide.preset = preset.map(str::to_owned);
+            crate::save(&crate::library_slide_dir(&root, &slide.id), &slide).unwrap();
+        }
+        assert_eq!(slides_following(&root, "neon-intro").len(), 2);
+        assert!(slides_following(&root, "no-such-look").is_empty());
     }
 }
