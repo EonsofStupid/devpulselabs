@@ -1,0 +1,305 @@
+# LK3a (R286): line looks on the real exe. On a fresh quote card, tap the
+# quote line: its tray offers the quote looks. Try "Editorial quote" (the
+# chip says Trying, nothing saved), Keep (the chip names it), stop following
+# ("Own style (was Editorial quote)"), follow again, and go back to the
+# card's style. The rows below the tray's fold (size, ink, colour, movement)
+# are proven by dpl-editor's tests: this harness's wheel does not reach an
+# egui scroll area (scroll-into-view is unsupported in this build). Fixture
+# `author-ls2` (scratch content root). The run has 30 s in all: clicks wait
+# 0.4 s, captures 1.5 s.
+id = "line-looks"
+fixture = "author-ls2"
+record = true
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.lane/make"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.shelf/templates"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.author.card/templates/quote"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.card/templates/quote"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+# Tap the quote line: its tray offers the quote looks.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/editor.line/quote"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor.line/quote"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "Card style"
+
+[steps.expectation.target]
+id = "root/editor/line-chip"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/editor.line-look/editorial-quote"
+
+# Try a look, then Keep it.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor.line-look/editorial-quote"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "Trying: Editorial quote"
+
+[steps.expectation.target]
+id = "root/editor/line-chip"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/editor/line-keep"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "capture"
+name = "line-looks-trying"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/line-keep"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "Look: Editorial quote"
+
+[steps.expectation.target]
+id = "root/editor/line-chip"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "capture"
+name = "line-looks-kept"
+
+# Stop following (nothing changes on screen), then follow again.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/line-chip"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/editor/line-stop"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/line-stop"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "Own style (was Editorial quote)"
+
+[steps.expectation.target]
+id = "root/editor/line-chip"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "capture"
+name = "line-looks-own-style"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/line-chip"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/line-follow-keep"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "Look: Editorial quote"
+
+[steps.expectation.target]
+id = "root/editor/line-chip"
+
+# Back to the card's style from the look row.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor.line-look/none"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/line-keep"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "Card style"
+
+[steps.expectation.target]
+id = "root/editor/line-chip"

@@ -270,6 +270,8 @@ pub fn slide_for_slot(template: &str, slot: &Slot) -> dpl_doc::Slide {
         font: None,
         size: Some(size.into()),
         ink: None,
+        enter: None,
+        unlinked_from: None,
     };
     let mut slide = dpl_doc::Slide::new(format!("{template}@1"));
     slide.title = Some(title.clone());

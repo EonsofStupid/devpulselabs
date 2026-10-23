@@ -3,6 +3,8 @@
 //! following — reversibly. The state is DERIVED from the slide's own sparse
 //! values, never stored, so it can never drift (docs/plans/linked-looks-lk1.md).
 //! The look comes from [`Looks`], built-in or the operator's own (LK2).
+//! A line can follow a line look of its own (LK3), with the same verbs per
+//! line; a line's look sits between its own values and the card's.
 //!
 //! Plain words in every surface: "follows", "yours", "the look's", "own
 //! style" — never "override", "instance" or "detach".
@@ -29,7 +31,7 @@ pub enum Knob {
     Colour,
     /// How the words arrive.
     Enter,
-    /// One line's font, size, ink or colour.
+    /// One line's font, size, ink, colour or movement.
     Line { id: String, field: LineField },
 }
 
@@ -39,6 +41,19 @@ pub enum LineField {
     Size,
     Ink,
     Colour,
+    /// The line's own entrance (LK3).
+    Enter,
+}
+
+impl LineField {
+    /// Every field a line has, in the order the trays show them.
+    pub const ALL: [LineField; 5] = [
+        LineField::Font,
+        LineField::Size,
+        LineField::Ink,
+        LineField::Colour,
+        LineField::Enter,
+    ];
 }
 
 impl Knob {
@@ -54,6 +69,7 @@ impl Knob {
                     LineField::Size => "size",
                     LineField::Ink => "ink",
                     LineField::Colour => "colour",
+                    LineField::Enter => "movement",
                 };
                 format!("the {id}'s {what}")
             }
@@ -102,6 +118,7 @@ fn line_value(block: &Block, field: LineField) -> Option<&str> {
         LineField::Font => words.and_then(|w| w.font),
         LineField::Size => words.and_then(|w| w.size),
         LineField::Ink => words.and_then(|w| w.ink),
+        LineField::Enter => words.and_then(|w| w.enter),
         LineField::Colour => match block {
             Block::Text { tone, .. } | Block::Media { tone, .. } | Block::Quote { tone, .. } => {
                 tone.as_deref()
@@ -111,7 +128,9 @@ fn line_value(block: &Block, field: LineField) -> Option<&str> {
     }
 }
 
-/// Where `knob`'s value comes from on this slide.
+/// Where `knob`'s value comes from on this slide. A line's value comes
+/// from the line itself, then its line look (LK3), then — the font only —
+/// the card's look, then the show.
 pub fn source(slide: &Slide, looks: &Looks, knob: &Knob) -> Source {
     let look = card_preset(slide, looks).map(|look| look.id.clone());
     let followed = |yours: bool, look_gives_it: bool| match (yours, &look) {
@@ -124,11 +143,19 @@ pub fn source(slide: &Slide, looks: &Looks, knob: &Knob) -> Source {
         Knob::Colour => followed(slide.tone.is_some(), true),
         Knob::Enter => followed(slide.enter.is_some(), false),
         Knob::Line { id, field } => {
-            let yours = slide
-                .block(id)
-                .and_then(|block| line_value(block, *field))
-                .is_some();
-            followed(yours, *field == LineField::Font)
+            let Some(block) = slide.block(id) else {
+                return Source::Show;
+            };
+            if line_value(block, *field).is_some() {
+                return Source::Yours;
+            }
+            if let Some(line_look) = looks.line_look(block) {
+                let gives = *field != LineField::Enter || line_look.enter.is_some();
+                if gives {
+                    return Source::Look(line_look.id.to_owned());
+                }
+            }
+            followed(false, *field == LineField::Font)
         }
     }
 }
@@ -146,12 +173,7 @@ pub fn changes(slide: &Slide) -> Vec<Knob> {
         }
     }
     for block in &slide.blocks {
-        for field in [
-            LineField::Font,
-            LineField::Size,
-            LineField::Ink,
-            LineField::Colour,
-        ] {
+        for field in LineField::ALL {
             if line_value(block, field).is_some() {
                 out.push(Knob::Line {
                     id: block.id().to_owned(),
@@ -210,6 +232,7 @@ fn clear_line(block: &mut Block, field: LineField) {
             LineField::Font => *words.font = None,
             LineField::Size => *words.size = None,
             LineField::Ink => *words.ink = None,
+            LineField::Enter => *words.enter = None,
             LineField::Colour => {}
         }
     }
@@ -238,7 +261,8 @@ pub fn stop_following(slide: &mut Slide, theme: &Theme, looks: &Looks) {
         slide.tone = Some(look.tone.clone());
     }
     for block in &mut slide.blocks {
-        if let Some(words) = block.words_mut() {
+        // A line with its own line look keeps following that (LK3).
+        if let Some(words) = block.words_mut().filter(|words| words.preset.is_none()) {
             if words.font.is_none() {
                 *words.font = Some(look.font.clone());
             }
@@ -267,7 +291,7 @@ pub fn follow_again(slide: &mut Slide, looks: &Looks, keep_my_changes: bool) {
         slide.background = None;
         slide.tone = None;
         for block in &mut slide.blocks {
-            if let Some(words) = block.words_mut() {
+            if let Some(words) = block.words_mut().filter(|words| words.preset.is_none()) {
                 *words.font = None;
             }
         }
@@ -284,12 +308,132 @@ pub(crate) fn give_back_matching(slide: &mut Slide, look: &Look) {
         slide.tone = None;
     }
     for block in &mut slide.blocks {
-        if let Some(words) = block.words_mut() {
+        if let Some(words) = block.words_mut().filter(|words| words.preset.is_none()) {
             if words.font.as_deref() == Some(look.font.as_str()) {
                 *words.font = None;
             }
         }
     }
+}
+
+// ── one line and its line look (LK3) ─────────────────────────────────────
+
+fn line_mut<'a>(slide: &'a mut Slide, block_id: &str) -> Option<crate::WordsMut<'a>> {
+    slide
+        .blocks
+        .iter_mut()
+        .find(|block| block.id() == block_id)
+        .and_then(Block::words_mut)
+}
+
+/// A line's own changes, in a stable order.
+pub fn line_changes(slide: &Slide, block_id: &str) -> Vec<Knob> {
+    changes(slide)
+        .into_iter()
+        .filter(|knob| matches!(knob, Knob::Line { id, .. } if id == block_id))
+        .collect()
+}
+
+/// A line's link to its line look, worked out from its own values (never
+/// stored). `None` when the block is not a text or quote line.
+pub fn line_state(slide: &Slide, looks: &Looks, block_id: &str) -> Option<LinkState> {
+    let block = slide.block(block_id)?;
+    let words = block.words()?;
+    let changes = line_changes(slide, block_id).len();
+    Some(match (looks.line_look(block), words.preset) {
+        (Some(look), _) => LinkState::Follows {
+            look: look.id.to_owned(),
+            changes,
+        },
+        (None, Some(missing)) => LinkState::Missing {
+            look: missing.to_owned(),
+        },
+        (None, None) if words.unlinked_from.is_some() => LinkState::OwnStyle {
+            was: words.unlinked_from.map(str::to_owned),
+        },
+        (None, None) => LinkState::Show { changes },
+    })
+}
+
+/// Follow a line look: the line names it and gives back the values it
+/// gives, so the look shows (the words stay).
+pub fn use_line_look(slide: &mut Slide, block_id: &str, look_id: &str) {
+    if let Some(words) = line_mut(slide, block_id) {
+        *words.preset = Some(look_id.to_owned());
+        *words.unlinked_from = None;
+        *words.font = None;
+        *words.size = None;
+        *words.ink = None;
+        *words.tone = None;
+        *words.enter = None;
+    }
+}
+
+/// Give every value of one line back — the line's "Undo all my changes".
+pub fn reset_line(slide: &mut Slide, block_id: &str) {
+    for knob in line_changes(slide, block_id) {
+        reset(slide, &knob);
+    }
+}
+
+/// Stop following a line's look: its values are written onto the line as
+/// the line's own, so nothing changes on screen; the look is remembered so
+/// following it again is one tap.
+pub fn stop_following_line(slide: &mut Slide, looks: &Looks, block_id: &str) {
+    let Some(look) = slide
+        .block(block_id)
+        .and_then(|block| looks.line_look(block))
+    else {
+        return;
+    };
+    let Some(words) = line_mut(slide, block_id) else {
+        return;
+    };
+    let fill = |value: &mut Option<String>, from: &str| {
+        if value.is_none() {
+            *value = Some(from.to_owned());
+        }
+    };
+    fill(words.font, look.font);
+    fill(words.size, look.size);
+    fill(words.ink, look.ink);
+    fill(words.tone, look.tone);
+    if let Some(enter) = look.enter {
+        fill(words.enter, enter);
+    }
+    *words.unlinked_from = Some(look.id.to_owned());
+    *words.preset = None;
+}
+
+/// Follow a line's look again: "keep my changes" keeps what differs from
+/// the look; "start fresh" gives back everything the look gives.
+pub fn follow_line_again(slide: &mut Slide, looks: &Looks, block_id: &str, keep_my_changes: bool) {
+    let Some(words) = line_mut(slide, block_id) else {
+        return;
+    };
+    let Some(id) = words.unlinked_from.take() else {
+        return;
+    };
+    *words.preset = Some(id);
+    let Some(look) = slide
+        .block(block_id)
+        .and_then(|block| looks.line_look(block))
+    else {
+        return;
+    };
+    let Some(words) = line_mut(slide, block_id) else {
+        return;
+    };
+    let give_back = |value: &mut Option<String>, from: Option<&str>| {
+        if from.is_some() && (!keep_my_changes || value.as_deref() == from) {
+            *value = None;
+        }
+    };
+    give_back(words.font, Some(look.font));
+    give_back(words.size, Some(look.size));
+    give_back(words.ink, Some(look.ink));
+    give_back(words.tone, Some(look.tone));
+    give_back(words.enter, look.enter);
 }
 
 #[cfg(test)]
@@ -390,6 +534,115 @@ mod tests {
         assert_eq!(changes(&slide), Vec::new());
     }
 
+    /// A line's look sits between its own values and the card's (LK3):
+    /// it names the source, and stopping/following again round-trips with
+    /// nothing changing on screen.
+    #[test]
+    fn a_line_follows_its_own_look_between_its_values_and_the_cards() {
+        let theme = Theme::fallback();
+        let looks = Looks::builtin_only();
+        let mut slide = looked();
+        use_line_look(&mut slide, "title", "neon-word");
+        let font = Knob::Line {
+            id: "title".into(),
+            field: LineField::Font,
+        };
+        let enter = Knob::Line {
+            id: "title".into(),
+            field: LineField::Enter,
+        };
+        assert_eq!(
+            source(&slide, &looks, &font),
+            Source::Look("neon-word".into())
+        );
+        assert_eq!(
+            source(&slide, &looks, &enter),
+            Source::Look("neon-word".into())
+        );
+        // The subtitle still takes the card look's font.
+        let subtitle_font = Knob::Line {
+            id: "subtitle".into(),
+            field: LineField::Font,
+        };
+        assert_eq!(
+            source(&slide, &looks, &subtitle_font),
+            Source::Look(dpl_coldlight::THEME_PRESETS[0].id.into())
+        );
+        assert_eq!(
+            line_state(&slide, &looks, "title"),
+            Some(LinkState::Follows {
+                look: "neon-word".into(),
+                changes: 0
+            })
+        );
+        let shown = resolve(&slide, &theme, &looks);
+        let title = shown.block("title").and_then(Block::words).unwrap();
+        assert_eq!(
+            (title.font, title.size, title.ink, title.tone, title.enter),
+            (
+                Some("monoton"),
+                Some("display"),
+                Some("tone"),
+                Some("magenta"),
+                Some("rise")
+            )
+        );
+
+        // A size of its own is a change from the line look.
+        if let Some(words) = line_mut(&mut slide, "title") {
+            *words.size = Some("h2".into());
+        }
+        assert_eq!(line_changes(&slide, "title").len(), 1);
+
+        // Stop following: nothing changes on screen (what paints — the link
+        // memory itself changes); follow again keeping changes leaves only
+        // the size.
+        let painted = |slide: &Slide| -> Vec<String> {
+            resolve(slide, &theme, &looks)
+                .blocks
+                .iter()
+                .filter_map(Block::words)
+                .map(|w| format!("{:?}", (w.text, w.font, w.size, w.ink, w.tone, w.enter)))
+                .collect()
+        };
+        let before = painted(&slide);
+        stop_following_line(&mut slide, &looks, "title");
+        assert!(matches!(
+            line_state(&slide, &looks, "title"),
+            Some(LinkState::OwnStyle { was: Some(ref was) }) if was == "neon-word"
+        ));
+        assert_eq!(painted(&slide), before, "nothing changes on screen");
+        follow_line_again(&mut slide, &looks, "title", true);
+        assert_eq!(
+            line_changes(&slide, "title"),
+            vec![Knob::Line {
+                id: "title".into(),
+                field: LineField::Size
+            }]
+        );
+        reset_line(&mut slide, "title");
+        assert_eq!(line_changes(&slide, "title"), Vec::new());
+        assert_eq!(crate::validate(&slide), Vec::new());
+        assert_eq!(crate::look::validate_looks(&slide, &looks), Vec::new());
+    }
+
+    /// Stopping the card's look leaves a line that follows its own look
+    /// alone — nothing changes on screen.
+    #[test]
+    fn the_cards_verbs_leave_a_line_with_its_own_look_alone() {
+        let theme = Theme::fallback();
+        let looks = Looks::builtin_only();
+        let mut slide = looked();
+        use_line_look(&mut slide, "title", "terminal-line");
+        let before = resolve(&slide, &theme, &looks);
+        stop_following(&mut slide, &theme, &looks);
+        assert_eq!(resolve(&slide, &theme, &looks).blocks, before.blocks);
+        assert_eq!(
+            slide.block("title").and_then(Block::words).unwrap().font,
+            None
+        );
+    }
+
     #[test]
     fn undo_all_my_changes_gives_everything_back() {
         let looks = Looks::builtin_only();
@@ -404,6 +657,8 @@ mod tests {
             font: Some("vt323".into()),
             size: Some("h1".into()),
             ink: Some("tone".into()),
+            enter: None,
+            unlinked_from: None,
         };
         assert_eq!(changes(&slide).len(), 6);
         reset_all(&mut slide);

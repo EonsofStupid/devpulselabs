@@ -30,18 +30,6 @@ fn size_of(fluid: &cl::Fluid, name: &str) -> Option<f32> {
     })
 }
 
-/// Resolve a semantic ink ref; `tone` is the background's leading accent.
-fn ink_of(name: &str, tone: Color32) -> Color32 {
-    match name {
-        "strong" => cl::ink::STRONG,
-        "muted" => cl::ink::MUTED,
-        "subtle" => cl::ink::SUBTLE,
-        "tone" => tone,
-        // "base" and any unknown degrade to the body ink.
-        _ => cl::ink::BASE,
-    }
-}
-
 /// Resolve a font ref against the pool — an UNREGISTERED family name would
 /// panic at layout, so unknowns fall back to the default face.
 fn family_of(id: &str) -> egui::FontFamily {
@@ -365,32 +353,63 @@ fn render_inner(
     // stack. Media blocks are backdrops (painted above): 0 height, so they
     // never enter the vertical text flow. `heights` stays index-parallel to
     // `blocks` so the paint loop can index it directly.
-    let mut heights = Vec::with_capacity(slide.blocks.len());
-    for block in &slide.blocks {
-        let Some(words) = block.words() else {
-            heights.push(0.0);
-            continue;
-        };
-        let px = words
-            .size
-            .and_then(|size| size_of(&fluid, size))
-            .unwrap_or_else(|| fluid.fs_body());
-        let galley = painter.layout(
-            words.text.to_owned(),
-            egui::FontId::new(px, family_of(words.font.unwrap_or(""))),
-            cl::ink::BASE,
-            wrap,
-        );
-        heights.push(galley.size().y);
-    }
+    // `fit` scales every line's size together (1.0 = as authored).
+    let measure = |fit: f32| -> Vec<f32> {
+        slide
+            .blocks
+            .iter()
+            .map(|block| {
+                let Some(words) = block.words() else {
+                    return 0.0;
+                };
+                let px = words
+                    .size
+                    .and_then(|size| size_of(&fluid, size))
+                    .unwrap_or_else(|| fluid.fs_body());
+                painter
+                    .layout(
+                        words.text.to_owned(),
+                        egui::FontId::new(px * fit, family_of(words.font.unwrap_or(""))),
+                        cl::ink::BASE,
+                        wrap,
+                    )
+                    .size()
+                    .y
+            })
+            .collect()
+    };
     let gap = fluid.sp_4();
     let text_count = slide.blocks.iter().filter(|b| b.words().is_some()).count();
-    let total: f32 = heights.iter().sum::<f32>() + gap * text_count.saturating_sub(1) as f32;
+    let total_of =
+        |heights: &[f32]| heights.iter().sum::<f32>() + gap * text_count.saturating_sub(1) as f32;
+    // Shrink to fit: lines taller than the stage scale down together rather
+    // than run off it, so a look's big size never clips the words (LK3).
+    // Wrapping changes with size, so a second pass settles it.
+    let room = (rect.height() - pad * 2.0).max(1.0);
+    let mut fit = 1.0_f32;
+    let mut heights = measure(fit);
+    let mut total = total_of(&heights);
+    for _ in 0..2 {
+        if total <= room {
+            break;
+        }
+        fit = (fit * room / total).max(0.35);
+        heights = measure(fit);
+        total = total_of(&heights);
+    }
 
-    // Pass 2 — the entrance (rise, staggered) and the real paint.
-    let rising = slide.enter.as_deref() == Some("rise");
+    // Pass 2 — the entrance and the real paint. Each line moves by its own
+    // entrance (LK3, resolved: the line's, its look's, then the slide's):
+    // rising lines stagger in; a line that does not move simply appears.
+    let rises = |block: &dpl_doc::Block| {
+        block
+            .words()
+            .is_some_and(|words| words.enter == Some("rise"))
+    };
     let fx = cl::motion::ENTER_RISE;
-    if fx.in_flight(now, t0, slide.blocks.len()) && (rising || step.is_some_and(|s| s > 0)) {
+    if fx.in_flight(now, t0, slide.blocks.len())
+        && (slide.blocks.iter().any(rises) || step.is_some_and(|s| s > 0))
+    {
         ui.ctx().request_repaint();
     }
     let mut map = RenderMap {
@@ -405,6 +424,8 @@ fn render_inner(
             font,
             size,
             ink,
+            tone,
+            ..
         }) = block.words()
         else {
             // Media blocks painted in the pre-pass. They own the whole stage
@@ -419,29 +440,22 @@ fn render_inner(
             Rect::from_min_size(egui::pos2(rect.min.x + pad, y), egui::vec2(0.0, heights[i]));
         let rp = reveal_pos(id);
         let visible = visible_at(id);
-        // Animation policy: wall mode / step 0 = the slide entrance
-        // staggering all VISIBLE blocks; later steps animate only the
-        // block that just revealed.
+        // Animation policy: wall mode / step 0 = the entrance staggering
+        // every VISIBLE rising line; later steps animate only the line that
+        // just revealed — and only if it rises.
         let m = match step {
-            None | Some(0) => {
-                if rising {
-                    fx.sample(now, t0, i)
-                } else {
-                    cl::motion::Motion::REST
-                }
-            }
-            Some(s) => {
-                if rp == Some(s - 1) {
-                    fx.sample(now, t0, 0)
-                } else {
-                    cl::motion::Motion::REST
-                }
-            }
+            None | Some(0) if rises(block) => fx.sample(now, t0, i),
+            Some(s) if s > 0 && rp == Some(s - 1) && rises(block) => fx.sample(now, t0, 0),
+            _ => cl::motion::Motion::REST,
         };
         let px = size
             .and_then(|size| size_of(&fluid, size))
-            .unwrap_or_else(|| fluid.fs_body());
-        let color = ink_of(ink.unwrap_or("base"), accent).gamma_multiply(m.alpha);
+            .unwrap_or_else(|| fluid.fs_body())
+            * fit;
+        // The "tone" ink paints the line's own colour (LK3), else the
+        // background's accent.
+        let line_accent = tone.and_then(cl::hue_accent).unwrap_or(accent);
+        let color = cl::ink::named(ink.unwrap_or("base"), line_accent).gamma_multiply(m.alpha);
         let galley = painter.layout(
             text.to_owned(),
             egui::FontId::new(px, family_of(font.unwrap_or(""))),
@@ -535,7 +549,7 @@ mod tests {
         }
         assert!(size_of(&fluid, "gigantic").is_none());
         assert_eq!(family_of("not-in-the-pool"), egui::FontFamily::Proportional);
-        assert_eq!(ink_of("chartreuse", Color32::RED), cl::ink::BASE);
+        assert_eq!(cl::ink::named("chartreuse", Color32::RED), cl::ink::BASE);
     }
 
     /// A text block with an explicit size — the fixtures' common shape.
@@ -548,6 +562,8 @@ mod tests {
             font: None,
             size: Some(size.into()),
             ink: None,
+            enter: None,
+            unlinked_from: None,
         }
     }
 
@@ -570,6 +586,8 @@ mod tests {
             font: Some("comic-sans".into()),
             size: Some("gigantic".into()),
             ink: Some("chartreuse".into()),
+            enter: None,
+            unlinked_from: None,
         }];
         slide.enter = Some("rise".into());
         let ctx = egui::Context::default();
@@ -672,6 +690,93 @@ mod tests {
         .textures_delta
         .clear();
         assert_eq!(map.blocks.len(), 2, "media + caption both present");
+    }
+
+    /// Each line moves by its own entrance (LK3): mid-entrance a rising
+    /// line is lifted from where it rests, a still line is already there.
+    #[test]
+    fn a_line_moves_by_its_own_entrance() {
+        let line = |id: &str, enter: &str| {
+            let mut block = sized(id, id, "h3");
+            if let Some(words) = block.words_mut() {
+                *words.enter = Some(enter.into());
+            }
+            block
+        };
+        let mut slide = dpl_doc::Slide::new("title@1");
+        slide.background = Some(dpl_doc::Background::None);
+        slide.blocks = vec![line("still", "none"), line("riser", "rise")];
+        // Where each line's words are painted, at `now` seconds after the
+        // entrance started.
+        let painted_at = |now: f64| -> Vec<f32> {
+            let ctx = egui::Context::default();
+            cl::apply_theme(&ctx);
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let rect = ui.max_rect();
+                    render(ui, rect, &slide, &dpl_doc::Styling::standalone(), now, 0.0);
+                });
+            });
+            out.textures_delta.clear();
+            out.shapes
+                .iter()
+                .filter_map(|clipped| match &clipped.shape {
+                    egui::Shape::Text(text) => Some(text.pos.y),
+                    _ => None,
+                })
+                .collect()
+        };
+        let (mid, rest) = (painted_at(0.05), painted_at(30.0));
+        assert_eq!(mid.len(), 2, "both lines paint");
+        assert_eq!(mid[0], rest[0], "the still line is already where it rests");
+        assert_ne!(mid[1], rest[1], "the rising line is still on its way");
+    }
+
+    /// Shrink to fit (LK3): a long line at a big size stays on the stage —
+    /// every line's words are painted inside it, none run off the top.
+    #[test]
+    fn lines_taller_than_the_stage_shrink_to_fit() {
+        let mut slide = dpl_doc::Slide::new("quote@1");
+        slide.background = Some(dpl_doc::Background::None);
+        slide.blocks = vec![
+            sized(
+                "quote",
+                "The bottleneck was never typing code. It was deciding what to build — and now the machine waits on exactly that.",
+                "display",
+            ),
+            sized("name", "A working developer", "h2"),
+        ];
+        let stage = Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(320.0, 180.0));
+        let ctx = egui::Context::default();
+        cl::apply_theme(&ctx);
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                render(
+                    ui,
+                    stage,
+                    &slide,
+                    &dpl_doc::Styling::standalone(),
+                    30.0,
+                    0.0,
+                );
+            });
+        });
+        out.textures_delta.clear();
+        let words: Vec<Rect> = out
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(text) => Some(text.galley.rect.translate(text.pos.to_vec2())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(words.len(), 2);
+        for rect in words {
+            assert!(
+                rect.min.y >= stage.min.y - 0.5 && rect.max.y <= stage.max.y + 0.5,
+                "{rect:?} runs off {stage:?}"
+            );
+        }
     }
 
     /// Every SEED renders through the real pipeline (registries + theme).

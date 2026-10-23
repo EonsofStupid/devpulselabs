@@ -103,15 +103,26 @@ pub struct Editor {
     /// "Open the look": background, colour and font changes go to the
     /// look itself; the number is how many slides show it (LK2b).
     editing_look: Option<usize>,
+    /// A line look being TRIED on one line (LK3): the line's id and the
+    /// look (`None` = the card's style). Nothing is saved until Keep.
+    trying_line: Option<(String, Option<String>)>,
+    /// Is the line chip's menu open?
+    line_menu: bool,
 }
 
-/// A text block's tray view: values resolved through the show theme, with
-/// the override flags that drive the "Show theme" chips.
+/// A text or quote line's tray view: every value RESOLVED through the
+/// cascade (its own, its line look's, the card look's, the show's).
 struct TextFields {
     text: String,
     font: String,
     size: String,
     ink: String,
+    /// The line's colour, when it has one (its own or its look's).
+    tone: Option<String>,
+    /// How the line arrives: `rise` or `none`.
+    enter: String,
+    /// `text` or `quote` — which looks the line can take.
+    entity: &'static str,
 }
 
 const UNDO_CAP: usize = 50;
@@ -177,6 +188,8 @@ impl Editor {
             notice: None,
             spread: None,
             editing_look: None,
+            trying_line: None,
+            line_menu: false,
             undo: Vec::new(),
             saved: Ok(()),
         })
@@ -263,6 +276,8 @@ impl Editor {
                                 font: None,
                                 size,
                                 ink,
+                                enter: None,
+                                unlinked_from: None,
                             }
                         } else {
                             dpl_doc::Block::Text {
@@ -273,6 +288,8 @@ impl Editor {
                                 font: None,
                                 size,
                                 ink,
+                                enter: None,
+                                unlinked_from: None,
                             }
                         });
                     }
@@ -532,6 +549,77 @@ impl Editor {
         }
     }
 
+    /// A line's link to its line look (LK3), worked out from its values.
+    pub fn line_state(&self, id: &str) -> Option<dpl_doc::link::LinkState> {
+        dpl_doc::link::line_state(&self.slide, &self.styling.looks, id)
+    }
+
+    /// Follow a line look on one line (`None` = no line look: the card's
+    /// style). The look's values show; the words stay.
+    pub fn use_line_look(&mut self, id: &str, look: Option<&str>) {
+        let (id, look) = (id.to_owned(), look.map(str::to_owned));
+        self.mutate(move |s| match &look {
+            Some(look) => dpl_doc::link::use_line_look(s, &id, look),
+            None => {
+                dpl_doc::link::reset_line(s, &id);
+                if let Some(words) = s
+                    .blocks
+                    .iter_mut()
+                    .find(|b| b.id() == id)
+                    .and_then(dpl_doc::Block::words_mut)
+                {
+                    *words.preset = None;
+                    *words.unlinked_from = None;
+                }
+            }
+        });
+    }
+
+    /// A line's "Undo all my changes".
+    pub fn reset_line(&mut self, id: &str) {
+        let id = id.to_owned();
+        self.mutate(move |s| dpl_doc::link::reset_line(s, &id));
+    }
+
+    /// Stop following a line's look — nothing changes on screen.
+    pub fn stop_following_line(&mut self, id: &str) {
+        let (id, looks) = (id.to_owned(), self.styling.looks.clone());
+        self.mutate(move |s| dpl_doc::link::stop_following_line(s, &looks, &id));
+    }
+
+    /// Follow a line's look again, keeping my changes or starting fresh.
+    pub fn follow_line_again(&mut self, id: &str, keep_my_changes: bool) {
+        let (id, looks) = (id.to_owned(), self.styling.looks.clone());
+        self.mutate(move |s| dpl_doc::link::follow_line_again(s, &looks, &id, keep_my_changes));
+    }
+
+    /// Set a line's own colour (a hue id) or entrance (`rise` / `none`).
+    fn set_line(&mut self, id: &str, field: dpl_doc::link::LineField, value: &str) {
+        let (id, value) = (id.to_owned(), value.to_owned());
+        self.mutate(move |s| {
+            if let Some(words) = s
+                .blocks
+                .iter_mut()
+                .find(|b| b.id() == id)
+                .and_then(dpl_doc::Block::words_mut)
+            {
+                match field {
+                    dpl_doc::link::LineField::Colour => *words.tone = Some(value),
+                    dpl_doc::link::LineField::Enter => *words.enter = Some(value),
+                    _ => {}
+                }
+            }
+        });
+    }
+
+    /// A line look's name ("the card's style" for none).
+    fn line_look_label(id: Option<&str>) -> String {
+        id.and_then(cl::block_preset).map_or_else(
+            || "the card's style".to_owned(),
+            |look| look.label.to_owned(),
+        )
+    }
+
     /// Is the editor changing the look itself ("Open the look")?
     pub fn is_editing_look(&self) -> bool {
         self.editing_look.is_some()
@@ -671,8 +759,13 @@ impl Editor {
         // The stage: a 16:9 well under the toolbar, room for the tray below.
         let below = Rect::from_min_max(egui::pos2(full.min.x, bar.max.y), full.max);
         // A short window never squeezes the tray past tapping: it takes up
-        // to half the room, and the stage shrinks instead.
-        let tray_h = (below.height() * 0.34).max(TRAY_MIN.min(below.height() * 0.5));
+        // to half the room, and the stage shrinks instead. A tapped line's
+        // tray (its chip, its words, its looks — LK3) takes half outright.
+        let share = match self.selection {
+            Selection::Block(_) => 0.5,
+            _ => 0.34,
+        };
+        let tray_h = (below.height() * share).max(TRAY_MIN.min(below.height() * 0.5));
         let stage_area = Rect::from_min_max(
             below.min,
             egui::pos2(below.max.x, below.max.y - tray_h - cl::space::S3),
@@ -685,7 +778,7 @@ impl Editor {
         let t0 = self.clock.tick(now);
         // Trying a look (LK1): the stage shows the slide AS IF it used it;
         // the file is untouched until Keep.
-        let shown = match &self.trying {
+        let mut shown = match &self.trying {
             Some(id) => {
                 let mut tried = self.slide.clone();
                 use_look(&mut tried, id);
@@ -693,6 +786,23 @@ impl Editor {
             }
             None => self.slide.clone(),
         };
+        // Trying a line look (LK3): the line shows it; nothing is saved.
+        if let Some((line, look)) = &self.trying_line {
+            match look {
+                Some(look) => dpl_doc::link::use_line_look(&mut shown, line, look),
+                None => {
+                    dpl_doc::link::reset_line(&mut shown, line);
+                    if let Some(words) = shown
+                        .blocks
+                        .iter_mut()
+                        .find(|b| b.id() == *line)
+                        .and_then(dpl_doc::Block::words_mut)
+                    {
+                        *words.preset = None;
+                    }
+                }
+            }
+        }
         let map = {
             let mut child = ui.new_child(egui::UiBuilder::new().max_rect(stage.shrink(2.0)));
             child.set_clip_rect(stage);
@@ -714,13 +824,44 @@ impl Editor {
 
         // Tap → select (topmost block, else background).
         let resp = ui.interact(stage, ui.id().with("dpl_editor_stage"), Sense::click());
+        let mut picked = None;
         if let Some(pos) = resp.interact_pointer_pos() {
             if resp.clicked() {
-                self.selection = match map.block_at(pos) {
+                picked = Some(match map.block_at(pos) {
                     Some(id) => Selection::Block(id.to_string()),
                     None => Selection::Background,
-                };
+                });
             }
+        }
+        // Each line on the stage is its own tap target, named and reachable
+        // (LK3) — a person taps the words; a pilot finds `editor.line/<id>`.
+        for (block_id, rect) in &map.blocks {
+            let Some(words) = self.slide.block(block_id).and_then(dpl_doc::Block::words) else {
+                continue;
+            };
+            let text = words.text.to_owned();
+            let line = ui.interact(
+                *rect,
+                ui.id().with(("dpl_editor_line", block_id)),
+                Sense::click(),
+            );
+            line.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &text));
+            ui.pilot_track(
+                &line,
+                NodeMetadata::new(
+                    PilotId::new("editor.line").child(&PilotKey::new(block_id)),
+                    egui_pilot_ai::protocol::Role::Button,
+                    &text,
+                ),
+            );
+            if cl::tip(line, "Tap to change this line").clicked() {
+                picked = Some(Selection::Block(block_id.clone()));
+            }
+        }
+        if let Some(selection) = picked {
+            self.selection = selection;
+            self.trying_line = None;
+            self.line_menu = false;
         }
         self.paint_selection(ui, &map);
 
@@ -1494,11 +1635,64 @@ impl Editor {
     /// Text block selected → Font / Size / Ink / Text. Font and ink show
     /// the RESOLVED value; "Show theme" clears an override back to the show.
     fn text_tray(&mut self, ui: &mut Ui, id: &str) {
+        // The tray grew with line looks (LK3): it scrolls, so a short window
+        // never hides a row.
+        egui::ScrollArea::vertical()
+            .id_salt("text_tray")
+            .auto_shrink([false, false])
+            .show(ui, |ui| self.text_tray_rows(ui, id));
+    }
+
+    fn text_tray_rows(&mut self, ui: &mut Ui, id: &str) {
         let Some(tf) = self.text_fields(id) else {
             return;
         };
         let (text, font, size, ink) = (tf.text, tf.font, tf.size, tf.ink);
-        ui.label(tray_title("Text"));
+        ui.horizontal_wrapped(|ui| {
+            ui.label(tray_title(if tf.entity == "quote" {
+                "Quote"
+            } else {
+                "Text"
+            }));
+            ui.add_space(cl::space::S3);
+            let chip_rect = self.line_chip(ui, id);
+            if self.line_menu {
+                self.line_menu_ui(ui, id, chip_rect);
+            }
+            // Trying a line look: Keep / Cancel sit right by the chip, so the
+            // looks row below needs no header of its own (a short window
+            // keeps its tiles whole).
+            let trying = self
+                .trying_line
+                .as_ref()
+                .filter(|(line, _)| line == id)
+                .map(|(_, look)| look.clone());
+            match trying {
+                Some(look) => {
+                    if hero_chip(
+                        ui,
+                        "line-keep",
+                        "Keep",
+                        "Use this look on the line (one Undo takes it back)",
+                    ) {
+                        self.trying_line = None;
+                        self.use_line_look(id, look.as_deref());
+                    }
+                    if chip(
+                        ui,
+                        "line-cancel",
+                        "Cancel",
+                        false,
+                        "Go back to how the line was",
+                    ) {
+                        self.trying_line = None;
+                    }
+                }
+                None => {
+                    ui.label(small("Tap a look below to try it on"));
+                }
+            }
+        });
 
         // The words.
         let mut edited = text.clone();
@@ -1525,6 +1719,8 @@ impl Editor {
             id: id.to_string(),
             field,
         };
+        ui.add_space(cl::space::S2);
+        self.line_look_row(ui, id, tf.entity);
         ui.add_space(cl::space::S2);
         ui.horizontal(|ui| {
             ui.label(small("Font"));
@@ -1586,10 +1782,25 @@ impl Editor {
                 });
             });
 
-        // The look shows its own knobs (`exposes`); "More controls" opens
-        // every knob — full control without leaving the look (LK1).
-        let look_gives_only_font = dpl_doc::card_preset(&self.slide, &self.styling.looks).is_some();
-        if look_gives_only_font {
+        // A look shows its own knobs (`exposes`); "More controls" opens
+        // every knob — full control without leaving the look (LK1). A line
+        // look exposes its own (LK3); the card's look only the font.
+        let line_look = self
+            .slide
+            .block(id)
+            .and_then(|block| self.styling.looks.line_look(block));
+        let exposed: Vec<&str> = match line_look {
+            Some(look) => look.exposes.to_vec(),
+            None if dpl_doc::card_preset(&self.slide, &self.styling.looks).is_some() => {
+                vec!["font"]
+            }
+            None => vec!["font", "size", "ink", "colour", "motion"],
+        };
+        let shows = |knob: &str, more: bool| more || exposed.contains(&knob);
+        let hidden = ["size", "ink", "colour", "motion"]
+            .iter()
+            .any(|knob| !exposed.contains(knob));
+        if hidden {
             ui.add_space(cl::space::S2);
             let label = if self.more_controls {
                 "Fewer controls"
@@ -1601,59 +1812,345 @@ impl Editor {
                 "more-controls",
                 label,
                 self.more_controls,
-                "Show every setting for this line — size and ink too",
+                "Show every setting for this line — size, ink, colour and movement too",
             ) {
                 self.more_controls = !self.more_controls;
             }
         }
-        if look_gives_only_font && !self.more_controls {
-            return;
-        }
+        let more = self.more_controls;
 
         ui.add_space(cl::space::S2);
         ui.horizontal(|ui| {
-            ui.vertical(|ui| {
-                ui.horizontal(|ui| {
-                    ui.label(small("Size"));
-                    self.yours_row(ui, &line(dpl_doc::link::LineField::Size));
-                });
-                ui.horizontal_wrapped(|ui| {
-                    for name in SIZES {
-                        if chip(
-                            ui,
-                            &format!("size-{name}"),
-                            name,
-                            name == size,
-                            "How big this line is",
-                        ) {
-                            let (id, name) = (id.to_string(), name.to_string());
-                            self.mutate(|s| set_text(s, &id, |b| b.2 = name.clone()));
+            if shows("size", more) {
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(small("Size"));
+                        self.yours_row(ui, &line(dpl_doc::link::LineField::Size));
+                    });
+                    ui.horizontal_wrapped(|ui| {
+                        for name in SIZES {
+                            if chip(
+                                ui,
+                                &format!("size-{name}"),
+                                name,
+                                name == size,
+                                "How big this line is",
+                            ) {
+                                let (id, name) = (id.to_string(), name.to_string());
+                                self.mutate(|s| set_text(s, &id, |b| b.2 = name.clone()));
+                            }
                         }
-                    }
+                    });
                 });
-            });
-            ui.add_space(cl::space::S4);
-            ui.vertical(|ui| {
-                ui.horizontal(|ui| {
-                    ui.label(small("Ink"));
-                    self.yours_row(ui, &line(dpl_doc::link::LineField::Ink));
-                });
-                ui.horizontal(|ui| {
-                    for name in INKS {
-                        if chip(
-                            ui,
-                            &format!("ink-{name}"),
-                            name,
-                            name == ink,
-                            "How strong this line's colour is",
-                        ) {
-                            let (id, name) = (id.to_string(), name.to_string());
-                            self.mutate(|s| set_text(s, &id, |b| b.3 = name.clone()));
+                ui.add_space(cl::space::S4);
+            }
+            if shows("ink", more) {
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(small("Ink"));
+                        self.yours_row(ui, &line(dpl_doc::link::LineField::Ink));
+                    });
+                    ui.horizontal(|ui| {
+                        for name in INKS {
+                            if chip(
+                                ui,
+                                &format!("ink-{name}"),
+                                name,
+                                name == ink,
+                                "How strong this line's colour is",
+                            ) {
+                                let (id, name) = (id.to_string(), name.to_string());
+                                self.mutate(|s| set_text(s, &id, |b| b.3 = name.clone()));
+                            }
                         }
-                    }
+                    });
                 });
-            });
+            }
         });
+
+        // The line's own colour and entrance (LK3).
+        ui.add_space(cl::space::S2);
+        ui.horizontal_wrapped(|ui| {
+            if shows("colour", more) {
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(small("Colour"));
+                        self.yours_row(ui, &line(dpl_doc::link::LineField::Colour));
+                    });
+                    ui.horizontal(|ui| {
+                        for tone in cl::Tone::ALL {
+                            let hue = tone.hue_id();
+                            if swatch_chip(
+                                ui,
+                                &format!("colour-{hue}"),
+                                &pretty(hue),
+                                tone.color(),
+                                tf.tone.as_deref() == Some(hue),
+                                "This line's colour — what the tone ink paints",
+                            ) {
+                                self.set_line(id, dpl_doc::link::LineField::Colour, hue);
+                            }
+                        }
+                    });
+                });
+                ui.add_space(cl::space::S4);
+            }
+            if shows("motion", more) {
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(small("Movement"));
+                        self.yours_row(ui, &line(dpl_doc::link::LineField::Enter));
+                    });
+                    ui.horizontal(|ui| {
+                        for (value, label, tip) in [
+                            ("rise", "Rise in", "This line rises in when the slide shows"),
+                            (
+                                "none",
+                                "Stay still",
+                                "This line is simply there — no movement",
+                            ),
+                        ] {
+                            if chip(ui, &format!("enter-{value}"), label, tf.enter == value, tip) {
+                                self.set_line(id, dpl_doc::link::LineField::Enter, value);
+                            }
+                        }
+                    });
+                });
+            }
+        });
+    }
+
+    /// The line's chip (LK3): "Look: Sci-fi headline · 1 change", "Own style
+    /// (was …)", "Card style". Tap for the menu.
+    fn line_chip(&mut self, ui: &mut Ui, id: &str) -> Rect {
+        if let Some((line, look)) = &self.trying_line {
+            if line == id {
+                let text = format!("Trying: {}", Self::line_look_label(look.as_deref()));
+                let resp = chip_response(
+                    ui,
+                    "line-chip",
+                    &text,
+                    true,
+                    "Keep the line look, or Cancel to go back — nothing is saved until you Keep",
+                );
+                return resp.rect;
+            }
+        }
+        let state = self.line_state(id);
+        let text = match &state {
+            Some(dpl_doc::link::LinkState::Show { changes: 0 }) | None => "Card style".to_owned(),
+            Some(dpl_doc::link::LinkState::Show { changes }) => match changes {
+                1 => "Card style · 1 change".to_owned(),
+                n => format!("Card style · {n} changes"),
+            },
+            Some(dpl_doc::link::LinkState::Missing { .. }) => {
+                "Line look missing — the card's style".to_owned()
+            }
+            Some(state) => state.chip(|look| Self::line_look_label(Some(look))),
+        };
+        let resp = chip_response(
+            ui,
+            "line-chip",
+            &text,
+            self.line_menu,
+            "What this line follows. Tap to see its changes, give them back, or stop following its look",
+        );
+        if resp.clicked() {
+            self.line_menu = !self.line_menu;
+        }
+        resp.rect
+    }
+
+    /// The line chip's menu: the line's changes (each with its way back),
+    /// "Undo all my changes", and stop / follow again.
+    fn line_menu_ui(&mut self, ui: &mut Ui, id: &str, under: Rect) {
+        let state = self.line_state(id);
+        let changes = dpl_doc::link::line_changes(&self.slide, id);
+        let area = egui::Area::new(ui.id().with("dpl_editor_line_menu"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(under.left_bottom() + egui::vec2(0.0, cl::space::S1));
+        area.show(ui.ctx(), |ui| {
+            egui::Frame::new()
+                .fill(cl::surface::RAISED)
+                .stroke(Stroke::new(1.0, cl::surface::HAIRLINE))
+                .corner_radius(cl::RADIUS)
+                .inner_margin(egui::Margin::same(12))
+                .show(ui, |ui| {
+                    ui.set_max_width(360.0);
+                    ui.label(tray_title("This line's changes"));
+                    if changes.is_empty() {
+                        ui.label(small("Nothing yet — everything follows."));
+                    }
+                    for knob in &changes {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(format!("• {}", knob.label()))
+                                    .small()
+                                    .color(cl::ink::BASE),
+                            );
+                            let back = give_back_label(&self.slide, &self.styling.looks, knob);
+                            if chip(
+                                ui,
+                                &format!("line-reset-{}", knob_key(knob)),
+                                back,
+                                false,
+                                "Give this value back — the line follows again here",
+                            ) {
+                                self.reset(knob);
+                            }
+                        });
+                    }
+                    ui.add_space(cl::space::S2);
+                    if !changes.is_empty()
+                        && chip(
+                            ui,
+                            "line-reset-all",
+                            "Undo all my changes",
+                            false,
+                            "Give every value of this line back",
+                        )
+                    {
+                        self.reset_line(id);
+                    }
+                    match &state {
+                        Some(dpl_doc::link::LinkState::Follows { .. }) => {
+                            if chip(
+                                ui,
+                                "line-stop",
+                                "Stop following this look",
+                                false,
+                                "Make the line fully yours. Nothing changes on screen",
+                            ) {
+                                self.stop_following_line(id);
+                                self.line_menu = false;
+                            }
+                        }
+                        Some(dpl_doc::link::LinkState::OwnStyle { was: Some(_) }) => {
+                            if chip(
+                                ui,
+                                "line-follow-keep",
+                                "Follow the look again — keep my changes",
+                                false,
+                                "Follow the line look again; what differs stays yours",
+                            ) {
+                                self.follow_line_again(id, true);
+                                self.line_menu = false;
+                            }
+                            if chip(
+                                ui,
+                                "line-follow-fresh",
+                                "Follow the look again — start fresh",
+                                false,
+                                "Follow the line look again and give back everything it styles",
+                            ) {
+                                self.follow_line_again(id, false);
+                                self.line_menu = false;
+                            }
+                        }
+                        Some(dpl_doc::link::LinkState::Missing { .. })
+                            if chip(
+                                ui,
+                                "line-none",
+                                "Use the card's style",
+                                false,
+                                "Stop naming the line look that can't be found",
+                            ) =>
+                        {
+                            self.use_line_look(id, None);
+                            self.line_menu = false;
+                        }
+                        _ => {}
+                    }
+                    if chip(ui, "line-menu-done", "Done", false, "Close this menu") {
+                        self.line_menu = false;
+                    }
+                });
+        });
+    }
+
+    /// The line looks (LK3): "Card style" first, then the text or quote
+    /// looks, each painted as a sample line. Tap to try; Keep or Cancel.
+    fn line_look_row(&mut self, ui: &mut Ui, id: &str, entity: &'static str) {
+        let current = self
+            .slide
+            .block(id)
+            .and_then(dpl_doc::Block::words)
+            .and_then(|words| words.preset)
+            .map(str::to_owned);
+        let trying = self
+            .trying_line
+            .as_ref()
+            .filter(|(line, _)| line == id)
+            .map(|(_, look)| look.clone());
+        let tiles: Vec<(Option<&'static dpl_coldlight::BlockPreset>, String)> =
+            std::iter::once((None, "Card style".to_owned()))
+                .chain(
+                    self.styling
+                        .looks
+                        .line_looks(entity)
+                        .map(|look| (Some(look), look.label.to_owned())),
+                )
+                .collect();
+        egui::ScrollArea::horizontal()
+            .id_salt("line_looks")
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    for (look, label) in &tiles {
+                        let look_id = look.map(|look| look.id);
+                        let (rect, resp) =
+                            ui.allocate_exact_size(egui::vec2(150.0, 44.0), Sense::click());
+                        let painter = ui.painter_at(rect);
+                        painter.rect_filled(rect, cl::RADIUS_SM, cl::surface::OVERLAY);
+                        let (font, color) = match look {
+                            Some(look) => (
+                                look.font,
+                                cl::ink::named(
+                                    look.ink,
+                                    cl::hue_accent(look.tone).unwrap_or(cl::ink::BASE),
+                                ),
+                            ),
+                            None => ("spacegrotesk", cl::ink::MUTED),
+                        };
+                        painter.text(
+                            rect.left_center() + egui::vec2(10.0, 0.0),
+                            Align2::LEFT_CENTER,
+                            label,
+                            FontId::new(16.0, cl::font_family(font)),
+                            color,
+                        );
+                        let chosen = current.as_deref() == look_id;
+                        let tried = trying.as_ref().is_some_and(|t| t.as_deref() == look_id);
+                        card_edge(&painter, rect, resp.hovered() || chosen || tried);
+                        resp.widget_info(|| {
+                            egui::WidgetInfo::selected(
+                                egui::WidgetType::Button,
+                                true,
+                                chosen,
+                                label,
+                            )
+                        });
+                        ui.pilot_track(
+                            &resp,
+                            NodeMetadata::new(
+                                PilotId::new("editor.line-look")
+                                    .child(&PilotKey::new(look_id.unwrap_or("none"))),
+                                egui_pilot_ai::protocol::Role::Button,
+                                label,
+                            ),
+                        );
+                        let tip = look
+                            .map_or("No line look — the line takes the card's style", |look| {
+                                look.blurb
+                            });
+                        let resp = cl::tip(resp, tip);
+                        if resp.clicked() && !chosen {
+                            self.trying_line = Some((id.to_owned(), look_id.map(str::to_owned)));
+                            self.line_menu = false;
+                        }
+                    }
+                });
+            });
     }
 
     /// Beside a control's label: when its value is yours, a dot (colour plus
@@ -1779,17 +2276,25 @@ impl Editor {
     /// A block's fields RESOLVED through the theme, plus whether font/ink
     /// are slide-level overrides (vs inherited from the show).
     fn text_fields(&self, id: &str) -> Option<TextFields> {
-        let words = self.slide.block(id)?.words()?;
-        // What an unset font inherits: the card's look, then the show.
-        let inherited_font = dpl_doc::card_preset(&self.slide, &self.styling.looks)
-            .map_or_else(|| self.styling.theme.font.clone(), |look| look.font.clone());
+        let shown = self.styling.resolve(&self.slide);
+        let block = shown.block(id)?;
+        let entity = match block {
+            dpl_doc::Block::Quote { .. } => "quote",
+            _ => "text",
+        };
+        let words = block.words()?;
         Some(TextFields {
             text: words.text.to_owned(),
-            font: words.font.map_or(inherited_font, str::to_owned),
+            font: words
+                .font
+                .map_or_else(|| self.styling.theme.font.clone(), str::to_owned),
             size: words.size.unwrap_or(DEFAULT_SIZE).to_owned(),
             ink: words
                 .ink
                 .map_or_else(|| self.styling.theme.ink.clone(), str::to_owned),
+            tone: words.tone.map(str::to_owned),
+            enter: words.enter.unwrap_or("none").to_owned(),
+            entity,
         })
     }
 
@@ -1978,6 +2483,14 @@ fn card_edge_tone(painter: &egui::Painter, rect: Rect, hot: bool, on: bool) {
     );
 }
 
+/// A chip with a colour dot before its name — the Colour row.
+fn swatch_chip(ui: &mut Ui, key: &str, label: &str, colour: Color32, on: bool, tip: &str) -> bool {
+    let resp = chip_response(ui, key, &format!("   {label}"), on, tip);
+    ui.painter()
+        .circle_filled(resp.rect.left_center() + egui::vec2(12.0, 0.0), 5.0, colour);
+    resp.clicked()
+}
+
 /// A look's backdrop, painted as its tile: a blend, one colour, or the
 /// bare well.
 fn paint_backdrop(painter: &egui::Painter, rect: Rect, background: &dpl_doc::Background) {
@@ -2057,6 +2570,11 @@ fn value_words(
                 ),
                 LineField::Size => pretty(words.and_then(|w| w.size).unwrap_or(DEFAULT_SIZE)),
                 LineField::Ink => or_none(words.and_then(|w| w.ink)),
+                LineField::Enter => match words.and_then(|w| w.enter) {
+                    Some("rise") => "Rises in".into(),
+                    Some(_) => "Stays still".into(),
+                    None => "None".into(),
+                },
                 LineField::Colour => match block {
                     dpl_doc::Block::Text { tone, .. }
                     | dpl_doc::Block::Media { tone, .. }
@@ -2224,6 +2742,8 @@ mod tests {
             font: Some("spacegrotesk".into()),
             size: Some("display".into()),
             ink: Some("strong".into()),
+            enter: None,
+            unlinked_from: None,
         }];
         slide.enter = Some("rise".into());
         slide
@@ -2618,6 +3138,60 @@ mod tests {
             ed.looks().get("neon-intro").map(|look| &look.background),
             Some(dpl_doc::Background::Mood { mood }) if mood == "jade-current"
         ));
+    }
+
+    /// A line's own size, colour and movement are changes from its line
+    /// look (LK3) — the rows below the tray's fold, which the real-exe
+    /// scenario cannot scroll to — and giving them back shows the look's.
+    #[test]
+    fn a_lines_own_size_colour_and_movement_are_changes_from_its_look() {
+        let dir = scratch("line-knobs");
+        dpl_doc::save(&dir, &sparse_seed()).unwrap();
+        let mut ed = Editor::open(&dir, &dir).unwrap();
+        ed.use_line_look("title", Some("neon-word"));
+        assert_eq!(
+            ed.line_state("title"),
+            Some(dpl_doc::link::LinkState::Follows {
+                look: "neon-word".into(),
+                changes: 0
+            })
+        );
+        let tf = ed.text_fields("title").unwrap();
+        assert_eq!(
+            (
+                tf.font.as_str(),
+                tf.size.as_str(),
+                tf.tone.as_deref(),
+                tf.enter.as_str()
+            ),
+            ("monoton", "display", Some("magenta"), "rise"),
+            "the line shows its look"
+        );
+        ed.mutate(|s| set_text(s, "title", |b| b.2 = "h1".into()));
+        ed.set_line("title", dpl_doc::link::LineField::Colour, "lime");
+        ed.set_line("title", dpl_doc::link::LineField::Enter, "none");
+        assert!(matches!(
+            ed.line_state("title"),
+            Some(dpl_doc::link::LinkState::Follows { changes: 3, .. })
+        ));
+        let colour = dpl_doc::link::Knob::Line {
+            id: "title".into(),
+            field: dpl_doc::link::LineField::Colour,
+        };
+        assert_eq!(ed.source(&colour), dpl_doc::link::Source::Yours);
+        assert_eq!(ed.comparison(&colour), "Yours: Lime · The look's: Magenta");
+        ed.reset_line("title");
+        let tf = ed.text_fields("title").unwrap();
+        assert_eq!(
+            (tf.size.as_str(), tf.tone.as_deref(), tf.enter.as_str()),
+            ("display", Some("magenta"), "rise")
+        );
+        let raw = std::fs::read_to_string(dir.join("slide.json")).unwrap();
+        assert!(raw.contains("\"preset\": \"neon-word\""), "{raw}");
+        assert!(
+            !raw.contains("\"enter\"") && !raw.contains("\"tone\""),
+            "{raw}"
+        );
     }
 
     /// The spread sheet opens and paints again after an Undo put the

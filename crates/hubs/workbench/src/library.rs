@@ -906,6 +906,62 @@ pub(crate) fn presets_wall(ui: &mut egui::Ui, looks: &dpl_doc::Looks) {
                 }
             });
 
+            // LINE looks (LK3): every text and quote look as a sample line
+            // in its own font, ink and colour, its recipe beneath.
+            for (heading, entity) in [("TEXT", "text"), ("QUOTE", "quote")] {
+                ui.add_space(cl::space::S4);
+                ui.label(RichText::new(heading).small().color(cl::ink::SUBTLE));
+                ui.add_space(cl::space::S1);
+                ui.horizontal_wrapped(|ui| {
+                    for look in looks.line_looks(entity) {
+                        let (rect, _) =
+                            ui.allocate_exact_size(egui::vec2(320.0, 96.0), egui::Sense::hover());
+                        let painter = ui.painter_at(rect);
+                        painter.rect_filled(rect, cl::RADIUS_SM, cl::surface::RAISED);
+                        let ink = cl::ink::named(
+                            look.ink,
+                            cl::hue_accent(look.tone).unwrap_or(cl::ink::BASE),
+                        );
+                        painter.text(
+                            egui::pos2(rect.min.x + 14.0, rect.min.y + 26.0),
+                            egui::Align2::LEFT_CENTER,
+                            look.label,
+                            egui::FontId::new(22.0, cl::font_family(look.font)),
+                            ink,
+                        );
+                        let moves = match look.enter {
+                            Some("rise") => " · rises in",
+                            Some(_) => " · stays still",
+                            None => "",
+                        };
+                        painter.text(
+                            egui::pos2(rect.min.x + 14.0, rect.max.y - 40.0),
+                            egui::Align2::LEFT_CENTER,
+                            format!(
+                                "{} · {} · {} · {}{moves}",
+                                look.font, look.size, look.ink, look.tone
+                            ),
+                            egui::FontId::monospace(10.5),
+                            cl::ink::BASE,
+                        );
+                        painter.text(
+                            egui::pos2(rect.min.x + 14.0, rect.max.y - 18.0),
+                            egui::Align2::LEFT_CENTER,
+                            look.blurb,
+                            egui::FontId::proportional(11.5),
+                            cl::ink::MUTED,
+                        );
+                        painter.rect(
+                            rect,
+                            cl::RADIUS_SM,
+                            egui::Color32::TRANSPARENT,
+                            egui::Stroke::new(1.0, cl::surface::HAIRLINE),
+                            egui::StrokeKind::Inside,
+                        );
+                    }
+                });
+            }
+
             ui.add_space(cl::space::S4);
             ui.label(RichText::new("MOTION").small().color(cl::ink::SUBTLE));
             ui.add_space(cl::space::S1);

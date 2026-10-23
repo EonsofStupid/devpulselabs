@@ -1,5 +1,5 @@
 {
-  "$description": "AUTHORED — presets, the 6th token source. A preset is a NAMED BUNDLE OF REFS into the other registries (fonts/moods/motion/hues) — data composed FROM the generated styling, zero new code per preset. Cross-validated at build: an unknown ref fails the build. theme = one-tap slide looks (W4 trays) — CARD presets (LS2b): a slide stores the preset's id and the cascade reads it, never a copy; `for` names the entity, `exposes` its 4–7 knobs (colour always one), `font` is the card's default for its lines (operator ruling 2026-10-21); motion = entrance choices; bleed = two-colour hover washes over a hue pool (V1 Providers control). The editor's Save-as-preset appends here (data in the authored format, never generated output).",
+  "$description": "AUTHORED — presets, the 6th token source. A preset is a NAMED BUNDLE OF REFS into the other registries (fonts/moods/motion/hues) — data composed FROM the generated styling, zero new code per preset. Cross-validated at build: an unknown ref fails the build. block = LINE looks (LK3): a text or quote line stores one by id, between its own values and the card's look; they expose font, size, ink, colour and (text) movement; theme = one-tap slide looks (W4 trays) — CARD presets (LS2b): a slide stores the preset's id and the cascade reads it, never a copy; `for` names the entity, `exposes` its 4–7 knobs (colour always one), `font` is the card's default for its lines (operator ruling 2026-10-21); motion = entrance choices; bleed = two-colour hover washes over a hue pool (V1 Providers control). The editor's Save-as-preset appends here (data in the authored format, never generated output).",
   "theme": [
     {
       "id": "neon-intro",
@@ -103,6 +103,356 @@
       "motion": "blend-drift",
       "ambience": "rings",
       "blurb": "Synthwave broadcast — fuchsia arcing through orchid haze."
+    }
+  ],
+  "block": [
+    {
+      "id": "sci-fi-headline",
+      "label": "Sci-fi headline",
+      "for": "text",
+      "exposes": [
+        "font",
+        "size",
+        "ink",
+        "colour",
+        "motion"
+      ],
+      "tone": "amber",
+      "font": "orbitron",
+      "size": "display",
+      "ink": "strong",
+      "enter": "rise",
+      "blurb": "The one big line of an opener."
+    },
+    {
+      "id": "mission-headline",
+      "label": "Mission headline",
+      "for": "text",
+      "exposes": [
+        "font",
+        "size",
+        "ink",
+        "colour",
+        "motion"
+      ],
+      "tone": "cyan",
+      "font": "michroma",
+      "size": "h1",
+      "ink": "strong",
+      "enter": "rise",
+      "blurb": "Wide, calm, NASA-panel titles."
+    },
+    {
+      "id": "synthwave-title",
+      "label": "Synthwave title",
+      "for": "text",
+      "exposes": [
+        "font",
+        "size",
+        "ink",
+        "colour",
+        "motion"
+      ],
+      "tone": "magenta",
+      "font": "audiowide",
+      "size": "h1",
+      "ink": "strong",
+      "enter": "rise",
+      "blurb": "Retro-future show titles."
+    },
+    {
+      "id": "neon-word",
+      "label": "Neon word",
+      "for": "text",
+      "exposes": [
+        "font",
+        "size",
+        "ink",
+        "colour",
+        "motion"
+      ],
+      "tone": "magenta",
+      "font": "monoton",
+      "size": "display",
+      "ink": "tone",
+      "enter": "rise",
+      "blurb": "One word, glowing."
+    },
+    {
+      "id": "arcade-line",
+      "label": "Arcade line",
+      "for": "text",
+      "exposes": [
+        "font",
+        "size",
+        "ink",
+        "colour",
+        "motion"
+      ],
+      "tone": "lime",
+      "font": "pressstart2p",
+      "size": "h3",
+      "ink": "tone",
+      "enter": "rise",
+      "blurb": "Short game-style lines."
+    },
+    {
+      "id": "terminal-line",
+      "label": "Terminal line",
+      "for": "text",
+      "exposes": [
+        "font",
+        "size",
+        "ink",
+        "colour",
+        "motion"
+      ],
+      "tone": "lime",
+      "font": "vt323",
+      "size": "h2",
+      "ink": "tone",
+      "enter": "rise",
+      "blurb": "CRT output and commands."
+    },
+    {
+      "id": "hud-label",
+      "label": "HUD label",
+      "for": "text",
+      "exposes": [
+        "font",
+        "size",
+        "ink",
+        "colour",
+        "motion"
+      ],
+      "tone": "cyan",
+      "font": "rajdhani",
+      "size": "h4",
+      "ink": "muted",
+      "enter": "none",
+      "blurb": "Dashboard labels and units."
+    },
+    {
+      "id": "eyebrow",
+      "label": "Eyebrow",
+      "for": "text",
+      "exposes": [
+        "font",
+        "size",
+        "ink",
+        "colour",
+        "motion"
+      ],
+      "tone": "amber",
+      "font": "sharetechmono",
+      "size": "eyebrow",
+      "ink": "tone",
+      "enter": "rise",
+      "blurb": "The small line above a title."
+    },
+    {
+      "id": "panel-heading",
+      "label": "Panel heading",
+      "for": "text",
+      "exposes": [
+        "font",
+        "size",
+        "ink",
+        "colour",
+        "motion"
+      ],
+      "tone": "violet",
+      "font": "chakrapetch",
+      "size": "h2",
+      "ink": "strong",
+      "enter": "rise",
+      "blurb": "Section heads on control-panel slides."
+    },
+    {
+      "id": "readout",
+      "label": "Readout",
+      "for": "text",
+      "exposes": [
+        "font",
+        "size",
+        "ink",
+        "colour",
+        "motion"
+      ],
+      "tone": "lime",
+      "font": "jetbrainsmono",
+      "size": "h3",
+      "ink": "strong",
+      "enter": "none",
+      "blurb": "Numbers, code and stats."
+    },
+    {
+      "id": "chrome-subtitle",
+      "label": "Chrome subtitle",
+      "for": "text",
+      "exposes": [
+        "font",
+        "size",
+        "ink",
+        "colour",
+        "motion"
+      ],
+      "tone": "cyan",
+      "font": "exo2",
+      "size": "h3",
+      "ink": "muted",
+      "enter": "rise",
+      "blurb": "The quieter line under a title."
+    },
+    {
+      "id": "body",
+      "label": "Body",
+      "for": "text",
+      "exposes": [
+        "font",
+        "size",
+        "ink",
+        "colour",
+        "motion"
+      ],
+      "tone": "cyan",
+      "font": "spacegrotesk",
+      "size": "body-lg",
+      "ink": "base",
+      "enter": "rise",
+      "blurb": "Sentences people read."
+    },
+    {
+      "id": "game-caption",
+      "label": "Game caption",
+      "for": "text",
+      "exposes": [
+        "font",
+        "size",
+        "ink",
+        "colour",
+        "motion"
+      ],
+      "tone": "coral",
+      "font": "oxanium",
+      "size": "body",
+      "ink": "base",
+      "enter": "rise",
+      "blurb": "Captions that stay sturdy small."
+    },
+    {
+      "id": "small-print",
+      "label": "Small print",
+      "for": "text",
+      "exposes": [
+        "font",
+        "size",
+        "ink",
+        "colour",
+        "motion"
+      ],
+      "tone": "violet",
+      "font": "spacegrotesk",
+      "size": "body-sm",
+      "ink": "subtle",
+      "enter": "none",
+      "blurb": "Sources, notes and footers."
+    },
+    {
+      "id": "big-quote",
+      "label": "Big quote",
+      "for": "quote",
+      "exposes": [
+        "font",
+        "size",
+        "ink",
+        "colour"
+      ],
+      "tone": "violet",
+      "font": "spacegrotesk",
+      "size": "h2",
+      "ink": "strong",
+      "blurb": "A calm pull quote — today's default."
+    },
+    {
+      "id": "editorial-quote",
+      "label": "Editorial quote",
+      "for": "quote",
+      "exposes": [
+        "font",
+        "size",
+        "ink",
+        "colour"
+      ],
+      "tone": "amber",
+      "font": "exo2",
+      "size": "h2",
+      "ink": "strong",
+      "blurb": "Warm magazine style."
+    },
+    {
+      "id": "mission-log",
+      "label": "Mission log",
+      "for": "quote",
+      "exposes": [
+        "font",
+        "size",
+        "ink",
+        "colour"
+      ],
+      "tone": "cyan",
+      "font": "michroma",
+      "size": "h3",
+      "ink": "base",
+      "blurb": "Quotes as transmissions."
+    },
+    {
+      "id": "broadcast-quote",
+      "label": "Broadcast quote",
+      "for": "quote",
+      "exposes": [
+        "font",
+        "size",
+        "ink",
+        "colour"
+      ],
+      "tone": "magenta",
+      "font": "audiowide",
+      "size": "h3",
+      "ink": "strong",
+      "blurb": "Synthwave show quotes."
+    },
+    {
+      "id": "terminal-quote",
+      "label": "Terminal quote",
+      "for": "quote",
+      "exposes": [
+        "font",
+        "size",
+        "ink",
+        "colour"
+      ],
+      "tone": "lime",
+      "font": "vt323",
+      "size": "h2",
+      "ink": "tone",
+      "blurb": "A quote typed at a terminal."
+    },
+    {
+      "id": "arcade-quote",
+      "label": "Arcade quote",
+      "for": "quote",
+      "exposes": [
+        "font",
+        "size",
+        "ink",
+        "colour"
+      ],
+      "tone": "lime",
+      "font": "pressstart2p",
+      "size": "h4",
+      "ink": "tone",
+      "blurb": "Short, punchy, 8-bit."
     }
   ],
   "motion": [

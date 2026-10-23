@@ -7,7 +7,7 @@
 //! Looks are passed in, never held globally: this crate stays pure data
 //! (docs/design/architecture.md). Plan: docs/plans/linked-looks-lk2.md.
 
-use crate::{Background, DocError, Issue, Slide, Theme, LIBRARY};
+use crate::{Background, Block, DocError, Issue, Slide, Theme, LIBRARY};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -222,6 +222,24 @@ impl Looks {
     pub fn retire(&mut self, id: &str) {
         self.yours.retain(|look| look.id != id);
     }
+
+    /// The line look a text or quote block follows (LK3), when it names a
+    /// real one for its own entity. The built-in line looks for now; the
+    /// operator's own would join them here, as card looks did in LK2.
+    pub fn line_look(&self, block: &crate::Block) -> Option<&'static dpl_coldlight::BlockPreset> {
+        let id = block.words()?.preset?;
+        dpl_coldlight::block_preset(id).filter(|look| look.entity == crate::block_entity(block))
+    }
+
+    /// The line looks for one entity (`text` or `quote`), in authored order.
+    pub fn line_looks(
+        &self,
+        entity: &'static str,
+    ) -> impl Iterator<Item = &'static dpl_coldlight::BlockPreset> {
+        dpl_coldlight::BLOCK_PRESETS
+            .iter()
+            .filter(move |look| look.entity == entity)
+    }
 }
 
 /// Where the library keeps looks: `<content>/library/looks/`.
@@ -331,13 +349,28 @@ pub fn validate_look(look: &Look) -> Vec<Issue> {
 /// Does the look a slide names exist here? The half of the check
 /// [`crate::validate`] cannot make without the library. Empty = clean.
 pub fn validate_looks(slide: &Slide, looks: &Looks) -> Vec<Issue> {
-    match &slide.preset {
+    let mut issues = match &slide.preset {
         Some(id) if crate::card_preset(slide, looks).is_none() => vec![Issue {
             path: "preset".into(),
             message: format!("no card look {id:?} — the slide shows the show's style"),
         }],
         _ => Vec::new(),
+    };
+    // Each line's look (LK3): real, and for its own entity.
+    for block in &slide.blocks {
+        if let Some(id) = block.words().and_then(|words| words.preset) {
+            if looks.line_look(block).is_none() {
+                issues.push(Issue {
+                    path: format!("blocks.{}.preset", block.id()),
+                    message: format!(
+                        "no {} look {id:?} — the line shows the card's style",
+                        crate::block_entity(block)
+                    ),
+                });
+            }
+        }
     }
+    issues
 }
 
 /// Save the card as it shows now as a new look named `label`. The slide
@@ -348,10 +381,13 @@ pub fn validate_looks(slide: &Slide, looks: &Looks) -> Vec<Issue> {
 pub fn save_as_new_look(slide: &mut Slide, theme: &Theme, looks: &Looks, label: &str) -> Look {
     let shown = crate::resolve(slide, theme, looks);
     let current = crate::card_preset(slide, looks);
+    // The font the card's own lines show — not lines with a look of their own.
     let fonts: Vec<&str> = shown
         .blocks
         .iter()
-        .filter_map(|block| block.words().and_then(|words| words.font))
+        .filter_map(Block::words)
+        .filter(|words| words.preset.is_none())
+        .filter_map(|words| words.font)
         .collect();
     let font = match fonts.first() {
         Some(first) if fonts.iter().all(|font| font == first) => (*first).to_owned(),
@@ -387,11 +423,15 @@ pub fn save_as_new_look(slide: &mut Slide, theme: &Theme, looks: &Looks, label: 
 }
 
 /// The one font all of the slide's own line fonts agree on, when they do.
+/// Lines following their own line look (LK3) are that look's business, not
+/// the card's, so they are left out.
 fn agreed_font(slide: &Slide) -> Option<String> {
     let own: Vec<&str> = slide
         .blocks
         .iter()
-        .filter_map(|block| block.words().and_then(|words| words.font))
+        .filter_map(Block::words)
+        .filter(|words| words.preset.is_none())
+        .filter_map(|words| words.font)
         .collect();
     match own.first() {
         Some(first) if own.iter().all(|font| font == first) => Some((*first).to_owned()),
@@ -477,7 +517,7 @@ pub fn slides_following(content_root: &Path, id: &str) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{link, Block};
+    use crate::link;
 
     fn scratch(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("dpl-look-{tag}-{}", crate::new_id()));
@@ -606,6 +646,8 @@ mod tests {
             font: Some("vt323".into()),
             size: Some("h1".into()),
             ink: None,
+            enter: None,
+            unlinked_from: None,
         };
         let look = save_as_new_look(&mut slide, &theme, &looks, "Mixed");
         // The lines disagree, so the look keeps the show's font and the
@@ -700,6 +742,8 @@ mod tests {
             font: Some("vt323".into()),
             size: Some("h1".into()),
             ink: None,
+            enter: None,
+            unlinked_from: None,
         };
         slide.tone = Some("lime".into());
         let next = push_back(&mut slide, &neon);

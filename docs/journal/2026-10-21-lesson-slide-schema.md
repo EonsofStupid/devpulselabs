@@ -222,7 +222,15 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
    built-in, Open the look. Proof in the plan's §8. The gate passed on
    push; the exe was rebuilt from `main` (stamp `4ee638b · 2026-10-23
    03:23z`). Merge order: #280 → #281 → #282 → #283 → #284 → #285.
-5. Then LK3 (text, quote and picture looks) needs its own plan.
+5. **LK3** — plan `docs/plans/linked-looks-lk3.md` (untracked), APPROVED
+   2026-10-23: LK3a "Approve"; picture looks "LK3b makes them real";
+   "Add per-line entrances". **LK3a is built on `feat/lk3a-line-looks`**
+   (from LK2b): per-line entrances, the 20 line looks, the line cascade and
+   verbs, line colour, the line tray, shrink to fit, the Library sections;
+   proof in the plan's §8. Next: commit, push with the LK2b branch (its
+   journal commit 1535928 rides along), rebuild the exe from `main`, draft
+   PR based on `feat/lk2b-spread`. Then LK3b (picture frame colour and
+   entrance, then the 5 picture looks) needs its §4 written into the plan.
 
 ## Landmines
 
@@ -261,6 +269,10 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
   open, it is clipped at the stage edge. Real slot layout comes with LS4.
 - **Tapping a look only TRIES it now (LK1).** Any scenario that picks a look
   must click `root/editor/keep` after it.
+- **This harness's wheel does not scroll egui scroll areas** (hover +
+  `scroll` has no effect; `scroll-into-view` is unsupported). Rows below a
+  tray's fold are proven by unit tests; scenario targets must be on screen
+  (the look row uses "Editorial quote", the third tile).
 - **A run has 30 s in all** (the profile's `timeout_ms`). A long scenario
   that runs past it looks like a stall ("target did not answer request");
   keep click waits short (`look-spread` uses 0.4 s) and wait 1.5 s only
