@@ -1,0 +1,273 @@
+# LK3b (R286): picture looks on the real exe. On a fresh title card (it
+# comes with a picture), the Picture tab shows the picture's look: try
+# a picture look (the chip says Trying), Keep (it shows: "Framed" whole in a
+# cyan frame; "Full bleed" filling, unframed). Change how it sits (the dot,
+# "1 change"), give it back, make a value its own (an amber frame, or at
+# 1100 its movement — its dot), then stop following ("Own style (was …)").
+# Fixture `author-ls2` (scratch content root). The run has 30 s in all.
+id = "picture-looks"
+fixture = "author-ls2"
+record = true
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.lane/make"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.shelf/templates"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.author.card/templates/title"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.card/templates/title"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+# The Picture tab: the picture's own look.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.tab/picture"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "Plain picture"
+
+[steps.expectation.target]
+id = "root/editor/line-chip"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/editor.line-look/framed"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor.line-look/framed"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "Trying: Framed"
+
+[steps.expectation.target]
+id = "root/editor/line-chip"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/line-keep"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "Look: Framed"
+
+[steps.expectation.target]
+id = "root/editor/line-chip"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "capture"
+name = "picture-looks-kept"
+
+# How it sits, the picture's own — then given back.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/fit-cover"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/editor.yours/line-media-fit"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "Look: Framed · 1 change"
+
+[steps.expectation.target]
+id = "root/editor/line-chip"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/back-line-media-fit"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "count"
+value = 0
+
+[steps.expectation.target]
+id = "root/editor.yours/line-media-fit"
+
+# A value of its own (its dot).
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/frame-amber"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/editor.yours/line-media-colour"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "capture"
+name = "picture-looks-own"
+
+# Stop following.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/line-chip"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/line-stop"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "Own style (was Framed)"
+
+[steps.expectation.target]
+id = "root/editor/line-chip"

@@ -7,7 +7,7 @@
 //! the default face, unknown sizes to body, unknown inks to base, unknown
 //! moods to an honest labeled plate.
 
-use crate::elements::{ambient_backdrop, media_block_backdrop, Ambient};
+use crate::elements::{ambient_backdrop, media_block_backdrop, Ambient, PictureLook};
 use crate::motion::Clock;
 use dpl_coldlight::{self as cl};
 use egui::{Color32, Rect, Ui};
@@ -321,9 +321,24 @@ fn render_inner(
         _ => true, // wall mode, or a block outside the reveal order
     };
 
-    // Media pre-pass (W11): media blocks paint FULL-BLEED — under any text,
-    // over the mood. A media-only slide (the media_frame template) fills the
-    // stage; media behind text is a backdrop. Reveals honored like text.
+    let fluid = match stage {
+        Stage::Full => cl::Fluid::of(rect),
+        Stage::Thumbnail => cl::Fluid::thumbnail(rect),
+    };
+    // Each block moves by its own entrance (LK3, resolved: its own, its
+    // look's, then the slide's): rising blocks stagger in; a block that does
+    // not move simply appears.
+    let rises = |block: &dpl_doc::Block| {
+        block
+            .style()
+            .is_some_and(|style| style.enter == Some("rise"))
+    };
+    let fx = cl::motion::ENTER_RISE;
+
+    // Media pre-pass (W11): media blocks paint under any text, over the
+    // mood — filling the stage, or all of the picture letterboxed (LK3b),
+    // framed in the picture's colour, entering by its own entrance. Reveals
+    // honored like text.
     for block in &slide.blocks {
         if let dpl_doc::Block::Media {
             id,
@@ -331,19 +346,34 @@ fn render_inner(
             src,
             fit,
             poster,
+            tone,
             ..
         } = block
         {
             if visible_at(id) {
-                media_block_backdrop(ui, rect, show, src, fit.as_deref(), poster.as_deref());
+                let m = match step {
+                    None | Some(0) if rises(block) => fx.sample(now, t0, 0),
+                    Some(s) if s > 0 && reveal_pos(id) == Some(s - 1) && rises(block) => {
+                        fx.sample(now, t0, 0)
+                    }
+                    _ => cl::motion::Motion::REST,
+                };
+                media_block_backdrop(
+                    ui,
+                    rect,
+                    show,
+                    src,
+                    poster.as_deref(),
+                    PictureLook {
+                        contain: fit.as_deref() == Some("contain"),
+                        frame: tone.as_deref().and_then(cl::hue_accent),
+                        alpha: m.alpha,
+                        lift: fluid.sp_5() * m.offset.y,
+                    },
+                );
             }
         }
     }
-
-    let fluid = match stage {
-        Stage::Full => cl::Fluid::of(rect),
-        Stage::Thumbnail => cl::Fluid::thumbnail(rect),
-    };
     let painter = ui.painter_at(rect);
     let pad = fluid.sp_7();
     let wrap = (rect.width() - pad * 2.0).max(40.0);
@@ -398,15 +428,8 @@ fn render_inner(
         total = total_of(&heights);
     }
 
-    // Pass 2 — the entrance and the real paint. Each line moves by its own
-    // entrance (LK3, resolved: the line's, its look's, then the slide's):
-    // rising lines stagger in; a line that does not move simply appears.
-    let rises = |block: &dpl_doc::Block| {
-        block
-            .words()
-            .is_some_and(|words| words.enter == Some("rise"))
-    };
-    let fx = cl::motion::ENTER_RISE;
+    // Pass 2 — the entrance and the real paint (each block by its own
+    // entrance, above).
     if fx.in_flight(now, t0, slide.blocks.len())
         && (slide.blocks.iter().any(rises) || step.is_some_and(|s| s > 0))
     {
@@ -669,6 +692,8 @@ mod tests {
                 src: "does/not/exist.png".into(), // degrades to the plate
                 fit: Some("cover".into()),
                 poster: None,
+                enter: None,
+                unlinked_from: None,
             },
             sized("cap", "caption over media", "h3"),
         ];

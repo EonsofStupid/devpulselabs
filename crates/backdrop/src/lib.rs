@@ -148,17 +148,18 @@ impl Backdrop {
             .flatten();
         let played = match video {
             Some(file) => {
-                dpl_video::loop_backdrop(ui, rect, &file) || {
-                    let poster = dpl_video::locate_asset(self.current.poster_rel());
-                    match poster {
-                        Some(p) => {
-                            let uri = p.to_string_lossy().replace('\\', "/");
-                            egui::Image::new(format!("file:///{uri}")).paint_at(ui, rect);
-                            true
+                dpl_video::loop_backdrop(ui, rect, &file, false, egui::Color32::WHITE).is_some()
+                    || {
+                        let poster = dpl_video::locate_asset(self.current.poster_rel());
+                        match poster {
+                            Some(p) => {
+                                let uri = p.to_string_lossy().replace('\\', "/");
+                                egui::Image::new(format!("file:///{uri}")).paint_at(ui, rect);
+                                true
+                            }
+                            None => false,
                         }
-                        None => false,
                     }
-                }
             }
             None => false, // mood gradient alone — honest, never a crash
         };

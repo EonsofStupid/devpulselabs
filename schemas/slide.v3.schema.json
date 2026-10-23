@@ -76,7 +76,9 @@
             "as": { "enum": ["image", "video"] },
             "src": { "type": "string", "minLength": 1 },
             "fit": { "enum": ["cover", "contain"] },
-            "poster": { "type": "string", "minLength": 1 }
+            "poster": { "type": "string", "minLength": 1 },
+            "enter": { "description": "The picture's own entrance (LK3b); absent inherits its look's, then the slide's.", "enum": ["rise", "none"] },
+            "unlinked_from": { "description": "The picture look this picture stopped following (LK3b).", "$ref": "#/$defs/ref" }
           }
         },
         {

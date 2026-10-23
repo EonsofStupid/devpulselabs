@@ -39,9 +39,55 @@ pub enum Media {
 /// ambience too.
 pub fn media_backdrop(ui: &mut Ui, rect: Rect, media: &Media, tone: Tone, now: f64, t0: f64) {
     match media {
-        Media::Image { src } => paint_image(ui, rect, src),
-        Media::Video { src } => paint_video(ui, rect, src, None),
+        Media::Image { src } => {
+            paint_image(ui, rect, src, PictureLook::FILL);
+        }
+        Media::Video { src } => {
+            paint_video(ui, rect, src, None, PictureLook::FILL);
+        }
         Media::Anim { ambient } => ambient_backdrop(ui, rect, *ambient, tone.color(), now, t0),
+    }
+}
+
+/// How a picture paints (LK3b): how it sits, its frame, and where its
+/// entrance is.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PictureLook {
+    /// Show all of it, letterboxed — else it fills the stage, cropped.
+    pub contain: bool,
+    /// The frame's colour; `None` paints no frame.
+    pub frame: Option<egui::Color32>,
+    /// The entrance's fade (1 = fully there) and lift, in points.
+    pub alpha: f32,
+    pub lift: f32,
+}
+
+impl PictureLook {
+    /// Fill the stage, no frame, at rest — a template's picture.
+    pub const FILL: PictureLook = PictureLook {
+        contain: false,
+        frame: None,
+        alpha: 1.0,
+        lift: 0.0,
+    };
+}
+
+/// Where a picture of `size` lands in `rect`, and which part of it shows:
+/// `contain` keeps all of it (letterboxed, centred); otherwise it fills
+/// `rect`, cropped evenly. A size not known yet fills `rect` whole.
+pub fn fit_picture(rect: Rect, size: Option<egui::Vec2>, contain: bool) -> (Rect, Rect) {
+    let whole = Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+    let Some(size) = size.filter(|size| size.x > 0.0 && size.y > 0.0) else {
+        return (rect, whole);
+    };
+    if contain {
+        let scale = (rect.width() / size.x).min(rect.height() / size.y);
+        (Rect::from_center_size(rect.center(), size * scale), whole)
+    } else {
+        (
+            rect,
+            dpl_video::cover_uv(size.x / size.y, rect.aspect_ratio()),
+        )
     }
 }
 
@@ -56,14 +102,24 @@ pub fn media_block_backdrop(
     rect: Rect,
     show: &str,
     src: &str,
-    _fit: Option<&str>,
     poster: Option<&str>,
+    look: PictureLook,
 ) {
-    match show {
-        "video" => paint_video(ui, rect, src, poster),
+    let rect = rect.translate(egui::vec2(0.0, look.lift));
+    let painted = match show {
+        "video" => paint_video(ui, rect, src, poster, look),
         // "image" and any unrecognized value degrade to the image ladder
         // (locate → paint → labeled plate), never a crash.
-        _ => paint_image(ui, rect, src),
+        _ => paint_image(ui, rect, src, look),
+    };
+    // The frame: a hard edge in the picture's colour — never a glow.
+    if let (Some(frame), Some(at)) = (look.frame, painted) {
+        ui.painter().rect_stroke(
+            at,
+            cl::RADIUS,
+            egui::Stroke::new(2.0, frame.gamma_multiply(look.alpha)),
+            egui::StrokeKind::Inside,
+        );
     }
 }
 
@@ -102,52 +158,74 @@ fn missing_plate(ui: &Ui, rect: Rect, label: &str) {
 }
 
 /// The image ladder: locate → paint (+ legibility diffusion) → labeled plate.
-fn paint_image(ui: &mut Ui, rect: Rect, path: &str) {
+fn paint_image(ui: &mut Ui, rect: Rect, path: &str, look: PictureLook) -> Option<Rect> {
     match dpl_video::locate_asset(path) {
-        Some(file) => {
-            // file:/// with THREE slashes — two reads as a UNC host on
-            // Windows and the load errors.
-            let uri = file.to_string_lossy().replace('\\', "/");
-            egui::Image::new(format!("file:///{uri}"))
-                .corner_radius(cl::RADIUS)
-                .paint_at(ui, rect);
-            // Legibility: the dark diffusion the vocabulary demands.
-            ui.painter()
-                .rect_filled(rect, cl::RADIUS, egui::Color32::from_black_alpha(120));
+        Some(file) => Some(paint_still(ui, rect, &file, look)),
+        None => {
+            missing_plate(ui, rect, &format!("image · {path} · file not found"));
+            None
         }
-        None => missing_plate(ui, rect, &format!("image · {path} · file not found")),
     }
+}
+
+/// One still (an image, or a video's poster), fitted, faded, and dimmed for
+/// legibility. Returns where it landed.
+fn paint_still(ui: &mut Ui, rect: Rect, file: &std::path::Path, look: PictureLook) -> Rect {
+    // file:/// with THREE slashes — two reads as a UNC host on Windows and
+    // the load errors.
+    let uri = file.to_string_lossy().replace('\\', "/");
+    let image = egui::Image::new(format!("file:///{uri}"))
+        .corner_radius(cl::RADIUS)
+        .tint(egui::Color32::WHITE.gamma_multiply(look.alpha));
+    let size = image
+        .load_for_size(ui.ctx(), rect.size())
+        .ok()
+        .and_then(|poll| poll.size());
+    let (at, uv) = fit_picture(rect, size, look.contain);
+    image.uv(uv).paint_at(ui, at);
+    legibility(ui, at, look.alpha);
+    at
+}
+
+/// The dark diffusion the vocabulary demands, so words can sit on a
+/// picture — faded with the picture's entrance.
+fn legibility(ui: &Ui, at: Rect, alpha: f32) {
+    let shade = (120.0 * alpha.clamp(0.0, 1.0)) as u8;
+    ui.painter()
+        .rect_filled(at, cl::RADIUS, egui::Color32::from_black_alpha(shade));
 }
 
 /// The video ladder (B1): ffmpeg-subprocess loop → poster still → labeled
 /// plate. `poster` is an optional explicit ref (W11 documents); absent, the
 /// derived `poster_of` still applies.
-fn paint_video(ui: &mut Ui, rect: Rect, path: &str, poster: Option<&str>) {
-    match dpl_video::locate_asset(path) {
-        Some(file) => {
-            if !dpl_video::loop_backdrop(ui, rect, &file) {
-                // Prefer an explicit poster ref, else the derived sidecar.
-                let still = poster
-                    .and_then(dpl_video::locate_asset)
-                    .filter(|p| p.is_file())
-                    .or_else(|| Some(dpl_video::poster_of(&file)).filter(|p| p.is_file()));
-                match still {
-                    Some(p) => {
-                        let uri = p.to_string_lossy().replace('\\', "/");
-                        egui::Image::new(format!("file:///{uri}"))
-                            .corner_radius(cl::RADIUS)
-                            .paint_at(ui, rect);
-                    }
-                    None => {
-                        missing_plate(ui, rect, &format!("video · {path} · waiting for ffmpeg"))
-                    }
-                }
-            }
-            // Legibility diffusion, same as the image slot.
-            ui.painter()
-                .rect_filled(rect, cl::RADIUS, egui::Color32::from_black_alpha(120));
+fn paint_video(
+    ui: &mut Ui,
+    rect: Rect,
+    path: &str,
+    poster: Option<&str>,
+    look: PictureLook,
+) -> Option<Rect> {
+    let Some(file) = dpl_video::locate_asset(path) else {
+        missing_plate(ui, rect, &format!("video · {path} · file not found"));
+        return None;
+    };
+    let tint = egui::Color32::WHITE.gamma_multiply(look.alpha);
+    if let Some(at) = dpl_video::loop_backdrop(ui, rect, &file, look.contain, tint) {
+        // Legibility diffusion, same as the image slot.
+        legibility(ui, at, look.alpha);
+        return Some(at);
+    }
+    // Prefer an explicit poster ref, else the derived sidecar.
+    let still = poster
+        .and_then(dpl_video::locate_asset)
+        .filter(|p| p.is_file())
+        .or_else(|| Some(dpl_video::poster_of(&file)).filter(|p| p.is_file()));
+    match still {
+        Some(p) => Some(paint_still(ui, rect, &p, look)),
+        None => {
+            missing_plate(ui, rect, &format!("video · {path} · waiting for ffmpeg"));
+            None
         }
-        None => missing_plate(ui, rect, &format!("video · {path} · file not found")),
     }
 }
 
@@ -240,5 +318,51 @@ pub fn ambient_backdrop(
             }
             ui.ctx().request_repaint(); // looped ambience never rests
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn stage() -> Rect {
+        Rect::from_min_size(egui::pos2(10.0, 20.0), egui::vec2(320.0, 180.0))
+    }
+
+    /// "Show all of it" (LK3b): the whole picture, in its own shape, inside
+    /// the stage and centred — a tall screenshot is letterboxed, not squashed.
+    #[test]
+    fn show_all_of_it_keeps_the_whole_picture_in_its_shape() {
+        let tall = egui::vec2(400.0, 800.0);
+        let (at, uv) = fit_picture(stage(), Some(tall), true);
+        assert!(stage().contains_rect(at), "{at:?} inside {:?}", stage());
+        assert!(
+            (at.width() / at.height() - 0.5).abs() < 1e-3,
+            "its own shape"
+        );
+        assert_eq!(at.height(), stage().height());
+        assert_eq!(at.center(), stage().center());
+        assert_eq!(
+            uv,
+            Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0))
+        );
+    }
+
+    /// "Fill the card": the stage is filled, the picture cropped evenly.
+    #[test]
+    fn fill_the_card_fills_the_stage_and_crops_evenly() {
+        let tall = egui::vec2(400.0, 800.0);
+        let (at, uv) = fit_picture(stage(), Some(tall), false);
+        assert_eq!(at, stage());
+        assert_eq!((uv.min.x, uv.max.x), (0.0, 1.0), "the full width shows");
+        assert!(uv.min.y > 0.0 && uv.max.y < 1.0, "top and bottom cropped");
+        assert!((uv.min.y - (1.0 - uv.max.y)).abs() < 1e-5, "cropped evenly");
+    }
+
+    /// A picture whose size is not known yet fills the stage whole.
+    #[test]
+    fn an_unknown_size_fills_the_stage() {
+        let (at, _) = fit_picture(stage(), None, true);
+        assert_eq!(at, stage());
     }
 }

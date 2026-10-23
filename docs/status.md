@@ -37,7 +37,7 @@ refreshed without touching content. The research is
 | LK2a | Your own looks as files (`dpl.look/1`, the `Looks` registry passed to every surface that paints): Save as a new look, your looks first in the tray and in the Library, the missing-look state | **built**, stacked on LK1 |
 | LK2b | Changes that spread: Make these the look's new style ("changes 12 other slides", before and after, one Undo), your version of a built-in with Back to the built-in, Open the look (in the card editor, ruled 2026-10-22) | **built**, stacked on LK2a |
 | LK3a | Line looks (ruled 2026-10-23): per-line entrances; the 14 text and 6 quote looks by reference between a line's own values and the card's look; a line's colour painted; per line the chip, menu, look row, dots, Colour and Movement rows, stop/follow again; shrink to fit; the Library shows them | **built**, stacked on LK2b |
-| LK3b | Picture looks made real: a picture's coloured frame and its own entrance, then the 5 picture looks (the recorded three-knob exception) | |
+| LK3b | Picture looks made real (ruled "Approve wider LK3b", 2026-10-23): fit painted for real (it was ignored), a frame in the picture's colour, the picture's own entrance; the 5 picture looks; picture controls on tap and on the Picture tab; the Library shows them | **built**, stacked on LK3a |
 | LS3 | Lessons (`dpl.lesson/1`) and episodes built from lessons (`dpl.episode/2`), by reference, with "Update available" | |
 | LS4 | Components render their slots and variant axes | |
 | LS5 | Render locks for exports; Lottie slots | |

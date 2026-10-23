@@ -2548,6 +2548,8 @@ impl Composer {
             src: rec.rel_path.clone(),
             fit: Some("cover".into()),
             poster: rec.poster_rel_path.clone(),
+            enter: None,
+            unlinked_from: None,
         }];
         slide
     }

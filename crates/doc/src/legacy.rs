@@ -148,6 +148,8 @@ pub fn upgrade(raw: &str) -> Result<Slide, String> {
                 src,
                 fit,
                 poster,
+                enter: None,
+                unlinked_from: None,
             },
         });
     }

@@ -266,6 +266,13 @@ pub enum Block {
         /// second rung (frames → poster → labeled plate).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         poster: Option<String>,
+        /// The picture's own entrance: rise | none. None = inherit (its
+        /// look's, then the slide's) — LK3b.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        enter: Option<String>,
+        /// The picture look it stopped following (LK3b).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        unlinked_from: Option<String>,
     },
     /// A quotation (ruling #3: a real block, not a convention over text).
     /// Who said it and where live in the component's own slots.
@@ -412,8 +419,111 @@ impl Block {
             src: src.into(),
             fit: None,
             poster: None,
+            enter: None,
+            unlinked_from: None,
         }
     }
+
+    /// The look and the values every styled block has — text, quote or
+    /// picture (LK3): its look, its colour, its entrance, the look it
+    /// stopped following. `None` for data.
+    pub fn style(&self) -> Option<Style<'_>> {
+        match self {
+            Block::Text {
+                preset,
+                tone,
+                enter,
+                unlinked_from,
+                ..
+            }
+            | Block::Quote {
+                preset,
+                tone,
+                enter,
+                unlinked_from,
+                ..
+            }
+            | Block::Media {
+                preset,
+                tone,
+                enter,
+                unlinked_from,
+                ..
+            } => Some(Style {
+                preset: preset.as_deref(),
+                tone: tone.as_deref(),
+                enter: enter.as_deref(),
+                unlinked_from: unlinked_from.as_deref(),
+            }),
+            Block::Data { .. } => None,
+        }
+    }
+
+    /// The same, to edit in place.
+    pub fn style_mut(&mut self) -> Option<StyleMut<'_>> {
+        match self {
+            Block::Text {
+                preset,
+                tone,
+                enter,
+                unlinked_from,
+                ..
+            }
+            | Block::Quote {
+                preset,
+                tone,
+                enter,
+                unlinked_from,
+                ..
+            }
+            | Block::Media {
+                preset,
+                tone,
+                enter,
+                unlinked_from,
+                ..
+            } => Some(StyleMut {
+                preset,
+                tone,
+                enter,
+                unlinked_from,
+            }),
+            Block::Data { .. } => None,
+        }
+    }
+
+    /// A picture's fit, when the block is a picture that has one.
+    pub fn fit(&self) -> Option<&str> {
+        match self {
+            Block::Media { fit, .. } => fit.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// A picture's fit, to edit in place (`None` when not a picture).
+    pub fn fit_mut(&mut self) -> Option<&mut Option<String>> {
+        match self {
+            Block::Media { fit, .. } => Some(fit),
+            _ => None,
+        }
+    }
+}
+
+/// What every styled block has (LK3) — see [`Block::style`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Style<'a> {
+    pub preset: Option<&'a str>,
+    pub tone: Option<&'a str>,
+    pub enter: Option<&'a str>,
+    pub unlinked_from: Option<&'a str>,
+}
+
+/// What every styled block has, editable in place.
+pub struct StyleMut<'a> {
+    pub preset: &'a mut Option<String>,
+    pub tone: &'a mut Option<String>,
+    pub enter: &'a mut Option<String>,
+    pub unlinked_from: &'a mut Option<String>,
 }
 
 /// A text or quote block's words and their (resolved or sparse) styling.
@@ -764,15 +874,15 @@ pub fn validate(slide: &Slide) -> Vec<Issue> {
                 push(format!("{preset:?} is not a look id"));
             }
         }
-        if let Some(words) = block.words() {
-            if let Some(enter) = words.enter {
-                if !ENTERS.contains(&enter) {
-                    push(format!("unknown entrance {enter:?}"));
-                }
+        if let Some(enter) = block.style().and_then(|style| style.enter) {
+            if !ENTERS.contains(&enter) {
+                push(format!("unknown entrance {enter:?}"));
             }
         }
         if let Some(tone) = tone {
-            if !tone_ok(tone) {
+            // A picture's own colour may be "none": no frame (LK3b).
+            let no_frame = matches!(block, Block::Media { .. }) && tone == "none";
+            if !tone_ok(tone) && !no_frame {
                 push(format!("unknown tone {tone:?}"));
             }
         }
@@ -1443,24 +1553,31 @@ pub fn resolve(slide: &Slide, theme: &Theme, looks: &Looks) -> Slide {
         // A line's own value, then its line look's (LK3), then the card
         // look's font, then the show's. Media and data carry no words.
         let line_look = looks.line_look(b);
+        let from_look = |field: fn(&dpl_coldlight::BlockPreset) -> Option<&'static str>| {
+            line_look.and_then(field).map(str::to_owned)
+        };
+        if let Some(style) = b.style_mut() {
+            if style.tone.is_none() {
+                *style.tone = from_look(|l| l.tone);
+            }
+            if style.enter.is_none() {
+                *style.enter = from_look(|l| l.enter).or_else(|| slide_enter.clone());
+            }
+        }
         if let Some(words) = b.words_mut() {
             if words.font.is_none() {
-                *words.font = Some(line_look.map_or_else(|| font.clone(), |l| l.font.to_owned()));
+                *words.font = Some(from_look(|l| l.font).unwrap_or_else(|| font.clone()));
             }
             if words.size.is_none() {
-                *words.size = line_look.map(|l| l.size.to_owned());
+                *words.size = from_look(|l| l.size);
             }
             if words.ink.is_none() {
-                *words.ink =
-                    Some(line_look.map_or_else(|| theme.ink.clone(), |l| l.ink.to_owned()));
+                *words.ink = Some(from_look(|l| l.ink).unwrap_or_else(|| theme.ink.clone()));
             }
-            if words.tone.is_none() {
-                *words.tone = line_look.map(|l| l.tone.to_owned());
-            }
-            if words.enter.is_none() {
-                *words.enter = line_look
-                    .and_then(|l| l.enter.map(str::to_owned))
-                    .or_else(|| slide_enter.clone());
+        }
+        if let Some(fit) = b.fit_mut() {
+            if fit.is_none() {
+                *fit = from_look(|l| l.fit);
             }
         }
     }
@@ -2085,6 +2202,8 @@ mod tests {
                 src: "inbox/report/page-01.png".into(),
                 fit: Some("contain".into()),
                 poster: None,
+                enter: None,
+                unlinked_from: None,
             },
             Block::Media {
                 id: "clip".into(),
@@ -2094,6 +2213,8 @@ mod tests {
                 src: "inbox/demo/render.mp4".into(),
                 fit: None,
                 poster: Some("inbox/demo/render-poster.png".into()),
+                enter: None,
+                unlinked_from: None,
             },
         ];
         slide.enter = Some("none".into());
@@ -2124,6 +2245,8 @@ mod tests {
                 src: src.into(),
                 fit: Some("stretch".into()),
                 poster: Some("../secret.png".into()),
+                enter: None,
+                unlinked_from: None,
             }];
             slide
         };
@@ -2606,8 +2729,8 @@ mod tests {
         // entrance too, LK3 — else it inherits the slide's).
         let mut full = sample();
         for block in &mut full.blocks {
-            if let Some(words) = block.words_mut() {
-                *words.enter = Some("rise".into());
+            if let Some(style) = block.style_mut() {
+                *style.enter = Some("rise".into());
             }
         }
         assert_eq!(resolve(&full, &theme, &Looks::builtin_only()), full);

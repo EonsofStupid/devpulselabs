@@ -255,6 +255,14 @@ fn picture_tab(ui: &mut egui::Ui, ed: &mut CardEditor) {
     });
     ui.add_space(cl::space::S2);
 
+    // How the card's picture looks (LK3b) — its look, how it sits, its
+    // frame, its movement, with the dots and the way back — before the
+    // shelf, so a card's own picture is styled even with nothing to swap in.
+    if current.is_some() {
+        ed.editor.picture_controls(ui);
+        ui.add_space(cl::space::S3);
+    }
+
     // Two different emptinesses, and they must not read alike: the list could
     // not be opened, versus you simply have none of this kind yet.
     // Degrade, never crash: a paint path does not panic on its own state.
@@ -286,34 +294,6 @@ fn picture_tab(ui: &mut egui::Ui, ed: &mut CardEditor) {
         return;
     }
 
-    // How it sits on the card. Only meaningful once there IS one.
-    if let Some((src, show, fit)) = &current {
-        ui.horizontal_wrapped(|ui| {
-            ui.label(
-                RichText::new("How it sits")
-                    .size(fluid.fs_body())
-                    .color(cl::ink::BASE),
-            );
-            ui.add_space(cl::space::S2);
-            for option in ["cover", "contain"] {
-                let on = fit == option;
-                if cl::tip(
-                    ui.selectable_label(on, crate::pictures::fit_label(option)),
-                    if option == "cover" {
-                        "Fills the whole card, cropping the edges if it has to"
-                    } else {
-                        "Shows the whole picture, with space around it"
-                    },
-                )
-                .clicked()
-                    && !on
-                {
-                    want = Some(Some((src.clone(), show.clone(), option.to_string())));
-                }
-            }
-        });
-        ui.add_space(cl::space::S3);
-    }
 
     let tile_w = fluid.ctl_thumb_w() * 1.6;
     let tile_h = tile_w * 9.0 / 16.0;

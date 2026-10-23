@@ -325,11 +325,35 @@ impl Editor {
     /// because `Block::Media` is a backdrop and two would fight.
     pub fn set_media(&mut self, media: Option<(String, String, String)>) {
         self.mutate(|slide| {
-            slide
+            let Some((src, show, fit)) = media else {
+                slide
+                    .blocks
+                    .retain(|b| !matches!(b, dpl_doc::Block::Media { .. }));
+                return;
+            };
+            // The schema's default is cover; write it only when it is the
+            // other one, so a document stays sparse.
+            let fit = (fit != "cover").then_some(fit);
+            let existing = slide
                 .blocks
-                .retain(|b| !matches!(b, dpl_doc::Block::Media { .. }));
-            if let Some((src, show, fit)) = media {
-                slide.blocks.insert(
+                .iter_mut()
+                .find(|b| matches!(b, dpl_doc::Block::Media { .. }));
+            match existing {
+                // A different picture keeps the picture's look, frame and
+                // entrance (LK3b) — only the file and its sitting change.
+                Some(dpl_doc::Block::Media {
+                    src: at,
+                    show: kind,
+                    fit: sits,
+                    poster,
+                    ..
+                }) => {
+                    *at = src;
+                    *kind = show;
+                    *sits = fit;
+                    *poster = None;
+                }
+                _ => slide.blocks.insert(
                     0,
                     dpl_doc::Block::Media {
                         id: MEDIA_SLOT.to_string(),
@@ -337,12 +361,12 @@ impl Editor {
                         tone: None,
                         show,
                         src,
-                        // The schema's default is cover; write it only when it
-                        // is the other one, so a document stays sparse.
-                        fit: (fit != "cover").then_some(fit),
+                        fit,
                         poster: None,
+                        enter: None,
+                        unlinked_from: None,
                     },
-                );
+                ),
             }
         });
     }
@@ -562,14 +586,14 @@ impl Editor {
             Some(look) => dpl_doc::link::use_line_look(s, &id, look),
             None => {
                 dpl_doc::link::reset_line(s, &id);
-                if let Some(words) = s
+                if let Some(style) = s
                     .blocks
                     .iter_mut()
                     .find(|b| b.id() == id)
-                    .and_then(dpl_doc::Block::words_mut)
+                    .and_then(dpl_doc::Block::style_mut)
                 {
-                    *words.preset = None;
-                    *words.unlinked_from = None;
+                    *style.preset = None;
+                    *style.unlinked_from = None;
                 }
             }
         });
@@ -593,23 +617,59 @@ impl Editor {
         self.mutate(move |s| dpl_doc::link::follow_line_again(s, &looks, &id, keep_my_changes));
     }
 
-    /// Set a line's own colour (a hue id) or entrance (`rise` / `none`).
+    /// Set a block's own colour (a hue id; "none" = a picture with no
+    /// frame), entrance (`rise` / `none`) or — a picture — fit.
     fn set_line(&mut self, id: &str, field: dpl_doc::link::LineField, value: &str) {
         let (id, value) = (id.to_owned(), value.to_owned());
         self.mutate(move |s| {
-            if let Some(words) = s
-                .blocks
-                .iter_mut()
-                .find(|b| b.id() == id)
-                .and_then(dpl_doc::Block::words_mut)
-            {
-                match field {
-                    dpl_doc::link::LineField::Colour => *words.tone = Some(value),
-                    dpl_doc::link::LineField::Enter => *words.enter = Some(value),
-                    _ => {}
+            let Some(block) = s.blocks.iter_mut().find(|b| b.id() == id) else {
+                return;
+            };
+            match field {
+                dpl_doc::link::LineField::Fit => {
+                    if let Some(fit) = block.fit_mut() {
+                        *fit = Some(value);
+                    }
                 }
+                dpl_doc::link::LineField::Colour | dpl_doc::link::LineField::Enter => {
+                    if let Some(style) = block.style_mut() {
+                        match field {
+                            dpl_doc::link::LineField::Colour => *style.tone = Some(value),
+                            _ => *style.enter = Some(value),
+                        }
+                    }
+                }
+                _ => {}
             }
         });
+    }
+
+    /// Is this block the card's picture?
+    fn is_picture(&self, id: &str) -> bool {
+        matches!(self.slide.block(id), Some(dpl_doc::Block::Media { .. }))
+    }
+
+    /// A picture's values as they show: fit (`cover` / `contain`), frame
+    /// colour (a hue id, or none) and entrance.
+    fn picture_fields(&self, id: &str) -> Option<(String, Option<String>, String)> {
+        let shown = self.styling.resolve(&self.slide);
+        let block = shown.block(id)?;
+        let style = block.style()?;
+        Some((
+            block.fit().unwrap_or("cover").to_owned(),
+            style.tone.filter(|tone| *tone != "none").map(str::to_owned),
+            style.enter.unwrap_or("none").to_owned(),
+        ))
+    }
+
+    /// The card's picture controls (LK3b) — its look, how it sits, its
+    /// frame and its movement — for a surface that shows the picture on
+    /// its own tab (the Workbench's Picture tab). Nothing when the card has
+    /// no picture.
+    pub fn picture_controls(&mut self, ui: &mut Ui) {
+        if self.is_picture(MEDIA_SLOT) {
+            self.picture_rows(ui, MEDIA_SLOT);
+        }
     }
 
     /// A line look's name ("the card's style" for none).
@@ -792,13 +852,13 @@ impl Editor {
                 Some(look) => dpl_doc::link::use_line_look(&mut shown, line, look),
                 None => {
                     dpl_doc::link::reset_line(&mut shown, line);
-                    if let Some(words) = shown
+                    if let Some(style) = shown
                         .blocks
                         .iter_mut()
                         .find(|b| b.id() == *line)
-                        .and_then(dpl_doc::Block::words_mut)
+                        .and_then(dpl_doc::Block::style_mut)
                     {
-                        *words.preset = None;
+                        *style.preset = None;
                     }
                 }
             }
@@ -1438,6 +1498,7 @@ impl Editor {
         match self.selection.clone() {
             Selection::None => self.look_tray(&mut child),
             Selection::Background => self.background_tray(&mut child),
+            Selection::Block(id) if self.is_picture(&id) => self.picture_tray(&mut child, &id),
             Selection::Block(id) => self.text_tray(&mut child, &id),
         }
     }
@@ -1643,56 +1704,119 @@ impl Editor {
             .show(ui, |ui| self.text_tray_rows(ui, id));
     }
 
+    /// A tapped picture (LK3b): its look, how it sits, its frame and its
+    /// movement — scrolling, like the text tray.
+    fn picture_tray(&mut self, ui: &mut Ui, id: &str) {
+        egui::ScrollArea::vertical()
+            .id_salt("picture_tray")
+            .auto_shrink([false, false])
+            .show(ui, |ui| self.picture_rows(ui, id));
+    }
+
+    fn picture_rows(&mut self, ui: &mut Ui, id: &str) {
+        let Some((fit, frame, enter)) = self.picture_fields(id) else {
+            return;
+        };
+        self.block_head(ui, id, "Picture");
+        ui.add_space(cl::space::S2);
+        self.line_look_row(ui, id, "picture");
+        let knob = |field| dpl_doc::link::Knob::Line {
+            id: id.to_string(),
+            field,
+        };
+        // One row each, stacked: a narrow column (the Workbench's Picture
+        // tab) never has a row run past its edge.
+        ui.add_space(cl::space::S2);
+        ui.horizontal(|ui| {
+            ui.label(small("How it sits"));
+            self.yours_row(ui, &knob(dpl_doc::link::LineField::Fit));
+        });
+        ui.horizontal_wrapped(|ui| {
+            for (value, label, tip) in [
+                (
+                    "cover",
+                    "Fill the card",
+                    "Fills the whole card, cropping the edges if it has to",
+                ),
+                (
+                    "contain",
+                    "Show all of it",
+                    "Shows the whole picture, with space around it",
+                ),
+            ] {
+                if chip(ui, &format!("fit-{value}"), label, fit == value, tip) {
+                    self.set_line(id, dpl_doc::link::LineField::Fit, value);
+                }
+            }
+        });
+        ui.add_space(cl::space::S2);
+        ui.horizontal(|ui| {
+            ui.label(small("Movement"));
+            self.yours_row(ui, &knob(dpl_doc::link::LineField::Enter));
+        });
+        ui.horizontal_wrapped(|ui| {
+            for (value, label, tip) in [
+                (
+                    "rise",
+                    "Rise in",
+                    "The picture rises in when the slide shows",
+                ),
+                (
+                    "none",
+                    "Stay still",
+                    "The picture is simply there — no movement",
+                ),
+            ] {
+                if chip(ui, &format!("enter-{value}"), label, enter == value, tip) {
+                    self.set_line(id, dpl_doc::link::LineField::Enter, value);
+                }
+            }
+        });
+        ui.add_space(cl::space::S2);
+        ui.horizontal(|ui| {
+            ui.label(small("Frame"));
+            self.yours_row(ui, &knob(dpl_doc::link::LineField::Colour));
+        });
+        ui.horizontal_wrapped(|ui| {
+            if chip(
+                ui,
+                "frame-none",
+                "No frame",
+                frame.is_none(),
+                "No edge around the picture",
+            ) {
+                self.set_line(id, dpl_doc::link::LineField::Colour, "none");
+            }
+            for tone in cl::Tone::ALL {
+                let hue = tone.hue_id();
+                if swatch_chip(
+                    ui,
+                    &format!("frame-{hue}"),
+                    &pretty(hue),
+                    tone.color(),
+                    frame.as_deref() == Some(hue),
+                    "A hard edge in this colour around the picture",
+                ) {
+                    self.set_line(id, dpl_doc::link::LineField::Colour, hue);
+                }
+            }
+        });
+    }
+
     fn text_tray_rows(&mut self, ui: &mut Ui, id: &str) {
         let Some(tf) = self.text_fields(id) else {
             return;
         };
         let (text, font, size, ink) = (tf.text, tf.font, tf.size, tf.ink);
-        ui.horizontal_wrapped(|ui| {
-            ui.label(tray_title(if tf.entity == "quote" {
+        self.block_head(
+            ui,
+            id,
+            if tf.entity == "quote" {
                 "Quote"
             } else {
                 "Text"
-            }));
-            ui.add_space(cl::space::S3);
-            let chip_rect = self.line_chip(ui, id);
-            if self.line_menu {
-                self.line_menu_ui(ui, id, chip_rect);
-            }
-            // Trying a line look: Keep / Cancel sit right by the chip, so the
-            // looks row below needs no header of its own (a short window
-            // keeps its tiles whole).
-            let trying = self
-                .trying_line
-                .as_ref()
-                .filter(|(line, _)| line == id)
-                .map(|(_, look)| look.clone());
-            match trying {
-                Some(look) => {
-                    if hero_chip(
-                        ui,
-                        "line-keep",
-                        "Keep",
-                        "Use this look on the line (one Undo takes it back)",
-                    ) {
-                        self.trying_line = None;
-                        self.use_line_look(id, look.as_deref());
-                    }
-                    if chip(
-                        ui,
-                        "line-cancel",
-                        "Cancel",
-                        false,
-                        "Go back to how the line was",
-                    ) {
-                        self.trying_line = None;
-                    }
-                }
-                None => {
-                    ui.label(small("Tap a look below to try it on"));
-                }
-            }
-        });
+            },
+        );
 
         // The words.
         let mut edited = text.clone();
@@ -1920,6 +2044,46 @@ impl Editor {
         });
     }
 
+    /// A block tray's head (LK3): its title, the block's chip and menu,
+    /// and Keep / Cancel while a look is on trial (else the hint).
+    fn block_head(&mut self, ui: &mut Ui, id: &str, title: &str) {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(tray_title(title));
+            ui.add_space(cl::space::S3);
+            let chip_rect = self.line_chip(ui, id);
+            if self.line_menu {
+                self.line_menu_ui(ui, id, chip_rect);
+            }
+            // Trying a line look: Keep / Cancel sit right by the chip, so the
+            // looks row below needs no header of its own (a short window
+            // keeps its tiles whole).
+            let trying = self
+                .trying_line
+                .as_ref()
+                .filter(|(line, _)| line == id)
+                .map(|(_, look)| look.clone());
+            match trying {
+                Some(look) => {
+                    if hero_chip(
+                        ui,
+                        "line-keep",
+                        "Keep",
+                        "Use this look here (one Undo takes it back)",
+                    ) {
+                        self.trying_line = None;
+                        self.use_line_look(id, look.as_deref());
+                    }
+                    if chip(ui, "line-cancel", "Cancel", false, "Go back to how it was") {
+                        self.trying_line = None;
+                    }
+                }
+                None => {
+                    ui.label(small("Tap a look below to try it on"));
+                }
+            }
+        });
+    }
+
     /// The line's chip (LK3): "Look: Sci-fi headline · 1 change", "Own style
     /// (was …)", "Card style". Tap for the menu.
     fn line_chip(&mut self, ui: &mut Ui, id: &str) -> Rect {
@@ -1937,11 +2101,16 @@ impl Editor {
             }
         }
         let state = self.line_state(id);
+        let plain = if self.is_picture(id) {
+            "Plain picture"
+        } else {
+            "Card style"
+        };
         let text = match &state {
-            Some(dpl_doc::link::LinkState::Show { changes: 0 }) | None => "Card style".to_owned(),
+            Some(dpl_doc::link::LinkState::Show { changes: 0 }) | None => plain.to_owned(),
             Some(dpl_doc::link::LinkState::Show { changes }) => match changes {
-                1 => "Card style · 1 change".to_owned(),
-                n => format!("Card style · {n} changes"),
+                1 => format!("{plain} · 1 change"),
+                n => format!("{plain} · {n} changes"),
             },
             Some(dpl_doc::link::LinkState::Missing { .. }) => {
                 "Line look missing — the card's style".to_owned()
@@ -2074,16 +2243,21 @@ impl Editor {
         let current = self
             .slide
             .block(id)
-            .and_then(dpl_doc::Block::words)
-            .and_then(|words| words.preset)
+            .and_then(dpl_doc::Block::style)
+            .and_then(|style| style.preset)
             .map(str::to_owned);
+        let plain = if entity == "picture" {
+            "Plain picture"
+        } else {
+            "Card style"
+        };
         let trying = self
             .trying_line
             .as_ref()
             .filter(|(line, _)| line == id)
             .map(|(_, look)| look.clone());
         let tiles: Vec<(Option<&'static dpl_coldlight::BlockPreset>, String)> =
-            std::iter::once((None, "Card style".to_owned()))
+            std::iter::once((None, plain.to_owned()))
                 .chain(
                     self.styling
                         .looks
@@ -2102,16 +2276,40 @@ impl Editor {
                             ui.allocate_exact_size(egui::vec2(150.0, 44.0), Sense::click());
                         let painter = ui.painter_at(rect);
                         painter.rect_filled(rect, cl::RADIUS_SM, cl::surface::OVERLAY);
+                        let accent = look.and_then(|look| look.tone).and_then(cl::hue_accent);
                         let (font, color) = match look {
-                            Some(look) => (
-                                look.font,
+                            Some(look) if look.entity != "picture" => (
+                                look.font.unwrap_or("spacegrotesk"),
                                 cl::ink::named(
-                                    look.ink,
-                                    cl::hue_accent(look.tone).unwrap_or(cl::ink::BASE),
+                                    look.ink.unwrap_or("base"),
+                                    accent.unwrap_or(cl::ink::BASE),
                                 ),
                             ),
+                            Some(_) => ("spacegrotesk", cl::ink::STRONG),
                             None => ("spacegrotesk", cl::ink::MUTED),
                         };
+                        // A picture look's sample: a small picture plate,
+                        // whole or filling, in its frame.
+                        if let Some(look) = look.filter(|look| look.entity == "picture") {
+                            let plate = Rect::from_min_size(
+                                rect.right_top() + egui::vec2(-44.0, 8.0),
+                                egui::vec2(36.0, rect.height() - 16.0),
+                            );
+                            let inner = if look.fit == Some("contain") {
+                                plate.shrink2(egui::vec2(2.0, 8.0))
+                            } else {
+                                plate
+                            };
+                            painter.rect_filled(inner, cl::RADIUS_SM, cl::ink::SUBTLE);
+                            if let Some(edge) = accent {
+                                painter.rect_stroke(
+                                    inner,
+                                    cl::RADIUS_SM,
+                                    Stroke::new(2.0, edge),
+                                    StrokeKind::Inside,
+                                );
+                            }
+                        }
                         painter.text(
                             rect.left_center() + egui::vec2(10.0, 0.0),
                             Align2::LEFT_CENTER,
@@ -2139,10 +2337,14 @@ impl Editor {
                                 label,
                             ),
                         );
-                        let tip = look
-                            .map_or("No line look — the line takes the card's style", |look| {
-                                look.blurb
-                            });
+                        let tip = look.map_or(
+                            if entity == "picture" {
+                                "No picture look — the picture fills the card, unframed"
+                            } else {
+                                "No line look — the line takes the card's style"
+                            },
+                            |look| look.blurb,
+                        );
                         let resp = cl::tip(resp, tip);
                         if resp.clicked() && !chosen {
                             self.trying_line = Some((id.to_owned(), look_id.map(str::to_owned)));
@@ -2570,10 +2772,14 @@ fn value_words(
                 ),
                 LineField::Size => pretty(words.and_then(|w| w.size).unwrap_or(DEFAULT_SIZE)),
                 LineField::Ink => or_none(words.and_then(|w| w.ink)),
-                LineField::Enter => match words.and_then(|w| w.enter) {
+                LineField::Enter => match block.style().and_then(|s| s.enter) {
                     Some("rise") => "Rises in".into(),
                     Some(_) => "Stays still".into(),
                     None => "None".into(),
+                },
+                LineField::Fit => match block.fit() {
+                    Some("contain") => "Shows all of it".into(),
+                    _ => "Fills the card".into(),
                 },
                 LineField::Colour => match block {
                     dpl_doc::Block::Text { tone, .. }
@@ -3192,6 +3398,46 @@ mod tests {
             !raw.contains("\"enter\"") && !raw.contains("\"tone\""),
             "{raw}"
         );
+    }
+
+    /// A picture's look, fit, frame and movement through the editor (LK3b):
+    /// the look gives them; a fit and "No frame" of its own are changes; a
+    /// different picture keeps the look; giving back shows the look's again.
+    #[test]
+    fn a_pictures_look_fit_frame_and_movement() {
+        let dir = scratch("picture-look");
+        let mut slide = sparse_seed();
+        slide
+            .blocks
+            .insert(0, dpl_doc::Block::media(MEDIA_SLOT, "image", "inbox/x.png"));
+        dpl_doc::save(&dir, &slide).unwrap();
+        let mut ed = Editor::open(&dir, &dir).unwrap();
+        assert!(ed.is_picture(MEDIA_SLOT));
+        ed.use_line_look(MEDIA_SLOT, Some("evidence"));
+        assert_eq!(
+            ed.picture_fields(MEDIA_SLOT),
+            Some(("contain".into(), Some("amber".into()), "rise".into()))
+        );
+        ed.set_line(MEDIA_SLOT, dpl_doc::link::LineField::Fit, "cover");
+        ed.set_line(MEDIA_SLOT, dpl_doc::link::LineField::Colour, "none");
+        assert_eq!(
+            ed.picture_fields(MEDIA_SLOT),
+            Some(("cover".into(), None, "rise".into()))
+        );
+        assert!(matches!(
+            ed.line_state(MEDIA_SLOT),
+            Some(dpl_doc::link::LinkState::Follows { changes: 2, .. })
+        ));
+        // A different picture keeps the picture's look.
+        ed.set_media(Some(("inbox/y.png".into(), "image".into(), "cover".into())));
+        let picture = ed.slide().block(MEDIA_SLOT).unwrap().clone();
+        assert_eq!(picture.style().unwrap().preset, Some("evidence"));
+        ed.reset_line(MEDIA_SLOT);
+        assert_eq!(
+            ed.picture_fields(MEDIA_SLOT),
+            Some(("contain".into(), Some("amber".into()), "rise".into()))
+        );
+        assert!(dpl_doc::validate(&dpl_doc::load(&dir).unwrap()).is_empty());
     }
 
     /// The spread sheet opens and paints again after an Undo put the
