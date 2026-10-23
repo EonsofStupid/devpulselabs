@@ -103,6 +103,10 @@ pub struct WorkbenchHub {
     tree_issues: Vec<dpl_doc::Issue>,
     /// The Library surface's open section (chip row).
     lib_section: LibSection,
+    /// The looks the PRESETS section shows — the built-in ones plus the
+    /// operator's own (LK2). Loaded when the section opens, dropped when
+    /// it closes, so a look saved meanwhile shows on the next visit.
+    looks: Option<dpl_doc::Looks>,
     /// One live instance per registered template — the TEMPLATES section's
     /// stock, lazy so Default stays derivable.
     demos: Option<Vec<Box<dyn SlideTemplate>>>,
@@ -221,7 +225,11 @@ impl WorkbenchHub {
     /// the walls — seeds by class, live templates, colors, presets,
     /// fonts, moods.
     fn library_surface(&mut self, ui: &mut egui::Ui) {
+        let was = self.lib_section;
         library::chip_row(ui, &mut self.lib_section);
+        if self.lib_section != was {
+            self.looks = None;
+        }
         match self.lib_section {
             LibSection::Seeds => self.seeds_wall(ui),
             LibSection::Templates => {
@@ -232,7 +240,12 @@ impl WorkbenchHub {
             LibSection::Elements => library::elements_wall(ui),
             LibSection::Themes => library::traits_wall(ui),
             LibSection::Colors => library::pool_wall(ui),
-            LibSection::Presets => library::presets_wall(ui),
+            LibSection::Presets => {
+                let looks = self.looks.get_or_insert_with(|| {
+                    dpl_doc::Looks::load(&dpl_engine_capture::content_root())
+                });
+                library::presets_wall(ui, looks);
+            }
             LibSection::Fonts => library::fonts_wall(ui),
             LibSection::Icons => library::icons_wall(ui),
             LibSection::Moods => library::moods_wall(ui),
@@ -240,6 +253,7 @@ impl WorkbenchHub {
     }
 
     fn load_seeds() -> Vec<SeedEntry> {
+        let looks = dpl_doc::Looks::load(&dpl_engine_capture::content_root());
         dpl_doc::list_seeds()
             .into_iter()
             .map(|s| match dpl_doc::load(&s.dir) {
@@ -249,7 +263,7 @@ impl WorkbenchHub {
                         class: s.class,
                         id: s.id,
                         dir: s.dir,
-                        doc: Ok(DocSlide::new(slide)),
+                        doc: Ok(DocSlide::new(slide, looks.clone())),
                         issues,
                     }
                 }
@@ -446,7 +460,9 @@ impl EpisodeView {
     fn open(dir: &std::path::Path, id: String) -> Result<Self, String> {
         let ep = dpl_doc::load_episode(dir).map_err(|e| e.to_string())?;
         let issues = dpl_doc::validate_episode(dir, &ep);
-        // The show's authored theme (W3b) — every slide resolves through it.
+        // The show's authored theme (W3b) and the looks (LK2) — every
+        // slide resolves through them.
+        let looks = dpl_doc::Looks::load(&dpl_engine_capture::content_root());
         let theme = dpl_doc::load_theme(dir)
             .ok()
             .flatten()
@@ -457,7 +473,15 @@ impl EpisodeView {
                 let head = (i == 0).then(|| chapter.title.clone());
                 let slide_dir = dir.join(name);
                 let doc = dpl_doc::load(&slide_dir)
-                    .map(|s| DocSlide::with_look(s, theme.clone()))
+                    .map(|s| {
+                        DocSlide::styled(
+                            s,
+                            dpl_doc::Styling {
+                                theme: theme.clone(),
+                                looks: looks.clone(),
+                            },
+                        )
+                    })
                     .map_err(|e| e.to_string())?;
                 let script = dpl_doc::script::load_script(&slide_dir)
                     .ok()
@@ -846,7 +870,7 @@ impl WorkbenchHub {
             } else {
                 dir
             };
-            match dpl_editor::Editor::open(&dir) {
+            match dpl_editor::Editor::open(&dir, &dpl_engine_capture::content_root()) {
                 Ok(ed) => self.editor = Some(ed),
                 Err(e) => {
                     ui.label(RichText::new(format!("could not open: {e}")).color(cl::ink::MUTED));

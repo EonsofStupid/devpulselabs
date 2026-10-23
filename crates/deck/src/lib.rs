@@ -46,7 +46,8 @@ struct Marker {
 
 pub struct DeckHost {
     title: String,
-    theme: dpl_doc::Theme,
+    /// The show's theme and the looks its slides may follow (LK2).
+    styling: dpl_doc::Styling,
     slides: Vec<DeckSlide>,
     /// Per-slide step counts, derived once — the nav math's whole world.
     steps: Vec<usize>,
@@ -70,8 +71,9 @@ pub struct DeckHost {
 }
 
 impl DeckHost {
-    /// Open a show from its episode folder.
-    pub fn open(dir: &Path) -> Result<Self, String> {
+    /// Open a show from its episode folder, with the looks its slides may
+    /// follow (the built-in ones plus the operator's own).
+    pub fn open(dir: &Path, looks: dpl_doc::Looks) -> Result<Self, String> {
         let ep = dpl_doc::load_episode(dir).map_err(|e| e.to_string())?;
         let theme = dpl_doc::load_theme(dir)
             .ok()
@@ -109,7 +111,7 @@ impl DeckHost {
             .collect();
         Ok(Self {
             title: ep.title,
-            theme,
+            styling: dpl_doc::Styling { theme, looks },
             slides,
             steps,
             markers,
@@ -229,7 +231,7 @@ impl DeckHost {
                     &mut child,
                     rect,
                     slide,
-                    &self.theme,
+                    &self.styling,
                     self.pos.step,
                     now,
                     t0,
@@ -763,7 +765,8 @@ mod tests {
 
     #[test]
     fn open_builds_steps_and_markers_from_the_documents() {
-        let host = DeckHost::open(&scratch_episode("open")).unwrap();
+        let host =
+            DeckHost::open(&scratch_episode("open"), dpl_doc::Looks::builtin_only()).unwrap();
         assert_eq!(host.steps, vec![1, 2, 1]);
         assert_eq!(host.slides.len(), 3);
         let marks: Vec<usize> = host.markers.iter().map(|m| m.index).collect();
@@ -772,7 +775,8 @@ mod tests {
 
     #[test]
     fn the_keyboard_walks_the_whole_beat_list_and_holds() {
-        let mut host = DeckHost::open(&scratch_episode("keys")).unwrap();
+        let mut host =
+            DeckHost::open(&scratch_episode("keys"), dpl_doc::Looks::builtin_only()).unwrap();
         let p = |i, s| nav::Position { index: i, step: s };
         let mut trace = vec![host.position()];
         for _ in 0..6 {
@@ -806,7 +810,8 @@ mod tests {
     /// domain; no-op moves publish nothing; the snapshot seam works.
     #[test]
     fn advancing_publishes_the_beat_on_the_deck_channel() {
-        let mut host = DeckHost::open(&scratch_episode("sync")).unwrap();
+        let mut host =
+            DeckHost::open(&scratch_episode("sync"), dpl_doc::Looks::builtin_only()).unwrap();
         let fabric = dpl_fabric::Fabric::new();
         let mut rx = fabric.subscribe_deck();
         host.wire_fabric(fabric);
@@ -842,7 +847,8 @@ mod tests {
 
     #[test]
     fn ink_survives_steps_and_clears_on_slide_change() {
-        let mut host = DeckHost::open(&scratch_episode("ink")).unwrap();
+        let mut host =
+            DeckHost::open(&scratch_episode("ink"), dpl_doc::Looks::builtin_only()).unwrap();
         host.press(egui::Key::A);
         assert!(host.annotate_on, "A toggles the ink layer");
         host.ink.begin(egui::Pos2::new(0.2, 0.2), None);
@@ -865,14 +871,15 @@ mod tests {
     fn a_broken_slide_degrades_to_a_plate_not_a_crash() {
         let dir = scratch_episode("broken");
         std::fs::write(dir.join("b").join("slide.json"), "{ not json").unwrap();
-        let host = DeckHost::open(&dir).unwrap();
+        let host = DeckHost::open(&dir, dpl_doc::Looks::builtin_only()).unwrap();
         assert!(host.slides[1].doc.is_err());
         assert_eq!(host.steps[1], 1, "a broken slide is one honest step");
     }
 
     #[test]
     fn frames_render_at_every_position_without_panicking() {
-        let mut host = DeckHost::open(&scratch_episode("frame")).unwrap();
+        let mut host =
+            DeckHost::open(&scratch_episode("frame"), dpl_doc::Looks::builtin_only()).unwrap();
         // The pool fonts must exist BEFORE layout — an unregistered
         // FontFamily::Name panics inside epaint (the same idiom as the
         // renderer's own tests).

@@ -191,15 +191,33 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
   - shots: `docs/proof/lk1-trying.png`, `lk1-one-change.png`,
     `lk1-compare-1100.png`, `lk1-own-style-1100.png`.
 
+## LK2a built (2026-10-22, milestone `own-looks`)
+
+- **Plan** `docs/plans/linked-looks-lk2.md` (untracked), APPROVED 2026-10-22:
+  "Approve, two PRs"; Open the look edits "In the card editor".
+- **Built on `feat/lk2a-own-looks`** (from the LK1 branch): `dpl.look/1`
+  and its schema, `dpl_doc::look` (`Look`, `Looks`, `validate_look`,
+  `validate_looks`, `save_as_new_look`), `dpl_doc::Styling`; `card_preset`,
+  `resolve`, the `link` verbs and the renderer take the looks; the editor
+  holds a `Styling` and the content root (`Editor::open(dir, content_root)`),
+  `DeckHost::open(dir, looks)`; Save as a new look with its name sheet; your
+  looks first in the tray and the Library; the missing-look state.
+- **Proof** is in the plan's §8: tests, `own-looks` (+1100) on the real exe,
+  the LK1 scenarios still passing, the look and both slides on disk, four
+  shots in `docs/proof/lk2a-*`.
+
 ## Exact next step
 
-1. **LK1 is draft PR #283** (a6a2378, base `feat/ls2b-presets-by-reference`);
-   the gate passed on push. This journal update is a local commit on top,
-   pushed with the next change.
-2. The merge order once the runners return: #280 → #281 → #282 → #283, each
-   retargeted to `main` (`gh pr edit <n> --base main`), double-green, the
-   exe rebuilt after each, each plan file deleted as it lands.
-3. Then LK2 (your own looks) gets its own plan, for the operator to approve.
+1. **LK1 is draft PR #283** (a6a2378, base `feat/ls2b-presets-by-reference`).
+2. **LK2a:** commit on `feat/lk2a-own-looks`, push through the gate, rebuild
+   the exe from `main`, open a draft PR based on `feat/lk1-linked-looks`.
+3. The merge order once the runners return: #280 → #281 → #282 → #283 →
+   LK2a, each retargeted to `main` (`gh pr edit <n> --base main`),
+   double-green, the exe rebuilt after each, each plan file deleted as it
+   lands.
+4. Then LK2b (plan §4.4–4.6): the spread sheet with its count, before and
+   after, the two-part undo step, your version of a built-in, Back to the
+   built-in, and editing the look in the card editor.
 
 ## Landmines
 
@@ -238,6 +256,13 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
   open, it is clipped at the stage edge. Real slot layout comes with LS4.
 - **Tapping a look only TRIES it now (LK1).** Any scenario that picks a look
   must click `root/editor/keep` after it.
+- **Own-look scenarios find the look by its name** (`role = "button"`,
+  `name = "Orchid intro"`), and name locators are strict: clear
+  `target/eguipilotai/ls2a/content/library/looks` before each run.
+- **The estate runners are offline** (server1 unreachable on port 22 on
+  2026-10-22; the operator is bringing it back). #280's run timed out after
+  24 h without starting; rerun it (`gh run rerun 39623397906`) once both
+  runners are online.
 
 ## Verify commands
 
