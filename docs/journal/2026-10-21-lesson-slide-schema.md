@@ -227,10 +227,11 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
    "Add per-line entrances". **LK3a is built on `feat/lk3a-line-looks`**
    (from LK2b): per-line entrances, the 20 line looks, the line cascade and
    verbs, line colour, the line tray, shrink to fit, the Library sections;
-   proof in the plan's §8. Next: commit, push with the LK2b branch (its
-   journal commit 1535928 rides along), rebuild the exe from `main`, draft
-   PR based on `feat/lk2b-spread`. Then LK3b (picture frame colour and
-   entrance, then the 5 picture looks) needs its §4 written into the plan.
+   proof in the plan's §8. **LK3a is draft PR #286** (bcbc272, base
+   `feat/lk2b-spread`); the gate passed; the exe was rebuilt from `main`
+   (stamp `4ee638b · 2026-10-23 17:18z`). Merge order: #280 → … → #286.
+   Next: LK3b (picture frame colour and entrance, then the 5 picture
+   looks) — its §4 goes into the plan first.
 
 ## Landmines
 
