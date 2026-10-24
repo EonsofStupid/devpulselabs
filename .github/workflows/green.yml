@@ -88,12 +88,17 @@ jobs:
       # cargo-target` is a sibling of the checkout: git clean never reaches
       # it, the checkout stays clean, and xtask honours CARGO_TARGET_DIR
       # (`target_dir()`). No rust-cache: the runner's own disk IS the cache.
-      # The guard wipes it (that run builds cold) past 50 GB or when the
-      # disk has under 15 GB free, so the guest can never fill.
+      # WHERE: a runner with a data disk sets DPL_CI_CACHE_ROOT in its own
+      # `.env` (`win-runner-bootstrap.ps1 -DataDisk`), and the cache lives
+      # there, off the OS disk, growable with one host command; without it,
+      # beside the checkout. Nothing here names a drive, so a new runner is
+      # just its own `.env`. The guard wipes it (that run builds cold) past
+      # 50 GB or when its disk has under 15 GB free, so a disk never fills.
       - name: the build cache (outside the checkout, guarded)
         shell: powershell
         run: |
-          $dir = Join-Path "${{ runner.workspace }}" "cargo-target"
+          if ($env:DPL_CI_CACHE_ROOT) { $dir = Join-Path $env:DPL_CI_CACHE_ROOT "devpulselabs" }
+          else { $dir = Join-Path "${{ runner.workspace }}" "cargo-target" }
           [IO.File]::AppendAllText($env:GITHUB_ENV, "CARGO_TARGET_DIR=$dir`n")
           $free = (Get-PSDrive ((Split-Path -Qualifier $dir).TrimEnd(':'))).Free / 1GB
           if (Test-Path $dir) {
@@ -156,7 +161,8 @@ jobs:
       # The build cache, outside the checkout — see green-windows.
       - name: the build cache (outside the checkout, guarded)
         run: |
-          dir="${{ runner.workspace }}/cargo-target"
+          if [ -n "${DPL_CI_CACHE_ROOT:-}" ]; then dir="$DPL_CI_CACHE_ROOT/devpulselabs"
+          else dir="${{ runner.workspace }}/cargo-target"; fi
           echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
           mkdir -p "$(dirname "$dir")"
           free_gb=$(( $(df -Pk "$(dirname "$dir")" | awk 'NR==2 {print $4}') / 1048576 ))

@@ -12,6 +12,13 @@
 #
 #   -VerifyOnly   audit every requirement and the service, install nothing
 #                 (the heartbeat / post-restart check; needs no token).
+#   -DataDisk     give the runner its own data disk for the build cache, or
+#                 grow it into space added since (needs no token; re-runnable).
+#                 Attach the disk first on the host: qm set 119 --scsi1 <storage>:150
+#                 Grow it later: qm resize 119 scsi1 +NG, then -DataDisk again.
+#                 It formats only a BLANK (RAW) disk, writes DPL_CI_CACHE_ROOT
+#                 into this runner's .env, and restarts the service only when
+#                 no job is running.
 #
 # Version pins are the PROVEN set (green on devpulse-runner-win-01,
 # 2026-07-28). Bumping a pin is a reviewed diff, not a drive-by.
@@ -25,7 +32,12 @@ param(
     # Per-repo roots (C:\actions\runner-<repo>) -- this guest hosts more
     # than one repo's runner; they must never share a directory.
     [string]$RunnerRoot = "C:\actions\runner-devpulselabs",
-    [switch]$VerifyOnly
+    [switch]$VerifyOnly,
+    [switch]$DataDisk,
+    # The data volume is found by its LABEL, so its drive letter can be
+    # anything; D is only the letter a new one gets.
+    [string]$DataLabel = "ci-data",
+    [string]$DataDriveLetter = "D"
 )
 
 $ErrorActionPreference = 'Stop'
@@ -71,6 +83,14 @@ function Test-MachinePath { ([Environment]::GetEnvironmentVariable('Path', 'Mach
 function Get-RunnerService {
     Get-Service | Where-Object { $_.Name -like 'actions.runner.*' -and $_.Name -like "*$RunnerName*" } | Select-Object -First 1
 }
+# -- the data disk (the build cache's own disk; ci-runners.md "Scaling") ---
+function Get-DataVolume {
+    Get-Volume -ErrorAction SilentlyContinue | Where-Object { $_.FileSystemLabel -eq $DataLabel } | Select-Object -First 1
+}
+function Get-CacheEnvLine {
+    $envFile = Join-Path $RunnerRoot ".env"
+    if (Test-Path $envFile) { Get-Content $envFile | Where-Object { $_ -match '^DPL_CI_CACHE_ROOT=' } | Select-Object -First 1 }
+}
 
 if ($VerifyOnly) {
     Step "verify-only audit"
@@ -83,11 +103,82 @@ if ($VerifyOnly) {
     $svc = Get-RunnerService
     if (-not $svc)                          { Fail "no actions.runner service for $RunnerName" }
     elseif ($svc.Status -ne 'Running')      { Fail "runner service is $($svc.Status), not Running" }
+    $vol = Get-DataVolume
+    $line = Get-CacheEnvLine
+    if (-not $vol) {
+        Write-Host "   NOTE: no '$DataLabel' data volume -- the build cache lives beside the checkout on C: (attach a disk, then -DataDisk)"
+    } elseif (-not $line) {
+        Fail "data volume $($vol.DriveLetter): exists but $RunnerRoot\.env does not set DPL_CI_CACHE_ROOT (run -DataDisk)"
+    } else {
+        Write-Host ("   data volume {0}: {1:N0} GB free; {2}" -f $vol.DriveLetter, ($vol.SizeRemaining / 1GB), $line)
+    }
     if ($failures.Count) { Write-Host "VERIFY: $($failures.Count) problem(s)"; exit 1 }
     Write-Host "VERIFY: all green"; exit 0
 }
 
-if (-not $Token) { throw "-Token is required to (re)register (or use -VerifyOnly)" }
+if ($DataDisk) {
+    Step "data disk ('$DataLabel') for the build cache"
+    Update-HostStorageCache
+    $vol = Get-DataVolume
+    if (-not $vol) {
+        # Only a BLANK disk is ever formatted: a disk with any partition
+        # style is someone's data, and is left alone.
+        $raw = Get-Disk | Where-Object { $_.PartitionStyle -eq 'RAW' } | Sort-Object Number | Select-Object -First 1
+        if (-not $raw) { throw "no '$DataLabel' volume and no blank disk to make one -- attach a disk on the host first (qm set 119 --scsi1 <storage>:150)" }
+        Write-Host ("   formatting blank disk {0} ({1:N0} GB) as {2}: '{3}'" -f $raw.Number, ($raw.Size / 1GB), $DataDriveLetter, $DataLabel)
+        Initialize-Disk -Number $raw.Number -PartitionStyle GPT
+        $part = New-Partition -DiskNumber $raw.Number -UseMaximumSize -DriveLetter $DataDriveLetter
+        Format-Volume -Partition $part -FileSystem NTFS -NewFileSystemLabel $DataLabel -Confirm:$false | Out-Null
+        $vol = Get-DataVolume
+        if (-not $vol) { throw "the data disk did not come up after formatting" }
+    } else {
+        Skip "data volume present ($($vol.DriveLetter):)"
+        # Grow into space added on the host since (qm resize 119 scsi1 +NG).
+        # The data volume is the only partition on its disk, so this always
+        # works -- the reason the cache never lives on C:.
+        $part = Get-Partition -DriveLetter $vol.DriveLetter
+        $max = (Get-PartitionSupportedSize -DriveLetter $vol.DriveLetter).SizeMax
+        if ($max -gt ($part.Size + 1GB)) {
+            Resize-Partition -DriveLetter $vol.DriveLetter -Size $max
+            Write-Host ("   grown to {0:N0} GB" -f ($max / 1GB))
+        } else { Skip "the data volume already fills its disk" }
+        $vol = Get-DataVolume
+    }
+    $cacheRoot = "$($vol.DriveLetter):\ci\cargo"
+    New-Item -ItemType Directory -Force $cacheRoot | Out-Null
+
+    # The runner reads its .env when the service starts and hands it to
+    # every job; green.yml's cache step reads DPL_CI_CACHE_ROOT from it.
+    # This runner's own .env only -- the neighbour's install is untouched.
+    $envFile = Join-Path $RunnerRoot ".env"
+    $lines = @()
+    if (Test-Path $envFile) { $lines = @(Get-Content $envFile | Where-Object { $_ -notmatch '^DPL_CI_CACHE_ROOT=' }) }
+    $lines += "DPL_CI_CACHE_ROOT=$cacheRoot"
+    [IO.File]::WriteAllLines($envFile, [string[]]$lines)  # UTF-8, no BOM
+
+    # Restart only between jobs: a restart mid-job kills the job.
+    $svc = Get-RunnerService
+    if ($svc) {
+        $deadline = (Get-Date).AddMinutes(90)
+        while (Get-Process -Name Runner.Worker -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$RunnerRoot\*" }) {
+            if ((Get-Date) -gt $deadline) { throw "a job is still running after 90 minutes -- re-run -DataDisk when the runner is idle" }
+            Write-Host "   a job is running; waiting for it to finish before restarting the service"
+            Start-Sleep -Seconds 30
+        }
+        # The old cache beside the checkout is regenerable and now unused.
+        $old = Join-Path $RunnerRoot "_work\devpulselabs\cargo-target"
+        if (Test-Path $old) { Remove-Item $old -Recurse -Force; Write-Host "   removed the old cache on C: ($old)" }
+        Restart-Service $svc.Name
+        $svc.Refresh()
+        if ($svc.Status -ne 'Running') { throw "runner service is $($svc.Status) after the restart" }
+    } else {
+        Write-Host "   NOTE: no runner service yet -- the .env takes effect when it is installed"
+    }
+    Write-Host ("DATA DISK GREEN: build cache at {0} ({1:N0} GB free)" -f $cacheRoot, ($vol.SizeRemaining / 1GB))
+    exit 0
+}
+
+if (-not $Token) { throw "-Token is required to (re)register (or use -VerifyOnly or -DataDisk)" }
 
 # -- 1 - execution policy (runner steps are PS scripts) ------------------
 Step "execution policy"

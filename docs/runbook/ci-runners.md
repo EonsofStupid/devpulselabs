@@ -71,26 +71,86 @@ queue forever. Check when a job sits queued > ~2 min:
 
 ## The build cache (since 2026-10-24)
 
-Each lane keeps its cargo build folder **outside the checkout**, at
-`<runner workspace>\cargo-target`:
-- Windows: `C:\actions\runner-devpulselabs\_work\devpulselabs\cargo-target`;
-- Linux: `/opt/actions-runner/_work/devpulselabs/cargo-target`.
+Each lane keeps its cargo build folder **outside the checkout**.
+`actions/checkout`'s `git clean -ffdx` used to delete `target/` before every
+run, so every Windows run rebuilt all ~600 crates twice and took 45–58
+minutes. A warm run rebuilds only what changed.
 
-`green.yml`'s first step sets `CARGO_TARGET_DIR` there. `actions/checkout`'s
-`git clean -ffdx` used to delete `target/` before every run, so every
-Windows run rebuilt all ~600 crates twice and took 45–58 minutes. A warm
-run rebuilds only what changed.
+**Where it lives** (`green.yml`'s first step sets `CARGO_TARGET_DIR`):
+- **on the runner's data disk** when its `.env` sets `DPL_CI_CACHE_ROOT`:
+  `<root>\devpulselabs`, e.g. `D:\ci\cargo\devpulselabs` on VM 119 once
+  `-DataDisk` has run;
+- otherwise **beside the checkout**, at `<runner workspace>\cargo-target`
+  (`C:\actions\runner-devpulselabs\_work\devpulselabs\cargo-target`,
+  `/opt/actions-runner/_work/devpulselabs/cargo-target`).
 
-- **The guard:** each run prints the cache size and the free space. It
-  wipes the cache, so that run builds cold, when the cache passes 50 GB or
-  the disk has under 15 GB free.
+The guard and its limits:
+- **The guard:** each run prints the cache size and its disk's free space.
+  It wipes the cache, so that run builds cold, when the cache passes 50 GB
+  or the disk has under 15 GB free.
 - **Wipe it by hand** (e.g. after a toolchain bump, or if a run looks
-  haunted): delete the `cargo-target` folder on the guest, e.g.
-  `qm guest exec 119 -- cmd /c rmdir /s /q
-  C:\actions\runner-devpulselabs\_work\devpulselabs\cargo-target`. The next
-  run builds cold and refills it.
-- Never point two runner installs at one cache: a cache belongs to one
-  runner directory, like the install itself.
+  haunted): delete the cache folder on the guest. The next run builds cold
+  and refills it.
+- **Never point two runner installs at one cache.** A cache belongs to one
+  runner directory, like the install itself. A shared cache across runners
+  is sccache tier 2 (`sccache-shared-build-cache.md`), not a shared folder.
+
+## Scaling a runner (the data disk)
+
+A runner guest has two disks:
+- **the OS disk**, which is never resized;
+- **a data disk** that holds the build cache and nothing else.
+
+The data volume is the only partition on its disk, so growing it is always
+one host command and one online resize — no recovery partition in the way.
+That is why the cache never lives on C:.
+
+**Give a runner its data disk** (once; it works online, with no reboot):
+
+```sh
+# on the Proxmox host, as root
+qm config 119 | grep -E '^(scsi|virtio|sata|ide)[0-9]+:'   # the bus in use
+pvesm status                                               # a storage with room
+qm set 119 --scsi1 <storage>:150                           # a new 150 GB disk
+qm guest exec 119 --timeout 600 -- powershell -ExecutionPolicy Bypass -File \
+  C:/actions/runner-devpulselabs/_work/devpulselabs/devpulselabs/docs/runbook/win-runner-bootstrap.ps1 -DataDisk
+```
+
+`-DataDisk` does the guest side:
+- formats only a blank (RAW) disk, as NTFS labelled `ci-data`;
+- writes `DPL_CI_CACHE_ROOT=<letter>:\ci\cargo` into this runner's `.env`;
+- waits for any running job to finish, then removes the old cache on C:
+  and restarts the service.
+
+The next run builds cold onto the data disk; every run after it is warm.
+
+**Grow it** later:
+
+```sh
+qm resize 119 scsi1 +100G
+```
+
+Then run `-DataDisk` again: it finds the `ci-data` volume and grows it
+into the new space.
+
+**Check it:** `win-runner-bootstrap.ps1 -VerifyOnly` reports the data volume
+and its free space, and fails if the volume exists but `.env` does not
+point at it.
+
+**Add a runner** (more capacity, more slots):
+1. Clone the runner VM, or rebuild from blank (§Rebuild).
+2. Attach its own data disk.
+3. Run the bootstrap with a fresh token, then `-DataDisk`.
+
+The workflow names no drive and no machine, so a new runner needs only its
+own `.env`. Each runner's cache is its own: one cold run, then warm.
+
+**Linux (LXC 121)** is the same pattern:
+1. Mount a volume: `pct set 121 -mp0 <storage>:100,mp=/ci-data`.
+2. Add `DPL_CI_CACHE_ROOT=/ci-data/cargo` to `/opt/actions-runner/.env`.
+3. Restart with `./svc.sh stop && ./svc.sh start` between jobs.
+
+Until then its cache stays beside its checkout (65 GB free, 2026-10-24).
 
 ## Security rule (non-negotiable) — SETTLED 2026-07-30, PRECONDITION RESTORED 2026-08-07
 
