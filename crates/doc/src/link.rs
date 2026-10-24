@@ -2,11 +2,12 @@
 //! be made yours (and given back with one tap), and the whole slide can stop
 //! following — reversibly. The state is DERIVED from the slide's own sparse
 //! values, never stored, so it can never drift (docs/plans/linked-looks-lk1.md).
+//! The look comes from [`Looks`], built-in or the operator's own (LK2).
 //!
 //! Plain words in every surface: "follows", "yours", "the look's", "own
 //! style" — never "override", "instance" or "detach".
 
-use crate::{card_preset, resolve, Block, Slide, Theme};
+use crate::{card_preset, resolve, Block, Look, Looks, Slide, Theme};
 
 /// Where a value on screen comes from.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,6 +66,8 @@ impl Knob {
 pub enum LinkState {
     /// Follows a look; `changes` of its values are yours.
     Follows { look: String, changes: usize },
+    /// Names a look that cannot be found: it shows the show's style.
+    Missing { look: String },
     /// Stopped following (`was` names the look it followed).
     OwnStyle { was: Option<String> },
     /// No look: the show's style, with `changes` of your own.
@@ -83,6 +86,7 @@ impl LinkState {
             LinkState::Follows { look, changes: n } => {
                 format!("Look: {}{}", look_label(look), changes(*n))
             }
+            LinkState::Missing { .. } => "Look missing — the show's style".into(),
             LinkState::OwnStyle { was: Some(was) } => {
                 format!("Own style (was {})", look_label(was))
             }
@@ -108,8 +112,8 @@ fn line_value(block: &Block, field: LineField) -> Option<&str> {
 }
 
 /// Where `knob`'s value comes from on this slide.
-pub fn source(slide: &Slide, knob: &Knob) -> Source {
-    let look = card_preset(slide).map(|look| look.id.to_owned());
+pub fn source(slide: &Slide, looks: &Looks, knob: &Knob) -> Source {
+    let look = card_preset(slide, looks).map(|look| look.id.clone());
     let followed = |yours: bool, look_gives_it: bool| match (yours, &look) {
         (true, _) => Source::Yours,
         (false, Some(id)) if look_gives_it => Source::Look(id.clone()),
@@ -160,16 +164,19 @@ pub fn changes(slide: &Slide) -> Vec<Knob> {
 }
 
 /// The slide's link, worked out (never stored).
-pub fn link_state(slide: &Slide) -> LinkState {
-    match card_preset(slide) {
-        Some(look) => LinkState::Follows {
-            look: look.id.to_owned(),
+pub fn link_state(slide: &Slide, looks: &Looks) -> LinkState {
+    match (card_preset(slide, looks), &slide.preset) {
+        (Some(look), _) => LinkState::Follows {
+            look: look.id.clone(),
             changes: changes(slide).len(),
         },
-        None if slide.provenance.unlinked_from.is_some() => LinkState::OwnStyle {
+        (None, Some(missing)) => LinkState::Missing {
+            look: missing.clone(),
+        },
+        (None, None) if slide.provenance.unlinked_from.is_some() => LinkState::OwnStyle {
             was: slide.provenance.unlinked_from.clone(),
         },
-        None => LinkState::Show {
+        (None, None) => LinkState::Show {
             changes: changes(slide).len(),
         },
     }
@@ -219,25 +226,25 @@ pub fn reset_all(slide: &mut Slide) {
 /// so NOTHING changes on screen, then the reference is dropped and the look
 /// remembered (`provenance.unlinked_from`) so following again is one tap.
 /// Only the look's own tier is copied — the show's values stay inherited.
-pub fn stop_following(slide: &mut Slide, theme: &Theme) {
-    let Some(look) = card_preset(slide) else {
+pub fn stop_following(slide: &mut Slide, theme: &Theme, looks: &Looks) {
+    let Some(look) = card_preset(slide, looks) else {
         return;
     };
-    let resolved = resolve(slide, theme);
+    let resolved = resolve(slide, theme, looks);
     if slide.background.is_none() {
         slide.background = resolved.background;
     }
     if slide.tone.is_none() {
-        slide.tone = Some(look.tone.to_owned());
+        slide.tone = Some(look.tone.clone());
     }
     for block in &mut slide.blocks {
         if let Some(words) = block.words_mut() {
             if words.font.is_none() {
-                *words.font = Some(look.font.to_owned());
+                *words.font = Some(look.font.clone());
             }
         }
     }
-    slide.provenance.unlinked_from = Some(look.id.to_owned());
+    slide.provenance.unlinked_from = Some(look.id.clone());
     slide.preset = None;
 }
 
@@ -245,29 +252,40 @@ pub fn stop_following(slide: &mut Slide, theme: &Theme) {
 /// from the look (values that only repeat the look are given back, so they
 /// do not count as changes); "start fresh" gives back everything the look
 /// governs, as picking the look does.
-pub fn follow_again(slide: &mut Slide, keep_my_changes: bool) {
+pub fn follow_again(slide: &mut Slide, looks: &Looks, keep_my_changes: bool) {
     let Some(id) = slide.provenance.unlinked_from.clone() else {
         return;
     };
     slide.preset = Some(id);
     slide.provenance.unlinked_from = None;
-    let Some(look) = card_preset(slide) else {
+    let Some(look) = card_preset(slide, looks) else {
         return;
     };
-    let look_background = crate::Background::MoodBlend {
-        moods: vec![look.moods.0.to_owned(), look.moods.1.to_owned()],
-        motion: look.motion.to_owned(),
-        ambience: look.ambience.map(str::to_owned),
-    };
-    if !keep_my_changes || slide.background.as_ref() == Some(&look_background) {
+    if keep_my_changes {
+        give_back_matching(slide, look);
+    } else {
+        slide.background = None;
+        slide.tone = None;
+        for block in &mut slide.blocks {
+            if let Some(words) = block.words_mut() {
+                *words.font = None;
+            }
+        }
+    }
+}
+
+/// Give back every value that only repeats what `look` gives — so a value
+/// counts as a change only when it really differs from the look.
+pub(crate) fn give_back_matching(slide: &mut Slide, look: &Look) {
+    if slide.background.as_ref() == Some(&look.background) {
         slide.background = None;
     }
-    if !keep_my_changes || slide.tone.as_deref() == Some(look.tone) {
+    if slide.tone.as_deref() == Some(look.tone.as_str()) {
         slide.tone = None;
     }
     for block in &mut slide.blocks {
         if let Some(words) = block.words_mut() {
-            if !keep_my_changes || words.font.as_deref() == Some(look.font) {
+            if words.font.as_deref() == Some(look.font.as_str()) {
                 *words.font = None;
             }
         }
@@ -290,24 +308,29 @@ mod tests {
 
     #[test]
     fn sources_name_the_look_until_a_value_is_yours() {
+        let looks = Looks::builtin_only();
         let mut slide = looked();
         let look = dpl_coldlight::THEME_PRESETS[0].id.to_owned();
         assert_eq!(
-            source(&slide, &Knob::Background),
+            source(&slide, &looks, &Knob::Background),
             Source::Look(look.clone())
         );
         let font = Knob::Line {
             id: "title".into(),
             field: LineField::Font,
         };
-        assert_eq!(source(&slide, &font), Source::Look(look.clone()));
+        assert_eq!(source(&slide, &looks, &font), Source::Look(look.clone()));
         let size = Knob::Line {
             id: "title".into(),
             field: LineField::Size,
         };
-        assert_eq!(source(&slide, &size), Source::Show, "a look gives no size");
         assert_eq!(
-            link_state(&slide),
+            source(&slide, &looks, &size),
+            Source::Show,
+            "a look gives no size"
+        );
+        assert_eq!(
+            link_state(&slide, &looks),
             LinkState::Follows {
                 look: look.clone(),
                 changes: 0
@@ -315,10 +338,13 @@ mod tests {
         );
 
         slide.tone = Some("coral".into());
-        assert_eq!(source(&slide, &Knob::Colour), Source::Yours);
-        assert_eq!(link_state(&slide), LinkState::Follows { look, changes: 1 });
+        assert_eq!(source(&slide, &looks, &Knob::Colour), Source::Yours);
         assert_eq!(
-            link_state(&slide).chip(|id| id.to_uppercase()),
+            link_state(&slide, &looks),
+            LinkState::Follows { look, changes: 1 }
+        );
+        assert_eq!(
+            link_state(&slide, &looks).chip(|id| id.to_uppercase()),
             format!(
                 "Look: {} · 1 change",
                 dpl_coldlight::THEME_PRESETS[0].id.to_uppercase()
@@ -326,7 +352,7 @@ mod tests {
         );
         reset(&mut slide, &Knob::Colour);
         assert_eq!(
-            source(&slide, &Knob::Colour),
+            source(&slide, &looks, &Knob::Colour),
             Source::Look(dpl_coldlight::THEME_PRESETS[0].id.into())
         );
     }
@@ -334,19 +360,20 @@ mod tests {
     #[test]
     fn stopping_changes_nothing_on_screen_and_following_again_round_trips() {
         let theme = Theme::fallback();
+        let looks = Looks::builtin_only();
         let mut slide = looked();
         slide.tone = Some("coral".into());
-        let before = resolve(&slide, &theme);
+        let before = resolve(&slide, &theme, &looks);
 
-        stop_following(&mut slide, &theme);
+        stop_following(&mut slide, &theme, &looks);
         assert_eq!(slide.preset, None);
         assert_eq!(
-            link_state(&slide),
+            link_state(&slide, &looks),
             LinkState::OwnStyle {
                 was: Some(dpl_coldlight::THEME_PRESETS[0].id.into())
             }
         );
-        let after = resolve(&slide, &theme);
+        let after = resolve(&slide, &theme, &looks);
         assert_eq!(after.background, before.background);
         assert_eq!(after.tone, before.tone);
         assert_eq!(after.blocks, before.blocks, "nothing changes on screen");
@@ -354,17 +381,18 @@ mod tests {
 
         // Follow again, keeping my changes: only the real one remains.
         let mut kept = slide.clone();
-        follow_again(&mut kept, true);
+        follow_again(&mut kept, &looks, true);
         assert_eq!(changes(&kept), vec![Knob::Colour]);
-        assert_eq!(resolve(&kept, &theme).blocks, before.blocks);
+        assert_eq!(resolve(&kept, &theme, &looks).blocks, before.blocks);
 
         // Or start fresh: everything the look governs follows it again.
-        follow_again(&mut slide, false);
+        follow_again(&mut slide, &looks, false);
         assert_eq!(changes(&slide), Vec::new());
     }
 
     #[test]
     fn undo_all_my_changes_gives_everything_back() {
+        let looks = Looks::builtin_only();
         let mut slide = looked();
         slide.background = Some(crate::Background::None);
         slide.enter = Some("none".into());
@@ -381,7 +409,7 @@ mod tests {
         reset_all(&mut slide);
         assert_eq!(changes(&slide), Vec::new());
         assert!(matches!(
-            link_state(&slide),
+            link_state(&slide, &looks),
             LinkState::Follows { changes: 0, .. }
         ));
     }

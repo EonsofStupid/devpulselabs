@@ -297,7 +297,8 @@ impl PresentHub {
     }
 
     fn open_dir(&mut self, dir: &std::path::Path) {
-        match dpl_deck::DeckHost::open(dir) {
+        let looks = dpl_doc::Looks::load(&dpl_engine_capture::content_root());
+        match dpl_deck::DeckHost::open(dir, looks) {
             Ok(mut host) => {
                 host.wire_fabric(self.fabric.clone());
                 self.deck = Some(host);
@@ -487,7 +488,7 @@ mod tests {
     fn the_presenter_follows_the_deck_over_the_fabric() {
         let dir = scratch("sync");
         let fabric = Fabric::new();
-        let mut deck = dpl_deck::DeckHost::open(&dir).unwrap();
+        let mut deck = dpl_deck::DeckHost::open(&dir, dpl_doc::Looks::builtin_only()).unwrap();
         deck.wire_fabric(fabric.clone());
         let mut p = Presenter::open(&dir, fabric.subscribe_deck()).unwrap();
         deck.publish_position();

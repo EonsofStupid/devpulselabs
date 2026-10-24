@@ -34,7 +34,8 @@ refreshed without touching content. The research is
 | LS2a | Slides by id (`dpl.slide/3`): its own id and revision, blocks as the component's slots, the library folder, Layout and Starter taps that start from what was tapped, read-only seeds, the one-time upgrade of the six v2 drafts with backups | **draft PR #281**, stacked on LS1 |
 | LS2b | Presets by reference: the five looks are card presets (`for`, `exposes`, `tone`, and a font default for their lines, ruled 2026-10-21); a slide stores the look's id; the cascade is slide → look → show | **draft PR #282**, stacked on LS2a |
 | LK1 | Linked looks (R286): the look chip and its menu (your changes, Undo all my changes, Stop following / Follow the look again), a dot on every value that is yours with a comparison and a one-tap way back, try-before-keep, More controls, one revision per typing burst, Undo on every tab | **built**, stacked on LS2b |
-| LK2 | Your own looks (`dpl.look/1`): Save as a new look, push changes back to a look ("changes 12 slides", before and after), a built-in replaced by your version with "Back to the built-in" | |
+| LK2a | Your own looks as files (`dpl.look/1`, the `Looks` registry passed to every surface that paints): Save as a new look, your looks first in the tray and in the Library, the missing-look state | **built**, stacked on LK1 |
+| LK2b | Changes that spread: Make these the look's new style ("changes 12 other slides", before and after, one Undo), your version of a built-in with Back to the built-in, Open the look (in the card editor, ruled 2026-10-22) | |
 | LK3 | Text, quote and picture looks (the approved sets) with the same chip, dots and stop-following, per block | |
 | LS3 | Lessons (`dpl.lesson/1`) and episodes built from lessons (`dpl.episode/2`), by reference, with "Update available" | |
 | LS4 | Components render their slots and variant axes | |

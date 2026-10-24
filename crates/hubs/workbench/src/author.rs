@@ -196,7 +196,7 @@ fn live_pane(ui: &mut egui::Ui, ed: &mut CardEditor) {
             &mut inner,
             inner_rect,
             ed.editor.slide(),
-            ed.editor.theme(),
+            ed.editor.styling(),
             now,
             t0,
         );
@@ -1208,9 +1208,10 @@ struct Draft {
 /// again whenever its editor closes, because the editor saves as you type
 /// and a strip still showing the old words would be lying.
 fn load_draft_doc(dir: &std::path::Path) -> Option<dpl_slides::document::DocSlide> {
+    let looks = dpl_doc::Looks::load(&dpl_engine_capture::content_root());
     dpl_doc::load(dir)
         .ok()
-        .map(dpl_slides::document::DocSlide::new)
+        .map(|slide| dpl_slides::document::DocSlide::new(slide, looks))
 }
 
 impl AuthorSurface {
@@ -1671,7 +1672,7 @@ impl AuthorSurface {
 
     /// Open the overlay editor on a card's own folder.
     fn open_editor(&mut self, dir: &std::path::Path, title: String) {
-        match dpl_editor::Editor::open(dir) {
+        match dpl_editor::Editor::open(dir, &dpl_engine_capture::content_root()) {
             Ok(editor) => {
                 self.editing = Some(CardEditor {
                     title,
@@ -1725,12 +1726,19 @@ impl AuthorSurface {
                             .color(cl::ink::STRONG),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if cl::tip(
+                        let done = cl::tip(
                             control(ui, "Done", false, tone, Weight::Hero),
                             "Close this — your card is already saved.",
-                        )
-                        .clicked()
-                        {
+                        );
+                        ui.pilot_track(
+                            &done,
+                            NodeMetadata::new(
+                                PilotId::new("workbench.author.card-done"),
+                                egui_pilot_ai::protocol::Role::Button,
+                                "Done",
+                            ),
+                        );
+                        if done.clicked() {
                             close = true;
                         }
                     });
@@ -2607,12 +2615,16 @@ impl AuthorSurface {
             .unwrap_or(ContainerKind::Episode);
         self.choose_kind(first);
         self.demos = dpl_slides::demos();
+        let looks = dpl_doc::Looks::load(&dpl_engine_capture::content_root());
         self.seeds = dpl_doc::list_seeds()
             .into_iter()
             .filter_map(|s| {
-                dpl_doc::load(&s.dir)
-                    .ok()
-                    .map(|slide| (s.id, dpl_slides::document::DocSlide::new(slide)))
+                dpl_doc::load(&s.dir).ok().map(|slide| {
+                    (
+                        s.id,
+                        dpl_slides::document::DocSlide::new(slide, looks.clone()),
+                    )
+                })
             })
             .collect();
     }
@@ -2855,7 +2867,7 @@ pub(crate) mod background_tests {
     pub(super) fn card_editor(dir: &std::path::Path) -> CardEditor {
         CardEditor {
             title: "Test card".into(),
-            editor: dpl_editor::Editor::open(dir).unwrap(),
+            editor: dpl_editor::Editor::open(dir, dir).unwrap(),
             tab: CardTab::default(),
             dir: dir.to_path_buf(),
             quote: None,
@@ -3039,7 +3051,7 @@ mod movement_tests {
         let dir = card("move-follow", None);
         // Start from a deliberate override so clearing it is observable.
         {
-            let mut ed = dpl_editor::Editor::open(&dir).unwrap();
+            let mut ed = dpl_editor::Editor::open(&dir, &dir).unwrap();
             ed.set_enter(Some("none".into()));
         }
         let after = drive_movement(&dir, "Follow the show");
@@ -3132,7 +3144,7 @@ mod quote_tests {
     #[test]
     fn a_full_quote_writes_the_reserved_ids_and_validates() {
         let dir = card("quote-full", None);
-        let mut ed = dpl_editor::Editor::open(&dir).unwrap();
+        let mut ed = dpl_editor::Editor::open(&dir, &dir).unwrap();
         ed.set_quote([
             "The stack is invisible.".into(),
             "The operator".into(),
@@ -3159,7 +3171,7 @@ mod quote_tests {
     #[test]
     fn a_blank_line_removes_its_block() {
         let dir = card("quote-blank", None);
-        let mut ed = dpl_editor::Editor::open(&dir).unwrap();
+        let mut ed = dpl_editor::Editor::open(&dir, &dir).unwrap();
         ed.set_quote(["Words".into(), "Someone".into(), "Somewhere".into()]);
         ed.set_quote(["Words".into(), String::new(), "Somewhere".into()]);
         let after = dpl_doc::load(&dir).unwrap();
@@ -3174,7 +3186,7 @@ mod quote_tests {
     #[test]
     fn writing_twice_updates_rather_than_duplicates() {
         let dir = card("quote-twice", None);
-        let mut ed = dpl_editor::Editor::open(&dir).unwrap();
+        let mut ed = dpl_editor::Editor::open(&dir, &dir).unwrap();
         ed.set_quote(["First".into(), String::new(), String::new()]);
         ed.set_quote(["Second".into(), String::new(), String::new()]);
         let after = dpl_doc::load(&dir).unwrap();
@@ -3193,7 +3205,7 @@ mod quote_tests {
     fn a_cards_existing_lines_are_left_alone() {
         let dir = card("quote-alongside", None);
         {
-            let mut ed = dpl_editor::Editor::open(&dir).unwrap();
+            let mut ed = dpl_editor::Editor::open(&dir, &dir).unwrap();
             // Give the card a title of its own, the way a seed would.
             ed.set_quote(["placeholder".into(), String::new(), String::new()]);
             let mut slide = dpl_doc::load(&dir).unwrap();
@@ -3211,7 +3223,7 @@ mod quote_tests {
             );
             dpl_doc::save(&dir, &slide).unwrap();
         }
-        let mut ed = dpl_editor::Editor::open(&dir).unwrap();
+        let mut ed = dpl_editor::Editor::open(&dir, &dir).unwrap();
         ed.set_quote(["Real words".into(), "Real person".into(), String::new()]);
         let after = dpl_doc::load(&dir).unwrap();
         std::fs::remove_dir_all(&dir).ok();
@@ -3228,9 +3240,9 @@ mod quote_tests {
     #[test]
     fn the_tab_reads_the_cards_own_quote() {
         let dir = card("quote-read", None);
-        let mut ed = dpl_editor::Editor::open(&dir).unwrap();
+        let mut ed = dpl_editor::Editor::open(&dir, &dir).unwrap();
         ed.set_quote(["W".into(), String::new(), "S".into()]);
-        let read = dpl_editor::Editor::open(&dir).unwrap().quote();
+        let read = dpl_editor::Editor::open(&dir, &dir).unwrap().quote();
         std::fs::remove_dir_all(&dir).ok();
         assert_eq!(read, ["W".to_string(), String::new(), "S".to_string()]);
     }
@@ -3245,7 +3257,7 @@ mod picture_tests {
     #[test]
     fn setting_a_picture_writes_a_valid_media_block() {
         let dir = card("pic-set", None);
-        let mut ed = dpl_editor::Editor::open(&dir).unwrap();
+        let mut ed = dpl_editor::Editor::open(&dir, &dir).unwrap();
         ed.set_media(Some((
             "inbox/shot.png".into(),
             "image".into(),
@@ -3271,7 +3283,7 @@ mod picture_tests {
     #[test]
     fn contain_is_written_because_it_is_not_the_default() {
         let dir = card("pic-fit", None);
-        let mut ed = dpl_editor::Editor::open(&dir).unwrap();
+        let mut ed = dpl_editor::Editor::open(&dir, &dir).unwrap();
         ed.set_media(Some((
             "inbox/shot.png".into(),
             "image".into(),
@@ -3290,7 +3302,7 @@ mod picture_tests {
     #[test]
     fn a_second_picture_replaces_the_first() {
         let dir = card("pic-replace", None);
-        let mut ed = dpl_editor::Editor::open(&dir).unwrap();
+        let mut ed = dpl_editor::Editor::open(&dir, &dir).unwrap();
         ed.set_media(Some(("inbox/a.png".into(), "image".into(), "cover".into())));
         ed.set_media(Some(("inbox/b.png".into(), "image".into(), "cover".into())));
         let after = dpl_doc::load(&dir).unwrap();
@@ -3312,7 +3324,7 @@ mod picture_tests {
     #[test]
     fn no_picture_clears_it_and_keeps_the_words() {
         let dir = card("pic-clear", None);
-        let mut ed = dpl_editor::Editor::open(&dir).unwrap();
+        let mut ed = dpl_editor::Editor::open(&dir, &dir).unwrap();
         ed.set_quote(["Words".into(), String::new(), String::new()]);
         ed.set_media(Some(("inbox/a.png".into(), "image".into(), "cover".into())));
         ed.set_media(None);

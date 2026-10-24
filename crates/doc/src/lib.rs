@@ -9,9 +9,11 @@ pub mod component;
 pub mod id;
 pub mod legacy;
 pub mod link;
+pub mod look;
 pub mod script;
 
 pub use id::{is_id, new_id};
+pub use look::{Look, Looks};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -651,9 +653,11 @@ pub fn validate(slide: &Slide) -> Vec<Issue> {
                 push("tone", format!("unknown tone {tone:?}"));
             }
         }
+        // The look is named by its id (a built-in's, or a library look's
+        // ULID). Whether it exists needs the library: look::validate_looks.
         if let Some(preset) = &slide.preset {
-            if card_preset(slide).is_none() {
-                push("preset", format!("unknown card preset {preset:?}"));
+            if !kebab_ok(preset) && !is_id(preset) {
+                push("preset", format!("{preset:?} is not a look id"));
             }
         }
         if let Some(role) = &slide.role {
@@ -1317,13 +1321,38 @@ pub fn theme_for_slide(slide_dir: &Path) -> Theme {
         .unwrap_or_else(Theme::fallback)
 }
 
-/// The card preset a slide names, when it names a real one.
-pub fn card_preset(slide: &Slide) -> Option<&'static dpl_coldlight::ThemePreset> {
+/// The tiers above a slide — the looks it may follow and the show's theme
+/// — travelling together to every surface that paints (LK2).
+#[derive(Debug, Clone)]
+pub struct Styling {
+    pub theme: Theme,
+    pub looks: Looks,
+}
+
+impl Styling {
+    /// A slide outside any show, with only the built-in looks — tests and
+    /// standalone previews.
+    pub fn standalone() -> Self {
+        Self {
+            theme: Theme::fallback(),
+            looks: Looks::builtin_only(),
+        }
+    }
+
+    /// [`resolve`] through these tiers.
+    pub fn resolve(&self, slide: &Slide) -> Slide {
+        resolve(slide, &self.theme, &self.looks)
+    }
+}
+
+/// The card look a slide names, when `looks` has it (yours first: your
+/// version of a built-in replaces it).
+pub fn card_preset<'a>(slide: &Slide, looks: &'a Looks) -> Option<&'a Look> {
     slide
         .preset
         .as_deref()
-        .and_then(dpl_coldlight::theme_preset)
-        .filter(|preset| preset.entity == "card")
+        .and_then(|id| looks.get(id))
+        .filter(|look| look.is_card())
 }
 
 /// THE CASCADE (three tiers, LS2b) — the slide's own override wins, then
@@ -1332,26 +1361,22 @@ pub fn card_preset(slide: &Slide) -> Option<&'static dpl_coldlight::ThemePreset>
 /// the background, the colour and — operator ruling 2026-10-21 — the
 /// default font for every line. Pure; returns a fully-specified document
 /// the renderer paints as-is. A fully-specified slide is a fixed point.
-pub fn resolve(slide: &Slide, theme: &Theme) -> Slide {
+pub fn resolve(slide: &Slide, theme: &Theme, looks: &Looks) -> Slide {
     let mut out = slide.clone();
-    let preset = card_preset(slide);
+    let preset = card_preset(slide, looks);
     if out.background.is_none() {
         out.background = Some(match preset {
-            Some(preset) => Background::MoodBlend {
-                moods: vec![preset.moods.0.to_owned(), preset.moods.1.to_owned()],
-                motion: preset.motion.to_owned(),
-                ambience: preset.ambience.map(str::to_owned),
-            },
+            Some(preset) => preset.background.clone(),
             None => theme.background.clone(),
         });
     }
     if out.tone.is_none() {
-        out.tone = preset.map(|preset| preset.tone.to_owned());
+        out.tone = preset.map(|preset| preset.tone.clone());
     }
     if out.enter.is_none() {
         out.enter = theme.enter.clone();
     }
-    let font = preset.map_or_else(|| theme.font.clone(), |preset| preset.font.to_owned());
+    let font = preset.map_or_else(|| theme.font.clone(), |preset| preset.font.clone());
     for b in &mut out.blocks {
         // Only words cascade font/ink; media and data carry neither.
         if let Some(words) = b.words_mut() {
@@ -1829,7 +1854,7 @@ mod tests {
         save(&dir, &slide).unwrap();
         assert_eq!(load(&dir).unwrap(), slide);
         assert_eq!(validate(&slide), Vec::new());
-        let resolved = resolve(&slide, &Theme::fallback());
+        let resolved = resolve(&slide, &Theme::fallback(), &Looks::builtin_only());
         assert!(matches!(
             resolved.block("quote"),
             Some(Block::Quote {
@@ -2096,8 +2121,10 @@ mod tests {
             Block::text("title", "Hello"),
             Block::text("subtitle", "there"),
         ];
+        let looks = Looks::builtin_only();
         assert_eq!(validate(&slide), Vec::new());
-        let resolved = resolve(&slide, &theme);
+        assert_eq!(look::validate_looks(&slide, &looks), Vec::new());
+        let resolved = resolve(&slide, &theme, &looks);
         assert!(matches!(
             &resolved.background,
             Some(Background::MoodBlend { moods, .. }) if moods[0] == preset.moods.0
@@ -2120,7 +2147,7 @@ mod tests {
             size: None,
             ink: None,
         };
-        let resolved = resolve(&slide, &theme);
+        let resolved = resolve(&slide, &theme, &looks);
         assert_eq!(
             resolved
                 .block("title")
@@ -2138,11 +2165,16 @@ mod tests {
         // A reference, never a copy: the saved slide carries only the id.
         let raw = serde_json::to_string(&slide).unwrap();
         assert!(raw.contains(preset.id) && !raw.contains(preset.moods.0));
-        // An unknown preset is named.
+        // An unknown look is named once the library is known; a malformed
+        // id is named without it.
         slide.preset = Some("no-such-look".into());
-        assert!(validate(&slide)
+        assert!(look::validate_looks(&slide, &looks)
             .iter()
             .any(|i| i.message.contains("no-such-look")));
+        slide.preset = Some("Not An Id".into());
+        assert!(validate(&slide)
+            .iter()
+            .any(|i| i.message.contains("Not An Id")));
     }
 
     /// Forking a seed lands in the library and leaves the seed untouched.
@@ -2468,7 +2500,7 @@ mod tests {
             },
             Block::text("b", "inherit"),
         ];
-        let r = resolve(&sparse, &theme);
+        let r = resolve(&sparse, &theme, &Looks::builtin_only());
         assert_eq!(r.background, Some(theme.background.clone()));
         assert_eq!(r.enter, theme.enter);
         let Block::Text { font, ink, .. } = &r.blocks[0] else {
@@ -2482,7 +2514,7 @@ mod tests {
         assert_eq!(font.as_deref(), Some(theme.font.as_str()), "inherited");
         // A fully-specified slide is a fixed point.
         let full = sample();
-        assert_eq!(resolve(&full, &theme), full);
+        assert_eq!(resolve(&full, &theme, &Looks::builtin_only()), full);
         // The resolved sparse slide validates clean.
         assert_eq!(validate(&r), Vec::new());
     }

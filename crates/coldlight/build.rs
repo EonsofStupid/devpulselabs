@@ -1364,6 +1364,19 @@ fn generate_presets(out_dir: &str) {
         themes.len()
     )
     .unwrap();
+    // The knob table itself, so the runtime check of the operator's own
+    // looks (dpl-doc, LK2) reads the same law as this build-time one.
+    writeln!(
+        code,
+        "/// What each entity's preset may expose — the build-time law, \
+         emitted for the runtime check of the operator's own looks."
+    )
+    .unwrap();
+    writeln!(code, "pub static PRESET_KNOBS: &[(&str, &[&str])] = &[").unwrap();
+    for (entity, knobs) in KNOBS {
+        writeln!(code, "    ({entity:?}, &{knobs:?}),").unwrap();
+    }
+    writeln!(code, "];").unwrap();
 
     let motions = doc["motion"].as_array().expect("presets.json: motion[]");
     writeln!(code, "pub static MOTION_PRESETS: &[MotionPreset] = &[").unwrap();

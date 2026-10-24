@@ -1,0 +1,337 @@
+# LK2a (R286): your own looks on the real exe. From a fresh card (Layouts →
+# Quote): keep the Neon intro look, make the background yours (Orchid
+# haze), then "Save as a new look…" named "Orchid intro" — the chip now
+# names it and the slide shows no changes. Close the card, start a second
+# one (Layouts → Title card), and pick "Orchid intro" from the look tray:
+# the second card follows the operator's own look. Fixture `author-ls2`
+# (scratch content root); clear its `library/looks` before a run, since
+# the look is found by its name. After the run the look and both slides
+# are checked on disk.
+id = "own-looks"
+fixture = "author-ls2"
+record = true
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.lane/make"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.shelf/templates"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.author.card/templates/quote"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.card/templates/quote"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+# Follow Neon intro, then make the background yours.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor.look/neon-intro"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/keep"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.tab/background"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.swatch/first/orchid-haze"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "Look: Neon intro · 1 change"
+
+[steps.expectation.target]
+id = "root/editor/look-chip"
+
+# Save as a new look: name it, then Save.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/look-chip"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/editor/save-look"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/save-look"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/editor/look-name"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "fill"
+text = "Orchid intro"
+
+[steps.action.target]
+id = "root/editor/look-name"
+
+[[steps]]
+kind = "wait"
+milliseconds = 500
+
+[[steps]]
+kind = "capture"
+name = "own-looks-naming"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/look-save"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+# The slide follows the new look, with no changes left.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "Look: Orchid intro"
+
+[steps.expectation.target]
+id = "root/editor/look-chip"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "count"
+value = 0
+
+[steps.expectation.target]
+id = "root/editor.yours/background"
+
+[[steps]]
+kind = "capture"
+name = "own-looks-saved"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/menu-done"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+# A second card picks the operator's own look from the tray.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.card-done"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.author.card/templates/title"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.card/templates/title"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+role = "button"
+name = "Orchid intro"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+role = "button"
+name = "Orchid intro"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/editor/keep"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/keep"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "Look: Orchid intro"
+
+[steps.expectation.target]
+id = "root/editor/look-chip"
+
+[[steps]]
+kind = "capture"
+name = "own-looks-second-card"

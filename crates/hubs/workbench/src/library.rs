@@ -793,15 +793,26 @@ pub(crate) fn pool_wall(ui: &mut egui::Ui) {
     });
 }
 
-/// The presets wall — every authored preset (tokens/presets.json, the 6th
-/// source) renders as itself: a theme card paints ITS mood blend and sets
-/// ITS label in ITS font; motion presets list their entrance effect. The
-/// gallery gate for bundles-of-refs — W4's trays offer exactly these.
-pub(crate) fn presets_wall(ui: &mut egui::Ui) {
+/// The presets wall — every look renders as itself: the operator's own
+/// first (LK2, marked "Yours"), then the built-in ones from
+/// tokens/presets.json (the 6th source; "Your version" where the operator
+/// replaced one). A look card paints ITS backdrop and sets ITS label in
+/// ITS font; motion presets list their entrance effect. The gallery gate
+/// for bundles-of-refs — W4's trays offer exactly these.
+pub(crate) fn presets_wall(ui: &mut egui::Ui, looks: &dpl_doc::Looks) {
+    let tiles: Vec<(&dpl_doc::Look, Option<&str>)> = looks
+        .own()
+        .map(|look| (look, Some("Yours")))
+        .chain(looks.builtins_shown().map(|look| {
+            let badge = looks.replaces_builtin(&look.id).then_some("Your version");
+            (look, badge)
+        }))
+        .collect();
     ui.label(
         RichText::new(format!(
-            "PRESETS — {} themes · {} motions · named bundles of refs, editable in tokens/presets.json",
-            cl::THEME_PRESET_COUNT,
+            "PRESETS — {} looks ({} yours) · {} motions · the built-in ones are editable in tokens/presets.json",
+            tiles.len(),
+            looks.own().count(),
             cl::MOTION_PRESET_COUNT
         ))
         .small()
@@ -816,54 +827,72 @@ pub(crate) fn presets_wall(ui: &mut egui::Ui) {
             ui.add_space(cl::space::S1);
             let card = egui::vec2(320.0, 170.0);
             ui.horizontal_wrapped(|ui| {
-                for p in cl::THEME_PRESETS.iter() {
+                for (look, badge) in &tiles {
                     let (rect, _) = ui.allocate_exact_size(card, egui::Sense::hover());
                     let painter = ui.painter_at(rect);
                     let find = |n: &str| cl::MOODS.iter().find(|m| m.name == n);
-                    match (find(p.moods.0), find(p.moods.1)) {
-                        (Some(a), Some(b)) => {
-                            // The preset's own blend, held at a readable mix.
-                            cl::mood_blend(&painter, rect, a, b, 0.45, 0.0);
-                            let s = a.scrim_color();
-                            painter.rect_filled(
-                                rect,
-                                cl::RADIUS_SM,
-                                egui::Color32::from_rgba_unmultiplied(
-                                    s.r(),
-                                    s.g(),
-                                    s.b(),
-                                    s.a() / 2,
-                                ),
-                            );
+                    // The look's own backdrop, held at a readable mix.
+                    let scrim = match &look.background {
+                        dpl_doc::Background::MoodBlend { moods, .. } => {
+                            let at = |i: usize| moods.get(i).and_then(|n| find(n));
+                            at(0).zip(at(1)).map(|(a, b)| {
+                                cl::mood_blend(&painter, rect, a, b, 0.45, 0.0);
+                                a.scrim_color()
+                            })
                         }
-                        _ => {
-                            painter.rect_filled(rect, cl::RADIUS_SM, cl::surface::RAISED);
-                        }
-                    }
+                        dpl_doc::Background::Mood { mood } => find(mood).map(|m| {
+                            cl::mood_gradient(&painter, rect, m);
+                            m.scrim_color()
+                        }),
+                        dpl_doc::Background::None => None,
+                    };
+                    let wash = scrim.map_or(cl::surface::RAISED, |s| {
+                        egui::Color32::from_rgba_unmultiplied(s.r(), s.g(), s.b(), s.a() / 2)
+                    });
+                    painter.rect_filled(rect, cl::RADIUS_SM, wash);
                     painter.text(
                         egui::pos2(rect.min.x + 14.0, rect.min.y + 18.0),
                         egui::Align2::LEFT_CENTER,
-                        p.label,
-                        egui::FontId::new(22.0, cl::font_family(p.font)),
+                        &look.label,
+                        egui::FontId::new(22.0, cl::font_family(&look.font)),
                         cl::ink::STRONG,
                     );
+                    if let Some(badge) = badge {
+                        painter.text(
+                            egui::pos2(rect.max.x - 14.0, rect.min.y + 18.0),
+                            egui::Align2::RIGHT_CENTER,
+                            *badge,
+                            egui::FontId::proportional(12.0),
+                            cl::Tone::Amber.color(),
+                        );
+                    }
+                    let recipe = match &look.background {
+                        dpl_doc::Background::MoodBlend {
+                            moods,
+                            motion,
+                            ambience,
+                        } => format!(
+                            "{} · {motion}{}",
+                            moods.join(" × "),
+                            ambience
+                                .as_ref()
+                                .map(|a| format!(" + {a}"))
+                                .unwrap_or_default()
+                        ),
+                        dpl_doc::Background::Mood { mood } => mood.clone(),
+                        dpl_doc::Background::None => "no backdrop".into(),
+                    };
                     painter.text(
                         egui::pos2(rect.min.x + 14.0, rect.max.y - 40.0),
                         egui::Align2::LEFT_CENTER,
-                        format!(
-                            "{} × {} · {}{}",
-                            p.moods.0,
-                            p.moods.1,
-                            p.motion,
-                            p.ambience.map(|a| format!(" + {a}")).unwrap_or_default()
-                        ),
+                        recipe,
                         egui::FontId::monospace(10.5),
                         cl::ink::BASE,
                     );
                     painter.text(
                         egui::pos2(rect.min.x + 14.0, rect.max.y - 18.0),
                         egui::Align2::LEFT_CENTER,
-                        p.blurb,
+                        &look.blurb,
                         egui::FontId::proportional(11.5),
                         cl::ink::MUTED,
                     );

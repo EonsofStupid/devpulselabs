@@ -32,10 +32,12 @@ enum Selection {
 pub struct Editor {
     dir: PathBuf,
     slide: dpl_doc::Slide,
-    /// The show's theme (W3b) — auto-detected from the parent episode
-    /// folder, else the fallback. Trays show RESOLVED values; tapping a
-    /// card writes an override; "Show theme" clears one.
-    theme: dpl_doc::Theme,
+    /// The tiers above the slide: the show's theme (W3b) — auto-detected
+    /// from the parent episode folder, else the fallback — and the looks,
+    /// built-in plus the operator's own (LK2). Trays show RESOLVED values.
+    styling: dpl_doc::Styling,
+    /// Where the library is: own looks load from and save to it.
+    content_root: PathBuf,
     clock: dpl_slides::motion::Clock,
     selection: Selection,
     /// Snapshots for Undo — the doc is a small value, snapshot per edit.
@@ -53,6 +55,10 @@ pub struct Editor {
     burst: Option<(String, std::time::Instant)>,
     /// The yours-dot whose comparison is open ("Yours: … · The look's: …").
     compare: Option<dpl_doc::link::Knob>,
+    /// "Save as a new look…" is open, with the name typed so far (LK2).
+    naming: Option<String>,
+    /// What the last look action did, said once in the chip's menu.
+    notice: Option<String>,
 }
 
 /// A text block's tray view: values resolved through the show theme, with
@@ -65,6 +71,9 @@ struct TextFields {
 }
 
 const UNDO_CAP: usize = 50;
+/// The shortest the tray gets while there is room — enough for its title,
+/// one line, and a row of whole tiles.
+const TRAY_MIN: f32 = 140.0;
 /// A pause longer than this ends a typing burst — the next keystroke is a
 /// new revision and a new undo step.
 const BURST_PAUSE: std::time::Duration = std::time::Duration::from_millis(1500);
@@ -100,13 +109,19 @@ const SIZES: [&str; 10] = [
 ];
 
 impl Editor {
-    /// Open the editor on a slide folder (the colocated slide.json).
-    pub fn open(dir: &Path) -> Result<Self, String> {
+    /// Open the editor on a slide folder (the colocated slide.json). Its
+    /// looks are the built-in ones plus those in `content_root`'s library,
+    /// where a look saved here lands too (LK2).
+    pub fn open(dir: &Path, content_root: &Path) -> Result<Self, String> {
         let slide = dpl_doc::load(dir).map_err(|e| e.to_string())?;
         Ok(Self {
             dir: dir.to_path_buf(),
             slide,
-            theme: dpl_doc::theme_for_slide(dir),
+            styling: dpl_doc::Styling {
+                theme: dpl_doc::theme_for_slide(dir),
+                looks: dpl_doc::Looks::load(content_root),
+            },
+            content_root: content_root.to_path_buf(),
             clock: dpl_slides::motion::Clock::default(),
             selection: Selection::None,
             trying: None,
@@ -114,6 +129,8 @@ impl Editor {
             more_controls: false,
             burst: None,
             compare: None,
+            naming: None,
+            notice: None,
             undo: Vec::new(),
             saved: Ok(()),
         })
@@ -133,18 +150,18 @@ impl Editor {
         self.mutate(|slide| slide.background = background);
     }
 
-    /// The show's theme this slide resolves against. A preview drawn beside
-    /// the editor has to cascade the same way the card does, or it shows
-    /// something the deck never will.
-    pub fn theme(&self) -> &dpl_doc::Theme {
-        &self.theme
+    /// The tiers this slide resolves against — its looks and the show's
+    /// theme. A preview drawn beside the editor has to cascade the same way
+    /// the card does, or it shows something the deck never will.
+    pub fn styling(&self) -> &dpl_doc::Styling {
+        &self.styling
     }
 
     /// What the show's theme says the entrance is — what "follow the show"
     /// resolves to, so a picker can name it instead of showing an invisible
     /// default.
     pub fn look_enter(&self) -> Option<String> {
-        self.theme.enter.clone()
+        self.styling.theme.enter.clone()
     }
 
     /// The three lines of a quote — the quotation, who said it, where —
@@ -318,12 +335,12 @@ impl Editor {
 
     /// The slide's link to its look, worked out from its own values (LK1).
     pub fn link_state(&self) -> dpl_doc::link::LinkState {
-        dpl_doc::link::link_state(&self.slide)
+        dpl_doc::link::link_state(&self.slide, &self.styling.looks)
     }
 
     /// Where a knob's value comes from: yours, the look's, or the show's.
     pub fn source(&self, knob: &dpl_doc::link::Knob) -> dpl_doc::link::Source {
-        dpl_doc::link::source(&self.slide, knob)
+        dpl_doc::link::source(&self.slide, &self.styling.looks, knob)
     }
 
     /// Give one value back to the look (or the show).
@@ -339,13 +356,61 @@ impl Editor {
 
     /// "Stop following this look" — nothing changes on screen.
     pub fn stop_following(&mut self) {
-        let theme = self.theme.clone();
-        self.mutate(|s| dpl_doc::link::stop_following(s, &theme));
+        let styling = self.styling.clone();
+        self.mutate(|s| dpl_doc::link::stop_following(s, &styling.theme, &styling.looks));
     }
 
     /// "Follow the look again", keeping my changes or starting fresh.
     pub fn follow_again(&mut self, keep_my_changes: bool) {
-        self.mutate(|s| dpl_doc::link::follow_again(s, keep_my_changes));
+        let looks = self.styling.looks.clone();
+        self.mutate(|s| dpl_doc::link::follow_again(s, &looks, keep_my_changes));
+    }
+
+    /// "Save as a new look…" (LK2): the card as it shows now becomes a look
+    /// in the library, and the slide follows it with no changes — except
+    /// what a look cannot hold, which stays the slide's own. One revision,
+    /// one Undo (the look itself is kept). Returns the new look's id.
+    pub fn save_as_new_look(&mut self, label: &str) -> Result<String, String> {
+        let mut follows = self.slide.clone();
+        let look = dpl_doc::look::save_as_new_look(
+            &mut follows,
+            &self.styling.theme,
+            &self.styling.looks,
+            label,
+        );
+        dpl_doc::look::save_look(
+            &dpl_doc::look::look_dir(&self.content_root, &look.id),
+            &look,
+        )
+        .map_err(|e| e.to_string())?;
+        let id = look.id.clone();
+        self.styling.looks.put(look);
+        self.mutate(move |s| *s = follows);
+        Ok(id)
+    }
+
+    /// The looks this editor offers: the built-in ones plus yours.
+    pub fn looks(&self) -> &dpl_doc::Looks {
+        &self.styling.looks
+    }
+
+    /// A look's name, by id ("a missing look" when it cannot be found).
+    fn look_label(&self, id: &str) -> String {
+        self.styling
+            .looks
+            .get(id)
+            .map_or_else(|| "a missing look".to_owned(), |look| look.label.clone())
+    }
+
+    /// What "Save as a new look…" suggests calling it.
+    fn suggested_look_name(&self) -> String {
+        match self.link_state() {
+            dpl_doc::link::LinkState::Follows { look, .. }
+            | dpl_doc::link::LinkState::OwnStyle { was: Some(look) } => {
+                format!("{} — mine", self.look_label(&look))
+            }
+            _ => "My look".into(),
+        }
     }
 
     /// Is there anything to undo?
@@ -380,7 +445,9 @@ impl Editor {
 
         // The stage: a 16:9 well under the toolbar, room for the tray below.
         let below = Rect::from_min_max(egui::pos2(full.min.x, bar.max.y), full.max);
-        let tray_h = below.height() * 0.34;
+        // A short window never squeezes the tray past tapping: it takes up
+        // to half the room, and the stage shrinks instead.
+        let tray_h = (below.height() * 0.34).max(TRAY_MIN.min(below.height() * 0.5));
         let stage_area = Rect::from_min_max(
             below.min,
             egui::pos2(below.max.x, below.max.y - tray_h - cl::space::S3),
@@ -404,7 +471,14 @@ impl Editor {
         let map = {
             let mut child = ui.new_child(egui::UiBuilder::new().max_rect(stage.shrink(2.0)));
             child.set_clip_rect(stage);
-            document::render_traced(&mut child, stage.shrink(2.0), &shown, &self.theme, now, t0)
+            document::render_traced(
+                &mut child,
+                stage.shrink(2.0),
+                &shown,
+                &self.styling,
+                now,
+                t0,
+            )
         };
         ui.painter().rect_stroke(
             stage,
@@ -451,6 +525,9 @@ impl Editor {
         if self.link_menu {
             self.link_menu_ui(ui, chip_rect);
         }
+        if self.naming.is_some() {
+            self.naming_ui(ui, chip_rect);
+        }
         child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let crumb = match &self.saved {
                 Ok(()) if !self.undo.is_empty() => "saved".to_string(),
@@ -478,6 +555,9 @@ impl Editor {
             if self.link_menu {
                 self.link_menu_ui(ui, chip_rect);
             }
+            if self.naming.is_some() {
+                self.naming_ui(ui, chip_rect);
+            }
             ui.add_space(cl::space::S3);
             let can_undo = !self.undo.is_empty();
             if big_button(ui, "undo", "Undo", can_undo, "Take back the last change") {
@@ -498,7 +578,7 @@ impl Editor {
         if let Some(id) = &self.trying {
             // Trying (LK1): the stage shows the look, nothing is saved — the
             // chip says so instead of naming a link that has not changed.
-            let text = format!("Trying: {}", look_label(id));
+            let text = format!("Trying: {}", self.look_label(id));
             let resp = chip_response(
                 ui,
                 "look-chip",
@@ -509,7 +589,7 @@ impl Editor {
             return resp.rect;
         }
         let state = self.link_state();
-        let text = state.chip(look_label);
+        let text = state.chip(|id| self.look_label(id));
         let tip = match &state {
             dpl_doc::link::LinkState::Follows { .. } => {
                 "This slide follows its look. Tap to see your changes, give them back, or stop following"
@@ -520,10 +600,17 @@ impl Editor {
             dpl_doc::link::LinkState::Show { .. } => {
                 "This slide uses the show's style. Pick a look below to follow one"
             }
+            dpl_doc::link::LinkState::Missing { .. } => {
+                "This slide's look can't be found, so it shows the show's style. Pick a look below"
+            }
         };
         let resp = chip_response(ui, "look-chip", &text, self.link_menu, tip);
         if resp.clicked() {
             self.link_menu = !self.link_menu;
+            self.naming = None;
+            if !self.link_menu {
+                self.notice = None;
+            }
         }
         resp.rect
     }
@@ -544,6 +631,15 @@ impl Editor {
                 .inner_margin(egui::Margin::same(12))
                 .show(ui, |ui| {
                     ui.set_max_width(360.0);
+                    if let Some(note) = &self.notice {
+                        ui.label(RichText::new(note).small().color(cl::ink::STRONG));
+                        if !changes.is_empty() {
+                            ui.label(small(
+                                "A look doesn't hold these, so they stay this slide's own:",
+                            ));
+                        }
+                        ui.add_space(cl::space::S2);
+                    }
                     ui.label(tray_title(match &state {
                         dpl_doc::link::LinkState::OwnStyle { .. } => "Own style",
                         _ => "Your changes",
@@ -559,7 +655,7 @@ impl Editor {
                                     .color(cl::ink::BASE),
                             );
                             if !matches!(state, dpl_doc::link::LinkState::OwnStyle { .. }) {
-                                let back = give_back_label(&self.slide, knob);
+                                let back = give_back_label(&self.slide, &self.styling.looks, knob);
                                 if chip(
                                     ui,
                                     &format!("reset-{}", knob_key(knob)),
@@ -593,7 +689,7 @@ impl Editor {
                                 false,
                                 &format!(
                                     "Make the slide fully yours. Nothing changes on screen; {} stops updating it",
-                                    look_label(look)
+                                    self.look_label(look)
                                 ),
                             ) {
                                 self.stop_following();
@@ -606,7 +702,10 @@ impl Editor {
                                 "follow-keep",
                                 "Follow the look again — keep my changes",
                                 false,
-                                &format!("Follow {} again; what differs stays yours", look_label(was)),
+                                &format!(
+                                    "Follow {} again; what differs stays yours",
+                                    self.look_label(was)
+                                ),
                             ) {
                                 self.follow_again(true);
                                 self.link_menu = false;
@@ -616,7 +715,10 @@ impl Editor {
                                 "follow-fresh",
                                 "Follow the look again — start fresh",
                                 false,
-                                &format!("Follow {} again and give back everything it styles", look_label(was)),
+                                &format!(
+                                    "Follow {} again and give back everything it styles",
+                                    self.look_label(was)
+                                ),
                             ) {
                                 self.follow_again(false);
                                 self.link_menu = false;
@@ -636,12 +738,126 @@ impl Editor {
                                 self.reset_all();
                             }
                         }
+                        dpl_doc::link::LinkState::Missing { .. } => {
+                            if chip(
+                                ui,
+                                "use-show",
+                                "Use the show's style",
+                                false,
+                                "Stop naming the look that can't be found; the slide keeps the show's style",
+                            ) {
+                                self.mutate(|s| s.preset = None);
+                                self.link_menu = false;
+                            }
+                        }
+                    }
+                    if chip(
+                        ui,
+                        "save-look",
+                        "Save as a new look…",
+                        false,
+                        "Make this card's background, colour and font a look you can use on any slide",
+                    ) {
+                        self.naming = Some(self.suggested_look_name());
+                        self.notice = None;
+                        self.link_menu = false;
                     }
                     if chip(ui, "menu-done", "Done", false, "Close this menu") {
                         self.link_menu = false;
+                        self.notice = None;
                     }
                 });
         });
+    }
+
+    /// "Save as a new look…" (LK2): name it, then Save. The sheet floats
+    /// under the chip like its menu.
+    fn naming_ui(&mut self, ui: &mut Ui, under: Rect) {
+        let Some(mut name) = self.naming.clone() else {
+            return;
+        };
+        let (mut save, mut cancel) = (false, false);
+        let area = egui::Area::new(ui.id().with("dpl_editor_naming"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(under.left_bottom() + egui::vec2(0.0, cl::space::S1));
+        area.show(ui.ctx(), |ui| {
+            egui::Frame::new()
+                .fill(cl::surface::RAISED)
+                .stroke(Stroke::new(1.0, cl::surface::HAIRLINE))
+                .corner_radius(cl::RADIUS)
+                .inner_margin(egui::Margin::same(12))
+                .show(ui, |ui| {
+                    ui.set_max_width(360.0);
+                    ui.label(tray_title("Save as a new look"));
+                    ui.label(small(
+                        "This card's background, colour and font become a look you can use on any slide. This slide follows it.",
+                    ));
+                    ui.add_space(cl::space::S2);
+                    let field = ui.add(
+                        egui::TextEdit::singleline(&mut name)
+                            .hint_text("Name the look")
+                            .desired_width(320.0),
+                    );
+                    ui.pilot_track(
+                        &field,
+                        NodeMetadata::new(
+                            PilotId::new("editor").child(&PilotKey::new("look-name")),
+                            egui_pilot_ai::protocol::Role::TextInput,
+                            "Name the look",
+                        ),
+                    );
+                    let field = cl::tip(field, "What the look is called among your looks");
+                    if field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        save = true;
+                    }
+                    if let Some(note) = &self.notice {
+                        ui.label(RichText::new(note).small().color(cl::Tone::Coral.color()));
+                    }
+                    ui.add_space(cl::space::S2);
+                    ui.horizontal(|ui| {
+                        if hero_chip(
+                            ui,
+                            "look-save",
+                            "Save",
+                            "Save the look and make this slide follow it",
+                        ) {
+                            save = true;
+                        }
+                        if chip(
+                            ui,
+                            "look-cancel",
+                            "Cancel",
+                            false,
+                            "Close without saving a look",
+                        ) {
+                            cancel = true;
+                        }
+                    });
+                });
+        });
+        if cancel {
+            self.naming = None;
+            self.notice = None;
+            return;
+        }
+        if save {
+            let label = name.trim().to_owned();
+            if label.is_empty() {
+                self.notice = Some("Give the look a name first.".into());
+            } else {
+                match self.save_as_new_look(&label) {
+                    Ok(_) => {
+                        self.naming = None;
+                        self.notice =
+                            Some(format!("Saved as “{label}” — this slide follows it now."));
+                        self.link_menu = true;
+                        return;
+                    }
+                    Err(e) => self.notice = Some(format!("Could not save the look: {e}")),
+                }
+            }
+        }
+        self.naming = Some(name);
     }
 
     fn paint_selection(&self, ui: &Ui, map: &document::RenderMap) {
@@ -705,61 +921,85 @@ impl Editor {
         });
         // The chosen look's knobs, in plain words (its `exposes`): what the
         // tabs above may change without leaving the look.
-        if let Some(look) = dpl_doc::card_preset(&self.slide) {
+        if let Some(look) = dpl_doc::card_preset(&self.slide, &self.styling.looks) {
             let knobs: Vec<&str> = look
                 .exposes
                 .iter()
-                .map(|knob| match *knob {
+                .map(|knob| match knob.as_str() {
                     "ambience" => "moving pattern",
                     "motion" => "movement",
                     other => other,
                 })
                 .collect();
-            ui.label(
-                RichText::new(format!(
-                    "Using {} — you can change its {}",
-                    look.label,
-                    knobs.join(", ")
-                ))
-                .small()
-                .color(cl::ink::MUTED),
+            // One line, never two: a short window keeps room for the tiles,
+            // and the whole sentence is in the tooltip.
+            let using = format!(
+                "Using {} — you can change its {}",
+                look.label,
+                knobs.join(", ")
             );
+            let line = ui.add(
+                egui::Label::new(RichText::new(&using).small().color(cl::ink::MUTED)).truncate(),
+            );
+            cl::tip(line, &using);
         }
+        // Your own looks lead the row, newest first, each marked "Yours";
+        // then the built-in ones, "Your version" where you replaced one.
+        let looks = &self.styling.looks;
+        let tiles: Vec<(dpl_doc::Look, Option<&'static str>)> = looks
+            .own()
+            .map(|look| (look.clone(), Some("Yours")))
+            .chain(looks.builtins_shown().map(|look| {
+                let badge = looks.replaces_builtin(&look.id).then_some("Your version");
+                (look.clone(), badge)
+            }))
+            .collect();
+        // The tiles take the height that is left (a short window shrinks
+        // them, never hides them), keeping their 150:84 shape.
+        let tile_h = (ui.available_height() - cl::space::S3).clamp(48.0, 84.0);
+        let tile = egui::vec2(tile_h * 150.0 / 84.0, tile_h);
         egui::ScrollArea::horizontal()
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    for p in cl::THEME_PRESETS.iter() {
-                        let (rect, resp) =
-                            ui.allocate_exact_size(egui::vec2(150.0, 84.0), Sense::click());
+                    for (look, badge) in &tiles {
+                        let (rect, resp) = ui.allocate_exact_size(tile, Sense::click());
                         let painter = ui.painter_at(rect);
-                        if let (Some(a), Some(b)) = (mood(p.moods.0), mood(p.moods.1)) {
-                            cl::mood_blend(&painter, rect, a, b, 0.45, 0.0);
-                        }
+                        paint_backdrop(&painter, rect, &look.background);
                         painter.text(
                             rect.left_top() + egui::vec2(8.0, 14.0),
                             Align2::LEFT_CENTER,
-                            p.label,
-                            FontId::new(15.0, cl::font_family(p.font)),
+                            &look.label,
+                            FontId::new(15.0, cl::font_family(&look.font)),
                             cl::ink::STRONG,
                         );
-                        let chosen = self.slide.preset.as_deref() == Some(p.id);
-                        let tried = self.trying.as_deref() == Some(p.id);
+                        // Under the name, where the tray never clips it.
+                        if let Some(badge) = badge {
+                            painter.text(
+                                rect.left_top() + egui::vec2(8.0, 34.0),
+                                Align2::LEFT_CENTER,
+                                *badge,
+                                FontId::proportional(12.0),
+                                cl::Tone::Amber.color(),
+                            );
+                        }
+                        let chosen = self.slide.preset.as_deref() == Some(look.id.as_str());
+                        let tried = self.trying.as_deref() == Some(look.id.as_str());
                         card_edge(&painter, rect, resp.hovered() || chosen || tried);
                         resp.widget_info(|| {
                             egui::WidgetInfo::selected(
                                 egui::WidgetType::Button,
                                 true,
                                 chosen,
-                                p.label,
+                                &look.label,
                             )
                         });
                         ui.pilot_track(
                             &resp,
                             NodeMetadata::new(
-                                PilotId::new("editor.look").child(&PilotKey::new(p.id)),
+                                PilotId::new("editor.look").child(&PilotKey::new(&look.id)),
                                 egui_pilot_ai::protocol::Role::Button,
-                                p.label,
+                                &look.label,
                             ),
                         );
                         let resp = cl::tip(
@@ -771,7 +1011,7 @@ impl Editor {
                             },
                         );
                         if resp.clicked() && !chosen {
-                            self.trying = Some(p.id.to_owned());
+                            self.trying = Some(look.id.clone());
                         }
                     }
                 });
@@ -938,7 +1178,7 @@ impl Editor {
 
         // The look shows its own knobs (`exposes`); "More controls" opens
         // every knob — full control without leaving the look (LK1).
-        let look_gives_only_font = dpl_doc::card_preset(&self.slide).is_some();
+        let look_gives_only_font = dpl_doc::card_preset(&self.slide, &self.styling.looks).is_some();
         if look_gives_only_font {
             ui.add_space(cl::space::S2);
             let label = if self.more_controls {
@@ -1022,7 +1262,7 @@ impl Editor {
             .circle_filled(dot.center(), 4.0, cl::Tone::Amber.color());
         ui.painter()
             .circle_stroke(dot.center(), 7.0, Stroke::new(1.5, cl::Tone::Amber.color()));
-        let back = give_back_label(&self.slide, knob);
+        let back = give_back_label(&self.slide, &self.styling.looks, knob);
         resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, back));
         ui.pilot_track(
             &resp,
@@ -1104,14 +1344,14 @@ impl Editor {
     fn comparison_parts(&self, knob: &dpl_doc::link::Knob) -> (String, &'static str, String) {
         let mut given_back = self.slide.clone();
         dpl_doc::link::reset(&mut given_back, knob);
-        let whose = match dpl_doc::link::source(&given_back, knob) {
+        let whose = match dpl_doc::link::source(&given_back, &self.styling.looks, knob) {
             dpl_doc::link::Source::Look(_) => "The look's",
             _ => "The show's",
         };
         (
-            value_words(&self.slide, &self.theme, knob),
+            value_words(&self.slide, &self.styling, knob),
             whose,
-            value_words(&given_back, &self.theme, knob),
+            value_words(&given_back, &self.styling, knob),
         )
     }
 
@@ -1120,9 +1360,10 @@ impl Editor {
     /// The background the slide shows: its own, else its look's, else the
     /// show's — the cascade's answer, preset tier included.
     fn inherited_background(&self) -> dpl_doc::Background {
-        dpl_doc::resolve(&self.slide, &self.theme)
+        self.styling
+            .resolve(&self.slide)
             .background
-            .unwrap_or_else(|| self.theme.background.clone())
+            .unwrap_or_else(|| self.styling.theme.background.clone())
     }
 
     /// A block's fields RESOLVED through the theme, plus whether font/ink
@@ -1130,15 +1371,15 @@ impl Editor {
     fn text_fields(&self, id: &str) -> Option<TextFields> {
         let words = self.slide.block(id)?.words()?;
         // What an unset font inherits: the card's look, then the show.
-        let inherited_font = dpl_doc::card_preset(&self.slide)
-            .map_or_else(|| self.theme.font.clone(), |look| look.font.to_owned());
+        let inherited_font = dpl_doc::card_preset(&self.slide, &self.styling.looks)
+            .map_or_else(|| self.styling.theme.font.clone(), |look| look.font.clone());
         Some(TextFields {
             text: words.text.to_owned(),
             font: words.font.map_or(inherited_font, str::to_owned),
             size: words.size.unwrap_or(DEFAULT_SIZE).to_owned(),
             ink: words
                 .ink
-                .map_or_else(|| self.theme.ink.clone(), str::to_owned),
+                .map_or_else(|| self.styling.theme.ink.clone(), str::to_owned),
         })
     }
 
@@ -1327,17 +1568,36 @@ fn card_edge_tone(painter: &egui::Painter, rect: Rect, hot: bool, on: bool) {
     );
 }
 
-/// A touch chip — `tap_min`-tall toggle. Returns true when tapped.
-/// A look's name, by id (the id when no such look exists).
-fn look_label(id: &str) -> String {
-    cl::theme_preset(id).map_or_else(|| id.to_owned(), |look| look.label.to_owned())
+/// A look's backdrop, painted as its tile: a blend, one colour, or the
+/// bare well.
+fn paint_backdrop(painter: &egui::Painter, rect: Rect, background: &dpl_doc::Background) {
+    match background {
+        dpl_doc::Background::MoodBlend { moods, .. } => {
+            let at = |i: usize| moods.get(i).and_then(|name| mood(name));
+            if let (Some(a), Some(b)) = (at(0), at(1)) {
+                cl::mood_blend(painter, rect, a, b, 0.45, 0.0);
+            }
+        }
+        dpl_doc::Background::Mood { mood: name } => {
+            if let Some(one) = mood(name) {
+                cl::mood_gradient(painter, rect, one);
+            }
+        }
+        dpl_doc::Background::None => {
+            painter.rect_filled(rect, cl::RADIUS_SM, cl::surface::WELL);
+        }
+    }
 }
 
 /// The honest way back for a value that is yours.
-fn give_back_label(slide: &dpl_doc::Slide, knob: &dpl_doc::link::Knob) -> &'static str {
+fn give_back_label(
+    slide: &dpl_doc::Slide,
+    looks: &dpl_doc::Looks,
+    knob: &dpl_doc::link::Knob,
+) -> &'static str {
     let mut probe = slide.clone();
     dpl_doc::link::reset(&mut probe, knob);
-    match dpl_doc::link::source(&probe, knob) {
+    match dpl_doc::link::source(&probe, looks, knob) {
         dpl_doc::link::Source::Look(_) => "Use the look's",
         _ => "Use the show's",
     }
@@ -1346,11 +1606,11 @@ fn give_back_label(slide: &dpl_doc::Slide, knob: &dpl_doc::link::Knob) -> &'stat
 /// What `knob` shows on `slide`, in plain words (through the cascade).
 fn value_words(
     slide: &dpl_doc::Slide,
-    theme: &dpl_doc::Theme,
+    styling: &dpl_doc::Styling,
     knob: &dpl_doc::link::Knob,
 ) -> String {
     use dpl_doc::link::{Knob, LineField};
-    let shown = dpl_doc::resolve(slide, theme);
+    let shown = styling.resolve(slide);
     let or_none = |v: Option<&str>| v.map_or_else(|| "None".to_owned(), pretty);
     match knob {
         Knob::Background => match shown.background {
@@ -1572,7 +1832,7 @@ mod tests {
     fn a_font_edit_changes_exactly_one_ref_on_disk() {
         let dir = scratch("font");
         dpl_doc::save(&dir, &seed()).unwrap();
-        let mut ed = Editor::open(&dir).unwrap();
+        let mut ed = Editor::open(&dir, &dir).unwrap();
         ed.mutate(|s| set_text(s, "title", |b| b.1 = "orbitron".into()));
 
         let on_disk = dpl_doc::load(&dir).unwrap();
@@ -1603,7 +1863,7 @@ mod tests {
         let dir = scratch("undo");
         let original = seed();
         dpl_doc::save(&dir, &original).unwrap();
-        let mut ed = Editor::open(&dir).unwrap();
+        let mut ed = Editor::open(&dir, &dir).unwrap();
         ed.mutate(|s| set_text(s, "title", |b| b.1 = "orbitron".into()));
         assert_eq!(dpl_doc::load(&dir).unwrap().rev, 2);
         // A change that changes nothing is not a revision.
@@ -1623,7 +1883,7 @@ mod tests {
     fn the_quote_tab_writes_a_quote_block_and_its_slots() {
         let dir = scratch("quote");
         dpl_doc::save(&dir, &sparse_seed()).unwrap();
-        let mut ed = Editor::open(&dir).unwrap();
+        let mut ed = Editor::open(&dir, &dir).unwrap();
         ed.set_quote(["Ship it.".into(), "Grace".into(), String::new()]);
         let on_disk = dpl_doc::load(&dir).unwrap();
         assert_eq!(on_disk.component, "quote@1");
@@ -1650,7 +1910,7 @@ mod tests {
     fn a_picture_fills_the_media_slot() {
         let dir = scratch("picture");
         dpl_doc::save(&dir, &sparse_seed()).unwrap();
-        let mut ed = Editor::open(&dir).unwrap();
+        let mut ed = Editor::open(&dir, &dir).unwrap();
         ed.set_media(Some(("inbox/x.png".into(), "image".into(), "cover".into())));
         let on_disk = dpl_doc::load(&dir).unwrap();
         assert!(matches!(
@@ -1666,7 +1926,7 @@ mod tests {
     fn picking_a_look_stores_the_reference() {
         let dir = scratch("theme");
         dpl_doc::save(&dir, &seed()).unwrap();
-        let mut ed = Editor::open(&dir).unwrap();
+        let mut ed = Editor::open(&dir, &dir).unwrap();
         let p = cl::THEME_PRESETS[0];
         ed.mutate(|s| use_look(s, p.id));
         let on_disk = dpl_doc::load(&dir).unwrap();
@@ -1679,7 +1939,7 @@ mod tests {
             panic!("block 0 is text");
         };
         assert_eq!(*font, None, "the look's font is not copied");
-        let resolved = dpl_doc::resolve(&on_disk, &dpl_doc::Theme::fallback());
+        let resolved = dpl_doc::Styling::standalone().resolve(&on_disk);
         let dpl_doc::Block::Text { font, .. } = &resolved.blocks[0] else {
             panic!("block 0 is text");
         };
@@ -1696,7 +1956,7 @@ mod tests {
     fn setting_a_blend_mood_slot_keeps_the_other_and_validates() {
         let dir = scratch("mood");
         dpl_doc::save(&dir, &seed()).unwrap();
-        let mut ed = Editor::open(&dir).unwrap();
+        let mut ed = Editor::open(&dir, &dir).unwrap();
         ed.set_blend_mood(1, "jade-current".into());
         let on_disk = dpl_doc::load(&dir).unwrap();
         if let Some(dpl_doc::Background::MoodBlend { moods, .. }) = &on_disk.background {
@@ -1714,7 +1974,7 @@ mod tests {
     fn editing_text_on_a_sparse_slide_does_not_densify_styling() {
         let dir = scratch("sparse-text");
         dpl_doc::save(&dir, &sparse_seed()).unwrap();
-        let mut ed = Editor::open(&dir).unwrap();
+        let mut ed = Editor::open(&dir, &dir).unwrap();
         ed.mutate(|s| set_text(s, "title", |b| b.0 = "New words".into()));
         let raw = std::fs::read_to_string(dir.join("slide.json")).unwrap();
         assert!(raw.contains("New words"));
@@ -1727,7 +1987,7 @@ mod tests {
     fn giving_a_font_back_clears_it_on_disk() {
         let dir = scratch("show-theme");
         dpl_doc::save(&dir, &sparse_seed()).unwrap();
-        let mut ed = Editor::open(&dir).unwrap();
+        let mut ed = Editor::open(&dir, &dir).unwrap();
         // Make the font yours, then give it back.
         ed.mutate(|s| set_text(s, "title", |b| b.1 = "orbitron".into()));
         let raw = std::fs::read_to_string(dir.join("slide.json")).unwrap();
@@ -1752,7 +2012,7 @@ mod tests {
     fn the_comparison_names_yours_and_the_looks() {
         let dir = scratch("compare");
         dpl_doc::save(&dir, &sparse_seed()).unwrap();
-        let mut ed = Editor::open(&dir).unwrap();
+        let mut ed = Editor::open(&dir, &dir).unwrap();
         let look = cl::THEME_PRESETS
             .iter()
             .find(|p| p.id == "neon-intro")
@@ -1791,7 +2051,7 @@ mod tests {
     fn a_typing_burst_is_one_revision() {
         let dir = scratch("burst");
         dpl_doc::save(&dir, &sparse_seed()).unwrap();
-        let mut ed = Editor::open(&dir).unwrap();
+        let mut ed = Editor::open(&dir, &dir).unwrap();
         for word in ["H", "He", "Hel", "Hell", "Hello!"] {
             let word = word.to_string();
             ed.mutate_burst("text-title", |s| {
@@ -1818,20 +2078,62 @@ mod tests {
         let mut slide = sparse_seed();
         slide.preset = Some(cl::THEME_PRESETS[0].id.into());
         dpl_doc::save(&dir, &slide).unwrap();
-        let mut ed = Editor::open(&dir).unwrap();
-        let theme = dpl_doc::Theme::fallback();
-        let before = dpl_doc::resolve(ed.slide(), &theme);
+        let mut ed = Editor::open(&dir, &dir).unwrap();
+        let styling = dpl_doc::Styling::standalone();
+        let before = styling.resolve(ed.slide());
         ed.stop_following();
         assert!(matches!(
             ed.link_state(),
             dpl_doc::link::LinkState::OwnStyle { .. }
         ));
-        assert_eq!(dpl_doc::resolve(ed.slide(), &theme).blocks, before.blocks);
+        assert_eq!(styling.resolve(ed.slide()).blocks, before.blocks);
         ed.follow_again(false);
         assert!(matches!(
             ed.link_state(),
             dpl_doc::link::LinkState::Follows { changes: 0, .. }
         ));
         assert!(dpl_doc::validate(&dpl_doc::load(&dir).unwrap()).is_empty());
+    }
+
+    /// "Save as a new look…" (LK2): the look lands in the library, the
+    /// slide follows it with no changes, and a fresh editor finds it.
+    #[test]
+    fn saving_a_new_look_lands_in_the_library_and_the_slide_follows_it() {
+        let dir = scratch("new-look");
+        let content = scratch("new-look-content");
+        let mut slide = sparse_seed();
+        slide.preset = Some("neon-intro".into());
+        dpl_doc::save(&dir, &slide).unwrap();
+        let mut ed = Editor::open(&dir, &content).unwrap();
+        ed.set_background(Some(dpl_doc::Background::Mood {
+            mood: "orchid-haze".into(),
+        }));
+        assert!(matches!(
+            ed.link_state(),
+            dpl_doc::link::LinkState::Follows { changes: 1, .. }
+        ));
+        let id = ed.save_as_new_look("Orchid intro").unwrap();
+        assert!(matches!(
+            ed.link_state(),
+            dpl_doc::link::LinkState::Follows { changes: 0, ref look } if *look == id
+        ));
+        let on_disk = dpl_doc::look::load_look(&dpl_doc::look::look_dir(&content, &id)).unwrap();
+        assert_eq!(on_disk.label, "Orchid intro");
+        assert_eq!(
+            on_disk.background,
+            dpl_doc::Background::Mood {
+                mood: "orchid-haze".into()
+            }
+        );
+        assert_eq!(
+            dpl_doc::load(&dir).unwrap().preset.as_deref(),
+            Some(id.as_str())
+        );
+        let again = Editor::open(&dir, &content).unwrap();
+        assert!(again.looks().is_yours(&id));
+        assert_eq!(again.look_label(&id), "Orchid intro");
+        // One Undo takes the slide back to the look it followed.
+        ed.undo();
+        assert_eq!(ed.slide().preset.as_deref(), Some("neon-intro"));
     }
 }

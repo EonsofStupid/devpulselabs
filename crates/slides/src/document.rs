@@ -201,18 +201,19 @@ pub enum Stage {
 }
 
 /// Render a document into `rect`. The ONE path — every surface calls this.
-/// `theme` is the show's trait (W3b): the slide's absent styling fields
-/// inherit from it via `dpl_doc::resolve`; standalone slides pass
-/// `&dpl_doc::Theme::fallback()`.
+/// `styling` is the tiers above the slide (W3b, LK2): the slide's absent
+/// styling fields inherit from the look it follows, then the show's theme,
+/// via `dpl_doc::resolve`; standalone slides pass
+/// `&dpl_doc::Styling::standalone()`.
 pub fn render(
     ui: &mut Ui,
     rect: Rect,
     slide: &dpl_doc::Slide,
-    theme: &dpl_doc::Theme,
+    styling: &dpl_doc::Styling,
     now: f64,
     t0: f64,
 ) {
-    let _ = render_traced(ui, rect, slide, theme, now, t0);
+    let _ = render_traced(ui, rect, slide, styling, now, t0);
 }
 
 /// Render a document as a MINIATURE — the seeds wall, the authoring
@@ -222,7 +223,7 @@ pub fn render_thumbnail(
     ui: &mut Ui,
     rect: Rect,
     slide: &dpl_doc::Slide,
-    theme: &dpl_doc::Theme,
+    styling: &dpl_doc::Styling,
     now: f64,
     t0: f64,
 ) -> RenderMap {
@@ -230,7 +231,7 @@ pub fn render_thumbnail(
         ui,
         rect,
         slide,
-        theme,
+        styling,
         Playhead {
             step: None,
             now,
@@ -246,7 +247,7 @@ pub fn render_traced(
     ui: &mut Ui,
     rect: Rect,
     slide: &dpl_doc::Slide,
-    theme: &dpl_doc::Theme,
+    styling: &dpl_doc::Styling,
     now: f64,
     t0: f64,
 ) -> RenderMap {
@@ -254,7 +255,7 @@ pub fn render_traced(
         ui,
         rect,
         slide,
-        theme,
+        styling,
         Playhead {
             step: None,
             now,
@@ -274,7 +275,7 @@ pub fn render_step(
     ui: &mut Ui,
     rect: Rect,
     slide: &dpl_doc::Slide,
-    theme: &dpl_doc::Theme,
+    styling: &dpl_doc::Styling,
     step: usize,
     now: f64,
     t0: f64,
@@ -283,7 +284,7 @@ pub fn render_step(
         ui,
         rect,
         slide,
-        theme,
+        styling,
         Playhead {
             step: Some(step),
             now,
@@ -310,7 +311,7 @@ fn render_inner(
     ui: &mut Ui,
     rect: Rect,
     slide: &dpl_doc::Slide,
-    theme: &dpl_doc::Theme,
+    styling: &dpl_doc::Styling,
     at: Playhead,
 ) -> RenderMap {
     let Playhead {
@@ -321,7 +322,7 @@ fn render_inner(
     } = at;
     // The whole cascade happens HERE, once — the body below paints a
     // fully-specified document exactly as before W3b.
-    let slide = &dpl_doc::resolve(slide, theme);
+    let slide = &styling.resolve(slide);
     let step = step.map(|s| s.min(slide.step_count() - 1));
     let accent = background(ui, rect, slide.background.as_ref(), now, t0);
 
@@ -464,21 +465,28 @@ fn render_inner(
 /// A document with its own clock — the wall/stage wrapper.
 pub struct DocSlide {
     pub slide: dpl_doc::Slide,
-    theme: dpl_doc::Theme,
+    styling: dpl_doc::Styling,
     clock: Clock,
 }
 
 impl DocSlide {
-    /// Standalone document — resolves against the fallback theme.
-    pub fn new(slide: dpl_doc::Slide) -> Self {
-        Self::with_look(slide, dpl_doc::Theme::fallback())
+    /// A document outside any show — the fallback theme, with `looks`
+    /// (the built-in looks plus the operator's own).
+    pub fn new(slide: dpl_doc::Slide, looks: dpl_doc::Looks) -> Self {
+        Self::styled(
+            slide,
+            dpl_doc::Styling {
+                theme: dpl_doc::Theme::fallback(),
+                looks,
+            },
+        )
     }
 
-    /// A document inside a show — resolves against the show's theme.
-    pub fn with_look(slide: dpl_doc::Slide, theme: dpl_doc::Theme) -> Self {
+    /// A document inside a show — its theme and looks.
+    pub fn styled(slide: dpl_doc::Slide, styling: dpl_doc::Styling) -> Self {
         Self {
             slide,
-            theme,
+            styling,
             clock: Clock::default(),
         }
     }
@@ -490,14 +498,14 @@ impl DocSlide {
     pub fn ui(&mut self, ui: &mut Ui, rect: Rect) {
         let now = ui.input(|i| i.time);
         let t0 = self.clock.tick(now);
-        render(ui, rect, &self.slide, &self.theme, now, t0);
+        render(ui, rect, &self.slide, &self.styling, now, t0);
     }
 
     /// Draw this document as a miniature — see [`Stage::Thumbnail`].
     pub fn thumbnail_ui(&mut self, ui: &mut Ui, rect: Rect) {
         let now = ui.input(|i| i.time);
         let t0 = self.clock.tick(now);
-        render_thumbnail(ui, rect, &self.slide, &self.theme, now, t0);
+        render_thumbnail(ui, rect, &self.slide, &self.styling, now, t0);
     }
 }
 
@@ -569,7 +577,7 @@ mod tests {
         ctx.run_ui(egui::RawInput::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
                 let rect = ui.max_rect();
-                render(ui, rect, &slide, &dpl_doc::Theme::fallback(), 1.0, 0.0);
+                render(ui, rect, &slide, &dpl_doc::Styling::standalone(), 1.0, 0.0);
             });
         })
         .textures_delta
@@ -588,7 +596,7 @@ mod tests {
         ctx.run_ui(egui::RawInput::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
                 let rect = ui.max_rect();
-                render(ui, rect, &sparse, &dpl_doc::Theme::fallback(), 1.0, 0.0);
+                render(ui, rect, &sparse, &dpl_doc::Styling::standalone(), 1.0, 0.0);
             });
         })
         .textures_delta
@@ -607,7 +615,7 @@ mod tests {
         ];
         slide.reveals = vec!["sub".into()];
         assert_eq!(slide.step_count(), 2);
-        let theme = dpl_doc::Theme::fallback();
+        let styling = dpl_doc::Styling::standalone();
         let ctx = egui::Context::default();
         cl::apply_theme(&ctx);
         let mut maps: Vec<RenderMap> = Vec::new();
@@ -615,7 +623,7 @@ mod tests {
             ctx.run_ui(egui::RawInput::default(), |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     let rect = ui.max_rect();
-                    maps.push(render_step(ui, rect, &slide, &theme, step, 5.0, 0.0));
+                    maps.push(render_step(ui, rect, &slide, &styling, step, 5.0, 0.0));
                 });
             })
             .textures_delta
@@ -652,7 +660,7 @@ mod tests {
         ctx.run_ui(egui::RawInput::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
                 let rect = ui.max_rect();
-                map = render_traced(ui, rect, &slide, &dpl_doc::Theme::fallback(), 2.0, 0.0);
+                map = render_traced(ui, rect, &slide, &dpl_doc::Styling::standalone(), 2.0, 0.0);
                 let media_rect = map
                     .blocks
                     .iter()
@@ -679,7 +687,7 @@ mod tests {
             ctx.run_ui(egui::RawInput::default(), |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     let rect = ui.max_rect();
-                    render(ui, rect, &slide, &dpl_doc::Theme::fallback(), 2.0, 0.0);
+                    render(ui, rect, &slide, &dpl_doc::Styling::standalone(), 2.0, 0.0);
                 });
             })
             .textures_delta

@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://devpulselabs.local/schemas/look.v1.schema.json",
+  "title": "dpl.look/1 — one look: what it gives every slide that follows it",
+  "description": "The operator's own look, kept at <content>/library/looks/<id>/look.json beside the built-in looks (LK2, R286). An own look with a built-in's id is the operator's version of that built-in and replaces it for them (ruled 2026-10-21). The background shape repeats dpl.slide/3's, so each schema stands alone. docs/plans/linked-looks-lk2.md §4.1.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "rev", "label", "for", "exposes", "tone", "font", "background"],
+  "properties": {
+    "schema": { "const": "dpl.look/1" },
+    "id": {
+      "description": "A ULID for the operator's own look; a built-in's id (kebab-case) for their version of it.",
+      "type": "string",
+      "pattern": "^([0-9A-HJKMNP-TV-Z]{26}|[a-z0-9]+(-[a-z0-9]+)*)$"
+    },
+    "rev": { "description": "Every saved change is a new revision.", "type": "integer", "minimum": 1 },
+    "label": { "type": "string", "minLength": 1 },
+    "blurb": { "type": "string" },
+    "for": { "description": "The entity it dresses — card until LK3.", "const": "card" },
+    "exposes": {
+      "description": "The 4-7 knobs a slide may change while following it; colour is always one.",
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 7,
+      "uniqueItems": true,
+      "items": { "enum": ["background", "ambience", "motion", "colour", "font"] },
+      "contains": { "const": "colour" }
+    },
+    "tone": { "description": "Its colour — a hue id.", "type": "string", "minLength": 1 },
+    "font": { "description": "The default font for every line.", "type": "string", "minLength": 1 },
+    "background": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "moods", "motion"],
+          "properties": {
+            "kind": { "const": "mood-blend" },
+            "moods": { "type": "array", "items": { "type": "string" } },
+            "motion": { "type": "string" },
+            "ambience": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "mood"],
+          "properties": { "kind": { "const": "mood" }, "mood": { "type": "string" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": { "kind": { "const": "none" } }
+        }
+      ]
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "forked_from": { "description": "The look it was saved from.", "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

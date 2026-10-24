@@ -1034,6 +1034,14 @@ Note: The research is §4.9 of `docs/research/lesson-slide-schema.md`. LK1 lande
 - **Typing is one revision**, and Undo is on every tab.
 - The state is worked out from the slide's own values, never stored; stopping changes nothing on screen and remembers the look (`provenance.unlinked_from`).
 
+**Operator rulings 2026-10-22 (LK2 plan):** "Approve, two PRs" (LK2a, then LK2b); "In the card editor": opening a look edits it inside the card editor, with an "Editing the look" banner.
+
+LK2a landed your own looks:
+- **A look is a document**, `dpl.look/1` (`schemas/look.v1.schema.json`), kept at `<content>/library/looks/<id>/look.json`. The registry is the built-in looks plus yours; yours with a built-in's id replaces it for you. Looks are passed to every surface that paints, never held globally.
+- **Save as a new look…** in the chip's menu: name it, Save. The card's background, colour and font become the look, the slide follows it with no changes, and what a look cannot hold (sizes, inks, a line whose font differs) stays the slide's own, said in words.
+- **Your looks lead the look tray**, marked "Yours", and the Library's presets show them too.
+- A look that cannot be found shows the show's style, and the chip says "Look missing — the show's style".
+
 ## 5. Capture — ViziWiz, sessions, steps, guides
 
 ### R178 · 2026-07-23
