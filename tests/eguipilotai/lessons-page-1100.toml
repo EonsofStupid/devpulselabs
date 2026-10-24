@@ -1,0 +1,66 @@
+# LS3a (R285): the Lessons page at the minimum real window (1100x700),
+# after `lessons-update`: the list, then the first lesson's three cards
+# with their jobs and controls, then its library shelf.
+id = "lessons-page-1100"
+fixture = "lessons-page-1100"
+record = true
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "capture"
+name = "lessons-list-1100"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.lessons.lesson/New lesson"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.lessons/use/u3/remove"
+
+[[steps]]
+kind = "capture"
+name = "lessons-view-1100"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.lessons/add"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1200
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.lessons.shelf/0"
+
+[[steps]]
+kind = "capture"
+name = "lessons-shelf-1100"

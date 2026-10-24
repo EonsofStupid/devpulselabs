@@ -11,6 +11,7 @@ mod backgrounds;
 mod containers;
 mod controls;
 mod experiments;
+mod lessons;
 mod library;
 mod pictures;
 mod studio;
@@ -32,6 +33,7 @@ pub const LIBRARY: SubId = SubId("library");
 pub const AUTHOR: SubId = SubId("author");
 pub const EPISODES: SubId = SubId("episodes");
 pub const EDITOR: SubId = SubId("editor");
+pub const LESSONS: SubId = SubId("lessons");
 pub const STUDIO: SubId = SubId("studio");
 pub const TEST_LAB: SubId = SubId("test-lab");
 pub const EXPERIMENTS: SubId = SubId("experiments");
@@ -56,6 +58,11 @@ pub(crate) static SPEC: HubSpec = HubSpec {
             id: EDITOR,
             label: "Editor",
             blurb: "Tap a slide to change it — font, colours, motion; edits write the colocated file.",
+        },
+        SubRoute {
+            id: LESSONS,
+            label: "Lessons",
+            blurb: "Your lessons — runs of cards from your library, each keeping the version it chose until you update it.",
         },
         SubRoute {
             id: EPISODES,
@@ -115,6 +122,8 @@ pub struct WorkbenchHub {
     focus: Option<String>,
     /// The open editor (EDITOR subroute) — None shows the seed picker.
     editor: Option<dpl_editor::Editor>,
+    /// The LESSONS subroute (LS3a) — your lessons and the one open.
+    lessons: lessons::Lessons,
     /// The episode-wall's live slide docs, loaded once per episode open.
     episode_view: Option<EpisodeView>,
     /// The "copy to my shows" form (X3) — open on the episodes picker.
@@ -417,6 +426,8 @@ impl Hub for WorkbenchHub {
             self.author.ui(ui, &self.fabric);
         } else if route.sub == EDITOR {
             self.editor_surface(ui);
+        } else if route.sub == LESSONS {
+            self.lessons.ui(ui);
         } else if route.sub == EPISODES {
             self.episodes_surface(ui);
         } else if route.sub == STUDIO {

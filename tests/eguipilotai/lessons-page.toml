@@ -1,0 +1,122 @@
+# LS3a (R285): the Lessons page on the real exe, after `lessons-author`.
+# Open the lesson, give the first card a job, move the second one earlier,
+# then add a card from the library — the same card can be used twice.
+id = "lessons-page"
+fixture = "lessons-page"
+record = true
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.lessons.lesson/New lesson"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "capture"
+name = "lessons-view"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.lessons/use/u1/role"
+
+[[steps]]
+kind = "wait"
+milliseconds = 500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.lessons/role/attention"
+
+[[steps]]
+kind = "wait"
+milliseconds = 500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.lessons/use/u2/earlier"
+
+[[steps]]
+kind = "wait"
+milliseconds = 500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.lessons/add"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1200
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.lessons.shelf/0"
+
+[[steps]]
+kind = "capture"
+name = "lessons-shelf"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.lessons.shelf/0"
+
+[[steps]]
+kind = "wait"
+milliseconds = 800
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.lessons/add"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "capture"
+name = "lessons-three"
