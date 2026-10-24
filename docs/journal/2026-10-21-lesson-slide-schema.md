@@ -256,6 +256,22 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
    available + the seed fix; LS3b episodes from lessons + the one-time
    upgrade); "Move them into the library". LS3a is on `feat/ls3a-lessons`
    (from LK3b), stacked as the stack lands.
+8. **#281 merged** double-green (Windows 49m15s) as **dd63f35**. LS2b
+   rebased (`--onto origin/main 6ea7b5c`, head **3e33b9a**, the same tree);
+   GitHub had already retargeted #282 to `main` when #281's branch was
+   deleted; #282 marked ready; the exe rebuilt from `main` (stamp
+   `dd63f35 · 2026-10-24 01:26z`). **The old tips each next rebase drops**
+   (the branch below's tip before it was rebased): LK1 `--onto origin/main
+   f382aaa` (replays a6a2378 + 762f2d2), LK2a `762f2d2`, LK2b `60f5f91`,
+   LK3a `1535928`, LK3b `8afa4a3`, LS3a `39792a9`… — check each with `git
+   log --oneline <old>..<branch>` before rebasing.
+9. **LS3a is draft PR #288** (e729575, base `feat/lk3b-picture-looks`): slide
+   history (`revs/`, `load_rev`), `dpl.lesson/1` and its schema, the
+   Workbench Lessons page, Author building into a lesson, the seed-episode
+   fix. Proof and the decisions made while building are in the plan's §8;
+   five scenarios `tests/eguipilotai/lessons-*.toml` run in order over a
+   cleared `target/eguipilotai/ls3a/content`. The gate passed; the exe was
+   rebuilt from `main` (stamp `dd63f35 · 2026-10-24 02:14z`). LS3b is next.
 
 ## Landmines
 
