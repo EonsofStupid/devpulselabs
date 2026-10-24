@@ -58,12 +58,17 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: "1"
+  # CI never benefits from incremental's session folders (each run is a new
+  # tree), and they are what makes a persistent cache balloon. Unchanged
+  # crates are still reused from the cache below.
+  CARGO_INCREMENTAL: "0"
 
 jobs:
   green-windows:
     runs-on: [self-hosted, dpl-win]
-    # 90: `cargo green` includes the workspace RELEASE build; the persistent
-    # runner keeps its incremental target, so warm runs are far shorter.
+    # 90: `cargo green` includes the workspace RELEASE build. A cold run (a
+    # new or wiped cache) takes most of an hour on this 16 GB guest; a warm
+    # one rebuilds only what changed.
     timeout-minutes: 90
     env:
       # The 16 GB VM's LNK1318 "PDB LIMIT" cures (2026-07-28, each from a
@@ -75,9 +80,32 @@ jobs:
       CARGO_BUILD_JOBS: "8"
     steps:
       - uses: actions/checkout@v7
-      # No rust-cache on self-hosted: the runner's _work directory persists
-      # between runs, so the incremental target IS the cache — shipping
-      # gigabytes to the Actions cache service would only slow the lane.
+      # THE BUILD CACHE LIVES OUTSIDE THE CHECKOUT. checkout's `clean: true`
+      # runs `git clean -ffdx`, which deleted `target/` before every run
+      # ("Removing target/" in every log until 2026-10-24) — so every
+      # Windows run rebuilt all ~600 crates twice (tests, then release) and
+      # held the one Windows slot for most of an hour. `<workspace>/
+      # cargo-target` is a sibling of the checkout: git clean never reaches
+      # it, the checkout stays clean, and xtask honours CARGO_TARGET_DIR
+      # (`target_dir()`). No rust-cache: the runner's own disk IS the cache.
+      # The guard wipes it (that run builds cold) past 50 GB or when the
+      # disk has under 15 GB free, so the guest can never fill.
+      - name: the build cache (outside the checkout, guarded)
+        shell: powershell
+        run: |
+          $dir = Join-Path "${{ runner.workspace }}" "cargo-target"
+          [IO.File]::AppendAllText($env:GITHUB_ENV, "CARGO_TARGET_DIR=$dir`n")
+          $free = (Get-PSDrive ((Split-Path -Qualifier $dir).TrimEnd(':'))).Free / 1GB
+          if (Test-Path $dir) {
+            $size = (Get-ChildItem $dir -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum / 1GB
+            "build cache: {0:N1} GB at $dir ({1:N0} GB free)" -f $size, $free
+            if ($size -gt 50 -or $free -lt 15) {
+              Remove-Item $dir -Recurse -Force
+              "build cache wiped (over 50 GB, or under 15 GB free): this run builds cold"
+            }
+          } else {
+            "build cache: none yet at $dir ({0:N0} GB free): this run builds cold and fills it" -f $free
+          }
       - name: cargo green (the xtask gate)
         run: cargo green
 
@@ -104,8 +132,8 @@ jobs:
           # this?" without opening it.
           name: devpulselabs-windows-${{ github.sha }}
           path: |
-            target/release/devpulselabs.exe
-            target/release/dpl-lottie-render.exe
+            ${{ env.CARGO_TARGET_DIR }}/release/devpulselabs.exe
+            ${{ env.CARGO_TARGET_DIR }}/release/dpl-lottie-render.exe
           # A silent empty artifact would be worse than none — it would look
           # like a delivered build.
           if-no-files-found: error
@@ -125,6 +153,23 @@ jobs:
       # hollow guest fails loudly here instead of mysteriously in clippy.
       - name: system deps are baked (verify, no sudo)
         run: pkg-config --exists egl && ffmpeg -version | head -1
+      # The build cache, outside the checkout — see green-windows.
+      - name: the build cache (outside the checkout, guarded)
+        run: |
+          dir="${{ runner.workspace }}/cargo-target"
+          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
+          mkdir -p "$(dirname "$dir")"
+          free_gb=$(( $(df -Pk "$(dirname "$dir")" | awk 'NR==2 {print $4}') / 1048576 ))
+          if [ -d "$dir" ]; then
+            size_gb=$(( $(du -sk "$dir" | cut -f1) / 1048576 ))
+            echo "build cache: ${size_gb} GB at $dir (${free_gb} GB free)"
+            if [ "$size_gb" -gt 50 ] || [ "$free_gb" -lt 15 ]; then
+              rm -rf "$dir"
+              echo "build cache wiped (over 50 GB, or under 15 GB free): this run builds cold"
+            fi
+          else
+            echo "build cache: none yet at $dir (${free_gb} GB free): this run builds cold and fills it"
+          fi
       - name: cargo green (the xtask gate)
         run: cargo green
 
