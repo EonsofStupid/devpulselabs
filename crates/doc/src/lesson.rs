@@ -47,6 +47,11 @@ pub struct Use {
     /// The newer revision the operator said "Not now" to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub declined: Option<u32>,
+    /// Variant axes chosen for this lesson only (LS4a, ruled 2026-10-24: "a
+    /// one off variant for that specific lesson") — over the card's own,
+    /// without touching the card.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub variant: std::collections::BTreeMap<String, String>,
 }
 
 /// Where a use stands against its slide's newest revision.
@@ -113,6 +118,7 @@ impl Lesson {
             },
             role: slide.role.clone(),
             declined: None,
+            variant: std::collections::BTreeMap::new(),
         });
         self.rev += 1;
         key
@@ -155,6 +161,24 @@ impl Lesson {
         found.role = role.map(str::to_owned);
         self.rev += 1;
         true
+    }
+
+    /// "Just this lesson": axis `axis` shows option `option` here only;
+    /// `None` gives it back to the card's own choice.
+    pub fn set_variant(&mut self, key: &str, axis: &str, option: Option<&str>) -> bool {
+        let Some(found) = self.get_mut(key) else {
+            return false;
+        };
+        let changed = match option {
+            Some(option) => {
+                found.variant.insert(axis.to_owned(), option.to_owned()) != Some(option.to_owned())
+            }
+            None => found.variant.remove(axis).is_some(),
+        };
+        if changed {
+            self.rev += 1;
+        }
+        changed
     }
 
     /// "Update": show revision `newest` from now on.
@@ -278,12 +302,17 @@ pub fn use_state(content_root: &Path, use_: &Use) -> UseState {
     }
 }
 
-/// The slide exactly as this use shows it: its pinned revision.
+/// The slide exactly as this use shows it: its pinned revision, with this
+/// lesson's own variant choices over the card's.
 pub fn load_use(content_root: &Path, use_: &Use) -> Result<Slide, DocError> {
-    crate::load_rev(
+    let mut slide = crate::load_rev(
         &crate::library_slide_dir(content_root, &use_.slide.id),
         use_.slide.rev,
-    )
+    )?;
+    for (axis, option) in &use_.variant {
+        slide.variant.insert(axis.clone(), option.clone());
+    }
+    Ok(slide)
 }
 
 /// Every use with an update waiting (not the ones put off), as
@@ -616,5 +645,38 @@ mod tests {
         let mut stray = serde_json::to_value(&lesson).unwrap();
         stray["content"] = Value::String("never here".into());
         assert!(!validator.is_valid(&stray));
+    }
+
+    /// "Just this lesson": the use's own variant shows over the card's,
+    /// the card never changes, and the choice can be given back.
+    #[test]
+    fn a_lessons_own_variant_shows_over_the_cards() {
+        let root = scratch("variant");
+        let mut card = library_slide(&root, "Hello");
+        card.variant.insert("align".into(), "left".into());
+        crate::save(&crate::library_slide_dir(&root, &card.id), &card).unwrap();
+        let mut lesson = Lesson::new("Shaped");
+        let key = lesson.add(&card);
+        let rev = lesson.rev;
+        assert!(lesson.set_variant(&key, "align", Some("center")));
+        assert!(
+            !lesson.set_variant(&key, "align", Some("center")),
+            "no change, no revision"
+        );
+        assert_eq!(lesson.rev, rev + 1);
+        let shown = load_use(&root, lesson.get(&key).unwrap()).unwrap();
+        assert_eq!(
+            shown.variant.get("align").map(String::as_str),
+            Some("center")
+        );
+        let stored = crate::load(&crate::library_slide_dir(&root, &card.id)).unwrap();
+        assert_eq!(
+            stored.variant.get("align").map(String::as_str),
+            Some("left")
+        );
+        assert!(lesson.set_variant(&key, "align", None));
+        let shown = load_use(&root, lesson.get(&key).unwrap()).unwrap();
+        assert_eq!(shown.variant.get("align").map(String::as_str), Some("left"));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

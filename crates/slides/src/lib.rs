@@ -43,7 +43,7 @@ pub mod motion;
 pub mod registry;
 pub mod templates;
 
-pub use registry::{components, demos, SlideTemplate};
+pub use registry::{components, contract_of, demos, SlideTemplate};
 
 /// The two-notch authoring knob. Spacing and type slots only — never color.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]

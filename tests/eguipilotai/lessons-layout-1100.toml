@@ -1,0 +1,97 @@
+# LS4a: `lessons-layout` at the minimum real window (1100x700), after
+# `layout-make` (fresh content) — the centred Title card set Left for this
+# lesson only.
+id = "lessons-layout-1100"
+fixture = "lessons-ls4a-1100"
+record = true
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.lessons.lesson/New lesson"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1200
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.lessons/use/u1/layout"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.lessons/use/u1/layout"
+
+[[steps]]
+kind = "wait"
+milliseconds = 800
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.lessons/layout/align/left"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.lessons/layout/align/left"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1200
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.lessons/layout/align/same"
+
+[[steps]]
+kind = "capture"
+name = "lessons-layout-own-1100"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.lessons/layout/done"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1000
+
+[[steps]]
+kind = "capture"
+name = "lessons-layout-done-1100"

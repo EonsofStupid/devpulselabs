@@ -1,0 +1,98 @@
+# LS4a: one lesson's own layout, after `layout-make`. Open the lesson, open
+# the centred Title card's Layout choices and set it Left for this lesson
+# only — "Same as the card" appears to give the choice back, and the card
+# itself stays centred everywhere else.
+id = "lessons-layout"
+fixture = "lessons-ls4a"
+record = true
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.lessons.lesson/New lesson"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1200
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.lessons/use/u1/layout"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.lessons/use/u1/layout"
+
+[[steps]]
+kind = "wait"
+milliseconds = 800
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.lessons/layout/align/left"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.lessons/layout/align/left"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1200
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.lessons/layout/align/same"
+
+[[steps]]
+kind = "capture"
+name = "lessons-layout-own"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.lessons/layout/done"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1000
+
+[[steps]]
+kind = "capture"
+name = "lessons-layout-done"

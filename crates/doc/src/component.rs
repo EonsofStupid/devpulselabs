@@ -102,6 +102,245 @@ pub struct ComponentContract {
     pub forbidden: Vec<Forbidden>,
     pub examples: Vec<Example>,
     pub provenance: Provenance,
+    /// How the slots are laid out (LS4a) — data, never paint code. None:
+    /// the slide's lines flow in their own order, as before LS4.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout: Option<Layout>,
+}
+
+/// How a component lays its slots out (LS4a, `docs/plans/components-ls4.md`
+/// §4c): which slot goes where, aligned how, and the size and ink each slot
+/// takes when neither the slide nor its looks say. A variant axis can drive
+/// the alignment, and `when` rules adjust slots per variant.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Layout {
+    pub kind: LayoutKind,
+    #[serde(default)]
+    pub align: AlignRef,
+    /// The slots in reading order.
+    pub slots: Vec<SlotLayout>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub when: Vec<When>,
+    /// What the column sits in. None: straight on the stage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub container: Option<Container>,
+    /// Where the column sits down the stage (or its container).
+    #[serde(default, skip_serializing_if = "is_middle")]
+    pub anchor: Anchor,
+    /// An oversized mark behind the top-left corner.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mark: Option<Mark>,
+}
+
+fn is_middle(anchor: &Anchor) -> bool {
+    *anchor == Anchor::Middle
+}
+
+/// What a layout's column can sit in — the design system's `container`
+/// elements (§1), painted by the one renderer in the card's colour.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Container {
+    /// A raised card across most of the stage: a hairline edge, a sheen,
+    /// and a bar in the card's colour down its left side.
+    Card,
+}
+
+/// Where the column sits down the stage.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Anchor {
+    Top,
+    #[default]
+    Middle,
+    Bottom,
+}
+
+/// An oversized decorative mark — the design system's `mark` elements.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Mark {
+    /// A big, dim quotation mark in the card's colour.
+    Quote,
+}
+
+/// A divider above a slot, in the card's colour — the design system's
+/// `divider` element: a short bright run, then a hairline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Rule {
+    /// Half the column's width.
+    Half,
+    /// The column's whole width.
+    Full,
+}
+
+/// The layout's shape. LS4a: one column; LS4b adds the others.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LayoutKind {
+    Stack,
+}
+
+/// Where the lines sit across the stage.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Align {
+    #[default]
+    Left,
+    Center,
+}
+
+/// A fixed alignment, or the one a variant axis chooses (its option ids are
+/// `left` / `center`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AlignRef {
+    Fixed(Align),
+    Axis { axis: String },
+}
+
+impl Default for AlignRef {
+    fn default() -> Self {
+        AlignRef::Fixed(Align::Left)
+    }
+}
+
+/// One slot's place in the layout, and its defaults.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SlotLayout {
+    pub slot: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub place: Option<Place>,
+    /// A fluid `fs-*` size name, when neither the line nor its looks say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<String>,
+    /// An ink name, when neither the line nor its looks say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ink: Option<String>,
+    /// A font id, when neither the line, its line look nor the card's look
+    /// say (a look's font stays the font of every line, ruled 2026-10-21).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font: Option<String>,
+    /// The micro-label read: upper case with thin-space tracking (an
+    /// eyebrow, a kicker). How the words are drawn, never what they say.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub tracked: bool,
+    /// A divider drawn above this slot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule: Option<Rule>,
+}
+
+/// Where a slot sits other than in the column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Place {
+    /// Behind everything, filling the stage (a picture).
+    Backdrop,
+    /// Out of the column, pinned to the top-left (a section's big number).
+    Top,
+}
+
+/// A variant's adjustment: when `axis` is `is`, these apply.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct When {
+    pub axis: String,
+    pub is: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub align: Option<Align>,
+    /// Slot defaults that replace the base ones (by slot).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub slots: Vec<SlotLayout>,
+}
+
+/// A layout with a slide's variant applied — what the renderer reads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LaidOut {
+    pub kind: LayoutKind,
+    pub align: Align,
+    /// Reading order, each with its defaults.
+    pub slots: Vec<SlotLayout>,
+    pub container: Option<Container>,
+    pub anchor: Anchor,
+    pub mark: Option<Mark>,
+}
+
+impl LaidOut {
+    /// The defaults for slot `id`, when the layout names it.
+    pub fn slot(&self, id: &str) -> Option<&SlotLayout> {
+        self.slots.iter().find(|s| s.slot == id)
+    }
+}
+
+impl ComponentContract {
+    /// The value of axis `id` for `variant`: the slide's choice, else the
+    /// axis's default.
+    pub fn axis_value<'a>(
+        &'a self,
+        variant: &'a BTreeMap<String, String>,
+        id: &str,
+    ) -> Option<&'a str> {
+        let axis = self.variant_axes.iter().find(|a| a.id == id)?;
+        Some(
+            variant
+                .get(id)
+                .filter(|v| axis.options.iter().any(|o| &o.id == *v))
+                .map_or(axis.default.as_str(), String::as_str),
+        )
+    }
+
+    /// This component's layout with `variant` applied, or None when it has
+    /// no layout (the lines then flow in their own order).
+    pub fn laid_out(&self, variant: &BTreeMap<String, String>) -> Option<LaidOut> {
+        let layout = self.layout.as_ref()?;
+        let mut align = match &layout.align {
+            AlignRef::Fixed(align) => *align,
+            AlignRef::Axis { axis } => match self.axis_value(variant, axis) {
+                Some("center") => Align::Center,
+                _ => Align::Left,
+            },
+        };
+        let mut slots = layout.slots.clone();
+        for rule in &layout.when {
+            if self.axis_value(variant, &rule.axis) != Some(rule.is.as_str()) {
+                continue;
+            }
+            if let Some(a) = rule.align {
+                align = a;
+            }
+            for change in &rule.slots {
+                if let Some(slot) = slots.iter_mut().find(|s| s.slot == change.slot) {
+                    if change.place.is_some() {
+                        slot.place = change.place;
+                    }
+                    if change.size.is_some() {
+                        slot.size.clone_from(&change.size);
+                    }
+                    if change.ink.is_some() {
+                        slot.ink.clone_from(&change.ink);
+                    }
+                    if change.font.is_some() {
+                        slot.font.clone_from(&change.font);
+                    }
+                    slot.tracked |= change.tracked;
+                    if change.rule.is_some() {
+                        slot.rule = change.rule;
+                    }
+                }
+            }
+        }
+        Some(LaidOut {
+            kind: layout.kind,
+            align,
+            slots,
+            container: layout.container,
+            anchor: layout.anchor,
+            mark: layout.mark,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -407,19 +646,7 @@ pub fn validate(contract: &ComponentContract) -> Vec<ContractIssue> {
 
     for prop in &contract.props {
         let path = format!("props.{}", prop.id);
-        let default_ok = match prop.kind {
-            PropKind::Text => prop.default.is_string(),
-            PropKind::Bool => prop.default.is_boolean(),
-            PropKind::Number => prop.default.as_f64().is_some_and(|n| {
-                prop.min.is_none_or(|min| n >= min) && prop.max.is_none_or(|max| n <= max)
-            }),
-            PropKind::Enum => prop
-                .default
-                .as_str()
-                .is_some_and(|value| prop.options.iter().any(|o| o == value)),
-            PropKind::Tone => prop.default.as_str().is_some_and(is_tone),
-        };
-        if !default_ok {
+        if !prop_value_ok(prop, &prop.default) {
             push(at(&path), "default does not fit the prop's kind".into());
         }
         if (prop.kind == PropKind::Enum) != !prop.options.is_empty() {
@@ -537,7 +764,123 @@ pub fn validate(contract: &ComponentContract) -> Vec<ContractIssue> {
             }
         }
     }
+
+    if let Some(layout) = &contract.layout {
+        for (path, problem) in layout_problems(contract, layout) {
+            push(at(&path), problem);
+        }
+    }
     issues
+}
+
+/// Does `value` fit `prop` — its kind, its range, its options?
+pub fn prop_value_ok(prop: &Prop, value: &Value) -> bool {
+    match prop.kind {
+        PropKind::Text => value.is_string(),
+        PropKind::Bool => value.is_boolean(),
+        PropKind::Number => value.as_f64().is_some_and(|n| {
+            prop.min.is_none_or(|min| n >= min) && prop.max.is_none_or(|max| n <= max)
+        }),
+        PropKind::Enum => value
+            .as_str()
+            .is_some_and(|v| prop.options.iter().any(|o| o == v)),
+        PropKind::Tone => value.as_str().is_some_and(is_tone),
+    }
+}
+
+/// Everything wrong with a layout: slots it names must be the contract's
+/// (each once), axes and options real, sizes fluid `fs-*` names, inks
+/// known names.
+fn layout_problems(contract: &ComponentContract, layout: &Layout) -> Vec<(String, String)> {
+    let mut problems = Vec::new();
+    let size_ok = |name: &str| {
+        dpl_coldlight::FLUID_TOKEN_NAMES
+            .iter()
+            .any(|n| *n == format!("fs-{name}"))
+    };
+    let check_slot = |slot: &SlotLayout, path: &str, problems: &mut Vec<(String, String)>| {
+        if !contract.slots.iter().any(|s| s.id == slot.slot) {
+            problems.push((path.to_owned(), format!("no slot `{}`", slot.slot)));
+        }
+        if let Some(size) = &slot.size {
+            if !size_ok(size) {
+                problems.push((path.to_owned(), format!("unknown size `{size}`")));
+            }
+        }
+        if let Some(ink) = &slot.ink {
+            if !crate::INKS.contains(&ink.as_str()) {
+                problems.push((path.to_owned(), format!("unknown ink `{ink}`")));
+            }
+        }
+        if let Some(font) = &slot.font {
+            if !crate::font_ok(font) {
+                problems.push((path.to_owned(), format!("unknown font `{font}`")));
+            }
+        }
+        // A backdrop is a picture; a pinned slot is words.
+        let entity = contract
+            .slots
+            .iter()
+            .find(|s| s.id == slot.slot)
+            .map(|s| s.entity);
+        match (slot.place, entity) {
+            (Some(Place::Backdrop), Some(e)) if e != Entity::Picture => {
+                problems.push((path.to_owned(), "only a picture can be the backdrop".into()))
+            }
+            (Some(Place::Top), Some(e)) if !matches!(e, Entity::Text | Entity::Quote) => problems
+                .push((
+                    path.to_owned(),
+                    "only words can be pinned to the top".into(),
+                )),
+            _ => {}
+        }
+    };
+    let axis_has = |axis: &str, option: &str| {
+        contract
+            .variant_axes
+            .iter()
+            .find(|a| a.id == axis)
+            .map(|a| a.options.iter().any(|o| o.id == option))
+    };
+    let mut seen = BTreeSet::new();
+    for slot in &layout.slots {
+        let path = format!("layout.slots.{}", slot.slot);
+        if !seen.insert(slot.slot.as_str()) {
+            problems.push((path.clone(), "named twice".into()));
+        }
+        check_slot(slot, &path, &mut problems);
+    }
+    if let AlignRef::Axis { axis } = &layout.align {
+        for option in ["left", "center"] {
+            if axis_has(axis, option) != Some(true) {
+                problems.push((
+                    "layout.align".into(),
+                    format!("axis `{axis}` needs a `{option}` option to set the alignment"),
+                ));
+            }
+        }
+    }
+    for (index, rule) in layout.when.iter().enumerate() {
+        let path = format!("layout.when.{index}");
+        match axis_has(&rule.axis, &rule.is) {
+            None => problems.push((path.clone(), format!("no axis `{}`", rule.axis))),
+            Some(false) => problems.push((
+                path.clone(),
+                format!("`{}` has no option `{}`", rule.axis, rule.is),
+            )),
+            Some(true) => {}
+        }
+        for slot in &rule.slots {
+            if !layout.slots.iter().any(|s| s.slot == slot.slot) {
+                problems.push((
+                    path.clone(),
+                    format!("adjusts `{}`, which the layout does not place", slot.slot),
+                ));
+            }
+            check_slot(slot, &path, &mut problems);
+        }
+    }
+    problems
 }
 
 /// Item fields: unique snake_case ids, labels and tooltips, and a `list`
@@ -698,6 +1041,14 @@ pub fn evolution_problems(before: &ComponentContract, after: &ComponentContract)
                 problems.push(format!("slot `{}` became required", slot.id));
             }
             Some(now) => fields_lost(&slot.item, &now.item, &slot.id, &mut problems),
+        }
+    }
+    for slot in &after.slots {
+        if slot.required && !before.slots.iter().any(|s| s.id == slot.id) {
+            problems.push(format!(
+                "slot `{}` is new and required — older slides cannot have it",
+                slot.id
+            ));
         }
     }
     for prop in &before.props {
@@ -919,5 +1270,156 @@ mod tests {
             label: "Right".into(),
         });
         assert_eq!(evolution_problems(&before, &grown), Vec::<String>::new());
+    }
+
+    fn with_layout(json: &str) -> ComponentContract {
+        let mut contract = sample();
+        contract.layout = Some(serde_json::from_str(json).expect("the layout parses"));
+        contract
+    }
+
+    fn layout_issues(contract: &ComponentContract) -> Vec<String> {
+        validate(contract)
+            .into_iter()
+            .filter(|i| i.at.contains(".layout"))
+            .map(|i| format!("{} {}", i.at, i.problem))
+            .collect()
+    }
+
+    /// A layout reads its alignment from an axis and adjusts slots per
+    /// variant; an option the axis does not have falls back to its default.
+    #[test]
+    fn a_layout_reads_its_axis_and_its_when_rules() {
+        let contract = with_layout(
+            r#"{"kind": "stack", "align": {"axis": "align"},
+                "slots": [{"slot": "title", "size": "display", "ink": "strong"}],
+                "when": [{"axis": "density", "is": "compact",
+                          "slots": [{"slot": "title", "size": "h1"}]}]}"#,
+        );
+        assert_eq!(layout_issues(&contract), Vec::<String>::new());
+        let laid = contract.laid_out(&BTreeMap::new()).unwrap();
+        assert_eq!(laid.align, Align::Left);
+        assert_eq!(laid.slot("title").unwrap().size.as_deref(), Some("display"));
+        let mut variant = BTreeMap::new();
+        variant.insert("align".to_owned(), "center".to_owned());
+        variant.insert("density".to_owned(), "compact".to_owned());
+        let laid = contract.laid_out(&variant).unwrap();
+        assert_eq!(laid.align, Align::Center);
+        let title = laid.slot("title").unwrap();
+        assert_eq!(title.size.as_deref(), Some("h1"));
+        assert_eq!(
+            title.ink.as_deref(),
+            Some("strong"),
+            "a when keeps what it does not change"
+        );
+        variant.insert("align".to_owned(), "diagonal".to_owned());
+        assert_eq!(contract.laid_out(&variant).unwrap().align, Align::Left);
+        assert!(
+            sample().laid_out(&BTreeMap::new()).is_none(),
+            "no layout, no laying out"
+        );
+    }
+
+    #[test]
+    fn a_broken_layout_is_named() {
+        let contract = with_layout(
+            r#"{"kind": "stack", "align": {"axis": "density"},
+                "slots": [{"slot": "title", "size": "gigantic", "ink": "chartreuse"},
+                          {"slot": "title"}, {"slot": "nope"}],
+                "when": [{"axis": "zoom", "is": "in"},
+                         {"axis": "density", "is": "compact", "slots": [{"slot": "items"}]}]}"#,
+        );
+        let issues = layout_issues(&contract).join(" | ");
+        for needle in [
+            "unknown size `gigantic`",
+            "unknown ink `chartreuse`",
+            "named twice",
+            "no slot `nope`",
+            "needs a `left` option",
+            "no axis `zoom`",
+            "adjusts `items`, which the layout does not place",
+        ] {
+            assert!(issues.contains(needle), "{needle}: {issues}");
+        }
+    }
+
+    /// The decorations are data (§4b): they parse, a `when` can add a rule,
+    /// and a slot pinned or put behind must be the right kind of thing.
+    #[test]
+    fn a_layouts_decorations_are_data() {
+        let contract = with_layout(
+            r#"{"kind": "stack", "container": "card", "anchor": "bottom", "mark": "quote",
+                "slots": [{"slot": "title", "place": "top"}],
+                "when": [{"axis": "density", "is": "compact",
+                          "slots": [{"slot": "title", "rule": "full"}]}]}"#,
+        );
+        assert_eq!(layout_issues(&contract), Vec::<String>::new());
+        let laid = contract.laid_out(&BTreeMap::new()).unwrap();
+        assert_eq!(
+            (laid.container, laid.anchor, laid.mark),
+            (Some(Container::Card), Anchor::Bottom, Some(Mark::Quote))
+        );
+        assert_eq!(laid.slot("title").unwrap().place, Some(Place::Top));
+        assert_eq!(laid.slot("title").unwrap().rule, None);
+        let mut variant = BTreeMap::new();
+        variant.insert("density".to_owned(), "compact".to_owned());
+        let laid = contract.laid_out(&variant).unwrap();
+        assert_eq!(laid.slot("title").unwrap().rule, Some(Rule::Full));
+        assert_eq!(laid.slot("title").unwrap().place, Some(Place::Top));
+
+        let wrong = with_layout(
+            r#"{"kind": "stack",
+                "slots": [{"slot": "title", "place": "backdrop"},
+                          {"slot": "items", "place": "top"}]}"#,
+        );
+        let issues = layout_issues(&wrong).join(" | ");
+        for needle in [
+            "only a picture can be the backdrop",
+            "only words can be pinned to the top",
+        ] {
+            assert!(issues.contains(needle), "{needle}: {issues}");
+        }
+    }
+
+    /// A new required slot would leave every older slide incomplete, so a
+    /// raised version may not add one; an optional one is fine.
+    #[test]
+    fn a_new_required_slot_is_refused() {
+        let before = sample();
+        let mut after = sample();
+        after.version = "1.1.0".into();
+        let mut slot = after.slots[0].clone();
+        slot.id = "kicker".into();
+        slot.required = true;
+        after.slots.push(slot);
+        assert!(evolution_problems(&before, &after)
+            .iter()
+            .any(|p| p.contains("`kicker` is new and required")));
+        after.slots.last_mut().unwrap().required = false;
+        assert_eq!(evolution_problems(&before, &after), Vec::<String>::new());
+    }
+
+    /// Props are checked against the contract, and a `tone` prop is the
+    /// slide's own colour.
+    #[test]
+    fn props_are_checked_and_tone_is_the_slides_colour() {
+        let contract = sample();
+        let mut content = Map::new();
+        content.insert("title".into(), Value::String("Hi".into()));
+        let mut props = Map::new();
+        props.insert("tone".into(), Value::String("coral".into()));
+        let slide = crate::slide_from_parts(&contract, &content, &props, &BTreeMap::new())
+            .expect("a slide");
+        assert_eq!(slide.tone.as_deref(), Some("coral"));
+        assert!(
+            slide.props.is_empty(),
+            "the colour is not a prop on the slide"
+        );
+        let mut odd = slide.clone();
+        odd.props.insert("tone".into(), Value::Bool(true));
+        odd.props.insert("speed".into(), Value::from(3));
+        let issues = crate::validate_against(&odd, &contract);
+        assert!(issues.iter().any(|i| i.path == "props.tone"), "{issues:?}");
+        assert!(issues.iter().any(|i| i.path == "props.speed"), "{issues:?}");
     }
 }

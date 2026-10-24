@@ -20,6 +20,20 @@
   ],
   "$defs": {
     "field_id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$" },
+    "slot_layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slot"],
+      "properties": {
+        "slot": { "$ref": "#/$defs/field_id" },
+        "place": { "enum": ["backdrop", "top"] },
+        "size": { "type": "string", "minLength": 1 },
+        "ink": { "enum": ["strong", "base", "muted", "subtle", "tone"] },
+        "font": { "type": "string", "minLength": 1 },
+        "tracked": { "type": "boolean" },
+        "rule": { "enum": ["half", "full"] }
+      }
+    },
     "label": { "type": "string", "minLength": 1, "maxLength": 40 },
     "tooltip": {
       "description": "Plain words for the operator (the tooltip law).",
@@ -179,6 +193,44 @@
           "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*@[0-9]+\\.[0-9]+\\.[0-9]+$"
         },
         "note": { "type": "string" }
+      }
+    },
+    "layout": {
+      "description": "How the slots are laid out (LS4a) — data, never paint code: the slots in reading order with the size and ink each takes when neither the slide nor its looks say, the alignment (fixed or from a variant axis), per-variant adjustments, and the decorations the one renderer paints in the card's colour (a container, a mark, a rule above a slot). Absent: the slide's lines flow in their own order.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "slots"],
+      "properties": {
+        "kind": { "enum": ["stack"] },
+        "align": {
+          "oneOf": [
+            { "enum": ["left", "center"] },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["axis"],
+              "properties": { "axis": { "$ref": "#/$defs/field_id" } }
+            }
+          ]
+        },
+        "slots": { "type": "array", "items": { "$ref": "#/$defs/slot_layout" } },
+        "container": { "enum": ["card"] },
+        "anchor": { "enum": ["top", "middle", "bottom"] },
+        "mark": { "enum": ["quote"] },
+        "when": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["axis", "is"],
+            "properties": {
+              "axis": { "$ref": "#/$defs/field_id" },
+              "is": { "type": "string" },
+              "align": { "enum": ["left", "center"] },
+              "slots": { "type": "array", "items": { "$ref": "#/$defs/slot_layout" } }
+            }
+          }
+        }
       }
     }
   }

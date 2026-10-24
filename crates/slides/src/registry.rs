@@ -82,6 +82,16 @@ pub fn components() -> Vec<&'static ComponentContract> {
     demos().iter().map(|template| template.spec()).collect()
 }
 
+/// The contract registered under `id` — read once, then looked up without
+/// building a template, because the renderer asks every frame (LS4a).
+pub fn contract_of(id: &str) -> Option<&'static ComponentContract> {
+    static ALL: std::sync::OnceLock<Vec<&'static ComponentContract>> = std::sync::OnceLock::new();
+    ALL.get_or_init(components)
+        .iter()
+        .copied()
+        .find(|c| c.id == id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

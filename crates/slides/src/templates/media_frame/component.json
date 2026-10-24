@@ -1,7 +1,7 @@
 {
   "schema": "dpl.component/1",
   "id": "media",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "name": "Media frame",
   "summary": "Drop-anything slide: an image, video, PDF page, or session replay — full-bleed.",
   "class": "static",
@@ -43,5 +43,13 @@
       }
     }
   ],
-  "provenance": {}
+  "provenance": {},
+  "layout": {
+    "kind": "stack",
+    "anchor": "bottom",
+    "slots": [
+      { "slot": "media", "place": "backdrop" },
+      { "slot": "caption", "size": "eyebrow", "ink": "tone", "font": "jetbrainsmono", "tracked": true }
+    ]
+  }
 }

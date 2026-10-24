@@ -42,6 +42,11 @@
             "description": "The newer revision the operator said Not now to.",
             "type": "integer",
             "minimum": 2
+          },
+          "variant": {
+            "description": "Variant axes chosen for this lesson only, over the card's own (LS4a).",
+            "type": "object",
+            "additionalProperties": { "type": "string" }
           }
         }
       }

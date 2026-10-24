@@ -6,13 +6,10 @@
 //! and the value scale only.
 
 use dpl_coldlight::Tone;
-use dpl_coldlight::{self as cl};
-use egui::{Align2, FontId, Ui};
+use egui::Ui;
 use serde::{Deserialize, Serialize};
 
-use crate::elements::eyebrow::tracked;
-use crate::elements::{media_backdrop, Media};
-use crate::frame::Stage;
+use crate::elements::Media;
 use crate::motion::Clock;
 use crate::registry::SlideTemplate;
 use crate::Density;
@@ -58,66 +55,9 @@ impl SlideTemplate for BigNumber {
     }
 
     fn ui(&mut self, ui: &mut Ui) {
-        let stage = Stage::of(ui.max_rect());
-        let now = ui.input(|i| i.time);
-        let t0 = self.clock.tick(now);
-        if let Some(m) = &self.media {
-            media_backdrop(ui, ui.max_rect(), m, self.tone, now, t0);
-        }
-        // Entrance: the receipt BLOOMS (spring overshoot on scale), the
-        // supporting lines fade — settle first, one-time event, then rest.
-        let bloom = cl::motion::ENTER_BLOOM.at(now, t0, 0);
-        let fade = cl::motion::ENTER_FADE.at(now, t0, 0);
-        if cl::motion::ENTER_BLOOM.in_flight(now, t0, 1) {
-            ui.ctx().request_repaint();
-        }
-        let fluid = &stage.fluid;
-        let painter = ui.painter();
-
-        let (gap, value_size) = match self.density {
-            Density::Comfy => (fluid.sp_5(), fluid.fs_display_xl()),
-            Density::Compact => (fluid.sp_3(), fluid.fs_h1()),
-        };
-        let eyebrow_size = fluid.fs_eyebrow();
-        let label_size = fluid.fs_h2();
-        let foot_size = fluid.fs_body();
-
-        let block_h =
-            eyebrow_size + gap + value_size * 0.9 + gap + label_size * 1.25 + gap + foot_size;
-        let cx = stage.rect.center().x;
-        let mut y = stage.rect.center().y - block_h * 0.5;
-
-        painter.text(
-            egui::pos2(cx, y),
-            Align2::CENTER_TOP,
-            tracked(&self.eyebrow),
-            FontId::monospace(eyebrow_size),
-            cl::ink::MUTED.gamma_multiply(fade),
-        );
-        y += eyebrow_size + gap;
-        painter.text(
-            egui::pos2(cx, y),
-            Align2::CENTER_TOP,
-            &self.value,
-            FontId::proportional(value_size * (0.85 + 0.15 * bloom).max(0.05)),
-            self.tone.color().gamma_multiply(bloom.clamp(0.0, 1.0)),
-        );
-        y += value_size * 0.9 + gap;
-        painter.text(
-            egui::pos2(cx, y),
-            Align2::CENTER_TOP,
-            &self.label,
-            FontId::proportional(label_size),
-            cl::ink::BASE.gamma_multiply(fade),
-        );
-        y += label_size * 1.25 + gap;
-        painter.text(
-            egui::pos2(cx, y),
-            Align2::CENTER_TOP,
-            &self.footnote,
-            FontId::proportional(foot_size),
-            cl::ink::MUTED.gamma_multiply(fade),
-        );
-        ui.allocate_rect(stage.rect, egui::Sense::hover());
+        // Its own values, painted by the one renderer (LS4a): the gallery
+        // shows exactly what a card started from this layout looks like.
+        let values = crate::registry::ComponentValues::values(self);
+        crate::document::paint_template(ui, Self::contract(), &values, &mut self.clock);
     }
 }

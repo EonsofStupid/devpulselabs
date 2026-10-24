@@ -1,0 +1,93 @@
+# LS4a: `layout-make` at the minimum real window (1100x700) — start a
+# Title card in a new lesson and centre it in the editor's Layout row. It
+# stops at Done: at this size Author's "Put them in" sits below the fold
+# (found 2026-10-24, before LS4a), and the harness cannot scroll.
+id = "layout-make-1100"
+fixture = "author-ls4a-1100"
+record = true
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author/new-lesson"
+
+[[steps]]
+kind = "wait"
+milliseconds = 800
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.shelf/templates"
+
+[[steps]]
+kind = "wait"
+milliseconds = 800
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.card/templates/title"
+
+[[steps]]
+kind = "wait"
+milliseconds = 2500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/editor/variant-align-left"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/variant-align-center"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1200
+
+[[steps]]
+kind = "capture"
+name = "layout-make-centred-1100"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.card-done"
+
+[[steps]]
+kind = "wait"
+milliseconds = 600
+
+[[steps]]
+kind = "capture"
+name = "layout-make-done-1100"

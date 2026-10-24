@@ -72,8 +72,10 @@ struct Card {
     pinned: u32,
     role: Option<String>,
     label: String,
-    /// The pinned version, drawn as a still.
+    /// The pinned version, drawn as a still (this lesson's variant applied).
     slide: Option<dpl_doc::Slide>,
+    /// This lesson lays the card out its own way (LS4a).
+    own_layout: bool,
 }
 
 /// The side-by-side sheet before an update.
@@ -104,6 +106,8 @@ struct LessonView {
     shelf: Option<(Vec<ShelfCard>, usize)>,
     /// The use whose job is being chosen.
     picking: Option<String>,
+    /// The use whose layout is being chosen for this lesson only (LS4a).
+    shaping: Option<String>,
     /// A card being changed from inside the lesson: the revision it had,
     /// and the editor.
     editing: Option<(u32, dpl_editor::Editor)>,
@@ -134,6 +138,7 @@ impl LessonView {
             compare: None,
             shelf: None,
             picking: None,
+            shaping: None,
             editing: None,
             styling: dpl_doc::Styling {
                 theme: dpl_doc::Theme::fallback(),
@@ -161,6 +166,7 @@ impl LessonView {
                         .as_ref()
                         .map_or_else(|| "A missing card".to_owned(), dpl_doc::Slide::label),
                     slide,
+                    own_layout: !use_.variant.is_empty(),
                 }
             })
             .collect();
@@ -665,6 +671,16 @@ impl Lessons {
                     Self::role_picker_ui(ui, key, card, &mut act);
                     ui.add_space(cl::space::S3);
                 }
+                if let Some(key) = &view.shaping {
+                    let card = view.cards.iter().find(|c| &c.key == key);
+                    let own = view
+                        .lesson
+                        .get(key)
+                        .map(|u| u.variant.clone())
+                        .unwrap_or_default();
+                    Self::layout_picker_ui(ui, key, card, &own, &mut act);
+                    ui.add_space(cl::space::S3);
+                }
                 if let Some((shelf, more)) = &view.shelf {
                     Self::shelf_ui(ui, shelf, *more, &view.styling, &mut act);
                     ui.add_space(cl::space::S3);
@@ -731,6 +747,12 @@ impl Lessons {
                 }
             }
             Some(Act::PickRole(key)) => view.picking = Some(key),
+            Some(Act::PickLayout(key)) => view.shaping = Some(key),
+            Some(Act::DoneLayout) => view.shaping = None,
+            Some(Act::Variant(key, axis, option)) => {
+                view.lesson.set_variant(&key, &axis, option.as_deref());
+                note = view.commit(root);
+            }
             Some(Act::Role(key, role)) => {
                 view.picking = None;
                 view.lesson.set_role(&key, role.as_deref());
@@ -748,6 +770,104 @@ impl Lessons {
             }
         }
         note
+    }
+
+    /// How a card is laid out in this lesson only (LS4a, ruled 2026-10-24:
+    /// "a one off variant for that specific lesson"): each of its
+    /// component's variant axes as chips, the lesson's own choice marked,
+    /// and "Same as the card" to give a choice back. The card itself never
+    /// changes.
+    fn layout_picker_ui(
+        ui: &mut egui::Ui,
+        key: &str,
+        card: Option<&Card>,
+        own: &std::collections::BTreeMap<String, String>,
+        act: &mut Option<Act>,
+    ) {
+        let fluid = cl::Fluid::of(ui.max_rect());
+        let label = card.map_or("this card", |c| c.label.as_str());
+        let Some((slide, contract)) = card
+            .and_then(|c| c.slide.as_ref())
+            .and_then(|slide| Some((slide, dpl_slides::contract_of(slide.component_id())?)))
+        else {
+            return;
+        };
+        ui.label(
+            RichText::new(format!("How “{label}” is laid out in this lesson"))
+                .size(fluid.fs_body_lg())
+                .strong()
+                .color(cl::ink::STRONG),
+        );
+        ui.label(
+            RichText::new("Only this lesson changes — the card stays as it is everywhere else.")
+                .size(fluid.fs_body_sm())
+                .color(cl::ink::MUTED),
+        );
+        for axis in &contract.variant_axes {
+            let current = contract.axis_value(&slide.variant, &axis.id).unwrap_or("");
+            ui.horizontal_wrapped(|ui| {
+                ui.label(
+                    RichText::new(format!(
+                        "{}{}",
+                        axis.label,
+                        if own.contains_key(&axis.id) {
+                            " (this lesson)"
+                        } else {
+                            ""
+                        }
+                    ))
+                    .size(fluid.fs_body_sm())
+                    .color(cl::ink::BASE),
+                );
+                for option in &axis.options {
+                    let on = current == option.id;
+                    if button(
+                        ui,
+                        &format!("layout/{}/{}", axis.id, option.id),
+                        &option.label,
+                        on,
+                        SPEC.tone,
+                        Weight::Chrome,
+                        &format!(
+                            "{} in this lesson: {}",
+                            axis.label,
+                            option.label.to_lowercase()
+                        ),
+                    ) && !on
+                    {
+                        *act = Some(Act::Variant(
+                            key.to_owned(),
+                            axis.id.clone(),
+                            Some(option.id.clone()),
+                        ));
+                    }
+                }
+                if own.contains_key(&axis.id)
+                    && button(
+                        ui,
+                        &format!("layout/{}/same", axis.id),
+                        "Same as the card",
+                        false,
+                        SPEC.tone,
+                        Weight::Chrome,
+                        "Give this choice back to the card",
+                    )
+                {
+                    *act = Some(Act::Variant(key.to_owned(), axis.id.clone(), None));
+                }
+            });
+        }
+        if button(
+            ui,
+            "layout/done",
+            "Done",
+            false,
+            SPEC.tone,
+            Weight::Chrome,
+            "Close the layout choices",
+        ) {
+            *act = Some(Act::DoneLayout);
+        }
     }
 
     /// The nine jobs (and none) as chips: what does this card do here?
@@ -941,6 +1061,29 @@ impl Lessons {
                     "Choose the job this card does in the lesson",
                 ) {
                     *act = Some(Act::PickRole(key.clone()));
+                }
+                // How it is laid out here, when its component offers a choice.
+                let offers = card
+                    .slide
+                    .as_ref()
+                    .and_then(|s| dpl_slides::contract_of(s.component_id()))
+                    .is_some_and(|c| !c.variant_axes.is_empty());
+                if offers
+                    && button(
+                        ui,
+                        &k("layout"),
+                        if card.own_layout {
+                            "Layout: this lesson's"
+                        } else {
+                            "Layout"
+                        },
+                        card.own_layout,
+                        SPEC.tone,
+                        Weight::Chrome,
+                        "Change how this card is laid out in this lesson only",
+                    )
+                {
+                    *act = Some(Act::PickLayout(key.clone()));
                 }
 
                 ui.horizontal_wrapped(|ui| {
@@ -1201,6 +1344,10 @@ enum Act {
     Remove(String),
     PickRole(String),
     CancelRole,
+    PickLayout(String),
+    DoneLayout,
+    /// Axis set for this lesson only; `None` gives it back to the card.
+    Variant(String, String, Option<String>),
     Role(String, Option<String>),
     Edit(String),
 }

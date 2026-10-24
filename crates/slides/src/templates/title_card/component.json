@@ -1,7 +1,7 @@
 {
   "schema": "dpl.component/1",
   "id": "title",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "name": "Title card",
   "summary": "Episode/segment opener: toned eyebrow, display title, muted subtitle.",
   "class": "static",
@@ -72,5 +72,15 @@
       }
     }
   ],
-  "provenance": {}
+  "provenance": {},
+  "layout": {
+    "kind": "stack",
+    "align": { "axis": "align" },
+    "slots": [
+      { "slot": "media", "place": "backdrop" },
+      { "slot": "eyebrow", "size": "eyebrow", "ink": "tone", "font": "jetbrainsmono", "tracked": true },
+      { "slot": "title", "size": "display", "ink": "strong" },
+      { "slot": "subtitle", "size": "h3", "ink": "muted" }
+    ]
+  }
 }
