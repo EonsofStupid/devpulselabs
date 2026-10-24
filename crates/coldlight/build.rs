@@ -1364,6 +1364,109 @@ fn generate_presets(out_dir: &str) {
         themes.len()
     )
     .unwrap();
+    // LINE looks (LK3): a text or quote line's named style. The same law
+    // as the card's looks — a known entity, 4-7 legal knobs with colour
+    // among them — and every ref real: font, size (the fluid type scale),
+    // ink, colour and, for text, the line's own entrance.
+    let fluid_doc: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string("tokens/fluid.json").expect("read fluid.json"),
+    )
+    .expect("parse fluid.json");
+    let size_names: Vec<String> = fluid_doc["groups"]
+        .as_object()
+        .expect("fluid.json: groups")
+        .values()
+        .flat_map(|group| group["tokens"].as_array().expect("group.tokens").iter())
+        .filter_map(|t| t["name"].as_str()?.strip_prefix("fs-").map(str::to_string))
+        .collect();
+    const INKS: [&str; 5] = ["strong", "base", "muted", "subtle", "tone"];
+    const ENTERS: [&str; 2] = ["rise", "none"];
+    let blocks = doc["block"].as_array().expect("presets.json: block[]");
+    writeln!(code, "pub static BLOCK_PRESETS: &[BlockPreset] = &[").unwrap();
+    for p in blocks {
+        let id = p["id"].as_str().expect("block.id");
+        let label = p["label"].as_str().expect("block.label");
+        let blurb = p["blurb"].as_str().expect("block.blurb");
+        let entity = p["for"].as_str().expect("block.for");
+        let tone = p["tone"].as_str().expect("block.tone");
+        let font = p["font"].as_str().expect("block.font");
+        let size = p["size"].as_str().expect("block.size");
+        let ink = p["ink"].as_str().expect("block.ink");
+        let enter = p["enter"].as_str();
+        let exposes: Vec<&str> = p["exposes"]
+            .as_array()
+            .expect("block.exposes")
+            .iter()
+            .map(|k| k.as_str().expect("knob"))
+            .collect();
+        assert!(
+            entity == "text" || entity == "quote",
+            "block look {id}: a line look is for text or quote, not {entity:?}"
+        );
+        let legal = KNOBS
+            .iter()
+            .find(|(e, _)| *e == entity)
+            .map(|(_, knobs)| *knobs)
+            .unwrap_or_else(|| panic!("block look {id}: unknown entity {entity:?}"));
+        assert!(
+            (4..=7).contains(&exposes.len()),
+            "block look {id}: exposes {} knobs; a preset exposes 4-7",
+            exposes.len()
+        );
+        assert!(
+            exposes.contains(&"colour"),
+            "block look {id}: colour is always one of the knobs"
+        );
+        for knob in &exposes {
+            assert!(
+                legal.contains(knob),
+                "block look {id}: a {entity} has no knob {knob:?}"
+            );
+        }
+        assert!(
+            hue_ids.iter().any(|h| h == tone),
+            "block look {id}: unknown tone {tone:?}"
+        );
+        assert!(
+            font_ids.iter().any(|f| f == font),
+            "block look {id}: unknown font {font:?}"
+        );
+        assert!(
+            size_names.iter().any(|n| n == size),
+            "block look {id}: unknown size {size:?}"
+        );
+        assert!(INKS.contains(&ink), "block look {id}: unknown ink {ink:?}");
+        assert_eq!(
+            enter.is_some(),
+            exposes.contains(&"motion"),
+            "block look {id}: an entrance exactly when it exposes movement"
+        );
+        if let Some(enter) = enter {
+            assert!(
+                ENTERS.contains(&enter),
+                "block look {id}: unknown entrance {enter:?}"
+            );
+        }
+        let enter_code = match enter {
+            Some(enter) => format!("Some({enter:?})"),
+            None => "None".to_string(),
+        };
+        writeln!(
+            code,
+            "    BlockPreset {{ id: {id:?}, label: {label:?}, blurb: {blurb:?}, entity: {entity:?}, \
+             exposes: &{exposes:?}, tone: {tone:?}, font: {font:?}, size: {size:?}, ink: {ink:?}, \
+             enter: {enter_code} }},"
+        )
+        .unwrap();
+    }
+    writeln!(code, "];").unwrap();
+    writeln!(
+        code,
+        "pub const BLOCK_PRESET_COUNT: usize = {};",
+        blocks.len()
+    )
+    .unwrap();
+
     // The knob table itself, so the runtime check of the operator's own
     // looks (dpl-doc, LK2) reads the same law as this build-time one.
     writeln!(

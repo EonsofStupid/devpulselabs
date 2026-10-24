@@ -36,7 +36,8 @@ refreshed without touching content. The research is
 | LK1 | Linked looks (R286): the look chip and its menu (your changes, Undo all my changes, Stop following / Follow the look again), a dot on every value that is yours with a comparison and a one-tap way back, try-before-keep, More controls, one revision per typing burst, Undo on every tab | **built**, stacked on LS2b |
 | LK2a | Your own looks as files (`dpl.look/1`, the `Looks` registry passed to every surface that paints): Save as a new look, your looks first in the tray and in the Library, the missing-look state | **built**, stacked on LK1 |
 | LK2b | Changes that spread: Make these the look's new style ("changes 12 other slides", before and after, one Undo), your version of a built-in with Back to the built-in, Open the look (in the card editor, ruled 2026-10-22) | **built**, stacked on LK2a |
-| LK3 | Text, quote and picture looks (the approved sets) with the same chip, dots and stop-following, per block | |
+| LK3a | Line looks (ruled 2026-10-23): per-line entrances; the 14 text and 6 quote looks by reference between a line's own values and the card's look; a line's colour painted; per line the chip, menu, look row, dots, Colour and Movement rows, stop/follow again; shrink to fit; the Library shows them | **built**, stacked on LK2b |
+| LK3b | Picture looks made real: a picture's coloured frame and its own entrance, then the 5 picture looks (the recorded three-knob exception) | |
 | LS3 | Lessons (`dpl.lesson/1`) and episodes built from lessons (`dpl.episode/2`), by reference, with "Update available" | |
 | LS4 | Components render their slots and variant axes | |
 | LS5 | Render locks for exports; Lottie slots | |
@@ -134,8 +135,9 @@ release) are still to come.
       cannot run yet (RM3, RM4).
 12. **A card made from a layout shows the layout's words, not its look**
     (2026-10-21, LS2a). The document renderer paints every slide as a plain
-    stack, so until text looks (LK3) and component rendering (LS4) land,
-    the lines all share one size.
+    stack until component rendering (LS4) lands. Since LK3a a line's look
+    gives it its own size, and lines taller than the stage shrink together
+    to fit rather than run off it.
 13. **A second launch opens a second, half-broken window** instead of raising
     the running one (`FjallError: Locked`, seam port bind os error 10048).
     The operator asked (2026-08-05) for the running window to come to the

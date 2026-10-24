@@ -45,7 +45,9 @@
         "text": { "type": "string" },
         "font": { "$ref": "#/$defs/ref" },
         "size": { "$ref": "#/$defs/ref" },
-        "ink": { "$ref": "#/$defs/ref" }
+        "ink": { "$ref": "#/$defs/ref" },
+        "enter": { "description": "The line's own entrance (LK3); absent inherits its line look's, then the slide's.", "enum": ["rise", "none"] },
+        "unlinked_from": { "description": "The line look this line stopped following (LK3).", "$ref": "#/$defs/ref" }
       }
     },
     "block": {

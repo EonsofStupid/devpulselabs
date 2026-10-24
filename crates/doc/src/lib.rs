@@ -229,6 +229,14 @@ pub enum Block {
         /// Semantic ink: strong | base | muted | subtle | tone. None = inherit.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         ink: Option<String>,
+        /// The line's own entrance: rise | none. None = inherit (its line
+        /// look's, then the slide's) — LK3, ruled 2026-10-23.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        enter: Option<String>,
+        /// The line look this line stopped following (LK3), so following
+        /// it again is one tap.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        unlinked_from: Option<String>,
     },
     /// An image / video slide surface (W11). Media is DATA, not new paint
     /// code: the template renders it through the slides media painter, which
@@ -274,6 +282,14 @@ pub enum Block {
         size: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         ink: Option<String>,
+        /// The line's own entrance: rise | none. None = inherit (its line
+        /// look's, then the slide's) — LK3, ruled 2026-10-23.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        enter: Option<String>,
+        /// The line look this line stopped following (LK3), so following
+        /// it again is one tap.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        unlinked_from: Option<String>,
     },
     /// A list or data slot's value (checked against its contract). The
     /// document renderer leaves it to the component (LS4).
@@ -298,25 +314,35 @@ impl Block {
         match self {
             Block::Text {
                 id,
+                preset,
+                tone,
                 text,
                 font,
                 size,
                 ink,
-                ..
+                enter,
+                unlinked_from,
             }
             | Block::Quote {
                 id,
+                preset,
+                tone,
                 text,
                 font,
                 size,
                 ink,
-                ..
+                enter,
+                unlinked_from,
             } => Some(Words {
                 id,
                 text,
+                preset: preset.as_deref(),
+                tone: tone.as_deref(),
                 font: font.as_deref(),
                 size: size.as_deref(),
                 ink: ink.as_deref(),
+                enter: enter.as_deref(),
+                unlinked_from: unlinked_from.as_deref(),
             }),
             Block::Media { .. } | Block::Data { .. } => None,
         }
@@ -327,25 +353,35 @@ impl Block {
         match self {
             Block::Text {
                 id,
+                preset,
+                tone,
                 text,
                 font,
                 size,
                 ink,
-                ..
+                enter,
+                unlinked_from,
             }
             | Block::Quote {
                 id,
+                preset,
+                tone,
                 text,
                 font,
                 size,
                 ink,
-                ..
+                enter,
+                unlinked_from,
             } => Some(WordsMut {
                 id,
                 text,
+                preset,
+                tone,
                 font,
                 size,
                 ink,
+                enter,
+                unlinked_from,
             }),
             Block::Media { .. } | Block::Data { .. } => None,
         }
@@ -361,6 +397,8 @@ impl Block {
             font: None,
             size: None,
             ink: None,
+            enter: None,
+            unlinked_from: None,
         }
     }
 
@@ -383,9 +421,17 @@ impl Block {
 pub struct Words<'a> {
     pub id: &'a str,
     pub text: &'a str,
+    /// The line look it follows (LK3).
+    pub preset: Option<&'a str>,
+    /// The line's colour — what the "tone" ink paints.
+    pub tone: Option<&'a str>,
     pub font: Option<&'a str>,
     pub size: Option<&'a str>,
     pub ink: Option<&'a str>,
+    /// The line's own entrance.
+    pub enter: Option<&'a str>,
+    /// The line look it stopped following.
+    pub unlinked_from: Option<&'a str>,
 }
 
 /// A text or quote block's words and styling, editable in place.
@@ -393,9 +439,13 @@ pub struct Words<'a> {
 pub struct WordsMut<'a> {
     pub id: &'a str,
     pub text: &'a mut String,
+    pub preset: &'a mut Option<String>,
+    pub tone: &'a mut Option<String>,
     pub font: &'a mut Option<String>,
     pub size: &'a mut Option<String>,
     pub ink: &'a mut Option<String>,
+    pub enter: &'a mut Option<String>,
+    pub unlinked_from: &'a mut Option<String>,
 }
 
 /// A validation finding: the path names WHERE, the message WHAT. Findings
@@ -707,10 +757,19 @@ pub fn validate(slide: &Slide) -> Vec<Issue> {
             | Block::Quote { tone, preset, .. } => (tone.as_deref(), preset.as_deref()),
             Block::Data { .. } => (None, None),
         };
-        // Text, picture and quote preset sets come with the operator's
-        // review (LS2, Q2); until then no block preset exists to name.
+        // A block's look is named by its id; whether it exists (and is for
+        // this entity) is look::validate_looks, which knows the looks.
         if let Some(preset) = preset {
-            push(format!("unknown {} preset {preset:?}", block_entity(block)));
+            if !kebab_ok(preset) && !is_id(preset) {
+                push(format!("{preset:?} is not a look id"));
+            }
+        }
+        if let Some(words) = block.words() {
+            if let Some(enter) = words.enter {
+                if !ENTERS.contains(&enter) {
+                    push(format!("unknown entrance {enter:?}"));
+                }
+            }
         }
         if let Some(tone) = tone {
             if !tone_ok(tone) {
@@ -927,6 +986,8 @@ pub fn slide_from_example(contract: &component::ComponentContract, index: usize)
                 font: None,
                 size: None,
                 ink: None,
+                enter: None,
+                unlinked_from: None,
             },
             (Entity::Picture, picture) => {
                 let kind = picture.get("kind").and_then(Value::as_str);
@@ -1377,14 +1438,29 @@ pub fn resolve(slide: &Slide, theme: &Theme, looks: &Looks) -> Slide {
         out.enter = theme.enter.clone();
     }
     let font = preset.map_or_else(|| theme.font.clone(), |preset| preset.font.clone());
+    let slide_enter = out.enter.clone();
     for b in &mut out.blocks {
-        // Only words cascade font/ink; media and data carry neither.
+        // A line's own value, then its line look's (LK3), then the card
+        // look's font, then the show's. Media and data carry no words.
+        let line_look = looks.line_look(b);
         if let Some(words) = b.words_mut() {
             if words.font.is_none() {
-                *words.font = Some(font.clone());
+                *words.font = Some(line_look.map_or_else(|| font.clone(), |l| l.font.to_owned()));
+            }
+            if words.size.is_none() {
+                *words.size = line_look.map(|l| l.size.to_owned());
             }
             if words.ink.is_none() {
-                *words.ink = Some(theme.ink.clone());
+                *words.ink =
+                    Some(line_look.map_or_else(|| theme.ink.clone(), |l| l.ink.to_owned()));
+            }
+            if words.tone.is_none() {
+                *words.tone = line_look.map(|l| l.tone.to_owned());
+            }
+            if words.enter.is_none() {
+                *words.enter = line_look
+                    .and_then(|l| l.enter.map(str::to_owned))
+                    .or_else(|| slide_enter.clone());
             }
         }
     }
@@ -1848,6 +1924,8 @@ mod tests {
                 font: None,
                 size: Some("h2".into()),
                 ink: Some("strong".into()),
+                enter: None,
+                unlinked_from: None,
             },
             Block::text("name", "Somebody"),
         ];
@@ -1882,6 +1960,8 @@ mod tests {
             font: Some("orbitron".into()),
             size: Some("display".into()),
             ink: Some("strong".into()),
+            enter: None,
+            unlinked_from: None,
         }];
         slide.enter = Some("rise".into());
         slide
@@ -1960,6 +2040,8 @@ mod tests {
             font: Some("comic-sans".into()),
             size: Some("gigantic".into()),
             ink: Some("chartreuse".into()),
+            enter: None,
+            unlinked_from: None,
         }];
         slide.enter = Some("teleport".into());
         slide.role = Some("vibes".into());
@@ -2088,6 +2170,8 @@ mod tests {
             font: None,
             size: None,
             ink: None,
+            enter: None,
+            unlinked_from: None,
         });
         quote.blocks.push(Block::Data {
             id: "items".into(),
@@ -2146,6 +2230,8 @@ mod tests {
             font: Some("rajdhani".into()),
             size: None,
             ink: None,
+            enter: None,
+            unlinked_from: None,
         };
         let resolved = resolve(&slide, &theme, &looks);
         assert_eq!(
@@ -2428,6 +2514,8 @@ mod tests {
             font: Some("comic-sans".into()),
             size: Some("display".into()),
             ink: Some("strong".into()),
+            enter: None,
+            unlinked_from: None,
         };
         save(&dir.join("a"), &bad).unwrap();
         let ep = Episode {
@@ -2497,6 +2585,8 @@ mod tests {
                 font: Some("orbitron".into()),
                 size: Some("h1".into()),
                 ink: None,
+                enter: None,
+                unlinked_from: None,
             },
             Block::text("b", "inherit"),
         ];
@@ -2512,8 +2602,14 @@ mod tests {
             panic!("block 1 is text");
         };
         assert_eq!(font.as_deref(), Some(theme.font.as_str()), "inherited");
-        // A fully-specified slide is a fixed point.
-        let full = sample();
+        // A fully-specified slide is a fixed point (each line names its own
+        // entrance too, LK3 — else it inherits the slide's).
+        let mut full = sample();
+        for block in &mut full.blocks {
+            if let Some(words) = block.words_mut() {
+                *words.enter = Some("rise".into());
+            }
+        }
         assert_eq!(resolve(&full, &theme, &Looks::builtin_only()), full);
         // The resolved sparse slide validates clean.
         assert_eq!(validate(&r), Vec::new());
@@ -2801,6 +2897,8 @@ mod tests {
             font: None,
             size: Some("not-a-size".into()),
             ink: None,
+            enter: None,
+            unlinked_from: None,
         }];
         save(&bad, &unfinished).unwrap();
         assert!(

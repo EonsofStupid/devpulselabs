@@ -2835,6 +2835,8 @@ impl AuthorSurface {
                         font: None,
                         size: Some("h3".into()),
                         ink: None,
+                        enter: None,
+                        unlinked_from: None,
                     });
                 }
                 slide
@@ -3219,6 +3221,8 @@ mod quote_tests {
                     font: None,
                     size: Some("h1".into()),
                     ink: Some("strong".into()),
+                    enter: None,
+                    unlinked_from: None,
                 },
             );
             dpl_doc::save(&dir, &slide).unwrap();
@@ -3435,6 +3439,8 @@ mod place_tests {
                 font: None,
                 size: Some("not-a-size".into()),
                 ink: None,
+                enter: None,
+                unlinked_from: None,
             }],
         );
         let outcome = dpl_doc::place_slide(&root, &dir, "effingai", "ep04", "intro", None);
@@ -3527,6 +3533,8 @@ mod place_tests {
                 font: None,
                 size: Some("not-a-size".into()),
                 ink: None,
+                enter: None,
+                unlinked_from: None,
             }],
         );
 

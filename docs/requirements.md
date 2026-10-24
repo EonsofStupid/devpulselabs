@@ -1048,6 +1048,15 @@ LK2b landed changes that spread:
 - **Open the look** edits the look inside the card editor: the chip becomes "Editing the look Neon intro — shows on 2 slides" with Done, and background, colour and font changes land in the look while the slide keeps following.
 - **One Undo** takes back a change that spread: the look's earlier revision and the slide together.
 
+**Operator rulings 2026-10-23 (LK3 plan):** "Approve" (LK3a, text and quote looks, one PR); "LK3b makes them real" (a picture gets a coloured frame and its own entrance, and picture looks are the recorded three-knob exception to the 4–7 rule); "Add per-line entrances" (each line moves on its own, so a text look sets movement).
+
+LK3a landed line looks:
+- **Per-line entrances:** a text or quote line has its own `enter` (rise or none), resolved from its own, its look's, then the slide's; still lines simply appear while the others rise.
+- **The 14 text and 6 quote looks** (`presets.json` `block`, checked by the build) by reference: a line's look sits between its own values and the card's look, and gives its font, size, ink, colour and (text) movement. A line's colour paints its "tone" ink.
+- **Tap a line:** its chip ("Look: Editorial quote · 1 change", "Own style (was …)", "Card style") and menu, a look row starting with "Card style" (try, Keep / Cancel), dots on Font, Size, Ink, Colour and Movement, stop following and follow again — the card's pattern, per line.
+- **Shrink to fit:** lines taller than the stage scale down together rather than run off it.
+- The Library's presets show every text and quote look as a sample line.
+
 ## 5. Capture — ViziWiz, sessions, steps, guides
 
 ### R178 · 2026-07-23

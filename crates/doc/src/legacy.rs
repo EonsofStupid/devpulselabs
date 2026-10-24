@@ -117,6 +117,8 @@ pub fn upgrade(raw: &str) -> Result<Slide, String> {
                         font,
                         size: Some(size),
                         ink,
+                        enter: None,
+                        unlinked_from: None,
                     }
                 } else {
                     Block::Text {
@@ -127,6 +129,8 @@ pub fn upgrade(raw: &str) -> Result<Slide, String> {
                         font,
                         size: Some(size),
                         ink,
+                        enter: None,
+                        unlinked_from: None,
                     }
                 }
             }

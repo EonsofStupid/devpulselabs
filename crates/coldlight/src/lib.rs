@@ -64,13 +64,10 @@ impl Tone {
     pub fn color(self) -> Color32 {
         // The pool is generated from the same registry these ids come from, so
         // the lookup cannot miss; degrade loudly in debug if it ever does.
-        match ramp(self.hue_id()) {
-            Some(r) => r.steps[STEP_500 - 1], // 400 — punchier on the dark stack
-            None => {
-                debug_assert!(false, "tone hue missing from pool: {}", self.hue_id());
-                Color32::GRAY
-            }
-        }
+        hue_accent(self.hue_id()).unwrap_or_else(|| {
+            debug_assert!(false, "tone hue missing from pool: {}", self.hue_id());
+            Color32::GRAY
+        })
     }
 
     /// Low-alpha fill for active rail items and selected cards.
@@ -108,6 +105,20 @@ pub mod ink {
     /// The stream-annotation stroke (D3) — the old `--ink-annotate`
     /// fallback's warm near-white, visible over every mood.
     pub const ANNOTATE: Color32 = Color32::from_rgb(0xf8, 0xf1, 0xdd);
+
+    /// A semantic ink by name: strong | base | muted | subtle | tone, where
+    /// `tone` paints `accent` (a line's own colour, else the background's).
+    /// "base" and any unknown name degrade to the body ink. The ONE place an
+    /// ink name becomes a colour — the renderer, the trays and the Library.
+    pub fn named(name: &str, accent: Color32) -> Color32 {
+        match name {
+            "strong" => STRONG,
+            "muted" => MUTED,
+            "subtle" => SUBTLE,
+            "tone" => accent,
+            _ => BASE,
+        }
+    }
 }
 
 /// Spacing steps. Fluid ramps (viewport-aware fns) arrive in P1;
@@ -295,6 +306,39 @@ include!(concat!(env!("OUT_DIR"), "/presets_gen.rs"));
 
 pub fn theme_preset(id: &str) -> Option<&'static ThemePreset> {
     THEME_PRESETS.iter().find(|p| p.id == id)
+}
+
+/// A LINE look (LK3, R286): a named style for one text or quote line, from
+/// tokens/presets.json's `block` list. A line stores its id and the cascade
+/// reads it — between the line's own values and the card's look.
+#[derive(Debug, Clone, Copy)]
+pub struct BlockPreset {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub blurb: &'static str,
+    /// `text` or `quote`.
+    pub entity: &'static str,
+    /// The 4-7 knobs a line may change while following it.
+    pub exposes: &'static [&'static str],
+    /// Its colour — a hue id (what the "tone" ink paints).
+    pub tone: &'static str,
+    pub font: &'static str,
+    /// A fluid type size (`fs-` stripped).
+    pub size: &'static str,
+    pub ink: &'static str,
+    /// The line's own entrance — `rise` or `none` (text looks).
+    pub enter: Option<&'static str>,
+}
+
+/// Any hue's saturated accent — the step a [`Tone`] paints (the ladder's
+/// 400, punchier on the dark stack). What a line's own colour paints (LK3).
+pub fn hue_accent(id: &str) -> Option<Color32> {
+    ramp(id).map(|r| r.steps[STEP_500 - 1])
+}
+
+/// Look up a line look by id.
+pub fn block_preset(id: &str) -> Option<&'static BlockPreset> {
+    BLOCK_PRESETS.iter().find(|p| p.id == id)
 }
 
 pub fn motion_preset(id: &str) -> Option<&'static MotionPreset> {
