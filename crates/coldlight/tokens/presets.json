@@ -1,5 +1,5 @@
 {
-  "$description": "AUTHORED — presets, the 6th token source. A preset is a NAMED BUNDLE OF REFS into the other registries (fonts/moods/motion/hues) — data composed FROM the generated styling, zero new code per preset. Cross-validated at build: an unknown ref fails the build. block = LINE looks (LK3): a text or quote line stores one by id, between its own values and the card's look; they expose font, size, ink, colour and (text) movement; theme = one-tap slide looks (W4 trays) — CARD presets (LS2b): a slide stores the preset's id and the cascade reads it, never a copy; `for` names the entity, `exposes` its 4–7 knobs (colour always one), `font` is the card's default for its lines (operator ruling 2026-10-21); motion = entrance choices; bleed = two-colour hover washes over a hue pool (V1 Providers control). The editor's Save-as-preset appends here (data in the authored format, never generated output).",
+  "$description": "AUTHORED — presets, the 6th token source. A preset is a NAMED BUNDLE OF REFS into the other registries (fonts/moods/motion/hues) — data composed FROM the generated styling, zero new code per preset. Cross-validated at build: an unknown ref fails the build. block = BLOCK looks (LK3): a text, quote or picture block stores one by id, between its own values and the card's look; text and quote looks expose font, size, ink, colour and (text) movement, picture looks fit, colour and movement — the recorded three-knob exception (2026-10-23) — and a picture look's colour may be \"none\" (no frame); theme = one-tap slide looks (W4 trays) — CARD presets (LS2b): a slide stores the preset's id and the cascade reads it, never a copy; `for` names the entity, `exposes` its 4–7 knobs (colour always one), `font` is the card's default for its lines (operator ruling 2026-10-21); motion = entrance choices; bleed = two-colour hover washes over a hue pool (V1 Providers control). The editor's Save-as-preset appends here (data in the authored format, never generated output).",
   "theme": [
     {
       "id": "neon-intro",
@@ -453,6 +453,76 @@
       "size": "h4",
       "ink": "tone",
       "blurb": "Short, punchy, 8-bit."
+    },
+    {
+      "id": "full-bleed",
+      "label": "Full bleed",
+      "for": "picture",
+      "exposes": [
+        "fit",
+        "colour",
+        "motion"
+      ],
+      "tone": "none",
+      "fit": "cover",
+      "enter": "rise",
+      "blurb": "A photo or video that fills the slide."
+    },
+    {
+      "id": "framed",
+      "label": "Framed",
+      "for": "picture",
+      "exposes": [
+        "fit",
+        "colour",
+        "motion"
+      ],
+      "tone": "cyan",
+      "fit": "contain",
+      "enter": "none",
+      "blurb": "Screenshots you must see whole."
+    },
+    {
+      "id": "evidence",
+      "label": "Evidence",
+      "for": "picture",
+      "exposes": [
+        "fit",
+        "colour",
+        "motion"
+      ],
+      "tone": "amber",
+      "fit": "contain",
+      "enter": "rise",
+      "blurb": "Proof shots, with a highlighted edge."
+    },
+    {
+      "id": "poster-still",
+      "label": "Poster still",
+      "for": "picture",
+      "exposes": [
+        "fit",
+        "colour",
+        "motion"
+      ],
+      "tone": "violet",
+      "fit": "cover",
+      "enter": "none",
+      "blurb": "A still that holds behind words."
+    },
+    {
+      "id": "session-replay",
+      "label": "Session replay",
+      "for": "picture",
+      "exposes": [
+        "fit",
+        "colour",
+        "motion"
+      ],
+      "tone": "lime",
+      "fit": "cover",
+      "enter": "none",
+      "blurb": "A recorded session playing back."
     }
   ],
   "motion": [

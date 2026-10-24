@@ -308,25 +308,31 @@ pub fn theme_preset(id: &str) -> Option<&'static ThemePreset> {
     THEME_PRESETS.iter().find(|p| p.id == id)
 }
 
-/// A LINE look (LK3, R286): a named style for one text or quote line, from
-/// tokens/presets.json's `block` list. A line stores its id and the cascade
-/// reads it — between the line's own values and the card's look.
+/// A BLOCK look (LK3, R286): a named style for one text, quote or picture
+/// block, from tokens/presets.json's `block` list. A block stores its id and
+/// the cascade reads it — between the block's own values and the card's
+/// look. Which fields are set follows the entity (the build checks it).
 #[derive(Debug, Clone, Copy)]
 pub struct BlockPreset {
     pub id: &'static str,
     pub label: &'static str,
     pub blurb: &'static str,
-    /// `text` or `quote`.
+    /// `text`, `quote` or `picture`.
     pub entity: &'static str,
-    /// The 4-7 knobs a line may change while following it.
+    /// The knobs a block may change while following it (4-7; a picture's
+    /// exactly fit, colour and movement — the recorded exception).
     pub exposes: &'static [&'static str],
-    /// Its colour — a hue id (what the "tone" ink paints).
-    pub tone: &'static str,
-    pub font: &'static str,
-    /// A fluid type size (`fs-` stripped).
-    pub size: &'static str,
-    pub ink: &'static str,
-    /// The line's own entrance — `rise` or `none` (text looks).
+    /// Its colour — a hue id: what a line's "tone" ink paints, a picture's
+    /// frame. `None` only for a picture without a frame.
+    pub tone: Option<&'static str>,
+    /// Words only: the font, the fluid type size (`fs-` stripped), the ink.
+    pub font: Option<&'static str>,
+    pub size: Option<&'static str>,
+    pub ink: Option<&'static str>,
+    /// Pictures only: `cover` (fill) or `contain` (whole).
+    pub fit: Option<&'static str>,
+    /// The block's own entrance — `rise` or `none` — where it exposes
+    /// movement.
     pub enter: Option<&'static str>,
 }
 

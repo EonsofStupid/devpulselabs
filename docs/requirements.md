@@ -1057,6 +1057,14 @@ LK3a landed line looks:
 - **Shrink to fit:** lines taller than the stage scale down together rather than run off it.
 - The Library's presets show every text and quote look as a sample line.
 
+**Operator ruling 2026-10-23:** "Approve wider LK3b" — grounding showed a picture painted none of its look's knobs (fit was ignored; every picture stretched), so LK3b made them real first.
+
+LK3b landed picture looks:
+- **Fit, painted for real:** "Fill the card" crops to fill without distortion; "Show all of it" keeps the whole picture, letterboxed — for images, posters and video.
+- **A frame** in the picture's colour (a hard 2 px edge; "No frame" is a picture's own choice) and **the picture's own entrance**.
+- **The 5 picture looks** (the recorded three-knob exception) by reference, with the same chip, menu, try/Keep, dots, stop following and follow again; a different picture keeps the card's picture look.
+- **Picture controls** when a picture is tapped, and on the Workbench's Picture tab (replacing the old fit row, which did nothing visible); the Library shows every picture look.
+
 ## 5. Capture — ViziWiz, sessions, steps, guides
 
 ### R178 · 2026-07-23

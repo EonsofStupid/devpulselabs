@@ -223,11 +223,11 @@ impl Looks {
         self.yours.retain(|look| look.id != id);
     }
 
-    /// The line look a text or quote block follows (LK3), when it names a
-    /// real one for its own entity. The built-in line looks for now; the
-    /// operator's own would join them here, as card looks did in LK2.
+    /// The look a text, quote or picture block follows (LK3), when it
+    /// names a real one for its own entity. The built-in block looks for
+    /// now; the operator's own would join them here, as card looks did in LK2.
     pub fn line_look(&self, block: &crate::Block) -> Option<&'static dpl_coldlight::BlockPreset> {
-        let id = block.words()?.preset?;
+        let id = block.style()?.preset?;
         dpl_coldlight::block_preset(id).filter(|look| look.entity == crate::block_entity(block))
     }
 
@@ -356,14 +356,14 @@ pub fn validate_looks(slide: &Slide, looks: &Looks) -> Vec<Issue> {
         }],
         _ => Vec::new(),
     };
-    // Each line's look (LK3): real, and for its own entity.
+    // Each block's look (LK3): real, and for its own entity.
     for block in &slide.blocks {
-        if let Some(id) = block.words().and_then(|words| words.preset) {
+        if let Some(id) = block.style().and_then(|style| style.preset) {
             if looks.line_look(block).is_none() {
                 issues.push(Issue {
                     path: format!("blocks.{}.preset", block.id()),
                     message: format!(
-                        "no {} look {id:?} — the line shows the card's style",
+                        "no {} look {id:?} — it shows the card's style",
                         crate::block_entity(block)
                     ),
                 });

@@ -1364,10 +1364,13 @@ fn generate_presets(out_dir: &str) {
         themes.len()
     )
     .unwrap();
-    // LINE looks (LK3): a text or quote line's named style. The same law
-    // as the card's looks — a known entity, 4-7 legal knobs with colour
-    // among them — and every ref real: font, size (the fluid type scale),
-    // ink, colour and, for text, the line's own entrance.
+    // BLOCK looks (LK3): a text, quote or picture block's named style. The
+    // same law as the card's looks — a known entity, 4-7 legal knobs with
+    // colour among them — and every ref real: font, size (the fluid type
+    // scale), ink and colour for words; fit and colour for a picture; the
+    // block's own entrance where it exposes movement. A picture look is the
+    // recorded exception (LK3 plan, Q2, 2026-10-23): exactly fit, colour and
+    // movement, and its colour may be "none" (no frame).
     let fluid_doc: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string("tokens/fluid.json").expect("read fluid.json"),
     )
@@ -1381,6 +1384,8 @@ fn generate_presets(out_dir: &str) {
         .collect();
     const INKS: [&str; 5] = ["strong", "base", "muted", "subtle", "tone"];
     const ENTERS: [&str; 2] = ["rise", "none"];
+    const FITS: [&str; 2] = ["cover", "contain"];
+    const PICTURE_KNOBS: [&str; 3] = ["fit", "colour", "motion"];
     let blocks = doc["block"].as_array().expect("presets.json: block[]");
     writeln!(code, "pub static BLOCK_PRESETS: &[BlockPreset] = &[").unwrap();
     for p in blocks {
@@ -1389,9 +1394,10 @@ fn generate_presets(out_dir: &str) {
         let blurb = p["blurb"].as_str().expect("block.blurb");
         let entity = p["for"].as_str().expect("block.for");
         let tone = p["tone"].as_str().expect("block.tone");
-        let font = p["font"].as_str().expect("block.font");
-        let size = p["size"].as_str().expect("block.size");
-        let ink = p["ink"].as_str().expect("block.ink");
+        let font = p["font"].as_str();
+        let size = p["size"].as_str();
+        let ink = p["ink"].as_str();
+        let fit = p["fit"].as_str();
         let enter = p["enter"].as_str();
         let exposes: Vec<&str> = p["exposes"]
             .as_array()
@@ -1399,20 +1405,28 @@ fn generate_presets(out_dir: &str) {
             .iter()
             .map(|k| k.as_str().expect("knob"))
             .collect();
+        let picture = entity == "picture";
         assert!(
-            entity == "text" || entity == "quote",
-            "block look {id}: a line look is for text or quote, not {entity:?}"
+            ["text", "quote", "picture"].contains(&entity),
+            "block look {id}: a block look is for text, quote or picture, not {entity:?}"
         );
         let legal = KNOBS
             .iter()
             .find(|(e, _)| *e == entity)
             .map(|(_, knobs)| *knobs)
             .unwrap_or_else(|| panic!("block look {id}: unknown entity {entity:?}"));
-        assert!(
-            (4..=7).contains(&exposes.len()),
-            "block look {id}: exposes {} knobs; a preset exposes 4-7",
-            exposes.len()
-        );
+        if picture {
+            assert_eq!(
+                exposes, PICTURE_KNOBS,
+                "block look {id}: a picture look exposes exactly fit, colour and movement"
+            );
+        } else {
+            assert!(
+                (4..=7).contains(&exposes.len()),
+                "block look {id}: exposes {} knobs; a preset exposes 4-7",
+                exposes.len()
+            );
+        }
         assert!(
             exposes.contains(&"colour"),
             "block look {id}: colour is always one of the knobs"
@@ -1424,18 +1438,33 @@ fn generate_presets(out_dir: &str) {
             );
         }
         assert!(
-            hue_ids.iter().any(|h| h == tone),
+            hue_ids.iter().any(|h| h == tone) || (picture && tone == "none"),
             "block look {id}: unknown tone {tone:?}"
         );
-        assert!(
-            font_ids.iter().any(|f| f == font),
-            "block look {id}: unknown font {font:?}"
-        );
-        assert!(
-            size_names.iter().any(|n| n == size),
-            "block look {id}: unknown size {size:?}"
-        );
-        assert!(INKS.contains(&ink), "block look {id}: unknown ink {ink:?}");
+        if picture {
+            assert!(
+                font.is_none() && size.is_none() && ink.is_none(),
+                "block look {id}: a picture has no font, size or ink"
+            );
+            assert!(
+                fit.is_some_and(|fit| FITS.contains(&fit)),
+                "block look {id}: a picture look names a fit (cover or contain)"
+            );
+        } else {
+            let font = font.unwrap_or_else(|| panic!("block look {id}: no font"));
+            let size = size.unwrap_or_else(|| panic!("block look {id}: no size"));
+            let ink = ink.unwrap_or_else(|| panic!("block look {id}: no ink"));
+            assert!(
+                font_ids.iter().any(|f| f == font),
+                "block look {id}: unknown font {font:?}"
+            );
+            assert!(
+                size_names.iter().any(|n| n == size),
+                "block look {id}: unknown size {size:?}"
+            );
+            assert!(INKS.contains(&ink), "block look {id}: unknown ink {ink:?}");
+            assert!(fit.is_none(), "block look {id}: only a picture has a fit");
+        }
         assert_eq!(
             enter.is_some(),
             exposes.contains(&"motion"),
@@ -1447,15 +1476,21 @@ fn generate_presets(out_dir: &str) {
                 "block look {id}: unknown entrance {enter:?}"
             );
         }
-        let enter_code = match enter {
-            Some(enter) => format!("Some({enter:?})"),
+        let opt = |value: Option<&str>| match value {
+            Some(value) => format!("Some({value:?})"),
             None => "None".to_string(),
         };
+        let tone_code = opt(Some(tone).filter(|tone| *tone != "none"));
         writeln!(
             code,
             "    BlockPreset {{ id: {id:?}, label: {label:?}, blurb: {blurb:?}, entity: {entity:?}, \
-             exposes: &{exposes:?}, tone: {tone:?}, font: {font:?}, size: {size:?}, ink: {ink:?}, \
-             enter: {enter_code} }},"
+             exposes: &{exposes:?}, tone: {tone_code}, font: {}, size: {}, ink: {}, fit: {}, \
+             enter: {} }},",
+            opt(font),
+            opt(size),
+            opt(ink),
+            opt(fit),
+            opt(enter),
         )
         .unwrap();
     }

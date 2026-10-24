@@ -230,8 +230,14 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
    proof in the plan's §8. **LK3a is draft PR #286** (bcbc272, base
    `feat/lk2b-spread`); the gate passed; the exe was rebuilt from `main`
    (stamp `4ee638b · 2026-10-23 17:18z`). Merge order: #280 → … → #286.
-   Next: LK3b (picture frame colour and entrance, then the 5 picture
-   looks) — its §4 goes into the plan first.
+   **LK3b** ("Approve wider LK3b": fit was not painted at all) **is built on
+   `feat/lk3b-picture-looks`** (from LK3a): fit, frame and entrance made
+   real, the 5 picture looks, picture controls on tap and on the Picture
+   tab, the Library section; proof in the plan's §8. **LK3b is draft PR
+   #287** (355c581 + b57c8a0 fmt, base `feat/lk3a-line-looks`); the gate
+   passed; the exe was rebuilt from `main` (stamp `4ee638b · 2026-10-23
+   18:25z`). The looks program (LK1–LK3) is built: merge order #280 → …
+   → #287. LS3 (lessons) is next in R285's order, with its own plan.
 
 ## Landmines
 

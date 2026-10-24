@@ -28,6 +28,7 @@ pub use bar::bar;
 pub use divider::rule;
 pub use eyebrow::{eyebrow, tracked};
 pub use media::{
-    ambient_backdrop, asset_thumb, media_backdrop, media_block_backdrop, Ambient, Media,
+    ambient_backdrop, asset_thumb, fit_picture, media_backdrop, media_block_backdrop, Ambient,
+    Media, PictureLook,
 };
 pub use stat::stat;

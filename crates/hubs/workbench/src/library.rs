@@ -908,6 +908,75 @@ pub(crate) fn presets_wall(ui: &mut egui::Ui, looks: &dpl_doc::Looks) {
 
             // LINE looks (LK3): every text and quote look as a sample line
             // in its own font, ink and colour, its recipe beneath.
+            // PICTURE looks (LK3b): how each sits, framed in its colour.
+            ui.add_space(cl::space::S4);
+            ui.label(RichText::new("PICTURE").small().color(cl::ink::SUBTLE));
+            ui.add_space(cl::space::S1);
+            ui.horizontal_wrapped(|ui| {
+                for look in looks.line_looks("picture") {
+                    let (rect, _) =
+                        ui.allocate_exact_size(egui::vec2(320.0, 96.0), egui::Sense::hover());
+                    let painter = ui.painter_at(rect);
+                    painter.rect_filled(rect, cl::RADIUS_SM, cl::surface::RAISED);
+                    // A small stage in the corner, clear of the words.
+                    let stage = egui::Rect::from_min_size(
+                        rect.right_top() + egui::vec2(-78.0, 10.0),
+                        egui::vec2(64.0, 36.0),
+                    );
+                    painter.rect_filled(stage, cl::RADIUS_SM, cl::surface::WELL);
+                    let picture = if look.fit == Some("contain") {
+                        stage.shrink2(egui::vec2(14.0, 4.0))
+                    } else {
+                        stage
+                    };
+                    painter.rect_filled(picture, cl::RADIUS_SM, cl::ink::SUBTLE);
+                    if let Some(edge) = look.tone.and_then(cl::hue_accent) {
+                        painter.rect_stroke(
+                            picture,
+                            cl::RADIUS_SM,
+                            egui::Stroke::new(2.0, edge),
+                            egui::StrokeKind::Inside,
+                        );
+                    }
+                    painter.text(
+                        egui::pos2(rect.min.x + 14.0, rect.min.y + 26.0),
+                        egui::Align2::LEFT_CENTER,
+                        look.label,
+                        egui::FontId::proportional(20.0),
+                        cl::ink::STRONG,
+                    );
+                    let moves = match look.enter {
+                        Some("rise") => "rises in",
+                        _ => "stays still",
+                    };
+                    painter.text(
+                        egui::pos2(rect.min.x + 14.0, rect.max.y - 40.0),
+                        egui::Align2::LEFT_CENTER,
+                        format!(
+                            "{} · {} · {moves}",
+                            crate::pictures::fit_label(look.fit.unwrap_or("cover")),
+                            look.tone.unwrap_or("no frame")
+                        ),
+                        egui::FontId::monospace(10.5),
+                        cl::ink::BASE,
+                    );
+                    painter.text(
+                        egui::pos2(rect.min.x + 14.0, rect.max.y - 18.0),
+                        egui::Align2::LEFT_CENTER,
+                        look.blurb,
+                        egui::FontId::proportional(11.5),
+                        cl::ink::MUTED,
+                    );
+                    painter.rect(
+                        rect,
+                        cl::RADIUS_SM,
+                        egui::Color32::TRANSPARENT,
+                        egui::Stroke::new(1.0, cl::surface::HAIRLINE),
+                        egui::StrokeKind::Inside,
+                    );
+                }
+            });
+
             for (heading, entity) in [("TEXT", "text"), ("QUOTE", "quote")] {
                 ui.add_space(cl::space::S4);
                 ui.label(RichText::new(heading).small().color(cl::ink::SUBTLE));
@@ -919,14 +988,14 @@ pub(crate) fn presets_wall(ui: &mut egui::Ui, looks: &dpl_doc::Looks) {
                         let painter = ui.painter_at(rect);
                         painter.rect_filled(rect, cl::RADIUS_SM, cl::surface::RAISED);
                         let ink = cl::ink::named(
-                            look.ink,
-                            cl::hue_accent(look.tone).unwrap_or(cl::ink::BASE),
+                            look.ink.unwrap_or("base"),
+                            look.tone.and_then(cl::hue_accent).unwrap_or(cl::ink::BASE),
                         );
                         painter.text(
                             egui::pos2(rect.min.x + 14.0, rect.min.y + 26.0),
                             egui::Align2::LEFT_CENTER,
                             look.label,
-                            egui::FontId::new(22.0, cl::font_family(look.font)),
+                            egui::FontId::new(22.0, cl::font_family(look.font.unwrap_or(""))),
                             ink,
                         );
                         let moves = match look.enter {
@@ -939,7 +1008,10 @@ pub(crate) fn presets_wall(ui: &mut egui::Ui, looks: &dpl_doc::Looks) {
                             egui::Align2::LEFT_CENTER,
                             format!(
                                 "{} · {} · {} · {}{moves}",
-                                look.font, look.size, look.ink, look.tone
+                                look.font.unwrap_or("—"),
+                                look.size.unwrap_or("—"),
+                                look.ink.unwrap_or("—"),
+                                look.tone.unwrap_or("—")
                             ),
                             egui::FontId::monospace(10.5),
                             cl::ink::BASE,

@@ -235,23 +235,37 @@ pub fn cover_uv(tex_a: f32, rect_a: f32) -> egui::Rect {
     }
 }
 
-/// Paint `path`'s loop cover-fit into `rect`. Returns `false` while no frame
-/// exists yet (ffmpeg still starting, or absent) so the caller can paint the
-/// poster instead. Players are cached in egui temp memory per path.
-pub fn loop_backdrop(ui: &egui::Ui, rect: egui::Rect, path: &Path) -> bool {
+/// Paint `path`'s loop into `rect` — cover-fit (cropped to fill), or
+/// `contain` (all of it, letterboxed, centred) — tinted by `tint` (an
+/// entrance's fade). Returns where it landed, or `None` while no frame exists
+/// yet (ffmpeg still starting, or absent) so the caller can paint the poster
+/// instead. Players are cached in egui temp memory per path.
+pub fn loop_backdrop(
+    ui: &egui::Ui,
+    rect: egui::Rect,
+    path: &Path,
+    contain: bool,
+    tint: egui::Color32,
+) -> Option<egui::Rect> {
     let id = egui::Id::new(("dpl-video", path));
     let player = ui.ctx().data_mut(|d| {
         d.get_temp_mut_or_insert_with(id, || Player::open(path.to_path_buf()))
             .clone()
     });
-    let painted = match player.texture(ui.ctx()) {
-        Some(tex_id) => {
-            let uv = cover_uv(DECODE_W as f32 / DECODE_H as f32, rect.aspect_ratio());
-            ui.painter().image(tex_id, rect, uv, egui::Color32::WHITE);
-            true
-        }
-        None => false,
-    };
+    let painted = player.texture(ui.ctx()).map(|tex_id| {
+        let aspect = DECODE_W as f32 / DECODE_H as f32;
+        let (at, uv) = if contain {
+            let scale = (rect.width() / aspect).min(rect.height());
+            (
+                egui::Rect::from_center_size(rect.center(), egui::vec2(aspect * scale, scale)),
+                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+            )
+        } else {
+            (rect, cover_uv(aspect, rect.aspect_ratio()))
+        };
+        ui.painter().image(tex_id, at, uv, tint);
+        at
+    });
     // A playing loop never rests; poll for the next frame at display pace.
     ui.ctx().request_repaint_after(Duration::from_millis(16));
     painted
