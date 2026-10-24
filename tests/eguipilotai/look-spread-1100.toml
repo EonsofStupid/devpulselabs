@@ -1,0 +1,591 @@
+# LK2b (R286): changes that spread, on the real exe. Two cards follow Neon
+# intro (Layouts → Quote, then Layouts → Title card). The second makes its
+# background Orchid haze and "Makes these the look's new style": the sheet
+# says "This changes 1 other slide" and shows it before and after; confirm,
+# and the look is your version. One Undo puts the built-in back and the
+# change on the slide. Push again, then "Back to the built-in" (your
+# version is kept on disk). Last, "Open the look": a colour change lands in
+# the look, and the slide keeps following. Fixture `author-ls2-1100` (scratch
+# content root); clear its `library` before a run so the count is exact.
+id = "look-spread-1100"
+fixture = "author-ls2-1100"
+record = true
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.lane/make"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.shelf/templates"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+# Two cards follow Neon intro.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.author.card/templates/quote"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.card/templates/quote"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor.look/neon-intro"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/keep"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.card-done"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.author.card/templates/title"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.card/templates/title"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor.look/neon-intro"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/keep"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.tab/background"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.swatch/first/orchid-haze"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "Look: Neon intro · 1 change"
+
+[steps.expectation.target]
+id = "root/editor/look-chip"
+
+# Make it the look's style: the sheet counts and previews first.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/look-chip"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/editor/push-look"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/push-look"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "This changes 1 other slide."
+
+[steps.expectation.target]
+id = "root/editor/spread-count"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "capture"
+name = "look-spread-1100-sheet"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/spread-confirm"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "Look: Neon intro"
+
+[steps.expectation.target]
+id = "root/editor/look-chip"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "count"
+value = 0
+
+[steps.expectation.target]
+id = "root/editor.yours/background"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "capture"
+name = "look-spread-1100-pushed"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/menu-done"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+# One Undo: the built-in shows again and the change is the slide's.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/undo"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "Look: Neon intro · 1 change"
+
+[steps.expectation.target]
+id = "root/editor/look-chip"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/editor.yours/background"
+
+# Push again, then Back to the built-in (your version is kept).
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/look-chip"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/editor/push-look"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/push-look"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "This changes 1 other slide."
+
+[steps.expectation.target]
+id = "root/editor/spread-count"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/spread-confirm"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/menu-done"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/look-chip"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/editor/back-to-builtin"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/back-to-builtin"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "This changes 1 other slide."
+
+[steps.expectation.target]
+id = "root/editor/spread-count"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/spread-confirm"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "Look: Neon intro"
+
+[steps.expectation.target]
+id = "root/editor/look-chip"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "count"
+value = 0
+
+[steps.expectation.target]
+id = "root/editor.yours/background"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "capture"
+name = "look-spread-1100-builtin"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/menu-done"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+# Open the look: a colour change lands in the look, not the slide.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/look-chip"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/open-look"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "Editing the look Neon intro — shows on 2 slides"
+
+[steps.expectation.target]
+id = "root/editor/look-chip"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.swatch/first/solar-flare"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "count"
+value = 0
+
+[steps.expectation.target]
+id = "root/editor.yours/background"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "capture"
+name = "look-spread-1100-editing"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/look-done"
+
+[[steps]]
+kind = "wait"
+milliseconds = 400
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "Look: Neon intro"
+
+[steps.expectation.target]
+id = "root/editor/look-chip"

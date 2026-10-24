@@ -28,6 +28,43 @@ enum Selection {
     Block(String),
 }
 
+/// One step Undo takes back: a slide revision, or a slide revision plus
+/// the look a change spread through (LK2b).
+enum Step {
+    Slide(dpl_doc::Slide),
+    Look {
+        slide: dpl_doc::Slide,
+        look: Box<LookBefore>,
+    },
+}
+
+/// What a look was before a change spread through it.
+struct LookBefore {
+    id: String,
+    /// The operator's revision before the change; `None` when the built-in
+    /// showed (Undo then steps the operator's version aside again).
+    was: Option<dpl_doc::Look>,
+}
+
+/// A change about to spread through a look, waiting for the operator's OK.
+struct Spread {
+    kind: SpreadKind,
+    /// How many other slides follow the look.
+    others: usize,
+    /// One slide that follows the look, shown before and after.
+    preview: dpl_doc::Slide,
+    before: dpl_doc::Styling,
+    after: dpl_doc::Styling,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SpreadKind {
+    /// "Make these the look's new style".
+    PushBack,
+    /// "Back to the built-in".
+    BackToBuiltin,
+}
+
 /// The editor over ONE slide document folder.
 pub struct Editor {
     dir: PathBuf,
@@ -40,8 +77,9 @@ pub struct Editor {
     content_root: PathBuf,
     clock: dpl_slides::motion::Clock,
     selection: Selection,
-    /// Snapshots for Undo — the doc is a small value, snapshot per edit.
-    undo: Vec<dpl_doc::Slide>,
+    /// Snapshots for Undo — the doc is a small value, snapshot per edit;
+    /// a change that spread through a look carries the look's too (LK2b).
+    undo: Vec<Step>,
     /// Last save's outcome, shown as an honest footer crumb.
     saved: Result<(), String>,
     /// A look being TRIED (LK1): the stage shows it, nothing is saved until
@@ -59,6 +97,12 @@ pub struct Editor {
     naming: Option<String>,
     /// What the last look action did, said once in the chip's menu.
     notice: Option<String>,
+    /// A change waiting to spread through a look, with its count and
+    /// before/after (LK2b).
+    spread: Option<Spread>,
+    /// "Open the look": background, colour and font changes go to the
+    /// look itself; the number is how many slides show it (LK2b).
+    editing_look: Option<usize>,
 }
 
 /// A text block's tray view: values resolved through the show theme, with
@@ -131,6 +175,8 @@ impl Editor {
             compare: None,
             naming: None,
             notice: None,
+            spread: None,
+            editing_look: None,
             undo: Vec::new(),
             saved: Ok(()),
         })
@@ -301,18 +347,59 @@ impl Editor {
     }
 
     fn mutate_in(&mut self, f: impl FnOnce(&mut dpl_doc::Slide)) {
-        if self.undo.len() >= UNDO_CAP {
-            self.undo.remove(0);
-        }
         let before = self.slide.clone();
         f(&mut self.slide);
         if self.slide == before {
             return;
         }
-        // Every saved change is a new revision — a lesson pins one (LS3).
+        // Editing the look (LK2b): what the look can hold goes to it.
+        let look = match self.editing_look {
+            Some(_) => self.push_into_look(),
+            None => None,
+        };
+        self.record(before, look);
+    }
+
+    /// Close an edit: a new revision (a lesson pins one, LS3), one Undo
+    /// step — carrying the look's earlier state when the change spread
+    /// through it — and the file written.
+    fn record(&mut self, before: dpl_doc::Slide, look: Option<LookBefore>) {
+        if self.undo.len() >= UNDO_CAP {
+            self.undo.remove(0);
+        }
         self.slide.rev = before.rev + 1;
-        self.undo.push(before);
+        self.undo.push(match look {
+            Some(look) => Step::Look {
+                slide: before,
+                look: Box::new(look),
+            },
+            None => Step::Slide(before),
+        });
         self.save();
+    }
+
+    /// Move what the slide holds for its look into the look (LK2b): the
+    /// look's next revision is saved, the slide gives those values back.
+    /// Returns the look's earlier state for Undo, or `None` when there was
+    /// nothing to move.
+    fn push_into_look(&mut self) -> Option<LookBefore> {
+        let look = dpl_doc::card_preset(&self.slide, &self.styling.looks)?.clone();
+        if !dpl_doc::look::holds_style_for(&self.slide, &look) {
+            return None;
+        }
+        let was = self.styling.looks.is_yours(&look.id).then(|| look.clone());
+        let mut slide = self.slide.clone();
+        let next = dpl_doc::look::push_back(&mut slide, &look);
+        if let Err(e) = dpl_doc::look::save_look(
+            &dpl_doc::look::look_dir(&self.content_root, &next.id),
+            &next,
+        ) {
+            self.notice = Some(format!("Could not change the look: {e}"));
+            return None;
+        }
+        self.styling.looks.put(next);
+        self.slide = slide;
+        Some(LookBefore { id: look.id, was })
     }
 
     /// One edit of a burst (typing): the first keystroke is a revision and
@@ -394,6 +481,105 @@ impl Editor {
         &self.styling.looks
     }
 
+    /// "Make these the look's new style" (LK2b): the look takes what the
+    /// slide holds for it, as its next revision (for a built-in, your
+    /// version), and every slide that follows it shows the change. One
+    /// Undo restores the look and the slide.
+    pub fn push_back(&mut self) -> Result<(), String> {
+        let before = self.slide.clone();
+        match self.push_into_look() {
+            Some(look) => {
+                self.record(before, Some(look));
+                Ok(())
+            }
+            None => Err(self
+                .notice
+                .take()
+                .unwrap_or_else(|| "nothing here for the look to take".into())),
+        }
+    }
+
+    /// "Back to the built-in" (LK2b): your version of the slide's look
+    /// steps aside (kept on disk) and the built-in shows again everywhere.
+    /// One Undo brings your version back.
+    pub fn back_to_builtin(&mut self) -> Result<(), String> {
+        let id = self
+            .slide
+            .preset
+            .clone()
+            .ok_or("the slide follows no look")?;
+        if !self.styling.looks.replaces_builtin(&id) {
+            return Err("there is no version of yours to step aside".into());
+        }
+        let was = self.styling.looks.get(&id).cloned();
+        dpl_doc::look::retire_look(&self.content_root, &id).map_err(|e| e.to_string())?;
+        self.styling.looks.retire(&id);
+        let before = self.slide.clone();
+        self.record(before, Some(LookBefore { id, was }));
+        Ok(())
+    }
+
+    /// "Open the look" (LK2b): from here, background, colour and font
+    /// changes go to the look itself, until Done.
+    pub fn open_look(&mut self) {
+        if let Some(look) = dpl_doc::card_preset(&self.slide, &self.styling.looks) {
+            let shows_on = dpl_doc::look::slides_following(&self.content_root, &look.id)
+                .len()
+                .max(1);
+            self.editing_look = Some(shows_on);
+            self.link_menu = false;
+            self.notice = None;
+        }
+    }
+
+    /// Is the editor changing the look itself ("Open the look")?
+    pub fn is_editing_look(&self) -> bool {
+        self.editing_look.is_some()
+    }
+
+    /// Get a change ready to spread: count the other slides that follow
+    /// the look and paint one of them before and after.
+    fn open_spread(&mut self, kind: SpreadKind) {
+        let Some(look) = dpl_doc::card_preset(&self.slide, &self.styling.looks).cloned() else {
+            return;
+        };
+        let others: Vec<PathBuf> = dpl_doc::look::slides_following(&self.content_root, &look.id)
+            .into_iter()
+            .filter(|dir| !same_dir(dir, &self.dir))
+            .collect();
+        let mut after = self.styling.looks.clone();
+        let mut given_back = self.slide.clone();
+        match kind {
+            SpreadKind::PushBack => after.put(dpl_doc::look::push_back(&mut given_back, &look)),
+            SpreadKind::BackToBuiltin => after.retire(&look.id),
+        }
+        // Another slide that follows the look, else this one as a follower
+        // with nothing of its own — what the change does to the others.
+        let (preview, theme) = others
+            .first()
+            .and_then(|dir| {
+                dpl_doc::load(dir)
+                    .ok()
+                    .map(|slide| (slide, dpl_doc::theme_for_slide(dir)))
+            })
+            .unwrap_or_else(|| (given_back, self.styling.theme.clone()));
+        self.spread = Some(Spread {
+            kind,
+            others: others.len(),
+            preview,
+            before: dpl_doc::Styling {
+                theme: theme.clone(),
+                looks: self.styling.looks.clone(),
+            },
+            after: dpl_doc::Styling {
+                theme,
+                looks: after,
+            },
+        });
+        self.link_menu = false;
+        self.notice = None;
+    }
+
     /// A look's name, by id ("a missing look" when it cannot be found).
     fn look_label(&self, id: &str) -> String {
         self.styling
@@ -427,11 +613,50 @@ impl Editor {
     /// older document under the same number.
     pub fn undo(&mut self) {
         self.burst = None;
-        if let Some(prev) = self.undo.pop() {
-            let rev = self.slide.rev + 1;
-            self.slide = prev;
-            self.slide.rev = rev;
-            self.save();
+        let Some(step) = self.undo.pop() else {
+            return;
+        };
+        let prev = match step {
+            Step::Slide(prev) => prev,
+            Step::Look { slide, look } => {
+                self.restore_look(*look);
+                slide
+            }
+        };
+        let rev = self.slide.rev + 1;
+        self.slide = prev;
+        self.slide.rev = rev;
+        self.save();
+    }
+
+    /// Put a look back as it was before a change spread through it — as
+    /// its next revision, since history only moves forward; or, when the
+    /// built-in showed, step the operator's version aside again.
+    fn restore_look(&mut self, before: LookBefore) {
+        let outcome = match before.was {
+            Some(mut was) => {
+                let now = self
+                    .styling
+                    .looks
+                    .get(&before.id)
+                    .filter(|_| self.styling.looks.is_yours(&before.id))
+                    .map_or(0, |look| look.rev);
+                was.rev = was.rev.max(now) + 1;
+                let saved = dpl_doc::look::save_look(
+                    &dpl_doc::look::look_dir(&self.content_root, &was.id),
+                    &was,
+                );
+                self.styling.looks.put(was);
+                saved.map(|_| ())
+            }
+            None => {
+                let retired = dpl_doc::look::retire_look(&self.content_root, &before.id);
+                self.styling.looks.retire(&before.id);
+                retired.map(|_| ())
+            }
+        };
+        if let Err(e) = outcome {
+            self.notice = Some(format!("Could not put the look back: {e}"));
         }
     }
 
@@ -528,6 +753,9 @@ impl Editor {
         if self.naming.is_some() {
             self.naming_ui(ui, chip_rect);
         }
+        if self.spread.is_some() {
+            self.spread_ui(ui, chip_rect);
+        }
         child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let crumb = match &self.saved {
                 Ok(()) if !self.undo.is_empty() => "saved".to_string(),
@@ -548,15 +776,19 @@ impl Editor {
     /// The link bar for surfaces that host the editor's controls without
     /// its toolbar (the Workbench card editor's tabs): the look chip with
     /// its menu, and Undo — so every tab shows what the slide follows and
-    /// can take the last change back (LK1).
+    /// can take the last change back (LK1). It wraps rather than run past
+    /// a narrow column, so Done and Undo are always within reach.
     pub fn link_bar(&mut self, ui: &mut Ui) {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             let chip_rect = self.look_chip(ui);
             if self.link_menu {
                 self.link_menu_ui(ui, chip_rect);
             }
             if self.naming.is_some() {
                 self.naming_ui(ui, chip_rect);
+            }
+            if self.spread.is_some() {
+                self.spread_ui(ui, chip_rect);
             }
             ui.add_space(cl::space::S3);
             let can_undo = !self.undo.is_empty();
@@ -575,6 +807,29 @@ impl Editor {
     /// The look chip (LK1): "Look: Neon intro · 3 changes", "Own style (was
     /// Neon intro)" or "The show's style". Tap for the menu.
     fn look_chip(&mut self, ui: &mut Ui) -> Rect {
+        if let Some(shows_on) = self.editing_look {
+            // Editing the look (LK2b): the chip is the banner, Done beside it.
+            let label = self
+                .slide
+                .preset
+                .as_deref()
+                .map_or_else(String::new, |id| self.look_label(id));
+            let text = match shows_on {
+                1 => format!("Editing the look {label} — shows on 1 slide"),
+                n => format!("Editing the look {label} — shows on {n} slides"),
+            };
+            let resp = chip_response(
+                ui,
+                "look-chip",
+                &text,
+                true,
+                "Background, colour and font changes go to the look and every slide that follows it; sizes and inks stay on this slide",
+            );
+            if hero_chip(ui, "look-done", "Done", "Stop editing the look") {
+                self.editing_look = None;
+            }
+            return resp.rect;
+        }
         if let Some(id) = &self.trying {
             // Trying (LK1): the stage shows the look, nothing is saved — the
             // chip says so instead of naming a link that has not changed.
@@ -589,7 +844,14 @@ impl Editor {
             return resp.rect;
         }
         let state = self.link_state();
-        let text = state.chip(|id| self.look_label(id));
+        // The chip says when the look is your version of a built-in (LK2b).
+        let text = state.chip(|id| {
+            if self.styling.looks.replaces_builtin(id) {
+                format!("{} (your version)", self.look_label(id))
+            } else {
+                self.look_label(id)
+            }
+        });
         let tip = match &state {
             dpl_doc::link::LinkState::Follows { .. } => {
                 "This slide follows its look. Tap to see your changes, give them back, or stop following"
@@ -694,6 +956,39 @@ impl Editor {
                             ) {
                                 self.stop_following();
                                 self.link_menu = false;
+                            }
+                            let follows = dpl_doc::card_preset(&self.slide, &self.styling.looks);
+                            if follows
+                                .is_some_and(|look| dpl_doc::look::holds_style_for(&self.slide, look))
+                                && chip(
+                                    ui,
+                                    "push-look",
+                                    "Make these the look's new style…",
+                                    false,
+                                    "Your changes become the look's style, on every slide that follows it — you see how many first",
+                                )
+                            {
+                                self.open_spread(SpreadKind::PushBack);
+                            }
+                            if chip(
+                                ui,
+                                "open-look",
+                                "Open the look",
+                                false,
+                                "Change the look itself — every slide that follows it changes too",
+                            ) {
+                                self.open_look();
+                            }
+                            if self.styling.looks.replaces_builtin(look)
+                                && chip(
+                                    ui,
+                                    "back-to-builtin",
+                                    "Back to the built-in",
+                                    false,
+                                    "Your version steps aside (it is kept) and the built-in look shows again",
+                                )
+                            {
+                                self.open_spread(SpreadKind::BackToBuiltin);
                             }
                         }
                         dpl_doc::link::LinkState::OwnStyle { was: Some(was) } => {
@@ -860,6 +1155,120 @@ impl Editor {
         self.naming = Some(name);
     }
 
+    /// The sheet before a change spreads (LK2b): how many other slides it
+    /// changes, one of them before and after, then OK or Cancel.
+    fn spread_ui(&mut self, ui: &mut Ui, under: Rect) {
+        let Some(spread) = &self.spread else {
+            return;
+        };
+        let kind = spread.kind;
+        let label = self
+            .slide
+            .preset
+            .as_deref()
+            .map_or_else(String::new, |id| self.look_label(id));
+        let (title, confirm) = match kind {
+            SpreadKind::PushBack => (
+                "Make these the look's new style",
+                "Make it the look's style",
+            ),
+            SpreadKind::BackToBuiltin => ("Back to the built-in", "Back to the built-in"),
+        };
+        let count = match spread.others {
+            0 => format!("Only this slide follows {label}."),
+            1 => "This changes 1 other slide.".to_owned(),
+            n => format!("This changes {n} other slides."),
+        };
+        let (mut ok, mut cancel) = (false, false);
+        let now = ui.input(|i| i.time);
+        let area = egui::Area::new(ui.id().with("dpl_editor_spread"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(under.left_bottom() + egui::vec2(0.0, cl::space::S1));
+        area.show(ui.ctx(), |ui| {
+            egui::Frame::new()
+                .fill(cl::surface::RAISED)
+                .stroke(Stroke::new(1.0, cl::surface::HAIRLINE))
+                .corner_radius(cl::RADIUS)
+                .inner_margin(egui::Margin::same(12))
+                .show(ui, |ui| {
+                    ui.set_max_width(360.0);
+                    ui.label(tray_title(title));
+                    let line = ui.label(RichText::new(&count).color(cl::ink::STRONG));
+                    ui.pilot_track(
+                        &line,
+                        NodeMetadata::new(
+                            PilotId::new("editor").child(&PilotKey::new("spread-count")),
+                            egui_pilot_ai::protocol::Role::Label,
+                            &count,
+                        ),
+                    );
+                    ui.add_space(cl::space::S2);
+                    ui.horizontal(|ui| {
+                        for (caption, styling) in
+                            [("Before", &spread.before), ("After", &spread.after)]
+                        {
+                            ui.vertical(|ui| {
+                                ui.label(small(caption));
+                                let (rect, _) =
+                                    ui.allocate_exact_size(egui::vec2(164.0, 92.0), Sense::hover());
+                                ui.painter()
+                                    .rect_filled(rect, cl::RADIUS_SM, cl::surface::WELL);
+                                let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+                                inner.set_clip_rect(rect.intersect(ui.clip_rect()));
+                                // Still frames: the entrance has long played.
+                                let _ = document::render_thumbnail(
+                                    &mut inner,
+                                    rect,
+                                    &spread.preview,
+                                    styling,
+                                    now,
+                                    now - 10.0,
+                                );
+                            });
+                        }
+                    });
+                    ui.add_space(cl::space::S2);
+                    ui.horizontal(|ui| {
+                        if hero_chip(
+                            ui,
+                            "spread-confirm",
+                            confirm,
+                            "Do it — one Undo takes it back",
+                        ) {
+                            ok = true;
+                        }
+                        if chip(
+                            ui,
+                            "spread-cancel",
+                            "Cancel",
+                            false,
+                            "Leave the look as it is",
+                        ) {
+                            cancel = true;
+                        }
+                    });
+                });
+        });
+        if cancel {
+            self.spread = None;
+        } else if ok {
+            let others = spread.others;
+            self.spread = None;
+            let done = match kind {
+                SpreadKind::PushBack => self.push_back().map(|()| match others {
+                    0 => format!("{label} has your changes now."),
+                    1 => format!("{label} has your changes now — 1 other slide shows them."),
+                    n => format!("{label} has your changes now — {n} other slides show them."),
+                }),
+                SpreadKind::BackToBuiltin => self
+                    .back_to_builtin()
+                    .map(|()| format!("{label} is the built-in again — your version is kept.")),
+            };
+            self.notice = Some(done.unwrap_or_else(|e| format!("Could not change the look: {e}")));
+            self.link_menu = true;
+        }
+    }
+
     fn paint_selection(&self, ui: &Ui, map: &document::RenderMap) {
         let (rect, tone) = match &self.selection {
             Selection::None => return,
@@ -905,6 +1314,7 @@ impl Editor {
                     "Keep",
                     "Use this look on the slide (one Undo takes it back)",
                 ) {
+                    self.editing_look = None;
                     self.mutate(|s| use_look(s, &id));
                     self.trying = None;
                 }
@@ -1589,6 +1999,12 @@ fn paint_backdrop(painter: &egui::Painter, rect: Rect, background: &dpl_doc::Bac
     }
 }
 
+/// Do two paths name the same folder (however they were spelled)?
+fn same_dir(a: &Path, b: &Path) -> bool {
+    let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    canonical(a) == canonical(b)
+}
+
 /// The honest way back for a value that is yours.
 fn give_back_label(
     slide: &dpl_doc::Slide,
@@ -2135,5 +2551,109 @@ mod tests {
         // One Undo takes the slide back to the look it followed.
         ed.undo();
         assert_eq!(ed.slide().preset.as_deref(), Some("neon-intro"));
+    }
+
+    /// Pushing a change back to a built-in makes your version; one Undo
+    /// steps it aside and gives the slide its change back; Back to the
+    /// built-in keeps your version on disk (LK2b).
+    #[test]
+    fn pushing_back_undo_and_back_to_the_builtin() {
+        let content = scratch("spread-content");
+        let mut slide = sparse_seed();
+        slide.preset = Some("neon-intro".into());
+        let dir = dpl_doc::library_slide_dir(&content, &slide.id);
+        dpl_doc::save(&dir, &slide).unwrap();
+        let mut ed = Editor::open(&dir, &content).unwrap();
+        let orchid = dpl_doc::Background::Mood {
+            mood: "orchid-haze".into(),
+        };
+        ed.set_background(Some(orchid.clone()));
+        ed.push_back().unwrap();
+        assert!(ed.looks().replaces_builtin("neon-intro"));
+        assert!(matches!(
+            ed.link_state(),
+            dpl_doc::link::LinkState::Follows { changes: 0, .. }
+        ));
+        let look_file = dpl_doc::look::look_dir(&content, "neon-intro");
+        assert_eq!(
+            dpl_doc::look::load_look(&look_file).unwrap().background,
+            orchid
+        );
+
+        // One Undo: the built-in shows again and the change is the slide's.
+        ed.undo();
+        assert!(!ed.looks().is_yours("neon-intro"));
+        assert!(!look_file.join("look.json").exists());
+        assert_eq!(ed.slide().background, Some(orchid.clone()));
+
+        // Push again, then Back to the built-in: your version is kept.
+        ed.push_back().unwrap();
+        ed.back_to_builtin().unwrap();
+        assert!(!ed.looks().is_yours("neon-intro"));
+        let kept = std::fs::read_dir(look_file.join("replaced"))
+            .unwrap()
+            .count();
+        assert_eq!(kept, 2, "both stepped-aside versions are kept");
+        // And Undo brings your version back.
+        ed.undo();
+        assert!(ed.looks().replaces_builtin("neon-intro"));
+    }
+
+    /// Editing the look: a colour change lands in the look, not the slide.
+    #[test]
+    fn editing_the_look_changes_the_look_not_the_slide() {
+        let content = scratch("open-look-content");
+        let mut slide = sparse_seed();
+        slide.preset = Some("neon-intro".into());
+        let dir = dpl_doc::library_slide_dir(&content, &slide.id);
+        dpl_doc::save(&dir, &slide).unwrap();
+        let mut ed = Editor::open(&dir, &content).unwrap();
+        ed.open_look();
+        assert!(ed.is_editing_look());
+        ed.set_background(Some(dpl_doc::Background::Mood {
+            mood: "jade-current".into(),
+        }));
+        assert_eq!(ed.slide().background, None, "the slide keeps following");
+        assert!(matches!(
+            ed.looks().get("neon-intro").map(|look| &look.background),
+            Some(dpl_doc::Background::Mood { mood }) if mood == "jade-current"
+        ));
+    }
+
+    /// The spread sheet opens and paints again after an Undo put the
+    /// built-in back (the real-exe run stalled exactly here).
+    #[test]
+    fn the_spread_sheet_paints_after_an_undo() {
+        let content = scratch("spread-undo-content");
+        let mut other = sparse_seed();
+        other.preset = Some("neon-intro".into());
+        dpl_doc::save(&dpl_doc::library_slide_dir(&content, &other.id), &other).unwrap();
+        let mut slide = sparse_seed();
+        slide.preset = Some("neon-intro".into());
+        let dir = dpl_doc::library_slide_dir(&content, &slide.id);
+        dpl_doc::save(&dir, &slide).unwrap();
+        let mut ed = Editor::open(&dir, &content).unwrap();
+        ed.set_background(Some(dpl_doc::Background::Mood {
+            mood: "orchid-haze".into(),
+        }));
+        let ctx = egui::Context::default();
+        cl::apply_theme(&ctx);
+        let frame = |ed: &mut Editor| {
+            ctx.run_ui(egui::RawInput::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| ed.ui(ui));
+            })
+            .textures_delta
+            .clear();
+        };
+        ed.open_spread(SpreadKind::PushBack);
+        assert_eq!(ed.spread.as_ref().map(|s| s.others), Some(1));
+        frame(&mut ed);
+        ed.push_back().unwrap();
+        ed.spread = None;
+        ed.undo();
+        ed.open_spread(SpreadKind::PushBack);
+        assert_eq!(ed.spread.as_ref().map(|s| s.others), Some(1));
+        frame(&mut ed);
+        frame(&mut ed);
     }
 }
