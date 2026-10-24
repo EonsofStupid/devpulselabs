@@ -514,7 +514,7 @@ pub fn validate(contract: &ComponentContract) -> Vec<ContractIssue> {
                 }
                 None => {}
                 Some(value) => {
-                    if let Some(problem) = slot_value_problem(slot, value) {
+                    if let Some(problem) = slot_value_issue(slot, value) {
                         push(at(&format!("{path}.{}", slot.id)), problem);
                     }
                 }
@@ -615,7 +615,9 @@ fn list_item_problem(fields: &[Field], item: &Value) -> Option<String> {
     }
 }
 
-fn slot_value_problem(slot: &Slot, value: &Value) -> Option<String> {
+/// Does `value` fit `slot` (kind, limits, item fields all the way down)?
+/// `None` means it fits.
+pub fn slot_value_issue(slot: &Slot, value: &Value) -> Option<String> {
     match slot.entity {
         Entity::Text | Entity::Quote => {
             let Some(text) = value.as_str() else {

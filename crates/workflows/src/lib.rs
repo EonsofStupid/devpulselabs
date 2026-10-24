@@ -253,37 +253,31 @@ pub fn mint_storyboard(workflow: &str, beats: &[Beat]) -> StoryboardDoc {
     }
 }
 
-/// The slide document for one slot — template + title/brief text blocks
-/// (the deck's own proven text-slide shape). Pure value; the runner writes.
+/// The slide document for one slot (`dpl.slide/3`): the slot's title in
+/// the component's `title` slot and its brief in `subtitle` (the title
+/// component's own slots, sized as the deck's proven text slide). Pure
+/// value with a fresh id; the runner writes it.
 pub fn slide_for_slot(template: &str, slot: &Slot) -> dpl_doc::Slide {
     let (title, brief) = match slot.brief.split_once(" — ") {
         Some((t, b)) => (t.to_string(), b.to_string()),
         None => (slot.brief.clone(), String::new()),
     };
-    let mut blocks = vec![dpl_doc::Block::Text {
-        id: "title".into(),
-        text: title,
+    let sized = |id: &str, text: String, size: &str| dpl_doc::Block::Text {
+        id: id.into(),
+        preset: None,
+        tone: None,
+        text,
         font: None,
-        size: "h1".into(),
+        size: Some(size.into()),
         ink: None,
-    }];
+    };
+    let mut slide = dpl_doc::Slide::new(format!("{template}@1"));
+    slide.title = Some(title.clone());
+    slide.blocks.push(sized("title", title, "h1"));
     if !brief.is_empty() {
-        blocks.push(dpl_doc::Block::Text {
-            id: "brief".into(),
-            text: brief,
-            font: None,
-            size: "h3".into(),
-            ink: None,
-        });
+        slide.blocks.push(sized("subtitle", brief, "h3"));
     }
-    dpl_doc::Slide {
-        v: dpl_doc::SCHEMA_V,
-        template: template.to_string(),
-        background: None,
-        blocks,
-        enter: None,
-        reveals: Vec::new(),
-    }
+    slide
 }
 
 /// Assemble the filled slots into a comp: every `Artifact` fill becomes a
@@ -2003,7 +1997,7 @@ mod tests {
             }],
         );
         let slide = slide_for_slot("title", &board.slots[0]);
-        assert_eq!(slide.template, "title");
+        assert_eq!(slide.component, "title@1");
         assert_eq!(slide.blocks.len(), 2);
         assert!(
             dpl_doc::validate(&slide).is_empty(),

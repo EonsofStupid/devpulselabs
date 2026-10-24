@@ -103,6 +103,14 @@ arguments = ["--chat-open", "--chat-authored", "--chat-proof", "library", "--moo
 [fixtures.chat-library.environment]
 CONTENT_ROOT = "target/eguipilotai/rooms-library/content"
 
+# LS2a: Workbench authoring over a scratch content root that holds COPIES of
+# old v2 drafts — the first-launch upgrade runs on them, never on real work.
+[fixtures.author-ls2]
+arguments = ["--route", "workbench/author", "--mood", "0"]
+
+[fixtures.author-ls2.environment]
+CONTENT_ROOT = "target/eguipilotai/ls2a/content"
+
 [fixtures.wiredfront-editor]
 arguments = ["--route", "wiredfront/editor", "--mood", "0"]
 

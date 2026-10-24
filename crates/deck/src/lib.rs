@@ -729,29 +729,12 @@ mod tests {
             .join(format!("{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let slide = |name: &str, reveals: Vec<String>| {
-            let doc = dpl_doc::Slide {
-                v: dpl_doc::SCHEMA_V,
-                template: "title".into(),
-                background: None,
-                blocks: vec![
-                    dpl_doc::Block::Text {
-                        id: "title".into(),
-                        text: format!("slide {name}"),
-                        font: None,
-                        size: "h1".into(),
-                        ink: None,
-                    },
-                    dpl_doc::Block::Text {
-                        id: "sub".into(),
-                        text: "beat".into(),
-                        font: None,
-                        size: "h3".into(),
-                        ink: None,
-                    },
-                ],
-                enter: None,
-                reveals,
-            };
+            let mut doc = dpl_doc::Slide::new("title@1");
+            doc.blocks = vec![
+                dpl_doc::Block::text("title", format!("slide {name}")),
+                dpl_doc::Block::text("sub", "beat"),
+            ];
+            doc.reveals = reveals;
             dpl_doc::save(&dir.join(name), &doc).unwrap();
         };
         slide("a", vec![]);

@@ -232,6 +232,40 @@ mod tests {
         }
     }
 
+    /// LS2: every seed fills a real component — its blocks are that
+    /// component's slots, and nothing it carries is refused.
+    #[test]
+    fn every_seed_fills_its_component_contract() {
+        let seeds = dpl_doc::list_seeds();
+        assert!(!seeds.is_empty(), "the repo ships seeds");
+        for seed in seeds {
+            let slide = dpl_doc::load(&seed.dir).expect("a seed loads as v3");
+            let contract = components()
+                .into_iter()
+                .find(|c| c.id == slide.component_id())
+                .unwrap_or_else(|| panic!("{}: no component {}", seed.id, slide.component));
+            let issues = dpl_doc::validate_against(&slide, contract);
+            assert!(issues.is_empty(), "{}: {issues:?}", seed.id);
+        }
+    }
+
+    /// LS2: tapping a Layout starts from its contract's first example — and
+    /// that starting slide is valid, against its contract too.
+    #[test]
+    fn every_first_example_becomes_a_valid_slide() {
+        for contract in components() {
+            let slide = dpl_doc::slide_from_example(contract, 0)
+                .unwrap_or_else(|| panic!("{} has an example", contract.id));
+            assert_eq!(dpl_doc::validate(&slide), Vec::new(), "{}", contract.id);
+            assert_eq!(
+                dpl_doc::validate_against(&slide, contract),
+                Vec::new(),
+                "{}",
+                contract.id
+            );
+        }
+    }
+
     /// The gallery demo IS the contract's first example — no hidden data in
     /// code — and the values survive a round trip unchanged.
     #[test]

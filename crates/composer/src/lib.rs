@@ -2503,11 +2503,11 @@ impl Composer {
 
     /// Turn a library artifact into a standalone MEDIA SLIDE (W11) — the
     /// SIBLING of `add_from_library` (that feeds the timeline; this makes a
-    /// slide). Mints an `inbox/<name>/` folder holding a `slide.json` whose
+    /// slide). Mints a library slide (`library/slides/<id>/`, LS2) whose
     /// media block refs the artifact IN PLACE (the asset already lives in
     /// content — never a copy). A session replay is just a video artifact, so
     /// it rides this same path. Returns the new slide dir and signals the
-    /// inbox changed so pickers refresh.
+    /// content changed so pickers refresh.
     pub fn make_slide_from_library(&self, rec: &Record) -> Result<PathBuf, String> {
         let dir = Self::mint_media_slide(rec)?;
         self.signal(dpl_fabric::CaptureEvent::InboxChanged);
@@ -2522,49 +2522,34 @@ impl Composer {
         if let Some(i) = dpl_doc::validate(&slide).first() {
             return Err(format!("media slide invalid at {}: {}", i.path, i.message));
         }
-        let dir = Self::fresh_slide_dir(&rec.name);
+        let dir = dpl_doc::library_slide_dir(&Self::content_root(), &slide.id);
         dpl_doc::save(&dir, &slide).map_err(|e| format!("save slide: {e}"))?;
         Ok(dir)
     }
 
-    /// The media-slide document for an artifact record: `template:"media"`,
-    /// bare background, one full-bleed media block refing `rec.rel_path`. A
-    /// video carries its poster for the degradation ladder.
+    /// The media-slide document for an artifact record: the `media`
+    /// component, bare background, its `media` slot refing `rec.rel_path`,
+    /// titled after the artifact. A video carries its poster for the
+    /// degradation ladder.
     fn media_slide_for(rec: &Record) -> dpl_doc::Slide {
         let show = if rec.kind == "video" {
             "video"
         } else {
             "image"
         };
-        dpl_doc::Slide {
-            v: dpl_doc::SCHEMA_V,
-            template: "media".into(),
-            background: Some(dpl_doc::Background::None),
-            blocks: vec![dpl_doc::Block::Media {
-                id: "media".into(),
-                show: show.into(),
-                src: rec.rel_path.clone(),
-                fit: Some("cover".into()),
-                poster: rec.poster_rel_path.clone(),
-            }],
-            enter: None,
-            reveals: Vec::new(),
-        }
-    }
-
-    /// The next free `inbox/<name>/` slide folder — the artifact's name
-    /// kebab'd (fallback "media-slide"), no-clobber with a `-N` suffix.
-    fn fresh_slide_dir(name_hint: &str) -> PathBuf {
-        let inbox = Self::content_root().join("inbox");
-        let base = crate::import::sanitize_name(name_hint).unwrap_or_else(|| "media-slide".into());
-        let first = inbox.join(&base);
-        if !first.exists() {
-            return first;
-        }
-        (2..)
-            .map(|n| inbox.join(format!("{base}-{n}")))
-            .find(|p| !p.exists())
-            .unwrap()
+        let mut slide = dpl_doc::Slide::new("media@1");
+        slide.title = Some(rec.name.clone()).filter(|name| !name.is_empty());
+        slide.background = Some(dpl_doc::Background::None);
+        slide.blocks = vec![dpl_doc::Block::Media {
+            id: "media".into(),
+            preset: None,
+            tone: None,
+            show: show.into(),
+            src: rec.rel_path.clone(),
+            fit: Some("cover".into()),
+            poster: rec.poster_rel_path.clone(),
+        }];
+        slide
     }
 
     /// Explode a PDF into per-page media slides (W11 "explode + reuse"): each
@@ -7788,7 +7773,7 @@ mod tests {
         let mut vid = video_rec("Screen Clip", "inbox/clip.mp4", Some(4));
         vid.poster_rel_path = Some("inbox/clip-poster.jpg".into());
         let s = Composer::media_slide_for(&vid);
-        assert_eq!(s.template, "media");
+        assert_eq!(s.component, "media@1");
         assert_eq!(s.background, Some(dpl_doc::Background::None));
         assert!(
             dpl_doc::validate(&s).is_empty(),
@@ -7821,8 +7806,8 @@ mod tests {
         );
         let replay = video_rec("Session replay", "inbox/sess/light.mp4", Some(8));
         assert_eq!(
-            Composer::media_slide_for(&replay).template,
-            "media",
+            Composer::media_slide_for(&replay).component,
+            "media@1",
             "replay rides the video path"
         );
     }

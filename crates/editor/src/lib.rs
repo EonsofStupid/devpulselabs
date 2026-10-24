@@ -55,6 +55,22 @@ struct TextFields {
 }
 
 const UNDO_CAP: usize = 50;
+/// What an unsized line paints at — the renderer's own fallback.
+const DEFAULT_SIZE: &str = "body";
+/// The slot a card's picture fills in every component that has one.
+const MEDIA_SLOT: &str = "media";
+/// The component a card becomes when it holds a quote.
+const QUOTE_COMPONENT: &str = "quote@1";
+/// The quote component's slots the quote tab writes, in reading order.
+pub const QUOTE_SLOTS: [&str; 3] = [QUOTE_LINES[0].0, QUOTE_LINES[1].0, QUOTE_LINES[2].0];
+
+/// The quote tab's three lines, in reading order: the slot, and the size
+/// and ink a NEW line starts with (ordinary overrides afterwards).
+const QUOTE_LINES: [(&str, &str, &str); 3] = [
+    ("quote", "h2", "strong"),
+    ("name", "body-lg", "tone"),
+    ("role", "body-sm", "subtle"),
+];
 const INKS: [&str; 5] = ["strong", "base", "muted", "subtle", "tone"];
 const AMBIENCES: [&str; 3] = ["pulse", "drift", "rings"];
 const SIZES: [&str; 10] = [
@@ -113,38 +129,32 @@ impl Editor {
         self.theme.enter.clone()
     }
 
-    /// The three lines of a quote, in convention order — empty where the card
-    /// has no such block. Read for the tab's fields.
+    /// The three lines of a quote — the quotation, who said it, where —
+    /// empty where the card has no such block. Read for the tab's fields.
     pub fn quote(&self) -> [String; 3] {
         let mut out = [String::new(), String::new(), String::new()];
-        for (slot, (id, _, _)) in out.iter_mut().zip(dpl_doc::quote_lines()) {
-            if let Some(dpl_doc::Block::Text { text, .. }) =
-                self.slide.blocks.iter().find(|b| b.id() == *id)
-            {
-                *slot = text.clone();
+        for (slot, (id, _, _)) in out.iter_mut().zip(QUOTE_LINES) {
+            if let Some(words) = self.slide.block(id).and_then(dpl_doc::Block::words) {
+                *slot = words.text.to_owned();
             }
         }
         out
     }
 
-    /// Write the three lines of a quote.
-    ///
-    /// A quote is a convention over text blocks (`dpl_doc::quote_lines`), so
-    /// this adds, updates or removes ordinary blocks — nothing here is
-    /// special-cased at render.
+    /// Write the three lines of a quote: the quotation as a real
+    /// [`dpl_doc::Block::Quote`] (ruling #3), who said it and where in the
+    /// quote component's own `name` and `role` slots.
     ///
     /// - a line with text UPDATES the block with that id, or appends it
     ///   (never a second block with the same id);
     /// - a BLANK line removes its block, because a document carrying an empty
     ///   text block is a rendering artefact, not an empty field;
-    /// - the first non-blank line makes the card declare itself a quote via
-    ///   `template`, which changes nothing about the paint today and is there
-    ///   for the doctor and any future template-aware path.
+    /// - the first non-blank line makes the card fill the `quote` component.
     pub fn set_quote(&mut self, lines: [String; 3]) {
         self.mutate(|slide| {
-            for (line, (id, size, ink)) in lines.iter().zip(dpl_doc::quote_lines()) {
+            for (line, (id, size, ink)) in lines.iter().zip(QUOTE_LINES) {
                 let words = line.trim();
-                let at = slide.blocks.iter().position(|b| b.id() == *id);
+                let at = slide.blocks.iter().position(|b| b.id() == id);
                 match (words.is_empty(), at) {
                     // Blank and present — the block goes.
                     (true, Some(i)) => {
@@ -154,22 +164,41 @@ impl Editor {
                     // Present — update in place, keeping whatever restyling
                     // the operator has since done to it.
                     (false, Some(i)) => {
-                        if let dpl_doc::Block::Text { text, .. } = &mut slide.blocks[i] {
-                            *text = words.to_string();
+                        if let Some(block) = slide.blocks[i].words_mut() {
+                            *block.text = words.to_string();
                         }
                     }
-                    // New — append with the convention's defaults.
-                    (false, None) => slide.blocks.push(dpl_doc::Block::Text {
-                        id: (*id).to_string(),
-                        text: words.to_string(),
-                        font: None,
-                        size: (*size).to_string(),
-                        ink: Some((*ink).to_string()),
-                    }),
+                    // New — append with the quote's default styling.
+                    (false, None) => {
+                        let text = words.to_string();
+                        let size = Some(size.to_string());
+                        let ink = Some(ink.to_string());
+                        slide.blocks.push(if id == "quote" {
+                            dpl_doc::Block::Quote {
+                                id: id.to_string(),
+                                preset: None,
+                                tone: None,
+                                text,
+                                font: None,
+                                size,
+                                ink,
+                            }
+                        } else {
+                            dpl_doc::Block::Text {
+                                id: id.to_string(),
+                                preset: None,
+                                tone: None,
+                                text,
+                                font: None,
+                                size,
+                                ink,
+                            }
+                        });
+                    }
                 }
             }
             if lines.iter().any(|l| !l.trim().is_empty()) {
-                slide.template = dpl_doc::QUOTE_TEMPLATE.to_string();
+                slide.component = QUOTE_COMPONENT.to_string();
             }
         });
     }
@@ -205,7 +234,9 @@ impl Editor {
                 slide.blocks.insert(
                     0,
                     dpl_doc::Block::Media {
-                        id: "picture".to_string(),
+                        id: MEDIA_SLOT.to_string(),
+                        preset: None,
+                        tone: None,
                         show,
                         src,
                         // The schema's default is cover; write it only when it
@@ -233,8 +264,14 @@ impl Editor {
         if self.undo.len() >= UNDO_CAP {
             self.undo.remove(0);
         }
-        self.undo.push(self.slide.clone());
+        let before = self.slide.clone();
         f(&mut self.slide);
+        if self.slide == before {
+            return;
+        }
+        // Every saved change is a new revision — a lesson pins one (LS3).
+        self.slide.rev = before.rev + 1;
+        self.undo.push(before);
         self.save();
     }
 
@@ -242,9 +279,14 @@ impl Editor {
         self.saved = dpl_doc::save(&self.dir, &self.slide).map_err(|e| e.to_string());
     }
 
+    /// Undo restores the earlier CONTENT as a new revision: history only
+    /// moves forward, so a lesson pinned to a later rev is never handed an
+    /// older document under the same number.
     fn undo(&mut self) {
         if let Some(prev) = self.undo.pop() {
+            let rev = self.slide.rev + 1;
             self.slide = prev;
+            self.slide.rev = rev;
             self.save();
         }
     }
@@ -565,25 +607,18 @@ impl Editor {
     /// A block's fields RESOLVED through the theme, plus whether font/ink
     /// are slide-level overrides (vs inherited from the show).
     fn text_fields(&self, id: &str) -> Option<TextFields> {
-        self.slide.blocks.iter().find_map(|b| {
-            let dpl_doc::Block::Text {
-                id: bid,
-                text,
-                font,
-                size,
-                ink,
-            } = b
-            else {
-                return None;
-            };
-            (bid == id).then(|| TextFields {
-                text: text.clone(),
-                font: font.clone().unwrap_or_else(|| self.theme.font.clone()),
-                size: size.clone(),
-                ink: ink.clone().unwrap_or_else(|| self.theme.ink.clone()),
-                font_overridden: font.is_some(),
-                ink_overridden: ink.is_some(),
-            })
+        let words = self.slide.block(id)?.words()?;
+        Some(TextFields {
+            text: words.text.to_owned(),
+            font: words
+                .font
+                .map_or_else(|| self.theme.font.clone(), str::to_owned),
+            size: words.size.unwrap_or(DEFAULT_SIZE).to_owned(),
+            ink: words
+                .ink
+                .map_or_else(|| self.theme.ink.clone(), str::to_owned),
+            font_overridden: words.font.is_some(),
+            ink_overridden: words.ink.is_some(),
         })
     }
 
@@ -592,11 +627,8 @@ impl Editor {
         let id = id.to_string();
         self.mutate(move |s| {
             for b in &mut s.blocks {
-                let dpl_doc::Block::Text { id: bid, font, .. } = b else {
-                    continue;
-                };
-                if *bid == id {
-                    *font = None;
+                if let Some(words) = b.words_mut().filter(|w| w.id == id) {
+                    *words.font = None;
                 }
             }
         });
@@ -607,11 +639,8 @@ impl Editor {
         let id = id.to_string();
         self.mutate(move |s| {
             for b in &mut s.blocks {
-                let dpl_doc::Block::Text { id: bid, ink, .. } = b else {
-                    continue;
-                };
-                if *bid == id {
-                    *ink = None;
+                if let Some(words) = b.words_mut().filter(|w| w.id == id) {
+                    *words.ink = None;
                 }
             }
         });
@@ -700,32 +729,30 @@ fn set_text(
     f: impl FnOnce(&mut (String, String, String, String)),
 ) {
     for b in &mut s.blocks {
-        let dpl_doc::Block::Text {
-            id: bid,
-            text,
-            font,
-            size,
-            ink,
-        } = b
-        else {
+        let Some(words) = b.words_mut() else {
             continue;
         };
-        if bid == id {
+        if words.id == id {
             let before = (
-                text.clone(),
-                font.clone().unwrap_or_default(),
-                size.clone(),
-                ink.clone().unwrap_or_default(),
+                words.text.clone(),
+                words.font.clone().unwrap_or_default(),
+                words
+                    .size
+                    .clone()
+                    .unwrap_or_else(|| DEFAULT_SIZE.to_owned()),
+                words.ink.clone().unwrap_or_default(),
             );
             let mut t = before.clone();
             f(&mut t);
-            *text = t.0;
+            *words.text = t.0;
             if t.1 != before.1 {
-                *font = Some(t.1);
+                *words.font = Some(t.1);
             }
-            *size = t.2;
+            if t.2 != before.2 {
+                *words.size = Some(t.2);
+            }
             if t.3 != before.3 {
-                *ink = Some(t.3);
+                *words.ink = Some(t.3);
             }
             return;
         }
@@ -879,42 +906,30 @@ mod tests {
 
     /// Fully specified — the pre-W3b shape; overrides everywhere.
     fn seed() -> dpl_doc::Slide {
-        dpl_doc::Slide {
-            v: dpl_doc::SCHEMA_V,
-            template: "title".into(),
-            background: Some(dpl_doc::Background::MoodBlend {
-                moods: vec!["ember-drift".into(), "deep-lagoon".into()],
-                motion: "blend-drift".into(),
-                ambience: None,
-            }),
-            blocks: vec![dpl_doc::Block::Text {
-                id: "title".into(),
-                text: "Hello".into(),
-                font: Some("spacegrotesk".into()),
-                size: "display".into(),
-                ink: Some("strong".into()),
-            }],
-            enter: Some("rise".into()),
-            reveals: Vec::new(),
-        }
+        let mut slide = dpl_doc::Slide::new("title@1");
+        slide.background = Some(dpl_doc::Background::MoodBlend {
+            moods: vec!["ember-drift".into(), "deep-lagoon".into()],
+            motion: "blend-drift".into(),
+            ambience: None,
+        });
+        slide.blocks = vec![dpl_doc::Block::Text {
+            id: "title".into(),
+            preset: None,
+            tone: None,
+            text: "Hello".into(),
+            font: Some("spacegrotesk".into()),
+            size: Some("display".into()),
+            ink: Some("strong".into()),
+        }];
+        slide.enter = Some("rise".into());
+        slide
     }
 
     /// Styling-free — everything inherits the theme.
     fn sparse_seed() -> dpl_doc::Slide {
-        dpl_doc::Slide {
-            v: dpl_doc::SCHEMA_V,
-            template: "title".into(),
-            background: None,
-            blocks: vec![dpl_doc::Block::Text {
-                id: "title".into(),
-                text: "Hello".into(),
-                font: None,
-                size: "display".into(),
-                ink: None,
-            }],
-            enter: None,
-            reveals: Vec::new(),
-        }
+        let mut slide = dpl_doc::Slide::new("title@1");
+        slide.blocks = vec![dpl_doc::Block::text("title", "Hello")];
+        slide
     }
 
     fn scratch(name: &str) -> PathBuf {
@@ -946,22 +961,74 @@ mod tests {
         assert_eq!(font.as_deref(), Some("orbitron"), "font ref swapped");
         // Nothing else moved.
         assert_eq!(text, "Hello");
-        assert_eq!(size, "display");
+        assert_eq!(size.as_deref(), Some("display"));
         assert_eq!(ink.as_deref(), Some("strong"));
         assert_eq!(on_disk.background, seed().background);
         // The edit still validates against the real registries.
         assert!(dpl_doc::validate(&on_disk).is_empty());
     }
 
+    /// Every saved change is a new revision, and undo restores the earlier
+    /// CONTENT as a further revision — history never runs backwards.
     #[test]
-    fn undo_restores_the_previous_document_and_resaves() {
+    fn undo_restores_the_content_as_a_new_revision() {
         let dir = scratch("undo");
-        dpl_doc::save(&dir, &seed()).unwrap();
+        let original = seed();
+        dpl_doc::save(&dir, &original).unwrap();
         let mut ed = Editor::open(&dir).unwrap();
         ed.mutate(|s| set_text(s, "title", |b| b.1 = "orbitron".into()));
+        assert_eq!(dpl_doc::load(&dir).unwrap().rev, 2);
+        // A change that changes nothing is not a revision.
+        ed.mutate(|s| set_text(s, "title", |b| b.1 = "orbitron".into()));
+        assert_eq!(dpl_doc::load(&dir).unwrap().rev, 2);
         ed.undo();
         let on_disk = dpl_doc::load(&dir).unwrap();
-        assert_eq!(on_disk, seed());
+        assert_eq!(on_disk.rev, 3);
+        let mut expected = original;
+        expected.rev = 3;
+        assert_eq!(on_disk, expected);
+    }
+
+    /// A quote is a real block (ruling #3) with the quote component's own
+    /// name and role slots, and the card fills the quote component.
+    #[test]
+    fn the_quote_tab_writes_a_quote_block_and_its_slots() {
+        let dir = scratch("quote");
+        dpl_doc::save(&dir, &sparse_seed()).unwrap();
+        let mut ed = Editor::open(&dir).unwrap();
+        ed.set_quote(["Ship it.".into(), "Grace".into(), String::new()]);
+        let on_disk = dpl_doc::load(&dir).unwrap();
+        assert_eq!(on_disk.component, "quote@1");
+        assert!(
+            matches!(on_disk.block("quote"), Some(dpl_doc::Block::Quote { text, .. }) if text == "Ship it.")
+        );
+        assert!(matches!(
+            on_disk.block("name"),
+            Some(dpl_doc::Block::Text { .. })
+        ));
+        assert!(
+            on_disk.block("role").is_none(),
+            "a blank line writes no block"
+        );
+        assert_eq!(
+            ed.quote(),
+            ["Ship it.".to_string(), "Grace".into(), String::new()]
+        );
+        assert!(dpl_doc::validate(&on_disk).is_empty());
+    }
+
+    /// The picture fills the component's `media` slot.
+    #[test]
+    fn a_picture_fills_the_media_slot() {
+        let dir = scratch("picture");
+        dpl_doc::save(&dir, &sparse_seed()).unwrap();
+        let mut ed = Editor::open(&dir).unwrap();
+        ed.set_media(Some(("inbox/x.png".into(), "image".into(), "cover".into())));
+        let on_disk = dpl_doc::load(&dir).unwrap();
+        assert!(matches!(
+            on_disk.block("media"),
+            Some(dpl_doc::Block::Media { .. })
+        ));
     }
 
     #[test]

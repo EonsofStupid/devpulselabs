@@ -9,5 +9,9 @@ serde.workspace = true
 serde_json.workspace = true
 dpl-coldlight.workspace = true
 
+[dev-dependencies]
+# Slides are checked against `schemas/slide.v3.schema.json`.
+jsonschema.workspace = true
+
 [lints]
 workspace = true

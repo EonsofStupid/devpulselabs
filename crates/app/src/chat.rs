@@ -1444,7 +1444,7 @@ fn read_content_spine(id: &ContentEpisodeId) -> Option<ContentSpine> {
                     // A slide folder that does not parse is a displayable
                     // fact, never a failed episode.
                     template: dpl_doc::load(&slide_ref.dir)
-                        .map(|slide| slide.template)
+                        .map(|slide| slide.component_id().to_owned())
                         .unwrap_or_else(|_| "unknown".to_owned()),
                     index: slide_ref.index,
                 })

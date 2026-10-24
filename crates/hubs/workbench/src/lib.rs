@@ -830,6 +830,22 @@ impl WorkbenchHub {
                 }
             });
         if let Some(dir) = open {
+            // Seeds are read-only starting points (LS2, ruled 2026-10-21):
+            // opening one makes the operator's own copy in the library.
+            let dir = if dpl_doc::is_seed_dir(&dir) {
+                match dpl_doc::fork_into_library(&dir, &dpl_engine_capture::content_root()) {
+                    Ok(copy) => copy,
+                    Err(e) => {
+                        ui.label(
+                            RichText::new(format!("could not copy the starter: {e}"))
+                                .color(cl::ink::MUTED),
+                        );
+                        return;
+                    }
+                }
+            } else {
+                dir
+            };
             match dpl_editor::Editor::open(&dir) {
                 Ok(ed) => self.editor = Some(ed),
                 Err(e) => {

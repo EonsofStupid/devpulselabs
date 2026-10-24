@@ -342,6 +342,7 @@ fn render_inner(
             src,
             fit,
             poster,
+            ..
         } = block
         {
             if visible_at(id) {
@@ -365,28 +366,24 @@ fn render_inner(
     // `blocks` so the paint loop can index it directly.
     let mut heights = Vec::with_capacity(slide.blocks.len());
     for block in &slide.blocks {
-        let dpl_doc::Block::Text {
-            text, font, size, ..
-        } = block
-        else {
+        let Some(words) = block.words() else {
             heights.push(0.0);
             continue;
         };
-        let px = size_of(&fluid, size).unwrap_or_else(|| fluid.fs_body());
+        let px = words
+            .size
+            .and_then(|size| size_of(&fluid, size))
+            .unwrap_or_else(|| fluid.fs_body());
         let galley = painter.layout(
-            text.clone(),
-            egui::FontId::new(px, family_of(font.as_deref().unwrap_or(""))),
+            words.text.to_owned(),
+            egui::FontId::new(px, family_of(words.font.unwrap_or(""))),
             cl::ink::BASE,
             wrap,
         );
         heights.push(galley.size().y);
     }
     let gap = fluid.sp_4();
-    let text_count = slide
-        .blocks
-        .iter()
-        .filter(|b| matches!(b, dpl_doc::Block::Text { .. }))
-        .count();
+    let text_count = slide.blocks.iter().filter(|b| b.words().is_some()).count();
     let total: f32 = heights.iter().sum::<f32>() + gap * text_count.saturating_sub(1) as f32;
 
     // Pass 2 — the entrance (rise, staggered) and the real paint.
@@ -401,13 +398,13 @@ fn render_inner(
     };
     let mut y = rect.center().y - total * 0.5;
     for (i, block) in slide.blocks.iter().enumerate() {
-        let dpl_doc::Block::Text {
+        let Some(dpl_doc::Words {
             id,
             text,
             font,
             size,
             ink,
-        } = block
+        }) = block.words()
         else {
             // Media blocks painted in the pre-pass. They own the whole stage
             // for hit-testing; they take no slot in the text flow (no y
@@ -440,11 +437,13 @@ fn render_inner(
                 }
             }
         };
-        let px = size_of(&fluid, size).unwrap_or_else(|| fluid.fs_body());
-        let color = ink_of(ink.as_deref().unwrap_or("base"), accent).gamma_multiply(m.alpha);
+        let px = size
+            .and_then(|size| size_of(&fluid, size))
+            .unwrap_or_else(|| fluid.fs_body());
+        let color = ink_of(ink.unwrap_or("base"), accent).gamma_multiply(m.alpha);
         let galley = painter.layout(
-            text.clone(),
-            egui::FontId::new(px, family_of(font.as_deref().unwrap_or(""))),
+            text.to_owned(),
+            egui::FontId::new(px, family_of(font.unwrap_or(""))),
             color,
             wrap,
         );
@@ -452,7 +451,7 @@ fn render_inner(
             block_rect.min,
             egui::vec2(galley.size().x.max(wrap * 0.15), heights[i]),
         );
-        map.blocks.push((id.clone(), block_rect));
+        map.blocks.push((id.to_owned(), block_rect));
         if visible {
             let lift = fluid.sp_5() * m.offset.y;
             painter.galley(egui::pos2(rect.min.x + pad, y + lift), galley, color);
@@ -531,29 +530,40 @@ mod tests {
         assert_eq!(ink_of("chartreuse", Color32::RED), cl::ink::BASE);
     }
 
+    /// A text block with an explicit size — the fixtures' common shape.
+    fn sized(id: &str, text: &str, size: &str) -> dpl_doc::Block {
+        dpl_doc::Block::Text {
+            id: id.into(),
+            preset: None,
+            tone: None,
+            text: text.into(),
+            font: None,
+            size: Some(size.into()),
+            ink: None,
+        }
+    }
+
     /// A document full of UNKNOWN refs must render without panicking — the
     /// degrade law, proven through a real theme'd context (an unregistered
     /// font family would panic at layout if `family_of` didn't guard).
     #[test]
     fn a_document_of_unknown_refs_renders_degraded_not_crashed() {
-        let slide = dpl_doc::Slide {
-            v: dpl_doc::SCHEMA_V,
-            template: "ghost".into(),
-            background: Some(dpl_doc::Background::MoodBlend {
-                moods: vec!["no-such-mood".into(), "also-missing".into()],
-                motion: "warp".into(),
-                ambience: Some("strobe".into()),
-            }),
-            blocks: vec![dpl_doc::Block::Text {
-                id: "t".into(),
-                text: "still here".into(),
-                font: Some("comic-sans".into()),
-                size: "gigantic".into(),
-                ink: Some("chartreuse".into()),
-            }],
-            enter: Some("rise".into()),
-            reveals: Vec::new(),
-        };
+        let mut slide = dpl_doc::Slide::new("ghost@1");
+        slide.background = Some(dpl_doc::Background::MoodBlend {
+            moods: vec!["no-such-mood".into(), "also-missing".into()],
+            motion: "warp".into(),
+            ambience: Some("strobe".into()),
+        });
+        slide.blocks = vec![dpl_doc::Block::Text {
+            id: "t".into(),
+            preset: None,
+            tone: None,
+            text: "still here".into(),
+            font: Some("comic-sans".into()),
+            size: Some("gigantic".into()),
+            ink: Some("chartreuse".into()),
+        }];
+        slide.enter = Some("rise".into());
         let ctx = egui::Context::default();
         cl::apply_theme(&ctx);
         ctx.run_ui(egui::RawInput::default(), |ctx| {
@@ -570,20 +580,9 @@ mod tests {
     /// renders through a theme without panicking (W3b).
     #[test]
     fn a_sparse_slide_renders_with_the_looks_styling() {
-        let sparse = dpl_doc::Slide {
-            v: dpl_doc::SCHEMA_V,
-            template: "title".into(),
-            background: None,
-            blocks: vec![dpl_doc::Block::Text {
-                id: "t".into(),
-                text: "styled by the show".into(),
-                font: None,
-                size: "h1".into(),
-                ink: None,
-            }],
-            enter: None,
-            reveals: Vec::new(),
-        };
+        let mut sparse = dpl_doc::Slide::new("title@1");
+        // No size either: the paint path falls back to body size.
+        sparse.blocks = vec![dpl_doc::Block::text("t", "styled by the show")];
         let ctx = egui::Context::default();
         cl::apply_theme(&ctx);
         ctx.run_ui(egui::RawInput::default(), |ctx| {
@@ -601,29 +600,12 @@ mod tests {
     /// steps — reveals never reflow the stack.
     #[test]
     fn render_step_is_stable_across_every_beat() {
-        let slide = dpl_doc::Slide {
-            v: dpl_doc::SCHEMA_V,
-            template: "title".into(),
-            background: None,
-            blocks: vec![
-                dpl_doc::Block::Text {
-                    id: "title".into(),
-                    text: "Always there".into(),
-                    font: None,
-                    size: "h1".into(),
-                    ink: None,
-                },
-                dpl_doc::Block::Text {
-                    id: "sub".into(),
-                    text: "Revealed on beat one".into(),
-                    font: None,
-                    size: "h3".into(),
-                    ink: None,
-                },
-            ],
-            enter: None,
-            reveals: vec!["sub".into()],
-        };
+        let mut slide = dpl_doc::Slide::new("title@1");
+        slide.blocks = vec![
+            sized("title", "Always there", "h1"),
+            sized("sub", "Revealed on beat one", "h3"),
+        ];
+        slide.reveals = vec!["sub".into()];
         assert_eq!(slide.step_count(), 2);
         let theme = dpl_doc::Theme::fallback();
         let ctx = egui::Context::default();
@@ -650,29 +632,20 @@ mod tests {
     /// the whole stage for hit-testing; the caption still stacks as text.
     #[test]
     fn a_media_slide_renders_full_bleed_and_hit_tests_the_stage() {
-        let slide = dpl_doc::Slide {
-            v: dpl_doc::SCHEMA_V,
-            template: "media".into(),
-            background: Some(dpl_doc::Background::None),
-            blocks: vec![
-                dpl_doc::Block::Media {
-                    id: "shot".into(),
-                    show: "image".into(),
-                    src: "does/not/exist.png".into(), // degrades to the plate
-                    fit: Some("cover".into()),
-                    poster: None,
-                },
-                dpl_doc::Block::Text {
-                    id: "cap".into(),
-                    text: "caption over media".into(),
-                    font: None,
-                    size: "h3".into(),
-                    ink: None,
-                },
-            ],
-            enter: None,
-            reveals: Vec::new(),
-        };
+        let mut slide = dpl_doc::Slide::new("media@1");
+        slide.background = Some(dpl_doc::Background::None);
+        slide.blocks = vec![
+            dpl_doc::Block::Media {
+                id: "shot".into(),
+                preset: None,
+                tone: None,
+                show: "image".into(),
+                src: "does/not/exist.png".into(), // degrades to the plate
+                fit: Some("cover".into()),
+                poster: None,
+            },
+            sized("cap", "caption over media", "h3"),
+        ];
         let ctx = egui::Context::default();
         cl::apply_theme(&ctx);
         let mut map = RenderMap::default();
