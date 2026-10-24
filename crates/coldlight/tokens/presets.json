@@ -1,9 +1,18 @@
 {
-  "$description": "AUTHORED — presets, the 6th token source. A preset is a NAMED BUNDLE OF REFS into the other registries (fonts/moods/motion/hues) — data composed FROM the generated styling, zero new code per preset. Cross-validated at build: an unknown ref fails the build. theme = one-tap slide looks (W4 trays); motion = entrance choices; bleed = two-colour hover washes over a hue pool (V1 Providers control). The editor's Save-as-preset appends here (data in the authored format, never generated output).",
+  "$description": "AUTHORED — presets, the 6th token source. A preset is a NAMED BUNDLE OF REFS into the other registries (fonts/moods/motion/hues) — data composed FROM the generated styling, zero new code per preset. Cross-validated at build: an unknown ref fails the build. theme = one-tap slide looks (W4 trays) — CARD presets (LS2b): a slide stores the preset's id and the cascade reads it, never a copy; `for` names the entity, `exposes` its 4–7 knobs (colour always one), `font` is the card's default for its lines (operator ruling 2026-10-21); motion = entrance choices; bleed = two-colour hover washes over a hue pool (V1 Providers control). The editor's Save-as-preset appends here (data in the authored format, never generated output).",
   "theme": [
     {
       "id": "neon-intro",
       "label": "Neon intro",
+      "for": "card",
+      "exposes": [
+        "background",
+        "ambience",
+        "motion",
+        "colour",
+        "font"
+      ],
+      "tone": "amber",
       "font": "orbitron",
       "moods": [
         "ember-drift",
@@ -16,6 +25,15 @@
     {
       "id": "glacier-stat",
       "label": "Glacier stat",
+      "for": "card",
+      "exposes": [
+        "background",
+        "ambience",
+        "motion",
+        "colour",
+        "font"
+      ],
+      "tone": "cyan",
       "font": "rajdhani",
       "moods": [
         "glacier-signal",
@@ -27,6 +45,15 @@
     {
       "id": "arcade-flash",
       "label": "Arcade flash",
+      "for": "card",
+      "exposes": [
+        "background",
+        "ambience",
+        "motion",
+        "colour",
+        "font"
+      ],
+      "tone": "lime",
       "font": "pressstart2p",
       "moods": [
         "botanical-night",
@@ -39,6 +66,15 @@
     {
       "id": "warm-editorial",
       "label": "Warm editorial",
+      "for": "card",
+      "exposes": [
+        "background",
+        "ambience",
+        "motion",
+        "colour",
+        "font"
+      ],
+      "tone": "coral",
       "font": "michroma",
       "moods": [
         "terracotta-dusk",
@@ -50,6 +86,15 @@
     {
       "id": "fuchsia-signal",
       "label": "Fuchsia signal",
+      "for": "card",
+      "exposes": [
+        "background",
+        "ambience",
+        "motion",
+        "colour",
+        "font"
+      ],
+      "tone": "magenta",
       "font": "audiowide",
       "moods": [
         "fuchsia-arc",

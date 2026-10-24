@@ -258,6 +258,12 @@ pub struct ThemePreset {
     pub moods: (&'static str, &'static str),
     pub motion: &'static str,
     pub ambience: Option<&'static str>,
+    /// The entity this preset dresses — `card` for a one-tap look.
+    pub entity: &'static str,
+    /// The 4-7 knobs it lets the operator change (colour always one).
+    pub exposes: &'static [&'static str],
+    /// Its colour — a hue id.
+    pub tone: &'static str,
 }
 
 /// A MOTION preset — a named entrance choice over the effect vocabulary.

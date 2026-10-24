@@ -646,6 +646,11 @@ pub fn validate(slide: &Slide) -> Vec<Issue> {
                 push("tone", format!("unknown tone {tone:?}"));
             }
         }
+        if let Some(preset) = &slide.preset {
+            if card_preset(slide).is_none() {
+                push("preset", format!("unknown card preset {preset:?}"));
+            }
+        }
         if let Some(role) = &slide.role {
             if !ROLES.contains(&role.as_str()) {
                 push("role", format!("unknown role {role:?}"));
@@ -687,12 +692,17 @@ pub fn validate(slide: &Slide) -> Vec<Issue> {
         if !seen_block.insert(block.id().to_owned()) {
             push("a slot is filled twice".into());
         }
-        let tone = match block {
-            Block::Text { tone, .. } | Block::Media { tone, .. } | Block::Quote { tone, .. } => {
-                tone.as_deref()
-            }
-            Block::Data { .. } => None,
+        let (tone, preset) = match block {
+            Block::Text { tone, preset, .. }
+            | Block::Media { tone, preset, .. }
+            | Block::Quote { tone, preset, .. } => (tone.as_deref(), preset.as_deref()),
+            Block::Data { .. } => (None, None),
         };
+        // Text, picture and quote preset sets come with the operator's
+        // review (LS2, Q2); until then no block preset exists to name.
+        if let Some(preset) = preset {
+            push(format!("unknown {} preset {preset:?}", block_entity(block)));
+        }
         if let Some(tone) = tone {
             if !tone_ok(tone) {
                 push(format!("unknown tone {tone:?}"));
@@ -779,6 +789,15 @@ pub fn validate(slide: &Slide) -> Vec<Issue> {
     }
 
     issues
+}
+
+fn block_entity(block: &Block) -> &'static str {
+    match block {
+        Block::Text { .. } => "text",
+        Block::Media { .. } => "picture",
+        Block::Quote { .. } => "quote",
+        Block::Data { .. } => "data",
+    }
 }
 
 /// The slide against the component it fills (LS2): the component and its
@@ -1293,25 +1312,49 @@ pub fn theme_for_slide(slide_dir: &Path) -> Theme {
         .unwrap_or_else(Theme::fallback)
 }
 
-/// THE CASCADE — slide override wins, else the theme fills in. Pure;
-/// returns a fully-specified document the renderer paints as-is. A
-/// fully-specified slide is a fixed point.
+/// The card preset a slide names, when it names a real one.
+pub fn card_preset(slide: &Slide) -> Option<&'static dpl_coldlight::ThemePreset> {
+    slide
+        .preset
+        .as_deref()
+        .and_then(dpl_coldlight::theme_preset)
+        .filter(|preset| preset.entity == "card")
+}
+
+/// THE CASCADE (three tiers, LS2b) — the slide's own override wins, then
+/// the card PRESET it names (a reference, never a copy: improve the preset
+/// and every slide using it follows), then the show theme. The preset gives
+/// the background, the colour and — operator ruling 2026-10-21 — the
+/// default font for every line. Pure; returns a fully-specified document
+/// the renderer paints as-is. A fully-specified slide is a fixed point.
 pub fn resolve(slide: &Slide, theme: &Theme) -> Slide {
     let mut out = slide.clone();
+    let preset = card_preset(slide);
     if out.background.is_none() {
-        out.background = Some(theme.background.clone());
+        out.background = Some(match preset {
+            Some(preset) => Background::MoodBlend {
+                moods: vec![preset.moods.0.to_owned(), preset.moods.1.to_owned()],
+                motion: preset.motion.to_owned(),
+                ambience: preset.ambience.map(str::to_owned),
+            },
+            None => theme.background.clone(),
+        });
+    }
+    if out.tone.is_none() {
+        out.tone = preset.map(|preset| preset.tone.to_owned());
     }
     if out.enter.is_none() {
         out.enter = theme.enter.clone();
     }
+    let font = preset.map_or_else(|| theme.font.clone(), |preset| preset.font.to_owned());
     for b in &mut out.blocks {
         // Only words cascade font/ink; media and data carry neither.
-        if let Block::Text { font, ink, .. } | Block::Quote { font, ink, .. } = b {
-            if font.is_none() {
-                *font = Some(theme.font.clone());
+        if let Some(words) = b.words_mut() {
+            if words.font.is_none() {
+                *words.font = Some(font.clone());
             }
-            if ink.is_none() {
-                *ink = Some(theme.ink.clone());
+            if words.ink.is_none() {
+                *words.ink = Some(theme.ink.clone());
             }
         }
     }
@@ -2033,6 +2076,68 @@ mod tests {
         let mut bad = serde_json::to_value(sample()).unwrap();
         bad["v"] = Value::from(2);
         assert!(!validator.is_valid(&bad));
+    }
+
+    /// The preset tier (LS2b): a slide naming a card preset takes its
+    /// background, colour and line font; its own overrides still win; and
+    /// two slides naming it hold no copy of it.
+    #[test]
+    fn a_card_preset_is_the_middle_tier_of_the_cascade() {
+        let preset = &dpl_coldlight::THEME_PRESETS[0];
+        let theme = Theme::fallback();
+        let mut slide = Slide::new("title@1");
+        slide.preset = Some(preset.id.into());
+        slide.blocks = vec![
+            Block::text("title", "Hello"),
+            Block::text("subtitle", "there"),
+        ];
+        assert_eq!(validate(&slide), Vec::new());
+        let resolved = resolve(&slide, &theme);
+        assert!(matches!(
+            &resolved.background,
+            Some(Background::MoodBlend { moods, .. }) if moods[0] == preset.moods.0
+        ));
+        assert_eq!(resolved.tone.as_deref(), Some(preset.tone));
+        assert_eq!(
+            resolved
+                .block("title")
+                .and_then(Block::words)
+                .and_then(|w| w.font),
+            Some(preset.font)
+        );
+        // The slide's own override still wins over the preset.
+        slide.blocks[0] = Block::Text {
+            id: "title".into(),
+            preset: None,
+            tone: None,
+            text: "Hello".into(),
+            font: Some("rajdhani".into()),
+            size: None,
+            ink: None,
+        };
+        let resolved = resolve(&slide, &theme);
+        assert_eq!(
+            resolved
+                .block("title")
+                .and_then(Block::words)
+                .and_then(|w| w.font),
+            Some("rajdhani")
+        );
+        assert_eq!(
+            resolved
+                .block("subtitle")
+                .and_then(Block::words)
+                .and_then(|w| w.font),
+            Some(preset.font)
+        );
+        // A reference, never a copy: the saved slide carries only the id.
+        let raw = serde_json::to_string(&slide).unwrap();
+        assert!(raw.contains(preset.id) && !raw.contains(preset.moods.0));
+        // An unknown preset is named.
+        slide.preset = Some("no-such-look".into());
+        assert!(validate(&slide)
+            .iter()
+            .any(|i| i.message.contains("no-such-look")));
     }
 
     /// Forking a seed lands in the library and leaves the seed untouched.

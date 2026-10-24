@@ -2268,6 +2268,7 @@ dependencies = [
  "dpl-doc",
  "dpl-slides",
  "egui",
+ "egui-pilot-ai",
 ]
 
 [[package]]

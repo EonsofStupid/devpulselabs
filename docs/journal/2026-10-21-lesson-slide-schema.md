@@ -118,16 +118,55 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
     - workflows' `slide_for_slot` uses the title and subtitle slots.
   - **`schemas/slide.v3.schema.json`** is checked by `dpl-doc` tests.
 
+## LS2b built (2026-10-21)
+
+- **Operator ruling 2026-10-21:** "Card look keeps a font default", like a
+  slide master. It is recorded in the LS2 plan §4.4.
+- **On `feat/ls2b-presets-by-reference`, stacked on LS2a:**
+  - `presets.json`: the 5 theme looks gain `for: card`, `exposes` (5 knobs)
+    and `tone`. `build.rs` checks the entity, 4–7 knobs, colour, legal
+    knobs per entity, and the tone against the hues.
+  - `dpl_doc::card_preset` plus a three-tier `resolve`: slide → look
+    (background, tone, font as the line default) → show. Unknown presets
+    are named; block presets are refused until the text, picture and quote
+    sets are approved.
+  - **Editor:**
+    - `apply_look` is deleted, and `use_look` stores the id and clears the
+      overrides it governs;
+    - the tray marks the chosen look and lists its knobs in plain words;
+    - the inherited background and font go through the cascade;
+    - look cards carry pilot ids (`editor.look/<id>`) and accessibility
+      labels.
+  - **Proof:**
+    - 1079 workspace tests; clippy clean both ways;
+    - EguiPilotAI `editor-look-by-reference` passes: the slide stores
+      `preset: neon-intro` at rev 2, with nothing copied;
+    - shot: `docs/proof/ls2b-look-by-reference.png`.
+
+## Linked looks (milestone `linked-overrides`, 2026-10-21)
+
+- **The operator (R286):** "link them, but advanced users can break the link
+  and have full granular control … latest UI trends, effortless".
+- **Research and grounding are done.** The plan is
+  `docs/plans/linked-looks-lk1.md` (untracked), APPROVED with:
+  - Q1 "Approve";
+  - Q2 a built-in look the operator pushes back to becomes their own
+    version, replacing it for them, with "Back to the built-in";
+  - Q3 the preset sets approved as written (LK3).
+- **The model:** a derived state (follows · with changes · own style);
+  `resolve_traced` with a source per knob; reset, reset all,
+  stop_following and follow_again; the look chip and menu; a dot on every
+  value that is yours; try-before-keep; "More controls" gated by `exposes`;
+  one revision per edit burst.
+
 ## Exact next step
 
-1. **LS2a is draft PR #281** (`337da8b`), stacked on #280; the local gate
-   passed. When the runners return:
-   - #280 runs its double-green; merge it and rebuild the exe;
-   - then retarget #281 to `main` (`gh pr edit 281 --base main`) and rebase
-     it if needed; mark it ready; double-green; merge; rebuild the exe.
-2. **LS2b** (card presets by reference), stacked on LS2a. It is approved in
-   the LS2 plan; then propose the text, picture and quote preset sets (Q2).
-3. Delete the untracked plans as each pass lands.
+1. **LK1 on `feat/lk1-linked-looks`**, stacked on LS2b (#282). Plan §2
+   items 1–8, in order: `dpl-doc` first (`Source`, `resolve_traced`, the
+   verbs, `provenance.unlinked_from` plus the schema), then the editor
+   (chip, dots, try-before-keep, More controls, settle revisions, tooltips
+   and pilot ids), then the Workbench tabs.
+2. The merge order once the runners return: #280 → #281 → #282 → LK1.
 
 ## Landmines
 
