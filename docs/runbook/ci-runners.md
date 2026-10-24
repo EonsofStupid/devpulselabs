@@ -64,6 +64,33 @@ queue forever. Check when a job sits queued > ~2 min:
 - Online but jobs stay queued → the listener session predates a
   re-registration: restart the runner service
   (`Restart-Service actions.runner.*` / `./svc.sh stop && ./svc.sh start`).
+- Online, but a PR's Windows job sits queued while the runner is busy: that
+  is the one Windows slot taken by another run (main's run after each
+  merge, a dependabot PR, or the `platform_devpulse` neighbour on VM 119).
+  `gh run list` shows which.
+
+## The build cache (since 2026-10-24)
+
+Each lane keeps its cargo build folder **outside the checkout**, at
+`<runner workspace>\cargo-target`:
+- Windows: `C:\actions\runner-devpulselabs\_work\devpulselabs\cargo-target`;
+- Linux: `/opt/actions-runner/_work/devpulselabs/cargo-target`.
+
+`green.yml`'s first step sets `CARGO_TARGET_DIR` there. `actions/checkout`'s
+`git clean -ffdx` used to delete `target/` before every run, so every
+Windows run rebuilt all ~600 crates twice and took 45–58 minutes. A warm
+run rebuilds only what changed.
+
+- **The guard:** each run prints the cache size and the free space. It
+  wipes the cache, so that run builds cold, when the cache passes 50 GB or
+  the disk has under 15 GB free.
+- **Wipe it by hand** (e.g. after a toolchain bump, or if a run looks
+  haunted): delete the `cargo-target` folder on the guest, e.g.
+  `qm guest exec 119 -- cmd /c rmdir /s /q
+  C:\actions\runner-devpulselabs\_work\devpulselabs\cargo-target`. The next
+  run builds cold and refills it.
+- Never point two runner installs at one cache: a cache belongs to one
+  runner directory, like the install itself.
 
 ## Security rule (non-negotiable) — SETTLED 2026-07-30, PRECONDITION RESTORED 2026-08-07
 
