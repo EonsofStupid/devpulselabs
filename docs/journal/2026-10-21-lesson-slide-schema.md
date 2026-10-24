@@ -287,7 +287,9 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
     walk (`episode::shows`) for every surface, clone makes a real episode,
     placing adds a use, edits from a show are taken by it, the copy control
     made tappable. Evidence in the plan's §8. LS3b2 (the dry run, then the
-    move) comes after the operator sees the dry-run report.
+    move) comes after the operator sees the dry-run report. **LS3b1 is
+    draft PR #289** (208a41d, base `feat/ls3a-lessons`); the gate passed;
+    the exe was rebuilt from `main` (stamp `5912c41 · 2026-10-24 15:24z`).
 
 ## Landmines
 
