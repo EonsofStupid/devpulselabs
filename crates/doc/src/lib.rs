@@ -8,6 +8,7 @@
 pub mod component;
 pub mod id;
 pub mod legacy;
+pub mod link;
 pub mod script;
 
 pub use id::{is_id, new_id};
@@ -99,11 +100,15 @@ pub struct SlideProvenance {
     /// The old format this slide was upgraded from (`"v2"`), once.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub upgraded_from: Option<String>,
+    /// The look this slide stopped following (LK1) — so following it again
+    /// is one tap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unlinked_from: Option<String>,
 }
 
 impl SlideProvenance {
     pub fn is_empty(&self) -> bool {
-        self.forked_from.is_none() && self.upgraded_from.is_none()
+        self.forked_from.is_none() && self.upgraded_from.is_none() && self.unlinked_from.is_none()
     }
 }
 

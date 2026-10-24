@@ -42,6 +42,17 @@ pub struct Editor {
     undo: Vec<dpl_doc::Slide>,
     /// Last save's outcome, shown as an honest footer crumb.
     saved: Result<(), String>,
+    /// A look being TRIED (LK1): the stage shows it, nothing is saved until
+    /// Keep.
+    trying: Option<String>,
+    /// Is the look chip's menu open?
+    link_menu: bool,
+    /// Every knob, not just the look's (LK1 "More controls").
+    more_controls: bool,
+    /// The edit burst in progress — typing settles into ONE revision.
+    burst: Option<(String, std::time::Instant)>,
+    /// The yours-dot whose comparison is open ("Yours: … · The look's: …").
+    compare: Option<dpl_doc::link::Knob>,
 }
 
 /// A text block's tray view: values resolved through the show theme, with
@@ -51,11 +62,12 @@ struct TextFields {
     font: String,
     size: String,
     ink: String,
-    font_overridden: bool,
-    ink_overridden: bool,
 }
 
 const UNDO_CAP: usize = 50;
+/// A pause longer than this ends a typing burst — the next keystroke is a
+/// new revision and a new undo step.
+const BURST_PAUSE: std::time::Duration = std::time::Duration::from_millis(1500);
 /// What an unsized line paints at — the renderer's own fallback.
 const DEFAULT_SIZE: &str = "body";
 /// The slot a card's picture fills in every component that has one.
@@ -97,6 +109,11 @@ impl Editor {
             theme: dpl_doc::theme_for_slide(dir),
             clock: dpl_slides::motion::Clock::default(),
             selection: Selection::None,
+            trying: None,
+            link_menu: false,
+            more_controls: false,
+            burst: None,
+            compare: None,
             undo: Vec::new(),
             saved: Ok(()),
         })
@@ -262,6 +279,11 @@ impl Editor {
     /// Apply an edit: snapshot for undo, mutate, then write back the
     /// colocated file immediately (no save ceremony — the file is truth).
     fn mutate(&mut self, f: impl FnOnce(&mut dpl_doc::Slide)) {
+        self.burst = None;
+        self.mutate_in(f);
+    }
+
+    fn mutate_in(&mut self, f: impl FnOnce(&mut dpl_doc::Slide)) {
         if self.undo.len() >= UNDO_CAP {
             self.undo.remove(0);
         }
@@ -276,6 +298,61 @@ impl Editor {
         self.save();
     }
 
+    /// One edit of a burst (typing): the first keystroke is a revision and
+    /// an undo step; the rest of the burst — same field, no pause longer
+    /// than [`BURST_PAUSE`] — saves into it. Ten letters, one Undo.
+    fn mutate_burst(&mut self, key: &str, f: impl FnOnce(&mut dpl_doc::Slide)) {
+        let now = std::time::Instant::now();
+        let continuing = self
+            .burst
+            .as_ref()
+            .is_some_and(|(k, at)| k == key && now.duration_since(*at) < BURST_PAUSE);
+        if continuing {
+            f(&mut self.slide);
+            self.save();
+        } else {
+            self.mutate_in(f);
+        }
+        self.burst = Some((key.to_owned(), now));
+    }
+
+    /// The slide's link to its look, worked out from its own values (LK1).
+    pub fn link_state(&self) -> dpl_doc::link::LinkState {
+        dpl_doc::link::link_state(&self.slide)
+    }
+
+    /// Where a knob's value comes from: yours, the look's, or the show's.
+    pub fn source(&self, knob: &dpl_doc::link::Knob) -> dpl_doc::link::Source {
+        dpl_doc::link::source(&self.slide, knob)
+    }
+
+    /// Give one value back to the look (or the show).
+    pub fn reset(&mut self, knob: &dpl_doc::link::Knob) {
+        let knob = knob.clone();
+        self.mutate(|s| dpl_doc::link::reset(s, &knob));
+    }
+
+    /// "Undo all my changes".
+    pub fn reset_all(&mut self) {
+        self.mutate(dpl_doc::link::reset_all);
+    }
+
+    /// "Stop following this look" — nothing changes on screen.
+    pub fn stop_following(&mut self) {
+        let theme = self.theme.clone();
+        self.mutate(|s| dpl_doc::link::stop_following(s, &theme));
+    }
+
+    /// "Follow the look again", keeping my changes or starting fresh.
+    pub fn follow_again(&mut self, keep_my_changes: bool) {
+        self.mutate(|s| dpl_doc::link::follow_again(s, keep_my_changes));
+    }
+
+    /// Is there anything to undo?
+    pub fn can_undo(&self) -> bool {
+        !self.undo.is_empty()
+    }
+
     fn save(&mut self) {
         self.saved = dpl_doc::save(&self.dir, &self.slide).map_err(|e| e.to_string());
     }
@@ -283,7 +360,8 @@ impl Editor {
     /// Undo restores the earlier CONTENT as a new revision: history only
     /// moves forward, so a lesson pinned to a later rev is never handed an
     /// older document under the same number.
-    fn undo(&mut self) {
+    pub fn undo(&mut self) {
+        self.burst = None;
         if let Some(prev) = self.undo.pop() {
             let rev = self.slide.rev + 1;
             self.slide = prev;
@@ -313,17 +391,20 @@ impl Editor {
 
         let now = ui.input(|i| i.time);
         let t0 = self.clock.tick(now);
+        // Trying a look (LK1): the stage shows the slide AS IF it used it;
+        // the file is untouched until Keep.
+        let shown = match &self.trying {
+            Some(id) => {
+                let mut tried = self.slide.clone();
+                use_look(&mut tried, id);
+                tried
+            }
+            None => self.slide.clone(),
+        };
         let map = {
             let mut child = ui.new_child(egui::UiBuilder::new().max_rect(stage.shrink(2.0)));
             child.set_clip_rect(stage);
-            document::render_traced(
-                &mut child,
-                stage.shrink(2.0),
-                &self.slide,
-                &self.theme,
-                now,
-                t0,
-            )
+            document::render_traced(&mut child, stage.shrink(2.0), &shown, &self.theme, now, t0)
         };
         ui.painter().rect_stroke(
             stage,
@@ -360,11 +441,16 @@ impl Editor {
                 .max_rect(bar)
                 .layout(egui::Layout::left_to_right(egui::Align::Center)),
         );
+        let chip_rect = self.look_chip(&mut child);
+        child.add_space(cl::space::S3);
         child.label(
             RichText::new("Tap the slide to change it")
                 .color(cl::ink::MUTED)
                 .size(cl::Fluid::of(bar).fs_body()),
         );
+        if self.link_menu {
+            self.link_menu_ui(ui, chip_rect);
+        }
         child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let crumb = match &self.saved {
                 Ok(()) if !self.undo.is_empty() => "saved".to_string(),
@@ -376,9 +462,185 @@ impl Editor {
                 ui.add_space(cl::space::S3);
             }
             let can_undo = !self.undo.is_empty();
-            if big_button(ui, "Undo", can_undo) {
+            if big_button(ui, "undo", "Undo", can_undo, "Take back the last change") {
                 self.undo();
             }
+        });
+    }
+
+    /// The link bar for surfaces that host the editor's controls without
+    /// its toolbar (the Workbench card editor's tabs): the look chip with
+    /// its menu, and Undo — so every tab shows what the slide follows and
+    /// can take the last change back (LK1).
+    pub fn link_bar(&mut self, ui: &mut Ui) {
+        ui.horizontal(|ui| {
+            let chip_rect = self.look_chip(ui);
+            if self.link_menu {
+                self.link_menu_ui(ui, chip_rect);
+            }
+            ui.add_space(cl::space::S3);
+            let can_undo = !self.undo.is_empty();
+            if big_button(ui, "undo", "Undo", can_undo, "Take back the last change") {
+                self.undo();
+            }
+        });
+    }
+
+    /// The background the slide SHOWS — its own, else its look's, else the
+    /// show's.
+    pub fn shown_background(&self) -> dpl_doc::Background {
+        self.inherited_background()
+    }
+
+    /// The look chip (LK1): "Look: Neon intro · 3 changes", "Own style (was
+    /// Neon intro)" or "The show's style". Tap for the menu.
+    fn look_chip(&mut self, ui: &mut Ui) -> Rect {
+        if let Some(id) = &self.trying {
+            // Trying (LK1): the stage shows the look, nothing is saved — the
+            // chip says so instead of naming a link that has not changed.
+            let text = format!("Trying: {}", look_label(id));
+            let resp = chip_response(
+                ui,
+                "look-chip",
+                &text,
+                true,
+                "Keep the look, or Cancel to go back — nothing is saved until you Keep",
+            );
+            return resp.rect;
+        }
+        let state = self.link_state();
+        let text = state.chip(look_label);
+        let tip = match &state {
+            dpl_doc::link::LinkState::Follows { .. } => {
+                "This slide follows its look. Tap to see your changes, give them back, or stop following"
+            }
+            dpl_doc::link::LinkState::OwnStyle { .. } => {
+                "This slide has its own style. Tap to follow its look again"
+            }
+            dpl_doc::link::LinkState::Show { .. } => {
+                "This slide uses the show's style. Pick a look below to follow one"
+            }
+        };
+        let resp = chip_response(ui, "look-chip", &text, self.link_menu, tip);
+        if resp.clicked() {
+            self.link_menu = !self.link_menu;
+        }
+        resp.rect
+    }
+
+    /// The look chip's menu: your changes (each with its own way back),
+    /// "Undo all my changes", and stop / follow again.
+    fn link_menu_ui(&mut self, ui: &mut Ui, under: Rect) {
+        let state = self.link_state();
+        let changes = dpl_doc::link::changes(&self.slide);
+        let area = egui::Area::new(ui.id().with("dpl_editor_link_menu"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(under.left_bottom() + egui::vec2(0.0, cl::space::S1));
+        area.show(ui.ctx(), |ui| {
+            egui::Frame::new()
+                .fill(cl::surface::RAISED)
+                .stroke(Stroke::new(1.0, cl::surface::HAIRLINE))
+                .corner_radius(cl::RADIUS)
+                .inner_margin(egui::Margin::same(12))
+                .show(ui, |ui| {
+                    ui.set_max_width(360.0);
+                    ui.label(tray_title(match &state {
+                        dpl_doc::link::LinkState::OwnStyle { .. } => "Own style",
+                        _ => "Your changes",
+                    }));
+                    if changes.is_empty() {
+                        ui.label(small("Nothing yet — everything follows."));
+                    }
+                    for knob in &changes {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(format!("• {}", knob.label()))
+                                    .small()
+                                    .color(cl::ink::BASE),
+                            );
+                            if !matches!(state, dpl_doc::link::LinkState::OwnStyle { .. }) {
+                                let back = give_back_label(&self.slide, knob);
+                                if chip(
+                                    ui,
+                                    &format!("reset-{}", knob_key(knob)),
+                                    back,
+                                    false,
+                                    "Give this value back — the slide follows again here",
+                                ) {
+                                    self.reset(knob);
+                                }
+                            }
+                        });
+                    }
+                    ui.add_space(cl::space::S2);
+                    match &state {
+                        dpl_doc::link::LinkState::Follows { look, .. } => {
+                            if !changes.is_empty()
+                                && chip(
+                                    ui,
+                                    "reset-all",
+                                    "Undo all my changes",
+                                    false,
+                                    "Give every value back to the look",
+                                )
+                            {
+                                self.reset_all();
+                            }
+                            if chip(
+                                ui,
+                                "stop-following",
+                                "Stop following this look",
+                                false,
+                                &format!(
+                                    "Make the slide fully yours. Nothing changes on screen; {} stops updating it",
+                                    look_label(look)
+                                ),
+                            ) {
+                                self.stop_following();
+                                self.link_menu = false;
+                            }
+                        }
+                        dpl_doc::link::LinkState::OwnStyle { was: Some(was) } => {
+                            if chip(
+                                ui,
+                                "follow-keep",
+                                "Follow the look again — keep my changes",
+                                false,
+                                &format!("Follow {} again; what differs stays yours", look_label(was)),
+                            ) {
+                                self.follow_again(true);
+                                self.link_menu = false;
+                            }
+                            if chip(
+                                ui,
+                                "follow-fresh",
+                                "Follow the look again — start fresh",
+                                false,
+                                &format!("Follow {} again and give back everything it styles", look_label(was)),
+                            ) {
+                                self.follow_again(false);
+                                self.link_menu = false;
+                            }
+                        }
+                        dpl_doc::link::LinkState::OwnStyle { was: None }
+                        | dpl_doc::link::LinkState::Show { .. } => {
+                            if !changes.is_empty()
+                                && chip(
+                                    ui,
+                                    "reset-all",
+                                    "Undo all my changes",
+                                    false,
+                                    "Give every value back to the show",
+                                )
+                            {
+                                self.reset_all();
+                            }
+                        }
+                    }
+                    if chip(ui, "menu-done", "Done", false, "Close this menu") {
+                        self.link_menu = false;
+                    }
+                });
         });
     }
 
@@ -416,7 +678,31 @@ impl Editor {
 
     /// Nothing selected → the LOOK presets (W3), applied whole.
     fn look_tray(&mut self, ui: &mut Ui) {
-        ui.label(tray_title("Themes — tap to restyle the whole slide"));
+        ui.horizontal(|ui| {
+            ui.label(tray_title("Looks — tap one to try it on"));
+            // Trying (LK1): nothing is saved until Keep.
+            if let Some(id) = self.trying.clone() {
+                ui.add_space(cl::space::S3);
+                if hero_chip(
+                    ui,
+                    "keep",
+                    "Keep",
+                    "Use this look on the slide (one Undo takes it back)",
+                ) {
+                    self.mutate(|s| use_look(s, &id));
+                    self.trying = None;
+                }
+                if chip(
+                    ui,
+                    "cancel",
+                    "Cancel",
+                    false,
+                    "Go back to how the slide was",
+                ) {
+                    self.trying = None;
+                }
+            }
+        });
         // The chosen look's knobs, in plain words (its `exposes`): what the
         // tabs above may change without leaving the look.
         if let Some(look) = dpl_doc::card_preset(&self.slide) {
@@ -458,7 +744,8 @@ impl Editor {
                             cl::ink::STRONG,
                         );
                         let chosen = self.slide.preset.as_deref() == Some(p.id);
-                        card_edge(&painter, rect, resp.hovered() || chosen);
+                        let tried = self.trying.as_deref() == Some(p.id);
+                        card_edge(&painter, rect, resp.hovered() || chosen || tried);
                         resp.widget_info(|| {
                             egui::WidgetInfo::selected(
                                 egui::WidgetType::Button,
@@ -475,14 +762,16 @@ impl Editor {
                                 p.label,
                             ),
                         );
-                        let resp = resp.on_hover_text(if chosen {
-                            "This slide's look — its background, colour and font come from it"
-                        } else {
-                            "Use this look: the slide follows it, and improving the look updates every slide that uses it"
-                        });
-                        if resp.clicked() {
-                            let id = p.id;
-                            self.mutate(|s| use_look(s, id));
+                        let resp = cl::tip(
+                            resp,
+                            if chosen {
+                                "This slide's look — its background, colour and font come from it"
+                            } else {
+                                "Try this look on the slide; Keep makes the slide follow it"
+                            },
+                        );
+                        if resp.clicked() && !chosen {
+                            self.trying = Some(p.id.to_owned());
                         }
                     }
                 });
@@ -492,12 +781,10 @@ impl Editor {
     /// Background selected → Colours (mood A/B) + Ambience. Shows the
     /// RESOLVED background; "Show theme" clears the slide's override.
     fn background_tray(&mut self, ui: &mut Ui) {
-        let overridden = self.slide.background.is_some();
+        let knob = dpl_doc::link::Knob::Background;
         ui.horizontal(|ui| {
             ui.label(tray_title("Background"));
-            if chip(ui, "Show theme", !overridden) && overridden {
-                self.mutate(|s| s.background = None);
-            }
+            self.yours_row(ui, &knob);
         });
         let resolved = self.inherited_background();
         let (cur_a, cur_b, cur_amb) = match &resolved {
@@ -539,7 +826,13 @@ impl Editor {
             for amb in [None, Some("pulse"), Some("drift"), Some("rings")] {
                 let label = amb.unwrap_or("none");
                 let on = cur_amb.as_deref() == amb;
-                if chip(ui, label, on) {
+                if chip(
+                    ui,
+                    &format!("ambience-{label}"),
+                    label,
+                    on,
+                    "A moving pattern over the background",
+                ) {
                     let amb = amb.map(str::to_string);
                     self.set_ambience(amb);
                 }
@@ -559,16 +852,34 @@ impl Editor {
 
         // The words.
         let mut edited = text.clone();
-        if ui
-            .add(egui::TextEdit::singleline(&mut edited).desired_width(f32::INFINITY))
-            .changed()
-        {
+        let field = ui.add(egui::TextEdit::singleline(&mut edited).desired_width(f32::INFINITY));
+        ui.pilot_track(
+            &field,
+            NodeMetadata::new(
+                PilotId::new("editor").child(&PilotKey::new("text")),
+                egui_pilot_ai::protocol::Role::TextInput,
+                "The words",
+            ),
+        );
+        let field = cl::tip(field, "The words on this line — it saves as you type");
+        if field.changed() {
+            let key = format!("text-{id}");
             let id = id.to_string();
-            self.mutate(|s| set_text(s, &id, |b| b.0 = edited.clone()));
+            self.mutate_burst(&key, |s| set_text(s, &id, |b| b.0 = edited.clone()));
+        }
+        if field.lost_focus() {
+            self.burst = None;
         }
 
+        let line = |field| dpl_doc::link::Knob::Line {
+            id: id.to_string(),
+            field,
+        };
         ui.add_space(cl::space::S2);
-        ui.label(small("Font"));
+        ui.horizontal(|ui| {
+            ui.label(small("Font"));
+            self.yours_row(ui, &line(dpl_doc::link::LineField::Font));
+        });
         egui::ScrollArea::horizontal()
             .id_salt("font_tray")
             .auto_shrink([false, false])
@@ -600,25 +911,71 @@ impl Editor {
                             },
                         );
                         card_edge(&painter, rect, resp.hovered());
+                        resp.widget_info(|| {
+                            egui::WidgetInfo::selected(
+                                egui::WidgetType::Button,
+                                true,
+                                picked,
+                                def.label,
+                            )
+                        });
+                        ui.pilot_track(
+                            &resp,
+                            NodeMetadata::new(
+                                PilotId::new("editor.font").child(&PilotKey::new(def.id)),
+                                egui_pilot_ai::protocol::Role::Button,
+                                def.label,
+                            ),
+                        );
+                        let resp = cl::tip(resp, def.blurb);
                         if resp.clicked() {
                             let (id, fid) = (id.to_string(), def.id.to_string());
                             self.mutate(|s| set_text(s, &id, |b| b.1 = fid.clone()));
                         }
                     }
-                    // Lit = following the show; tap while overridden = go back.
-                    if chip(ui, "Show theme", !tf.font_overridden) && tf.font_overridden {
-                        self.clear_font(id);
-                    }
                 });
             });
+
+        // The look shows its own knobs (`exposes`); "More controls" opens
+        // every knob — full control without leaving the look (LK1).
+        let look_gives_only_font = dpl_doc::card_preset(&self.slide).is_some();
+        if look_gives_only_font {
+            ui.add_space(cl::space::S2);
+            let label = if self.more_controls {
+                "Fewer controls"
+            } else {
+                "More controls"
+            };
+            if chip(
+                ui,
+                "more-controls",
+                label,
+                self.more_controls,
+                "Show every setting for this line — size and ink too",
+            ) {
+                self.more_controls = !self.more_controls;
+            }
+        }
+        if look_gives_only_font && !self.more_controls {
+            return;
+        }
 
         ui.add_space(cl::space::S2);
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
-                ui.label(small("Size"));
+                ui.horizontal(|ui| {
+                    ui.label(small("Size"));
+                    self.yours_row(ui, &line(dpl_doc::link::LineField::Size));
+                });
                 ui.horizontal_wrapped(|ui| {
                     for name in SIZES {
-                        if chip(ui, name, name == size) {
+                        if chip(
+                            ui,
+                            &format!("size-{name}"),
+                            name,
+                            name == size,
+                            "How big this line is",
+                        ) {
                             let (id, name) = (id.to_string(), name.to_string());
                             self.mutate(|s| set_text(s, &id, |b| b.2 = name.clone()));
                         }
@@ -627,20 +984,135 @@ impl Editor {
             });
             ui.add_space(cl::space::S4);
             ui.vertical(|ui| {
-                ui.label(small("Ink"));
+                ui.horizontal(|ui| {
+                    ui.label(small("Ink"));
+                    self.yours_row(ui, &line(dpl_doc::link::LineField::Ink));
+                });
                 ui.horizontal(|ui| {
                     for name in INKS {
-                        if chip(ui, name, name == ink) {
+                        if chip(
+                            ui,
+                            &format!("ink-{name}"),
+                            name,
+                            name == ink,
+                            "How strong this line's colour is",
+                        ) {
                             let (id, name) = (id.to_string(), name.to_string());
                             self.mutate(|s| set_text(s, &id, |b| b.3 = name.clone()));
                         }
                     }
-                    if chip(ui, "Show theme", !tf.ink_overridden) && tf.ink_overridden {
-                        self.clear_ink(id);
-                    }
                 });
             });
         });
+    }
+
+    /// Beside a control's label: when its value is yours, a dot (colour plus
+    /// a ring — never colour alone) and the honest way back ("Use the
+    /// look's" or "Use the show's"). Tapping the dot compares the two
+    /// values in words. Following values show nothing.
+    pub fn yours_row(&mut self, ui: &mut Ui, knob: &dpl_doc::link::Knob) {
+        if self.source(knob) != dpl_doc::link::Source::Yours {
+            if self.compare.as_ref() == Some(knob) {
+                self.compare = None;
+            }
+            return;
+        }
+        let (dot, resp) = ui.allocate_exact_size(egui::vec2(16.0, 16.0), Sense::click());
+        ui.painter()
+            .circle_filled(dot.center(), 4.0, cl::Tone::Amber.color());
+        ui.painter()
+            .circle_stroke(dot.center(), 7.0, Stroke::new(1.5, cl::Tone::Amber.color()));
+        let back = give_back_label(&self.slide, knob);
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, back));
+        ui.pilot_track(
+            &resp,
+            NodeMetadata::new(
+                PilotId::new("editor.yours").child(&PilotKey::new(knob_key(knob))),
+                egui_pilot_ai::protocol::Role::Button,
+                "Yours",
+            ),
+        );
+        let resp = cl::tip(resp, "Yours — tap to compare it with what it would follow");
+        if resp.clicked() {
+            self.compare = match &self.compare {
+                Some(open) if open == knob => None,
+                _ => Some(knob.clone()),
+            };
+        }
+        if chip(
+            ui,
+            &format!("back-{}", knob_key(knob)),
+            back,
+            false,
+            "Give this value back — the slide follows again here",
+        ) {
+            self.compare = None;
+            self.reset(knob);
+            return;
+        }
+        if self.compare.as_ref() == Some(knob) {
+            // A small sheet under the row: it floats, so a long value never
+            // pushes the control's row (or the tab) wider. One line per
+            // value, so a name never breaks across lines.
+            let (yours, whose, theirs) = self.comparison_parts(knob);
+            let words = format!("Yours: {yours} · {whose}: {theirs}");
+            egui::Area::new(ui.id().with(("dpl_editor_compare", knob_key(knob))))
+                .order(egui::Order::Foreground)
+                .fixed_pos(egui::pos2(
+                    dot.left(),
+                    ui.min_rect().bottom() + cl::space::S1,
+                ))
+                .show(ui.ctx(), |ui| {
+                    let sheet = egui::Frame::new()
+                        .fill(cl::surface::RAISED)
+                        .stroke(Stroke::new(1.0, cl::surface::HAIRLINE))
+                        .corner_radius(cl::RADIUS)
+                        .inner_margin(egui::Margin::same(10))
+                        .show(ui, |ui| {
+                            ui.label(
+                                RichText::new(format!("Yours: {yours}"))
+                                    .small()
+                                    .color(cl::ink::STRONG),
+                            );
+                            ui.label(
+                                RichText::new(format!("{whose}: {theirs}"))
+                                    .small()
+                                    .color(cl::ink::MUTED),
+                            );
+                        });
+                    ui.pilot_track(
+                        &sheet.response,
+                        NodeMetadata::new(
+                            PilotId::new("editor.compare").child(&PilotKey::new(knob_key(knob))),
+                            egui_pilot_ai::protocol::Role::Label,
+                            &words,
+                        ),
+                    );
+                });
+        }
+    }
+
+    /// "Yours: Orchid haze · The look's: Ember drift + Deep lagoon" — the
+    /// value the slide holds beside the one it would follow, in words.
+    pub fn comparison(&self, knob: &dpl_doc::link::Knob) -> String {
+        let (yours, whose, theirs) = self.comparison_parts(knob);
+        format!("Yours: {yours} · {whose}: {theirs}")
+    }
+
+    /// The comparison's three parts: your value, whose value it would
+    /// follow ("The look's" or "The show's"), and that value.
+    fn comparison_parts(&self, knob: &dpl_doc::link::Knob) -> (String, &'static str, String) {
+        let mut given_back = self.slide.clone();
+        dpl_doc::link::reset(&mut given_back, knob);
+        let whose = match dpl_doc::link::source(&given_back, knob) {
+            dpl_doc::link::Source::Look(_) => "The look's",
+            _ => "The show's",
+        };
+        (
+            value_words(&self.slide, &self.theme, knob),
+            whose,
+            value_words(&given_back, &self.theme, knob),
+        )
     }
 
     // ── mutation helpers ────────────────────────────────────────────────
@@ -667,33 +1139,7 @@ impl Editor {
             ink: words
                 .ink
                 .map_or_else(|| self.theme.ink.clone(), str::to_owned),
-            font_overridden: words.font.is_some(),
-            ink_overridden: words.ink.is_some(),
         })
-    }
-
-    /// Clear a block's font override — back to the show theme.
-    fn clear_font(&mut self, id: &str) {
-        let id = id.to_string();
-        self.mutate(move |s| {
-            for b in &mut s.blocks {
-                if let Some(words) = b.words_mut().filter(|w| w.id == id) {
-                    *words.font = None;
-                }
-            }
-        });
-    }
-
-    /// Clear a block's ink override — back to the show theme.
-    fn clear_ink(&mut self, id: &str) {
-        let id = id.to_string();
-        self.mutate(move |s| {
-            for b in &mut s.blocks {
-                if let Some(words) = b.words_mut().filter(|w| w.id == id) {
-                    *words.ink = None;
-                }
-            }
-        });
     }
 
     fn set_blend_mood(&mut self, slot: usize, pick: String) {
@@ -882,7 +1328,114 @@ fn card_edge_tone(painter: &egui::Painter, rect: Rect, hot: bool, on: bool) {
 }
 
 /// A touch chip — `tap_min`-tall toggle. Returns true when tapped.
-fn chip(ui: &mut Ui, label: &str, on: bool) -> bool {
+/// A look's name, by id (the id when no such look exists).
+fn look_label(id: &str) -> String {
+    cl::theme_preset(id).map_or_else(|| id.to_owned(), |look| look.label.to_owned())
+}
+
+/// The honest way back for a value that is yours.
+fn give_back_label(slide: &dpl_doc::Slide, knob: &dpl_doc::link::Knob) -> &'static str {
+    let mut probe = slide.clone();
+    dpl_doc::link::reset(&mut probe, knob);
+    match dpl_doc::link::source(&probe, knob) {
+        dpl_doc::link::Source::Look(_) => "Use the look's",
+        _ => "Use the show's",
+    }
+}
+
+/// What `knob` shows on `slide`, in plain words (through the cascade).
+fn value_words(
+    slide: &dpl_doc::Slide,
+    theme: &dpl_doc::Theme,
+    knob: &dpl_doc::link::Knob,
+) -> String {
+    use dpl_doc::link::{Knob, LineField};
+    let shown = dpl_doc::resolve(slide, theme);
+    let or_none = |v: Option<&str>| v.map_or_else(|| "None".to_owned(), pretty);
+    match knob {
+        Knob::Background => match shown.background {
+            Some(dpl_doc::Background::Mood { mood }) => pretty(&mood),
+            Some(dpl_doc::Background::MoodBlend { moods, .. }) => moods
+                .iter()
+                .map(|m| pretty(m))
+                .collect::<Vec<_>>()
+                .join(" + "),
+            Some(dpl_doc::Background::None) | None => "Nothing".into(),
+        },
+        Knob::Colour => or_none(shown.tone.as_deref()),
+        Knob::Enter => or_none(shown.enter.as_deref()),
+        Knob::Line { id, field } => {
+            let Some(block) = shown.block(id) else {
+                return "None".into();
+            };
+            let words = block.words();
+            match field {
+                LineField::Font => words.and_then(|w| w.font).map_or_else(
+                    || "None".into(),
+                    |font| {
+                        cl::FONTS
+                            .iter()
+                            .find(|def| def.id == font)
+                            .map_or_else(|| pretty(font), |def| def.label.to_owned())
+                    },
+                ),
+                LineField::Size => pretty(words.and_then(|w| w.size).unwrap_or(DEFAULT_SIZE)),
+                LineField::Ink => or_none(words.and_then(|w| w.ink)),
+                LineField::Colour => match block {
+                    dpl_doc::Block::Text { tone, .. }
+                    | dpl_doc::Block::Media { tone, .. }
+                    | dpl_doc::Block::Quote { tone, .. } => {
+                        tone.as_deref().map_or_else(|| "The card's".into(), pretty)
+                    }
+                    dpl_doc::Block::Data { .. } => "None".into(),
+                },
+            }
+        }
+    }
+}
+
+/// A registry id as a person would say it: `orchid-haze` → "Orchid haze".
+fn pretty(id: &str) -> String {
+    let mut out = id.replace(['-', '_'], " ");
+    if let Some(first) = out.get_mut(0..1) {
+        first.make_ascii_uppercase();
+    }
+    out
+}
+
+/// A knob's stable key for pilot ids ("background", "line-title-font").
+fn knob_key(knob: &dpl_doc::link::Knob) -> String {
+    match knob {
+        dpl_doc::link::Knob::Background => "background".into(),
+        dpl_doc::link::Knob::Colour => "colour".into(),
+        dpl_doc::link::Knob::Enter => "enter".into(),
+        dpl_doc::link::Knob::Line { id, field } => format!("line-{id}-{field:?}").to_lowercase(),
+    }
+}
+
+/// A chip: plain label, tooltip, pilot id `editor/<key>`. True when tapped.
+fn chip(ui: &mut Ui, key: &str, label: &str, on: bool, tip: &str) -> bool {
+    chip_response(ui, key, label, on, tip).clicked()
+}
+
+fn chip_response(ui: &mut Ui, key: &str, label: &str, on: bool, tip: &str) -> egui::Response {
+    chip_drawn(ui, key, label, on, false, tip)
+}
+
+/// The primary chip of a row (Keep): the house Hero weight — a 2px amber
+/// edge and amber words — so the one action that saves stands out.
+fn hero_chip(ui: &mut Ui, key: &str, label: &str, tip: &str) -> bool {
+    chip_drawn(ui, key, label, false, true, tip).clicked()
+}
+
+fn chip_drawn(
+    ui: &mut Ui,
+    key: &str,
+    label: &str,
+    on: bool,
+    hero: bool,
+    tip: &str,
+) -> egui::Response {
     let galley =
         ui.painter()
             .layout_no_wrap(label.into(), FontId::proportional(13.0), cl::ink::BASE);
@@ -892,25 +1445,48 @@ fn chip(ui: &mut Ui, label: &str, on: bool) -> bool {
     painter.rect_filled(
         rect,
         cl::RADIUS_SM,
-        if on {
+        if on || hero {
             cl::Tone::Amber.wash()
         } else {
             cl::surface::OVERLAY
         },
     );
+    if hero {
+        painter.rect_stroke(
+            rect,
+            cl::RADIUS_SM,
+            Stroke::new(2.0, cl::Tone::Amber.color()),
+            egui::StrokeKind::Inside,
+        );
+    }
     painter.text(
         rect.center(),
         Align2::CENTER_CENTER,
         label,
         FontId::proportional(13.0),
-        if on { cl::ink::STRONG } else { cl::ink::BASE },
+        if hero {
+            cl::Tone::Amber.color()
+        } else if on {
+            cl::ink::STRONG
+        } else {
+            cl::ink::BASE
+        },
     );
     ui.add_space(cl::space::S1);
-    resp.clicked()
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, label));
+    ui.pilot_track(
+        &resp,
+        NodeMetadata::new(
+            PilotId::new("editor").child(&PilotKey::new(key)),
+            egui_pilot_ai::protocol::Role::Button,
+            label,
+        ),
+    );
+    cl::tip(resp, tip)
 }
 
 /// A big, obvious button (Undo). `enabled=false` dims + ignores taps.
-fn big_button(ui: &mut Ui, label: &str, enabled: bool) -> bool {
+fn big_button(ui: &mut Ui, key: &str, label: &str, enabled: bool, tip: &str) -> bool {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(84.0, 30.0), Sense::click());
     let painter = ui.painter();
     painter.rect_filled(
@@ -939,6 +1515,16 @@ fn big_button(ui: &mut Ui, label: &str, enabled: bool) -> bool {
             cl::ink::SUBTLE
         },
     );
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
+    ui.pilot_track(
+        &resp,
+        NodeMetadata::new(
+            PilotId::new("editor").child(&PilotKey::new(key)),
+            egui_pilot_ai::protocol::Role::Button,
+            label,
+        ),
+    );
+    let resp = cl::tip(resp, tip);
     enabled && resp.clicked()
 }
 
@@ -1138,20 +1724,114 @@ mod tests {
     }
 
     #[test]
-    fn show_look_clears_the_override_on_disk() {
+    fn giving_a_font_back_clears_it_on_disk() {
         let dir = scratch("show-theme");
         dpl_doc::save(&dir, &sparse_seed()).unwrap();
         let mut ed = Editor::open(&dir).unwrap();
-        // Override the font, then put it back to the show.
+        // Make the font yours, then give it back.
         ed.mutate(|s| set_text(s, "title", |b| b.1 = "orbitron".into()));
         let raw = std::fs::read_to_string(dir.join("slide.json")).unwrap();
-        assert!(raw.contains("\"font\": \"orbitron\""), "override written");
-        ed.clear_font("title");
+        assert!(raw.contains("\"font\": \"orbitron\""), "yours, on disk");
+        let knob = dpl_doc::link::Knob::Line {
+            id: "title".into(),
+            field: dpl_doc::link::LineField::Font,
+        };
+        assert_eq!(ed.source(&knob), dpl_doc::link::Source::Yours);
+        ed.reset(&knob);
         let raw = std::fs::read_to_string(dir.join("slide.json")).unwrap();
-        assert!(!raw.contains("\"font\""), "override cleared on disk: {raw}");
-        // The tray resolves back to the theme's font.
+        assert!(!raw.contains("\"font\""), "given back on disk: {raw}");
+        // The tray resolves back to the show's font.
         let tf = ed.text_fields("title").unwrap();
         assert_eq!(tf.font, dpl_doc::Theme::fallback().font);
-        assert!(!tf.font_overridden);
+        assert_eq!(ed.source(&knob), dpl_doc::link::Source::Show);
+    }
+
+    /// The dot's comparison names the value that is yours and the one the
+    /// slide would follow — the look's while it follows one.
+    #[test]
+    fn the_comparison_names_yours_and_the_looks() {
+        let dir = scratch("compare");
+        dpl_doc::save(&dir, &sparse_seed()).unwrap();
+        let mut ed = Editor::open(&dir).unwrap();
+        let look = cl::THEME_PRESETS
+            .iter()
+            .find(|p| p.id == "neon-intro")
+            .unwrap();
+        ed.mutate(|s| use_look(s, look.id));
+        ed.mutate(|s| {
+            s.background = Some(dpl_doc::Background::Mood {
+                mood: "orchid-haze".into(),
+            });
+        });
+        assert_eq!(
+            ed.comparison(&dpl_doc::link::Knob::Background),
+            format!(
+                "Yours: Orchid haze · The look's: {} + {}",
+                pretty(look.moods.0),
+                pretty(look.moods.1)
+            )
+        );
+        let font = dpl_doc::link::Knob::Line {
+            id: "title".into(),
+            field: dpl_doc::link::LineField::Font,
+        };
+        ed.mutate(|s| set_text(s, "title", |b| b.1 = "vt323".into()));
+        assert!(
+            ed.comparison(&font).ends_with(&format!(
+                "The look's: {}",
+                cl::FONTS.iter().find(|d| d.id == look.font).unwrap().label
+            )),
+            "{}",
+            ed.comparison(&font)
+        );
+    }
+
+    /// Typing is one revision and one undo step, not one per letter.
+    #[test]
+    fn a_typing_burst_is_one_revision() {
+        let dir = scratch("burst");
+        dpl_doc::save(&dir, &sparse_seed()).unwrap();
+        let mut ed = Editor::open(&dir).unwrap();
+        for word in ["H", "He", "Hel", "Hell", "Hello!"] {
+            let word = word.to_string();
+            ed.mutate_burst("text-title", |s| {
+                set_text(s, "title", |b| b.0 = word.clone())
+            });
+        }
+        let on_disk = dpl_doc::load(&dir).unwrap();
+        assert_eq!(on_disk.rev, 2, "one revision for the burst");
+        assert!(
+            matches!(on_disk.block("title"), Some(dpl_doc::Block::Text { text, .. }) if text == "Hello!")
+        );
+        ed.undo();
+        assert!(!ed.can_undo(), "one undo step took the whole burst back");
+        assert!(
+            matches!(dpl_doc::load(&dir).unwrap().block("title"), Some(dpl_doc::Block::Text { text, .. }) if text == "Hello")
+        );
+    }
+
+    /// Stopping following changes nothing on screen; following again with
+    /// a fresh start gives the look's values back (LK1).
+    #[test]
+    fn stop_and_follow_again_through_the_editor() {
+        let dir = scratch("link");
+        let mut slide = sparse_seed();
+        slide.preset = Some(cl::THEME_PRESETS[0].id.into());
+        dpl_doc::save(&dir, &slide).unwrap();
+        let mut ed = Editor::open(&dir).unwrap();
+        let theme = dpl_doc::Theme::fallback();
+        let before = dpl_doc::resolve(ed.slide(), &theme);
+        ed.stop_following();
+        assert!(matches!(
+            ed.link_state(),
+            dpl_doc::link::LinkState::OwnStyle { .. }
+        ));
+        assert_eq!(dpl_doc::resolve(ed.slide(), &theme).blocks, before.blocks);
+        ed.follow_again(false);
+        assert!(matches!(
+            ed.link_state(),
+            dpl_doc::link::LinkState::Follows { changes: 0, .. }
+        ));
+        assert!(dpl_doc::validate(&dpl_doc::load(&dir).unwrap()).is_empty());
     }
 }

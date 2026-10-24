@@ -1,0 +1,356 @@
+# LK1 (R286): linked looks on the real exe. From a fresh card (Layouts →
+# Quote): TRY the Neon intro look (nothing saved until Keep), keep it, make
+# the background yours on the Background tab (the dot appears, the chip says
+# "1 change", and tapping the dot compares both values in words), give it
+# back with one tap (the dot goes), stop following (the chip says "Own
+# style (was Neon intro)" and nothing changes on screen), then follow again
+# keeping changes. Fixture `author-ls2` (scratch content root). After the
+# run the newest library slide is checked on disk.
+id = "linked-looks"
+fixture = "author-ls2"
+record = true
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.lane/make"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.shelf/templates"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.author.card/templates/quote"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.card/templates/quote"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+# Try the look: the Keep / Cancel bar appears; nothing is saved yet.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/editor.look/neon-intro"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor.look/neon-intro"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/editor/keep"
+
+[[steps]]
+kind = "capture"
+name = "linked-looks-trying"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/keep"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "count"
+value = 0
+
+[steps.expectation.target]
+id = "root/editor/keep"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "Look: Neon intro"
+
+[steps.expectation.target]
+id = "root/editor/look-chip"
+
+# Make the background yours: the dot appears and the chip counts it.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.tab/background"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "count"
+value = 0
+
+[steps.expectation.target]
+id = "root/editor.yours/background"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.swatch/first/orchid-haze"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/editor.yours/background"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "Look: Neon intro · 1 change"
+
+[steps.expectation.target]
+id = "root/editor/look-chip"
+
+# Tap the dot: both values, in words.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor.yours/background"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "Yours: Orchid haze · The look's: Ember drift + Deep lagoon"
+
+[steps.expectation.target]
+id = "root/editor.compare/background"
+
+[[steps]]
+kind = "capture"
+name = "linked-looks-one-change"
+
+# Give it back with one tap: the dot and the comparison go.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/back-background"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "count"
+value = 0
+
+[steps.expectation.target]
+id = "root/editor.yours/background"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "count"
+value = 0
+
+[steps.expectation.target]
+id = "root/editor.compare/background"
+
+# Stop following: the chip names the look it was.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/look-chip"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/editor/stop-following"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/stop-following"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "Own style (was Neon intro)"
+
+[steps.expectation.target]
+id = "root/editor/look-chip"
+
+[[steps]]
+kind = "capture"
+name = "linked-looks-own-style"
+
+# Follow again, keeping changes: back to the look, nothing extra.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/look-chip"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/editor/follow-keep"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/follow-keep"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "Look: Neon intro"
+
+[steps.expectation.target]
+id = "root/editor/look-chip"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "count"
+value = 0
+
+[steps.expectation.target]
+id = "root/editor.yours/background"

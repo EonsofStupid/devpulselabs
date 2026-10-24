@@ -329,6 +329,40 @@ Style Dictionary tokens.
 - **Visual baselines:** one per story per mode, keyed by **name**, so a
   rename starts a new baseline [67].
 
+### 4.9 Showing and breaking the link (added 2026-10-21, R286)
+
+The operator asked for links by default that advanced users can break for
+full control, made effortless. A web pass on 2026-10-21 looked at how
+current editors show a linked value, give it back, and unlink.
+- **Mark a change where it is edited.** Play, Framer, Webflow and Plasmic
+  show a changed property beside the control and reset it there with one
+  tap [76, 75, 72, 29]. Figma keeps its resets in a menu, and users ask for
+  more [32, 68].
+- **Reset and unlink are first-class verbs.** Webflow's API has
+  `resetAllProps` and `unlinkComponent` [73, 74].
+- **Breaking the link should not be one-way.** Figma's detach and
+  Builder.io's unlinked symbols cannot be linked again [80, 81].
+- **Surprise comes from changes that spread unseen.** Figma Slides users
+  report template changes that never reach existing decks, and others
+  objected when library update notices were removed [69, 70, 33].
+- **Two levels at most.** Progressive disclosure keeps advanced controls
+  one step away, never deeper [78].
+- **Compare by holding.** Lightroom compares an edit with the original by
+  press-and-hold [79].
+- Synced blocks and slots are the same idea for content: one source, many
+  places [77, 71].
+
+**What LK1 took from it:**
+- a chip that says what the slide follows, with the count of your changes;
+- a dot beside each control whose value is yours; the dot compares the two
+  values in words, and "Use the look's" gives the value back in one tap;
+- "Stop following" that changes nothing on screen and can be undone by
+  "Follow the look again" — keep my changes, or start fresh;
+- try-before-keep for looks, with Keep / Cancel and nothing saved until
+  Keep;
+- one "More controls" level for every knob;
+- plain words everywhere: never "override", "instance" or "detach".
+
 ## 5. Synthesis: the model this research supports
 
 Five document kinds, each a closed, versioned JSON Schema in the house style
@@ -476,3 +510,17 @@ plus jsonschema tests, as `dpl.role/1` does):
 65. Confluent schema evolution — https://docs.confluent.io/platform/current/schema-registry/fundamentals/schema-evolution.html
 66. Cargo SemVer compatibility — https://doc.rust-lang.org/cargo/reference/semver.html
 67. Chromatic modes — https://www.chromatic.com/docs/modes/
+68. Figma forum, "Expand reset overrides" — https://forum.figma.com/t/expand-reset-overrides/2418
+69. Figma forum, Slides template changes don't reach existing decks — https://forum.figma.com/t/figma-slides-publishing-template-changes-dont-apply-to-existing-slide-decks/77154
+70. Figma forum, library update notifications removed — https://forum.figma.com/t/please-revert-decision-to-remove-library-update-notifications/68095
+71. Figma Slots open beta — https://forum.figma.com/product-updates-3/slots-is-rolling-out-in-open-beta-51584
+72. Webflow component properties — https://help.webflow.com/hc/en-us/articles/33961362040723
+73. Webflow Designer API, resetAllProps — https://developers.webflow.com/designer/reference/component-element/resetAllProps
+74. Webflow Designer API, unlinkComponent — https://developers.webflow.com/designer/reference/component-element/unlinkComponent
+75. Framer component variants — https://www.framer.com/academy/lessons/component-variants-in-framer
+76. Play component instances — https://learn.createwithplay.com/en/articles/8501713-component-instances
+77. Notion synced blocks — https://www.notion.com/help/synced-blocks
+78. NN/g progressive disclosure — https://www.nngroup.com/articles/progressive-disclosure/
+79. Lightroom compare edits — https://www.adobe.com/learn/lightroom-cc/web/compare-photo-edits-lightroom-mobile
+80. Figma, detach an instance — https://help.figma.com/hc/en-us/articles/360038665754
+81. Builder.io symbols intro — https://www.builder.io/c/docs/symbols-intro

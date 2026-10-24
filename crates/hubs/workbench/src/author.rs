@@ -614,10 +614,10 @@ fn background_tab(ui: &mut egui::Ui, ed: &mut CardEditor) {
     let editor = &mut ed.editor;
     let fluid = cl::Fluid::of(ui.ctx().content_rect());
     let colours = crate::backgrounds::colours();
-    let current = editor.slide().background.clone();
-
-    // What is picked right now, read off the document rather than remembered
-    // beside it — the file is the truth.
+    // What the slide SHOWS right now — its own background, else its look's,
+    // else the show's (LK1): following and "deliberately bare" no longer
+    // look the same. The dot says which values are yours.
+    let current = Some(editor.shown_background());
     let (first, second, ambience) = match &current {
         Some(dpl_doc::Background::Mood { mood }) => (Some(mood.clone()), None, None),
         Some(dpl_doc::Background::MoodBlend {
@@ -630,6 +630,14 @@ fn background_tab(ui: &mut egui::Ui, ed: &mut CardEditor) {
         _ => (None, None, None),
     };
 
+    ui.horizontal(|ui| {
+        ui.label(
+            RichText::new("Background")
+                .size(fluid.fs_body())
+                .color(cl::ink::MUTED),
+        );
+        editor.yours_row(ui, &dpl_doc::link::Knob::Background);
+    });
     ui.add_space(cl::space::S2);
     ui.label(
         RichText::new(format!("The colour — {} to choose from", colours.len()))
@@ -648,6 +656,7 @@ fn background_tab(ui: &mut egui::Ui, ed: &mut CardEditor) {
     ui.horizontal_wrapped(|ui| {
         if swatch(
             ui,
+            "nothing",
             tile_w,
             tile_h,
             None,
@@ -662,6 +671,7 @@ fn background_tab(ui: &mut egui::Ui, ed: &mut CardEditor) {
             let picked = first.as_deref() == Some(colour.slug.as_str());
             if swatch(
                 ui,
+                &format!("first/{}", colour.slug),
                 tile_w,
                 tile_h,
                 Some(&colour.slug),
@@ -704,6 +714,7 @@ fn background_tab(ui: &mut egui::Ui, ed: &mut CardEditor) {
                 let picked = second.as_deref() == Some(colour.slug.as_str());
                 if swatch(
                     ui,
+                    &format!("second/{}", colour.slug),
                     tile_w,
                     tile_h,
                     Some(&colour.slug),
@@ -793,6 +804,7 @@ fn background_with(
 /// the words", not an empty box.
 fn swatch(
     ui: &mut egui::Ui,
+    pilot: &str,
     w: f32,
     h: f32,
     mood: Option<&str>,
@@ -840,6 +852,14 @@ fn swatch(
     // read this, and a control a machine cannot name is one a person cannot
     // either.
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, picked, label));
+    ui.pilot_track(
+        &resp,
+        NodeMetadata::new(
+            PilotId::new("workbench.author.swatch").child(&PilotKey::new(pilot)),
+            egui_pilot_ai::protocol::Role::Button,
+            label,
+        ),
+    );
     let tip = if picked {
         format!("{label} — this is what the card has now")
     } else {
@@ -1779,6 +1799,12 @@ impl AuthorSurface {
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
                             ui.set_clip_rect(controls.intersect(ui.clip_rect()));
+                            // Every tab but Words (whose toolbar has them)
+                            // shows the look chip and Undo (LK1).
+                            if ed.tab != CardTab::Words {
+                                ed.editor.link_bar(ui);
+                                ui.add_space(cl::space::S2);
+                            }
                             match ed.tab {
                                 CardTab::Words => ed.editor.ui(ui),
                                 CardTab::Background => background_tab(ui, ed),
@@ -2870,7 +2896,13 @@ pub(crate) mod background_tests {
             );
         harness.run();
         for label in clicks {
-            harness.get_by_label(label).click();
+            // The tab shows what the card SHOWS (LK1), so an inherited blend
+            // lists every colour twice: the first row is the main colour.
+            harness
+                .get_all_by_label(label)
+                .next()
+                .unwrap_or_else(|| panic!("no control labelled {label:?}"))
+                .click();
             harness.run();
         }
         dpl_doc::load(dir).unwrap()
