@@ -118,6 +118,27 @@ arguments = ["--route", "workbench/author", "--window", "1100x700", "--mood", "0
 [fixtures.author-ls2-1100.environment]
 CONTENT_ROOT = "target/eguipilotai/ls2a/content"
 
+# LS3a: lessons over a scratch content root. Clear
+# `target/eguipilotai/ls3a/content` before the first scenario; the rest
+# build on what it leaves (a lesson made in Author, then the Lessons page).
+[fixtures.lessons-author]
+arguments = ["--route", "workbench/author", "--author-container", "lesson", "--mood", "0"]
+
+[fixtures.lessons-author.environment]
+CONTENT_ROOT = "target/eguipilotai/ls3a/content"
+
+[fixtures.lessons-page]
+arguments = ["--route", "workbench/lessons", "--mood", "0"]
+
+[fixtures.lessons-page.environment]
+CONTENT_ROOT = "target/eguipilotai/ls3a/content"
+
+[fixtures.lessons-page-1100]
+arguments = ["--route", "workbench/lessons", "--window", "1100x700", "--mood", "0"]
+
+[fixtures.lessons-page-1100.environment]
+CONTENT_ROOT = "target/eguipilotai/ls3a/content"
+
 [fixtures.wiredfront-editor]
 arguments = ["--route", "wiredfront/editor", "--mood", "0"]
 

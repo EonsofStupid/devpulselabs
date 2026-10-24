@@ -1193,6 +1193,15 @@ fn load_draft_doc(dir: &std::path::Path) -> Option<dpl_slides::document::DocSlid
         .map(|slide| dpl_slides::document::DocSlide::new(slide, looks))
 }
 
+/// Give the lesson at `lesson_dir` a use of the library card at `card_dir`,
+/// pinned to the version it has now. Nothing is copied.
+fn use_in_lesson(lesson_dir: &std::path::Path, card_dir: &std::path::Path) -> Result<(), String> {
+    let mut lesson = dpl_doc::lesson::load_lesson(lesson_dir).map_err(|e| e.to_string())?;
+    let card = dpl_doc::load(card_dir).map_err(|e| format!("the card does not load: {e}"))?;
+    lesson.add(&card);
+    dpl_doc::lesson::save_lesson(lesson_dir, &lesson).map_err(|e| e.to_string())
+}
+
 impl AuthorSurface {
     pub(crate) fn ui(&mut self, ui: &mut egui::Ui, fabric: &Option<dpl_fabric::Fabric>) {
         self.load_once();
@@ -1491,11 +1500,14 @@ impl AuthorSurface {
 
     /// Put one of this sitting's cards into the loaded container.
     ///
-    /// `dpl_doc::place_slide` does the mutation and does it carefully: it
-    /// COPIES (the inbox draft survives), refuses a slide that does not
-    /// validate, refuses to create an episode, never clobbers a name, and
-    /// rolls the episode back if the result would be invalid. So this is a
-    /// gesture over a safe primitive, not a new mutation.
+    /// Into an episode, `dpl_doc::place_slide` does the mutation and does it
+    /// carefully: it COPIES (the inbox draft survives), refuses a slide that
+    /// does not validate, refuses to create an episode, never clobbers a
+    /// name, and rolls the episode back if the result would be invalid. Into
+    /// a lesson nothing is copied at all: the lesson gains a USE that points
+    /// at the card in the library and keeps the version it has now (LS3a).
+    /// `chapter` is the episode's chapter; a lesson has none. Either way this
+    /// is a gesture over a safe primitive, not a new mutation.
     ///
     /// On success the draft leaves the strip — it is in the container now —
     /// and the count is RE-READ from disk rather than incremented, so the
@@ -1514,16 +1526,28 @@ impl AuthorSurface {
         let Some(draft) = self.drafts.get(ix) else {
             return;
         };
-        let Some((show, episode)) = container.slug.split_once('/') else {
-            self.status = "that container's name is not a show and an episode".into();
-            return;
-        };
-        match dpl_doc::place_slide(root, &draft.dir, show, episode, chapter, None) {
-            Ok(placed) => {
-                self.status = format!(
+        let placed = if container.kind == ContainerKind::Lesson {
+            use_in_lesson(&container.dir, &draft.dir).map(|()| {
+                format!(
+                    "added “{}” to {} — it stays in your library, the lesson points at it",
+                    draft.label, container.label
+                )
+            })
+        } else {
+            let Some((show, episode)) = container.slug.split_once('/') else {
+                self.status = "that container's name is not a show and an episode".into();
+                return;
+            };
+            dpl_doc::place_slide(root, &draft.dir, show, episode, chapter, None).map(|placed| {
+                format!(
                     "put “{}” into {} — it is now {}/{}",
                     draft.label, container.label, placed.chapter, placed.slide
-                );
+                )
+            })
+        };
+        match placed {
+            Ok(said) => {
+                self.status = said;
                 self.drafts.remove(ix);
                 // Re-read, never increment: the count is a fact about the
                 // folder, not a tally the surface keeps.
@@ -1538,6 +1562,23 @@ impl AuthorSurface {
             // ("slide is not finished…", "chapter … not in episode"), and
             // rewording it here would only lose detail.
             Err(why) => self.status = format!("could not put that card in: {why}"),
+        }
+    }
+
+    /// "+ New lesson" on the Building-into bar: a lesson named after what
+    /// the operator said they want to make, saved, then built into.
+    fn new_lesson(&mut self, root: &std::path::Path) {
+        match dpl_doc::lesson::create_lesson(root, &self.intent) {
+            Ok((dir, made)) => {
+                self.kind = Some(ContainerKind::Lesson);
+                self.offered = containers(ContainerKind::Lesson, root);
+                self.into = self.offered.iter().position(|c| c.dir == dir);
+                self.status = format!(
+                    "made the lesson “{}” — cards you put in stay in your library",
+                    made.title
+                );
+            }
+            Err(e) => self.status = format!("could not make a lesson: {e}"),
         }
     }
 
@@ -1901,6 +1942,7 @@ impl AuthorSurface {
         let fluid = cl::Fluid::of(ui.max_rect());
         let kind = self.kind.unwrap_or(ContainerKind::Episode);
         let mut want = None;
+        let mut new_lesson = false;
 
         ui.horizontal_wrapped(|ui| {
             ui.label(
@@ -1985,10 +2027,30 @@ impl AuthorSurface {
                     });
                 cl::tip(which.response, "Which one you're adding to");
             }
+
+            if kind == ContainerKind::Lesson {
+                ui.add_space(cl::space::S2);
+                let make = cl::tip(
+                    control(ui, "+ New lesson", false, kind.tone(), Weight::Chrome),
+                    "Make a new lesson to build into, named after what you want to make",
+                );
+                ui.pilot_track(
+                    &make,
+                    NodeMetadata::new(
+                        PilotId::new("workbench.author").child(&PilotKey::new("new-lesson")),
+                        egui_pilot_ai::protocol::Role::Button,
+                        "+ New lesson",
+                    ),
+                );
+                new_lesson = make.clicked();
+            }
         });
 
         if let Some(k) = want {
             self.choose_kind(k);
+        }
+        if new_lesson {
+            self.new_lesson(&dpl_engine_capture::content_root());
         }
         ui.add_space(cl::space::S3);
     }
@@ -2091,9 +2153,10 @@ impl AuthorSurface {
                      you put them in.",
                 );
                 ui.add_space(cl::space::S3);
-                // The gesture the strip has been promising. Only an episode
-                // holds slide folders; every other kind says why instead of
-                // offering a button that cannot work.
+                // The gesture the strip has been promising. An episode takes
+                // copies into a chapter and a lesson takes uses; every other
+                // kind says why instead of offering a button that cannot
+                // work.
                 match kind.cannot_take_a_card() {
                     Some(why) => {
                         cl::tip(
@@ -2104,6 +2167,28 @@ impl AuthorSurface {
                             ),
                             why,
                         );
+                    }
+                    // A lesson is one run: no chapter to choose.
+                    None if kind == ContainerKind::Lesson => {
+                        if self.container().is_some() {
+                            let put = cl::tip(
+                                control(ui, "Put them in", false, super::SPEC.tone, Weight::Hero),
+                                "Add every card you started to this lesson. Each stays in your \
+                                 library — the lesson points at it.",
+                            );
+                            ui.pilot_track(
+                                &put,
+                                NodeMetadata::new(
+                                    PilotId::new("workbench.author")
+                                        .child(&PilotKey::new("put-in")),
+                                    egui_pilot_ai::protocol::Role::Button,
+                                    "Put them in",
+                                ),
+                            );
+                            if put.clicked() {
+                                put_in = Some(String::new());
+                            }
+                        }
                     }
                     None => {
                         let chapters = self.container().map(|c| c.chapters.clone());
@@ -3544,17 +3629,65 @@ mod place_tests {
         );
     }
 
-    /// Only an episode can receive a card, and the others say why in words
-    /// rather than offering a control that cannot work.
+    /// Putting cards into a lesson gives it uses of the library cards —
+    /// nothing is copied, the cards leave the sitting's strip, and the count
+    /// is re-read from disk.
     #[test]
-    fn only_an_episode_takes_a_card_and_the_rest_explain() {
+    fn putting_cards_into_a_lesson_uses_them_and_copies_nothing() {
+        use crate::containers::ContainerKind;
+        let root = std::env::temp_dir().join(format!("dpl-place-lesson-{}", dpl_doc::new_id()));
+        let mut card = dpl_doc::Slide::new("title@1");
+        card.blocks = vec![dpl_doc::Block::text("title", "Mine")];
+        let dir = dpl_doc::library_slide_dir(&root, &card.id);
+        dpl_doc::save(&dir, &card).unwrap();
+
+        let mut surface = super::AuthorSurface {
+            intent: "How the cost adds up".into(),
+            ..Default::default()
+        };
+        surface.new_lesson(&root);
+        assert_eq!(surface.kind, Some(ContainerKind::Lesson));
+        assert_eq!(
+            surface.container().map(|c| c.label.as_str()),
+            Some("How the cost adds up")
+        );
+        surface.drafts.push(super::Draft {
+            slide: card.id.clone(),
+            label: "Mine".into(),
+            dir: dir.clone(),
+            doc: None,
+        });
+
+        surface.place_draft(0, "", &root);
+        let lessons = dpl_doc::lesson::list_lessons(&root);
+        let library = dpl_doc::library_slides(&root);
+        let status = surface.status.clone();
+        let count = surface.offered[0].count;
+        std::fs::remove_dir_all(&root).ok();
+
+        let lesson = lessons[0].1.as_ref().unwrap();
+        assert_eq!(lesson.uses.len(), 1);
+        assert_eq!(
+            lesson.uses[0].slide,
+            dpl_doc::SlidePin {
+                id: card.id,
+                rev: 1
+            }
+        );
+        assert_eq!(library, vec![dir], "the card is used, never copied");
+        assert!(surface.drafts.is_empty());
+        assert_eq!(count, 1, "the count is re-read from disk");
+        assert!(status.contains("stays in your library"), "{status:?}");
+    }
+
+    /// An episode or a lesson can receive a card, and the others say why in
+    /// words rather than offering a control that cannot work.
+    #[test]
+    fn an_episode_or_a_lesson_takes_a_card_and_the_rest_explain() {
         use crate::containers::ContainerKind;
         assert!(ContainerKind::Episode.cannot_take_a_card().is_none());
-        for kind in [
-            ContainerKind::Guide,
-            ContainerKind::Lesson,
-            ContainerKind::Deck,
-        ] {
+        assert!(ContainerKind::Lesson.cannot_take_a_card().is_none());
+        for kind in [ContainerKind::Guide, ContainerKind::Deck] {
             let why = kind.cannot_take_a_card().expect("must explain");
             assert!(why.len() > 40, "{} shrugs: {why:?}", kind.slug());
         }

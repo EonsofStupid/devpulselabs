@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://devpulselabs.local/schemas/lesson.v1.schema.json",
+  "title": "dpl.lesson/1 — one lesson: an ordered run of uses of library slides",
+  "description": "A lesson kept at <content>/library/lessons/<id>/lesson.json (LS3, R285). It never holds a slide's content: each use points at a library slide by id and pins one revision of it, so a slide that moves on shows Update available instead of changing the lesson under the operator. Looks, presets and components float. docs/plans/lessons-ls3.md §4.2.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "rev", "title", "uses"],
+  "properties": {
+    "schema": { "const": "dpl.lesson/1" },
+    "id": {
+      "description": "A permanent ULID — never a folder name.",
+      "type": "string",
+      "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+    },
+    "rev": { "description": "Raised by one on every change; an episode pins it.", "type": "integer", "minimum": 1 },
+    "title": { "type": "string" },
+    "uses": {
+      "description": "In teaching order. The same slide may be used more than once, each use with its own key.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "slide"],
+        "properties": {
+          "key": { "description": "Names this use within its lesson.", "type": "string", "minLength": 1 },
+          "slide": {
+            "description": "The library slide and the revision this lesson shows.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "rev"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$" },
+              "rev": { "type": "integer", "minimum": 1 }
+            }
+          },
+          "role": {
+            "description": "The job this use does — Gagné's nine events, in teaching order.",
+            "enum": ["attention", "objective", "recall", "present", "guide", "practice", "feedback", "assess", "retain"]
+          },
+          "declined": {
+            "description": "The newer revision the operator said Not now to.",
+            "type": "integer",
+            "minimum": 2
+          }
+        }
+      }
+    }
+  }
+}

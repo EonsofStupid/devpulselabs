@@ -8,6 +8,7 @@
 pub mod component;
 pub mod id;
 pub mod legacy;
+pub mod lesson;
 pub mod link;
 pub mod look;
 pub mod script;
@@ -654,9 +655,53 @@ fn save_json<T: serde::Serialize>(dir: &Path, file: &str, value: &T) -> Result<(
     Ok(())
 }
 
-/// Save to `<dir>/slide.json`.
+/// Save to `<dir>/slide.json`, keeping the revision it replaces (LS3).
 pub fn save(dir: &Path, slide: &Slide) -> Result<(), DocError> {
+    keep_superseded(dir, FILE, &slide.id, slide.rev)?;
     save_json(dir, FILE, slide)
+}
+
+/// Where a document's earlier revisions are kept: `<dir>/revs/<rev>.json`.
+pub const REVS: &str = "revs";
+
+/// Keep the revision a save is about to replace (LS3): when `<dir>/<file>`
+/// holds the same document (`id`) at an earlier revision, its text is kept
+/// as `revs/<rev>.json` first, so a lesson pinned to it can still read it.
+/// A burst saving into the same revision, a different document (a fork
+/// written over its source's copy) or no file at all keeps nothing; a kept
+/// revision is never overwritten.
+fn keep_superseded(dir: &Path, file: &str, id: &str, rev: u32) -> Result<(), DocError> {
+    let Ok(raw) = std::fs::read_to_string(dir.join(file)) else {
+        return Ok(());
+    };
+    let Ok(old) = serde_json::from_str::<Value>(&raw) else {
+        return Ok(());
+    };
+    let old_rev = old.get("rev").and_then(Value::as_u64).unwrap_or(u64::MAX);
+    if old.get("id").and_then(Value::as_str) != Some(id) || old_rev >= u64::from(rev) {
+        return Ok(());
+    }
+    let revs = dir.join(REVS);
+    let kept = revs.join(format!("{old_rev}.json"));
+    if kept.exists() {
+        return Ok(());
+    }
+    std::fs::create_dir_all(&revs).map_err(DocError::Io)?;
+    let tmp = revs.join(format!("{old_rev}.json.tmp"));
+    std::fs::write(&tmp, raw).map_err(DocError::Io)?;
+    std::fs::rename(&tmp, &kept).map_err(DocError::Io)
+}
+
+/// One revision of the slide at `dir` (LS3): the current one is
+/// `slide.json`, an earlier one is read back from `revs/<rev>.json`.
+pub fn load_rev(dir: &Path, rev: u32) -> Result<Slide, DocError> {
+    let current = load(dir)?;
+    if current.rev == rev {
+        return Ok(current);
+    }
+    let raw = std::fs::read_to_string(dir.join(REVS).join(format!("{rev}.json")))
+        .map_err(DocError::Io)?;
+    parse_slide(&raw)
 }
 
 // W1 allowlists — replaced by registry checks as later passes wire the
@@ -1142,11 +1187,16 @@ pub fn library_slides(content_root: &Path) -> Vec<PathBuf> {
     dirs
 }
 
-/// Is `dir` inside the repo's seeds? Seeds are read-only starting points
-/// (LS2, ruled 2026-10-21): they are copied, never edited.
+/// Is `dir` inside the repo's seeds — a seed slide, or a seed episode and
+/// its slides? Seeds are read-only starting points (LS2, ruled
+/// 2026-10-21): they are copied, never edited.
 pub fn is_seed_dir(dir: &Path) -> bool {
     let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
-    seeds_root().is_some_and(|seeds| canonical(dir).starts_with(canonical(&seeds)))
+    let dir = canonical(dir);
+    [seeds_root(), episodes_root()]
+        .into_iter()
+        .flatten()
+        .any(|seeds| dir.starts_with(canonical(&seeds)))
 }
 
 /// Copy the slide folder at `src` into the library as the operator's own
@@ -1269,6 +1319,7 @@ const SLIDE_RESERVED: &[&str] = &[
     "notes.md",
     "script.mdx",
     "assets",
+    REVS,
 ];
 const EPISODE_RESERVED: &[&str] = &["episode.json", "theme.json", "assets"];
 
@@ -1988,6 +2039,10 @@ fn copy_dir(from: &Path, to: &Path) -> Result<(), String> {
     for entry in entries.flatten() {
         let src = entry.path();
         let dst = to.join(entry.file_name());
+        // A slide's history is its own: a copy starts at itself (LS3).
+        if src.is_dir() && entry.file_name() == REVS && from.join(FILE).is_file() {
+            continue;
+        }
         if src.is_dir() {
             copy_dir(&src, &dst)?;
         } else {
@@ -2411,6 +2466,81 @@ mod tests {
             before
         );
         let _ = std::fs::remove_dir_all(&content);
+    }
+
+    /// Every revision a save replaces stays readable (LS3); a burst saving
+    /// into the same revision keeps nothing extra.
+    #[test]
+    fn a_replaced_revision_is_kept_and_readable() {
+        let dir = scratch("revs");
+        let mut slide = sample();
+        save(&dir, &slide).unwrap();
+        let first = slide.clone();
+        slide.title = Some("Second".into());
+        slide.rev = 2;
+        save(&dir, &slide).unwrap();
+        // The same revision again (typing) keeps nothing new.
+        slide.title = Some("Second, typed on".into());
+        save(&dir, &slide).unwrap();
+        slide.title = Some("Third".into());
+        slide.rev = 3;
+        save(&dir, &slide).unwrap();
+
+        assert_eq!(load_rev(&dir, 1).unwrap(), first);
+        assert_eq!(
+            load_rev(&dir, 2).unwrap().title.as_deref(),
+            Some("Second, typed on")
+        );
+        assert_eq!(load_rev(&dir, 3).unwrap(), slide);
+        assert!(load_rev(&dir, 9).is_err());
+        let kept: Vec<String> = std::fs::read_dir(dir.join(REVS))
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(kept.len(), 2, "{kept:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A copy starts its own history: neither the source's kept revisions
+    /// nor the source itself land in the copy's `revs`.
+    #[test]
+    fn a_copy_never_carries_its_sources_history() {
+        let content = scratch("revs-fork");
+        let src = content.join("src");
+        let mut slide = sample();
+        save(&src, &slide).unwrap();
+        slide.rev = 2;
+        save(&src, &slide).unwrap();
+        assert!(src.join(REVS).join("1.json").is_file());
+
+        let copy = fork_into_library(&src, &content).unwrap();
+        assert!(!copy.join(REVS).exists());
+        let forked = load(&copy).unwrap();
+        assert_eq!(forked.rev, 1);
+        assert_eq!(
+            forked.provenance.forked_from,
+            Some(SlidePin {
+                id: slide.id.clone(),
+                rev: 2
+            })
+        );
+        let _ = std::fs::remove_dir_all(&content);
+    }
+
+    /// A seed episode's slides are seeds too (LS3a): opening one makes a
+    /// copy, and a look's change never counts them.
+    #[test]
+    fn a_seed_episodes_slides_are_seeds() {
+        let (_, ep_dir) = list_episodes().into_iter().next().expect("a seed episode");
+        assert!(is_seed_dir(&ep_dir));
+        let ep = load_episode(&ep_dir).unwrap();
+        let first = episode_slides(&ep_dir, &ep)
+            .into_iter()
+            .next()
+            .expect("a slide");
+        assert!(is_seed_dir(&first.dir));
+        assert!(!is_seed_dir(&scratch("not-a-seed")));
     }
 
     /// A copy is its own slide that remembers where it came from.

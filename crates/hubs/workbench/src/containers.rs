@@ -10,15 +10,16 @@
 //! [`ContainerKind::label`] is what the operator reads. Same split `Shelf` and
 //! `LibSection` make.
 //!
-//! **Two of the four ratified kinds have nowhere to live yet.** An episode is
-//! a real folder (`episode.json`) and a guide is a real folder
-//! (`guide.json`), but a deck is a way of *playing* an episode rather than a
-//! thing on disk, and a lesson is not stored anywhere at all. Both are
-//! registered here and say so in their own words — a kind that quietly
-//! vanished would hide the gap instead of naming it. [`ContainerKind::not_stored_yet`]
-//! carries that sentence, and the census test pins exactly which kinds are
-//! backed, so the day lesson storage lands the test fails and forces the
-//! wiring to land with it.
+//! **One of the four ratified kinds has nowhere to live yet.** An episode is
+//! a real folder (`episode.json`), a guide is a real folder (`guide.json`)
+//! and a lesson is a real document in the library
+//! (`library/lessons/<id>/lesson.json`, LS3a), but a deck is a way of
+//! *playing* an episode rather than a thing on disk. It is registered here
+//! and says so in its own words — a kind that quietly vanished would hide
+//! the gap instead of naming it. [`ContainerKind::not_stored_yet`] carries
+//! that sentence, and the census test pins exactly which kinds are backed,
+//! so the day deck storage lands the test fails and forces the wiring to
+//! land with it.
 
 use crate::words::pretty;
 use dpl_coldlight::Tone;
@@ -118,14 +119,10 @@ impl ContainerKind {
     /// would be and what has to exist before it can hold anything.
     pub(crate) fn not_stored_yet(self) -> Option<&'static str> {
         match self {
-            ContainerKind::Episode | ContainerKind::Guide => None,
+            ContainerKind::Episode | ContainerKind::Guide | ContainerKind::Lesson => None,
             ContainerKind::Deck => Some(
                 "A deck is an episode played full-screen, so it has no folder of its own \
                  yet. Pick an Episode and play it on the touchscreen.",
-            ),
-            ContainerKind::Lesson => Some(
-                "Lessons aren't saved anywhere yet — nothing on disk holds one. Until they \
-                 are, build into an Episode and it will carry over.",
             ),
         }
     }
@@ -133,18 +130,19 @@ impl ContainerKind {
     /// Why a card cannot be put into this kind, in plain words — `None` when
     /// it can.
     ///
-    /// Only an episode holds slide folders. A guide is not a shortfall: it is
-    /// a different content model (steps, not cards), and the wording must not
-    /// imply it is broken. Lesson and deck have nowhere to put anything at
+    /// An episode takes a copy into a chapter; a lesson takes a use that
+    /// points at the card in the library (LS3a). A guide is not a shortfall:
+    /// it is a different content model (steps, not cards), and the wording
+    /// must not imply it is broken. A deck has nowhere to put anything at
     /// all, which [`ContainerKind::not_stored_yet`] already explains.
     pub(crate) fn cannot_take_a_card(self) -> Option<&'static str> {
         match self {
-            ContainerKind::Episode => None,
+            ContainerKind::Episode | ContainerKind::Lesson => None,
             ContainerKind::Guide => Some(
                 "A guide is a recorded walkthrough — it holds steps, not cards. Cards go \
                  into an episode.",
             ),
-            ContainerKind::Lesson | ContainerKind::Deck => self.not_stored_yet(),
+            ContainerKind::Deck => self.not_stored_yet(),
         }
     }
 
@@ -185,9 +183,31 @@ pub(crate) fn containers(kind: ContainerKind, root: &Path) -> Vec<Container> {
     match kind {
         ContainerKind::Episode => episodes(root),
         ContainerKind::Guide => guides(root),
+        ContainerKind::Lesson => lessons(root),
         // Registered, deliberately empty — `not_stored_yet` says why.
-        ContainerKind::Lesson | ContainerKind::Deck => Vec::new(),
+        ContainerKind::Deck => Vec::new(),
     }
+}
+
+/// `library/lessons/<id>/lesson.json` — the operator's lessons, newest
+/// first (LS3a). A lesson that cannot be read is left to the Lessons page,
+/// which names what is wrong with it; it cannot be built into.
+fn lessons(root: &Path) -> Vec<Container> {
+    dpl_doc::lesson::list_lessons(root)
+        .into_iter()
+        .filter_map(|(dir, lesson)| {
+            let lesson = lesson.ok()?;
+            Some(Container {
+                slug: lesson.id.clone(),
+                kind: ContainerKind::Lesson,
+                label: lesson.title.clone(),
+                count: lesson.uses.len(),
+                // A lesson is one run of cards, with no chapters.
+                chapters: Vec::new(),
+                dir,
+            })
+        })
+        .collect()
 }
 
 /// `content/<show>/<episode>/episode.json` — the ratified content tree.
@@ -274,10 +294,10 @@ mod tests {
         assert_eq!(slugs, ["lesson", "guide", "episode", "deck"]);
     }
 
-    /// The promotion rule, applied to containers. Exactly two kinds are
-    /// backed today. When a third gains storage this fails, and whoever adds
-    /// it must wire `containers()` in the same commit rather than leaving a
-    /// kind that lists nothing forever.
+    /// The promotion rule, applied to containers. Exactly three kinds are
+    /// backed today (a lesson since LS3a). When the deck gains storage this
+    /// fails, and whoever adds it must wire `containers()` in the same commit
+    /// rather than leaving a kind that lists nothing forever.
     #[test]
     fn every_kind_is_backed_or_says_why() {
         let backed: Vec<&str> = ContainerKind::ALL
@@ -285,7 +305,7 @@ mod tests {
             .filter(|k| k.is_stored())
             .map(|k| k.slug())
             .collect();
-        assert_eq!(backed, ["guide", "episode"]);
+        assert_eq!(backed, ["lesson", "guide", "episode"]);
         for kind in ContainerKind::ALL {
             if !kind.is_stored() {
                 let why = kind
@@ -334,6 +354,27 @@ mod tests {
         for kind in ContainerKind::ALL {
             assert!(containers(kind, nowhere).is_empty());
         }
+    }
+
+    /// A lesson is found in the library by its document, with its name and
+    /// how many cards it uses.
+    #[test]
+    fn a_lesson_is_found_in_the_library() {
+        let tmp = std::env::temp_dir().join(format!("dpl-containers-lesson-{}", dpl_doc::new_id()));
+        let mut slide = dpl_doc::Slide::new("title@1");
+        slide.blocks = vec![dpl_doc::Block::text("title", "One")];
+        let (dir, mut lesson) = dpl_doc::lesson::create_lesson(&tmp, "Costs").unwrap();
+        lesson.add(&slide);
+        lesson.add(&slide);
+        dpl_doc::lesson::save_lesson(&dir, &lesson).unwrap();
+
+        let found = containers(ContainerKind::Lesson, &tmp);
+        std::fs::remove_dir_all(&tmp).ok();
+
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].label, "Costs");
+        assert_eq!(found[0].count, 2, "one card used twice is two");
+        assert!(found[0].chapters.is_empty());
     }
 
     #[test]

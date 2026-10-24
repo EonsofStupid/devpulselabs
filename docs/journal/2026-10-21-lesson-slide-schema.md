@@ -238,6 +238,40 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
    passed; the exe was rebuilt from `main` (stamp `4ee638b · 2026-10-23
    18:25z`). The looks program (LK1–LK3) is built: merge order #280 → …
    → #287. LS3 (lessons) is next in R285's order, with its own plan.
+6. **Landing (2026-10-23, the runners are back):** #280 double-green,
+   squash-merged as **c25007c**; `lesson-schema-ls1.md` deleted. LS2a
+   rebased with `git rebase --onto origin/main 7320100
+   feat/ls2a-slides-by-id` (new head **f52003a**, the same tree as the old
+   6ea7b5c), pushed `--force-with-lease` through the gate, #281 retargeted
+   to `main` and marked ready; the exe rebuilt from `main` (stamp
+   `c25007c · 2026-10-23 22:49z`). #281: Linux passed (12m26s), Windows
+   running. **The recipe for each next branch:** merge on double-green →
+   `git fetch` → `git rebase --onto origin/main <old tip of the branch
+   below> <branch>` (check with `git log` that only the branch's own
+   commits replay) → push `--force-with-lease` → `gh pr edit <n> --base
+   main` → `gh pr ready <n>` → rebuild the exe from `main`. Next: #282
+   replays only 943e6b5 (`--onto origin/main 6ea7b5c`).
+7. **LS3** — plan `docs/plans/lessons-ls3.md` (untracked), APPROVED
+   2026-10-23: "Approve, two PRs" (LS3a slide history + lessons + Update
+   available + the seed fix; LS3b episodes from lessons + the one-time
+   upgrade); "Move them into the library". LS3a is on `feat/ls3a-lessons`
+   (from LK3b), stacked as the stack lands.
+8. **#281 merged** double-green (Windows 49m15s) as **dd63f35**. LS2b
+   rebased (`--onto origin/main 6ea7b5c`, head **3e33b9a**, the same tree);
+   GitHub had already retargeted #282 to `main` when #281's branch was
+   deleted; #282 marked ready; the exe rebuilt from `main` (stamp
+   `dd63f35 · 2026-10-24 01:26z`). **The old tips each next rebase drops**
+   (the branch below's tip before it was rebased): LK1 `--onto origin/main
+   f382aaa` (replays a6a2378 + 762f2d2), LK2a `762f2d2`, LK2b `60f5f91`,
+   LK3a `1535928`, LK3b `8afa4a3`, LS3a `39792a9`… — check each with `git
+   log --oneline <old>..<branch>` before rebasing.
+9. **LS3a is draft PR #288** (e729575, base `feat/lk3b-picture-looks`): slide
+   history (`revs/`, `load_rev`), `dpl.lesson/1` and its schema, the
+   Workbench Lessons page, Author building into a lesson, the seed-episode
+   fix. Proof and the decisions made while building are in the plan's §8;
+   five scenarios `tests/eguipilotai/lessons-*.toml` run in order over a
+   cleared `target/eguipilotai/ls3a/content`. The gate passed; the exe was
+   rebuilt from `main` (stamp `dd63f35 · 2026-10-24 02:14z`). LS3b is next.
 
 ## Landmines
 
@@ -288,10 +322,10 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
 - **Own-look scenarios find the look by its name** (`role = "button"`,
   `name = "Orchid intro"`), and name locators are strict: clear
   `target/eguipilotai/ls2a/content/library/looks` before each run.
-- **The estate runners are offline** (server1 unreachable on port 22 on
-  2026-10-22; the operator is bringing it back). #280's run timed out after
-  24 h without starting; rerun it (`gh run rerun 39623397906`) once both
-  runners are online.
+- **The estate runners were offline** 2026-10-22 → 2026-10-23 (server1);
+  the operator brought them back. A Windows lane takes about 52 min and
+  Linux about 12. `gh pr checks --watch` dies on a network blip; poll
+  `gh pr checks <n>` in a loop instead.
 
 ## Verify commands
 

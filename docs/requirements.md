@@ -1017,6 +1017,15 @@ LS1 landed the component layer:
 - the Workbench reading names and summaries from the contracts;
 - the `contracts` phase of `cargo green`, so a contract can only grow.
 
+**Operator rulings 2026-10-23 (LS3 plan):** "Approve, two PRs" (LS3a lessons, then LS3b episodes built from lessons); "Move them into the library" (LS3b's one-time upgrade moves each content episode's slide folders into the library, keeping the old `episode.json` as a backup).
+
+LS3a landed lessons:
+- **Every revision a save replaces is kept** (`revs/<rev>.json` beside `slide.json`) and can be read back, so a lesson pinned to it never loses it. A copy starts its own history.
+- **A lesson is a document**, `dpl.lesson/1` (`schemas/lesson.v1.schema.json`), kept at `<content>/library/lessons/<id>/lesson.json`. Each use points at a library card and pins one version of it; the same card can be used twice.
+- **The Workbench's Lessons page:** New lesson; add a card from your library (nothing is copied); move cards earlier or later; take one out; give each card its job (Gagné's nine events, in plain words). When a card changes elsewhere the lesson shows **Newer version** and asks: **Compare** shows the two side by side, then **Update** or **Not now** (remembered for that version); **Update all** takes every waiting one. **Edit** changes a card from inside the lesson, which takes the change straight away; every other lesson using it asks first.
+- **Author builds into a lesson:** pick Lesson on the Building-into bar, "+ New lesson", then Put them in.
+- A seed episode's slides are read-only like every seed: opening one makes your own copy.
+
 ### R286 · 2026-10-21
 
 > we want to make it advance so we link them but more advanced users can break the link and have full grainular control but we want to fold the latest UI trends for UI making it effortless
