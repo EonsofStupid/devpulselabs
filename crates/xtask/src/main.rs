@@ -1157,6 +1157,85 @@ fn spawn_audit() -> Result<(), String> {
     }
 }
 
+/// LS3b2's episode move over a content root (ruled 2026-10-24, "Two PRs,
+/// dry run first"): every show still in the template shape, its plan in
+/// plain words. `--dry-run` only reads; without it, each show whose plan
+/// has no refusals moves into the library (the app's own "Move it" does the
+/// same, one show at a time).
+fn upgrade_episodes(arguments: &[String]) -> Result<(), String> {
+    let dry = arguments.iter().any(|a| a == "--dry-run");
+    let root = arguments
+        .iter()
+        .find(|a| !a.starts_with("--"))
+        .ok_or("usage: cargo xtask upgrade-episodes [--dry-run] <content-root>")?;
+    let root = Path::new(root);
+    let shows = dpl_doc::legacy::old_shape_episodes(root);
+    println!(
+        "{} show(s) still in the old shape under {}{}",
+        shows.len(),
+        root.display(),
+        if dry {
+            " — dry run, nothing changes"
+        } else {
+            ""
+        }
+    );
+    let mut refused = 0;
+    for (show, episode, dir) in &shows {
+        let plan = dpl_doc::legacy::plan_move(dir, root)?;
+        println!();
+        println!("{show}/{episode} — “{}”", plan.title);
+        for lesson in &plan.lessons {
+            println!(
+                "  lesson “{}” — {} card(s)",
+                lesson.title,
+                lesson.cards.len()
+            );
+        }
+        for slide in plan.slides.iter().chain(&plan.orphans) {
+            let mut notes = Vec::new();
+            if slide.forked {
+                notes.push("its id is taken, so it moves as a copy".to_owned());
+            }
+            if slide.script {
+                notes.push("its script names the card".to_owned());
+            }
+            if !slide.media.is_empty() {
+                notes.push(format!("{} picture path(s) follow it", slide.media.len()));
+            }
+            let orphan = if plan.orphans.contains(slide) {
+                " (in no chapter)"
+            } else {
+                ""
+            };
+            println!(
+                "  {}{orphan} → library/slides/{}{}",
+                slide.name,
+                slide.id,
+                if notes.is_empty() {
+                    String::new()
+                } else {
+                    format!(" — {}", notes.join("; "))
+                }
+            );
+        }
+        for why in &plan.refused {
+            println!("  WILL NOT MOVE: {why}");
+        }
+        if !plan.refused.is_empty() {
+            refused += 1;
+        } else if !dry {
+            dpl_doc::legacy::move_episode(dir, root)?;
+            println!("  moved (the old episode.json is kept as episode.v1.json)");
+        }
+    }
+    if refused > 0 {
+        println!();
+        println!("{refused} show(s) would not move as they are — see above.");
+    }
+    Ok(())
+}
+
 /// LS2's one-time slide upgrade (v1/v2 → `dpl.slide/3`) over a folder tree —
 /// the same `dpl_doc::legacy::upgrade_content` the app runs on the
 /// operator's content at first launch. Used once for the repo's seeds; it
@@ -2268,6 +2347,7 @@ fn main() -> ExitCode {
         "structure" => structure_audit(),
         "contracts" => contracts_audit(),
         "upgrade-slides" => upgrade_slides(arguments.first().map(String::as_str)),
+        "upgrade-episodes" => upgrade_episodes(&arguments),
         // Standalone prints the depth RULE beside each pool — `green` prints
         // only the counts, so the gate stays one screen.
         "coverage" => coverage_audit(true),

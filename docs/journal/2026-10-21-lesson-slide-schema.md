@@ -290,6 +290,12 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
     move) comes after the operator sees the dry-run report. **LS3b1 is
     draft PR #289** (208a41d, base `feat/ls3a-lessons`); the gate passed;
     the exe was rebuilt from `main` (stamp `5912c41 · 2026-10-24 15:24z`).
+12. **LS3b2 is built on `feat/ls3b2-move-episodes`** (from LS3b1): the
+    episode move (`legacy::plan_move` / `move_episode`), `cargo xtask
+    upgrade-episodes [--dry-run]`, and "Move into the library…" → the plan
+    sheet → Move it on the Episodes page — never at launch. **The dry run on
+    the operator's real content: 0 shows in the old shape, nothing would
+    move** (the content holds no shows yet). Evidence in the plan's §8.
 
 ## Landmines
 

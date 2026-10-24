@@ -1,0 +1,77 @@
+# LS3b2 (R285): move an old-shape show into the library on the real exe.
+# The scratch root holds a hand-made copy of the seed as `devpulse-news/
+# ep1` (make it fresh first). The Episodes page offers "Move into the
+# library…"; the sheet says exactly what would move; Move it moves it
+# and opens the show, now built from lessons.
+id = "episodes-move"
+fixture = "episodes-move"
+record = true
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.episodes.move/ep1"
+
+[[steps]]
+kind = "capture"
+name = "episodes-move-offered"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.episodes.move/ep1"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1000
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.episodes.move-sheet/move"
+
+[[steps]]
+kind = "capture"
+name = "episodes-move-sheet"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.episodes.move-sheet/move"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.episodes/back"
+
+[[steps]]
+kind = "capture"
+name = "episodes-moved"

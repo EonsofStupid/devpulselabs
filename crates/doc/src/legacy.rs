@@ -8,6 +8,11 @@
 //! appearance). Pre-release law: this module goes once every old slide has
 //! been upgraded (the seeds in the repo with LS2a; the operator's content on
 //! the first launch of the build that ships it).
+//!
+//! It also holds the ONE-TIME move of a content episode still in the
+//! template shape into the library (LS3b2, ruled 2026-10-24 "Two PRs, dry
+//! run first"): [`plan_move`] says exactly what would move and changes
+//! nothing; [`move_episode`] does it, only when the operator asks.
 
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -244,6 +249,278 @@ fn collect_old(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+// ── the EPISODE move (LS3b2) ────────────────────────────────────────────
+
+/// The template `episode.json`, kept beside the moved episode.
+pub const EPISODE_BACKUP: &str = "episode.v1.json";
+
+/// One slide folder an episode's move takes into the library.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MovingSlide {
+    /// Its folder name in the episode.
+    pub name: String,
+    pub from: PathBuf,
+    pub to: PathBuf,
+    /// The id it lands as: its own, or — when that id is already in the
+    /// library — the fresh id of its copy.
+    pub id: String,
+    pub forked: bool,
+    /// It has a script, which will name the card's id.
+    pub script: bool,
+    /// Media refs inside the folder that move with it: (now, after).
+    pub media: Vec<(String, String)>,
+}
+
+/// One lesson a chapter becomes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MovingLesson {
+    /// "Episode — Chapter".
+    pub title: String,
+    /// The cards it uses, in order.
+    pub cards: Vec<String>,
+}
+
+/// Exactly what moving one episode would do. Making it changes nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MovePlan {
+    pub dir: PathBuf,
+    pub title: String,
+    /// Each slide folder the chapters name, once, in chapter order.
+    pub slides: Vec<MovingSlide>,
+    /// Slide folders no chapter names — they move too (never deleted), in
+    /// no lesson.
+    pub orphans: Vec<MovingSlide>,
+    pub lessons: Vec<MovingLesson>,
+    /// Why the whole episode cannot move; it then stays exactly as it is.
+    pub refused: Vec<String>,
+}
+
+/// Every content episode still in the template shape, as (show, episode,
+/// folder). Seeds are templates by design and are never listed.
+pub fn old_shape_episodes(content_root: &Path) -> Vec<(String, String, PathBuf)> {
+    crate::list_content_episodes(content_root)
+        .into_iter()
+        .filter(|(_, _, dir)| {
+            matches!(
+                crate::episode::open(dir),
+                Ok(crate::episode::Opened::Template(_))
+            )
+        })
+        .collect()
+}
+
+/// What moving the template episode at `dir` into the library would do —
+/// read-only. `Err` when `dir` is not a template episode at all.
+pub fn plan_move(dir: &Path, content_root: &Path) -> Result<MovePlan, String> {
+    let template = match crate::episode::open(dir) {
+        Ok(crate::episode::Opened::Template(ep)) => ep,
+        Ok(crate::episode::Opened::Lessons(_)) => {
+            return Err("this episode is already built from lessons".into())
+        }
+        Err(e) => return Err(format!("episode.json does not load: {e}")),
+    };
+    let mut plan = MovePlan {
+        dir: dir.to_path_buf(),
+        title: template.title.clone(),
+        slides: Vec::new(),
+        orphans: Vec::new(),
+        lessons: Vec::new(),
+        refused: Vec::new(),
+    };
+    let mut taken: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut planned: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+    for chapter in &template.chapters {
+        let mut cards = Vec::new();
+        for name in &chapter.slides {
+            if let Some(id) = planned.get(name) {
+                cards.push(id.clone());
+                continue;
+            }
+            match plan_slide(dir, name, content_root, &mut taken) {
+                Ok(slide) => {
+                    planned.insert(name.clone(), slide.id.clone());
+                    cards.push(slide.id.clone());
+                    plan.slides.push(slide);
+                }
+                Err(why) => plan.refused.push(format!("{name}: {why}")),
+            }
+        }
+        plan.lessons.push(MovingLesson {
+            title: crate::episode::lesson_title(&template.title, &chapter.title),
+            cards,
+        });
+    }
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        let mut names: Vec<String> = entries
+            .flatten()
+            .filter(|e| e.path().join(FILE).is_file())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|name| !planned.contains_key(name))
+            .collect();
+        names.sort();
+        for name in names {
+            match plan_slide(dir, &name, content_root, &mut taken) {
+                Ok(slide) => plan.orphans.push(slide),
+                Err(why) => plan.refused.push(format!("{name}: {why}")),
+            }
+        }
+    }
+    Ok(plan)
+}
+
+/// One slide folder's part of a plan: where it lands, under which id, and
+/// which of its refs follow it.
+fn plan_slide(
+    dir: &Path,
+    name: &str,
+    content_root: &Path,
+    taken: &mut std::collections::BTreeSet<String>,
+) -> Result<MovingSlide, String> {
+    let from = dir.join(name);
+    if !from.join(FILE).is_file() {
+        return Err("the chapter names a folder that is not there".into());
+    }
+    let slide = crate::load(&from).map_err(|e| format!("does not load: {e}"))?;
+    let collides = |id: &str| taken.contains(id) || library_slide_dir(content_root, id).exists();
+    let (id, forked) = if collides(&slide.id) {
+        let mut fresh = crate::new_id();
+        while collides(&fresh) {
+            fresh = crate::new_id();
+        }
+        (fresh, true)
+    } else {
+        (slide.id.clone(), false)
+    };
+    taken.insert(id.clone());
+    let to = library_slide_dir(content_root, &id);
+    let prefix = from
+        .strip_prefix(content_root)
+        .map(|rel| format!("{}/", rel.to_string_lossy().replace('\\', "/")))
+        .unwrap_or_default();
+    let after = format!("{}/slides/{id}/", crate::LIBRARY);
+    let mut media = Vec::new();
+    if !prefix.is_empty() {
+        for block in &slide.blocks {
+            if let Block::Media { src, poster, .. } = block {
+                for path in std::iter::once(src).chain(poster.iter()) {
+                    if let Some(rest) = path.strip_prefix(&prefix) {
+                        media.push((path.clone(), format!("{after}{rest}")));
+                    }
+                }
+            }
+        }
+    }
+    Ok(MovingSlide {
+        name: name.to_owned(),
+        script: from.join(crate::script::SCRIPT_FILE).is_file(),
+        from,
+        to,
+        id,
+        forked,
+        media,
+    })
+}
+
+/// Move the template episode at `dir` into the library, as [`plan_move`]
+/// says: the template `episode.json` is kept as [`EPISODE_BACKUP`] first
+/// (never overwritten); every slide folder is renamed into the library; the
+/// refs that move with it are rewritten and its script names its card; one
+/// lesson per chapter is written; the episode's own `episode.json` becomes
+/// `dpl.episode/2` last. A plan with refusals moves nothing; a failure part
+/// way puts every folder and file back and leaves the episode as it was.
+pub fn move_episode(dir: &Path, content_root: &Path) -> Result<MovePlan, String> {
+    let plan = plan_move(dir, content_root)?;
+    if !plan.refused.is_empty() {
+        return Err(format!("not moved: {}", plan.refused.join("; ")));
+    }
+    let backup = dir.join(EPISODE_BACKUP);
+    if !backup.exists() {
+        std::fs::copy(dir.join(crate::EPISODE_FILE), &backup)
+            .map_err(|e| format!("could not keep the old episode.json: {e}"))?;
+    }
+    let mut undo = Undo::default();
+    match carry_out(&plan, content_root, &mut undo) {
+        Ok(()) => Ok(plan),
+        Err(why) => {
+            undo.run();
+            Err(format!("not moved, everything put back: {why}"))
+        }
+    }
+}
+
+/// What a failed move takes back, newest first.
+#[derive(Default)]
+struct Undo {
+    renamed: Vec<(PathBuf, PathBuf)>,
+    written: Vec<(PathBuf, Vec<u8>)>,
+    made: Vec<PathBuf>,
+}
+
+impl Undo {
+    fn run(self) {
+        for (path, bytes) in self.written.into_iter().rev() {
+            let _ = std::fs::write(path, bytes);
+        }
+        for (from, to) in self.renamed.into_iter().rev() {
+            let _ = std::fs::rename(to, from);
+        }
+        for dir in self.made.into_iter().rev() {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+}
+
+fn carry_out(plan: &MovePlan, content_root: &Path, undo: &mut Undo) -> Result<(), String> {
+    for slide in plan.slides.iter().chain(&plan.orphans) {
+        if let Some(parent) = slide.to.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("library: {e}"))?;
+        }
+        std::fs::rename(&slide.from, &slide.to)
+            .map_err(|e| format!("{} could not move: {e}", slide.name))?;
+        undo.renamed.push((slide.from.clone(), slide.to.clone()));
+    }
+    for slide in plan.slides.iter().chain(&plan.orphans) {
+        for file in [FILE, crate::script::SCRIPT_FILE] {
+            let path = slide.to.join(file);
+            if let Ok(bytes) = std::fs::read(&path) {
+                undo.written.push((path, bytes));
+            }
+        }
+        let mut card = crate::load(&slide.to).map_err(|e| format!("{}: {e}", slide.name))?;
+        if slide.forked {
+            card = card.fork();
+            card.id.clone_from(&slide.id);
+        }
+        for block in &mut card.blocks {
+            if let Block::Media { src, poster, .. } = block {
+                for path in std::iter::once(src).chain(poster.iter_mut()) {
+                    if let Some((_, after)) = slide.media.iter().find(|(now, _)| now == path) {
+                        path.clone_from(after);
+                    }
+                }
+            }
+        }
+        save(&slide.to, &card).map_err(|e| format!("{}: {e}", slide.name))?;
+        crate::script::rekey(&slide.to, &slide.id).map_err(|e| format!("{}: {e}", slide.name))?;
+    }
+    let mut built = crate::episode::LessonEpisode::new(&plan.title);
+    for planned in &plan.lessons {
+        let mut lesson = crate::lesson::Lesson::new(&planned.title);
+        for id in &planned.cards {
+            let card = crate::load(&library_slide_dir(content_root, id))
+                .map_err(|e| format!("card {id}: {e}"))?;
+            lesson.add(&card);
+        }
+        let at = crate::lesson::lesson_dir(content_root, &lesson.id);
+        undo.made.push(at.clone());
+        crate::lesson::save_lesson(&at, &lesson).map_err(|e| format!("lesson: {e}"))?;
+        built
+            .lessons
+            .push(crate::episode::LessonRef { id: lesson.id });
+    }
+    crate::episode::save(&plan.dir, &built).map_err(|e| format!("episode.json: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -331,6 +608,163 @@ mod tests {
         );
         // Twice is a no-op: nothing old is left.
         assert_eq!(upgrade_content(&root), (Vec::new(), Vec::new()));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A content root holding one old-shape episode: the seed's folders
+    /// copied by hand (never the operator's content), with a script and a
+    /// picture inside a slide folder.
+    fn old_episode(tag: &str) -> (PathBuf, PathBuf) {
+        let root = std::env::temp_dir().join(format!("dpl-move-{tag}-{}", crate::new_id()));
+        let dir = root.join("devpulse-news").join("ep1");
+        let mut episode = crate::Episode {
+            v: crate::SCHEMA_V,
+            id: "ep1".into(),
+            title: "Neon Drop".into(),
+            chapters: Vec::new(),
+        };
+        for (chapter, names) in [("intro", vec!["title", "pic"]), ("end", vec!["wrap"])] {
+            for name in &names {
+                let mut slide = Slide::new("title@1");
+                slide.blocks = vec![Block::text("title", format!("slide {name}"))];
+                if *name == "pic" {
+                    slide.blocks.push(Block::media(
+                        "media",
+                        "image",
+                        "devpulse-news/ep1/pic/assets/shot.png",
+                    ));
+                }
+                save(&dir.join(name), &slide).unwrap();
+            }
+            episode.chapters.push(crate::Chapter {
+                id: chapter.into(),
+                title: chapter.to_uppercase(),
+                slides: names.iter().map(|n| (*n).to_owned()).collect(),
+            });
+        }
+        std::fs::create_dir_all(dir.join("pic").join("assets")).unwrap();
+        std::fs::write(dir.join("pic").join("assets").join("shot.png"), b"png").unwrap();
+        std::fs::write(
+            dir.join("title").join(crate::script::SCRIPT_FILE),
+            "---\nslideId: title\ntitle: T\nbeats:\n  - id: setup\n    cue: hi\n---\n",
+        )
+        .unwrap();
+        crate::save_episode(&dir, &episode).unwrap();
+        (root, dir)
+    }
+
+    /// The dry run says exactly what would move and changes nothing.
+    #[test]
+    fn the_plan_names_every_move_and_touches_nothing() {
+        let (root, dir) = old_episode("plan");
+        let before = std::fs::read_to_string(dir.join(crate::EPISODE_FILE)).unwrap();
+        let plan = plan_move(&dir, &root).unwrap();
+        assert!(plan.refused.is_empty(), "{:?}", plan.refused);
+        let names: Vec<&str> = plan.slides.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["title", "pic", "wrap"]);
+        let titles: Vec<&str> = plan.lessons.iter().map(|l| l.title.as_str()).collect();
+        assert_eq!(titles, ["Neon Drop — INTRO", "Neon Drop — END"]);
+        assert!(plan.slides[0].script);
+        let pic = &plan.slides[1];
+        assert_eq!(
+            pic.media,
+            vec![(
+                "devpulse-news/ep1/pic/assets/shot.png".to_owned(),
+                format!("library/slides/{}/assets/shot.png", pic.id)
+            )]
+        );
+        assert_eq!(old_shape_episodes(&root).len(), 1);
+        assert_eq!(
+            std::fs::read_to_string(dir.join(crate::EPISODE_FILE)).unwrap(),
+            before
+        );
+        assert!(dir.join("title").is_dir(), "nothing moved");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The move: folders into the library, refs and scripts following, a
+    /// lesson per chapter, the episode built from them, the old file kept —
+    /// and the episode shows the same cards in the same order.
+    #[test]
+    fn a_moved_episode_shows_the_same_cards_from_the_library() {
+        let (root, dir) = old_episode("move");
+        let order = |shown: &crate::episode::Shown| -> Vec<String> {
+            shown.cards().map(|c| c.label.clone()).collect()
+        };
+        let before = order(&crate::episode::shows(&dir, &root).unwrap());
+        let plan = move_episode(&dir, &root).unwrap();
+        assert!(
+            dir.join(EPISODE_BACKUP).is_file(),
+            "the old episode.json is kept"
+        );
+        assert!(!dir.join("title").exists(), "the folders left the episode");
+        let shown = crate::episode::shows(&dir, &root).unwrap();
+        assert_eq!(order(&shown), before);
+        assert_eq!(shown.issues, Vec::new());
+        let pic = &plan.slides[1];
+        assert!(pic.to.join("assets").join("shot.png").is_file());
+        let card = crate::load(&pic.to).unwrap();
+        assert!(matches!(
+            card.block("media"),
+            Some(Block::Media { src, .. }) if src == &format!("library/slides/{}/assets/shot.png", pic.id)
+        ));
+        let script = crate::script::load_script(&plan.slides[0].to)
+            .unwrap()
+            .unwrap();
+        assert_eq!(script.slide_id, plan.slides[0].id);
+        let crate::episode::Opened::Lessons(built) = crate::episode::open(&dir).unwrap() else {
+            panic!("built from lessons");
+        };
+        assert_eq!(crate::episode::validate(&dir, &built, &root), Vec::new());
+        assert!(old_shape_episodes(&root).is_empty());
+        assert!(
+            plan_move(&dir, &root).is_err(),
+            "a moved episode is not moved twice"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A slide that will not load refuses the whole episode: nothing moves.
+    #[test]
+    fn a_broken_slide_refuses_the_move_and_nothing_moves() {
+        let (root, dir) = old_episode("refused");
+        std::fs::write(dir.join("wrap").join(FILE), "{ not json").unwrap();
+        let before = std::fs::read_to_string(dir.join(crate::EPISODE_FILE)).unwrap();
+        let err = move_episode(&dir, &root).unwrap_err();
+        assert!(err.contains("wrap"), "{err}");
+        assert_eq!(
+            std::fs::read_to_string(dir.join(crate::EPISODE_FILE)).unwrap(),
+            before
+        );
+        assert!(dir.join("title").is_dir() && !dir.join(EPISODE_BACKUP).exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// An id already in the library is not overwritten: that folder moves
+    /// as a copy with its own id; an orphan folder moves too.
+    #[test]
+    fn a_taken_id_moves_as_a_copy_and_orphans_come_along() {
+        let (root, dir) = old_episode("taken");
+        let wrap = crate::load(&dir.join("wrap")).unwrap();
+        save(&library_slide_dir(&root, &wrap.id), &wrap).unwrap();
+        save(&dir.join("stray"), &Slide::new("title@1")).unwrap();
+        let plan = move_episode(&dir, &root).unwrap();
+        let moved = plan.slides.iter().find(|s| s.name == "wrap").unwrap();
+        assert!(moved.forked && moved.id != wrap.id);
+        assert_eq!(
+            crate::load(&moved.to)
+                .unwrap()
+                .provenance
+                .forked_from
+                .map(|p| p.id),
+            Some(wrap.id.clone())
+        );
+        assert!(
+            crate::load(&library_slide_dir(&root, &wrap.id)).is_ok(),
+            "the first stays"
+        );
+        assert_eq!(plan.orphans.len(), 1);
+        assert!(plan.orphans[0].to.join(FILE).is_file());
         let _ = std::fs::remove_dir_all(&root);
     }
 }

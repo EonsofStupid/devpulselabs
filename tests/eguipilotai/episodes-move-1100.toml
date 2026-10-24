@@ -1,0 +1,67 @@
+# LS3b2 (R285): the move sheet at 1100x700 — Move it and Not now on
+# screen — then Not now leaves the show as it is. Make the scratch root
+# fresh first (an old-shape copy of the seed as `devpulse-news/ep1`).
+id = "episodes-move-1100"
+fixture = "episodes-move-1100"
+record = true
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.episodes.move/ep1"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1000
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.episodes.move-sheet/move"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.episodes.move-sheet/not-now"
+
+[[steps]]
+kind = "capture"
+name = "episodes-move-sheet-1100"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.episodes.move-sheet/not-now"
+
+[[steps]]
+kind = "wait"
+milliseconds = 800
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.episodes.move/ep1"

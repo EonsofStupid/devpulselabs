@@ -1035,6 +1035,10 @@ LS3b1 landed episodes built from lessons:
 - **Placing a card into a chapter** gives that lesson a use of it; nothing is copied.
 - **Editing a card from a show** shows in that show straight away; every other lesson using the card asks first.
 
+LS3b2 landed the move of shows still in the old shape:
+- **A dry run first**, read-only: `cargo xtask upgrade-episodes --dry-run <content>` lists, show by show, every slide that would move, every lesson it would make, every script and picture path that follows, and anything that would stop it. On the operator's content (2026-10-24): no show to move.
+- **The move only when asked:** the Episodes page offers "Move into the library…" under each show still in the old shape; the sheet says what will happen, and **Move it** does it. The old `episode.json` is kept as `episode.v1.json`, a slide already in the library moves as a copy, and a failure part way puts everything back. Nothing moves at launch.
+
 ### R286 · 2026-10-21
 
 > we want to make it advance so we link them but more advanced users can break the link and have full grainular control but we want to fold the latest UI trends for UI making it effortless

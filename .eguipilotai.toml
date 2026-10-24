@@ -166,6 +166,22 @@ arguments = ["--route", "workbench/editor", "--mood", "0"]
 [fixtures.editor-ls3b.environment]
 CONTENT_ROOT = "target/eguipilotai/ls3b/content"
 
+# LS3b2: moving an old-shape show into the library, over a scratch content
+# root that holds a hand-made copy of the seed folder as
+# `devpulse-news/ep1` (never the operator's content). Make it fresh before
+# each run: copy `seeds/episodes/how-ai-works` there.
+[fixtures.episodes-move]
+arguments = ["--route", "workbench/episodes", "--mood", "0"]
+
+[fixtures.episodes-move.environment]
+CONTENT_ROOT = "target/eguipilotai/ls3b2/content"
+
+[fixtures.episodes-move-1100]
+arguments = ["--route", "workbench/episodes", "--window", "1100x700", "--mood", "0"]
+
+[fixtures.episodes-move-1100.environment]
+CONTENT_ROOT = "target/eguipilotai/ls3b2/content"
+
 [fixtures.wiredfront-editor]
 arguments = ["--route", "wiredfront/editor", "--mood", "0"]
 
