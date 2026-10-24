@@ -113,6 +113,11 @@ jobs:
           }
       - name: cargo green (the xtask gate)
         run: cargo green
+        # TEMPORARY DIAGNOSTIC (removed before this PR merges): why does a
+        # warm run still recompile the dev-profile build scripts and
+        # proc-macros? cargo logs the reason for every dirty unit.
+        env:
+          CARGO_LOG: cargo::core::compiler::fingerprint=info
 
       # THE EXE THE OPERATOR DOUBLE-CLICKS.
       #
