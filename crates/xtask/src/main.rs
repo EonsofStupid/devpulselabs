@@ -50,7 +50,10 @@ fn run_command(name: &str, command: &mut Command) -> Result<(), String> {
     }
 }
 
-fn windows_test_linker() -> Result<Option<(String, PathBuf)>, String> {
+/// The bundled `rust-lld.exe` on Windows (None elsewhere), checked to exist.
+/// Which linker cargo uses is set ONCE, for every phase, by
+/// `.cargo/config.toml` — this only proves the file is there.
+fn bundled_lld() -> Result<Option<PathBuf>, String> {
     if !cfg!(windows) {
         return Ok(None);
     }
@@ -93,12 +96,7 @@ fn windows_test_linker() -> Result<Option<(String, PathBuf)>, String> {
             linker.display()
         ));
     }
-
-    let environment = format!(
-        "CARGO_TARGET_{}_LINKER",
-        host.to_ascii_uppercase().replace('-', "_")
-    );
-    Ok(Some((environment, linker)))
+    Ok(Some(linker))
 }
 
 fn run_workspace_tests() -> Result<(), String> {
@@ -106,13 +104,18 @@ fn run_workspace_tests() -> Result<(), String> {
     command.args(["test", "--workspace"]);
     command.env("CARGO_PROFILE_TEST_DEBUG", "0");
 
-    if let Some((environment, linker)) = windows_test_linker()? {
+    // Windows links with the bundled rust-lld (it avoids MSVC's PDB record
+    // exhaustion), set for EVERY phase by `.cargo/config.toml`. This phase
+    // used to override it with the full sysroot path; cargo fingerprints the
+    // linker, so wherever the dev and test profiles match (CI sets dev
+    // debug=0) clippy and tests rebuilt each other's build scripts and
+    // proc-macros — and everything above them — on every run (#293's
+    // fingerprint log: `ConfigSettingsChanged`). Only check the file exists.
+    if let Some(linker) = bundled_lld()? {
         println!(
-            "test linker: {}={} (avoids MSVC PDB record exhaustion)",
-            environment,
+            "test linker: rust-lld via .cargo/config.toml (bundled at {})",
             linker.display()
         );
-        command.env(environment, linker);
     }
 
     run_command("test", &mut command)

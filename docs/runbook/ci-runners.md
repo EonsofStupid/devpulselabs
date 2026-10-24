@@ -217,3 +217,12 @@ in place; Linux rebuilt from blank into `/opt/actions-runner`).
 - The 16 GB LNK1318/PDB cures live in `green.yml` env (`debug=0`,
   `jobs=8`) — they stay unless the Windows guest gets more RAM AND a
   green run proves they're unneeded.
+- **One linker setting for every phase** (2026-10-24, #293). cargo
+  fingerprints the target linker. When the test phase overrode
+  `.cargo/config.toml`'s `rust-lld.exe` with the full sysroot path, clippy
+  and tests rebuilt each other's build scripts and proc-macros (and the ~470
+  crates above them) on every run. CI's dev `debug=0` makes the two phases'
+  units share file names, so they overwrite each other. A warm run
+  rebuilds nothing it already has only while every phase passes cargo the
+  same settings — check with `CARGO_LOG=cargo::core::compiler::fingerprint=info`
+  (`ConfigSettingsChanged` = a setting differs between invocations).
