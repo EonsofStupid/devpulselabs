@@ -238,6 +238,24 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
    passed; the exe was rebuilt from `main` (stamp `4ee638b · 2026-10-23
    18:25z`). The looks program (LK1–LK3) is built: merge order #280 → …
    → #287. LS3 (lessons) is next in R285's order, with its own plan.
+6. **Landing (2026-10-23, the runners are back):** #280 double-green,
+   squash-merged as **c25007c**; `lesson-schema-ls1.md` deleted. LS2a
+   rebased with `git rebase --onto origin/main 7320100
+   feat/ls2a-slides-by-id` (new head **f52003a**, the same tree as the old
+   6ea7b5c), pushed `--force-with-lease` through the gate, #281 retargeted
+   to `main` and marked ready; the exe rebuilt from `main` (stamp
+   `c25007c · 2026-10-23 22:49z`). #281: Linux passed (12m26s), Windows
+   running. **The recipe for each next branch:** merge on double-green →
+   `git fetch` → `git rebase --onto origin/main <old tip of the branch
+   below> <branch>` (check with `git log` that only the branch's own
+   commits replay) → push `--force-with-lease` → `gh pr edit <n> --base
+   main` → `gh pr ready <n>` → rebuild the exe from `main`. Next: #282
+   replays only 943e6b5 (`--onto origin/main 6ea7b5c`).
+7. **LS3** — plan `docs/plans/lessons-ls3.md` (untracked), APPROVED
+   2026-10-23: "Approve, two PRs" (LS3a slide history + lessons + Update
+   available + the seed fix; LS3b episodes from lessons + the one-time
+   upgrade); "Move them into the library". LS3a is on `feat/ls3a-lessons`
+   (from LK3b), stacked as the stack lands.
 
 ## Landmines
 
@@ -288,10 +306,10 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
 - **Own-look scenarios find the look by its name** (`role = "button"`,
   `name = "Orchid intro"`), and name locators are strict: clear
   `target/eguipilotai/ls2a/content/library/looks` before each run.
-- **The estate runners are offline** (server1 unreachable on port 22 on
-  2026-10-22; the operator is bringing it back). #280's run timed out after
-  24 h without starting; rerun it (`gh run rerun 39623397906`) once both
-  runners are online.
+- **The estate runners were offline** 2026-10-22 → 2026-10-23 (server1);
+  the operator brought them back. A Windows lane takes about 52 min and
+  Linux about 12. `gh pr checks --watch` dies on a network blip; poll
+  `gh pr checks <n>` in a loop instead.
 
 ## Verify commands
 
