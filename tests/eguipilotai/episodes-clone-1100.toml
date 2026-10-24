@@ -1,0 +1,40 @@
+# LS3b1 (R285): the cloned episode's wall at 1100x700, after
+# `episodes-edit`: chapter heads are the lessons' names, every card in
+# the episode's own theme (the first card now follows Neon intro).
+id = "episodes-clone-1100"
+fixture = "episodes-ls3b-1100"
+record = true
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "capture"
+name = "episodes-list-1100"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.episodes.open/ep1"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.episodes/back"
+
+[[steps]]
+kind = "capture"
+name = "episodes-wall-1100"

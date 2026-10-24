@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://devpulselabs.local/schemas/episode.v2.schema.json",
+  "title": "dpl.episode/2 — one episode: its lessons, in order, by id",
+  "description": "An episode built from lessons, at <content>/<show>/<episode>/episode.json (LS3b, R285). The lessons float: a lesson's change shows in every episode using it (ruled 2026-10-24, \"Show lessons as they are\"); the lessons pin their cards. The episode's theme is theme.json beside it. A template (a seed, or a content episode LS3b2 has not moved) is the older chapters-of-slide-folders shape, read by its own loader. docs/plans/lessons-ls3.md §4.5b.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "title", "lessons"],
+  "properties": {
+    "schema": { "const": "dpl.episode/2" },
+    "id": {
+      "description": "A permanent ULID — the folder name is the episode's address.",
+      "type": "string",
+      "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+    },
+    "title": { "type": "string" },
+    "lessons": {
+      "description": "Its lessons, in teaching order, by id.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$" }
+        }
+      }
+    }
+  }
+}

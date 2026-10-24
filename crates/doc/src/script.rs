@@ -176,6 +176,35 @@ pub fn load_script(slide_dir: &Path) -> Result<Option<Script>, String> {
     parse_script(&raw).map(Some)
 }
 
+/// Point the script in `slide_dir` at the card `id` (LS3b): its `slideId`
+/// line is rewritten and every other byte kept. A copied card's script
+/// names the card, never the folder it came from. `Ok(false)` when there
+/// is no script, or it already names `id`.
+pub fn rekey(slide_dir: &Path, id: &str) -> Result<bool, String> {
+    let path = slide_dir.join(SCRIPT_FILE);
+    if !path.is_file() {
+        return Ok(false);
+    }
+    let raw = std::fs::read_to_string(&path).map_err(|e| format!("read {SCRIPT_FILE}: {e}"))?;
+    let script = parse_script(&raw)?;
+    if script.slide_id == id {
+        return Ok(false);
+    }
+    let mut out = String::with_capacity(raw.len());
+    let mut done = false;
+    for line in raw.split_inclusive('\n') {
+        if !done && line.starts_with("slideId:") {
+            let ending = &line[line.trim_end_matches(['\r', '\n']).len()..];
+            out.push_str(&format!("slideId: {id}{ending}"));
+            done = true;
+        } else {
+            out.push_str(line);
+        }
+    }
+    std::fs::write(&path, out).map_err(|e| format!("write {SCRIPT_FILE}: {e}"))?;
+    Ok(true)
+}
+
 /// The beats-parity doctor (old doctrine, restated): expected beat ids
 /// are `["setup", ...slide reveals]` — `beats.len() == step_count`.
 /// Mismatches are NAMED findings, never a crash.

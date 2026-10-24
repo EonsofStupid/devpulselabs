@@ -1,0 +1,81 @@
+# LS3b1 (R285): edit a card from the cloned show, after
+# `episodes-lessons`. Pick the show's first card (group 1 — content
+# shows come after the seeds), follow Neon intro, Keep, then back: the
+# show takes the change straight away (ruled 2026-10-24).
+id = "episodes-edit"
+fixture = "editor-ls3b"
+record = true
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.editor.pick/1/0"
+
+[[steps]]
+kind = "wait"
+milliseconds = 2500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor.look/neon-intro"
+
+[[steps]]
+kind = "wait"
+milliseconds = 600
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/keep"
+
+[[steps]]
+kind = "wait"
+milliseconds = 800
+
+[[steps]]
+kind = "capture"
+name = "episodes-editing"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.editor/back"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1200
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "text"
+value = "Your change shows in “How AI actually works”."
+
+[steps.expectation.target]
+id = "root/workbench.editor/note"
+
+[[steps]]
+kind = "capture"
+name = "episodes-edited"

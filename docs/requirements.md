@@ -1026,6 +1026,15 @@ LS3a landed lessons:
 - **Author builds into a lesson:** pick Lesson on the Building-into bar, "+ New lesson", then Put them in.
 - A seed episode's slides are read-only like every seed: opening one makes your own copy.
 
+**Operator rulings 2026-10-24 (LS3b re-grounded):** "Show lessons as they are" (an episode lists its lessons by id; they float, and the lessons pin their cards); "Two PRs, dry run first" (LS3b1 episodes built from lessons; LS3b2 moves existing shows after a dry-run report is shown); "Show it straight away" (an edit made from a show moves that show's lessons' pins; other lessons ask); "Episode — Chapter" (a chapter becomes the lesson "How AI actually works — The setup").
+
+LS3b1 landed episodes built from lessons:
+- **An episode is a document**, `dpl.episode/2` (`schemas/episode.v2.schema.json`): a title and its lessons, by id. A seed stays a template (chapters of slide folders), read by the same walk.
+- **One walk for every surface** — the deck, the Presenter, the episode wall, the editor picker, Studio, Building into, the shows hub and the chat — each card at the version its lesson pins, in the episode's own theme, named by its own words.
+- **Copy into my shows** turns a seed into a real episode: each slide your own card in the library (its script with it), each chapter a lesson, and the episode opens at once.
+- **Placing a card into a chapter** gives that lesson a use of it; nothing is copied.
+- **Editing a card from a show** shows in that show straight away; every other lesson using the card asks first.
+
 ### R286 · 2026-10-21
 
 > we want to make it advance so we link them but more advanced users can break the link and have full grainular control but we want to fold the latest UI trends for UI making it effortless

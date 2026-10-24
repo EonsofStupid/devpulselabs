@@ -272,6 +272,22 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
    five scenarios `tests/eguipilotai/lessons-*.toml` run in order over a
    cleared `target/eguipilotai/ls3a/content`. The gate passed; the exe was
    rebuilt from `main` (stamp `dd63f35 · 2026-10-24 02:14z`). LS3b is next.
+10. **Landing went on:** #282 merged as **458fd91** (`lesson-schema-ls2.md`
+    deleted), #283 as **5912c41** (`linked-looks-lk1.md` deleted); LK2a
+    rebased (`--onto origin/main 762f2d2`, head **a04058f**), #284 ready on
+    `main`; the exe rebuilt from `main` (stamp `5912c41 · 2026-10-24
+    14:29z`). Next drops: LK2b `60f5f91`, LK3a `1535928`, LK3b `8afa4a3`,
+    LS3a `39792a9`, LS3b1 `ff1f263`.
+11. **LS3b re-grounded and re-approved (2026-10-24, plan §4.5b):** a
+    grounding agent found the upgrade would hit real shows at first launch,
+    double pinning, lost themes, folder-keyed scripts and labels. Rulings:
+    "Show lessons as they are", "Two PRs, dry run first", "Show it straight
+    away", "Episode — Chapter". **LS3b1 is built on
+    `feat/ls3b1-episodes-from-lessons`** (from LS3a): `dpl.episode/2`, one
+    walk (`episode::shows`) for every surface, clone makes a real episode,
+    placing adds a use, edits from a show are taken by it, the copy control
+    made tappable. Evidence in the plan's §8. LS3b2 (the dry run, then the
+    move) comes after the operator sees the dry-run report.
 
 ## Landmines
 
@@ -326,6 +342,21 @@ stamp `4ee638b · 2026-10-20 19:45z`). Next there: a Codex-smoothness pass
   the operator brought them back. A Windows lane takes about 52 min and
   Linux about 12. `gh pr checks --watch` dies on a network blip; poll
   `gh pr checks <n>` in a loop instead.
+
+- **EguiPilotAI clock skew:** when the harness injects an action it sets
+  that frame's input time from its own clock, so a document whose entrance
+  starts on that frame can stay invisible for the rest of the run (an
+  episode wall opened by a tap). The app is fine — the same wall shows text
+  in a `--screenshot` run. Prove animated walls and the deck with
+  `--screenshot --shot-frame 240`; still frames (the Lessons page) are
+  unaffected.
+- **EguiPilotAI drops a click now and then** (a Keep, a Done): a chain that
+  fails that way passes on a clean re-run from a cleared scratch root. A
+  failing scenario that mutated state needs its whole chain re-run.
+- **Twelve proof fixtures still set no `CONTENT_ROOT`** and so run against
+  the operator's real content (every launch runs the slide upgrade). LS3b2's
+  episode move must not run from them: give every fixture a scratch root
+  before LS3b2 lands.
 
 ## Verify commands
 

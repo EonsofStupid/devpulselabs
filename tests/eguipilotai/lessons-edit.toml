@@ -119,7 +119,7 @@ id = "root/workbench.lessons/use/u1/edit"
 
 [[steps]]
 kind = "wait"
-milliseconds = 1500
+milliseconds = 2500
 
 [[steps]]
 kind = "action"

@@ -232,14 +232,19 @@ impl ShowsHub {
         ui.add_space(cl::space::S2);
 
         match *section {
-            Section::Episodes => episodes_section(ui, self.spec, &episodes),
+            Section::Episodes => episodes_section(ui, self.spec, &episodes, &self.content_root),
             Section::Gallery => gallery_section(ui, &show_dir),
             Section::Social => social_section(ui, show, &show_dir.join("social")),
         }
     }
 }
 
-fn episodes_section(ui: &mut egui::Ui, spec: &HubSpec, episodes: &[(String, PathBuf)]) {
+fn episodes_section(
+    ui: &mut egui::Ui,
+    spec: &HubSpec,
+    episodes: &[(String, PathBuf)],
+    content_root: &Path,
+) {
     if episodes.is_empty() {
         ui.label(
             RichText::new(
@@ -255,11 +260,12 @@ fn episodes_section(ui: &mut egui::Ui, spec: &HubSpec, episodes: &[(String, Path
             for (ep, dir) in episodes {
                 let resp = cl::card_frame().show(ui, |ui| {
                     ui.set_width(ui.available_width());
-                    match dpl_doc::load_episode(dir) {
-                        Ok(doc) => {
-                            let slides = dpl_doc::episode_slides(dir, &doc);
-                            let chapters: std::collections::BTreeSet<&str> =
-                                slides.iter().map(|r| r.chapter.as_str()).collect();
+                    // Either shape (LS3b): chapters are lessons in an
+                    // episode built from lessons.
+                    match dpl_doc::episode::summary(dir, content_root) {
+                        Some(doc) => {
+                            let slides = doc.cards();
+                            let chapters = doc.chapters.iter().filter(|c| c.2 > 0).count();
                             ui.horizontal(|ui| {
                                 ui.label(RichText::new(&doc.title).strong().color(cl::ink::STRONG));
                                 ui.label(
@@ -272,17 +278,20 @@ fn episodes_section(ui: &mut egui::Ui, spec: &HubSpec, episodes: &[(String, Path
                             ui.label(
                                 RichText::new(format!(
                                     "{} chapter{} · {} slide{}",
-                                    chapters.len(),
-                                    if chapters.len() == 1 { "" } else { "s" },
-                                    slides.len(),
-                                    if slides.len() == 1 { "" } else { "s" }
+                                    chapters,
+                                    if chapters == 1 { "" } else { "s" },
+                                    slides,
+                                    if slides == 1 { "" } else { "s" }
                                 ))
                                 .small()
                                 .color(spec.tone.color()),
                             );
                         }
                         // A broken episode.json is NAMED, never hidden.
-                        Err(e) => {
+                        None => {
+                            let e = dpl_doc::episode::open(dir)
+                                .err()
+                                .map_or_else(|| "it cannot be read".to_owned(), |e| e.to_string());
                             ui.label(RichText::new(ep.as_str()).strong().color(cl::ink::STRONG));
                             ui.label(
                                 RichText::new(format!("failed to load: {e}"))

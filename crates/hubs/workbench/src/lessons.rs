@@ -10,7 +10,6 @@
 //! the card asks first. Plan: docs/plans/lessons-ls3.md §4.3–4.4.
 
 use crate::controls::{control, Weight};
-use crate::words::pretty;
 use crate::SPEC;
 use dpl_coldlight::{self as cl, Tone};
 use dpl_doc::lesson::{self, Lesson, UseState};
@@ -55,26 +54,6 @@ fn role_words(role: Option<&str>) -> &'static str {
 /// This page's pilot node `key`.
 fn node(key: &str) -> PilotPath {
     PilotId::new("workbench.lessons").child(&PilotKey::new(key))
-}
-
-/// What a card is called: its title, else its first words, else its layout.
-pub(crate) fn card_label(slide: &dpl_doc::Slide) -> String {
-    if let Some(title) = slide.title.as_deref().filter(|t| !t.trim().is_empty()) {
-        return title.to_owned();
-    }
-    let words = slide
-        .blocks
-        .iter()
-        .filter_map(dpl_doc::Block::words)
-        .map(|w| w.text.trim().to_owned())
-        .find(|t| !t.is_empty());
-    match words {
-        Some(text) if text.chars().count() > 32 => {
-            format!("{}…", text.chars().take(31).collect::<String>())
-        }
-        Some(text) => text,
-        None => format!("{} card", pretty(slide.component_id())),
-    }
 }
 
 /// One lesson on the list page.
@@ -180,7 +159,7 @@ impl LessonView {
                     role: use_.role.clone(),
                     label: slide
                         .as_ref()
-                        .map_or_else(|| "A missing card".to_owned(), card_label),
+                        .map_or_else(|| "A missing card".to_owned(), dpl_doc::Slide::label),
                     slide,
                 }
             })
@@ -203,7 +182,7 @@ impl LessonView {
             .take(SHELF_MAX)
             .filter_map(|dir| dpl_doc::load(&dir).ok())
             .map(|slide| ShelfCard {
-                label: card_label(&slide),
+                label: slide.label(),
                 slide,
             })
             .collect();
@@ -222,7 +201,7 @@ impl LessonView {
             label: before
                 .as_ref()
                 .or(after.as_ref())
-                .map_or_else(|| "This card".to_owned(), card_label),
+                .map_or_else(|| "This card".to_owned(), dpl_doc::Slide::label),
             pinned: use_.slide.rev,
             newest,
             before,
@@ -1263,19 +1242,6 @@ mod tests {
         assert_eq!(ids, dpl_doc::roles());
         assert_eq!(role_words(None), NO_ROLE);
         assert_eq!(role_words(Some("practice")), "Let them try");
-    }
-
-    #[test]
-    fn a_card_is_called_by_its_title_then_its_words() {
-        let mut slide = dpl_doc::Slide::new("title@1");
-        assert_eq!(card_label(&slide), "Title card");
-        slide.blocks = vec![dpl_doc::Block::text(
-            "title",
-            "A very long line of words that keeps going on",
-        )];
-        assert_eq!(card_label(&slide).chars().count(), 32);
-        slide.title = Some("Named".into());
-        assert_eq!(card_label(&slide), "Named");
     }
 
     /// Opening a lesson draws each use at its pinned version, and a card
