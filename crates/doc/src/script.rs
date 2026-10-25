@@ -13,6 +13,11 @@
 //! STRICT subset parser reads exactly what we author and refuses —
 //! naming the line — anything outside it. The real old-repo corpus pins
 //! the compatibility in tests, verbatim.
+//!
+//! The card editor writes scripts too (RL, ruled 2026-10-25): its On tap
+//! panel keeps the beats following the card's taps ([`follow_reveals`]) and
+//! writes the file back ([`save_script`]). A beat whose words are not
+//! written yet has an empty cue — it parses, and the doctor names it.
 
 use crate::{Issue, Slide};
 use std::path::Path;
@@ -144,11 +149,6 @@ pub fn parse_script(raw: &str) -> Result<Script, String> {
     if beats.is_empty() {
         return Err("a script carries at least one beat".into());
     }
-    for b in &beats {
-        if b.cue.is_empty() {
-            return Err(format!("beat {:?} has no cue — cues LAND verbatim", b.id));
-        }
-    }
     // The body: everything after the closing fence, verbatim — minus at
     // most ONE leading blank line (the conventional gap under the fence).
     let mut body_lines: Vec<&str> = raw.lines().skip(end + 1).collect();
@@ -205,23 +205,117 @@ pub fn rekey(slide_dir: &Path, id: &str) -> Result<bool, String> {
     Ok(true)
 }
 
+/// The script as its file says it — the inverse of [`parse_script`]: every
+/// value double-quoted (`\"` and `\\` escaped), a cue or note kept to one
+/// line, the body after one blank line. For a body with no trailing line
+/// break, `parse_script(&render_script(s)) == s`.
+pub fn render_script(script: &Script) -> String {
+    fn quoted(raw: &str) -> String {
+        let one_line = raw.replace(['\r', '\n'], " ");
+        format!(
+            "\"{}\"",
+            one_line.replace('\\', "\\\\").replace('"', "\\\"")
+        )
+    }
+    let mut out = String::from("---\n");
+    out.push_str(&format!("slideId: {}\n", quoted(&script.slide_id)));
+    out.push_str(&format!("title: {}\n", quoted(&script.title)));
+    out.push_str("beats:\n");
+    for beat in &script.beats {
+        out.push_str(&format!("  - id: {}\n", quoted(&beat.id)));
+        out.push_str(&format!("    cue: {}\n", quoted(&beat.cue)));
+        if let Some(note) = &beat.note {
+            out.push_str(&format!("    note: {}\n", quoted(note)));
+        }
+    }
+    out.push_str("---\n");
+    if !script.body.is_empty() {
+        out.push('\n');
+        out.push_str(&script.body);
+        out.push('\n');
+    }
+    out
+}
+
+/// Write `<slide-folder>/script.mdx`.
+pub fn save_script(slide_dir: &Path, script: &Script) -> Result<(), String> {
+    std::fs::write(slide_dir.join(SCRIPT_FILE), render_script(script))
+        .map_err(|e| format!("write {SCRIPT_FILE}: {e}"))
+}
+
+/// The script with its beats following the card's taps (RL): one beat per
+/// `["setup", …reveals]`, each keeping its words by id. A new tap starts
+/// with no words; a tap that went away keeps its words in the body under
+/// "Removed taps", never silently dropped. No script yet: a fresh one that
+/// names the card and is titled `title`.
+pub fn follow_reveals(script: Option<&Script>, slide: &Slide, title: &str) -> Script {
+    let ids: Vec<&str> = std::iter::once("setup")
+        .chain(slide.reveals.iter().map(String::as_str))
+        .collect();
+    let old: &[ScriptBeat] = script.map_or(&[], |s| s.beats.as_slice());
+    let beats = ids
+        .iter()
+        .map(|id| {
+            old.iter()
+                .find(|b| b.id == *id)
+                .cloned()
+                .unwrap_or_else(|| ScriptBeat {
+                    id: (*id).to_owned(),
+                    cue: String::new(),
+                    note: None,
+                })
+        })
+        .collect();
+    let mut body = script.map(|s| s.body.clone()).unwrap_or_default();
+    let gone: Vec<&ScriptBeat> = old
+        .iter()
+        .filter(|b| !ids.contains(&b.id.as_str()) && (!b.cue.is_empty() || b.note.is_some()))
+        .collect();
+    if !gone.is_empty() {
+        if !body.is_empty() {
+            body.push_str("\n\n");
+        }
+        body.push_str("Removed taps:");
+        for beat in gone {
+            body.push_str(&format!("\n- {}: {}", beat.id, beat.cue));
+            if let Some(note) = &beat.note {
+                body.push_str(&format!(" ({note})"));
+            }
+        }
+    }
+    Script {
+        slide_id: slide.id.clone(),
+        title: script.map_or_else(|| title.to_owned(), |s| s.title.clone()),
+        beats,
+        body,
+    }
+}
+
 /// The beats-parity doctor (old doctrine, restated): expected beat ids
 /// are `["setup", ...slide reveals]` — `beats.len() == step_count`.
-/// Mismatches are NAMED findings, never a crash.
+/// Mismatches are NAMED findings, never a crash; so is a beat whose words
+/// are not written yet.
 pub fn parity_issues(slide: &Slide, script: &Script) -> Vec<Issue> {
     let expected: Vec<&str> = std::iter::once("setup")
         .chain(slide.reveals.iter().map(String::as_str))
         .collect();
     let got: Vec<&str> = script.beats.iter().map(|b| b.id.as_str()).collect();
-    if expected == got {
-        return Vec::new();
+    let mut issues = Vec::new();
+    if expected != got {
+        issues.push(Issue {
+            path: "script".into(),
+            message: format!(
+                "beat ids must follow the step semantics — expected {expected:?}, script has {got:?}"
+            ),
+        });
     }
-    vec![Issue {
-        path: "script".into(),
-        message: format!(
-            "beat ids must follow the step semantics — expected {expected:?}, script has {got:?}"
-        ),
-    }]
+    for beat in script.beats.iter().filter(|b| b.cue.trim().is_empty()) {
+        issues.push(Issue {
+            path: format!("script → {}", beat.id),
+            message: "no words yet for this tap".into(),
+        });
+    }
+    issues
 }
 
 #[cfg(test)]
@@ -286,11 +380,13 @@ you've explained to somebody at a dinner what AI "really is." Let them nod.
         assert!(parse_script("---\nmystery: x\n---\n")
             .unwrap_err()
             .contains("unknown frontmatter key"));
-        assert!(
-            parse_script("---\nslideId: x\ntitle: t\nbeats:\n  - id: a\n---\n")
-                .unwrap_err()
-                .contains("no cue")
-        );
+        // A beat with no words yet parses (the editor saves as you type);
+        // the doctor names it instead.
+        let unwritten = parse_script("---\nslideId: x\ntitle: t\nbeats:\n  - id: setup\n---\n")
+            .expect("an empty cue parses");
+        assert_eq!(unwritten.beats[0].cue, "");
+        let issues = parity_issues(&Slide::new("title@1"), &unwritten);
+        assert!(issues.iter().any(|i| i.message.contains("no words yet")));
         assert!(
             parse_script("---\nslideId: x\ntitle: t\nbeats:\n    cue: stray\n---\n")
                 .unwrap_err()
@@ -313,6 +409,75 @@ you've explained to somebody at a dinner what AI "really is." Let them nod.
         assert_eq!(issues.len(), 1);
         assert!(issues[0].message.contains("kicker"));
         assert!(issues[0].message.contains("subtitle"));
+    }
+
+    /// What the editor writes reads back the same, quotes and backslashes
+    /// included; a cue is kept to one line.
+    #[test]
+    fn a_rendered_script_parses_back_to_itself() {
+        let script = Script {
+            slide_id: "01ABC".into(),
+            title: "The \"big\" one".into(),
+            beats: vec![
+                ScriptBeat {
+                    id: "setup".into(),
+                    cue: "Say it \\ plainly".into(),
+                    note: Some("slow".into()),
+                },
+                ScriptBeat {
+                    id: "subtitle".into(),
+                    cue: String::new(),
+                    note: None,
+                },
+            ],
+            body: "Two lines\nof notes".into(),
+        };
+        assert_eq!(parse_script(&render_script(&script)).unwrap(), script);
+        let mut multi = script.clone();
+        multi.beats[0].cue = "one\ntwo".into();
+        assert_eq!(
+            parse_script(&render_script(&multi)).unwrap().beats[0].cue,
+            "one two"
+        );
+    }
+
+    /// The beats follow the card's taps by id: words stay with their tap, a
+    /// new tap is empty, and a removed tap's words move to the body.
+    #[test]
+    fn beats_follow_the_cards_taps() {
+        let mut slide = Slide::new("title@1");
+        slide.reveals = vec!["subtitle".into()];
+        let fresh = follow_reveals(None, &slide, "Hello");
+        assert_eq!(fresh.slide_id, slide.id);
+        assert_eq!(fresh.title, "Hello");
+        let ids: Vec<&str> = fresh.beats.iter().map(|b| b.id.as_str()).collect();
+        assert_eq!(ids, ["setup", "subtitle"]);
+        assert!(fresh.beats.iter().all(|b| b.cue.is_empty()));
+
+        let mut written = fresh.clone();
+        written.beats[1].cue = "land it".into();
+        written.beats[1].note = Some("softly".into());
+        slide.reveals = vec!["eyebrow".into(), "subtitle".into()];
+        let moved = follow_reveals(Some(&written), &slide, "ignored");
+        let got: Vec<(&str, &str)> = moved
+            .beats
+            .iter()
+            .map(|b| (b.id.as_str(), b.cue.as_str()))
+            .collect();
+        assert_eq!(
+            got,
+            [("setup", ""), ("eyebrow", ""), ("subtitle", "land it")]
+        );
+        assert_eq!(moved.title, "Hello", "an existing script keeps its title");
+
+        slide.reveals = vec!["eyebrow".into()];
+        let removed = follow_reveals(Some(&moved), &slide, "ignored");
+        assert_eq!(removed.beats.len(), 2);
+        assert!(removed.body.contains("Removed taps:"));
+        assert!(removed.body.contains("subtitle: land it (softly)"));
+        assert!(parity_issues(&slide, &removed)
+            .iter()
+            .all(|i| !i.message.contains("step semantics")));
     }
 
     #[test]

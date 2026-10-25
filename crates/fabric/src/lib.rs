@@ -87,6 +87,27 @@ pub enum DeckEvent {
 /// A deck-domain subscription.
 pub type DeckReceiver = broadcast::Receiver<DeckEvent>;
 
+/// What a run starts from (RL, ruled 2026-10-25 "Both").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RunTarget {
+    /// A lesson, by its id.
+    Lesson(String),
+    /// An episode, by its folder.
+    Episode(std::path::PathBuf),
+}
+
+/// An ask of the deck's owner (RL): another hub — the Lessons page, the
+/// episode wall — asks the Present hub to run something. Clone, not Copy:
+/// it names what to run. Its own channel, so a beat never reads as an ask.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeckCommand {
+    /// Run `target` in Run mode, starting at card `start` (0 = the first).
+    Run { target: RunTarget, start: usize },
+}
+
+/// A deck-command subscription.
+pub type DeckCommandReceiver = broadcast::Receiver<DeckCommand>;
+
 /// Capture-domain signals (the signal doctrine, docs/design/
 /// signal-doctrine.md) — the original app's taxonomy, our index's
 /// field vocabulary. Clone (not Copy — Saved carries owned strings);
@@ -882,6 +903,7 @@ pub struct Stamped<T> {
 pub struct Fabric {
     shell: broadcast::Sender<ShellEvent>,
     deck: broadcast::Sender<DeckEvent>,
+    deck_commands: broadcast::Sender<DeckCommand>,
     capture: broadcast::Sender<Stamped<CaptureEvent>>,
     jobs: broadcast::Sender<Stamped<JobEvent>>,
     providers: broadcast::Sender<Stamped<ProviderEvent>>,
@@ -921,6 +943,7 @@ impl Fabric {
     pub fn new() -> Self {
         let (shell, _) = broadcast::channel(64);
         let (deck, _) = broadcast::channel(64);
+        let (deck_commands, _) = broadcast::channel(16);
         let (capture, _) = broadcast::channel(256);
         let (jobs, _) = broadcast::channel(64);
         let (providers, _) = broadcast::channel(128);
@@ -936,6 +959,7 @@ impl Fabric {
         Self {
             shell,
             deck,
+            deck_commands,
             capture,
             jobs,
             providers,
@@ -1223,6 +1247,17 @@ impl Fabric {
     pub fn subscribe_deck(&self) -> DeckReceiver {
         self.deck.subscribe()
     }
+
+    /// Ask the deck's owner to do something (RL) — wakes the UI so the ask
+    /// lands the same frame.
+    pub fn publish_deck_command(&self, command: DeckCommand) {
+        let _ = self.deck_commands.send(command);
+        self.wake();
+    }
+
+    pub fn subscribe_deck_commands(&self) -> DeckCommandReceiver {
+        self.deck_commands.subscribe()
+    }
 }
 
 #[cfg(test)]
@@ -1240,6 +1275,22 @@ mod tests {
         };
         fabric.publish_shell(ShellEvent::RouteChanged { route });
         assert_eq!(rx.try_recv().unwrap(), ShellEvent::RouteChanged { route });
+    }
+
+    /// A run ask travels on its own channel: the deck's owner hears it, and
+    /// a beat listener never mistakes it for a beat.
+    #[test]
+    fn a_run_ask_reaches_the_deck_owner_on_its_own_channel() {
+        let fabric = Fabric::new();
+        let mut asks = fabric.subscribe_deck_commands();
+        let mut beats = fabric.subscribe_deck();
+        let run = DeckCommand::Run {
+            target: RunTarget::Lesson("01LESSON".into()),
+            start: 2,
+        };
+        fabric.publish_deck_command(run.clone());
+        assert_eq!(asks.try_recv().unwrap(), run);
+        assert!(beats.try_recv().is_err());
     }
 
     #[test]

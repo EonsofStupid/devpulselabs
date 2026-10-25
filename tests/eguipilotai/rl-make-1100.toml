@@ -1,0 +1,138 @@
+# RL: `rl-make` at the minimum real window (1100x700) — the On tap tab, the
+# subtitle on its own tap, both lines of words. It stops at Done: at this
+# size Author's "Put them in" sits below the fold (known broken #21).
+id = "rl-make-1100"
+fixture = "author-rl-1100"
+record = true
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author/new-lesson"
+
+[[steps]]
+kind = "wait"
+milliseconds = 800
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.shelf/templates"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1600
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.card/templates/title"
+
+[[steps]]
+kind = "wait"
+milliseconds = 2500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.tab/on-tap"
+
+[[steps]]
+kind = "wait"
+milliseconds = 800
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/editor/tap-subtitle-new"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/tap-subtitle-new"
+
+[[steps]]
+kind = "wait"
+milliseconds = 800
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/editor/tap-subtitle-1"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "fill"
+text = "Welcome - this is the stack"
+
+[steps.action.target]
+id = "root/editor/cue-0"
+
+[[steps]]
+kind = "wait"
+milliseconds = 300
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "fill"
+text = "And here is what it costs"
+
+[steps.action.target]
+id = "root/editor/cue-1"
+
+[[steps]]
+kind = "wait"
+milliseconds = 800
+
+[[steps]]
+kind = "capture"
+name = "rl-make-on-tap-1100"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.card-done"
+
+[[steps]]
+kind = "wait"
+milliseconds = 600

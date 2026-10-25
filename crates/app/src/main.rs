@@ -305,6 +305,13 @@ fn main() -> eframe::Result {
         .position(|a| a == "--present")
         .and_then(|i| args.get(i + 1))
         .cloned();
+    // `--run-lesson <id>` runs one lesson from the library in Run mode (RL)
+    // — the same path the Lessons page's Run takes, minus the full screen.
+    let run_lesson: Option<String> = args
+        .iter()
+        .position(|a| a == "--run-lesson")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
     // `--presenter-drill <n>` — with `--present`, open the teleprompter
     // in PANEL mode (main-viewport screenshots) after walking the deck
     // n beats through its real key path (D4 proofs).
@@ -684,6 +691,7 @@ fn main() -> eframe::Result {
                 video_audio,
                 mood,
                 present,
+                run_lesson,
                 presenter_drill,
                 session_drill,
                 open_session,
@@ -743,6 +751,7 @@ struct Boot {
     video_audio: Option<String>,
     mood: Option<usize>,
     present: Option<String>,
+    run_lesson: Option<String>,
     presenter_drill: Option<usize>,
     session_drill: Option<u32>,
     open_session: Option<String>,
@@ -845,6 +854,7 @@ impl App {
             video_audio,
             mood,
             present,
+            run_lesson,
             presenter_drill,
             session_drill,
             open_session,
@@ -932,10 +942,12 @@ impl App {
         let mut present_hub = dpl_hub_present::PresentHub::new(fabric.clone());
         if let Some(id) = &present {
             present_hub.open_show(id);
-            // The teleprompter drill (D4 proofs) rides an open show.
-            if let Some(n) = presenter_drill {
-                present_hub.presenter_drill(n);
-            }
+        } else if let Some(id) = &run_lesson {
+            present_hub.run_lesson(id);
+        }
+        // The teleprompter drill (D4 proofs) rides an open show.
+        if let (Some(n), true) = (presenter_drill, present.is_some() || run_lesson.is_some()) {
+            present_hub.presenter_drill(n);
         }
         // Ring-0 estate (Fjall+Moka): durable shell route + WiredFRONT
         // lastComp for the agent seam. Open failure never kills the app.
@@ -1224,7 +1236,7 @@ impl App {
         if inspector {
             shell.set_inspector_open(true);
         }
-        if present.is_some() {
+        if present.is_some() || run_lesson.is_some() {
             // The harness path: the hub opened its deck before the shell
             // subscribed to the fabric, so full-bleed is set directly.
             shell.navigate(Route {

@@ -76,6 +76,26 @@ struct Card {
     slide: Option<dpl_doc::Slide>,
     /// This lesson lays the card out its own way (LS4a).
     own_layout: bool,
+    /// How many taps the card has (its reveals) — RL.
+    taps: usize,
+    /// Its teleprompter script: none yet, or how many taps still have no
+    /// words.
+    script: Option<usize>,
+}
+
+/// What a card's taps and script come to, in a few words: "2 taps ·
+/// script", "1 tap · script, 1 to write", "no script yet".
+fn taps_words(taps: usize, script: Option<usize>) -> String {
+    let taps = match taps {
+        0 => "no taps".to_owned(),
+        1 => "1 tap".to_owned(),
+        n => format!("{n} taps"),
+    };
+    match script {
+        None => format!("{taps} · no script yet"),
+        Some(0) => format!("{taps} · script"),
+        Some(n) => format!("{taps} · script, {n} to write"),
+    }
 }
 
 /// The side-by-side sheet before an update.
@@ -111,6 +131,10 @@ struct LessonView {
     /// A card being changed from inside the lesson: the revision it had,
     /// and the editor.
     editing: Option<(u32, dpl_editor::Editor)>,
+    /// Run asked for this frame: the card to start at (RL).
+    run: Option<usize>,
+    /// The card being changed shows its On tap panel (RL).
+    taps_open: bool,
     /// What every card here paints against: the looks, and the fallback
     /// theme — a lesson has no show of its own; an episode's theme reaches
     /// its slides in LS3b.
@@ -140,6 +164,8 @@ impl LessonView {
             picking: None,
             shaping: None,
             editing: None,
+            run: None,
+            taps_open: false,
             styling: dpl_doc::Styling {
                 theme: dpl_doc::Theme::fallback(),
                 looks: dpl_doc::Looks::load(root),
@@ -157,7 +183,14 @@ impl LessonView {
             .iter()
             .map(|use_| {
                 let slide = lesson::load_use(root, use_).ok();
+                let script =
+                    dpl_doc::script::load_script(&dpl_doc::library_slide_dir(root, &use_.slide.id))
+                        .ok()
+                        .flatten()
+                        .map(|s| s.beats.iter().filter(|b| b.cue.trim().is_empty()).count());
                 Card {
+                    taps: slide.as_ref().map_or(0, |s| s.reveals.len()),
+                    script,
                     key: use_.key.clone(),
                     state: lesson::use_state(root, use_),
                     pinned: use_.slide.rev,
@@ -320,9 +353,30 @@ fn tile_width(ui: &egui::Ui, most: f32) -> f32 {
 }
 
 impl Lessons {
-    pub(crate) fn ui(&mut self, ui: &mut egui::Ui) {
+    pub(crate) fn ui(&mut self, ui: &mut egui::Ui, fabric: &Option<dpl_fabric::Fabric>) {
         let root = dpl_engine_capture::content_root();
         self.ui_in(ui, &root);
+        // Run (RL): the Present hub runs the lesson; the shell goes there.
+        if let (Some((id, start)), Some(fabric)) = (self.take_run(), fabric) {
+            fabric.publish_deck_command(dpl_fabric::DeckCommand::Run {
+                target: dpl_fabric::RunTarget::Lesson(id),
+                start,
+            });
+            fabric.publish_shell(dpl_fabric::ShellEvent::NavigateRequest {
+                route: dpl_hub::Route {
+                    hub: dpl_hub::HubId("present"),
+                    sub: dpl_hub::SubId("shows"),
+                },
+            });
+        }
+    }
+
+    /// A run asked for on this frame: the lesson's id and the card to start
+    /// at. Asking twice before it is taken keeps the latest.
+    fn take_run(&mut self) -> Option<(String, usize)> {
+        let view = self.view.as_mut()?;
+        let start = view.run.take()?;
+        Some((view.lesson.id.clone(), start))
     }
 
     /// The page against an explicit content root (tests point it at a
@@ -579,6 +633,20 @@ impl Lessons {
                 .size(fluid.fs_body_sm())
                 .color(cl::ink::MUTED),
             );
+            if !view.lesson.uses.is_empty() {
+                ui.add_space(cl::space::S3);
+                if button(
+                    ui,
+                    "run",
+                    "▶ Run this lesson",
+                    false,
+                    SPEC.tone,
+                    Weight::Hero,
+                    "Show this lesson full screen, with your script on the other screen",
+                ) {
+                    view.run = Some(0);
+                }
+            }
         });
         status_line(ui, &self.status);
         ui.add_space(cl::space::S2);
@@ -704,6 +772,7 @@ impl Lessons {
 
         match act {
             None => {}
+            Some(Act::Run(ix)) => view.run = Some(ix),
             Some(Act::CancelRole) => view.picking = None,
             Some(Act::ToggleShelf) => {
                 if view.shelf.is_some() {
@@ -1006,6 +1075,23 @@ impl Lessons {
                         .strong()
                         .color(cl::ink::STRONG),
                 );
+                // What happens on its taps, and whether its words are
+                // written (RL) — set on its On tap panel.
+                let taps = ui.label(
+                    RichText::new(taps_words(card.taps, card.script))
+                        .size(fluid.fs_body_sm())
+                        // Amber only for words still to write; a card with
+                        // no taps is not unfinished.
+                        .color(if card.script.is_some_and(|missing| missing > 0) {
+                            Tone::Amber.color()
+                        } else {
+                            cl::ink::MUTED
+                        }),
+                );
+                cl::tip(
+                    taps,
+                    "How many taps this card has, and whether its teleprompter words are written — Edit › On tap",
+                );
 
                 // Where it stands against the card's newest version.
                 match card.state {
@@ -1050,18 +1136,33 @@ impl Lessons {
                     }
                 }
 
-                // Its job in the lesson — the picker opens above the cards.
-                if button(
-                    ui,
-                    &k("role"),
-                    &format!("Job: {}", role_words(card.role.as_deref())),
-                    card.role.is_some(),
-                    SPEC.tone,
-                    Weight::Chrome,
-                    "Choose the job this card does in the lesson",
-                ) {
-                    *act = Some(Act::PickRole(key.clone()));
-                }
+                // Its job in the lesson — the picker opens above the cards —
+                // and Run from here beside it (RL), so the card's bottom row
+                // keeps its four controls on the narrowest window.
+                ui.horizontal(|ui| {
+                    if button(
+                        ui,
+                        &k("role"),
+                        &format!("Job: {}", role_words(card.role.as_deref())),
+                        card.role.is_some(),
+                        SPEC.tone,
+                        Weight::Chrome,
+                        "Choose the job this card does in the lesson",
+                    ) {
+                        *act = Some(Act::PickRole(key.clone()));
+                    }
+                    if button(
+                        ui,
+                        &k("run"),
+                        "▶ Run",
+                        false,
+                        SPEC.tone,
+                        Weight::Chrome,
+                        "Run the lesson starting with this card",
+                    ) {
+                        *act = Some(Act::Run(ix));
+                    }
+                });
                 // How it is laid out here, when its component offers a choice.
                 let offers = card
                     .slide
@@ -1282,9 +1383,32 @@ impl Lessons {
             ) {
                 done = true;
             }
+            // RL: what each tap shows and what you'll say.
+            if button(
+                ui,
+                "edit-taps",
+                if view.taps_open {
+                    "Back to the words"
+                } else {
+                    "On tap"
+                },
+                view.taps_open,
+                SPEC.tone,
+                Weight::Chrome,
+                "What each tap of the screen shows, and your teleprompter words",
+            ) {
+                view.taps_open = !view.taps_open;
+            }
         });
         if let Some((_, editor)) = view.editing.as_mut() {
-            editor.ui(ui);
+            if view.taps_open {
+                egui::ScrollArea::vertical()
+                    .id_salt("workbench.lessons.taps")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| editor.taps_ui(ui));
+            } else {
+                editor.ui(ui);
+            }
         }
         if done {
             self.finish_edit(root);
@@ -1350,6 +1474,8 @@ enum Act {
     Variant(String, String, Option<String>),
     Role(String, Option<String>),
     Edit(String),
+    /// Run the lesson from the card at this position (RL).
+    Run(usize),
 }
 
 #[cfg(test)]
@@ -1389,6 +1515,47 @@ mod tests {
         assert_eq!(ids, dpl_doc::roles());
         assert_eq!(role_words(None), NO_ROLE);
         assert_eq!(role_words(Some("practice")), "Let them try");
+    }
+
+    /// RL: Run asks for a run of this lesson from the card tapped — once —
+    /// and each card says its taps and whether its words are written.
+    #[test]
+    fn run_asks_for_this_lesson_from_the_card_tapped() {
+        let root = scratch("run");
+        let a = library_card(&root, "First");
+        let mut b = library_card(&root, "Second");
+        b.blocks.push(dpl_doc::Block::text("subtitle", "Later"));
+        b.reveals = vec!["subtitle".into()];
+        dpl_doc::save(&dpl_doc::library_slide_dir(&root, &b.id), &b).unwrap();
+        std::fs::write(
+            dpl_doc::library_slide_dir(&root, &b.id).join(dpl_doc::script::SCRIPT_FILE),
+            "---\nslideId: b\ntitle: B\nbeats:\n  - id: setup\n    cue: hello\n  - id: subtitle\n---\n",
+        )
+        .unwrap();
+        let (dir, mut l) = lesson::create_lesson(&root, "Talk").unwrap();
+        l.add(&a);
+        l.add(&b);
+        lesson::save_lesson(&dir, &l).unwrap();
+
+        let mut page = Lessons::default();
+        page.open(&dir, &root);
+        assert_eq!(page.take_run(), None, "nothing asked yet");
+        page.view.as_mut().unwrap().run = Some(1);
+        assert_eq!(page.take_run(), Some((l.id.clone(), 1)));
+        assert_eq!(page.take_run(), None, "asked once");
+
+        let view = page.view.as_ref().unwrap();
+        let words: Vec<String> = view
+            .cards
+            .iter()
+            .map(|c| taps_words(c.taps, c.script))
+            .collect();
+        assert_eq!(
+            words,
+            ["no taps · no script yet", "1 tap · script, 1 to write"]
+        );
+        assert_eq!(taps_words(2, Some(0)), "2 taps · script");
+        frame(&mut page, &root);
     }
 
     /// Opening a lesson draws each use at its pinned version, and a card

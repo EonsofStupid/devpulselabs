@@ -1,0 +1,117 @@
+# RL: run a lesson on the real exe, after `rl-make`. Open the lesson — its
+# card says it has a tap and a script — then Run this lesson: the Present
+# hub shows the deck and the presenter opens in its own window
+# (`present.presenter`); a tap on the stage moves to the next beat.
+id = "rl-run"
+fixture = "lessons-rl"
+record = true
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.lessons.lesson/New lesson"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1200
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.lessons/run"
+
+[[steps]]
+kind = "capture"
+name = "rl-run-lesson"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.lessons/run"
+
+[[steps]]
+kind = "wait"
+milliseconds = 2500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "open"
+
+[steps.expectation.viewport]
+key = "present.presenter"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "focus-viewport"
+
+[steps.action.viewport]
+key = "root"
+
+[[steps]]
+kind = "wait"
+milliseconds = 600
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/deck/next"
+
+[steps.expectation.target.viewport]
+key = "root"
+
+[[steps]]
+kind = "capture"
+name = "rl-run-running"
+
+[steps.viewport]
+key = "root"
+
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/deck/next"
+
+[steps.action.target.viewport]
+key = "root"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1000
+
+[[steps]]
+kind = "capture"
+name = "rl-run-tap-1"
+
+[steps.viewport]
+key = "root"
+

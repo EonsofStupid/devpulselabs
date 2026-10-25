@@ -1,0 +1,167 @@
+# RL: make the taps and the words on the real exe. Build into a new lesson
+# from Author (`--author-container lesson`): start a Title card, open its
+# On tap tab, give the subtitle a tap of its own, write what to say when the
+# card appears and on tap 1, then Put it in. Fixture `author-rl` (scratch
+# content root); clear `target/eguipilotai/rl/content` first. `rl-run`
+# runs after this one.
+id = "rl-make"
+fixture = "author-rl"
+record = true
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author/new-lesson"
+
+[[steps]]
+kind = "wait"
+milliseconds = 800
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.shelf/templates"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1600
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.card/templates/title"
+
+[[steps]]
+kind = "wait"
+milliseconds = 2500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.tab/on-tap"
+
+[[steps]]
+kind = "wait"
+milliseconds = 800
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/editor/tap-subtitle-new"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/tap-subtitle-new"
+
+[[steps]]
+kind = "wait"
+milliseconds = 800
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/editor/tap-subtitle-1"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "fill"
+text = "Welcome - this is the stack"
+
+[steps.action.target]
+id = "root/editor/cue-0"
+
+[[steps]]
+kind = "wait"
+milliseconds = 300
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "fill"
+text = "And here is what it costs"
+
+[steps.action.target]
+id = "root/editor/cue-1"
+
+[[steps]]
+kind = "wait"
+milliseconds = 800
+
+[[steps]]
+kind = "capture"
+name = "rl-make-on-tap"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.card-done"
+
+[[steps]]
+kind = "wait"
+milliseconds = 600
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.author/put-in"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author/put-in"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "capture"
+name = "rl-make-put-in"

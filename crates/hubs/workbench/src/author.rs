@@ -985,7 +985,7 @@ impl CardTab {
             CardTab::Movement => "How things arrive and leave",
             CardTab::Quote => "Someone else's words, kept with where they came from",
             CardTab::Picture => "An image or a video on the card",
-            CardTab::OnTap => "What happens when someone taps it",
+            CardTab::OnTap => "What each tap of the screen shows, and what you'll say",
             CardTab::Help => "Hand this card and what you want to the AI",
         }
     }
@@ -999,7 +999,9 @@ impl CardTab {
     /// deviation from the mock's uniform two-pane body, recorded in
     /// `docs-history-2026-10-12:docs/plans/author-overlay-live-pane.md` §8.
     fn shows_live_card(self) -> bool {
-        !matches!(self, CardTab::Words)
+        // On tap (RL) previews the chosen tap itself, and needs the width
+        // for its two halves side by side.
+        !matches!(self, CardTab::Words | CardTab::OnTap)
     }
 
     /// What this tab will hold once built — shown INSTEAD of a fake control.
@@ -1021,10 +1023,7 @@ impl CardTab {
                 "Paste a link or drop a file. A copy comes in with it, and your originals are \
                  never touched."
             }
-            CardTab::OnTap => {
-                "Reveal, flip, explode. Anything you already have drops straight in; anything \
-                 new gets built properly on its own first."
-            }
+            CardTab::OnTap => "",
             CardTab::Help => {
                 "What you are making plus this card, written up as one clear ask — with the \
                  pieces underneath built before the card that uses them."
@@ -1785,9 +1784,29 @@ impl AuthorSurface {
                 let rail_w = fluid.panel_width() * 0.44;
                 let body_h = (room.height() * 0.5).max(fluid.panel_width());
                 // The rail only goes vertical when it can afford a column
-                // beside two more. Below that it wraps across the top, which
-                // is the degrade R1 makes at 760px.
-                let vertical_rail = ui.available_width() > rail_w * 4.0;
+                // beside two more AND every tab stands in it — a tab below
+                // the rail's foot is a tab nobody finds (On tap hid there on
+                // a 900pt window, RL 2026-10-25). Below either, it wraps
+                // across the top, which is the degrade R1 makes at 760px.
+                // A tab is as tall as `control` makes it, in the rail's own
+                // fluid: the tap token, or its words plus padding.
+                let rail_fluid = cl::Fluid::of(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(rail_w, body_h),
+                ));
+                let words_h = ui
+                    .painter()
+                    .layout_no_wrap(
+                        "Words".to_owned(),
+                        egui::FontId::proportional(rail_fluid.fs_body()),
+                        cl::ink::BASE,
+                    )
+                    .size()
+                    .y;
+                let tab_h = rail_fluid.tap_min().max(words_h + cl::space::S3 * 2.0);
+                let rail_h = CardTab::ALL.len() as f32
+                    * (tab_h + cl::space::S2 + ui.spacing().item_spacing.y);
+                let vertical_rail = ui.available_width() > rail_w * 4.0 && body_h >= rail_h;
                 if !vertical_rail {
                     tab_rail_wrapped(ui, ed, tone);
                     ui.add_space(cl::space::S2);
@@ -1847,6 +1866,7 @@ impl AuthorSurface {
                                 CardTab::Movement => movement_tab(ui, ed),
                                 CardTab::Quote => quote_tab(ui, ed),
                                 CardTab::Picture => picture_tab(ui, ed),
+                                CardTab::OnTap => ed.editor.taps_ui(ui),
                                 other => {
                                     ui.add_space(cl::space::S4);
                                     ui.label(
@@ -3175,13 +3195,14 @@ mod overlay_tests {
         }
     }
 
-    /// Words owns its card because the card is its control; every other tab
-    /// gets the preview pane beside it.
+    /// Words owns its card because the card is its control; On tap (RL)
+    /// draws the card at the chosen tap itself; every other tab gets the
+    /// preview pane beside it.
     #[test]
-    fn only_the_words_tab_owns_its_card() {
-        assert!(!CardTab::Words.shows_live_card());
-        for tab in CardTab::ALL.into_iter().filter(|t| *t != CardTab::Words) {
-            assert!(tab.shows_live_card(), "{} wants a preview", tab.slug());
+    fn words_and_on_tap_own_their_card() {
+        for tab in CardTab::ALL {
+            let owns = matches!(tab, CardTab::Words | CardTab::OnTap);
+            assert_eq!(!tab.shows_live_card(), owns, "{}", tab.slug());
         }
     }
 

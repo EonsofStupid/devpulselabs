@@ -2397,6 +2397,8 @@ dependencies = [
  "dpl-fabric",
  "dpl-hub",
  "egui",
+ "egui-pilot-ai",
+ "serde_json",
 ]
 
 [[package]]
