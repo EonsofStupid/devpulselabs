@@ -47,7 +47,7 @@ refreshed without touching content. The research is
 | LS3a | Lessons (`dpl.lesson/1`, ruled "Approve, two PRs", 2026-10-23): every revision a save replaces is kept and readable; a lesson's uses point at library cards and pin a version; the Workbench's Lessons page (New lesson, add from your library, reorder, take out, a job per card, Newer version → Compare → Update / Not now, Update all, Edit — the lesson you edit from takes the change, the others ask); Author builds into a lesson; a seed episode's slides are read-only | **done** (#288) |
 | LS3b1 | Episodes built from lessons (`dpl.episode/2`, ruled 2026-10-24: lessons float, two PRs, an edit from a show shows in it, "Episode — Chapter"): one walk every surface reads (deck, Presenter, episode wall, editor picker, Studio, Building into, shows hub, chat spine), the theme from the episode, cards named by their own words; cloning a seed makes a real episode; placing into a chapter adds a use; the "copy to my shows" control made tappable | **done** (#289) |
 | LS3b2 | Your existing episodes move into the library ("Two PRs, dry run first", 2026-10-24): a read-only dry run (`cargo xtask upgrade-episodes --dry-run`; on the operator's content: 0 shows to move), then "Move into the library…" on the Episodes page — the plan as a sheet, **Move it** — with the old file kept and everything put back on a failure; never at launch | **done** (#290) |
-| LS4a | The component engine (R287, ruled 2026-10-24: the render tree, phased; props; shots before merge; three styling levels): a component's layout is data in its contract — slots in reading order with their size, ink, font and tracking, an alignment fixed or from a variant axis, per-variant adjustments, and decorations painted in the card's colour (a card, a mark, a slot pinned to the top, a rule, where the column sits); title, section, quote, big number, callout and media drawn by it everywhere, the gallery included; the card's colour painted at last; props on a slide; the editor's Layout row; Layout for one lesson only on the Lessons page | **draft PR #291** — the shots go to the operator before it merges (their ruling, Q4) |
+| LS4a | The component engine (R287, ruled 2026-10-24: the render tree, phased; props; shots before merge; three styling levels): a component's layout is data in its contract — slots in reading order with their size, ink, font and tracking, an alignment fixed or from a variant axis, per-variant adjustments, and decorations painted in the card's colour (a card, a mark, a slot pinned to the top, a rule, where the column sits); title, section, quote, big number, callout and media drawn by it everywhere, the gallery included; the card's colour painted at last; props on a slide; the editor's Layout row; Layout for one lesson only on the Lessons page | **done** (#291) |
 | LS4b | Lists and data: agenda, features, timeline, split, compare, stats, code and the infographics painted; list items selectable | |
 | LS4c | Interactive components as node trees and recipes, with touch sub-events | |
 | RL | Run a lesson (R287): Run mode — slides full screen on the big screen, the script as a teleprompter, tap anywhere to advance, the presenter able to drive; then the Beats tab and the script editor | **approved** 2026-10-25 (one pass) — `docs/plans/run-a-lesson.md` |
@@ -147,11 +147,13 @@ release) are still to come.
     - **Still to build:** Claude has no runtime (CW2); there is no shared
       state, no saved conversation, and no tab close or clear (RM2); rooms
       cannot run yet (RM3, RM4).
-12. **A card made from a layout shows the layout's words, not its look**
-    (2026-10-21, LS2a). The document renderer paints every slide as a plain
-    stack until component rendering (LS4) lands. Since LK3a a line's look
-    gives it its own size, and lines taller than the stage shrink together
-    to fit rather than run off it.
+12. **A list or data card loses its main content** (2026-10-21, LS2a).
+    Since LS4a (2026-10-24) title, section, quote, big number, callout and
+    media are drawn by their component; agenda, features, timeline, split,
+    compare, stats, code and the infographics still paint only their words
+    until LS4b, and the interactive ones until LS4c. A picture slot that
+    holds a moving pattern (the callout's stripes, the big number's rings)
+    reaches no slide yet (LS4b).
 13. **A second launch opens a second, half-broken window** instead of raising
     the running one (`FjallError: Locked`, seam port bind os error 10048).
     The operator asked (2026-08-05) for the running window to come to the

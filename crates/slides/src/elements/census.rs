@@ -231,7 +231,7 @@ impl ElementDemo for DividerDemo {
             rect.left(),
             rect.center().y,
             rect.width(),
-            DEMO_TONE,
+            DEMO_TONE.color(),
             1.0,
         );
     }

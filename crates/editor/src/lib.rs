@@ -661,7 +661,7 @@ impl Editor {
     /// A picture's values as they show: fit (`cover` / `contain`), frame
     /// colour (a hue id, or none) and entrance.
     fn picture_fields(&self, id: &str) -> Option<(String, Option<String>, String)> {
-        let shown = self.styling.resolve(&self.slide);
+        let shown = document::shown(&self.slide, &self.styling);
         let block = shown.block(id)?;
         let style = block.style()?;
         Some((
@@ -1513,7 +1513,64 @@ impl Editor {
     }
 
     /// Nothing selected → the LOOK presets (W3), applied whole.
+    /// The layout's own choices (LS4a, Q5 level 3): one row per variant axis
+    /// of the slide's component — Alignment: Left · Centered. Tapping one
+    /// sets this slide's variant (one revision, one Undo); tapping the
+    /// layout's default gives the choice back to it.
+    fn layout_rows(&mut self, ui: &mut Ui) {
+        let Some(contract) = dpl_slides::contract_of(self.slide.component_id()) else {
+            return;
+        };
+        let mut pick: Option<(String, String, bool)> = None;
+        for (index, axis) in contract.variant_axes.iter().enumerate() {
+            let current = contract
+                .axis_value(&self.slide.variant, &axis.id)
+                .unwrap_or(axis.default.as_str())
+                .to_owned();
+            ui.horizontal_wrapped(|ui| {
+                if index == 0 {
+                    ui.label(tray_title("Layout"));
+                }
+                ui.label(small(&axis.label));
+                for option in &axis.options {
+                    let on = current == option.id;
+                    let tip = if on {
+                        format!("{} is {} on this slide", axis.label, option.label)
+                    } else {
+                        format!("{} — {}", axis.tooltip, option.label.to_lowercase())
+                    };
+                    if chip(
+                        ui,
+                        &format!("variant-{}-{}", axis.id, option.id),
+                        &option.label,
+                        on,
+                        &tip,
+                    ) && !on
+                    {
+                        pick = Some((
+                            axis.id.clone(),
+                            option.id.clone(),
+                            option.id == axis.default,
+                        ));
+                    }
+                }
+            });
+        }
+        if let Some((axis, option, is_default)) = pick {
+            self.mutate(|slide| {
+                if is_default {
+                    slide.variant.remove(&axis);
+                } else {
+                    slide.variant.insert(axis, option);
+                }
+            });
+        }
+    }
+
     fn look_tray(&mut self, ui: &mut Ui) {
+        // The layout's own choices come first, under their own name — they
+        // arrange this card, they are not a look.
+        self.layout_rows(ui);
         ui.horizontal(|ui| {
             ui.label(tray_title("Looks — tap one to try it on"));
             // Trying (LK1): nothing is saved until Keep.
@@ -2487,7 +2544,7 @@ impl Editor {
     /// A block's fields RESOLVED through the theme, plus whether font/ink
     /// are slide-level overrides (vs inherited from the show).
     fn text_fields(&self, id: &str) -> Option<TextFields> {
-        let shown = self.styling.resolve(&self.slide);
+        let shown = document::shown(&self.slide, &self.styling);
         let block = shown.block(id)?;
         let entity = match block {
             dpl_doc::Block::Quote { .. } => "quote",

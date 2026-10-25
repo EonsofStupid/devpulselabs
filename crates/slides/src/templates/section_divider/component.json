@@ -1,7 +1,7 @@
 {
   "schema": "dpl.component/1",
   "id": "section",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "name": "Section divider",
   "summary": "A giant tone section number, a display title, and a rule — the chapter break.",
   "class": "static",
@@ -53,5 +53,14 @@
       }
     }
   ],
-  "provenance": {}
+  "provenance": {},
+  "layout": {
+    "kind": "stack",
+    "anchor": "bottom",
+    "slots": [
+      { "slot": "number", "place": "top", "size": "display-xl", "ink": "tone" },
+      { "slot": "kicker", "size": "eyebrow", "ink": "tone", "font": "jetbrainsmono", "tracked": true, "rule": "full" },
+      { "slot": "title", "size": "display", "ink": "strong" }
+    ]
+  }
 }

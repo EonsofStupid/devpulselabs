@@ -1,0 +1,117 @@
+# LS4a: the layout's own choices, on the real exe. Build into a new lesson
+# from Author (`--author-container lesson`): start a Title card, centre it
+# in the editor's Layout row (Alignment: Left · Centered — the card itself
+# changes), then Put it in. Fixture `author-ls4a` (scratch content root);
+# clear `target/eguipilotai/ls4a/content` first. `lessons-layout` runs
+# after this one.
+id = "layout-make"
+fixture = "author-ls4a"
+record = true
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author/new-lesson"
+
+[[steps]]
+kind = "wait"
+milliseconds = 800
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.shelf/templates"
+
+[[steps]]
+kind = "wait"
+milliseconds = 800
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.card/templates/title"
+
+[[steps]]
+kind = "wait"
+milliseconds = 2500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/editor/variant-align-left"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/editor/variant-align-center"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1200
+
+[[steps]]
+kind = "capture"
+name = "layout-make-centred"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.card-done"
+
+[[steps]]
+kind = "wait"
+milliseconds = 600
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.author/put-in"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author/put-in"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "capture"
+name = "layout-make-put-in"

@@ -1,7 +1,7 @@
 {
   "schema": "dpl.component/1",
   "id": "stat",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "name": "Big number",
   "summary": "The receipt: one verified wall-sized number, label, and the source footnote.",
   "class": "static",
@@ -81,5 +81,25 @@
       }
     }
   ],
-  "provenance": {}
+  "provenance": {},
+  "layout": {
+    "kind": "stack",
+    "align": "center",
+    "slots": [
+      { "slot": "media", "place": "backdrop" },
+      { "slot": "eyebrow", "size": "eyebrow", "ink": "muted", "font": "jetbrainsmono", "tracked": true },
+      { "slot": "value", "size": "display-xl", "ink": "tone" },
+      { "slot": "label", "size": "h2", "ink": "base" },
+      { "slot": "footnote", "size": "body", "ink": "muted" }
+    ],
+    "when": [
+      {
+        "axis": "density",
+        "is": "compact",
+        "slots": [
+          { "slot": "value", "size": "h1" }
+        ]
+      }
+    ]
+  }
 }

@@ -54,6 +54,11 @@ pub struct Slide {
     /// Chosen variant axes; an absent axis takes the contract's default.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub variant: BTreeMap<String, String>,
+    /// The component's settings this slide sets (LS4a, ruled 2026-10-24
+    /// "Add props") — a quiz's single or multiple choice, a poll's answer;
+    /// an absent prop takes the contract's default.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub props: BTreeMap<String, Value>,
     /// The CARD entity's preset ref (the cascade's preset tier is LS2b).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preset: Option<String>,
@@ -134,6 +139,7 @@ impl Slide {
             title: None,
             component: component.into(),
             variant: BTreeMap::new(),
+            props: BTreeMap::new(),
             preset: None,
             tone: None,
             background: None,
@@ -1135,6 +1141,19 @@ pub fn validate_against(slide: &Slide, contract: &component::ComponentContract) 
             );
         }
     }
+    for (prop_id, value) in &slide.props {
+        match contract.props.iter().find(|prop| &prop.id == prop_id) {
+            Some(prop) if component::prop_value_ok(prop, value) => {}
+            Some(_) => push(
+                format!("props.{prop_id}"),
+                format!("{value} does not fit {prop_id}"),
+            ),
+            None => push(
+                format!("props.{prop_id}"),
+                format!("{} has no prop {prop_id:?}", contract.id),
+            ),
+        }
+    }
     for (axis_id, option) in &slide.variant {
         match contract
             .variant_axes
@@ -1160,12 +1179,25 @@ pub fn validate_against(slide: &Slide, contract: &component::ComponentContract) 
 /// a picture a media block, lists and data their values; props and axes the
 /// example sets ride as the slide's variant (props are LS4's).
 pub fn slide_from_example(contract: &component::ComponentContract, index: usize) -> Option<Slide> {
-    use component::Entity;
     let example = contract.examples.get(index)?;
+    slide_from_parts(contract, &example.content, &example.props, &example.variant)
+}
+
+/// A fresh slide from a component's values, split as the contract declares
+/// them: slot content becomes blocks, props the slide's props (a `tone` prop
+/// is the slide's own colour), axes its variant. `None` when the contract's
+/// version is not x.y.z.
+pub fn slide_from_parts(
+    contract: &component::ComponentContract,
+    content: &Map<String, Value>,
+    props: &Map<String, Value>,
+    variant: &BTreeMap<String, String>,
+) -> Option<Slide> {
+    use component::Entity;
     let major = component::semver(&contract.version)?.0;
     let mut slide = Slide::new(format!("{}@{major}", contract.id));
     for slot in &contract.slots {
-        let Some(value) = example.content.get(&slot.id).filter(|v| !v.is_null()) else {
+        let Some(value) = content.get(&slot.id).filter(|v| !v.is_null()) else {
             continue;
         };
         let block = match (slot.entity, value) {
@@ -1200,7 +1232,19 @@ pub fn slide_from_example(contract: &component::ComponentContract, index: usize)
         };
         slide.blocks.push(block);
     }
-    slide.variant = example.variant.clone();
+    slide.variant.clone_from(variant);
+    for (id, value) in props {
+        let is_tone = contract
+            .props
+            .iter()
+            .any(|p| &p.id == id && p.kind == component::PropKind::Tone);
+        match value.as_str() {
+            Some(tone) if is_tone && id == "tone" => slide.tone = Some(tone.to_owned()),
+            _ => {
+                slide.props.insert(id.clone(), value.clone());
+            }
+        }
+    }
     Some(slide)
 }
 
@@ -1609,6 +1653,12 @@ impl Styling {
     pub fn resolve(&self, slide: &Slide) -> Slide {
         resolve(slide, &self.theme, &self.looks)
     }
+
+    /// [`resolve_laid_out`] through these tiers, with the slide's component
+    /// layout (LS4a).
+    pub fn resolve_laid_out(&self, slide: &Slide, layout: Option<&component::LaidOut>) -> Slide {
+        resolve_laid_out(slide, &self.theme, &self.looks, layout)
+    }
 }
 
 /// The card look a slide names, when `looks` has it (yours first: your
@@ -1628,6 +1678,19 @@ pub fn card_preset<'a>(slide: &Slide, looks: &'a Looks) -> Option<&'a Look> {
 /// default font for every line. Pure; returns a fully-specified document
 /// the renderer paints as-is. A fully-specified slide is a fixed point.
 pub fn resolve(slide: &Slide, theme: &Theme, looks: &Looks) -> Slide {
+    resolve_laid_out(slide, theme, looks, None)
+}
+
+/// [`resolve`], with the slide's component layout (LS4a): a slot's default
+/// size and ink sit between a line's looks and the theme — its own value,
+/// then its line look's, then **its slot's**, then the show's. The component
+/// gives hierarchy; nothing the slide or its looks set is overridden.
+pub fn resolve_laid_out(
+    slide: &Slide,
+    theme: &Theme,
+    looks: &Looks,
+    layout: Option<&component::LaidOut>,
+) -> Slide {
     let mut out = slide.clone();
     let preset = card_preset(slide, looks);
     if out.background.is_none() {
@@ -1651,6 +1714,7 @@ pub fn resolve(slide: &Slide, theme: &Theme, looks: &Looks) -> Slide {
         let from_look = |field: fn(&dpl_coldlight::BlockPreset) -> Option<&'static str>| {
             line_look.and_then(field).map(str::to_owned)
         };
+        let slot = layout.and_then(|l| l.slot(b.id()));
         if let Some(style) = b.style_mut() {
             if style.tone.is_none() {
                 *style.tone = from_look(|l| l.tone);
@@ -1661,13 +1725,24 @@ pub fn resolve(slide: &Slide, theme: &Theme, looks: &Looks) -> Slide {
         }
         if let Some(words) = b.words_mut() {
             if words.font.is_none() {
-                *words.font = Some(from_look(|l| l.font).unwrap_or_else(|| font.clone()));
+                // Its own, its line look's, the card look's (every line's
+                // font, ruled 2026-10-21), its slot's (LS4a), the show's.
+                *words.font = Some(
+                    from_look(|l| l.font)
+                        .or_else(|| preset.map(|p| p.font.clone()))
+                        .or_else(|| slot.and_then(|s| s.font.clone()))
+                        .unwrap_or_else(|| font.clone()),
+                );
             }
             if words.size.is_none() {
-                *words.size = from_look(|l| l.size);
+                *words.size = from_look(|l| l.size).or_else(|| slot.and_then(|s| s.size.clone()));
             }
             if words.ink.is_none() {
-                *words.ink = Some(from_look(|l| l.ink).unwrap_or_else(|| theme.ink.clone()));
+                *words.ink = Some(
+                    from_look(|l| l.ink)
+                        .or_else(|| slot.and_then(|s| s.ink.clone()))
+                        .unwrap_or_else(|| theme.ink.clone()),
+                );
             }
         }
         if let Some(fit) = b.fit_mut() {
@@ -3448,5 +3523,76 @@ mod tests {
         assert!(slide.label().ends_with('…'));
         slide.title = Some("  Named ".into());
         assert_eq!(slide.label(), "Named");
+    }
+
+    /// A slot's default sits between the slide's looks and the theme: a
+    /// line's own value wins, then its line look's, then the slot's, then
+    /// the show's.
+    #[test]
+    fn a_slot_default_sits_between_the_looks_and_the_theme() {
+        use component::{Align, LaidOut, LayoutKind, SlotLayout};
+        let laid = LaidOut {
+            kind: LayoutKind::Stack,
+            align: Align::Left,
+            slots: vec![SlotLayout {
+                slot: "title".into(),
+                place: None,
+                size: Some("display".into()),
+                ink: Some("muted".into()),
+                font: Some("jetbrainsmono".into()),
+                tracked: false,
+                rule: None,
+            }],
+            container: None,
+            anchor: component::Anchor::Middle,
+            mark: None,
+        };
+        let theme = Theme::fallback();
+        let looks = Looks::builtin_only();
+        let words = |slide: &Slide| {
+            let shown = resolve_laid_out(slide, &theme, &looks, Some(&laid));
+            let w = shown.block("title").unwrap().words().unwrap();
+            (w.size.map(str::to_owned), w.ink.map(str::to_owned))
+        };
+        let mut slide = Slide::new("title@1");
+        slide.blocks = vec![Block::text("title", "Hello")];
+        assert_eq!(
+            words(&slide),
+            (Some("display".into()), Some("muted".into()))
+        );
+        // Its own value wins.
+        if let Some(w) = slide.blocks[0].words_mut() {
+            *w.size = Some("h2".into());
+        }
+        assert_eq!(words(&slide).0.as_deref(), Some("h2"));
+        // Its line look wins over the slot.
+        let mut looked = Slide::new("title@1");
+        looked.blocks = vec![Block::text("title", "Hello")];
+        if let Some(style) = looked.blocks[0].style_mut() {
+            *style.preset = Some("mission-headline".into());
+        }
+        assert_eq!(words(&looked), (Some("h1".into()), Some("strong".into())));
+        // The slot's font shows without a card look; a card look's font is
+        // every line's font, so it wins over the slot's (ruled 2026-10-21).
+        let font = |slide: &Slide| {
+            resolve_laid_out(slide, &theme, &looks, Some(&laid))
+                .block("title")
+                .and_then(|b| b.words().and_then(|w| w.font.map(str::to_owned)))
+        };
+        let mut bare = Slide::new("title@1");
+        bare.blocks = vec![Block::text("title", "Hello")];
+        assert_eq!(font(&bare).as_deref(), Some("jetbrainsmono"));
+        assert_eq!(
+            font(&looked).as_deref(),
+            Some("michroma"),
+            "a line look's font wins"
+        );
+        let mut carded = bare.clone();
+        carded.preset = Some("neon-intro".into());
+        assert_ne!(font(&carded).as_deref(), Some("jetbrainsmono"));
+        // Without a layout the theme's ink shows, as before.
+        let plain = resolve(&slide, &theme, &looks);
+        let w = plain.block("title").unwrap().words().unwrap();
+        assert_eq!(w.ink, Some(theme.ink.as_str()));
     }
 }

@@ -7,9 +7,10 @@
 //! the default face, unknown sizes to body, unknown inks to base, unknown
 //! moods to an honest labeled plate.
 
-use crate::elements::{ambient_backdrop, media_block_backdrop, Ambient, PictureLook};
+use crate::elements::{ambient_backdrop, media_block_backdrop, rule, Ambient, PictureLook};
 use crate::motion::Clock;
 use dpl_coldlight::{self as cl};
+use dpl_doc::component::{Anchor, Container, Mark, Place};
 use egui::{Color32, Rect, Ui};
 use std::f32::consts::TAU;
 
@@ -308,11 +309,39 @@ fn render_inner(
         t0,
         stage,
     } = at;
+    // The slide's component lays it out (LS4a): its slots in reading order,
+    // aligned as its variant says, each slot's default size and ink in the
+    // cascade under the slide's own values and looks. No layout: the lines
+    // flow in their own order, exactly as before.
+    let laid = laid_out(slide);
     // The whole cascade happens HERE, once — the body below paints a
     // fully-specified document exactly as before W3b.
-    let slide = &styling.resolve(slide);
+    let mut resolved = styling.resolve_laid_out(slide, laid.as_ref());
+    if let Some(laid) = &laid {
+        in_reading_order(&mut resolved.blocks, laid);
+        // A tracked slot (an eyebrow, a kicker) is drawn in upper case with
+        // thin-space tracking — on this painted copy only.
+        for block in &mut resolved.blocks {
+            let tracked = laid.slot(block.id()).is_some_and(|s| s.tracked);
+            if let (true, Some(words)) = (tracked, block.words_mut()) {
+                *words.text = crate::elements::eyebrow::tracked(words.text);
+            }
+        }
+    }
+    let center = laid
+        .as_ref()
+        .is_some_and(|l| l.align == dpl_doc::component::Align::Center);
+    let slide = &resolved;
     let step = step.map(|s| s.min(slide.step_count() - 1));
     let accent = background(ui, rect, slide.background.as_ref(), now, t0);
+    // The card's own colour (its look's, or its component's Colour prop)
+    // leads every "tone" line, rule, mark and container bar; else the
+    // background's accent. It was never painted before LS4a.
+    let card_accent = slide
+        .tone
+        .as_deref()
+        .and_then(cl::hue_accent)
+        .unwrap_or(accent);
 
     // Where each block sits in the reveal order (None = always visible).
     let reveal_pos = |id: &str| slide.reveals.iter().position(|r| r == id);
@@ -375,8 +404,56 @@ fn render_inner(
         }
     }
     let painter = ui.painter_at(rect);
+    // The decorations the layout names (LS4a §4b), all in the card's colour:
+    // the column's container, an oversized mark, a slot pinned to the top, a
+    // rule above a slot, and where the column sits. No layout: none of them,
+    // and the column sits in the middle of the stage, exactly as before.
+    let slot_of = |block: &dpl_doc::Block| laid.as_ref().and_then(|l| l.slot(block.id()));
+    let flow = match laid.as_ref().and_then(|l| l.container) {
+        Some(Container::Card) => {
+            let card = Rect::from_center_size(
+                rect.center(),
+                egui::vec2(
+                    rect.width() * 0.82,
+                    (rect.height() * 0.55).max(fluid.sp_8() * 3.0),
+                ),
+            );
+            paint_card(&painter, card, card_accent, fluid.r_lg());
+            card
+        }
+        None => rect,
+    };
     let pad = fluid.sp_7();
-    let wrap = (rect.width() - pad * 2.0).max(40.0);
+    let wrap = (flow.width() - pad * 2.0).max(40.0);
+    if laid.as_ref().and_then(|l| l.mark) == Some(Mark::Quote) {
+        // ASCII, so every font in the pool has it.
+        painter.text(
+            flow.min + egui::vec2(pad, pad * 0.5),
+            egui::Align2::LEFT_TOP,
+            "\"",
+            egui::FontId::proportional(fluid.fs_display_xl()),
+            Color32::from_rgba_unmultiplied(card_accent.r(), card_accent.g(), card_accent.b(), 90),
+        );
+    }
+    // Words in the column, words pinned to the top, and the column's lines
+    // with a rule above them — index-parallel to `blocks`, like `heights`.
+    let pinned: Vec<bool> = slide
+        .blocks
+        .iter()
+        .map(|b| b.words().is_some() && slot_of(b).is_some_and(|s| s.place == Some(Place::Top)))
+        .collect();
+    let in_flow: Vec<bool> = slide
+        .blocks
+        .iter()
+        .zip(&pinned)
+        .map(|(b, pin)| b.words().is_some() && !pin)
+        .collect();
+    let ruled: Vec<Option<dpl_doc::component::Rule>> = slide
+        .blocks
+        .iter()
+        .zip(&in_flow)
+        .map(|(b, flows)| flows.then(|| slot_of(b).and_then(|s| s.rule)).flatten())
+        .collect();
 
     // Pass 1 — measure (galley layout is cached by egui, this is cheap).
     // ALL TEXT blocks measure, revealed or not — steps never reflow the
@@ -409,21 +486,45 @@ fn render_inner(
             .collect()
     };
     let gap = fluid.sp_4();
-    let text_count = slide.blocks.iter().filter(|b| b.words().is_some()).count();
-    let total_of =
-        |heights: &[f32]| heights.iter().sum::<f32>() + gap * text_count.saturating_sub(1) as f32;
+    let flow_count = in_flow.iter().filter(|f| **f).count();
+    let pin_count = pinned.iter().filter(|p| **p).count();
+    let rule_count = ruled.iter().filter(|r| r.is_some()).count();
+    // The column's height, and the pinned lines' (a rule takes one gap).
+    let column_of = |heights: &[f32], which: &[bool], count: usize| {
+        heights
+            .iter()
+            .zip(which)
+            .filter(|(_, w)| **w)
+            .map(|(h, _)| h)
+            .sum::<f32>()
+            + gap * count.saturating_sub(1) as f32
+    };
+    let total_of = |heights: &[f32]| {
+        let flow_h = column_of(heights, &in_flow, flow_count) + gap * rule_count as f32;
+        let pin_h = column_of(heights, &pinned, pin_count);
+        (flow_h, pin_h)
+    };
+    let both = |(flow_h, pin_h): (f32, f32)| {
+        flow_h
+            + pin_h
+            + if pin_count > 0 && flow_count > 0 {
+                gap
+            } else {
+                0.0
+            }
+    };
     // Shrink to fit: lines taller than the stage scale down together rather
     // than run off it, so a look's big size never clips the words (LK3).
     // Wrapping changes with size, so a second pass settles it.
-    let room = (rect.height() - pad * 2.0).max(1.0);
+    let room = (flow.height() - pad * 2.0).max(1.0);
     let mut fit = 1.0_f32;
     let mut heights = measure(fit);
     let mut total = total_of(&heights);
     for _ in 0..2 {
-        if total <= room {
+        if both(total) <= room {
             break;
         }
-        fit = (fit * room / total).max(0.35);
+        fit = (fit * room / both(total)).max(0.35);
         heights = measure(fit);
         total = total_of(&heights);
     }
@@ -439,7 +540,14 @@ fn render_inner(
         background: rect,
         blocks: Vec::with_capacity(slide.blocks.len()),
     };
-    let mut y = rect.center().y - total * 0.5;
+    let (flow_h, pin_h) = total;
+    let mut y = match laid.as_ref().map_or(Anchor::Middle, |l| l.anchor) {
+        Anchor::Top if pin_count > 0 => flow.min.y + pad + pin_h + gap,
+        Anchor::Top => flow.min.y + pad,
+        Anchor::Middle => flow.center().y - flow_h * 0.5,
+        Anchor::Bottom => flow.max.y - pad - flow_h,
+    };
+    let mut pin_y = flow.min.y + pad;
     for (i, block) in slide.blocks.iter().enumerate() {
         let Some(dpl_doc::Words {
             id,
@@ -454,15 +562,29 @@ fn render_inner(
             // Media blocks painted in the pre-pass. They own the whole stage
             // for hit-testing; they take no slot in the text flow (no y
             // advance), so text layout is identical with or without media.
-            map.blocks.push((block.id().to_string(), rect));
+            // A data block is not painted here (its component paints it,
+            // LS4b), so it claims no part of the stage — it used to claim
+            // all of it, and a tap could never reach the background.
+            if matches!(block, dpl_doc::Block::Media { .. }) {
+                map.blocks.push((block.id().to_string(), rect));
+            }
             continue;
         };
-        // The stable rect (rest position) — hit-testing ignores the
-        // one-time entrance lift so a tap lands where the text settles.
-        let block_rect =
-            Rect::from_min_size(egui::pos2(rect.min.x + pad, y), egui::vec2(0.0, heights[i]));
         let rp = reveal_pos(id);
         let visible = visible_at(id);
+        // A rule above the line takes one gap of the column.
+        let rule_at = ruled[i].map(|r| {
+            let at = y;
+            y += gap;
+            (r, at)
+        });
+        let line_y = if pinned[i] { pin_y } else { y };
+        // The stable rect (rest position) — hit-testing ignores the
+        // one-time entrance lift so a tap lands where the text settles.
+        let block_rect = Rect::from_min_size(
+            egui::pos2(flow.min.x + pad, line_y),
+            egui::vec2(0.0, heights[i]),
+        );
         // Animation policy: wall mode / step 0 = the entrance staggering
         // every VISIBLE rising line; later steps animate only the line that
         // just revealed — and only if it rises.
@@ -476,27 +598,159 @@ fn render_inner(
             .unwrap_or_else(|| fluid.fs_body())
             * fit;
         // The "tone" ink paints the line's own colour (LK3), else the
-        // background's accent.
-        let line_accent = tone.and_then(cl::hue_accent).unwrap_or(accent);
+        // card's, else the background's accent.
+        let line_accent = tone.and_then(cl::hue_accent).unwrap_or(card_accent);
         let color = cl::ink::named(ink.unwrap_or("base"), line_accent).gamma_multiply(m.alpha);
-        let galley = painter.layout(
-            text.to_owned(),
-            egui::FontId::new(px, family_of(font.unwrap_or(""))),
-            color,
-            wrap,
-        );
-        let block_rect = Rect::from_min_size(
-            block_rect.min,
-            egui::vec2(galley.size().x.max(wrap * 0.15), heights[i]),
-        );
+        let font = egui::FontId::new(px, family_of(font.unwrap_or("")));
+        // Centred lines centre each wrapped row; the galley then sits around
+        // the stage's middle (egui lays a centred job out around x = 0).
+        let (galley, x) = if center {
+            let mut job = egui::text::LayoutJob::simple(text.to_owned(), font, color, wrap);
+            job.halign = egui::Align::Center;
+            (painter.layout_job(job), flow.center().x)
+        } else {
+            (
+                painter.layout(text.to_owned(), font, color, wrap),
+                flow.min.x + pad,
+            )
+        };
+        let block_rect = if center {
+            let w = galley.size().x.max(wrap * 0.15);
+            Rect::from_min_size(
+                egui::pos2(flow.center().x - w * 0.5, line_y),
+                egui::vec2(w, heights[i]),
+            )
+        } else {
+            Rect::from_min_size(
+                block_rect.min,
+                egui::vec2(galley.size().x.max(wrap * 0.15), heights[i]),
+            )
+        };
         map.blocks.push((id.to_owned(), block_rect));
         if visible {
             let lift = fluid.sp_5() * m.offset.y;
-            painter.galley(egui::pos2(rect.min.x + pad, y + lift), galley, color);
+            if let Some((kind, at)) = rule_at {
+                let w = match kind {
+                    dpl_doc::component::Rule::Half => wrap * 0.5,
+                    dpl_doc::component::Rule::Full => wrap,
+                };
+                let left = if center {
+                    flow.center().x - w * 0.5
+                } else {
+                    flow.min.x + pad
+                };
+                rule(&painter, left, at, w, card_accent, m.alpha);
+            }
+            painter.galley(egui::pos2(x, line_y + lift), galley, color);
         }
-        y += heights[i] + gap;
+        if pinned[i] {
+            pin_y += heights[i] + gap;
+        } else {
+            y += heights[i] + gap;
+        }
     }
     map
+}
+
+/// The `card` container (LS4a §4b, the callout's carried anatomy): a raised
+/// surface with a hairline edge, the sheen band, and a bar in the card's
+/// colour down its left side.
+fn paint_card(painter: &egui::Painter, card: Rect, colour: Color32, radius: f32) {
+    let radius = radius as u8;
+    painter.rect_filled(card, radius, cl::surface::RAISED);
+    painter.rect_stroke(
+        card,
+        radius,
+        egui::Stroke::new(1.0, cl::surface::HAIRLINE),
+        egui::StrokeKind::Inside,
+    );
+    cl::sheen(painter, card);
+    painter.rect_filled(
+        Rect::from_min_size(card.min, egui::vec2(4.0, card.height())),
+        0,
+        Color32::from_rgba_unmultiplied(colour.r(), colour.g(), colour.b(), 200),
+    );
+}
+
+/// A template's own values (its contract's shape: one key per slot, prop
+/// and axis) as a slide document — what its gallery card paints through the
+/// one renderer (LS4a: no template hand-paints).
+pub fn slide_of(
+    contract: &dpl_doc::component::ComponentContract,
+    values: &serde_json::Value,
+) -> dpl_doc::Slide {
+    let pick = |ids: &mut dyn Iterator<Item = &str>| -> serde_json::Map<String, serde_json::Value> {
+        ids.filter_map(|id| values.get(id).map(|v| (id.to_owned(), v.clone())))
+            .collect()
+    };
+    let content = pick(&mut contract.slots.iter().map(|s| s.id.as_str()));
+    let props = pick(&mut contract.props.iter().map(|p| p.id.as_str()));
+    let variant = contract
+        .variant_axes
+        .iter()
+        .filter_map(|axis| {
+            values
+                .get(&axis.id)
+                .and_then(serde_json::Value::as_str)
+                .map(|option| (axis.id.clone(), option.to_owned()))
+        })
+        .collect();
+    dpl_doc::slide_from_parts(contract, &content, &props, &variant)
+        .unwrap_or_else(|| dpl_doc::Slide::new(format!("{}@1", contract.id)))
+}
+
+/// A migrated template's gallery card (LS4a): its own values as a slide,
+/// painted by the one renderer against the standalone styling, on the
+/// template's clock.
+pub(crate) fn paint_template(
+    ui: &mut Ui,
+    contract: &dpl_doc::component::ComponentContract,
+    values: &serde_json::Value,
+    clock: &mut crate::motion::Clock,
+) {
+    static STANDALONE: std::sync::OnceLock<dpl_doc::Styling> = std::sync::OnceLock::new();
+    let rect = ui.max_rect();
+    let mut slide = slide_of(contract, values);
+    // On the bare well, like every gallery card not yet moved: the component,
+    // not a theme.
+    slide.background.get_or_insert(dpl_doc::Background::None);
+    let now = ui.input(|i| i.time);
+    let t0 = clock.tick(now);
+    render(
+        ui,
+        rect,
+        &slide,
+        STANDALONE.get_or_init(dpl_doc::Styling::standalone),
+        now,
+        t0,
+    );
+    ui.allocate_rect(rect, egui::Sense::hover());
+}
+
+/// The layout a slide's component gives it, with the slide's variant
+/// applied (LS4a) — None when the component is not registered or has no
+/// layout yet (the lines then flow in their own order).
+pub fn laid_out(slide: &dpl_doc::Slide) -> Option<dpl_doc::component::LaidOut> {
+    crate::contract_of(slide.component_id())?.laid_out(&slide.variant)
+}
+
+/// The slide as the editor and every tray should read it: resolved through
+/// its looks, its theme and its component's slot defaults — the values the
+/// renderer paints.
+pub fn shown(slide: &dpl_doc::Slide, styling: &dpl_doc::Styling) -> dpl_doc::Slide {
+    styling.resolve_laid_out(slide, laid_out(slide).as_ref())
+}
+
+/// Blocks the layout names first, in its reading order; the rest after, in
+/// their own order — nothing the layout does not name ever vanishes.
+fn in_reading_order(blocks: &mut [dpl_doc::Block], laid: &dpl_doc::component::LaidOut) {
+    let rank = |block: &dpl_doc::Block| {
+        laid.slots
+            .iter()
+            .position(|slot| slot.slot == block.id())
+            .unwrap_or(laid.slots.len())
+    };
+    blocks.sort_by_key(rank);
 }
 
 /// A document with its own clock — the wall/stage wrapper.
@@ -795,7 +1049,8 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(words.len(), 2);
+        // The two lines, and the quote's mark (its layout's decoration).
+        assert_eq!(words.len(), 3);
         for rect in words {
             assert!(
                 rect.min.y >= stage.min.y - 0.5 && rect.max.y <= stage.max.y + 0.5,
@@ -823,5 +1078,158 @@ mod tests {
             .textures_delta
             .clear();
         }
+    }
+
+    /// Render `slide` on a 1280x720 stage and return its map.
+    fn mapped(slide: &dpl_doc::Slide) -> (Rect, RenderMap) {
+        let stage = Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1280.0, 720.0));
+        let ctx = egui::Context::default();
+        cl::apply_theme(&ctx);
+        let mut map = None;
+        ctx.run_ui(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                map = Some(render_traced(
+                    ui,
+                    stage,
+                    slide,
+                    &dpl_doc::Styling::standalone(),
+                    30.0,
+                    0.0,
+                ));
+            });
+        })
+        .textures_delta
+        .clear();
+        (stage, map.expect("rendered"))
+    }
+
+    /// The component lays the slide out (LS4a): its slots in reading order
+    /// whatever order the blocks are stored in, and centred when the
+    /// variant says so.
+    #[test]
+    fn a_layout_orders_and_centres_the_lines() {
+        let mut slide = dpl_doc::Slide::new("title@1");
+        slide.background = Some(dpl_doc::Background::None);
+        slide.blocks = vec![
+            dpl_doc::Block::text("subtitle", "Under it"),
+            dpl_doc::Block::text("title", "The headline"),
+            dpl_doc::Block::text("eyebrow", "SHOW NAME"),
+        ];
+        let (stage, map) = mapped(&slide);
+        let ids: Vec<&str> = map.blocks.iter().map(|(id, _)| id.as_str()).collect();
+        assert_eq!(ids, ["eyebrow", "title", "subtitle"]);
+        let ys: Vec<f32> = map.blocks.iter().map(|(_, r)| r.min.y).collect();
+        assert!(ys.windows(2).all(|w| w[0] < w[1]), "top to bottom: {ys:?}");
+        // The title is the big line: the slot's default size.
+        assert!(map.blocks[1].1.height() > map.blocks[0].1.height() * 2.0);
+        slide.variant.insert("align".into(), "center".into());
+        let (_, map) = mapped(&slide);
+        for (id, rect) in &map.blocks {
+            assert!(
+                (rect.center().x - stage.center().x).abs() < 1.0,
+                "{id} {rect:?}"
+            );
+        }
+    }
+
+    /// A slide whose component has no layout flows as it always did: its
+    /// lines in their own order, on the left.
+    #[test]
+    fn a_slide_without_a_layout_flows_in_its_own_order() {
+        let mut slide = dpl_doc::Slide::new("freeform@1");
+        slide.background = Some(dpl_doc::Background::None);
+        slide.blocks = vec![
+            sized("b", "Second written, first shown", "h2"),
+            sized("a", "First written", "body"),
+        ];
+        let (stage, map) = mapped(&slide);
+        let ids: Vec<&str> = map.blocks.iter().map(|(id, _)| id.as_str()).collect();
+        assert_eq!(ids, ["b", "a"]);
+        let left = stage.min.x + cl::Fluid::of(stage).sp_7();
+        for (id, rect) in &map.blocks {
+            assert!((rect.min.x - left).abs() < 0.5, "{id} {rect:?}");
+        }
+    }
+
+    /// A data block is not painted by the flow, so it claims no part of the
+    /// stage: the background stays selectable on a list card.
+    #[test]
+    fn a_data_block_claims_no_part_of_the_stage() {
+        let mut slide = dpl_doc::Slide::new("agenda@1");
+        slide.background = Some(dpl_doc::Background::None);
+        slide.blocks = vec![
+            sized("heading", "Today", "h2"),
+            dpl_doc::Block::Data {
+                id: "items".into(),
+                value: serde_json::json!([{"title": "One"}]),
+            },
+        ];
+        let (stage, map) = mapped(&slide);
+        assert!(map.blocks.iter().all(|(id, _)| id != "items"));
+        assert_eq!(
+            map.block_at(stage.right_bottom() - egui::vec2(4.0, 4.0)),
+            None
+        );
+    }
+
+    /// The layout's decorations place the lines (§4b): a section pins its
+    /// number to the top and its title to the bottom; a callout's lines sit
+    /// inside its card, from the card's top.
+    #[test]
+    fn the_decorations_place_the_lines() {
+        let mut section = dpl_doc::Slide::new("section@1");
+        section.background = Some(dpl_doc::Background::None);
+        section.blocks = vec![
+            dpl_doc::Block::text("title", "The setup"),
+            dpl_doc::Block::text("kicker", "Part one"),
+            dpl_doc::Block::text("number", "01"),
+        ];
+        let (stage, map) = mapped(&section);
+        let pad = cl::Fluid::of(stage).sp_7();
+        let at = |id: &str| map.blocks.iter().find(|(b, _)| b == id).unwrap().1;
+        assert!((at("number").min.y - (stage.min.y + pad)).abs() < 0.5);
+        assert!((at("title").max.y - (stage.max.y - pad)).abs() < 0.5);
+        // The kicker sits above the title, a rule's gap under the number.
+        assert!(at("kicker").max.y <= at("title").min.y);
+        assert!(at("kicker").min.y > at("number").max.y);
+
+        let mut callout = dpl_doc::Slide::new("callout@1");
+        callout.background = Some(dpl_doc::Background::None);
+        callout.blocks = vec![
+            dpl_doc::Block::text("kicker", "The catch"),
+            dpl_doc::Block::text("title", "Free tiers are the demo"),
+            dpl_doc::Block::text("body", "Patience is the price."),
+        ];
+        let (stage, map) = mapped(&callout);
+        let card = Rect::from_center_size(
+            stage.center(),
+            egui::vec2(stage.width() * 0.82, stage.height() * 0.55),
+        );
+        for (id, rect) in &map.blocks {
+            assert!(
+                card.shrink(pad - 0.5).contains_rect(*rect),
+                "{id} {rect:?} in {card:?}"
+            );
+        }
+        assert!((map.blocks[0].1.min.y - (card.min.y + pad)).abs() < 0.5);
+    }
+
+    /// A template's own values become a slide: content into blocks, the
+    /// colour into the slide's tone, axes into its variant.
+    #[test]
+    fn a_templates_values_become_a_slide() {
+        let contract = crate::contract_of("title").expect("the title contract");
+        let values = serde_json::json!({
+            "tone": "coral", "eyebrow": "SHOW", "title": "Hello", "subtitle": "",
+            "align": "center", "media": null
+        });
+        let slide = slide_of(contract, &values);
+        assert_eq!(slide.component, "title@1");
+        assert_eq!(slide.tone.as_deref(), Some("coral"));
+        assert_eq!(
+            slide.variant.get("align").map(String::as_str),
+            Some("center")
+        );
+        assert!(slide.block("title").is_some() && slide.block("eyebrow").is_some());
     }
 }

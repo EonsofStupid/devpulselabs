@@ -109,6 +109,10 @@
       "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*@[0-9]+$"
     },
     "variant": { "type": "object", "additionalProperties": { "type": "string" } },
+    "props": {
+      "description": "The component's settings this slide sets (LS4a): prop id to value, checked against the component's contract; an absent prop takes its default.",
+      "type": "object"
+    },
     "preset": { "$ref": "#/$defs/ref" },
     "tone": { "$ref": "#/$defs/ref" },
     "background": { "$ref": "#/$defs/background" },

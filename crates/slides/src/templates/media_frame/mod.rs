@@ -9,12 +9,11 @@
 //! Presenter law: a still rests; a looping video is a rest state by
 //! construction. Nothing auto-advances.
 
-use dpl_coldlight::{self as cl, Tone};
-use egui::{Align2, FontId, Ui};
+use dpl_coldlight::Tone;
+use egui::Ui;
 use serde::{Deserialize, Serialize};
 
-use crate::elements::{media_backdrop, Media};
-use crate::frame::Stage;
+use crate::elements::Media;
 use crate::motion::Clock;
 use crate::registry::SlideTemplate;
 use dpl_doc::component::ComponentContract;
@@ -54,32 +53,9 @@ impl SlideTemplate for MediaFrame {
     }
 
     fn ui(&mut self, ui: &mut Ui) {
-        let stage = Stage::of(ui.max_rect());
-        let fluid = &stage.fluid;
-        let now = ui.input(|i| i.time);
-        let t0 = self.clock.tick(now);
-
-        // The whole stage is the media — the media_frame is a full-bleed slot.
-        media_backdrop(ui, stage.rect, &self.media, self.tone, now, t0);
-
-        // A quiet corner caption naming what a media slide carries. It rises
-        // once with the entrance, then rests.
-        let p = cl::motion::ENTER_RISE.at(now, t0, 0);
-        if cl::motion::ENTER_RISE.in_flight(now, t0, 1) {
-            ui.ctx().request_repaint();
-        }
-        let alpha = p.clamp(0.0, 1.0);
-        let lift = fluid.sp_5() * (1.0 - p);
-        let pos = egui::pos2(
-            stage.rect.min.x + fluid.sp_7(),
-            stage.rect.max.y - fluid.sp_6() + lift,
-        );
-        ui.painter().text(
-            pos,
-            Align2::LEFT_BOTTOM,
-            &self.caption,
-            FontId::monospace(fluid.fs_eyebrow()),
-            self.tone.color().gamma_multiply(alpha),
-        );
+        // Its own values, painted by the one renderer (LS4a): the gallery
+        // shows exactly what a card started from this layout looks like.
+        let values = crate::registry::ComponentValues::values(self);
+        crate::document::paint_template(ui, Self::contract(), &values, &mut self.clock);
     }
 }

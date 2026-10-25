@@ -1,7 +1,7 @@
 {
   "schema": "dpl.component/1",
   "id": "quote",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "name": "Pull quote",
   "summary": "An oversized mark, the line in display type, and an attribution — testimonial or thesis.",
   "class": "static",
@@ -62,5 +62,15 @@
       }
     }
   ],
-  "provenance": {}
+  "provenance": {},
+  "layout": {
+    "kind": "stack",
+    "mark": "quote",
+    "slots": [
+      { "slot": "kicker", "size": "eyebrow", "ink": "tone", "font": "jetbrainsmono", "tracked": true },
+      { "slot": "quote", "size": "h1", "ink": "strong" },
+      { "slot": "name", "size": "h4", "ink": "strong", "rule": "half" },
+      { "slot": "role", "size": "eyebrow", "ink": "muted", "font": "jetbrainsmono", "tracked": true }
+    ]
+  }
 }

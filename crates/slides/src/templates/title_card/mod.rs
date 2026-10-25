@@ -6,13 +6,10 @@
 //! (image / video / pre-made ambience) composes behind the type.
 
 use dpl_coldlight::Tone;
-use dpl_coldlight::{self as cl};
-use egui::{Align2, FontId, Ui};
+use egui::Ui;
 use serde::{Deserialize, Serialize};
 
-use crate::elements::eyebrow::tracked;
-use crate::elements::{media_backdrop, Media};
-use crate::frame::Stage;
+use crate::elements::Media;
 use crate::motion::Clock;
 use crate::registry::SlideTemplate;
 use dpl_doc::component::ComponentContract;
@@ -62,60 +59,9 @@ impl SlideTemplate for TitleCard {
     }
 
     fn ui(&mut self, ui: &mut Ui) {
-        let stage = Stage::of(ui.max_rect());
-        let now = ui.input(|i| i.time);
-        let t0 = self.clock.tick(now);
-        if let Some(m) = &self.media {
-            media_backdrop(ui, ui.max_rect(), m, self.tone, now, t0);
-        }
-        let fluid = &stage.fluid;
-        let painter = ui.painter();
-        // The entrance: settle, then each line rises in (one-time event).
-        let enter = cl::motion::ENTER_RISE;
-        let lift = |p: f32| fluid.sp_5() * (1.0 - p);
-        let p0 = enter.at(now, t0, 0);
-        let p1 = enter.at(now, t0, 1);
-        let p2 = enter.at(now, t0, 2);
-        if enter.in_flight(now, t0, 3) {
-            ui.ctx().request_repaint();
-        }
-
-        let title_size = fluid.fs_display();
-        let sub_size = fluid.fs_h3();
-        let eyebrow_size = fluid.fs_eyebrow();
-        // The block centers vertically; title leads at 0.95 (ported).
-        let block_h =
-            eyebrow_size + fluid.sp_5() + title_size * 0.95 + fluid.sp_6() + sub_size * 1.3;
-        let top = stage.rect.center().y - block_h * 0.5;
-        let (x, anchor) = match self.align {
-            TitleAlign::Left => (stage.rect.min.x, Align2::LEFT_TOP),
-            TitleAlign::Center => (stage.rect.center().x, Align2::CENTER_TOP),
-        };
-
-        painter.text(
-            egui::pos2(x, top + lift(p0)),
-            anchor,
-            tracked(&self.eyebrow),
-            FontId::monospace(eyebrow_size),
-            self.tone.color().gamma_multiply(p0),
-        );
-        painter.text(
-            egui::pos2(x, top + eyebrow_size + fluid.sp_5() + lift(p1)),
-            anchor,
-            &self.title,
-            FontId::proportional(title_size),
-            cl::ink::STRONG.gamma_multiply(p1),
-        );
-        painter.text(
-            egui::pos2(
-                x,
-                top + eyebrow_size + fluid.sp_5() + title_size * 0.95 + fluid.sp_6() + lift(p2),
-            ),
-            anchor,
-            &self.subtitle,
-            FontId::proportional(sub_size),
-            cl::ink::MUTED.gamma_multiply(p2),
-        );
-        ui.allocate_rect(stage.rect, egui::Sense::hover());
+        // Its own values, painted by the one renderer (LS4a): the gallery
+        // shows exactly what a card started from this layout looks like.
+        let values = crate::registry::ComponentValues::values(self);
+        crate::document::paint_template(ui, Self::contract(), &values, &mut self.clock);
     }
 }

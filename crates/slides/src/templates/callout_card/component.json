@@ -1,7 +1,7 @@
 {
   "schema": "dpl.component/1",
   "id": "callout",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "name": "Callout card",
   "summary": "One emphasized statement: tone bar, sheen, kicker eyebrow — rises in on the settle.",
   "class": "static",
@@ -61,5 +61,16 @@
       }
     }
   ],
-  "provenance": {}
+  "provenance": {},
+  "layout": {
+    "kind": "stack",
+    "container": "card",
+    "anchor": "top",
+    "slots": [
+      { "slot": "media", "place": "backdrop" },
+      { "slot": "kicker", "size": "eyebrow", "ink": "tone", "font": "jetbrainsmono", "tracked": true },
+      { "slot": "title", "size": "h2", "ink": "strong" },
+      { "slot": "body", "size": "body-lg", "ink": "muted" }
+    ]
+  }
 }
