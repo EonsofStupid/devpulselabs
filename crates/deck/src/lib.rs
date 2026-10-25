@@ -1,10 +1,13 @@
 //! The DeckHost (D2) — the show machine's runtime surface.
 //!
-//! An episode folder becomes a full-bleed presentation: beat-wise
-//! navigation (the verbatim [`nav`] grammar), edge tap zones, a progress
-//! rail with chapter ticks, a bottom toolbar, a navigator overlay, and the
-//! chrome-hide escape hatches — the bottom edge-reveal strip and the
-//! always-there home dot ("ALWAYS a way back on a touchscreen").
+//! An episode or a lesson (RL) becomes a full-bleed presentation: beat-wise
+//! navigation (the verbatim [`nav`] grammar), touch made for the big
+//! screen — tap anywhere for the next beat, the left edge to go back, a
+//! swipe either way, a long press for the navigator (RL, ruled 2026-10-25
+//! "Tap anywhere + presenter drives") — a progress rail with chapter
+//! ticks, a bottom toolbar, a navigator overlay, and the chrome-hide escape
+//! hatches — the bottom edge-reveal strip and the always-there home dot
+//! ("ALWAYS a way back on a touchscreen").
 //!
 //! Rendering rides the ONE document path (`dpl_slides::document::
 //! render_step`); a slide that fails to load degrades to an honest labeled
@@ -14,10 +17,49 @@ pub mod ink;
 pub mod nav;
 
 use dpl_coldlight::{self as cl};
+use dpl_doc::episode::Showing;
 use dpl_slides::document;
 use egui::{Align2, Color32, CornerRadius, FontId, Rect, Sense, Stroke, StrokeKind, Ui};
 use egui_pilot_ai::{NodeMetadata, PilotId, PilotKey, UiPilotExt};
 use std::path::Path;
+
+/// Where a touch on the stage goes (RL).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Move {
+    Next,
+    Back,
+}
+
+/// The share of the stage, from its left edge, where a tap goes back.
+pub const BACK_ZONE: f32 = 0.15;
+/// The shortest drag, in points, that counts as a swipe.
+pub const SWIPE_MIN: f32 = 60.0;
+
+/// What a tap at `x` means: the left [`BACK_ZONE`] of the stage goes back,
+/// anywhere else goes to the next beat.
+pub fn tap_intent(x: f32, stage: Rect) -> Move {
+    if x < stage.min.x + stage.width() * BACK_ZONE {
+        Move::Back
+    } else {
+        Move::Next
+    }
+}
+
+/// What a drag of `delta` means: a mostly-sideways drag of at least
+/// [`SWIPE_MIN`] is a swipe — leftward to the next beat, rightward back;
+/// anything else is not a move.
+pub fn swipe_intent(delta: egui::Vec2) -> Option<Move> {
+    let sideways = delta.x.abs();
+    if sideways >= SWIPE_MIN && sideways > delta.y.abs() * 1.5 {
+        Some(if delta.x < 0.0 {
+            Move::Next
+        } else {
+            Move::Back
+        })
+    } else {
+        None
+    }
+}
 
 /// What the host wants from its mount after a frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,15 +110,24 @@ pub struct DeckHost {
     /// The toolbar Cue button fired this frame — `ui()` converts it to
     /// [`DeckAction::TogglePresenter`] (Exit wins when both fire).
     presenter_asked: bool,
+    /// Where the drag in progress on the stage began — a swipe is judged
+    /// from here when it ends.
+    swipe_from: Option<egui::Pos2>,
 }
 
 impl DeckHost {
-    /// Open a show from its episode folder — read through the one episode
+    /// Open a show — an episode folder or a lesson (RL) — through the one
     /// walk, so an episode built from lessons (found in `content_root`'s
-    /// library) and a seed template play alike — with the looks its slides
-    /// may follow (the built-in ones plus the operator's own).
-    pub fn open(dir: &Path, content_root: &Path, looks: dpl_doc::Looks) -> Result<Self, String> {
-        let shown = dpl_doc::episode::shows(dir, content_root).map_err(|e| e.to_string())?;
+    /// library), a seed template and a lesson on its own play alike, with
+    /// the looks its slides may follow (the built-in ones plus the
+    /// operator's own). It starts at card `start` (clamped to the show).
+    pub fn open(
+        showing: &Showing,
+        content_root: &Path,
+        looks: dpl_doc::Looks,
+        start: usize,
+    ) -> Result<Self, String> {
+        let shown = showing.shown(content_root).map_err(|e| e.to_string())?;
         let mut slides = Vec::new();
         let mut markers: Vec<Marker> = Vec::new();
         for chapter in &shown.chapters {
@@ -95,12 +146,13 @@ impl DeckHost {
             }
         }
         if slides.is_empty() {
-            return Err("the episode has no slides".into());
+            return Err("there are no cards to show".into());
         }
         let steps = slides
             .iter()
             .map(|s| s.doc.as_ref().map(|d| d.step_count()).unwrap_or(1))
             .collect();
+        let start = nav::clamp_index(start, slides.len());
         Ok(Self {
             title: shown.title,
             styling: dpl_doc::Styling {
@@ -109,8 +161,11 @@ impl DeckHost {
             },
             slides,
             steps,
+            pos: nav::Position {
+                index: start,
+                step: 0,
+            },
             markers,
-            pos: nav::Position { index: 0, step: 0 },
             chrome_hidden: false,
             navigator_open: false,
             annotate_on: false,
@@ -118,6 +173,7 @@ impl DeckHost {
             clock: dpl_slides::motion::Clock::default(),
             fabric: None,
             presenter_asked: false,
+            swipe_from: None,
         })
     }
 
@@ -156,11 +212,30 @@ impl DeckHost {
         }
     }
 
-    fn beat_next(&mut self) {
+    /// The next beat — the next tap's line, or the next card.
+    pub fn next(&mut self) {
         self.go(nav::advance(&self.steps, self.pos));
     }
-    fn beat_prev(&mut self) {
+
+    /// The beat before — back to the last tap of the card before, at a
+    /// card's start.
+    pub fn back(&mut self) {
         self.go(nav::retreat(&self.steps, self.pos));
+    }
+
+    /// Straight to card `index` at tap `step` (both clamped) — the
+    /// presenter's tap-to-jump.
+    pub fn jump(&mut self, index: usize, step: usize) {
+        let index = nav::clamp_index(index, self.steps.len());
+        let step = step.min(self.steps[index].saturating_sub(1));
+        self.go(nav::Position { index, step });
+    }
+
+    fn beat_next(&mut self) {
+        self.next();
+    }
+    fn beat_prev(&mut self) {
+        self.back();
     }
     fn slide_next(&mut self) {
         let i = nav::clamp_index(self.pos.index + 1, self.steps.len());
@@ -247,16 +322,16 @@ impl DeckHost {
         // The ink, above the slide and below every control.
         self.ink.paint(ui, rect);
 
-        // Edge tap zones (12% width, full height) — always tappable; the
-        // chevrons only PAINT while chrome shows.
-        let zone_w = rect.width() * 0.12;
+        // The stage answers touch (RL): the left [`BACK_ZONE`] goes back,
+        // everywhere else goes next; a swipe either way; a long press (or a
+        // right click) opens the navigator. Always live; the chevrons only
+        // PAINT while chrome shows. Registered first, so the toolbar, rail
+        // and navigator — drawn later — win their own taps.
+        let zone_w = rect.width() * BACK_ZONE;
         let left = Rect::from_min_size(rect.min, egui::vec2(zone_w, rect.height()));
-        let right = Rect::from_min_size(
-            egui::pos2(rect.max.x - zone_w, rect.min.y),
-            egui::vec2(zone_w, rect.height()),
-        );
-        let lr = ui.interact(left, ui.id().with("deck_prev"), Sense::click());
-        let rr = ui.interact(right, ui.id().with("deck_next"), Sense::click());
+        let right = Rect::from_min_max(egui::pos2(rect.min.x + zone_w, rect.min.y), rect.max);
+        let lr = ui.interact(left, ui.id().with("deck_prev"), Sense::click_and_drag());
+        let rr = ui.interact(right, ui.id().with("deck_next"), Sense::click_and_drag());
         ui.pilot_track(
             &lr,
             NodeMetadata::new(
@@ -283,11 +358,32 @@ impl DeckHost {
                 "disabled"
             }),
         );
-        if lr.clicked() && !self.annotate_on {
-            self.beat_prev();
-        }
-        if rr.clicked() && !self.annotate_on {
-            self.beat_next();
+        if !self.annotate_on {
+            for resp in [&lr, &rr] {
+                if resp.long_touched() || resp.secondary_clicked() {
+                    self.navigator_open = true;
+                } else if resp.clicked() {
+                    if let Some(at) = resp.interact_pointer_pos() {
+                        match tap_intent(at.x, rect) {
+                            Move::Next => self.beat_next(),
+                            Move::Back => self.beat_prev(),
+                        }
+                    }
+                }
+                if resp.drag_started() {
+                    self.swipe_from = ui.input(|i| i.pointer.press_origin());
+                }
+                if resp.drag_stopped() {
+                    let to = ui.input(|i| i.pointer.interact_pos());
+                    if let (Some(from), Some(to)) = (self.swipe_from.take(), to) {
+                        match swipe_intent(to - from) {
+                            Some(Move::Next) => self.beat_next(),
+                            Some(Move::Back) => self.beat_prev(),
+                            None => {}
+                        }
+                    }
+                }
+            }
         }
         if !self.chrome_hidden && !self.annotate_on {
             chevron(
@@ -761,9 +857,10 @@ mod tests {
     #[test]
     fn open_builds_steps_and_markers_from_the_documents() {
         let host = DeckHost::open(
-            &scratch_episode("open"),
+            &Showing::Episode(scratch_episode("open")),
             Path::new("/nowhere"),
             dpl_doc::Looks::builtin_only(),
+            0,
         )
         .unwrap();
         assert_eq!(host.steps, vec![1, 2, 1]);
@@ -775,9 +872,10 @@ mod tests {
     #[test]
     fn the_keyboard_walks_the_whole_beat_list_and_holds() {
         let mut host = DeckHost::open(
-            &scratch_episode("keys"),
+            &Showing::Episode(scratch_episode("keys")),
             Path::new("/nowhere"),
             dpl_doc::Looks::builtin_only(),
+            0,
         )
         .unwrap();
         let p = |i, s| nav::Position { index: i, step: s };
@@ -814,9 +912,10 @@ mod tests {
     #[test]
     fn advancing_publishes_the_beat_on_the_deck_channel() {
         let mut host = DeckHost::open(
-            &scratch_episode("sync"),
+            &Showing::Episode(scratch_episode("sync")),
             Path::new("/nowhere"),
             dpl_doc::Looks::builtin_only(),
+            0,
         )
         .unwrap();
         let fabric = dpl_fabric::Fabric::new();
@@ -852,12 +951,62 @@ mod tests {
         );
     }
 
+    /// RL's touch: the left edge goes back, anywhere else next; a long
+    /// sideways drag is a swipe, a short or upright one is not a move.
+    #[test]
+    fn a_tap_or_a_swipe_says_where_to_go() {
+        let stage = Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1000.0, 600.0));
+        assert_eq!(tap_intent(100.0, stage), Move::Back);
+        assert_eq!(tap_intent(160.0, stage), Move::Next);
+        assert_eq!(tap_intent(990.0, stage), Move::Next);
+        assert_eq!(swipe_intent(egui::vec2(-120.0, 10.0)), Some(Move::Next));
+        assert_eq!(swipe_intent(egui::vec2(140.0, -20.0)), Some(Move::Back));
+        assert_eq!(swipe_intent(egui::vec2(-30.0, 0.0)), None, "too short");
+        assert_eq!(
+            swipe_intent(egui::vec2(-80.0, 90.0)),
+            None,
+            "mostly upright"
+        );
+    }
+
+    /// A run can start at any card, and the presenter can jump straight to
+    /// a card's tap; both clamp to the show.
+    #[test]
+    fn a_run_starts_where_it_is_asked_and_jumps_clamp() {
+        let mut host = DeckHost::open(
+            &Showing::Episode(scratch_episode("start")),
+            Path::new("/nowhere"),
+            dpl_doc::Looks::builtin_only(),
+            1,
+        )
+        .unwrap();
+        let p = |i, s| nav::Position { index: i, step: s };
+        assert_eq!(host.position(), p(1, 0));
+        host.jump(1, 1);
+        assert_eq!(host.position(), p(1, 1));
+        host.jump(9, 9);
+        assert_eq!(host.position(), p(2, 0), "clamped to the last card's taps");
+        host.back();
+        assert_eq!(host.position(), p(1, 1));
+        host.next();
+        assert_eq!(host.position(), p(2, 0));
+        let late = DeckHost::open(
+            &Showing::Episode(scratch_episode("late")),
+            Path::new("/nowhere"),
+            dpl_doc::Looks::builtin_only(),
+            40,
+        )
+        .unwrap();
+        assert_eq!(late.position(), p(2, 0));
+    }
+
     #[test]
     fn ink_survives_steps_and_clears_on_slide_change() {
         let mut host = DeckHost::open(
-            &scratch_episode("ink"),
+            &Showing::Episode(scratch_episode("ink")),
             Path::new("/nowhere"),
             dpl_doc::Looks::builtin_only(),
+            0,
         )
         .unwrap();
         host.press(egui::Key::A);
@@ -882,8 +1031,13 @@ mod tests {
     fn a_broken_slide_degrades_to_a_plate_not_a_crash() {
         let dir = scratch_episode("broken");
         std::fs::write(dir.join("b").join("slide.json"), "{ not json").unwrap();
-        let host =
-            DeckHost::open(&dir, Path::new("/nowhere"), dpl_doc::Looks::builtin_only()).unwrap();
+        let host = DeckHost::open(
+            &Showing::Episode(dir.clone()),
+            Path::new("/nowhere"),
+            dpl_doc::Looks::builtin_only(),
+            0,
+        )
+        .unwrap();
         assert!(host.slides[1].doc.is_err());
         assert_eq!(host.steps[1], 1, "a broken slide is one honest step");
     }
@@ -891,9 +1045,10 @@ mod tests {
     #[test]
     fn frames_render_at_every_position_without_panicking() {
         let mut host = DeckHost::open(
-            &scratch_episode("frame"),
+            &Showing::Episode(scratch_episode("frame")),
             Path::new("/nowhere"),
             dpl_doc::Looks::builtin_only(),
+            0,
         )
         .unwrap();
         // The pool fonts must exist BEFORE layout — an unregistered
@@ -938,7 +1093,13 @@ mod tests {
         let root = template.with_file_name("lessons-content");
         let _ = std::fs::remove_dir_all(&root);
         let dir = dpl_doc::clone_episode(&template, &root, "show", "ep").unwrap();
-        let host = DeckHost::open(&dir, &root, dpl_doc::Looks::builtin_only()).unwrap();
+        let host = DeckHost::open(
+            &Showing::Episode(dir),
+            &root,
+            dpl_doc::Looks::builtin_only(),
+            0,
+        )
+        .unwrap();
         assert_eq!(host.steps, vec![1, 2, 1]);
         let titles: Vec<&str> = host.markers.iter().map(|m| m.title.as_str()).collect();
         assert_eq!(titles, ["Test show — One", "Test show — Two"]);

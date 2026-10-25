@@ -108,6 +108,48 @@ pub struct Editor {
     trying_line: Option<(String, Option<String>)>,
     /// Is the line chip's menu open?
     line_menu: bool,
+    /// The card's teleprompter script (RL), when it has one — its beats
+    /// follow the card's taps; written as you type.
+    script: Option<dpl_doc::script::Script>,
+    /// The last script write's outcome.
+    script_saved: Result<(), String>,
+    /// The tap the On tap panel previews (0 = before any tap).
+    preview: usize,
+    /// The preview's own clock.
+    preview_clock: dpl_slides::motion::Clock,
+}
+
+/// A label in a fixed-width column, left-aligned and cut short with an
+/// ellipsis — the On tap panel's line and point names, so the controls
+/// beside them line up.
+fn column_label(ui: &mut Ui, text: RichText, width: f32, height: f32) -> egui::Response {
+    ui.allocate_ui_with_layout(
+        egui::vec2(width, height),
+        egui::Layout::left_to_right(egui::Align::Center),
+        |ui| {
+            ui.set_min_width(width);
+            ui.add(egui::Label::new(text).truncate())
+        },
+    )
+    .inner
+}
+
+/// A line as the On tap panel names it: its first words, or what it is.
+fn line_name(block: &dpl_doc::Block) -> String {
+    match block.words() {
+        Some(words) if !words.text.trim().is_empty() => {
+            let text = words.text.trim();
+            match text.char_indices().nth(22) {
+                Some((cut, _)) => format!("{}…", &text[..cut]),
+                None => text.to_owned(),
+            }
+        }
+        Some(_) => "An empty line".to_owned(),
+        None => match block {
+            dpl_doc::Block::Media { .. } => "The picture".to_owned(),
+            _ => format!("The {}", block.id()),
+        },
+    }
 }
 
 /// A text or quote line's tray view: every value RESOLVED through the
@@ -190,6 +232,10 @@ impl Editor {
             editing_look: None,
             trying_line: None,
             line_menu: false,
+            script: dpl_doc::script::load_script(dir).ok().flatten(),
+            script_saved: Ok(()),
+            preview: 0,
+            preview_clock: dpl_slides::motion::Clock::default(),
             undo: Vec::new(),
             saved: Ok(()),
         })
@@ -1564,6 +1610,284 @@ impl Editor {
                     slide.variant.insert(axis, option);
                 }
             });
+        }
+    }
+
+    /// The tap the On tap panel is previewing — 0 is before any tap.
+    pub fn preview_step(&self) -> usize {
+        self.preview.min(self.slide.reveals.len())
+    }
+
+    /// Put line `id` on tap `tap` (counting from 1), or at the start
+    /// (`None`) — one revision, one Undo — and let the script follow.
+    fn set_tap(&mut self, id: &str, tap: Option<usize>) {
+        let mut reveals = self.slide.reveals.clone();
+        reveals.retain(|r| r != id);
+        if let Some(tap) = tap {
+            let at = tap.saturating_sub(1).min(reveals.len());
+            reveals.insert(at, id.to_owned());
+        }
+        if reveals != self.slide.reveals {
+            self.mutate(|slide| slide.reveals = reveals);
+            self.follow_taps();
+        }
+    }
+
+    /// The script's beats follow the card's taps — after a change here, an
+    /// Undo, or anything else that moved them. A card with no words yet
+    /// keeps no script file.
+    fn follow_taps(&mut self) {
+        if let Some(script) = &self.script {
+            let next =
+                dpl_doc::script::follow_reveals(Some(script), &self.slide, &self.slide.label());
+            if &next != script {
+                self.write_script(next);
+            }
+        }
+    }
+
+    fn write_script(&mut self, script: dpl_doc::script::Script) {
+        self.script_saved = dpl_doc::script::save_script(&self.dir, &script);
+        self.script = Some(script);
+    }
+
+    /// The On tap panel (RL, ruled 2026-10-25 "Beats now, card taps in
+    /// LS4c"): what each tap of the screen shows — every line starts on the
+    /// card, or waits for a tap — and the teleprompter's words for each tap,
+    /// written into the card's script as you type; and the card as it looks
+    /// at the chosen tap — beside them when wide, after them otherwise, so
+    /// taps and words always show first.
+    pub fn taps_ui(&mut self, ui: &mut Ui) {
+        self.follow_taps();
+        let lines: Vec<(String, String)> = self
+            .slide
+            .blocks
+            .iter()
+            .map(|b| (b.id().to_owned(), line_name(b)))
+            .collect();
+        // Wide: taps and words on the left, the card on the right. Else one
+        // column, taps and words first — the preview is a scroll away.
+        let w = ui.available_width();
+        if w >= 760.0 {
+            ui.horizontal_top(|ui| {
+                ui.vertical(|ui| {
+                    ui.set_width(w * 0.62);
+                    self.lines_part(ui, &lines);
+                    ui.add_space(cl::space::S3);
+                    self.words_part(ui, &lines);
+                });
+                ui.add_space(cl::space::S3);
+                ui.vertical(|ui| self.preview_part(ui));
+            });
+        } else {
+            self.lines_part(ui, &lines);
+            ui.add_space(cl::space::S3);
+            self.words_part(ui, &lines);
+            ui.add_space(cl::space::S3);
+            self.preview_part(ui);
+        }
+    }
+
+    /// What each tap shows: each line at the start or on a tap.
+    fn lines_part(&mut self, ui: &mut Ui, lines: &[(String, String)]) {
+        let taps = self.slide.reveals.len();
+        ui.label(tray_title("What each tap shows"));
+        ui.label(small("Put a line on a tap and it waits for that tap."));
+        ui.add_space(cl::space::S1);
+        let mut change: Option<(String, Option<usize>)> = None;
+        for (id, name) in lines {
+            let at = self
+                .slide
+                .reveals
+                .iter()
+                .position(|r| r == id)
+                .map(|i| i + 1);
+            ui.horizontal_wrapped(|ui| {
+                // A fixed narrow name column keeps a line and its taps on
+                // one row in the common case.
+                let name_label = column_label(
+                    ui,
+                    RichText::new(name).small().color(cl::ink::BASE),
+                    150.0,
+                    30.0,
+                );
+                cl::tip(name_label, name);
+                if chip(
+                    ui,
+                    &format!("tap-{id}-start"),
+                    "At the start",
+                    at.is_none(),
+                    "Show this line as soon as the card appears",
+                ) && at.is_some()
+                {
+                    change = Some((id.clone(), None));
+                }
+                for tap in 1..=taps {
+                    if chip(
+                        ui,
+                        &format!("tap-{id}-{tap}"),
+                        &format!("Tap {tap}"),
+                        at == Some(tap),
+                        &format!("Show this line on tap {tap}"),
+                    ) && at != Some(tap)
+                    {
+                        change = Some((id.clone(), Some(tap)));
+                    }
+                }
+                if at != Some(taps)
+                    && chip(
+                        ui,
+                        &format!("tap-{id}-new"),
+                        "+ New tap",
+                        false,
+                        "Show this line on a tap of its own, after the others",
+                    )
+                {
+                    change = Some((id.clone(), Some(taps + 1)));
+                }
+            });
+        }
+        if let Some((id, tap)) = change {
+            self.set_tap(&id, tap);
+        }
+    }
+
+    /// The card as it looks at the chosen point, and the chips that choose
+    /// it.
+    fn preview_part(&mut self, ui: &mut Ui) {
+        let taps = self.slide.reveals.len();
+        ui.horizontal_wrapped(|ui| {
+            ui.label(small("See it"));
+            for step in 0..=taps {
+                let label = if step == 0 {
+                    "Before any tap".to_owned()
+                } else {
+                    format!("After tap {step}")
+                };
+                if chip(
+                    ui,
+                    &format!("preview-{step}"),
+                    &label,
+                    self.preview_step() == step,
+                    "See the card as it looks at this point",
+                ) {
+                    self.preview = step;
+                    self.preview_clock.restart();
+                }
+            }
+        });
+        let w = ui.available_width().min(420.0);
+        let (stage, _) = ui.allocate_exact_size(egui::vec2(w, w * 9.0 / 16.0), Sense::hover());
+        ui.painter()
+            .rect_filled(stage, cl::RADIUS, cl::surface::WELL);
+        let now = ui.input(|i| i.time);
+        let t0 = self.preview_clock.tick(now);
+        let inner_rect = stage.shrink(1.0);
+        let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(inner_rect));
+        inner.set_clip_rect(stage.intersect(ui.clip_rect()));
+        let _ = document::render_thumbnail_step(
+            &mut inner,
+            inner_rect,
+            &self.slide,
+            &self.styling,
+            self.preview_step(),
+            now,
+            t0,
+        );
+        ui.painter().rect_stroke(
+            stage,
+            cl::RADIUS,
+            egui::Stroke::new(1.0, cl::surface::HAIRLINE),
+            egui::StrokeKind::Inside,
+        );
+    }
+
+    /// What you'll say: a cue and a note per tap, and notes for the card.
+    fn words_part(&mut self, ui: &mut Ui, lines: &[(String, String)]) {
+        ui.label(tray_title("What you'll say"));
+        ui.label(small("Your teleprompter, point by point."));
+        let label = self.slide.label();
+        let mut script = self
+            .script
+            .clone()
+            .unwrap_or_else(|| dpl_doc::script::follow_reveals(None, &self.slide, &label));
+        let mut edited = false;
+        for (i, beat) in script.beats.iter_mut().enumerate() {
+            let heading = if i == 0 {
+                "When it appears".to_owned()
+            } else {
+                let name = lines
+                    .iter()
+                    .find(|(id, _)| *id == beat.id)
+                    .map_or(beat.id.as_str(), |(_, name)| name.as_str());
+                format!("Tap {i} — {name}")
+            };
+            let mut note = beat.note.clone().unwrap_or_default();
+            let row_w = ui.available_width();
+            let wide = row_w >= 420.0;
+            let (cue, note_field) = if wide {
+                // One row a point: where it is (the same narrow column as
+                // the lines above), what to say, how to say it.
+                ui.horizontal(|ui| {
+                    let where_ = column_label(ui, small(&heading), 150.0, 24.0);
+                    cl::tip(where_, &heading);
+                    let cue = ui.add(
+                        egui::TextEdit::singleline(&mut beat.cue)
+                            .hint_text("What you'll say")
+                            .desired_width((row_w - 150.0) * 0.6),
+                    );
+                    let note_field = ui.add(
+                        egui::TextEdit::singleline(&mut note)
+                            .hint_text("How to say it (optional)")
+                            .desired_width(f32::INFINITY),
+                    );
+                    (cue, note_field)
+                })
+                .inner
+            } else {
+                ui.label(small(&heading));
+                let cue = ui.add(
+                    egui::TextEdit::singleline(&mut beat.cue)
+                        .hint_text("What you'll say")
+                        .desired_width(f32::INFINITY),
+                );
+                let note_field = ui.add(
+                    egui::TextEdit::singleline(&mut note)
+                        .hint_text("How to say it (optional)")
+                        .desired_width(f32::INFINITY),
+                );
+                (cue, note_field)
+            };
+            ui.pilot_track(
+                &cue,
+                NodeMetadata::new(
+                    PilotId::new("editor").child(&PilotKey::new(format!("cue-{i}"))),
+                    egui_pilot_ai::protocol::Role::TextInput,
+                    "What you'll say",
+                ),
+            );
+            edited |= cl::tip(cue, "The line your teleprompter shows here").changed();
+            if cl::tip(note_field, "A reminder of how to say it, shown smaller").changed() {
+                beat.note = (!note.trim().is_empty()).then_some(note);
+                edited = true;
+            }
+            ui.add_space(cl::space::S1);
+        }
+        ui.label(small("Notes for the whole card"));
+        let body = ui.add(
+            egui::TextEdit::multiline(&mut script.body)
+                .desired_rows(3)
+                .desired_width(f32::INFINITY),
+        );
+        edited |= cl::tip(body, "Anything else to remember on this card").changed();
+        if edited {
+            self.write_script(script);
+        }
+        if let Err(e) = &self.script_saved {
+            ui.label(
+                RichText::new(format!("Your words could not be saved: {e}"))
+                    .color(cl::Tone::Coral.color()),
+            );
         }
     }
 
@@ -3034,6 +3358,111 @@ mod tests {
             .join(format!("{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         d
+    }
+
+    /// Three lines, all on the card at the start.
+    fn three_lines() -> dpl_doc::Slide {
+        let mut slide = dpl_doc::Slide::new("title@1");
+        slide.blocks = vec![
+            dpl_doc::Block::text("eyebrow", "Part one"),
+            dpl_doc::Block::text("title", "Hello"),
+            dpl_doc::Block::text("subtitle", "Under it"),
+        ];
+        slide
+    }
+
+    /// RL: putting lines on taps writes `reveals` in tap order, one
+    /// revision each, and Undo takes a tap back.
+    #[test]
+    fn lines_go_on_taps_and_come_back() {
+        let dir = scratch("taps");
+        dpl_doc::save(&dir, &three_lines()).unwrap();
+        let mut ed = Editor::open(&dir, &dir).unwrap();
+        ed.set_tap("subtitle", Some(1));
+        assert_eq!(ed.slide().reveals, ["subtitle"]);
+        ed.set_tap("title", Some(1));
+        assert_eq!(
+            ed.slide().reveals,
+            ["title", "subtitle"],
+            "tap 1 goes first"
+        );
+        ed.set_tap("subtitle", Some(3));
+        assert_eq!(
+            ed.slide().reveals,
+            ["title", "subtitle"],
+            "a tap past the end is the last"
+        );
+        ed.set_tap("title", None);
+        assert_eq!(ed.slide().reveals, ["subtitle"]);
+        assert_eq!(dpl_doc::load(&dir).unwrap().reveals, ["subtitle"], "saved");
+        ed.undo();
+        assert_eq!(ed.slide().reveals, ["title", "subtitle"]);
+        assert_eq!(ed.slide().step_count(), 3);
+    }
+
+    /// RL: taps alone write no script; once words are written the script
+    /// follows the taps, keeping each line's words with its tap.
+    #[test]
+    fn the_script_follows_the_taps_once_it_has_words() {
+        let dir = scratch("script");
+        dpl_doc::save(&dir, &three_lines()).unwrap();
+        let mut ed = Editor::open(&dir, &dir).unwrap();
+        ed.set_tap("subtitle", Some(1));
+        assert!(
+            dpl_doc::script::load_script(&dir).unwrap().is_none(),
+            "no words, no file"
+        );
+        let mut script = dpl_doc::script::follow_reveals(None, ed.slide(), &ed.slide().label());
+        script.beats[1].cue = "And then this".into();
+        ed.write_script(script);
+        ed.set_tap("eyebrow", Some(1));
+        let on_disk = dpl_doc::script::load_script(&dir).unwrap().unwrap();
+        let beats: Vec<(&str, &str)> = on_disk
+            .beats
+            .iter()
+            .map(|b| (b.id.as_str(), b.cue.as_str()))
+            .collect();
+        assert_eq!(
+            beats,
+            [
+                ("setup", ""),
+                ("eyebrow", ""),
+                ("subtitle", "And then this")
+            ]
+        );
+        assert!(dpl_doc::script::parity_issues(ed.slide(), &on_disk)
+            .iter()
+            .all(|i| !i.message.contains("step semantics")));
+    }
+
+    /// The panel draws every line, its taps, the words and the preview at a
+    /// real size without panicking — side by side and stacked.
+    #[test]
+    fn the_on_tap_panel_draws() {
+        let dir = scratch("panel");
+        let mut slide = three_lines();
+        slide.reveals = vec!["subtitle".into()];
+        dpl_doc::save(&dir, &slide).unwrap();
+        let mut ed = Editor::open(&dir, &dir).unwrap();
+        ed.preview = 1;
+        let ctx = egui::Context::default();
+        cl::apply_theme(&ctx);
+        // Wide (side by side) and narrow (stacked).
+        for width in [1280.0, 420.0] {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(width, 800.0),
+                )),
+                ..Default::default()
+            };
+            ctx.run_ui(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| ed.taps_ui(ui));
+            })
+            .textures_delta
+            .clear();
+        }
+        assert_eq!(ed.preview_step(), 1);
     }
 
     #[test]

@@ -230,6 +230,31 @@ pub fn render_thumbnail(
     )
 }
 
+/// A MINIATURE at a beat (RL): what the card shows after `step` taps — the
+/// On tap panel's preview, sized like every thumbnail.
+pub fn render_thumbnail_step(
+    ui: &mut Ui,
+    rect: Rect,
+    slide: &dpl_doc::Slide,
+    styling: &dpl_doc::Styling,
+    step: usize,
+    now: f64,
+    t0: f64,
+) -> RenderMap {
+    render_inner(
+        ui,
+        rect,
+        slide,
+        styling,
+        Playhead {
+            step: Some(step),
+            now,
+            t0,
+            stage: Stage::Thumbnail,
+        },
+    )
+}
+
 /// Render AND return where every block landed (for the editor's hit-test).
 /// Wall mode: every block visible, the entrance staggers them all.
 pub fn render_traced(

@@ -447,7 +447,7 @@ impl Hub for WorkbenchHub {
         } else if route.sub == EDITOR {
             self.editor_surface(ui);
         } else if route.sub == LESSONS {
-            self.lessons.ui(ui);
+            self.lessons.ui(ui, &self.fabric);
         } else if route.sub == EPISODES {
             self.episodes_surface(ui);
         } else if route.sub == STUDIO {
@@ -484,6 +484,8 @@ struct EpisodeRow {
 
 struct EpisodeView {
     id: String,
+    /// The episode's folder — what Run runs (RL).
+    dir: std::path::PathBuf,
     title: String,
     rows: Vec<EpisodeRow>,
     issues: Vec<dpl_doc::Issue>,
@@ -522,6 +524,7 @@ impl EpisodeView {
         }
         Ok(Self {
             id,
+            dir: dir.to_path_buf(),
             title: shown.title,
             rows,
             issues,
@@ -534,7 +537,7 @@ impl WorkbenchHub {
     /// order (chapter headers + each slide live). Read-only gallery gate.
     fn episodes_surface(&mut self, ui: &mut egui::Ui) {
         if let Some(view) = self.episode_view.as_mut() {
-            let back = ui
+            let (back, run) = ui
                 .horizontal(|ui| {
                     let b = ui
                         .label(RichText::new("‹ all shows").color(SPEC.tone.color()))
@@ -554,12 +557,43 @@ impl WorkbenchHub {
                             .small()
                             .color(cl::ink::SUBTLE),
                     );
-                    b
+                    // Run (RL): the Present hub shows it full screen.
+                    let run = ui.add(
+                        egui::Button::new(RichText::new("▶ Run").strong().color(SPEC.tone.color()))
+                            .min_size(egui::vec2(96.0, 36.0)),
+                    );
+                    ui.pilot_track(
+                        &run,
+                        NodeMetadata::new(
+                            PilotId::new("workbench.episodes").child(&PilotKey::new("run")),
+                            egui_pilot_ai::protocol::Role::Button,
+                            "Run this episode",
+                        ),
+                    );
+                    let run = cl::tip(
+                        run,
+                        "Show this episode full screen, with your script on the other screen",
+                    );
+                    (b, run.clicked())
                 })
                 .inner;
             if back.clicked() {
                 self.episode_view = None;
                 return;
+            }
+            if run {
+                if let Some(fabric) = &self.fabric {
+                    fabric.publish_deck_command(dpl_fabric::DeckCommand::Run {
+                        target: dpl_fabric::RunTarget::Episode(view.dir.clone()),
+                        start: 0,
+                    });
+                    fabric.publish_shell(dpl_fabric::ShellEvent::NavigateRequest {
+                        route: Route {
+                            hub: dpl_hub::HubId("present"),
+                            sub: dpl_hub::SubId("shows"),
+                        },
+                    });
+                }
             }
             for issue in &view.issues {
                 ui.label(

@@ -50,7 +50,7 @@ refreshed without touching content. The research is
 | LS4a | The component engine (R287, ruled 2026-10-24: the render tree, phased; props; shots before merge; three styling levels): a component's layout is data in its contract — slots in reading order with their size, ink, font and tracking, an alignment fixed or from a variant axis, per-variant adjustments, and decorations painted in the card's colour (a card, a mark, a slot pinned to the top, a rule, where the column sits); title, section, quote, big number, callout and media drawn by it everywhere, the gallery included; the card's colour painted at last; props on a slide; the editor's Layout row; Layout for one lesson only on the Lessons page | **done** (#291) |
 | LS4b | Lists and data: agenda, features, timeline, split, compare, stats, code and the infographics painted; list items selectable | |
 | LS4c | Interactive components as node trees and recipes, with touch sub-events | |
-| RL | Run a lesson (R287): Run mode — slides full screen on the big screen, the script as a teleprompter, tap anywhere to advance, the presenter able to drive; then the Beats tab and the script editor | **approved** 2026-10-25 (one pass) — `docs/plans/run-a-lesson.md` |
+| RL | Run a lesson (R287, ruled 2026-10-25, one pass): **Run** a lesson (the Lessons page, or from a card) or an episode (the episode wall, the Present hub) — locked, the pinned cards, the slides OS full screen and the presenter opening at once in its own window; touch for the big screen (tap anywhere for the next beat, the left edge back, swipe, long press for the navigator); the presenter drives (big Back / Next, tap a beat to jump, Swap screens); window places kept per machine. **On tap** (the card sheet's tab, and the Lessons editor): each line at the start or on a tap, the teleprompter's words per tap written to the card's `script.mdx` as you type, a preview at any tap; each lesson card says "1 tap · script". `--run-lesson <id>` | **done** (#296) |
 | ST | Portable, linked storage (R287, R288): a library with the program or linked on a drive, recognised on any letter, a Disconnected screen that reconnects by itself, linked video folders (Locations), per-account `.userdata` / `.aidata` | **approved** 2026-10-25, reach signed off (R289) — `docs/plans/portable-storage.md` |
 | EX | Export a player (R288, ruled 2026-10-24): one folder — the player, the lesson, its videos copied in — that opens straight into Run mode; after LS4c | ruled direction — `docs/plans/export-player.md` |
 | LS4d | Your own templates ("save it as my template") | |
@@ -211,8 +211,9 @@ release) are still to come.
 
 1. **LS4a** (#291): the operator looks at the before/after shots
    (`docs/proof/ls4a-*.png`), then it merges on double-green.
-2. **Run a lesson** (RL), approved 2026-10-25 as one pass:
-   `docs/plans/run-a-lesson.md`.
+2. **Run a lesson** (RL): done (#296). Owed on the operator's own setup:
+   the slides on the 75″ and the script on the laptop, Swap screens, touch
+   to advance.
 3. **Portable, linked storage** (ST), approved 2026-10-25, reach signed off:
    `docs/plans/portable-storage.md`.
 4. **LS4b** (lists and data) → **LS4c** (the gestures: drag to connect,

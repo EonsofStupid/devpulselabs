@@ -194,6 +194,34 @@ arguments = ["--route", "workbench/lessons", "--window", "1100x700", "--mood", "
 [fixtures.lessons-ls4a-1100.environment]
 CONTENT_ROOT = "target/eguipilotai/ls4a/content"
 
+# RL: run a lesson — make the taps and words (`rl-make`), then run it
+# (`rl-run`), in that order, over a scratch content root. Clear
+# `target/eguipilotai/rl/content` first; the `-1100` pair: `rl-make` (fresh),
+# then `rl-run-1100`; `rl-make-1100` runs alone.
+[fixtures.author-rl]
+arguments = ["--route", "workbench/author", "--author-container", "lesson", "--mood", "0"]
+
+[fixtures.author-rl.environment]
+CONTENT_ROOT = "target/eguipilotai/rl/content"
+
+[fixtures.author-rl-1100]
+arguments = ["--route", "workbench/author", "--author-container", "lesson", "--window", "1100x700", "--mood", "0"]
+
+[fixtures.author-rl-1100.environment]
+CONTENT_ROOT = "target/eguipilotai/rl/content"
+
+[fixtures.lessons-rl]
+arguments = ["--route", "workbench/lessons", "--mood", "0"]
+
+[fixtures.lessons-rl.environment]
+CONTENT_ROOT = "target/eguipilotai/rl/content"
+
+[fixtures.lessons-rl-1100]
+arguments = ["--route", "workbench/lessons", "--window", "1100x700", "--mood", "0"]
+
+[fixtures.lessons-rl-1100.environment]
+CONTENT_ROOT = "target/eguipilotai/rl/content"
+
 # LS3b2: moving an old-shape show into the library, over a scratch content
 # root that holds a hand-made copy of the seed folder as
 # `devpulse-news/ep1` (never the operator's content). Make it fresh before

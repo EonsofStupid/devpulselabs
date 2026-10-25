@@ -146,6 +146,84 @@ impl Shown {
     }
 }
 
+/// What a run shows (RL, ruled 2026-10-25 "Both"): an episode folder, or
+/// one lesson from the library.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Showing {
+    Episode(PathBuf),
+    /// A lesson's id.
+    Lesson(String),
+}
+
+impl Showing {
+    /// The one walk, over whichever it is.
+    pub fn shown(&self, content_root: &Path) -> Result<Shown, DocError> {
+        match self {
+            Showing::Episode(dir) => shows(dir, content_root),
+            Showing::Lesson(id) => lesson_shown(id, content_root),
+        }
+    }
+}
+
+/// The walk's running state: each card's position, and what could not be
+/// shown.
+#[derive(Default)]
+struct Walk {
+    index: usize,
+    issues: Vec<Issue>,
+}
+
+impl Walk {
+    /// One card in walk order: its script, its name, its position.
+    fn card(&mut self, slide: Result<Slide, String>, key: String, at: PathBuf) -> ShownCard {
+        if let Err(e) = &slide {
+            self.issues.push(Issue {
+                path: key.clone(),
+                message: format!("card does not load: {e}"),
+            });
+        }
+        let script = match script::load_script(&at) {
+            Ok(script) => script,
+            Err(e) => {
+                self.issues.push(Issue {
+                    path: format!("{key} → script"),
+                    message: e,
+                });
+                None
+            }
+        };
+        let label = match &slide {
+            Ok(slide) => slide.label(),
+            Err(_) => format!("{key} — will not load"),
+        };
+        let shown = ShownCard {
+            key,
+            label,
+            slide,
+            dir: at,
+            script,
+            index: self.index,
+        };
+        self.index += 1;
+        shown
+    }
+
+    /// A lesson as one chapter: each use at its pin, from the library card.
+    fn lesson(&mut self, found: Lesson, content_root: &Path) -> ShownChapter {
+        let mut cards = Vec::new();
+        for use_ in &found.uses {
+            let slide = lesson::load_use(content_root, use_).map_err(|e| e.to_string());
+            let card_dir = crate::library_slide_dir(content_root, &use_.slide.id);
+            cards.push(self.card(slide, use_.key.clone(), card_dir));
+        }
+        ShownChapter {
+            id: found.id,
+            title: found.title,
+            cards,
+        }
+    }
+}
+
 /// THE walk: an episode folder as every surface shows it — its chapters,
 /// each card at the version shown (a lesson's pin, or a template's folder),
 /// and its theme. Lessons are found in `content_root`'s library. Fails only
@@ -154,41 +232,7 @@ impl Shown {
 /// load stays in its place as an error.
 pub fn shows(dir: &Path, content_root: &Path) -> Result<Shown, DocError> {
     let opened = open(dir)?;
-    let mut issues = Vec::new();
-    let mut index = 0;
-    let mut card =
-        |slide: Result<Slide, String>, key: String, at: PathBuf, issues: &mut Vec<Issue>| {
-            if let Err(e) = &slide {
-                issues.push(Issue {
-                    path: key.clone(),
-                    message: format!("card does not load: {e}"),
-                });
-            }
-            let script = match script::load_script(&at) {
-                Ok(script) => script,
-                Err(e) => {
-                    issues.push(Issue {
-                        path: format!("{key} → script"),
-                        message: e,
-                    });
-                    None
-                }
-            };
-            let label = match &slide {
-                Ok(slide) => slide.label(),
-                Err(_) => format!("{key} — will not load"),
-            };
-            let shown = ShownCard {
-                key,
-                label,
-                slide,
-                dir: at,
-                script,
-                index,
-            };
-            index += 1;
-            shown
-        };
+    let mut walk = Walk::default();
     let mut chapters = Vec::new();
     let title = match opened {
         Opened::Template(ep) => {
@@ -197,7 +241,7 @@ pub fn shows(dir: &Path, content_root: &Path) -> Result<Shown, DocError> {
                 for name in &chapter.slides {
                     let at = dir.join(name);
                     let slide = crate::load(&at).map_err(|e| e.to_string());
-                    cards.push(card(slide, name.clone(), at, &mut issues));
+                    cards.push(walk.card(slide, name.clone(), at));
                 }
                 chapters.push(ShownChapter {
                     id: chapter.id.clone(),
@@ -209,27 +253,16 @@ pub fn shows(dir: &Path, content_root: &Path) -> Result<Shown, DocError> {
         }
         Opened::Lessons(ep) => {
             for (i, lesson_ref) in ep.lessons.iter().enumerate() {
-                let at = format!("lessons[{i}]");
                 let Ok(found) =
                     lesson::load_lesson(&lesson::lesson_dir(content_root, &lesson_ref.id))
                 else {
-                    issues.push(Issue {
-                        path: at,
+                    walk.issues.push(Issue {
+                        path: format!("lessons[{i}]"),
                         message: format!("lesson {} is not in your library", lesson_ref.id),
                     });
                     continue;
                 };
-                let mut cards = Vec::new();
-                for use_ in &found.uses {
-                    let slide = lesson::load_use(content_root, use_).map_err(|e| e.to_string());
-                    let card_dir = crate::library_slide_dir(content_root, &use_.slide.id);
-                    cards.push(card(slide, use_.key.clone(), card_dir, &mut issues));
-                }
-                chapters.push(ShownChapter {
-                    id: found.id,
-                    title: found.title,
-                    cards,
-                });
+                chapters.push(walk.lesson(found, content_root));
             }
             ep.title
         }
@@ -238,7 +271,23 @@ pub fn shows(dir: &Path, content_root: &Path) -> Result<Shown, DocError> {
         title,
         theme: theme(dir),
         chapters,
-        issues,
+        issues: walk.issues,
+    })
+}
+
+/// One lesson as every surface shows it (RL): a single chapter — each use
+/// at its pin, its own layout choices applied — in the fallback theme (a
+/// lesson has none of its own). Fails only when the lesson cannot be read.
+pub fn lesson_shown(id: &str, content_root: &Path) -> Result<Shown, DocError> {
+    let found = lesson::load_lesson(&lesson::lesson_dir(content_root, id))?;
+    let title = found.title.clone();
+    let mut walk = Walk::default();
+    let chapter = walk.lesson(found, content_root);
+    Ok(Shown {
+        title,
+        theme: Theme::fallback(),
+        chapters: vec![chapter],
+        issues: walk.issues,
     })
 }
 
@@ -526,6 +575,44 @@ mod tests {
             shown.cards().next().unwrap().dir,
             crate::library_slide_dir(&root, &a.id)
         );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A lesson runs on its own (RL): the same walk as inside an episode —
+    /// one chapter, each card at its pin, its scripts — in the fallback
+    /// theme; an unknown lesson is an error, not an empty show.
+    #[test]
+    fn a_lesson_shows_like_its_chapter_in_an_episode() {
+        let root = scratch("lesson");
+        let a = card(&root, "First");
+        let b = card(&root, "Second");
+        let (dir, ep) = built(&root, &[("Intro", &[&a, &b])]);
+        std::fs::write(
+            crate::library_slide_dir(&root, &b.id).join(script::SCRIPT_FILE),
+            "---\nslideId: x\ntitle: T\nbeats:\n  - id: setup\n    cue: say it\n---\n",
+        )
+        .unwrap();
+        let alone = Showing::Lesson(ep.lessons[0].id.clone())
+            .shown(&root)
+            .unwrap();
+        let inside = Showing::Episode(dir).shown(&root).unwrap();
+        assert_eq!(alone.title, "Intro");
+        assert_eq!(alone.theme, Theme::fallback());
+        assert_eq!(alone.chapters.len(), 1);
+        let keys = |shown: &Shown| -> Vec<(String, String, usize)> {
+            shown
+                .cards()
+                .map(|c| (c.key.clone(), c.label.clone(), c.index))
+                .collect()
+        };
+        assert_eq!(keys(&alone), keys(&inside));
+        assert_eq!(
+            alone.cards().nth(1).unwrap().script.as_ref().unwrap().beats[0].cue,
+            "say it"
+        );
+        assert!(Showing::Lesson("01NOSUCHLESSON".into())
+            .shown(&root)
+            .is_err());
         let _ = std::fs::remove_dir_all(&root);
     }
 

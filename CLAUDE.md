@@ -92,7 +92,7 @@ The tool depot is staged beside it from
   `--screenshot <png> --shot-frame <n> --route <hub/sub> --focus <id>
   --lib-section <slug> --author-editor --author-container <kind>
   --author-draft <n> --card-tab <slug>
-  --window <w>x<h> --mood 0 --viziwiz --viziwiz-snap --present <id>
+  --window <w>x<h> --mood 0 --viziwiz --viziwiz-snap --present <id> --run-lesson <id>
   --presenter-drill <n> --session-drill <s> --steps-hotkey-drill
   --video-drill <s> [--video-format <f>] [--video-audio <mode>] --open-rail <hub>
   --open-episode <e> --open-session <s> --open-replay <rel>

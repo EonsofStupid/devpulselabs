@@ -1124,6 +1124,8 @@ Note: "external plugin" is read as plugging in an external drive (R287's "users 
 - "One per card, shared": the teleprompter script belongs to the card;
 - "Both in one pass": Run, touch, the presenter and the editors land together.
 
+RL (#296) landed it. The Beats tab is the card sheet's **On tap** tab, made real — it was already there in the operator's words ("What happens when someone taps it"). The Lessons page's editor has the same panel.
+
 **Operator rulings 2026-10-25 — portable storage (ST, `docs/plans/portable-storage.md`):**
 - "Everything, as one folder": content, working files, app state and AI data move together;
 - "Local profiles": several, one active at a time;

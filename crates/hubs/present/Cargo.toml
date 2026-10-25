@@ -12,6 +12,8 @@ dpl-doc.workspace = true
 dpl-deck.workspace = true
 dpl-fabric.workspace = true
 dpl-engine-capture.workspace = true
+egui-pilot-ai.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true
