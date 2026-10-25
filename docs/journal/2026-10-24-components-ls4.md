@@ -57,22 +57,45 @@ The operator's rulings (plan §1, §4b):
   `74f7f1d · 2026-10-24 19:06z`).
 - **The portable storage plan** is drafted: `docs/plans/portable-storage.md`
   (untracked, Q1–Q6 open).
+- **LS4a is in draft PR #291** (stacked on #290). Its proof is complete:
+  23/23 LK and LS scenarios re-run on the first try. Shots for the operator
+  are in `docs/proof/ls4a-*.png`.
+- **R288** (the operator, 2026-10-24) sets the destination: an external
+  drive that links videos into slides, and an **exported player**. Ruled
+  the same day: "A folder: player + lesson", "Copied into the export",
+  "After the gestures". New stub `docs/plans/export-player.md`. The run-a-
+  lesson, storage and LS4c plans now name R288.
+- **Run a lesson** is planned: `docs/plans/run-a-lesson.md` (untracked,
+  Q1–Q7 open).
+- **CI fixed** (the operator: "fix whatever is causing it to not be
+  available"):
+  - **#292:** `actions/checkout`'s `git clean -ffdx` deleted `target/`
+    before every run, so the cache now lives outside the checkout.
+  - **#293:** the gate's test phase overrode the linker with a full path.
+    cargo fingerprints the linker, so clippy and tests rebuilt each other's
+    build scripts and proc-macros (`ConfigSettingsChanged`). #293 also adds
+    the data-disk path (`DPL_CI_CACHE_ROOT`, `-DataDisk`, "Scaling a
+    runner").
+  - **The result:** Windows goes from 45–58 min to **6m45s** warm (main
+    after #293: clippy 1, test 14, release 13 compiled). The proof is on
+    #293.
+  - **Still the operator's:** the 150 GB disk on the Proxmox host. This
+    machine can't SSH there (the host key isn't trusted).
+- **Landed:** #286, #287, #288, #289, #292, #293. #290 (LS3b2) was rebased
+  (`f747229`), retargeted to main and marked ready.
+- The LK3 plans and the CI plan are deleted (landed).
 
 ## Exact next step
 
-1. Commit the font/tracked work.
-2. Close the feel-bar gaps before any shot goes to the operator (plan §4c
-   step 8): the quote's tone and mark, the section divider's composition.
-   A gap the stack layout cannot express is recorded in plan §8 as an LS4a
-   trade-off and shown, not hidden.
-3. EguiPilotAI proof of the Layout row and "Just this lesson"; shots at
-   1440×900 and 1100×700 (`--screenshot --shot-frame N` for animated
-   walls).
-4. R287 into `docs/requirements.md`, the status row, plan §8 evidence;
-   push; draft PR stacked on #290.
-
-The landing stack runs alongside: #286 (LK3a) had green-linux pass and
-green-windows pending at 2026-10-24 ~18:30z (poll `b32ojh4v3`).
+1. When #290 is double-green: merge, `git fetch`, then
+   `git rebase --onto origin/main 8cd3d0e feat/ls4a-component-engine`. The
+   `git diff --stat <old tip> HEAD` may show only main's CI files
+   (`green.yml`, `crates/xtask/src/main.rs`, the two runbook files).
+2. Push with `--force-with-lease=feat/ls4a-component-engine:791a9831e73c11246ecca12fad0c45e91404923d`,
+   then `gh pr edit 291 --base main`. Keep it a **draft** until the
+   operator has seen the shots (their ruling Q4).
+3. Rebuild the exe from main after every push.
+4. Delete `docs/plans/lessons-ls3.md` once #290 lands.
 
 ## Landmines
 
@@ -84,11 +107,14 @@ green-windows pending at 2026-10-24 ~18:30z (poll `b32ojh4v3`).
 - **Landing drops** (`git rebase --onto origin/main <old> <branch>`, then
   `git diff --stat <old tip> HEAD` must be empty): LS3a drops `39792a9`,
   LS3b1 `ff1f263`, LS3b2 `2fccd3c`, LS4a `8cd3d0e`.
-- **The lease is the REMOTE tip, not the local one.** Each branch's journal
-  commit was never pushed, so `--force-with-lease=<b>:<sha>` must name what
-  `git ls-remote` shows: LS3a `e729575`, LS3b1 `208a41d`, LS3b2 `0164055`.
-  A wrong lease is refused as "stale info" only after the whole gate has
-  run (this cost one gate on LK3b).
+- **The lease is the REMOTE tip, as a FULL sha.** `--force-with-lease=<b>:<sha>`
+  must name exactly what `git ls-remote` shows. A wrong or guessed lease is
+  refused as "stale info" only after the whole gate has run (this cost one
+  gate on LK3b). LS4a's is `791a9831e73c11246ecca12fad0c45e91404923d`.
+- **Never pipe a push through `head`.** It kills the gate mid-run.
+- **A parallel `platform_devpulse` run-dev kills every `xtask.exe`** on the
+  machine at startup. A silent exit-1 gate means checking the process list
+  (`Get-CimInstance Win32_Process`, by CreationDate) and pushing again.
 - **EguiPilotAI** overrides the frame clock when it injects actions, so
   animated walls can stay blank — prove those with `--screenshot`. It
   drops clicks now and then (re-run from a cleared scratch root), cannot
