@@ -50,8 +50,8 @@ refreshed without touching content. The research is
 | LS4a | The component engine (R287, ruled 2026-10-24: the render tree, phased; props; shots before merge; three styling levels): a component's layout is data in its contract — slots in reading order with their size, ink, font and tracking, an alignment fixed or from a variant axis, per-variant adjustments, and decorations painted in the card's colour (a card, a mark, a slot pinned to the top, a rule, where the column sits); title, section, quote, big number, callout and media drawn by it everywhere, the gallery included; the card's colour painted at last; props on a slide; the editor's Layout row; Layout for one lesson only on the Lessons page | **draft PR #291** — the shots go to the operator before it merges (their ruling, Q4) |
 | LS4b | Lists and data: agenda, features, timeline, split, compare, stats, code and the infographics painted; list items selectable | |
 | LS4c | Interactive components as node trees and recipes, with touch sub-events | |
-| RL | Run a lesson (R287): Run mode — slides full screen on the big screen, the script as a teleprompter, tap anywhere to advance, the presenter able to drive; then the Beats tab and the script editor | planned — `docs/plans/run-a-lesson.md` (Q1–Q7 open) |
-| ST | Portable, linked storage (R287, R288): a library with the program or linked on a drive, recognised on any letter, a Disconnected screen that reconnects by itself, linked video folders (Locations), per-account `.userdata` / `.aidata` | planned — `docs/plans/portable-storage.md` (Q1–Q6 open) |
+| RL | Run a lesson (R287): Run mode — slides full screen on the big screen, the script as a teleprompter, tap anywhere to advance, the presenter able to drive; then the Beats tab and the script editor | **approved** 2026-10-25 (one pass) — `docs/plans/run-a-lesson.md` |
+| ST | Portable, linked storage (R287, R288): a library with the program or linked on a drive, recognised on any letter, a Disconnected screen that reconnects by itself, linked video folders (Locations), per-account `.userdata` / `.aidata` | **approved** 2026-10-25, reach signed off (R289) — `docs/plans/portable-storage.md` |
 | EX | Export a player (R288, ruled 2026-10-24): one folder — the player, the lesson, its videos copied in — that opens straight into Run mode; after LS4c | ruled direction — `docs/plans/export-player.md` |
 | LS4d | Your own templates ("save it as my template") | |
 | LS5 | Render locks for exports; Lottie slots | |
@@ -209,10 +209,10 @@ release) are still to come.
 
 1. **LS4a** (#291): the operator looks at the before/after shots
    (`docs/proof/ls4a-*.png`), then it merges on double-green.
-2. **Run a lesson** (RL): `docs/plans/run-a-lesson.md`, Q1–Q7 for the
-   operator.
-3. **Portable, linked storage** (ST): `docs/plans/portable-storage.md`,
-   Q1–Q6 and the reach outside the repo for sign-off.
+2. **Run a lesson** (RL), approved 2026-10-25 as one pass:
+   `docs/plans/run-a-lesson.md`.
+3. **Portable, linked storage** (ST), approved 2026-10-25, reach signed off:
+   `docs/plans/portable-storage.md`.
 4. **LS4b** (lists and data) → **LS4c** (the gestures: drag to connect,
    slide away to reveal) → **EX** (export a player,
    `docs/plans/export-player.md`) → **LS4d** (your templates), then LS5 and
