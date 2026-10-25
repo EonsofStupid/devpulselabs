@@ -52,26 +52,25 @@ struct Presenter {
 }
 
 impl Presenter {
-    fn open(dir: &Path, rx: DeckReceiver) -> Result<Self, String> {
-        let ep = dpl_doc::load_episode(dir).map_err(|e| e.to_string())?;
-        let mut rows = Vec::new();
-        for r in dpl_doc::episode_slides(dir, &ep) {
-            let steps = dpl_doc::load(&r.dir).map(|s| s.step_count()).unwrap_or(1);
-            // A broken script never blocks the prompter — the doctor
-            // (validate_episode) names it; here it reads as "no script".
-            let script = dpl_doc::script::load_script(&r.dir).ok().flatten();
-            rows.push(PrompterSlide {
-                name: r.name,
-                steps,
-                script,
-            });
-        }
+    fn open(dir: &Path, content_root: &Path, rx: DeckReceiver) -> Result<Self, String> {
+        let shown = dpl_doc::episode::shows(dir, content_root).map_err(|e| e.to_string())?;
+        // The same walk as the deck, so beat N here is beat N there. A
+        // broken script never blocks the prompter — the doctor names it;
+        // here it reads as "no script".
+        let rows: Vec<PrompterSlide> = shown
+            .cards()
+            .map(|card| PrompterSlide {
+                name: card.label.clone(),
+                steps: card.slide.as_ref().map(|s| s.step_count()).unwrap_or(1),
+                script: card.script.clone(),
+            })
+            .collect();
         if rows.is_empty() {
             return Err("the episode has no slides".into());
         }
         Ok(Self {
             rx,
-            episode_title: ep.title,
+            episode_title: shown.title,
             rows,
             index: 0,
             step: 0,
@@ -285,7 +284,7 @@ impl PresentHub {
         // Subscribe FIRST, then ask for the snapshot — a receiver only
         // hears traffic after it subscribes.
         let rx = self.fabric.subscribe_deck();
-        match Presenter::open(&dir, rx) {
+        match Presenter::open(&dir, &dpl_engine_capture::content_root(), rx) {
             Ok(p) => {
                 self.presenter = Some(p);
                 if let Some(deck) = &self.deck {
@@ -297,8 +296,9 @@ impl PresentHub {
     }
 
     fn open_dir(&mut self, dir: &std::path::Path) {
-        let looks = dpl_doc::Looks::load(&dpl_engine_capture::content_root());
-        match dpl_deck::DeckHost::open(dir, looks) {
+        let root = dpl_engine_capture::content_root();
+        let looks = dpl_doc::Looks::load(&root);
+        match dpl_deck::DeckHost::open(dir, &root, looks) {
             Ok(mut host) => {
                 host.wire_fabric(self.fabric.clone());
                 self.deck = Some(host);
@@ -339,13 +339,14 @@ impl PresentHub {
             .show(ui, |ui| {
                 // The union (X3): the operator's content shows FIRST,
                 // then the seed templates, labelled as such.
-                for entry in dpl_doc::all_episodes(&dpl_engine_capture::content_root()) {
-                    let (title, count) = match dpl_doc::load_episode(&entry.dir) {
-                        Ok(ep) => {
-                            let n = dpl_doc::episode_slides(&entry.dir, &ep).len();
-                            (ep.title, n)
+                let root = dpl_engine_capture::content_root();
+                for entry in dpl_doc::all_episodes(&root) {
+                    let (title, count) = match dpl_doc::episode::summary(&entry.dir, &root) {
+                        Some(summary) => {
+                            let n = summary.cards();
+                            (summary.title, n)
                         }
-                        Err(_) => (entry.id.clone(), 0),
+                        None => (entry.id.clone(), 0),
                     };
                     let badge = match &entry.show {
                         Some(show) => format!("{show}/{}", entry.id),
@@ -488,9 +489,11 @@ mod tests {
     fn the_presenter_follows_the_deck_over_the_fabric() {
         let dir = scratch("sync");
         let fabric = Fabric::new();
-        let mut deck = dpl_deck::DeckHost::open(&dir, dpl_doc::Looks::builtin_only()).unwrap();
+        let mut deck =
+            dpl_deck::DeckHost::open(&dir, Path::new("/nowhere"), dpl_doc::Looks::builtin_only())
+                .unwrap();
         deck.wire_fabric(fabric.clone());
-        let mut p = Presenter::open(&dir, fabric.subscribe_deck()).unwrap();
+        let mut p = Presenter::open(&dir, Path::new("/nowhere"), fabric.subscribe_deck()).unwrap();
         deck.publish_position();
         p.drain();
         assert_eq!((p.index, p.step), (0, 0));
@@ -509,15 +512,16 @@ mod tests {
     fn up_next_walks_beats_then_slides_then_ends_honestly() {
         let dir = scratch("upnext");
         let fabric = Fabric::new();
-        let mut p = Presenter::open(&dir, fabric.subscribe_deck()).unwrap();
-        // At a/setup: next is b's opening cue (a has one step).
-        assert_eq!(p.up_next(), "b \u{2014} set it up");
+        let mut p = Presenter::open(&dir, Path::new("/nowhere"), fabric.subscribe_deck()).unwrap();
+        // At a/setup: next is b's opening cue (a has one step), b named by
+        // its own words.
+        assert_eq!(p.up_next(), "slide b \u{2014} set it up");
         // At b/setup: the next beat on the SAME slide.
         (p.index, p.step) = (1, 0);
         assert_eq!(p.up_next(), "sub \u{2014} land the reveal");
         // At b/sub: c follows, unscripted - its name, honestly.
         (p.index, p.step) = (1, 1);
-        assert_eq!(p.up_next(), "c");
+        assert_eq!(p.up_next(), "slide c");
         // At c: nothing follows.
         (p.index, p.step) = (2, 0);
         assert_eq!(p.up_next(), "end of show");

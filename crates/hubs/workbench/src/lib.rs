@@ -122,6 +122,15 @@ pub struct WorkbenchHub {
     focus: Option<String>,
     /// The open editor (EDITOR subroute) — None shows the seed picker.
     editor: Option<dpl_editor::Editor>,
+    /// The editor picker's cards, read when the page opens and after each
+    /// edit — never per frame (each episode is walked card by card).
+    picker: Option<Vec<PickerGroup>>,
+    /// The episode built from lessons the open card was picked from, its
+    /// title, and the card's revision when it opened: on the way back the
+    /// episode takes the change (LS3b).
+    editing_from: Option<(PathBuf, String, u32)>,
+    /// What the last edit made from an episode did, in words.
+    picker_note: Option<String>,
     /// The LESSONS subroute (LS3a) — your lessons and the one open.
     lessons: lessons::Lessons,
     /// The episode-wall's live slide docs, loaded once per episode open.
@@ -456,7 +465,9 @@ impl Hub for WorkbenchHub {
 struct EpisodeRow {
     head: Option<String>,
     name: String,
-    doc: DocSlide,
+    /// The card, live — or why it will not load (the row says so; the rest
+    /// of the episode still shows).
+    doc: Result<DocSlide, String>,
     script: Option<String>,
 }
 
@@ -468,47 +479,39 @@ struct EpisodeView {
 }
 
 impl EpisodeView {
+    /// Read through the one episode walk (LS3b): an episode built from
+    /// lessons and a seed template show alike, every card in the episode's
+    /// own theme.
     fn open(dir: &std::path::Path, id: String) -> Result<Self, String> {
-        let ep = dpl_doc::load_episode(dir).map_err(|e| e.to_string())?;
-        let issues = dpl_doc::validate_episode(dir, &ep);
-        // The show's authored theme (W3b) and the looks (LK2) — every
-        // slide resolves through them.
-        let looks = dpl_doc::Looks::load(&dpl_engine_capture::content_root());
-        let theme = dpl_doc::load_theme(dir)
-            .ok()
-            .flatten()
-            .unwrap_or_else(dpl_doc::Theme::fallback);
+        let root = dpl_engine_capture::content_root();
+        let shown = dpl_doc::episode::shows(dir, &root).map_err(|e| e.to_string())?;
+        let issues = dpl_doc::episode::doctor(dir, &root);
+        let looks = dpl_doc::Looks::load(&root);
         let mut rows = Vec::new();
-        for chapter in &ep.chapters {
-            for (i, name) in chapter.slides.iter().enumerate() {
-                let head = (i == 0).then(|| chapter.title.clone());
-                let slide_dir = dir.join(name);
-                let doc = dpl_doc::load(&slide_dir)
-                    .map(|s| {
+        for chapter in &shown.chapters {
+            for (i, card) in chapter.cards.iter().enumerate() {
+                rows.push(EpisodeRow {
+                    head: (i == 0).then(|| chapter.title.clone()),
+                    name: card.label.clone(),
+                    doc: card.slide.clone().map(|slide| {
                         DocSlide::styled(
-                            s,
+                            slide,
                             dpl_doc::Styling {
-                                theme: theme.clone(),
+                                theme: shown.theme.clone(),
                                 looks: looks.clone(),
                             },
                         )
-                    })
-                    .map_err(|e| e.to_string())?;
-                let script = dpl_doc::script::load_script(&slide_dir)
-                    .ok()
-                    .flatten()
-                    .map(|s| format!("script · {} beats", s.beats.len()));
-                rows.push(EpisodeRow {
-                    head,
-                    name: name.clone(),
-                    doc,
-                    script,
+                    }),
+                    script: card
+                        .script
+                        .as_ref()
+                        .map(|s| format!("script · {} beats", s.beats.len())),
                 });
             }
         }
         Ok(Self {
             id,
-            title: ep.title,
+            title: shown.title,
             rows,
             issues,
         })
@@ -592,7 +595,18 @@ impl WorkbenchHub {
                         );
                         ui.painter()
                             .rect_filled(stage, cl::RADIUS, cl::surface::WELL);
-                        row.doc.ui(ui, stage.shrink(2.0));
+                        match &mut row.doc {
+                            Ok(doc) => doc.ui(ui, stage.shrink(2.0)),
+                            Err(e) => {
+                                ui.painter().text(
+                                    stage.center(),
+                                    egui::Align2::CENTER_CENTER,
+                                    format!("this card will not load — {e}"),
+                                    egui::FontId::proportional(cl::Fluid::of(stage).fs_body_sm()),
+                                    cl::ink::MUTED,
+                                );
+                            }
+                        }
                         ui.painter().rect_stroke(
                             stage,
                             cl::RADIUS,
@@ -628,9 +642,8 @@ impl WorkbenchHub {
             .show(ui, |ui| {
                 // The union (X3): content shows first, templates after.
                 for entry in dpl_doc::all_episodes(&content_root) {
-                    let title = dpl_doc::load_episode(&entry.dir)
-                        .map(|e| e.title)
-                        .unwrap_or_else(|_| entry.id.clone());
+                    let title = dpl_doc::episode::summary(&entry.dir, &content_root)
+                        .map_or_else(|| entry.id.clone(), |e| e.title);
                     let badge = match &entry.show {
                         Some(show) => format!("{show}/{}", entry.id),
                         None => format!("template · {}", entry.id),
@@ -653,27 +666,6 @@ impl WorkbenchHub {
                                             .small()
                                             .color(cl::ink::SUBTLE),
                                     );
-                                    if is_template {
-                                        let chip = ui
-                                            .label(
-                                                RichText::new("copy to my shows")
-                                                    .small()
-                                                    .color(cl::Tone::Amber.color()),
-                                            )
-                                            .interact(egui::Sense::click());
-                                        ui.pilot_track(
-                                            &chip,
-                                            NodeMetadata::new(
-                                                PilotId::new("workbench.episodes.copy")
-                                                    .child(&PilotKey::new(&entry.id)),
-                                                egui_pilot_ai::protocol::Role::Button,
-                                                "copy to my shows",
-                                            ),
-                                        );
-                                        if chip.clicked() {
-                                            copy_clicked = true;
-                                        }
-                                    }
                                 },
                             );
                         });
@@ -693,6 +685,31 @@ impl WorkbenchHub {
                             "show"
                         }),
                     );
+                    // Its own control under the card: inside it, the card's
+                    // own tap target sat on top and swallowed every tap.
+                    if is_template {
+                        let chip = cl::tip(
+                            controls::control(
+                                ui,
+                                "Copy into my shows",
+                                false,
+                                cl::Tone::Amber,
+                                controls::Weight::Chrome,
+                            ),
+                            "Make your own episode from this template: each chapter becomes a \
+                             lesson, each slide your own card",
+                        );
+                        ui.pilot_track(
+                            &chip,
+                            NodeMetadata::new(
+                                PilotId::new("workbench.episodes.copy")
+                                    .child(&PilotKey::new(&entry.id)),
+                                egui_pilot_ai::protocol::Role::Button,
+                                "Copy into my shows",
+                            ),
+                        );
+                        copy_clicked = chip.clicked();
+                    }
                     if copy_clicked {
                         clone_from = Some((entry.id.clone(), entry.dir.clone()));
                     } else if card.clicked() {
@@ -727,6 +744,9 @@ impl WorkbenchHub {
         let form = self.clone_form.as_mut()?;
         let content_root = dpl_engine_capture::content_root();
         let mut done = false;
+        // The episode just made, opened straight away (LS3b).
+        let mut made: Option<(PathBuf, String)> = None;
+        let node = |key: &str| PilotId::new("workbench.episodes.clone").child(&PilotKey::new(key));
         cl::card_frame().show(ui, |ui| {
             ui.set_width(ui.available_width().min(560.0));
             ui.label(
@@ -758,9 +778,34 @@ impl WorkbenchHub {
             });
             ui.horizontal(|ui| {
                 ui.label(RichText::new("show").small().color(cl::ink::SUBTLE));
-                ui.add(egui::TextEdit::singleline(&mut form.show).desired_width(200.0));
+                let show = ui.add(egui::TextEdit::singleline(&mut form.show).desired_width(200.0));
+                ui.pilot_track(
+                    &show,
+                    NodeMetadata::new(
+                        node("show"),
+                        egui_pilot_ai::protocol::Role::TextInput,
+                        "show",
+                    ),
+                );
+                cl::tip(
+                    show,
+                    "Which show it goes under — lower-case words joined by dashes",
+                );
                 ui.label(RichText::new("episode").small().color(cl::ink::SUBTLE));
-                ui.add(egui::TextEdit::singleline(&mut form.episode).desired_width(200.0));
+                let episode =
+                    ui.add(egui::TextEdit::singleline(&mut form.episode).desired_width(200.0));
+                ui.pilot_track(
+                    &episode,
+                    NodeMetadata::new(
+                        node("episode"),
+                        egui_pilot_ai::protocol::Role::TextInput,
+                        "episode",
+                    ),
+                );
+                cl::tip(
+                    episode,
+                    "The episode's folder name — lower-case words joined by dashes",
+                );
             });
             if let Some(e) = &form.error {
                 ui.label(RichText::new(e).small().color(cl::Tone::Coral.color()));
@@ -769,9 +814,30 @@ impl WorkbenchHub {
                 let create = ui
                     .label(RichText::new("create").color(SPEC.tone.color()))
                     .interact(egui::Sense::click());
+                ui.pilot_track(
+                    &create,
+                    NodeMetadata::new(
+                        node("create"),
+                        egui_pilot_ai::protocol::Role::Button,
+                        "create",
+                    ),
+                );
+                let create = cl::tip(
+                    create,
+                    "Make the episode: each chapter becomes a lesson, each slide your own card",
+                );
                 let cancel = ui
                     .label(RichText::new("cancel").color(cl::ink::MUTED))
                     .interact(egui::Sense::click());
+                ui.pilot_track(
+                    &cancel,
+                    NodeMetadata::new(
+                        node("cancel"),
+                        egui_pilot_ai::protocol::Role::Button,
+                        "cancel",
+                    ),
+                );
+                let cancel = cl::tip(cancel, "Don't copy it");
                 if create.clicked() {
                     match dpl_doc::clone_episode(
                         &form.seed_dir,
@@ -779,7 +845,10 @@ impl WorkbenchHub {
                         form.show.trim(),
                         form.episode.trim(),
                     ) {
-                        Ok(_) => done = true,
+                        Ok(dest) => {
+                            made = Some((dest, form.episode.trim().to_owned()));
+                            done = true;
+                        }
                         Err(e) => form.error = Some(e),
                     }
                 }
@@ -789,12 +858,25 @@ impl WorkbenchHub {
             });
         });
         ui.add_space(cl::space::S2);
+        if let Some((dir, id)) = made {
+            match EpisodeView::open(&dir, id) {
+                Ok(view) => self.episode_view = Some(view),
+                Err(e) => {
+                    ui.label(
+                        RichText::new(format!("made it, but it could not open: {e}"))
+                            .small()
+                            .color(cl::ink::MUTED),
+                    );
+                }
+            }
+        }
         Some(done)
     }
 
-    /// The EDITOR subroute: a seed picker until one is opened, then the
+    /// The EDITOR subroute: a picker until a card is opened, then the
     /// tap-to-edit editor. A back chip returns to the picker.
     fn editor_surface(&mut self, ui: &mut egui::Ui) {
+        let root = dpl_engine_capture::content_root();
         if self.editor.is_some() {
             let back = ui
                 .horizontal(|ui| {
@@ -802,8 +884,21 @@ impl WorkbenchHub {
                         .interact(egui::Sense::click())
                 })
                 .inner;
-            if back.clicked() {
-                self.editor = None;
+            ui.pilot_track(
+                &back,
+                NodeMetadata::new(
+                    PilotId::new("workbench.editor").child(&PilotKey::new("back")),
+                    egui_pilot_ai::protocol::Role::Button,
+                    "pick another slide",
+                ),
+            );
+            if cl::tip(
+                back,
+                "Back to the slides — a show you picked from shows your change",
+            )
+            .clicked()
+            {
+                self.close_editor(&root);
                 return;
             }
             if let Some(ed) = self.editor.as_mut() {
@@ -817,76 +912,327 @@ impl WorkbenchHub {
                 .small()
                 .color(cl::ink::SUBTLE),
         );
+        if let Some(note) = &self.picker_note {
+            let line = ui.label(RichText::new(note).small().color(cl::ink::BASE));
+            ui.pilot_track(
+                &line,
+                NodeMetadata::new(
+                    PilotId::new("workbench.editor").child(&PilotKey::new("note")),
+                    egui_pilot_ai::protocol::Role::Status,
+                    note.clone(),
+                ),
+            );
+        }
         ui.add_space(cl::space::S2);
-        let mut open: Option<PathBuf> = None;
-        let picker_card =
-            |ui: &mut egui::Ui, label: &str, open: &mut Option<PathBuf>, dir: PathBuf| {
-                let resp = cl::card_frame().show(ui, |ui| {
-                    ui.set_width(ui.available_width().min(560.0));
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(label).strong().color(cl::ink::STRONG));
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(RichText::new("edit ›").small().color(SPEC.tone.color()));
-                        });
-                    });
-                });
-                if resp.response.interact(egui::Sense::click()).clicked() {
-                    *open = Some(dir);
-                }
-                ui.add_space(cl::space::S2);
-            };
+        let groups = self.picker.get_or_insert_with(|| picker_groups(&root));
+        let mut open: Option<PickerCard> = None;
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                for s in dpl_doc::list_seeds() {
-                    picker_card(ui, &format!("{} · {}", s.class, s.id), &mut open, s.dir);
-                }
-                // The shows (W3b/X3): the seeds+content UNION — episode
-                // slides edit against their show's theme (the editor
-                // detects it from the parent folder), content first.
-                for entry in dpl_doc::all_episodes(&dpl_engine_capture::content_root()) {
-                    let Ok(ep) = dpl_doc::load_episode(&entry.dir) else {
-                        continue;
-                    };
-                    let badge = match &entry.show {
-                        Some(show) => format!("{show}/{}", entry.id),
-                        None => format!("template · {}", entry.id),
-                    };
-                    ui.add_space(cl::space::S3);
-                    ui.label(
-                        RichText::new(ep.title.to_uppercase())
-                            .small()
-                            .color(cl::ink::SUBTLE),
-                    )
-                    .on_hover_text(badge);
-                    for r in dpl_doc::episode_slides(&entry.dir, &ep) {
-                        picker_card(ui, &format!("{} · {}", r.chapter, r.name), &mut open, r.dir);
+                for (g, group) in groups.iter().enumerate() {
+                    if let Some(title) = &group.title {
+                        ui.add_space(cl::space::S3);
+                        ui.label(
+                            RichText::new(title.to_uppercase())
+                                .small()
+                                .color(cl::ink::SUBTLE),
+                        )
+                        .on_hover_text(&group.badge);
+                    }
+                    for (c, card) in group.cards.iter().enumerate() {
+                        let resp = cl::card_frame().show(ui, |ui| {
+                            ui.set_width(ui.available_width().min(560.0));
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    RichText::new(&card.label).strong().color(cl::ink::STRONG),
+                                );
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        let (words, tone) = if card.waiting {
+                                            ("newer version waiting", cl::ink::SUBTLE)
+                                        } else {
+                                            ("edit ›", SPEC.tone.color())
+                                        };
+                                        ui.label(RichText::new(words).small().color(tone));
+                                    },
+                                );
+                            });
+                        });
+                        let resp = resp.response.interact(egui::Sense::click());
+                        ui.pilot_track(
+                            &resp,
+                            NodeMetadata::new(
+                                PilotId::new("workbench.editor.pick")
+                                    .child(&PilotKey::new(format!("{g}/{c}"))),
+                                egui_pilot_ai::protocol::Role::Button,
+                                card.label.clone(),
+                            ),
+                        );
+                        let resp = cl::tip(
+                            resp,
+                            if card.waiting {
+                                "This show still uses an older version of this card — compare \
+                                 and update it on the Lessons page first"
+                            } else {
+                                "Edit this card"
+                            },
+                        );
+                        if resp.clicked() && !card.waiting {
+                            open = Some(card.clone());
+                        }
+                        ui.add_space(cl::space::S2);
                     }
                 }
             });
-        if let Some(dir) = open {
-            // Seeds are read-only starting points (LS2, ruled 2026-10-21):
-            // opening one makes the operator's own copy in the library.
-            let dir = if dpl_doc::is_seed_dir(&dir) {
-                match dpl_doc::fork_into_library(&dir, &dpl_engine_capture::content_root()) {
-                    Ok(copy) => copy,
-                    Err(e) => {
-                        ui.label(
-                            RichText::new(format!("could not copy the starter: {e}"))
-                                .color(cl::ink::MUTED),
-                        );
-                        return;
-                    }
-                }
-            } else {
-                dir
-            };
-            match dpl_editor::Editor::open(&dir, &dpl_engine_capture::content_root()) {
-                Ok(ed) => self.editor = Some(ed),
+        if let Some(card) = open {
+            self.open_picked(card, &root, ui);
+        }
+    }
+
+    /// Open a picked card in the editor, in the theme of the show it was
+    /// picked from. Seeds are read-only starting points (LS2, ruled
+    /// 2026-10-21): opening one makes the operator's own copy in the
+    /// library first.
+    fn open_picked(&mut self, card: PickerCard, root: &std::path::Path, ui: &mut egui::Ui) {
+        let dir = if dpl_doc::is_seed_dir(&card.dir) {
+            match dpl_doc::fork_into_library(&card.dir, root) {
+                Ok(copy) => copy,
                 Err(e) => {
-                    ui.label(RichText::new(format!("could not open: {e}")).color(cl::ink::MUTED));
+                    ui.label(
+                        RichText::new(format!("could not copy the starter: {e}"))
+                            .color(cl::ink::MUTED),
+                    );
+                    return;
                 }
             }
+        } else {
+            card.dir
+        };
+        match dpl_editor::Editor::open(&dir, root) {
+            Ok(ed) => {
+                let ed = ed.with_theme(card.theme);
+                self.editing_from = card
+                    .from
+                    .map(|(episode, title)| (episode, title, ed.slide().rev));
+                self.editor = Some(ed);
+                self.picker_note = None;
+            }
+            Err(e) => {
+                ui.label(RichText::new(format!("could not open: {e}")).color(cl::ink::MUTED));
+            }
         }
+    }
+
+    /// Back to the picker. A card changed from an episode built from
+    /// lessons is that episode's own change (ruled 2026-10-24, "Show it
+    /// straight away"): its lessons take it; every other lesson asks.
+    fn close_editor(&mut self, root: &std::path::Path) {
+        let Some(ed) = self.editor.take() else {
+            return;
+        };
+        if let Some((episode, title, was)) = self.editing_from.take() {
+            let slide = ed.slide();
+            if slide.rev != was {
+                self.picker_note = Some(
+                    match dpl_doc::episode::take_edit(&episode, root, &slide.id, slide.rev) {
+                        Ok(_) => {
+                            let ours: Vec<PathBuf> = dpl_doc::episode::lessons_of(&episode, root)
+                                .into_iter()
+                                .map(|(dir, _)| dir)
+                                .collect();
+                            let others = dpl_doc::lesson::lessons_using(root, &slide.id)
+                                .into_iter()
+                                .filter(|dir| !ours.contains(dir))
+                                .count();
+                            match others {
+                                0 => format!("Your change shows in “{title}”."),
+                                1 => format!(
+                                    "Your change shows in “{title}”. 1 other lesson using this \
+                                 card will ask first."
+                                ),
+                                n => format!(
+                                    "Your change shows in “{title}”. {n} other lessons using \
+                                 this card will ask first."
+                                ),
+                            }
+                        }
+                        Err(e) => {
+                            format!("Your change is saved, but “{title}” could not take it: {e}")
+                        }
+                    },
+                );
+            }
+        }
+        self.picker = None;
+    }
+}
+
+/// One card the editor picker offers.
+#[derive(Clone)]
+struct PickerCard {
+    label: String,
+    dir: PathBuf,
+    /// The theme of the show it is edited from.
+    theme: dpl_doc::Theme,
+    /// The episode built from lessons it is edited from, and its title.
+    from: Option<(PathBuf, String)>,
+    /// The show still uses an older version than the card's newest — it is
+    /// compared and updated on the Lessons page first, so an edit never
+    /// carries a version the operator put off (the LS3a rule).
+    waiting: bool,
+}
+
+/// The picker's sections: the seeds, then every episode (content first).
+struct PickerGroup {
+    title: Option<String>,
+    badge: String,
+    cards: Vec<PickerCard>,
+}
+
+/// Read the picker: each seed, then each episode through the one walk —
+/// its cards in its own theme (LS3b; never inferred from a folder).
+fn picker_groups(root: &std::path::Path) -> Vec<PickerGroup> {
+    let mut groups = vec![PickerGroup {
+        title: None,
+        badge: "seeds".into(),
+        cards: dpl_doc::list_seeds()
+            .into_iter()
+            .map(|s| PickerCard {
+                label: format!("{} · {}", s.class, s.id),
+                dir: s.dir,
+                theme: dpl_doc::Theme::fallback(),
+                from: None,
+                waiting: false,
+            })
+            .collect(),
+    }];
+    for entry in dpl_doc::all_episodes(root) {
+        let Ok(shown) = dpl_doc::episode::shows(&entry.dir, root) else {
+            continue;
+        };
+        let built = matches!(
+            dpl_doc::episode::open(&entry.dir),
+            Ok(dpl_doc::episode::Opened::Lessons(_))
+        );
+        let badge = match &entry.show {
+            Some(show) => format!("{show}/{}", entry.id),
+            None => format!("template · {}", entry.id),
+        };
+        let mut cards = Vec::new();
+        for chapter in &shown.chapters {
+            for card in &chapter.cards {
+                let Ok(slide) = &card.slide else {
+                    continue;
+                };
+                let waiting = built
+                    && dpl_doc::lesson::newest_rev(root, &slide.id)
+                        .is_some_and(|newest| newest > slide.rev);
+                cards.push(PickerCard {
+                    label: format!("{} · {}", chapter.title, card.label),
+                    dir: card.dir.clone(),
+                    theme: shown.theme.clone(),
+                    from: built.then(|| (entry.dir.clone(), shown.title.clone())),
+                    waiting,
+                });
+            }
+        }
+        groups.push(PickerGroup {
+            title: Some(shown.title.clone()),
+            badge,
+            cards,
+        });
+    }
+    groups
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A content root with an episode cloned from a scratch template that
+    /// has its own theme.
+    fn cloned(tag: &str) -> (PathBuf, PathBuf, dpl_doc::Theme) {
+        let base = std::env::temp_dir().join(format!("dpl-wb-{tag}-{}", dpl_doc::new_id()));
+        let seed = base.join("seed");
+        let mut slide = dpl_doc::Slide::new("title@1");
+        slide.blocks = vec![dpl_doc::Block::text("title", "Hello")];
+        dpl_doc::save(&seed.join("a"), &slide).unwrap();
+        dpl_doc::save_episode(
+            &seed,
+            &dpl_doc::Episode {
+                v: dpl_doc::SCHEMA_V,
+                id: "s".into(),
+                title: "Seeded".into(),
+                chapters: vec![dpl_doc::Chapter {
+                    id: "one".into(),
+                    title: "One".into(),
+                    slides: vec!["a".into()],
+                }],
+            },
+        )
+        .unwrap();
+        let mut theme = dpl_doc::Theme::fallback();
+        theme.font = "michroma".into();
+        dpl_doc::save_theme(&seed, &theme).unwrap();
+        let root = base.join("content");
+        let dir = dpl_doc::clone_episode(&seed, &root, "show", "ep").unwrap();
+        (root, dir, theme)
+    }
+
+    /// The picker hands each card the theme of the show it is edited from,
+    /// and remembers an episode built from lessons so it takes the edit.
+    #[test]
+    fn the_picker_carries_the_shows_theme_and_where_it_came_from() {
+        let (root, dir, theme) = cloned("picker");
+        let groups = picker_groups(&root);
+        let card = groups
+            .iter()
+            .flat_map(|g| g.cards.iter())
+            .find(|c| c.from.as_ref().is_some_and(|(ep, _)| ep == &dir))
+            .expect("the cloned episode's card");
+        assert_eq!(card.theme, theme);
+        assert_eq!(card.label, "Seeded — One · Hello");
+        assert!(!card.waiting);
+        let _ = std::fs::remove_dir_all(root.parent().unwrap());
+    }
+
+    /// An edit made from an episode is that episode's own change (ruled
+    /// 2026-10-24): its lesson takes it, and the note says another lesson
+    /// using the card will ask first.
+    #[test]
+    fn an_edit_from_an_episode_shows_in_it_and_others_ask() {
+        let (root, dir, _) = cloned("edit");
+        let card = picker_groups(&root)
+            .into_iter()
+            .flat_map(|g| g.cards)
+            .find(|c| c.from.is_some())
+            .unwrap();
+        let slide = dpl_doc::load(&card.dir).unwrap();
+        let (other_dir, mut other) = dpl_doc::lesson::create_lesson(&root, "Elsewhere").unwrap();
+        other.add(&slide);
+        dpl_doc::lesson::save_lesson(&other_dir, &other).unwrap();
+
+        let mut hub = WorkbenchHub::default();
+        let mut editor = dpl_editor::Editor::open(&card.dir, &root)
+            .unwrap()
+            .with_theme(card.theme.clone());
+        editor.set_enter(Some("none".into()));
+        hub.editing_from = Some((dir.clone(), "Seeded".into(), 1));
+        hub.editor = Some(editor);
+        hub.close_editor(&root);
+
+        assert_eq!(
+            hub.picker_note.as_deref(),
+            Some("Your change shows in “Seeded”. 1 other lesson using this card will ask first.")
+        );
+        let shown = dpl_doc::episode::shows(&dir, &root).unwrap();
+        assert_eq!(shown.cards().next().unwrap().slide.as_ref().unwrap().rev, 2);
+        let other = dpl_doc::lesson::load_lesson(&other_dir).unwrap();
+        assert_eq!(
+            dpl_doc::lesson::use_state(&root, &other.uses[0]),
+            dpl_doc::lesson::UseState::UpdateAvailable { newest: 2 }
+        );
+        let _ = std::fs::remove_dir_all(root.parent().unwrap());
     }
 }

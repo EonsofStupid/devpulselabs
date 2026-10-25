@@ -54,11 +54,13 @@ impl StudioState {
             let root = dpl_engine_capture::content_root();
             let mut episodes = Vec::new();
             for (show, episode, dir) in dpl_doc::list_content_episodes(&root) {
-                if let Ok(ep) = dpl_doc::load_episode(&dir) {
-                    let chapters = ep
+                // A chapter is a lesson in an episode built from lessons,
+                // and placing gives that lesson a use of the card (LS3b).
+                if let Some(summary) = dpl_doc::episode::summary(&dir, &root) {
+                    let chapters = summary
                         .chapters
                         .into_iter()
-                        .map(|c| (c.id, c.title))
+                        .map(|(id, title, _)| (id, title))
                         .collect::<Vec<_>>();
                     if !chapters.is_empty() {
                         episodes.push(PlaceEpisode {
@@ -205,12 +207,12 @@ impl StudioState {
                     .color(Tone::Amber.color()),
             )
             .interact(egui::Sense::click()),
-            "Copy the finished slide into the chapter and update episode.json",
+            "Put the finished slide into the chapter",
         );
         if place.clicked() {
             let src = &sources[self.source_ix];
             let ep = &episodes[self.episode_ix];
-            let (chapter_id, _) = &ep.chapters[self.chapter_ix];
+            let (chapter_id, chapter_title) = &ep.chapters[self.chapter_ix];
             match dpl_doc::place_slide(
                 &dpl_engine_capture::content_root(),
                 &src.dir,
@@ -221,8 +223,8 @@ impl StudioState {
             ) {
                 Ok(placed) => {
                     self.status = format!(
-                        "placed {} → {}/{}/{} (chapter {})",
-                        src.id, placed.show, placed.episode, placed.slide, placed.chapter
+                        "placed {} into {}/{}, in “{chapter_title}”",
+                        src.id, placed.show, placed.episode
                     );
                     if let Some(f) = fabric {
                         f.publish_build(dpl_fabric::BuildEvent::SlidePlaced {

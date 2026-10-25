@@ -1,0 +1,72 @@
+# LS3b1 (R285): copy the seed into my shows on the real exe. The form
+# makes a real episode: each chapter a lesson named "Episode — Chapter",
+# each slide the operator's own card in the library; the new episode
+# opens at once. Fixture `episodes-ls3b` (scratch content root); clear
+# `target/eguipilotai/ls3b/content` first. Then, in order:
+# `episodes-lessons`, `episodes-edit`, `episodes-clone-1100`.
+id = "episodes-clone"
+fixture = "episodes-ls3b"
+record = true
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.episodes.copy/how-ai-works"
+
+[[steps]]
+kind = "wait"
+milliseconds = 600
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "fill"
+text = "devpulse-news"
+
+[steps.action.target]
+id = "root/workbench.episodes.clone/show"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "fill"
+text = "ep1"
+
+[steps.action.target]
+id = "root/workbench.episodes.clone/episode"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.episodes.clone/create"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.episodes/back"
+
+[[steps]]
+kind = "capture"
+name = "episodes-cloned"

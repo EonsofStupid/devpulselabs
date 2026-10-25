@@ -139,6 +139,33 @@ arguments = ["--route", "workbench/lessons", "--window", "1100x700", "--mood", "
 [fixtures.lessons-page-1100.environment]
 CONTENT_ROOT = "target/eguipilotai/ls3a/content"
 
+# LS3b1: episodes built from lessons over a scratch content root. Clear
+# `target/eguipilotai/ls3b/content` before `episodes-clone`; the other
+# `episodes-*` scenarios build on what it makes.
+[fixtures.episodes-ls3b]
+arguments = ["--route", "workbench/episodes", "--mood", "0"]
+
+[fixtures.episodes-ls3b.environment]
+CONTENT_ROOT = "target/eguipilotai/ls3b/content"
+
+[fixtures.episodes-ls3b-1100]
+arguments = ["--route", "workbench/episodes", "--window", "1100x700", "--mood", "0"]
+
+[fixtures.episodes-ls3b-1100.environment]
+CONTENT_ROOT = "target/eguipilotai/ls3b/content"
+
+[fixtures.lessons-ls3b]
+arguments = ["--route", "workbench/lessons", "--mood", "0"]
+
+[fixtures.lessons-ls3b.environment]
+CONTENT_ROOT = "target/eguipilotai/ls3b/content"
+
+[fixtures.editor-ls3b]
+arguments = ["--route", "workbench/editor", "--mood", "0"]
+
+[fixtures.editor-ls3b.environment]
+CONTENT_ROOT = "target/eguipilotai/ls3b/content"
+
 [fixtures.wiredfront-editor]
 arguments = ["--route", "wiredfront/editor", "--mood", "0"]
 
@@ -162,8 +189,13 @@ CONTENT_ROOT = "target/eguipilotai/assist-rings/content"
 ASSETS_ROOT = "target/eguipilotai/assist-rings/assets"
 USERDATA_ROOT = "target/eguipilotai/assist-rings/.userdata"
 
+# A scratch content root: without one this fixture ran against the
+# operator's real content (every launch upgrades and Studio places into it).
 [fixtures.workbench-studio]
 arguments = ["--route", "workbench/studio", "--mood", "0"]
+
+[fixtures.workbench-studio.environment]
+CONTENT_ROOT = "target/eguipilotai/studio/content"
 
 [[projects]]
 id = "devpulse-cloud"

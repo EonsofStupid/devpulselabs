@@ -1407,9 +1407,8 @@ fn read_content_view() -> ContentView {
         .map(|entry| {
             // A title needs the episode document; an unreadable one is a row
             // with a fallback name, never a missing row.
-            let title = dpl_doc::load_episode(&entry.dir)
-                .map(|ep| ep.title)
-                .unwrap_or_else(|_| entry.id.clone());
+            let title = dpl_doc::episode::summary(&entry.dir, &root)
+                .map_or_else(|| entry.id.clone(), |ep| ep.title);
             ContentEpisode {
                 id: content_address(&entry),
                 show: entry.show.clone(),
@@ -1424,36 +1423,38 @@ fn read_content_view() -> ContentView {
     }
 }
 
-/// One episode's chapter→slide structure. Only this episode is read.
+/// One episode's chapter→slide structure, read through the one episode
+/// walk (LS3b) — an episode built from lessons and a seed template alike.
+/// Only this episode is read.
 fn read_content_spine(id: &ContentEpisodeId) -> Option<ContentSpine> {
     let entry = find_content_entry(id)?;
-    let episode = dpl_doc::load_episode(&entry.dir).ok()?;
-    let refs = dpl_doc::episode_slides(&entry.dir, &episode);
-    let chapters = episode
+    let shown = dpl_doc::episode::shows(&entry.dir, &dpl_engine_capture::content_root()).ok()?;
+    let chapters = shown
         .chapters
         .iter()
         .map(|chapter| ContentChapter {
             id: chapter.id.clone(),
             title: chapter.title.clone(),
-            slides: refs
+            slides: chapter
+                .cards
                 .iter()
-                .filter(|slide_ref| slide_ref.chapter == chapter.id)
-                .map(|slide_ref| ContentSlide {
-                    chapter: slide_ref.chapter.clone(),
-                    name: slide_ref.name.clone(),
-                    // A slide folder that does not parse is a displayable
-                    // fact, never a failed episode.
-                    template: dpl_doc::load(&slide_ref.dir)
-                        .map(|slide| slide.component_id().to_owned())
-                        .unwrap_or_else(|_| "unknown".to_owned()),
-                    index: slide_ref.index,
+                .map(|card| ContentSlide {
+                    chapter: chapter.title.clone(),
+                    name: card.label.clone(),
+                    // A card that does not load is a displayable fact,
+                    // never a failed episode.
+                    template: card.slide.as_ref().map_or_else(
+                        |_| "unknown".to_owned(),
+                        |slide| slide.component_id().to_owned(),
+                    ),
+                    index: card.index,
                 })
                 .collect(),
         })
         .collect();
     Some(ContentSpine {
         id: id.clone(),
-        title: episode.title,
+        title: shown.title,
         chapters,
     })
 }

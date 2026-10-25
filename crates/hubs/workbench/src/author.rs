@@ -1538,10 +1538,18 @@ impl AuthorSurface {
                 self.status = "that container's name is not a show and an episode".into();
                 return;
             };
-            dpl_doc::place_slide(root, &draft.dir, show, episode, chapter, None).map(|placed| {
+            // Named by the chapter's title — in an episode built from
+            // lessons its id is a lesson's, never words (LS3b).
+            let chapter_title = container
+                .chapters
+                .iter()
+                .find(|(id, _)| id == chapter)
+                .map_or(chapter, |(_, title)| title.as_str())
+                .to_owned();
+            dpl_doc::place_slide(root, &draft.dir, show, episode, chapter, None).map(|_| {
                 format!(
-                    "put “{}” into {} — it is now {}/{}",
-                    draft.label, container.label, placed.chapter, placed.slide
+                    "put “{}” into {}, in “{chapter_title}”",
+                    draft.label, container.label
                 )
             })
         };
@@ -3678,6 +3686,64 @@ mod place_tests {
         assert!(surface.drafts.is_empty());
         assert_eq!(count, 1, "the count is re-read from disk");
         assert!(status.contains("stays in your library"), "{status:?}");
+    }
+
+    /// Putting a card into an episode built from lessons gives the chapter's
+    /// lesson a use of it — the card stays in the library — and the status
+    /// names the chapter by its title, never an id.
+    #[test]
+    fn putting_cards_into_an_episode_built_from_lessons_uses_them() {
+        use crate::containers::ContainerKind;
+        let base = std::env::temp_dir().join(format!("dpl-place-built-{}", dpl_doc::new_id()));
+        let seed = base.join("seed");
+        dpl_doc::save(&seed.join("a"), &dpl_doc::Slide::new("title@1")).unwrap();
+        dpl_doc::save_episode(
+            &seed,
+            &dpl_doc::Episode {
+                v: dpl_doc::SCHEMA_V,
+                id: "s".into(),
+                title: "Neon Drop".into(),
+                chapters: vec![dpl_doc::Chapter {
+                    id: "intro".into(),
+                    title: "Intro".into(),
+                    slides: vec!["a".into()],
+                }],
+            },
+        )
+        .unwrap();
+        let root = base.join("content");
+        dpl_doc::clone_episode(&seed, &root, "effingai", "ep04").unwrap();
+        let mut card = dpl_doc::Slide::new("title@1");
+        card.blocks = vec![dpl_doc::Block::text("title", "Mine")];
+        let dir = dpl_doc::library_slide_dir(&root, &card.id);
+        dpl_doc::save(&dir, &card).unwrap();
+
+        let mut surface = super::AuthorSurface {
+            offered: crate::containers::containers(ContainerKind::Episode, &root),
+            into: Some(0),
+            kind: Some(ContainerKind::Episode),
+            ..Default::default()
+        };
+        let (lesson_id, title) = surface.offered[0].chapters[0].clone();
+        assert_eq!(title, "Neon Drop — Intro");
+        surface.drafts.push(super::Draft {
+            slide: card.id.clone(),
+            label: "Mine".into(),
+            dir: dir.clone(),
+            doc: None,
+        });
+        surface.place_draft(0, &lesson_id, &root);
+        let status = surface.status.clone();
+        let count = surface.offered[0].count;
+        let lesson =
+            dpl_doc::lesson::load_lesson(&dpl_doc::lesson::lesson_dir(&root, &lesson_id)).unwrap();
+        let library = dpl_doc::library_slides(&root).len();
+        std::fs::remove_dir_all(&base).ok();
+
+        assert!(status.ends_with("in “Neon Drop — Intro”"), "{status:?}");
+        assert_eq!(count, 2, "re-read from disk");
+        assert_eq!(lesson.uses.last().unwrap().slide.id, card.id);
+        assert_eq!(library, 2, "the seed's card and mine — nothing copied");
     }
 
     /// An episode or a lesson can receive a card, and the others say why in

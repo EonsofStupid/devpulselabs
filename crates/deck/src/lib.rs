@@ -30,8 +30,8 @@ pub enum DeckAction {
     TogglePresenter,
 }
 
-/// One slide in the flat walk: its chapter, folder name, and the loaded
-/// document — or the honest load error.
+/// One slide in the flat walk: its chapter's title, what the card is
+/// called, and the loaded document — or the honest load error.
 struct DeckSlide {
     chapter: String,
     name: String,
@@ -71,36 +71,28 @@ pub struct DeckHost {
 }
 
 impl DeckHost {
-    /// Open a show from its episode folder, with the looks its slides may
-    /// follow (the built-in ones plus the operator's own).
-    pub fn open(dir: &Path, looks: dpl_doc::Looks) -> Result<Self, String> {
-        let ep = dpl_doc::load_episode(dir).map_err(|e| e.to_string())?;
-        let theme = dpl_doc::load_theme(dir)
-            .ok()
-            .flatten()
-            .unwrap_or_else(dpl_doc::Theme::fallback);
+    /// Open a show from its episode folder — read through the one episode
+    /// walk, so an episode built from lessons (found in `content_root`'s
+    /// library) and a seed template play alike — with the looks its slides
+    /// may follow (the built-in ones plus the operator's own).
+    pub fn open(dir: &Path, content_root: &Path, looks: dpl_doc::Looks) -> Result<Self, String> {
+        let shown = dpl_doc::episode::shows(dir, content_root).map_err(|e| e.to_string())?;
         let mut slides = Vec::new();
         let mut markers: Vec<Marker> = Vec::new();
-        let mut last_chapter: Option<String> = None;
-        for r in dpl_doc::episode_slides(dir, &ep) {
-            if last_chapter.as_deref() != Some(r.chapter.as_str()) {
-                let title = ep
-                    .chapters
-                    .iter()
-                    .find(|c| c.id == r.chapter)
-                    .map(|c| c.title.clone())
-                    .unwrap_or_else(|| r.chapter.clone());
+        for chapter in &shown.chapters {
+            if let Some(first) = chapter.cards.first() {
                 markers.push(Marker {
-                    index: r.index,
-                    title,
+                    index: first.index,
+                    title: chapter.title.clone(),
                 });
-                last_chapter = Some(r.chapter.clone());
             }
-            slides.push(DeckSlide {
-                chapter: r.chapter,
-                name: r.name,
-                doc: dpl_doc::load(&r.dir).map_err(|e| e.to_string()),
-            });
+            for card in &chapter.cards {
+                slides.push(DeckSlide {
+                    chapter: chapter.title.clone(),
+                    name: card.label.clone(),
+                    doc: card.slide.clone(),
+                });
+            }
         }
         if slides.is_empty() {
             return Err("the episode has no slides".into());
@@ -110,8 +102,11 @@ impl DeckHost {
             .map(|s| s.doc.as_ref().map(|d| d.step_count()).unwrap_or(1))
             .collect();
         Ok(Self {
-            title: ep.title,
-            styling: dpl_doc::Styling { theme, looks },
+            title: shown.title,
+            styling: dpl_doc::Styling {
+                theme: shown.theme,
+                looks,
+            },
             slides,
             steps,
             markers,
@@ -765,8 +760,12 @@ mod tests {
 
     #[test]
     fn open_builds_steps_and_markers_from_the_documents() {
-        let host =
-            DeckHost::open(&scratch_episode("open"), dpl_doc::Looks::builtin_only()).unwrap();
+        let host = DeckHost::open(
+            &scratch_episode("open"),
+            Path::new("/nowhere"),
+            dpl_doc::Looks::builtin_only(),
+        )
+        .unwrap();
         assert_eq!(host.steps, vec![1, 2, 1]);
         assert_eq!(host.slides.len(), 3);
         let marks: Vec<usize> = host.markers.iter().map(|m| m.index).collect();
@@ -775,8 +774,12 @@ mod tests {
 
     #[test]
     fn the_keyboard_walks_the_whole_beat_list_and_holds() {
-        let mut host =
-            DeckHost::open(&scratch_episode("keys"), dpl_doc::Looks::builtin_only()).unwrap();
+        let mut host = DeckHost::open(
+            &scratch_episode("keys"),
+            Path::new("/nowhere"),
+            dpl_doc::Looks::builtin_only(),
+        )
+        .unwrap();
         let p = |i, s| nav::Position { index: i, step: s };
         let mut trace = vec![host.position()];
         for _ in 0..6 {
@@ -810,8 +813,12 @@ mod tests {
     /// domain; no-op moves publish nothing; the snapshot seam works.
     #[test]
     fn advancing_publishes_the_beat_on_the_deck_channel() {
-        let mut host =
-            DeckHost::open(&scratch_episode("sync"), dpl_doc::Looks::builtin_only()).unwrap();
+        let mut host = DeckHost::open(
+            &scratch_episode("sync"),
+            Path::new("/nowhere"),
+            dpl_doc::Looks::builtin_only(),
+        )
+        .unwrap();
         let fabric = dpl_fabric::Fabric::new();
         let mut rx = fabric.subscribe_deck();
         host.wire_fabric(fabric);
@@ -847,8 +854,12 @@ mod tests {
 
     #[test]
     fn ink_survives_steps_and_clears_on_slide_change() {
-        let mut host =
-            DeckHost::open(&scratch_episode("ink"), dpl_doc::Looks::builtin_only()).unwrap();
+        let mut host = DeckHost::open(
+            &scratch_episode("ink"),
+            Path::new("/nowhere"),
+            dpl_doc::Looks::builtin_only(),
+        )
+        .unwrap();
         host.press(egui::Key::A);
         assert!(host.annotate_on, "A toggles the ink layer");
         host.ink.begin(egui::Pos2::new(0.2, 0.2), None);
@@ -871,15 +882,20 @@ mod tests {
     fn a_broken_slide_degrades_to_a_plate_not_a_crash() {
         let dir = scratch_episode("broken");
         std::fs::write(dir.join("b").join("slide.json"), "{ not json").unwrap();
-        let host = DeckHost::open(&dir, dpl_doc::Looks::builtin_only()).unwrap();
+        let host =
+            DeckHost::open(&dir, Path::new("/nowhere"), dpl_doc::Looks::builtin_only()).unwrap();
         assert!(host.slides[1].doc.is_err());
         assert_eq!(host.steps[1], 1, "a broken slide is one honest step");
     }
 
     #[test]
     fn frames_render_at_every_position_without_panicking() {
-        let mut host =
-            DeckHost::open(&scratch_episode("frame"), dpl_doc::Looks::builtin_only()).unwrap();
+        let mut host = DeckHost::open(
+            &scratch_episode("frame"),
+            Path::new("/nowhere"),
+            dpl_doc::Looks::builtin_only(),
+        )
+        .unwrap();
         // The pool fonts must exist BEFORE layout — an unregistered
         // FontFamily::Name panics inside epaint (the same idiom as the
         // renderer's own tests).
@@ -909,5 +925,28 @@ mod tests {
         })
         .textures_delta
         .clear();
+    }
+
+    /// An episode built from lessons plays like a template: its lessons are
+    /// the chapters, each card at its lesson's pin, in the episode's theme.
+    #[test]
+    fn an_episode_built_from_lessons_plays_in_its_own_theme() {
+        let template = scratch_episode("lessons-template");
+        let mut theme = dpl_doc::Theme::fallback();
+        theme.font = "michroma".into();
+        dpl_doc::save_theme(&template, &theme).unwrap();
+        let root = template.with_file_name("lessons-content");
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = dpl_doc::clone_episode(&template, &root, "show", "ep").unwrap();
+        let host = DeckHost::open(&dir, &root, dpl_doc::Looks::builtin_only()).unwrap();
+        assert_eq!(host.steps, vec![1, 2, 1]);
+        let titles: Vec<&str> = host.markers.iter().map(|m| m.title.as_str()).collect();
+        assert_eq!(titles, ["Test show — One", "Test show — Two"]);
+        assert_eq!(
+            host.slides[0].name, "slide a",
+            "a card is named by its words"
+        );
+        assert_eq!(host.styling.theme, theme, "the episode's theme, handed in");
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

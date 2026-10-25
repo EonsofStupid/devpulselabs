@@ -6,6 +6,7 @@
 //! ref and saves. Pure data — no egui in this crate.
 
 pub mod component;
+pub mod episode;
 pub mod id;
 pub mod legacy;
 pub mod lesson;
@@ -161,6 +162,41 @@ impl Slide {
         // source's.
         copy.provenance.upgraded_from = None;
         copy
+    }
+
+    /// What the card is called wherever it is shown: its title, else the
+    /// words of its main line — the `title` slot, then a `quote`, then the
+    /// first words it has (an eyebrow above a headline is not its name) —
+    /// at most 32 characters, else its layout ("Title card").
+    pub fn label(&self) -> String {
+        if let Some(title) = self.title.as_deref().filter(|t| !t.trim().is_empty()) {
+            return title.trim().to_owned();
+        }
+        let lines: Vec<(&str, String)> = self
+            .blocks
+            .iter()
+            .filter_map(Block::words)
+            .map(|w| (w.id, w.text.trim().to_owned()))
+            .filter(|(_, text)| !text.is_empty())
+            .collect();
+        let words = ["title", "quote"]
+            .iter()
+            .find_map(|main| lines.iter().find(|(id, _)| id == main))
+            .or_else(|| lines.first())
+            .map(|(_, text)| text.clone());
+        match words {
+            Some(text) if text.chars().count() > 32 => {
+                format!("{}…", text.chars().take(31).collect::<String>())
+            }
+            Some(text) => text,
+            None => {
+                let mut layout = self.component_id().replace(['-', '_'], " ");
+                if let Some(first) = layout.get_mut(0..1) {
+                    first.make_ascii_uppercase();
+                }
+                format!("{layout} card")
+            }
+        }
     }
 
     /// The component's id, without its major (`title` of `title@1`).
@@ -577,7 +613,8 @@ pub enum DocError {
     /// A slide in the old `v` format: [`legacy::upgrade_dir`] upgrades it
     /// once (with a backup); it is never read as if it were current.
     UpgradeNeeded(u32),
-    /// A slide whose `schema` this build does not read.
+    /// A document whose `schema` this build does not read (a slide, a look,
+    /// a lesson, an episode — each loader reads its `schema` first).
     Schema(String),
 }
 
@@ -598,7 +635,7 @@ impl std::fmt::Display for DocError {
             DocError::Schema(schema) => {
                 write!(
                     f,
-                    "slide.json is {schema:?}; this build reads {SLIDE_SCHEMA:?}"
+                    "the document is {schema:?}, which this build does not read"
                 )
             }
         }
@@ -1208,6 +1245,7 @@ pub fn fork_into_library(src: &Path, content_root: &Path) -> Result<PathBuf, Str
     let dest = library_slide_dir(content_root, &copy.id);
     copy_dir(src, &dest)?;
     save(&dest, &copy).map_err(|e| format!("save copy: {e}"))?;
+    script::rekey(&dest, &copy.id).map_err(|e| format!("script: {e}"))?;
     Ok(dest)
 }
 
@@ -1275,10 +1313,16 @@ pub struct SlideRef {
     pub index: usize,
 }
 
-/// Load `<dir>/episode.json`.
+/// Load `<dir>/episode.json` as a template (chapters of slide folders). An
+/// episode built from lessons is [`DocError::Schema`] here — read any
+/// episode folder with [`episode::open`].
 pub fn load_episode(dir: &Path) -> Result<Episode, DocError> {
     let raw = std::fs::read_to_string(dir.join(EPISODE_FILE)).map_err(DocError::Io)?;
-    let ep: Episode = serde_json::from_str(&raw).map_err(DocError::Parse)?;
+    let value: Value = serde_json::from_str(&raw).map_err(DocError::Parse)?;
+    if let Some(schema) = value.get("schema").and_then(Value::as_str) {
+        return Err(DocError::Schema(schema.to_owned()));
+    }
+    let ep: Episode = serde_json::from_value(value).map_err(DocError::Parse)?;
     if ep.v > SCHEMA_V {
         return Err(DocError::Version(ep.v));
     }
@@ -1875,10 +1919,14 @@ fn kebab_ok(s: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '_'))
 }
 
-/// "New show from a seed": copy a seed episode into
-/// `content/<show>/<episode>/`. COPY never move; an existing destination
-/// is refused; seeds are never written. Creates the episode-level
-/// `assets/` home (reserved by the folder contract).
+/// "New show from a seed": turn a seed's template into a real episode at
+/// `content/<show>/<episode>/` (LS3b). Each slide is forked into the
+/// library as the operator's own card (its script, notes and assets with
+/// it, the script pointed at the card); each chapter becomes a lesson
+/// named "Episode — Chapter"; the episode lists the lessons. The seed's
+/// theme and episode-level assets are copied. An existing destination is
+/// refused, seeds are never written, and a clone that fails part-way
+/// leaves nothing behind.
 pub fn clone_episode(
     seed_dir: &Path,
     content_root: &Path,
@@ -1888,23 +1936,61 @@ pub fn clone_episode(
     if !kebab_ok(show) || !kebab_ok(episode) {
         return Err("show and episode names are kebab-case (a-z, 0-9, -, _)".into());
     }
-    if !seed_dir.join(EPISODE_FILE).is_file() {
-        return Err(format!("not an episode folder: {}", seed_dir.display()));
-    }
+    let template = load_episode(seed_dir)
+        .map_err(|e| format!("not a template episode folder: {}: {e}", seed_dir.display()))?;
     let dest = content_root.join(show).join(episode);
     if dest.exists() {
         return Err(format!("{show}/{episode} already exists — clone refused"));
     }
-    copy_dir(seed_dir, &dest)?;
-    std::fs::create_dir_all(dest.join("assets")).map_err(|e| format!("assets: {e}"))?;
-    // Each copied slide is its own slide now: a fresh id that remembers
-    // the seed it came from (LS3 turns placing into references).
-    let ep = load_episode(&dest).map_err(|e| format!("cloned episode: {e}"))?;
-    for slide_ref in episode_slides(&dest, &ep) {
-        let slide = load(&slide_ref.dir).map_err(|e| format!("{}: {e}", slide_ref.name))?;
-        save(&slide_ref.dir, &slide.fork()).map_err(|e| format!("{}: {e}", slide_ref.name))?;
+    let mut made: Vec<PathBuf> = vec![dest.clone()];
+    let outcome = clone_into(seed_dir, &template, content_root, &dest, &mut made);
+    if outcome.is_err() {
+        for dir in made.iter().rev() {
+            let _ = std::fs::remove_dir_all(dir);
+        }
     }
-    Ok(dest)
+    outcome.map(|()| dest)
+}
+
+/// [`clone_episode`]'s writes, each folder it makes recorded in `made` so a
+/// failure can take them all back.
+fn clone_into(
+    seed_dir: &Path,
+    template: &Episode,
+    content_root: &Path,
+    dest: &Path,
+    made: &mut Vec<PathBuf>,
+) -> Result<(), String> {
+    std::fs::create_dir_all(dest.join("assets")).map_err(|e| format!("assets: {e}"))?;
+    if seed_dir.join("assets").is_dir() {
+        copy_dir(&seed_dir.join("assets"), &dest.join("assets"))?;
+    }
+    if let Some(theme) = load_theme(seed_dir).map_err(|e| format!("theme: {e}"))? {
+        save_theme(dest, &theme).map_err(|e| format!("theme: {e}"))?;
+    }
+    let mut shown = episode::LessonEpisode::new(&template.title);
+    for chapter in &template.chapters {
+        let mut lesson =
+            lesson::Lesson::new(&episode::lesson_title(&template.title, &chapter.title));
+        for name in &chapter.slides {
+            let src = seed_dir.join(name);
+            let slide = load(&src).map_err(|e| format!("{name}: {e}"))?;
+            let card = slide.fork();
+            let card_dir = library_slide_dir(content_root, &card.id);
+            made.push(card_dir.clone());
+            copy_dir(&src, &card_dir)?;
+            save(&card_dir, &card).map_err(|e| format!("{name}: {e}"))?;
+            script::rekey(&card_dir, &card.id).map_err(|e| format!("{name}: {e}"))?;
+            lesson.add(&card);
+        }
+        let lesson_dir = lesson::lesson_dir(content_root, &lesson.id);
+        made.push(lesson_dir.clone());
+        lesson::save_lesson(&lesson_dir, &lesson).map_err(|e| format!("lesson: {e}"))?;
+        shown.lessons.push(episode::LessonRef {
+            id: lesson.id.clone(),
+        });
+    }
+    episode::save(dest, &shown).map_err(|e| format!("episode: {e}"))
 }
 
 /// Result of placing one finished slide into an existing content episode.
@@ -1957,7 +2043,20 @@ pub fn place_slide(
             "{show}/{episode} does not exist — place never creates episodes"
         ));
     }
-    let mut ep = load_episode(&ep_dir).map_err(|e| format!("episode load: {e}"))?;
+    let mut ep = match episode::open(&ep_dir).map_err(|e| format!("episode load: {e}"))? {
+        episode::Opened::Lessons(built) => {
+            return place_in_lesson(content_root, slide_dir, &slide, &built, chapter_id, slot).map(
+                |(dir, card)| PlacedSlide {
+                    show: show.into(),
+                    episode: episode.into(),
+                    chapter: chapter_id.into(),
+                    slide: card,
+                    dir,
+                },
+            );
+        }
+        episode::Opened::Template(template) => template,
+    };
     let chapter_ix = ep
         .chapters
         .iter()
@@ -2019,6 +2118,42 @@ pub fn place_slide(
         slide: name,
         dir: dest,
     })
+}
+
+/// Placing into an episode built from lessons (LS3b): the chapter is one of
+/// its lessons, which gains a use of the card at the version it has now —
+/// nothing is copied. A card from outside the library (a seed, say) is
+/// forked into the library first, as opening one would. Returns the card's
+/// folder and id.
+fn place_in_lesson(
+    content_root: &Path,
+    slide_dir: &Path,
+    slide: &Slide,
+    built: &episode::LessonEpisode,
+    lesson_id: &str,
+    slot: Option<usize>,
+) -> Result<(PathBuf, String), String> {
+    if !built.lessons.iter().any(|l| l.id == lesson_id) {
+        return Err(format!("chapter {lesson_id:?} not in episode"));
+    }
+    let lesson_dir = lesson::lesson_dir(content_root, lesson_id);
+    let mut found =
+        lesson::load_lesson(&lesson_dir).map_err(|e| format!("lesson does not load: {e}"))?;
+    let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    let in_library = canonical(slide_dir) == canonical(&library_slide_dir(content_root, &slide.id));
+    let (card_dir, card) = if in_library {
+        (slide_dir.to_path_buf(), slide.clone())
+    } else {
+        let dir = fork_into_library(slide_dir, content_root)?;
+        let card = load(&dir).map_err(|e| format!("copied card: {e}"))?;
+        (dir, card)
+    };
+    let key = found.add(&card);
+    if let Some(at) = slot {
+        found.move_to(&key, at);
+    }
+    lesson::save_lesson(&lesson_dir, &found).map_err(|e| format!("save lesson: {e}"))?;
+    Ok((card_dir, card.id))
 }
 
 /// Never-clobber slide folder name under an episode dir.
@@ -3036,18 +3171,49 @@ mod tests {
     #[test]
     fn clone_copies_the_seed_never_moves_and_refuses_repeats() {
         let (seed, content) = content_scratch("clone");
+        std::fs::write(
+            seed.join("a").join("script.mdx"),
+            "---\r\nslideId: a\r\ntitle: A\r\nbeats:\r\n  - id: setup\r\n    cue: \"Hi\"\r\n---\r\nbody\r\n",
+        )
+        .unwrap();
         let dest = clone_episode(&seed, &content, "devpulse-news", "ep1").unwrap();
         assert_eq!(dest, content.join("devpulse-news").join("ep1"));
-        assert!(dest.join("episode.json").is_file());
         assert!(dest.join("theme.json").is_file());
-        assert!(dest.join("a").join("slide.json").is_file());
         assert!(dest.join("assets").is_dir(), "the assets home is created");
+        assert!(!dest.join("a").exists(), "slides live in the library now");
         // The seed is untouched — copy, never move.
         assert!(seed.join("episode.json").is_file());
         assert!(seed.join("a").join("slide.json").is_file());
-        // The clone validates clean under the contract (assets/ reserved).
-        let ep = load_episode(&dest).unwrap();
-        assert_eq!(validate_episode(&dest, &ep), Vec::new());
+
+        // A real episode: one lesson per chapter, "Episode — Chapter", each
+        // card the operator's own copy in the library.
+        let episode::Opened::Lessons(built) = episode::open(&dest).unwrap() else {
+            panic!("a clone is an episode built from lessons");
+        };
+        assert_eq!(built.title, "Demo show");
+        let shown = episode::shows(&dest, &content).unwrap();
+        assert_eq!(shown.issues, Vec::new());
+        let titles: Vec<&str> = shown.chapters.iter().map(|c| c.title.as_str()).collect();
+        assert_eq!(titles, ["Demo show — Setup", "Demo show — Wrap"]);
+        assert_eq!(shown.cards().count(), 3);
+        let first = shown.cards().next().unwrap();
+        assert!(first.dir.starts_with(content.join(LIBRARY)));
+        let original = load(&seed.join("a")).unwrap();
+        let first_card = first.slide.as_ref().unwrap();
+        assert_eq!(
+            first_card
+                .provenance
+                .forked_from
+                .as_ref()
+                .map(|p| p.id.as_str()),
+            Some(original.id.as_str())
+        );
+        // Its script came with it, pointed at the card, every other byte kept.
+        let script = std::fs::read_to_string(first.dir.join("script.mdx")).unwrap();
+        assert!(script.contains(&format!("slideId: {}\r\n", first_card.id)));
+        assert!(script.ends_with("---\r\nbody\r\n"));
+        assert_eq!(first.script.as_ref().unwrap().slide_id, first_card.id);
+        assert_eq!(episode::validate(&dest, &built, &content), Vec::new());
         // An existing destination is refused, and nothing was clobbered.
         let err = clone_episode(&seed, &content, "devpulse-news", "ep1").unwrap_err();
         assert!(err.contains("refused"), "{err}");
@@ -3111,10 +3277,18 @@ mod tests {
         );
     }
 
+    /// A content episode still in the template shape (LS3b2 moves these):
+    /// a plain copy of the seed folder.
+    fn template_episode(seed: &Path, content: &Path) -> PathBuf {
+        let dir = content.join("devpulse-news").join("ep1");
+        copy_dir(seed, &dir).unwrap();
+        dir
+    }
+
     #[test]
     fn place_slide_copies_into_chapter_never_moves_seed_and_never_clobbers() {
         let (seed, content) = content_scratch("place");
-        let ep_dir = clone_episode(&seed, &content, "devpulse-news", "ep1").unwrap();
+        let ep_dir = template_episode(&seed, &content);
         let src = seed.join("a");
         let placed = place_slide(&content, &src, "devpulse-news", "ep1", "intro", None).unwrap();
         // "a" already exists in the episode → never-clobber mint.
@@ -3165,7 +3339,7 @@ mod tests {
     #[test]
     fn place_slide_rolls_back_when_episode_stays_invalid() {
         let (seed, content) = content_scratch("place-rb");
-        let ep_dir = clone_episode(&seed, &content, "devpulse-news", "ep1").unwrap();
+        let ep_dir = template_episode(&seed, &content);
         // Pre-existing orphan → validate_episode fails after the write.
         write_ok_slide(&ep_dir.join("orphan-slide"));
         let prior = std::fs::read_to_string(ep_dir.join(EPISODE_FILE)).unwrap();
@@ -3185,5 +3359,94 @@ mod tests {
             prior,
             "episode.json restored"
         );
+    }
+
+    /// Placing into an episode built from lessons adds a use to that
+    /// chapter's lesson — nothing is copied into the episode; a seed card
+    /// is forked into the library first; the finished-card check stays.
+    #[test]
+    fn placing_into_an_episode_built_from_lessons_adds_a_use() {
+        let (seed, content) = content_scratch("place-v2");
+        let ep_dir = clone_episode(&seed, &content, "devpulse-news", "ep1").unwrap();
+        let lessons = episode::lessons_of(&ep_dir, &content);
+        let (lesson_dir, first) = &lessons[0];
+        let before = first.uses.len();
+
+        // A library card is used as it is, at its slot.
+        let mut card = sample();
+        card.title = Some("Mine".into());
+        let card_dir = library_slide_dir(&content, &card.id);
+        save(&card_dir, &card).unwrap();
+        let placed = place_slide(
+            &content,
+            &card_dir,
+            "devpulse-news",
+            "ep1",
+            &first.id,
+            Some(0),
+        )
+        .unwrap();
+        assert_eq!(placed.slide, card.id);
+        assert_eq!(placed.dir, card_dir);
+        let after = lesson::load_lesson(lesson_dir).unwrap();
+        assert_eq!(after.uses.len(), before + 1);
+        assert_eq!(
+            after.uses[0].slide,
+            SlidePin {
+                id: card.id.clone(),
+                rev: 1
+            }
+        );
+        assert!(
+            std::fs::read_dir(&ep_dir)
+                .unwrap()
+                .flatten()
+                .all(|e| !e.path().join(FILE).exists()),
+            "nothing is copied into the episode"
+        );
+
+        // A seed card becomes the operator's own first.
+        let from_seed = place_slide(
+            &content,
+            &seed.join("b"),
+            "devpulse-news",
+            "ep1",
+            &first.id,
+            None,
+        )
+        .unwrap();
+        assert!(from_seed.dir.starts_with(content.join(LIBRARY)));
+        assert!(seed.join("b").join(FILE).is_file(), "the seed stays");
+
+        // An unknown chapter is refused.
+        assert!(
+            place_slide(&content, &card_dir, "devpulse-news", "ep1", "intro", None)
+                .unwrap_err()
+                .contains("chapter")
+        );
+        let episode::Opened::Lessons(built) = episode::open(&ep_dir).unwrap() else {
+            panic!("an episode built from lessons");
+        };
+        assert_eq!(episode::validate(&ep_dir, &built, &content), Vec::new());
+    }
+
+    #[test]
+    fn a_card_is_called_by_its_title_then_its_words_then_its_layout() {
+        let mut slide = Slide::new("pull-quote@1");
+        assert_eq!(slide.label(), "Pull quote card");
+        // The headline names it, not the eyebrow above it.
+        slide.blocks = vec![
+            Block::text("eyebrow", "Echoes of Sentience"),
+            Block::text("title", "The stack, laid bare"),
+        ];
+        assert_eq!(slide.label(), "The stack, laid bare");
+        slide.blocks = vec![Block::text(
+            "quote",
+            "A very long line of words that keeps going on",
+        )];
+        assert_eq!(slide.label().chars().count(), 32);
+        assert!(slide.label().ends_with('…'));
+        slide.title = Some("  Named ".into());
+        assert_eq!(slide.label(), "Named");
     }
 }

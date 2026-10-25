@@ -2155,16 +2155,17 @@ impl ChatWindow {
                 for chapter in &spine.chapters {
                     micro_heading(ui, &chapter.title.to_uppercase());
                     for slide in &chapter.slides {
-                        // The deck's own convention: "<chapter> · <name>".
-                        // A Slide document has no title of its own.
+                        // The deck's own convention: "<chapter> · <card>".
                         let response =
                             sidebar_row(ui, &format!("{} · {}", slide.chapter, slide.name), false);
                         let (group, slug) = split_address(&spine.id);
+                        // Keyed by position: a card's name is its words,
+                        // and one card can be shown twice (LS3b).
                         let mut metadata = NodeMetadata::new(
                             CONTENT_BOARD_ID
                                 .child(&PilotKey::new(group))
                                 .child(&PilotKey::new(slug))
-                                .child(&PilotKey::new(slide.name.clone())),
+                                .child(&PilotKey::new(slide.index.to_string())),
                             Role::Tab,
                             slide.name.clone(),
                         );

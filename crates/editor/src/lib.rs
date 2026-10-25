@@ -199,6 +199,15 @@ impl Editor {
         &self.slide
     }
 
+    /// Paint against `theme` — the show this card is edited from (LS3b). A
+    /// card in the library has no show of its own, so whoever opens it from
+    /// an episode hands the episode's theme in, and the card looks here as
+    /// it does there.
+    pub fn with_theme(mut self, theme: dpl_doc::Theme) -> Self {
+        self.styling.theme = theme;
+        self
+    }
+
     /// Set what sits behind the words, or `None` to inherit the show's theme.
     ///
     /// The authoring surface's Background tab is a VIEW over this document,

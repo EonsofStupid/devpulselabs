@@ -1,0 +1,39 @@
+# LS3b1 (R285): after `episodes-clone`, the clone's chapters are lessons
+# on the Lessons page, each named "How AI actually works — <chapter>".
+id = "episodes-lessons"
+fixture = "lessons-ls3b"
+record = true
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.lessons.lesson/How AI actually works — The setup"
+
+[[steps]]
+kind = "capture"
+name = "episodes-lessons"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.lessons.lesson/How AI actually works — The setup"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "capture"
+name = "episodes-lesson-intro"

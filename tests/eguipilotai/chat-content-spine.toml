@@ -93,7 +93,7 @@ type = "count"
 value = 0
 
 [steps.expectation.target]
-id = "chat.primary/chat.content.board/template/how-ai-works/title"
+id = "chat.primary/chat.content.board/template/how-ai-works/0"
 
 # Choose the episode: the host loads THAT episode's spine and the board
 # shows its real slides.
@@ -117,7 +117,7 @@ kind = "expect"
 type = "visible"
 
 [steps.expectation.target]
-id = "chat.primary/chat.content.board/template/how-ai-works/title"
+id = "chat.primary/chat.content.board/template/how-ai-works/0"
 
 [[steps]]
 kind = "expect"
@@ -126,7 +126,7 @@ kind = "expect"
 type = "visible"
 
 [steps.expectation.target]
-id = "chat.primary/chat.content.board/template/how-ai-works/terminal"
+id = "chat.primary/chat.content.board/template/how-ai-works/3"
 
 # The refresh affordance is the operator's re-read.
 [[steps]]

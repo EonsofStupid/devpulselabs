@@ -215,23 +215,25 @@ fn episodes(root: &Path) -> Vec<Container> {
     dpl_doc::list_content_episodes(root)
         .into_iter()
         .filter_map(|(show, episode, dir)| {
-            let ep = dpl_doc::load_episode(&dir).ok()?;
+            // Either shape (LS3b): an episode built from lessons, whose
+            // chapters are its lessons, or one still in the template shape.
+            let summary = dpl_doc::episode::summary(&dir, root)?;
             // The episode's own title is already operator-written; the folder
             // id is the fallback when it is blank.
-            let title = if ep.title.trim().is_empty() {
+            let title = if summary.title.trim().is_empty() {
                 pretty(&episode)
             } else {
-                ep.title.clone()
+                summary.title.clone()
             };
             Some(Container {
                 slug: format!("{show}/{episode}"),
                 kind: ContainerKind::Episode,
                 label: format!("{} · {title}", pretty(&show)),
-                count: dpl_doc::episode_slides(&dir, &ep).len(),
-                chapters: ep
+                count: summary.cards(),
+                chapters: summary
                     .chapters
-                    .iter()
-                    .map(|c| (c.id.clone(), c.title.clone()))
+                    .into_iter()
+                    .map(|(id, title, _)| (id, title))
                     .collect(),
                 dir,
             })
