@@ -1102,7 +1102,7 @@ Source: the operator's answer to Q2 of the LS4 plan, in the Claude Code session 
 
 The order after LS4a: run a lesson (the teleprompter script beside the slides) → portable storage → LS4b → LS4c → LS4d. devpulse.app and the dev version of devpulse are recorded as the direction; nothing is built toward them until they are planned.
 
-LS4a landed the engine: a component's layout is data in its contract (slots in reading order with a size, ink, font and tracking each takes when neither the slide nor its looks say; an alignment, fixed or read from a variant axis; per-variant adjustments; and the decorations the one renderer paints in the card's colour — a card container, an oversized mark, a slot pinned to the top, a rule above a slot, where the column sits). Title, section, quote, big number, callout and media are drawn by it everywhere a slide is drawn, the gallery included. The card editor has a **Layout** row; the Lessons page has **Layout** on each card, for this lesson only, with "Same as the card" to give a choice back.
+LS4a (#291) builds the engine: a component's layout is data in its contract (slots in reading order with a size, ink, font and tracking each takes when neither the slide nor its looks say; an alignment, fixed or read from a variant axis; per-variant adjustments; and the decorations the one renderer paints in the card's colour — a card container, an oversized mark, a slot pinned to the top, a rule above a slot, where the column sits). Title, section, quote, big number, callout and media are drawn by it everywhere a slide is drawn, the gallery included. The card editor has a **Layout** row; the Lessons page has **Layout** on each card, for this lesson only, with "Same as the card" to give a choice back.
 
 ### R288 · 2026-10-24
 
@@ -1114,6 +1114,33 @@ Source: the operator's message in the Claude Code session of 2026-10-24 (first r
 - "After the gestures": the order is run a lesson → portable storage → LS4b → LS4c (drag to point and release to connect, slide away to reveal) → **export** → LS4d.
 
 Note: "external plugin" is read as plugging in an external drive (R287's "users plugs external and gets it connected again"). Linking it is portable storage's Locations (R83); the export pass is `docs/plans/export-player.md`.
+
+**Operator rulings 2026-10-25 — run a lesson (RL, `docs/plans/run-a-lesson.md`):**
+- "Both": Run from a lesson (the Lessons page) and from an episode;
+- "Yes, locked Run": nothing editable in Run mode, and the lesson's pinned card versions;
+- "Slides on 75", script on laptop": one tap swaps the screens;
+- "Tap anywhere + presenter drives": the left edge goes back, swipes work both ways, a long press opens the navigator, and the laptop has Next/Back;
+- "Beats now, card taps in LS4c": a Beats tab in the card editor chooses what shows on each tap;
+- "One per card, shared": the teleprompter script belongs to the card;
+- "Both in one pass": Run, touch, the presenter and the editors land together.
+
+**Operator rulings 2026-10-25 — portable storage (ST, `docs/plans/portable-storage.md`):**
+- "Everything, as one folder": content, working files, app state and AI data move together;
+- "Local profiles": several, one active at a time;
+- "AI vs app state": `.aidata` and `.userdata`;
+- "Disconnected screen": a missing drive waits and reconnects by itself;
+- "Both": Locations (folders linked in place) and a clean move of the whole library to a bigger drive;
+- "Link first, accounts last".
+
+**Signed off:** `roots.toml` beside the exe, the marker check on each drive while disconnected, the marker file on the drive, and removing the parent walk, the CWD lookup and the OS temp use.
+
+### R289 · 2026-10-25
+
+> portable means just self-reliant while being able to attune to that space with the understanding it will likely be opened on different machines
+
+Source: the operator's note on the portable-storage sign-off, Claude Code session of 2026-10-25 (first recorded here).
+
+Note: The design rule for ST: the program folder plus its library carry everything they need (no install, registry or machine-wide state). On each machine it adapts — its library on whatever drive letter it got, that machine's screens, the depot's tools — without writing anything machine-specific into the library.
 
 ### R178 · 2026-07-23
 
