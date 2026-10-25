@@ -1,6 +1,6 @@
 ---
-updated: 2026-10-21
-active_lane: lesson-schema
+updated: 2026-10-25
+active_lane: components-ls4
 dirty: false
 ---
 
@@ -13,9 +13,15 @@ reorganization).
 Read in this order: this page → [`requirements.md`](requirements.md) (the
 operator's words) → [`README.md`](README.md) (the map of every doc).
 
-**Updated:** 2026-10-21, main at `4ee638b` (#279). The release exe was
-rebuilt 2026-10-20 15:46 from `4ee638b` and its build stamp verified
-(`4ee638b · 2026-10-20 19:45z`). This page lands with LS1.
+**Updated:** 2026-10-25, main at `d7aa95d` (#290). The release exe was
+rebuilt 2026-10-24 21:25 from `d7aa95d` and its build stamp verified
+(`d7aa95d · 2026-10-25 01:23z`).
+
+**CI is warm** (#292, #293, 2026-10-24): the Windows lane went from 45–58
+minutes to about 7 (main after #293: 6m45s), Linux runs in about 2. A
+Windows runner's cache can move to its own data disk — `docs/runbook/
+ci-runners.md` "Scaling a runner"; attaching it is the operator's step on
+the Proxmox host.
 
 ## Now
 
@@ -30,18 +36,24 @@ refreshed without touching content. The research is
 
 | Pass | What | State |
 |---|---|---|
-| LS1 | Component contracts: `dpl.component/1`, a `component.json` beside each of the 28 templates, the gallery demo built from each contract's first example, the Workbench reading the contracts, the `contracts` phase of `cargo green` | **in PR #280** (CI waiting: the estate runners are offline) |
-| LS2a | Slides by id (`dpl.slide/3`): its own id and revision, blocks as the component's slots, the library folder, Layout and Starter taps that start from what was tapped, read-only seeds, the one-time upgrade of the six v2 drafts with backups | **draft PR #281**, stacked on LS1 |
-| LS2b | Presets by reference: the five looks are card presets (`for`, `exposes`, `tone`, and a font default for their lines, ruled 2026-10-21); a slide stores the look's id; the cascade is slide → look → show | **draft PR #282**, stacked on LS2a |
-| LK1 | Linked looks (R286): the look chip and its menu (your changes, Undo all my changes, Stop following / Follow the look again), a dot on every value that is yours with a comparison and a one-tap way back, try-before-keep, More controls, one revision per typing burst, Undo on every tab | **built**, stacked on LS2b |
-| LK2a | Your own looks as files (`dpl.look/1`, the `Looks` registry passed to every surface that paints): Save as a new look, your looks first in the tray and in the Library, the missing-look state | **built**, stacked on LK1 |
-| LK2b | Changes that spread: Make these the look's new style ("changes 12 other slides", before and after, one Undo), your version of a built-in with Back to the built-in, Open the look (in the card editor, ruled 2026-10-22) | **built**, stacked on LK2a |
-| LK3a | Line looks (ruled 2026-10-23): per-line entrances; the 14 text and 6 quote looks by reference between a line's own values and the card's look; a line's colour painted; per line the chip, menu, look row, dots, Colour and Movement rows, stop/follow again; shrink to fit; the Library shows them | **built**, stacked on LK2b |
-| LK3b | Picture looks made real (ruled "Approve wider LK3b", 2026-10-23): fit painted for real (it was ignored), a frame in the picture's colour, the picture's own entrance; the 5 picture looks; picture controls on tap and on the Picture tab; the Library shows them | **built**, stacked on LK3a |
-| LS3a | Lessons (`dpl.lesson/1`, ruled "Approve, two PRs", 2026-10-23): every revision a save replaces is kept and readable; a lesson's uses point at library cards and pin a version; the Workbench's Lessons page (New lesson, add from your library, reorder, take out, a job per card, Newer version → Compare → Update / Not now, Update all, Edit — the lesson you edit from takes the change, the others ask); Author builds into a lesson; a seed episode's slides are read-only | **built**, stacked on LK3b |
-| LS3b1 | Episodes built from lessons (`dpl.episode/2`, ruled 2026-10-24: lessons float, two PRs, an edit from a show shows in it, "Episode — Chapter"): one walk every surface reads (deck, Presenter, episode wall, editor picker, Studio, Building into, shows hub, chat spine), the theme from the episode, cards named by their own words; cloning a seed makes a real episode; placing into a chapter adds a use; the "copy to my shows" control made tappable | **built**, stacked on LS3a |
-| LS3b2 | Your existing episodes move into the library ("Two PRs, dry run first", 2026-10-24): a read-only dry run (`cargo xtask upgrade-episodes --dry-run`; on the operator's content: 0 shows to move), then "Move into the library…" on the Episodes page — the plan as a sheet, **Move it** — with the old file kept and everything put back on a failure; never at launch | **built**, stacked on LS3b1 |
-| LS4 | Components render their slots and variant axes | |
+| LS1 | Component contracts: `dpl.component/1`, a `component.json` beside each of the 28 templates, the gallery demo built from each contract's first example, the Workbench reading the contracts, the `contracts` phase of `cargo green` | **done** (#280) |
+| LS2a | Slides by id (`dpl.slide/3`): its own id and revision, blocks as the component's slots, the library folder, Layout and Starter taps that start from what was tapped, read-only seeds, the one-time upgrade of the six v2 drafts with backups | **done** (#281) |
+| LS2b | Presets by reference: the five looks are card presets (`for`, `exposes`, `tone`, and a font default for their lines, ruled 2026-10-21); a slide stores the look's id; the cascade is slide → look → show | **done** (#282) |
+| LK1 | Linked looks (R286): the look chip and its menu (your changes, Undo all my changes, Stop following / Follow the look again), a dot on every value that is yours with a comparison and a one-tap way back, try-before-keep, More controls, one revision per typing burst, Undo on every tab | **done** (#283) |
+| LK2a | Your own looks as files (`dpl.look/1`, the `Looks` registry passed to every surface that paints): Save as a new look, your looks first in the tray and in the Library, the missing-look state | **done** (#284) |
+| LK2b | Changes that spread: Make these the look's new style ("changes 12 other slides", before and after, one Undo), your version of a built-in with Back to the built-in, Open the look (in the card editor, ruled 2026-10-22) | **done** (#285) |
+| LK3a | Line looks (ruled 2026-10-23): per-line entrances; the 14 text and 6 quote looks by reference between a line's own values and the card's look; a line's colour painted; per line the chip, menu, look row, dots, Colour and Movement rows, stop/follow again; shrink to fit; the Library shows them | **done** (#286) |
+| LK3b | Picture looks made real (ruled "Approve wider LK3b", 2026-10-23): fit painted for real (it was ignored), a frame in the picture's colour, the picture's own entrance; the 5 picture looks; picture controls on tap and on the Picture tab; the Library shows them | **done** (#287) |
+| LS3a | Lessons (`dpl.lesson/1`, ruled "Approve, two PRs", 2026-10-23): every revision a save replaces is kept and readable; a lesson's uses point at library cards and pin a version; the Workbench's Lessons page (New lesson, add from your library, reorder, take out, a job per card, Newer version → Compare → Update / Not now, Update all, Edit — the lesson you edit from takes the change, the others ask); Author builds into a lesson; a seed episode's slides are read-only | **done** (#288) |
+| LS3b1 | Episodes built from lessons (`dpl.episode/2`, ruled 2026-10-24: lessons float, two PRs, an edit from a show shows in it, "Episode — Chapter"): one walk every surface reads (deck, Presenter, episode wall, editor picker, Studio, Building into, shows hub, chat spine), the theme from the episode, cards named by their own words; cloning a seed makes a real episode; placing into a chapter adds a use; the "copy to my shows" control made tappable | **done** (#289) |
+| LS3b2 | Your existing episodes move into the library ("Two PRs, dry run first", 2026-10-24): a read-only dry run (`cargo xtask upgrade-episodes --dry-run`; on the operator's content: 0 shows to move), then "Move into the library…" on the Episodes page — the plan as a sheet, **Move it** — with the old file kept and everything put back on a failure; never at launch | **done** (#290) |
+| LS4a | The component engine (R287, ruled 2026-10-24: the render tree, phased; props; shots before merge; three styling levels): a component's layout is data in its contract — slots in reading order with their size, ink, font and tracking, an alignment fixed or from a variant axis, per-variant adjustments, and decorations painted in the card's colour (a card, a mark, a slot pinned to the top, a rule, where the column sits); title, section, quote, big number, callout and media drawn by it everywhere, the gallery included; the card's colour painted at last; props on a slide; the editor's Layout row; Layout for one lesson only on the Lessons page | **draft PR #291** — the shots go to the operator before it merges (their ruling, Q4) |
+| LS4b | Lists and data: agenda, features, timeline, split, compare, stats, code and the infographics painted; list items selectable | |
+| LS4c | Interactive components as node trees and recipes, with touch sub-events | |
+| RL | Run a lesson (R287): Run mode — slides full screen on the big screen, the script as a teleprompter, tap anywhere to advance, the presenter able to drive; then the Beats tab and the script editor | planned — `docs/plans/run-a-lesson.md` (Q1–Q7 open) |
+| ST | Portable, linked storage (R287, R288): a library with the program or linked on a drive, recognised on any letter, a Disconnected screen that reconnects by itself, linked video folders (Locations), per-account `.userdata` / `.aidata` | planned — `docs/plans/portable-storage.md` (Q1–Q6 open) |
+| EX | Export a player (R288, ruled 2026-10-24): one folder — the player, the lesson, its videos copied in — that opens straight into Run mode; after LS4c | ruled direction — `docs/plans/export-player.md` |
+| LS4d | Your own templates ("save it as my template") | |
 | LS5 | Render locks for exports; Lottie slots | |
 | LS6 | The teaching components and their lints | |
 
@@ -169,6 +181,9 @@ release) are still to come.
     - `dpl-engine-ae`: no dependent crate;
     - `RemoveProviderWorkspace`: never built (→ the chat program);
     - `promote_asset`: see #5.
+21. **At 1100×700 Author's "Put them in" sits below the fold**
+    (2026-10-24, found by the LS4a scenarios): the Building-into bar is the
+    last thing on the page, so a short window has to scroll to reach it.
 
 ## Hazards outside this repo
 
@@ -192,21 +207,29 @@ release) are still to come.
 
 ## Next, in order
 
-1. **LS1, component contracts**: in PR. Done means every template has a
-   contract that the gallery demo is built from, and the contracts gate is
-   green.
-2. **LS2–LS6**, each with its own plan (the table under Now).
-3. **Chat**, when the operator returns to it:
+1. **LS4a** (#291): the operator looks at the before/after shots
+   (`docs/proof/ls4a-*.png`), then it merges on double-green.
+2. **Run a lesson** (RL): `docs/plans/run-a-lesson.md`, Q1–Q7 for the
+   operator.
+3. **Portable, linked storage** (ST): `docs/plans/portable-storage.md`,
+   Q1–Q6 and the reach outside the repo for sign-off.
+4. **LS4b** (lists and data) → **LS4c** (the gestures: drag to connect,
+   slide away to reveal) → **EX** (export a player,
+   `docs/plans/export-player.md`) → **LS4d** (your templates), then LS5 and
+   LS6 — the order ruled 2026-10-24 (R287, R288).
+5. **Chat**, when the operator returns to it:
    - the Codex-smoothness pass (known broken #11), for approval;
    - CW2, Claude Code;
    - RM2–RM5, the rooms.
-4. Grok and Gemini auth health.
-5. The rest of the incomplete work, each with unit tests and real-run
+6. Grok and Gemini auth health.
+7. The rest of the incomplete work, each with unit tests and real-run
    drills: the eight dependency PRs (#268–#275: ACP 2→3.4, arrow and parquet
    59→60, zip 8→9, jsonschema 0.49→0.58, thorvg-sys 0.3→0.4, egui 0.36.2),
    adopted properly; #222's open orphans; the known-broken list.
-6. P2, then P3 for operator approval; the L passes; D0.2 onward.
-7. **The knowledge engine (R275–R277)**: its own plan, from the 2026-10-13
+8. P2, then P3 for operator approval; the L passes; D0.2 onward. The twelve
+   EguiPilotAI fixtures with no scratch `CONTENT_ROOT` get one before any
+   of them runs again.
+9. **The knowledge engine (R275–R277)**: its own plan, from the 2026-10-13
    sourced research (one store with a project id on every row; keyword
    search first, embeddings one datapoint; `llama-server --embedding` as a
    depot subprocess; honest per-engine startup; an LLM lab in Workbench
