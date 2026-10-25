@@ -1089,6 +1089,32 @@ LK3b landed picture looks:
 
 ## 5. Capture — ViziWiz, sessions, steps, guides
 
+### R287 · 2026-10-24
+
+> configurable the user can save it as a template, or do layout, or a one off variant for that specific lesson/slide remember we want to be able to have slides even have sub events/slides for push to trigger on my touchscreen and have this have two modes so when i am ready to run the lesson we have the script for the teleprompter, and we have it so the storage is linked and the portable app just disconnects if on another machine but can be reconnected i.e users plugs external and gets it connected again.  We want to also allow them to grow the portable folder cleanly and decide if its linked or improted and stored with the whole program but have our structure clean, .userdata .aidata and the common ones properly organized nested clean for each account.  devpulse.app and this will eventually be tied into my dev version of devpulse
+
+Source: the operator's answer to Q2 of the LS4 plan, in the Claude Code session of 2026-10-24 (first recorded here). **Operator rulings 2026-10-24 (LS4 plan, `docs/plans/components-ls4.md`):**
+- "A: Render tree now, phased": LS4a (the engine and the six text components) → LS4b (lists and data) → LS4c (interactive, with touch sub-events) → LS4d (your templates);
+- "Add props": a slide carries its component's settings;
+- "Approve, show me shots": visual changes are shown before merge;
+- "Yes, all three": styling has three levels — layout only by default; "save it as my template" (LS4d); a one-off variant on a slide, or on one lesson's use of it (LS4a);
+- "Plan it now, build after LS4a": portable, linked storage is its own program, planned now and built after LS4a, inventoried for sign-off first (it reaches outside the repo).
+
+The order after LS4a: run a lesson (the teleprompter script beside the slides) → portable storage → LS4b → LS4c → LS4d. devpulse.app and the dev version of devpulse are recorded as the direction; nothing is built toward them until they are planned.
+
+LS4a landed the engine: a component's layout is data in its contract (slots in reading order with a size, ink, font and tracking each takes when neither the slide nor its looks say; an alignment, fixed or read from a variant axis; per-variant adjustments; and the decorations the one renderer paints in the card's colour — a card container, an oversized mark, a slot pinned to the top, a rule above a slot, where the column sits). Title, section, quote, big number, callout and media are drawn by it everywhere a slide is drawn, the gallery included. The card editor has a **Layout** row; the Lessons page has **Layout** on each card, for this lesson only, with "Same as the card" to give a choice back.
+
+### R288 · 2026-10-24
+
+> you understand this needs to be truly becoming my reliable app that I can have an external plugin and have it effortlessly link so i can have videos, and all link efficiently to inside my slides and then when i export we create this binary that I can run that responds to clicks/taps/ and some slides may require drag to point and release to connect or to slide away and reveal things like that so i can keep the audience engaged
+
+Source: the operator's message in the Claude Code session of 2026-10-24 (first recorded here). **Operator rulings 2026-10-24:**
+- "A folder: player + lesson": an export is one folder you copy anywhere — the player exe, the lesson, its videos — that opens straight into Run mode;
+- "Copied into the export": linked videos are copied in, so the export runs on any machine with nothing plugged in;
+- "After the gestures": the order is run a lesson → portable storage → LS4b → LS4c (drag to point and release to connect, slide away to reveal) → **export** → LS4d.
+
+Note: "external plugin" is read as plugging in an external drive (R287's "users plugs external and gets it connected again"). Linking it is portable storage's Locations (R83); the export pass is `docs/plans/export-player.md`.
+
 ### R178 · 2026-07-23
 
 > record demonstration using eguiPilot
