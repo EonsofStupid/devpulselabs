@@ -137,6 +137,9 @@ pub struct WorkbenchHub {
     episode_view: Option<EpisodeView>,
     /// The "copy to my shows" form (X3) — open on the episodes picker.
     clone_form: Option<CloneForm>,
+    /// "Move it into the library" (LS3b2): a show still in the old shape,
+    /// and what moving it would do — shown before anything moves.
+    move_sheet: Option<MoveSheet>,
     /// W10a Studio — place a finished slide into a content episode.
     studio: StudioState,
     /// The authoring surface (charter pass 1) — intent bar + draft mint,
@@ -148,6 +151,14 @@ pub struct WorkbenchHub {
 
 /// The clone-a-seed form: names a show category + episode (kebab law),
 /// runs `dpl_doc::clone_episode`. Seeds are read, never written.
+/// The plan for moving one old-shape show into the library, as the sheet
+/// shows it.
+struct MoveSheet {
+    id: String,
+    plan: dpl_doc::legacy::MovePlan,
+    error: Option<String>,
+}
+
 struct CloneForm {
     seed_id: String,
     seed_dir: PathBuf,
@@ -633,10 +644,14 @@ impl WorkbenchHub {
                 self.clone_form = None;
             }
         }
+        if self.move_sheet_ui(ui) {
+            return;
+        }
 
         let content_root = dpl_engine_capture::content_root();
         let mut open: Option<(String, PathBuf)> = None;
         let mut clone_from: Option<(String, PathBuf)> = None;
+        let mut move_from: Option<(String, PathBuf)> = None;
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
@@ -710,6 +725,38 @@ impl WorkbenchHub {
                         );
                         copy_clicked = chip.clicked();
                     }
+                    // A show of the operator's still in the old shape: it
+                    // moves into the library only when asked (LS3b2).
+                    let old_shape = !is_template
+                        && matches!(
+                            dpl_doc::episode::open(&entry.dir),
+                            Ok(dpl_doc::episode::Opened::Template(_))
+                        );
+                    if old_shape {
+                        let chip = cl::tip(
+                            controls::control(
+                                ui,
+                                "Move into the library…",
+                                false,
+                                cl::Tone::Cyan,
+                                controls::Weight::Chrome,
+                            ),
+                            "See what moving this show into your library would do — nothing \
+                             moves until you say so",
+                        );
+                        ui.pilot_track(
+                            &chip,
+                            NodeMetadata::new(
+                                PilotId::new("workbench.episodes.move")
+                                    .child(&PilotKey::new(&entry.id)),
+                                egui_pilot_ai::protocol::Role::Button,
+                                "Move into the library…",
+                            ),
+                        );
+                        if chip.clicked() {
+                            move_from = Some((entry.id.clone(), entry.dir.clone()));
+                        }
+                    }
                     if copy_clicked {
                         clone_from = Some((entry.id.clone(), entry.dir.clone()));
                     } else if card.clicked() {
@@ -718,6 +765,24 @@ impl WorkbenchHub {
                     ui.add_space(cl::space::S2);
                 }
             });
+        if let Some((id, dir)) = move_from {
+            match dpl_doc::legacy::plan_move(&dir, &content_root) {
+                Ok(plan) => {
+                    self.move_sheet = Some(MoveSheet {
+                        id,
+                        plan,
+                        error: None,
+                    })
+                }
+                Err(e) => {
+                    ui.label(
+                        RichText::new(format!("could not plan the move: {e}"))
+                            .color(cl::ink::MUTED),
+                    );
+                }
+            }
+            return;
+        }
         if let Some((id, dir)) = clone_from {
             self.clone_form = Some(CloneForm {
                 seed_id: id,
@@ -736,6 +801,183 @@ impl WorkbenchHub {
                 }
             }
         }
+    }
+
+    /// The move sheet, when open: exactly what moving the show would do,
+    /// then Move it or Not now. Returns true while it is open (the list
+    /// waits under it).
+    fn move_sheet_ui(&mut self, ui: &mut egui::Ui) -> bool {
+        let Some(sheet) = self.move_sheet.as_mut() else {
+            return false;
+        };
+        let fluid = cl::Fluid::of(ui.max_rect());
+        let node =
+            |key: &str| PilotId::new("workbench.episodes.move-sheet").child(&PilotKey::new(key));
+        let plan = &sheet.plan;
+        let (mut go, mut close) = (false, false);
+        cl::card_frame().show(ui, |ui| {
+            ui.set_width(ui.available_width().min(fluid.panel_width() * 1.4));
+            ui.label(
+                RichText::new(format!("Move “{}” into your library", plan.title))
+                    .size(fluid.fs_h4())
+                    .strong()
+                    .color(cl::ink::STRONG),
+            );
+            ui.label(
+                RichText::new(
+                    "Its slides become cards in your library and each chapter becomes a \
+                     lesson, so the same card can be used in more than one lesson and a change \
+                     to a card is offered to every lesson that uses it.",
+                )
+                .size(fluid.fs_body_sm())
+                .color(cl::ink::MUTED),
+            );
+            ui.add_space(cl::space::S2);
+            ui.label(RichText::new("Each chapter becomes a lesson:").color(cl::ink::BASE));
+            for lesson in &plan.lessons {
+                ui.label(
+                    RichText::new(format!(
+                        "  • {} — {}",
+                        lesson.title,
+                        match lesson.cards.len() {
+                            1 => "1 card".to_owned(),
+                            n => format!("{n} cards"),
+                        }
+                    ))
+                    .size(fluid.fs_body_sm())
+                    .color(cl::ink::BASE),
+                );
+            }
+            let moving = plan.slides.len() + plan.orphans.len();
+            let scripts = plan
+                .slides
+                .iter()
+                .chain(&plan.orphans)
+                .filter(|s| s.script)
+                .count();
+            let pictures: usize = plan
+                .slides
+                .iter()
+                .chain(&plan.orphans)
+                .map(|s| s.media.len())
+                .sum();
+            let copies = plan
+                .slides
+                .iter()
+                .chain(&plan.orphans)
+                .filter(|s| s.forked)
+                .count();
+            let mut facts = vec![format!(
+                "{moving} slide{} move into your library{}.",
+                if moving == 1 { "" } else { "s" },
+                match plan.orphans.len() {
+                    0 => String::new(),
+                    n => format!(" ({n} of them in no chapter, kept as cards)"),
+                }
+            )];
+            if scripts > 0 {
+                facts.push(match scripts {
+                    1 => "1 script goes with its slide.".to_owned(),
+                    n => format!("{n} scripts go with their slides."),
+                });
+            }
+            if pictures > 0 {
+                facts.push(match pictures {
+                    1 => "1 picture goes with its slide.".to_owned(),
+                    n => format!("{n} pictures go with their slides."),
+                });
+            }
+            if copies > 0 {
+                facts.push(match copies {
+                    1 => "1 slide is already in your library, so it moves as a copy — the one \
+                          there stays."
+                        .to_owned(),
+                    n => format!(
+                        "{n} slides are already in your library, so they move as copies — the \
+                         ones there stay."
+                    ),
+                });
+            }
+            facts.push(
+                "The show's old file is kept beside it (episode.v1.json). Nothing is deleted."
+                    .into(),
+            );
+            ui.add_space(cl::space::S2);
+            for fact in &facts {
+                ui.label(
+                    RichText::new(fact)
+                        .size(fluid.fs_body_sm())
+                        .color(cl::ink::BASE),
+                );
+            }
+            if !plan.refused.is_empty() {
+                ui.add_space(cl::space::S2);
+                ui.label(
+                    RichText::new("It can't move yet:")
+                        .strong()
+                        .color(cl::Tone::Coral.color()),
+                );
+                for why in &plan.refused {
+                    ui.label(
+                        RichText::new(format!("  • {why}"))
+                            .size(fluid.fs_body_sm())
+                            .color(cl::Tone::Coral.color()),
+                    );
+                }
+            }
+            if let Some(e) = &sheet.error {
+                ui.label(RichText::new(e).small().color(cl::Tone::Coral.color()));
+            }
+            ui.add_space(cl::space::S3);
+            ui.horizontal_wrapped(|ui| {
+                if plan.refused.is_empty() {
+                    let move_it = cl::tip(
+                        controls::control(ui, "Move it", false, SPEC.tone, controls::Weight::Hero),
+                        "Move this show into your library now — its old file is kept",
+                    );
+                    ui.pilot_track(
+                        &move_it,
+                        NodeMetadata::new(
+                            node("move"),
+                            egui_pilot_ai::protocol::Role::Button,
+                            "Move it",
+                        ),
+                    );
+                    go = move_it.clicked();
+                }
+                let not_now = cl::tip(
+                    controls::control(ui, "Not now", false, SPEC.tone, controls::Weight::Chrome),
+                    "Leave the show as it is",
+                );
+                ui.pilot_track(
+                    &not_now,
+                    NodeMetadata::new(
+                        node("not-now"),
+                        egui_pilot_ai::protocol::Role::Button,
+                        "Not now",
+                    ),
+                );
+                close = not_now.clicked();
+            });
+        });
+        ui.add_space(cl::space::S2);
+        if close {
+            self.move_sheet = None;
+        } else if go {
+            let root = dpl_engine_capture::content_root();
+            let dir = sheet.plan.dir.clone();
+            match dpl_doc::legacy::move_episode(&dir, &root) {
+                Ok(_) => {
+                    let id = sheet.id.clone();
+                    self.move_sheet = None;
+                    if let Ok(view) = EpisodeView::open(&dir, id) {
+                        self.episode_view = Some(view);
+                    }
+                }
+                Err(e) => sheet.error = Some(e),
+            }
+        }
+        true
     }
 
     /// The clone form, when open. Returns Some(true) when it finished
