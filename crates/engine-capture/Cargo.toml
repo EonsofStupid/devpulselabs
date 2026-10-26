@@ -8,6 +8,7 @@ authors = ["DevPULSE Labs"]
 
 
 [dependencies]
+dpl-roots.workspace = true
 dpl-proc.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

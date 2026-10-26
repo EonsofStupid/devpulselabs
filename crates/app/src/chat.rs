@@ -888,7 +888,7 @@ impl ChatWindowCoordinator {
         let imagine = if provider_runtime_enabled {
             ImagineState {
                 cache: Some(ImagineCache::open_default()),
-                policy: ImaginePolicy::load(&dpl_engine_capture::userdata_root()),
+                policy: ImaginePolicy::load(&dpl_roots::userdata_root()),
                 worker: None,
                 pending_prompt: None,
                 job: None,
@@ -920,7 +920,7 @@ impl ChatWindowCoordinator {
         // Assist mode: the persisted blanket consent (authored fixtures
         // start from defaults and never write disk).
         let assist = if provider_runtime_enabled {
-            AssistPolicy::load(&dpl_engine_capture::userdata_root())
+            AssistPolicy::load(&dpl_roots::userdata_root())
         } else {
             AssistPolicy::default()
         };
@@ -1383,7 +1383,7 @@ fn content_address(entry: &dpl_doc::EpisodeEntry) -> ContentEpisodeId {
 /// Resolve an address back to its entry — the inverse of [`content_address`],
 /// matching `dpl_hub_workbench::open_episode`'s resolution exactly.
 fn find_content_entry(id: &ContentEpisodeId) -> Option<dpl_doc::EpisodeEntry> {
-    let union = dpl_doc::all_episodes(&dpl_engine_capture::content_root());
+    let union = dpl_doc::all_episodes(&dpl_roots::content_root());
     match id.0.split_once('/') {
         Some(("template", ep)) => union.into_iter().find(|e| e.show.is_none() && e.id == ep),
         Some((show, ep)) => union
@@ -1396,7 +1396,7 @@ fn find_content_entry(id: &ContentEpisodeId) -> Option<dpl_doc::EpisodeEntry> {
 /// The content census — a directory walk, never a full library load. Called
 /// on the triggers named in the D1 plan §3.4, NEVER from the frame path.
 fn read_content_view() -> ContentView {
-    let root = dpl_engine_capture::content_root();
+    let root = dpl_roots::content_root();
     // A missing content root is a NOTE, never an early return: `all_episodes`
     // unions the root with `seeds/episodes/`, which lives outside it, so the
     // seed templates are still real census rows and must still be listed.
@@ -1428,7 +1428,7 @@ fn read_content_view() -> ContentView {
 /// Only this episode is read.
 fn read_content_spine(id: &ContentEpisodeId) -> Option<ContentSpine> {
     let entry = find_content_entry(id)?;
-    let shown = dpl_doc::episode::shows(&entry.dir, &dpl_engine_capture::content_root()).ok()?;
+    let shown = dpl_doc::episode::shows(&entry.dir, &dpl_roots::content_root()).ok()?;
     let chapters = shown
         .chapters
         .iter()
@@ -2384,11 +2384,7 @@ fn resolve_imagine_flush(state: &mut Shared, decision: ImagineFlushDecision) {
             }
             if decision == ImagineFlushDecision::FlushAlways {
                 state.imagine.policy.auto_flush = true;
-                if let Err(error) = state
-                    .imagine
-                    .policy
-                    .save(&dpl_engine_capture::userdata_root())
-                {
+                if let Err(error) = state.imagine.policy.save(&dpl_roots::userdata_root()) {
                     tracing::warn!(%error, "Imagine flush policy could not be persisted");
                 }
             }
@@ -2440,7 +2436,7 @@ fn save_assist(state: &Shared) {
     if !state.provider_runtime_enabled {
         return;
     }
-    if let Err(error) = state.assist.save(&dpl_engine_capture::userdata_root()) {
+    if let Err(error) = state.assist.save(&dpl_roots::userdata_root()) {
         tracing::warn!(%error, "assist policy could not be persisted");
     }
 }
@@ -2666,7 +2662,7 @@ fn start_brainstorm(state: &mut Shared) {
         .into_iter()
         .next()
         .expect("the scaffold census is never empty");
-    let inbox = dpl_engine_capture::content_root().join("inbox");
+    let inbox = dpl_roots::content_root().join("inbox");
     let dir = dpl_workflows::fresh_dir(&inbox, "brainstorm");
     let stem = dir
         .file_name()
@@ -4554,9 +4550,7 @@ fn plain_failure(reason: &str) -> PlainFailure {
 /// Where the operator's own roles and rooms live (R284): one JSON file
 /// each, under `roles/` and `rooms/`.
 fn room_library_root() -> PathBuf {
-    dpl_engine_capture::userdata_root()
-        .join("chat")
-        .join("library")
+    dpl_roots::userdata_root().join("chat").join("library")
 }
 
 /// The built-in library plus every role and room file the operator added.

@@ -32,6 +32,20 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 use std::time::{Duration, Instant, SystemTime};
 
+/// Explicitly link an existing marked library; staging never adopts legacy data.
+fn stage_roots(arguments: &[String]) -> Result<(), String> {
+    let [program, library] = arguments else {
+        return Err("usage: cargo xtask stage-roots <program-dir> <existing-library>".into());
+    };
+    // These are explicit CLI inputs, so relative paths mean the caller's
+    // directory. Runtime library discovery never consults that directory.
+    let program_path = std::path::absolute(program).map_err(|error| error.to_string())?;
+    let library_path = std::path::absolute(library).map_err(|error| error.to_string())?;
+    dpl_roots::stage_roots(&program_path, &library_path)?;
+    println!("roots.toml staged beside the program in {program}; library {library}");
+    Ok(())
+}
+
 fn run(name: &str, args: &[&str]) -> Result<(), String> {
     let mut command = Command::new("cargo");
     command.args(args);
@@ -103,6 +117,22 @@ fn run_workspace_tests() -> Result<(), String> {
     let mut command = Command::new("cargo");
     command.args(["test", "--workspace"]);
     command.env("CARGO_PROFILE_TEST_DEBUG", "0");
+    // ST1 removes ambient repo discovery. Tests of default stores/UI need
+    // an explicit private library, never an inherited operator location.
+    let stamp = SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|error| format!("test scratch timestamp: {error}"))?
+        .as_nanos();
+    let scratch = std::path::absolute(
+        target_dir()
+            .join("gate-tests")
+            .join(format!("{}-{stamp}", std::process::id())),
+    )
+    .map_err(|error| format!("test scratch path: {error}"))?;
+    command
+        .env("CONTENT_ROOT", scratch.join("content"))
+        .env("ASSETS_ROOT", scratch.join("assets"))
+        .env("USERDATA_ROOT", scratch.join(".userdata"));
 
     // Windows links with the bundled rust-lld (it avoids MSVC's PDB record
     // exhaustion), set for EVERY phase by `.cargo/config.toml`. This phase
@@ -1411,6 +1441,7 @@ fn structure_audit() -> Result<(), String> {
         ),
         ("dpl-doc", &["dpl-coldlight", "serde", "serde_json"]),
         ("dpl-tools-deps", &["serde", "serde_json", "sha2"]),
+        ("dpl-roots", &["serde", "serde_json", "toml"]),
         ("dpl-landing", &["serde", "serde_json"]),
         ("dpl-estate", &["fjall", "moka", "serde", "serde_json"]),
         ("dpl-intent", &[]),
@@ -1430,6 +1461,7 @@ fn structure_audit() -> Result<(), String> {
         "dpl-intent",
         "dpl-ledger",
         "dpl-tools-deps",
+        "dpl-roots",
         "dpl-engine-capture",
         "dpl-engine-media",
         "dpl-engine-steps",
@@ -1663,7 +1695,7 @@ fn structure_audit() -> Result<(), String> {
 
     // Harness-flag census: the flags the app parses ⇔ the flags CLAUDE.md
     // documents, both directions. `--content-root` is parsed inside
-    // engine-capture (the ring resolver), hence the one addition.
+    // dpl-roots (the library resolver), hence the one addition.
     let flag_set = |text: &str| -> HashSet<String> {
         let bytes = text.as_bytes();
         let mut flags = HashSet::new();
@@ -2358,6 +2390,7 @@ fn main() -> ExitCode {
         // is that it catches what three commits already got wrong.
         "lock" => lock_audit(),
         "stage-tool-deps" => stage_tool_dependencies(&arguments),
+        "stage-roots" => stage_roots(&arguments),
         "adopt-tool" => adopt_tool(&arguments),
         "vendor-schema" => vendor_schema(&arguments),
         "update-tool-deps" => update_tool_dependencies(&arguments),
@@ -2377,7 +2410,7 @@ fn main() -> ExitCode {
             )
         }),
         other => Err(format!(
-            "unknown task \"{other}\" — tasks: green, sweep, docs-status, structure, coverage, smoke, lock, stage-tool-deps, adopt-tool, update-tool-deps, vendor-schema, dev, fix"
+            "unknown task \"{other}\" — tasks: green, sweep, docs-status, structure, coverage, smoke, lock, stage-tool-deps, stage-roots, adopt-tool, update-tool-deps, vendor-schema, dev, fix"
         )),
     };
     match result {

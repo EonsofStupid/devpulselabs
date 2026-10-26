@@ -10,6 +10,10 @@
 use dpl_engine_capture::{capture_display, capture_region, set_ffmpeg_path, FracRect};
 
 fn main() {
+    if let Err(error) = dpl_roots::initialize() {
+        eprintln!("capture-cli: {error}");
+        std::process::exit(1);
+    }
     #[cfg(target_os = "windows")]
     const FFMPEG_BIN: &str = "ffmpeg.exe";
     #[cfg(not(target_os = "windows"))]

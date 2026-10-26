@@ -150,12 +150,11 @@ pub fn parse_devtools_active_port(s: &str) -> Result<(u16, String), String> {
 
 static PROFILE_N: AtomicU64 = AtomicU64::new(0);
 
-/// Ephemeral profiles live in Ring 0's regenerable temp (ADR-014) —
+/// Ephemeral profiles live in the library's common regenerable temp (ADR-014) —
 /// never the OS temp dir, never outside the app.
 fn fresh_profile_dir() -> PathBuf {
     let n = PROFILE_N.fetch_add(1, Ordering::Relaxed);
-    dpl_engine_capture::userdata_root()
-        .join("temp")
+    dpl_roots::temp_root()
         .join("browser")
         .join(format!("profile-{}-{n}", std::process::id()))
 }
@@ -166,7 +165,7 @@ pub fn profile_dir(name_or_path: &str) -> PathBuf {
     if name_or_path.contains(['/', '\\', ':']) {
         PathBuf::from(name_or_path)
     } else {
-        dpl_engine_capture::userdata_root()
+        dpl_roots::userdata_root()
             .join("profiles")
             .join(name_or_path)
     }

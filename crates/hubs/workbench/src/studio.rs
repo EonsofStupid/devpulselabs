@@ -51,7 +51,7 @@ impl StudioState {
             self.sources = Some(sources);
         }
         if self.episodes.is_none() {
-            let root = dpl_engine_capture::content_root();
+            let root = dpl_roots::content_root();
             let mut episodes = Vec::new();
             for (show, episode, dir) in dpl_doc::list_content_episodes(&root) {
                 // A chapter is a lesson in an episode built from lessons,
@@ -214,7 +214,7 @@ impl StudioState {
             let ep = &episodes[self.episode_ix];
             let (chapter_id, chapter_title) = &ep.chapters[self.chapter_ix];
             match dpl_doc::place_slide(
-                &dpl_engine_capture::content_root(),
+                &dpl_roots::content_root(),
                 &src.dir,
                 &ep.show,
                 &ep.episode,

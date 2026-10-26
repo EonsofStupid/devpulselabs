@@ -7,6 +7,9 @@ proof-*.png
 # The three-ring root (ADR-014): working + state rings are operator data.
 /assets/
 /.userdata/
+# Portable libraries and executable-adjacent machine-specific configuration.
+/library/
+/roots.toml
 
 # Operator-private source binaries used only to stage portable releases.
 /dptools-deps/sources.local.toml

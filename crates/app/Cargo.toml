@@ -33,6 +33,7 @@ dpl-ledger.workspace = true
 dpl-shell.workspace = true
 dpl-viziwiz.workspace = true
 dpl-doc.workspace = true
+dpl-roots.workspace = true
 dpl-engine-capture.workspace = true
 dpl-engine-media.workspace = true
 dpl-engine-steps.workspace = true

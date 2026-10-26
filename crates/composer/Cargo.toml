@@ -8,6 +8,7 @@ publish = false
 workspace = true
 
 [dependencies]
+dpl-roots.workspace = true
 dpl-fabric.workspace = true
 dpl-estate.workspace = true
 egui.workspace = true
@@ -17,7 +18,6 @@ dpl-workflows.workspace = true
 dpl-coldlight.workspace = true
 dpl-video.workspace = true
 dpl-index.workspace = true
-dpl-engine-capture.workspace = true
 dpl-engine-media.workspace = true
 dpl-engine-steps.workspace = true
 dpl-guide.workspace = true

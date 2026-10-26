@@ -20,7 +20,7 @@ fn import_drill_against_a_scratch_root() {
     let src_dir = PathBuf::from(
         std::env::var("DPL_IMPORT_DRILL_SRC").expect("DPL_IMPORT_DRILL_SRC must point at media"),
     );
-    let root = dpl_engine_capture::content_root();
+    let root = dpl_roots::content_root();
     let mut imported = 0usize;
     for entry in std::fs::read_dir(&src_dir).expect("readable drill src") {
         let src = entry.expect("dir entry").path();

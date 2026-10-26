@@ -1,6 +1,6 @@
 //! The editor's tiny persisted memory (R1z) — `composer-state.json` at
-//! the user-data root (the `artifacts.db`/`sources.json` precedent:
-//! app-written operator data, never committed, never authored by hand).
+//! the app-state root (`.userdata`, separate from confirmed content):
+//! app-written operator data, never committed, never authored by hand.
 //! One fact today: the last comp the operator worked in, so the editor
 //! never opens empty-handed (experience gate row 1). Best-effort on both
 //! ends — a missing or corrupt file is a default, never an error surface.
@@ -24,6 +24,17 @@ pub fn load(root: &Path) -> EditorState {
         .ok()
         .and_then(|raw| serde_json::from_str(&raw).ok())
         .unwrap_or_default()
+}
+
+/// Prefer app state. Read the old content copy only when no new state file
+/// exists; a corrupt or unreadable new file must not resurrect an old comp.
+/// This is read-only compatibility until ST4's explicit library migration.
+pub fn load_with_legacy(root: &Path, legacy_content: &Path) -> EditorState {
+    match std::fs::read_to_string(root.join(FILE)) {
+        Ok(raw) => serde_json::from_str(&raw).unwrap_or_default(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => load(legacy_content),
+        Err(_) => EditorState::default(),
+    }
 }
 
 /// Write the state — best-effort pretty JSON + LF; callers never fail on it.
@@ -68,6 +79,41 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join(FILE), "{not json").unwrap();
         assert_eq!(load(&root), EditorState::default());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn legacy_state_is_read_only_and_new_state_wins_even_when_empty_or_corrupt() {
+        let root = scratch("legacy");
+        let content = root.join("content");
+        let userdata = root.join(".userdata");
+        let old = EditorState {
+            last_comp: Some("inbox/old-comp".into()),
+        };
+        save(&content, &old);
+        let original = std::fs::read(content.join(FILE)).unwrap();
+        assert_eq!(load_with_legacy(&userdata, &content), old);
+        assert!(
+            !userdata.exists(),
+            "a read must not migrate or create state"
+        );
+
+        save(&userdata, &EditorState::default());
+        assert_eq!(
+            load_with_legacy(&userdata, &content),
+            EditorState::default()
+        );
+        let new = EditorState {
+            last_comp: Some("inbox/new-comp".into()),
+        };
+        save(&userdata, &new);
+        assert_eq!(load_with_legacy(&userdata, &content), new);
+        std::fs::write(userdata.join(FILE), "not json").unwrap();
+        assert_eq!(
+            load_with_legacy(&userdata, &content),
+            EditorState::default()
+        );
+        assert_eq!(std::fs::read(content.join(FILE)).unwrap(), original);
         let _ = std::fs::remove_dir_all(&root);
     }
 }

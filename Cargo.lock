@@ -1806,6 +1806,7 @@ dependencies = [
  "dpl-intent",
  "dpl-ledger",
  "dpl-proc",
+ "dpl-roots",
  "dpl-seam",
  "dpl-shell",
  "dpl-tools-deps",
@@ -1917,7 +1918,7 @@ name = "dpl-chat-accounts"
 version = "0.1.0"
 dependencies = [
  "dpl-chat-core",
- "dpl-engine-capture",
+ "dpl-roots",
  "tokio",
  "turso",
 ]
@@ -2013,7 +2014,7 @@ name = "dpl-chat-imagine"
 version = "0.1.0"
 dependencies = [
  "data-encoding",
- "dpl-engine-capture",
+ "dpl-roots",
  "serde",
  "serde_json",
  "ureq",
@@ -2031,7 +2032,7 @@ name = "dpl-chat-profiles"
 version = "0.1.0"
 dependencies = [
  "dpl-chat-core",
- "dpl-engine-capture",
+ "dpl-roots",
  "tokio",
  "turso",
 ]
@@ -2207,7 +2208,6 @@ dependencies = [
  "dpl-coldlight",
  "dpl-comp",
  "dpl-doc",
- "dpl-engine-capture",
  "dpl-engine-media",
  "dpl-engine-steps",
  "dpl-estate",
@@ -2216,6 +2216,7 @@ dependencies = [
  "dpl-index",
  "dpl-lottie",
  "dpl-proc",
+ "dpl-roots",
  "dpl-video",
  "dpl-workflows",
  "egui",
@@ -2282,8 +2283,8 @@ dependencies = [
 name = "dpl-engine-browser"
 version = "0.1.0"
 dependencies = [
- "dpl-engine-capture",
  "dpl-proc",
+ "dpl-roots",
  "dpl-tools-deps",
  "serde",
  "serde_json",
@@ -2295,6 +2296,7 @@ name = "dpl-engine-capture"
 version = "0.1.0"
 dependencies = [
  "dpl-proc",
+ "dpl-roots",
  "image",
  "serde",
  "serde_json",
@@ -2393,9 +2395,9 @@ dependencies = [
  "dpl-coldlight",
  "dpl-deck",
  "dpl-doc",
- "dpl-engine-capture",
  "dpl-fabric",
  "dpl-hub",
+ "dpl-roots",
  "egui",
  "egui-pilot-ai",
  "serde_json",
@@ -2407,8 +2409,8 @@ version = "0.1.0"
 dependencies = [
  "dpl-coldlight",
  "dpl-doc",
- "dpl-engine-capture",
  "dpl-hub",
+ "dpl-roots",
  "egui",
 ]
 
@@ -2419,11 +2421,11 @@ dependencies = [
  "dpl-coldlight",
  "dpl-composer",
  "dpl-doc",
- "dpl-engine-capture",
  "dpl-estate",
  "dpl-fabric",
  "dpl-hub",
  "dpl-index",
+ "dpl-roots",
  "dpl-video",
  "egui",
  "egui-pilot-ai",
@@ -2437,11 +2439,11 @@ dependencies = [
  "dpl-coldlight",
  "dpl-doc",
  "dpl-editor",
- "dpl-engine-capture",
  "dpl-fabric",
  "dpl-guide",
  "dpl-hub",
  "dpl-index",
+ "dpl-roots",
  "dpl-slides",
  "egui",
  "egui-pilot-ai",
@@ -2455,7 +2457,7 @@ dependencies = [
 name = "dpl-index"
 version = "0.1.0"
 dependencies = [
- "dpl-engine-capture",
+ "dpl-roots",
  "serde",
  "serde_json",
  "tokio",
@@ -2507,6 +2509,15 @@ dependencies = [
 [[package]]
 name = "dpl-proc"
 version = "0.1.0"
+
+[[package]]
+name = "dpl-roots"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "toml",
+]
 
 [[package]]
 name = "dpl-seam"
@@ -2584,6 +2595,7 @@ name = "dpl-video"
 version = "0.1.0"
 dependencies = [
  "dpl-proc",
+ "dpl-roots",
  "egui",
 ]
 
@@ -2598,6 +2610,7 @@ dependencies = [
  "dpl-hub",
  "dpl-index",
  "dpl-landing",
+ "dpl-roots",
  "egui",
  "egui-pilot-ai",
  "image",
@@ -9397,6 +9410,7 @@ version = "0.1.0"
 dependencies = [
  "dpl-chat-codex",
  "dpl-doc",
+ "dpl-roots",
  "dpl-tools-deps",
  "image",
  "pelite",

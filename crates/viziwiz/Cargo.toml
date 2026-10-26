@@ -6,6 +6,7 @@ publish.workspace = true
 description = "The ViziWiz capture overlay — always-on-top palette (Img · Video · Session · Steps), frozen-frame region select with loupe, REC pill. UI over the engines; zero capture logic of its own."
 
 [dependencies]
+dpl-roots.workspace = true
 egui.workspace = true
 image.workspace = true
 dpl-coldlight.workspace = true

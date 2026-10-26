@@ -11,20 +11,29 @@ fn main() {
 
 fn run() -> i32 {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let (root, rest): (PathBuf, Vec<String>) = match args.first().map(String::as_str) {
-        Some("--root") => {
-            let Some(dir) = args.get(1) else {
-                eprintln!("--root needs a directory");
-                return 2;
-            };
-            (PathBuf::from(dir), args[2..].to_vec())
-        }
-        _ => (dpl_engine_capture::content_root(), args),
-    };
+    let (root, userdata, rest): (PathBuf, PathBuf, Vec<String>) =
+        match args.first().map(String::as_str) {
+            Some("--root") => {
+                let Some(dir) = args.get(1) else {
+                    eprintln!("--root needs a directory");
+                    return 2;
+                };
+                let root = PathBuf::from(dir);
+                let userdata = dpl_roots::ring_sibling(&root, ".userdata");
+                (root, userdata, args[2..].to_vec())
+            }
+            _ => match dpl_roots::initialize() {
+                Ok(layout) => (layout.content, layout.userdata, args),
+                Err(error) => {
+                    eprintln!("{error}");
+                    return 1;
+                }
+            },
+        };
 
     // The ring law (ADR-014): this root's index lives in its sibling
     // `.userdata/`, adopting a legacy in-root `artifacts.db` on first use.
-    let db = dpl_engine_capture::ring_sibling(&root, ".userdata").join("index.db");
+    let db = userdata.join("index.db");
     let index = match dpl_index::Index::open_adopting(&db, &root.join("artifacts.db")) {
         Ok(ix) => ix,
         Err(e) => {

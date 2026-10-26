@@ -161,7 +161,7 @@ pub fn import_file(src: &Path) -> Result<Record, String> {
             ));
         }
     }
-    let root = dpl_engine_capture::content_root();
+    let root = dpl_roots::content_root();
     let dest_dir = if kind == "element" {
         root.join("elements").join("imported")
     } else {
@@ -189,7 +189,7 @@ pub fn import_generated(src: &Path) -> Result<Record, String> {
         .and_then(|e| e.to_str())
         .unwrap_or_default()
         .to_ascii_lowercase();
-    let root = dpl_engine_capture::content_root();
+    let root = dpl_roots::content_root();
     let dest_dir = root.join("inbox");
     std::fs::create_dir_all(&dest_dir).map_err(|e| format!("dest dir: {e}"))?;
     let dest = no_clobber(&dest_dir, &stem, &ext);
@@ -219,7 +219,7 @@ pub fn import_reference(src: &Path) -> Result<Record, String> {
         .and_then(|e| e.to_str())
         .unwrap_or_default()
         .to_ascii_lowercase();
-    let root = dpl_engine_capture::content_root();
+    let root = dpl_roots::content_root();
     let dest_dir = if kind == "element" {
         root.join("elements").join("referenced")
     } else {
@@ -287,7 +287,7 @@ fn finalize_import(
 /// construction; the failure direction is a duplicate, never a loss.
 pub fn promote_asset(src: &Path) -> Result<Record, String> {
     let rec = import_file(src)?;
-    if removable_after_promote(src, &dpl_engine_capture::assets_root()) {
+    if removable_after_promote(src, &dpl_roots::assets_root()) {
         std::fs::remove_file(src).map_err(|e| format!("promote cleanup {}: {e}", src.display()))?;
     }
     Ok(rec)

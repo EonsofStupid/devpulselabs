@@ -91,7 +91,7 @@ impl GalleryView {
                 }
                 Err(e) => (Vec::new(), e),
             };
-        let targets = dpl_doc::list_content_episodes(&dpl_engine_capture::content_root())
+        let targets = dpl_doc::list_content_episodes(&dpl_roots::content_root())
             .into_iter()
             .map(|(show, ep, _)| (show, ep))
             .collect();
@@ -282,7 +282,7 @@ impl WiredfrontHub {
 
         if rescan {
             let status = match dpl_index::Index::open_default()
-                .and_then(|ix| ix.reindex(&dpl_engine_capture::content_root()))
+                .and_then(|ix| ix.reindex(&dpl_roots::content_root()))
             {
                 Ok(r) => {
                     // Batching law: a rescan is ONE InboxChanged.
@@ -303,7 +303,7 @@ impl WiredfrontHub {
         }
 
         ui.add_space(cl::space::S2);
-        let root = dpl_engine_capture::content_root();
+        let root = dpl_roots::content_root();
         let filter = view.filter;
         let visible: Vec<usize> = view
             .rows
@@ -678,7 +678,7 @@ impl WiredfrontHub {
         );
         ui.add_space(cl::space::S2);
 
-        let root = dpl_engine_capture::content_root();
+        let root = dpl_roots::content_root();
         let mut action: Option<LibAction> = None;
         if view.rows.is_empty() {
             ui.label(
@@ -1039,7 +1039,7 @@ impl WiredfrontHub {
             .find(|r| r.rel_path == rel)
             .map(|r| r.name.clone())
             .unwrap_or_else(|| rel.to_string());
-        let (play, status) = build_session_play(&dpl_engine_capture::content_root(), rel, name);
+        let (play, status) = build_session_play(&dpl_roots::content_root(), rel, name);
         view.status = status;
         view.open = Some(play);
     }
@@ -1142,7 +1142,7 @@ impl WiredfrontHub {
             .ok()
             .and_then(|rows| rows.into_iter().find(|r| r.rel_path == rel).map(|r| r.name))
             .unwrap_or_else(|| rel.to_string());
-        let (play, status) = build_session_play(&dpl_engine_capture::content_root(), rel, name);
+        let (play, status) = build_session_play(&dpl_roots::content_root(), rel, name);
         self.replay = Some((play, status));
     }
 
@@ -1175,7 +1175,7 @@ impl WiredfrontHub {
             );
             return;
         }
-        let root = dpl_engine_capture::content_root();
+        let root = dpl_roots::content_root();
         let mut open: Option<String> = None;
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])

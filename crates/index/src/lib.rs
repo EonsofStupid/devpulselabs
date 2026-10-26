@@ -104,9 +104,9 @@ impl Index {
     /// The app's index: `.userdata/index.db` (ADR-014 Ring 0), adopting
     /// a legacy `content/artifacts.db` if one is still in place.
     pub fn open_default() -> Result<Self, String> {
-        let root = dpl_engine_capture::content_root();
+        let root = dpl_roots::content_root();
         Self::open_adopting(
-            &dpl_engine_capture::userdata_root().join("index.db"),
+            &dpl_roots::userdata_root().join("index.db"),
             &root.join("artifacts.db"),
         )
     }

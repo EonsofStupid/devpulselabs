@@ -144,7 +144,7 @@ impl ShowsHub {
     /// Discover the shows once and leak the spec — subroutes are
     /// `&'static` by contract; this is a once-per-boot allocation.
     pub fn new() -> Self {
-        let content_root = dpl_engine_capture::content_root();
+        let content_root = dpl_roots::content_root();
         let subs: &'static [SubRoute] =
             Box::leak(discover_subroutes(&content_root).into_boxed_slice());
         let spec: &'static HubSpec = Box::leak(Box::new(HubSpec {
