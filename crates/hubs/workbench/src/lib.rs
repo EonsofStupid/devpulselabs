@@ -235,7 +235,7 @@ impl WorkbenchHub {
     /// (content wins collisions — the union's order). Unknown ids
     /// degrade to the picker.
     pub fn open_episode(&mut self, id: &str) {
-        let union = dpl_doc::all_episodes(&dpl_engine_capture::content_root());
+        let union = dpl_doc::all_episodes(&dpl_roots::content_root());
         let hit = match id.split_once('/') {
             Some(("template", ep)) => union.into_iter().find(|e| e.show.is_none() && e.id == ep),
             Some((show, ep)) => union
@@ -270,9 +270,9 @@ impl WorkbenchHub {
             LibSection::Themes => library::traits_wall(ui),
             LibSection::Colors => library::pool_wall(ui),
             LibSection::Presets => {
-                let looks = self.looks.get_or_insert_with(|| {
-                    dpl_doc::Looks::load(&dpl_engine_capture::content_root())
-                });
+                let looks = self
+                    .looks
+                    .get_or_insert_with(|| dpl_doc::Looks::load(&dpl_roots::content_root()));
                 library::presets_wall(ui, looks);
             }
             LibSection::Fonts => library::fonts_wall(ui),
@@ -282,7 +282,7 @@ impl WorkbenchHub {
     }
 
     fn load_seeds() -> Vec<SeedEntry> {
-        let looks = dpl_doc::Looks::load(&dpl_engine_capture::content_root());
+        let looks = dpl_doc::Looks::load(&dpl_roots::content_root());
         dpl_doc::list_seeds()
             .into_iter()
             .map(|s| match dpl_doc::load(&s.dir) {
@@ -496,7 +496,7 @@ impl EpisodeView {
     /// lessons and a seed template show alike, every card in the episode's
     /// own theme.
     fn open(dir: &std::path::Path, id: String) -> Result<Self, String> {
-        let root = dpl_engine_capture::content_root();
+        let root = dpl_roots::content_root();
         let shown = dpl_doc::episode::shows(dir, &root).map_err(|e| e.to_string())?;
         let issues = dpl_doc::episode::doctor(dir, &root);
         let looks = dpl_doc::Looks::load(&root);
@@ -682,7 +682,7 @@ impl WorkbenchHub {
             return;
         }
 
-        let content_root = dpl_engine_capture::content_root();
+        let content_root = dpl_roots::content_root();
         let mut open: Option<(String, PathBuf)> = None;
         let mut clone_from: Option<(String, PathBuf)> = None;
         let mut move_from: Option<(String, PathBuf)> = None;
@@ -998,7 +998,7 @@ impl WorkbenchHub {
         if close {
             self.move_sheet = None;
         } else if go {
-            let root = dpl_engine_capture::content_root();
+            let root = dpl_roots::content_root();
             let dir = sheet.plan.dir.clone();
             match dpl_doc::legacy::move_episode(&dir, &root) {
                 Ok(_) => {
@@ -1018,7 +1018,7 @@ impl WorkbenchHub {
     /// (created or cancelled) and should close.
     fn clone_form_ui(&mut self, ui: &mut egui::Ui) -> Option<bool> {
         let form = self.clone_form.as_mut()?;
-        let content_root = dpl_engine_capture::content_root();
+        let content_root = dpl_roots::content_root();
         let mut done = false;
         // The episode just made, opened straight away (LS3b).
         let mut made: Option<(PathBuf, String)> = None;
@@ -1152,7 +1152,7 @@ impl WorkbenchHub {
     /// The EDITOR subroute: a picker until a card is opened, then the
     /// tap-to-edit editor. A back chip returns to the picker.
     fn editor_surface(&mut self, ui: &mut egui::Ui) {
-        let root = dpl_engine_capture::content_root();
+        let root = dpl_roots::content_root();
         if self.editor.is_some() {
             let back = ui
                 .horizontal(|ui| {

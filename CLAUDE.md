@@ -84,6 +84,15 @@ The tool depot is staged beside it from
   - It launches the app detached on the operator's library and exits; the
     log is `target\debug\dev-run.log`.
   - Proof and drill runs pass a scratch `--content-root`, which always wins.
+- Portable library: `cargo xtask stage-roots <program-dir> <existing-library>`
+  writes `roots.toml` only when absent and the library has a valid
+  `library.json`. It does not migrate the legacy operator tree. First
+  launch without configuration asks where the library should live.
+  - The workspace test phase of `cargo green` supplies private scratch roots
+    under `target/gate-tests`. Direct consumer `cargo test` commands must
+    set `CONTENT_ROOT` to a disposable absolute scratch content folder;
+    clear or redirect `ASSETS_ROOT` and `USERDATA_ROOT` as well. No test
+    should discover the operator's library implicitly.
 - The gate is WIRED as a pre-push hook (`.githooks/pre-push`; fresh
   clones run `git config core.hooksPath .githooks` once). Never bypass
   with --no-verify. The hook proves the pusher's own OS only — the two

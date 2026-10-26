@@ -15,6 +15,8 @@ mod coach_fabric;
 #[cfg(feature = "eguipilotai-devtools")]
 mod coach_signals;
 mod presence;
+mod screenshot;
+mod storage_startup;
 
 use dpl_fabric::Fabric;
 use dpl_hub::{Hub, Route};
@@ -84,37 +86,17 @@ fn main() -> eframe::Result {
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .init();
-    // The user-data root, resolved ONCE by the ported portable law
-    // (engine-capture) — logged with the full candidate list so "where
-    // did my files go" always has an answer (content_status honesty).
+    // Select and validate storage before any stores, upgrades or drills run.
+    // A missing drive must never become an empty library somewhere else.
+    if !storage_startup::prepare()? {
+        return Ok(());
+    }
     {
-        let root = dpl_engine_capture::content_root();
-        if root.exists() {
-            tracing::info!(root = %root.display(), "user-data root");
-        } else {
-            tracing::warn!(
-                root = %root.display(),
-                checked = ?dpl_engine_capture::checked_roots(),
-                "user-data root does not exist yet — created on first write; these locations were checked"
-            );
-        }
-        // The three-ring root (ADR-014): assets/ + .userdata/ stand up
-        // beside content/ at every boot, and the log NAMES all three.
-        match dpl_engine_capture::ensure_rings() {
-            Ok(r) => tracing::info!(
-                content = %r.content.display(),
-                assets = %r.assets.display(),
-                userdata = %r.userdata.display(),
-                "three-ring root ready"
-            ),
-            Err(e) => tracing::warn!(error = %e, "three-ring root could not be created"),
-        }
         // LS2 (ruled 2026-10-21, "upgrade once, keep backups"): every old
         // slide upgrades to dpl.slide/3 ONCE, its original kept beside it;
         // inbox drafts move into the library. A slide that cannot upgrade is
         // left exactly as it was, and named.
-        let (upgraded, failed) =
-            dpl_doc::legacy::upgrade_content(&dpl_engine_capture::content_root());
+        let (upgraded, failed) = dpl_doc::legacy::upgrade_content(&dpl_roots::content_root());
         for slide in &upgraded {
             tracing::info!(
                 from = %slide.from.display(),
@@ -460,7 +442,7 @@ fn main() -> eframe::Result {
         scaffold: &dpl_workflows::BrainstormScaffold,
     ) -> Result<String, String> {
         use dpl_workflows::{BrainstormOp as Op, BrainstormOrigin as Origin};
-        let inbox = dpl_engine_capture::content_root().join("inbox");
+        let inbox = dpl_roots::content_root().join("inbox");
         let dir = dpl_workflows::fresh_dir(&inbox, "brainstorm");
         let stem = dir
             .file_name()
@@ -553,7 +535,7 @@ fn main() -> eframe::Result {
             eprintln!("unknown seed episode {seed:?}");
             std::process::exit(2);
         };
-        match dpl_doc::clone_episode(&dir, &dpl_engine_capture::content_root(), show, ep) {
+        match dpl_doc::clone_episode(&dir, &dpl_roots::content_root(), show, ep) {
             Ok(dest) => {
                 println!("cloned {seed} → {}", dest.display());
                 std::process::exit(0);
@@ -576,7 +558,7 @@ fn main() -> eframe::Result {
         };
         let session = args.get(i + 2).filter(|a| !a.starts_with("--")).cloned();
         match dpl_composer::run_export(
-            &dpl_engine_capture::content_root(),
+            &dpl_roots::content_root(),
             guide,
             session.as_deref(),
             None,
@@ -624,38 +606,7 @@ fn main() -> eframe::Result {
         });
     }
 
-    let options = eframe::NativeOptions {
-        // MAXIMIZED — a fixed logical size overflows small displays at
-        // dpr > 1 and shoves the status bar under the taskbar (the v1 bug).
-        // The inner size only names the restored-state fallback.
-        // `--window <w>x<h>` boots RESTORED at that size — proofs must
-        // run at real window sizes, not only maximized (the footer bug
-        // hid behind maximized-only screenshots).
-        viewport: {
-            let all: Vec<String> = std::env::args().collect();
-            let restored: Option<(f32, f32)> = all
-                .iter()
-                .position(|a| a == "--window")
-                .and_then(|i| all.get(i + 1))
-                .and_then(|s| {
-                    let (w, h) = s.split_once('x')?;
-                    Some((w.parse().ok()?, h.parse().ok()?))
-                });
-            // Min small enough for scaled displays (the shell's zone test
-            // pins chrome at ANY size); the fit guard owns the rest.
-            let builder = egui::ViewportBuilder::default().with_min_inner_size([640.0, 480.0]);
-            match restored {
-                Some((w, h)) => builder.with_maximized(false).with_inner_size([w, h]),
-                None => builder
-                    .with_maximized(true)
-                    .with_inner_size([1440.0, 900.0]),
-            }
-        },
-        renderer: eframe::Renderer::Wgpu,
-        ..Default::default()
-    };
-    #[cfg(feature = "eguipilotai-devtools")]
-    let options = configure_pilot_adapter(options);
+    let options = native_options();
 
     eframe::run_native(
         "DevPULSE Labs",
@@ -723,6 +674,44 @@ fn main() -> eframe::Result {
             Ok(Box::new(app))
         }),
     )
+}
+
+/// Shared window geometry and adapter policy for startup and the main app.
+fn native_options() -> eframe::NativeOptions {
+    let options = eframe::NativeOptions {
+        // MAXIMIZED — a fixed logical size overflows small displays at
+        // dpr > 1 and shoves the status bar under the taskbar (the v1 bug).
+        // The inner size only names the restored-state fallback.
+        // `--window <w>x<h>` boots RESTORED at that size — proofs must
+        // run at real window sizes, not only maximized (the footer bug
+        // hid behind maximized-only screenshots).
+        viewport: {
+            let all: Vec<String> = std::env::args().collect();
+            let restored: Option<(f32, f32)> = all
+                .iter()
+                .position(|a| a == "--window")
+                .and_then(|i| all.get(i + 1))
+                .and_then(|s| {
+                    let (w, h) = s.split_once('x')?;
+                    Some((w.parse().ok()?, h.parse().ok()?))
+                });
+            // Min small enough for scaled displays (the shell's zone test
+            // pins chrome at ANY size); the fit guard owns the rest.
+            let builder = egui::ViewportBuilder::default().with_min_inner_size([640.0, 480.0]);
+            match restored {
+                Some((w, h)) => builder.with_maximized(false).with_inner_size([w, h]),
+                None => builder
+                    .with_maximized(true)
+                    .with_inner_size([1440.0, 900.0]),
+            }
+        },
+        renderer: eframe::Renderer::Wgpu,
+        ..Default::default()
+    };
+    #[cfg(feature = "eguipilotai-devtools")]
+    let options = configure_pilot_adapter(options);
+
+    options
 }
 
 /// The harness/boot flags, parsed once in `main` — one value, not a
@@ -917,7 +906,7 @@ impl App {
         // Open the ledger ears AT FABRIC BIRTH — before boot drills publish —
         // so harness mutations land in Parquet exactly like real ones.
         let ledger = if ledger_on {
-            let root = dpl_engine_capture::userdata_root().join("analytics");
+            let root = dpl_roots::userdata_root().join("analytics");
             match dpl_ledger::LedgerTap::open(&fabric, root.clone()) {
                 Ok(tap) => {
                     tracing::info!(root = %root.display(), "signal ledger writing");
@@ -952,7 +941,7 @@ impl App {
         // Ring-0 estate (Fjall+Moka): durable shell route + WiredFRONT
         // lastComp for the agent seam. Open failure never kills the app.
         let estate: Option<std::sync::Arc<dpl_estate::Estate>> = match dpl_estate::Estate::open(
-            &dpl_engine_capture::userdata_root().join("estate"),
+            &dpl_roots::userdata_root().join("estate"),
         ) {
             Ok(e) => {
                 if let Some(aside) = e.stepped_aside() {
@@ -1211,7 +1200,7 @@ impl App {
             dpl_seam::spawn(
                 fabric.clone(),
                 seam_registry,
-                dpl_engine_capture::content_root(),
+                dpl_roots::content_root(),
                 estate.clone(),
                 // A HARNESS route is never the operator's landing route.
                 // `--route` exists so a surface can prove itself; seeding it
@@ -1285,7 +1274,7 @@ impl App {
 
         // What the operator last picked, applied before the first frame so the
         // app opens wearing it rather than flashing the authored look first.
-        let chrome_choices = ChromeChoices::load(&dpl_engine_capture::userdata_root());
+        let chrome_choices = ChromeChoices::load(&dpl_roots::userdata_root());
         chrome_choices.apply();
 
         Self {
@@ -1437,55 +1426,14 @@ impl App {
     /// fonts settled; pass a later frame to let sweeps reach rest first),
     /// save it when the event arrives, exit.
     fn screenshot_harness(&mut self, ctx: &egui::Context) {
-        let Some(path) = self.shot.clone() else {
-            return;
-        };
-
-        self.frames += 1;
-        if self.frames == self.shot_frame {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
-        }
-
-        let captured = ctx.input(|i| {
-            i.events.iter().find_map(|e| match e {
-                egui::Event::Screenshot { image, .. } => Some(image.clone()),
-                _ => None,
-            })
-        });
-
-        if let Some(img) = captured {
-            let [w, h] = img.size;
-            let mut rgba = Vec::with_capacity(w * h * 4);
-            for px in &img.pixels {
-                rgba.extend_from_slice(&px.to_array());
-            }
-            match image::RgbaImage::from_raw(w as u32, h as u32, rgba).map(|buf| buf.save(&path)) {
-                Some(Ok(())) => {
-                    eprintln!("screenshot written: {}", path.display());
-                    // process::exit skips Drop — flush the ledger explicitly.
-                    if let Some(tap) = self.ledger.take() {
-                        tap.flush_and_join();
-                    }
-                    std::process::exit(0);
-                }
-                other => {
-                    eprintln!("screenshot FAILED: {other:?}");
-                    if let Some(tap) = self.ledger.take() {
-                        tap.flush_and_join();
-                    }
-                    std::process::exit(1);
-                }
-            }
-        }
-
-        // Keep frames flowing while we wait for the capture to come back.
-        ctx.request_repaint();
-        if self.frames > self.shot_frame + 300 {
-            eprintln!("screenshot never arrived after 300 frames");
+        if let Some(ok) =
+            screenshot::frame(ctx, self.shot.as_deref(), &mut self.frames, self.shot_frame)
+        {
+            // process::exit skips Drop: flush durable events before leaving.
             if let Some(tap) = self.ledger.take() {
                 tap.flush_and_join();
             }
-            std::process::exit(1);
+            std::process::exit(i32::from(!ok));
         }
     }
 }
@@ -1824,7 +1772,7 @@ impl eframe::App for App {
         // crates, and it cannot miss a pick.
         let picks = ChromeChoices::snapshot();
         if picks.surfaces != self.chrome_choices.surfaces {
-            if let Err(error) = picks.save(&dpl_engine_capture::userdata_root()) {
+            if let Err(error) = picks.save(&dpl_roots::userdata_root()) {
                 eprintln!("coldlight: could not remember the preset pick: {error}");
             }
             self.chrome_choices = picks;

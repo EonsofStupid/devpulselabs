@@ -117,7 +117,7 @@ fn film_tile(
 /// The most recently made card in the library, if there is one. A slide's
 /// id sorts by the time it was made, so the newest really is the last.
 fn newest_draft() -> Option<std::path::PathBuf> {
-    dpl_doc::library_slides(&dpl_engine_capture::content_root())
+    dpl_doc::library_slides(&dpl_roots::content_root())
         .into_iter()
         .next()
 }
@@ -1186,7 +1186,7 @@ struct Draft {
 /// again whenever its editor closes, because the editor saves as you type
 /// and a strip still showing the old words would be lying.
 fn load_draft_doc(dir: &std::path::Path) -> Option<dpl_slides::document::DocSlide> {
-    let looks = dpl_doc::Looks::load(&dpl_engine_capture::content_root());
+    let looks = dpl_doc::Looks::load(&dpl_roots::content_root());
     dpl_doc::load(dir)
         .ok()
         .map(|slide| dpl_slides::document::DocSlide::new(slide, looks))
@@ -1226,7 +1226,7 @@ impl AuthorSurface {
     /// history this surface keeps. Anything richer would need a store, and an
     /// invented one is the padding this lane keeps refusing.
     fn everything_open(&self) -> Vec<(Container, Option<std::time::SystemTime>)> {
-        let root = dpl_engine_capture::content_root();
+        let root = dpl_roots::content_root();
         let mut all: Vec<(Container, Option<std::time::SystemTime>)> = ContainerKind::ALL
             .into_iter()
             .flat_map(|kind| containers(kind, &root))
@@ -1699,7 +1699,7 @@ impl AuthorSurface {
 
     /// Open the overlay editor on a card's own folder.
     fn open_editor(&mut self, dir: &std::path::Path, title: String) {
-        match dpl_editor::Editor::open(dir, &dpl_engine_capture::content_root()) {
+        match dpl_editor::Editor::open(dir, &dpl_roots::content_root()) {
             Ok(editor) => {
                 self.editing = Some(CardEditor {
                     title,
@@ -1952,7 +1952,7 @@ impl AuthorSurface {
     /// per frame.
     fn choose_kind(&mut self, kind: ContainerKind) {
         self.kind = Some(kind);
-        self.offered = containers(kind, &dpl_engine_capture::content_root());
+        self.offered = containers(kind, &dpl_roots::content_root());
         self.into = (!self.offered.is_empty()).then_some(0);
     }
 
@@ -2078,7 +2078,7 @@ impl AuthorSurface {
             self.choose_kind(k);
         }
         if new_lesson {
-            self.new_lesson(&dpl_engine_capture::content_root());
+            self.new_lesson(&dpl_roots::content_root());
         }
         ui.add_space(cl::space::S3);
     }
@@ -2343,7 +2343,7 @@ impl AuthorSurface {
             // place removes the draft it just filed.
             while !self.drafts.is_empty() {
                 let before = self.drafts.len();
-                self.place_draft(0, &chapter, &dpl_engine_capture::content_root());
+                self.place_draft(0, &chapter, &dpl_roots::content_root());
                 if self.drafts.len() == before {
                     // It refused. Stop rather than retrying the same card
                     // forever — the reason is already in the status line.
@@ -2700,14 +2700,14 @@ impl AuthorSurface {
         // Land on the first kind that has something behind it, so the strip
         // starts labelled with a real container rather than an empty heading.
         // If none do, the bar says so and the strip stays honest about it.
-        let root = dpl_engine_capture::content_root();
+        let root = dpl_roots::content_root();
         let first = ContainerKind::ALL
             .into_iter()
             .find(|k| !containers(*k, &root).is_empty())
             .unwrap_or(ContainerKind::Episode);
         self.choose_kind(first);
         self.demos = dpl_slides::demos();
-        let looks = dpl_doc::Looks::load(&dpl_engine_capture::content_root());
+        let looks = dpl_doc::Looks::load(&dpl_roots::content_root());
         self.seeds = dpl_doc::list_seeds()
             .into_iter()
             .filter_map(|s| {
@@ -2934,7 +2934,7 @@ impl AuthorSurface {
                 slide
             }
         };
-        let dir = dpl_doc::library_slide_dir(&dpl_engine_capture::content_root(), &slide.id);
+        let dir = dpl_doc::library_slide_dir(&dpl_roots::content_root(), &slide.id);
         dpl_doc::save(&dir, &slide).map_err(|e| e.to_string())?;
         Ok((slide.id, dir))
     }

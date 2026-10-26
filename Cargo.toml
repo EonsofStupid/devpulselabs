@@ -35,6 +35,7 @@ members = [
     "crates/video",
     "crates/backdrop",
     "crates/engine-capture",
+    "crates/roots",
     "crates/engine-media",
     "crates/engine-steps",
     "crates/engine-ae",
@@ -192,6 +193,7 @@ dpl-video = { path = "crates/video" }
 dpl-backdrop = { path = "crates/backdrop" }
 dpl-svg = { path = "crates/svg" }
 dpl-engine-capture = { path = "crates/engine-capture" }
+dpl-roots = { path = "crates/roots" }
 dpl-engine-media = { path = "crates/engine-media" }
 dpl-engine-steps = { path = "crates/engine-steps" }
 dpl-engine-ae = { path = "crates/engine-ae" }

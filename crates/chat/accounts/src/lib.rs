@@ -67,7 +67,7 @@ struct EvidenceWrite<'a> {
 
 impl ActivationLedger {
     pub fn open_default() -> Result<Self, String> {
-        Self::open(&dpl_engine_capture::userdata_root().join(DATABASE_RELATIVE_PATH))
+        Self::open(&dpl_roots::userdata_root().join(DATABASE_RELATIVE_PATH))
     }
 
     pub fn open(path: &Path) -> Result<Self, String> {

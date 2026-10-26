@@ -1,6 +1,6 @@
 ---
 updated: 2026-10-25
-active_lane: components-ls4
+active_lane: portable-storage
 dirty: false
 ---
 
@@ -24,6 +24,17 @@ ci-runners.md` "Scaling a runner"; attaching it is the operator's step on
 the Proxmox host.
 
 ## Now
+
+**ST1 local verification passed** on `feat/portable-storage-st1`,
+based on `530dd17` (RL #296). The operator authorized this isolated checkout
+under `D:/localdev/devpulselabs/.worktrees/portable-storage-st1` after the
+approved untracked plan was read from `D:/projects/devpulselabs`.
+The source checkout and existing library are untouched. Final `cargo green`
+passed: 1,187 tests, zero failures, six existing live-tool drills ignored,
+release build and renderer smoke. Twelve debug/release captures were
+inspected; the real setup button created the library and opened the main
+window in the same process. Evidence: `docs/proof/portable-storage-st1/REPORT.md`.
+The isolated release is verified; the operator's source checkout was not rebuilt.
 
 **Lessons, slides and components (R285, ruled 2026-10-21).** The schema
 comes first, so lessons can mix and match slides and visuals can be
@@ -204,18 +215,21 @@ release) are still to come.
   Compare runs by the footer's `dpr`, never by pixel size across days.
 - **The Windows CI lane takes 40 to 70 minutes** on the estate runner (#276:
   1 h 6 min). A slow run is not a hung one; check the job's steps first.
-- **The second clone, `D:\localdev\devpulselabs`**, is unused. Never work
-  there, and never push its local branches (`wip/c1-paused`, `park/…`).
+- **The second clone, `D:\localdev\devpulselabs`**: the operator authorized
+  an isolated ST1 worktree here on 2026-10-25. Do not push its unrelated
+  local branches (`wip/c1-paused`, `park/…`) or change the source checkout.
 
 ## Next, in order
 
-1. **LS4a** (#291): the operator looks at the before/after shots
-   (`docs/proof/ls4a-*.png`), then it merges on double-green.
-2. **Run a lesson** (RL): done (#296). Owed on the operator's own setup:
+1. **Portable, linked storage**: ST1's root owner, configuration, identity
+   and native startup choice are locally verified; deliver through the
+   required double-green PR gate, then ST2 -> ST5 ->
+   ST3 -> ST4 under `docs/plans/portable-storage.md`.
+2. **Run a lesson** (RL): done (#296), following LS4a (#291). Owed on the operator's own setup:
    the slides on the 75″ and the script on the laptop, Swap screens, touch
    to advance.
-3. **Portable, linked storage** (ST), approved 2026-10-25, reach signed off:
-   `docs/plans/portable-storage.md`.
+3. Existing library migration remains ST4, only after its shown plan and
+   the operator's own tap. No migration is part of ST1 startup.
 4. **LS4b** (lists and data) → **LS4c** (the gestures: drag to connect,
    slide away to reveal) → **EX** (export a player,
    `docs/plans/export-player.md`) → **LS4d** (your templates), then LS5 and

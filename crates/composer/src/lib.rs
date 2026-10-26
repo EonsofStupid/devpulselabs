@@ -103,7 +103,7 @@ const FULL_UV: Rect = Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1
 /// The reference-in-place preference, a sentinel file in Ring 0 `.userdata`
 /// (presence = on). No serde needed — one boolean choice that sticks.
 fn reference_pref_path() -> PathBuf {
-    dpl_engine_capture::userdata_root().join("prefer-reference")
+    dpl_roots::userdata_root().join("prefer-reference")
 }
 fn reference_pref_load() -> bool {
     reference_pref_path().exists()
@@ -644,7 +644,7 @@ impl Row {
 impl Composer {
     /// The content root, resolved from the same law the Gallery uses.
     fn content_root() -> PathBuf {
-        dpl_engine_capture::content_root()
+        dpl_roots::content_root()
     }
 
     /// The preview's motion-blur sampling for one layer: `(samples, span)`.
@@ -705,8 +705,7 @@ impl Composer {
             id.hash(&mut hasher);
             value.to_string().hash(&mut hasher);
         }
-        let cached = dpl_engine_capture::userdata_root()
-            .join("cache")
+        let cached = dpl_roots::cache_root()
             .join("lottie")
             .join(format!("{:016x}.json", hasher.finish()));
         if cached.is_file() {
@@ -1549,7 +1548,9 @@ impl Composer {
         if self.dir.is_some() || !self.layers().is_empty() {
             return;
         }
-        let Some(rel) = state::load(&Self::content_root()).last_comp else {
+        let Some(rel) =
+            state::load_with_legacy(&dpl_roots::userdata_root(), &Self::content_root()).last_comp
+        else {
             return;
         };
         let dir = Self::resolve(&rel);
@@ -1607,7 +1608,7 @@ impl Composer {
     fn remember_last(&self, dir: &Path) {
         let rel = Self::short(dir);
         state::save(
-            &Self::content_root(),
+            &dpl_roots::userdata_root(),
             &state::EditorState {
                 last_comp: Some(rel.clone()),
             },
@@ -5831,8 +5832,8 @@ fn lock(b: &Mutex<browse::Browser>) -> std::sync::MutexGuard<'_, browse::Browser
 
 /// Resolve every pending Lottie to a PNG frame-sequence (the ThorVG helper,
 /// off the UI thread — this RUNS ON THE RENDER THREAD), then run the one-
-/// pass comp render. Temp sequences live under the OS temp dir (NEVER the
-/// comp folder — its contract reserves comp.json + assets) and are cleaned
+/// pass comp render. Temp sequences live under the library's common temp,
+/// never the comp folder (its contract reserves comp.json + assets), and are cleaned
 /// best-effort after the encode.
 fn render_comp_resolving(
     parts: RenderParts,
@@ -5843,7 +5844,7 @@ fn render_comp_resolving(
 ) -> Result<(), String> {
     use dpl_engine_media::{OverlayClip, OverlayInput};
     static SEQ_N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-    let seq_root = std::env::temp_dir().join(format!(
+    let seq_root = dpl_roots::temp_root().join(format!(
         "dpl-comp-render-{}-{}",
         std::process::id(),
         SEQ_N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
@@ -5903,7 +5904,7 @@ fn fit_box(src_w: u32, src_h: u32, max_w: u32, max_h: u32) -> (u32, u32) {
 /// the agents all see it. Runs on the render thread; failures degrade
 /// the card, never the render.
 fn index_render(out: &Path, fabric: Option<&dpl_fabric::Fabric>) {
-    let root = dpl_engine_capture::content_root();
+    let root = dpl_roots::content_root();
     let mut rec = dpl_index::record_for_capture(out, &root, "video", "render");
     let poster = out.with_file_name("render-poster.jpg");
     if dpl_engine_media::write_poster(out, &poster).is_ok() {

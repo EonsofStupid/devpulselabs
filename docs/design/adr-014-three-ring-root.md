@@ -3,7 +3,7 @@
 | Field | Value |
 |-------|-------|
 | **Status** | ACCEPTED (operator ratification 2026-07-25; senior-review conditions 1–6 folded in) · **AMENDED 2026-08-03: analytics is Arrow/DataFusion over Parquet, not DuckDB** (operator ruling; see Amendment below) |
-| **Owner** | `dpl-engine-capture` (the root owner) · pass plan `docs-history-2026-10-12:docs/plans/three-ring-root.md` |
+| **Owner** | `dpl-roots` (ST1, portable storage); earlier pass `docs-history-2026-10-12:docs/plans/three-ring-root.md` |
 
 ## Decision
 
@@ -28,10 +28,40 @@ Laws:
 4. **Additive migrations**: the index moved `content\artifacts.db` →
    `.userdata\index.db` by copy → verify → labeled rename
    (`.migrated-to-userdata`) — never deletion.
-5. Rings resolve as siblings derived from `content_root()` (which keeps
-   its arg → env → ambient → self-create chain); drill seams
-   `ASSETS_ROOT` / `USERDATA_ROOT` mirror `CONTENT_ROOT`. Boot creates
-   the rings and NAMES them in the log (the honesty law).
+5. `dpl-roots` resolves the library through the explicit CLI/environment
+   drill seam or `roots.toml` beside the executable. No parent walk, CWD
+   search or silent empty fallback. Boot creates rings only after resolving
+   the selected library, and names them in the log (the honesty law).
+
+## Amendment 2026-10-25 — portable library identity and layout (ST1)
+
+R287–R289 and the approved portable-storage plan put the library's identity,
+configuration and layout in the egui-free `dpl-roots` engine. A configured
+library is identified by `library.json` (`v`, typed `id`, `label`, `created`),
+not by a remembered drive letter. `roots.toml` beside the executable records
+imported (`library/` beside the program) or linked mode, identity, label and
+active account; linked mode records the last path. Both formats are versioned.
+Invalid, missing, mismatched or ambiguous identity never selects another
+library or creates a replacement. Looking for a marker does not write files.
+
+New libraries have `common/{cache,temp}` and
+`accounts/me/{content,assets,.userdata,.aidata}`. The three ring meanings
+above stay intact; regenerable shared files use `common`. Creation requires
+an explicit first-launch choice and never overwrites a marker or roots file.
+Composer state writes to `.userdata/composer-state.json`; an existing
+content-root state file is a read-only fallback until migration.
+
+Existing operator trees are not automatically changed. The explicit
+`--content-root` / `CONTENT_ROOT` dev and test seams retain sibling ring
+derivation and `ASSETS_ROOT` / `USERDATA_ROOT` overrides, and never persist
+configuration. ST4 owns account switching and the shown, verified migration
+of existing files, including chat/analytics into `.aidata`. ST2 owns automatic
+polling, live disconnection, reopening long-lived stores and retained edits.
+ST1's stateful resolver alone is not a guarantee of unplug-safe active IO.
+
+`cargo xtask stage-roots <program-dir> <existing-library>` creates a linked
+configuration only after validating the existing marker. It refuses an
+existing roots file and never adopts an unmarked legacy content tree.
 
 Precedent: Unreal `Saved`/`Intermediate`/`Content`, Resolve
 cache/media-pool/gallery, Lightroom ingest/catalog/library. Embedded

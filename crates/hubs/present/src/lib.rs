@@ -329,7 +329,7 @@ fn machine() -> String {
 
 /// Where the window places are kept: app state, keyed by machine.
 fn places_file() -> PathBuf {
-    dpl_engine_capture::userdata_root().join("present-screens.json")
+    dpl_roots::userdata_root().join("present-screens.json")
 }
 
 /// This machine's remembered places, if any.
@@ -437,7 +437,7 @@ impl PresentHub {
     /// The union lists content first, so a real show wins a bare-id
     /// collision with a template. Unknown ids degrade to the picker.
     pub fn open_show(&mut self, id: &str) {
-        let entries = dpl_doc::all_episodes(&dpl_engine_capture::content_root());
+        let entries = dpl_doc::all_episodes(&dpl_roots::content_root());
         let Some(entry) = entries.iter().find(|e| {
             e.id == id
                 || e.show
@@ -474,7 +474,7 @@ impl PresentHub {
         // Subscribe FIRST, then ask for the snapshot — a receiver only
         // hears traffic after it subscribes.
         let rx = self.fabric.subscribe_deck();
-        match Presenter::open(&showing, &dpl_engine_capture::content_root(), rx) {
+        match Presenter::open(&showing, &dpl_roots::content_root(), rx) {
             Ok(p) => {
                 self.presenter = Some(p);
                 if let Some(deck) = &self.deck {
@@ -490,7 +490,7 @@ impl PresentHub {
     /// opens in its own window at once (Q3, "script on laptop"); the
     /// harness paths leave the window as it is.
     fn run(&mut self, showing: Showing, start: usize, take_screen: bool) {
-        let root = dpl_engine_capture::content_root();
+        let root = dpl_roots::content_root();
         let looks = dpl_doc::Looks::load(&root);
         match dpl_deck::DeckHost::open(&showing, &root, looks, start) {
             Ok(mut host) => {
@@ -621,7 +621,7 @@ impl PresentHub {
             .show(ui, |ui| {
                 // The union (X3): the operator's content shows FIRST,
                 // then the seed templates, labelled as such.
-                let root = dpl_engine_capture::content_root();
+                let root = dpl_roots::content_root();
                 for entry in dpl_doc::all_episodes(&root) {
                     let (title, count) = match dpl_doc::episode::summary(&entry.dir, &root) {
                         Some(summary) => {

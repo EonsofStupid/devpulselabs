@@ -19,6 +19,20 @@ Answer by number: e.g. "confirm 11, 14; reject 1, 2, 3; 4 = D:\localdev\devpulse
 
 ## A · Other repos / projects (dependencies or borrowed designs)
 
+**2026-10-25 ST1 confirmation:** the operator authorized reading the approved
+untracked `docs/plans/portable-storage.md` from `D:/projects/devpulselabs`
+and implementing in an isolated checkout under `D:/localdev/devpulselabs`.
+The source checkout's code and operator data are not modified by this cut.
+This confirmation is scoped to that read and the isolated implementation.
+
+**Portable-storage reach CONFIRMED** by the ST approval recorded in R289:
+write executable-adjacent `roots.toml`; read `library.json` at the last path
+and the same relative path on drive letters/mount points; create the marker
+in an explicitly selected linked library; use a linked library outside the
+program folder. ST1 implements the resolver and bounded checks; ST2 owns
+periodic polling while disconnected. Parent/CWD discovery (row 29) and
+composer/ViziWiz production OS-temp writes (row 31) are removed in ST1.
+
 | # | Reach | Evidence | Today | Recommendation |
 |---|---|---|---|---|
 | 1 | **chatmaton** (formerly `automaton`, `mato-*` crates) as the AI "kernel" DevPULSE would depend on via git | `docs-history-2026-10-12:docs/plans/unified-ai-kernel-automaton-merge.md` (Decisions A/B/C), `docs-history-2026-10-12:docs/journal/2026-08-11-unified-ai-kernel.md` | Docs only — no Cargo dep, no code | **Reject.** Mark both docs SUPERSEDED by the native chat plan. |

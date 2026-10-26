@@ -270,7 +270,7 @@ fn home_dir() -> Option<PathBuf> {
 }
 
 fn libraries_file() -> PathBuf {
-    dpl_engine_capture::userdata_root().join("libraries.json")
+    dpl_roots::userdata_root().join("libraries.json")
 }
 
 /// The operator's added library folders (label, path), persisted in

@@ -206,7 +206,7 @@ impl Viziwiz {
             delay: 0,
             delay_armed: None,
             last: None,
-            landing: LandingPolicy::load(&cap::userdata_root()),
+            landing: LandingPolicy::load(&dpl_roots::userdata_root()),
             land_seq: 0,
         }
     }
@@ -249,7 +249,7 @@ impl Viziwiz {
         kind: CaptureKind,
         tags: &[String],
     ) -> String {
-        let root = cap::content_root();
+        let root = dpl_roots::content_root();
         let mut record = dpl_index::record_for_capture(path, &root, kind.as_str(), "viziwiz");
         record.tags = tags.to_vec();
         Self::index_and_signal(fabric, path, record)
@@ -259,7 +259,7 @@ impl Viziwiz {
     /// card's tags and — for an episode destination — the association,
     /// like the old `index_saved`. Same degrade law as `index_capture`.
     fn index_guide(fabric: &dpl_fabric::Fabric, path: &Path, meta: &CaptureMeta) -> String {
-        let root = cap::content_root();
+        let root = dpl_roots::content_root();
         let mut record =
             dpl_index::record_for_capture(path, &root, CaptureKind::Guide.as_str(), "viziwiz");
         record.tags = meta.tags.clone();
@@ -278,7 +278,7 @@ impl Viziwiz {
         kind: CaptureKind,
         tags: &[String],
     ) -> String {
-        let root = cap::content_root();
+        let root = dpl_roots::content_root();
         let mut record = dpl_index::record_for_capture(out, &root, kind.as_str(), "viziwiz");
         record.tags = tags.to_vec();
         let poster = Self::poster_path(out);
@@ -295,7 +295,7 @@ impl Viziwiz {
     }
 
     fn inbox() -> Result<PathBuf, String> {
-        let dir = cap::content_root().join("inbox");
+        let dir = dpl_roots::content_root().join("inbox");
         std::fs::create_dir_all(&dir).map_err(|e| format!("inbox: {e}"))?;
         Ok(dir)
     }
@@ -1097,7 +1097,7 @@ impl Viziwiz {
         kind: CaptureKind,
         tags: &[String],
     ) -> String {
-        let root = cap::content_root();
+        let root = dpl_roots::content_root();
         let mut record = dpl_index::record_for_capture(dir, &root, kind.as_str(), "viziwiz");
         record.tags = tags.to_vec();
         if dir.join("session.jpg").is_file() {
@@ -1463,7 +1463,7 @@ impl Viziwiz {
                 LandingMode::Auto => LandingMode::Ask,
                 LandingMode::Ask => LandingMode::Auto,
             };
-            let _ = self.landing.save(&cap::userdata_root());
+            let _ = self.landing.save(&dpl_roots::userdata_root());
             self.status = format!(
                 "landing: {}",
                 match self.landing.mode {
@@ -1474,7 +1474,7 @@ impl Viziwiz {
         }
         if actions.cycle_bucket {
             Self::cycle_bucket(&mut self.landing);
-            let _ = self.landing.save(&cap::userdata_root());
+            let _ = self.landing.save(&dpl_roots::userdata_root());
             if let Some(b) = self.landing.pattern.destination.bucket() {
                 self.status = format!("bucket: {b}");
             }

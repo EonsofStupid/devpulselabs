@@ -6,14 +6,14 @@ publish.workspace = true
 description = "Headless Chromium orchestration for Program DEMO's external tier: resolve the depot's SHA-verified Chromium (never download, never a system install), launch it headless as a SUBPROCESS (ADR-013 — the ffmpeg/aerender pattern), and drive it over CDP on a localhost WebSocket: navigate, evaluate, click, type, screenshot."
 
 [dependencies]
+dpl-roots.workspace = true
 dpl-proc.workspace = true
 # The depot resolver (D0.1b): the browser comes from dptools-deps, verified,
 # or not at all.
 dpl-tools-deps.workspace = true
 # The three-ring root owner (ADR-014): ephemeral profiles live in
-# .userdata/temp, named profiles in .userdata/profiles, captures
+# common/temp, named profiles in .userdata/profiles, captures
 # auto-file into assets/captures.
-dpl-engine-capture.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 # Pure-Rust WebSocket framing over OUR TcpStream, localhost only — no TLS.

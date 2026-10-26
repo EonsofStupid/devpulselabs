@@ -271,63 +271,10 @@ pub fn loop_backdrop(
     painted
 }
 
-/// `--content-root <path>` / `--content-root=<path>` from the process args,
-/// else the `CONTENT_ROOT` env the harness speaks. Deliberately duplicated
-/// from `dpl_engine_capture` rather than depended on: this crate stays a leaf,
-/// and the contract is two lines of arg parsing.
-fn explicit_content_root() -> Option<PathBuf> {
-    let mut args = std::env::args().skip(1);
-    while let Some(a) = args.next() {
-        if a == "--content-root" {
-            return args.next().map(PathBuf::from);
-        }
-        if let Some(v) = a.strip_prefix("--content-root=") {
-            return Some(PathBuf::from(v));
-        }
-    }
-    std::env::var("CONTENT_ROOT").ok().map(PathBuf::from)
-}
-
-/// Resolve a repo asset (`assets/backdrops/dpl.mp4`) from the exe's folder
-/// upward, then the CWD — dev runs from the repo, packaged runs sit next to
-/// `assets/`. `None` when nothing exists (callers degrade honestly).
+/// Resolve media through the library's single root owner, without parent
+/// walking or an ambient CWD lookup. Missing files degrade to None.
 pub fn locate_asset(rel: &str) -> Option<PathBuf> {
-    let mut roots: Vec<PathBuf> = Vec::new();
-    // The EXPLICIT content root, when the harness named one. Read straight
-    // from the process args (and the env seam behind them), which is exactly
-    // what `dpl_engine_capture::explicit_root` does — so this honours the same
-    // contract with no dependency on that crate, as the note below requires.
-    //
-    // Without this, every drill that points `--content-root` at a scratch dir
-    // resolves nothing: the ambient candidates are exe-adjacent and the cwd,
-    // neither of which is the scratch root. A media card and a picture picker
-    // both showed "file not found" for files that were plainly there.
-    roots.extend(explicit_content_root());
-    if let Ok(exe) = std::env::current_exe() {
-        let mut dir = exe.parent().map(Path::to_path_buf);
-        // Walk up a few levels: target/release/exe → repo root in dev.
-        for _ in 0..4 {
-            if let Some(d) = dir {
-                roots.push(d.clone());
-                dir = d.parent().map(Path::to_path_buf);
-            } else {
-                break;
-            }
-        }
-    }
-    if let Ok(cwd) = std::env::current_dir() {
-        roots.push(cwd);
-    }
-    // Two path spaces resolve here: repo/install-relative refs ("assets/…",
-    // tried FIRST so nothing regresses) and CONTENT-root-relative artifact
-    // rel_paths ("inbox/clip.mp4", W11 media slides). The content root is
-    // exe-adjacent / walk-up per P1, so probing a `content/` subdir of each
-    // root bridges the second space without a heavy engine-capture dep. An
-    // absolute `rel` passes through unchanged (join with an absolute wins).
-    roots
-        .into_iter()
-        .flat_map(|r| [r.join(rel), r.join("content").join(rel)])
-        .find(|p| p.is_file())
+    dpl_roots::locate_asset(rel)
 }
 
 /// The poster convention from the old repo: `x.mp4` → `x-poster.jpg`.

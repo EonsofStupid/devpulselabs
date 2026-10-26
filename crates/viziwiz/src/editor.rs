@@ -47,7 +47,9 @@ impl Viziwiz {
             return;
         }
         let result = (|| -> Result<RegionSelect, String> {
-            let frozen = std::env::temp_dir().join("dpl-viziwiz-freeze.png");
+            let temp = dpl_roots::temp_root();
+            std::fs::create_dir_all(&temp).map_err(|e| format!("freeze folder: {e}"))?;
+            let frozen = temp.join(format!("dpl-viziwiz-freeze-{}.png", std::process::id()));
             cap::freeze_primary_to(&frozen)?;
             let img = image::open(&frozen).map_err(|e| format!("freeze decode: {e}"))?;
             let rgba = img.to_rgba8();

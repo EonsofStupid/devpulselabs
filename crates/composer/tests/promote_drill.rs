@@ -17,8 +17,8 @@ use std::path::Path;
 #[test]
 #[ignore = "needs a staged three-ring scratch root; run explicitly"]
 fn promote_moves_assets_and_never_deletes_external_sources() {
-    let assets = dpl_engine_capture::assets_root();
-    let content = dpl_engine_capture::content_root();
+    let assets = dpl_roots::assets_root();
+    let content = dpl_roots::content_root();
     std::fs::create_dir_all(assets.join("captures/web/drill")).unwrap();
     std::fs::create_dir_all(&content).unwrap();
 

@@ -354,7 +354,7 @@ fn tile_width(ui: &egui::Ui, most: f32) -> f32 {
 
 impl Lessons {
     pub(crate) fn ui(&mut self, ui: &mut egui::Ui, fabric: &Option<dpl_fabric::Fabric>) {
-        let root = dpl_engine_capture::content_root();
+        let root = dpl_roots::content_root();
         self.ui_in(ui, &root);
         // Run (RL): the Present hub runs the lesson; the shell goes there.
         if let (Some((id, start)), Some(fabric)) = (self.take_run(), fabric) {

@@ -85,11 +85,7 @@ impl ImagineCache {
     }
 
     pub fn open_default() -> Self {
-        Self::open(
-            dpl_engine_capture::userdata_root()
-                .join("cache")
-                .join("imagine"),
-        )
+        Self::open(dpl_roots::userdata_root().join("cache").join("imagine"))
     }
 
     pub fn drafts(&self) -> &[GenerationDraft] {

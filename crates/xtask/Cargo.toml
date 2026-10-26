@@ -6,6 +6,7 @@ publish.workspace = true
 description = "Workspace automation (the cargo-xtask pattern): `cargo green` is THE gate."
 
 [dependencies]
+dpl-roots.workspace = true
 dpl-tools-deps.workspace = true
 # The contracts phase applies the ONE component evolution rule
 # (`dpl_doc::component::evolution_problems`) to every contract against main.

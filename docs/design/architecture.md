@@ -14,7 +14,7 @@ authored data      tokens/*.json · dptools-deps/sources.*.toml
    ↓ build.rs / xtask (generated consts, staged depots — never hand-edited)
 DOCUMENT crates    dpl-doc · dpl-comp · dpl-workflows        (pure serde data;
                    schema_v + newer-refusal + crash-safe tmp/bak writes)
-ENGINE crates      dpl-proc · dpl-engine-{capture,media,steps,ae,browser} ·
+ENGINE crates      dpl-proc · dpl-roots · dpl-engine-{capture,media,steps,ae,browser} ·
                    dpl-index · dpl-estate · dpl-landing · dpl-tools-deps ·
                    dpl-lottie · dpl-guide · dpl-intent · dpl-ledger · dpl-svg
                    (IO + subprocess leaves per ADR-009; egui-free; dpl-proc,
@@ -51,6 +51,7 @@ brainstorm board document and emits its typed ops; the host owns all IO.
 | dpl-workflows | serde, serde_json, dpl-comp, dpl-doc | workflows are documents, not code paths (D3); wire contract `schemas/*.v1.schema.json`, pinned by test (dev-dep jsonschema — dev-deps sit outside this ceiling; see workflow-doctrine.md) |
 | dpl-doc | serde, serde_json, dpl-coldlight | slide truth + the ONE styling edge (below) |
 | dpl-tools-deps | serde, serde_json, sha2 | the depot resolver trusts nothing else |
+| dpl-roots | serde, serde_json, toml | portable library configuration, identity and layout; no capture, egui, volume FFI or process dependencies |
 | dpl-landing | serde, serde_json | the landing policy is shared pure data |
 | dpl-estate | fjall, moka, serde, serde_json | Ring-0 persistence, no app types |
 | dpl-intent | ∅ | the operator-intent proof must never learn to serialize, clone, or arrive over a wire (signal-ledger plan §9.3) |

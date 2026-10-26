@@ -1,10 +1,11 @@
-﻿[package]
+[package]
 name = "dpl-hub-workbench"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+dpl-roots.workspace = true
 egui.workspace = true
 dpl-hub.workspace = true
 dpl-fabric.workspace = true
@@ -19,7 +20,6 @@ dpl-guide.workspace = true
 dpl-index.workspace = true
 dpl-slides.workspace = true
 dpl-editor.workspace = true
-dpl-engine-capture.workspace = true
 egui-pilot-ai.workspace = true
 egui-pilot-ai-lab.workspace = true
 serde.workspace = true

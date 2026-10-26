@@ -43,6 +43,7 @@ named first and the others are marked **P2**: they merge into it during
 | Doc | Truth for |
 |---|---|
 | [`design/adr-014-three-ring-root.md`](design/adr-014-three-ring-root.md) | The three rings (`content`, `assets`, `.userdata`). Governs until P3 writes `design/library.md`. |
+| [`plans/portable-storage.md`](plans/portable-storage.md) | Approved ST delivery: library identity and configuration, disconnect/reconnect, Locations, relocation, then local profiles and migration. |
 | [`plans/content-provenance.md`](plans/content-provenance.md) | Embedded / imported / linked, one universe (never executed). **P3** source. |
 | [`plans/l1-library-doctrine.md`](plans/l1-library-doctrine.md) | The library's information architecture. **P3** source. |
 | [`plans/guided-landing-charter.md`](plans/guided-landing-charter.md) | Where captures land, guided. **P3** source. |

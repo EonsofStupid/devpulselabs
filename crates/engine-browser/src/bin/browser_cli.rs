@@ -59,6 +59,7 @@ const USAGE: &str = "usage: browser-cli shot <url> [out.png] [--job <job>] [--na
                      browser-cli login <profile-name|dir> [start-url]";
 
 fn run(args: &[String]) -> Result<(), String> {
+    dpl_roots::initialize()?;
     match args.first().map(String::as_str) {
         Some("shot") => {
             let url = args.get(1).ok_or(USAGE)?;
@@ -86,7 +87,7 @@ fn run(args: &[String]) -> Result<(), String> {
             let out = match (explicit_out, job) {
                 (Some(p), _) => p,
                 (None, Some(job)) => {
-                    let dir = dpl_engine_capture::assets_capture_dir("web", job)?;
+                    let dir = dpl_roots::assets_capture_dir("web", job)?;
                     no_clobber_png(&dir, name.unwrap_or("shot"))
                 }
                 (None, None) => {
