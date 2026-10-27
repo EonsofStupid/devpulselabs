@@ -13,10 +13,12 @@ reorganization).
 Read in this order: this page → [`requirements.md`](requirements.md) (the
 operator's words) → [`README.md`](README.md) (the map of every doc).
 
-**Updated:** 2026-10-27, main at `32e3746` (#300) with ST2b in #301. The
-release exe was rebuilt 2026-10-27 09:04 from `32e3746` and its build stamp
-verified (`32e3746 · 2026-10-27 13:03z`); it is rebuilt again from main when
-#301 lands.
+**Updated:** 2026-10-27, main at `050bdee` (#301). ST2a and ST2b both
+merged after completed Windows and Linux green checks. A follow-through
+on `feat/portable-storage-st2` closes two persistence gaps found while
+executing the approved ST2 plan. Local `cargo green` passed: 1,212 tests,
+zero failures, six existing live-tool drills ignored, release build and
+renderer smoke. PR delivery and the merged release rebuild follow.
 
 **CI is warm** (#292, #293, 2026-10-24): the Windows lane went from 45–58
 minutes to about 7 (main after #293: 6m45s), Linux runs in about 2. A
@@ -46,6 +48,14 @@ ST2b (#301) covers a library pulled out mid-session:
 - back where it was, the kept edits save and the estate reopens;
 - back on another letter, they save there, and the banner offers Restart
   now.
+
+**ST2 follow-through:** a failed Chrome preset save stays pending and retries
+when storage returns. The shared estate now receives the library write guard
+before open, mutation, explicit flush and reopen; an old open database cannot
+be authorized by a rebased path. This covers API calls, not Fjall background
+work accepted earlier. Development is isolated under
+`D:/localdev/devpulselabs/.worktrees/portable-storage-st1`; the operator's
+checkout, library and release are untouched by this follow-through.
 
 **The operator's own move is owed:** open the exe, tap Bring in my existing
 library…, read the card (358 files, 174.8 MB into

@@ -790,6 +790,38 @@ in the same process. Details and boundaries:
   - The first 1100×700 run tapped before the second unplug; the scenario's
     margins were widened.
 
+### ST2 follow-through — grounded 2026-10-27 on `050bdee`
+
+The current execute instruction continues the approved ST2 safety contract.
+Upstream #300 and #301 already delivered the two planned passes. This isolated
+checkout therefore fixes only two code-grounded gaps, without repeating ST2
+or advancing into ST5.
+
+1. Chrome preset persistence must keep its last-successful snapshot unchanged
+   after a refused save, so the current in-memory choice retries on reconnect.
+2. The estate's existing open database must check an installed, per-instance
+   write guard before opening, mutating or flushing. Keep the dependency ceiling
+   unchanged. A guard that resolves to a different directory must refuse use of
+   the old database handles until explicit reopen/restart; it must never merely
+   validate the new directory and then write through old handles. Reopen checks
+   the destination before closing the current store. Wire the app's shared
+   estate to `dpl_roots::writable`.
+3. Regression tests must prove failed preference saves retry, refused estate
+   writes/removes/flushes leave stored values unchanged, and a rebased path
+   cannot authorize an old open database. Existing startup/reconnect UI is
+   unchanged; reuse its committed native proof, run the focused tests and
+   full cargo green, then the usual double-green PR gate and isolated release
+   rebuild. No operator library or primary checkout mutations.
+
+The changes are additive guard wiring and successful-save bookkeeping;
+rollback is reverting the code commit, with no data format migration.
+
+Local evidence: all four new regressions passed in `cargo green` (1,212
+tests passed, zero failures, six existing live-tool drills ignored). The
+format, Clippy, architecture/contracts and release gates passed; smoke
+rendered 16,616 shape pixels, 10,634 text pixels and 60 export frames.
+This follow-through changes no pixels and makes no fresh USB drill claim.
+
 ## Questions for the operator
 
 - **Q1. What moves together when the library is linked?** The whole thing —
